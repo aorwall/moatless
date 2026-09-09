@@ -8,7 +8,7 @@
 //! instead of three drifting copies.
 //!
 //! The rows a Task and its Sandbox are written with in production come from
-//! `moatless_tasks::task::dao::PgTaskDao::insert_task`, and its own db-tests
+//! `moatless_tasks::task::operations::TaskCommands::insert_task`, and its own db-tests
 //! assert that shape. What this fixture owes those tests is only enough of it
 //! for the lifecycle SQL here to run: a Sandbox row, a Task that names it, and
 //! the workspace the foreign key requires.

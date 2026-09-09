@@ -1,6 +1,7 @@
-use super::dao::{RepositoryDao, RepositoryPatch};
+use super::dao::RepositoryDao;
 use super::error::RepositoryError;
 use super::models::Repository;
+use super::models::RepositoryPatch;
 use super::remote_url::normalize_remote_url;
 use super::schemas::{CreateRepositoryRequest, UpdateRepositoryRequest};
 use crate::workspace::git_sync::{GitSyncService, SyncForce, log_workspace_sync_for};

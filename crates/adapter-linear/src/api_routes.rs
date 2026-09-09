@@ -1,8 +1,8 @@
 //! Typed provider HTTP extraction, response adaptation, and OpenAPI metadata.
 
 use super::adapter::LinearAdapter;
-use axum::extract::{Path, Query, State};
 use axum::Json;
+use axum::extract::{Path, Query, State};
 use moatless_adapter_model::error::AdapterError;
 use moatless_api_schemas::linear::{
     LinearCommentCreateRequest, LinearConnectionParams, LinearGraphqlRequest,
@@ -11,12 +11,12 @@ use moatless_api_schemas::linear::{
     LinearLabelMutationRequest, LinearLookupParams, LinearLookupResponse, LinearOkResponse,
 };
 use moatless_core::http_auth::AuthUser;
-use moatless_loops::bindings::dao::TaskBindingDao;
+use moatless_loops::bindings::operations::Bindings;
 use moatless_ports::identity::{ProviderIdentityLink, UserDisplay};
 use moatless_ports::task::TaskReader;
+use serde_json::Value;
 #[cfg(test)]
 use serde_json::json;
-use serde_json::Value;
 use std::sync::Arc;
 use tracing::warn;
 
@@ -66,7 +66,7 @@ pub async fn create_issue(
     State(tasks): State<Arc<dyn TaskReader>>,
     State(users): State<Arc<dyn UserDisplay>>,
     State(identity): State<Arc<dyn ProviderIdentityLink>>,
-    State(task_bindings): State<Arc<dyn TaskBindingDao>>,
+    State(task_bindings): State<Arc<Bindings>>,
     auth: AuthUser,
     Query(params): Query<LinearConnectionParams>,
     Json(req): Json<LinearIssueCreateRequest>,
@@ -131,7 +131,7 @@ pub async fn update_issue(
 pub async fn create_comment(
     State(linear): State<Option<Arc<LinearAdapter>>>,
     State(tasks): State<Arc<dyn TaskReader>>,
-    State(task_bindings): State<Arc<dyn TaskBindingDao>>,
+    State(task_bindings): State<Arc<Bindings>>,
     auth: AuthUser,
     Path(id): Path<String>,
     Query(params): Query<LinearConnectionParams>,

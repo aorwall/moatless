@@ -13,7 +13,7 @@ use moatless_ports::workspace::WorkspaceResolver;
 use moatless_types::workspace::ServerConfig;
 
 use crate::task::models::Task;
-use crate::task::relations::TaskRelationDao;
+use crate::task::relations::TaskRelations;
 use moatless_types::task::TaskRelationType;
 
 /// The Task this one hangs off, and how — the two shapes of a parent edge.
@@ -187,7 +187,7 @@ pub async fn build_for_task(
     task_id: &str,
     task: Option<&Task>,
     workspaces: Option<&Arc<dyn WorkspaceResolver>>,
-    task_relations: Option<&Arc<dyn TaskRelationDao>>,
+    task_relations: Option<&TaskRelations>,
     config: Option<&Arc<Config>>,
 ) -> String {
     let workspace = match (task, workspaces) {

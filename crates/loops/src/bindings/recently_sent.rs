@@ -54,7 +54,6 @@ impl RecentlySent {
             None => false,
         }
     }
-
 }
 
 fn key(task_id: &str, ext_id: &str) -> String {

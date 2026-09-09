@@ -17,9 +17,9 @@
 //! credential, not a convenience.
 
 use moatless_adapter_model::apps::{AdapterAppReader, AdapterAppSecrets};
-use moatless_adapter_model::dao::AdapterConnectionDao;
+use moatless_adapter_model::connections::ConnectionLookup;
+use moatless_adapter_model::connections::resolve_connection;
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
-use moatless_adapter_model::access::resolve_connection;
 use moatless_types::access_control::ScopeContext;
 use moatless_types::adapter::LinearConfig;
 use moatless_types::adapter::TaskBinding;
@@ -108,19 +108,13 @@ pub(super) async fn api_for_connection(
 /// best-effort emitter on the event-consumer hot path, where the alternative to
 /// skipping is bubbling a database error into event handling.
 pub(super) async fn api_for_binding(
-    adapter_connections: &dyn AdapterConnectionDao,
+    adapter_connections: &dyn ConnectionLookup,
     tokens: Arc<dyn AppCredentials>,
     apps: &dyn AdapterAppReader,
     binding: &TaskBinding,
 ) -> Option<LinearAgentApi> {
-    // Column is `external_account_id` on disk; the rest of the codebase reads
-    // it via `external_account_id AS scope_value`. Use the DAO so we stay in
-    // sync with future schema changes.
-    // reason: session routing for an agent-side notification; no caller identity
-    #[allow(clippy::disallowed_methods)]
-    let sys = ScopeContext::system();
     let connection = adapter_connections
-        .find_by_id(&binding.connection_id, &sys)
+        .by_id_trusted(&binding.connection_id)
         .await;
     match connection {
         Ok(Some(connection)) => match api_for_connection(tokens, apps, &connection).await {
@@ -162,7 +156,7 @@ pub(super) async fn api_for_single_workspace(
 ) -> Result<LinearAgentApi, AdapterError> {
     let rows = adapter
         .require_adapter_connections()?
-        .list_by_provider(super::subject::ADAPTER)
+        .by_provider(super::subject::ADAPTER)
         .await
         .map_err(SharedAdapterError::Store)?;
     match rows.len() {
@@ -206,7 +200,7 @@ pub(super) async fn resolve_linear_api(
     connection_id: Option<&str>,
 ) -> Result<(AdapterConnection, LinearAgentApi), AdapterError> {
     let connection = resolve_connection(
-        adapter.require_adapter_connections()?,
+        adapter.require_connection_reader()?,
         ctx,
         AdapterKind::Linear,
         connection_id,

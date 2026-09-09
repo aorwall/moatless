@@ -5,11 +5,12 @@
 //! references a Workspace.
 
 pub mod credentials;
-pub mod dao;
+pub(crate) mod dao;
 pub mod error;
 pub mod git_sync;
-pub mod handlers;
+pub(crate) mod handlers;
 pub mod models;
+pub mod operations;
 pub mod routes;
 pub mod schemas;
 pub mod scripts;
@@ -17,7 +18,9 @@ pub mod scripts;
 #[cfg(test)]
 mod git_placements_test;
 
-pub mod mutations;
-pub mod reset;
+pub(crate) mod mutations;
+pub(crate) mod reset;
 
 pub(crate) mod config_validation;
+
+pub use operations::Workspaces;

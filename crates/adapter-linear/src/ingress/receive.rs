@@ -26,7 +26,7 @@ use std::sync::Arc;
 use moatless_ports::identity::AppCredentials;
 
 use crate::subscription_rules::resolve_rules_for_team;
-use moatless_adapter_model::dao::AdapterConnectionDao;
+use moatless_adapter_model::connections::ConnectionLookup;
 use moatless_adapter_model::delivery::AdapterDeliveryRequest;
 use moatless_adapter_model::delivery::DeliveryAdmission;
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
@@ -124,7 +124,7 @@ pub struct Rejection {
               handler already passed"
 )]
 pub async fn receive(
-    adapter_connections: &dyn AdapterConnectionDao,
+    adapter_connections: &dyn ConnectionLookup,
     loops: &dyn LoopReader,
     app_tokens: &Arc<dyn AppCredentials>,
     apps: &dyn AdapterAppReader,
@@ -181,7 +181,7 @@ pub async fn receive(
               narrow subset it needs"
 )]
 async fn dispatch(
-    adapter_connections: &dyn AdapterConnectionDao,
+    adapter_connections: &dyn ConnectionLookup,
     loops: &dyn LoopReader,
     app_tokens: &Arc<dyn AppCredentials>,
     apps: &dyn AdapterAppReader,
@@ -212,7 +212,7 @@ async fn dispatch(
     };
 
     let connection = adapter_connections
-        .find_by_external_account("linear", org_id)
+        .by_external_account("linear", org_id)
         .await
         .map_err(SharedAdapterError::Store)?;
     let Some(connection) = connection else {

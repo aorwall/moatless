@@ -641,8 +641,9 @@ none of the rows. **TaskBindings** (in `moatless-ports`) — the Bindings a
 Task carries, each labelled with the Loop that owns it, and stop-listening; the
 Task band sits below `loops` so its edge goes through `backend-core`.
 _Note_: an Adapter that drives the Binding lifecycle — upserts as well as reads
-and status writes — names `TaskBindingDao` itself. A narrow read port beside a
-store the same crate already holds is a second surface, not a seam.
+and status writes — holds `Bindings`, the Binding operation `loops` publishes,
+instead. A narrow read port beside a handle the same crate already holds is a
+second surface, not a seam.
 
 **Loop ports**:
 The seam `loops` publishes over the Loop store. **LoopReader** — the

@@ -38,10 +38,8 @@ fn registry_with_all_current_adapters() -> Adapters {
     Arc::new(
         crate::adapters::providers::linear::adapter::LinearAdapter::new(
             &moatless_core::config::Config::test_minimal().linear,
-            std::sync::Arc::new(moatless_identity::ports::HarnessTokens::new(
-                std::sync::Arc::new(
-                    moatless_identity::auth::test_support::StubProviderTokens::default(),
-                ),
+            moatless_identity::compose::harness_over(std::sync::Arc::new(
+                moatless_identity::auth::test_support::StubProviderTokens::default(),
             )),
         ),
     )
@@ -63,27 +61,36 @@ async fn registry_exposes_expected_capability_slots_for_current_adapters() {
     ] {
         assert!(providers.get(kind).is_some(), "{kind:?} identity adapter");
         assert!(
-            providers.outbound_for_binding_reply_by_name(kind.as_str()).is_ok(),
+            providers
+                .outbound_for_binding_reply_by_name(kind.as_str())
+                .is_ok(),
             "{kind:?} binding reply"
         );
         assert!(
-            providers.outbound_for_message_reply_by_name(kind.as_str()).is_ok(),
+            providers
+                .outbound_for_message_reply_by_name(kind.as_str())
+                .is_ok(),
             "{kind:?} message reply"
         );
     }
     assert!(providers.get(AdapterKind::Webhook).is_some());
-    assert!(providers.outbound_for_binding_reply_by_name("webhook").is_ok());
-    assert!(providers.outbound_for_message_reply_by_name("webhook").is_ok());
+    assert!(
+        providers
+            .outbound_for_binding_reply_by_name("webhook")
+            .is_ok()
+    );
+    assert!(
+        providers
+            .outbound_for_message_reply_by_name("webhook")
+            .is_ok()
+    );
 
     for kind in [
         AdapterKind::Slack,
         AdapterKind::Telegram,
         AdapterKind::GithubPr,
     ] {
-        assert!(
-            providers.reactions(kind).is_ok(),
-            "{kind:?} reactions"
-        );
+        assert!(providers.reactions(kind).is_ok(), "{kind:?} reactions");
         assert!(
             providers
                 .inbound_presentation_by_name(kind.as_str())
@@ -250,13 +257,15 @@ async fn capability_lookup_by_name_preserves_provider_aliases() {
     let providers = registry_with_all_current_adapters();
 
     assert_eq!(
-        providers.outbound_for_binding_reply_by_name("github")
+        providers
+            .outbound_for_binding_reply_by_name("github")
             .expect("github alias should resolve to GitHub PR binding reply")
             .adapter_kind(),
         AdapterKind::GithubPr
     );
     assert_eq!(
-        providers.reactions_by_name("github")
+        providers
+            .reactions_by_name("github")
             .expect("github alias should resolve to GitHub PR reactions")
             .adapter_kind(),
         AdapterKind::GithubPr

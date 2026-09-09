@@ -1,5 +1,6 @@
 use crate::dao::ConversationDao;
 use crate::feed;
+use crate::reads::T3Reads;
 use crate::review;
 use crate::subscription;
 use crate::subscription::StreamFailure;
@@ -81,22 +82,13 @@ pub(crate) async fn watch_vcs_status(
 pub(crate) async fn watch_shell(
     sink: subscription::StreamSink,
     mut feed: ShellFeed,
-    workspaces: Arc<dyn crate::workspace_dao::T3WorkspaceDao>,
-    conversations: Arc<dyn ConversationDao>,
+    reads: T3Reads,
     model_defaults: Arc<crate::config::AgentModelDefaults>,
     viewer: ScopeContext,
 ) -> StreamResult {
     loop {
         tokio::time::sleep(SHELL_POLL_INTERVAL).await;
-        let values = match feed
-            .poll(
-                workspaces.as_ref(),
-                conversations.as_ref(),
-                &model_defaults,
-                &viewer,
-            )
-            .await
-        {
+        let values = match feed.poll(&reads, &model_defaults, &viewer).await {
             Ok(values) => values,
             Err(error) => {
                 // The subscription survives a failed poll. Ending it would
@@ -151,14 +143,14 @@ pub(crate) async fn watch_shell(
 pub(crate) async fn watch_thread(
     sink: subscription::StreamSink,
     mut feed: ThreadFeed,
-    conversations: Arc<dyn ConversationDao>,
+    reads: T3Reads,
     frontend_url: Arc<str>,
     viewer: ScopeContext,
 ) -> StreamResult {
     loop {
         tokio::time::sleep(THREAD_POLL_INTERVAL).await;
         let polled = feed
-            .poll(conversations.as_ref(), &viewer, &frontend_url)
+            .poll(reads.conversations(), &viewer, &frontend_url)
             .await;
         let values = match polled {
             Ok(Some(values)) => values,

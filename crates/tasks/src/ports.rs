@@ -34,7 +34,7 @@ pub struct TaskProjection {
 }
 
 impl TaskProjection {
-    pub fn new(tasks: Arc<dyn TaskDao>) -> Self {
+    pub(crate) fn new(tasks: Arc<dyn TaskDao>) -> Self {
         Self { tasks }
     }
 }
@@ -73,7 +73,7 @@ pub struct Transcript {
 }
 
 impl Transcript {
-    pub fn new(messages: Arc<dyn MessageDao>) -> Self {
+    pub(crate) fn new(messages: Arc<dyn MessageDao>) -> Self {
         Self { messages }
     }
 }
@@ -232,7 +232,7 @@ pub struct TurnLedger {
 }
 
 impl TurnLedger {
-    pub fn new(turns: Arc<dyn TaskTurnDao>) -> Self {
+    pub(crate) fn new(turns: Arc<dyn TaskTurnDao>) -> Self {
         Self { turns }
     }
 }
@@ -271,7 +271,7 @@ pub struct TagCatalog {
 }
 
 impl TagCatalog {
-    pub fn new(tags: Arc<dyn TagDao>) -> Self {
+    pub(crate) fn new(tags: Arc<dyn TagDao>) -> Self {
         Self { tags }
     }
 }
@@ -441,22 +441,10 @@ impl TaskFinisher for crate::task::closer::TaskCloser {
     }
 }
 
-/// The `task_relations` store, narrowed to the one relation a provider records.
-pub struct TaskRelations {
-    relations: Arc<dyn crate::task::relations::TaskRelationDao>,
-}
-
-impl TaskRelations {
-    pub fn new(relations: Arc<dyn crate::task::relations::TaskRelationDao>) -> Self {
-        Self { relations }
-    }
-}
-
 #[async_trait]
-impl RelationRecorder for TaskRelations {
+impl RelationRecorder for crate::task::relations::TaskRelations {
     async fn record_related_to(&self, from_task_id: &str, related: &RelatedTask) {
-        crate::task::relations::record_related_to(self.relations.as_ref(), from_task_id, related)
-            .await;
+        crate::task::relations::TaskRelations::record_related_to(self, from_task_id, related).await;
     }
 }
 
@@ -470,7 +458,7 @@ pub struct PendingWork {
 }
 
 impl PendingWork {
-    pub fn new(pool: moatless_core::db::DbPool) -> Self {
+    pub(crate) fn new(pool: moatless_core::db::DbPool) -> Self {
         Self { pool }
     }
 }
@@ -493,7 +481,7 @@ pub struct Activities {
 }
 
 impl Activities {
-    pub fn new(pool: moatless_core::db::DbPool) -> Self {
+    pub(crate) fn new(pool: moatless_core::db::DbPool) -> Self {
         Self { pool }
     }
 }

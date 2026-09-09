@@ -27,10 +27,10 @@
 use std::sync::Arc;
 
 use moatless_adapter_model::apps::AdapterAppReader;
-use moatless_adapter_model::dao::AdapterConnectionDao;
+use moatless_adapter_model::connections::ConnectionLookup;
 use moatless_core::config::Config;
 use moatless_loops::adapters::events::{TaskEventSubscriber, TaskEventSubscribers};
-use moatless_loops::bindings::dao::TaskBindingDao;
+use moatless_loops::bindings::operations::Bindings;
 use moatless_ports::identity::AppCredentials;
 use moatless_ports::task::{TaskReader, TranscriptAppend};
 use moatless_tasks::agent_event::{AgentEvent, EventKey};
@@ -46,8 +46,8 @@ use super::activity::{
 /// The ports the Linear event reaction reads.
 pub struct LinearEventSubscriber {
     app_tokens: Arc<dyn AppCredentials>,
-    task_bindings: Arc<dyn TaskBindingDao>,
-    adapter_connections: Arc<dyn AdapterConnectionDao>,
+    task_bindings: Arc<Bindings>,
+    adapter_connections: Arc<dyn ConnectionLookup>,
     config: Arc<Config>,
     apps: Arc<dyn AdapterAppReader>,
     messages: Arc<dyn TranscriptAppend>,
@@ -63,8 +63,8 @@ impl LinearEventSubscriber {
     )]
     pub fn new(
         app_tokens: Arc<dyn AppCredentials>,
-        task_bindings: Arc<dyn TaskBindingDao>,
-        adapter_connections: Arc<dyn AdapterConnectionDao>,
+        task_bindings: Arc<Bindings>,
+        adapter_connections: Arc<dyn ConnectionLookup>,
         config: Arc<Config>,
         apps: Arc<dyn AdapterAppReader>,
         messages: Arc<dyn TranscriptAppend>,

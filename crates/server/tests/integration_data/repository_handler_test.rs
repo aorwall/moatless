@@ -14,7 +14,7 @@ use sqlx::PgPool;
 use tower::ServiceExt;
 
 use moatless_types::access_control::ScopeContext;
-use moatless_workspaces::repository::dao as repository_dao;
+use moatless_workspaces::compose;
 use moatless_workspaces::repository::routes::repository_router;
 
 use common::{
@@ -113,7 +113,7 @@ async fn create_rejects_canonical_duplicate_url(pool: PgPool) {
 async fn get_repository(pool: PgPool) {
     seed_team(&pool, &format!("personal-{USER_1}")).await;
     let row = make_repository_row("repo-get", USER_1);
-    repository_dao::insert(&pool, &row).await.unwrap();
+    compose::seed_repository(&pool, &row).await.unwrap();
 
     let app = build_router(pool);
     let req = authed_request("GET", "/api/v1/repositories/repo-get", USER_1);
@@ -129,7 +129,7 @@ async fn list_repositories(pool: PgPool) {
     seed_team(&pool, &format!("personal-{USER_1}")).await;
     for id in ["repo-a", "repo-b"] {
         let row = make_repository_row(id, USER_1);
-        repository_dao::insert(&pool, &row).await.unwrap();
+        compose::seed_repository(&pool, &row).await.unwrap();
     }
 
     let app = build_router(pool);
@@ -145,7 +145,7 @@ async fn list_repositories(pool: PgPool) {
 async fn update_repository(pool: PgPool) {
     seed_team(&pool, &format!("personal-{USER_1}")).await;
     let row = make_repository_row("repo-upd", USER_1);
-    repository_dao::insert(&pool, &row).await.unwrap();
+    compose::seed_repository(&pool, &row).await.unwrap();
 
     let app = build_router(pool);
     let req = authed_json_request(
@@ -166,8 +166,8 @@ async fn update_rejects_canonical_duplicate_url(pool: PgPool) {
     seed_team(&pool, &format!("personal-{USER_1}")).await;
     let first = make_repository_row("repo-update-url-a", USER_1);
     let second = make_repository_row("repo-update-url-b", USER_1);
-    repository_dao::insert(&pool, &first).await.unwrap();
-    repository_dao::insert(&pool, &second).await.unwrap();
+    compose::seed_repository(&pool, &first).await.unwrap();
+    compose::seed_repository(&pool, &second).await.unwrap();
 
     let app = build_router(pool);
     let req = authed_json_request(
@@ -187,7 +187,7 @@ async fn update_rejects_canonical_duplicate_url(pool: PgPool) {
 async fn delete_repository(pool: PgPool) {
     seed_team(&pool, &format!("personal-{USER_1}")).await;
     let row = make_repository_row("repo-del", USER_1);
-    repository_dao::insert(&pool, &row).await.unwrap();
+    compose::seed_repository(&pool, &row).await.unwrap();
 
     let app = build_router(pool.clone());
     let req = authed_request("DELETE", "/api/v1/repositories/repo-del", USER_1);
@@ -196,7 +196,7 @@ async fn delete_repository(pool: PgPool) {
     assert_eq!(resp.status(), StatusCode::NO_CONTENT);
 
     // Verify soft-deleted
-    let found = repository_dao::find_by_id(&pool, "repo-del", &scope_ctx(USER_1))
+    let found = compose::find_repository(&pool, "repo-del", &scope_ctx(USER_1))
         .await
         .unwrap();
     assert!(found.is_none());

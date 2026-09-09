@@ -4,9 +4,9 @@
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
-use moatless_types::secret::{SecretKind, SecretSource};
 use super::models::SecretRecord;
 use moatless_api_schemas::enums::Scope;
+use moatless_types::secret::{SecretKind, SecretSource};
 
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]

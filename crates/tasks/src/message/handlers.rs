@@ -5,12 +5,12 @@ use super::schemas::*;
 use super::service;
 use super::summary::strip_heavy_fields;
 use super::transform;
-use crate::message::dao::MessageDao;
+use crate::message::operations::Messages;
 use crate::message::send::MessageSendService;
-use crate::task::dao::TaskDao;
+use crate::task::operations::TaskCommands;
 use axum::Json;
 use axum::extract::{Path, Query, State};
-use moatless_core::file_storage::dao::FileDao;
+use moatless_core::file_storage::Files;
 use moatless_core::http_auth::AuthUser;
 use moatless_ports::sandbox::SandboxWaker;
 use serde::Deserialize;
@@ -32,7 +32,7 @@ use std::sync::Arc;
     )
 )]
 pub async fn send_message(
-    State(tasks): State<Arc<dyn TaskDao>>,
+    State(tasks): State<Arc<TaskCommands>>,
     State(message_send): State<Arc<MessageSendService>>,
     State(sandbox_waker): State<Arc<dyn SandboxWaker>>,
     auth: AuthUser,
@@ -126,9 +126,9 @@ pub struct GetMessagesQuery {
     )
 )]
 pub async fn get_messages(
-    State(tasks): State<Arc<dyn TaskDao>>,
-    State(message_dao): State<Arc<dyn MessageDao>>,
-    State(files): State<Arc<dyn FileDao>>,
+    State(tasks): State<Arc<TaskCommands>>,
+    State(message_dao): State<Arc<Messages>>,
+    State(files): State<Arc<Files>>,
     auth: AuthUser,
     Path(task_id): Path<String>,
     Query(query): Query<GetMessagesQuery>,
@@ -166,7 +166,7 @@ pub async fn get_messages(
         std::collections::HashMap::new()
     } else {
         files
-            .find_by_ids(&legacy_file_ids)
+            .metadata_for(&legacy_file_ids)
             .await
             .unwrap_or_else(|e| {
                 tracing::warn!(error = %e, "Failed to batch-load file metadata");
@@ -216,8 +216,8 @@ pub async fn get_messages(
     )
 )]
 pub async fn get_tool_call_detail(
-    State(tasks): State<Arc<dyn TaskDao>>,
-    State(message_dao): State<Arc<dyn MessageDao>>,
+    State(tasks): State<Arc<TaskCommands>>,
+    State(message_dao): State<Arc<Messages>>,
     auth: AuthUser,
     Path((task_id, tool_use_id)): Path<(String, String)>,
 ) -> Result<Json<ToolCallDetailResponse>, MessageError> {
@@ -263,8 +263,8 @@ pub async fn get_tool_call_detail(
     )
 )]
 pub async fn get_subagent_transcript(
-    State(tasks): State<Arc<dyn TaskDao>>,
-    State(message_dao): State<Arc<dyn MessageDao>>,
+    State(tasks): State<Arc<TaskCommands>>,
+    State(message_dao): State<Arc<Messages>>,
     auth: AuthUser,
     Path((task_id, tool_use_id)): Path<(String, String)>,
 ) -> Result<Json<SubagentTranscriptResponse>, MessageError> {
@@ -296,8 +296,8 @@ pub async fn get_subagent_transcript(
     )
 )]
 pub async fn get_pending_messages(
-    State(tasks): State<Arc<dyn TaskDao>>,
-    State(message_dao): State<Arc<dyn MessageDao>>,
+    State(tasks): State<Arc<TaskCommands>>,
+    State(message_dao): State<Arc<Messages>>,
     auth: AuthUser,
     Path(task_id): Path<String>,
 ) -> Result<Json<GetPendingMessagesResponse>, MessageError> {
@@ -341,7 +341,7 @@ pub async fn get_pending_messages(
 }
 
 async fn ensure_task_read_access(
-    tasks: &dyn TaskDao,
+    tasks: &TaskCommands,
     auth: &AuthUser,
     task_id: &str,
 ) -> Result<(), MessageError> {

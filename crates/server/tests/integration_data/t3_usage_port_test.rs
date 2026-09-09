@@ -5,7 +5,7 @@
     clippy::print_stdout,
     clippy::print_stderr
 )]
-//! Integration tests for the `UsageReporter` port implemented by [`PgUsageDao`].
+//! Integration tests for the `UsageReporter` port the T3 band builds.
 //!
 //! The bucket query is built by string interpolation and bound positionally,
 //! so a parameter index that drifts from the bind order compiles and only
@@ -13,10 +13,9 @@
 
 use crate::common;
 
-use moatless_t3code::PgUsageDao;
-use moatless_t3code::ports::{UsageReporter, UsageWindow};
-use moatless_tasks::task::dao as task_dao;
-use moatless_workspaces::repository::dao as repository_dao;
+use moatless_t3code::ports::UsageWindow;
+use moatless_tasks::task::test_support as task_fixtures;
+use moatless_workspaces::compose;
 use serde_json::json;
 use sqlx::PgPool;
 
@@ -26,9 +25,9 @@ use common::{USER_1, make_repository_row, make_task_row, seed_team, user_scope};
 async fn seed_task(pool: &PgPool, task_id: &str, user_id: &str) {
     seed_team(pool, &format!("personal-{user_id}")).await;
     let repo = make_repository_row("repo-1", user_id);
-    let _ = repository_dao::insert(pool, &repo).await;
+    let _ = compose::seed_repository(pool, &repo).await;
     let task = make_task_row(task_id, user_id);
-    task_dao::insert_task(pool, &task)
+    task_fixtures::seed_task(pool, &task)
         .await
         .expect("seed task row");
 }
@@ -80,7 +79,7 @@ async fn global_usage_respects_local_day_and_missing_metric_fields(pool: PgPool)
     .expect("global task");
     sqlx::query("UPDATE task_turns SET started_at = '2026-09-02T00:30:00Z'::timestamptz WHERE task_id = 'global-task'")
         .execute(&pool).await.expect("turn near day boundary");
-    let reporter = PgUsageDao::new(pool);
+    let reporter = moatless_backend::t3code::t3_graph_over(&pool).usage();
     let viewer = user_scope("22222222-2222-2222-2222-222222222222");
     let local_window = UsageWindow {
         since_day: "2026-09-01".into(),
@@ -152,7 +151,7 @@ async fn claude_turn_fans_out_one_bucket_per_model(pool: PgPool) {
     )
     .await;
 
-    let reporter = PgUsageDao::new(pool);
+    let reporter = moatless_backend::t3code::t3_graph_over(&pool).usage();
     let rows = reporter
         .buckets(&user_scope(USER_1), &window())
         .await
@@ -198,7 +197,7 @@ async fn codex_turn_groups_by_its_single_model(pool: PgPool) {
     )
     .await;
 
-    let reporter = PgUsageDao::new(pool);
+    let reporter = moatless_backend::t3code::t3_graph_over(&pool).usage();
     let rows = reporter
         .buckets(&user_scope(USER_1), &window())
         .await
@@ -223,7 +222,7 @@ async fn hourly_window_carries_the_hour_and_a_foreign_viewer_reads_nothing(pool:
     )
     .await;
 
-    let reporter = PgUsageDao::new(pool);
+    let reporter = moatless_backend::t3code::t3_graph_over(&pool).usage();
     let hourly = UsageWindow {
         hourly: true,
         ..window()

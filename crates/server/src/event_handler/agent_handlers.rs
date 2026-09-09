@@ -13,10 +13,10 @@ use moatless_tasks::message::models::MessageType;
 use moatless_tasks::message::models::TaskMessage;
 use moatless_tasks::message::models::TaskMessageContext;
 use moatless_tasks::message::send::MessageSendService;
-use moatless_tasks::task::dao::TaskDao;
-use moatless_tasks::task::dao::TaskPatch;
+use moatless_tasks::task::models::TaskPatch;
 use moatless_tasks::task::models::TaskStatus;
-use moatless_tasks::task::relations::TaskRelationDao;
+use moatless_tasks::task::operations::TaskCommands;
+use moatless_tasks::task::relations::TaskRelations;
 use moatless_tasks::task_activities::mapping::BlockContext;
 use moatless_tasks::task_activities::mapping::ConversationWrite;
 use moatless_tasks::task_activities::mapping::map_content;
@@ -388,8 +388,8 @@ pub async fn handle_agent_stopped(state: &AppState, event: &AgentEvent) {
 /// never names `AppState`.
 #[derive(Clone)]
 pub struct AgentErrorPorts {
-    pub tasks: Arc<dyn TaskDao>,
-    pub task_relations: Arc<dyn TaskRelationDao>,
+    pub tasks: Arc<TaskCommands>,
+    pub task_relations: Arc<TaskRelations>,
     pub message_send: Arc<MessageSendService>,
     pub sandbox_waker: Arc<dyn SandboxWaker>,
     pub events: Option<Arc<dyn EventPublisher>>,
@@ -651,7 +651,7 @@ pub async fn handle_agent_session_context_lost(_state: &AppState, event: &AgentE
 /// stranded record's next re-publication converges on the same idempotent
 /// upsert and deletes itself then. So this warns and moves on.
 async fn release_ingress_record(state: &AppState, task_id: &str, event_id: &str) {
-    match state.ingress_outbox.delete_delivered(event_id).await {
+    match state.event_ingress.delivered(event_id).await {
         Ok(true) => {
             metrics::counter!("event_ingress_delivered_total").increment(1);
         }
@@ -1017,25 +1017,7 @@ pub async fn handle_agent_message(state: &AppState, event: &AgentEvent) {
             .map(|s| format!("skill-{s}"))
             .collect();
 
-        match state.tags.find_or_create_tags(&tag_names).await {
-            Ok(tags) => {
-                let tag_ids: Vec<String> = tags.into_iter().map(|t| t.tag_id).collect();
-                if let Err(e) = state.tags.add_task_tags(&event.task_id, &tag_ids).await {
-                    tracing::warn!(
-                        task_id = %event.task_id,
-                        error = %e,
-                        "Failed to add skill tags"
-                    );
-                }
-            }
-            Err(e) => {
-                tracing::warn!(
-                    task_id = %event.task_id,
-                    error = %e,
-                    "Failed to find/create skill tags"
-                );
-            }
-        }
+        state.tags.propagate_tags(&event.task_id, &tag_names).await;
     }
 }
 

@@ -1,4 +1,7 @@
-//! File metadata DAO — queries for file upload metadata.
+//! The `file_metadata` table, and nothing that decides over it.
+//!
+//! Private to the crate: a caller outside it takes [`super::Files`], which
+//! carries the object storage and the access check each operation runs under.
 
 use std::collections::HashMap;
 
@@ -7,10 +10,8 @@ use async_trait::async_trait;
 use super::models::FileMetadata;
 use crate::db::DbPool;
 
-/// DAO trait for file metadata persistence.
-#[cfg_attr(any(test, feature = "test-support"), mockall::automock)]
 #[async_trait]
-pub trait FileDao: Send + Sync {
+pub(crate) trait FileDao: Send + Sync {
     async fn insert_metadata(&self, row: &FileMetadata) -> Result<(), sqlx::Error>;
     async fn find_by_id(&self, file_id: &str) -> Result<Option<FileMetadata>, sqlx::Error>;
     async fn find_by_ids(
@@ -21,7 +22,13 @@ pub trait FileDao: Send + Sync {
 }
 
 /// PostgreSQL implementation of [`FileDao`].
-pub struct PgFileDao(pub DbPool);
+pub(crate) struct PgFileDao(DbPool);
+
+impl PgFileDao {
+    pub(crate) fn new(pool: DbPool) -> Self {
+        Self(pool)
+    }
+}
 
 #[async_trait]
 impl FileDao for PgFileDao {

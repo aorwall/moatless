@@ -4,7 +4,10 @@
 //! transactionally at the gRPC event ingress so events become projections of
 //! this state rather than its source of truth.
 
-pub mod dao;
+pub(crate) mod dao;
 pub mod models;
-
+pub mod operations;
 pub mod recovery;
+
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_support;

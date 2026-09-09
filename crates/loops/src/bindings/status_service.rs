@@ -13,11 +13,11 @@ use std::time::Duration;
 use chrono::{DateTime, Utc};
 use moka::future::Cache;
 
+use crate::bindings::operations::Bindings;
 use moatless_adapter_model::capabilities::AdapterBindingStatus;
 use moatless_adapter_model::registry::Adapters;
-use crate::bindings::dao::TaskBindingDao;
-use moatless_types::adapter::TaskBinding;
 use moatless_types::adapter::ExternalStatus;
+use moatless_types::adapter::TaskBinding;
 
 /// Whether a binding's live external status is worth fetching again.
 ///
@@ -91,7 +91,7 @@ fn cache() -> &'static Cache<String, ExternalStatus> {
 /// per-user token.
 pub async fn get_or_fetch(
     adapters: Option<&Arc<Adapters>>,
-    task_bindings: &dyn TaskBindingDao,
+    task_bindings: &Bindings,
     binding: &TaskBinding,
     created_by: &str,
 ) -> Option<ExternalStatus> {
@@ -107,7 +107,7 @@ pub async fn get_or_fetch(
 
     // Write-through so the persisted value stays warm for DB-only reads.
     if let Err(e) = task_bindings
-        .update_external_status(
+        .record_external_status(
             &binding.id,
             fetched.status.as_deref(),
             fetched.state_kind.as_deref(),

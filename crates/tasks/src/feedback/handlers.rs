@@ -7,13 +7,13 @@ use axum::Json;
 use axum::extract::{Path, Query, State};
 use chrono::{DateTime, Utc};
 
-use crate::task::dao::TaskDao;
+use crate::task::operations::TaskCommands;
 use moatless_core::http_auth::AuthUser;
 use moatless_ports::workspace::RepositoryReader;
 
-use super::dao::{FeedbackDao, FeedbackFilter};
 use super::error::{FeedbackError, UnknownFeedbackDiscriminant};
-use super::models::{Feedback, FeedbackWithTask};
+use super::models::{Feedback, FeedbackFilter, FeedbackWithTask};
+use super::operations::FeedbackNotes;
 use super::schemas::{
     CreateFeedbackRequest, FeedbackListItem, FeedbackResponse, ListAllFeedbackQuery,
     ListAllFeedbackResponse, ListFeedbackResponse, UpdateFeedbackStatusRequest,
@@ -39,13 +39,24 @@ const MAX_LIMIT: i64 = 200;
     )
 )]
 pub async fn create_feedback(
-    State(tasks): State<Arc<dyn TaskDao>>,
-    State(feedback): State<Arc<dyn FeedbackDao>>,
+    State(tasks): State<Arc<TaskCommands>>,
+    State(feedback): State<Arc<FeedbackNotes>>,
     auth: AuthUser,
     Json(req): Json<CreateFeedbackRequest>,
 ) -> Result<Json<FeedbackResponse>, FeedbackError> {
-    let source = if auth.is_agent_context { FeedbackSource::Agent } else { FeedbackSource::User };
-    let row = super::service::create_feedback(tasks.as_ref(), feedback.as_ref(), &auth.scope_context(), source, req).await?;
+    let source = if auth.is_agent_context {
+        FeedbackSource::Agent
+    } else {
+        FeedbackSource::User
+    };
+    let row = super::service::create_feedback(
+        tasks.as_ref(),
+        feedback.as_ref(),
+        &auth.scope_context(),
+        source,
+        req,
+    )
+    .await?;
     Ok(Json(to_response(&row)?))
 }
 
@@ -66,13 +77,20 @@ pub async fn create_feedback(
     )
 )]
 pub async fn set_feedback_status(
-    State(tasks): State<Arc<dyn TaskDao>>,
-    State(feedback): State<Arc<dyn FeedbackDao>>,
+    State(tasks): State<Arc<TaskCommands>>,
+    State(feedback): State<Arc<FeedbackNotes>>,
     auth: AuthUser,
     Path(feedback_id): Path<String>,
     Json(req): Json<UpdateFeedbackStatusRequest>,
 ) -> Result<Json<FeedbackResponse>, FeedbackError> {
-    let row = super::service::set_feedback_status(tasks.as_ref(), feedback.as_ref(), &auth.scope_context(), feedback_id, req).await?;
+    let row = super::service::set_feedback_status(
+        tasks.as_ref(),
+        feedback.as_ref(),
+        &auth.scope_context(),
+        feedback_id,
+        req,
+    )
+    .await?;
     Ok(Json(to_response(&row)?))
 }
 
@@ -91,8 +109,8 @@ pub async fn set_feedback_status(
     )
 )]
 pub async fn list_task_feedback(
-    State(tasks): State<Arc<dyn TaskDao>>,
-    State(feedback): State<Arc<dyn FeedbackDao>>,
+    State(tasks): State<Arc<TaskCommands>>,
+    State(feedback): State<Arc<FeedbackNotes>>,
     auth: AuthUser,
     Path(task_id): Path<String>,
 ) -> Result<Json<ListFeedbackResponse>, FeedbackError> {
@@ -125,7 +143,7 @@ pub async fn list_task_feedback(
     )
 )]
 pub async fn list_all_feedback(
-    State(feedback): State<Arc<dyn FeedbackDao>>,
+    State(feedback): State<Arc<FeedbackNotes>>,
     State(repositories): State<Arc<dyn RepositoryReader>>,
     auth: AuthUser,
     Query(query): Query<ListAllFeedbackQuery>,

@@ -8,10 +8,10 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 
 use super::credentials::handlers as credential_handlers;
 use super::credentials::service::WorkspaceCredentialService;
-use super::dao::WorkspaceDao;
 use super::git_sync::GitSyncService;
 use super::handlers;
-use crate::repository::dao::RepositoryDao;
+use super::operations::Workspaces;
+use crate::repository::Repositories;
 use moatless_core::http_auth::UserTokenVerifier;
 use moatless_ports::identity::UserResolver;
 
@@ -47,16 +47,16 @@ pub struct WorkspaceApiDoc;
 ///
 /// Generic over the router state `S` so this module names no root type: the
 /// composition root supplies the concrete state at the call site, and each
-/// handler reaches its ports — `Arc<GitSyncService>`, `Arc<dyn RepositoryDao>`,
-/// `Arc<dyn WorkspaceDao>`, `Arc<dyn UserResolver>`, and the `UserTokenVerifier`
+/// handler reaches its ports — `Arc<GitSyncService>`, `Arc<Repositories>`,
+/// `Arc<Workspaces>`, `Arc<dyn UserResolver>`, and the `UserTokenVerifier`
 /// behind `AuthUser` —
 /// through `FromRef<S>`.
 pub fn workspace_router<S>(state: S) -> (axum::Router, utoipa::openapi::OpenApi)
 where
     S: Clone + Send + Sync + 'static,
     Arc<GitSyncService>: FromRef<S>,
-    Arc<dyn RepositoryDao>: FromRef<S>,
-    Arc<dyn WorkspaceDao>: FromRef<S>,
+    Arc<Repositories>: FromRef<S>,
+    Arc<Workspaces>: FromRef<S>,
     Arc<WorkspaceCredentialService>: FromRef<S>,
     Arc<dyn UserResolver>: FromRef<S>,
     Arc<dyn UserTokenVerifier>: FromRef<S>,

@@ -1,9 +1,8 @@
-//! The `task_bindings` store, and the Postgres implementation behind it.
+//! The `task_bindings` store.
 //!
-//! Binding is this crate's own concept, so both the port and its
-//! implementation live here. Peers reach it through the narrow seams in
-//! `bindings::ports` — `BindingProbe` for the Adapters beside this crate, and
-//! `moatless_tasks::task::bindings::TaskBindings` for the Task band below it.
+//! Private to this crate. [`crate::bindings::operations::Bindings`] is the one
+//! surface on these queries, and the narrow read seams in `bindings::ports`
+//! answer a peer that only asks about Bindings.
 
 use chrono::{DateTime, Utc};
 use sqlx::AssertSqlSafe;
@@ -14,131 +13,10 @@ use super::persistence::TaskBindingRow;
 use moatless_adapter_model::binding::ADAPTER_EVENT_BINDING_ORIGIN;
 use moatless_types::adapter::TaskBinding;
 
-#[async_trait::async_trait]
-pub trait TaskBindingDao: Send + Sync {
-    async fn find_by_id(&self, id: &str) -> Result<Option<TaskBinding>, sqlx::Error>;
-
-    async fn find_by_subject(
-        &self,
-        adapter_kind: &str,
-        subject_kind: &str,
-        subject_key: &str,
-    ) -> Result<Vec<TaskBinding>, sqlx::Error>;
-
-    async fn find_all_by_subject_excluding_task(
-        &self,
-        adapter_kind: &str,
-        subject_kind: &str,
-        subject_key: &str,
-        exclude_task_id: &str,
-    ) -> Result<Vec<TaskBinding>, sqlx::Error>;
-
-    async fn find_by_task_id(&self, task_id: &str) -> Result<Vec<TaskBinding>, sqlx::Error>;
-
-    async fn find_by_task_id_and_subject(
-        &self,
-        task_id: &str,
-        adapter_kind: &str,
-        subject_kind: &str,
-        subject_key: &str,
-    ) -> Result<Option<TaskBinding>, sqlx::Error>;
-
-    async fn find_provider_event_created_for_subject(
-        &self,
-        adapter_kind: &str,
-        subject_kind: &str,
-        subject_key: &str,
-    ) -> Result<Option<TaskBinding>, sqlx::Error>;
-
-    /// Look up active bindings whose `destination_config->>field_name` equals
-    /// `field_value`. Used to route inbound events that carry a destination-
-    /// scoped identifier (e.g. Linear `issue_id`) rather than the binding's
-    /// `subject_key`. `field_name` is whitelisted to prevent SQL injection
-    /// through the JSONB path expression.
-    async fn find_active_by_destination_field(
-        &self,
-        adapter_kind: &str,
-        subject_kind: &str,
-        field_name: &str,
-        field_value: &str,
-    ) -> Result<Vec<TaskBinding>, sqlx::Error>;
-
-    async fn upsert(&self, row: &TaskBinding) -> Result<TaskBinding, sqlx::Error>;
-
-    async fn delete(&self, id: &str) -> Result<u64, sqlx::Error>;
-
-    /// Soft-deactivate every still-active binding of a task and return how many
-    /// rows changed. Idempotent: a second call reports 0 because the
-    /// `active = TRUE` predicate no longer matches.
-    async fn deactivate_by_task(&self, task_id: &str) -> Result<u64, sqlx::Error>;
-
-    async fn touch_last_event(&self, id: &str) -> Result<(), sqlx::Error>;
-
-    /// Record that this binding's thread has carried a task-provenance footer,
-    /// so later replies in the same thread do not repeat it. Merges into
-    /// `metadata` rather than taking a column: the footer is presentation
-    /// state, not part of the binding's identity.
-    async fn mark_task_link_sent(&self, id: &str) -> Result<(), sqlx::Error>;
-
-    async fn touch_cursor(&self, id: &str, last_external_event_id: &str)
-    -> Result<(), sqlx::Error>;
-
-    /// Persist the external status of a binding's connected subject (GitHub PR
-    /// / Linear issue). Writes the dedicated `external_status*` columns and
-    /// stamps `external_status_updated_at = now()`. Leaves
-    /// `destination_config` untouched (which `upsert` would clobber).
-    async fn update_external_status(
-        &self,
-        id: &str,
-        status: Option<&str>,
-        state_kind: Option<&str>,
-        raw: &serde_json::Value,
-    ) -> Result<(), sqlx::Error>;
-
-    /// Persist the PR's latest review decision (approved / `changes_requested` /
-    /// …) onto a binding. Leaves the `external_status*` columns untouched.
-    async fn update_review_decision(
-        &self,
-        id: &str,
-        review_decision: Option<&str>,
-    ) -> Result<(), sqlx::Error>;
-
-    /// Persist the PR's mergeable state (clean / dirty / …) onto a binding.
-    /// Leaves the `external_status*` columns untouched.
-    async fn update_mergeable_state(
-        &self,
-        id: &str,
-        mergeable_state: Option<&str>,
-    ) -> Result<(), sqlx::Error>;
-
-    /// Batch-fetch full binding rows (including `destination_config` and the
-    /// `external_status*` columns) for a set of tasks. Drives the
-    /// task-connections admin view.
-    async fn find_by_task_ids(&self, task_ids: &[String]) -> Result<Vec<TaskBinding>, sqlx::Error>;
-
-    /// Batch-fetch the task-list display projection — one row per binding, with
-    /// the owning loop's `source_matcher`/`source_name` joined in from
-    /// `subscriptions` for labelling. The DAO seam the task-list handler reads
-    /// instead of the raw pool. See [`TaskBindingInfo`].
-    async fn get_bindings_for_tasks(
-        &self,
-        task_ids: &[String],
-    ) -> Result<Vec<TaskBindingInfo>, sqlx::Error>;
-
-    /// The most recent tasks a loop spawned, each with its first binding (if
-    /// any). Drives the loop detail view. See the `PgTaskBindingDao` impl of
-    /// this method (in the backend's `bindings::dao`) for the join semantics.
-    async fn find_recent_for_loop(
-        &self,
-        loop_id: &str,
-        limit: i64,
-    ) -> Result<Vec<LoopRecentTaskRow>, sqlx::Error>;
-}
-
-/// Flat row returned by `find_recent_for_loop`. Binding columns are
-/// optional — schedule loops spawn tasks without a binding.
+/// Flat row returned by [`PgTaskBindingDao::find_recent_for_loop`]. Binding
+/// columns are optional — schedule loops spawn tasks without a binding.
 #[derive(sqlx::FromRow, Debug)]
-pub struct LoopRecentTaskRow {
+pub(crate) struct LoopRecentTaskRow {
     pub task_id: String,
     pub short_id: Option<String>,
     pub title: Option<String>,
@@ -161,7 +39,7 @@ pub struct LoopRecentTaskRow {
 
 /// Flat row returned by the batch binding query.
 #[derive(sqlx::FromRow, Debug)]
-pub struct TaskBindingInfo {
+pub(crate) struct TaskBindingInfo {
     pub task_id: String,
     pub loop_id: String,
     pub adapter_kind: String,
@@ -169,186 +47,28 @@ pub struct TaskBindingInfo {
     pub source_name: Option<String>,
 }
 
-pub struct PgTaskBindingDao(DbPool);
+pub(crate) struct PgTaskBindingDao(DbPool);
 
 impl PgTaskBindingDao {
     /// Construct over a pool. The only way to build one — ad-hoc construction
     /// at use sites is what the composition-root invariant bans, so the field
-    /// is private and callers take an `Arc<dyn TaskBindingDao>` port instead.
-    pub fn new(pool: DbPool) -> Self {
+    /// is private and [`crate::compose::loop_graph`] is the only caller.
+    pub(crate) fn new(pool: DbPool) -> Self {
         Self(pool)
     }
-}
 
-#[async_trait::async_trait]
-impl TaskBindingDao for PgTaskBindingDao {
-    async fn find_by_id(&self, id: &str) -> Result<Option<TaskBinding>, sqlx::Error> {
-        PgTaskBindingDao::find_by_id(self, id).await
-    }
-
-    async fn find_by_subject(
-        &self,
-        adapter_kind: &str,
-        subject_kind: &str,
-        subject_key: &str,
-    ) -> Result<Vec<TaskBinding>, sqlx::Error> {
-        PgTaskBindingDao::find_by_subject(self, adapter_kind, subject_kind, subject_key).await
-    }
-
-    async fn find_all_by_subject_excluding_task(
-        &self,
-        adapter_kind: &str,
-        subject_kind: &str,
-        subject_key: &str,
-        exclude_task_id: &str,
-    ) -> Result<Vec<TaskBinding>, sqlx::Error> {
-        PgTaskBindingDao::find_all_by_subject_excluding_task(
-            self,
-            adapter_kind,
-            subject_kind,
-            subject_key,
-            exclude_task_id,
-        )
-        .await
-    }
-
-    async fn find_by_task_id(&self, task_id: &str) -> Result<Vec<TaskBinding>, sqlx::Error> {
-        PgTaskBindingDao::find_by_task_id(self, task_id).await
-    }
-
-    async fn find_by_task_id_and_subject(
-        &self,
-        task_id: &str,
-        adapter_kind: &str,
-        subject_kind: &str,
-        subject_key: &str,
-    ) -> Result<Option<TaskBinding>, sqlx::Error> {
-        PgTaskBindingDao::find_by_task_id_and_subject(
-            self,
-            task_id,
-            adapter_kind,
-            subject_kind,
-            subject_key,
-        )
-        .await
-    }
-
-    async fn find_provider_event_created_for_subject(
-        &self,
-        adapter_kind: &str,
-        subject_kind: &str,
-        subject_key: &str,
-    ) -> Result<Option<TaskBinding>, sqlx::Error> {
-        PgTaskBindingDao::find_provider_event_created_for_subject(
-            self,
-            adapter_kind,
-            subject_kind,
-            subject_key,
-        )
-        .await
-    }
-
-    async fn find_active_by_destination_field(
-        &self,
-        adapter_kind: &str,
-        subject_kind: &str,
-        field_name: &str,
-        field_value: &str,
-    ) -> Result<Vec<TaskBinding>, sqlx::Error> {
-        PgTaskBindingDao::find_active_by_destination_field(
-            self,
-            adapter_kind,
-            subject_kind,
-            field_name,
-            field_value,
-        )
-        .await
-    }
-
-    async fn upsert(&self, row: &TaskBinding) -> Result<TaskBinding, sqlx::Error> {
-        PgTaskBindingDao::upsert(self, row).await
-    }
-
-    async fn delete(&self, id: &str) -> Result<u64, sqlx::Error> {
-        PgTaskBindingDao::delete(self, id).await
-    }
-
-    async fn deactivate_by_task(&self, task_id: &str) -> Result<u64, sqlx::Error> {
-        PgTaskBindingDao::deactivate_by_task(self, task_id).await
-    }
-
-    async fn touch_last_event(&self, id: &str) -> Result<(), sqlx::Error> {
-        PgTaskBindingDao::touch_last_event(self, id).await
-    }
-
-    async fn mark_task_link_sent(&self, id: &str) -> Result<(), sqlx::Error> {
-        PgTaskBindingDao::mark_task_link_sent(self, id).await
-    }
-
-    async fn touch_cursor(
-        &self,
-        id: &str,
-        last_external_event_id: &str,
-    ) -> Result<(), sqlx::Error> {
-        PgTaskBindingDao::touch_cursor(self, id, last_external_event_id).await
-    }
-
-    async fn update_external_status(
-        &self,
-        id: &str,
-        status: Option<&str>,
-        state_kind: Option<&str>,
-        raw: &serde_json::Value,
-    ) -> Result<(), sqlx::Error> {
-        PgTaskBindingDao::update_external_status(self, id, status, state_kind, raw).await
-    }
-
-    async fn update_review_decision(
-        &self,
-        id: &str,
-        review_decision: Option<&str>,
-    ) -> Result<(), sqlx::Error> {
-        PgTaskBindingDao::update_review_decision(self, id, review_decision).await
-    }
-
-    async fn update_mergeable_state(
-        &self,
-        id: &str,
-        mergeable_state: Option<&str>,
-    ) -> Result<(), sqlx::Error> {
-        PgTaskBindingDao::update_mergeable_state(self, id, mergeable_state).await
-    }
-
-    async fn find_by_task_ids(&self, task_ids: &[String]) -> Result<Vec<TaskBinding>, sqlx::Error> {
-        PgTaskBindingDao::find_by_task_ids(self, task_ids).await
-    }
-
-    async fn find_recent_for_loop(
-        &self,
-        loop_id: &str,
-        limit: i64,
-    ) -> Result<Vec<LoopRecentTaskRow>, sqlx::Error> {
-        PgTaskBindingDao::find_recent_for_loop(self, loop_id, limit).await
-    }
-
-    async fn get_bindings_for_tasks(
+    /// Batch-fetch the task-list display projection — one row per binding, with
+    /// the owning loop's `source_matcher`/`source_name` joined in from
+    /// `subscriptions` for labelling.
+    pub(crate) async fn get_bindings_for_tasks(
         &self,
         task_ids: &[String],
     ) -> Result<Vec<TaskBindingInfo>, sqlx::Error> {
-        get_bindings_for_tasks(&self.0, task_ids).await
-    }
-}
-
-/// Batch-fetch task binding source info for multiple tasks in a single query.
-async fn get_bindings_for_tasks(
-    pool: &DbPool,
-    task_ids: &[String],
-) -> Result<Vec<TaskBindingInfo>, sqlx::Error> {
-    if task_ids.is_empty() {
-        return Ok(vec![]);
-    }
-    sqlx::query_as::<_, TaskBindingInfo>(
-        r#"SELECT tb.task_id,
+        if task_ids.is_empty() {
+            return Ok(vec![]);
+        }
+        sqlx::query_as::<_, TaskBindingInfo>(
+            r#"SELECT tb.task_id,
                   COALESCE(aes.loop_id, '') AS loop_id,
                   tb.adapter_kind AS adapter_kind,
                   COALESCE(aes.source_matcher, tb.subject_key) AS source_id,
@@ -358,10 +78,11 @@ async fn get_bindings_for_tasks(
            -- read-only enrichment join (source_matcher/source_name for display).
            LEFT JOIN subscriptions aes ON aes.loop_id = tb.loop_id
            WHERE tb.task_id = ANY($1)"#,
-    )
-    .bind(task_ids)
-    .fetch_all(pool)
-    .await
+        )
+        .bind(task_ids)
+        .fetch_all(&self.0)
+        .await
+    }
 }
 
 const TASK_BINDING_SELECT: &str = r#"
@@ -385,11 +106,9 @@ const TASK_BINDING_SELECT: &str = r#"
     FROM task_bindings
 "#;
 
-/// The queries. Private: the trait impl above is the crate's one surface on
-/// `task_bindings`, and the composition root is the only place a
-/// `PgTaskBindingDao` is built, so nothing outside this file can reach them.
+/// The queries, reached only through [`crate::bindings::operations::Bindings`].
 impl PgTaskBindingDao {
-    async fn find_by_id(&self, id: &str) -> Result<Option<TaskBinding>, sqlx::Error> {
+    pub(crate) async fn find_by_id(&self, id: &str) -> Result<Option<TaskBinding>, sqlx::Error> {
         let row = sqlx::query_as::<_, TaskBindingRow>(AssertSqlSafe(format!(
             "{TASK_BINDING_SELECT} WHERE id = $1"
         )))
@@ -399,7 +118,7 @@ impl PgTaskBindingDao {
         Ok(row.map(TaskBinding::from))
     }
 
-    async fn find_by_subject(
+    pub(crate) async fn find_by_subject(
         &self,
         adapter_kind: &str,
         subject_kind: &str,
@@ -416,26 +135,10 @@ impl PgTaskBindingDao {
         Ok(rows.into_iter().map(TaskBinding::from).collect())
     }
 
-    async fn find_all_by_subject_excluding_task(
+    pub(crate) async fn find_by_task_id(
         &self,
-        adapter_kind: &str,
-        subject_kind: &str,
-        subject_key: &str,
-        exclude_task_id: &str,
+        task_id: &str,
     ) -> Result<Vec<TaskBinding>, sqlx::Error> {
-        let rows = sqlx::query_as::<_, TaskBindingRow>(AssertSqlSafe(format!(
-            "{TASK_BINDING_SELECT} WHERE adapter_kind = $1 AND subject_kind = $2 AND subject_key = $3 AND task_id <> $4 ORDER BY created_at ASC"
-        )))
-        .bind(adapter_kind)
-        .bind(subject_kind)
-        .bind(subject_key)
-        .bind(exclude_task_id)
-        .fetch_all(&self.0)
-        .await?;
-        Ok(rows.into_iter().map(TaskBinding::from).collect())
-    }
-
-    async fn find_by_task_id(&self, task_id: &str) -> Result<Vec<TaskBinding>, sqlx::Error> {
         let rows = sqlx::query_as::<_, TaskBindingRow>(AssertSqlSafe(format!(
             "{TASK_BINDING_SELECT} WHERE task_id = $1 ORDER BY created_at ASC"
         )))
@@ -445,7 +148,7 @@ impl PgTaskBindingDao {
         Ok(rows.into_iter().map(TaskBinding::from).collect())
     }
 
-    async fn find_by_task_id_and_subject(
+    pub(crate) async fn find_by_task_id_and_subject(
         &self,
         task_id: &str,
         adapter_kind: &str,
@@ -464,7 +167,7 @@ impl PgTaskBindingDao {
         Ok(row.map(TaskBinding::from))
     }
 
-    async fn find_provider_event_created_for_subject(
+    pub(crate) async fn find_provider_event_created_for_subject(
         &self,
         adapter_kind: &str,
         subject_kind: &str,
@@ -488,7 +191,11 @@ impl PgTaskBindingDao {
     /// injection vector.
     const ALLOWED_DESTINATION_FIELDS: &'static [&'static str] = &["issue_id"];
 
-    async fn find_active_by_destination_field(
+    /// Look up active bindings whose `destination_config->>field_name` equals
+    /// `field_value`. Routes an inbound event that carries a destination-scoped
+    /// identifier (e.g. Linear `issue_id`) rather than the binding's
+    /// `subject_key`.
+    pub(crate) async fn find_active_by_destination_field(
         &self,
         adapter_kind: &str,
         subject_kind: &str,
@@ -516,7 +223,7 @@ impl PgTaskBindingDao {
         Ok(rows.into_iter().map(TaskBinding::from).collect())
     }
 
-    async fn upsert(&self, row: &TaskBinding) -> Result<TaskBinding, sqlx::Error> {
+    pub(crate) async fn upsert(&self, row: &TaskBinding) -> Result<TaskBinding, sqlx::Error> {
         let row = sqlx::query_as::<_, TaskBindingRow>(
             r#"INSERT INTO task_bindings
                (id, task_id, adapter_kind, subject_kind, subject_key, connection_id,
@@ -564,20 +271,12 @@ impl PgTaskBindingDao {
         Ok(TaskBinding::from(row))
     }
 
-    async fn delete(&self, id: &str) -> Result<u64, sqlx::Error> {
-        let result = sqlx::query("DELETE FROM task_bindings WHERE id = $1")
-            .bind(id)
-            .execute(&self.0)
-            .await?;
-        Ok(result.rows_affected())
-    }
-
     /// Deactivate every active binding for a task — called when the task closes
     /// (a closed task is terminal, so its external listeners must stop routing
     /// inbound events). Rows are kept for the admin Task Connections view.
     /// Idempotent: the `active = TRUE` predicate makes re-runs no-ops. Returns
     /// the number of bindings deactivated.
-    async fn deactivate_by_task(&self, task_id: &str) -> Result<u64, sqlx::Error> {
+    pub(crate) async fn deactivate_by_task(&self, task_id: &str) -> Result<u64, sqlx::Error> {
         let result = sqlx::query(
             "UPDATE task_bindings SET active = FALSE, deactivated_at = now() \
              WHERE task_id = $1 AND active = TRUE",
@@ -588,7 +287,7 @@ impl PgTaskBindingDao {
         Ok(result.rows_affected())
     }
 
-    async fn touch_last_event(&self, id: &str) -> Result<(), sqlx::Error> {
+    pub(crate) async fn touch_last_event(&self, id: &str) -> Result<(), sqlx::Error> {
         sqlx::query("UPDATE task_bindings SET last_event_at = now() WHERE id = $1")
             .bind(id)
             .execute(&self.0)
@@ -596,7 +295,11 @@ impl PgTaskBindingDao {
         Ok(())
     }
 
-    async fn mark_task_link_sent(&self, id: &str) -> Result<(), sqlx::Error> {
+    /// Record that this binding's thread has carried a task-provenance footer,
+    /// so later replies in the same thread do not repeat it. Merges into
+    /// `metadata` rather than taking a column: the footer is presentation
+    /// state, not part of the binding's identity.
+    pub(crate) async fn mark_task_link_sent(&self, id: &str) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"UPDATE task_bindings
                SET metadata = COALESCE(metadata, '{}'::jsonb) || '{"task_link_sent": true}'::jsonb
@@ -615,7 +318,7 @@ impl PgTaskBindingDao {
     /// loops yield NULL binding columns. Tasks scoped via `loop_id`
     /// inherit the Loop's scope by construction, so no additional
     /// task-level scope predicate is needed.
-    async fn find_recent_for_loop(
+    pub(crate) async fn find_recent_for_loop(
         &self,
         loop_id: &str,
         limit: i64,
@@ -649,7 +352,7 @@ impl PgTaskBindingDao {
 
     /// Stamp the latest external id we've seen on this binding so context
     /// replay can skip the agent's own posts. Also bumps `last_event_at`.
-    async fn touch_cursor(
+    pub(crate) async fn touch_cursor(
         &self,
         id: &str,
         last_external_event_id: &str,
@@ -667,7 +370,11 @@ impl PgTaskBindingDao {
         Ok(())
     }
 
-    async fn update_external_status(
+    /// Persist the external status of a binding's connected subject (GitHub PR
+    /// / Linear issue). Writes the dedicated `external_status*` columns and
+    /// stamps `external_status_updated_at = now()`. Leaves
+    /// `destination_config` untouched (which `upsert` would clobber).
+    pub(crate) async fn update_external_status(
         &self,
         id: &str,
         status: Option<&str>,
@@ -693,7 +400,7 @@ impl PgTaskBindingDao {
 
     /// Persist the PR's latest review decision (approved / `changes_requested` /
     /// …) onto a binding. Leaves the `external_status*` columns untouched.
-    async fn update_review_decision(
+    pub(crate) async fn update_review_decision(
         &self,
         id: &str,
         review_decision: Option<&str>,
@@ -712,7 +419,7 @@ impl PgTaskBindingDao {
 
     /// Persist the PR's mergeable state (clean / dirty / …) onto a binding.
     /// Leaves the `external_status*` columns untouched.
-    async fn update_mergeable_state(
+    pub(crate) async fn update_mergeable_state(
         &self,
         id: &str,
         mergeable_state: Option<&str>,
@@ -729,7 +436,13 @@ impl PgTaskBindingDao {
         Ok(())
     }
 
-    async fn find_by_task_ids(&self, task_ids: &[String]) -> Result<Vec<TaskBinding>, sqlx::Error> {
+    /// Batch-fetch full binding rows (including `destination_config` and the
+    /// `external_status*` columns) for a set of tasks. Drives the
+    /// task-connections admin view.
+    pub(crate) async fn find_by_task_ids(
+        &self,
+        task_ids: &[String],
+    ) -> Result<Vec<TaskBinding>, sqlx::Error> {
         if task_ids.is_empty() {
             return Ok(vec![]);
         }

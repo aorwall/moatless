@@ -24,7 +24,7 @@ use moatless_core::http_auth::AuthUser;
         (status = 200, description = "List of teams", body = Vec<TeamResponse>)
     )
 )]
-pub async fn list_teams(
+pub(crate) async fn list_teams(
     State(teams): State<Arc<dyn TeamDao>>,
     auth: AuthUser,
 ) -> Result<Json<Vec<TeamResponse>>, TeamError> {
@@ -47,7 +47,7 @@ pub async fn list_teams(
         (status = 409, description = "Slug already taken", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
-pub async fn create_team(
+pub(crate) async fn create_team(
     State(teams): State<Arc<dyn TeamDao>>,
     auth: AuthUser,
     Json(req): Json<CreateTeamRequest>,
@@ -71,7 +71,7 @@ pub async fn create_team(
         (status = 404, description = "Team not found", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
-pub async fn get_team(
+pub(crate) async fn get_team(
     State(teams): State<Arc<dyn TeamDao>>,
     auth: AuthUser,
     Path(team_id): Path<String>,
@@ -96,7 +96,7 @@ pub async fn get_team(
         (status = 404, description = "Team not found", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
-pub async fn update_team(
+pub(crate) async fn update_team(
     State(teams): State<Arc<dyn TeamDao>>,
     auth: AuthUser,
     Path(team_id): Path<String>,
@@ -121,7 +121,7 @@ pub async fn update_team(
         (status = 404, description = "Team not found", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
-pub async fn delete_team(
+pub(crate) async fn delete_team(
     State(teams): State<Arc<dyn TeamDao>>,
     auth: AuthUser,
     Path(team_id): Path<String>,
@@ -144,7 +144,7 @@ pub async fn delete_team(
         (status = 200, description = "List of team members", body = Vec<TeamMemberResponse>)
     )
 )]
-pub async fn list_members(
+pub(crate) async fn list_members(
     State(teams): State<Arc<dyn TeamDao>>,
     auth: AuthUser,
     Path(team_id): Path<String>,
@@ -169,7 +169,7 @@ pub async fn list_members(
         (status = 404, description = "Team not found", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
-pub async fn add_member(
+pub(crate) async fn add_member(
     State(teams): State<Arc<dyn TeamDao>>,
     auth: AuthUser,
     Path(team_id): Path<String>,
@@ -197,7 +197,7 @@ pub async fn add_member(
         (status = 404, description = "Team not found", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
-pub async fn remove_member(
+pub(crate) async fn remove_member(
     State(teams): State<Arc<dyn TeamDao>>,
     auth: AuthUser,
     Path((team_id, user_id)): Path<(String, String)>,

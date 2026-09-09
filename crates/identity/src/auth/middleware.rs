@@ -16,13 +16,13 @@ use tracing::{debug, warn};
 use uuid::Uuid;
 
 use super::api_key::validate_key_cached;
-use super::api_keys::ApiKeyDao;
+use super::api_keys_dao::ApiKeyDao;
 use super::cache::AuthCache;
 use super::cookie::{CSRF_COOKIE_NAME, get_all_cookie_values, get_cookie_value};
 use super::jwt;
 use super::sessions as session;
 use super::sessions::SessionDao;
-use super::users::UserDao;
+use super::users_dao::UserDao;
 use moatless_api_schemas::error::ErrorBody;
 use moatless_core::config::Config;
 use moatless_core::http_auth::UserTokenVerifier;
@@ -38,8 +38,8 @@ const WEBSOCKET_TICKET_PARAM: &str = "wsTicket";
 /// Shared state for the auth middleware layer.
 #[derive(Clone)]
 pub struct AuthMiddlewareState {
-    pub api_keys: Arc<dyn ApiKeyDao>,
-    pub users: Arc<dyn UserDao>,
+    pub(crate) api_keys: Arc<dyn ApiKeyDao>,
+    pub(crate) users: Arc<dyn UserDao>,
     pub(super) sessions: Arc<dyn SessionDao>,
     pub token_verifier: Arc<dyn UserTokenVerifier>,
     pub cache: AuthCache,

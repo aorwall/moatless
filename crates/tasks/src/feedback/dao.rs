@@ -4,33 +4,9 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use sqlx::AssertSqlSafe;
 
-use super::models::{Feedback, FeedbackWithTask, LatestActivity};
+use super::models::{Feedback, FeedbackFilter, FeedbackWithTask, LatestActivity};
 use moatless_core::db::DbPool;
-use moatless_types::access_control::{ScopeContext, ScopedEntity};
-
-/// Filter for the cross-task feedback listing. Every `Some` narrows the result;
-/// `workspace_id` and `repository_id` read the joined task row.
-pub struct FeedbackFilter {
-    pub scope: ScopeContext,
-    pub workspace_id: Option<String>,
-    pub repository_id: Option<String>,
-    pub task_id: Option<String>,
-    /// `'user' | 'agent'`, already validated against `FeedbackSource`.
-    pub source: Option<String>,
-    /// `'task' | 'message' | 'tool_call' | 'preview_failure'`, already
-    /// validated against `FeedbackSurface`.
-    pub surface: Option<String>,
-    /// Already validated against `FeedbackCategory`.
-    pub category: Option<String>,
-    /// `'open' | 'fixed' | 'not_relevant'`, already validated against
-    /// `FeedbackStatus`.
-    pub status: Option<String>,
-    pub created_by: Option<String>,
-    /// Keeps rows created at or after this instant.
-    pub since: Option<DateTime<Utc>>,
-    pub limit: i64,
-    pub offset: i64,
-}
+use moatless_types::access_control::ScopedEntity;
 
 /// DAO trait for feedback persistence.
 #[cfg_attr(test, mockall::automock)]
@@ -343,3 +319,7 @@ impl FeedbackDao for PgFeedbackDao {
         Ok((items, total))
     }
 }
+
+#[cfg(all(test, feature = "db-tests"))]
+#[path = "dao_db_tests.rs"]
+mod dao_db_tests;

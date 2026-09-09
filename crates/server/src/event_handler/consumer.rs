@@ -18,7 +18,7 @@ use moatless_types::task::{TaskSubType, TaskTurnSubType};
 use moatless_loops::adapters::events::TaskEventSubscribers;
 
 use crate::state::AppState;
-use moatless_tasks::task_event::dao::InsertTaskEvent;
+use moatless_tasks::task_event::models::InsertTaskEvent;
 use moatless_tasks::task_turn::models::classify_turn_transition;
 
 use super::agent_handlers;
@@ -335,7 +335,7 @@ impl EventHandlerConsumer {
     /// Idempotent fallback projection of turn state into `task_turns`.
     ///
     /// The gRPC ingress writes turn state transactionally *before*
-    /// publishing (see `task_turn::dao::apply_ingress_event`), so by the time
+    /// publishing (see the turn store's `apply_ingress_event`), so by the time
     /// this consumer sees the event the row is almost always already current and
     /// the projection's `WHERE` guards make this a no-op. It stays as a
     /// rollout/backstop safety net for the rare event that reached Redis without

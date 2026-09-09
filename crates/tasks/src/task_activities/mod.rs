@@ -27,10 +27,10 @@
 //! that surface carries, which is also why a change record names a Message rather
 //! than describing what about it changed.
 
-pub mod dao;
+pub(crate) mod dao;
 pub mod mapping;
 pub mod pruner;
 pub mod view;
 
-pub use dao::Activity;
+pub use moatless_types::activity::Activity;
 pub use pruner::spawn_change_pruner;

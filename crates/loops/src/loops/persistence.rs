@@ -1,11 +1,11 @@
 //! Persisted Loop configuration, subscription, and schedule rows.
 
+use crate::loops::models::{LoopSpawnConfig, Schedule};
 use chrono::{DateTime, Utc};
 use moatless_types::access_control::Scope;
 use moatless_types::adapter::AdapterKind;
 use moatless_types::agent::AgentType;
 use moatless_types::loops::{RoutingMode, SubscriptionMatch};
-use crate::loops::models::{LoopSpawnConfig, Schedule};
 
 /// Row from the `loop_configs` table.
 #[derive(sqlx::FromRow, Debug, Clone)]

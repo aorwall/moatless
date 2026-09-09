@@ -11,11 +11,11 @@ use moatless_api_schemas::message::{
 };
 
 use crate::bindings::access::ensure_task_access_only;
-use crate::bindings::dao::TaskBindingDao;
+use crate::bindings::operations::Bindings;
 use crate::bindings::projection::task_binding_response;
 use crate::bindings::reply::ExternalReplyService;
-use crate::loops::dao::LoopDao;
-use moatless_adapter_model::dao::AdapterConnectionDao;
+use crate::loops::operations::Loops;
+use moatless_adapter_model::connections::AdapterConnections;
 use moatless_adapter_model::error::AdapterError;
 use moatless_core::http_auth::AuthUser;
 use moatless_ports::task::TaskReader;
@@ -28,13 +28,13 @@ use moatless_ports::task::TaskReader;
 )]
 pub async fn list_task_bindings(
     State(tasks): State<Arc<dyn TaskReader>>,
-    State(task_bindings): State<Arc<dyn TaskBindingDao>>,
+    State(task_bindings): State<Arc<Bindings>>,
     auth: AuthUser,
     Path(task_id): Path<String>,
 ) -> Result<Json<Vec<TaskBindingResponse>>, AdapterError> {
     let ctx = auth.scope_context();
     ensure_task_access_only(tasks.as_ref(), &ctx, &task_id).await?;
-    let rows = task_bindings.find_by_task_id(&task_id).await?;
+    let rows = task_bindings.for_task(&task_id).await?;
     Ok(Json(rows.iter().map(task_binding_response).collect()))
 }
 
@@ -47,9 +47,9 @@ pub async fn list_task_bindings(
 )]
 pub async fn create_task_binding(
     State(tasks): State<Arc<dyn TaskReader>>,
-    State(task_bindings): State<Arc<dyn TaskBindingDao>>,
-    State(adapter_connections): State<Arc<dyn AdapterConnectionDao>>,
-    State(loops): State<Arc<LoopDao>>,
+    State(task_bindings): State<Arc<Bindings>>,
+    State(adapter_connections): State<Arc<AdapterConnections>>,
+    State(loops): State<Arc<Loops>>,
     auth: AuthUser,
     Path(task_id): Path<String>,
     Json(req): Json<CreateTaskBindingRequest>,

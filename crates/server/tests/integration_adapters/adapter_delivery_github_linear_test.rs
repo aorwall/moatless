@@ -25,9 +25,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use moatless_adapter_model::delivery::{
-    AdapterDeliveryHandlers, AdapterDeliveryRequest, Admission, DeliveryAdmission,
+    AdapterDeliveryHandlers, AdapterDeliveryRequest, Admission,
 };
-use moatless_backend::adapters::delivery::spawn_adapter_delivery_worker;
 use moatless_backend::adapters::providers::linear;
 use moatless_backend::state::AppState;
 use sqlx::PgPool;
@@ -272,11 +271,9 @@ async fn run_worker_until(
     done: impl AsyncFn() -> bool,
 ) -> bool {
     let cancel = CancellationToken::new();
-    let handle = spawn_adapter_delivery_worker(
-        state.adapter_delivery.clone(),
-        registered_handlers(state),
-        cancel.clone(),
-    );
+    let handle = state
+        .adapter_delivery_worker
+        .spawn(registered_handlers(state), cancel.clone());
     let deadline = tokio::time::Instant::now() + budget;
     let mut finished = false;
     while tokio::time::Instant::now() < deadline {

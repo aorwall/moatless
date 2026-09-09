@@ -2,15 +2,15 @@
 
 ## What this crate owns
 
-The `task_bindings` table and its `TaskBindingDao` store (`bindings/dao.rs`),
-and the four Loop tables and their `LoopDao` store. No other crate declares
-either. `bindings/ports.rs` and `loops/ports.rs` document which seam a crate
-reads instead of naming a store.
+The `task_bindings` table, the four Loop tables, `adapter_delivery` and the two
+adapter-event receipt tables. Every store over them is private to this crate.
+`compose::loop_graph` is the only place one is built, and it hands out the
+handles a host may hold: `Loops`, `Bindings`, `BindingDirectory`,
+`AdapterDeliveryWorker`, `LoopReader` and `DeliveryAdmission`. Add a capability
+to the graph rather than a getter that returns a store.
 
-An Adapter names `LoopReader` and never `LoopDao`. One exception stands:
-`adapter-telegram/src/pairing/approval.rs` names `LoopDao`, because it reads and
-writes a Loop's adapter config while it approves a pairing code. See
-`docs/deferred-changes.md`.
+An Adapter names `LoopReader` or `Bindings` and never a store.
+`bindings/ports.rs` and `loops/ports.rs` document which seam a crate reads.
 
 SQL row decoding belongs to `loops/persistence.rs` and `bindings/persistence.rs`
 beside those stores. The Adapter kernel owns only connection persistence.
@@ -43,7 +43,7 @@ A delivery handler still emits its own `record_webhook`
 `{adapter, kind, outcome}` and cannot show one broken connection;
 `record_webhook` carries `event_type`, `loop_id` and `connection_id`.
 
-Wrap `AdmitError::Store` at its raise site in `adapters/delivery/store.rs`, so
+Wrap `AdmitError::Store` at its raise site in `adapters/delivery/dao.rs`, so
 the `sqlx::Error` survives as a `StoreError` source and never enters the type
 providers match on.
 

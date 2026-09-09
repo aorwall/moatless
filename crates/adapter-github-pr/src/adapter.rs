@@ -5,12 +5,12 @@ use std::sync::Arc;
 use moatless_adapter_model::capabilities::{
     Adapter, AdapterInboundPresentation, AdapterOutboundContent,
 };
-use moatless_adapter_model::dao::AdapterConnectionDao;
+use moatless_adapter_model::connections::ConnectionLookup;
 use moatless_adapter_model::delivery::DeliveryAdmission;
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_adapter_model::loops::LoopReader;
 use moatless_adapter_model::registry::Adapters;
-use moatless_loops::bindings::dao::TaskBindingDao;
+use moatless_loops::bindings::operations::Bindings;
 use moatless_ports::identity::GitHostTokenIssuer;
 use moatless_ports::identity::ProviderIdentityLink;
 use moatless_types::adapter::AdapterKind;
@@ -29,9 +29,9 @@ pub struct GithubPrAdapter {
     /// GitHub identity selection and credential materialization.
     auth: GithubPrAuth,
     /// Persistence capabilities supplied by [`Self::with_ingress_ports`].
-    adapter_connections: Option<Arc<dyn AdapterConnectionDao>>,
+    adapter_connections: Option<Arc<dyn ConnectionLookup>>,
     loops: Option<Arc<dyn LoopReader>>,
-    task_bindings: Option<Arc<dyn TaskBindingDao>>,
+    task_bindings: Option<Arc<Bindings>>,
     users: Option<Arc<dyn ProviderIdentityLink>>,
     adapter_delivery: Option<Arc<dyn DeliveryAdmission>>,
 }
@@ -87,9 +87,9 @@ impl GithubPrAdapter {
     #[must_use]
     pub fn with_ingress_ports(
         mut self,
-        adapter_connections: Arc<dyn AdapterConnectionDao>,
+        adapter_connections: Arc<dyn ConnectionLookup>,
         loops: Arc<dyn LoopReader>,
-        task_bindings: Arc<dyn TaskBindingDao>,
+        task_bindings: Arc<Bindings>,
         users: Arc<dyn ProviderIdentityLink>,
         adapter_delivery: Arc<dyn DeliveryAdmission>,
     ) -> Self {
@@ -105,7 +105,7 @@ impl GithubPrAdapter {
     /// only if this adapter was built without ingress ports (a test constructor).
     pub(super) fn require_adapter_connections(
         &self,
-    ) -> Result<&dyn AdapterConnectionDao, AdapterError> {
+    ) -> Result<&dyn ConnectionLookup, AdapterError> {
         self.adapter_connections
             .as_deref()
             .ok_or_else(|| missing_port("adapter_connections"))
@@ -117,7 +117,7 @@ impl GithubPrAdapter {
     }
 
     /// The binding store, for the subscription/binding reads admission plans on.
-    pub(super) fn require_task_bindings(&self) -> Result<&Arc<dyn TaskBindingDao>, AdapterError> {
+    pub(super) fn require_task_bindings(&self) -> Result<&Arc<Bindings>, AdapterError> {
         self.task_bindings
             .as_ref()
             .ok_or_else(|| missing_port("task_bindings"))
@@ -223,8 +223,7 @@ mod tests {
     use moatless_adapter_model::capabilities::{
         Adapter, AdapterDestinationBuilder, AdapterInboundPresentation, AdapterOutboundContent,
     };
-    use moatless_core::db::DbPool;
-    use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
+    use moatless_identity::auth::test_support::StubProviderTokens;
 
     use super::GithubPrAdapter;
 
@@ -273,18 +272,7 @@ mod tests {
         GithubPrAdapter::new(
             None,
             "https://app.example.com".to_string(),
-            moatless_identity::git_host_tokens::seam_over(fake_provider_tokens()),
+            moatless_identity::git_host_tokens::seam_over(Arc::new(StubProviderTokens::default())),
         )
-    }
-
-    fn fake_db_pool() -> DbPool {
-        sqlx::postgres::PgPoolOptions::new()
-            .max_connections(1)
-            .connect_lazy("postgres://fake:fake@localhost:1/fake")
-            .unwrap()
-    }
-
-    fn fake_provider_tokens() -> Arc<dyn ProviderTokenDao> {
-        Arc::new(moatless_identity::auth::provider_token_dao::PgProviderTokenDao(fake_db_pool()))
     }
 }

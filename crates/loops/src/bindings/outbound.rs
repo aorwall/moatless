@@ -5,27 +5,25 @@ use std::sync::Arc;
 use tracing::warn;
 
 use moatless_adapter_model::outbound::{OutboundFile, OutboundReply, TaskOrigin, TaskProvenance};
-use moatless_core::config::S3Config;
 use moatless_types::access_control::ScopeContext;
 use moatless_types::adapter::TaskBinding;
 use moatless_types::adapter::{AdapterKind, OutboundPresentation};
 use moatless_types::auth::AuthConfig;
 use moatless_types::loops::SubscriptionMatch;
 
-use crate::bindings::dao::TaskBindingDao;
 use crate::bindings::metrics::record_outbound;
+use crate::bindings::operations::Bindings;
 use crate::bindings::recently_sent::RecentlySent;
 use crate::loops::dao::LoopDao;
-use moatless_adapter_model::dao::AdapterConnectionDao;
+use moatless_adapter_model::connections::ConnectionRouting;
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_adapter_model::registry::Adapters;
-use moatless_core::file_storage::dao::FileDao;
+use moatless_core::file_storage::Files;
 use moatless_ports::identity::UserDisplay;
 use moatless_ports::task::{
     ExternalEvent, TaskReader, TranscriptAppend, TranscriptEntry, TranscriptEntryKind, TurnCounter,
 };
 use moatless_ports::workspace::WorkspaceResolver;
-use moatless_s3::S3Storage;
 
 /// Whether this thread has already carried a provenance footer.
 ///
@@ -64,17 +62,15 @@ pub fn checked_presentation(
 /// no second implementation) rather than a speculative abstraction — what earns
 /// it is the parameter list `send_to_binding` would otherwise carry.
 pub struct OutboundSender {
-    task_bindings: Arc<dyn TaskBindingDao>,
-    adapter_connections: Arc<dyn AdapterConnectionDao>,
+    task_bindings: Arc<Bindings>,
+    adapter_connections: Arc<ConnectionRouting>,
     loops: Arc<LoopDao>,
     tasks: Arc<dyn TaskReader>,
     recently_sent: Arc<RecentlySent>,
     messages: Arc<dyn TranscriptAppend>,
     task_turns: Arc<dyn TurnCounter>,
-    s3: Option<S3Storage>,
     auth_config: Arc<AuthConfig>,
-    s3_config: Arc<S3Config>,
-    files: Arc<dyn FileDao>,
+    files: Arc<Files>,
     workspaces: Arc<dyn WorkspaceResolver>,
     users: Arc<dyn UserDisplay>,
 }
@@ -84,18 +80,16 @@ impl OutboundSender {
     // reason: a composition-root constructor takes exactly the ports its struct
     // holds; the alternative is threading `AppState` back in, which is the edge
     // this slice removes.
-    pub fn new(
-        task_bindings: Arc<dyn TaskBindingDao>,
-        adapter_connections: Arc<dyn AdapterConnectionDao>,
+    pub(crate) fn new(
+        task_bindings: Arc<Bindings>,
+        adapter_connections: Arc<ConnectionRouting>,
         loops: Arc<LoopDao>,
         tasks: Arc<dyn TaskReader>,
         recently_sent: Arc<RecentlySent>,
         messages: Arc<dyn TranscriptAppend>,
         task_turns: Arc<dyn TurnCounter>,
-        s3: Option<S3Storage>,
         auth_config: Arc<AuthConfig>,
-        s3_config: Arc<S3Config>,
-        files: Arc<dyn FileDao>,
+        files: Arc<Files>,
         workspaces: Arc<dyn WorkspaceResolver>,
         users: Arc<dyn UserDisplay>,
     ) -> Self {
@@ -107,9 +101,7 @@ impl OutboundSender {
             recently_sent,
             messages,
             task_turns,
-            s3,
             auth_config,
-            s3_config,
             files,
             workspaces,
             users,
@@ -133,7 +125,7 @@ impl OutboundSender {
         presentation: Option<OutboundPresentation>,
     ) -> Result<(u32, Vec<String>), AdapterError> {
         let binding_repo = self.task_bindings.clone();
-        let binding = binding_repo.find_by_id(binding_id).await?.ok_or_else(|| {
+        let binding = binding_repo.get(binding_id).await?.ok_or_else(|| {
             SharedAdapterError::ConfigNotFound(format!("No task binding {binding_id}"))
         })?;
 
@@ -144,12 +136,9 @@ impl OutboundSender {
             .into());
         }
 
-        #[allow(clippy::disallowed_methods)]
-        // reason: outbound reply path runs as background system, no caller identity
-        let sys = ScopeContext::system();
         let connection = self
             .adapter_connections
-            .find_by_id(&binding.connection_id, &sys)
+            .by_id_trusted(&binding.connection_id)
             .await?
             .ok_or_else(|| {
                 SharedAdapterError::ConfigNotFound(format!(
@@ -279,7 +268,7 @@ impl OutboundSender {
                     warn!(task_id = %task_id, error = %e, "Failed to tag outbound stub with external_event_id");
                 }
             }
-            if let Err(e) = binding_repo.touch_cursor(&binding.id, ext_id).await {
+            if let Err(e) = binding_repo.advance_cursor(&binding.id, ext_id).await {
                 warn!(
                     binding_id = %binding.id,
                     error = %e,
@@ -443,11 +432,9 @@ impl OutboundSender {
         }
     }
 
-    /// Resolve file IDs to [`OutboundFile`] structs by loading metadata + data
-    /// from S3. Delegates to the shared [`resolve_files_with`] body so callers
-    /// that hold the ports directly and this method never drift.
+    /// The uploads a reply carries, as the adapter kernel names them.
     pub(crate) async fn resolve_files(&self, file_ids: &[String]) -> Vec<OutboundFile> {
-        resolve_files_with(&self.s3, &self.s3_config, self.files.as_ref(), file_ids).await
+        outbound_files(&self.files, file_ids).await
     }
 }
 
@@ -469,62 +456,22 @@ pub fn truncate_text(text: &str, max: usize) -> String {
     format!("{}...", &text[..safe])
 }
 
-// ---------------------------------------------------------------------------
-// File attachment helpers
-// ---------------------------------------------------------------------------
-
-/// The file-resolution body, over the exact ports it reads.
-/// [`OutboundSender::resolve_files`] and `adapters/handlers.rs` both forward
-/// here, each passing the S3 and file ports it already holds.
-pub async fn resolve_files_with(
-    s3: &Option<S3Storage>,
-    s3_config: &S3Config,
-    files: &dyn FileDao,
-    file_ids: &[String],
-) -> Vec<OutboundFile> {
-    if file_ids.is_empty() {
-        return vec![];
-    }
-
-    let Some(s3_client) = s3.as_ref() else {
-        warn!("S3 not configured, cannot resolve file attachments");
-        return vec![];
-    };
-    let Some(bucket) = s3_config.bucket_name.as_ref() else {
-        warn!("S3 bucket not configured, cannot resolve file attachments");
-        return vec![];
-    };
-
-    let mut resolved = Vec::with_capacity(file_ids.len());
-    for file_id in file_ids {
-        let meta = match files.find_by_id(file_id).await {
-            Ok(Some(m)) => m,
-            Ok(None) => {
-                warn!(file_id = %file_id, "File metadata not found for outbound attachment");
-                continue;
-            }
-            Err(e) => {
-                warn!(file_id = %file_id, error = %e, "Failed to load file metadata");
-                continue;
-            }
-        };
-
-        let s3_key = format!("{}/{}", s3_config.key_prefix, file_id);
-        match moatless_s3::get_object(&s3_client.client, bucket, &s3_key).await {
-            Ok((data, _content_type)) => {
-                resolved.push(OutboundFile {
-                    filename: meta.filename,
-                    mime_type: meta.mime_type,
-                    data,
-                });
-            }
-            Err(e) => {
-                warn!(file_id = %file_id, error = %e, "Failed to download file from S3");
-            }
-        }
-    }
-
-    resolved
+/// The uploads `file_ids` names, as [`OutboundFile`]s.
+///
+/// [`Files`] owns the lookup and the warn-and-skip policy; this only renames
+/// the result into the adapter kernel's vocabulary, which `moatless-core` sits
+/// below and cannot name.
+pub async fn outbound_files(files: &Files, file_ids: &[String]) -> Vec<OutboundFile> {
+    files
+        .resolve_attachments(file_ids)
+        .await
+        .into_iter()
+        .map(|file| OutboundFile {
+            filename: file.filename,
+            mime_type: file.mime_type,
+            data: file.data,
+        })
+        .collect()
 }
 
 #[cfg(test)]

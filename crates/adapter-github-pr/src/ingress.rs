@@ -9,13 +9,13 @@ use std::sync::Arc;
 use sha2::{Digest, Sha256};
 use tracing::{debug, warn};
 
-use moatless_adapter_model::dao::AdapterConnectionDao;
+use moatless_adapter_model::connections::ConnectionLookup;
 use moatless_adapter_model::delivery::AdapterDeliveryRequest;
 use moatless_adapter_model::delivery::DeliveryAdmission;
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_adapter_model::ingress::{IngressError, Outcome};
 use moatless_adapter_model::loops::LoopReader;
-use moatless_loops::bindings::dao::TaskBindingDao;
+use moatless_loops::bindings::operations::Bindings;
 use moatless_ports::identity::ProviderIdentityLink;
 use moatless_types::adapter::AdapterConnection;
 use moatless_types::loops::SubscriptionMatch;
@@ -60,10 +60,10 @@ fn ingress(e: AdapterError) -> IngressError {
 
 /// Verify, normalize, plan, and durably admit one GitHub webhook.
 pub(crate) async fn receive(
-    adapter_connections: &dyn AdapterConnectionDao,
+    adapter_connections: &dyn ConnectionLookup,
     loops: &dyn LoopReader,
     users: &dyn ProviderIdentityLink,
-    task_bindings: &Arc<dyn TaskBindingDao>,
+    task_bindings: &Arc<Bindings>,
     adapter_delivery: &dyn DeliveryAdmission,
     github_provider: &GithubPrAdapter,
     request: WebhookRequest<'_>,
@@ -366,13 +366,13 @@ pub(crate) async fn receive(
 /// optional because existing PR bindings remain opted in even when no trigger
 /// matches; only trigger-created Task behavior requires the real Subscription.
 async fn resolve_provider_event(
-    adapter_connections: &dyn AdapterConnectionDao,
+    adapter_connections: &dyn ConnectionLookup,
     loops: &dyn LoopReader,
     org: &str,
     repo_full_name: &str,
 ) -> Result<Option<(AdapterConnection, Option<SubscriptionMatch>)>, AdapterError> {
     let connection = adapter_connections
-        .find_by_scope_value(super::delivery::ADAPTER, org)
+        .by_scope_value(super::delivery::ADAPTER, org)
         .await?;
     let Some(connection) = connection else {
         return Ok(None);

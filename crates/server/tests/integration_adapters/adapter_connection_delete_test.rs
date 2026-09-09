@@ -14,18 +14,18 @@
 //! that is not there — a delete must not confirm existence the read would
 //! have hidden.
 
-use moatless_types::adapter::AdapterKind;
 use crate::common;
+use moatless_types::adapter::AdapterKind;
 
 use chrono::Utc;
 use tower::ServiceExt;
 
-use moatless_types::adapter::AdapterConnection;
 use moatless_backend::adapters::routes::adapter_router;
-use moatless_types::access_control::Scope;
 use moatless_backend::state::AppState;
+use moatless_types::access_control::Scope;
+use moatless_types::adapter::AdapterConnection;
 
-use common::{authed_request, test_app_state, user_scope, USER_1, USER_2};
+use common::{USER_1, USER_2, authed_request, test_app_state, user_scope};
 
 /// Write an `adapter_connections` row owned by `user_id`.
 async fn seed_connection(state: &AppState, id: &str, user_id: &str) -> String {
@@ -46,7 +46,7 @@ async fn seed_connection(state: &AppState, id: &str, user_id: &str) -> String {
     };
     state
         .adapter_connections
-        .upsert(&row, &user_scope(user_id))
+        .save(&user_scope(user_id), &row)
         .await
         .expect("upsert adapter connection")
         .id
@@ -72,7 +72,7 @@ async fn owner_deletes_their_connection_once(pool: sqlx::PgPool) {
     assert!(
         state
             .adapter_connections
-            .find_by_id(&id, &user_scope(USER_1))
+            .get(&user_scope(USER_1), &id)
             .await
             .unwrap()
             .is_none(),
@@ -114,7 +114,7 @@ async fn another_users_connection_is_not_deletable(pool: sqlx::PgPool) {
     assert!(
         state
             .adapter_connections
-            .find_by_id(&id, &user_scope(USER_1))
+            .get(&user_scope(USER_1), &id)
             .await
             .unwrap()
             .is_some(),

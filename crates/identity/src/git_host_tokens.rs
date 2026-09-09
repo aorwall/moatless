@@ -21,10 +21,10 @@ use crate::auth::error::AuthError;
 use crate::auth::github::registry::GitHubAppRegistry;
 use crate::auth::github::service::GitHubAppService;
 use crate::auth::models::ProviderToken;
+use crate::auth::provider_token_auth_dao::ProviderTokenAuthDao;
 use crate::auth::provider_token_dao::ProviderTokenDao;
 use crate::auth::provider_tokens::{
     AUTH_METHOD_APP_INSTALLATION, AUTH_METHOD_APP_USER, AUTH_METHOD_SECRET_REF,
-    ProviderTokenAuthDao,
 };
 use crate::auth::token_refresh::ensure_fresh_token;
 use crate::secret::service::SecretService;
@@ -50,7 +50,7 @@ pub struct GitHostTokens {
 }
 
 impl GitHostTokens {
-    pub fn new(
+    pub(crate) fn new(
         provider_tokens: Arc<dyn ProviderTokenDao>,
         provider_token_auth: Arc<dyn ProviderTokenAuthDao>,
         github_app_service: Option<Arc<GitHubAppService>>,
@@ -69,7 +69,7 @@ impl GitHostTokens {
 
     /// Wire the store that answers what a Workspace pins.
     #[must_use]
-    pub fn with_workspace_credentials(
+    pub(crate) fn with_workspace_credentials(
         mut self,
         workspace_credentials: Arc<dyn WorkspaceCredentialReader>,
     ) -> Self {
@@ -315,10 +315,12 @@ fn classify(actor: &Actor, repo: &GitHostRepo, source: AuthError) -> GitHostToke
 // `test` stays first so the census keeps scoring this fake as test-context; the
 // feature exposes it to other crates' tests (see Cargo.toml `test-support`).
 #[cfg(any(test, feature = "test-support"))]
-pub fn seam_over(provider_tokens: Arc<dyn ProviderTokenDao>) -> Arc<dyn GitHostTokenIssuer> {
+pub fn seam_over(
+    provider_tokens: Arc<crate::auth::test_support::StubProviderTokens>,
+) -> Arc<dyn GitHostTokenIssuer> {
     Arc::new(GitHostTokens::new(
         provider_tokens,
-        Arc::new(crate::auth::provider_tokens::MockProviderTokenAuthDao::new()),
+        Arc::new(crate::auth::provider_token_auth_dao::MockProviderTokenAuthDao::new()),
         None,
         Arc::new(GitHubAppRegistry::default()),
         Arc::new(crate::secret::test_support::service_with(vec![])),
@@ -365,7 +367,8 @@ mod tests {
     use super::*;
     use std::collections::HashMap;
 
-    use crate::auth::provider_tokens::{MockProviderTokenAuthDao, SECRET_REF_TOKEN_PLACEHOLDER};
+    use crate::auth::provider_token_auth_dao::MockProviderTokenAuthDao;
+    use crate::auth::provider_tokens::SECRET_REF_TOKEN_PLACEHOLDER;
     use crate::auth::test_support::{StubProviderTokens, github_row};
     use crate::secret::test_support::{secret, service_with};
 

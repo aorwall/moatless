@@ -3,17 +3,16 @@
 
 use std::sync::Arc;
 
-use chrono::Utc;
 use tracing::{debug, info, warn};
 
-use crate::bindings::dao::TaskBindingDao;
+use crate::bindings::operations::Bindings;
 use crate::bindings::recipients::{EventProvenance, resolve_recipients};
 use crate::loops::dao::LoopDao;
 use crate::loops::firing::inbound;
-use crate::loops::firing::receipts::EventReceiptDao;
+use crate::loops::firing::receipts_dao::EventReceipts;
 use moatless_adapter_model::binding::binding_context;
 use moatless_adapter_model::capabilities::AdapterInboundPresentation;
-use moatless_adapter_model::dao::AdapterConnectionDao;
+use moatless_adapter_model::connections::ConnectionRouting;
 use moatless_adapter_model::delivery::AdapterDeliveryFailure;
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_adapter_model::loops::subscription_context;
@@ -27,7 +26,6 @@ use moatless_ports::task::{EventSubject, InboundTurn, TaskOpenError, TaskOpener,
 use moatless_tasks::message::wake::wake_for_message;
 use moatless_types::access_control::ScopeContext;
 use moatless_types::adapter::AdapterConnection;
-use moatless_types::adapter::AdapterKind;
 use moatless_types::adapter::TaskBinding;
 use moatless_types::adapter::{Audience, InboundMessage};
 use moatless_types::loops::RoutingMode;
@@ -42,21 +40,19 @@ pub use moatless_adapter_model::binding::CONNECTED_THREAD_BINDING_ORIGIN as ORIG
 ///
 /// Held on `AppState` as `state.routing` and built once at the composition root.
 /// The durable inbound-delivery handler holds a single `Arc<RoutingService>`
-/// rather than a field per port, and `subject_events` routes through it too. The
-/// provider-facing operations (`parent_author_task_id`, `external_id_aliases`,
-/// `upsert_binding`) are reached through the ports they read directly — the
-/// `pub(crate)` methods on `RoutingService` and the `upsert_binding_into` core
-/// below — so provider callers pass those ports and this module names no
+/// rather than a field per port, and `subject_events` routes through it too. A
+/// provider that drives the Binding lifecycle itself holds
+/// [`crate::bindings::operations::Bindings`] instead, so this module names no
 /// `AppState`. See `docs/deferred-changes.md`.
 pub struct RoutingService {
-    adapter_connections: Arc<dyn AdapterConnectionDao>,
+    adapter_connections: Arc<ConnectionRouting>,
     loops: Arc<LoopDao>,
-    task_bindings: Arc<dyn TaskBindingDao>,
+    task_bindings: Arc<Bindings>,
     messages: Arc<dyn TranscriptAppend>,
     tasks: Arc<dyn TaskReader>,
     task_creation: Arc<dyn TaskOpener>,
     message_send: Arc<dyn MessageAcceptor>,
-    event_receipts: Arc<dyn EventReceiptDao>,
+    event_receipts: Arc<EventReceipts>,
     sandbox_waker: Arc<dyn SandboxWaker>,
     adapters: Option<Arc<Adapters>>,
 }
@@ -80,15 +76,15 @@ impl RoutingService {
                   from the composition root, and there is no narrower grouping \
                   that is not itself an AppState-shaped bag"
     )]
-    pub fn new(
-        adapter_connections: Arc<dyn AdapterConnectionDao>,
+    pub(crate) fn new(
+        adapter_connections: Arc<ConnectionRouting>,
         loops: Arc<LoopDao>,
-        task_bindings: Arc<dyn TaskBindingDao>,
+        task_bindings: Arc<Bindings>,
         messages: Arc<dyn TranscriptAppend>,
         tasks: Arc<dyn TaskReader>,
         task_creation: Arc<dyn TaskOpener>,
         message_send: Arc<dyn MessageAcceptor>,
-        event_receipts: Arc<dyn EventReceiptDao>,
+        event_receipts: Arc<EventReceipts>,
         sandbox_waker: Arc<dyn SandboxWaker>,
         adapters: Option<Arc<Adapters>>,
     ) -> Self {
@@ -117,14 +113,9 @@ impl RoutingService {
         connection_id: &str,
         loop_id: &str,
     ) -> Result<(AdapterConnection, SubscriptionMatch), AdapterDeliveryFailure> {
-        // reason: a durable Adapter delivery runs in the worker with no user session;
-        // the connection is named by an already-admitted record, not by caller
-        // input.
-        #[allow(clippy::disallowed_methods)]
-        let sys_ctx = ScopeContext::system();
         let connection = self
             .adapter_connections
-            .find_by_id(connection_id, &sys_ctx)
+            .by_id_trusted(connection_id)
             .await
             .map_err(AdapterDeliveryFailure::retryable)?
             .ok_or_else(|| {
@@ -206,7 +197,7 @@ impl RoutingService {
         };
 
         let mut bindings = binding_repo
-            .find_by_subject(adapter_label, subject_kind, subject_key)
+            .for_subject(adapter_label, subject_kind, subject_key)
             .await?;
 
         // Skip bindings whose task has closed — a closed task is terminal and must
@@ -216,19 +207,20 @@ impl RoutingService {
 
         if let Some(origin_task_id) = origin_task_id.as_deref() {
             if !bindings.iter().any(|s| s.task_id == origin_task_id) {
-                let sub = upsert_binding_into(
-                    self.task_bindings.as_ref(),
-                    connection,
-                    Some(subscription),
-                    origin_task_id,
-                    adapter_label,
-                    subject_kind,
-                    subject_key,
-                    destination_config.clone(),
-                    ORIGIN_CONNECTED_THREAD,
-                    msg.external_event_id.clone(),
-                )
-                .await?;
+                let sub = self
+                    .task_bindings
+                    .bind(
+                        connection,
+                        Some(subscription),
+                        origin_task_id,
+                        adapter_label,
+                        subject_kind,
+                        subject_key,
+                        destination_config.clone(),
+                        ORIGIN_CONNECTED_THREAD,
+                        msg.external_event_id.clone(),
+                    )
+                    .await?;
                 bindings.push(sub);
             }
         }
@@ -241,19 +233,20 @@ impl RoutingService {
                     // context, and `touch_cursor` advances it after delivery. For an
                     // existing binding the COALESCE in the upsert preserves the
                     // current cursor.
-                    let sub = upsert_binding_into(
-                        self.task_bindings.as_ref(),
-                        connection,
-                        Some(subscription),
-                        &task_id,
-                        adapter_label,
-                        subject_kind,
-                        subject_key,
-                        destination_config.clone(),
-                        ORIGIN_ADAPTER_EVENT,
-                        None,
-                    )
-                    .await?;
+                    let sub = self
+                        .task_bindings
+                        .bind(
+                            connection,
+                            Some(subscription),
+                            &task_id,
+                            adapter_label,
+                            subject_kind,
+                            subject_key,
+                            destination_config.clone(),
+                            ORIGIN_ADAPTER_EVENT,
+                            None,
+                        )
+                        .await?;
                     bindings.push(sub);
                 }
             }
@@ -351,19 +344,20 @@ impl RoutingService {
                     // Seed the cursor as None so `fetch_context` retrieves the full
                     // prior thread on the first delivery; `touch_cursor` advances it
                     // afterward.
-                    let sub = upsert_binding_into(
-                        self.task_bindings.as_ref(),
-                        connection,
-                        Some(subscription),
-                        &task_id,
-                        adapter_label,
-                        subject_kind,
-                        subject_key,
-                        destination_config.clone(),
-                        ORIGIN_ADAPTER_EVENT,
-                        None,
-                    )
-                    .await?;
+                    let sub = self
+                        .task_bindings
+                        .bind(
+                            connection,
+                            Some(subscription),
+                            &task_id,
+                            adapter_label,
+                            subject_kind,
+                            subject_key,
+                            destination_config.clone(),
+                            ORIGIN_ADAPTER_EVENT,
+                            None,
+                        )
+                        .await?;
                     new_task_binding_id = Some(sub.id.clone());
                     bindings.push(sub);
                     // Point the claim at the task it produced. A later delivery
@@ -800,12 +794,9 @@ impl RoutingService {
             .await
             .map_err(|e| AdapterError::task_handoff("deliver a provider turn to a task", e))?;
 
-        let repo = self.task_bindings.clone();
-        if let Some(ref ext_id) = msg.external_event_id {
-            repo.touch_cursor(&binding.id, ext_id).await?;
-        } else {
-            repo.touch_last_event(&binding.id).await?;
-        }
+        self.task_bindings
+            .record_inbound_event(binding, msg.external_event_id.as_deref())
+            .await?;
 
         if !is_new_task {
             if let Some(e) = wake_for_message(self.sandbox_waker.as_ref(), &binding.task_id).await {
@@ -847,58 +838,6 @@ pub struct Fanout<'a> {
     /// The binding whose task this very event created, if any. Its delivery
     /// does not wake a sandbox that task creation is already provisioning.
     pub new_task_binding_id: Option<&'a str>,
-}
-
-/// Upsert a canonical task binding through the one port it needs — the
-/// `task_bindings` DAO; every other parameter is binding-identity data. Callers
-/// hold the port and pass it directly, so this names no `AppState`.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "nine binding-identity data parameters plus the one task_bindings \
-              port; there is no AppState or port bundle to hoist, so the width is \
-              the binding's own identity threaded to the DAO"
-)]
-pub async fn upsert_binding_into(
-    task_bindings: &dyn TaskBindingDao,
-    connection: &AdapterConnection,
-    subscription: Option<&SubscriptionMatch>,
-    task_id: &str,
-    provider: &str,
-    subject_kind: &str,
-    subject_key: &str,
-    destination_config: serde_json::Value,
-    origin: &str,
-    last_external_event_id: Option<String>,
-) -> Result<TaskBinding, AdapterError> {
-    let now = Utc::now();
-    let filter_uid = destination_config
-        .get("filter_user_id")
-        .cloned()
-        .unwrap_or(serde_json::Value::Null);
-    let binding = TaskBinding {
-        id: format!("ts_{}", uuid::Uuid::new_v4()),
-        task_id: task_id.to_string(),
-        adapter_kind: AdapterKind::parse_or_webhook(provider),
-        subject_kind: subject_kind.to_string(),
-        subject_key: subject_key.to_string(),
-        connection_id: connection.id.clone(),
-        loop_id: subscription.map(|r| r.id.clone()),
-        destination_config,
-        metadata: serde_json::json!({ "filter_user_id": filter_uid }),
-        last_external_event_id,
-        origin: origin.to_string(),
-        created_at: now,
-        last_event_at: now,
-        external_status: None,
-        external_state_kind: None,
-        external_status_raw: None,
-        external_review_decision: None,
-        external_mergeable_state: None,
-        external_status_updated_at: None,
-        active: true,
-        deactivated_at: None,
-    };
-    Ok(task_bindings.upsert(&binding).await?)
 }
 
 fn should_filter_self_echo(binding: &TaskBinding, user_id: &str) -> bool {

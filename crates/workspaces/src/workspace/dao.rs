@@ -3,88 +3,22 @@
 use async_trait::async_trait;
 use sqlx::AssertSqlSafe;
 
-use std::collections::HashMap;
-
 use super::models::{
-    ListedWorkspaceRow, ResourceConfig, ScriptConfig, ServerConfig, Workspace, WorkspaceKind,
-    WorkspaceRepo, WorkspaceRepoRow, WorkspaceRow, WorkspaceSource, encode_column,
+    ListedWorkspace, ListedWorkspaceRow, ScriptConfig, Workspace, WorkspacePatch, WorkspaceRepo,
+    WorkspaceRepoRow, WorkspaceRow, WorkspaceScriptsTarget, encode_column,
 };
 use moatless_core::db::DbPool;
-use moatless_types::access_control::{Scope, ScopeContext, ScopedEntity};
+use moatless_types::access_control::{ScopeContext, ScopedEntity};
 
 const ACTIVE_OR_GIT_TOMBSTONE: &str = "((deleted IS NULL OR deleted = false) OR \
     (deleted = true AND source = 'manual' AND source_repository_id IS NOT NULL AND source_key IS NOT NULL))";
 
-/// A workspace in a widened listing, and whether the caller may actually read
-/// it.
-///
-/// [`WorkspaceDao::list_readable_including`] returns a union of two sets
-/// with different rules behind them: the workspaces the read rule admits, and
-/// the workspaces something the caller may see happens to reference. A row from
-/// the second half is present so that a listing can render a group for it — not
-/// because the caller was granted anything — and a caller that cannot tell the
-/// halves apart will project them alike and disclose the second half's
-/// configuration.
-///
-/// The flag is evaluated by the same access filter the `WHERE` clause is built
-/// from, in the same statement, so the two cannot drift.
-#[derive(Debug, Clone)]
-pub struct ListedWorkspace {
-    pub workspace: Workspace,
-    pub readable: bool,
-}
-
-/// Source ownership and the stored scripts needed for a guarded replacement.
-#[derive(Debug, Clone)]
-pub struct WorkspaceScriptsTarget {
-    pub source: String,
-    pub scripts: Vec<ScriptConfig>,
-}
-
-impl TryFrom<ListedWorkspaceRow> for ListedWorkspace {
-    type Error = sqlx::Error;
-
-    fn try_from(row: ListedWorkspaceRow) -> Result<Self, Self::Error> {
-        Ok(Self {
-            workspace: Workspace::try_from(row.workspace)?,
-            readable: row.readable,
-        })
-    }
-}
-
-/// Patch struct for partial workspace updates. Outer `Option` = "field present
-/// in the patch"; inner `Option` = the nullable column value.
-#[derive(Default)]
-pub struct WorkspacePatch {
-    pub name: Option<String>,
-    pub description: Option<Option<String>>,
-    pub kind: Option<WorkspaceKind>,
-    pub scope: Option<Scope>,
-    pub owner_user_id: Option<Option<String>>,
-    pub run_as_user_id: Option<Option<String>>,
-    pub docker_image: Option<Option<String>>,
-    pub docker_access: Option<Option<bool>>,
-    pub sandbox_service_account: Option<Option<String>>,
-    pub system_prompt: Option<Option<String>>,
-    pub setup_commands: Option<Option<Vec<String>>>,
-    pub env_vars: Option<Option<HashMap<String, String>>>,
-    pub servers: Option<Option<Vec<ServerConfig>>>,
-    pub scripts: Option<Option<Vec<ScriptConfig>>>,
-    pub resources: Option<Option<ResourceConfig>>,
-    pub network_profile: Option<Option<String>>,
-    pub source: Option<WorkspaceSource>,
-    pub source_repository_id: Option<Option<String>>,
-    pub source_key: Option<Option<String>>,
-    pub source_config_path: Option<Option<String>>,
-}
-
 /// DAO trait for workspace persistence.
 // reason: `credentials::service` gates its writes on the owning workspace row,
-// so its unit tests need a workspace read they can steer, and
-// `sandbox-control::secrets` needs one to steer a workspace's run-as identity.
-#[cfg_attr(any(test, feature = "test-support"), mockall::automock)]
+// so its unit tests need a workspace read they can steer.
+#[cfg_attr(test, mockall::automock)]
 #[async_trait]
-pub trait WorkspaceDao: Send + Sync {
+pub(crate) trait WorkspaceDao: Send + Sync {
     /// Read an active workspace's scripts for replacement under the caller's read grant.
     async fn scripts_write_target(
         &self,
@@ -217,7 +151,7 @@ pub trait WorkspaceDao: Send + Sync {
 }
 
 /// PostgreSQL implementation of [`WorkspaceDao`].
-pub struct PgWorkspaceDao(pub DbPool);
+pub(crate) struct PgWorkspaceDao(pub(crate) DbPool);
 
 #[async_trait]
 impl WorkspaceDao for PgWorkspaceDao {
@@ -835,3 +769,8 @@ pub(crate) async fn replace_git_placements(
         .bind(workspace_id).execute(&mut *tx).await?;
     tx.commit().await
 }
+
+#[cfg(all(test, feature = "db-tests"))]
+#[path = "dao_db_tests.rs"]
+mod db_tests;
+

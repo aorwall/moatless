@@ -3,10 +3,10 @@
 use tracing::info;
 
 use super::dao::RepositoryDao;
-use super::remote_url::normalize_remote_url;
-use moatless_types::repository::{RepositoryKind, RepositoryProvider};
 use super::models::Repository;
+use super::remote_url::normalize_remote_url;
 use moatless_types::access_control::Scope;
+use moatless_types::repository::{RepositoryKind, RepositoryProvider};
 
 /// Insert default template repositories if they don't already exist.
 ///

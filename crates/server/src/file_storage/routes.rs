@@ -3,13 +3,11 @@
 use std::sync::Arc;
 
 use axum::extract::FromRef;
-use moatless_core::config::S3Config;
+use moatless_core::file_storage::Files;
 use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
-use super::dao::FileDao;
 use super::handlers;
-use super::s3::S3Storage;
 use moatless_core::http_auth::UserTokenVerifier;
 
 #[derive(OpenApi)]
@@ -28,15 +26,12 @@ pub struct FileStorageApiDoc;
 ///
 /// Generic over the router state `S` so this module names no root type: the
 /// composition root supplies the concrete state at the call site, and each
-/// handler reaches its ports — `Arc<S3Config>`, `Arc<dyn FileDao>`,
-/// `Option<S3Storage>`, and the `UserTokenVerifier` behind `AuthUser` — through
-/// `FromRef<S>`.
+/// handler reaches its ports — `Arc<Files>` and the `UserTokenVerifier` behind
+/// `AuthUser` — through `FromRef<S>`.
 pub fn file_storage_router<S>(state: S) -> (axum::Router, utoipa::openapi::OpenApi)
 where
     S: Clone + Send + Sync + 'static,
-    Arc<S3Config>: FromRef<S>,
-    Arc<dyn FileDao>: FromRef<S>,
-    Option<S3Storage>: FromRef<S>,
+    Arc<Files>: FromRef<S>,
     Arc<dyn UserTokenVerifier>: FromRef<S>,
 {
     let (router, api) = OpenApiRouter::with_openapi(FileStorageApiDoc::openapi())

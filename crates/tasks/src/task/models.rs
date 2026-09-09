@@ -8,7 +8,7 @@
 use chrono::{DateTime, Utc};
 
 use moatless_core::db_enum::decode_optional;
-use moatless_types::access_control::Scope;
+use moatless_types::access_control::{Scope, ScopeContext};
 use moatless_types::agent::AgentType;
 
 // The task band's vocabulary surface: call sites keep naming these through
@@ -180,6 +180,82 @@ impl SandboxIntentView {
     /// explicit Stopped or Removed request.
     pub fn has_explicit_intent(&self) -> bool {
         self.desired_state_updated_at != sandbox_intent_epoch()
+    }
+}
+
+// =============================================================================
+// Query shapes
+// =============================================================================
+
+/// Filter struct for task listing queries.
+#[derive(Clone)]
+pub struct TaskFilter {
+    pub scope: ScopeContext,
+    pub limit: i64,
+    pub offset: i64,
+    pub status: Option<TaskStatus>,
+    /// Exclude tasks with this status (NULL = no exclusion). Complements `status`.
+    pub exclude_status: Option<TaskStatus>,
+    pub repository_id: Option<String>,
+    pub created_by: Option<String>,
+    pub tag: Option<String>,
+    /// When set, restrict results to tasks that have a `created_by` relation
+    /// pointing at this task id (i.e. children of this parent).
+    pub parent_task_id: Option<String>,
+    /// When set, restrict results to tasks this user follows (a row exists in
+    /// `task_follows`). Drives the personal sidebar list.
+    pub followed_by: Option<String>,
+}
+
+/// A `task_forks` row: the fork, the Task it branched from, and the three
+/// anchors the delivery path hands the pod until the fork has a session of its
+/// own.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct TaskFork {
+    pub task_id: String,
+    pub source_task_id: String,
+    pub at_turn: Option<i32>,
+    pub source_session_id: String,
+    pub source_message_uuid: Option<String>,
+    pub source_agent_turn_id: Option<String>,
+}
+
+/// Patch struct for partial task updates.
+#[derive(Default)]
+pub struct TaskPatch {
+    pub status: Option<TaskStatus>,
+    pub name: Option<String>,
+    pub branch: Option<String>,
+    pub description: Option<String>,
+    pub last_message_at: Option<String>,
+    pub total_cost_usd: Option<f64>,
+    pub site_url: Option<String>,
+    pub visibility: Option<Visibility>,
+    pub short_id: Option<String>,
+    pub model: Option<String>,
+    pub append_system_prompt: Option<Option<String>>,
+    pub ttl_minutes: Option<i32>,
+    pub inactive_ttl_days: Option<i32>,
+}
+
+impl TaskPatch {
+    /// Whether this patch moves anything a personal sidebar listing shows.
+    ///
+    /// The listed fields are the ones Decision 6 of the T3 shell projection spec
+    /// puts in the change feed: a conversation being closed or reopened, its
+    /// name or description, its visibility (which decides who may still read
+    /// it), and its expiry. The rest — the conversation clock, the running cost,
+    /// the site URL, the short id, the appended prompt, the disabled-server set
+    /// — are written by paths a sidebar does not follow, and the busiest of them
+    /// runs once per agent turn. Recording those would advance the deployment's
+    /// one position counter to move values no sidebar carries.
+    pub(crate) fn touches_listing(&self) -> bool {
+        self.status.is_some()
+            || self.name.is_some()
+            || self.description.is_some()
+            || self.visibility.is_some()
+            || self.ttl_minutes.is_some()
+            || self.inactive_ttl_days.is_some()
     }
 }
 

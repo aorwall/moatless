@@ -1,5 +1,6 @@
-use super::dao::{WorkspaceDao, WorkspacePatch};
+use super::dao::WorkspaceDao;
 use super::error::WorkspaceError;
+use super::models::WorkspacePatch;
 use super::models::{Workspace, WorkspaceKind, WorkspaceRepo, WorkspaceSource};
 use super::schemas::{
     AddRepoRequest, CreateWorkspaceRequest, UpdateWorkspaceRequest, WorkspaceRepoInput,

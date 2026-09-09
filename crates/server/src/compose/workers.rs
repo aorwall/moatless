@@ -1,14 +1,13 @@
+use crate::compose::Ports;
 use crate::{reaper, sandbox, state::AppState};
 use moatless_core::{config::Config, leader::LeaderGuard};
+use moatless_loops::compose::ScheduleRunnerInputs;
 use moatless_tasks::event_ingress::relay::IngressRelay;
 use std::sync::Arc;
 use tracing::info;
 
 pub(crate) fn ingress_relay(app_state: &AppState) -> Option<IngressRelay> {
-    Some(IngressRelay::new(
-        app_state.ingress_outbox.clone(),
-        app_state.events.clone()?,
-    ))
+    app_state.event_ingress.relay()
 }
 
 pub(crate) fn leader(
@@ -85,14 +84,14 @@ pub(crate) fn task_reaper(
 }
 
 pub(crate) fn schedule_runner(
+    ports: &Ports,
     app_state: &AppState,
 ) -> moatless_loops::loops::firing::schedule_runner::ScheduleRunner {
-    moatless_loops::loops::firing::schedule_runner::ScheduleRunner::new(
-        app_state.loops.clone(),
-        app_state.task_reader.clone(),
-        app_state.message_send.clone(),
-        app_state.adapters.clone(),
-        app_state.task_creation.clone(),
-        app_state.sandbox_waker.clone(),
-    )
+    ports.loop_graph.schedule_runner(ScheduleRunnerInputs {
+        tasks: app_state.task_reader.clone(),
+        message_send: app_state.message_send.clone(),
+        adapters: app_state.adapters.clone(),
+        task_creation: app_state.task_creation.clone(),
+        sandbox_waker: app_state.sandbox_waker.clone(),
+    })
 }

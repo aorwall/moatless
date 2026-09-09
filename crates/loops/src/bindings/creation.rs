@@ -1,10 +1,10 @@
 //! Authorized creation of external Task bindings.
 
-use super::{access::ensure_task_access_with, dao::TaskBindingDao};
-use crate::loops::{access::load_loop_for_auth_with, dao::LoopDao};
+use super::access::ensure_task_access_with;
+use super::operations::Bindings;
+use crate::loops::operations::Loops;
 use chrono::Utc;
-use moatless_adapter_model::access::load_adapter_connection_for_auth_with;
-use moatless_adapter_model::dao::AdapterConnectionDao;
+use moatless_adapter_model::connections::AdapterConnections;
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_api_schemas::bindings::CreateTaskBindingRequest;
 use moatless_ports::task::TaskReader;
@@ -12,19 +12,20 @@ use moatless_types::access_control::ScopeContext;
 use moatless_types::adapter::TaskBinding;
 
 /// Create a binding after authorizing its Task, connection, and optional Loop.
-pub async fn create_task_binding(
+pub(crate) async fn create_task_binding(
     tasks: &dyn TaskReader,
-    task_bindings: &dyn TaskBindingDao,
-    adapter_connections: &dyn AdapterConnectionDao,
-    loops: &LoopDao,
+    task_bindings: &Bindings,
+    adapter_connections: &AdapterConnections,
+    loops: &Loops,
     ctx: &ScopeContext,
     task_id: &str,
     req: CreateTaskBindingRequest,
 ) -> Result<TaskBinding, AdapterError> {
     let task = ensure_task_access_with(tasks, ctx, task_id).await?;
     let adapter_kind = req.adapter_kind;
-    let connection =
-        load_adapter_connection_for_auth_with(adapter_connections, ctx, &req.connection_id).await?;
+    let connection = adapter_connections
+        .for_auth(ctx, &req.connection_id)
+        .await?;
     if connection.adapter_kind != adapter_kind {
         return Err(SharedAdapterError::BadRequest(format!(
             "Connection {} is for adapter {}, not {}",
@@ -33,8 +34,8 @@ pub async fn create_task_binding(
         .into());
     }
     if let Some(loop_id) = req.loop_id.as_deref() {
-        let trigger = load_loop_for_auth_with(loops, ctx, loop_id).await?;
-        let crate::loops::dao::LoopSourceRow::AdapterEvent(source) = trigger.source else {
+        let trigger = loops.load_for_auth(ctx, loop_id).await?;
+        let crate::loops::models::LoopSourceRow::AdapterEvent(source) = trigger.source else {
             return Err(SharedAdapterError::BadRequest(format!(
                 "Loop {loop_id} is not an adapter-event Loop"
             ))

@@ -31,7 +31,7 @@ use moatless_core::config::{Config, OtelConfig};
 use moatless_core::db::{self, DbPool};
 use moatless_core::events::EventPublisher;
 use moatless_core::metrics;
-use moatless_tasks::task::dao::TaskDao;
+use moatless_ports::task::TaskReader;
 
 // =========================================================================
 // Logging
@@ -257,7 +257,7 @@ pub fn spawn_metrics_server(port: u16, cancel: CancellationToken) -> JoinHandle<
 /// authorize scoped users.
 pub async fn init_sse(
     config: &Config,
-    tasks: Option<Arc<dyn TaskDao>>,
+    tasks: Option<Arc<dyn TaskReader>>,
     cancel: CancellationToken,
 ) -> Result<(SseState, Option<JoinHandle<()>>), redis::RedisError> {
     let (tx, _) = broadcast::channel::<String>(config.sse.broadcast_capacity);

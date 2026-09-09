@@ -5,6 +5,7 @@ use axum::response::{IntoResponse, Response};
 use tracing::error;
 
 use moatless_core::error::error_response;
+use moatless_identity::adapter_apps::administration::AppAdministrationError;
 
 #[derive(Debug, thiserror::Error)]
 pub enum AccessSettingsError {
@@ -20,12 +21,14 @@ pub enum AccessSettingsError {
     Conflict(String),
     #[error("Database error: {0}")]
     Db(#[source] sqlx::Error),
+    #[error("Database error: {0}")]
+    Store(#[source] moatless_types::store::StoreError),
     #[error("Provider error: {0}")]
     GitProvider(#[source] moatless_core::git_provider::GitProviderError),
     #[error("Provider error: {0}")]
     GitHubApp(#[source] moatless_identity::auth::error::AuthError),
     #[error("Provider error: {0}")]
-    CodexOAuth(#[source] moatless_workspaces::credentials::codex::oauth::CodexOAuthError),
+    CodexOAuth(#[source] moatless_identity::credentials::codex::oauth::CodexOAuthError),
     #[error("Secret storage error: {0}")]
     Secret(#[source] moatless_identity::secret::error::SecretError),
 }
@@ -51,20 +54,21 @@ impl From<crate::agent_harness_access::AgentHarnessAccessError> for AccessSettin
             AgentHarnessAccessError::AuthForbidden => Self::AuthForbidden,
             AgentHarnessAccessError::BadRequest(message) => Self::BadRequest(message),
             AgentHarnessAccessError::Db(source) => Self::Db(source),
+            AgentHarnessAccessError::Store(source) => Self::Store(source),
             AgentHarnessAccessError::OAuth(source) => Self::CodexOAuth(source),
         }
     }
 }
 
-impl From<crate::app_administration::AppAdministrationError> for AccessSettingsError {
-    fn from(error: crate::app_administration::AppAdministrationError) -> Self {
-        use crate::app_administration::AppAdministrationError;
+impl From<AppAdministrationError> for AccessSettingsError {
+    fn from(error: AppAdministrationError) -> Self {
         match error {
             AppAdministrationError::NotFound(message) => Self::NotFound(message),
             AppAdministrationError::BadRequest(message) => Self::BadRequest(message),
             AppAdministrationError::Conflict(message) => Self::Conflict(message),
             AppAdministrationError::Forbidden(message) => Self::Forbidden(message),
             AppAdministrationError::Db(source) => Self::Db(source),
+            AppAdministrationError::Store(source) => Self::Store(source),
             AppAdministrationError::GitHubApp(source) => Self::GitHubApp(source),
         }
     }
@@ -78,6 +82,13 @@ impl IntoResponse for AccessSettingsError {
             Self::Forbidden(_) | Self::AuthForbidden => (StatusCode::FORBIDDEN, self.to_string()),
             Self::Conflict(_) => (StatusCode::CONFLICT, self.to_string()),
             Self::Db(source) => {
+                error!(%source, "Access settings database error");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Internal server error".to_string(),
+                )
+            }
+            Self::Store(source) => {
                 error!(%source, "Access settings database error");
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,

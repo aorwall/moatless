@@ -11,9 +11,8 @@ use async_trait::async_trait;
 use moatless_api_schemas::agent::AgentDescriptor;
 use moatless_types::access_control::{Actor, ScopeContext, ScopedResource};
 
-use crate::file_storage::error::FileStorageError;
-use crate::file_storage::store as file_store;
 use crate::state::AppState;
+use moatless_core::file_storage::{FileStorageError, NewUpload};
 use moatless_t3code::ports::{
     AgentCatalogSource, AttachmentKind, AttachmentStore, AttachmentStoreError, BoundPullRequest,
     BoundPullRequestSource, BranchListError, ChildTask, CommandRefusal, DeclaredAttachment,
@@ -23,10 +22,10 @@ use moatless_t3code::ports::{
 };
 use moatless_tasks::message::error::MessageError;
 use moatless_tasks::message::service as message_service;
-use moatless_tasks::task::dao::TaskDao;
-use moatless_tasks::task::dao::TaskPatch;
 use moatless_tasks::task::error::TaskError;
+use moatless_tasks::task::models::TaskPatch;
 use moatless_tasks::task::models::TaskStatus;
+use moatless_tasks::task::operations::TaskCommands;
 use moatless_tasks::task::service as task_service;
 use moatless_types::adapter::TaskBinding;
 use moatless_types::store::StoreError;
@@ -49,7 +48,7 @@ impl AgentCatalogSource for AppStateAgents {
 pub struct AppStateBranches(pub AppState);
 
 /// Adapt T3 script commands to the Workspace operation owner.
-pub struct WorkspaceScripts(pub Arc<dyn moatless_workspaces::workspace::dao::WorkspaceDao>);
+pub struct WorkspaceScripts(pub Arc<moatless_workspaces::workspace::Workspaces>);
 
 #[async_trait]
 impl moatless_t3code::ports::WorkspaceScriptCommands for WorkspaceScripts {
@@ -62,7 +61,7 @@ impl moatless_t3code::ports::WorkspaceScriptCommands for WorkspaceScripts {
         use moatless_t3code::scripts::ScriptsWriteError as Target;
         use moatless_workspaces::workspace::error::WorkspaceScriptsError as Source;
         moatless_workspaces::workspace::scripts::replace_scripts_preserving_env(
-            self.0.as_ref(),
+            &self.0,
             viewer,
             workspace_id,
             scripts,
@@ -155,12 +154,12 @@ impl SkillCatalog for AppStateSkills {
     }
 }
 
-pub struct AppStateBoundPullRequests(pub AppState);
+pub struct AppStateBoundPullRequests(pub AppState, pub moatless_t3code::T3Reads);
 
 #[async_trait]
 impl BoundPullRequestSource for AppStateBoundPullRequests {
     async fn bound_pull_requests(&self, task_id: &str) -> Vec<BoundPullRequest> {
-        let Ok(bindings) = self.0.task_bindings.find_by_task_id(task_id).await else {
+        let Ok(bindings) = self.0.task_bindings.for_task(task_id).await else {
             return Vec::new();
         };
         let mut bound = Vec::new();
@@ -200,7 +199,7 @@ impl BoundPullRequestSource for AppStateBoundPullRequests {
         let Ok(bindings) = self
             .0
             .task_bindings
-            .find_by_subject("github", "github_pr", &subject_key)
+            .for_subject("github", "github_pr", &subject_key)
             .await
         else {
             return Vec::new();
@@ -301,10 +300,7 @@ impl AppStateBoundPullRequests {
     /// resolves. Read directly rather than through a scoped find because the
     /// port has already had the viewer's access to the Task checked.
     async fn task_creator(&self, task_id: &str) -> Option<String> {
-        moatless_t3code::dao::task_creator(&self.0.db, task_id)
-            .await
-            .ok()
-            .flatten()
+        self.1.task_creator(task_id).await.ok().flatten()
     }
 
     /// The `owner/repo` a repository's GitHub remote names, if the viewer can be
@@ -435,22 +431,21 @@ async fn bind_thread_to_open_pr(
         "repo": repo,
         "pr_number": pr.number,
     });
-    match moatless_loops::loops::firing::listen::Connector::new(
-        state
-            .adapter_installations
-            .as_ref()
-            .map(|installations| installations.github_destination_builder()),
-        state.adapter_connections.clone(),
-        state.loops.clone(),
-        state.task_bindings.clone(),
-    )
-    .connect_github_binding(
-        &source_id,
-        task_id,
-        thread_properties,
-        Some(&viewer.user_id),
-    )
-    .await
+    let Some(connector) = state
+        .adapter_installations
+        .as_ref()
+        .map(|installations| installations.github_connector())
+    else {
+        return;
+    };
+    match connector
+        .connect_github_binding(
+            &source_id,
+            task_id,
+            thread_properties,
+            Some(&viewer.user_id),
+        )
+        .await
     {
         Ok((_, binding)) => tracing::info!(
             task_id,
@@ -474,8 +469,8 @@ impl SourceControlAuthSource for AppStateSourceControlAuth {
     async fn github_identity(&self, viewer: &ScopeContext) -> Option<GithubIdentity> {
         let presence = self
             .0
-            .provider_tokens
-            .find_github_scope_presence(&viewer.user_id)
+            .credentials
+            .github_presence(&viewer.user_id)
             .await
             .ok()
             .flatten();
@@ -687,29 +682,28 @@ impl AppStateCommands {
                     filename,
                     mime_type,
                     bytes,
-                } => file_store::store_upload(
-                    self.0.s3.as_ref(),
-                    &self.0.s3_config,
-                    self.0.files.as_ref(),
-                    viewer,
-                    file_store::NewUpload {
+                } => {
+                    let upload = NewUpload {
                         filename: filename.clone(),
                         mime_type: mime_type.clone(),
                         data: bytes.clone(),
                         file_id: None,
-                    },
-                )
-                .await
-                .map_err(|error| {
-                    tracing::warn!(%error, filename = %filename, "T3 attachment could not be stored");
-                    CommandRefusal::Failed {
-                        message: format!("Could not store the attachment `{filename}`."),
-                    }
-                })
-                .map(|stored| {
-                    resolved.stored_here.push(stored.file_id.clone());
-                    stored.file_id
-                }),
+                    };
+                    self.0
+                        .files
+                        .store_upload(viewer, upload)
+                        .await
+                        .map_err(|error| {
+                            tracing::warn!(%error, filename = %filename, "T3 attachment could not be stored");
+                            CommandRefusal::Failed {
+                                message: format!("Could not store the attachment `{filename}`."),
+                            }
+                        })
+                        .map(|stored| {
+                            resolved.stored_here.push(stored.file_id.clone());
+                            stored.file_id
+                        })
+                }
                 TurnAttachment::Uploaded {
                     attachment_id,
                     kind,
@@ -740,34 +734,26 @@ impl AppStateCommands {
         attachment_id: &str,
         kind: AttachmentKind,
     ) -> Result<String, CommandRefusal> {
-        let found = self
-            .0
-            .files
-            .find_by_id(attachment_id)
-            .await
-            .map_err(|error| {
-                tracing::warn!(%error, attachment_id, "T3 attachment could not be resolved");
-                CommandRefusal::Failed {
-                    message: "Could not reach that attachment.".to_string(),
-                }
-            })?;
         let unreachable = || CommandRefusal::Rejected {
             message: "An attachment on this message is no longer available.".to_string(),
         };
-        let Some(meta) = found else {
-            return Err(unreachable());
+        let meta = match self.0.files.readable_metadata(viewer, attachment_id).await {
+            Ok(Some(meta)) => meta,
+            Ok(None) => return Err(unreachable()),
+            Err(FileStorageError::Forbidden(_)) => {
+                tracing::warn!(
+                    attachment_id,
+                    "T3 turn named an attachment its sender cannot read"
+                );
+                return Err(unreachable());
+            }
+            Err(error) => {
+                tracing::warn!(%error, attachment_id, "T3 attachment could not be resolved");
+                return Err(CommandRefusal::Failed {
+                    message: "Could not reach that attachment.".to_string(),
+                });
+            }
         };
-        let resource = ScopedResource::borrowed(
-            meta.scope,
-            meta.owner_user_id.as_deref().or(meta.created_by.as_deref()),
-        );
-        if !viewer.can_read(&resource) {
-            tracing::warn!(
-                attachment_id,
-                "T3 turn named an attachment its sender cannot read"
-            );
-            return Err(unreachable());
-        }
         // Read access is not provenance. Moatless's own multipart route stores
         // files this viewer can read and knows nothing about T3's union, so
         // without this the mime and size limits would hold only for uploads
@@ -813,15 +799,7 @@ impl AppStateCommands {
     /// a second failure to put in front of the person retrying.
     async fn discard_attachments(&self, viewer: &ScopeContext, file_ids: &[String]) {
         for file_id in file_ids {
-            if let Err(error) = file_store::delete_upload(
-                self.0.s3.as_ref(),
-                &self.0.s3_config,
-                self.0.files.as_ref(),
-                viewer,
-                file_id,
-            )
-            .await
-            {
+            if let Err(error) = self.0.files.delete(viewer, file_id).await {
                 tracing::warn!(%error, file_id, "T3 attachment outlived the command it was sent with");
             }
         }
@@ -830,17 +808,17 @@ impl AppStateCommands {
 
 /// Where a T3 chat attachment's bytes go: an ordinary Moatless upload, under
 /// the id `attachments.createUploadUrl` already handed the client.
-pub struct AppStateAttachments(pub AppState);
+pub struct AppStateAttachments(pub AppState, pub moatless_t3code::T3Reads);
 
 impl AppStateAttachments {
     /// Whether a sent message already carries this upload.
     ///
-    /// The check lives here rather than in [`file_store::delete_upload`]: that
-    /// helper is generic file storage and knows nothing about messages, while
+    /// The check lives here rather than in `Files::delete`: that operation is
+    /// generic file storage and knows nothing about messages, while
     /// the rule — an attachment stops being the composer's draft the moment a
     /// turn names it — is this surface's.
     async fn is_on_a_message(&self, attachment_id: &str) -> Result<bool, AttachmentStoreError> {
-        moatless_t3code::dao::attachment_is_on_message(&self.0.db, attachment_id)
+        self.1.attachment_is_on_message(attachment_id)
         .await
         .map_err(|error| {
             // Not knowing is not permission to delete: a read that failed is
@@ -878,33 +856,24 @@ impl AttachmentStore for AppStateAttachments {
         // attempt left makes the second one land instead of colliding with it.
         // Nothing else can be under this id: it is a uuid minted for this
         // viewer and handed to nobody else.
-        if let Err(error) = file_store::delete_upload(
-            self.0.s3.as_ref(),
-            &self.0.s3_config,
-            self.0.files.as_ref(),
-            viewer,
-            attachment_id,
-        )
-        .await
-        {
+        if let Err(error) = self.0.files.delete(viewer, attachment_id).await {
             tracing::debug!(%error, attachment_id, "T3 attachment had nothing to replace");
         }
 
-        file_store::store_upload(
-            self.0.s3.as_ref(),
-            &self.0.s3_config,
-            self.0.files.as_ref(),
-            viewer,
-            file_store::NewUpload {
-                filename: declared.filename,
-                mime_type: declared.mime_type,
-                data: bytes,
-                file_id: Some(attachment_id.to_string()),
-            },
-        )
-        .await
-        .map(|_| ())
-        .map_err(attachment_store_error)
+        self.0
+            .files
+            .store_upload(
+                viewer,
+                NewUpload {
+                    filename: declared.filename,
+                    mime_type: declared.mime_type,
+                    data: bytes,
+                    file_id: Some(attachment_id.to_string()),
+                },
+            )
+            .await
+            .map(|_| ())
+            .map_err(attachment_store_error)
     }
 
     async fn delete(
@@ -925,16 +894,12 @@ impl AttachmentStore for AppStateAttachments {
             return Ok(());
         }
 
-        file_store::delete_upload(
-            self.0.s3.as_ref(),
-            &self.0.s3_config,
-            self.0.files.as_ref(),
-            viewer,
-            attachment_id,
-        )
-        .await
-        .map(|_| ())
-        .map_err(attachment_store_error)
+        self.0
+            .files
+            .delete(viewer, attachment_id)
+            .await
+            .map(|_| ())
+            .map_err(attachment_store_error)
     }
 }
 
@@ -1464,7 +1429,7 @@ fn send_refusal(task_id: &str, error: MessageError) -> CommandRefusal {
 /// The ownership check here is what keeps the refusal for somebody else's id
 /// indistinguishable from an id this viewer may not read.
 async fn free_thread_id(
-    tasks: &dyn TaskDao,
+    tasks: &TaskCommands,
     viewer: &ScopeContext,
     task_id: &str,
 ) -> Result<(), CommandRefusal> {
@@ -1635,8 +1600,8 @@ mod tests {
 
     mod thread_ids {
         use super::*;
-        use moatless_tasks::task::dao::MockTaskDao;
         use moatless_tasks::task::models::Task;
+        use moatless_tasks::task::test_support::{ScriptedTasks, TaskStoreCalls};
         use moatless_types::access_control::Scope;
 
         const DRAFT: &str = "thread-minted-by-the-client";
@@ -1687,22 +1652,25 @@ mod tests {
             }
         }
 
-        fn holding(existing: Option<Task>) -> MockTaskDao {
-            let mut tasks = MockTaskDao::new();
-            tasks
-                .expect_find_by_id()
-                .returning(move |_, _| Ok(existing.clone()));
-            tasks
+        fn holding(
+            existing: Option<Task>,
+            frees_errored_ids: bool,
+        ) -> (Arc<TaskCommands>, Arc<TaskStoreCalls>) {
+            ScriptedTasks::new()
+                .holding(existing)
+                .frees_errored_ids(frees_errored_ids)
+                .commands()
         }
 
         /// The ordinary create: nothing holds the id, so nothing is deleted on
         /// the way to it.
         #[tokio::test]
         async fn an_unused_id_is_taken_without_a_delete() {
-            let mut tasks = holding(None);
-            tasks.expect_delete_errored_empty_task().never();
+            let (tasks, calls) = holding(None, false);
 
             free_thread_id(&tasks, &viewer(), DRAFT).await.unwrap();
+
+            assert!(calls.delete_errored_empty_task().is_empty());
         }
 
         /// The bug this exists for: the first send failed at preflight, which
@@ -1711,32 +1679,29 @@ mod tests {
         /// on the client rotates the id.
         #[tokio::test]
         async fn a_failed_bootstrap_can_be_retried_under_the_same_id() {
-            let mut tasks = holding(Some(thread_of("u-1", TaskStatus::Error)));
-            tasks
-                .expect_delete_errored_empty_task()
-                .withf(|task_id, ctx| task_id == DRAFT && ctx.user_id == "u-1")
-                .times(1)
-                .returning(|_, _| Ok(true));
+            let (tasks, calls) = holding(Some(thread_of("u-1", TaskStatus::Error)), true);
 
             free_thread_id(&tasks, &viewer(), DRAFT).await.unwrap();
+
+            let deletes = calls.delete_errored_empty_task();
+            assert_eq!(deletes.len(), 1);
+            assert_eq!(deletes[0].0, DRAFT);
+            assert_eq!(deletes[0].1.user_id, "u-1");
         }
 
         /// A thread that exists and works is not something a create may take
-        /// over. The DAO answers `false` for it — the row is not `Error`, or it
-        /// has messages — and that is a refusal, not a second incarnation.
+        /// over. The store answers `false` for it — the row is not `Error`, or
+        /// it has messages — and that is a refusal, not a second incarnation.
         #[tokio::test]
         async fn a_live_thread_still_refuses_a_second_create() {
-            let mut tasks = holding(Some(thread_of("u-1", TaskStatus::Open)));
-            tasks
-                .expect_delete_errored_empty_task()
-                .times(1)
-                .returning(|_, _| Ok(false));
+            let (tasks, calls) = holding(Some(thread_of("u-1", TaskStatus::Open)), false);
 
             let refusal = free_thread_id(&tasks, &viewer(), DRAFT).await.unwrap_err();
             assert!(matches!(
                 refusal,
                 CommandRefusal::Rejected { message } if message == "That thread already exists."
             ));
+            assert_eq!(calls.delete_errored_empty_task().len(), 1);
         }
 
         /// Somebody else's errored thread is readable when it is public, and it
@@ -1744,14 +1709,14 @@ mod tests {
         /// says nothing about what is there, and no delete is attempted.
         #[tokio::test]
         async fn another_users_errored_thread_is_not_reusable() {
-            let mut tasks = holding(Some(thread_of("u-2", TaskStatus::Error)));
-            tasks.expect_delete_errored_empty_task().never();
+            let (tasks, calls) = holding(Some(thread_of("u-2", TaskStatus::Error)), true);
 
             let refusal = free_thread_id(&tasks, &viewer(), DRAFT).await.unwrap_err();
             assert!(matches!(
                 refusal,
                 CommandRefusal::NotWritable { task_id } if task_id == DRAFT
             ));
+            assert!(calls.delete_errored_empty_task().is_empty());
         }
     }
 }

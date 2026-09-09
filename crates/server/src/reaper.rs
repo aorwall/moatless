@@ -26,21 +26,21 @@ use crate::event_handler::agent_handlers::AgentErrorPorts;
 use moatless_core::config::Config;
 use moatless_core::events::EventPublisher;
 use moatless_core::leader::LeaderGuard;
-use moatless_loops::bindings::dao::TaskBindingDao;
+use moatless_loops::bindings::operations::Bindings;
 use moatless_ports::sandbox::SandboxLifecycle;
 use moatless_tasks::agent_event::AgentEvent;
-use moatless_tasks::message::dao::MessageDao;
-use moatless_tasks::task::dao::TaskDao;
-use moatless_tasks::task::dao::TaskPatch;
+use moatless_tasks::message::operations::Messages;
 use moatless_tasks::task::models::SandboxDesiredState;
 use moatless_tasks::task::models::SandboxStopReason;
+use moatless_tasks::task::models::TaskPatch;
 use moatless_tasks::task::models::TaskStatus;
-use moatless_tasks::task_event::dao::TaskEventDao;
-use moatless_tasks::task_turn::dao::TaskTurnDao;
+use moatless_tasks::task::operations::TaskCommands;
+use moatless_tasks::task_event::operations::TaskEvents;
 use moatless_tasks::task_turn::models::SettledTurn;
 use moatless_tasks::task_turn::models::TurnStatus;
 use moatless_tasks::task_turn::models::TurnTransition;
 use moatless_tasks::task_turn::models::UnclosedTurn;
+use moatless_tasks::task_turn::operations::TaskTurns;
 use moatless_types::access_control::ScopeContext;
 use moatless_types::event::EventType;
 use moatless_types::sandbox::ArchiveRetention;
@@ -82,12 +82,12 @@ enum ReaperError {
 pub struct TaskReaper {
     connector: Arc<dyn SandboxConnector>,
     leader: Arc<dyn LeaderGuard>,
-    messages: Arc<dyn MessageDao>,
-    tasks: Arc<dyn TaskDao>,
-    task_turns: Arc<dyn TaskTurnDao>,
-    task_events: Arc<dyn TaskEventDao>,
+    messages: Arc<Messages>,
+    tasks: Arc<TaskCommands>,
+    task_turns: Arc<TaskTurns>,
+    task_events: Arc<TaskEvents>,
     sandbox: Arc<dyn SandboxLifecycle>,
-    task_bindings: Arc<dyn TaskBindingDao>,
+    task_bindings: Arc<Bindings>,
     events: Option<Arc<dyn EventPublisher>>,
     config: Arc<Config>,
     agent_error: AgentErrorPorts,
@@ -104,12 +104,12 @@ impl TaskReaper {
     pub fn new(
         connector: Arc<dyn SandboxConnector>,
         leader: Arc<dyn LeaderGuard>,
-        messages: Arc<dyn MessageDao>,
-        tasks: Arc<dyn TaskDao>,
-        task_turns: Arc<dyn TaskTurnDao>,
-        task_events: Arc<dyn TaskEventDao>,
+        messages: Arc<Messages>,
+        tasks: Arc<TaskCommands>,
+        task_turns: Arc<TaskTurns>,
+        task_events: Arc<TaskEvents>,
         sandbox: Arc<dyn SandboxLifecycle>,
-        task_bindings: Arc<dyn TaskBindingDao>,
+        task_bindings: Arc<Bindings>,
         events: Option<Arc<dyn EventPublisher>>,
         config: Arc<Config>,
         agent_error: AgentErrorPorts,
@@ -469,7 +469,7 @@ fn merge_newest(
     }
 }
 
-async fn load_ttl_map(tasks: &Arc<dyn TaskDao>, all_ids: &[String]) -> HashMap<String, i32> {
+async fn load_ttl_map(tasks: &Arc<TaskCommands>, all_ids: &[String]) -> HashMap<String, i32> {
     tasks.get_ttl_minutes_map(all_ids).await.unwrap_or_else(|e| {
         warn!(error = %e, "Failed to fetch ttl_minutes map, falling back to default for all tasks");
         HashMap::new()
@@ -477,7 +477,7 @@ async fn load_ttl_map(tasks: &Arc<dyn TaskDao>, all_ids: &[String]) -> HashMap<S
 }
 
 async fn load_inactive_ttl_map(
-    tasks: &Arc<dyn TaskDao>,
+    tasks: &Arc<TaskCommands>,
     all_ids: &[String],
 ) -> HashMap<String, i32> {
     tasks
@@ -489,7 +489,7 @@ async fn load_inactive_ttl_map(
         })
 }
 
-async fn load_cold_map(tasks: &Arc<dyn TaskDao>, all_ids: &[String]) -> HashMap<String, i32> {
+async fn load_cold_map(tasks: &Arc<TaskCommands>, all_ids: &[String]) -> HashMap<String, i32> {
     tasks
         .get_cold_after_hours_map(all_ids)
         .await
@@ -817,7 +817,7 @@ impl TaskReaper {
 
     /// Allocate the turn a live run is working under.
     ///
-    /// [`TaskTurnDao::resolve_turn_for_run`] is the sole allocator, so a
+    /// [`TaskTurns::resolve_turn_for_run`] is the sole allocator, so a
     /// reaper-allocated turn is indistinguishable from one the run opened
     /// itself — including when the run's own `taskTurn.active` lands first,
     /// which resolves to the same turn rather than a second one.
@@ -1332,7 +1332,7 @@ impl TaskReaper {
 
         // A closed task is terminal — deactivate its bindings so inbound comments
         // don't resurrect it. Best-effort; the runtime guards are the backstop.
-        if let Err(e) = self.task_bindings.deactivate_by_task(task_id).await {
+        if let Err(e) = self.task_bindings.deactivate_for_task(task_id).await {
             warn!(task_id, error = %e, "auto-close: failed to deactivate bindings");
         }
 

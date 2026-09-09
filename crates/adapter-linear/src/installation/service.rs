@@ -25,7 +25,7 @@ impl Installation {
 }
 
 async fn persist_install(
-    connections: &dyn moatless_adapter_model::dao::AdapterConnectionDao,
+    connections: &dyn moatless_adapter_model::connections::ConnectionInstaller,
     credentials: &dyn moatless_ports::identity::AppCredentials,
     tokens: moatless_identity::auth::models::OAuthTokens,
     identity: super::client::LinearInstallIdentity,
@@ -43,7 +43,7 @@ async fn persist_install(
     });
 
     let existing = conn_repo
-        .find_by_external_account("linear", &identity.organization_id)
+        .by_external_account("linear", &identity.organization_id)
         .await
         .map_err(AuthError::Store)?;
 
@@ -67,12 +67,8 @@ async fn persist_install(
         created_at: existing.as_ref().map_or(now, |c| c.created_at),
         updated_at: now,
     };
-    // reason: OAuth install callback has no user session; the workspace
-    // connection is a global admin-managed row.
-    #[allow(clippy::disallowed_methods)]
-    let sys_ctx = moatless_types::access_control::ScopeContext::system();
     conn_repo
-        .upsert(&connection_row, &sys_ctx)
+        .install(&connection_row)
         .await
         .map_err(AuthError::Store)?;
 
@@ -114,10 +110,10 @@ async fn persist_install(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use moatless_adapter_model::dao::AdapterConnectionDao;
+    use moatless_adapter_model::connections::{ConnectionInstaller, ConnectionLookup};
     use moatless_identity::auth::models::OAuthTokens;
     use moatless_ports::identity::{AppCredentials, AppToken};
-    use moatless_types::access_control::{Scope, ScopeContext};
+    use moatless_types::access_control::Scope;
     use moatless_types::adapter::{AdapterConnection, AdapterKind};
     use moatless_types::store::StoreError;
     use std::sync::Mutex;
@@ -130,8 +126,8 @@ mod tests {
     }
 
     #[async_trait::async_trait]
-    impl AdapterConnectionDao for Store {
-        async fn find_by_external_account(
+    impl ConnectionLookup for Store {
+        async fn by_external_account(
             &self,
             kind: &str,
             id: &str,
@@ -140,45 +136,30 @@ mod tests {
             self.calls.lock().unwrap().push("lookup");
             Ok(self.connection.lock().unwrap().clone())
         }
-        async fn upsert(
+        async fn by_scope_value(
             &self,
-            row: &AdapterConnection,
-            ctx: &ScopeContext,
-        ) -> Result<AdapterConnection, StoreError> {
-            assert_eq!(ctx.user_id, ScopeContext::SYSTEM_USER_ID);
+            _: &str,
+            _: &str,
+        ) -> Result<Option<AdapterConnection>, StoreError> {
+            panic!("unexpected lookup")
+        }
+        async fn by_id_trusted(&self, _: &str) -> Result<Option<AdapterConnection>, StoreError> {
+            panic!("unexpected lookup")
+        }
+        async fn by_provider(&self, _: &str) -> Result<Vec<AdapterConnection>, StoreError> {
+            panic!("unexpected listing")
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl ConnectionInstaller for Store {
+        async fn install(&self, row: &AdapterConnection) -> Result<AdapterConnection, StoreError> {
             self.calls.lock().unwrap().push("connection");
             if self.refuse_connection {
                 return Err(StoreError::new("connection refused"));
             }
             *self.connection.lock().unwrap() = Some(row.clone());
             Ok(row.clone())
-        }
-        async fn find_by_id(
-            &self,
-            _: &str,
-            _: &ScopeContext,
-        ) -> Result<Option<AdapterConnection>, StoreError> {
-            panic!("unexpected lookup")
-        }
-        async fn find_by_scope_value(
-            &self,
-            _: &str,
-            _: &str,
-        ) -> Result<Option<AdapterConnection>, StoreError> {
-            panic!("unexpected lookup")
-        }
-        async fn list_by_provider(&self, _: &str) -> Result<Vec<AdapterConnection>, StoreError> {
-            panic!("unexpected listing")
-        }
-        async fn list(
-            &self,
-            _: &ScopeContext,
-            _: Option<&str>,
-        ) -> Result<Vec<AdapterConnection>, StoreError> {
-            panic!("unexpected listing")
-        }
-        async fn delete(&self, _: &str, _: &ScopeContext) -> Result<u64, StoreError> {
-            panic!("unexpected delete")
         }
     }
 
@@ -280,9 +261,11 @@ mod tests {
     #[tokio::test]
     async fn connection_failure_prevents_token_replacement() {
         let store = store(true);
-        assert!(persist_install(&store, &store, tokens(), identity())
-            .await
-            .is_err());
+        assert!(
+            persist_install(&store, &store, tokens(), identity())
+                .await
+                .is_err()
+        );
         assert_eq!(*store.calls.lock().unwrap(), ["lookup", "connection"]);
         assert!(store.token.lock().unwrap().is_none());
     }

@@ -13,7 +13,7 @@
 
 use std::sync::Arc;
 
-use super::audit::{SecretAuditDao, SecretAuditInput};
+use super::audit::{SecretAudit, SecretAuditDao, SecretAuditInput};
 use super::dao::{SecretDao, SecretInsert, SecretReplace};
 use super::error::SecretError;
 use super::models::{EncryptedSecretValue, SecretRecord};
@@ -26,8 +26,8 @@ use moatless_types::access_control::ScopeContext;
 /// reads it back — stashing a displaced GitHub token behind a PAT is the case
 /// that needs it. It enforces none of the real DAO's constraints, so a test
 /// about SQL behaviour still belongs on `#[sqlx::test]`.
-pub struct InMemorySecretDao {
-    pub records: std::sync::Mutex<Vec<SecretRecord>>,
+pub(crate) struct InMemorySecretDao {
+    pub(crate) records: std::sync::Mutex<Vec<SecretRecord>>,
 }
 
 #[async_trait::async_trait]
@@ -140,7 +140,7 @@ impl InMemorySecretDao {
 }
 
 /// Audit sink that drops every event.
-pub struct NoopAudits;
+struct NoopAudits;
 
 #[async_trait::async_trait]
 impl SecretAuditDao for NoopAudits {
@@ -150,7 +150,7 @@ impl SecretAuditDao for NoopAudits {
 }
 
 /// Cipher stub: the stored "ciphertext" bytes are the UTF-8 plaintext verbatim.
-pub struct PlaintextCipher;
+pub(crate) struct PlaintextCipher;
 
 impl SecretCipher for PlaintextCipher {
     fn encrypt(
@@ -183,7 +183,8 @@ impl SecretCipher for PlaintextCipher {
 }
 
 /// Build a `SecretRecord` whose ciphertext is the plaintext `value`.
-pub fn secret(
+#[cfg(test)]
+pub(crate) fn secret(
     scope: &str,
     owner_user_id: Option<&str>,
     kind: &str,
@@ -213,13 +214,19 @@ pub fn secret(
     }
 }
 
+/// An audit trail that drops every event, for a test asserting on the operation
+/// rather than on its record.
+pub fn noop_audit() -> Arc<SecretAudit> {
+    Arc::new(SecretAudit::new(Arc::new(NoopAudits)))
+}
+
 /// Build a `SecretService` backed by `records` and the plaintext cipher.
-pub fn service_with(records: Vec<SecretRecord>) -> SecretService {
+pub(crate) fn service_with(records: Vec<SecretRecord>) -> SecretService {
     SecretService::new(
         Arc::new(InMemorySecretDao {
             records: std::sync::Mutex::new(records),
         }),
-        Arc::new(NoopAudits),
+        noop_audit(),
         Some(Arc::new(PlaintextCipher)),
     )
 }

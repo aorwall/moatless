@@ -9,15 +9,13 @@
 //! values its own work needs at registration time, so this module names no
 //! `AppState` and the only port it touches directly is the one
 //! `register_connection_delivery` re-reads a connection through — passed in as
-//! an explicit `AdapterConnectionDao`, not reached for off a bag.
+//! an explicit `ConnectionLookup`, not reached for off a bag.
 
 use std::future::Future;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
-use moatless_types::access_control::ScopeContext;
-
-use moatless_adapter_model::dao::AdapterConnectionDao;
+use moatless_adapter_model::connections::ConnectionLookup;
 use moatless_adapter_model::error::SharedAdapterError;
 use moatless_types::adapter::AdapterConnection;
 
@@ -62,7 +60,7 @@ pub fn register_typed_delivery<P, F, Fut>(
 pub fn register_connection_delivery<P, F, Fut>(
     handlers: &mut AdapterDeliveryHandlers,
     kind: &'static str,
-    adapter_connections: Arc<dyn AdapterConnectionDao>,
+    adapter_connections: Arc<dyn ConnectionLookup>,
     execute: F,
 ) where
     P: ConnectionDeliveryPayload,
@@ -105,17 +103,11 @@ where
 }
 
 async fn resolve_connection(
-    adapter_connections: &dyn AdapterConnectionDao,
+    adapter_connections: &dyn ConnectionLookup,
     connection_id: &str,
 ) -> Result<AdapterConnection, AdapterDeliveryFailure> {
-    #[allow(
-        clippy::disallowed_methods,
-        reason = "a durable Adapter delivery runs in the worker with no user session; the connection \
-                  is named by an already-admitted record, not by caller input"
-    )]
-    let sys_ctx = ScopeContext::system();
     adapter_connections
-        .find_by_id(connection_id, &sys_ctx)
+        .by_id_trusted(connection_id)
         .await
         .map_err(|e| AdapterDeliveryFailure::retryable(SharedAdapterError::Store(e)))?
         .ok_or_else(|| {

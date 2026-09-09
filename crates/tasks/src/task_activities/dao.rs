@@ -8,7 +8,7 @@ use sqlx::{PgConnection, Row, postgres::PgRow};
 use super::mapping::{self, ActivityRow, ToolOutcome};
 use moatless_core::change_feed::conversation::record_activity_change;
 use moatless_core::db::DbPool;
-pub use moatless_types::activity::Activity;
+pub(crate) use moatless_types::activity::Activity;
 /// The kinds this build can decode, as SQL.
 ///
 /// The narrowing is what keeps a rollback survivable: a row written by a newer
@@ -59,7 +59,7 @@ macro_rules! read_activities {
 /// whole Message write. One call is one row and the stored one is the row
 /// [`settle`] will find, so the later arrival is dropped. A NULL `tool_use_id`
 /// matches nothing and so is never guarded — several are not a conflict.
-pub async fn upsert(
+pub(crate) async fn upsert(
     tx: &mut PgConnection,
     position: i64,
     activity: &ActivityRow,
@@ -117,7 +117,10 @@ pub async fn upsert(
 ///
 /// This is where `detail` is cut, because this is where the result arrives. Any
 /// other placement leaves a settled call whose preview is missing.
-pub async fn settle(tx: &mut PgConnection, outcome: &ToolOutcome) -> Result<bool, sqlx::Error> {
+pub(crate) async fn settle(
+    tx: &mut PgConnection,
+    outcome: &ToolOutcome,
+) -> Result<bool, sqlx::Error> {
     let settled = sqlx::query(
         r#"UPDATE task_activities SET
                status   = $3,
@@ -158,7 +161,7 @@ pub async fn settle(tx: &mut PgConnection, outcome: &ToolOutcome) -> Result<bool
 /// one of each to project to nothing. Returns whether a row was written. The
 /// event itself is recorded either way by its own handler, so the Events tab is
 /// unaffected.
-pub async fn record_sandbox(
+pub(crate) async fn record_sandbox(
     tx: &mut PgConnection,
     activity: &ActivityRow,
 ) -> Result<bool, sqlx::Error> {
@@ -191,7 +194,7 @@ pub async fn record_sandbox(
 /// redelivered and the stored row is already what this would write.
 ///
 /// Returns whether a row was written.
-pub async fn record_standalone(
+pub(crate) async fn record_standalone(
     tx: &mut PgConnection,
     position: i64,
     activity: &ActivityRow,
@@ -224,7 +227,7 @@ pub async fn record_standalone(
 /// on. `DO NOTHING` rather than an update, for the reason `task_messages` keeps
 /// the first non-null value: a CLI that repeats usage on every per-block source
 /// event must not count it twice.
-pub async fn admit_usage(
+pub(crate) async fn admit_usage(
     tx: &mut PgConnection,
     task_id: &str,
     message_uuid: &str,
@@ -255,7 +258,7 @@ pub async fn admit_usage(
 /// Subagent activities are excluded for the reason their Messages are: they are
 /// assembled on demand behind the `Agent` call that spawned them, and they
 /// outnumber the rows that render.
-pub async fn for_task(pool: &DbPool, task_id: &str) -> Result<Vec<Activity>, sqlx::Error> {
+pub(crate) async fn for_task(pool: &DbPool, task_id: &str) -> Result<Vec<Activity>, sqlx::Error> {
     sqlx::query_as::<_, StoredActivity>(read_activities!(
         "task_id = $1 AND parent_uuid IS NULL ORDER BY position, ordinal, activity_id"
     ))
@@ -271,7 +274,7 @@ pub async fn for_task(pool: &DbPool, task_id: &str) -> Result<Vec<Activity>, sql
 /// a set of named Messages for one reason: a turn that only called tools said
 /// nothing and has no Message to be named by, and its calls are exactly what the
 /// page has to show. `None` means from the beginning.
-pub async fn for_task_since(
+pub(crate) async fn for_task_since(
     pool: &DbPool,
     task_id: &str,
     since: Option<DateTime<Utc>>,
@@ -289,7 +292,7 @@ pub async fn for_task_since(
 }
 
 /// One subagent's activities, behind the `Agent` call that spawned it.
-pub async fn for_subagent(
+pub(crate) async fn for_subagent(
     pool: &DbPool,
     task_id: &str,
     parent_uuid: &str,
@@ -305,7 +308,7 @@ pub async fn for_subagent(
 }
 
 /// The activities that happened on a named set of Messages.
-pub async fn for_messages(
+pub(crate) async fn for_messages(
     pool: &DbPool,
     task_id: &str,
     message_uuids: &[String],
@@ -325,7 +328,7 @@ pub async fn for_messages(
 
 /// The activities named directly by their own id — the ones that happened on no
 /// Message and so are named by the change rather than by a Message uuid.
-pub async fn for_activity_ids(
+pub(crate) async fn for_activity_ids(
     pool: &DbPool,
     task_id: &str,
     activity_ids: &[String],
@@ -347,7 +350,7 @@ pub async fn for_activity_ids(
 ///
 /// One row, found by an index: the call and its outcome are one row, so there is
 /// no second lookup for whichever later Message carried the result.
-pub async fn find_tool_call(
+pub(crate) async fn find_tool_call(
     pool: &DbPool,
     task_id: &str,
     tool_use_id: &str,
@@ -358,23 +361,6 @@ pub async fn find_tool_call(
         .fetch_optional(pool)
         .await
         .map(|row| row.map(|row| row.0))
-}
-
-/// How many tool calls a Task made and how many came back failed.
-///
-/// `(total, failed)`. A Task with no activities returns `(0, 0)`, which the
-/// caller must not report as a fact — see `task/statistics.rs`.
-pub async fn tool_call_counts(pool: &DbPool, task_id: &str) -> Result<(i64, i64), sqlx::Error> {
-    let row: (i64, i64) = sqlx::query_as(
-        r#"SELECT count(*),
-                  count(*) FILTER (WHERE is_error)
-           FROM task_activities
-           WHERE task_id = $1 AND kind = 'tool_call'"#,
-    )
-    .bind(task_id)
-    .fetch_one(pool)
-    .await?;
-    Ok(row)
 }
 
 struct StoredActivity(Activity);

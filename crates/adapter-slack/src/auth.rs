@@ -450,8 +450,6 @@ mod tests {
 mod db_tests {
     use std::sync::Arc;
 
-    use moatless_identity::auth::provider_token_dao::PgProviderTokenDao;
-    use moatless_identity::auth::users::PgUserDao;
     use moatless_identity::ports::UserDirectory;
     use sqlx::PgPool;
 
@@ -459,11 +457,8 @@ mod db_tests {
 
     /// The identity seam over a real pool — what the composition root hands the
     /// Slack ingress.
-    fn users(pool: &PgPool) -> UserDirectory {
-        UserDirectory::new(
-            Arc::new(PgUserDao(pool.clone())),
-            Arc::new(PgProviderTokenDao(pool.clone())),
-        )
+    fn users(pool: &PgPool) -> Arc<UserDirectory> {
+        moatless_identity::compose::user_directory(pool.clone())
     }
 
     async fn seed_user(pool: &PgPool, email: &str, slack_user_id: Option<&str>) -> uuid::Uuid {
@@ -493,9 +488,12 @@ mod db_tests {
 
     #[sqlx::test]
     async fn an_unknown_slack_id_and_an_unknown_email_resolve_to_nothing(pool: PgPool) {
-        assert_eq!(user_by_slack_id(&users(&pool), "U1").await.unwrap(), None);
         assert_eq!(
-            user_by_email(&users(&pool), "U1", "nobody@example.com")
+            user_by_slack_id(users(&pool).as_ref(), "U1").await.unwrap(),
+            None
+        );
+        assert_eq!(
+            user_by_email(users(&pool).as_ref(), "U1", "nobody@example.com")
                 .await
                 .unwrap(),
             None
@@ -509,11 +507,11 @@ mod db_tests {
         let user_id = seed_user(&pool, "alice@example.com", Some("U1")).await;
 
         assert_eq!(
-            user_by_slack_id(&users(&pool), "U1").await.unwrap(),
+            user_by_slack_id(users(&pool).as_ref(), "U1").await.unwrap(),
             Some(user_id)
         );
         assert_eq!(
-            user_by_email(&users(&pool), "U1", "alice@example.com")
+            user_by_email(users(&pool).as_ref(), "U1", "alice@example.com")
                 .await
                 .unwrap(),
             Some(user_id)
@@ -527,7 +525,7 @@ mod db_tests {
     async fn the_cache_write_lands_a_row(pool: PgPool) {
         let user_id = seed_user(&pool, "alice@example.com", None).await;
 
-        cache_provider_id(&users(&pool), user_id, "U1").await;
+        cache_provider_id(users(&pool).as_ref(), user_id, "U1").await;
 
         let cached: Option<(uuid::Uuid, String)> = sqlx::query_as(
             "SELECT user_id, provider_user_id FROM user_provider_ids WHERE provider = 'slack'",
@@ -537,7 +535,7 @@ mod db_tests {
         .unwrap();
         assert_eq!(cached, Some((user_id, "U1".to_string())));
         assert_eq!(
-            user_by_slack_id(&users(&pool), "U1").await.unwrap(),
+            user_by_slack_id(users(&pool).as_ref(), "U1").await.unwrap(),
             Some(user_id)
         );
     }
@@ -548,8 +546,8 @@ mod db_tests {
     async fn a_repeated_cache_write_is_a_no_op(pool: PgPool) {
         let user_id = seed_user(&pool, "alice@example.com", None).await;
 
-        cache_provider_id(&users(&pool), user_id, "U1").await;
-        cache_provider_id(&users(&pool), user_id, "U1").await;
+        cache_provider_id(users(&pool).as_ref(), user_id, "U1").await;
+        cache_provider_id(users(&pool).as_ref(), user_id, "U1").await;
 
         let rows: i64 =
             sqlx::query_scalar("SELECT COUNT(*) FROM user_provider_ids WHERE provider = 'slack'")

@@ -2,7 +2,7 @@
 //! T3 wire compatibility over Moatless-owned operations and scoped read projections.
 
 pub mod activity;
-pub mod activity_dao;
+pub(crate) mod activity_dao;
 pub mod agent;
 mod assets;
 mod attachments;
@@ -12,7 +12,7 @@ mod checkout;
 mod commands;
 mod compose;
 mod config;
-pub mod dao;
+pub(crate) mod dao;
 mod feed;
 pub mod files;
 mod git_actions;
@@ -25,6 +25,7 @@ mod preview;
 pub mod preview_tabs;
 mod projection;
 mod providers;
+mod reads;
 mod review;
 mod routes;
 mod rpc;
@@ -38,16 +39,22 @@ mod state;
 pub(crate) mod subscription;
 mod subscriptions;
 mod subtasks;
-pub mod task_dao;
+pub(crate) mod task_dao;
 mod terminal;
 mod usage;
 pub mod usage_limit_sources;
 pub mod workspace;
-pub mod workspace_dao;
+pub(crate) mod workspace_dao;
 
-pub use usage::dao::PgUsageDao;
-
+pub(crate) use authentication::viewer_scope;
 pub use checkout::Sources;
+pub use compose::T3Graph;
+pub use compose::UiRpc;
+pub use compose::UiRpcDependencies;
+pub use compose::router_from_env;
+pub use compose::t3_graph;
+pub use config::AgentModelDefaults;
+pub use config::UiRpcConfigError;
 pub use feed::{ShellFeed, ThreadFeed};
 pub use moatless_identity::auth::pairing::DevicePairing;
 pub use moatless_ports::sandbox::{
@@ -55,19 +62,14 @@ pub use moatless_ports::sandbox::{
     SandboxStopper, WorkspaceSnapshotSource,
 };
 pub use moatless_types::ui_rpc::{UiRpcAuthIdentity, UiRpcAuthMethod, UserRole};
-pub use sandbox_proto::client::SandboxConnector;
-pub(crate) use authentication::viewer_scope;
-pub use compose::UiRpc;
-pub use compose::UiRpcDependencies;
-pub use compose::router_from_env;
-pub use config::AgentModelDefaults;
-pub use config::UiRpcConfigError;
+pub use reads::T3Reads;
 pub(crate) use rpc::frames::RequestId;
 pub(crate) use rpc::frames::failure_exit;
 pub(crate) use rpc::frames::sandbox_stream_refusal;
 pub(crate) use rpc::frames::success_exit;
 pub(crate) use rpc::session::MAX_ACTIVE_STREAMS;
 pub(crate) use rpc::session::MAX_DETACHED_REQUESTS;
+pub use sandbox_proto::client::SandboxConnector;
 pub use snapshots::ShellSnapshot;
 pub use snapshots::ThreadSnapshot;
 pub use snapshots::archived_shell_snapshot;

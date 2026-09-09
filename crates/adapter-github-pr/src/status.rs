@@ -4,11 +4,11 @@ use moatless_types::repository::GitHostRepo;
 use tracing::warn;
 
 use moatless_adapter_model::capabilities::AdapterBindingStatus;
-use moatless_types::adapter::TaskBinding;
 use moatless_types::adapter::ExternalStatus;
+use moatless_types::adapter::TaskBinding;
 use std::sync::Arc;
 
-use moatless_loops::bindings::dao::TaskBindingDao;
+use moatless_loops::bindings::operations::Bindings;
 
 use super::adapter::GithubPrAdapter;
 use super::api::PrInfo;
@@ -29,7 +29,7 @@ pub(super) enum WebhookStatusObservation {
 
 /// Apply a normalized webhook observation best-effort and off the response path.
 pub(super) fn apply_webhook_observation(
-    repository: Arc<dyn TaskBindingDao>,
+    repository: Arc<Bindings>,
     observation: WebhookStatusObservation,
 ) {
     tokio::spawn(async move {
@@ -38,7 +38,7 @@ pub(super) fn apply_webhook_observation(
             | WebhookStatusObservation::ReviewDecision { subject_key, .. } => subject_key,
         };
         let bindings = match repository
-            .find_by_subject("github", "github_pr", subject_key)
+            .for_subject("github", "github_pr", subject_key)
             .await
         {
             Ok(bindings) => bindings,
@@ -56,7 +56,7 @@ pub(super) fn apply_webhook_observation(
             let result = match &observation {
                 WebhookStatusObservation::PullRequest { status, .. } => {
                     repository
-                        .update_external_status(
+                        .record_external_status(
                             &binding.id,
                             status.status.as_deref(),
                             status.state_kind.as_deref(),
@@ -66,7 +66,7 @@ pub(super) fn apply_webhook_observation(
                 }
                 WebhookStatusObservation::ReviewDecision { decision, .. } => {
                     repository
-                        .update_review_decision(&binding.id, Some(decision.as_str()))
+                        .record_review_decision(&binding.id, Some(decision.as_str()))
                         .await
                 }
             };

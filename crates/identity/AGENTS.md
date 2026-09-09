@@ -10,8 +10,11 @@ stores are private to this crate, and a peer band names a port instead.
 `AppCredentials`, `CodexScopeReader`, `SecretResolver`, `SecretCatalog`, and
 `AdapterAppReader`.
 
-`moatless-workspaces` names `ProviderTokenDao` and `SecretAuditDao` across the
-boundary. Leave both as they are; do not add a port over either.
+`credentials/` owns the provider-token credential. Build exactly one
+`CredentialService` per process through `compose::credentials`: the
+per-`(user, key)` lock that serializes a concurrent store lives inside it, so a
+second instance over the same pool serializes nothing. `secret/audit.rs` owns
+every append to `secret_audit_events`, through `compose::secret_audit`.
 
 Adapter installation belongs to the provider crate: an Adapter resolves its
 stored credentials through `AdapterAppReader`, declared in

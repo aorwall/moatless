@@ -17,7 +17,6 @@ use crate::adapters::providers::telegram::adapter::TelegramAdapter;
 use crate::adapters::providers::webhook::adapter::WebhookAdapter;
 use crate::compose::Ports;
 use crate::state::AppState;
-use moatless_adapter_model::capabilities::AdapterDestinationBuilder;
 use moatless_adapter_model::delivery::AdapterDeliveryHandlers;
 use moatless_adapter_model::registry::Adapters;
 use moatless_core::config::Config;
@@ -110,11 +109,6 @@ impl AdapterInstallations {
     pub fn linear(&self) -> Arc<LinearAdapter> {
         self.linear.adapter.clone()
     }
-
-    /// The GitHub PR destination builder needed by the binding connector.
-    pub fn github_destination_builder(&self) -> Arc<dyn AdapterDestinationBuilder> {
-        self.github_pr.adapter.clone()
-    }
 }
 
 struct SlackInstallation {
@@ -174,8 +168,8 @@ impl TelegramInstallation {
         let adapter = Arc::new(
             TelegramAdapter::from_db(&config, ports.pool.clone(), ports.adapter_apps.clone())
                 .with_ingress_ports(
-                    ports.adapter_connections.clone(),
-                    ports.loops.clone(),
+                    ports.connection_routing.clone(),
+                    ports.loop_reader.clone(),
                     ports.adapter_delivery.clone(),
                 ),
         );
@@ -210,8 +204,8 @@ impl GithubPrInstallation {
                 ports.git_host_tokens.clone(),
             )
             .with_ingress_ports(
-                ports.adapter_connections.clone(),
-                ports.loops.clone(),
+                ports.connection_routing.clone(),
+                ports.loop_reader.clone(),
                 ports.task_bindings.clone(),
                 ports.user_directory.clone(),
                 ports.adapter_delivery.clone(),
@@ -219,20 +213,19 @@ impl GithubPrInstallation {
         );
         adapter.clone().register_into(adapters);
         tracing::info!("GitHub PR Adapter installed");
-        let connector = Arc::new(moatless_loops::loops::firing::listen::Connector::new(
-            Some(adapter.clone()),
-            ports.adapter_connections.clone(),
-            ports.loops.clone(),
-            ports.task_bindings.clone(),
-        ));
+        let connector = Arc::new(
+            ports
+                .loop_graph
+                .connector(Some(adapter.clone()), ports.connection_routing.clone()),
+        );
         Self { adapter, connector }
     }
 
     fn register_delivery(&self, handlers: &mut AdapterDeliveryHandlers, state: &AppState) {
         let router = Arc::new(
             crate::adapters::providers::github_pr::router::GithubPrInboundRouter::new(
-                state.adapter_connections.clone(),
-                state.loops.clone(),
+                state.connection_routing.clone(),
+                state.loop_reader.clone(),
                 state.task_bindings.clone(),
                 state.user_directory.clone(),
                 state.routing.clone(),
@@ -261,7 +254,7 @@ impl LinearInstallation {
     fn install(config: Arc<Config>, ports: &Ports, adapters: &mut Adapters) -> Self {
         let oauth = Arc::new(moatless_adapter_linear::installation::Installation::new(
             config.clone(),
-            ports.adapter_connections.clone(),
+            ports.connection_routing.clone(),
             ports.harness_credentials.clone(),
         ));
         let adapter = Arc::new(
@@ -272,8 +265,9 @@ impl LinearInstallation {
             )
             .with_tasks(ports.task_reader.clone())
             .with_ingress_ports(
+                ports.connection_routing.clone(),
                 ports.adapter_connections.clone(),
-                ports.loops.clone(),
+                ports.loop_reader.clone(),
                 ports.adapter_delivery.clone(),
             ),
         );
@@ -289,11 +283,11 @@ impl LinearInstallation {
     fn register_delivery(&self, handlers: &mut AdapterDeliveryHandlers, state: &AppState) {
         let router = Arc::new(
             crate::adapters::providers::linear::delivery::LinearInboundRouter::new(
-                state.adapter_connections.clone(),
+                state.connection_routing.clone(),
                 state.harness_credentials.clone(),
                 state.config.clone(),
                 state.adapter_apps.clone(),
-                state.loops.clone(),
+                state.loop_reader.clone(),
                 state.task_bindings.clone(),
                 state.task_reader.clone(),
                 state.task_creation.clone(),
@@ -315,7 +309,7 @@ impl LinearInstallation {
                 crate::adapters::providers::linear::event_subscriber::LinearEventSubscriber::new(
                     state.harness_credentials.clone(),
                     state.task_bindings.clone(),
-                    state.adapter_connections.clone(),
+                    state.connection_routing.clone(),
                     state.config.clone(),
                     state.adapter_apps.clone(),
                     state.transcript.clone(),
@@ -327,8 +321,13 @@ impl LinearInstallation {
     }
 }
 
-
 impl AdapterInstallations {
-    pub(crate) fn github_connector(&self) -> Arc<moatless_loops::loops::firing::listen::Connector> { self.github_pr.connector.clone() }
-    pub(crate) fn linear_installation(&self) -> Arc<moatless_adapter_linear::installation::Installation> { self.linear.oauth.clone() }
+    pub(crate) fn github_connector(&self) -> Arc<moatless_loops::loops::firing::listen::Connector> {
+        self.github_pr.connector.clone()
+    }
+    pub(crate) fn linear_installation(
+        &self,
+    ) -> Arc<moatless_adapter_linear::installation::Installation> {
+        self.linear.oauth.clone()
+    }
 }

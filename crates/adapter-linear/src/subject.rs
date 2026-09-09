@@ -15,7 +15,7 @@
 
 use moatless_adapter_model::error::AdapterError;
 use moatless_adapter_model::loops::LoopReader;
-use moatless_loops::bindings::dao::TaskBindingDao;
+use moatless_loops::bindings::operations::Bindings;
 use moatless_types::adapter::AdapterConnection;
 use moatless_types::adapter::TaskBinding;
 use moatless_types::loops::SubscriptionMatch;
@@ -53,7 +53,7 @@ pub(super) enum BindingScope<'a> {
 /// to see a Binding in order to decide about it, and the emitters' callers
 /// filter for themselves. Callers that want only live Bindings say so.
 pub(super) async fn bindings_in_scope(
-    task_bindings: &dyn TaskBindingDao,
+    task_bindings: &Bindings,
     scope: BindingScope<'_>,
 ) -> Result<Vec<TaskBinding>, AdapterError> {
     match scope {
@@ -62,19 +62,14 @@ pub(super) async fn bindings_in_scope(
             for subject_kind in [SUBJECT_KIND_SESSION, SUBJECT_KIND_ISSUE] {
                 rows.extend(
                     task_bindings
-                        .find_active_by_destination_field(
-                            ADAPTER,
-                            subject_kind,
-                            "issue_id",
-                            issue_id,
-                        )
+                        .active_by_destination_field(ADAPTER, subject_kind, "issue_id", issue_id)
                         .await?,
                 );
             }
             Ok(rows)
         }
         BindingScope::SessionsOfTask(task_id) => Ok(task_bindings
-            .find_by_task_id(task_id)
+            .for_task(task_id)
             .await?
             .into_iter()
             .filter(|binding| {
@@ -106,7 +101,7 @@ fn is_pending(binding: &TaskBinding) -> bool {
 /// session-first order lets the recipient step keep the session Binding whenever
 /// a task's session is the one that matched.
 pub(super) async fn active_comment_bindings(
-    task_bindings: &dyn TaskBindingDao,
+    task_bindings: &Bindings,
     connection: &AdapterConnection,
     issue_id: &str,
 ) -> Result<Vec<TaskBinding>, AdapterError> {
@@ -114,7 +109,7 @@ pub(super) async fn active_comment_bindings(
     for subject_kind in [SUBJECT_KIND_SESSION, SUBJECT_KIND_ISSUE] {
         rows.extend(
             task_bindings
-                .find_active_by_destination_field(ADAPTER, subject_kind, "issue_id", issue_id)
+                .active_by_destination_field(ADAPTER, subject_kind, "issue_id", issue_id)
                 .await?,
         );
     }
@@ -130,13 +125,13 @@ pub(super) async fn active_comment_bindings(
 /// Active Bindings of `subject_kind` pointing at `issue_id`, scoped to
 /// `connection`.
 pub(super) async fn active_bindings_on_issue(
-    task_bindings: &dyn TaskBindingDao,
+    task_bindings: &Bindings,
     connection: &AdapterConnection,
     subject_kind: &str,
     issue_id: &str,
 ) -> Result<Vec<TaskBinding>, AdapterError> {
     let rows = task_bindings
-        .find_active_by_destination_field(ADAPTER, subject_kind, "issue_id", issue_id)
+        .active_by_destination_field(ADAPTER, subject_kind, "issue_id", issue_id)
         .await?;
     Ok(rows
         .into_iter()

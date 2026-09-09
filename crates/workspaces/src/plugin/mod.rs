@@ -1,13 +1,16 @@
 //! Plugin domain module.
 
 pub mod activation;
-pub mod dao;
+pub(crate) mod dao;
 pub mod error;
-pub mod handlers;
+pub(crate) mod handlers;
 pub mod models;
+pub mod operations;
 pub mod routes;
 pub mod schemas;
 pub mod sync;
 
-pub mod registry;
-pub mod activation_access;
+pub(crate) mod activation_access;
+pub(crate) mod registry;
+
+pub use operations::Plugins;

@@ -11,15 +11,11 @@ mod test_support {
     /// it is built here — the composition root — rather than repeated at each
     /// call site.
     #[must_use]
-    pub fn conversations_over(
-        pool: &moatless_core::db::DbPool,
-    ) -> moatless_t3code::dao::PgConversationDao {
-        moatless_t3code::dao::PgConversationDao::new(
-            pool.clone(),
-            std::sync::Arc::new(moatless_tasks::ports::Activities::new(pool.clone())),
-        )
+    pub fn t3_graph_over(pool: &moatless_core::db::DbPool) -> moatless_t3code::T3Graph {
+        let tasks = moatless_tasks::compose::task_graph(pool.clone());
+        moatless_t3code::t3_graph(pool.clone(), tasks.activities())
     }
 }
 
 #[cfg(any(test, feature = "db-tests"))]
-pub use test_support::conversations_over;
+pub use test_support::t3_graph_over;

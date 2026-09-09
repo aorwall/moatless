@@ -19,7 +19,7 @@ use std::sync::Arc;
 
 use serde_json::json;
 
-use crate::dao::ConversationDao;
+use crate::reads::T3Reads;
 use crate::scripts::{self, ScriptsError, ScriptsState};
 use crate::terminal::TerminalHub;
 use moatless_types::access_control::ScopeContext;
@@ -34,7 +34,7 @@ use sandbox_proto::client::SandboxConnector;
 #[derive(Clone)]
 pub struct StartupScripts {
     scripts: ScriptsState,
-    conversations: Arc<dyn ConversationDao>,
+    reads: T3Reads,
     sandboxes: Arc<dyn SandboxConnector>,
     terminal: TerminalHub,
 }
@@ -48,13 +48,13 @@ pub struct StartupScriptFailure {
 impl StartupScripts {
     pub(crate) fn new(
         scripts: ScriptsState,
-        conversations: Arc<dyn ConversationDao>,
+        reads: T3Reads,
         sandboxes: Arc<dyn SandboxConnector>,
         terminal: TerminalHub,
     ) -> Self {
         Self {
             scripts,
-            conversations,
+            reads,
             sandboxes,
             terminal,
         }
@@ -83,7 +83,7 @@ impl StartupScripts {
             let payload = json!({ "threadId": task_id, "scriptId": script.name });
             if let Err(error) = scripts::run(
                 &self.scripts,
-                self.conversations.as_ref(),
+                self.reads.conversations(),
                 self.sandboxes.as_ref(),
                 &self.terminal,
                 viewer,

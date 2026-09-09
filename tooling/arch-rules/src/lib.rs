@@ -15,6 +15,7 @@ pub mod composition_root;
 pub mod declaration_only_roots;
 pub mod route_registration;
 pub mod transport_direction;
+pub mod persistence_export;
 pub mod persistence_sql_location;
 pub mod process_exit;
 pub mod dependency_privacy;

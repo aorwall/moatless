@@ -23,9 +23,9 @@
 //! [`reconcile`], [`events`], [`attempt`].
 
 // Decision modules driven by the desired-state reconciler (wired in `main`).
-// `reconciler`, `watcher`, `observe`, `orchestrator` and `error` are `pub` (not
-// `pub(crate)`) because the band-7 provider crates (`sandbox-k8s`,
-// `sandbox-docker`) reach specific items in them across the crate boundary.
+// `reconciler`, `watcher`, `observe` and `error` are `pub` (not `pub(crate)`)
+// because the band-7 provider crates (`sandbox-k8s`, `sandbox-docker`) and the
+// backend supervisor reach specific items in them across the crate boundary.
 // Widening the module only exposes its `pub` items; the rest stay
 // `pub(crate)`, so a lifecycle mutation still cannot bypass `Lifecycle`.
 //
@@ -42,16 +42,16 @@ pub mod watcher;
 
 pub mod error;
 pub(crate) mod events;
-pub mod orchestrator;
+pub mod ingress;
+pub(crate) mod orchestrator;
 pub(crate) mod plan;
 
 // Infrastructure adapters implementing the ports, `pub(crate)` and constructed
-// by `AppState` when it builds the `Lifecycle` handle.
+// by `crate::compose` when it builds the `Lifecycle` handle.
 pub(crate) mod agent_stop;
 pub(crate) mod dao;
+pub(crate) mod db;
 pub(crate) mod event_sink;
-pub(crate) mod lock;
-mod db;
 pub mod observe;
 pub(crate) mod workspace_archive;
 pub(crate) mod workspace_sync;
@@ -67,36 +67,25 @@ pub(crate) mod test_support;
 // ---- Curated surface ----
 //
 // `pub` is the deep module's cross-crate contract: the `Lifecycle` handle, its
-// typed error, and the reconciler surface `main` assembles. Everything the
-// module is merely built *over* — the ports and the correlation internals — is
-// `pub(crate)`; no caller outside this crate names it. The outcome a caller
-// reads back is `moatless_sandbox_runtime::outcome::LifecycleOutcome`, named
-// from that crate.
+// typed error, and the reconciler surface `main` spawns. Everything the module
+// is merely built *over* — the stores, the ports and the correlation
+// internals — is `pub(crate)`, and `crate::compose` is the only assembler; no
+// caller outside this crate names one. The outcome a caller reads back is
+// `moatless_sandbox_runtime::outcome::LifecycleOutcome`, named from that crate.
 
 pub use error::LifecycleError;
-pub use orchestrator::{Lifecycle, TaskIntent};
+pub use ingress::SandboxIngress;
+pub use orchestrator::{Lifecycle, OutstandingCommand, TaskIntent};
 
-// The desired-state reconciler and its gRPC notifier, assembled by
-// `compose::Ports::build_reconciler` and spawned by `main`. The provider
-// fleet-observer adapters live in `sandbox::k8s` and `sandbox::docker`.
+// The desired-state reconciler and its gRPC notifier. `crate::compose` builds
+// the `Reconciler` and `main` spawns it; the notifier and member registry are
+// built over the backend's connector. The provider fleet-observer adapters live
+// in `sandbox::k8s` and `sandbox::docker`.
 pub use observe::{GrpcMemberRegistry, GrpcNotify};
-pub use reconciler::{
-    MemberRegistryPort, NotifyPort, Reconciler, ReconcilerConfig, ReconcilerDeps,
-};
+pub use reconciler::{MemberRegistryPort, NotifyPort, Reconciler, ReconcilerConfig};
 
-// The system clock and concrete port adapters the composition root assembles
-// into a `Lifecycle`/`Reconciler`. These are `pub` because the composition root
-// (`backend/src/compose.rs`, `state.rs`) names them across the crate
-// boundary — the pub-widening the carve pays for: `pub(crate)` cannot span two
-// crates, so an item the backend builds must be `pub`. They remain excluded from
-// this module's *curated* contract — a caller other than the composition root
-// has no business naming a raw port adapter — but visibility follows real
-// consumers, and the real consumer is in another crate.
-pub use agent_stop::GrpcAgentStop;
-pub use dao::PgLifecycleDao;
-pub use event_sink::OutboxEventSink;
-pub use lock::PgLifecycleLock;
-pub use orchestrator::SystemWallClock;
+// The provisioning knowledge the band-7 provider crates read, and the S3
+// archive the backend builds over its own bucket configuration and hands to
+// `crate::compose`.
 pub use plan::ProvisionDeps;
 pub use workspace_archive::S3WorkspaceArchive;
-pub use workspace_sync::GrpcWorkspaceSync;

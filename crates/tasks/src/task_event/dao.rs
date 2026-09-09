@@ -5,24 +5,11 @@ use std::collections::HashMap;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 
-use super::models::TaskEvent;
+use super::models::{InsertTaskEvent, TaskEvent};
 use moatless_core::db::DbPool;
 
-/// Insert parameters for a new task event.
-pub struct InsertTaskEvent {
-    pub event_id: String,
-    pub task_id: String,
-    pub event_type: String,
-    pub sub_type: String,
-    pub is_error: bool,
-    pub agent_type: Option<String>,
-    pub turn_number: Option<i32>,
-    pub payload: serde_json::Value,
-    pub timestamp: String,
-}
-
 /// DAO trait for task event persistence.
-#[cfg_attr(any(test, feature = "test-support"), mockall::automock)]
+#[cfg_attr(test, mockall::automock)]
 #[async_trait]
 pub trait TaskEventDao: Send + Sync {
     /// Insert a single event.
@@ -245,3 +232,7 @@ impl TaskEventDao for PgTaskEventDao {
         Ok(rows.into_iter().collect())
     }
 }
+
+#[cfg(all(test, feature = "db-tests"))]
+#[path = "dao_db_tests.rs"]
+mod dao_db_tests;

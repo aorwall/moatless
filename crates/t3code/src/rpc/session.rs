@@ -281,7 +281,7 @@ pub(crate) async fn resolve_workspace_skills(
     snapshots: &WorkspaceSnapshots,
 ) {
     let viewer = viewer_scope(identity);
-    let Some(workspace_id) = skills::workspace_of(state.conversations.as_ref(), &viewer, cwd).await
+    let Some(workspace_id) = skills::workspace_of(state.reads.conversations(), &viewer, cwd).await
     else {
         return;
     };

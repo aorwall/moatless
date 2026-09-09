@@ -7,9 +7,10 @@ use rand::RngExt;
 use sha2::{Digest, Sha256};
 use tracing::{debug, info, warn};
 
-use super::api_keys::{ApiKey, ApiKeyDao};
+use super::api_keys::ApiKey;
+use super::api_keys_dao::ApiKeyDao;
+use super::users_dao::UserDao;
 use moatless_types::user::UserRole;
-use super::users::UserDao;
 
 const KEY_PREFIX: &str = "mvk_";
 const KEY_BYTES: usize = 32;
@@ -36,7 +37,7 @@ pub struct ApiKeyCreateResult {
 }
 
 /// Generate a new API key for a user.
-pub async fn generate_key(
+pub(crate) async fn generate_key(
     api_keys: &dyn ApiKeyDao,
     user_id: &str,
     name: &str,
@@ -87,7 +88,7 @@ pub async fn generate_key(
 }
 
 /// Validate an API key. Returns payload if valid, None otherwise.
-pub async fn validate_key(
+pub(crate) async fn validate_key(
     api_keys: Arc<dyn ApiKeyDao>,
     users: &dyn UserDao,
     key: &str,
@@ -145,7 +146,7 @@ pub async fn validate_key(
 /// 1. Compute SHA-256 hash (CPU-only, no DB)
 /// 2. Check cache by hash → return if hit (with expiry check)
 /// 3. Miss → call `validate_key()` → build `VerifyPayload` → insert cache → return
-pub async fn validate_key_cached(
+pub(crate) async fn validate_key_cached(
     api_keys: Arc<dyn ApiKeyDao>,
     users: &dyn UserDao,
     key: &str,
@@ -192,7 +193,7 @@ pub async fn validate_key_cached(
 
 /// Revoke (delete) an API key. Only the owner can revoke.
 /// Returns `Some(key_hash)` on success for cache invalidation, `None` if not found.
-pub async fn revoke_key(
+pub(crate) async fn revoke_key(
     api_keys: &dyn ApiKeyDao,
     key_id: &str,
     user_id: &str,
@@ -216,7 +217,7 @@ pub async fn revoke_key(
 }
 
 /// List all API keys for a user.
-pub async fn list_keys(
+pub(crate) async fn list_keys(
     api_keys: &dyn ApiKeyDao,
     user_id: &str,
 ) -> Result<Vec<ApiKey>, crate::auth::error::AuthError> {

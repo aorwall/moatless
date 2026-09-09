@@ -1,6 +1,5 @@
 //! Scoped Loop and workspace access for Loop operations.
 
-use super::dao::{LoopDao, LoopRecord};
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_ports::workspace::WorkspaceResolver;
 use moatless_types::access_control::ScopeContext;
@@ -25,15 +24,4 @@ pub(crate) async fn ensure_workspace_usable(
         .into());
     }
     Ok(())
-}
-
-pub(crate) async fn load_loop_for_auth_with(
-    loops: &LoopDao,
-    ctx: &ScopeContext,
-    id: &str,
-) -> Result<LoopRecord, AdapterError> {
-    loops
-        .get(id, ctx)
-        .await?
-        .ok_or_else(|| SharedAdapterError::NotFound(format!("Loop {id} not found")).into())
 }

@@ -12,7 +12,8 @@ use moatless_ports::workspace::WorkspaceResolver;
 use moatless_sandbox_runtime::provisioning::ProvisionRequest;
 use moatless_types::workspace::ServerConfig;
 
-use super::orchestrator::{LifecycleDao, TaskIntent};
+use super::dao::LifecycleDao;
+use super::orchestrator::TaskIntent;
 use moatless_sandbox_runtime::runtime::RuntimeError;
 use moatless_sandbox_runtime::runtime::map_sandbox_error;
 
@@ -28,7 +29,7 @@ pub struct ProvisionDeps {
 }
 
 impl ProvisionDeps {
-    pub fn new(
+    pub(crate) fn new(
         sandboxes: Arc<dyn LifecycleDao>,
         workspaces: Arc<dyn WorkspaceResolver>,
         users: Arc<dyn CommitIdentity>,
@@ -96,20 +97,10 @@ mod db_tests {
     use moatless_sandbox_runtime::runtime::ErrorClass;
     use sqlx::PgPool;
 
-    /// Assemble deps straight from a test pool, bypassing the composition root
-    /// the same way the `db-tests` suite always has.
+    /// Assemble deps over a test pool through the crate's own composition root.
     fn deps_from_pool(pool: &PgPool) -> ProvisionDeps {
-        ProvisionDeps::new(
-            Arc::new(crate::lifecycle::PgLifecycleDao::new(pool.clone())),
-            Arc::new(moatless_workspaces::ports::WorkspaceProjection::new(
-                Arc::new(moatless_workspaces::workspace::dao::PgWorkspaceDao(
-                    pool.clone(),
-                )),
-                Arc::new(moatless_workspaces::repository::dao::PgRepositoryDao(
-                    pool.clone(),
-                )),
-                Arc::new(moatless_workspaces::plugin::dao::PgPluginDao(pool.clone())),
-            )),
+        crate::compose::sandbox_graph(pool.clone()).provision_deps(
+            moatless_workspaces::compose::workspace_resolver(pool.clone()),
             // The seeded task is user-scoped and owned by its creator, so the
             // control gate never reaches for the platform-admin flag.
             Arc::new(non_admin()),

@@ -6,10 +6,10 @@ use axum::extract::FromRef;
 use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
-use super::dao::TaskEventDao;
 use super::handlers;
+use super::operations::TaskEvents;
+use crate::task::operations::TaskCommands;
 use moatless_core::http_auth::UserTokenVerifier;
-use crate::task::dao::TaskDao;
 
 #[derive(OpenApi)]
 #[openapi(
@@ -26,13 +26,13 @@ pub struct TaskEventApiDoc;
 ///
 /// Generic over the router state `S` so this module names no root type: the
 /// composition root supplies the concrete state at the call site, and each
-/// handler reaches its ports — `Arc<dyn TaskDao>`, `Arc<dyn TaskEventDao>`, and
+/// handler reaches its ports — `Arc<TaskCommands>`, `Arc<TaskEvents>`, and
 /// the `UserTokenVerifier` behind `AuthUser` — through `FromRef<S>`.
 pub fn task_event_router<S>(state: S) -> (axum::Router, utoipa::openapi::OpenApi)
 where
     S: Clone + Send + Sync + 'static,
-    Arc<dyn TaskDao>: FromRef<S>,
-    Arc<dyn TaskEventDao>: FromRef<S>,
+    Arc<TaskCommands>: FromRef<S>,
+    Arc<TaskEvents>: FromRef<S>,
     Arc<dyn UserTokenVerifier>: FromRef<S>,
 {
     let (router, api) = OpenApiRouter::with_openapi(TaskEventApiDoc::openapi())

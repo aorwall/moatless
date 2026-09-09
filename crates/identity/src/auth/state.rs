@@ -1,17 +1,17 @@
 //! Shared authentication dependencies and configured providers.
 
 use super::{
-    api_keys::ApiKeyDao,
+    api_keys_dao::ApiKeyDao,
     cache::AuthCache,
     github::{registry::GitHubAppRegistry, service::GitHubAppService},
     oauth::provider::OAuthProvider,
     oidc::OidcService,
     pairing::DevicePairing,
     password::{dao::UserCredentialDao, throttle::LoginThrottle},
+    provider_token_auth_dao::ProviderTokenAuthDao,
     provider_token_dao::ProviderTokenDao,
-    provider_tokens::ProviderTokenAuthDao,
     sessions::SessionDao,
-    users::UserDao,
+    users_dao::UserDao,
 };
 use crate::secret::service::SecretService;
 use moatless_core::{config::Config, db::DbPool};

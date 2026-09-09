@@ -7,7 +7,7 @@ use aes_gcm::aead::{Aead, Payload};
 use aes_gcm::{Aes256Gcm, KeyInit, Nonce};
 use base64::Engine;
 
-use super::audit::{SecretAuditDao, SecretAuditInput};
+use super::audit::SecretAudit;
 use super::dao::{SecretDao, SecretInsert, SecretReplace};
 use super::error::SecretError;
 use super::models::{EncryptedSecretValue, ResolvedSecret, SecretRecord};
@@ -201,14 +201,14 @@ fn parse_master_key(raw: &str) -> Option<[u8; DATA_KEY_LEN]> {
 #[derive(Clone)]
 pub struct SecretService {
     secrets: Arc<dyn SecretDao>,
-    audits: Arc<dyn SecretAuditDao>,
+    audits: Arc<SecretAudit>,
     cipher: Option<Arc<dyn SecretCipher>>,
 }
 
 impl SecretService {
-    pub fn new(
+    pub(crate) fn new(
         secrets: Arc<dyn SecretDao>,
-        audits: Arc<dyn SecretAuditDao>,
+        audits: Arc<SecretAudit>,
         cipher: Option<Arc<dyn SecretCipher>>,
     ) -> Self {
         Self {
@@ -757,18 +757,8 @@ impl SecretService {
         record: &SecretRecord,
         result: &str,
     ) -> Result<(), SecretError> {
-        // Write scope into scope_type column and owner_user_id into scope_id column
-        // of secret_audit_events to preserve the audit table shape.
         self.audits
-            .record(SecretAuditInput {
-                secret_id,
-                actor_id,
-                action,
-                scope_type: &record.scope,
-                scope_id: record.owner_user_id.as_deref(),
-                key: &record.key,
-                result,
-            })
+            .record_secret(secret_id, actor_id, action, record, result)
             .await?;
         Ok(())
     }

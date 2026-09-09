@@ -13,9 +13,9 @@ use serde_json::json;
 use tracing::{debug, warn};
 
 use super::schemas::{SubagentStatus, UiMessage};
+use crate::message::operations::Messages;
 use moatless_core::events::EventPublisher;
-use moatless_core::file_storage::dao::FileDao;
-use crate::message::dao::MessageDao;
+use moatless_core::file_storage::Files;
 
 // =============================================================================
 // message.upsert — derived, UI-only assembled Message events (server-owned assembly and skeleton-message model)
@@ -27,7 +27,7 @@ use crate::message::dao::MessageDao;
 /// has a single source of truth. Fire-and-forget: an aggregate failure leaves
 /// the summaries absent (the card falls back to whatever it last had).
 pub(crate) async fn hydrate_subagent_summaries_from_dao(
-    message_dao: &Arc<dyn MessageDao>,
+    message_dao: &Messages,
     task_id: &str,
     messages: &mut [UiMessage],
 ) {
@@ -35,7 +35,11 @@ pub(crate) async fn hydrate_subagent_summaries_from_dao(
     if ids.is_empty() {
         return;
     }
-    let aggregates = match message_dao.get_subagent_aggregates(task_id, &ids).await {
+    let aggregates = match message_dao
+        .store()
+        .get_subagent_aggregates(task_id, &ids)
+        .await
+    {
         Ok(rows) => rows,
         Err(e) => {
             warn!(task_id = %task_id, error = %e, "Failed to load subagent aggregates");
@@ -68,8 +72,8 @@ pub(crate) async fn hydrate_subagent_summaries_from_dao(
 /// `AppState` so the server-band caller passes exactly the ports it holds.
 pub async fn emit_message_upsert_from_daos(
     events: Option<&Arc<dyn EventPublisher>>,
-    message_dao: &Arc<dyn MessageDao>,
-    file_dao: Option<&Arc<dyn FileDao>>,
+    message_dao: &Messages,
+    files: Option<&Arc<Files>>,
     task_id: &str,
     message_uuid: &str,
 ) {
@@ -102,9 +106,9 @@ pub async fn emit_message_upsert_from_daos(
         .collect();
     let file_metadata = if legacy_file_ids.is_empty() {
         HashMap::new()
-    } else if let Some(file_dao) = file_dao {
-        file_dao
-            .find_by_ids(&legacy_file_ids)
+    } else if let Some(files) = files {
+        files
+            .metadata_for(&legacy_file_ids)
             .await
             .unwrap_or_else(|e| {
                 warn!(task_id = %task_id, error = %e, "Failed to batch-load file metadata for message.upsert");
@@ -153,7 +157,7 @@ pub async fn emit_message_upsert_from_daos(
 /// ever streaming subagent transcript content. Fire-and-forget.
 pub async fn emit_subagent_progress(
     events: Option<&Arc<dyn EventPublisher>>,
-    messages: &Arc<dyn MessageDao>,
+    messages: &Messages,
     task_id: &str,
     tool_use_id: &str,
 ) {
@@ -162,6 +166,7 @@ pub async fn emit_subagent_progress(
     };
 
     let aggregates = match messages
+        .store()
         .get_subagent_aggregates(task_id, std::slice::from_ref(&tool_use_id.to_string()))
         .await
     {

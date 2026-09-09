@@ -2,8 +2,8 @@
 
 use std::sync::Arc;
 
-use axum::extract::{Path, Query, State};
 use axum::Json;
+use axum::extract::{Path, Query, State};
 
 use super::error::SkillError;
 use super::schemas::ListSkillsResponse;

@@ -1,9 +1,6 @@
 //! Authentication state and the host-facing capsule.
 
-use super::{
-    api_keys, github, middleware, pairing, password, provider_token_dao, provider_tokens, routes,
-    state, users,
-};
+use super::{github, middleware, routes, state};
 use std::sync::Arc;
 
 use crate::secret::service::SecretService;
@@ -12,12 +9,6 @@ use moatless_core::http_auth::{TaskAccess, UserTokenVerifier};
 /// Application-owned ports needed by authentication. Construction pays this
 /// wiring cost once; route callers see only [`Authentication`].
 pub struct AuthenticationPorts {
-    pub api_keys: Arc<dyn api_keys::ApiKeyDao>,
-    pub pairing: Arc<pairing::DevicePairing>,
-    pub users: Arc<dyn users::UserDao>,
-    pub credentials: Arc<dyn password::dao::UserCredentialDao>,
-    pub provider_tokens: Arc<dyn provider_tokens::ProviderTokenAuthDao>,
-    pub provider_tokens_dao: Arc<dyn provider_token_dao::ProviderTokenDao>,
     pub github_app_service: Option<Arc<github::service::GitHubAppService>>,
     pub github_apps: Arc<github::registry::GitHubAppRegistry>,
     pub git_host_tokens: Arc<crate::git_host_tokens::GitHostTokens>,

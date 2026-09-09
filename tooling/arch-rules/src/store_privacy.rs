@@ -5,20 +5,6 @@ use crate::{Violation, annotations, table_ownership::TABLES};
 use anyhow::Result;
 
 pub const RULE: &str = "store-privacy";
-fn allowed(consumer: &str, dao: &str) -> bool {
-    match dao {
-        "moatless_adapter_model::dao::connection::AdapterConnectionDao"
-        | "moatless_core::file_storage::dao::FileDao" => true,
-        "moatless_loops::bindings::dao::TaskBindingDao" => matches!(
-            consumer,
-            "moatless-adapter-github-pr" | "moatless-adapter-linear"
-        ),
-        "moatless_loops::loops::dao::LoopDao" => consumer == "moatless-adapter-telegram",
-        "moatless_identity::auth::provider_token_dao::ProviderTokenDao"
-        | "moatless_identity::secret::audit::SecretAuditDao" => consumer == "moatless-workspaces",
-        _ => false,
-    }
-}
 fn dao_path(path: &str) -> Option<String> {
     let parts: Vec<_> = path.split("::").collect();
     let end = parts.iter().position(|p| p.ends_with("Dao"))?;
@@ -47,14 +33,13 @@ pub fn check(ws: &Workspace) -> Result<Vec<Violation>> {
         }
     }
     for r in &index.records {
-        if r.test || r.package == "moatless-backend" || annotations::permits(r, RULE) {
+        if r.test || annotations::permits(r, RULE) {
             continue;
         }
         for p in index.paths(r) {
             if let Some(dao) = dao_path(p) {
                 if dao.starts_with("moatless_")
                     && !dao.starts_with(&format!("{}::", r.package.replace('-', "_")))
-                    && !allowed(&r.package, &dao)
                 {
                     out.push(Violation::at(
                         RULE,
@@ -74,15 +59,7 @@ pub fn check(ws: &Workspace) -> Result<Vec<Violation>> {
 mod tests {
     use super::*;
     #[test]
-    fn exceptions_bind_the_consumer_and_store() {
-        assert!(allowed(
-            "moatless-workspaces",
-            "moatless_identity::secret::audit::SecretAuditDao"
-        ));
-        assert!(!allowed(
-            "moatless-tasks",
-            "moatless_identity::secret::audit::SecretAuditDao"
-        ));
+    fn a_store_is_named_by_the_path_up_to_its_dao() {
         assert_eq!(
             dao_path("moatless_tasks::task::dao::TaskDao::read"),
             Some("moatless_tasks::task::dao::TaskDao".into())

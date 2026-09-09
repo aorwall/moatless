@@ -13,16 +13,8 @@ use axum::{
     http::{Request, StatusCode},
     response::Response,
 };
-use chrono::Utc;
 use moatless_backend::compose::compose;
-use moatless_identity::auth::{
-    api_key,
-    password::{
-        dao::{PgUserCredentialDao, UserCredentialDao},
-        hash,
-    },
-    users::{PgUserDao, User, UserDao},
-};
+use moatless_identity::auth::password::hash;
 use moatless_types::{auth::AuthProvider, user::UserRole};
 use serde_json::{Value, json};
 use sqlx::PgPool;
@@ -34,7 +26,7 @@ const PASSWORD: &str = "initial-test-password";
 fn router(pool: &PgPool) -> Router {
     let mut config = crate::common::test_config();
     config.auth.provider = AuthProvider::Local;
-    compose(pool.clone(), &config)
+    compose(pool.clone(), &config, None)
         .build_authentication(Arc::new(config))
         .unwrap()
         .routes()
@@ -42,31 +34,7 @@ fn router(pool: &PgPool) -> Router {
 }
 
 async fn seed_user(pool: &PgPool, login: &str, role: UserRole) -> Uuid {
-    let id = Uuid::new_v4();
-    let now = Utc::now();
-    PgUserDao(pool.clone())
-        .upsert_user(&User {
-            id,
-            login: login.into(),
-            email: Some(format!("{login}@example.com")),
-            name: None,
-            avatar_url: None,
-            provider: "local".into(),
-            provider_user_id: None,
-            role,
-            created_at: now,
-            last_login_at: now,
-            settings: json!({}),
-            is_bot: false,
-        })
-        .await
-        .unwrap();
-    let encoded = hash::hash_password(PASSWORD.into()).await.unwrap();
-    PgUserCredentialDao(pool.clone())
-        .upsert(&id, login, &encoded, false)
-        .await
-        .unwrap();
-    id
+    moatless_identity::compose::seed_local_account(pool.clone(), login, role, PASSWORD).await
 }
 
 async fn request(
@@ -150,10 +118,8 @@ async fn failed_login_is_indistinguishable_and_throttling_precedes_password_work
     );
     assert_eq!(active_sessions(&pool, user).await, 0);
     assert_eq!(
-        PgUserCredentialDao(pool.clone())
-            .find_by_user_id(&user)
+        moatless_identity::compose::local_credential(pool.clone(), &user)
             .await
-            .unwrap()
             .unwrap()
             .failed_attempts,
         1
@@ -166,7 +132,7 @@ async fn owner_built_sessions_are_shared_by_login_middleware_and_logout(pool: Pg
     let mut config = crate::common::test_config();
     config.auth.provider = AuthProvider::Local;
     let origin = config.auth.frontend_url.clone();
-    let auth = compose(pool.clone(), &config)
+    let auth = compose(pool.clone(), &config, None)
         .build_authentication(Arc::new(config))
         .unwrap();
     let app = auth
@@ -227,10 +193,8 @@ async fn password_change_requires_cookie_and_current_password_then_revokes_every
     let _second = session_cookie(&login(&app, "alice", PASSWORD).await);
     assert_eq!(active_sessions(&pool, user).await, 2);
     let change = json!({"currentPassword": PASSWORD, "newPassword": "replacement-test-password"});
-    let keys = moatless_identity::auth::api_keys::PgApiKeyDao(pool.clone());
-    let key = api_key::generate_key(&keys, &user.to_string(), "test", None, None, None)
-        .await
-        .unwrap();
+    let key =
+        moatless_identity::compose::issue_api_key(pool.clone(), &user.to_string(), "test").await;
     let response = app
         .clone()
         .oneshot(
@@ -238,7 +202,7 @@ async fn password_change_requires_cookie_and_current_password_then_revokes_every
                 .method("PUT")
                 .uri("/api/v1/auth/password")
                 .header("content-type", "application/json")
-                .header("authorization", format!("Bearer {}", key.key))
+                .header("authorization", format!("Bearer {key}"))
                 .body(Body::from(change.to_string()))
                 .unwrap(),
         )
@@ -307,10 +271,8 @@ async fn admin_reset_revokes_target_sessions_and_preserves_must_change(pool: PgP
         StatusCode::OK
     );
     assert_eq!(active_sessions(&pool, user).await, 0);
-    let credential = PgUserCredentialDao(pool.clone())
-        .find_by_user_id(&user)
+    let credential = moatless_identity::compose::local_credential(pool.clone(), &user)
         .await
-        .unwrap()
         .unwrap();
     assert!(credential.must_change);
     assert!(

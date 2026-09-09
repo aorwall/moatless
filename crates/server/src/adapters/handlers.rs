@@ -51,10 +51,9 @@ pub async fn list_adapter_connections(
     Query(query): Query<AdapterFilter>,
 ) -> Result<Json<Vec<AdapterConnectionResponse>>, AdapterError> {
     let ctx = auth.scope_context();
-    let provider = query.adapter_kind.map(|p| p.as_str().to_string());
     let rows = state
         .adapter_connections
-        .list(&ctx, provider.as_deref())
+        .list(&ctx, query.adapter_kind)
         .await?;
     Ok(Json(rows.iter().map(adapter_connection_response).collect()))
 }
@@ -93,10 +92,10 @@ pub async fn delete_adapter_connection(
     Path(id): Path<String>,
 ) -> Result<axum::http::StatusCode, AdapterError> {
     let ctx = auth.scope_context();
-    // The DAO applies the control filter, so a connection the caller
+    // The store applies the control filter, so a connection the caller
     // cannot control deletes nothing and reads back as not found — the same
     // answer they would get for one that never existed.
-    if state.adapter_connections.delete(&id, &ctx).await? == 0 {
+    if state.adapter_connections.delete(&ctx, &id).await? == 0 {
         return Err(
             SharedAdapterError::NotFound(format!("Adapter connection not found: {id}")).into(),
         );

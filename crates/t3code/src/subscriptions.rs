@@ -1,9 +1,9 @@
 use crate::config::AgentModelDefaults;
-use crate::dao::ConversationDao;
 use crate::feed;
 use crate::listing;
 use crate::listing::UiRpcEnvironmentIdentity;
 use crate::listing::UiRpcResume;
+use crate::reads::T3Reads;
 use crate::snapshots::shell_snapshot;
 use crate::snapshots::thread_snapshot;
 use crate::state::Deployment;
@@ -72,14 +72,14 @@ pub(crate) const VCS_STATUS_POLL_INTERVAL: Duration = Duration::from_secs(15);
 /// `Ok(None)` when the conversation is not visible to this viewer; the caller
 /// answers the request rather than opening a stream that can only end.
 pub async fn thread_subscription(
-    workspaces: &dyn T3WorkspaceDao,
-    conversations: &dyn ConversationDao,
+    reads: &T3Reads,
     deployment: &Deployment<'_>,
     viewer: &ScopeContext,
     task_id: &str,
     after: Option<i64>,
     request_completion_marker: bool,
 ) -> Result<Option<(Vec<Value>, ThreadFeed)>, sqlx::Error> {
+    let conversations = reads.conversations();
     let head = conversations.conversation_head(task_id).await?;
     // Qualified: the shell has a decision of the same shape over a different
     // log, and the two cursors are not interchangeable.
@@ -101,7 +101,7 @@ pub async fn thread_subscription(
         }
         let mut feed = ThreadFeed::resuming_from(task_id.to_string(), cursor);
         let Some(values) = feed
-            .poll(conversations, viewer, deployment.frontend_url)
+            .poll(reads.conversations(), viewer, deployment.frontend_url)
             .await?
         else {
             return Ok(None);
@@ -119,9 +119,7 @@ pub async fn thread_subscription(
         )));
     }
 
-    let Some(snapshot) =
-        thread_snapshot(workspaces, conversations, deployment, viewer, task_id).await?
-    else {
+    let Some(snapshot) = thread_snapshot(reads, deployment, viewer, task_id).await? else {
         return Ok(None);
     };
     if let Some(after) = after {
@@ -198,13 +196,14 @@ pub struct ShellSubscription {
 /// lost between the two: the feed's cursor advances only over records it read
 /// and the same feed continues live, so anything left over arrives next poll.
 pub async fn shell_subscription(
-    workspaces: &dyn T3WorkspaceDao,
-    conversations: &dyn ConversationDao,
+    reads: &T3Reads,
     model_defaults: &AgentModelDefaults,
     viewer: &ScopeContext,
     environment: &UiRpcEnvironmentIdentity,
     after: Option<i64>,
 ) -> Result<ShellSubscription, sqlx::Error> {
+    let conversations = reads.conversations();
+    let workspaces = reads.workspaces();
     let head = conversations.listing_head().await?;
     let resume = match after {
         Some(after) => listing::resume(environment, &head.identity, head.position, after),
@@ -216,9 +215,7 @@ pub async fn shell_subscription(
             // projects this viewer can read. See `resume_grouping`.
             let grouping = resume_grouping(workspaces, viewer).await?;
             let mut feed = ShellFeed::resuming_from(head.identity, cursor).grouping_by(grouping);
-            let values = feed
-                .poll(workspaces, conversations, model_defaults, viewer)
-                .await?;
+            let values = feed.poll(reads, model_defaults, viewer).await?;
             debug!(
                 user_id = %viewer.user_id,
                 cursor,
@@ -228,8 +225,7 @@ pub async fn shell_subscription(
             Ok(ShellSubscription { values, feed })
         }
         UiRpcResume::Rebuild => {
-            let snapshot =
-                shell_snapshot(workspaces, conversations, model_defaults, viewer).await?;
+            let snapshot = shell_snapshot(reads, model_defaults, viewer).await?;
             if let Some(after) = after {
                 info!(
                     user_id = %viewer.user_id,

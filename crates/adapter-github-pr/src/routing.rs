@@ -159,7 +159,7 @@ impl GithubPrInboundRouter {
         };
 
         let mut bindings = binding_repo
-            .find_by_subject(ADAPTER, SUBJECT_KIND, &subject_key)
+            .for_subject(ADAPTER, SUBJECT_KIND, &subject_key)
             .await?;
 
         // Skip bindings whose task has closed — a closed task is terminal and must
@@ -217,7 +217,7 @@ impl GithubPrInboundRouter {
         // existing bindings above — we just don't create a new task.
         if is_pr_open_event {
             let has_provider_event_task = binding_repo
-                .find_provider_event_created_for_subject(ADAPTER, SUBJECT_KIND, &subject_key)
+                .adapter_event_binding(ADAPTER, SUBJECT_KIND, &subject_key)
                 .await?
                 .is_some();
             if let (false, Some(rule)) = (has_provider_event_task, rule) {
@@ -358,7 +358,7 @@ impl GithubPrInboundRouter {
         // connected_thread, e.g. an agent on a UI-created task ran `gh pr create`)
         // pre-existed the PR and must not be closed when the PR closes.
         let bindings = bindings_repo
-            .find_by_subject(ADAPTER, SUBJECT_KIND, &subject_key)
+            .for_subject(ADAPTER, SUBJECT_KIND, &subject_key)
             .await?
             .into_iter()
             .filter(|b| {
@@ -389,7 +389,7 @@ impl GithubPrInboundRouter {
                 _ => {}
             }
 
-            let siblings_count = match bindings_repo.find_by_task_id(task_id).await {
+            let siblings_count = match bindings_repo.for_task(task_id).await {
                 Ok(rows) => rows.len(),
                 Err(e) => {
                     warn!(task_id = %task_id, pr_number, error = %e, "Failed to look up sibling bindings — skipping auto-close");
@@ -512,8 +512,8 @@ impl GithubPrInboundRouter {
     /// Upsert a `github_pr` binding through the shared spine. Parses the PR
     /// coordinates out of `thread_properties` into the `{owner, repo, pr_number}`
     /// destination config, then delegates the row build + persistence to
-    /// [`moatless_loops::bindings::runtime::upsert_binding_into`]. PR bindings never seed a
-    /// cursor, so `last_external_event_id` is always `None`.
+    /// [`moatless_loops::bindings::operations::Bindings::bind`]. PR bindings
+    /// never seed a cursor, so `last_external_event_id` is always `None`.
     async fn upsert_binding(
         &self,
         connection: &AdapterConnection,
@@ -526,19 +526,19 @@ impl GithubPrInboundRouter {
         let subject_key = subject.key();
         let destination_config = subject.destination_config(None);
 
-        moatless_loops::bindings::runtime::upsert_binding_into(
-            self.task_bindings.as_ref(),
-            connection,
-            rule,
-            task_id,
-            ADAPTER,
-            SUBJECT_KIND,
-            &subject_key,
-            destination_config,
-            origin,
-            None,
-        )
-        .await
+        self.task_bindings
+            .bind(
+                connection,
+                rule,
+                task_id,
+                ADAPTER,
+                SUBJECT_KIND,
+                &subject_key,
+                destination_config,
+                origin,
+                None,
+            )
+            .await
     }
 
     /// Translate a GitHub PR provider event into a [`NewTaskRequest`] and hand it to
@@ -630,20 +630,15 @@ impl GithubPrInboundRouter {
             // Logged once at the transport boundary by `AdapterError::into_response`.
             .map_err(|e| AdapterError::task_handoff("deliver a provider turn to a task", e))?;
 
-        let binding_repo = self.task_bindings.clone();
-        if let Some(ref ext_id) = msg.external_event_id {
-            if let Err(e) = binding_repo.touch_cursor(&binding.id, ext_id).await {
-                warn!(
-                    binding_id = %binding.id,
-                    error = %e,
-                    "Failed to update last_external_event_id on binding"
-                );
-            }
-        } else if let Err(e) = binding_repo.touch_last_event(&binding.id).await {
+        if let Err(e) = self
+            .task_bindings
+            .record_inbound_event(binding, msg.external_event_id.as_deref())
+            .await
+        {
             warn!(
                 binding_id = %binding.id,
                 error = %e,
-                "Failed to bump last_event_at on binding"
+                "Failed to record the inbound event on binding"
             );
         }
 

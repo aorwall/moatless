@@ -43,7 +43,6 @@ moatless-adapter-model = { workspace = true, features = ["postgres", "http"] }
 moatless-api-schemas = { workspace = true, features = ["openapi"] }
 moatless-ports = { workspace = true, features = ["openapi"] }
 moatless-core = { workspace = true, features = ["openapi"] }
-moatless-s3 = { workspace = true }
 moatless-tasks = { workspace = true }
 moatless-types = { workspace = true }
 

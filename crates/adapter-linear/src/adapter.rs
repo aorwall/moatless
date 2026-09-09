@@ -14,7 +14,7 @@ use moatless_adapter_model::capabilities::{
     AdapterInboundPresentation, AdapterMessageReply, AdapterOutboundContent,
     AdapterPostBindingFollowup,
 };
-use moatless_adapter_model::dao::AdapterConnectionDao;
+use moatless_adapter_model::connections::{ConnectionLookup, ConnectionReader};
 use moatless_adapter_model::delivery::DeliveryAdmission;
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_adapter_model::loops::LoopReader;
@@ -22,17 +22,16 @@ use moatless_adapter_model::outbound::OutboundReply;
 use moatless_adapter_model::registry::Adapters;
 use moatless_ports::identity::AppCredentials;
 use moatless_ports::task::TaskReader;
-use moatless_types::access_control::ScopeContext;
 use moatless_types::adapter::AdapterConnection;
 use moatless_types::adapter::TaskBinding;
 use moatless_types::adapter::{AdapterKind, ExternalStatus, InboundMessage};
 use moatless_types::loops::LoopContext;
 use moatless_types::loops::SubscriptionMatch;
 
+use super::SUBJECT_KIND_ISSUE;
 use super::agent_api::LinearAgentApi;
 use super::auth::LinearCredentials;
 use super::status;
-use super::SUBJECT_KIND_ISSUE;
 
 /// Linear adapter.
 pub struct LinearAdapter {
@@ -59,7 +58,10 @@ pub struct LinearAdapter {
     /// `AppState`. Present on the composition-root instance (see
     /// [`with_ingress_ports`](Self::with_ingress_ports)) and absent on the
     /// test constructors, which never reach [`super::ingress::receive`].
-    adapter_connections: Option<Arc<dyn AdapterConnectionDao>>,
+    adapter_connections: Option<Arc<dyn ConnectionLookup>>,
+    /// The same rows read on a caller's behalf, for the `/api/v1/linear/*`
+    /// endpoints that resolve the connection a request may see.
+    connection_reader: Option<Arc<dyn ConnectionReader>>,
     loops: Option<Arc<dyn LoopReader>>,
     adapter_delivery: Option<Arc<dyn DeliveryAdmission>>,
 }
@@ -119,6 +121,7 @@ impl LinearAdapter {
             apps: None,
             tasks: None,
             adapter_connections: None,
+            connection_reader: None,
             loops: None,
             adapter_delivery: None,
         }
@@ -137,6 +140,7 @@ impl LinearAdapter {
             apps: Some(apps),
             tasks: None,
             adapter_connections: None,
+            connection_reader: None,
             loops: None,
             adapter_delivery: None,
         }
@@ -154,14 +158,16 @@ impl LinearAdapter {
     /// calls this so the webhook route can read them off the adapter instead of
     /// an `AppState`; test constructors leave them unset because no test drives
     /// the webhook path. `db` and `config` already live on the adapter, so only
-    /// the three request-scoped ports are carried here.
+    /// the request-scoped ports are carried here.
     pub fn with_ingress_ports(
         mut self,
-        adapter_connections: Arc<dyn AdapterConnectionDao>,
+        adapter_connections: Arc<dyn ConnectionLookup>,
+        connection_reader: Arc<dyn ConnectionReader>,
         loops: Arc<dyn LoopReader>,
         adapter_delivery: Arc<dyn DeliveryAdmission>,
     ) -> Self {
         self.adapter_connections = Some(adapter_connections);
+        self.connection_reader = Some(connection_reader);
         self.loops = Some(loops);
         self.adapter_delivery = Some(adapter_delivery);
         self
@@ -170,10 +176,17 @@ impl LinearAdapter {
     /// The connection store the webhook route hands [`super::ingress::receive`].
     pub(super) fn require_adapter_connections(
         &self,
-    ) -> Result<&dyn AdapterConnectionDao, AdapterError> {
+    ) -> Result<&dyn ConnectionLookup, AdapterError> {
         self.adapter_connections
             .as_deref()
             .ok_or_else(|| missing_port("adapter_connections"))
+    }
+
+    /// The connection store the `/api/v1/linear/*` handlers resolve through.
+    pub(super) fn require_connection_reader(&self) -> Result<&dyn ConnectionReader, AdapterError> {
+        self.connection_reader
+            .as_deref()
+            .ok_or_else(|| missing_port("connection_reader"))
     }
 
     /// The loop store the webhook route hands [`super::ingress::receive`].
@@ -532,9 +545,6 @@ impl AdapterBindingStatus for LinearAdapter {
     ) -> Option<ExternalStatus> {
         let (issue_id, org_id) = status::binding_subject(binding)?;
 
-        // reason: an Adapter reacting to its own Binding; no caller identity.
-        #[allow(clippy::disallowed_methods)]
-        let sys = ScopeContext::system();
         let Some(connections) = self.adapter_connections.as_ref() else {
             warn!(
                 binding_id = %binding.id,
@@ -542,7 +552,7 @@ impl AdapterBindingStatus for LinearAdapter {
             );
             return None;
         };
-        let row = connections.find_by_id(&binding.connection_id, &sys).await;
+        let row = connections.by_id_trusted(&binding.connection_id).await;
         let transport_config = match row {
             Ok(Some(connection)) => connection.transport_config,
             Ok(None) => {

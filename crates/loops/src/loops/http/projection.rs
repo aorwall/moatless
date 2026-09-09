@@ -1,6 +1,6 @@
 //! Loop wire responses and read filters.
 
-use crate::loops::dao::{LoopRecord, LoopSourceRow};
+use crate::loops::models::{LoopRecord, LoopSourceRow};
 use moatless_api_schemas::loops::{
     Loop, LoopConfig, LoopExecutionState, LoopSource, ManualSource, Schedule, Subscription,
 };

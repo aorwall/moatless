@@ -24,6 +24,7 @@
 //! `AppState` — the `FromRef` impls live in the backend.
 
 pub mod auto_provision;
+pub mod compose;
 pub mod event_dedup;
 pub mod file_handlers;
 pub mod handlers;

@@ -1,15 +1,13 @@
 use std::sync::Arc;
 use tracing::info;
 
-use crate::compose::{Ports, github_app_registry};
+use crate::compose::Ports;
 use crate::sandbox::grpc_server::BackendSandboxServiceImpl;
 use crate::sandbox::k8s::client::K8sClient;
 use moatless_core::config::Config;
 use moatless_core::db::{self, DbPool};
 use moatless_core::events::{EventPublisher, RedisEventPublisher};
 use moatless_identity::secret::service::LocalEnvelopeSecretCipher;
-use moatless_tasks::credential_sync::CredentialSync;
-use moatless_workspaces::credentials::CredentialService;
 
 pub async fn init_database(
     database_url: Option<&str>,
@@ -73,7 +71,7 @@ pub async fn init_event_publisher(config: &Config) -> Option<Arc<dyn EventPublis
     }
 }
 
-pub async fn init_s3(config: &Config) -> Option<crate::file_storage::s3::S3Storage> {
+pub async fn init_s3(config: &Config) -> Option<moatless_s3::S3Storage> {
     if config.s3.bucket_name.is_none() {
         info!("S3_BUCKET_NAME not set — file uploads disabled");
         return None;
@@ -85,10 +83,7 @@ pub async fn init_s3(config: &Config) -> Option<crate::file_storage::s3::S3Stora
     let credentials_provider = aws_config.credentials_provider();
     let client = aws_sdk_s3::Client::new(&aws_config);
     info!("S3 client initialized");
-    Some(crate::file_storage::s3::S3Storage::new(
-        client,
-        credentials_provider,
-    ))
+    Some(moatless_s3::S3Storage::new(client, credentials_provider))
 }
 
 /// The STS client the workspace-repository grant assumes its role through.
@@ -244,7 +239,7 @@ pub fn grpc_service(
     config: &Config,
     ports: Option<&Ports>,
     event_publisher: Option<Arc<dyn EventPublisher>>,
-    s3: Option<Arc<crate::file_storage::s3::S3Storage>>,
+    s3: Option<Arc<moatless_s3::S3Storage>>,
     workspace_repository: Option<
         Arc<crate::sandbox::workspace_repository::WorkspaceRepositoryAccess>,
     >,
@@ -253,7 +248,8 @@ pub fn grpc_service(
     // `tasks` and `users` are read by the authorizer's control gate; the request
     // handlers reach them (and the rest of the db-backed set) through `handlers`.
     let tasks = ports.map(|p| p.tasks.clone());
-    let users = ports.map(|p| p.users.clone());
+    let users = ports
+        .map(|p| p.user_directory.clone() as Arc<dyn moatless_ports::identity::CommitIdentity>);
     let backend_config = Arc::new(config.clone());
     let token_secret = config.sandbox.task_token_secret.clone();
     let s3_bucket = config.s3.bucket_name.clone();
@@ -264,7 +260,7 @@ pub fn grpc_service(
     // login App is the whole registry.
     let github_apps = match ports {
         Some(ports) => ports.github_apps.clone(),
-        None => github_app_registry(
+        None => moatless_identity::compose::github_app_registry(
             config,
             None,
             LocalEnvelopeSecretCipher::from_config(&config.secrets),
@@ -272,55 +268,37 @@ pub fn grpc_service(
     };
     let github_app_service = github_apps.default_service();
 
-    let codex_http = Arc::new(
-        reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(15))
-            .build()
-            .unwrap_or_else(|e| {
-                tracing::warn!(
-                    error = %e,
-                    "Failed to build reqwest client for Codex refresh, falling back to default"
-                );
-                reqwest::Client::new()
-            }),
-    );
     // The db-backed ports resolve as two present-together values off the one
     // `ports` gate: the durable-admission writers and the handler set. Both are
     // `None` databaseless.
     let ingress = ports.map(|p| crate::sandbox::grpc_server::IngressPorts {
+        admission: p.task_graph.event_ingress(event_publisher.clone()),
         task_turns: p.task_turns.clone(),
         task_events: p.task_events.clone(),
-        ingress_outbox: p.ingress_outbox.clone(),
     });
     let handlers = ports.map(|p| {
-        let credentials_svc = Arc::new(
-            CredentialService::new(p.provider_tokens.clone())
-                .with_codex_refresh(codex_http.clone())
-                .with_secrets(p.secrets.clone()),
-        );
-        // Tasks-band orchestrator (9c) — guard + fan-out over the pure service.
-        let credential_sync = Arc::new(CredentialSync::new(
-            credentials_svc,
-            p.tasks.clone(),
+        // Tasks-band orchestrator — guard + fan-out over the pure service.
+        let credential_sync = p.task_graph.credential_sync(
+            p.credentials.clone(),
             Arc::new(crate::sandbox::notify::CredentialBroadcastService::new(
                 Arc::clone(&connector),
             )),
-        ));
+        );
         crate::sandbox::grpc_server::HandlerDbPorts {
             messages: p.messages.clone(),
-            provider_tokens: p.provider_tokens.clone(),
+            transcript: p.transcript.clone(),
             workspace_resolver: p.workspace_resolver.clone(),
             tasks: p.tasks.clone(),
             task_relations: p.task_relations.clone(),
             task_forks: p.task_forks.clone(),
-            provider_token_auth: p.provider_token_auth.clone(),
             secrets: p.secrets.clone(),
             credential_sync,
-            sandboxes: p.lifecycle_store.clone(),
+            sandboxes: p.sandbox_graph.sandbox_ingress(),
             workspace_credentials: p.workspace_credentials.clone(),
             git_host_tokens: p.git_host_tokens.clone(),
             files: p.files.clone(),
-            users: p.users.clone(),
+            provider_link: p.user_directory.clone(),
+            user_logins: p.user_directory.clone(),
             commit_identity: p.user_directory.clone(),
             harness_credentials: p.harness_credentials.clone(),
         }

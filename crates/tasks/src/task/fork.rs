@@ -2,7 +2,7 @@
 //!
 //! A fork is a Task branched off another Task at one of its completed turns. It
 //! starts holding a copy of everything the parent had said and done up to that
-//! turn (`crate::message::fork`), and its first turn resumes the parent's Claude
+//! turn (`crate::message::fork_dao`), and its first turn resumes the parent's Claude
 //! session or Codex thread cut at the same point — which is what the
 //! `task_forks` row below carries.
 //!
@@ -18,13 +18,36 @@ use moatless_types::access_control::{ScopeContext, ScopedResource};
 use super::dao::TaskDao;
 use super::error::TaskError;
 use crate::message::dao::MessageDao;
-use crate::message::fork::{ForkAnchors, ForkCopyCounts};
+use crate::message::fork_dao::ForkAnchors;
+use crate::message::models::ForkCopyCounts;
 use crate::tag::dao::TagDao;
-use crate::task_turn::dao::{ForkPoint, TaskTurnDao};
+use crate::task_turn::dao::TaskTurnDao;
+use crate::task_turn::models::ForkPoint;
 
 #[cfg(test)]
 pub(crate) use super::fork_dao::MockTaskForkDao;
-pub use super::fork_dao::{PgTaskForkDao, TaskFork, TaskForkDao};
+pub(crate) use super::fork_dao::TaskForkDao;
+
+use super::models::TaskFork;
+
+/// The `task_forks` table, as the delivery path reads it.
+///
+/// A pod asks for the anchors of the Task it runs; nothing outside this crate
+/// writes a row.
+pub struct TaskForks {
+    store: Arc<dyn TaskForkDao>,
+}
+
+impl TaskForks {
+    pub(crate) fn new(store: Arc<dyn TaskForkDao>) -> Self {
+        Self { store }
+    }
+
+    /// See [`TaskForkDao::find`].
+    pub async fn find(&self, task_id: &str) -> Result<Option<TaskFork>, sqlx::Error> {
+        self.store.find(task_id).await
+    }
+}
 
 /// The parent's agent session at the cut, and the two anchors that name the cut
 /// inside it. One or the other is set, never both: Claude's transcript is keyed
@@ -84,7 +107,7 @@ pub struct TaskForkService {
 }
 
 impl TaskForkService {
-    pub fn new(
+    pub(crate) fn new(
         tasks: Arc<dyn TaskDao>,
         turns: Arc<dyn TaskTurnDao>,
         messages: Arc<dyn MessageDao>,

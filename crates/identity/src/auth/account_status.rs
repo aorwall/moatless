@@ -4,9 +4,9 @@ use super::{
     state::AuthState,
 };
 use crate::setup::{SetupContext, evaluate_setup};
+use moatless_ports::identity::GitHostTokenIssuer;
 use moatless_types::{auth::AuthIdentity, user::UserRole};
 use tracing::warn;
-use moatless_ports::identity::GitHostTokenIssuer;
 
 pub(super) async fn current_user(
     state: &AuthState,

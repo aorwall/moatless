@@ -31,7 +31,7 @@ use sandbox_proto::{
 use moatless_types::access_control::ScopeContext;
 
 use crate::sandbox::event_dedup::Admission;
-use crate::sandbox::lifecycle::orchestrator::{LifecycleDao, OutstandingCommand};
+use crate::sandbox::lifecycle::{OutstandingCommand, SandboxIngress};
 use crate::sandbox::secrets::{
     TaskCredentialInputs, resolve_server_env, resolve_task_actor, resolve_task_credential_targets,
     resolve_task_credentials, resolve_task_ssh_keys, resolve_workspace_credentials,
@@ -43,31 +43,30 @@ use crate::sandbox::storage::{
 use crate::sandbox::workspace_repository::GrantError;
 use moatless_core::config::Config;
 use moatless_core::events::EventPublisher;
-use moatless_core::file_storage::dao::FileDao;
+use moatless_core::file_storage::Files;
 use moatless_core::sandbox_jwt as jwt;
 use moatless_identity::auth::github::registry::GitHubAppRegistry;
 use moatless_identity::auth::github::service::GitHubAppService;
-use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
-use moatless_identity::auth::provider_tokens::ProviderTokenAuthDao;
-use moatless_identity::auth::users::UserDao;
-use moatless_ports::identity::GitHostTokenIssuer;
+use moatless_identity::credentials::WriteSource;
+use moatless_ports::identity::{
+    CommitIdentity, GitHostTokenIssuer, ProviderIdentityLink, UserResolver,
+};
 use moatless_ports::sandbox::CodexCredentials;
 use moatless_s3 as file_s3;
 use moatless_tasks::agent::prompt;
 use moatless_tasks::credential_sync::CredentialSync;
-use moatless_tasks::event_ingress::outbox::IngressOutbox;
 use moatless_tasks::event_ingress::{AdmissionError, AdmissionRequest, EventAdmission};
-use moatless_tasks::message::dao::MessageDao;
-use moatless_tasks::task::dao::TaskDao;
-use moatless_tasks::task::fork::TaskForkDao;
-use moatless_tasks::task::relations::{TaskRelation, TaskRelationDao};
-use moatless_tasks::task_event::dao::{InsertTaskEvent, TaskEventDao};
-use moatless_tasks::task_turn::dao::{TaskTurnDao, TurnStateEvent};
+use moatless_tasks::message::operations::Messages;
+use moatless_tasks::task::fork::TaskForks;
+use moatless_tasks::task::operations::TaskCommands;
+use moatless_tasks::task::relations::{TaskRelation, TaskRelations};
+use moatless_tasks::task_event::models::InsertTaskEvent;
+use moatless_tasks::task_event::operations::TaskEvents;
+use moatless_tasks::task_turn::models::TurnStateEvent;
 use moatless_tasks::task_turn::models::{TurnStatus, classify_turn_transition};
+use moatless_tasks::task_turn::operations::TaskTurns;
 use moatless_types::agent::AgentType;
 use moatless_types::task::TaskRelationType;
-use moatless_types::user::UserRole;
-use moatless_workspaces::credentials::WriteSource;
 
 /// Known credential env var names.
 ///
@@ -176,16 +175,15 @@ const WORKSPACE_OBJECT_URL_BATCH: usize = 500;
 /// one value because the single `ports` gate (a database connection) builds them
 /// all at once; `None` as a whole when the backend runs databaseless.
 pub struct HandlerDbPorts {
-    pub messages: Arc<dyn MessageDao>,
-    pub provider_tokens: Arc<dyn ProviderTokenDao>,
-    pub tasks: Arc<dyn TaskDao>,
-    pub task_relations: Arc<dyn TaskRelationDao>,
+    pub messages: Arc<Messages>,
+    /// The append seam the git-push claim writes its Message through.
+    pub transcript: Arc<moatless_tasks::ports::Transcript>,
+    pub tasks: Arc<TaskCommands>,
+    pub task_relations: Arc<TaskRelations>,
     /// Where a fork's first turn branches from. Read on every delivery built
     /// for a fork until the fork's own session exists — by primary key, and on
     /// a table with a row per fork rather than per Task.
-    pub task_forks: Arc<dyn TaskForkDao>,
-    /// Provider token auth persistence for persisting refreshed tokens.
-    pub provider_token_auth: Arc<dyn ProviderTokenAuthDao>,
+    pub task_forks: Arc<TaskForks>,
     /// Scoped secret resolver for global/team/user secrets.
     pub secrets: Arc<dyn moatless_ports::identity::SecretResolver>,
     /// Codex credential orchestrator (9c) — used to route sandbox-pushed
@@ -198,7 +196,7 @@ pub struct HandlerDbPorts {
     pub workspace_resolver: Arc<dyn moatless_ports::workspace::WorkspaceResolver>,
     /// Sandbox lifecycle store — read for the Sandbox a task belongs to, whose
     /// workspace names the credentials the pod is handed.
-    pub sandboxes: Arc<dyn LifecycleDao>,
+    pub sandboxes: Arc<SandboxIngress>,
     /// Provider credentials pinned to a workspace — the highest-precedence
     /// source in the credential set a sandbox is handed.
     pub workspace_credentials: Arc<dyn moatless_ports::workspace::WorkspaceCredentialReader>,
@@ -206,12 +204,15 @@ pub struct HandlerDbPorts {
     pub git_host_tokens: Arc<dyn GitHostTokenIssuer>,
     /// File metadata repository — supplies filename and mime type when
     /// fulfilling `download_upload` requests.
-    pub files: Arc<dyn FileDao>,
-    /// User repository — used to render `<sent_by>` headers on pending
-    /// messages so the agent sees the inbound sender's moatless login.
-    pub users: Arc<dyn UserDao>,
+    pub files: Arc<Files>,
+    /// The moatless login behind an inbound writer, for the `<from>` header on
+    /// a pending message.
+    pub provider_link: Arc<dyn ProviderIdentityLink>,
+    /// The moatless login behind a `sent_by` user id, for the `<sent_by>`
+    /// header on a pending message.
+    pub user_logins: Arc<dyn UserResolver>,
     /// The git author identity the pod's commits attribute to.
-    pub commit_identity: Arc<dyn moatless_ports::identity::CommitIdentity>,
+    pub commit_identity: Arc<dyn CommitIdentity>,
     /// The stored access tokens the agent harness runs with.
     pub harness_credentials: Arc<dyn moatless_ports::identity::HarnessCredentials>,
 }
@@ -222,19 +223,16 @@ pub struct HandlerDbPorts {
 /// because the ingress test harness ([`BackendSandboxServiceImpl::for_ingress_tests`])
 /// wires exactly these three without the handler set.
 pub struct IngressPorts {
-    /// Authoritative turn-state writer. State-bearing events commit their turn /
-    /// task-status / event rows here transactionally before being published to
-    /// Redis (commit-before-fan-out ordering).
-    pub task_turns: Arc<dyn TaskTurnDao>,
-    /// Event-row writer for events that bear no turn state. Commits before the
-    /// Redis publish so Postgres holds the full payload even when the live tail
-    /// carries a truncated stub.
-    pub task_events: Arc<dyn TaskEventDao>,
-    /// Durable spool for the one payload kind `task_events` cannot hold in full:
-    /// `agent.message` content, which the agent.message skeleton reduces to a skeleton there. A
-    /// record is admitted here before the gRPC ack and deleted once the consumer
-    /// commits `task_messages` (the durable-ingress decision).
-    pub ingress_outbox: Arc<dyn IngressOutbox>,
+    /// The one durable write every inbound event goes through, over the turn,
+    /// event and outbox stores: state-bearing events commit their turn /
+    /// task-status / event rows transactionally, and `agent.message` content is
+    /// spooled, both before the Redis publish (commit-before-fan-out ordering).
+    pub admission: Arc<EventAdmission>,
+    /// Turn attribution and resume state, read outside admission: which turn an
+    /// event belongs to, and how the last turn closed.
+    pub task_turns: Arc<TaskTurns>,
+    /// Event-row writer for the markers the handlers record outside admission.
+    pub task_events: Arc<TaskEvents>,
 }
 
 /// gRPC server state — holds event publisher, DAO trait objects, and JWT secret.
@@ -343,9 +341,9 @@ pub struct SandboxAuthorizer {
     /// Accept claim-less tokens via the DB fallback when the grace flag is set.
     accept_claimless: bool,
     /// Task DAO — the claim-less DB fallback and the control gate.
-    tasks: Option<Arc<dyn TaskDao>>,
-    /// User DAO — the platform-admin lookup.
-    users: Option<Arc<dyn UserDao>>,
+    tasks: Option<Arc<TaskCommands>>,
+    /// The platform-admin lookup behind the control gate.
+    users: Option<Arc<dyn CommitIdentity>>,
 }
 
 impl SandboxAuthorizer {
@@ -353,8 +351,8 @@ impl SandboxAuthorizer {
     pub(crate) fn enforcing(
         secret: String,
         accept_claimless: bool,
-        tasks: Option<Arc<dyn TaskDao>>,
-        users: Option<Arc<dyn UserDao>>,
+        tasks: Option<Arc<TaskCommands>>,
+        users: Option<Arc<dyn CommitIdentity>>,
     ) -> Self {
         Self {
             secret: Some(secret),
@@ -370,8 +368,8 @@ impl SandboxAuthorizer {
     /// without `TASK_TOKEN_SECRET` (see `Config::validate`), so it never runs
     /// there.
     pub(crate) fn dev_unauthenticated(
-        tasks: Option<Arc<dyn TaskDao>>,
-        users: Option<Arc<dyn UserDao>>,
+        tasks: Option<Arc<TaskCommands>>,
+        users: Option<Arc<dyn CommitIdentity>>,
     ) -> Self {
         Self {
             secret: None,
@@ -386,8 +384,8 @@ impl SandboxAuthorizer {
     pub fn from_config(
         secret: Option<String>,
         accept_claimless: bool,
-        tasks: Option<Arc<dyn TaskDao>>,
-        users: Option<Arc<dyn UserDao>>,
+        tasks: Option<Arc<TaskCommands>>,
+        users: Option<Arc<dyn CommitIdentity>>,
     ) -> Self {
         match secret {
             Some(secret) => Self::enforcing(secret, accept_claimless, tasks, users),
@@ -616,9 +614,10 @@ impl SandboxAuthorizer {
     /// is treated as "not admin" (fail closed).
     async fn user_is_admin(&self, user_id: &uuid::Uuid) -> bool {
         match self.users.as_ref() {
-            Some(users) => {
-                matches!(users.get_user(user_id).await, Ok(Some(u)) if u.role == UserRole::Admin)
-            }
+            Some(users) => matches!(
+                users.is_platform_admin(&user_id.to_string()).await,
+                Ok(true)
+            ),
             None => false,
         }
     }
@@ -637,18 +636,12 @@ impl BackendSandboxServiceImpl {
     /// quietly exercising a half-wired service.
     pub fn for_ingress_tests(
         events: Option<Arc<dyn EventPublisher>>,
-        task_turns: Arc<dyn TaskTurnDao>,
-        task_events: Arc<dyn TaskEventDao>,
-        ingress_outbox: Arc<dyn IngressOutbox>,
+        ingress: IngressPorts,
     ) -> Self {
         Self {
             events,
             handlers: None,
-            ingress: Some(IngressPorts {
-                task_turns,
-                task_events,
-                ingress_outbox,
-            }),
+            ingress: Some(ingress),
             authorizer: SandboxAuthorizer::dev_unauthenticated(None, None),
             github_apps: Arc::new(GitHubAppRegistry::default()),
             event_dedup: Arc::new(crate::sandbox::event_dedup::EventDedup::new()),
@@ -701,7 +694,7 @@ impl BackendSandboxServiceImpl {
         }
 
         let meta = files
-            .find_by_id(file_id)
+            .metadata(file_id)
             .await
             .map_err(|e| {
                 warn!(error = %e, file_id, "file metadata lookup failed");
@@ -1165,15 +1158,16 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         };
 
         let request = self.build_admission(&event, event_type_str, payload).await;
-        let ingress = self.ingress.as_ref();
-        let admission = EventAdmission {
-            task_turns: ingress.map(|i| &i.task_turns),
-            task_events: ingress.map(|i| &i.task_events),
-            ingress_outbox: ingress.map(|i| &i.ingress_outbox),
-            publisher: self.events.as_ref(),
+        // Databaseless there is no admission to run, and the refusal takes the
+        // same path as a failed one.
+        let admitted = match self.ingress.as_ref() {
+            Some(ingress) => ingress.admission.admit(request).await,
+            None => Err(AdmissionError::NotConfigured {
+                component: "durable admission",
+            }),
         };
 
-        match admission.admit(request).await {
+        match admitted {
             Ok(()) => {
                 claim.admitted().await;
                 if let Some(running) = running_commands {
@@ -1358,7 +1352,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         // that names the writer rather than the trigger owner.
         let mut login_cache: std::collections::HashMap<String, String> =
             std::collections::HashMap::new();
-        if let Some(users) = self.handlers.as_ref().map(|h| &h.users) {
+        if let Some(handlers) = self.handlers.as_ref() {
             let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
             for row in &pending {
                 if row.external_event_id.is_some() {
@@ -1372,7 +1366,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
                     if !seen.insert(key.clone()) {
                         continue;
                     }
-                    match users.find_user_by_provider_id(adapter, sender_id).await {
+                    match handlers.provider_link.user_at(adapter, sender_id).await {
                         Ok(Some(user)) => {
                             login_cache.insert(key, user.login);
                         }
@@ -1394,7 +1388,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
                         let Ok(uuid) = uid.parse::<uuid::Uuid>() else {
                             continue;
                         };
-                        match users.get_user(&uuid).await {
+                        match handlers.user_logins.run_as_target(&uuid.to_string()).await {
                             Ok(Some(user)) => {
                                 login_cache.insert(uid.to_string(), user.login);
                             }
@@ -1742,21 +1736,17 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
             )));
         };
 
-        let Some(provider_tokens) = self.handlers.as_ref().map(|h| &h.provider_tokens) else {
+        let Some(credential_sync) = self.handlers.as_ref().map(|h| &h.credential_sync) else {
             return Err(Status::failed_precondition(
                 "Provider token repository not configured",
             ));
         };
 
-        // Route through the credential service (production path) so the broadcast
-        // fan-out fires for every running sandbox the user owns — minus the
-        // originating one (race-loop guard).
-        let result: Result<(), Box<dyn std::error::Error + Send + Sync>> = if let Some(svc) =
-            self.handlers.as_ref().map(|h| &h.credential_sync)
-        {
-            // Routes GITHUB_TOKEN into the encrypted store instead of writing
-            // it plaintext to `provider_tokens.access_token`.
-            svc.store(
+        // The fan-out reaches every running sandbox the user owns minus the
+        // originating one, and a `GITHUB_TOKEN` lands in the encrypted store
+        // rather than plaintext in `provider_tokens.access_token`.
+        let result = credential_sync
+            .store(
                 &grant.ctx.user_id,
                 &req.key,
                 &req.value,
@@ -1764,25 +1754,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
                     task_id: req.task_id.clone(),
                 },
             )
-            .await
-            .map_err(Into::into)
-        } else if req.key == moatless_core::secret_keys::GITHUB_TOKEN {
-            // No credential service means no encrypted store; refuse rather
-            // than resurrect a plaintext GitHub token.
-            warn!(
-                task_id = %req.task_id,
-                user_id = %grant.ctx.user_id,
-                "UpdateCredential rejected: cannot persist a GitHub token without the credential service"
-            );
-            return Err(Status::failed_precondition(
-                "Cannot persist a GitHub token without the credential service",
-            ));
-        } else {
-            provider_tokens
-                .upsert_token(&grant.ctx.user_id, provider, &req.value, None, None, None)
-                .await
-                .map_err(Into::into)
-        };
+            .await;
 
         if let Err(e) = result {
             warn!(
@@ -1836,7 +1808,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
             &req.task_id,
             task.as_ref(),
             self.handlers.as_ref().map(|h| &h.workspace_resolver),
-            self.handlers.as_ref().map(|h| &h.task_relations),
+            self.handlers.as_ref().map(|h| h.task_relations.as_ref()),
             Some(&self.backend_config),
         )
         .await;
@@ -2337,14 +2309,14 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
             ));
         }
 
-        let messages = self
+        let transcript = self
             .handlers
             .as_ref()
-            .map(|h| h.messages.clone())
+            .map(|h| h.transcript.clone())
             .ok_or_else(|| Status::failed_precondition("Database not configured"))?;
 
         moatless_adapter_github_pr::push_claim::record(
-            &moatless_tasks::ports::Transcript::new(messages),
+            transcript.as_ref(),
             &req.task_id,
             &req.owner,
             &req.repo,
@@ -2733,14 +2705,10 @@ mod tests {
 
     use moatless_types::access_control::Scope;
 
-    use moatless_identity::auth::users::{MockUserDao, User, UserDao};
-    use moatless_tasks::task::dao::{MockTaskDao, TaskDao};
+    use moatless_ports::identity::MockCommitIdentity;
     use moatless_tasks::task::models::Task;
+    use moatless_tasks::task::test_support::ScriptedTasks;
     use moatless_types::task::Visibility;
-
-    fn epoch() -> chrono::DateTime<chrono::Utc> {
-        chrono::DateTime::from_timestamp(0, 0).expect("epoch is a valid timestamp")
-    }
 
     /// Deterministic uuid for a readable test name: distinct names map to
     /// distinct ids, equal names to equal ids.
@@ -2787,23 +2755,6 @@ mod tests {
         }
     }
 
-    fn user_fixture(id: &uuid::Uuid, role: UserRole) -> User {
-        User {
-            id: *id,
-            provider_user_id: None,
-            login: id.to_string(),
-            email: None,
-            name: None,
-            avatar_url: None,
-            provider: "test".to_string(),
-            role,
-            created_at: epoch(),
-            last_login_at: epoch(),
-            settings: serde_json::json!({}),
-            is_bot: false,
-        }
-    }
-
     fn claims_for(user_id: &str) -> jwt::UserTokenClaims {
         jwt::UserTokenClaims {
             user_id: uid(user_id).to_string(),
@@ -2819,9 +2770,11 @@ mod tests {
 
     /// Build a service whose authorizer has only the repositories the control
     /// gate consults wired; everything else is `None`/default.
-    fn service_with(tasks: MockTaskDao, users: MockUserDao) -> BackendSandboxServiceImpl {
-        let tasks: Arc<dyn TaskDao> = Arc::new(tasks);
-        let users: Arc<dyn UserDao> = Arc::new(users);
+    fn service_with(
+        tasks: Arc<TaskCommands>,
+        users: MockCommitIdentity,
+    ) -> BackendSandboxServiceImpl {
+        let users: Arc<dyn CommitIdentity> = Arc::new(users);
         BackendSandboxServiceImpl {
             events: None,
             handlers: None,
@@ -2841,27 +2794,22 @@ mod tests {
         }
     }
 
-    /// Mock task repo whose scoped `find_by_id` returns `task` for any caller —
+    /// A task handle whose scoped `find_by_id` returns `task` for any caller —
     /// i.e. "the scope filter let the read through". Pass `None` to model a
     /// task that is missing or invisible to the caller.
-    fn tasks_returning(task: Option<Task>) -> MockTaskDao {
-        let mut m = MockTaskDao::new();
-        m.expect_find_by_id()
-            .returning(move |_, _| Ok(task.clone()));
+    fn tasks_returning(task: Option<Task>) -> Arc<TaskCommands> {
+        ScriptedTasks::new().holding(task).commands().0
+    }
+
+    fn users_regular() -> MockCommitIdentity {
+        let mut m = MockCommitIdentity::new();
+        m.expect_is_platform_admin().returning(|_| Ok(false));
         m
     }
 
-    fn users_regular() -> MockUserDao {
-        let mut m = MockUserDao::new();
-        m.expect_get_user()
-            .returning(|id| Ok(Some(user_fixture(id, UserRole::User))));
-        m
-    }
-
-    fn users_admin() -> MockUserDao {
-        let mut m = MockUserDao::new();
-        m.expect_get_user()
-            .returning(|id| Ok(Some(user_fixture(id, UserRole::Admin))));
+    fn users_admin() -> MockCommitIdentity {
+        let mut m = MockCommitIdentity::new();
+        m.expect_is_platform_admin().returning(|_| Ok(true));
         m
     }
 

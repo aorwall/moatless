@@ -2,11 +2,10 @@
 //!
 //! An Adapter that only *asks about* Bindings reads [`BindingProbe`], published
 //! by the Adapter kernel (`moatless_adapter_model::binding`); [`BindingDirectory`]
-//! below answers it over the Binding store it holds. An Adapter that *drives* the
-//! Binding lifecycle — `adapter-github-pr` and `adapter-linear`, which both
-//! upsert through [`crate::bindings::runtime::upsert_binding_into`] as well as
-//! read and write status — names [`TaskBindingDao`] itself: a narrow read port
-//! beside a store it already holds is a second surface, not a seam.
+//! below answers it over the Binding handle it holds. An Adapter that *drives*
+//! the Binding lifecycle — `adapter-github-pr` and `adapter-linear`, which both
+//! bind as well as read and write status — holds [`Bindings`] itself: a narrow
+//! read port beside a handle it already has is a second surface, not a seam.
 //!
 //! The Task band sits *below* this crate and reaches Binding through
 //! `moatless_tasks::task::bindings::TaskBindings`, implemented at the bottom of
@@ -22,19 +21,19 @@ use moatless_tasks::task::bindings::TaskBindings;
 use moatless_types::adapter::TaskBinding;
 use moatless_types::store::StoreError;
 
-use crate::bindings::dao::TaskBindingDao;
+use crate::bindings::operations::Bindings;
 use crate::loops::dao::LoopDao;
 
 /// The Binding store and the Loops that label its rows, behind the two seams a
 /// crate that does not drive the Binding lifecycle reads: [`BindingProbe`] and
 /// [`TaskBindings`].
 pub struct BindingDirectory {
-    bindings: Arc<dyn TaskBindingDao>,
+    bindings: Arc<Bindings>,
     loops: Arc<LoopDao>,
 }
 
 impl BindingDirectory {
-    pub fn new(bindings: Arc<dyn TaskBindingDao>, loops: Arc<LoopDao>) -> Self {
+    pub(crate) fn new(bindings: Arc<Bindings>, loops: Arc<LoopDao>) -> Self {
         Self { bindings, loops }
     }
 }
@@ -49,7 +48,7 @@ impl BindingProbe for BindingDirectory {
     ) -> Result<bool, StoreError> {
         let rows = self
             .bindings
-            .find_by_subject(adapter_kind, subject_kind, subject_key)
+            .for_subject(adapter_kind, subject_kind, subject_key)
             .await
             .map_err(|e| {
                 StoreError::with_source(format!("read bindings on {adapter_kind}:{subject_key}"), e)
@@ -62,7 +61,7 @@ impl BindingProbe for BindingDirectory {
 impl TaskBindings for BindingDirectory {
     async fn summaries(&self, task_id: &str) -> Result<Vec<TaskBindingSummary>, StoreError> {
         let bindings =
-            self.bindings.find_by_task_id(task_id).await.map_err(|e| {
+            self.bindings.for_task(task_id).await.map_err(|e| {
                 StoreError::with_source(format!("read bindings on task {task_id}"), e)
             })?;
 
@@ -90,7 +89,7 @@ impl TaskBindings for BindingDirectory {
     ) -> Result<HashMap<String, Vec<TaskBindingSummary>>, StoreError> {
         let rows = self
             .bindings
-            .get_bindings_for_tasks(task_ids)
+            .labels_for_tasks(task_ids)
             .await
             .map_err(|e| StoreError::with_source("batch read task bindings", e))?;
 
@@ -118,7 +117,7 @@ impl TaskBindings for BindingDirectory {
 
     async fn deactivate_for_task(&self, task_id: &str) -> Result<u64, StoreError> {
         self.bindings
-            .deactivate_by_task(task_id)
+            .deactivate_for_task(task_id)
             .await
             .map_err(|e| {
                 StoreError::with_source(format!("deactivate bindings on task {task_id}"), e)

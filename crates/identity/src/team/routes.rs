@@ -1,14 +1,10 @@
 //! Team API routes with OpenAPI documentation.
 
-use std::sync::Arc;
-
-use axum::extract::FromRef;
 use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
-use super::dao::TeamDao;
 use super::handlers;
-use moatless_core::http_auth::UserTokenVerifier;
+use super::state::TeamState;
 
 #[derive(OpenApi)]
 #[openapi(
@@ -29,17 +25,7 @@ use moatless_core::http_auth::UserTokenVerifier;
 pub struct TeamApiDoc;
 
 /// Build the team router with OpenAPI metadata.
-///
-/// Generic over the router state `S` so this module names no root type: the
-/// composition root supplies the concrete state at the call site, and each
-/// handler reaches its ports — `Arc<dyn TeamDao>` and the `UserTokenVerifier`
-/// behind `AuthUser` — through `FromRef<S>`.
-pub fn team_router<S>(state: S) -> (axum::Router, utoipa::openapi::OpenApi)
-where
-    S: Clone + Send + Sync + 'static,
-    Arc<dyn TeamDao>: FromRef<S>,
-    Arc<dyn UserTokenVerifier>: FromRef<S>,
-{
+pub(crate) fn team_router(state: TeamState) -> (axum::Router, utoipa::openapi::OpenApi) {
     let (router, api) = OpenApiRouter::with_openapi(TeamApiDoc::openapi())
         .routes(routes!(handlers::list_teams, handlers::create_team))
         .routes(routes!(

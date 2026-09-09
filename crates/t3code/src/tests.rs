@@ -12,6 +12,7 @@ use crate::observability;
 use crate::ports;
 use crate::preview::PreviewState;
 use crate::preview_tabs;
+use crate::reads::T3Reads;
 use crate::routes::router;
 use crate::rpc::config::descriptor;
 use crate::rpc::config::server_config;
@@ -73,7 +74,7 @@ use crate::workspace_dao::MockT3WorkspaceDao;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use moatless_identity::auth::pairing::{
-    PairedDevice, PairingApiKeyIssuer, PairingCode, PairingCodeDao, PairingError, hash_key,
+    PairedDevice, PairingApiKeyIssuer, PairingCode, PairingError, device_pairing_over, hash_key,
 };
 use moatless_ports::sandbox::{
     ContractSandboxStatus, LiveStatus, LogOptions, SandboxDesiredState,
@@ -326,34 +327,6 @@ impl SandboxObserver for UnreachableSandboxes {
     }
 }
 
-struct TestPairingCodes(Option<PairingCode>);
-
-#[async_trait]
-impl PairingCodeDao for TestPairingCodes {
-    async fn insert_pairing_code(&self, _code: &PairingCode) -> Result<(), sqlx::Error> {
-        Ok(())
-    }
-
-    async fn consume_pairing_code(
-        &self,
-        code_hash: &str,
-        _now: DateTime<Utc>,
-    ) -> Result<Option<PairingCode>, sqlx::Error> {
-        Ok(self
-            .0
-            .as_ref()
-            .filter(|code| code.code_hash == code_hash)
-            .cloned())
-    }
-
-    async fn delete_finished_pairing_codes(
-        &self,
-        _cutoff: DateTime<Utc>,
-    ) -> Result<u64, sqlx::Error> {
-        Ok(0)
-    }
-}
-
 struct TestApiKeyIssuer;
 
 #[async_trait]
@@ -377,7 +350,7 @@ impl PairingApiKeyIssuer for TestApiKeyIssuer {
 }
 
 fn test_pairing(code: Option<PairingCode>) -> DevicePairing {
-    DevicePairing::new(Arc::new(TestPairingCodes(code)), Arc::new(TestApiKeyIssuer))
+    device_pairing_over(code, Arc::new(TestApiKeyIssuer))
 }
 
 fn pairing_code(code: &str) -> PairingCode {
@@ -734,6 +707,12 @@ fn state_with_attachments(attachments: Arc<dyn ports::AttachmentStore>) -> UiRpc
         .expect_readable_by_ids()
         .returning(|_, _| Ok(Vec::new()));
     let conversations: Arc<dyn ConversationDao> = Arc::new(conversations);
+    // Lazy, so nothing connects. No route these tests drive reaches the two
+    // reads that take the pool; `task_creator` and `attachment_is_on_message`
+    // are asserted against PostgreSQL in `dao_db_tests.rs`.
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .connect_lazy("postgres://stub@stub/stub")
+        .expect("a lazy pool parses its URL and connects to nothing");
     UiRpcState {
         rpc: Arc::new(UiRpcConfig {
             environment_id: environment_id(&stub_identity()),
@@ -747,9 +726,13 @@ fn state_with_attachments(attachments: Arc<dyn ports::AttachmentStore>) -> UiRpc
         frontend_url: Arc::from("http://localhost:3000"),
         session_jwt_secret: Some(Arc::from("test-secret")),
         pairing: Arc::new(test_pairing(None)),
-        workspaces: Arc::new(workspaces),
+        reads: T3Reads::new(
+            pool,
+            conversations.clone(),
+            Arc::new(workspaces),
+            Arc::new(MockT3TaskDao::new()),
+        ),
         workspace_script_commands: Arc::new(ports::MockWorkspaceScriptCommands::new()),
-        conversations: conversations.clone(),
         sandboxes: Arc::new(UnreachableSandboxes),
         snapshots: None,
         servers: ServersState {

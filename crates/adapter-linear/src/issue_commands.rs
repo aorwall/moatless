@@ -9,24 +9,23 @@ use moatless_api_schemas::linear::{
     LinearLabelMutationRequest, LinearLabelOp, LinearLookupParams, LinearLookupResponse,
     LinearOkResponse,
 };
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tracing::warn;
 
 use moatless_adapter_model::binding::TASK_OWNED_BINDING_ORIGIN;
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_core::config::Config;
 use moatless_loops::adapters::access::ensure_task_access_only;
-use moatless_loops::bindings::dao::TaskBindingDao;
-use moatless_loops::bindings::runtime::upsert_binding_into;
+use moatless_loops::bindings::operations::Bindings;
 use moatless_ports::identity::{ProviderIdentityLink, UserDisplay};
 use moatless_ports::task::TaskReader;
 use moatless_types::adapter::AdapterConnection;
 
+use super::SUBJECT_KIND_ISSUE;
 use super::adapter::LinearAdapter;
 use super::agent_api::{LinearAgentApi, LookupKind};
 use super::auth::{require_linear, resolve_linear_api};
 use super::reference_resolution::*;
-use super::SUBJECT_KIND_ISSUE;
 
 // ---------------------------------------------------------------------------
 // Issue: GET / CREATE / UPDATE
@@ -59,7 +58,7 @@ pub(crate) async fn create_issue(
     tasks: Arc<dyn TaskReader>,
     users: Arc<dyn UserDisplay>,
     identity: Arc<dyn ProviderIdentityLink>,
-    task_bindings: Arc<dyn TaskBindingDao>,
+    task_bindings: Arc<Bindings>,
     ctx: moatless_types::access_control::ScopeContext,
     login: String,
     params: LinearConnectionParams,
@@ -318,7 +317,7 @@ pub(crate) async fn update_issue(
 pub(crate) async fn create_comment(
     linear: Option<Arc<LinearAdapter>>,
     tasks: Arc<dyn TaskReader>,
-    task_bindings: Arc<dyn TaskBindingDao>,
+    task_bindings: Arc<Bindings>,
     ctx: moatless_types::access_control::ScopeContext,
     id: String,
     params: LinearConnectionParams,
@@ -371,7 +370,7 @@ pub(crate) async fn create_comment(
         // target (the agent is continuing an established thread). A proactive
         // comment on an unbound issue only binds when the caller opts in.
         let already_bound = task_bindings
-            .find_by_task_id_and_subject(task_id, LINEAR_PROVIDER, SUBJECT_KIND_ISSUE, &issue_uuid)
+            .for_task_and_subject(task_id, LINEAR_PROVIDER, SUBJECT_KIND_ISSUE, &issue_uuid)
             .await?
             .is_some();
 
@@ -583,7 +582,7 @@ pub(crate) async fn lookup(
 /// Persist a `task_bindings` row pointing the given task at the Linear
 /// issue. Used for both create and comment auto-binding.
 async fn create_issue_binding(
-    task_bindings: &dyn TaskBindingDao,
+    task_bindings: &Bindings,
     connection: &AdapterConnection,
     task_id: &str,
     issue: &Value,
@@ -609,29 +608,29 @@ async fn create_issue_binding(
         destination_config["url"] = json!(u);
     }
 
-    let binding = upsert_binding_into(
-        task_bindings,
-        connection,
-        None,
-        task_id,
-        LINEAR_PROVIDER,
-        SUBJECT_KIND_ISSUE,
-        &issue_uuid,
-        destination_config,
-        // The task filed this issue, so its binding is a producer one — that is
-        // what makes it hear replies inside threads on its own issue.
-        TASK_OWNED_BINDING_ORIGIN,
-        None,
-    )
-    .await
-    .inspect_err(|e| {
-        warn!(
-            error = %e,
-            task_id = %task_id,
-            issue = %issue_uuid,
-            "Failed to upsert linear_issue binding"
-        );
-    })?;
+    let binding = task_bindings
+        .bind(
+            connection,
+            None,
+            task_id,
+            LINEAR_PROVIDER,
+            SUBJECT_KIND_ISSUE,
+            &issue_uuid,
+            destination_config,
+            // The task filed this issue, so its binding is a producer one — that
+            // is what makes it hear replies inside threads on its own issue.
+            TASK_OWNED_BINDING_ORIGIN,
+            None,
+        )
+        .await
+        .inspect_err(|e| {
+            warn!(
+                error = %e,
+                task_id = %task_id,
+                issue = %issue_uuid,
+                "Failed to upsert linear_issue binding"
+            );
+        })?;
     Ok(binding.id)
 }
 

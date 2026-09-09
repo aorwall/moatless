@@ -21,15 +21,13 @@ use crate::common;
 
 use moatless_backend::event_handler::agent_handlers::handle_agent_message;
 use moatless_tasks::agent_event::AgentEvent;
-use moatless_tasks::message::dao::MessageDao;
-use moatless_tasks::message::dao::PgMessageDao;
 use moatless_tasks::message::transform::transform_subagent_transcript;
 use moatless_tasks::message::transform::transform_to_ui;
-use moatless_tasks::task::dao as task_dao;
-use moatless_tasks::task_activities::dao::Activity;
+use moatless_tasks::task::test_support as task_fixtures;
+use moatless_tasks::task_activities::Activity;
 use moatless_tasks::task_activities::mapping::ActivityKind;
 use moatless_tasks::task_activities::mapping::ActivityStatus;
-use moatless_workspaces::repository::dao as repository_dao;
+use moatless_workspaces::compose;
 use sqlx::PgPool;
 
 use common::{make_repository_row, make_task_row, seed_team, test_app_state};
@@ -111,9 +109,9 @@ fn tool_use(id: &str, name: &str) -> serde_json::Value {
 async fn seed(pool: &PgPool, task_id: &str) -> moatless_backend::state::AppState {
     seed_team(pool, "personal-user-1").await;
     let repo = make_repository_row("repo-1", "user-1");
-    repository_dao::insert(pool, &repo).await.unwrap();
+    compose::seed_repository(pool, &repo).await.unwrap();
     let task = make_task_row(task_id, "user-1");
-    task_dao::insert_task(pool, &task).await.unwrap();
+    task_fixtures::seed_task(pool, &task).await.unwrap();
     test_app_state(pool.clone())
 }
 
@@ -140,9 +138,10 @@ async fn per_block_events_assemble_into_one_ordered_message(pool: PgPool) {
     )
     .await;
 
-    let (rows, contexts, activities) = moatless_tasks::message::dao::get_all(&pool, task_id)
-        .await
-        .unwrap();
+    let (rows, contexts, activities) =
+        moatless_tasks::message::test_support::messages_for(&pool, task_id)
+            .await
+            .unwrap();
 
     // Exactly one persisted row for the native Message.
     let assistant: Vec<_> = rows.iter().filter(|m| m.uuid == uuid).collect();
@@ -192,7 +191,7 @@ async fn usage_repeated_across_blocks_is_admitted_once(pool: PgPool) {
         .await;
     }
 
-    let (rows, _, _) = moatless_tasks::message::dao::get_all(&pool, task_id)
+    let (rows, _, _) = moatless_tasks::message::test_support::messages_for(&pool, task_id)
         .await
         .unwrap();
     let row = rows.iter().find(|m| m.uuid == uuid).unwrap();
@@ -213,7 +212,7 @@ async fn duplicate_per_block_delivery_is_idempotent(pool: PgPool) {
     // Redeliver block 0 — a duplicate must not duplicate blocks or usage.
     handle_agent_message(&state, &per_block_event("e0b", task_id, uuid, 0, text("a"))).await;
 
-    let (rows, _, activities) = moatless_tasks::message::dao::get_all(&pool, task_id)
+    let (rows, _, activities) = moatless_tasks::message::test_support::messages_for(&pool, task_id)
         .await
         .unwrap();
     let row = rows.iter().find(|m| m.uuid == uuid).unwrap();
@@ -268,9 +267,10 @@ async fn interleaved_tool_result_settles_the_call_on_its_parent(pool: PgPool) {
     )
     .await;
 
-    let (rows, contexts, activities) = moatless_tasks::message::dao::get_all(&pool, task_id)
-        .await
-        .unwrap();
+    let (rows, contexts, activities) =
+        moatless_tasks::message::test_support::messages_for(&pool, task_id)
+            .await
+            .unwrap();
 
     // The result carried no text, so it wrote no Message of its own — it
     // settled the activity the call already wrote, in place.
@@ -315,9 +315,10 @@ async fn coalesced_events_remain_compatible(pool: PgPool) {
     )
     .await;
 
-    let (rows, contexts, activities) = moatless_tasks::message::dao::get_all(&pool, task_id)
-        .await
-        .unwrap();
+    let (rows, contexts, activities) =
+        moatless_tasks::message::test_support::messages_for(&pool, task_id)
+            .await
+            .unwrap();
     let row = rows.iter().find(|m| m.uuid == "asst-coalesced").unwrap();
     assert_eq!(row.message_text.as_deref(), Some("hello"));
 
@@ -380,9 +381,10 @@ async fn subagent_per_block_rows_are_excluded_from_top_level(pool: PgPool) {
     )
     .await;
 
-    let (rows, contexts, activities) = moatless_tasks::message::dao::get_all(&pool, task_id)
-        .await
-        .unwrap();
+    let (rows, contexts, activities) =
+        moatless_tasks::message::test_support::messages_for(&pool, task_id)
+            .await
+            .unwrap();
 
     // The subagent row is persisted and assembled per-block, carrying its parent.
     let row = rows.iter().find(|m| m.uuid == "sub-asst").unwrap();
@@ -406,10 +408,10 @@ async fn subagent_per_block_rows_are_excluded_from_top_level(pool: PgPool) {
 
     // The subagent's own page is where it lives, loaded on demand behind the
     // call that spawned it.
-    let (sub_rows, sub_contexts, sub_activities) = PgMessageDao(pool.clone())
-        .get_subagent_messages(task_id, parent)
-        .await
-        .unwrap();
+    let (sub_rows, sub_contexts, sub_activities) =
+        moatless_tasks::message::test_support::subagent_messages(&pool, task_id, parent)
+            .await
+            .unwrap();
     let calls = on_message(&sub_activities, "sub-asst");
     assert_eq!(calls.len(), 1);
     assert_eq!(calls[0].parent_uuid.as_deref(), Some(parent));
@@ -446,10 +448,10 @@ async fn paginated_read_folds_per_block_rows_into_one_message(pool: PgPool) {
     // The keyset-paginated read returns the same assembled Message and the
     // activities written on it — per-block rows fold within the page, not
     // across it.
-    let (rows, _contexts, activities) = PgMessageDao(pool.clone())
-        .get_paginated(task_id, None, 50)
-        .await
-        .unwrap();
+    let (rows, _contexts, activities) =
+        moatless_tasks::message::test_support::paginated_messages(&pool, task_id, None, 50)
+            .await
+            .unwrap();
 
     let row = rows.iter().find(|m| m.uuid == uuid).unwrap();
     assert_eq!(

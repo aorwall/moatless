@@ -36,6 +36,7 @@ moatless-api-schemas = { workspace = true, features = ["openapi"] }
 moatless-ports = { workspace = true, features = ["openapi"] }
 moatless-core = { workspace = true, features = ["openapi"] }
 moatless-types = { workspace = true }
+moatless-identity = { workspace = true }
 moatless-workspaces = { workspace = true }
 
 [features]
@@ -52,10 +53,9 @@ workspace = true
 
 [dev-dependencies]
 async-trait = { workspace = true }
-# Test-only: the credential-sync tests build the concrete provider-token store
-# behind the `CodexScopeReader` port. Production code here names no identity
-# type, so this edge must never appear under `[dependencies]`.
-moatless-identity = { workspace = true }
+# `InMemoryTokens` / `credentials_over` (credential-sync tests) live with the
+# credential service in identity, off its `test-support` gate.
+moatless-identity = { workspace = true, features = ["test-support"] }
 http-body-util = { workspace = true }
 mockall = { workspace = true }
 tokio-test = { workspace = true }

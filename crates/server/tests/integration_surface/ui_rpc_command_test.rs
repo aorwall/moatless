@@ -29,14 +29,11 @@ use moatless_t3code::ports::{
 };
 use moatless_t3code::{AgentModelDefaults, Deployment, thread_snapshot};
 use moatless_tasks::agent::catalog;
-use moatless_tasks::task::dao::TaskDao;
 use moatless_tasks::task::models::TaskStatus;
 use moatless_tasks::task::models::Visibility;
 use moatless_types::access_control::ScopeContext;
 use moatless_types::agent::{AgentMode, AgentType};
-use moatless_workspaces::repository::dao as repository_dao;
-use moatless_workspaces::workspace::dao::PgWorkspaceDao;
-use moatless_workspaces::workspace::dao::WorkspaceDao;
+use moatless_workspaces::compose;
 use sqlx::PgPool;
 
 use common::{
@@ -82,8 +79,8 @@ async fn seed_project(pool: &PgPool, owner: &str) {
     // in the sandbox pre-flight's own tests; what these need is a repository
     // creation resolves.
     repo.provider = None;
-    repository_dao::insert(pool, &repo).await.unwrap();
-    let workspaces = PgWorkspaceDao(pool.clone());
+    compose::seed_repository(pool, &repo).await.unwrap();
+    let workspaces = compose::workspaces(pool.clone());
     workspaces
         .insert_workspace(&make_workspace_row(WS, owner))
         .await
@@ -101,8 +98,8 @@ async fn seed_project(pool: &PgPool, owner: &str) {
 async fn seed_project_for(pool: &PgPool, owner: &str) {
     let mut repo = make_repository_row("repo-2", owner);
     repo.provider = None;
-    repository_dao::insert(pool, &repo).await.unwrap();
-    let workspaces = PgWorkspaceDao(pool.clone());
+    compose::seed_repository(pool, &repo).await.unwrap();
+    let workspaces = compose::workspaces(pool.clone());
     workspaces
         .insert_workspace(&make_workspace_row("ws-other", owner))
         .await
@@ -119,8 +116,7 @@ async fn seed_project_for(pool: &PgPool, owner: &str) {
 async fn seed_task_owned(pool: &PgPool, task_id: &str, owner: &str) {
     let mut task = make_task_row(task_id, owner);
     task.workspace_id = Some("ws-other".to_string());
-    moatless_tasks::task::dao::store_over(pool)
-        .insert_task(&task)
+    moatless_tasks::task::test_support::seed_task(pool, &task)
         .await
         .unwrap();
 }
@@ -128,8 +124,7 @@ async fn seed_task_owned(pool: &PgPool, task_id: &str, owner: &str) {
 async fn seed_task(pool: &PgPool, task_id: &str, owner: &str) {
     let mut task = make_task_row(task_id, owner);
     task.workspace_id = Some(WS.to_string());
-    moatless_tasks::task::dao::store_over(pool)
-        .insert_task(&task)
+    moatless_tasks::task::test_support::seed_task(pool, &task)
         .await
         .unwrap();
 }
@@ -138,15 +133,13 @@ async fn seed_public_task(pool: &PgPool, task_id: &str, owner: &str) {
     let mut task = make_task_row(task_id, owner);
     task.workspace_id = Some(WS.to_string());
     task.visibility = Visibility::Public;
-    moatless_tasks::task::dao::store_over(pool)
-        .insert_task(&task)
+    moatless_tasks::task::test_support::seed_task(pool, &task)
         .await
         .unwrap();
 }
 
 async fn follow(pool: &PgPool, user_id: &str, task_id: &str) {
-    moatless_tasks::task::dao::store_over(pool)
-        .follow_task(user_id, task_id)
+    moatless_tasks::task::test_support::follow_task(pool, user_id, task_id)
         .await
         .unwrap();
 }
@@ -531,7 +524,12 @@ async fn an_attachment_a_message_carries_is_kept_when_the_composer_deletes_it(po
         .await
         .expect("the turn is accepted");
 
-    let attachments = AppStateAttachments(test_app_state(pool.clone()));
+    let attachments = AppStateAttachments(
+        test_app_state(pool.clone()),
+        moatless_backend::t3code::t3_graph_over(&pool)
+            .reads()
+            .clone(),
+    );
     attachments
         .delete(&viewer(USER_1), &attachment_id)
         .await
@@ -568,7 +566,12 @@ async fn an_attachment_a_message_carries_cannot_be_replaced(pool: PgPool) {
         .await
         .expect("the turn is accepted");
 
-    let attachments = AppStateAttachments(test_app_state(pool.clone()));
+    let attachments = AppStateAttachments(
+        test_app_state(pool.clone()),
+        moatless_backend::t3code::t3_graph_over(&pool)
+            .reads()
+            .clone(),
+    );
     let refused = attachments
         .store(
             &viewer(USER_1),
@@ -642,8 +645,7 @@ async fn the_thread_snapshot_carries_the_message_id_that_was_sent(pool: PgPool) 
         .expect("the turn is accepted");
 
     let snapshot = thread_snapshot(
-        &moatless_backend::t3code::conversations_over(&pool),
-        &moatless_backend::t3code::conversations_over(&pool),
+        moatless_backend::t3code::t3_graph_over(&pool).reads(),
         &deployment(&defaults()),
         &viewer(USER_1),
         "t-snap",
@@ -672,8 +674,7 @@ async fn a_send_to_a_closed_task_is_refused_and_writes_nothing(pool: PgPool) {
     let mut task = make_task_row("t-closed", USER_1);
     task.workspace_id = Some(WS.to_string());
     task.status = TaskStatus::Closed;
-    moatless_tasks::task::dao::store_over(&pool)
-        .insert_task(&task)
+    moatless_tasks::task::test_support::seed_task(&pool, &task)
         .await
         .unwrap();
 
@@ -768,8 +769,7 @@ async fn a_bootstrapped_thread_is_created_under_the_clients_id_with_its_message(
         .await
         .expect("the thread is created");
 
-    let task = moatless_tasks::task::dao::store_over(&pool)
-        .find_by_id(task_id, &viewer(USER_1))
+    let task = moatless_tasks::task::test_support::find_task(&pool, task_id, &viewer(USER_1))
         .await
         .unwrap()
         .expect("the task exists under the id T3 minted");
@@ -814,8 +814,7 @@ async fn a_thread_created_with_no_message_keeps_its_sandbox_stopped(pool: PgPool
         .await
         .expect("the thread is created");
 
-    moatless_tasks::task::dao::store_over(&pool)
-        .find_by_id(task_id, &viewer(USER_1))
+    moatless_tasks::task::test_support::find_task(&pool, task_id, &viewer(USER_1))
         .await
         .unwrap()
         .expect("the task exists");
@@ -933,8 +932,7 @@ async fn a_fork_is_created_under_the_clients_id_referencing_its_source(pool: PgP
         .await
         .expect("the fork is created");
 
-    let task = moatless_tasks::task::dao::store_over(&pool)
-        .find_by_id(fork_id, &viewer(USER_1))
+    let task = moatless_tasks::task::test_support::find_task(&pool, fork_id, &viewer(USER_1))
         .await
         .unwrap()
         .expect("the fork exists under the id T3 minted");

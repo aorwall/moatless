@@ -11,7 +11,7 @@
 //! why the adapters and loops call it directly and callers acting for a
 //! person call this instead.
 
-use crate::task::dao::TaskDao;
+use crate::task::operations::TaskCommands;
 use crate::task::schemas::MessageContextInput;
 use moatless_ports::sandbox::SandboxWaker;
 use moatless_types::access_control::ScopeContext;
@@ -72,7 +72,7 @@ pub struct Sender<'a> {
 /// already persisted, and a failure to start is written into the conversation
 /// where the person reading the task will see it.
 pub async fn send_user_message(
-    tasks: &dyn TaskDao,
+    tasks: &TaskCommands,
     message_send: &MessageSendService,
     sandbox_waker: &dyn SandboxWaker,
     sender: &Sender<'_>,

@@ -2,7 +2,7 @@ use crate::workspace::Workspace;
 use crate::{
     Violation, adapter_boundaries, agents_symlink, annotations, band_order, base_surface,
     closed_dependency_list, composition_root, declaration_only_roots, dependency_privacy,
-    duplicate_names, floor_type_admission, manifest_inheritance, module_names,
+    duplicate_names, floor_type_admission, manifest_inheritance, module_names, persistence_export,
     persistence_sql_location, port_admission, process_exit, route_registration,
     row_stays_with_query, single_implementation_trait, store_privacy, table_ownership,
     transport_direction,
@@ -37,6 +37,7 @@ rules!(
     route_registration => "Routes register handlers and middleware without operation bodies.",
     transport_direction => "Domain operations do not depend on HTTP adapters.",
     persistence_sql_location => "SQL execution stays with persistence owners.",
+    persistence_export => "Domain persistence stays inside the crate that owns its tables.",
     process_exit => "Process termination stays in executable entry functions.",
     adapter_boundaries => "Bindings and providers keep their Adapter module boundaries.",
     store_privacy => "Store types and drivers stay with table owners.",

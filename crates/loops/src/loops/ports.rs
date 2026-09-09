@@ -4,8 +4,8 @@
 //! (`moatless_adapter_model::loops`); this file is the other end of it. An
 //! Adapter reads Subscriptions to decide whether an inbound event is work it
 //! should do — the five reads below — and never writes one, reads a Schedule,
-//! a receipt, or a Loop's config rows, so `LoopDao`'s twenty-six functions stay
-//! private to this crate.
+//! a receipt, or a Loop's config rows, so the Loop store stays private to this
+//! crate.
 
 use async_trait::async_trait;
 use moatless_types::store::StoreError;

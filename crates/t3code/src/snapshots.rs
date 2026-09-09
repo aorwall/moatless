@@ -4,8 +4,8 @@ use crate::dao::ConversationDao;
 use crate::dao::Transcript;
 use crate::listing::UiRpcEnvironmentIdentity;
 use crate::projection;
+use crate::reads::T3Reads;
 use crate::state::Deployment;
-use crate::workspace_dao::T3WorkspaceDao;
 use moatless_core::change_feed::conversation::ConversationHead;
 use moatless_types::access_control::ScopeContext;
 use serde_json::Value;
@@ -31,11 +31,12 @@ use tracing::warn;
 /// client silently drops any conversation whose project is missing from the
 /// listing, with no error and nothing logged.
 pub async fn shell_snapshot(
-    workspaces: &dyn T3WorkspaceDao,
-    conversations: &dyn ConversationDao,
+    reads: &T3Reads,
     model_defaults: &AgentModelDefaults,
     viewer: &ScopeContext,
 ) -> Result<ShellSnapshot, sqlx::Error> {
+    let conversations = reads.conversations();
+    let workspaces = reads.workspaces();
     // Before the rows, never after. A position read afterwards would sit above
     // a change the rows already reflect, and the event carrying that change
     // would be discarded by the client as stale — one row frozen, silently.
@@ -69,16 +70,20 @@ pub async fn shell_snapshot(
 /// `Ok(None)` collapses every way a conversation can be absent for this viewer
 /// into one answer; distinguishing them would disclose which.
 pub(crate) async fn readable_under_a_project(
-    workspaces: &dyn T3WorkspaceDao,
-    conversations: &dyn ConversationDao,
+    reads: &T3Reads,
     viewer: &ScopeContext,
     task_id: &str,
 ) -> Result<Option<(Conversation, String)>, sqlx::Error> {
-    let Some(conversation) = conversations.readable_by_id(viewer, task_id).await? else {
+    let Some(conversation) = reads
+        .conversations()
+        .readable_by_id(viewer, task_id)
+        .await?
+    else {
         return Ok(None);
     };
     let referenced: Vec<String> = conversation.workspace_id.clone().into_iter().collect();
-    let workspaces = workspaces
+    let workspaces = reads
+        .workspaces()
         .list_readable_including(viewer, &referenced)
         .await?;
     let project_id = conversation
@@ -112,19 +117,16 @@ pub(crate) async fn readable_under_a_project(
 /// the two are the same conversation seen at two levels of detail, so a
 /// deployment where one opens and the other does not would be the bug.
 pub async fn thread_shell(
-    workspaces: &dyn T3WorkspaceDao,
-    conversations: &dyn ConversationDao,
+    reads: &T3Reads,
     defaults: &AgentModelDefaults,
     viewer: &ScopeContext,
     task_id: &str,
 ) -> Result<Option<Value>, sqlx::Error> {
-    Ok(
-        readable_under_a_project(workspaces, conversations, viewer, task_id)
-            .await?
-            .map(|(conversation, project_id)| {
-                projection::thread_shell(&conversation, &project_id, defaults)
-            }),
-    )
+    Ok(readable_under_a_project(reads, viewer, task_id)
+        .await?
+        .map(|(conversation, project_id)| {
+            projection::thread_shell(&conversation, &project_id, defaults)
+        }))
 }
 
 /// Assemble one conversation as the thread view carries it.
@@ -143,15 +145,14 @@ pub async fn thread_shell(
 /// the worst case is one change delivered twice, and every event here is an
 /// upsert.
 pub async fn thread_snapshot(
-    workspaces: &dyn T3WorkspaceDao,
-    conversations: &dyn ConversationDao,
+    reads: &T3Reads,
     deployment: &Deployment<'_>,
     viewer: &ScopeContext,
     task_id: &str,
 ) -> Result<Option<ThreadSnapshot>, sqlx::Error> {
+    let conversations = reads.conversations();
     let head = conversations.conversation_head(task_id).await?;
-    let Some((conversation, project_id)) =
-        readable_under_a_project(workspaces, conversations, viewer, task_id).await?
+    let Some((conversation, project_id)) = readable_under_a_project(reads, viewer, task_id).await?
     else {
         return Ok(None);
     };
@@ -301,11 +302,12 @@ impl ShellSnapshot {
 /// than narrowed to the ones these conversations sit in, because the client
 /// groups an archived row under a project it must already hold.
 pub async fn archived_shell_snapshot(
-    workspaces: &dyn T3WorkspaceDao,
-    conversations: &dyn ConversationDao,
+    reads: &T3Reads,
     defaults: &AgentModelDefaults,
     viewer: &ScopeContext,
 ) -> Result<Value, sqlx::Error> {
+    let conversations = reads.conversations();
+    let workspaces = reads.workspaces();
     let sequence = conversations.listing_head().await?.position;
     let workspaces = workspaces.list_readable_including(viewer, &[]).await?;
     let archived = conversations.list_followed_closed(viewer).await?;

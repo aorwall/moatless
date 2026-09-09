@@ -18,8 +18,9 @@ use moatless_types::access_control::ScopeContext;
 use moatless_types::task::TaskSubType;
 
 use super::bindings::deactivate_task_bindings;
-use super::dao::{TaskDao, TaskPatch};
+use super::dao::TaskDao;
 use super::error::TaskError;
+use super::models::TaskPatch;
 use super::models::TaskStatus;
 use super::relations::TaskRelationDao;
 use crate::task::bindings::TaskBindings;
@@ -89,7 +90,7 @@ impl CloseEvent {
 
 impl TaskCloser {
     /// Wire the closer from the ports the backend composition root owns.
-    pub fn new(
+    pub(crate) fn new(
         tasks: Arc<dyn TaskDao>,
         task_relations: Arc<dyn TaskRelationDao>,
         config: Arc<Config>,

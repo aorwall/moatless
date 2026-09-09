@@ -47,8 +47,7 @@ pub(crate) async fn shell_snapshot_http(
 ) -> Response {
     debug!(user_id = %identity.user_id, "T3 UI shell snapshot bootstrap");
     match shell_snapshot(
-        state.workspaces.as_ref(),
-        state.conversations.as_ref(),
+        &state.reads,
         &state.model_defaults,
         &viewer_scope(&identity),
     )
@@ -79,8 +78,7 @@ pub(crate) async fn thread_snapshot_http(
 ) -> Response {
     debug!(user_id = %identity.user_id, task_id = %thread_id, "T3 UI thread snapshot bootstrap");
     match thread_snapshot(
-        state.workspaces.as_ref(),
-        state.conversations.as_ref(),
+        &state.reads,
         &state.deployment(),
         &viewer_scope(&identity),
         &thread_id,
@@ -138,7 +136,7 @@ pub(crate) async fn scripts_run_http(
     let payload = json!({ "threadId": thread_id, "scriptId": script_id });
     match scripts::run(
         &state.scripts,
-        state.conversations.as_ref(),
+        state.reads.conversations(),
         state.sandboxes.as_ref(),
         &state.terminal,
         &viewer,

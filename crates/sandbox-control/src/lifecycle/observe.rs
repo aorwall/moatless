@@ -6,7 +6,7 @@ use async_trait::async_trait;
 
 use moatless_sandbox_runtime::client::{SandboxConnector, classify_grpc_error};
 
-use super::orchestrator::SandboxMember;
+use super::reconciler::SandboxMember;
 use super::reconciler::{MemberRegistryError, MemberRegistryPort, NotifyPort};
 
 /// gRPC notifier: pings a Ready sandbox to fetch its pending messages, over the

@@ -42,19 +42,13 @@ pub(crate) struct Backlog {
 /// two instances never diverge. Any in-memory state added here — a dedup cache,
 /// a counter, a notify channel — breaks that: it would have to be built once
 /// and shared, not rebuilt per provider.
-pub struct AdapterDeliveryStore {
+pub(crate) struct AdapterDeliveryStore {
     pool: DbPool,
     policy: AdapterDeliveryPolicy,
 }
 
 impl AdapterDeliveryStore {
-    /// `pub` so a composition root outside this crate can build one: an adapter
-    /// that carries its own ingress ports (see
-    /// `linear::adapter::LinearAdapter::with_ingress_ports`) is wired at the
-    /// composition root, and the integration tests are composition roots too.
-    /// Its sibling ports (`PgAdapterConnectionDao::new`, `LoopDao::new`) are
-    /// already `pub` for the same reason.
-    pub fn new(pool: DbPool) -> Self {
+    pub(crate) fn new(pool: DbPool) -> Self {
         Self {
             pool,
             policy: AdapterDeliveryPolicy::default(),

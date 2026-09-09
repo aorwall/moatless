@@ -8,7 +8,7 @@ use moatless_core::db::DbPool;
 
 /// DAO trait for plugin persistence.
 #[async_trait]
-pub trait PluginDao: Send + Sync {
+pub(crate) trait PluginDao: Send + Sync {
     async fn list_all(&self) -> Result<Vec<Plugin>, sqlx::Error>;
     async fn find_by_id(&self, id: &str) -> Result<Option<Plugin>, sqlx::Error>;
     async fn insert(&self, row: &Plugin) -> Result<(), sqlx::Error>;
@@ -60,7 +60,7 @@ pub trait PluginDao: Send + Sync {
 }
 
 /// PostgreSQL implementation of [`PluginDao`].
-pub struct PgPluginDao(pub DbPool);
+pub(crate) struct PgPluginDao(pub(crate) DbPool);
 
 #[async_trait]
 impl PluginDao for PgPluginDao {
@@ -217,3 +217,7 @@ impl PluginDao for PgPluginDao {
         Ok(result.rows_affected() > 0)
     }
 }
+
+#[cfg(all(test, feature = "db-tests"))]
+#[path = "dao_db_tests.rs"]
+mod db_tests;

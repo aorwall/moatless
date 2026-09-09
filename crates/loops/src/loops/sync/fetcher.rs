@@ -15,8 +15,8 @@ use serde::Deserialize;
 use tracing::{debug, warn};
 
 use super::error::LoopError;
-use moatless_types::repository::RepositoryProvider;
 use moatless_types::repository::GitHostRepo;
+use moatless_types::repository::RepositoryProvider;
 
 /// Repo-relative directory that holds committed loops.
 const LOOPS_PREFIX: &str = ".moatless/loops";

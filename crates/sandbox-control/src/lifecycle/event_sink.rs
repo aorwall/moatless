@@ -2,7 +2,7 @@
 //!
 //! Publishes a derived lifecycle event to Redis under its deterministic id.
 //! Completion facts are already committed to `task_events` by
-//! [`super::orchestrator::LifecycleDao::commit_fact_and_clear_marker`], so they publish
+//! [`super::dao::LifecycleDao::commit_fact_and_clear_marker`], so they publish
 //! with `payload_persisted = true`; other facts are persisted by the event
 //! consumer.
 
@@ -15,8 +15,8 @@ use moatless_core::events::EventPublisher;
 
 use super::events::LifecycleEvent;
 use super::orchestrator::LifecycleEventSink;
-use moatless_sandbox_runtime::outcome::Diagnostics;
 use moatless_sandbox_runtime::operation::{ObservedStatus, OperationGeneration};
+use moatless_sandbox_runtime::outcome::Diagnostics;
 
 /// Publishes lifecycle events through the existing Redis publication path.
 ///

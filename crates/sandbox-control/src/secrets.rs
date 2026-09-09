@@ -14,7 +14,7 @@ use moatless_types::access_control::Actor;
 use moatless_types::repository::GitHostRepo;
 use moatless_types::repository::RepositoryProvider as GitHostProvider;
 
-use crate::lifecycle::orchestrator::LifecycleDao;
+use crate::lifecycle::ingress::SandboxIngress;
 use moatless_ports::identity::{
     CommitIdentity, GitHostTokenError, GitHostTokenIssuer, HarnessCredentials, PlainGitHost,
     SecretResolver,
@@ -243,18 +243,18 @@ pub struct TaskCredentialTargets {
 /// workspace's primary placement — the same repository the pod's primary
 /// checkout was built from.
 pub async fn resolve_task_credential_targets(
-    sandboxes: Option<&Arc<dyn LifecycleDao>>,
+    sandboxes: Option<&Arc<SandboxIngress>>,
     workspaces: Option<&Arc<dyn WorkspaceResolver>>,
     task_id: &str,
 ) -> TaskCredentialTargets {
     let (Some(sandboxes), Some(workspaces)) = (sandboxes, workspaces) else {
         return TaskCredentialTargets::default();
     };
-    let Ok(Some(intent)) = sandboxes.load(task_id).await else {
+    let Ok(Some(intent)) = sandboxes.intent(task_id).await else {
         return TaskCredentialTargets::default();
     };
-    let run_as_user_id = match sandboxes.sandbox_shape(&intent.sandbox_id).await {
-        Ok(shape) => shape.and_then(|shape| shape.run_as_user_id),
+    let run_as_user_id = match sandboxes.run_as_user_id(&intent.sandbox_id).await {
+        Ok(run_as_user_id) => run_as_user_id,
         Err(e) => {
             warn!(task_id, error = %e, "Failed to read the sandbox run-as identity");
             None

@@ -22,11 +22,12 @@ use tower::ServiceExt;
 
 use moatless_backend::state::AppState;
 use moatless_backend::task_connections::routes::task_connections_router;
-use moatless_tasks::task::dao as task_dao;
+use moatless_loops::bindings::test_support::upsert_binding;
+use moatless_tasks::task::test_support as task_fixtures;
 use moatless_types::access_control::Scope;
 use moatless_types::adapter::AdapterConnection;
 use moatless_types::adapter::TaskBinding;
-use moatless_workspaces::repository::dao as repository_dao;
+use moatless_workspaces::compose;
 
 use common::{
     USER_1, authed_request, body_json, make_repository_row, make_task_row, seed_team,
@@ -38,9 +39,9 @@ async fn seed_task(pool: &PgPool, task_id: &str, user_id: &str) {
     seed_team(pool, &format!("personal-{user_id}")).await;
     let repo = make_repository_row("repo-1", user_id);
     // Repeated calls across tasks in one test share the single repository row.
-    let _ = repository_dao::insert(pool, &repo).await;
+    let _ = compose::seed_repository(pool, &repo).await;
     let task = make_task_row(task_id, user_id);
-    task_dao::insert_task(pool, &task)
+    task_fixtures::seed_task(pool, &task)
         .await
         .expect("seed task row");
 }
@@ -65,7 +66,7 @@ async fn seed_connection(state: &AppState, id: &str, user_id: &str) -> String {
     };
     state
         .adapter_connections
-        .upsert(&row, &user_scope(user_id))
+        .save(&user_scope(user_id), &row)
         .await
         .expect("upsert adapter connection through the port")
         .id
@@ -115,16 +116,12 @@ async fn task_connections_handler_reads_bindings_written_through_the_port(pool: 
     let state = test_app_state(pool.clone());
     let connection_id = seed_connection(&state, "pc-1", USER_1).await;
 
-    state
-        .task_bindings
-        .upsert(&binding(
-            "tb-1",
-            "task-conn-1",
-            &connection_id,
-            "acme/web#7",
-        ))
-        .await
-        .expect("upsert binding through the port");
+    upsert_binding(
+        &state.task_bindings,
+        &binding("tb-1", "task-conn-1", &connection_id, "acme/web#7"),
+    )
+    .await
+    .expect("upsert binding through the port");
 
     // The endpoint lives in its own router, not the task router — the two are
     // mounted side by side at startup and only share the `tasks` OpenAPI tag.
@@ -146,10 +143,9 @@ async fn task_connections_handler_reads_bindings_written_through_the_port(pool: 
     assert_eq!(connections[0]["label"], "acme/web#7");
 }
 
-/// `deactivate_by_task` — newly exposed on the port so the close/delete path no
-/// longer constructs a repository — is scoped to one task and idempotent.
+/// `deactivate_for_task` is scoped to one task and idempotent.
 #[sqlx::test]
-async fn deactivate_by_task_through_the_port_is_task_scoped_and_idempotent(pool: PgPool) {
+async fn deactivate_for_task_through_the_operation_is_task_scoped_and_idempotent(pool: PgPool) {
     seed_task(&pool, "task-keep", USER_1).await;
     seed_task(&pool, "task-close", USER_1).await;
     let state = test_app_state(pool.clone());
@@ -160,16 +156,17 @@ async fn deactivate_by_task_through_the_port_is_task_scoped_and_idempotent(pool:
         ("tb-close-a", "task-close", "acme/web#2"),
         ("tb-close-b", "task-close", "acme/web#3"),
     ] {
-        state
-            .task_bindings
-            .upsert(&binding(id, task_id, &connection_id, subject))
-            .await
-            .expect("upsert binding through the port");
+        upsert_binding(
+            &state.task_bindings,
+            &binding(id, task_id, &connection_id, subject),
+        )
+        .await
+        .expect("upsert binding through the port");
     }
 
     let deactivated = state
         .task_bindings
-        .deactivate_by_task("task-close")
+        .deactivate_for_task("task-close")
         .await
         .expect("deactivate through the port");
     assert_eq!(deactivated, 2);
@@ -182,14 +179,14 @@ async fn deactivate_by_task_through_the_port_is_task_scoped_and_idempotent(pool:
     // A second close/delete of the same task is a no-op, not a re-stamp.
     let again = state
         .task_bindings
-        .deactivate_by_task("task-close")
+        .deactivate_for_task("task-close")
         .await
         .expect("deactivate through the port");
     assert_eq!(again, 0);
 }
 
 /// The adapter-connection port resolves the row it just wrote by both of the
-/// lookups handlers use (`find_by_id` and `find_by_external_account`).
+/// lookups handlers use (`get` under a viewer, and `by_external_account`).
 #[sqlx::test]
 async fn adapter_connection_port_round_trips_a_connection(pool: PgPool) {
     let state = test_app_state(pool.clone());
@@ -197,18 +194,18 @@ async fn adapter_connection_port_round_trips_a_connection(pool: PgPool) {
 
     let by_id = state
         .adapter_connections
-        .find_by_id(&connection_id, &user_scope(USER_1))
+        .get(&user_scope(USER_1), &connection_id)
         .await
-        .expect("find_by_id through the port")
+        .expect("get through the port")
         .expect("connection row");
     assert_eq!(by_id.adapter_kind, AdapterKind::Github);
     assert_eq!(by_id.scope_value, "acme");
 
     let by_account = state
-        .adapter_connections
-        .find_by_external_account("github", "acme")
+        .connection_routing
+        .by_external_account("github", "acme")
         .await
-        .expect("find_by_external_account through the port")
+        .expect("by_external_account through the routing handle")
         .expect("connection row");
     assert_eq!(by_account.id, connection_id);
 }

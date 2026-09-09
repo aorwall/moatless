@@ -1,6 +1,6 @@
 //! Test-only helpers that travel with the Adapter contract.
 //!
-//! Two groups, both about something this crate defines. The error helpers read
+//! Three groups, each about something this crate defines. The error helpers read
 //! a rendered response back into `(status, body)`, walk a source chain, and
 //! produce a genuine [`reqwest::Error`] from a refused connection; they live
 //! beside [`crate::error`] because they exist to assert it, and a copy parked
@@ -13,6 +13,11 @@
 //! endpoints and so makes a workflow'"'"'s API-call budget assertable
 //! ([`ProviderStub`]). Adapter error classification only means something if the
 //! real request path produces it, which is what these are for.
+//!
+//! [`InMemoryConnections`] stands in for the connection store, so the policy a
+//! provider runs over it — [`crate::connections::resolve_connection`] and
+//! [`crate::connections::resolve_chat_provider_event`] — is assertable without
+//! a database.
 
 // Compiled for two consumers — in-crate `#[cfg(test)]` modules and the crates
 // that enable `test-support` — and neither uses all of it.
@@ -31,8 +36,11 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::any;
 use axum::{Json, Router};
 
+use moatless_types::access_control::{Scope, ScopeContext};
+use moatless_types::adapter::{AdapterConnection, AdapterKind};
 use moatless_types::store::StoreError;
 
+use crate::connections::{ConnectionInstaller, ConnectionLookup, ConnectionReader};
 use crate::delivery::{AdapterDeliveryRequest, Admission, AdmitError, DeliveryAdmission};
 
 /// What a [`FakeAdmission`] answers. A descriptor rather than a stored
@@ -276,4 +284,119 @@ fn graphql_operation_name(document: &str) -> Option<String> {
         .split(|c: char| !(c.is_alphanumeric() || c == '_'))
         .find(|token| !token.is_empty())?;
     Some(field.to_string())
+}
+
+/// Adapter connections in memory, for a test that exercises a policy over them
+/// rather than the SQL underneath.
+///
+/// `ScopeContext` is ignored: the access filter is SQL, and a double that
+/// reproduced it would assert its own copy. Seed exactly the rows the viewer
+/// under test may see.
+#[derive(Default)]
+pub struct InMemoryConnections {
+    rows: Mutex<Vec<AdapterConnection>>,
+}
+
+impl InMemoryConnections {
+    pub fn new(rows: Vec<AdapterConnection>) -> Self {
+        Self {
+            rows: Mutex::new(rows),
+        }
+    }
+
+    pub fn rows(&self) -> Vec<AdapterConnection> {
+        self.rows.lock().expect("connections lock").clone()
+    }
+}
+
+#[async_trait]
+impl ConnectionLookup for InMemoryConnections {
+    async fn by_scope_value(
+        &self,
+        provider: &str,
+        scope_value: &str,
+    ) -> Result<Option<AdapterConnection>, StoreError> {
+        Ok(self
+            .rows()
+            .into_iter()
+            .find(|row| row.adapter_kind.as_str() == provider && row.scope_value == scope_value))
+    }
+
+    async fn by_external_account(
+        &self,
+        provider: &str,
+        external_account_id: &str,
+    ) -> Result<Option<AdapterConnection>, StoreError> {
+        self.by_scope_value(provider, external_account_id).await
+    }
+
+    async fn by_id_trusted(&self, id: &str) -> Result<Option<AdapterConnection>, StoreError> {
+        Ok(self.rows().into_iter().find(|row| row.id == id))
+    }
+
+    async fn by_provider(&self, provider: &str) -> Result<Vec<AdapterConnection>, StoreError> {
+        Ok(self
+            .rows()
+            .into_iter()
+            .filter(|row| row.adapter_kind.as_str() == provider)
+            .collect())
+    }
+}
+
+#[async_trait]
+impl ConnectionReader for InMemoryConnections {
+    async fn get(
+        &self,
+        _ctx: &ScopeContext,
+        id: &str,
+    ) -> Result<Option<AdapterConnection>, StoreError> {
+        self.by_id_trusted(id).await
+    }
+
+    async fn list(
+        &self,
+        _ctx: &ScopeContext,
+        kind: Option<AdapterKind>,
+    ) -> Result<Vec<AdapterConnection>, StoreError> {
+        Ok(self
+            .rows()
+            .into_iter()
+            .filter(|row| kind.is_none_or(|kind| row.adapter_kind == kind))
+            .collect())
+    }
+}
+
+#[async_trait]
+impl ConnectionInstaller for InMemoryConnections {
+    async fn install(
+        &self,
+        connection: &AdapterConnection,
+    ) -> Result<AdapterConnection, StoreError> {
+        let mut rows = self.rows.lock().expect("connections lock");
+        rows.retain(|row| {
+            row.adapter_kind != connection.adapter_kind || row.scope_value != connection.scope_value
+        });
+        rows.push(connection.clone());
+        Ok(connection.clone())
+    }
+}
+
+/// An Adapter connection with the fields a policy test reads, and defaults
+/// everywhere else.
+pub fn connection(id: &str, adapter_kind: AdapterKind, scope_value: &str) -> AdapterConnection {
+    let now = chrono::Utc::now();
+    AdapterConnection {
+        id: id.to_string(),
+        adapter_kind,
+        connection_kind: "webhook".to_string(),
+        scope_value: scope_value.to_string(),
+        credential_ref: None,
+        webhook_secret: None,
+        transport_config: serde_json::json!({}),
+        created_by: "u_test".to_string(),
+        scope: Scope::Global,
+        owner_user_id: None,
+        created_at: now,
+        updated_at: now,
+    }
 }

@@ -3,11 +3,11 @@
 use moatless_types::repository::GitHostRepo;
 use tracing::{debug, info, warn};
 
-use moatless_types::adapter::AdapterKind;
 use moatless_adapter_model::error::AdapterError;
 use moatless_types::adapter::AdapterConnection;
-use moatless_types::loops::SubscriptionMatch;
+use moatless_types::adapter::AdapterKind;
 use moatless_types::adapter::{Audience, InboundMessage};
+use moatless_types::loops::SubscriptionMatch;
 
 use super::router::GithubPrInboundRouter;
 use super::signals::MergeableState;
@@ -78,7 +78,7 @@ impl GithubPrInboundRouter {
 
         if !self
             .task_bindings
-            .find_by_subject("github", "github_pr", &subject_key)
+            .for_subject("github", "github_pr", &subject_key)
             .await?
             .iter()
             .any(|binding| binding.active)
@@ -180,7 +180,7 @@ impl GithubPrInboundRouter {
     ) {
         let binding_repo = self.task_bindings.clone();
         let bindings = match binding_repo
-            .find_by_subject("github", "github_pr", subject_key)
+            .for_subject("github", "github_pr", subject_key)
             .await
         {
             Ok(bindings) => bindings,
@@ -200,7 +200,7 @@ impl GithubPrInboundRouter {
 
         for binding in &bindings {
             if let Err(error) = binding_repo
-                .update_mergeable_state(&binding.id, Some(mergeable.as_str()))
+                .record_mergeable_state(&binding.id, Some(mergeable.as_str()))
                 .await
             {
                 warn!(

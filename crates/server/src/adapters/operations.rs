@@ -6,15 +6,15 @@ use moatless_api_schemas::adapters::{
 use moatless_api_schemas::user::{SendDmRequest, SendDmResponse};
 
 use super::access::ensure_task_access_only;
-use moatless_adapter_model::access::{resolve_connection, resolve_scope_for_adapter_create};
 use super::projection::adapter_connection_response;
+use moatless_adapter_model::access::resolve_scope_for_adapter_create;
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_adapter_model::outbound::OutboundReply;
+use moatless_identity::ports::ProviderAccount;
 use moatless_loops::bindings::outbound::checked_presentation;
-use moatless_loops::bindings::outbound::resolve_files_with;
+use moatless_loops::bindings::outbound::outbound_files;
 use moatless_loops::bindings::outbound::truncate_text;
 use moatless_loops::bindings::runtime::ORIGIN_CONNECTED_THREAD;
-use moatless_loops::bindings::runtime::upsert_binding_into;
 use moatless_types::adapter::AdapterConnection;
 use moatless_types::adapter::AdapterKind;
 
@@ -23,16 +23,14 @@ use moatless_types::access_control::ScopeContext;
 /// Adapter connection and outbound delivery operations.
 pub struct AdapterCommands {
     pub(crate) adapter_connections:
-        std::sync::Arc<dyn moatless_adapter_model::dao::AdapterConnectionDao>,
+        std::sync::Arc<moatless_adapter_model::connections::AdapterConnections>,
     pub(crate) adapters: Option<std::sync::Arc<moatless_adapter_model::registry::Adapters>>,
     pub(crate) task_reader: std::sync::Arc<moatless_tasks::ports::TaskProjection>,
-    pub(crate) s3: Option<crate::file_storage::s3::S3Storage>,
-    pub(crate) s3_config: std::sync::Arc<moatless_core::config::S3Config>,
-    pub(crate) files: std::sync::Arc<dyn crate::file_storage::dao::FileDao>,
+    pub(crate) files: std::sync::Arc<moatless_core::file_storage::Files>,
     pub(crate) external_reply:
         std::sync::Arc<moatless_loops::bindings::reply::ExternalReplyService>,
-    pub(crate) task_bindings: std::sync::Arc<dyn moatless_loops::bindings::dao::TaskBindingDao>,
-    pub(crate) users: std::sync::Arc<dyn moatless_identity::auth::users::UserDao>,
+    pub(crate) task_bindings: std::sync::Arc<moatless_loops::bindings::operations::Bindings>,
+    pub(crate) users: std::sync::Arc<moatless_identity::ports::UserDirectory>,
 }
 
 impl AdapterCommands {
@@ -50,7 +48,6 @@ impl AdapterCommands {
         let now = Utc::now();
         let adapter_kind = req.adapter_kind;
         let resolved = resolve_scope_for_adapter_create(ctx, req.scope)?;
-        let repo = &self.adapter_connections;
         let row = AdapterConnection {
             id: format!("pc_{}", uuid::Uuid::new_v4()),
             adapter_kind,
@@ -67,7 +64,7 @@ impl AdapterCommands {
             created_at: now,
             updated_at: now,
         };
-        let saved = repo.upsert(&row, ctx).await?;
+        let saved = self.adapter_connections.save(ctx, &row).await?;
         Ok(adapter_connection_response(&saved))
     }
     pub async fn adapter_send(
@@ -81,26 +78,17 @@ impl AdapterCommands {
             ensure_task_access_only(self.task_reader.as_ref(), ctx, task_id).await?;
         }
 
-        let connection = resolve_connection(
-            self.adapter_connections.as_ref(),
-            ctx,
-            adapter_kind,
-            req.connection_id.as_deref(),
-        )
-        .await?;
+        let connection = self
+            .adapter_connections
+            .resolve(ctx, adapter_kind, req.connection_id.as_deref())
+            .await?;
 
         let providers = self.adapters.as_ref().ok_or_else(|| {
             SharedAdapterError::AdapterNotConfigured("adapters not configured".into())
         })?;
         let provider = providers.outbound_for_direct_destination(adapter_kind)?;
 
-        let files = resolve_files_with(
-            &self.s3,
-            &self.s3_config,
-            self.files.as_ref(),
-            &req.file_ids,
-        )
-        .await;
+        let files = outbound_files(&self.files, &req.file_ids).await;
         if !files.is_empty() && !provider.supports_files() {
             return Err(SharedAdapterError::BadRequest(format!(
                 "{} adapter does not support file attachments",
@@ -136,19 +124,20 @@ impl AdapterCommands {
             .await?;
 
         let binding_id = if let Some(task_id) = req.task_id.as_deref() {
-            let binding = upsert_binding_into(
-                self.task_bindings.as_ref(),
-                &connection,
-                None,
-                task_id,
-                provider.connection_provider_key(),
-                result.subject_kind,
-                &result.subject_key,
-                result.destination_config.clone(),
-                ORIGIN_CONNECTED_THREAD,
-                Some(result.message_external_id.clone()),
-            )
-            .await?;
+            let binding = self
+                .task_bindings
+                .bind(
+                    &connection,
+                    None,
+                    task_id,
+                    provider.connection_provider_key(),
+                    result.subject_kind,
+                    &result.subject_key,
+                    result.destination_config.clone(),
+                    ORIGIN_CONNECTED_THREAD,
+                    Some(result.message_external_id.clone()),
+                )
+                .await?;
             if let Some(followup) = providers.post_binding_followup(adapter_kind) {
                 followup
                     .on_binding_created(&connection, &binding, task_id)
@@ -175,29 +164,29 @@ impl AdapterCommands {
             ensure_task_access_only(self.task_reader.as_ref(), ctx, task_id).await?;
         }
 
-        let target = self
+        let provider_user_id = match self
             .users
-            .get_user_by_login(&login)
+            .provider_account_for_login(&req.provider, &login)
             .await?
-            .ok_or_else(|| SharedAdapterError::NotFound(format!("User {login} not found")))?;
-
-        let provider_user_id = self
-            .users
-            .get_provider_id(&target.id, &req.provider)
-            .await?
-            .ok_or_else(|| {
-                SharedAdapterError::NotFound(format!(
+        {
+            ProviderAccount::Linked(id) => id,
+            ProviderAccount::NoUser => {
+                return Err(SharedAdapterError::NotFound(format!("User {login} not found")).into());
+            }
+            ProviderAccount::Unlinked => {
+                return Err(SharedAdapterError::NotFound(format!(
                     "User {login} has no {} provider id configured",
                     req.provider
                 ))
-            })?;
+                .into());
+            }
+        };
 
         let kind = AdapterKind::parse(&req.provider).ok_or_else(|| {
             SharedAdapterError::BadRequest(format!("Unknown adapter provider: {}", req.provider))
         })?;
 
-        let connection =
-            resolve_connection(self.adapter_connections.as_ref(), ctx, kind, None).await?;
+        let connection = self.adapter_connections.resolve(ctx, kind, None).await?;
 
         let providers = self.adapters.as_ref().ok_or_else(|| {
             SharedAdapterError::AdapterNotConfigured("adapters not configured".into())
@@ -245,19 +234,20 @@ impl AdapterCommands {
             .to_string();
 
         let binding_id = if let Some(task_id) = req.task_id.as_deref() {
-            let binding = upsert_binding_into(
-                self.task_bindings.as_ref(),
-                &connection,
-                None,
-                task_id,
-                send_provider.connection_provider_key(),
-                result.subject_kind,
-                &result.subject_key,
-                result.destination_config.clone(),
-                ORIGIN_CONNECTED_THREAD,
-                Some(result.message_external_id.clone()),
-            )
-            .await?;
+            let binding = self
+                .task_bindings
+                .bind(
+                    &connection,
+                    None,
+                    task_id,
+                    send_provider.connection_provider_key(),
+                    result.subject_kind,
+                    &result.subject_key,
+                    result.destination_config.clone(),
+                    ORIGIN_CONNECTED_THREAD,
+                    Some(result.message_external_id.clone()),
+                )
+                .await?;
             binding.id
         } else {
             String::new()

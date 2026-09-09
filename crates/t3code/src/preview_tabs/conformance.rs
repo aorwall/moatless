@@ -112,6 +112,10 @@ pub async fn a_published_event_reaches_a_subscriber(store: &dyn PreviewTabDao) {
 
 /// Every case above, in one call, for a caller that only wants "does this
 /// handle behave". Each case resets first, so they compose.
+///
+/// The unit tier names each case one at a time, so this whole-list form is
+/// reached only from `redis_tests`.
+#[cfg(feature = "db-tests")]
 pub async fn run_every_case(store: &dyn PreviewTabDao) {
     opening_a_tab_lists_it(store).await;
     revisions_only_move_forward(store).await;

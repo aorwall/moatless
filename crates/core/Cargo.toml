@@ -21,6 +21,9 @@ serde_json = { workspace = true }
 # Config
 dotenvy = "0.15"
 
+# Object storage for the file operations this crate owns.
+moatless-s3 = { workspace = true }
+
 # Database
 sqlx = { workspace = true, features = ["runtime-tokio", "tls-rustls", "postgres", "json", "chrono", "uuid", "migrate"] }
 
@@ -38,10 +41,6 @@ reqwest = { workspace = true, features = ["json", "query", "form", "rustls"] }
 rand = { workspace = true }
 # Derives a task's workspace-repository password from the deployment secret.
 hkdf = { workspace = true }
-
-# Mock generation, enabled off `test-support` so the bands above can name
-# `MockFileDao` across the crate boundary.
-mockall = { workspace = true, optional = true }
 
 # Error handling
 thiserror = { workspace = true }
@@ -72,12 +71,8 @@ openapi = [
     "dep:utoipa",
     "moatless-types/openapi",
 ]
-test-support = ["dep:mockall"]
+# Hand-written test doubles a consumer can name: `file_storage::test_support`.
+test-support = []
 
 [lints]
 workspace = true
-
-[dev-dependencies]
-# The optional dependency above is off in this crate's own test build, so the
-# mocks the `test` disjunct generates need it named here as well.
-mockall = { workspace = true }

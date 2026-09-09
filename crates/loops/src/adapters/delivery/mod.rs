@@ -12,14 +12,15 @@
 
 mod metrics;
 mod models;
-mod store;
 mod typed;
 mod worker;
 
 pub use metrics::describe_adapter_delivery_metrics;
 pub use models::AdapterDeliveryPolicy;
-pub use store::AdapterDeliveryStore;
 pub use typed::{ConnectionDeliveryPayload, register_connection_delivery, register_typed_delivery};
-pub use worker::spawn_adapter_delivery_worker;
+pub use worker::AdapterDeliveryWorker;
 
-mod dao;
+pub(crate) mod dao;
+
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_support;

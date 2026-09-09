@@ -17,10 +17,10 @@
 //! `pub` here (the crate boundary widened them from `pub(crate)`); everything
 //! else stays as narrow as the loops band alone requires.
 pub mod access;
-pub mod projection;
 pub mod delivery;
 pub mod events;
 pub mod inbound_delivery;
 pub mod ingress;
+pub mod projection;
 pub mod self_echo;
 pub mod subject_events;

@@ -12,35 +12,50 @@ use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 
-use moatless_adapter_model::delivery::AdapterDeliveryHandlers;
+use super::dao::AdapterDeliveryStore;
 use super::metrics::{record_backlog, record_execution};
+use moatless_adapter_model::delivery::AdapterDeliveryHandlers;
 use moatless_adapter_model::delivery::{AdapterDelivery, AdapterDeliveryFailure};
-use super::store::AdapterDeliveryStore;
 
-/// Run the Adapter delivery worker until the root token is cancelled.
+/// The host's handle on the Adapter delivery worker.
 ///
-/// The join handle is returned for the root supervisor to own — see the
-/// criticality declared at its registration in `main` — and is `#[must_use]`
-/// because this task owns already-acknowledged sender work: detaching it
-/// would silently strand records the backend has already promised to run.
-///
-/// The handle is the raw [`tokio::task::JoinHandle`] rather than a wrapper
-/// type, because `Supervisor::supervise` takes exactly that and is this
-/// function's only caller; there is no second consumer to poll or to join it
-/// on its own deadline.
-#[must_use = "this handle owns admitted Adapter deliveries; dropping it detaches the worker"]
-pub fn spawn_adapter_delivery_worker(
+/// A host takes this from `crate::compose::LoopGraph` and starts the worker
+/// last, once every delivery handler this build knows is registered.
+#[derive(Clone)]
+pub struct AdapterDeliveryWorker {
     store: Arc<AdapterDeliveryStore>,
-    handlers: Arc<AdapterDeliveryHandlers>,
-    cancel: CancellationToken,
-) -> tokio::task::JoinHandle<()> {
-    let owner = worker_owner_id();
-    info!(
-        owner = %owner,
-        kinds = handlers.kinds().len(),
-        "Adapter delivery worker spawned"
-    );
-    tokio::spawn(run(store, handlers, owner, cancel))
+}
+
+impl AdapterDeliveryWorker {
+    pub(crate) fn new(store: Arc<AdapterDeliveryStore>) -> Self {
+        Self { store }
+    }
+
+    /// Run the Adapter delivery worker until the root token is cancelled.
+    ///
+    /// The join handle is returned for the root supervisor to own — see the
+    /// criticality declared at its registration in `main` — and is `#[must_use]`
+    /// because this task owns already-acknowledged sender work: detaching it
+    /// would silently strand records the backend has already promised to run.
+    ///
+    /// The handle is the raw [`tokio::task::JoinHandle`] rather than a wrapper
+    /// type, because `Supervisor::supervise` takes exactly that and is this
+    /// method's only production caller; there is no second consumer to poll or
+    /// to join it on its own deadline.
+    #[must_use = "this handle owns admitted Adapter deliveries; dropping it detaches the worker"]
+    pub fn spawn(
+        &self,
+        handlers: Arc<AdapterDeliveryHandlers>,
+        cancel: CancellationToken,
+    ) -> tokio::task::JoinHandle<()> {
+        let owner = worker_owner_id();
+        info!(
+            owner = %owner,
+            kinds = handlers.kinds().len(),
+            "Adapter delivery worker spawned"
+        );
+        tokio::spawn(run(Arc::clone(&self.store), handlers, owner, cancel))
+    }
 }
 
 /// The claim identity written onto records this process holds.
@@ -338,11 +353,11 @@ mod db_tests {
 
     use sqlx::PgPool;
 
+    use super::super::models::AdapterDeliveryPolicy;
+    use super::*;
     use moatless_adapter_model::delivery::{
         AdapterDeliveryHandler, AdapterDeliveryRequest, Admission, AdmitError, DeliveryAdmission,
     };
-    use super::super::models::AdapterDeliveryPolicy;
-    use super::*;
 
     /// Timings collapsed so retry, lease expiry, and recovery all happen inside
     /// a test rather than over ten minutes.
@@ -442,7 +457,7 @@ mod db_tests {
         done: impl Fn() -> bool + Send,
     ) {
         let cancel = CancellationToken::new();
-        let handle = spawn_adapter_delivery_worker(Arc::clone(store), handlers, cancel.clone());
+        let handle = AdapterDeliveryWorker::new(Arc::clone(store)).spawn(handlers, cancel.clone());
         drive(handle, cancel, budget, done).await;
     }
 

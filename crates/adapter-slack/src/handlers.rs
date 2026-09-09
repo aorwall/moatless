@@ -7,7 +7,7 @@ use axum::response::{IntoResponse, Response};
 use tracing::debug;
 
 use moatless_adapter_model::binding::BindingProbe;
-use moatless_adapter_model::dao::AdapterConnectionDao;
+use moatless_adapter_model::connections::ConnectionLookup;
 use moatless_adapter_model::delivery::DeliveryAdmission;
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_adapter_model::ingress::{IngressError, Outcome};
@@ -36,7 +36,7 @@ use super::ingress::{Received, WebhookRequest};
               slice removes"
 )]
 pub async fn slack_webhook(
-    State(adapter_connections): State<Arc<dyn AdapterConnectionDao>>,
+    State(adapter_connections): State<Arc<dyn ConnectionLookup>>,
     State(loops): State<Arc<dyn LoopReader>>,
     State(task_bindings): State<Arc<dyn BindingProbe>>,
     State(users): State<Arc<dyn ProviderIdentityLink>>,

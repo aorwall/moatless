@@ -9,7 +9,7 @@ use super::contexts::task_message_context_to_input;
 use super::models::{TaskMessage, TaskMessageContext};
 use crate::task::schemas::MessageContextInput;
 use moatless_core::config::Config;
-use moatless_core::file_storage::dao::FileDao;
+use moatless_core::file_storage::Files;
 use moatless_types::adapter::SCHEDULED_ORIGIN;
 
 /// Content block for agent request.
@@ -94,7 +94,7 @@ impl PromptResponse {
 /// the gRPC handler and sandbox: callers get text, upload ids, model metadata,
 /// resume intent, and the uuids to acknowledge after harness acceptance.
 pub struct AgentPromptBuilder<'a> {
-    files: Option<&'a dyn FileDao>,
+    files: Option<&'a Files>,
     config: Option<&'a Config>,
     task_agent_type: String,
     task_model: Option<String>,
@@ -108,7 +108,7 @@ pub struct AgentPromptBuilder<'a> {
 
 impl<'a> AgentPromptBuilder<'a> {
     pub fn new(
-        files: Option<&'a dyn FileDao>,
+        files: Option<&'a Files>,
         config: Option<&'a Config>,
         task_agent_type: String,
         task_model: Option<String>,
@@ -331,8 +331,8 @@ fn sender_label(row: &TaskMessage, sender_logins: &HashMap<String, String>) -> O
 fn build_message_header(row: &TaskMessage, login_cache: &HashMap<String, String>) -> String {
     // A schedule firing stores an `external_event_id` for dedup only; see
     // [`SCHEDULED_ORIGIN`] for why such a row carries no header.
-    let external =
-        row.external_event_id.is_some() && row.external_adapter.as_deref() != Some(SCHEDULED_ORIGIN);
+    let external = row.external_event_id.is_some()
+        && row.external_adapter.as_deref() != Some(SCHEDULED_ORIGIN);
 
     if external {
         let mut header = format!("<message_id>{}</message_id>\n", row.uuid);
@@ -362,7 +362,7 @@ fn build_message_header(row: &TaskMessage, login_cache: &HashMap<String, String>
 /// The primary text block has `show_in_ui = true`; all context and file
 /// blocks have `show_in_ui = false` (they appear only in the agent request).
 pub async fn build_content_blocks(
-    files: &dyn FileDao,
+    files: &Files,
     config: &Config,
     text: &str,
     contexts: &[MessageContextInput],
@@ -448,7 +448,7 @@ fn attributed_text(text: &str, source_task_id: Option<&str>) -> String {
 ///
 /// It is the read-side twin of [`build_content_blocks`].
 pub async fn build_pending_content_blocks(
-    files: &dyn FileDao,
+    files: &Files,
     config: &Config,
     message: &TaskMessage,
     contexts: &[TaskMessageContext],
@@ -477,11 +477,11 @@ pub async fn build_pending_content_blocks(
 /// file directly with no network round-trip; the sandbox receives the same
 /// value as `UPLOAD_DIR`, so the two cannot disagree.
 async fn build_file_attachment_block(
-    files: &dyn FileDao,
+    files: &Files,
     file_id: &str,
     file_mount_path: &str,
 ) -> Option<ContentBlock> {
-    let row = match files.find_by_id(file_id).await {
+    let row = match files.metadata(file_id).await {
         Ok(Some(row)) => row,
         Ok(None) => {
             tracing::warn!(file_id, "File metadata not found for attachment block");
@@ -507,8 +507,8 @@ async fn build_file_attachment_block(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use moatless_core::file_storage::dao::MockFileDao;
-    use moatless_core::file_storage::models::FileMetadata;
+    use moatless_core::file_storage::FileInfo;
+    use moatless_core::file_storage::test_support::files_from;
     use serde_json::json;
 
     fn pending_message(id: i32, uuid: &str, text: &str) -> TaskMessage {
@@ -926,7 +926,11 @@ mod tests {
     #[tokio::test]
     async fn an_unmapped_writer_is_named_by_handle_and_claims_no_login() {
         assert_eq!(
-            from_line(slack_row(Some("U0MARTIN"), Some("martin.k")), &HashMap::new()).await,
+            from_line(
+                slack_row(Some("U0MARTIN"), Some("martin.k")),
+                &HashMap::new()
+            )
+            .await,
             "<from>slack: martin.k</from>"
         );
     }
@@ -980,23 +984,17 @@ mod tests {
 
     #[tokio::test]
     async fn file_attachment_block_renders_on_disk_path() {
-        let mut mock = MockFileDao::new();
-        mock.expect_find_by_id().returning(|file_id| {
-            Ok(Some(FileMetadata {
-                file_id: file_id.to_string(),
-                filename: "report.pdf".to_string(),
-                mime_type: "application/pdf".to_string(),
-                size: 1234,
-                scope: moatless_types::access_control::Scope::User,
-                owner_user_id: Some("user-1".to_string()),
-                created_by: Some("user-1".to_string()),
-                uploaded_at: chrono::Utc::now(),
-            }))
-        });
+        let files = files_from(vec![FileInfo {
+            file_id: "abc-123".to_string(),
+            filename: "report.pdf".to_string(),
+            mime_type: "application/pdf".to_string(),
+            size: 1234,
+        }]);
 
-        let block = build_file_attachment_block(&mock, "abc-123", "/opt/moatless/workspace/uploads")
-            .await
-            .expect("expected attachment block");
+        let block =
+            build_file_attachment_block(&files, "abc-123", "/opt/moatless/workspace/uploads")
+                .await
+                .expect("expected attachment block");
 
         let text = block.text.expect("expected text");
         assert!(
@@ -1013,21 +1011,14 @@ mod tests {
 
     #[tokio::test]
     async fn file_attachment_block_trims_trailing_mount_slash() {
-        let mut mock = MockFileDao::new();
-        mock.expect_find_by_id().returning(|file_id| {
-            Ok(Some(FileMetadata {
-                file_id: file_id.to_string(),
-                filename: "x.txt".to_string(),
-                mime_type: "text/plain".to_string(),
-                size: 1,
-                scope: moatless_types::access_control::Scope::User,
-                owner_user_id: Some("user-1".to_string()),
-                created_by: Some("user-1".to_string()),
-                uploaded_at: chrono::Utc::now(),
-            }))
-        });
+        let files = files_from(vec![FileInfo {
+            file_id: "id".to_string(),
+            filename: "x.txt".to_string(),
+            mime_type: "text/plain".to_string(),
+            size: 1,
+        }]);
 
-        let block = build_file_attachment_block(&mock, "id", "/opt/moatless/workspace/uploads/")
+        let block = build_file_attachment_block(&files, "id", "/opt/moatless/workspace/uploads/")
             .await
             .expect("expected attachment block");
 

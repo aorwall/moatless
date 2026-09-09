@@ -10,11 +10,11 @@ use crate::access_settings::schemas::*;
 use crate::agent_harness_access::{
     AgentHarnessAccess, AgentHarnessCredentialStatus, DeviceLoginPoll,
 };
-use crate::app_administration::{
+use moatless_core::http_auth::AuthUser;
+use moatless_identity::adapter_apps::administration::{
     AdapterAppSave, AppAdministration, GitHubAppRegistration, GitHubAppRegistrationInput,
     GitHubAppView,
 };
-use moatless_core::http_auth::AuthUser;
 use moatless_identity::git_host_access::{
     GitHostAccess, GitHostPrincipal, GitHubProviderTokenStatus, GitnessProviderTokenStatus,
 };
@@ -685,8 +685,11 @@ mod tests {
             is_agent_context: false,
         };
         assert!(matches!(
-            crate::app_administration::require_admin(&auth.scope_context(), "read")
-                .map_err(AccessSettingsError::from),
+            moatless_identity::adapter_apps::administration::require_admin(
+                &auth.scope_context(),
+                "read"
+            )
+            .map_err(AccessSettingsError::from),
             Err(AccessSettingsError::Forbidden(_))
         ));
     }

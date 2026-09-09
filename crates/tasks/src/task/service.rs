@@ -21,9 +21,9 @@ use std::sync::Arc;
 use moatless_types::task::TaskSubType;
 
 use super::creation::{FirstMessage, NewTaskRequest, TaskCreationOutcome, TaskCreationService};
-use super::dao::TaskDao;
 use super::error::TaskError;
 use super::models::{Task, TaskStatus};
+use super::operations::TaskCommands;
 use super::relations::CreatedByParent;
 use super::schemas::CreateTaskRequest;
 use crate::agent::catalog;
@@ -121,7 +121,7 @@ where
 /// `agent.stopped` the sandbox publishes in response, so the stop still lands
 /// cleanly when the sandbox is already gone.
 pub async fn stop_task(
-    tasks: &dyn TaskDao,
+    tasks: &TaskCommands,
     sandbox: &dyn SandboxLifecycle,
     events: Option<&dyn EventPublisher>,
     scope_ctx: &ScopeContext,
@@ -147,7 +147,7 @@ pub async fn stop_task(
 /// place. The stop lands through the event either way, so a sandbox that
 /// cannot be reached still closes the turn.
 pub async fn stop_agent(
-    tasks: &dyn TaskDao,
+    tasks: &TaskCommands,
     sandbox: &dyn SandboxLifecycle,
     events: Option<&dyn EventPublisher>,
     scope_ctx: &ScopeContext,
@@ -168,7 +168,7 @@ pub async fn stop_agent(
 /// Existence hiding: a task the caller may not control is reported the same way
 /// as one that is not there.
 async fn require_control(
-    tasks: &dyn TaskDao,
+    tasks: &TaskCommands,
     scope_ctx: &ScopeContext,
     task_id: &str,
 ) -> Result<(), TaskError> {
@@ -210,7 +210,7 @@ async fn publish_user_stop(events: Option<&dyn EventPublisher>, task_id: &str) {
 pub struct CreateTaskPorts<'a> {
     pub workspaces: &'a dyn WorkspaceResolver,
     pub repositories: &'a dyn RepositoryReader,
-    pub tasks: &'a dyn TaskDao,
+    pub tasks: &'a TaskCommands,
     pub users: &'a dyn UserResolver,
     pub credential_sync: &'a CredentialSync,
     pub config: &'a Config,
@@ -306,7 +306,7 @@ pub async fn normalize(
     // outage) do NOT block creation — the sandbox retries with the stored
     // blob.
     if agent_type.as_str() == "codex" {
-        if let Err(moatless_workspaces::credentials::CredentialError::NotFound(reason)) =
+        if let Err(moatless_identity::credentials::CredentialError::NotFound(reason)) =
             credential_sync.ensure_fresh_codex_for(user_id, None).await
         {
             tracing::info!(
@@ -389,11 +389,15 @@ pub async fn normalize(
 /// number of Workspaces and picking one for the caller would run the work under
 /// a configuration — image, env, service account — nobody chose.
 async fn resolve_workspace_id(
-    tasks: &dyn TaskDao,
+    tasks: &TaskCommands,
     scope_ctx: &ScopeContext,
     req: &CreateTaskRequest,
 ) -> Result<String, TaskError> {
-    if let Some(workspace_id) = req.workspace_id.as_deref().map(str::trim).filter(|w| !w.is_empty())
+    if let Some(workspace_id) = req
+        .workspace_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|w| !w.is_empty())
     {
         return Ok(workspace_id.to_string());
     }
@@ -475,7 +479,7 @@ fn agent_type_error(reason: &str) -> TaskError {
 
 /// Reopen a visible closed task after checking write access.
 pub async fn reopen_task_for(
-    tasks: &dyn TaskDao,
+    tasks: &TaskCommands,
     events: Option<&dyn EventPublisher>,
     scope_ctx: &ScopeContext,
     task_id: &str,
@@ -498,7 +502,7 @@ pub async fn reopen_task_for(
     let updated = tasks
         .update_task(
             task_id,
-            &super::dao::TaskPatch {
+            &super::models::TaskPatch {
                 status: Some(TaskStatus::Open),
                 ..Default::default()
             },
@@ -526,7 +530,7 @@ pub async fn reopen_task_for(
 }
 /// Update supplied task expiration limits after validating their values.
 pub async fn update_ttl(
-    tasks: &dyn TaskDao,
+    tasks: &TaskCommands,
     scope_ctx: &ScopeContext,
     task_id: String,
     req: super::schemas::UpdateTaskTtlRequest,
@@ -550,7 +554,7 @@ pub async fn update_ttl(
     let updated = tasks
         .update_task(
             &task_id,
-            &super::dao::TaskPatch {
+            &super::models::TaskPatch {
                 ttl_minutes: req.ttl_minutes,
                 inactive_ttl_days: req.inactive_ttl_days,
                 ..Default::default()
@@ -658,7 +662,10 @@ mod tests {
         assert_eq!(resolved.as_deref(), Some(OTHER));
     }
 
-    fn create_request(workspace_id: Option<&str>, parent_task_id: Option<&str>) -> CreateTaskRequest {
+    fn create_request(
+        workspace_id: Option<&str>,
+        parent_task_id: Option<&str>,
+    ) -> CreateTaskRequest {
         CreateTaskRequest {
             repository_id: Some("repo-1".to_string()),
             workspace_id: workspace_id.map(str::to_string),
@@ -681,7 +688,7 @@ mod tests {
         }
     }
 
-    fn parent_running_in(workspace_id: Option<&'static str>) -> crate::task::dao::MockTaskDao {
+    fn parent_running_in(workspace_id: Option<&'static str>) -> TaskCommands {
         let mut tasks = crate::task::dao::MockTaskDao::new();
         tasks.expect_find_by_id().returning(move |task_id, _| {
             let now = chrono::Utc::now();
@@ -720,25 +727,32 @@ mod tests {
                 skills: Vec::new(),
             }))
         });
-        tasks
+        TaskCommands::new(Arc::new(tasks))
     }
 
     #[tokio::test]
     async fn a_named_workspace_is_used_as_given() {
-        let tasks = crate::task::dao::MockTaskDao::new();
-        let resolved = resolve_workspace_id(&tasks, &ctx(ADMIN, false), &create_request(Some("ws-a"), None))
-            .await
-            .expect("a named workspace needs no lookup");
+        let tasks = TaskCommands::new(Arc::new(crate::task::dao::MockTaskDao::new()));
+        let resolved = resolve_workspace_id(
+            &tasks,
+            &ctx(ADMIN, false),
+            &create_request(Some("ws-a"), None),
+        )
+        .await
+        .expect("a named workspace needs no lookup");
         assert_eq!(resolved, "ws-a");
     }
 
     #[tokio::test]
     async fn a_subtask_inherits_its_parents_workspace() {
         let tasks = parent_running_in(Some("ws-parent"));
-        let resolved =
-            resolve_workspace_id(&tasks, &ctx(ADMIN, false), &create_request(None, Some("task-parent")))
-                .await
-                .expect("the parent names the workspace");
+        let resolved = resolve_workspace_id(
+            &tasks,
+            &ctx(ADMIN, false),
+            &create_request(None, Some("task-parent")),
+        )
+        .await
+        .expect("the parent names the workspace");
         assert_eq!(resolved, "ws-parent");
     }
 
@@ -746,7 +760,7 @@ mod tests {
     /// fall back to.
     #[tokio::test]
     async fn a_request_with_only_a_repository_is_rejected() {
-        let tasks = crate::task::dao::MockTaskDao::new();
+        let tasks = TaskCommands::new(Arc::new(crate::task::dao::MockTaskDao::new()));
         let error = resolve_workspace_id(&tasks, &ctx(ADMIN, false), &create_request(None, None))
             .await
             .expect_err("a repository does not name a workspace");
@@ -759,10 +773,13 @@ mod tests {
     #[tokio::test]
     async fn a_parent_that_runs_in_no_workspace_is_rejected() {
         let tasks = parent_running_in(None);
-        let error =
-            resolve_workspace_id(&tasks, &ctx(ADMIN, false), &create_request(None, Some("task-parent")))
-                .await
-                .expect_err("a parent predating workspaces names none");
+        let error = resolve_workspace_id(
+            &tasks,
+            &ctx(ADMIN, false),
+            &create_request(None, Some("task-parent")),
+        )
+        .await
+        .expect_err("a parent predating workspaces names none");
         assert!(matches!(error, TaskError::BadRequest(_)), "{error:?}");
     }
 

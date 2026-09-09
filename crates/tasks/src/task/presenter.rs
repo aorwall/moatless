@@ -42,7 +42,7 @@ pub struct TaskPresenter {
 impl TaskPresenter {
     /// Wire the presenter from the ports the backend composition root owns.
     #[allow(clippy::too_many_arguments)]
-    pub fn new(
+    pub(crate) fn new(
         tags: Arc<dyn TagDao>,
         repositories: Arc<dyn RepositoryReader>,
         workspaces: Arc<dyn WorkspaceResolver>,

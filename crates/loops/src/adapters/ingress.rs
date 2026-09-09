@@ -10,7 +10,7 @@
 
 #[cfg(test)]
 mod tests {
-    use crate::adapters::delivery::AdapterDeliveryStore;
+    use crate::adapters::delivery::dao::AdapterDeliveryStore;
     use moatless_adapter_model::delivery::{AdapterDeliveryRequest, AdmitError, DeliveryAdmission};
     use moatless_adapter_model::ingress::IngressError;
     use moatless_core::db::DbPool;

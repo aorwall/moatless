@@ -13,16 +13,13 @@ use axum::http::StatusCode;
 use sqlx::PgPool;
 use tower::ServiceExt;
 
-use moatless_tasks::task::dao as task_dao;
-use moatless_tasks::task::dao::TaskDao;
-use moatless_tasks::task::dao::TaskPatch;
+use moatless_tasks::task::models::TaskPatch;
 use moatless_tasks::task::models::TaskStatus;
-use moatless_tasks::task::relations::PgTaskRelationDao;
 use moatless_tasks::task::relations::TaskRelation;
-use moatless_tasks::task::relations::TaskRelationDao;
 use moatless_tasks::task::relations::TaskRelationType;
 use moatless_tasks::task::routes::task_router;
-use moatless_workspaces::repository::dao as repository_dao;
+use moatless_tasks::task::test_support as task_fixtures;
+use moatless_workspaces::compose;
 
 use common::{
     USER_1, authed_json_request, authed_request, body_json, make_repository_row, make_task_row,
@@ -37,14 +34,14 @@ fn build_router(pool: PgPool) -> axum::Router {
 
 async fn seed_repo(pool: &PgPool) {
     let repo = make_repository_row("repo-1", USER_1);
-    repository_dao::insert(pool, &repo).await.unwrap();
+    compose::seed_repository(pool, &repo).await.unwrap();
 }
 
 #[sqlx::test]
 async fn get_task_200(pool: PgPool) {
     seed_repo(&pool).await;
     let row = make_task_row("task-get", USER_1);
-    task_dao::insert_task(&pool, &row).await.unwrap();
+    task_fixtures::seed_task(&pool, &row).await.unwrap();
 
     let app = build_router(pool);
     let req = authed_request("GET", "/api/v1/tasks/task-get", USER_1);
@@ -75,7 +72,7 @@ async fn get_task_404(pool: PgPool) {
 async fn router_builds_and_statistics_route_is_registered(pool: PgPool) {
     seed_repo(&pool).await;
     let row = make_task_row("task-stats", USER_1);
-    task_dao::insert_task(&pool, &row).await.unwrap();
+    task_fixtures::seed_task(&pool, &row).await.unwrap();
 
     // Panics here if the router has overlapping method routes.
     let app = build_router(pool);
@@ -104,7 +101,7 @@ async fn list_tasks_with_data(pool: PgPool) {
     seed_repo(&pool).await;
     for i in 0..3 {
         let row = make_task_row(&format!("task-list-{i}"), USER_1);
-        task_dao::insert_task(&pool, &row).await.unwrap();
+        task_fixtures::seed_task(&pool, &row).await.unwrap();
     }
 
     let app = build_router(pool);
@@ -124,7 +121,7 @@ async fn list_tasks_offset_past_end_reports_true_total(pool: PgPool) {
     seed_repo(&pool).await;
     for i in 0..3 {
         let row = make_task_row(&format!("task-off-{i}"), USER_1);
-        task_dao::insert_task(&pool, &row).await.unwrap();
+        task_fixtures::seed_task(&pool, &row).await.unwrap();
     }
 
     let app = build_router(pool);
@@ -144,15 +141,15 @@ async fn list_tasks_multiple_tags_counted_once(pool: PgPool) {
     seed_repo(&pool).await;
     for id in ["task-tagged", "task-plain"] {
         let row = make_task_row(id, USER_1);
-        task_dao::insert_task(&pool, &row).await.unwrap();
+        task_fixtures::seed_task(&pool, &row).await.unwrap();
     }
 
     let names = ["bug".to_string(), "urgent".to_string(), "p1".to_string()];
-    let tags = moatless_tasks::tag::dao::find_or_create_tags(&pool, &names)
+    let tags = moatless_tasks::tag::test_support::find_or_create_tags(&pool, &names)
         .await
         .unwrap();
     let tag_ids: Vec<String> = tags.iter().map(|t| t.tag_id.clone()).collect();
-    moatless_tasks::tag::dao::set_task_tags(&pool, "task-tagged", &tag_ids)
+    moatless_tasks::tag::test_support::set_task_tags(&pool, "task-tagged", &tag_ids)
         .await
         .unwrap();
 
@@ -178,7 +175,7 @@ async fn list_tasks_multiple_tags_counted_once(pool: PgPool) {
 async fn update_task_metadata(pool: PgPool) {
     seed_repo(&pool).await;
     let row = make_task_row("task-upd", USER_1);
-    task_dao::insert_task(&pool, &row).await.unwrap();
+    task_fixtures::seed_task(&pool, &row).await.unwrap();
 
     let app = build_router(pool);
     let req = authed_json_request(
@@ -198,7 +195,7 @@ async fn update_task_metadata(pool: PgPool) {
 async fn delete_task_handler(pool: PgPool) {
     seed_repo(&pool).await;
     let row = make_task_row("task-del-h", USER_1);
-    task_dao::insert_task(&pool, &row).await.unwrap();
+    task_fixtures::seed_task(&pool, &row).await.unwrap();
 
     let app = build_router(pool.clone());
     let req = authed_request("DELETE", "/api/v1/tasks/task-del-h", USER_1);
@@ -207,7 +204,7 @@ async fn delete_task_handler(pool: PgPool) {
     assert_eq!(resp.status(), StatusCode::NO_CONTENT);
 
     // Verify deleted
-    let found = task_dao::find_by_id(&pool, "task-del-h", &user_scope(USER_1))
+    let found = task_fixtures::find_task(&pool, "task-del-h", &user_scope(USER_1))
         .await
         .unwrap();
     assert!(found.is_none());
@@ -215,35 +212,37 @@ async fn delete_task_handler(pool: PgPool) {
 
 /// Set an existing task to `Closed` (mirrors the close handler's DB effect).
 async fn set_closed(pool: &PgPool, task_id: &str) {
-    moatless_tasks::task::dao::store_over(pool)
-        .update_task(
-            task_id,
-            &TaskPatch {
-                status: Some(TaskStatus::Closed),
-                ..Default::default()
-            },
-            &user_scope(USER_1),
-        )
-        .await
-        .unwrap();
+    moatless_tasks::task::test_support::patch_task(
+        pool,
+        task_id,
+        &TaskPatch {
+            status: Some(TaskStatus::Closed),
+            ..Default::default()
+        },
+        &user_scope(USER_1),
+    )
+    .await
+    .unwrap();
 }
 
 async fn seed_parent_and_child(pool: &PgPool) {
     seed_repo(pool).await;
     for id in ["task-parent", "task-child"] {
-        task_dao::insert_task(pool, &make_task_row(id, USER_1))
+        task_fixtures::seed_task(pool, &make_task_row(id, USER_1))
             .await
             .unwrap();
     }
-    PgTaskRelationDao(pool.clone())
-        .insert(&TaskRelation::new(
+    moatless_tasks::task::test_support::seed_relation(
+        pool,
+        &TaskRelation::new(
             "task-child",
             "task-parent",
             TaskRelationType::CreatedBy,
             serde_json::json!({}),
-        ))
-        .await
-        .unwrap();
+        ),
+    )
+    .await
+    .unwrap();
 }
 
 #[sqlx::test]
@@ -276,7 +275,7 @@ async fn close_parent_without_children_leaves_child_open(pool: PgPool) {
     let resp = app.oneshot(req).await.unwrap();
 
     assert_eq!(resp.status(), StatusCode::OK);
-    let child = task_dao::find_by_id(&pool, "task-child", &user_scope(USER_1))
+    let child = task_fixtures::find_task(&pool, "task-child", &user_scope(USER_1))
         .await
         .unwrap()
         .unwrap();
@@ -297,7 +296,7 @@ async fn close_parent_with_children_closes_descendants(pool: PgPool) {
     let resp = app.oneshot(req).await.unwrap();
 
     assert_eq!(resp.status(), StatusCode::OK);
-    let child = task_dao::find_by_id(&pool, "task-child", &user_scope(USER_1))
+    let child = task_fixtures::find_task(&pool, "task-child", &user_scope(USER_1))
         .await
         .unwrap()
         .unwrap();
@@ -308,7 +307,7 @@ async fn close_parent_with_children_closes_descendants(pool: PgPool) {
 async fn reopen_closed_task_200(pool: PgPool) {
     seed_repo(&pool).await;
     let row = make_task_row("task-reopen", USER_1);
-    task_dao::insert_task(&pool, &row).await.unwrap();
+    task_fixtures::seed_task(&pool, &row).await.unwrap();
     set_closed(&pool, "task-reopen").await;
 
     let app = build_router(pool.clone());
@@ -321,7 +320,7 @@ async fn reopen_closed_task_200(pool: PgPool) {
     assert_eq!(body["status"], "open");
 
     // Persisted, not just echoed.
-    let found = task_dao::find_by_id(&pool, "task-reopen", &user_scope(USER_1))
+    let found = task_fixtures::find_task(&pool, "task-reopen", &user_scope(USER_1))
         .await
         .unwrap()
         .unwrap();
@@ -332,7 +331,7 @@ async fn reopen_closed_task_200(pool: PgPool) {
 async fn reopen_open_task_400(pool: PgPool) {
     seed_repo(&pool).await;
     let row = make_task_row("task-open-reopen", USER_1);
-    task_dao::insert_task(&pool, &row).await.unwrap();
+    task_fixtures::seed_task(&pool, &row).await.unwrap();
 
     let app = build_router(pool);
     let req = authed_request("POST", "/api/v1/tasks/task-open-reopen/reopen", USER_1);

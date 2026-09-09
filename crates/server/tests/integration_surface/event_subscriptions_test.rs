@@ -19,9 +19,9 @@ use crate::common;
 
 use sqlx::PgPool;
 
+use moatless_tasks::agent_event::EventKey;
 use moatless_types::agent::AgentSubType;
 use moatless_types::sandbox::SandboxStatus;
-use moatless_tasks::agent_event::EventKey;
 
 use common::{test_app_state_with_adapters, test_config};
 

@@ -2,8 +2,8 @@
 // workspace `deny`/`warn`.
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
-//! Identity band (band 3): authentication, team membership, adapter-app
-//! registry, secret storage, and first-run setup.
+//! Identity band (band 3): authentication, provider-token credentials, team
+//! membership, adapter-app registry, secret storage, and first-run setup.
 //!
 //! The request extractors are axum plumbing over two ports, not identity, and
 //! live in `moatless_core::http_auth`. This crate implements
@@ -17,6 +17,8 @@
 
 pub mod adapter_apps;
 pub mod auth;
+pub mod compose;
+pub mod credentials;
 pub mod git_host_access;
 pub mod git_host_tokens;
 pub mod ports;

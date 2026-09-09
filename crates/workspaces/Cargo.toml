@@ -8,12 +8,8 @@ authors.workspace = true
 [dependencies]
 async-trait = { workspace = true }
 axum = { workspace = true, features = ["macros"] }
-base64 = { workspace = true }
 chrono = { workspace = true, features = ["serde"] }
 futures = { workspace = true }
-# Mock generation, enabled off `test-support` so the backend's tasks-band unit
-# tests can name `MockRepositoryDao` across the crate boundary.
-mockall = { workspace = true, optional = true }
 moka = { workspace = true, features = ["future"] }
 reqwest = { workspace = true, features = ["json", "query", "form", "rustls"] }
 serde = { workspace = true, features = ["derive"] }
@@ -35,7 +31,10 @@ moatless-identity = { workspace = true }
 moatless-types = { workspace = true }
 
 [features]
-test-support = ["dep:mockall"]
+# Row factories a consumer's PostgreSQL tests seed through.
+test-support = []
+# The `#[sqlx::test]` tiers, which need a live PostgreSQL server.
+db-tests = []
 
 [lints]
 workspace = true
@@ -44,8 +43,8 @@ workspace = true
 async-trait = { workspace = true }
 http-body-util = { workspace = true }
 mockall = { workspace = true }
-# identity's auth/secret `test_support` fakes (StubProviderTokens, service_with),
-# reached from this crate's own `#[cfg(test)]` unit tests in repository/access and
-# plugin/sync.
+# identity's `test_support` fakes (`StubProviderTokens`, `noop_audit`), reached
+# from this crate's own `#[cfg(test)]` unit tests in plugin/sync and
+# workspace/credentials.
 moatless-identity = { workspace = true, features = ["test-support"] }
 tokio-test = { workspace = true }

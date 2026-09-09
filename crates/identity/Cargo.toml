@@ -51,6 +51,7 @@ workspace = true
 
 [dev-dependencies]
 async-trait = { workspace = true }
+futures = { workspace = true }
 http-body-util = { workspace = true }
 mockall = { workspace = true }
 moatless-core = { workspace = true, features = ["openapi", "test-support"] }

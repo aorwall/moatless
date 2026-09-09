@@ -2,14 +2,16 @@
 //!
 //! A name exported by two shared-vocabulary crates leaves a reader unable to
 //! tell which shape they hold, and the copies drift because nothing fails when
-//! one gains a field. Only exported types count — see `public_api`.
+//! one gains a field. Only exported structs and enums count: a free function
+//! and a type of the same name never collide in an import list. See
+//! `public_api` for what counts as exported.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use anyhow::Result;
 
 use crate::Violation;
-use crate::public_api::{Export, exports};
+use crate::public_api::{Export, Kind, exports};
 use crate::workspace::Workspace;
 
 pub const RULE: &str = "duplicate-type-name";
@@ -47,7 +49,11 @@ pub fn check(ws: &Workspace) -> Result<Vec<Violation>> {
             continue;
         };
         let root = ws.relative(&target.path);
-        per_crate.insert((*crate_name).to_string(), exports(&sources, &root)?);
+        let types = exports(&sources, &root)?
+            .into_iter()
+            .filter(|e| matches!(e.kind, Kind::Struct | Kind::Enum))
+            .collect();
+        per_crate.insert((*crate_name).to_string(), types);
     }
 
     Ok(collisions(&per_crate))
@@ -55,8 +61,9 @@ pub fn check(ws: &Workspace) -> Result<Vec<Violation>> {
 
 /// Names exported by more than one of the given crates.
 fn collisions(per_crate: &BTreeMap<String, Vec<Export>>) -> Vec<Violation> {
-    // name -> crate -> the files defining it
-    let mut defined: BTreeMap<&str, BTreeMap<&str, Vec<String>>> = BTreeMap::new();
+    // name -> crate -> the files defining it. One name reached by two public
+    // paths is one definition, so the files are a set.
+    let mut defined: BTreeMap<&str, BTreeMap<&str, BTreeSet<String>>> = BTreeMap::new();
     for (crate_name, found) in per_crate {
         for export in found {
             defined
@@ -64,7 +71,7 @@ fn collisions(per_crate: &BTreeMap<String, Vec<Export>>) -> Vec<Violation> {
                 .or_default()
                 .entry(crate_name)
                 .or_default()
-                .push(export.file.clone());
+                .insert(export.file.clone());
         }
     }
 
@@ -102,6 +109,9 @@ mod tests {
                     .map(|(name, file)| Export {
                         name: (*name).to_string(),
                         file: (*file).to_string(),
+                        kind: Kind::Struct,
+                        path: Vec::new(),
+                        signature: Vec::new(),
                     })
                     .collect();
                 ((*crate_name).to_string(), exports)
@@ -149,6 +159,9 @@ mod tests {
             vec![Export {
                 name: "Config".to_string(),
                 file: "crates/types/src/config.rs".to_string(),
+                kind: Kind::Struct,
+                path: Vec::new(),
+                signature: Vec::new(),
             }],
         );
 

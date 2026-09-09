@@ -25,9 +25,9 @@
 
 use std::error::Error;
 
-use moatless_workspaces::credentials::codex::oauth::RefreshedTokens;
-use moatless_workspaces::credentials::codex::oauth::parse_jwt_exp;
-use moatless_workspaces::credentials::codex::oauth::refresh_chatgpt_tokens;
+use moatless_identity::credentials::codex::oauth::RefreshedTokens;
+use moatless_identity::credentials::codex::oauth::parse_jwt_exp;
+use moatless_identity::credentials::codex::oauth::refresh_chatgpt_tokens;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {

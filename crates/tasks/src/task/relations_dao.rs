@@ -7,7 +7,7 @@ use sqlx::AssertSqlSafe;
 
 #[cfg_attr(test, mockall::automock)]
 #[async_trait]
-pub trait TaskRelationDao: Send + Sync {
+pub(crate) trait TaskRelationDao: Send + Sync {
     /// Insert a relation. `ON CONFLICT (from, to, relation_type) DO NOTHING`.
     async fn insert(&self, row: &TaskRelation) -> Result<(), sqlx::Error>;
 
@@ -26,23 +26,15 @@ pub trait TaskRelationDao: Send + Sync {
     /// returned row's `relation_type` says which, because the two read the same
     /// in a listing and differently in a prompt.
     async fn find_parent(&self, from_task_id: &str) -> Result<Option<TaskRelation>, sqlx::Error>;
-
-    /// Batch lookup of parents for many child tasks, over the same two types as
-    /// [`TaskRelationDao::find_parent`]. Returned map keys are `from_task_id`;
-    /// missing keys mean no parent.
-    async fn get_parent_map(
-        &self,
-        from_task_ids: &[String],
-    ) -> Result<std::collections::HashMap<String, String>, sqlx::Error>;
 }
 
 /// The two relation types that make `from_task_id` a child of `to_task_id`.
 ///
 /// Bound as a `text[]` rather than interpolated: these are data values, and the
 /// SQL that reads them must stay parameterised.
-pub const PARENT_RELATION_TYPES: [&str; 2] = ["created_by", "forked_from"];
+const PARENT_RELATION_TYPES: [&str; 2] = ["created_by", "forked_from"];
 
-pub struct PgTaskRelationDao(pub DbPool);
+pub(crate) struct PgTaskRelationDao(pub(crate) DbPool);
 
 const TASK_RELATION_SELECT: &str = r#"
     SELECT id, from_task_id, to_task_id, relation_type, context, created_at
@@ -104,25 +96,5 @@ impl TaskRelationDao for PgTaskRelationDao {
         .bind(&PARENT_RELATION_TYPES[..])
         .fetch_optional(&self.0)
         .await
-    }
-
-    async fn get_parent_map(
-        &self,
-        from_task_ids: &[String],
-    ) -> Result<std::collections::HashMap<String, String>, sqlx::Error> {
-        if from_task_ids.is_empty() {
-            return Ok(std::collections::HashMap::new());
-        }
-        let rows: Vec<(String, String)> = sqlx::query_as(
-            r#"SELECT DISTINCT ON (from_task_id) from_task_id, to_task_id
-               FROM task_relations
-               WHERE from_task_id = ANY($1) AND relation_type = ANY($2)
-               ORDER BY from_task_id, created_at ASC"#,
-        )
-        .bind(from_task_ids)
-        .bind(&PARENT_RELATION_TYPES[..])
-        .fetch_all(&self.0)
-        .await?;
-        Ok(rows.into_iter().collect())
     }
 }

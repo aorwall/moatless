@@ -44,7 +44,7 @@ pub struct PluginSyncService {
 }
 
 impl PluginSyncService {
-    pub fn new(
+    pub(crate) fn new(
         plugins: Arc<dyn PluginDao>,
         fetcher: Arc<dyn SkillFetcher>,
         git_host_tokens: Arc<dyn GitHostTokenIssuer>,

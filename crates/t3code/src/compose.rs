@@ -3,23 +3,24 @@ use crate::config::UiRpcConfig;
 use crate::config::UiRpcConfigError;
 use crate::config::env_enabled;
 use crate::config::environment_id;
-use crate::dao::ConversationDao;
+use crate::dao::PgConversationDao;
 use crate::observability;
 use crate::ports;
 use crate::preview::PreviewState;
-use crate::preview_tabs::PreviewTabDao;
+use crate::preview_tabs::PreviewTabTtl;
+use crate::reads::T3Reads;
 use crate::routes::router;
 use crate::sandbox::SandboxState;
 use crate::scripts::ScriptsState;
 use crate::servers::ServersState;
 use crate::startup_scripts::StartupScripts;
-use crate::state::UiRpcState;
+use crate::state::{UiRpcDbPool, UiRpcState};
 use crate::subtasks::SubtasksState;
-use crate::task_dao::T3TaskDao;
 use crate::terminal;
-use crate::workspace_dao::T3WorkspaceDao;
+use crate::usage::dao::PgUsageDao;
 use axum::Router;
 use moatless_identity::auth::pairing::DevicePairing;
+use moatless_ports::activity::ActivitySource;
 use moatless_ports::sandbox::ClusterDiagnostics;
 use moatless_ports::sandbox::SandboxIntentReader;
 use moatless_ports::sandbox::SandboxObserver;
@@ -31,6 +32,7 @@ use moatless_ports::sandbox::WorkspaceSnapshotSource;
 use sandbox_proto::client::SandboxConnector;
 use std::env;
 use std::sync::Arc;
+use tokio::task::JoinHandle;
 use tracing::info;
 
 /// Build the T3 compatibility router when its environment gate is enabled.
@@ -42,6 +44,7 @@ use tracing::info;
 /// The one thing here that is *not* configuration is the environment's
 /// identity, which is read from the database. See `environment_id`.
 pub async fn router_from_env(
+    graph: &T3Graph,
     dependencies: UiRpcDependencies,
 ) -> Result<Option<UiRpc>, UiRpcConfigError> {
     if !env_enabled("T3_UI_RPC_ENABLED")? {
@@ -52,20 +55,18 @@ pub async fn router_from_env(
         session_cookie_name,
         session_jwt_secret,
         pairing,
-        workspaces,
         workspace_script_commands,
-        conversations,
         sandboxes,
         snapshots,
         observer,
         diagnostics,
         ports,
-        tasks,
         intent,
         starter,
         stopper,
         operator,
-        preview_tabs,
+        redis_url,
+        preview_tab_ttl,
         model_defaults,
         agents,
         branches,
@@ -75,11 +76,11 @@ pub async fn router_from_env(
         source_control_auth,
         commands,
         attachments,
-        usage,
         otlp_traces_enabled,
         frontend_url,
     } = dependencies;
-    let environment = conversations.listing_head().await?.identity;
+    let reads = graph.reads.clone();
+    let environment = reads.listing_head().await?.identity;
     let usage_limit_sources =
         crate::usage_limit_sources::UsageLimitSources::from_env(reqwest::Client::new());
     let config = UiRpcConfig {
@@ -102,24 +103,26 @@ pub async fn router_from_env(
         client_traces_endpoint = client_traces.endpoint().unwrap_or("(none)"),
         "T3 UI RPC compatibility routes registered"
     );
+    let (tabs, preview_events) =
+        crate::preview_tabs::build(redis_url.as_deref(), preview_tab_ttl).await;
     // Built before the state literal because two of its fields hold it: a
     // Script with a port opens its own preview tab (`scripts::run`).
     let preview = PreviewState {
-        tabs: preview_tabs,
-        tasks: tasks.clone(),
+        tabs,
+        tasks: reads.tasks_arc(),
     };
     // Both held outside the state literal because the startup runner is handed
     // the same two: a Script started at Sandbox Ready has to land in the hub
     // the RPC surface serves terminal reads from.
     let scripts = ScriptsState {
-        workspaces: workspaces.clone(),
+        workspaces: reads.workspaces_arc(),
         ports,
         preview: preview.clone(),
     };
     let terminal = terminal::TerminalHub::default();
     let startup_scripts = StartupScripts::new(
         scripts.clone(),
-        conversations.clone(),
+        reads.clone(),
         sandboxes.clone(),
         terminal.clone(),
     );
@@ -130,20 +133,18 @@ pub async fn router_from_env(
         frontend_url: Arc::from(frontend_url),
         session_jwt_secret: session_jwt_secret.map(Arc::from),
         pairing,
-        workspaces: workspaces.clone(),
         workspace_script_commands,
-        conversations: conversations.clone(),
         sandboxes,
         snapshots,
         servers: ServersState {
             observer: observer.clone(),
-            tasks: tasks.clone(),
+            tasks: reads.tasks_arc(),
             intent: intent.clone(),
         },
         scripts,
         sandbox: SandboxState {
             observer,
-            tasks: tasks.clone(),
+            tasks: reads.tasks_arc(),
             intent,
             starter,
             stopper,
@@ -152,7 +153,7 @@ pub async fn router_from_env(
         },
         subtasks: SubtasksState {
             relations,
-            conversations,
+            conversations: reads.conversations_arc(),
         },
         preview,
         model_defaults: Arc::new(model_defaults),
@@ -163,7 +164,8 @@ pub async fn router_from_env(
         source_control_auth,
         commands,
         attachments,
-        usage,
+        usage: graph.usage.clone(),
+        reads,
         terminal,
         client_traces,
         usage_limit_sources,
@@ -171,7 +173,51 @@ pub async fn router_from_env(
     Ok(Some(UiRpc {
         router,
         startup_scripts,
+        preview_events,
     }))
+}
+
+/// The T3 band's own persistence, built once at the composition root.
+///
+/// One [`PgConversationDao`] serves the conversation, workspace and task read
+/// views, so a request that spans them reads one connection pool and one
+/// access filter.
+#[derive(Clone)]
+pub struct T3Graph {
+    reads: T3Reads,
+    usage: Arc<dyn ports::UsageReporter>,
+}
+
+/// Build the T3 read projections over `db`.
+///
+/// `activities` is the Task band's activity rows, which this crate projects and
+/// does not own. See this crate's `AGENTS.md`.
+pub fn t3_graph(db: UiRpcDbPool, activities: Arc<dyn ActivitySource>) -> T3Graph {
+    let conversations = Arc::new(PgConversationDao::new(db.clone(), activities));
+    T3Graph {
+        reads: T3Reads::new(
+            db.clone(),
+            conversations.clone(),
+            conversations.clone(),
+            conversations,
+        ),
+        usage: Arc::new(PgUsageDao::new(db)),
+    }
+}
+
+impl T3Graph {
+    /// The read projections a caller outside this crate resolves a Task
+    /// through.
+    pub fn reads(&self) -> &T3Reads {
+        &self.reads
+    }
+
+    /// What this deployment has spent, bucketed the way the usage panel reads
+    /// it.
+    #[must_use]
+    pub fn usage(&self) -> Arc<dyn ports::UsageReporter> {
+        self.usage.clone()
+    }
 }
 
 /// The two halves of the T3 compatibility module: the routes it serves, and the
@@ -182,12 +228,16 @@ pub async fn router_from_env(
 pub struct UiRpc {
     pub router: Router,
     pub startup_scripts: StartupScripts,
+    /// The preview-tab subscriber, for the root supervisor to own. `None` where
+    /// the tabs are held in this process and publish onto their own broadcast.
+    pub preview_events: Option<JoinHandle<()>>,
 }
 
 /// Everything the T3 compatibility routes need from the rest of the backend.
 ///
-/// A struct rather than an argument list because all six are opaque handles
-/// whose order carries no meaning at the call site.
+/// A struct rather than an argument list because these are opaque handles
+/// whose order carries no meaning at the call site. What this crate reads for
+/// itself is not here; it comes from [`T3Graph`].
 pub struct UiRpcDependencies {
     /// Reported in the auth descriptor so a browser knows which cookie to send.
     pub session_cookie_name: String,
@@ -196,9 +246,7 @@ pub struct UiRpcDependencies {
     /// before mounting this router.
     pub session_jwt_secret: Option<String>,
     pub pairing: Arc<DevicePairing>,
-    pub workspaces: Arc<dyn T3WorkspaceDao>,
     pub workspace_script_commands: Arc<dyn ports::WorkspaceScriptCommands>,
-    pub conversations: Arc<dyn ConversationDao>,
     /// Reaches a conversation's Sandbox, which is where its checkout lives.
     pub sandboxes: Arc<dyn SandboxConnector>,
     /// Reads a conversation's files from the S3 mirror when its Sandbox is not
@@ -213,10 +261,6 @@ pub struct UiRpcDependencies {
     /// patches the Service and creates the route; the Docker provider returns
     /// `None` (no way out of the fixed-port agent container).
     pub ports: Arc<dyn SandboxPortPublisher>,
-    /// Authorizes every `servers.*`, `sandbox.*`, and `preview.*` call: a
-    /// scoped read that finds nothing is the same answer as a Task that does
-    /// not exist.
-    pub tasks: Arc<dyn T3TaskDao>,
     /// The desired state a status read is resolved against.
     pub intent: Arc<dyn SandboxIntentReader>,
     /// Starts a Task's Sandbox through the same lifecycle path as the REST API.
@@ -226,7 +270,11 @@ pub struct UiRpcDependencies {
     /// Restarts, redeploys and cleans up a Task's Sandbox, through the same
     /// lifecycle path as the REST API.
     pub operator: Arc<dyn SandboxOperator>,
-    pub preview_tabs: Arc<dyn PreviewTabDao>,
+    /// Where preview tabs are shared across replicas. `None` holds them in
+    /// this process only.
+    pub redis_url: Option<String>,
+    /// How long a Task's tabs outlive their last write.
+    pub preview_tab_ttl: PreviewTabTtl,
     pub model_defaults: AgentModelDefaults,
     /// Which agents this viewer can run, and with which models.
     pub agents: Arc<dyn ports::AgentCatalogSource>,
@@ -248,8 +296,6 @@ pub struct UiRpcDependencies {
     /// Where a chat attachment's bytes go. Uploads are stored as ordinary
     /// Moatless uploads, under the id `attachments.createUploadUrl` minted.
     pub attachments: Arc<dyn ports::AttachmentStore>,
-    /// Token and cost totals behind `server.getUsageSummary`.
-    pub usage: Arc<dyn ports::UsageReporter>,
     /// Whether this deployment exports spans over OTLP (an OTLP endpoint is
     /// configured — see `config::OtelConfig`), reported to the client as
     /// `observability.otlpTracesEnabled`.

@@ -1,7 +1,7 @@
 use super::{NewAuthSession, PgSessionDao, SessionDao};
-use crate::auth::users::PgUserDao;
 use crate::auth::users::User;
-use crate::auth::users::UserDao;
+use crate::auth::users_dao::PgUserDao;
+use crate::auth::users_dao::UserDao;
 use chrono::{Duration, Utc};
 use moatless_types::user::UserRole;
 use sqlx::PgPool;

@@ -228,16 +228,11 @@ pub(crate) async fn serve(
 ) -> Response {
     let viewer = viewer_scope(&identity);
     let cwd = projection::nominal_worktree(&thread_id);
-    let task_id = match workspace::addressed_conversation(
-        state.conversations.as_ref(),
-        &viewer,
-        &cwd,
-    )
-    .await
-    {
-        Ok(task_id) => task_id,
-        Err(error) => return refusal(&thread_id, &relative_path, &error),
-    };
+    let task_id =
+        match workspace::addressed_conversation(state.reads.conversations(), &viewer, &cwd).await {
+            Ok(task_id) => task_id,
+            Err(error) => return refusal(&thread_id, &relative_path, &error),
+        };
 
     let checkout = match Checkout::open(state.file_sources(), &task_id).await {
         Ok(checkout) => checkout,

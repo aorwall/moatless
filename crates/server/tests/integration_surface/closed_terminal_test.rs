@@ -20,19 +20,16 @@ use moatless_backend::event_handler::agent_handlers::{
     handle_agent_completed, handle_agent_error, handle_agent_stopped,
 };
 use moatless_tasks::agent_event::AgentEvent;
-use moatless_tasks::message::dao as message_dao;
 use moatless_tasks::message::models::MessageRole;
 use moatless_tasks::message::models::MessageType;
-use moatless_tasks::task::dao as task_dao;
-use moatless_tasks::task::dao::TaskDao;
-use moatless_tasks::task::dao::TaskPatch;
+use moatless_tasks::message::test_support as message_fixtures;
+use moatless_tasks::task::models::TaskPatch;
 use moatless_tasks::task::models::TaskStatus;
-use moatless_tasks::task::relations::PgTaskRelationDao;
 use moatless_tasks::task::relations::TaskRelation;
-use moatless_tasks::task::relations::TaskRelationDao;
 use moatless_tasks::task::relations::TaskRelationType;
+use moatless_tasks::task::test_support as task_fixtures;
 use moatless_tasks::task_activities::mapping::ConversationWrite;
-use moatless_workspaces::repository::dao as repository_dao;
+use moatless_workspaces::compose;
 use sqlx::PgPool;
 
 use common::{make_message_row, make_repository_row, make_task_row, test_app_state, user_scope};
@@ -40,31 +37,31 @@ use common::{make_message_row, make_repository_row, make_task_row, test_app_stat
 /// Seed a repo + task with the given status and return an `AppState`.
 async fn seed_with_status(pool: &PgPool, task_id: &str, status: TaskStatus) {
     let repo = make_repository_row("repo-1", "user-1");
-    repository_dao::insert(pool, &repo).await.unwrap();
+    compose::seed_repository(pool, &repo).await.unwrap();
     let task = make_task_row(task_id, "user-1");
-    task_dao::insert_task(pool, &task).await.unwrap();
+    task_fixtures::seed_task(pool, &task).await.unwrap();
     if status != TaskStatus::Open {
-        moatless_tasks::task::dao::store_over(pool)
-            .update_task(
-                task_id,
-                &TaskPatch {
-                    status: Some(status),
-                    ..Default::default()
-                },
-                &user_scope("user-1"),
-            )
-            .await
-            .unwrap();
+        moatless_tasks::task::test_support::patch_task(
+            pool,
+            task_id,
+            &TaskPatch {
+                status: Some(status),
+                ..Default::default()
+            },
+            &user_scope("user-1"),
+        )
+        .await
+        .unwrap();
     }
 }
 
 async fn seed_task_pair_with_created_by(pool: &PgPool, parent_task_id: &str, child_task_id: &str) {
     let repo = make_repository_row("repo-1", "user-1");
-    repository_dao::insert(pool, &repo).await.unwrap();
-    task_dao::insert_task(pool, &make_task_row(parent_task_id, "user-1"))
+    compose::seed_repository(pool, &repo).await.unwrap();
+    task_fixtures::seed_task(pool, &make_task_row(parent_task_id, "user-1"))
         .await
         .unwrap();
-    task_dao::insert_task(pool, &make_task_row(child_task_id, "user-1"))
+    task_fixtures::seed_task(pool, &make_task_row(child_task_id, "user-1"))
         .await
         .unwrap();
 
@@ -74,14 +71,13 @@ async fn seed_task_pair_with_created_by(pool: &PgPool, parent_task_id: &str, chi
         TaskRelationType::CreatedBy,
         serde_json::json!({}),
     );
-    PgTaskRelationDao(pool.clone())
-        .insert(&relation)
+    moatless_tasks::task::test_support::seed_relation(pool, &relation)
         .await
         .unwrap();
 }
 
 async fn status_of(pool: &PgPool, task_id: &str) -> TaskStatus {
-    task_dao::find_by_id(pool, task_id, &user_scope("user-1"))
+    task_fixtures::find_task(pool, task_id, &user_scope("user-1"))
         .await
         .unwrap()
         .expect("task present")
@@ -89,7 +85,9 @@ async fn status_of(pool: &PgPool, task_id: &str) -> TaskStatus {
 }
 
 async fn visible_parent_texts(pool: &PgPool, parent_task_id: &str) -> Vec<String> {
-    let (messages, _, _) = message_dao::get_all(pool, parent_task_id).await.unwrap();
+    let (messages, _, _) = message_fixtures::messages_for(pool, parent_task_id)
+        .await
+        .unwrap();
     messages
         .into_iter()
         .filter(|m| m.message_type == MessageType::User)
@@ -124,12 +122,15 @@ fn terminal_event(
 #[sqlx::test]
 async fn update_status_if_not_closed_noop_on_closed(pool: PgPool) {
     seed_with_status(&pool, "task-closed", TaskStatus::Closed).await;
-    let repo = moatless_tasks::task::dao::store_over(&pool);
 
-    let changed = repo
-        .update_status_if_not_closed("task-closed", TaskStatus::Open, &user_scope("user-1"))
-        .await
-        .unwrap();
+    let changed = moatless_tasks::task::test_support::set_status_if_open(
+        &pool,
+        "task-closed",
+        TaskStatus::Open,
+        &user_scope("user-1"),
+    )
+    .await
+    .unwrap();
 
     assert!(!changed, "a closed task must not be flipped");
     assert_eq!(status_of(&pool, "task-closed").await, TaskStatus::Closed);
@@ -137,33 +138,41 @@ async fn update_status_if_not_closed_noop_on_closed(pool: PgPool) {
 
 #[sqlx::test]
 async fn update_status_if_not_closed_flips_open_and_error(pool: PgPool) {
-    let repo = moatless_tasks::task::dao::store_over(&pool);
-
     // Open → Open still matches the predicate (status <> 'closed').
     seed_with_status(&pool, "task-open", TaskStatus::Open).await;
     assert!(
-        repo.update_status_if_not_closed("task-open", TaskStatus::Open, &user_scope("user-1"))
-            .await
-            .unwrap()
+        moatless_tasks::task::test_support::set_status_if_open(
+            &pool,
+            "task-open",
+            TaskStatus::Open,
+            &user_scope("user-1"),
+        )
+        .await
+        .unwrap()
     );
     assert_eq!(status_of(&pool, "task-open").await, TaskStatus::Open);
 
     // Error → Open flips (preserves the start_task-from-Error path).
-    moatless_tasks::task::dao::store_over(&pool)
-        .update_task(
+    moatless_tasks::task::test_support::patch_task(
+        &pool,
+        "task-open",
+        &TaskPatch {
+            status: Some(TaskStatus::Error),
+            ..Default::default()
+        },
+        &user_scope("user-1"),
+    )
+    .await
+    .unwrap();
+    assert!(
+        moatless_tasks::task::test_support::set_status_if_open(
+            &pool,
             "task-open",
-            &TaskPatch {
-                status: Some(TaskStatus::Error),
-                ..Default::default()
-            },
+            TaskStatus::Open,
             &user_scope("user-1"),
         )
         .await
-        .unwrap();
-    assert!(
-        repo.update_status_if_not_closed("task-open", TaskStatus::Open, &user_scope("user-1"))
-            .await
-            .unwrap()
+        .unwrap()
     );
     assert_eq!(status_of(&pool, "task-open").await, TaskStatus::Open);
 }
@@ -241,7 +250,7 @@ async fn completed_child_says_nothing_to_parent(pool: PgPool) {
     assistant.message_type = MessageType::Assistant;
     assistant.message_role = MessageRole::Assistant;
     assistant.message_text = Some("full child result that should stay out of parent".to_string());
-    message_dao::append(&pool, &assistant, &[], &ConversationWrite::default())
+    message_fixtures::seed_message(&pool, &assistant, &[], &ConversationWrite::default())
         .await
         .unwrap();
 
@@ -308,7 +317,7 @@ async fn reconcile_error_keeps_closed_and_says_nothing(pool: PgPool) {
 
     assert_eq!(status_of(&pool, "task-r").await, TaskStatus::Closed);
 
-    let (rows, _, _) = moatless_tasks::message::dao::get_all(&pool, "task-r")
+    let (rows, _, _) = moatless_tasks::message::test_support::messages_for(&pool, "task-r")
         .await
         .unwrap();
     assert!(

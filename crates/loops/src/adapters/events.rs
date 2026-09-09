@@ -186,7 +186,10 @@ mod tests {
     async fn a_panicking_subscriber_leaves_its_siblings_running() {
         let after = Arc::new(Counting::default());
         let mut subs = TaskEventSubscribers::new();
-        subs.subscribe([EventKey::Agent(AgentSubType::Started)], Arc::new(Panicking));
+        subs.subscribe(
+            [EventKey::Agent(AgentSubType::Started)],
+            Arc::new(Panicking),
+        );
         subs.subscribe([EventKey::Agent(AgentSubType::Started)], after.clone());
 
         subs.dispatch(&agent_event("started")).await;

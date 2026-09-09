@@ -181,10 +181,15 @@ impl Conversation {
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct TranscriptMessage {
     /// The insertion order this transcript is assembled in.
+    // Selected by `TRANSCRIPT_COLUMNS` and ordered on in SQL; the wire carries
+    // `uuid`.
+    #[allow(dead_code)]
     pub id: i32,
     pub uuid: String,
     #[sqlx(try_from = "String")]
     pub message_type: MessageType,
+    // Projected from `message_type` and `user_type`, not from this column.
+    #[allow(dead_code)]
     #[sqlx(try_from = "String")]
     pub message_role: MessageRole,
     /// What was said, and only that. A user Message holds the person's own
@@ -397,17 +402,6 @@ pub trait ConversationDao: Send + Sync {
         viewer: &ScopeContext,
         task_ids: &[String],
     ) -> Result<Vec<Conversation>, sqlx::Error>;
-
-    /// Whether this viewer may *mutate* the named Task — the `write_filter`
-    /// rule: owner or admin, and never a follower or a public reader. The
-    /// listing above is a read and widens to what a person follows; a write
-    /// path resolves the Task through it and then gates here, because
-    /// visibility never grants write.
-    async fn writes_conversation(
-        &self,
-        viewer: &ScopeContext,
-        task_id: &str,
-    ) -> Result<bool, sqlx::Error>;
 
     /// Whether this viewer may *operate* the named Task — the `control_filter`
     /// rule: the write rule, widened by `visibility = 'public'`.
@@ -1197,22 +1191,6 @@ impl ConversationDao for PgConversationDao {
             .await
     }
 
-    async fn writes_conversation(
-        &self,
-        viewer: &ScopeContext,
-        task_id: &str,
-    ) -> Result<bool, sqlx::Error> {
-        let write = moatless_core::db::access_control::write_filter("", 2);
-        let sql = format!("SELECT 1 FROM tasks WHERE task_id = $1 AND {}", write.sql());
-        let found = sqlx::query_scalar::<_, i32>(AssertSqlSafe(sql))
-            .bind(task_id)
-            .bind(viewer.is_admin)
-            .bind(&viewer.user_id)
-            .fetch_optional(&self.pool)
-            .await?;
-        Ok(found.is_some())
-    }
-
     async fn controls_conversation(
         &self,
         viewer: &ScopeContext,
@@ -1561,3 +1539,7 @@ pub async fn attachment_is_on_message(
     sqlx::query_scalar::<_, bool>("SELECT EXISTS (SELECT 1 FROM task_message_contexts WHERE reference_id = $1 AND type = 'file')")
         .bind(attachment_id).fetch_one(pool).await
 }
+
+#[cfg(all(test, feature = "db-tests"))]
+#[path = "dao_db_tests.rs"]
+mod dao_db_tests;

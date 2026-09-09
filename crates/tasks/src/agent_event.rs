@@ -181,6 +181,9 @@ mod tests {
             "payload": {}
         });
         let evt: AgentEvent = serde_json::from_value(v).unwrap();
-        assert_eq!(evt.event_key(), EventKey::Task(TaskSubType::MetadataUpdated));
+        assert_eq!(
+            evt.event_key(),
+            EventKey::Task(TaskSubType::MetadataUpdated)
+        );
     }
 }

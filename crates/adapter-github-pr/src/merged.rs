@@ -18,14 +18,14 @@ use std::fmt::Write;
 
 use tracing::{debug, info};
 
-use moatless_types::adapter::AdapterKind;
-use moatless_adapter_model::error::AdapterError;
 use moatless_adapter_model::binding::ADAPTER_EVENT_BINDING_ORIGIN;
-use moatless_types::adapter::AdapterConnection;
-use moatless_types::loops::SubscriptionMatch;
-use moatless_types::adapter::TaskBinding;
+use moatless_adapter_model::error::AdapterError;
 use moatless_loops::adapters::subject_events::{SubjectEvent, route_subject_event};
+use moatless_types::adapter::AdapterConnection;
+use moatless_types::adapter::AdapterKind;
+use moatless_types::adapter::TaskBinding;
 use moatless_types::adapter::{Audience, InboundMessage};
+use moatless_types::loops::SubscriptionMatch;
 
 use super::router::GithubPrInboundRouter;
 use super::routing::{ADAPTER, ADAPTER_LABEL, SUBJECT_KIND};
@@ -113,7 +113,11 @@ pub(super) fn merged_text(merged: &MergedPr, owner: &str, repo: &str) -> String 
         let _ = writeln!(text, "**Merged by:** @{}", merged.merged_by);
     }
     if !merged.head_ref.is_empty() && !merged.base_ref.is_empty() {
-        let _ = writeln!(text, "**Branch:** {} → {}", merged.head_ref, merged.base_ref);
+        let _ = writeln!(
+            text,
+            "**Branch:** {} → {}",
+            merged.head_ref, merged.base_ref
+        );
     }
     if !merged.merge_commit_sha.is_empty() {
         let short = &merged.merge_commit_sha[..7.min(merged.merge_commit_sha.len())];
@@ -161,7 +165,7 @@ impl GithubPrInboundRouter {
 
         let recipients: Vec<TaskBinding> = self
             .task_bindings
-            .find_by_subject(ADAPTER, SUBJECT_KIND, &subject_key)
+            .for_subject(ADAPTER, SUBJECT_KIND, &subject_key)
             .await?
             .into_iter()
             .filter(|binding| binding.active && !auto_close_owns(rule, binding))
@@ -179,7 +183,8 @@ impl GithubPrInboundRouter {
             source_id: rule.source_matcher.clone(),
             thread_id: Some(merged.pr_number.to_string()),
             message_thread_id: merged.pr_number.to_string(),
-            user_id: super::auth::resolve_sender_user(&merged.merged_by, rule, self.users.as_ref()).await,
+            user_id: super::auth::resolve_sender_user(&merged.merged_by, rule, self.users.as_ref())
+                .await,
             author: moatless_types::adapter::author_handle(&merged.merged_by),
             sender_external_id: None,
             text: merged_text(merged, &execution.owner, &execution.repo),
@@ -369,7 +374,12 @@ mod tests {
         };
         let text = merged_text(&bare, "soaplabs", "repo");
         assert!(text.contains("## ✅ Pull Request Merged: soaplabs/repo#42"));
-        for absent in ["**Merged by:**", "**Branch:**", "**Merge commit:**", "**Link:**"] {
+        for absent in [
+            "**Merged by:**",
+            "**Branch:**",
+            "**Merge commit:**",
+            "**Link:**",
+        ] {
             assert!(!text.contains(absent), "{absent}");
         }
     }

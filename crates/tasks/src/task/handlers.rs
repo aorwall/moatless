@@ -4,21 +4,22 @@
 use super::bindings::deactivate_task_bindings;
 use super::closer::TaskCloser;
 use super::creation::TaskCreationService;
-use super::dao::{TaskDao, TaskFilter, TaskPatch};
 use super::error::TaskError;
 use super::fork::TaskForkService;
+use super::models::{TaskFilter, TaskPatch};
+use super::operations::TaskCommands;
 use super::presenter::{ResolvedNames, TaskPresenter, build_task_response};
 use super::schemas::*;
 use super::service;
 use crate::credential_sync::CredentialSync;
-use crate::message::dao::MessageDao;
+use crate::message::operations::Messages;
 use crate::message::send::MessageSendService;
-use crate::tag::dao::TagDao;
+use crate::tag::operations::Tags;
 use crate::task::bindings::TaskBindings;
 use crate::task::models::SandboxIntentView;
 #[cfg(test)]
 use crate::task::models::TaskStatus;
-use crate::task_turn::dao::TaskTurnDao;
+use crate::task_turn::operations::TaskTurns;
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use moatless_api_schemas::bindings::TaskBindingSummary;
@@ -55,7 +56,7 @@ use std::sync::{Arc, Mutex};
 pub async fn create_task(
     State(workspaces): State<Arc<dyn WorkspaceResolver>>,
     State(repositories): State<Arc<dyn RepositoryReader>>,
-    State(tasks): State<Arc<dyn TaskDao>>,
+    State(tasks): State<Arc<TaskCommands>>,
     State(users): State<Arc<dyn UserResolver>>,
     State(credential_sync): State<Arc<CredentialSync>>,
     State(config): State<Arc<Config>>,
@@ -166,7 +167,7 @@ pub async fn create_task(
 pub async fn fork_task(
     State(workspaces): State<Arc<dyn WorkspaceResolver>>,
     State(repositories): State<Arc<dyn RepositoryReader>>,
-    State(tasks): State<Arc<dyn TaskDao>>,
+    State(tasks): State<Arc<TaskCommands>>,
     State(users): State<Arc<dyn UserResolver>>,
     State(credential_sync): State<Arc<CredentialSync>>,
     State(config): State<Arc<Config>>,
@@ -229,8 +230,8 @@ pub async fn fork_task(
     )
 )]
 pub async fn list_tasks(
-    State(tasks): State<Arc<dyn TaskDao>>,
-    State(tags): State<Arc<dyn TagDao>>,
+    State(tasks): State<Arc<TaskCommands>>,
+    State(tags): State<Arc<Tags>>,
     State(task_bindings): State<Arc<dyn TaskBindings>>,
     State(task_presenter): State<Arc<TaskPresenter>>,
     auth: AuthUser,
@@ -411,7 +412,7 @@ pub async fn list_tasks(
     )
 )]
 pub async fn get_task(
-    State(tasks): State<Arc<dyn TaskDao>>,
+    State(tasks): State<Arc<TaskCommands>>,
     State(task_presenter): State<Arc<TaskPresenter>>,
     auth: AuthUser,
     Path(task_id): Path<String>,
@@ -441,9 +442,9 @@ pub async fn get_task(
     )
 )]
 pub async fn get_task_statistics(
-    State(tasks): State<Arc<dyn TaskDao>>,
-    State(messages_dao): State<Arc<dyn MessageDao>>,
-    State(task_turns): State<Arc<dyn TaskTurnDao>>,
+    State(tasks): State<Arc<TaskCommands>>,
+    State(messages_dao): State<Arc<Messages>>,
+    State(task_turns): State<Arc<TaskTurns>>,
     auth: AuthUser,
     Path(task_id): Path<String>,
 ) -> Result<Json<TaskStatisticsResponse>, TaskError> {
@@ -480,7 +481,7 @@ pub async fn get_task_statistics(
     )
 )]
 pub async fn update_task_metadata(
-    State(tasks): State<Arc<dyn TaskDao>>,
+    State(tasks): State<Arc<TaskCommands>>,
     State(events): State<Option<Arc<dyn EventPublisher>>>,
     State(task_presenter): State<Arc<TaskPresenter>>,
     auth: AuthUser,
@@ -549,7 +550,7 @@ pub async fn update_task_metadata(
 pub async fn delete_task(
     State(sandbox): State<Arc<dyn SandboxLifecycle>>,
     State(task_bindings): State<Arc<dyn TaskBindings>>,
-    State(tasks): State<Arc<dyn TaskDao>>,
+    State(tasks): State<Arc<TaskCommands>>,
     auth: AuthUser,
     Path(task_id): Path<String>,
 ) -> Result<axum::http::StatusCode, TaskError> {
@@ -580,7 +581,7 @@ pub async fn delete_task(
     )
 )]
 pub async fn mark_task_read(
-    State(tasks): State<Arc<dyn TaskDao>>,
+    State(tasks): State<Arc<TaskCommands>>,
     auth: AuthUser,
     Path(task_id): Path<String>,
 ) -> Result<axum::http::StatusCode, TaskError> {
@@ -612,7 +613,7 @@ pub async fn mark_task_read(
     )
 )]
 pub async fn follow_task(
-    State(tasks): State<Arc<dyn TaskDao>>,
+    State(tasks): State<Arc<TaskCommands>>,
     auth: AuthUser,
     Path(task_id): Path<String>,
 ) -> Result<Json<FollowTaskResponse>, TaskError> {
@@ -645,7 +646,7 @@ pub async fn follow_task(
     )
 )]
 pub async fn unfollow_task(
-    State(tasks): State<Arc<dyn TaskDao>>,
+    State(tasks): State<Arc<TaskCommands>>,
     auth: AuthUser,
     Path(task_id): Path<String>,
 ) -> Result<Json<FollowTaskResponse>, TaskError> {
@@ -680,7 +681,7 @@ pub async fn unfollow_task(
 )]
 pub async fn close_task(
     State(task_closer): State<Arc<TaskCloser>>,
-    State(tasks): State<Arc<dyn TaskDao>>,
+    State(tasks): State<Arc<TaskCommands>>,
     State(task_presenter): State<Arc<TaskPresenter>>,
     auth: AuthUser,
     Path(task_id): Path<String>,
@@ -727,7 +728,7 @@ pub async fn close_task(
     )
 )]
 pub async fn reopen_task(
-    State(tasks): State<Arc<dyn TaskDao>>,
+    State(tasks): State<Arc<TaskCommands>>,
     State(events): State<Option<Arc<dyn EventPublisher>>>,
     State(task_presenter): State<Arc<TaskPresenter>>,
     auth: AuthUser,
@@ -777,7 +778,7 @@ pub use super::service::reopen_task_for;
     reason = "six ports: starting a task touches the task row, its repository, preflight, events, the sandbox and git-sync; each is read here, none forwarded"
 )]
 pub async fn start_task(
-    State(tasks): State<Arc<dyn TaskDao>>,
+    State(tasks): State<Arc<TaskCommands>>,
     State(repositories): State<Arc<dyn RepositoryReader>>,
     State(preflight): State<Arc<dyn PreflightPort>>,
     State(events): State<Option<Arc<dyn EventPublisher>>>,
@@ -816,7 +817,7 @@ pub async fn start_task(
     )
 )]
 pub async fn stop_task(
-    State(tasks): State<Arc<dyn TaskDao>>,
+    State(tasks): State<Arc<TaskCommands>>,
     State(sandbox): State<Arc<dyn SandboxLifecycle>>,
     State(events): State<Option<Arc<dyn EventPublisher>>>,
     auth: AuthUser,
@@ -849,8 +850,8 @@ pub async fn stop_task(
     )
 )]
 pub async fn set_task_tags(
-    State(tasks): State<Arc<dyn TaskDao>>,
-    State(tags_dao): State<Arc<dyn TagDao>>,
+    State(tasks): State<Arc<TaskCommands>>,
+    State(tags_dao): State<Arc<Tags>>,
     auth: AuthUser,
     Path(task_id): Path<String>,
     Json(req): Json<SetTagsRequest>,
@@ -896,7 +897,7 @@ pub async fn set_task_tags(
     )
 )]
 pub async fn update_visibility(
-    State(tasks): State<Arc<dyn TaskDao>>,
+    State(tasks): State<Arc<TaskCommands>>,
     State(task_presenter): State<Arc<TaskPresenter>>,
     auth: AuthUser,
     Path(task_id): Path<String>,
@@ -948,7 +949,7 @@ pub async fn update_visibility(
     )
 )]
 pub async fn update_ttl(
-    State(tasks): State<Arc<dyn TaskDao>>,
+    State(tasks): State<Arc<TaskCommands>>,
     State(task_presenter): State<Arc<TaskPresenter>>,
     auth: AuthUser,
     Path(task_id): Path<String>,
@@ -1143,7 +1144,7 @@ mod tests {
                 fail_removal: false,
             }) as Arc<dyn SandboxLifecycle>),
             State(Arc::new(FakeBindings::returning(Ok(0))) as Arc<dyn TaskBindings>),
-            State(Arc::new(tasks) as Arc<dyn TaskDao>),
+            State(Arc::new(TaskCommands::new(Arc::new(tasks)))),
             AuthUser {
                 user_id: Uuid::parse_str("00000000-0000-0000-0000-000000000001")
                     .expect("valid uuid"),
@@ -1185,6 +1186,7 @@ mod tests {
             user_id: "owner".to_string(),
             is_admin: false,
         };
+        let tasks = TaskCommands::new(Arc::new(tasks));
         let result = super::super::removal::delete_task(
             &sandbox,
             &bindings,

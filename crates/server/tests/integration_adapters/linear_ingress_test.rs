@@ -33,7 +33,7 @@ use moatless_backend::state::AppState;
 use moatless_types::access_control::Scope;
 use moatless_types::loops::RoutingMode;
 use moatless_types::loops::SubscriptionMatch;
-use moatless_workspaces::repository::dao as repository_dao;
+use moatless_workspaces::compose;
 
 use common::{
     USER_1, linear_config, make_repository_row, seed_linear_app, seed_team,
@@ -97,8 +97,8 @@ async fn deliver_signed_bytes(
         .expect("Linear Adapter installed")
         .linear();
     receive(
-        state.adapter_connections.as_ref(),
-        state.loops.as_ref(),
+        state.connection_routing.as_ref(),
+        state.loop_reader.as_ref(),
         &(state.harness_credentials.clone()
             as std::sync::Arc<dyn moatless_ports::identity::AppCredentials>),
         state.adapter_apps.as_ref(),
@@ -154,15 +154,15 @@ async fn seed_rule(state: &AppState, pool: &PgPool) {
     let mut repo = make_repository_row("repo-1", USER_1);
     repo.provider = None;
     repo.remote_url = None;
-    repository_dao::insert(pool, &repo)
+    compose::seed_repository(pool, &repo)
         .await
         .expect("seed repository");
     common::seed_workspace_placing(pool, common::FIXTURE_WORKSPACE, "repo-1", USER_1).await;
 
     let now = Utc::now();
-    state
-        .loops
-        .upsert_subscription(&SubscriptionMatch {
+    moatless_loops::loops::test_support::upsert_subscription(
+        &state.loops,
+        &SubscriptionMatch {
             name: "test-loop".to_string(),
             id: "trigger-linear-1".to_string(),
             adapter_kind: AdapterKind::Linear,
@@ -194,9 +194,10 @@ async fn seed_rule(state: &AppState, pool: &PgPool) {
             owner_user_id: Some(USER_1.to_string()),
             created_at: now,
             updated_at: now,
-        })
-        .await
-        .expect("seed Linear rule");
+        },
+    )
+    .await
+    .expect("seed Linear rule");
 }
 
 async fn admitted_count(pool: &PgPool) -> i64 {
@@ -600,8 +601,8 @@ async fn a_bad_signature_is_an_ingress_rejection_naming_its_event_type(pool: PgP
         .expect("Linear Adapter installed")
         .linear();
     let rejection = receive(
-        state.adapter_connections.as_ref(),
-        state.loops.as_ref(),
+        state.connection_routing.as_ref(),
+        state.loop_reader.as_ref(),
         &(state.harness_credentials.clone()
             as std::sync::Arc<dyn moatless_ports::identity::AppCredentials>),
         state.adapter_apps.as_ref(),

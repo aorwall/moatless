@@ -7,10 +7,10 @@ use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
 use super::handlers;
-use crate::message::dao::MessageDao;
+use crate::message::operations::Messages;
 use crate::message::send::MessageSendService;
-use crate::task::dao::TaskDao;
-use moatless_core::file_storage::dao::FileDao;
+use crate::task::operations::TaskCommands;
+use moatless_core::file_storage::Files;
 use moatless_core::http_auth::UserTokenVerifier;
 use moatless_ports::sandbox::SandboxWaker;
 
@@ -39,9 +39,9 @@ pub fn message_router<S>(state: S) -> (axum::Router, utoipa::openapi::OpenApi)
 where
     S: Clone + Send + Sync + 'static,
     Arc<dyn UserTokenVerifier>: FromRef<S>,
-    Arc<dyn TaskDao>: FromRef<S>,
-    Arc<dyn MessageDao>: FromRef<S>,
-    Arc<dyn FileDao>: FromRef<S>,
+    Arc<TaskCommands>: FromRef<S>,
+    Arc<Messages>: FromRef<S>,
+    Arc<Files>: FromRef<S>,
     Arc<MessageSendService>: FromRef<S>,
     Arc<dyn SandboxWaker>: FromRef<S>,
 {

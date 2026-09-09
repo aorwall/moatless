@@ -24,7 +24,7 @@ use moatless_core::config::Config;
 
 use moatless_adapter_model::binding::ADAPTER_EVENT_BINDING_ORIGIN;
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
-use moatless_loops::bindings::dao::TaskBindingDao;
+use moatless_loops::bindings::operations::Bindings;
 use moatless_ports::sandbox::SandboxWaker;
 use moatless_ports::task::TaskFinisher;
 use moatless_ports::task::TaskOpener;
@@ -61,7 +61,7 @@ const ADAPTER_LABEL: &str = "linear";
               are un-bagging"
 )]
 pub(super) async fn handle_issue_update(
-    task_bindings: &dyn TaskBindingDao,
+    task_bindings: &Bindings,
     tasks: &dyn TaskReader,
     config: &Config,
     task_closer: &dyn TaskFinisher,
@@ -163,7 +163,7 @@ pub(super) async fn handle_issue_update(
               grouping is that AppState-shaped bag under a new name"
 )]
 async fn create_tasks_for_status_entry(
-    task_bindings: &dyn TaskBindingDao,
+    task_bindings: &Bindings,
     tasks: &dyn TaskReader,
     config: &Config,
     linear_active_turns: &ActiveLinearTurns,
@@ -285,7 +285,7 @@ async fn create_tasks_for_status_entry(
               narrower grouping that is not itself that AppState-shaped bag"
 )]
 async fn provision_issue_task(
-    task_bindings: &dyn TaskBindingDao,
+    task_bindings: &Bindings,
     tasks: &dyn TaskReader,
     config: &Config,
     linear_active_turns: &ActiveLinearTurns,
@@ -298,7 +298,7 @@ async fn provision_issue_task(
     issue: &IssuePayload,
 ) -> Result<(), AdapterError> {
     let existing = task_bindings
-        .find_active_by_destination_field(ADAPTER, super::SUBJECT_KIND_ISSUE, "issue_id", &issue.id)
+        .active_by_destination_field(ADAPTER, super::SUBJECT_KIND_ISSUE, "issue_id", &issue.id)
         .await?;
     if existing
         .iter()
@@ -343,19 +343,19 @@ async fn provision_issue_task(
 
     let team_id = issue.resolved_team_id().unwrap_or_default().to_string();
     let destination_config = super::subject::issue_destination_config(issue, &team_id);
-    let binding = moatless_loops::bindings::runtime::upsert_binding_into(
-        task_bindings,
-        connection,
-        Some(rule),
-        &task_id,
-        ADAPTER,
-        super::SUBJECT_KIND_ISSUE,
-        &issue.id,
-        destination_config,
-        ADAPTER_EVENT_BINDING_ORIGIN,
-        None,
-    )
-    .await?;
+    let binding = task_bindings
+        .bind(
+            connection,
+            Some(rule),
+            &task_id,
+            ADAPTER,
+            super::SUBJECT_KIND_ISSUE,
+            &issue.id,
+            destination_config,
+            ADAPTER_EVENT_BINDING_ORIGIN,
+            None,
+        )
+        .await?;
 
     // Link the Moatless task back onto the Linear issue.
     let task_url = super::text::task_url(config, &task_id);
@@ -490,7 +490,7 @@ pub(super) async fn transition_issue_state(
 /// `linear_agent_session` and `linear_issue` subject kinds). Writes the
 /// dedicated `external_status*` columns. Best-effort: failures are logged.
 async fn persist_issue_status(
-    task_bindings: &dyn TaskBindingDao,
+    task_bindings: &Bindings,
     connection: &AdapterConnection,
     issue: &IssuePayload,
 ) {
@@ -523,7 +523,7 @@ async fn persist_issue_status(
         };
         for binding in bindings {
             if let Err(e) = task_bindings
-                .update_external_status(
+                .record_external_status(
                     &binding.id,
                     status.status.as_deref(),
                     status.state_kind.as_deref(),
@@ -551,7 +551,7 @@ async fn persist_issue_status(
 ///
 /// Best-effort: failures are logged so the close path still runs.
 async fn notify_bindings_of_state_change(
-    task_bindings: &dyn TaskBindingDao,
+    task_bindings: &Bindings,
     message_send: &dyn MessageAcceptor,
     sandbox_waker: &dyn SandboxWaker,
     connection: &AdapterConnection,

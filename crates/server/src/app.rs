@@ -23,7 +23,6 @@ use moatless_tasks::agent_event::EventKey;
 use moatless_tasks::event_ingress::relay::IngressRelayHandle;
 use moatless_tasks::task_listing;
 use moatless_types::sandbox::SandboxStatus;
-use moatless_workspaces::repository;
 
 const SHUTDOWN_JOIN_DEADLINE: std::time::Duration = std::time::Duration::from_secs(20);
 
@@ -91,7 +90,10 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     // The composition root: every port this process has, built once from the
     // pool and the configuration it just resolved. Everything downstream
     // receives ports from here rather than building its own.
-    let ports: Option<Ports> = db_pool.as_ref().map(|pool| compose(pool.clone(), &config));
+    let s3_client = startup::init_s3(&config).await;
+    let ports: Option<Ports> = db_pool
+        .as_ref()
+        .map(|pool| compose(pool.clone(), &config, s3_client.clone()));
     if let Some(ref ports) = ports {
         // Off the boot path: carrying over proves each App against GitHub, and
         // the API must not wait on GitHub to start answering.
@@ -104,7 +106,9 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let event_publisher = startup::init_event_publisher(&config).await;
     let (sse_state, sse_consumer) = startup::init_sse(
         &config,
-        ports.as_ref().map(|p| p.tasks.clone()),
+        ports
+            .as_ref()
+            .map(|p| p.task_reader.clone() as Arc<dyn moatless_ports::task::TaskReader>),
         cancel.clone(),
     )
     .await?;
@@ -117,7 +121,6 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
             handle,
         );
     }
-    let s3_client = startup::init_s3(&config).await;
     // Assumes the workspace-repository role so a sandbox can reach its own
     // repository prefix directly. `None` when no role is configured.
     let sts_client = crate::compose::infrastructure::init_sts(&config).await;
@@ -285,27 +288,6 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
             s3_client,
         )?;
 
-        // The browser tabs open on each Task. Built at the composition root
-        // because the choice between Redis and this process is a deployment
-        // fact, and its subscriber task is the root supervisor's to own.
-        let (preview_tabs, preview_event_forwarder) = moatless_t3code::preview_tabs::build(
-            config.redis.url.as_deref(),
-            moatless_t3code::preview_tabs::PreviewTabTtl(std::time::Duration::from_secs(
-                config.sandbox.idle_timeout_minutes * 60,
-            )),
-        )
-        .await;
-        if let Some(handle) = preview_event_forwarder {
-            supervisor.supervise(
-                "preview-event-subscriber",
-                // Optional: without it this replica still serves every tab
-                // read and write, and only stops hearing about tabs opened on
-                // the other replica.
-                Criticality::Optional,
-                handle,
-            );
-        }
-
         let (domain_router, domain_api) = crate::compose::http::domain_routes(&app_state);
         router = router.merge(domain_router);
         api.merge(domain_api);
@@ -322,13 +304,22 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
                 observer: sandbox_observer.clone(),
                 diagnostics: cluster_diagnostics.clone(),
                 ports: sandbox_port_publisher.clone(),
-                preview_tabs: preview_tabs.clone(),
             },
         )
         .await?
         {
             router = router.merge(t3code.router);
             startup_scripts = Some(t3code.startup_scripts);
+            if let Some(handle) = t3code.preview_events {
+                supervisor.supervise(
+                    "preview-event-subscriber",
+                    // Optional: without it this replica still serves every tab
+                    // read and write, and only stops hearing about tabs opened
+                    // on the other replica.
+                    Criticality::Optional,
+                    handle,
+                );
+            }
             device_pairing = true;
         }
         info!("Domain routes registered");
@@ -343,7 +334,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         ));
 
         // Seed default repositories
-        repository::seed::seed_default_repositories(&*app_state.repositories).await;
+        moatless_workspaces::compose::seed_default_repositories(app_state.db.clone()).await;
 
         auth::jwt::warn_on_jwt_secret_fallback(&config);
 
@@ -354,19 +345,14 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         if config.auth.provider == moatless_types::auth::AuthProvider::Local
             || config.auth.break_glass_enabled
         {
-            auth::password::bootstrap::ensure_local_admin(
-                ports.users.as_ref(),
-                ports.user_credentials.as_ref(),
-                &config.auth,
-            )
-            .await
-            .map_err(|e| format!("failed to seed the local admin account: {e}"))?;
+            moatless_identity::compose::ensure_local_admin(ports.pool.clone(), &config.auth)
+                .await
+                .map_err(|e| format!("failed to seed the local admin account: {e}"))?;
         }
 
         // Ensure test API user + key (if configured)
         if let Some(ref key) = config.auth.test_api_key {
-            auth::test_user::ensure_test_user(ports.users.as_ref(), ports.api_keys.as_ref(), key)
-                .await;
+            moatless_identity::compose::ensure_test_user(ports.pool.clone(), key).await;
         }
 
         // Background workers
@@ -445,11 +431,9 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
             // `moatless_adapter_delivery_oldest_pending_seconds` — a stalled
             // backlog has to be visible, not merely survivable.
             Criticality::Readiness,
-            adapters::delivery::spawn_adapter_delivery_worker(
-                app_state.adapter_delivery.clone(),
-                adapter_delivery_handlers,
-                cancel.clone(),
-            ),
+            app_state
+                .adapter_delivery_worker
+                .spawn(adapter_delivery_handlers, cancel.clone()),
         );
 
         // The ingress-outbox relay keeps its own handle rather than joining the
@@ -467,12 +451,15 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         let reconciler_leader = reaper_k8s
             .as_ref()
             .map(|k8s| crate::compose::workers::leader(k8s, "moatless-sandbox-reconciler", 120));
-        let reconciler = ports.build_reconciler(
+        let reconciler = ports.sandbox_graph.reconciler(
             app_state.sandbox.clone(),
-            sandbox_fleet_observer,
-            sandbox_notify,
-            sandbox_member_registry,
-            sandbox::lifecycle::ReconcilerConfig::default(),
+            moatless_sandbox_control::compose::ReconcilerInputs {
+                observer: sandbox_fleet_observer,
+                notify: sandbox_notify,
+                pending_work: ports.pending_work.clone(),
+                member_registry: sandbox_member_registry,
+                config: sandbox::lifecycle::ReconcilerConfig::default(),
+            },
         );
         supervisor.supervise(
             "sandbox-reconciler",
@@ -517,7 +504,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
                     "cron-scheduler",
                     // Readiness: durable scheduled jobs stop firing entirely.
                     Criticality::Readiness,
-                    crate::compose::workers::schedule_runner(&app_state)
+                    crate::compose::workers::schedule_runner(&ports, &app_state)
                         .spawn(cron_leader, cancel.clone()),
                 );
             } else {

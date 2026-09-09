@@ -4,6 +4,8 @@
 //! typed `relation_type` and an optional JSON `context` describing why/how
 //! the link was created.
 
+use std::sync::Arc;
+
 use chrono::{DateTime, Utc};
 pub use moatless_types::task::TaskRelationType;
 use tracing::warn;
@@ -53,13 +55,47 @@ impl TaskRelation {
 
 #[cfg(test)]
 pub(crate) use super::relations_dao::MockTaskRelationDao;
-pub use super::relations_dao::{PARENT_RELATION_TYPES, PgTaskRelationDao, TaskRelationDao};
+pub(crate) use super::relations_dao::TaskRelationDao;
+
+/// The `task_relations` table, as its peers read and write it.
+pub struct TaskRelations {
+    relations: Arc<dyn TaskRelationDao>,
+}
+
+impl TaskRelations {
+    pub(crate) fn new(relations: Arc<dyn TaskRelationDao>) -> Self {
+        Self { relations }
+    }
+
+    /// The single parent of `from_task_id`, if any. See
+    /// [`TaskRelationDao::find_parent`].
+    pub async fn find_parent(
+        &self,
+        from_task_id: &str,
+    ) -> Result<Option<TaskRelation>, sqlx::Error> {
+        self.relations.find_parent(from_task_id).await
+    }
+
+    /// Every relation pointing at `to_task_id`, optionally filtered by type.
+    pub async fn list_incoming(
+        &self,
+        to_task_id: &str,
+        kind: Option<TaskRelationType>,
+    ) -> Result<Vec<TaskRelation>, sqlx::Error> {
+        self.relations.list_incoming(to_task_id, kind).await
+    }
+
+    /// Record a `related_to` relation. See [`record_related_to`].
+    pub(crate) async fn record_related_to(&self, from_task_id: &str, related: &RelatedTask) {
+        record_related_to(self.relations.as_ref(), from_task_id, related).await;
+    }
+}
 
 /// Fire-and-forget helper to record a `created_by` relation. Errors are
 /// logged at WARN and swallowed — callers are typically in webhook paths
 /// where the task itself was already created successfully and we don't want
 /// to fail the whole request because the linkage couldn't be stored.
-pub async fn record_created_by(
+pub(crate) async fn record_created_by(
     repo: &dyn TaskRelationDao,
     from_task_id: &str,
     parent: &CreatedByParent,
@@ -87,7 +123,7 @@ pub async fn record_created_by(
 /// handler still has the transaction open to undo it. `at_turn` goes in the
 /// context because that is what the presenter and the system prompt display;
 /// the anchors the pod needs are typed columns on `task_forks`.
-pub async fn record_forked_from(
+pub(crate) async fn record_forked_from(
     repo: &dyn TaskRelationDao,
     from_task_id: &str,
     source_task_id: &str,
@@ -106,7 +142,7 @@ pub async fn record_forked_from(
 /// swallow-and-log semantics as `record_created_by`. Used by webhook paths
 /// that discover a peer task via shared bindings, where the peer is not a
 /// parent.
-pub async fn record_related_to(
+pub(crate) async fn record_related_to(
     repo: &dyn TaskRelationDao,
     from_task_id: &str,
     related: &RelatedTask,

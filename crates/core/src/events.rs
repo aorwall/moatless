@@ -201,8 +201,6 @@ impl PublishError {
 /// The typed-outcome method is [`EventPublisher::publish_raw_event_with_id`];
 /// the rest are fire-and-forget — implementations log errors but never
 /// propagate them.
-/// Note: `automock` is intentionally omitted — mockall cannot synthesise
-/// correct lifetimes for `Option<&str>` in async-trait methods.
 #[async_trait]
 pub trait EventPublisher: Send + Sync {
     /// Publish a sandbox lifecycle event with a message.

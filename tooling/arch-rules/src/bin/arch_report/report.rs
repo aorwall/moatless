@@ -2,12 +2,22 @@ use std::collections::BTreeMap;
 
 use anyhow::Result;
 use moatless_arch_rules::{
-    RULES, baseline, run_all, workspace::Workspace, workspace::workspace_root,
+    RULES, baseline, persistence_export, run_all, workspace::Workspace, workspace::workspace_root,
 };
 
-pub(super) fn run(update: bool, json: bool) -> Result<()> {
+pub(super) fn run(update: bool, json: bool, inventory: bool) -> Result<()> {
     let root = workspace_root();
     let ws = Workspace::load(&root)?;
+
+    if inventory {
+        // The inventory stays in `.plans/` while its plan sits in `.plans/completed/`.
+        // Move it and this write lands somewhere nothing reads.
+        let path = root.join(".plans/dao-persistence-migration-inventory.md");
+        std::fs::write(&path, persistence_export::inventory(&ws)?)?;
+        println!("Wrote {}", path.display());
+        return Ok(());
+    }
+
     let found = run_all(&ws)?;
 
     if update {

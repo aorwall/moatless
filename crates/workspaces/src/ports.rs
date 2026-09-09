@@ -18,8 +18,8 @@ use moatless_types::repository::Repository;
 use moatless_types::store::StoreError;
 use uuid::Uuid;
 
+use crate::plugin::Plugins;
 use crate::plugin::activation;
-use crate::plugin::dao::PluginDao;
 use crate::repository::dao::RepositoryDao;
 use crate::workspace::credentials::WorkspaceCredentialService;
 use crate::workspace::dao::WorkspaceDao;
@@ -30,14 +30,14 @@ use crate::workspace::models::Workspace;
 pub struct WorkspaceProjection {
     workspaces: Arc<dyn WorkspaceDao>,
     repositories: Arc<dyn RepositoryDao>,
-    plugins: Arc<dyn PluginDao>,
+    plugins: Arc<Plugins>,
 }
 
 impl WorkspaceProjection {
-    pub fn new(
+    pub(crate) fn new(
         workspaces: Arc<dyn WorkspaceDao>,
         repositories: Arc<dyn RepositoryDao>,
-        plugins: Arc<dyn PluginDao>,
+        plugins: Arc<Plugins>,
     ) -> Self {
         Self {
             workspaces,
@@ -124,7 +124,7 @@ impl WorkspaceResolver for WorkspaceProjection {
         user_id: Option<Uuid>,
         workspace_id: &str,
     ) -> Result<Vec<PluginDelivery>, StoreError> {
-        let resolved = activation::resolve_for(self.plugins.as_ref(), user_id, Some(workspace_id))
+        let resolved = activation::resolve_for(&self.plugins, user_id, Some(workspace_id))
             .await
             .map_err(|e| StoreError::with_source("resolve plugin activations", e))?;
         Ok(resolved
@@ -180,7 +180,7 @@ pub struct RepositoryProjection {
 }
 
 impl RepositoryProjection {
-    pub fn new(repositories: Arc<dyn RepositoryDao>) -> Self {
+    pub(crate) fn new(repositories: Arc<dyn RepositoryDao>) -> Self {
         Self { repositories }
     }
 }

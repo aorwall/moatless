@@ -9,14 +9,10 @@ use axum_extra::extract::Multipart;
 
 use std::sync::Arc;
 
-use moatless_core::config::S3Config;
+use moatless_core::file_storage::{FileStorageError, Files, NewUpload};
 use moatless_core::http_auth::AuthUser;
 
-use super::dao::FileDao;
-use super::error::FileStorageError;
-use super::s3;
 use super::schemas::UploadResponse;
-use super::store;
 
 /// Upload a file via multipart form data.
 #[utoipa::path(
@@ -31,16 +27,14 @@ use super::store;
     )
 )]
 pub async fn upload_file(
-    State(s3_storage): State<Option<s3::S3Storage>>,
-    State(s3_config): State<Arc<S3Config>>,
-    State(files): State<Arc<dyn FileDao>>,
+    State(files): State<Arc<Files>>,
     auth: AuthUser,
     mut multipart: Multipart,
 ) -> Result<Json<UploadResponse>, FileStorageError> {
     // Checked before the body is read as well as inside the store: a
     // deployment without S3 refuses every upload, and there is no reason to
     // buffer megabytes first to say so.
-    if s3_storage.is_none() || s3_config.bucket_name.is_none() {
+    if !files.is_configured() {
         return Err(FileStorageError::S3NotConfigured);
     }
 
@@ -70,19 +64,17 @@ pub async fn upload_file(
     let (filename, content_type, data) =
         file_data.ok_or_else(|| FileStorageError::BadRequest("No file field found".to_string()))?;
 
-    let meta = store::store_upload(
-        s3_storage.as_ref(),
-        &s3_config,
-        files.as_ref(),
-        &auth.scope_context(),
-        store::NewUpload {
-            filename,
-            mime_type: content_type,
-            data,
-            file_id: None,
-        },
-    )
-    .await?;
+    let meta = files
+        .store_upload(
+            &auth.scope_context(),
+            NewUpload {
+                filename,
+                mime_type: content_type,
+                data,
+                file_id: None,
+            },
+        )
+        .await?;
 
     Ok(Json(UploadResponse {
         file_id: meta.file_id,
@@ -106,20 +98,11 @@ pub async fn upload_file(
     )
 )]
 pub async fn download_file(
-    State(s3_storage): State<Option<s3::S3Storage>>,
-    State(s3_config): State<Arc<S3Config>>,
-    State(files): State<Arc<dyn FileDao>>,
+    State(files): State<Arc<Files>>,
     auth: AuthUser,
     Path(file_id): Path<String>,
 ) -> Result<Response, FileStorageError> {
-    let download = store::read_upload(
-        s3_storage.as_ref(),
-        &s3_config,
-        files.as_ref(),
-        &auth.scope_context(),
-        &file_id,
-    )
-    .await?;
+    let download = files.read(&auth.scope_context(), &file_id).await?;
 
     #[allow(clippy::expect_used)]
     // Response::builder() only fails with invalid header names (ours are static)

@@ -1,8 +1,5 @@
-//! Provider tokens table queries.
-
-use async_trait::async_trait;
-use chrono::{DateTime, Utc};
-
+//! The `provider_tokens.auth_method` vocabulary and the sentinels that stand in
+//! for a token the column does not hold.
 
 /// `provider_tokens.auth_method` value used on bot-user rows. Switches the
 /// canonical GitHub-token resolver from "refresh OAuth token" to "mint a fresh
@@ -35,35 +32,3 @@ pub const AUTH_METHOD_SECRET_REF: &str = "secret_ref";
 /// column sees this instead of a usable token, so sending it to a provider
 /// yields a clear 401 rather than silent misbehaviour.
 pub const SECRET_REF_TOKEN_PLACEHOLDER: &str = "<secret-ref>";
-
-#[derive(sqlx::FromRow, Debug)]
-pub struct ProviderToken {
-    pub user_id: String,
-    pub provider: String,
-    pub auth_method: String,
-    pub access_token: String,
-    pub refresh_token: Option<String>,
-    pub token_type: Option<String>,
-    pub scope: Option<String>,
-    pub provider_user_id: Option<String>,
-    pub provider_login: Option<String>,
-    pub connected_at: DateTime<Utc>,
-    pub expires_at: Option<DateTime<Utc>>,
-}
-
-/// DAO trait for provider token auth persistence.
-#[cfg_attr(any(test, feature = "test-support"), mockall::automock)]
-#[async_trait]
-pub trait ProviderTokenAuthDao: Send + Sync {
-    async fn upsert_provider_token(&self, token: &ProviderToken) -> Result<(), sqlx::Error>;
-
-    /// Look up the `token_type` for a user+provider row (e.g. "pat" or "bearer").
-    /// Used to detect PAT overrides before blindly overwriting during OAuth re-login.
-    async fn find_token_type(
-        &self,
-        user_id: &str,
-        provider: &str,
-    ) -> Result<Option<String>, sqlx::Error>;
-}
-
-pub use super::provider_tokens_dao::PgProviderTokenAuthDao;

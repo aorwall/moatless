@@ -129,6 +129,7 @@ enforce!(
     route_registration,
     transport_direction,
     persistence_sql_location,
+    persistence_export,
     process_exit,
     annotations,
     row_stays_with_query,

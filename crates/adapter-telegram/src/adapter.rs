@@ -2,16 +2,18 @@
 
 use std::sync::Arc;
 
-use moatless_adapter_model::dao::AdapterConnectionDao;
+use moatless_adapter_model::apps::AdapterAppReader;
+use moatless_adapter_model::capabilities::{
+    Adapter, AdapterInboundPresentation, AdapterOutboundContent,
+};
+use moatless_adapter_model::connections::ConnectionLookup;
 use moatless_adapter_model::delivery::DeliveryAdmission;
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
-use moatless_types::adapter::AdapterKind;
-use moatless_adapter_model::capabilities::{Adapter, AdapterInboundPresentation, AdapterOutboundContent};
-use moatless_adapter_model::registry::Adapters;
 use moatless_adapter_model::loops::LoopReader;
-use moatless_adapter_model::apps::AdapterAppReader;
+use moatless_adapter_model::registry::Adapters;
 use moatless_core::config::Config;
 use moatless_core::db::DbPool;
+use moatless_types::adapter::AdapterKind;
 
 use super::api::TelegramApi;
 
@@ -28,7 +30,7 @@ pub struct TelegramAdapter {
     /// The stored Telegram apps, when this Adapter was built over a database.
     /// `None` leaves every send on the client above.
     apps: Option<Arc<dyn AdapterAppReader>>,
-    adapter_connections: Option<Arc<dyn AdapterConnectionDao>>,
+    adapter_connections: Option<Arc<dyn ConnectionLookup>>,
     loops: Option<Arc<dyn LoopReader>>,
     adapter_delivery: Option<Arc<dyn DeliveryAdmission>>,
 }
@@ -87,7 +89,7 @@ impl TelegramAdapter {
     /// definition).
     pub fn with_ingress_ports(
         mut self,
-        adapter_connections: Arc<dyn AdapterConnectionDao>,
+        adapter_connections: Arc<dyn ConnectionLookup>,
         loops: Arc<dyn LoopReader>,
         adapter_delivery: Arc<dyn DeliveryAdmission>,
     ) -> Self {
@@ -101,7 +103,7 @@ impl TelegramAdapter {
     /// this adapter was built without ingress ports (a test constructor).
     pub(super) fn require_adapter_connections(
         &self,
-    ) -> Result<&dyn AdapterConnectionDao, AdapterError> {
+    ) -> Result<&dyn ConnectionLookup, AdapterError> {
         self.adapter_connections
             .as_deref()
             .ok_or_else(|| missing_port("adapter_connections"))

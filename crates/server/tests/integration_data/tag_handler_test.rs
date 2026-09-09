@@ -13,10 +13,10 @@ use axum::http::StatusCode;
 use sqlx::PgPool;
 use tower::ServiceExt;
 
-use moatless_tasks::tag::dao as tag_dao;
 use moatless_tasks::tag::routes::tag_router;
-use moatless_tasks::task::dao as task_dao;
-use moatless_workspaces::repository::dao as repository_dao;
+use moatless_tasks::tag::test_support as tag_fixtures;
+use moatless_tasks::task::test_support as task_fixtures;
+use moatless_workspaces::compose;
 
 use common::{body_json, make_repository_row, make_task_row, test_app_state};
 
@@ -47,7 +47,7 @@ async fn list_tags_empty(pool: PgPool) {
 #[sqlx::test]
 async fn list_tags_with_data(pool: PgPool) {
     // Create some tags
-    tag_dao::find_or_create_tags(
+    tag_fixtures::find_or_create_tags(
         &pool,
         &[
             "bug".to_string(),
@@ -81,7 +81,7 @@ async fn list_tags_with_data(pool: PgPool) {
 
 #[sqlx::test]
 async fn list_tags_response_shape(pool: PgPool) {
-    tag_dao::find_or_create_tags(&pool, &["alpha".to_string()])
+    tag_fixtures::find_or_create_tags(&pool, &["alpha".to_string()])
         .await
         .unwrap();
 
@@ -107,15 +107,16 @@ async fn list_tags_response_shape(pool: PgPool) {
 async fn list_tags_with_task_associations(pool: PgPool) {
     // Seed repo + task + tags, then associate
     let repo = make_repository_row("repo-1", "user-1");
-    repository_dao::insert(&pool, &repo).await.unwrap();
+    compose::seed_repository(&pool, &repo).await.unwrap();
     let task = make_task_row("task-tag-h", "user-1");
-    task_dao::insert_task(&pool, &task).await.unwrap();
+    task_fixtures::seed_task(&pool, &task).await.unwrap();
 
-    let tags = tag_dao::find_or_create_tags(&pool, &["deploy".to_string(), "hotfix".to_string()])
-        .await
-        .unwrap();
+    let tags =
+        tag_fixtures::find_or_create_tags(&pool, &["deploy".to_string(), "hotfix".to_string()])
+            .await
+            .unwrap();
     let tag_ids: Vec<String> = tags.iter().map(|t| t.tag_id.clone()).collect();
-    tag_dao::set_task_tags(&pool, "task-tag-h", &tag_ids)
+    tag_fixtures::set_task_tags(&pool, "task-tag-h", &tag_ids)
         .await
         .unwrap();
 

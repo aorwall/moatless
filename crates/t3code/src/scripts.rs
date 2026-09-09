@@ -47,9 +47,9 @@ use sandbox_proto::client::SandboxConnector;
 /// [`terminal::open`] already takes, so they are passed through rather than held
 /// here.
 #[derive(Clone)]
-pub struct ScriptsState {
+pub(crate) struct ScriptsState {
     /// Reads a Task's Workspace scripts, scoped to the viewer.
-    pub workspaces: Arc<dyn T3WorkspaceDao>,
+    pub(crate) workspaces: Arc<dyn T3WorkspaceDao>,
     /// Publishes a Script's port on the running sandbox. A no-op that returns
     /// `None` where the runtime cannot publish ports (Docker), and refuses a
     /// reserved infrastructure port.
@@ -102,7 +102,7 @@ fn required_str<'a>(payload: &'a Value, field: &'static str) -> Result<&'a str, 
 /// The Scripts a Task's Workspace declares — the same read [`run`] resolves a
 /// Script id against, for a caller that only wants to enumerate them (`moat
 /// tasks scripts list`, over HTTP rather than the RPC/WS surface).
-pub async fn list(
+pub(crate) async fn list(
     state: &ScriptsState,
     viewer: &ScopeContext,
     task_id: &str,
@@ -138,7 +138,7 @@ pub fn public_script_list(scripts: &[ScriptConfig]) -> Vec<Value> {
 
 /// Start a Script and return the terminal it runs in, plus — when it serves a
 /// port — its preview URL and the browser tab now pointing at it.
-pub async fn run(
+pub(crate) async fn run(
     state: &ScriptsState,
     conversations: &dyn ConversationDao,
     sandboxes: &dyn SandboxConnector,

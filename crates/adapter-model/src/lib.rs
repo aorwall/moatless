@@ -5,10 +5,10 @@
 //! The Adapter kernel: the whole Adapter contract in one crate.
 //!
 //! What an Adapter offers ([`capabilities`]), what it speaks ([`apps`],
-//! [`footer`], [`signature`]), the shapes it persists ([`persistence`]) and the
-//! access it gates on ([`access`]), what it can fail with ([`error`]),
-//! where its connections are stored ([`dao`]), how it hands inbound work over
-//! durably ([`delivery`]), and how a delivery ends ([`ingress`], [`routing`]).
+//! [`footer`], [`signature`]) and the access it gates on ([`access`]), what it
+//! can fail with ([`error`]), which external account it speaks for
+//! ([`connections`]), how it hands inbound work over durably ([`delivery`]),
+//! and how a delivery ends ([`ingress`]).
 //! A provider crate implements the contract by naming this crate and nothing
 //! above it; the bands that orchestrate providers name the same items from the
 //! same paths.
@@ -22,7 +22,9 @@ pub mod access;
 pub mod apps;
 pub mod binding;
 pub mod capabilities;
-pub mod dao;
+#[cfg(feature = "postgres")]
+pub mod compose;
+pub mod connections;
 pub mod delivery;
 pub mod error;
 pub mod footer;
@@ -30,9 +32,7 @@ pub mod ingress;
 pub mod loops;
 pub mod mentions;
 pub mod metrics;
-pub mod persistence;
 pub mod registry;
-pub mod routing;
 pub mod signature;
 
 /// Helpers the Adapter error tests need, shared with the crates whose own tests

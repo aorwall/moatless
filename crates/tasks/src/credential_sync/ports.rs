@@ -1,7 +1,7 @@
 //! Implements the sandbox credential capability.
 
 use super::CredentialSync;
-use moatless_workspaces::credentials::CredentialError;
+use moatless_identity::credentials::CredentialError;
 
 /// The sandbox band's view of this orchestrator: one `auth.json`, with "no
 /// credential anywhere" told apart from a failure.

@@ -83,11 +83,8 @@ pub(crate) async fn build(
                     as Arc<dyn moatless_ports::sandbox::WorkspaceSnapshotSource>
             });
     let provision_deps = ports.map(|p| {
-        crate::sandbox::lifecycle::ProvisionDeps::new(
-            p.lifecycle_store(),
-            p.workspace_resolver.clone(),
-            p.user_directory.clone(),
-        )
+        p.sandbox_graph
+            .provision_deps(p.workspace_resolver.clone(), p.user_directory.clone())
     });
     // Build the configured runtime/observer/connector adapter once. The rich
     // 13-field read the HTTP routes need is the backend-local
@@ -210,20 +207,20 @@ pub(crate) async fn lifecycle(
             )
             .await?;
             Some(
-                ports.build_lifecycle(
-                    lock_pool,
-                    dependencies
-                        .provision_deps
-                        .clone()
-                        .ok_or("provision dependencies missing with database pool")?,
-                    dependencies.sandbox_runtime.clone(),
-                    dependencies.sandbox_connector.clone(),
-                    dependencies.default_sandbox_image.clone(),
-                    crate::compose::LifecycleOptions {
+                ports
+                    .sandbox_graph
+                    .lifecycle(moatless_sandbox_control::compose::LifecycleInputs {
+                        lock_pool,
+                        runtime: dependencies.sandbox_runtime.clone(),
+                        connector: dependencies.sandbox_connector.clone(),
+                        plan: dependencies
+                            .provision_deps
+                            .clone()
+                            .ok_or("provision dependencies missing with database pool")?,
+                        default_sandbox_image: dependencies.default_sandbox_image.clone(),
                         events,
                         workspace_archive: dependencies.workspace_archive.clone(),
-                    },
-                ),
+                    }),
             )
         }
         None => None,

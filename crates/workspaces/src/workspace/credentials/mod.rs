@@ -22,15 +22,15 @@
 //! [`service::WorkspaceCredentialService::resolve_env`] decrypts, for the
 //! sandbox.
 
-pub mod dao;
-pub mod handlers;
+pub(crate) mod dao;
+pub(crate) mod handlers;
 pub mod models;
 pub mod service;
 
 pub use models::{WorkspaceCredential, WorkspaceCredentialMetadata, WorkspaceCredentialWrite};
 pub use service::WorkspaceCredentialService;
 
-pub use moatless_types::workspace::WorkspaceCredentialProvider;
 pub use moatless_api_schemas::workspace::{
     SetWorkspaceCredentialRequest, WorkspaceCredentialResponse,
 };
+pub use moatless_types::workspace::WorkspaceCredentialProvider;

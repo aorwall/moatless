@@ -17,92 +17,18 @@ use moatless_types::access_control::{Scope, ScopeContext, ScopedEntity};
 
 use super::persistence::LoopSpawnConfigRow;
 use super::persistence::SubscriptionMatchRow;
+use crate::loops::models::{
+    LoopConfigRow, LoopListFilter, LoopRecord, LoopRow, LoopSourceRow, LoopSpawnConfig, LoopUpdate,
+    ManagedLoopOverrideSkip, ManagedLoopReconcileSummary, ManagedLoopUpsert, NewAdapterEventSource,
+    NewLoop, NewLoopConfig, NewLoopSource, NewScheduleSource, Schedule, ScheduleRow,
+    SubscriptionRow, UpdateLoopSource,
+};
 use moatless_core::db::DbPool;
 use moatless_core::db_enum::decode_required;
 use moatless_types::adapter::AdapterKind;
 use moatless_types::agent::AgentType;
-use crate::loops::models::LoopSpawnConfig;
-use crate::loops::models::Schedule;
 use moatless_types::loops::SubscriptionMatch;
-use moatless_types::loops::{LoopConfigSource, LoopKind, RoutingMode};
-
-// =============================================================================
-// Joined loop record — the read shape used by the HTTP surface.
-// =============================================================================
-
-#[derive(Debug, Clone)]
-pub struct LoopRow {
-    pub id: String,
-    pub name: String,
-    pub kind: LoopKind,
-    pub active: bool,
-    pub scope: Scope,
-    pub owner_user_id: Option<String>,
-    pub created_by: String,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-    pub config_source: LoopConfigSource,
-    pub source_repository_id: Option<String>,
-    pub source_key: Option<String>,
-    pub source_config_path: Option<String>,
-    pub deleted: bool,
-}
-
-#[derive(Debug, Clone)]
-pub struct LoopConfigRow {
-    pub loop_id: String,
-    pub workspace_id: String,
-    pub routing_mode: RoutingMode,
-    pub ongoing_task_id: Option<String>,
-    pub prompt: Option<String>,
-    pub task_name: Option<String>,
-    pub tag_ids: Vec<String>,
-    pub skills: Vec<String>,
-    pub run_as_user_id: Option<String>,
-    pub agent_type: AgentType,
-    pub model: Option<String>,
-    pub inactive_ttl_days: Option<i32>,
-}
-
-#[derive(Debug, Clone)]
-pub struct SubscriptionRow {
-    pub loop_id: String,
-    pub adapter_kind: AdapterKind,
-    pub connection_id: String,
-    pub source_matcher: String,
-    pub source_name: Option<String>,
-    pub event_filter: serde_json::Value,
-    pub adapter_config: Option<serde_json::Value>,
-    pub allow_direct_send: bool,
-    pub close_task_on_close: bool,
-    pub notify_on_success: bool,
-}
-
-#[derive(Debug, Clone)]
-pub struct ScheduleRow {
-    pub loop_id: String,
-    pub cron_expression: String,
-    pub timezone: String,
-    pub message_template: String,
-    pub last_fired_at: Option<DateTime<Utc>>,
-    pub next_fire_at: DateTime<Utc>,
-    pub locked_by: Option<String>,
-    pub locked_until: Option<DateTime<Utc>>,
-}
-
-#[derive(Debug, Clone)]
-pub enum LoopSourceRow {
-    AdapterEvent(SubscriptionRow),
-    Schedule(ScheduleRow),
-    Manual,
-}
-
-#[derive(Debug, Clone)]
-pub struct LoopRecord {
-    pub loop_: LoopRow,
-    pub config: LoopConfigRow,
-    pub source: LoopSourceRow,
-}
+use moatless_types::loops::{LoopKind, RoutingMode};
 
 #[derive(sqlx::FromRow)]
 struct JoinedLoopRecordRow {
@@ -155,7 +81,7 @@ impl JoinedLoopRecordRow {
     fn into_record(self) -> Result<LoopRecord, sqlx::Error> {
         let kind: LoopKind = decode_required("kind", self.kind)?;
         let loop_ = LoopRow {
-            id: self.id.clone(),
+            id: self.id,
             name: self.name,
             kind,
             active: self.active,
@@ -171,7 +97,6 @@ impl JoinedLoopRecordRow {
             deleted: self.deleted,
         };
         let config = LoopConfigRow {
-            loop_id: self.id.clone(),
             workspace_id: self.workspace_id,
             routing_mode: self.routing_mode,
             ongoing_task_id: self.ongoing_task_id,
@@ -186,7 +111,6 @@ impl JoinedLoopRecordRow {
         };
         let source = match kind {
             LoopKind::AdapterEvent => LoopSourceRow::AdapterEvent(SubscriptionRow {
-                loop_id: self.id,
                 adapter_kind: AdapterKind::parse_or_webhook(
                     self.adapter_kind.ok_or(sqlx::Error::RowNotFound)?.as_str(),
                 ),
@@ -200,7 +124,6 @@ impl JoinedLoopRecordRow {
                 notify_on_success: self.notify_on_success.unwrap_or(false),
             }),
             LoopKind::Schedule => LoopSourceRow::Schedule(ScheduleRow {
-                loop_id: self.id,
                 cron_expression: self.cron_expression.ok_or(sqlx::Error::RowNotFound)?,
                 timezone: self.timezone.unwrap_or_else(|| "UTC".to_string()),
                 message_template: self.message_template.ok_or(sqlx::Error::RowNotFound)?,
@@ -218,12 +141,6 @@ impl JoinedLoopRecordRow {
             source,
         })
     }
-}
-
-#[derive(Debug, Default)]
-pub struct LoopListFilter<'a> {
-    pub kind: Option<&'a str>,
-    pub adapter_kind: Option<&'a str>,
 }
 
 const LOOP_RECORD_SELECT: &str = r#"
@@ -273,130 +190,6 @@ const LOOP_RECORD_SELECT: &str = r#"
     LEFT JOIN subscriptions aes ON aes.loop_id = t.id
     LEFT JOIN schedules sts ON sts.loop_id = t.id
 "#;
-
-// =============================================================================
-// Write inputs — resolved values ready to persist. Callers own validation,
-// scope resolution, and coalescing; the store owns only the SQL.
-// =============================================================================
-
-/// A fully-resolved new Loop, ready to insert.
-pub struct NewLoop {
-    pub id: String,
-    pub name: String,
-    pub kind: String,
-    pub active: bool,
-    pub scope: Scope,
-    pub owner_user_id: Option<String>,
-    pub created_by: String,
-    pub created_at: DateTime<Utc>,
-    pub config: NewLoopConfig,
-    pub source: NewLoopSource,
-}
-
-/// Resolved `loop_configs` values shared by create and update.
-pub struct NewLoopConfig {
-    pub workspace_id: String,
-    pub routing_mode: RoutingMode,
-    pub ongoing_task_id: Option<String>,
-    pub prompt: Option<String>,
-    pub task_name: Option<String>,
-    pub tag_ids: Vec<String>,
-    pub skills: Vec<String>,
-    pub run_as_user_id: Option<String>,
-    pub agent_type: String,
-    pub model: Option<String>,
-    pub inactive_ttl_days: Option<i32>,
-}
-
-pub enum NewLoopSource {
-    AdapterEvent(NewAdapterEventSource),
-    Schedule(NewScheduleSource),
-    Manual,
-}
-
-pub struct NewAdapterEventSource {
-    pub adapter_kind: String,
-    pub connection_id: String,
-    pub source_matcher: String,
-    pub source_name: Option<String>,
-    pub event_filter: serde_json::Value,
-    pub adapter_config: Option<serde_json::Value>,
-    pub allow_direct_send: bool,
-    pub close_task_on_close: bool,
-    pub notify_on_success: bool,
-}
-
-pub struct NewScheduleSource {
-    pub cron_expression: String,
-    pub timezone: String,
-    pub message_template: String,
-    pub next_fire_at: DateTime<Utc>,
-}
-
-/// Resolved `loops` columns to update (identity + scope, not config/source).
-pub struct LoopUpdate {
-    pub name: String,
-    pub scope: Scope,
-    pub owner_user_id: Option<String>,
-}
-
-/// A resolved source update. Unlike create, `adapter_kind` is immutable so the
-/// adapter variant carries no kind.
-pub enum UpdateLoopSource {
-    AdapterEvent(AdapterSourceUpdate),
-    Schedule(NewScheduleSource),
-}
-
-pub struct AdapterSourceUpdate {
-    pub connection_id: String,
-    pub source_matcher: String,
-    pub source_name: Option<String>,
-    pub event_filter: serde_json::Value,
-    pub adapter_config: Option<serde_json::Value>,
-    pub allow_direct_send: bool,
-    pub close_task_on_close: bool,
-    pub notify_on_success: bool,
-}
-
-/// A Git-owned Loop reconciled from a repository's `.moatless/loops/` tree,
-/// keyed by `(source_repository_id, source_key)`.
-pub struct ManagedLoopUpsert {
-    pub source_repository_id: String,
-    /// The Workspace the `workspace:` frontmatter names, resolved to an id.
-    /// See [`moatless_types::loops::LoopContext::workspace_id`].
-    pub workspace_id: String,
-    pub source_key: String,
-    pub source_config_path: String,
-    pub trigger_name: String,
-    pub kind: String,
-    pub scope: Scope,
-    pub owner_user_id: Option<String>,
-    pub created_by: String,
-    pub routing_mode: RoutingMode,
-    pub prompt: Option<String>,
-    pub tag_ids: Vec<String>,
-    pub skills: Vec<String>,
-    pub agent_type: String,
-    pub model: Option<String>,
-    pub inactive_ttl_days: Option<i32>,
-    pub adapter: Option<NewAdapterEventSource>,
-    pub schedule: Option<NewScheduleSource>,
-}
-
-#[derive(Debug, Default)]
-pub struct ManagedLoopReconcileSummary {
-    pub created: u32,
-    pub updated: u32,
-    pub removed: u32,
-    pub overrides_skipped: u32,
-    pub skipped_overrides: Vec<ManagedLoopOverrideSkip>,
-}
-
-#[derive(Debug)]
-pub struct ManagedLoopOverrideSkip {
-    pub source_key: String,
-    pub deleted: bool,
-}
 
 // =============================================================================
 // LoopDao
@@ -888,19 +681,12 @@ impl LoopDao {
         Ok(row.map(SubscriptionMatch::from))
     }
 
-    pub async fn list_subscriptions_by_provider(
-        &self,
-        provider: &str,
-    ) -> Result<Vec<SubscriptionMatch>, sqlx::Error> {
-        let rows = sqlx::query_as::<_, SubscriptionMatchRow>(AssertSqlSafe(format!(
-            "{SUBSCRIPTION_MATCH_SELECT} WHERE aes.adapter_kind = $1 AND t.active = true AND t.deleted = false AND r.run_as_user_id IS NOT NULL ORDER BY t.created_at ASC"
-        )))
-        .bind(provider)
-        .fetch_all(&self.db)
-        .await?;
-        Ok(rows.into_iter().map(SubscriptionMatch::from).collect())
-    }
-
+    /// Write a Subscription Loop and its config in one transaction.
+    ///
+    /// Reached only through [`crate::loops::test_support::upsert_subscription`]:
+    /// a host creates a Subscription through `Loops`, and a DB-backed test seeds
+    /// one it did not author.
+    #[cfg(any(test, feature = "test-support"))]
     pub async fn upsert_subscription(
         &self,
         row: &SubscriptionMatch,

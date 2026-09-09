@@ -34,6 +34,7 @@ pub trait UserCredentialDao: Send + Sync {
         at: DateTime<Utc>,
     ) -> Result<(), sqlx::Error>;
     async fn record_login_failure(&self, user_id: &Uuid) -> Result<(), sqlx::Error>;
+    #[expect(dead_code, reason = "no in-tree caller removes a local credential yet")]
     async fn delete(&self, user_id: &Uuid) -> Result<bool, sqlx::Error>;
 }
 

@@ -6,9 +6,7 @@ use super::models::{Tag, TaskTag};
 use moatless_core::db::DbPool;
 
 /// DAO trait for tag persistence.
-// `MockTagDao` is consumed by task-creation tests and downstream backend test
-// tiers, so the mock is generated off `test-support` to cross that crate seam.
-#[cfg_attr(any(test, feature = "test-support"), mockall::automock)]
+#[cfg_attr(test, mockall::automock)]
 #[async_trait]
 pub trait TagDao: Send + Sync {
     async fn list_all(&self) -> Result<Vec<Tag>, sqlx::Error>;
@@ -138,33 +136,6 @@ impl TagDao for PgTagDao {
     }
 }
 
-// =========================================================================
-// Free-function wrappers for integration tests
-// =========================================================================
-
-pub async fn list_all(pool: &DbPool) -> Result<Vec<Tag>, sqlx::Error> {
-    PgTagDao(pool.clone()).list_all().await
-}
-
-pub async fn find_or_create_tags(pool: &DbPool, names: &[String]) -> Result<Vec<Tag>, sqlx::Error> {
-    PgTagDao(pool.clone()).find_or_create_tags(names).await
-}
-
-pub async fn set_task_tags(
-    pool: &DbPool,
-    task_id: &str,
-    tag_ids: &[String],
-) -> Result<(), sqlx::Error> {
-    PgTagDao(pool.clone()).set_task_tags(task_id, tag_ids).await
-}
-
-pub async fn get_tags_for_task(pool: &DbPool, task_id: &str) -> Result<Vec<TaskTag>, sqlx::Error> {
-    PgTagDao(pool.clone()).get_tags_for_task(task_id).await
-}
-
-pub async fn get_tags_for_tasks(
-    pool: &DbPool,
-    task_ids: &[String],
-) -> Result<Vec<TaskTag>, sqlx::Error> {
-    PgTagDao(pool.clone()).get_tags_for_tasks(task_ids).await
-}
+#[cfg(all(test, feature = "db-tests"))]
+#[path = "dao_db_tests.rs"]
+mod dao_db_tests;

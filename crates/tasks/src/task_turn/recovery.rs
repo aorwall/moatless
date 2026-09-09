@@ -1,9 +1,8 @@
 //! Interrupted-turn recovery budget, intent gates, and ordered recovery events.
 
-use super::dao::TaskTurnDao;
+use super::operations::TaskTurns;
 use crate::{
-    message::dao::{InterruptedTurn, MessageDao},
-    task::dao::TaskDao,
+    message::models::InterruptedTurn, message::operations::Messages, task::operations::TaskCommands,
 };
 use moatless_core::events::EventPublisher;
 use moatless_types::{access_control::ScopeContext, agent::AgentSubType};
@@ -26,9 +25,9 @@ pub enum RecoveryError {
 
 /// Recover a turn after the caller has authorized sandbox access to `task_id`.
 pub async fn recover_interrupted_turn(
-    tasks: Option<&dyn TaskDao>,
-    messages: Option<&dyn MessageDao>,
-    task_turns: Option<&dyn TaskTurnDao>,
+    tasks: Option<&TaskCommands>,
+    messages: Option<&Messages>,
+    task_turns: Option<&TaskTurns>,
     events: Option<&dyn EventPublisher>,
     task_id: &str,
 ) -> Result<Option<RecoveredTurn>, RecoveryError> {
@@ -108,6 +107,7 @@ pub async fn recover_interrupted_turn(
     {
         if let Some(task_turns) = task_turns {
             match task_turns
+                .store()
                 .reset_recovery_attempts(task_id, interrupted.turn_number)
                 .await
             {
@@ -156,6 +156,7 @@ pub async fn recover_interrupted_turn(
         return Ok(None);
     };
     let new_attempts = match task_turns
+        .store()
         .increment_recovery_attempts(task_id, interrupted.turn_number)
         .await
     {
@@ -205,11 +206,25 @@ mod tests {
     use crate::task::dao::MockTaskDao;
     use crate::task::models::SandboxIntentView;
     use crate::task_turn::dao::MockTaskTurnDao;
+    use crate::task_turn::operations::TaskTurns;
     use moatless_core::events::test_support::{RecordedEvent, RecordingPublisher};
     use moatless_types::sandbox::SandboxDesiredState;
+    use std::sync::Arc;
 
     use moatless_types::agent::AgentType;
     use moatless_types::task::{Task, TaskStatus, Visibility};
+
+    fn commands(store: MockTaskDao) -> TaskCommands {
+        TaskCommands::new(Arc::new(store))
+    }
+
+    fn transcript(store: MockMessageDao) -> Messages {
+        Messages::new(Arc::new(store))
+    }
+
+    fn turn_ops(store: MockTaskTurnDao) -> TaskTurns {
+        TaskTurns::new(Arc::new(store))
+    }
 
     fn closed_task() -> Task {
         Task {
@@ -260,9 +275,9 @@ mod tests {
             .return_once(|_, _| Ok(Some(closed_task())));
         assert!(
             recover_interrupted_turn(
-                Some(&tasks),
-                Some(&MockMessageDao::new()),
-                Some(&MockTaskTurnDao::new()),
+                Some(&commands(tasks)),
+                Some(&transcript(MockMessageDao::new())),
+                Some(&turn_ops(MockTaskTurnDao::new())),
                 None,
                 "task"
             )
@@ -301,13 +316,19 @@ mod tests {
                     },
                 )]))
             });
-            let messages = MockMessageDao::new();
-            let turns = MockTaskTurnDao::new();
+            let messages = transcript(MockMessageDao::new());
+            let turns = turn_ops(MockTaskTurnDao::new());
             assert!(
-                recover_interrupted_turn(Some(&tasks), Some(&messages), Some(&turns), None, "task")
-                    .await
-                    .unwrap()
-                    .is_none()
+                recover_interrupted_turn(
+                    Some(&commands(tasks)),
+                    Some(&messages),
+                    Some(&turns),
+                    None,
+                    "task"
+                )
+                .await
+                .unwrap()
+                .is_none()
             );
         }
     }
@@ -334,6 +355,8 @@ mod tests {
             .in_sequence(&mut sequence)
             .return_once(|_, _| Ok(1));
         let events = RecordingPublisher::new();
+        let messages = transcript(messages);
+        let turns = turn_ops(turns);
         let recovered =
             recover_interrupted_turn(None, Some(&messages), Some(&turns), Some(&events), "task")
                 .await
@@ -356,8 +379,9 @@ mod tests {
         messages
             .expect_turn_progressed_since_last_recovery()
             .return_once(|_, _| Ok(false));
-        let turns = MockTaskTurnDao::new();
+        let turns = turn_ops(MockTaskTurnDao::new());
         let events = RecordingPublisher::new();
+        let messages = transcript(messages);
         assert!(
             recover_interrupted_turn(None, Some(&messages), Some(&turns), Some(&events), "task")
                 .await
@@ -381,6 +405,8 @@ mod tests {
             .expect_increment_recovery_attempts()
             .return_once(|_, _| Err(sqlx::Error::PoolClosed));
         let events = RecordingPublisher::new();
+        let messages = transcript(messages);
+        let turns = turn_ops(turns);
         let result =
             recover_interrupted_turn(None, Some(&messages), Some(&turns), Some(&events), "task")
                 .await;
@@ -397,6 +423,7 @@ mod tests {
         messages
             .expect_find_interrupted_turn()
             .return_once(|_| Ok(Some(interrupted(0))));
+        let messages = transcript(messages);
         assert!(
             recover_interrupted_turn(None, Some(&messages), None, None, "task")
                 .await

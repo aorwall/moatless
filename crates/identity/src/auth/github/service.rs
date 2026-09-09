@@ -182,7 +182,7 @@ impl GitHubAppService {
     ///
     /// Returns `None` only when the stored key no longer parses, which means
     /// the record was written by a version that did not prove keys.
-    pub fn from_record(record: &GitHubAppRecord, private_key_pem: &str) -> Option<Self> {
+    pub(crate) fn from_record(record: &GitHubAppRecord, private_key_pem: &str) -> Option<Self> {
         Self::build(
             record.app_key.clone(),
             record.app_id,

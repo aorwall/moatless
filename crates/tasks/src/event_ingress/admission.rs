@@ -5,11 +5,14 @@ use serde_json::Value;
 use tracing::warn;
 
 use crate::agent_event::is_agent_message;
-use crate::task_event::dao::{InsertTaskEvent, TaskEventDao};
-use crate::task_turn::dao::{TaskTurnDao, TurnStateEvent};
+use crate::task_event::dao::TaskEventDao;
+use crate::task_event::models::InsertTaskEvent;
+use crate::task_turn::dao::TaskTurnDao;
+use crate::task_turn::models::TurnStateEvent;
 use moatless_core::events::EventPublisher;
 
-use super::outbox::{IngressOutbox, IngressPayload, RETRY_BASE_SECS};
+use super::outbox_dao::{IngressOutbox, IngressPayload, RETRY_BASE_SECS};
+use super::relay::IngressRelay;
 
 use super::AdmissionError;
 
@@ -30,14 +33,49 @@ pub struct AdmissionRequest {
 /// The durability paths available to admission. Each is optional because the
 /// backend runs without a database or without Redis in some deployments; a
 /// missing path an event *needs* is a retryable failure, never a silent ack.
-pub struct EventAdmission<'a> {
-    pub task_turns: Option<&'a Arc<dyn TaskTurnDao>>,
-    pub task_events: Option<&'a Arc<dyn TaskEventDao>>,
-    pub ingress_outbox: Option<&'a Arc<dyn IngressOutbox>>,
-    pub publisher: Option<&'a Arc<dyn EventPublisher>>,
+pub struct EventAdmission {
+    task_turns: Option<Arc<dyn TaskTurnDao>>,
+    task_events: Option<Arc<dyn TaskEventDao>>,
+    ingress_outbox: Option<Arc<dyn IngressOutbox>>,
+    publisher: Option<Arc<dyn EventPublisher>>,
 }
 
-impl EventAdmission<'_> {
+impl EventAdmission {
+    pub(crate) fn new(
+        task_turns: Option<Arc<dyn TaskTurnDao>>,
+        task_events: Option<Arc<dyn TaskEventDao>>,
+        ingress_outbox: Option<Arc<dyn IngressOutbox>>,
+        publisher: Option<Arc<dyn EventPublisher>>,
+    ) -> Self {
+        Self {
+            task_turns,
+            task_events,
+            ingress_outbox,
+            publisher,
+        }
+    }
+
+    /// Drop the outbox record for `event_id` now that its content is committed
+    /// to `task_messages` — see [`IngressOutbox::delete_delivered`], the only
+    /// delete in the path. `Ok(false)` when no record was present, and when this
+    /// process runs without an outbox.
+    pub async fn delivered(&self, event_id: &str) -> Result<bool, sqlx::Error> {
+        match self.ingress_outbox.as_ref() {
+            Some(outbox) => outbox.delete_delivered(event_id).await,
+            None => Ok(false),
+        }
+    }
+
+    /// The relay that re-publishes admitted payloads whose delivery is
+    /// unconfirmed. `None` without an outbox or without a transport: with
+    /// neither is there anything to recover.
+    pub fn relay(&self) -> Option<IngressRelay> {
+        Some(IngressRelay::new(
+            self.ingress_outbox.clone()?,
+            self.publisher.clone()?,
+        ))
+    }
+
     /// Durably admit `request`, then fan it out.
     ///
     /// Returns `Ok` only once the complete payload is recoverable without the
@@ -72,7 +110,7 @@ impl EventAdmission<'_> {
 
         let payload_recoverable = self.commit(&request, needs_consumer).await?;
 
-        if let Some(publisher) = self.publisher {
+        if let Some(publisher) = self.publisher.as_ref() {
             if let Err(e) = publisher
                 .publish_raw_event_with_id(
                     &request.event_id,
@@ -116,9 +154,12 @@ impl EventAdmission<'_> {
             // outbox. After the consumer commits, the conversation is the
             // canonical store. The outbox record alone is what gRPC success
             // speaks for.
-            let outbox = self.ingress_outbox.ok_or(AdmissionError::NotConfigured {
-                component: "ingress outbox",
-            })?;
+            let outbox = self
+                .ingress_outbox
+                .as_ref()
+                .ok_or(AdmissionError::NotConfigured {
+                    component: "ingress outbox",
+                })?;
             let payload = IngressPayload {
                 event_id: request.event_id.clone(),
                 task_id: request.task_id.clone(),
@@ -141,9 +182,12 @@ impl EventAdmission<'_> {
         }
 
         if let Some(state) = request.state.as_ref() {
-            let turns = self.task_turns.ok_or(AdmissionError::NotConfigured {
-                component: "task turn repository",
-            })?;
+            let turns = self
+                .task_turns
+                .as_ref()
+                .ok_or(AdmissionError::NotConfigured {
+                    component: "task turn repository",
+                })?;
             turns.apply_ingress_event(state).await.map_err(|source| {
                 AdmissionError::CommitFailed {
                     what: "turn state",
@@ -161,9 +205,12 @@ impl EventAdmission<'_> {
 
     /// Commit this event's `task_events` row, carrying its payload whole.
     async fn commit_event_row(&self, request: &AdmissionRequest) -> Result<(), AdmissionError> {
-        let events = self.task_events.ok_or(AdmissionError::NotConfigured {
-            component: "task event repository",
-        })?;
+        let events = self
+            .task_events
+            .as_ref()
+            .ok_or(AdmissionError::NotConfigured {
+                component: "task event repository",
+            })?;
         let insert = InsertTaskEvent {
             event_id: request.event_id.clone(),
             task_id: request.task_id.clone(),

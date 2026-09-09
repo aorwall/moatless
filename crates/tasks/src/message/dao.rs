@@ -17,10 +17,12 @@ use std::collections::HashMap;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 
-use super::models::{MessageType, TaskMessage, TaskMessageContext};
+use super::models::{
+    ConnectionMessageCount, InterruptedTurn, MessagePage, MessageType, TaskMessage,
+    TaskMessageContext, ToolCallRow,
+};
 use crate::task::dao as task_dao;
 use crate::task_activities;
-use crate::task_activities::dao::Activity;
 use crate::task_activities::mapping::{ActivityKind, ConversationWrite};
 use moatless_core::db::DbPool;
 use moatless_core::db_enum::decode_required;
@@ -89,47 +91,11 @@ async fn next_subagent_position(
     Ok(position)
 }
 
-/// A page of Messages with their context rows and the activities that happened
-/// on them — the two ordered collections a conversation is, plus the context
-/// rows the frontend attaches to a user Message.
-pub type MessagePage = (Vec<TaskMessage>, Vec<TaskMessageContext>, Vec<Activity>);
-
-/// Raw tool-call row assembled from the assistant `tool_use` block plus any
-/// matching `tool_result` row(s). Keeps JSON values un-transformed so the handler
-/// can decide which schema to apply.
-#[derive(Debug, Clone)]
-pub struct ToolCallRow {
-    pub tool_use_id: String,
-    pub tool_name: String,
-    pub tool_input: serde_json::Value,
-    pub result_content: Option<String>,
-    pub is_error: Option<bool>,
-    pub tool_use_result: Option<serde_json::Value>,
-    /// UUID of the assistant row containing the `tool_use` block. Surfaced so
-    /// post-message hooks can tag the parent message rather than the hidden
-    /// System `tool_result` row.
-    pub parent_message_uuid: String,
-}
-
-/// Per-connection inbound/outgoing message tally for a task, grouped by the
-/// external adapter + subject key the message was routed through. Drives the
-/// per-connection `↓in / ↑out` counts on the task-connections admin view.
-#[derive(Debug, Clone, sqlx::FromRow)]
-pub struct ConnectionMessageCount {
-    pub task_id: String,
-    pub external_adapter: Option<String>,
-    pub external_subject_key: Option<String>,
-    /// Inbound rows (`message_role = 'user'`).
-    pub incoming: i64,
-    /// Outbound rows (`message_role = 'assistant'`).
-    pub outgoing: i64,
-}
-
 /// Per-`Agent`-call subagent aggregate: message count + summed assistant
 /// tokens, keyed by the spawning `Agent` tool-use id (`parent_uuid`). Feeds the
 /// `subagentSummary` injected onto the top-level read path and live emit.
 #[derive(Debug, Clone, sqlx::FromRow)]
-pub struct SubagentAggregate {
+pub(crate) struct SubagentAggregate {
     /// The spawning `Agent` tool-use id (`task_messages.parent_uuid`).
     pub parent_uuid: String,
     /// `COUNT(*)` of the subagent's rows.
@@ -138,39 +104,10 @@ pub struct SubagentAggregate {
     pub tokens: i64,
 }
 
-/// One Task carrying unacknowledged user messages, the desired-state
-/// reconciler's message-wake input.
-///
-/// A user-turn that was acknowledged by the sandbox but never reached a
-/// terminal `agent.completed/error/stopped` event — i.e. the sandbox
-/// crashed/restarted mid-run. Used by the recovery RPC to drive a
-/// `claude --resume <session_id>` replay on startup.
-#[derive(Debug, Clone)]
-pub struct InterruptedTurn {
-    /// `task_messages.id` of the turn's first user row, for logging. The
-    /// recovery counter lives on `task_turns` — a turn can hold several user
-    /// messages, so bumping one of them would undercount the batch.
-    pub task_message_id: i32,
-    pub task_id: String,
-    /// Backend-tracked agent session ID. Either `session_id` or
-    /// `agent_session_id` — they're set together at acknowledgement.
-    pub session_id: String,
-    pub turn_number: i32,
-    pub prompt_text: String,
-    pub agent_mode: Option<String>,
-    /// Reasoning effort the interrupted turn ran with, so the replay repeats it.
-    pub effort: Option<String>,
-    pub recovery_attempts: i32,
-    /// The turn's original `run_id`, so the recovery re-drive can reuse it and
-    /// keep its events on this turn. `None` for legacy turns with no recorded
-    /// `run_id` — those fall back to a fresh run (the pre-existing behaviour).
-    pub run_id: Option<String>,
-}
-
 /// DAO trait for message persistence.
 #[cfg_attr(test, mockall::automock)]
 #[async_trait]
-pub trait MessageDao: Send + Sync {
+pub(crate) trait MessageDao: Send + Sync {
     async fn get_all(&self, task_id: &str) -> Result<MessagePage, sqlx::Error>;
 
     /// Write a Message and everything its content array changed, in one
@@ -334,7 +271,7 @@ pub trait MessageDao: Send + Sync {
     ///
     /// The entry for a caller with no `tool_use_id` to hang the record on — a
     /// `moat` command in a sandbox shell. See
-    /// [`outbound_events`](crate::task::outbound_events).
+    /// [`outbound_events`](crate::task::outbound_events_dao).
     async fn record_external_event<'a>(
         &self,
         task_id: &'a str,
@@ -471,26 +408,26 @@ pub trait MessageDao: Send + Sync {
         &self,
         task_id: &str,
         at_turn: Option<i32>,
-    ) -> Result<Option<crate::message::fork::ForkAnchors>, sqlx::Error>;
+    ) -> Result<Option<crate::message::fork_dao::ForkAnchors>, sqlx::Error>;
 
     /// Copy a Task's conversation onto a fork, up to and including `at_turn`.
-    /// See [`crate::message::fork`] for what the copy carries and re-keys.
+    /// See [`crate::message::fork_dao`] for what the copy carries and re-keys.
     async fn fork_conversation(
         &self,
         source_task_id: &str,
         dest_task_id: &str,
         at_turn: Option<i32>,
-    ) -> Result<crate::message::fork::ForkCopyCounts, sqlx::Error>;
+    ) -> Result<crate::message::models::ForkCopyCounts, sqlx::Error>;
 
     /// Delete a fork's copied conversation, undoing [`Self::fork_conversation`]
     /// when the create that was to follow it fails. See
-    /// [`crate::message::fork::discard_conversation`] for why this exists and
+    /// [`crate::message::fork_dao::discard_conversation`] for why this exists and
     /// when it is safe to call.
     async fn discard_forked_conversation(&self, dest_task_id: &str) -> Result<(), sqlx::Error>;
 }
 
 /// PostgreSQL implementation of [`MessageDao`].
-pub struct PgMessageDao(pub DbPool);
+pub(crate) struct PgMessageDao(pub(crate) DbPool);
 
 /// The columns a whole Message is written with, and their placeholders.
 ///
@@ -606,7 +543,7 @@ pub(crate) use bind_message;
 /// index `task_messages_pending_user_idx`.
 ///
 /// Reached through `moatless_ports::task::PendingWorkReader`.
-pub async fn members_awaiting_dispatch(
+pub(crate) async fn members_awaiting_dispatch(
     pool: &DbPool,
     task_id: &str,
 ) -> Result<Vec<String>, sqlx::Error> {
@@ -1361,7 +1298,7 @@ impl MessageDao for PgMessageDao {
         provider: &'a str,
         source_name: Option<&'a str>,
     ) -> Result<(), sqlx::Error> {
-        crate::task::outbound_events::record(
+        crate::task::outbound_events_dao::record(
             &self.0,
             task_id,
             external_event_id,
@@ -1404,7 +1341,7 @@ impl MessageDao for PgMessageDao {
         }
         // An event the Task caused through a command rather than through a
         // Message it wrote.
-        crate::task::outbound_events::has_any(&self.0, task_id, external_ids).await
+        crate::task::outbound_events_dao::has_any(&self.0, task_id, external_ids).await
     }
 
     async fn get_external_event_ids(&self, task_id: &str) -> Result<Vec<String>, sqlx::Error> {
@@ -1416,7 +1353,7 @@ impl MessageDao for PgMessageDao {
         .fetch_all(&self.0)
         .await?;
 
-        ids.extend(crate::task::outbound_events::ids_for_task(&self.0, task_id).await?);
+        ids.extend(crate::task::outbound_events_dao::ids_for_task(&self.0, task_id).await?);
         Ok(ids)
     }
 
@@ -1442,7 +1379,7 @@ impl MessageDao for PgMessageDao {
         if let Some(task_id) = by_message {
             return Ok(Some(task_id));
         }
-        crate::task::outbound_events::task_for_any(&self.0, external_ids).await
+        crate::task::outbound_events_dao::task_for_any(&self.0, external_ids).await
     }
 
     async fn find_task_id_by_any_external_event_id_on_subject<'a>(
@@ -1472,7 +1409,7 @@ impl MessageDao for PgMessageDao {
         if let Some(task_id) = by_message {
             return Ok(Some(task_id));
         }
-        crate::task::outbound_events::task_for_any_from_source(
+        crate::task::outbound_events_dao::task_for_any_from_source(
             &self.0,
             external_ids,
             subject.adapter,
@@ -1828,8 +1765,8 @@ impl MessageDao for PgMessageDao {
         &self,
         task_id: &str,
         at_turn: Option<i32>,
-    ) -> Result<Option<crate::message::fork::ForkAnchors>, sqlx::Error> {
-        crate::message::fork::anchors(&self.0, task_id, at_turn).await
+    ) -> Result<Option<crate::message::fork_dao::ForkAnchors>, sqlx::Error> {
+        crate::message::fork_dao::anchors(&self.0, task_id, at_turn).await
     }
 
     async fn fork_conversation(
@@ -1837,99 +1774,14 @@ impl MessageDao for PgMessageDao {
         source_task_id: &str,
         dest_task_id: &str,
         at_turn: Option<i32>,
-    ) -> Result<crate::message::fork::ForkCopyCounts, sqlx::Error> {
-        crate::message::fork::copy_conversation(&self.0, source_task_id, dest_task_id, at_turn)
+    ) -> Result<crate::message::models::ForkCopyCounts, sqlx::Error> {
+        crate::message::fork_dao::copy_conversation(&self.0, source_task_id, dest_task_id, at_turn)
             .await
     }
 
     async fn discard_forked_conversation(&self, dest_task_id: &str) -> Result<(), sqlx::Error> {
-        crate::message::fork::discard_conversation(&self.0, dest_task_id).await
+        crate::message::fork_dao::discard_conversation(&self.0, dest_task_id).await
     }
-}
-
-// =========================================================================
-// Free-function wrappers for integration tests
-// =========================================================================
-
-pub async fn append(
-    pool: &DbPool,
-    msg: &TaskMessage,
-    contexts: &[TaskMessageContext],
-    conversation: &ConversationWrite,
-) -> Result<i32, sqlx::Error> {
-    PgMessageDao(pool.clone())
-        .append(msg, contexts, conversation)
-        .await
-}
-
-pub async fn get_all(pool: &DbPool, task_id: &str) -> Result<MessagePage, sqlx::Error> {
-    PgMessageDao(pool.clone()).get_all(task_id).await
-}
-
-pub async fn get_pending_user(
-    pool: &DbPool,
-    task_id: &str,
-) -> Result<Vec<TaskMessage>, sqlx::Error> {
-    PgMessageDao(pool.clone()).get_pending_user(task_id).await
-}
-
-pub async fn set_session_id_for_task(
-    pool: &DbPool,
-    task_id: &str,
-    session_id: &str,
-) -> Result<u64, sqlx::Error> {
-    PgMessageDao(pool.clone())
-        .set_session_id_for_task(task_id, session_id)
-        .await
-}
-
-pub async fn get_last_result(
-    pool: &DbPool,
-    task_id: &str,
-) -> Result<Option<TaskMessage>, sqlx::Error> {
-    PgMessageDao(pool.clone()).get_last_result(task_id).await
-}
-
-pub async fn get_last_assistant_message(
-    pool: &DbPool,
-    task_id: &str,
-) -> Result<Option<TaskMessage>, sqlx::Error> {
-    PgMessageDao(pool.clone())
-        .get_last_assistant_message(task_id)
-        .await
-}
-
-pub async fn backfill_last_assistant_usage(
-    pool: &DbPool,
-    task_id: &str,
-    input_tokens: Option<i32>,
-    output_tokens: Option<i32>,
-    cache_creation_input_tokens: Option<i32>,
-    cache_read_input_tokens: Option<i32>,
-    assistant_usage: Option<&serde_json::Value>,
-) -> Result<bool, sqlx::Error> {
-    PgMessageDao(pool.clone())
-        .backfill_last_assistant_usage(
-            task_id,
-            input_tokens,
-            output_tokens,
-            cache_creation_input_tokens,
-            cache_read_input_tokens,
-            assistant_usage,
-        )
-        .await
-}
-
-pub async fn acknowledge_messages(
-    pool: &DbPool,
-    task_id: &str,
-    uuids: &[String],
-    session_id: &str,
-    turn_number: i32,
-) -> Result<u64, sqlx::Error> {
-    PgMessageDao(pool.clone())
-        .acknowledge_messages(task_id, uuids, session_id, turn_number)
-        .await
 }
 
 #[cfg(all(test, feature = "db-tests"))]
@@ -2139,3 +1991,7 @@ mod db_tests {
         assert_eq!(pending_work_at(&pool, "t1").await, None);
     }
 }
+
+#[cfg(all(test, feature = "db-tests"))]
+#[path = "dao_db_tests.rs"]
+mod dao_db_tests;

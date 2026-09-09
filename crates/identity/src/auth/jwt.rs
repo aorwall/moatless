@@ -8,9 +8,9 @@ use serde::{Deserialize, Serialize};
 use tracing::debug;
 use uuid::Uuid;
 
+use moatless_core::config::Config;
 use moatless_types::auth::AuthIdentity;
 use moatless_types::user::UserRole;
-use moatless_core::config::Config;
 
 /// Issuer stamped on session JWTs. Bumped at the internal-uuid cutover so cookies
 /// minted before it (provider-id `sub`, `personal-<provider-id>` teams) fail

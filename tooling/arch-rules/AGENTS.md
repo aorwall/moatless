@@ -4,6 +4,7 @@
 cargo run -p moatless-arch-rules --bin arch-report                      # the to-do list
 cargo run -p moatless-arch-rules --bin arch-report -- --json            # stable IDs and locations
 cargo run -p moatless-arch-rules --bin arch-report -- --update-baseline # accept what is there now
+cargo run -p moatless-arch-rules --bin arch-report -- --persistence-inventory # rewrite the DAO migration inventory
 cargo test -p moatless-arch-rules                                       # fails on new violations
 ARCH_STRICT=1 cargo test -p moatless-arch-rules                         # fails on any violation
 ```

@@ -16,12 +16,12 @@ use std::collections::HashMap;
 use moatless_core::db::DbPool;
 
 use super::dao::{bind_message, message_columns, message_placeholders};
-use super::models::TaskMessage;
+use super::models::{ForkCopyCounts, TaskMessage};
 
 /// The parent's agent session at a fork cut, and the transcript line the cut
 /// lands on.
 #[derive(Debug, Clone)]
-pub struct ForkAnchors {
+pub(crate) struct ForkAnchors {
     /// The parent's `session_id` at the cut — the Claude session or Codex thread
     /// the pod branches from. Read from `session_id` rather than
     /// `agent_session_id`: only `user` and `error` rows are ever stamped with the
@@ -46,14 +46,6 @@ struct CopiedActivity {
     parent_uuid: Option<String>,
 }
 
-/// How much of the parent the copy carried.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct ForkCopyCounts {
-    pub messages: usize,
-    pub activities: usize,
-    pub contexts: usize,
-}
-
 /// The predicate that decides which of `task_id`'s Messages a cut at `at_turn`
 /// keeps.
 ///
@@ -74,7 +66,7 @@ macro_rules! at_or_before_cut {
 /// `None` when the parent has no agent-written Message at or before the cut
 /// carrying a session — a Task whose agent never ran, or one forked at a turn
 /// before it did. Such a fork carries the conversation and no agent context.
-pub async fn anchors(
+pub(crate) async fn anchors(
     pool: &DbPool,
     task_id: &str,
     at_turn: Option<i32>,
@@ -118,7 +110,7 @@ pub async fn anchors(
 /// `task_activities` has a foreign key to `tasks` — both say so in their
 /// migrations, for the same reason this needs it — so the copy can land first
 /// and the create that follows delivers the fork's first message after it.
-pub async fn copy_conversation(
+pub(crate) async fn copy_conversation(
     pool: &DbPool,
     source_task_id: &str,
     dest_task_id: &str,
@@ -336,7 +328,10 @@ pub async fn copy_conversation(
 /// One transaction, so a fork's rows never half-vanish. `task_message_contexts`
 /// is not deleted here: it has a foreign key to `task_messages` with `ON DELETE
 /// CASCADE`, so the Message delete below takes each Message's contexts with it.
-pub async fn discard_conversation(pool: &DbPool, dest_task_id: &str) -> Result<(), sqlx::Error> {
+pub(crate) async fn discard_conversation(
+    pool: &DbPool,
+    dest_task_id: &str,
+) -> Result<(), sqlx::Error> {
     let mut tx = pool.begin().await?;
     sqlx::query("DELETE FROM task_message_usage WHERE task_id = $1")
         .bind(dest_task_id)

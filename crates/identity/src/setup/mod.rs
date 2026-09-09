@@ -4,4 +4,4 @@ pub mod evaluator;
 pub mod github;
 pub mod schemas;
 
-pub use self::evaluator::{evaluate_setup, SetupContext};
+pub use self::evaluator::{SetupContext, evaluate_setup};

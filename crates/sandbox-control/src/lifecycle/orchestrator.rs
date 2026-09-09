@@ -35,8 +35,9 @@ use moatless_types::access_control::{Scope, ScopedResource};
 use moatless_types::sandbox::{SandboxDesiredState, SandboxStopReason};
 pub use moatless_types::store::StoreError;
 use moatless_types::task::TaskStatus;
-use moatless_types::task::{CheckoutMode, Visibility};
+use moatless_types::task::Visibility;
 
+use super::dao::{IntentWrite, LifecycleDao};
 use super::error::LifecycleError;
 use super::events::{self, EventContext, FailureDetail, LifecycleEvent};
 use moatless_sandbox_runtime::observation_events::EventFact;
@@ -79,42 +80,6 @@ impl TaskIntent {
     }
 }
 
-/// What a Sandbox's pod is built from, all of it off the `sandboxes` row.
-///
-/// `owner_user_id` is the identity the pod authenticates back to the backend
-/// as, so it is the one the gRPC control gate checks. `run_as_user_id` is the
-/// identity the pod acts as outward — for git-host credentials and for the
-/// plugins it is delivered.
-#[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
-pub struct SandboxShape {
-    pub workspace_id: String,
-    #[sqlx(try_from = "String")]
-    pub scope: Scope,
-    pub owner_user_id: Option<String>,
-    pub run_as_user_id: Option<String>,
-    pub branch: Option<String>,
-    pub headless: bool,
-    pub agent_type: Option<String>,
-    pub use_tmux: bool,
-}
-
-/// One Sandbox the reconciler should look at, named by the Task that
-/// represents it, plus when work was last queued for it.
-#[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
-pub struct ReconcileCandidate {
-    pub task_id: String,
-    pub pending_work_at: Option<DateTime<Utc>>,
-}
-
-/// One durable member of a running Sandbox.
-#[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
-pub struct SandboxMember {
-    pub task_id: String,
-    pub sandbox_id: String,
-    #[sqlx(try_from = "String")]
-    pub checkout_mode: CheckoutMode,
-}
-
 /// One `moat cmd` command a pod says still owes its agent an outcome.
 ///
 /// Metadata only, and none of it is read here: the fields exist so the
@@ -141,131 +106,6 @@ struct OperationRun {
     intent_effect: IntentEffect,
     marker_was_incomplete: bool,
     stop_reason: Option<SandboxStopReason>,
-}
-
-/// The atomic intent write — desired state, reason, retention, and the
-/// correlation marker, all in one statement/transaction so readers never
-/// observe partial intent.
-#[derive(Debug, Clone)]
-pub struct IntentWrite {
-    pub desired_state: SandboxDesiredState,
-    pub stop_reason: Option<SandboxStopReason>,
-    pub retention: Option<ArchiveRetention>,
-    pub marker: CorrelationMarker,
-}
-
-/// Durable intent persistence + generation allocation.
-#[async_trait]
-pub trait LifecycleDao: Send + Sync {
-    async fn load(&self, task_id: &str) -> Result<Option<TaskIntent>, StoreError>;
-
-    /// DB-derived reconciler candidates: participating Tasks (Open/Error) that
-    /// desire Running, any Sandbox carrying an incomplete operation marker, and
-    /// any Sandbox with queued work. The reconciler unions these with the
-    /// observed fleet, then decides which have actually diverged.
-    async fn reconcile_candidates(&self) -> Result<Vec<ReconcileCandidate>, StoreError>;
-
-    /// All open/error Task members of Sandboxes that durably desire Running.
-    /// Used by the reconciler to rebuild in-pod member contexts after a pod
-    /// restart from DB truth, not process memory.
-    async fn running_sandbox_members(&self) -> Result<Vec<SandboxMember>, StoreError>;
-
-    /// Whether another active Task still points at the same Sandbox.
-    ///
-    /// A member close/delete may stop that member's agent, but the runtime
-    /// resources belong to the Sandbox and stay while any open/error peer is
-    /// still attached.
-    async fn has_other_active_members(
-        &self,
-        sandbox_id: &str,
-        task_id: &str,
-    ) -> Result<bool, StoreError>;
-
-    /// The Sandbox's pod shape and access-control pair. Absent when the Sandbox
-    /// has no row, which is a Sandbox that was never created.
-    async fn sandbox_shape(&self, sandbox_id: &str) -> Result<Option<SandboxShape>, StoreError>;
-
-    /// Allocate the next durable operation generation for the Task.
-    async fn allocate_generation(&self, task_id: &str) -> Result<OperationGeneration, StoreError>;
-
-    /// Atomically persist intent + marker. Returns whether intent actually
-    /// changed (desired state, stop reason, or retention).
-    async fn persist_intent(
-        &self,
-        task_id: &str,
-        write: &IntentWrite,
-    ) -> Result<IntentEffect, StoreError>;
-
-    /// Persist a **full** deterministic terminal fact (id, status, and any
-    /// reason tag) and clear the marker in one transaction. Used for ordinary
-    /// completion and for a stale edge's durable abandonment fact. The caller
-    /// publishes only after this returns `Ok`.
-    async fn commit_fact_and_clear_marker(
-        &self,
-        sandbox_id: &str,
-        task_id: &str,
-        event: &LifecycleEvent,
-    ) -> Result<(), StoreError>;
-
-    /// Clear the marker synchronously — used for an `Unchanged` + `NoOp`
-    /// against an already-converged target, where no completion fact will ever
-    /// exist for the generation.
-    async fn clear_marker(
-        &self,
-        task_id: &str,
-        generation: OperationGeneration,
-    ) -> Result<(), StoreError>;
-
-    /// When each of `task_ids` entered `Stopped`, for the subset that is
-    /// stopped now and still owns storage.
-    ///
-    /// The two exclusions are what make this a *candidate* set rather than a
-    /// state read: a Task with no Sandbox row never had storage, and one whose
-    /// storage was already reclaimed stays `Stopped` forever and would
-    /// otherwise be re-offered on every cycle.
-    async fn stopped_with_storage(
-        &self,
-        task_ids: &[String],
-    ) -> Result<Vec<(String, DateTime<Utc>)>, StoreError>;
-
-    /// Record that the Task's storage was reclaimed, removing it from
-    /// [`Self::stopped_with_storage`] until a start provisions a fresh volume.
-    async fn mark_storage_reclaimed(&self, task_id: &str) -> Result<(), StoreError>;
-
-    /// Record how many `moat cmd` commands the Sandbox is running, as the pod
-    /// last reported. Absolute, so a repeat of an already-recorded count is a
-    /// no-op and a missed report is corrected by the next one.
-    ///
-    /// Notifies the listing only when the count crosses zero: the sidebar
-    /// renders "is anything running", so a 2→3 move changes no row and a feed
-    /// record for it would wake every connected client for nothing.
-    async fn record_running_commands(&self, task_id: &str, running: i32) -> Result<(), StoreError>;
-
-    /// Mirror the commands a pod says still owe its agent an outcome, so a
-    /// replacement can name them.
-    ///
-    /// The pod's own journal rides the S3 workspace snapshot, which a failed
-    /// restore takes with it, and the wake is then never delivered. This is the
-    /// second copy, on a row no restore touches.
-    ///
-    /// Absolute, for the reason [`Self::record_running_commands`] is: the
-    /// registry dies with its pod, so nothing would ever retract a delta. The
-    /// write happens off the pod's registry lock, so two of them can arrive out
-    /// of order; `revision` is that lock's counter, and a call carrying one no
-    /// higher than the stored value is dropped rather than applied.
-    async fn record_unreported_commands(
-        &self,
-        task_id: &str,
-        commands: &[OutstandingCommand],
-        revision: i64,
-    ) -> Result<(), StoreError>;
-
-    /// Read the stored set and clear it in one statement, so a pod announces
-    /// the loss exactly once however many times it restarts.
-    async fn take_unreported_commands(
-        &self,
-        task_id: &str,
-    ) -> Result<Vec<OutstandingCommand>, StoreError>;
 }
 
 /// The narrow internal agent-stop port. Graceful stop is lifecycle's ordering
@@ -326,7 +166,7 @@ pub trait LifecycleEventSink: Send + Sync {
 }
 
 /// A held per-Task lock. Dropping it releases the lock.
-pub trait LockGuard: Send {}
+pub(crate) trait LockGuard: Send {}
 
 /// Per-Task serialization across backend replicas.
 ///
@@ -335,7 +175,7 @@ pub trait LockGuard: Send {}
 /// connection pool with bounded retry; on exhaustion the orchestrator surfaces
 /// `OperationInProgress { kind }` carrying the holder's kind.
 #[async_trait]
-pub trait LifecycleLock: Send + Sync {
+pub(crate) trait LifecycleLock: Send + Sync {
     /// Try to acquire the Task's lock for `kind`. On contention, returns the
     /// conflicting holder's `kind`.
     async fn try_acquire(
@@ -379,7 +219,7 @@ pub struct Lifecycle {
 }
 
 impl Lifecycle {
-    pub fn new(
+    pub(crate) fn new(
         store: Arc<dyn LifecycleDao>,
         runtime: Arc<dyn SandboxRuntime>,
         agent_stop: Arc<dyn AgentStopPort>,
@@ -405,7 +245,10 @@ impl Lifecycle {
     /// Attach the pre-stop workspace push. Optional: a deployment with no S3
     /// configured has nothing to push to, and leaving it unset skips the RPC
     /// entirely rather than issuing one the sandbox would decline.
-    pub fn with_workspace_sync(mut self, workspace_sync: Arc<dyn WorkspaceSyncPort>) -> Self {
+    pub(crate) fn with_workspace_sync(
+        mut self,
+        workspace_sync: Arc<dyn WorkspaceSyncPort>,
+    ) -> Self {
         self.workspace_sync = Some(workspace_sync);
         self
     }
@@ -414,7 +257,7 @@ impl Lifecycle {
     /// Optional for the same reason as the sync: with no S3 there is no
     /// snapshot, so leaving it unset disables the transition rather than
     /// letting it delete a volume with nowhere to fall back to.
-    pub fn with_workspace_archive(mut self, archive: Arc<dyn WorkspaceArchivePort>) -> Self {
+    pub(crate) fn with_workspace_archive(mut self, archive: Arc<dyn WorkspaceArchivePort>) -> Self {
         self.workspace_archive = Some(archive);
         self
     }
@@ -427,12 +270,12 @@ impl Lifecycle {
         }
     }
 
-    pub fn with_lock_attempts(mut self, attempts: u32) -> Self {
+    pub(crate) fn with_lock_attempts(mut self, attempts: u32) -> Self {
         self.lock_attempts = attempts.max(1);
         self
     }
 
-    pub fn with_plan_knowledge(
+    pub(crate) fn with_plan_knowledge(
         mut self,
         plan: super::plan::ProvisionDeps,
         default_sandbox_image: String,
@@ -1492,6 +1335,9 @@ impl SandboxLifecycle for Lifecycle {
 mod tests {
     use super::*;
     use std::sync::Mutex;
+
+    use super::super::dao::{ReconcileCandidate, SandboxShape};
+    use super::super::reconciler::SandboxMember;
 
     use chrono::TimeZone;
     use moatless_sandbox_runtime::runtime::RuntimeError;

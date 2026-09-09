@@ -3,7 +3,7 @@
 use super::error::LoopError;
 use super::models::{LoopFrontmatter, ParsedLoop};
 use super::reconcile::LoopSyncService;
-use crate::loops::dao::{ManagedLoopUpsert, NewAdapterEventSource, NewScheduleSource};
+use crate::loops::models::{ManagedLoopUpsert, NewAdapterEventSource, NewScheduleSource};
 use crate::loops::schedule::next_fire_at;
 use chrono::{DateTime, Utc};
 use moatless_tasks::agent::catalog;
@@ -138,7 +138,7 @@ impl LoopSyncService {
                 let (owner, repo_name) = (parsed.owner(), parsed.name());
                 let Some(connection) = self
                     .adapter_connections
-                    .find_by_external_account("github", owner)
+                    .by_external_account("github", owner)
                     .await?
                 else {
                     return Ok(ResolveOutcome::Skipped(format!(
@@ -171,7 +171,7 @@ impl LoopSyncService {
                 let connection = if let Some(team) = fm.team_id.as_deref() {
                     let Some(connection) = self
                         .adapter_connections
-                        .find_by_external_account("slack", team)
+                        .by_external_account("slack", team)
                         .await?
                     else {
                         return Ok(ResolveOutcome::Skipped(format!(
@@ -180,7 +180,7 @@ impl LoopSyncService {
                     };
                     connection
                 } else {
-                    let conns = self.adapter_connections.list_by_provider("slack").await?;
+                    let conns = self.adapter_connections.by_provider("slack").await?;
                     match conns.as_slice() {
                         [one] => one.clone(),
                         [] => {
@@ -224,7 +224,7 @@ impl LoopSyncService {
                 let connection = if let Some(org) = fm.team_id.as_deref() {
                     let Some(connection) = self
                         .adapter_connections
-                        .find_by_external_account("linear", org)
+                        .by_external_account("linear", org)
                         .await?
                     else {
                         return Ok(ResolveOutcome::Skipped(format!(
@@ -233,7 +233,7 @@ impl LoopSyncService {
                     };
                     connection
                 } else {
-                    let conns = self.adapter_connections.list_by_provider("linear").await?;
+                    let conns = self.adapter_connections.by_provider("linear").await?;
                     match conns.as_slice() {
                         [one] => one.clone(),
                         [] => {

@@ -28,7 +28,7 @@ use moatless_core::config::Config;
 use moatless_adapter_model::binding::ADAPTER_EVENT_BINDING_ORIGIN;
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_adapter_model::loops::LoopReader;
-use moatless_loops::bindings::dao::TaskBindingDao;
+use moatless_loops::bindings::operations::Bindings;
 use moatless_ports::sandbox::SandboxWaker;
 use moatless_ports::task::RelationRecorder;
 use moatless_ports::task::TaskOpener;
@@ -40,7 +40,7 @@ use moatless_types::loops::SubscriptionMatch;
 
 use super::active_turns::ActiveLinearTurns;
 use super::agent_api::{ActivityKind, LinearAgentApi};
-use super::config::{rules_need_issue_fetch, select_spawn_rule, LinearRuleConfig};
+use super::config::{LinearRuleConfig, rules_need_issue_fetch, select_spawn_rule};
 use super::issues::{insert_event_task, transition_issue_state};
 use super::subject::{ADAPTER, SUBJECT_KIND_SESSION as SUBJECT_KIND};
 use super::webhook_payloads::AgentSession;
@@ -86,7 +86,7 @@ pub(super) async fn decline_session(api: &LinearAgentApi, session_id: &str, mess
               AppState-shaped bag"
 )]
 pub(super) async fn provision_selected_session_task(
-    task_bindings: &dyn TaskBindingDao,
+    task_bindings: &Bindings,
     tasks: &dyn TaskReader,
     config: &Config,
     task_creation: &dyn TaskOpener,
@@ -197,7 +197,7 @@ async fn select_session_spawn_rule(
               itself that AppState-shaped bag"
 )]
 pub(super) async fn handle_session_prompted(
-    task_bindings: &dyn TaskBindingDao,
+    task_bindings: &Bindings,
     loops: &dyn LoopReader,
     linear_active_turns: &ActiveLinearTurns,
     message_send: &dyn MessageAcceptor,
@@ -208,7 +208,7 @@ pub(super) async fn handle_session_prompted(
     body: &str,
 ) -> Result<(), AdapterError> {
     let bindings: Vec<TaskBinding> = task_bindings
-        .find_by_subject(ADAPTER, SUBJECT_KIND, session_id)
+        .for_subject(ADAPTER, SUBJECT_KIND, session_id)
         .await?
         .into_iter()
         // Skip bindings whose task has closed — a closed task is terminal.
@@ -291,7 +291,7 @@ pub(super) async fn handle_session_prompted(
               AppState-shaped bag"
 )]
 async fn provision_session_task(
-    task_bindings: &dyn TaskBindingDao,
+    task_bindings: &Bindings,
     tasks: &dyn TaskReader,
     config: &Config,
     task_creation: &dyn TaskOpener,
@@ -317,7 +317,7 @@ async fn provision_session_task(
     // second task. Keyed on session id, so multiple *distinct* sessions on the
     // same issue still each get their own task.
     match task_bindings
-        .find_by_subject(ADAPTER, SUBJECT_KIND, &session.id)
+        .for_subject(ADAPTER, SUBJECT_KIND, &session.id)
         .await
     {
         Ok(existing) if !existing.is_empty() => {
@@ -344,7 +344,7 @@ async fn provision_session_task(
     // `linear_agent_session` and `linear_issue` bindings. The new task is
     // linked as `related_to` — a peer sharing the issue, not a child.
     let related = match task_bindings
-        .find_active_by_destination_field(ADAPTER, SUBJECT_KIND, "issue_id", &issue.id)
+        .active_by_destination_field(ADAPTER, SUBJECT_KIND, "issue_id", &issue.id)
         .await
     {
         Ok(bindings) => bindings
@@ -422,19 +422,19 @@ async fn provision_session_task(
         issue.url.as_deref(),
         &team_id,
     );
-    let binding = moatless_loops::bindings::runtime::upsert_binding_into(
-        task_bindings,
-        connection,
-        Some(rule),
-        &task_id,
-        ADAPTER,
-        SUBJECT_KIND,
-        &session.id,
-        destination_config,
-        ADAPTER_EVENT_BINDING_ORIGIN,
-        None,
-    )
-    .await?;
+    let binding = task_bindings
+        .bind(
+            connection,
+            Some(rule),
+            &task_id,
+            ADAPTER,
+            SUBJECT_KIND,
+            &session.id,
+            destination_config,
+            ADAPTER_EVENT_BINDING_ORIGIN,
+            None,
+        )
+        .await?;
 
     // Update the session with an externalUrl pointing at the moatless task.
     let task_url = super::text::task_url(config, &task_id);

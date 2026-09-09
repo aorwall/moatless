@@ -34,24 +34,18 @@ use moatless_core::change_feed::listing::current_position;
 use moatless_core::change_feed::listing::prune_changes;
 use moatless_core::change_feed::listing::record_change;
 use moatless_core::change_feed::listing::resume;
-use moatless_tasks::message::dao::MessageDao;
-use moatless_tasks::message::dao::PgMessageDao;
-use moatless_tasks::tag::dao::PgTagDao;
-use moatless_tasks::tag::dao::TagDao;
-use moatless_tasks::task::dao::TaskDao;
-use moatless_tasks::task::dao::TaskPatch;
+use moatless_tasks::tag::test_support as tag_fixtures;
+use moatless_tasks::task::models::TaskPatch;
 use moatless_tasks::task::models::TaskStatus;
 use moatless_tasks::task::models::Visibility;
 use moatless_tasks::task_activities::mapping::ConversationWrite;
-use moatless_tasks::task_turn::dao::PgTaskTurnDao;
-use moatless_tasks::task_turn::dao::TaskTurnDao;
-use moatless_tasks::task_turn::dao::TurnStateEvent;
+use moatless_tasks::task_turn::models::TurnStateEvent;
 use moatless_tasks::task_turn::models::TurnStatus;
 use moatless_tasks::task_turn::models::TurnTransition;
+use moatless_tasks::task_turn::test_support as turn_fixtures;
 use moatless_types::access_control::ScopeContext;
-use moatless_workspaces::workspace::dao::PgWorkspaceDao;
-use moatless_workspaces::workspace::dao::WorkspaceDao;
-use moatless_workspaces::workspace::dao::WorkspacePatch;
+use moatless_workspaces::compose;
+use moatless_workspaces::workspace::models::WorkspacePatch;
 use sqlx::PgPool;
 use sqlx::postgres::PgPoolOptions;
 
@@ -340,7 +334,7 @@ async fn a_committed_mutation_carries_its_record_with_it(pool: PgPool) {
 /// tombstoning one must not consume a Task-listing position.
 #[sqlx::test]
 async fn workspace_mutations_do_not_advance_the_task_listing(pool: PgPool) {
-    let workspaces = PgWorkspaceDao(pool.clone());
+    let workspaces = compose::workspaces(pool.clone());
     let viewer = owner();
 
     workspaces
@@ -608,8 +602,9 @@ async fn a_writer_blocked_on_a_task_row_is_not_holding_the_counter(pool: PgPool)
     // the `tasks` row the rename is holding.
     let ingress_pool = wide.clone();
     let ingress = tokio::spawn(async move {
-        PgTaskTurnDao(ingress_pool)
-            .apply_ingress_event(&TurnStateEvent {
+        turn_fixtures::apply_ingress_event(
+            &ingress_pool,
+            &TurnStateEvent {
                 event_id: "ev-1".to_string(),
                 task_id: "task-a".to_string(),
                 event_type: "agent".to_string(),
@@ -620,9 +615,10 @@ async fn a_writer_blocked_on_a_task_row_is_not_holding_the_counter(pool: PgPool)
                 payload: serde_json::json!({}),
                 timestamp: "2026-01-01T00:00:00Z".to_string(),
                 transition: TurnTransition::Terminal(TurnStatus::Completed),
-            })
-            .await
-            .unwrap();
+            },
+        )
+        .await
+        .unwrap();
     });
     tokio::time::sleep(Duration::from_millis(300)).await;
     assert!(
@@ -676,7 +672,7 @@ async fn a_writer_blocked_on_a_task_row_is_not_holding_the_counter(pool: PgPool)
 /// One change kind is missing here and covered in-crate instead: the Sandbox's
 /// intent write goes through `PgLifecycleDao`, which is `pub(crate)` and
 /// invisible to an integration test. Its case lives beside it in
-/// `sandbox/lifecycle/dao.rs`.
+/// `crates/sandbox-control/src/lifecycle/dao.rs`.
 struct Mutation {
     /// What a person did, in the words the acceptance criteria use.
     what: &'static str,
@@ -692,8 +688,7 @@ struct Mutation {
 /// A Task already in the deployment, owned by the user the mutations run as.
 async fn seed_subject(pool: &PgPool, subject: &str) {
     crate::common::seed_workspace(pool, crate::common::FIXTURE_WORKSPACE, USER_1).await;
-    moatless_tasks::task::dao::store_over(pool)
-        .insert_task(&make_task_row(subject, USER_1))
+    moatless_tasks::task::test_support::seed_task(pool, &make_task_row(subject, USER_1))
         .await
         .unwrap();
 }
@@ -729,8 +724,7 @@ async fn no_mutation_holds_the_counter_while_it_waits_for_another_lock(pool: PgP
             run: |pool, subject| {
                 Box::pin(async move {
                     let row = make_task_row(&format!("{subject}-new"), USER_1);
-                    moatless_tasks::task::dao::store_over(&pool)
-                        .insert_task(&row)
+                    moatless_tasks::task::test_support::seed_task(&pool, &row)
                         .await
                         .unwrap();
                 })
@@ -753,10 +747,14 @@ async fn no_mutation_holds_the_counter_while_it_waits_for_another_lock(pool: PgP
                         ttl_minutes: Some(120),
                         ..TaskPatch::default()
                     };
-                    moatless_tasks::task::dao::store_over(&pool)
-                        .update_task(&subject, &patch, &owner())
-                        .await
-                        .unwrap();
+                    moatless_tasks::task::test_support::patch_task(
+                        &pool,
+                        &subject,
+                        &patch,
+                        &owner(),
+                    )
+                    .await
+                    .unwrap();
                 })
             },
         },
@@ -766,10 +764,14 @@ async fn no_mutation_holds_the_counter_while_it_waits_for_another_lock(pool: PgP
             hold: HOLD_TASK_ROW,
             run: |pool, subject| {
                 Box::pin(async move {
-                    moatless_tasks::task::dao::store_over(&pool)
-                        .update_status_if_not_closed(&subject, TaskStatus::Closed, &owner())
-                        .await
-                        .unwrap();
+                    moatless_tasks::task::test_support::set_status_if_open(
+                        &pool,
+                        &subject,
+                        TaskStatus::Closed,
+                        &owner(),
+                    )
+                    .await
+                    .unwrap();
                 })
             },
         },
@@ -780,8 +782,7 @@ async fn no_mutation_holds_the_counter_while_it_waits_for_another_lock(pool: PgP
             run: |pool, subject| {
                 Box::pin(async move {
                     assert!(
-                        moatless_tasks::task::dao::store_over(&pool)
-                            .delete_task(&subject, &owner())
+                        moatless_tasks::task::test_support::remove_task(&pool, &subject, &owner())
                             .await
                             .unwrap()
                     );
@@ -799,10 +800,14 @@ async fn no_mutation_holds_the_counter_while_it_waits_for_another_lock(pool: PgP
             run: |pool, subject| {
                 Box::pin(async move {
                     let msg = make_message_row(&subject, &format!("{subject}-msg"));
-                    PgMessageDao(pool)
-                        .append(&msg, &[], &ConversationWrite::default())
-                        .await
-                        .unwrap();
+                    moatless_tasks::message::test_support::seed_message(
+                        &pool,
+                        &msg,
+                        &[],
+                        &ConversationWrite::default(),
+                    )
+                    .await
+                    .unwrap();
                 })
             },
         },
@@ -815,8 +820,7 @@ async fn no_mutation_holds_the_counter_while_it_waits_for_another_lock(pool: PgP
             hold: "INSERT INTO task_tags (task_id, tag_id) VALUES ($1, 'tag-1')",
             run: |pool, subject| {
                 Box::pin(async move {
-                    PgTagDao(pool)
-                        .add_task_tags(&subject, &["tag-1".to_string()])
+                    tag_fixtures::add_task_tags(&pool, &subject, &["tag-1".to_string()])
                         .await
                         .unwrap();
                 })
@@ -828,8 +832,7 @@ async fn no_mutation_holds_the_counter_while_it_waits_for_another_lock(pool: PgP
             hold: "SELECT id FROM task_tags WHERE task_id = $1 FOR UPDATE",
             run: |pool, subject| {
                 Box::pin(async move {
-                    PgTagDao(pool)
-                        .set_task_tags(&subject, &["tag-1".to_string()])
+                    tag_fixtures::set_task_tags(&pool, &subject, &["tag-1".to_string()])
                         .await
                         .unwrap();
                 })
@@ -841,8 +844,7 @@ async fn no_mutation_holds_the_counter_while_it_waits_for_another_lock(pool: PgP
             hold: "INSERT INTO task_follows (user_id, task_id) VALUES ('user-x', $1)",
             run: |pool, subject| {
                 Box::pin(async move {
-                    moatless_tasks::task::dao::store_over(&pool)
-                        .follow_task("user-x", &subject)
+                    moatless_tasks::task::test_support::follow_task(&pool, "user-x", &subject)
                         .await
                         .unwrap();
                 })
@@ -856,8 +858,7 @@ async fn no_mutation_holds_the_counter_while_it_waits_for_another_lock(pool: PgP
             hold: "SELECT task_id FROM task_follows WHERE task_id = $1 FOR UPDATE",
             run: |pool, subject| {
                 Box::pin(async move {
-                    moatless_tasks::task::dao::store_over(&pool)
-                        .unfollow_task(USER_1, &subject)
+                    moatless_tasks::task::test_support::unfollow_task(&pool, USER_1, &subject)
                         .await
                         .unwrap();
                 })

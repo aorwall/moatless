@@ -6,29 +6,26 @@ use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 
-
-use crate::repository::dao::RepositoryDao;
+use crate::repository::Repositories;
 use moatless_core::http_auth::AuthUser;
 use moatless_ports::identity::UserResolver;
 
-use super::dao::WorkspaceDao;
 use super::error::WorkspaceError;
 use super::git_sync::GitSyncService;
 use super::models::WorkspaceRepo;
+use super::operations::Workspaces;
 use super::schemas::{
     AddRepoRequest, CreateWorkspaceRequest, ResetGitWorkspaceResponse, UpdateWorkspaceRequest,
     WorkspaceResponse, workspace_response,
 };
 
-
-
-
 /// Load a workspace (scoped) plus its placements into a response, or `NotFound`.
 async fn load_response(
-    workspaces: &Arc<dyn WorkspaceDao>,
+    workspaces: &Workspaces,
     auth: &AuthUser,
     workspace_id: &str,
 ) -> Result<WorkspaceResponse, WorkspaceError> {
+    let workspaces = workspaces.store();
     let ws = workspaces
         .find_by_id(workspace_id, &auth.scope_context())
         .await?
@@ -36,10 +33,6 @@ async fn load_response(
     let repos = workspaces.find_repos(workspace_id).await?;
     Ok(workspace_response(ws, repos))
 }
-
-
-
-
 
 #[utoipa::path(
     post,
@@ -53,13 +46,20 @@ async fn load_response(
     )
 )]
 pub async fn create_workspace(
-    State(workspaces): State<Arc<dyn WorkspaceDao>>,
-    State(repositories): State<Arc<dyn RepositoryDao>>,
+    State(workspaces): State<Arc<Workspaces>>,
+    State(repositories): State<Arc<Repositories>>,
     State(users): State<Arc<dyn UserResolver>>,
     auth: AuthUser,
     Json(req): Json<CreateWorkspaceRequest>,
 ) -> Result<(StatusCode, Json<WorkspaceResponse>), WorkspaceError> {
-    let workspace_id = super::mutations::create_workspace(workspaces.as_ref(), repositories.as_ref(), users.as_ref(), &auth.scope_context(), req).await?;
+    let workspace_id = super::mutations::create_workspace(
+        workspaces.store(),
+        repositories.store(),
+        users.as_ref(),
+        &auth.scope_context(),
+        req,
+    )
+    .await?;
     let response = load_response(&workspaces, &auth, &workspace_id).await?;
     Ok((StatusCode::CREATED, Json(response)))
 }
@@ -73,12 +73,13 @@ pub async fn create_workspace(
     )
 )]
 pub async fn list_workspaces(
-    State(workspaces): State<Arc<dyn WorkspaceDao>>,
+    State(workspaces): State<Arc<Workspaces>>,
     auth: AuthUser,
 ) -> Result<Json<Vec<WorkspaceResponse>>, WorkspaceError> {
-    let rows = workspaces.list(&auth.scope_context()).await?;
+    let store = workspaces.store();
+    let rows = store.list(&auth.scope_context()).await?;
     let ids: Vec<String> = rows.iter().map(|w| w.id.clone()).collect();
-    let all_repos = workspaces.find_repos_for_workspaces(&ids).await?;
+    let all_repos = store.find_repos_for_workspaces(&ids).await?;
 
     let responses: Vec<WorkspaceResponse> = rows
         .into_iter()
@@ -105,7 +106,7 @@ pub async fn list_workspaces(
     )
 )]
 pub async fn get_workspace(
-    State(workspaces): State<Arc<dyn WorkspaceDao>>,
+    State(workspaces): State<Arc<Workspaces>>,
     auth: AuthUser,
     Path(workspace_id): Path<String>,
 ) -> Result<Json<WorkspaceResponse>, WorkspaceError> {
@@ -126,13 +127,20 @@ pub async fn get_workspace(
     )
 )]
 pub async fn update_workspace(
-    State(workspaces): State<Arc<dyn WorkspaceDao>>,
+    State(workspaces): State<Arc<Workspaces>>,
     State(users): State<Arc<dyn UserResolver>>,
     auth: AuthUser,
     Path(workspace_id): Path<String>,
     Json(req): Json<UpdateWorkspaceRequest>,
 ) -> Result<Json<WorkspaceResponse>, WorkspaceError> {
-    super::mutations::update_workspace(workspaces.as_ref(), users.as_ref(), &auth.scope_context(), workspace_id.clone(), req).await?;
+    super::mutations::update_workspace(
+        workspaces.store(),
+        users.as_ref(),
+        &auth.scope_context(),
+        workspace_id.clone(),
+        req,
+    )
+    .await?;
     let response = load_response(&workspaces, &auth, &workspace_id).await?;
     Ok(Json(response))
 }
@@ -149,11 +157,12 @@ pub async fn update_workspace(
     )
 )]
 pub async fn delete_workspace(
-    State(workspaces): State<Arc<dyn WorkspaceDao>>,
+    State(workspaces): State<Arc<Workspaces>>,
     auth: AuthUser,
     Path(workspace_id): Path<String>,
 ) -> Result<StatusCode, WorkspaceError> {
-    super::mutations::delete_workspace(workspaces.as_ref(), &auth.scope_context(), workspace_id).await?;
+    super::mutations::delete_workspace(workspaces.store(), &auth.scope_context(), workspace_id)
+        .await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -173,13 +182,20 @@ pub async fn delete_workspace(
 /// skips this workspace going forward. Provenance fields are preserved.
 /// Use `POST /{id}/reset-git` to re-enable git sync.
 pub async fn override_workspace(
-    State(workspaces): State<Arc<dyn WorkspaceDao>>,
+    State(workspaces): State<Arc<Workspaces>>,
     State(users): State<Arc<dyn UserResolver>>,
     auth: AuthUser,
     Path(workspace_id): Path<String>,
     Json(req): Json<UpdateWorkspaceRequest>,
 ) -> Result<Json<WorkspaceResponse>, WorkspaceError> {
-    super::mutations::override_workspace(workspaces.as_ref(), users.as_ref(), &auth.scope_context(), workspace_id.clone(), req).await?;
+    super::mutations::override_workspace(
+        workspaces.store(),
+        users.as_ref(),
+        &auth.scope_context(),
+        workspace_id.clone(),
+        req,
+    )
+    .await?;
     let response = load_response(&workspaces, &auth, &workspace_id).await?;
     Ok(Json(response))
 }
@@ -203,17 +219,27 @@ pub async fn override_workspace(
 /// entry — a workspace can never end up claiming git provenance while holding
 /// config git never produced.
 pub async fn reset_git_workspace(
-    State(workspaces): State<Arc<dyn WorkspaceDao>>,
-    State(repositories): State<Arc<dyn RepositoryDao>>,
+    State(workspaces): State<Arc<Workspaces>>,
+    State(repositories): State<Arc<Repositories>>,
     State(git_sync): State<Arc<GitSyncService>>,
     auth: AuthUser,
     Path(workspace_id): Path<String>,
 ) -> Result<Json<ResetGitWorkspaceResponse>, WorkspaceError> {
-    let error = super::reset::reset_git_workspace(workspaces.as_ref(), repositories.as_ref(), &git_sync, &auth.scope_context(), workspace_id.clone()).await?;
+    let error = super::reset::reset_git_workspace(
+        workspaces.store(),
+        repositories.store(),
+        &git_sync,
+        &auth.scope_context(),
+        workspace_id.clone(),
+    )
+    .await?;
     let workspace = load_response(&workspaces, &auth, &workspace_id).await?;
-    Ok(Json(ResetGitWorkspaceResponse { resynced: error.is_none(), error, workspace }))
+    Ok(Json(ResetGitWorkspaceResponse {
+        resynced: error.is_none(),
+        error,
+        workspace,
+    }))
 }
-
 
 #[utoipa::path(
     post,
@@ -229,13 +255,20 @@ pub async fn reset_git_workspace(
     )
 )]
 pub async fn add_workspace_repo(
-    State(workspaces): State<Arc<dyn WorkspaceDao>>,
-    State(repositories): State<Arc<dyn RepositoryDao>>,
+    State(workspaces): State<Arc<Workspaces>>,
+    State(repositories): State<Arc<Repositories>>,
     auth: AuthUser,
     Path(workspace_id): Path<String>,
     Json(req): Json<AddRepoRequest>,
 ) -> Result<Json<WorkspaceResponse>, WorkspaceError> {
-    super::mutations::add_workspace_repo(workspaces.as_ref(), repositories.as_ref(), &auth.scope_context(), workspace_id.clone(), req).await?;
+    super::mutations::add_workspace_repo(
+        workspaces.store(),
+        repositories.store(),
+        &auth.scope_context(),
+        workspace_id.clone(),
+        req,
+    )
+    .await?;
     let response = load_response(&workspaces, &auth, &workspace_id).await?;
     Ok(Json(response))
 }
@@ -255,11 +288,17 @@ pub async fn add_workspace_repo(
     )
 )]
 pub async fn remove_workspace_repo(
-    State(workspaces): State<Arc<dyn WorkspaceDao>>,
+    State(workspaces): State<Arc<Workspaces>>,
     auth: AuthUser,
     Path((workspace_id, placement_id)): Path<(String, String)>,
 ) -> Result<Json<WorkspaceResponse>, WorkspaceError> {
-    super::mutations::remove_workspace_repo(workspaces.as_ref(), &auth.scope_context(), workspace_id.clone(), placement_id).await?;
+    super::mutations::remove_workspace_repo(
+        workspaces.store(),
+        &auth.scope_context(),
+        workspace_id.clone(),
+        placement_id,
+    )
+    .await?;
     let response = load_response(&workspaces, &auth, &workspace_id).await?;
     Ok(Json(response))
 }
@@ -279,11 +318,17 @@ pub async fn remove_workspace_repo(
     )
 )]
 pub async fn set_workspace_primary_repo(
-    State(workspaces): State<Arc<dyn WorkspaceDao>>,
+    State(workspaces): State<Arc<Workspaces>>,
     auth: AuthUser,
     Path((workspace_id, placement_id)): Path<(String, String)>,
 ) -> Result<Json<WorkspaceResponse>, WorkspaceError> {
-    super::mutations::set_workspace_primary_repo(workspaces.as_ref(), &auth.scope_context(), workspace_id.clone(), placement_id).await?;
+    super::mutations::set_workspace_primary_repo(
+        workspaces.store(),
+        &auth.scope_context(),
+        workspace_id.clone(),
+        placement_id,
+    )
+    .await?;
     let response = load_response(&workspaces, &auth, &workspace_id).await?;
     Ok(Json(response))
 }

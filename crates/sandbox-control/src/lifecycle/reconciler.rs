@@ -27,12 +27,23 @@ use moatless_types::sandbox::SandboxStopReason;
 use moatless_sandbox_runtime::fleet::{FleetObserver, RuntimeObservation};
 
 use super::attempt::AttemptBudget;
-use super::orchestrator::{Lifecycle, LifecycleDao, SandboxMember, WallClock};
+use super::dao::LifecycleDao;
+use super::orchestrator::{Lifecycle, WallClock};
 use super::reconcile::{ReconcileInput, decide};
 use moatless_ports::task::PendingWorkReader;
 use moatless_sandbox_runtime::convergence::{ReconcileAction, SandboxObservedStatus};
 use moatless_sandbox_runtime::runtime::ErrorClass;
 use moatless_types::sandbox::ArchiveRetention;
+use moatless_types::task::CheckoutMode;
+
+/// One durable member of a running Sandbox.
+#[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
+pub struct SandboxMember {
+    pub task_id: String,
+    pub sandbox_id: String,
+    #[sqlx(try_from = "String")]
+    pub checkout_mode: CheckoutMode,
+}
 
 /// Delivers a pending-message wake to an already-Ready sandbox over gRPC.
 ///
@@ -318,7 +329,7 @@ pub struct Reconciler {
     config: ReconcilerConfig,
 }
 
-pub struct ReconcilerDeps {
+pub(crate) struct ReconcilerDeps {
     pub store: Arc<dyn LifecycleDao>,
     pub observer: Arc<dyn FleetObserver>,
     pub notify: Arc<dyn NotifyPort>,
@@ -328,7 +339,11 @@ pub struct ReconcilerDeps {
 }
 
 impl Reconciler {
-    pub fn new(lifecycle: Lifecycle, deps: ReconcilerDeps, config: ReconcilerConfig) -> Self {
+    pub(crate) fn new(
+        lifecycle: Lifecycle,
+        deps: ReconcilerDeps,
+        config: ReconcilerConfig,
+    ) -> Self {
         Self {
             lifecycle,
             store: deps.store,
@@ -826,8 +841,9 @@ mod tests {
 
     use moatless_types::task::CheckoutMode;
 
+    use super::super::dao::IntentWrite;
     use super::super::events::LifecycleEvent;
-    use super::super::orchestrator::{IntentWrite, OutstandingCommand, StoreError, TaskIntent};
+    use super::super::orchestrator::{OutstandingCommand, StoreError, TaskIntent};
     use moatless_sandbox_runtime::operation::{IntentEffect, OperationGeneration};
 
     struct MemberStore {
@@ -842,7 +858,7 @@ mod tests {
 
         async fn reconcile_candidates(
             &self,
-        ) -> Result<Vec<crate::lifecycle::orchestrator::ReconcileCandidate>, StoreError> {
+        ) -> Result<Vec<crate::lifecycle::dao::ReconcileCandidate>, StoreError> {
             panic!("member registration test must not enumerate reconcile candidates")
         }
 
@@ -856,7 +872,7 @@ mod tests {
         async fn sandbox_shape(
             &self,
             _sandbox_id: &str,
-        ) -> Result<Option<crate::lifecycle::orchestrator::SandboxShape>, StoreError> {
+        ) -> Result<Option<crate::lifecycle::dao::SandboxShape>, StoreError> {
             panic!("member registration test must not read a sandbox shape")
         }
 
@@ -1211,13 +1227,11 @@ mod db_tests {
 
     use sqlx::PgPool;
 
-    use super::super::dao::PgLifecycleDao;
+    use super::super::dao::{IntentWrite, PgLifecycleDao};
+    use super::super::db::lock::PgLifecycleLock;
     use super::super::error::LifecycleError;
     use super::super::events::LifecycleEvent;
-    use super::super::lock::PgLifecycleLock;
-    use super::super::orchestrator::{
-        AgentStopPort, IntentWrite, LifecycleEventSink, SystemWallClock,
-    };
+    use super::super::orchestrator::{AgentStopPort, LifecycleEventSink, SystemWallClock};
     use super::super::test_support::{seed_bare_task, seed_task_with as seed};
     use moatless_sandbox_runtime::fleet::ObserveError;
     use moatless_sandbox_runtime::observation_events::EventFact;
@@ -1369,7 +1383,7 @@ mod db_tests {
     /// A stub returning a fixed list would not exercise what the fan-out is
     /// for, which is resolving the members of a shared Sandbox from the rows a
     /// test actually seeded. The statement matches
-    /// `moatless_tasks::message::dao::members_awaiting_dispatch`; that crate is
+    /// `moatless_tasks::ports::PendingWork`; that crate is
     /// not a dependency here, and this is test code, so it is restated rather
     /// than shared.
     struct PoolPendingWork(PgPool);
@@ -1512,7 +1526,7 @@ mod db_tests {
 
     /// A pending user Message, plus the Sandbox wake signal its send path
     /// writes. The two are one transaction in production
-    /// (`moatless_tasks::message::dao::PgMessageDao::append`); the fixture
+    /// (`moatless_tasks::message::operations::Messages::append`); the fixture
     /// records both so the reconciler sees the shape it reads.
     async fn seed_pending_user_message(pool: &PgPool, task_id: &str, created_at: DateTime<Utc>) {
         sqlx::query(

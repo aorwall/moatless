@@ -34,7 +34,8 @@ use moatless_types::task::TaskSubType;
 use crate::tag::dao::TagDao;
 use crate::task::dao::TaskDao;
 use crate::task::error::TaskError;
-use crate::task::fork::{ForkSession, TaskFork, TaskForkDao};
+use crate::task::fork::{ForkSession, TaskForkDao};
+use crate::task::models::TaskFork;
 use crate::task::models::{Task, TaskStatus};
 use crate::task::relations::{
     CreatedByParent, TaskRelationDao, record_created_by, record_forked_from, record_related_to,
@@ -238,7 +239,7 @@ impl TaskCreationService {
     // publisher, the lifecycle seams, the preflight seam); bundling them behind
     // a one-use struct only shuffles the same fields.
     #[allow(clippy::too_many_arguments)]
-    pub fn new(
+    pub(crate) fn new(
         tasks: Arc<dyn TaskDao>,
         tags: Arc<dyn TagDao>,
         relations: Arc<dyn TaskRelationDao>,

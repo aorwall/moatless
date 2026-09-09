@@ -3,13 +3,13 @@ use super::models::PairingRequest;
 use crate::config::TelegramAdapterConfig;
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_core::db::DbPool;
-use moatless_loops::loops::dao::LoopDao;
+use moatless_loops::loops::operations::Loops;
 use tracing::info;
 
 /// List all pending pairing requests for loops owned by the given user.
 pub async fn list_pending_for_user(
     db: &DbPool,
-    loops: &LoopDao,
+    loops: &Loops,
     user_id: &str,
 ) -> Result<Vec<PairingRequest>, AdapterError> {
     // The owner filter is the Loop domain's fact, so it is asked for rather
@@ -24,9 +24,12 @@ pub async fn list_pending_for_user(
 }
 
 /// Approve a pairing request: mark approved + add user ID to `dm_allowlist`.
+///
+/// The request row is marked approved before the `dm_allowlist` write, so a
+/// failed config write leaves the request approved and the user not allowed.
 pub async fn approve_request(
     db: &DbPool,
-    store: &LoopDao,
+    store: &Loops,
     loop_id: &str,
     code: &str,
 ) -> Result<PairingRequest, AdapterError> {
@@ -39,7 +42,7 @@ pub async fn approve_request(
 
     // Read current adapter_config and append user to dm_allowlist
     let current_config = store
-        .get_adapter_config(loop_id)
+        .adapter_config(loop_id)
         .await
         .map_err(pairing_store_error)?;
 

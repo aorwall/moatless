@@ -5,11 +5,14 @@ use std::sync::Arc;
 use super::models::{TaskMessage, TaskMessageContext};
 use crate::message::dao::MessageDao;
 use crate::message::models::{MessageRole, MessageType, TOOL_RESPONSE_USER_TYPE};
-use crate::task::dao::{TaskDao, TaskPatch};
+use crate::message::operations::Messages;
+use crate::task::dao::TaskDao;
+use crate::task::models::TaskPatch;
+use crate::task::operations::TaskCommands;
 use crate::task::schemas::{FileContextData, MessageContextInput};
 use crate::task_activities::mapping::{ActivityStatus, ConversationWrite, ToolOutcome};
 use crate::task_turn::dao::TaskTurnDao;
-use moatless_core::file_storage::dao::FileDao;
+use moatless_core::file_storage::Files;
 use moatless_types::access_control::ScopeContext;
 use moatless_types::agent::AgentMode;
 
@@ -40,16 +43,16 @@ pub struct MessageSendService {
     messages: Arc<dyn MessageDao>,
     tasks: Arc<dyn TaskDao>,
     task_turns: Arc<dyn TaskTurnDao>,
-    files: Arc<dyn FileDao>,
+    files: Arc<Files>,
     self_echo: Arc<dyn SelfEchoGuard>,
 }
 
 impl MessageSendService {
-    pub fn new(
+    pub(crate) fn new(
         messages: Arc<dyn MessageDao>,
         tasks: Arc<dyn TaskDao>,
         task_turns: Arc<dyn TaskTurnDao>,
-        files: Arc<dyn FileDao>,
+        files: Arc<Files>,
         self_echo: Arc<dyn SelfEchoGuard>,
     ) -> Self {
         Self {
@@ -167,8 +170,8 @@ fn pending_user_row(task_id: &str, uuid: String, text: String, timestamp: String
 ///
 /// `Ok(None)` means the message is already queued, or the Task is closed.
 pub async fn enqueue_sandbox_message(
-    messages: &dyn MessageDao,
-    tasks: &dyn TaskDao,
+    messages: &Messages,
+    tasks: &TaskCommands,
     task_id: &str,
     text: &str,
 ) -> Result<Option<String>, MessageError> {
@@ -419,7 +422,7 @@ impl MessageSendService {
             .cloned()
             .collect();
         for file_id in &normalized_file_ids {
-            let data = match self.files.find_by_id(file_id).await {
+            let data = match self.files.metadata(file_id).await {
                 Ok(Some(meta)) => FileContextData {
                     filename: meta.filename,
                     mime_type: meta.mime_type,
@@ -783,7 +786,7 @@ impl MessageSendService {
 /// rows are keyed on the message that answered, so a redelivered acknowledgement
 /// rewrites the same rows.
 pub async fn settle_answered_prompt(
-    messages: &dyn crate::message::dao::MessageDao,
+    messages: &crate::message::operations::Messages,
     task_id: &str,
     tool_use_id: &str,
     carrier_uuid: &str,
@@ -1016,8 +1019,6 @@ mod tests {
 #[cfg(all(test, feature = "db-tests"))]
 mod db_tests {
     use super::*;
-    use crate::message::dao::PgMessageDao;
-    use crate::task::dao::PgTaskDao;
     use crate::task::test_support::seed_bare_task;
     use sqlx::PgPool;
 
@@ -1028,8 +1029,9 @@ mod db_tests {
     #[sqlx::test]
     async fn a_queued_wake_becomes_a_recoverable_interrupted_turn(pool: PgPool) {
         seed_bare_task(&pool, "t1", "open").await;
-        let messages = PgMessageDao(pool.clone());
-        let tasks = PgTaskDao::new(pool.clone());
+        let graph = crate::compose::task_graph(pool.clone());
+        let messages = graph.messages();
+        let tasks = graph.tasks();
 
         let uuid = enqueue_sandbox_message(&messages, &tasks, "t1", "<sandbox-restart-note>hi")
             .await
@@ -1063,14 +1065,10 @@ mod db_tests {
     #[sqlx::test]
     async fn a_closed_task_refuses_the_wake(pool: PgPool) {
         seed_bare_task(&pool, "t1", "closed").await;
-        let queued = enqueue_sandbox_message(
-            &PgMessageDao(pool.clone()),
-            &PgTaskDao::new(pool.clone()),
-            "t1",
-            "hi",
-        )
-        .await
-        .expect("enqueue");
+        let graph = crate::compose::task_graph(pool.clone());
+        let queued = enqueue_sandbox_message(&graph.messages(), &graph.tasks(), "t1", "hi")
+            .await
+            .expect("enqueue");
         assert!(queued.is_none());
     }
 }

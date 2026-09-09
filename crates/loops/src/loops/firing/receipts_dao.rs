@@ -2,56 +2,10 @@
 
 use moatless_core::db::DbPool;
 
-pub struct PgEventReceiptDao(DbPool);
+pub(crate) struct EventReceipts(DbPool);
 
-#[async_trait::async_trait]
-pub trait EventReceiptDao: Send + Sync {
-    async fn record_once(
-        &self,
-        provider: &str,
-        external_event_id: &str,
-        subject_kind: &str,
-        subject_key: &str,
-        task_id: &str,
-    ) -> Result<bool, sqlx::Error>;
-
-    /// Claim the right to create the task for a subject.
-    ///
-    /// `record_once` keys on `task_id`, so it can only speak for a task that
-    /// already exists. Creation needs the opposite: a decision taken before
-    /// any task exists, and taken once across every replica.
-    async fn claim_task_creation(
-        &self,
-        loop_id: &str,
-        subject_kind: &str,
-        subject_key: &str,
-        adapter_kind: &str,
-        external_event_id: Option<&str>,
-    ) -> Result<bool, sqlx::Error>;
-
-    /// Record which task won a claim, so a loser can find it.
-    async fn record_claimed_task(
-        &self,
-        loop_id: &str,
-        subject_kind: &str,
-        subject_key: &str,
-        task_id: &str,
-    ) -> Result<(), sqlx::Error>;
-
-    /// Release a claim whose task was never created.
-    ///
-    /// Without this, a creation that fails after claiming would wedge the
-    /// subject: every later event would lose a claim held by nothing.
-    async fn release_claim(
-        &self,
-        loop_id: &str,
-        subject_kind: &str,
-        subject_key: &str,
-    ) -> Result<(), sqlx::Error>;
-}
-
-impl PgEventReceiptDao {
-    pub fn new(pool: DbPool) -> Self {
+impl EventReceipts {
+    pub(crate) fn new(pool: DbPool) -> Self {
         Self(pool)
     }
 
@@ -60,7 +14,7 @@ impl PgEventReceiptDao {
     /// Returns `true` when this is the first time the event has been seen for
     /// the task, `false` when a unique-key conflict proves it was delivered
     /// already.
-    pub async fn record_once(
+    pub(crate) async fn record_once(
         &self,
         provider: &str,
         external_event_id: &str,
@@ -85,12 +39,15 @@ impl PgEventReceiptDao {
         Ok(result.rows_affected() == 1)
     }
 
-    /// Insert the creation claim for a subject.
+    /// Claim the right to create the task for a subject.
     ///
-    /// Returns `true` for the one caller that lands the row. The insert *is*
-    /// the decision — no read precedes it, so two replicas racing cannot both
-    /// come away believing they should create.
-    pub async fn claim_task_creation(
+    /// [`Self::record_once`] keys on `task_id`, so it can only speak for a task
+    /// that already exists. Creation needs the opposite: a decision taken before
+    /// any task exists, and taken once across every replica. Returns `true` for
+    /// the one caller that lands the row. The insert *is* the decision — no read
+    /// precedes it, so two replicas racing cannot both come away believing they
+    /// should create.
+    pub(crate) async fn claim_task_creation(
         &self,
         loop_id: &str,
         subject_kind: &str,
@@ -115,7 +72,8 @@ impl PgEventReceiptDao {
         Ok(result.rows_affected() == 1)
     }
 
-    pub async fn record_claimed_task(
+    /// Record which task won a claim, so a loser can find it.
+    pub(crate) async fn record_claimed_task(
         &self,
         loop_id: &str,
         subject_kind: &str,
@@ -135,7 +93,11 @@ impl PgEventReceiptDao {
         Ok(())
     }
 
-    pub async fn release_claim(
+    /// Release a claim whose task was never created.
+    ///
+    /// Without this, a creation that fails after claiming would wedge the
+    /// subject: every later event would lose a claim held by nothing.
+    pub(crate) async fn release_claim(
         &self,
         loop_id: &str,
         subject_kind: &str,
@@ -155,67 +117,6 @@ impl PgEventReceiptDao {
     }
 }
 
-#[async_trait::async_trait]
-impl EventReceiptDao for PgEventReceiptDao {
-    async fn record_once(
-        &self,
-        provider: &str,
-        external_event_id: &str,
-        subject_kind: &str,
-        subject_key: &str,
-        task_id: &str,
-    ) -> Result<bool, sqlx::Error> {
-        PgEventReceiptDao::record_once(
-            self,
-            provider,
-            external_event_id,
-            subject_kind,
-            subject_key,
-            task_id,
-        )
-        .await
-    }
-
-    async fn claim_task_creation(
-        &self,
-        loop_id: &str,
-        subject_kind: &str,
-        subject_key: &str,
-        adapter_kind: &str,
-        external_event_id: Option<&str>,
-    ) -> Result<bool, sqlx::Error> {
-        PgEventReceiptDao::claim_task_creation(
-            self,
-            loop_id,
-            subject_kind,
-            subject_key,
-            adapter_kind,
-            external_event_id,
-        )
-        .await
-    }
-
-    async fn record_claimed_task(
-        &self,
-        loop_id: &str,
-        subject_kind: &str,
-        subject_key: &str,
-        task_id: &str,
-    ) -> Result<(), sqlx::Error> {
-        PgEventReceiptDao::record_claimed_task(self, loop_id, subject_kind, subject_key, task_id)
-            .await
-    }
-
-    async fn release_claim(
-        &self,
-        loop_id: &str,
-        subject_kind: &str,
-        subject_key: &str,
-    ) -> Result<(), sqlx::Error> {
-        PgEventReceiptDao::release_claim(self, loop_id, subject_kind, subject_key).await
-    }
-}
-
 #[cfg(all(test, feature = "db-tests"))]
 mod tests {
     use super::*;
@@ -225,8 +126,8 @@ mod tests {
     const KIND: &str = "slack_thread";
     const SUBJECT: &str = "T1:C1:1787469709.912279";
 
-    fn dao(pool: PgPool) -> PgEventReceiptDao {
-        PgEventReceiptDao::new(pool)
+    fn dao(pool: PgPool) -> EventReceipts {
+        EventReceipts::new(pool)
     }
 
     /// Verification: the incident this table exists for. One Slack message

@@ -17,8 +17,8 @@
 //! is passed over only where it can be *named* as the author of what arrived.
 
 use moatless_adapter_model::binding::ADAPTER_EVENT_BINDING_ORIGIN;
-use moatless_types::adapter::TaskBinding;
 use moatless_types::adapter::Audience;
+use moatless_types::adapter::TaskBinding;
 
 /// What the event says about who wrote it, resolved before the resolver runs.
 ///
@@ -112,13 +112,13 @@ fn is_producer(binding: &TaskBinding) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{resolve_recipients, EventProvenance};
+    use super::{EventProvenance, resolve_recipients};
     use chrono::Utc;
     use moatless_adapter_model::binding::ADAPTER_EVENT_BINDING_ORIGIN;
     use moatless_adapter_model::binding::CONNECTED_THREAD_BINDING_ORIGIN;
     use moatless_adapter_model::binding::TASK_OWNED_BINDING_ORIGIN;
-    use moatless_types::adapter::TaskBinding;
     use moatless_types::adapter::Audience;
+    use moatless_types::adapter::TaskBinding;
 
     /// A binding is identified in these tests by its task id; every other column
     /// is scenery. `origin` is the only field the resolver reads besides

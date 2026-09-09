@@ -3,28 +3,15 @@
 use async_trait::async_trait;
 use sqlx::AssertSqlSafe;
 
-use moatless_types::repository::{RepositoryKind, RepositoryProvider};
-use super::models::{Repository, RepositoryRow};
-use moatless_types::access_control::{Scope, ScopeContext, ScopedEntity};
+use super::models::{Repository, RepositoryPatch, RepositoryRow};
 use moatless_core::db::DbPool;
-
-/// Patch struct for partial updates.
-#[derive(Default)]
-pub struct RepositoryPatch {
-    pub name: Option<String>,
-    pub kind: Option<RepositoryKind>,
-    pub scope: Option<Scope>,
-    pub owner_user_id: Option<Option<String>>,
-    pub remote_url: Option<Option<String>>,
-    pub default_branch: Option<Option<String>>,
-    pub description: Option<Option<String>>,
-    pub provider: Option<Option<RepositoryProvider>>,
-}
+use moatless_types::access_control::{Scope, ScopeContext, ScopedEntity};
+use moatless_types::repository::RepositoryProvider;
 
 /// DAO trait for repository persistence.
-#[cfg_attr(any(test, feature = "test-support"), mockall::automock)]
+#[cfg_attr(test, mockall::automock)]
 #[async_trait]
-pub trait RepositoryDao: Send + Sync {
+pub(crate) trait RepositoryDao: Send + Sync {
     /// Find by id, scoped to access control.
     async fn find_by_id(
         &self,
@@ -62,7 +49,7 @@ pub trait RepositoryDao: Send + Sync {
 }
 
 /// PostgreSQL implementation of [`RepositoryDao`].
-pub struct PgRepositoryDao(pub DbPool);
+pub(crate) struct PgRepositoryDao(pub(crate) DbPool);
 
 #[async_trait]
 impl RepositoryDao for PgRepositoryDao {
@@ -71,7 +58,8 @@ impl RepositoryDao for PgRepositoryDao {
         id: &str,
         ctx: &ScopeContext,
     ) -> Result<Option<Repository>, sqlx::Error> {
-        let access = moatless_core::db::access_control::access_filter(ScopedEntity::Repository, "", 2);
+        let access =
+            moatless_core::db::access_control::access_filter(ScopedEntity::Repository, "", 2);
         let sql = format!(
             "SELECT * FROM repositories \
              WHERE id = $1 \
@@ -89,7 +77,8 @@ impl RepositoryDao for PgRepositoryDao {
     }
 
     async fn list_all(&self, ctx: &ScopeContext) -> Result<Vec<Repository>, sqlx::Error> {
-        let access = moatless_core::db::access_control::access_filter(ScopedEntity::Repository, "", 1);
+        let access =
+            moatless_core::db::access_control::access_filter(ScopedEntity::Repository, "", 1);
         let sql = format!(
             "SELECT * FROM repositories \
              WHERE (deleted IS NULL OR deleted = false) \
@@ -305,40 +294,6 @@ impl RepositoryDao for PgRepositoryDao {
     }
 }
 
-// =========================================================================
-// Free-function wrappers for integration tests
-// =========================================================================
-
-/// Insert a repository (convenience wrapper).
-pub async fn insert(pool: &DbPool, row: &Repository) -> Result<(), sqlx::Error> {
-    PgRepositoryDao(pool.clone()).insert(row).await
-}
-
-/// Find by id scoped to access control (convenience wrapper).
-pub async fn find_by_id(
-    pool: &DbPool,
-    id: &str,
-    ctx: &ScopeContext,
-) -> Result<Option<Repository>, sqlx::Error> {
-    PgRepositoryDao(pool.clone()).find_by_id(id, ctx).await
-}
-
-/// List all repositories visible to user (convenience wrapper).
-pub async fn list_all(pool: &DbPool, ctx: &ScopeContext) -> Result<Vec<Repository>, sqlx::Error> {
-    PgRepositoryDao(pool.clone()).list_all(ctx).await
-}
-
-/// Update repository fields (convenience wrapper).
-pub async fn update(
-    pool: &DbPool,
-    id: &str,
-    patch: &RepositoryPatch,
-    ctx: &ScopeContext,
-) -> Result<bool, sqlx::Error> {
-    PgRepositoryDao(pool.clone()).update(id, patch, ctx).await
-}
-
-/// Soft-delete a repository (convenience wrapper).
-pub async fn soft_delete(pool: &DbPool, id: &str, ctx: &ScopeContext) -> Result<bool, sqlx::Error> {
-    PgRepositoryDao(pool.clone()).soft_delete(id, ctx).await
-}
+#[cfg(all(test, feature = "db-tests"))]
+#[path = "dao_db_tests.rs"]
+mod db_tests;

@@ -1,6 +1,20 @@
+//! API keys table queries.
+
+use super::api_keys::ApiKey;
 use async_trait::async_trait;
 use moatless_core::db::DbPool;
-use super::api_keys::{ApiKey, ApiKeyDao};
+
+/// DAO trait for API key persistence.
+#[cfg_attr(test, mockall::automock)]
+#[async_trait]
+pub(crate) trait ApiKeyDao: Send + Sync {
+    async fn insert_api_key(&self, key: &ApiKey) -> Result<(), sqlx::Error>;
+    async fn get_api_key_by_hash(&self, key_hash: &str) -> Result<Option<ApiKey>, sqlx::Error>;
+    async fn get_api_key_by_id(&self, key_id: &str) -> Result<Option<ApiKey>, sqlx::Error>;
+    async fn list_api_keys_by_user(&self, user_id: &str) -> Result<Vec<ApiKey>, sqlx::Error>;
+    async fn delete_api_key(&self, key_id: &str) -> Result<(), sqlx::Error>;
+    async fn update_last_used(&self, key_id: &str) -> Result<(), sqlx::Error>;
+}
 
 /// PostgreSQL implementation of [`ApiKeyDao`].
 pub struct PgApiKeyDao(pub DbPool);

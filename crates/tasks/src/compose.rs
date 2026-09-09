@@ -1,0 +1,287 @@
+//! The tasks band's construction root.
+//!
+//! [`task_graph`] owns every store this crate keeps private, and hands out only
+//! independent capabilities over them. [`TaskGraph::assemble`] consumes the
+//! graph and returns the workflow services, so a host never holds a store and
+//! never re-wires one after the fact.
+
+use std::sync::Arc;
+
+use moatless_core::config::Config;
+use moatless_core::db::DbPool;
+use moatless_core::events::EventPublisher;
+use moatless_core::file_storage::Files;
+use moatless_identity::credentials::CredentialService;
+use moatless_ports::identity::UserDisplay;
+use moatless_ports::sandbox::{
+    CredentialBroadcast, PreflightPort, SandboxJoiner, SandboxLifecycle, SandboxStarter,
+};
+use moatless_ports::workspace::{RepositoryReader, WorkspaceResolver};
+
+use crate::credential_sync::CredentialSync;
+use crate::event_ingress::EventAdmission;
+use crate::event_ingress::outbox_dao::{IngressOutbox, PgIngressOutbox};
+use crate::feedback::dao::{FeedbackDao, PgFeedbackDao};
+use crate::feedback::operations::FeedbackNotes;
+use crate::message::dao::{MessageDao, PgMessageDao};
+use crate::message::operations::Messages;
+use crate::message::send::{MessageSendService, SelfEchoGuard};
+use crate::tag::dao::{PgTagDao, TagDao};
+use crate::tag::operations::Tags;
+use crate::task::bindings::TaskBindings;
+use crate::task::closer::TaskCloser;
+use crate::task::creation::TaskCreationService;
+use crate::task::dao::PgTaskDao;
+use crate::task::fork::{TaskForkService, TaskForks};
+use crate::task::fork_dao::{PgTaskForkDao, TaskForkDao};
+use crate::task::operations::TaskCommands;
+use crate::task::presenter::TaskPresenter;
+use crate::task::relations::TaskRelations;
+use crate::task::relations_dao::{PgTaskRelationDao, TaskRelationDao};
+use crate::task_event::dao::{PgTaskEventDao, TaskEventDao};
+use crate::task_event::operations::TaskEvents;
+use crate::task_turn::dao::{PgTaskTurnDao, TaskTurnDao};
+use crate::task_turn::operations::TaskTurns;
+
+/// Every store the tasks band owns, built once over one pool.
+///
+/// The stores stay private: a host takes the capabilities below, and
+/// [`TaskGraph::assemble`] consumes the graph to produce the workflow services.
+///
+/// Cloning shares every store, so a host that keeps the graph alongside the
+/// capabilities it already took assembles over the same instances.
+#[derive(Clone)]
+pub struct TaskGraph {
+    db: DbPool,
+    tasks: Arc<PgTaskDao>,
+    relations: Arc<dyn TaskRelationDao>,
+    forks: Arc<dyn TaskForkDao>,
+    messages: Arc<dyn MessageDao>,
+    turns: Arc<dyn TaskTurnDao>,
+    events: Arc<dyn TaskEventDao>,
+    outbox: Arc<dyn IngressOutbox>,
+    tags: Arc<dyn TagDao>,
+    feedback: Arc<dyn FeedbackDao>,
+}
+
+/// Build the tasks band's stores over `db`.
+pub fn task_graph(db: DbPool) -> TaskGraph {
+    TaskGraph {
+        tasks: Arc::new(PgTaskDao::new(db.clone())),
+        relations: Arc::new(PgTaskRelationDao(db.clone())),
+        forks: Arc::new(PgTaskForkDao(db.clone())),
+        messages: Arc::new(PgMessageDao(db.clone())),
+        turns: Arc::new(PgTaskTurnDao(db.clone())),
+        events: Arc::new(PgTaskEventDao(db.clone())),
+        outbox: Arc::new(PgIngressOutbox(db.clone())),
+        tags: Arc::new(PgTagDao(db.clone())),
+        feedback: Arc::new(PgFeedbackDao(db.clone())),
+        db,
+    }
+}
+
+impl TaskGraph {
+    /// The `tasks` table, as a host reads and writes it.
+    pub fn tasks(&self) -> Arc<TaskCommands> {
+        Arc::new(TaskCommands::new(self.tasks.clone()))
+    }
+
+    /// The `tasks` table behind the published `TaskReader` seam.
+    pub fn task_reader(&self) -> Arc<crate::ports::TaskProjection> {
+        Arc::new(crate::ports::TaskProjection::new(self.tasks.clone()))
+    }
+
+    /// The session-gate port the auth `ForwardAuth` gate reads, so identity
+    /// holds no `task` import.
+    pub fn task_access(&self) -> Arc<dyn moatless_core::http_auth::TaskAccess> {
+        self.tasks.clone()
+    }
+
+    /// The `task_relations` table, as a host reads and writes it. Also the
+    /// published `RelationRecorder` seam.
+    pub fn relation_recorder(&self) -> Arc<TaskRelations> {
+        Arc::new(TaskRelations::new(self.relations.clone()))
+    }
+
+    /// The `task_forks` table, as the delivery path reads it.
+    pub fn fork_origins(&self) -> Arc<TaskForks> {
+        Arc::new(TaskForks::new(self.forks.clone()))
+    }
+
+    /// The `task_messages` table, as a host reads and writes it.
+    pub fn messages(&self) -> Arc<Messages> {
+        Arc::new(Messages::new(self.messages.clone()))
+    }
+
+    /// The `task_messages` table behind the published `TranscriptAppend` seam.
+    pub fn transcript(&self) -> Arc<crate::ports::Transcript> {
+        Arc::new(crate::ports::Transcript::new(self.messages.clone()))
+    }
+
+    /// The `task_turns` table, as the ingress, the reaper and the event
+    /// handlers read and write it.
+    pub fn task_turns(&self) -> Arc<TaskTurns> {
+        Arc::new(TaskTurns::new(self.turns.clone()))
+    }
+
+    /// The `task_turns` table behind the published `TurnCounter` and
+    /// `TurnStateReader` seams.
+    pub fn turn_ledger(&self) -> Arc<crate::ports::TurnLedger> {
+        Arc::new(crate::ports::TurnLedger::new(self.turns.clone()))
+    }
+
+    /// The `task_events` table, as a host reads and writes it.
+    pub fn task_events(&self) -> Arc<TaskEvents> {
+        Arc::new(TaskEvents::new(self.events.clone()))
+    }
+
+    /// Durable admission for sandbox-published events, over the turn, event and
+    /// outbox stores and the `publisher` the fan-out reaches.
+    ///
+    /// `publisher` is `None` where the deployment runs without Redis, which is
+    /// what makes an `agent.message` unadmittable: see
+    /// [`EventAdmission::admit`].
+    pub fn event_ingress(&self, publisher: Option<Arc<dyn EventPublisher>>) -> Arc<EventAdmission> {
+        Arc::new(EventAdmission::new(
+            Some(self.turns.clone()),
+            Some(self.events.clone()),
+            Some(self.outbox.clone()),
+            publisher,
+        ))
+    }
+
+    /// The `tags` and `task_tags` tables, as a host reads and writes them.
+    pub fn tags(&self) -> Arc<Tags> {
+        Arc::new(Tags::new(self.tags.clone()))
+    }
+
+    /// The `tags` table behind the published `TagResolver` seam.
+    pub fn tag_catalog(&self) -> Arc<crate::ports::TagCatalog> {
+        Arc::new(crate::ports::TagCatalog::new(self.tags.clone()))
+    }
+
+    /// The `feedback` table, as a host reads and writes it.
+    pub fn feedback(&self) -> Arc<FeedbackNotes> {
+        Arc::new(FeedbackNotes::new(self.feedback.clone()))
+    }
+
+    /// The unclaimed-user-message predicate the desired-state reconciler reads.
+    pub fn pending_work(&self) -> Arc<crate::ports::PendingWork> {
+        Arc::new(crate::ports::PendingWork::new(self.db.clone()))
+    }
+
+    /// The `task_activities` table behind the published `ActivitySource` seam.
+    pub fn activities(&self) -> Arc<crate::ports::Activities> {
+        Arc::new(crate::ports::Activities::new(self.db.clone()))
+    }
+
+    /// The Codex in-flight guard and sandbox fan-out over a pure credential
+    /// service.
+    ///
+    /// Built before [`TaskGraph::assemble`] rather than by it: the preflight
+    /// port `assemble` takes reads this, so the host needs it in hand first.
+    pub fn credential_sync(
+        &self,
+        credentials: Arc<CredentialService>,
+        broadcast: Arc<dyn CredentialBroadcast>,
+    ) -> Arc<CredentialSync> {
+        Arc::new(CredentialSync::new(
+            credentials,
+            self.tasks.clone(),
+            broadcast,
+        ))
+    }
+
+    /// Assemble the workflow services over the graph's stores and the foreign
+    /// ports they read. Consumes the graph: nothing re-wires a service after
+    /// this returns.
+    pub fn assemble(self, inputs: TaskWorkflowInputs) -> TaskOperations {
+        let TaskWorkflowInputs {
+            repository_reader,
+            workspace_resolver,
+            user_display,
+            task_bindings,
+            sandbox,
+            starter,
+            joiner,
+            preflight,
+            events,
+            files,
+            self_echo,
+            config,
+        } = inputs;
+
+        TaskOperations {
+            task_creation: Arc::new(TaskCreationService::new(
+                self.tasks.clone(),
+                self.tags.clone(),
+                self.relations.clone(),
+                self.forks,
+                repository_reader.clone(),
+                workspace_resolver.clone(),
+                events.clone(),
+                starter,
+                joiner,
+                preflight,
+            )),
+            message_send: Arc::new(MessageSendService::new(
+                self.messages.clone(),
+                self.tasks.clone(),
+                self.turns.clone(),
+                files,
+                self_echo,
+            )),
+            task_closer: Arc::new(TaskCloser::new(
+                self.tasks.clone(),
+                self.relations.clone(),
+                config,
+                sandbox,
+                task_bindings.clone(),
+                events,
+            )),
+            task_presenter: Arc::new(TaskPresenter::new(
+                self.tags.clone(),
+                repository_reader,
+                workspace_resolver,
+                user_display,
+                task_bindings,
+                self.relations,
+                self.tasks.clone(),
+            )),
+            task_fork: Arc::new(TaskForkService::new(
+                self.tasks,
+                self.turns,
+                self.messages,
+                self.tags,
+            )),
+        }
+    }
+}
+
+/// The foreign ports the tasks band's workflow services read, supplied by the
+/// host that owns them.
+pub struct TaskWorkflowInputs {
+    pub repository_reader: Arc<dyn RepositoryReader>,
+    pub workspace_resolver: Arc<dyn WorkspaceResolver>,
+    pub user_display: Arc<dyn UserDisplay>,
+    pub task_bindings: Arc<dyn TaskBindings>,
+    /// Stop and archive-retention control, for the close path.
+    pub sandbox: Arc<dyn SandboxLifecycle>,
+    /// Provisioning, for the create path.
+    pub starter: Arc<dyn SandboxStarter>,
+    pub joiner: Arc<dyn SandboxJoiner>,
+    pub preflight: Arc<dyn PreflightPort>,
+    pub events: Option<Arc<dyn EventPublisher>>,
+    pub files: Arc<Files>,
+    pub self_echo: Arc<dyn SelfEchoGuard>,
+    pub config: Arc<Config>,
+}
+
+/// The workflow services [`TaskGraph::assemble`] produces.
+pub struct TaskOperations {
+    pub task_creation: Arc<TaskCreationService>,
+    pub message_send: Arc<MessageSendService>,
+    pub task_closer: Arc<TaskCloser>,
+    pub task_presenter: Arc<TaskPresenter>,
+    pub task_fork: Arc<TaskForkService>,
+}

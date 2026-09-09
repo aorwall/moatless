@@ -214,7 +214,7 @@ pub async fn list_plugin_activations(
 
 /// Apply activation subject access before reading or writing records.
 pub async fn list_effective_plugins(
-    plugins: &dyn PluginDao,
+    plugins: &crate::plugin::Plugins,
     workspaces: &dyn WorkspaceDao,
     auth: &ScopeContext,
     params: ActivationSubjectParams,

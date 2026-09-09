@@ -62,20 +62,8 @@ chrono = { workspace = true, features = ["serde"] }
 # HTTP client (OAuth token exchange)
 reqwest = { workspace = true, features = ["json", "query", "form", "rustls"] }
 
-# Crypto (API key hashing)
-aes-gcm = "0.11"
+# Crypto
 rand = { workspace = true }
-argon2 = { version = "0.5", features = ["std"] }
-base64 = { workspace = true }
-
-# URL encoding
-serde_urlencoded = "0.7"
-
-# Regex (Slack mrkdwn parsing)
-regex = { workspace = true }
-
-# Cookie parsing/building
-cookie = "0.18"
 
 # Error handling
 thiserror = { workspace = true }
@@ -103,12 +91,6 @@ aws-sdk-sts = { workspace = true }
 
 # Multipart uploads
 axum-extra = { version = "0.12", features = ["multipart"] }
-
-# Cron scheduling
-cron = "0.17"
-
-# ID generation
-nanoid = "0.5"
 
 # CLI parsing (secrets subcommand on the backend binary)
 clap = { workspace = true, features = ["derive"] }
@@ -156,26 +138,23 @@ prost = { workspace = true }
 # no shipping build enables it.
 db-tests = [
     "moatless-core/test-support",
-    "moatless-identity/test-support",
-    "moatless-tasks/test-support",
-    # Forwards so the control crate's `for_ingress_tests` harness, reached from
-    # crates/server/tests/integration_*, compiles with its DB-backed blocks.
-    "moatless-sandbox-control/db-tests",
-    # `AdapterEventSubscribers::keys` is gated `test-support` in moatless-loops and
-    # read by the db-tests integration binaries, which link the normal dependency
-    # rather than the dev-dependency, so the feature is forwarded here.
-    "moatless-loops/test-support",
+    # `T3Reads::refusing_the_row_read` and the two listing reads the shell suite
+    # states its premises with, which no shipping build has.
+    "moatless-t3code/test-support",
 ]
 
 [lints]
 workspace = true
 
 [dev-dependencies]
-# core's test-support (Config::test_minimal, MockTagDao) for the backend's own
+# core's test-support (`Config::test_minimal`) for the backend's own
 # `#[cfg(test)]` unit tests. Dev-dependency features do not unify into the normal
 # build under resolver 2, so this stays out of `cargo build`.
 moatless-core = { workspace = true, features = ["test-support"] }
 moatless-identity = { workspace = true, features = ["test-support"] }
+# `MockUserDisplay` and `MockCommitIdentity`, for the unit tests over the
+# identity read ports.
+moatless-ports = { workspace = true, features = ["test-support"] }
 moatless-workspaces = { workspace = true, features = ["test-support"] }
 moatless-tasks = { workspace = true, features = ["test-support"] }
 moatless-loops = { workspace = true, features = ["test-support"] }

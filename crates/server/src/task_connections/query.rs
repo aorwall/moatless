@@ -11,21 +11,19 @@ use moatless_api_schemas::task_connections::{
     Connection, GetTaskConnectionsQuery, ListTaskConnectionsQuery, TaskConnectionRow,
     TaskConnectionsResponse,
 };
-use moatless_identity::auth::users::UserDao;
-use moatless_loops::bindings::{dao::TaskBindingDao, status_service};
+use moatless_loops::bindings::{operations::Bindings, status_service};
+use moatless_ports::identity::UserDisplay;
+use moatless_ports::workspace::RepositoryReader;
 use moatless_tasks::{
-    message::dao::{ConnectionMessageCount, MessageDao},
-    task::{
-        dao::{TaskDao, TaskFilter},
-        error::TaskError,
-    },
+    message::models::ConnectionMessageCount,
+    message::operations::Messages,
+    task::{error::TaskError, models::TaskFilter, operations::TaskCommands},
 };
 use moatless_types::{
     access_control::ScopeContext,
     adapter::{ExternalStatus, TaskBinding},
     task::TaskStatus,
 };
-use moatless_workspaces::repository::dao::RepositoryDao;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -34,11 +32,11 @@ const REFRESH_CONCURRENCY: usize = 8;
 
 /// Read ports for the administrator Task connection view.
 pub struct TaskConnectionReads<'a> {
-    pub tasks: &'a dyn TaskDao,
-    pub users: &'a dyn UserDao,
-    pub repositories: &'a dyn RepositoryDao,
-    pub task_bindings: &'a dyn TaskBindingDao,
-    pub messages: &'a dyn MessageDao,
+    pub tasks: &'a TaskCommands,
+    pub users: &'a dyn UserDisplay,
+    pub repositories: &'a dyn RepositoryReader,
+    pub task_bindings: &'a Bindings,
+    pub messages: &'a Messages,
     pub adapters: Option<&'a Arc<Adapters>>,
 }
 
@@ -97,10 +95,10 @@ pub async fn list_task_connections(
     } else {
         let owner_uuids: Vec<uuid::Uuid> =
             owner_ids.iter().filter_map(|id| id.parse().ok()).collect();
-        match users.get_users_by_ids(&owner_uuids).await {
-            Ok(users) => users
+        match users.names(&owner_uuids).await {
+            Ok(names) => names
                 .into_iter()
-                .map(|u| (u.id.to_string(), u.name.unwrap_or(u.login)))
+                .map(|(id, name)| (id.to_string(), name))
                 .collect(),
             Err(e) => {
                 tracing::warn!(error = %e, "Failed to batch resolve owner display names");
@@ -116,19 +114,15 @@ pub async fn list_task_connections(
         .collect::<HashSet<_>>()
         .into_iter()
         .collect();
-    let repo_names: HashMap<String, String> = repositories
-        .find_names_by_ids(&repo_ids)
-        .await
-        .unwrap_or_else(|e| {
+    let repo_names: HashMap<String, String> =
+        repositories.names(&repo_ids).await.unwrap_or_else(|e| {
             tracing::warn!(error = %e, "Failed to batch resolve repository names");
-            vec![]
-        })
-        .into_iter()
-        .collect();
+            HashMap::new()
+        });
 
     // Batch resolve bindings (full rows, incl. destination_config + status).
     let mut bindings = task_bindings
-        .find_by_task_ids(&task_ids)
+        .for_tasks(&task_ids)
         .await
         .unwrap_or_else(|e| {
             tracing::warn!(error = %e, "Failed to batch resolve task bindings");
@@ -205,9 +199,9 @@ pub async fn list_task_connections(
 
 /// Read connections for one Task visible to the caller.
 pub async fn get_task_connections(
-    tasks: &dyn TaskDao,
-    task_bindings: &dyn TaskBindingDao,
-    messages: &dyn MessageDao,
+    tasks: &TaskCommands,
+    task_bindings: &Bindings,
+    messages: &Messages,
     adapters: Option<&Arc<Adapters>>,
     ctx: &ScopeContext,
     task_id: String,
@@ -222,7 +216,7 @@ pub async fn get_task_connections(
     let task_ids = [task_id.clone()];
 
     let mut bindings = task_bindings
-        .find_by_task_ids(&task_ids)
+        .for_tasks(&task_ids)
         .await
         .unwrap_or_else(|e| {
             tracing::warn!(error = %e, task_id = %task_id, "Failed to resolve task bindings");
@@ -270,7 +264,7 @@ pub async fn get_task_connections(
 
 async fn refresh_stale_statuses(
     adapters: Option<&Arc<Adapters>>,
-    task_bindings: &dyn TaskBindingDao,
+    task_bindings: &Bindings,
     rows: &[moatless_tasks::task::models::Task],
     bindings: &mut [TaskBinding],
 ) {
@@ -331,10 +325,10 @@ async fn refresh_stale_statuses(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use moatless_identity::auth::users::MockUserDao;
-    use moatless_loops::bindings::dao::PgTaskBindingDao;
-    use moatless_tasks::{message::dao::PgMessageDao, task::dao::MockTaskDao};
-    use moatless_workspaces::repository::dao::MockRepositoryDao;
+    use moatless_ports::identity::MockUserDisplay;
+    use moatless_ports::workspace::MockRepositoryReader;
+    use moatless_tasks::message::test_support::messages_without_a_database;
+    use moatless_tasks::task::test_support::ScriptedTasks;
 
     fn disconnected_pool() -> sqlx::PgPool {
         sqlx::postgres::PgPoolOptions::new()
@@ -344,11 +338,11 @@ mod tests {
 
     #[tokio::test]
     async fn non_admin_list_is_refused_before_any_read() {
-        let tasks = MockTaskDao::new();
-        let users = MockUserDao::new();
-        let repositories = MockRepositoryDao::new();
-        let bindings = PgTaskBindingDao::new(disconnected_pool());
-        let messages = PgMessageDao(disconnected_pool());
+        let (tasks, calls) = ScriptedTasks::new().commands();
+        let users = MockUserDisplay::new();
+        let repositories = MockRepositoryReader::new();
+        let bindings = moatless_loops::compose::loop_graph(disconnected_pool()).bindings();
+        let messages = messages_without_a_database();
         let result = list_task_connections(
             TaskConnectionReads {
                 tasks: &tasks,
@@ -366,27 +360,20 @@ mod tests {
         )
         .await;
         assert!(matches!(result, Err(TaskError::Forbidden(_))));
+        assert!(calls.list_tasks().is_empty());
     }
 
     #[tokio::test]
     async fn empty_page_retains_total_and_live_task_filter() {
-        let mut tasks = MockTaskDao::new();
-        tasks
-            .expect_list_tasks()
-            .withf(|filter| {
-                filter.exclude_status == Some(TaskStatus::Closed)
-                    && filter.limit == 20
-                    && filter.offset == 60
-            })
-            .return_once(|_| Ok((Vec::new(), 51)));
-        let users = MockUserDao::new();
-        let mut repositories = MockRepositoryDao::new();
+        let (tasks, calls) = ScriptedTasks::new().listing(Vec::new(), 51).commands();
+        let users = MockUserDisplay::new();
+        let mut repositories = MockRepositoryReader::new();
         repositories
-            .expect_find_names_by_ids()
+            .expect_names()
             .withf(<[String]>::is_empty)
-            .return_once(|_| Ok(Vec::new()));
-        let bindings = PgTaskBindingDao::new(disconnected_pool());
-        let messages = PgMessageDao(disconnected_pool());
+            .return_once(|_| Ok(HashMap::new()));
+        let bindings = moatless_loops::compose::loop_graph(disconnected_pool()).bindings();
+        let messages = messages_without_a_database();
         let result = list_task_connections(
             TaskConnectionReads {
                 tasks: &tasks,
@@ -411,19 +398,20 @@ mod tests {
         assert!(result.items.is_empty());
         assert_eq!(result.pagination.total, 51);
         assert!(!result.pagination.has_more);
+        let filters = calls.list_tasks();
+        assert_eq!(filters.len(), 1);
+        assert_eq!(filters[0].exclude_status, Some(TaskStatus::Closed));
+        assert_eq!(filters[0].limit, 20);
+        assert_eq!(filters[0].offset, 60);
     }
 
     #[tokio::test]
     async fn per_task_lookup_preserves_caller_scope_before_enrichment() {
-        let mut tasks = MockTaskDao::new();
-        tasks
-            .expect_find_by_id()
-            .withf(|id, ctx| id == "hidden" && ctx.user_id == "reader" && !ctx.is_admin)
-            .return_once(|_, _| Ok(None));
+        let (tasks, calls) = ScriptedTasks::new().holding(None).commands();
         let result = get_task_connections(
             &tasks,
-            &PgTaskBindingDao::new(disconnected_pool()),
-            &PgMessageDao(disconnected_pool()),
+            &moatless_loops::compose::loop_graph(disconnected_pool()).bindings(),
+            &messages_without_a_database(),
             None,
             &ScopeContext {
                 user_id: "reader".into(),
@@ -436,5 +424,10 @@ mod tests {
         )
         .await;
         assert!(matches!(result, Err(TaskError::NotFound(id)) if id == "hidden"));
+        let reads = calls.find_by_id();
+        assert_eq!(reads.len(), 1);
+        assert_eq!(reads[0].0, "hidden");
+        assert_eq!(reads[0].1.user_id, "reader");
+        assert!(!reads[0].1.is_admin);
     }
 }

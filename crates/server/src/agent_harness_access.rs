@@ -8,15 +8,15 @@ use moatless_types::access_control::ScopeContext;
 use moatless_identity::auth::codex_auth_json::build_codex_metadata;
 use moatless_identity::auth::codex_auth_json::parse_codex_auth_json;
 use moatless_identity::auth::error::AuthError;
-use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
-use moatless_identity::auth::users::UserDao;
+use moatless_identity::credentials::codex::oauth as codex_oauth;
+use moatless_identity::credentials::codex::oauth::CodexOAuthError;
+use moatless_identity::credentials::codex::oauth::DeviceCodeStart;
+use moatless_identity::credentials::codex::oauth::PollStatus;
+use moatless_identity::credentials::{CredentialError, CredentialService};
+use moatless_ports::identity::UserDisplay;
 use moatless_tasks::credential_sync::CredentialSync;
 use moatless_types::agent::CodexOAuthConfig;
 use moatless_types::agent::CodexScope;
-use moatless_workspaces::credentials::codex::oauth as codex_oauth;
-use moatless_workspaces::credentials::codex::oauth::CodexOAuthError;
-use moatless_workspaces::credentials::codex::oauth::DeviceCodeStart;
-use moatless_workspaces::credentials::codex::oauth::PollStatus;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AgentHarnessCredentialStatus {
@@ -49,6 +49,8 @@ pub enum AgentHarnessAccessError {
     BadRequest(String),
     #[error("Database error: {0}")]
     Db(#[from] sqlx::Error),
+    #[error("Database error: {0}")]
+    Store(#[from] moatless_types::store::StoreError),
     #[error("Provider error: {0}")]
     OAuth(#[source] CodexOAuthError),
 }
@@ -122,23 +124,23 @@ fn authorize_scope(
 }
 
 pub struct AgentHarnessAccess {
-    provider_tokens: Arc<dyn ProviderTokenDao>,
+    credentials: Arc<CredentialService>,
     credential_sync: Arc<CredentialSync>,
     oauth_config: Arc<CodexOAuthConfig>,
     device_login: Arc<dyn CodexDeviceLoginProvider>,
-    users: Arc<dyn UserDao>,
+    users: Arc<dyn UserDisplay>,
 }
 
 impl AgentHarnessAccess {
     pub fn new(
-        provider_tokens: Arc<dyn ProviderTokenDao>,
+        credentials: Arc<CredentialService>,
         credential_sync: Arc<CredentialSync>,
         oauth_config: Arc<CodexOAuthConfig>,
         device_login: Arc<dyn CodexDeviceLoginProvider>,
-        users: Arc<dyn UserDao>,
+        users: Arc<dyn UserDisplay>,
     ) -> Self {
         Self {
-            provider_tokens,
+            credentials,
             credential_sync,
             oauth_config,
             device_login,
@@ -152,8 +154,12 @@ impl AgentHarnessAccess {
         scope: &CodexScope,
     ) -> Result<AgentHarnessCredentialStatus, AgentHarnessAccessError> {
         authorize_scope(ctx, scope, "read")?;
-        let token = self.provider_tokens.find_codex_blob(scope).await?;
-        let Some(row) = token else {
+        let stored = self
+            .credentials
+            .codex_credential(scope)
+            .await
+            .map_err(credential_error)?;
+        let Some(row) = stored else {
             return Ok(disconnected());
         };
         let metadata = row.metadata.as_ref();
@@ -182,15 +188,10 @@ impl AgentHarnessAccess {
         })?;
         let metadata = build_codex_metadata(&parsed);
         let serialized = parsed.to_string();
-        self.provider_tokens
-            .upsert_codex_blob(
-                &scope,
-                &serialized,
-                None,
-                Some("auth_json"),
-                Some(&metadata),
-            )
-            .await?;
+        self.credentials
+            .store_codex_credential(&scope, &serialized, &metadata)
+            .await
+            .map_err(credential_error)?;
         self.credential_sync
             .broadcast_codex_rotation(&scope, &serialized)
             .await;
@@ -214,7 +215,7 @@ impl AgentHarnessAccess {
             return Err(AgentHarnessAccessError::AuthForbidden);
         }
         let target = match user_id.parse::<uuid::Uuid>() {
-            Ok(user_id) => self.users.get_user(&user_id).await?,
+            Ok(user_id) => self.users.name(&user_id).await?,
             Err(_) => None,
         };
         if target.is_none() {
@@ -232,7 +233,10 @@ impl AgentHarnessAccess {
         scope: &CodexScope,
     ) -> Result<AgentHarnessCredentialStatus, AgentHarnessAccessError> {
         authorize_scope(ctx, scope, "delete")?;
-        self.provider_tokens.delete_codex_blob(scope).await?;
+        self.credentials
+            .delete_codex_credential(scope)
+            .await
+            .map_err(credential_error)?;
         Ok(disconnected())
     }
 
@@ -275,15 +279,10 @@ impl AgentHarnessAccess {
                 });
                 let serialized = auth_json.to_string();
                 let scope = CodexScope::user(ctx.user_id.clone());
-                self.provider_tokens
-                    .upsert_codex_blob(
-                        &scope,
-                        &serialized,
-                        None,
-                        Some("auth_json"),
-                        Some(&metadata),
-                    )
-                    .await?;
+                self.credentials
+                    .store_codex_credential(&scope, &serialized, &metadata)
+                    .await
+                    .map_err(credential_error)?;
                 self.credential_sync
                     .broadcast_codex_rotation(&scope, &serialized)
                     .await;
@@ -294,6 +293,19 @@ impl AgentHarnessAccess {
                 })
             }
         }
+    }
+}
+
+/// The three Codex operations above reach nothing but the store, so
+/// [`CredentialError::Database`] is the only variant they raise; any other is a
+/// wiring mistake and surfaces with its context rather than being flattened.
+fn credential_error(error: CredentialError) -> AgentHarnessAccessError {
+    match error {
+        CredentialError::Database(source) => AgentHarnessAccessError::Db(source),
+        other => AgentHarnessAccessError::Store(moatless_types::store::StoreError::with_source(
+            "Codex credential store",
+            other,
+        )),
     }
 }
 
@@ -324,10 +336,10 @@ mod tests {
 
     use super::*;
     use moatless_identity::auth::test_support::StubProviderTokens;
-    use moatless_identity::auth::users::MockUserDao;
-    use moatless_tasks::task::dao::MockTaskDao;
-    use moatless_workspaces::credentials::CredentialService;
-    use moatless_workspaces::credentials::codex::oauth::IdTokenClaims;
+    use moatless_identity::credentials::codex::oauth::IdTokenClaims;
+    use moatless_identity::credentials::test_support::credentials_over_stub;
+    use moatless_ports::identity::MockUserDisplay;
+    use moatless_tasks::task::test_support::ScriptedTasks;
 
     struct FakeDeviceLogin {
         poll: Mutex<Option<PollStatus>>,
@@ -382,14 +394,15 @@ mod tests {
     fn access(
         tokens: Arc<StubProviderTokens>,
         poll: PollStatus,
-        tasks: MockTaskDao,
+        open_codex_tasks: Vec<String>,
         broadcast: Arc<dyn CredentialBroadcast>,
     ) -> AgentHarnessAccess {
-        let provider_tokens: Arc<dyn ProviderTokenDao> = tokens;
-        let credentials = Arc::new(CredentialService::new(Arc::clone(&provider_tokens)));
+        let credentials = credentials_over_stub(tokens);
         AgentHarnessAccess::new(
-            Arc::clone(&provider_tokens),
-            Arc::new(CredentialSync::new(credentials, Arc::new(tasks), broadcast)),
+            Arc::clone(&credentials),
+            ScriptedTasks::new()
+                .open_codex_tasks(open_codex_tasks)
+                .credential_sync(credentials, broadcast),
             Arc::new(CodexOAuthConfig {
                 issuer: "https://auth.example".to_string(),
                 client_id: "client".to_string(),
@@ -397,7 +410,7 @@ mod tests {
             Arc::new(FakeDeviceLogin {
                 poll: Mutex::new(Some(poll)),
             }),
-            Arc::new(MockUserDao::new()),
+            Arc::new(MockUserDisplay::new()),
         )
     }
 
@@ -409,11 +422,12 @@ mod tests {
             tokens: Arc::clone(&tokens),
             observed: tx,
         });
-        let mut tasks = MockTaskDao::new();
-        tasks
-            .expect_list_open_codex_tasks_for_scope()
-            .returning(|_, _, _| Ok(vec!["task-1".to_string()]));
-        let access = access(tokens, PollStatus::Pending, tasks, broadcast);
+        let access = access(
+            tokens,
+            PollStatus::Pending,
+            vec!["task-1".to_string()],
+            broadcast,
+        );
 
         access
             .save(
@@ -440,7 +454,7 @@ mod tests {
         let access = access(
             Arc::clone(&tokens),
             PollStatus::Pending,
-            MockTaskDao::new(),
+            Vec::new(),
             Arc::new(PersistObservingBroadcast {
                 tokens: Arc::clone(&tokens),
                 observed: mpsc::unbounded_channel().0,
@@ -482,7 +496,7 @@ mod tests {
             let access = access(
                 Arc::clone(&tokens),
                 poll,
-                MockTaskDao::new(),
+                Vec::new(),
                 Arc::new(PersistObservingBroadcast {
                     tokens: Arc::clone(&tokens),
                     observed: mpsc::unbounded_channel().0,
@@ -504,17 +518,13 @@ mod tests {
         }
 
         let tokens = Arc::new(StubProviderTokens::default());
-        let mut tasks = MockTaskDao::new();
-        tasks
-            .expect_list_open_codex_tasks_for_scope()
-            .returning(|_, _, _| Ok(Vec::new()));
         let access = access(
             Arc::clone(&tokens),
             PollStatus::Success {
                 auth_json: serde_json::json!({"tokens": {"access_token": "a"}}),
                 id_token_claims: IdTokenClaims::default(),
             },
-            tasks,
+            Vec::new(),
             Arc::new(PersistObservingBroadcast {
                 tokens: Arc::clone(&tokens),
                 observed: mpsc::unbounded_channel().0,

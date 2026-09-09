@@ -5,58 +5,54 @@
 //! the composition root ([`crate::compose`]) and handed to [`AppState::new`].
 
 use crate::adapter_installations::AdapterInstallations;
-use crate::adapters::delivery::AdapterDeliveryStore;
 use crate::agent_harness_access::AgentHarnessAccess;
-use crate::app_administration::AppAdministration;
-use crate::file_storage::dao::FileDao;
 use crate::sandbox::lifecycle::Lifecycle;
 use moatless_adapter_model::binding::BindingProbe;
-use moatless_adapter_model::dao::AdapterConnectionDao;
+use moatless_adapter_model::connections::{
+    AdapterConnections, ConnectionLookup, ConnectionRouting,
+};
 use moatless_adapter_model::registry::Adapters;
 use moatless_core::config::{Config, S3Config};
 use moatless_core::db::DbPool;
 use moatless_core::events::EventPublisher;
+use moatless_core::file_storage::Files;
+use moatless_identity::adapter_apps::administration::AppAdministration;
 use moatless_identity::auth::github::registry::GitHubAppRegistry;
 use moatless_identity::auth::github::service::GitHubAppService;
-use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
-use moatless_identity::auth::provider_tokens::ProviderTokenAuthDao;
-use moatless_identity::auth::users::UserDao;
 use moatless_identity::git_host_access::GitHostAccess;
-use moatless_identity::secret::dao::SecretDao;
 use moatless_identity::secret::service::SecretService;
-use moatless_identity::team::dao::TeamDao;
-use moatless_loops::bindings::dao::TaskBindingDao;
+use moatless_loops::bindings::operations::Bindings;
 use moatless_loops::bindings::ports::BindingDirectory;
 use moatless_loops::bindings::recently_sent::RecentlySent;
-use moatless_loops::loops::dao::LoopDao;
+use moatless_loops::loops::operations::Loops;
 use moatless_loops::loops::sync::LoopSyncService;
 use moatless_ports::identity::GitHostTokenIssuer;
 use moatless_ports::sandbox::PreflightPort;
 use moatless_ports::sandbox::SandboxLifecycle;
 use moatless_tasks::credential_sync::CredentialSync;
-use moatless_tasks::event_ingress::outbox::IngressOutbox;
-use moatless_tasks::feedback::dao::FeedbackDao;
-use moatless_tasks::message::dao::MessageDao;
+use moatless_tasks::event_ingress::EventAdmission;
+use moatless_tasks::feedback::operations::FeedbackNotes;
+use moatless_tasks::message::operations::Messages;
 use moatless_tasks::message::send::MessageSendService;
-use moatless_tasks::tag::dao::TagDao;
+use moatless_tasks::tag::operations::Tags;
 use moatless_tasks::task::bindings::TaskBindings;
 use moatless_tasks::task::closer::TaskCloser;
 use moatless_tasks::task::creation::TaskCreationService;
-use moatless_tasks::task::dao::TaskDao;
 use moatless_tasks::task::fork::TaskForkService;
+use moatless_tasks::task::operations::TaskCommands;
 use moatless_tasks::task::presenter::TaskPresenter;
-use moatless_tasks::task::relations::TaskRelationDao;
-use moatless_tasks::task_event::dao::TaskEventDao;
-use moatless_tasks::task_turn::dao::TaskTurnDao;
+use moatless_tasks::task::relations::TaskRelations;
+use moatless_tasks::task_event::operations::TaskEvents;
+use moatless_tasks::task_turn::operations::TaskTurns;
 use moatless_types::agent::CodexOAuthConfig;
 use moatless_types::auth::AuthConfig;
 use moatless_types::secret::SecretsConfig;
-use moatless_workspaces::plugin::dao::PluginDao;
+use moatless_workspaces::plugin::Plugins;
 use moatless_workspaces::plugin::sync::PluginSyncService;
-use moatless_workspaces::repository::dao::RepositoryDao;
+use moatless_workspaces::repository::Repositories;
 use moatless_workspaces::skill::service::SkillService;
+use moatless_workspaces::workspace::Workspaces;
 use moatless_workspaces::workspace::credentials::service::WorkspaceCredentialService;
-use moatless_workspaces::workspace::dao::WorkspaceDao;
 use moatless_workspaces::workspace::git_sync::GitSyncService;
 use std::sync::Arc;
 
@@ -101,7 +97,7 @@ pub struct AppState {
     /// Optional event publisher for real-time event streaming (trait object).
     pub events: Option<Arc<dyn EventPublisher>>,
     /// Optional S3 handle for file uploads/downloads.
-    pub s3: Option<crate::file_storage::s3::S3Storage>,
+    pub s3: Option<moatless_s3::S3Storage>,
     /// Optional capability registry derived from [`Self::adapter_installations`].
     pub adapters: Option<Arc<Adapters>>,
     /// The process's one coherent installation of every external Adapter.
@@ -144,7 +140,7 @@ pub struct AppState {
     // =========================================================================
     // DAO trait objects
     // =========================================================================
-    pub tasks: Arc<dyn TaskDao>,
+    pub tasks: Arc<TaskCommands>,
     /// The `tasks` table behind the published `TaskReader` seam.
     pub task_reader: Arc<moatless_tasks::ports::TaskProjection>,
     /// Single owner of the create-then-provision sequence (short-id, preflight,
@@ -157,13 +153,13 @@ pub struct AppState {
     /// task-start handler calls the same port `task_creation` runs rather than
     /// reassembling the credential handles and validator per request.
     pub preflight: Arc<dyn PreflightPort>,
-    pub task_relations: Arc<dyn TaskRelationDao>,
+    pub task_relations: Arc<TaskRelations>,
     /// The one relation a provider records, over the same store.
     pub relation_recorder: Arc<dyn moatless_ports::task::RelationRecorder>,
     /// Task↔external-subject bindings (`task_bindings`) — the return channel a
     /// task replies on. The store itself, for the Adapters that drive the
     /// binding lifecycle (upsert plus reads plus status writes).
-    pub task_bindings: Arc<dyn TaskBindingDao>,
+    pub task_bindings: Arc<Bindings>,
     /// The same store behind the two published Binding seams: `BindingProbe`
     /// for an Adapter that only asks whether a subject is bound, and
     /// `TaskBindings` for the Task band below `loops`.
@@ -171,7 +167,10 @@ pub struct AppState {
     /// Adapter connections (`adapter_connections`) — the per-provider
     /// credential/webhook-secret rows inbound and outbound calls resolve
     /// against. Handlers read and write connections through this port.
-    pub adapter_connections: Arc<dyn AdapterConnectionDao>,
+    pub adapter_connections: Arc<AdapterConnections>,
+    /// The same rows as an Adapter routes against them: no viewer, because an
+    /// inbound event and not a session says which tenant is meant.
+    pub connection_routing: Arc<ConnectionRouting>,
     /// The inbound-routing subgraph and the ten ports it reads — including the
     /// durable adapter-event dedup (`adapter_event_receipts`), which nothing
     /// outside routing reads, so it lives here rather than as its own field. The
@@ -181,15 +180,17 @@ pub struct AppState {
     pub routing: Arc<moatless_loops::bindings::runtime::RoutingService>,
     pub external_reply: Arc<moatless_loops::bindings::reply::ExternalReplyService>,
     pub adapter_commands: Arc<crate::adapters::operations::AdapterCommands>,
-    /// Single owner of persistence for the four Loop tables (`loops`,
-    /// `loop_configs`, `subscriptions`,
-    /// `schedules`).
-    pub loops: Arc<LoopDao>,
-    pub messages: Arc<dyn MessageDao>,
+    /// The four Loop tables (`loops`, `loop_configs`, `subscriptions`,
+    /// `schedules`), as a host reads and writes them.
+    pub loops: Arc<Loops>,
+    /// The Subscription reads an Adapter's webhook route makes, over the same
+    /// tables.
+    pub loop_reader: Arc<dyn moatless_adapter_model::loops::LoopReader>,
+    pub messages: Arc<Messages>,
     /// The `task_messages` table behind the published `TranscriptAppend` seam.
     pub transcript: Arc<moatless_tasks::ports::Transcript>,
-    pub feedback: Arc<dyn FeedbackDao>,
-    pub repositories: Arc<dyn RepositoryDao>,
+    pub feedback: Arc<FeedbackNotes>,
+    pub repositories: Arc<Repositories>,
     pub repository_branches:
         Arc<moatless_workspaces::repository::branches::RepositoryBranchService>,
     pub repository_reader: Arc<dyn moatless_ports::workspace::RepositoryReader>,
@@ -199,41 +200,40 @@ pub struct AppState {
     /// The one way to obtain a git-host token: a named identity and a
     /// repository, with no scope walk.
     pub git_host_tokens: Arc<dyn GitHostTokenIssuer>,
-    pub tags: Arc<dyn TagDao>,
+    pub tags: Arc<Tags>,
     /// The `tags` table behind the published `TagResolver` seam.
     pub tag_resolver: Arc<moatless_tasks::ports::TagCatalog>,
-    pub files: Arc<dyn FileDao>,
-    pub users: Arc<dyn UserDao>,
+    /// Uploads: the object, the metadata row, and who may read one back.
+    pub files: Arc<Files>,
     /// The `users` table behind the three identity ports peer crates read:
     /// `UserDisplay`, `UserResolver`, `CommitIdentity`, `ProviderIdentityLink`.
     pub user_directory: Arc<moatless_identity::ports::UserDirectory>,
-    pub provider_tokens: Arc<dyn ProviderTokenDao>,
+    /// The one way to read, persist and refresh a provider-token credential.
+    pub credentials: Arc<moatless_identity::credentials::CredentialService>,
     /// The `provider_tokens` table behind the `HarnessCredentials` port.
     pub harness_credentials: Arc<moatless_identity::ports::HarnessTokens>,
     /// The `adapter_apps` tables behind the `AdapterAppReader` port an Adapter
     /// resolves its provider credentials through.
     pub adapter_apps: Arc<dyn moatless_adapter_model::apps::AdapterAppReader>,
-    pub provider_token_auth: Arc<dyn ProviderTokenAuthDao>,
-    pub secret_records: Arc<dyn SecretDao>,
     pub secrets: Arc<SecretService>,
-    pub teams: Arc<dyn TeamDao>,
-    pub task_events: Arc<dyn TaskEventDao>,
-    /// Transactional ingress outbox (the durable-ingress decision). The event-handler consumer
-    /// deletes a record here once it has committed the message that record
-    /// carries — the only confirmation of delivery in the system.
-    pub ingress_outbox: Arc<dyn IngressOutbox>,
+    pub task_events: Arc<TaskEvents>,
+    /// Durable admission for sandbox-published events. The event-handler
+    /// consumer reports delivery here once it has committed the message an
+    /// admitted record carries — the only confirmation of delivery in the
+    /// system — and the relay is spawned from it.
+    pub event_ingress: Arc<EventAdmission>,
     /// Authoritative per-turn lifecycle state (`task_turns`). Written
     /// transactionally at the gRPC ingress; the reaper reads it as the backstop.
-    pub task_turns: Arc<dyn TaskTurnDao>,
+    pub task_turns: Arc<TaskTurns>,
     /// The `task_turns` table behind the published `TurnCounter` seam.
     pub turn_counter: Arc<moatless_tasks::ports::TurnLedger>,
-    pub plugins: Arc<dyn PluginDao>,
+    pub plugins: Arc<Plugins>,
     /// The one path from a plugin's git content to its stored skills. Every
     /// reader of plugin skills goes through this.
     pub plugin_sync: Arc<PluginSyncService>,
     /// Workspace composition + run-config (`workspaces` / `workspace_repos`).
     /// Provisioning resolves a task's repository composition through this.
-    pub workspaces: Arc<dyn WorkspaceDao>,
+    pub workspaces: Arc<Workspaces>,
     /// Provider credentials pinned to a Workspace (`workspace_credentials`) —
     /// the highest-precedence source of a sandbox's provider credentials, and
     /// the port the CLI-only credential routes write through.
@@ -260,7 +260,10 @@ pub struct AppState {
     /// before it acknowledges its sender; the supervised
     /// `adapter-delivery-worker` owns what was admitted. See
     /// [`crate::adapters::delivery`].
-    pub adapter_delivery: Arc<AdapterDeliveryStore>,
+    pub adapter_delivery: Arc<dyn moatless_adapter_model::delivery::DeliveryAdmission>,
+    /// The worker that owns what admission wrote. The host starts it last, once
+    /// every delivery handler this build knows is registered.
+    pub adapter_delivery_worker: moatless_loops::adapters::delivery::AdapterDeliveryWorker,
 }
 
 // `FromRef` lets a handler extract exactly the port it names —
@@ -281,49 +284,43 @@ impl axum::extract::FromRef<AppState> for Arc<SecretService> {
     }
 }
 
-impl axum::extract::FromRef<AppState> for Option<crate::file_storage::s3::S3Storage> {
+impl axum::extract::FromRef<AppState> for Option<moatless_s3::S3Storage> {
     fn from_ref(state: &AppState) -> Self {
         state.s3.clone()
     }
 }
 
-impl axum::extract::FromRef<AppState> for Arc<dyn FileDao> {
+impl axum::extract::FromRef<AppState> for Arc<Files> {
     fn from_ref(state: &AppState) -> Self {
         state.files.clone()
     }
 }
 
-impl axum::extract::FromRef<AppState> for Arc<dyn FeedbackDao> {
+impl axum::extract::FromRef<AppState> for Arc<FeedbackNotes> {
     fn from_ref(state: &AppState) -> Self {
         state.feedback.clone()
     }
 }
 
-impl axum::extract::FromRef<AppState> for Arc<dyn TaskDao> {
+impl axum::extract::FromRef<AppState> for Arc<TaskCommands> {
     fn from_ref(state: &AppState) -> Self {
         state.tasks.clone()
     }
 }
 
-impl axum::extract::FromRef<AppState> for Arc<dyn TaskEventDao> {
+impl axum::extract::FromRef<AppState> for Arc<TaskEvents> {
     fn from_ref(state: &AppState) -> Self {
         state.task_events.clone()
     }
 }
 
-impl axum::extract::FromRef<AppState> for Arc<dyn TagDao> {
+impl axum::extract::FromRef<AppState> for Arc<Tags> {
     fn from_ref(state: &AppState) -> Self {
         state.tags.clone()
     }
 }
 
-impl axum::extract::FromRef<AppState> for Arc<dyn TeamDao> {
-    fn from_ref(state: &AppState) -> Self {
-        state.teams.clone()
-    }
-}
-
-impl axum::extract::FromRef<AppState> for Arc<dyn WorkspaceDao> {
+impl axum::extract::FromRef<AppState> for Arc<Workspaces> {
     fn from_ref(state: &AppState) -> Self {
         state.workspaces.clone()
     }
@@ -335,7 +332,7 @@ impl axum::extract::FromRef<AppState> for Arc<WorkspaceCredentialService> {
     }
 }
 
-impl axum::extract::FromRef<AppState> for Arc<dyn RepositoryDao> {
+impl axum::extract::FromRef<AppState> for Arc<Repositories> {
     fn from_ref(state: &AppState) -> Self {
         state.repositories.clone()
     }
@@ -377,7 +374,7 @@ impl axum::extract::FromRef<AppState> for Arc<SkillService> {
     }
 }
 
-impl axum::extract::FromRef<AppState> for Arc<dyn PluginDao> {
+impl axum::extract::FromRef<AppState> for Arc<Plugins> {
     fn from_ref(state: &AppState) -> Self {
         state.plugins.clone()
     }
@@ -413,18 +410,6 @@ impl axum::extract::FromRef<AppState> for Arc<S3Config> {
     }
 }
 
-impl axum::extract::FromRef<AppState> for Arc<dyn ProviderTokenDao> {
-    fn from_ref(state: &AppState) -> Self {
-        state.provider_tokens.clone()
-    }
-}
-
-impl axum::extract::FromRef<AppState> for Arc<dyn SecretDao> {
-    fn from_ref(state: &AppState) -> Self {
-        state.secret_records.clone()
-    }
-}
-
 impl axum::extract::FromRef<AppState> for Arc<dyn moatless_ports::identity::SecretCatalog> {
     fn from_ref(state: &AppState) -> Self {
         state.secrets.clone()
@@ -443,9 +428,21 @@ impl axum::extract::FromRef<AppState> for Arc<dyn moatless_ports::identity::Harn
     }
 }
 
-impl axum::extract::FromRef<AppState> for Arc<dyn AdapterConnectionDao> {
+impl axum::extract::FromRef<AppState> for Arc<AdapterConnections> {
     fn from_ref(state: &AppState) -> Self {
         state.adapter_connections.clone()
+    }
+}
+
+impl axum::extract::FromRef<AppState> for Arc<ConnectionRouting> {
+    fn from_ref(state: &AppState) -> Self {
+        state.connection_routing.clone()
+    }
+}
+
+impl axum::extract::FromRef<AppState> for Arc<dyn ConnectionLookup> {
+    fn from_ref(state: &AppState) -> Self {
+        state.connection_routing.clone()
     }
 }
 
@@ -515,13 +512,13 @@ impl axum::extract::FromRef<AppState> for Arc<dyn PreflightPort> {
     }
 }
 
-impl axum::extract::FromRef<AppState> for Arc<dyn TaskRelationDao> {
+impl axum::extract::FromRef<AppState> for Arc<TaskRelations> {
     fn from_ref(state: &AppState) -> Self {
         state.task_relations.clone()
     }
 }
 
-impl axum::extract::FromRef<AppState> for Arc<dyn TaskBindingDao> {
+impl axum::extract::FromRef<AppState> for Arc<Bindings> {
     fn from_ref(state: &AppState) -> Self {
         state.task_bindings.clone()
     }
@@ -539,17 +536,15 @@ impl axum::extract::FromRef<AppState> for Arc<dyn TaskBindings> {
     }
 }
 
-impl axum::extract::FromRef<AppState> for Arc<LoopDao> {
+impl axum::extract::FromRef<AppState> for Arc<Loops> {
     fn from_ref(state: &AppState) -> Self {
         state.loops.clone()
     }
 }
 
-/// The Subscription reads an Adapter's webhook route makes. Coerced from the
-/// one `LoopDao` rather than held as a second field.
 impl axum::extract::FromRef<AppState> for Arc<dyn moatless_adapter_model::loops::LoopReader> {
     fn from_ref(state: &AppState) -> Self {
-        state.loops.clone()
+        state.loop_reader.clone()
     }
 }
 
@@ -567,15 +562,9 @@ impl axum::extract::FromRef<AppState> for Arc<RecentlySent> {
     }
 }
 
-impl axum::extract::FromRef<AppState> for Arc<dyn MessageDao> {
+impl axum::extract::FromRef<AppState> for Arc<Messages> {
     fn from_ref(state: &AppState) -> Self {
         state.messages.clone()
-    }
-}
-
-impl axum::extract::FromRef<AppState> for Arc<dyn UserDao> {
-    fn from_ref(state: &AppState) -> Self {
-        state.users.clone()
     }
 }
 
@@ -609,7 +598,7 @@ impl axum::extract::FromRef<AppState> for Arc<dyn moatless_ports::identity::Prov
     }
 }
 
-impl axum::extract::FromRef<AppState> for Arc<dyn TaskTurnDao> {
+impl axum::extract::FromRef<AppState> for Arc<TaskTurns> {
     fn from_ref(state: &AppState) -> Self {
         state.task_turns.clone()
     }
@@ -693,19 +682,25 @@ impl axum::extract::FromRef<AppState> for Arc<crate::adapters::operations::Adapt
     }
 }
 
-impl axum::extract::FromRef<AppState> for Option<Arc<moatless_adapter_slack::adapter::SlackAdapter>> {
+impl axum::extract::FromRef<AppState>
+    for Option<Arc<moatless_adapter_slack::adapter::SlackAdapter>>
+{
     fn from_ref(state: &AppState) -> Self {
         state.adapter_installations.as_ref().map(|i| i.slack())
     }
 }
 
-impl axum::extract::FromRef<AppState> for Option<Arc<moatless_adapter_telegram::adapter::TelegramAdapter>> {
+impl axum::extract::FromRef<AppState>
+    for Option<Arc<moatless_adapter_telegram::adapter::TelegramAdapter>>
+{
     fn from_ref(state: &AppState) -> Self {
         state.adapter_installations.as_ref().map(|i| i.telegram())
     }
 }
 
-impl axum::extract::FromRef<AppState> for Option<Arc<moatless_adapter_github_pr::adapter::GithubPrAdapter>> {
+impl axum::extract::FromRef<AppState>
+    for Option<Arc<moatless_adapter_github_pr::adapter::GithubPrAdapter>>
+{
     fn from_ref(state: &AppState) -> Self {
         state.adapter_installations.as_ref().map(|i| i.github_pr())
     }
@@ -722,7 +717,9 @@ impl axum::extract::FromRef<AppState>
     }
 }
 
-impl axum::extract::FromRef<AppState> for Option<Arc<moatless_adapter_linear::adapter::LinearAdapter>> {
+impl axum::extract::FromRef<AppState>
+    for Option<Arc<moatless_adapter_linear::adapter::LinearAdapter>>
+{
     fn from_ref(state: &AppState) -> Self {
         state.adapter_installations.as_ref().map(|i| i.linear())
     }

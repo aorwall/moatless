@@ -13,6 +13,19 @@ pub use moatless_types::repository::{Repository, RepositoryKind, RepositoryProvi
 
 pub use moatless_types::workspace::ScriptConfig;
 
+/// Patch struct for partial updates.
+#[derive(Default)]
+pub struct RepositoryPatch {
+    pub name: Option<String>,
+    pub kind: Option<RepositoryKind>,
+    pub scope: Option<Scope>,
+    pub owner_user_id: Option<Option<String>>,
+    pub remote_url: Option<Option<String>>,
+    pub default_branch: Option<Option<String>>,
+    pub description: Option<Option<String>>,
+    pub provider: Option<Option<RepositoryProvider>>,
+}
+
 // =============================================================================
 // RepositoryRow
 // =============================================================================

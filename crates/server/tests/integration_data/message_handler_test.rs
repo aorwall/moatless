@@ -13,11 +13,11 @@ use axum::http::StatusCode;
 use sqlx::PgPool;
 use tower::ServiceExt;
 
-use moatless_tasks::message::dao as message_dao;
 use moatless_tasks::message::routes::message_router;
-use moatless_tasks::task::dao as task_dao;
+use moatless_tasks::message::test_support as message_fixtures;
+use moatless_tasks::task::test_support as task_fixtures;
 use moatless_tasks::task_activities::mapping::ConversationWrite;
-use moatless_workspaces::repository::dao as repository_dao;
+use moatless_workspaces::compose;
 
 use common::{
     USER_1, authed_json_request, authed_request, body_json, make_message_row, make_repository_row,
@@ -32,11 +32,13 @@ fn build_router(pool: PgPool) -> axum::Router {
 
 async fn seed_task(pool: &PgPool, task_id: &str, user: &str) {
     let repo = make_repository_row("repo-1", user);
-    repository_dao::insert(pool, &repo)
+    compose::seed_repository(pool, &repo)
         .await
         .expect("seed repo");
     let task = make_task_row(task_id, user);
-    task_dao::insert_task(pool, &task).await.expect("seed task");
+    task_fixtures::seed_task(pool, &task)
+        .await
+        .expect("seed task");
 }
 
 // =========================================================================
@@ -64,7 +66,7 @@ async fn get_messages_pagination(pool: PgPool) {
     // Seed 75 user messages so they cleanly survive the empty-content filter.
     for i in 0..75 {
         let msg = make_message_row("task-1", &format!("msg-{i:03}"));
-        message_dao::append(&pool, &msg, &[], &ConversationWrite::default())
+        message_fixtures::seed_message(&pool, &msg, &[], &ConversationWrite::default())
             .await
             .unwrap();
     }
@@ -104,12 +106,12 @@ async fn get_messages_with_data(pool: PgPool) {
 
     // Insert messages via DAO
     let msg1 = make_message_row("task-1", "msg-1");
-    message_dao::append(&pool, &msg1, &[], &ConversationWrite::default())
+    message_fixtures::seed_message(&pool, &msg1, &[], &ConversationWrite::default())
         .await
         .unwrap();
 
     let msg2 = make_message_row("task-1", "msg-2");
-    message_dao::append(&pool, &msg2, &[], &ConversationWrite::default())
+    message_fixtures::seed_message(&pool, &msg2, &[], &ConversationWrite::default())
         .await
         .unwrap();
 
@@ -161,12 +163,12 @@ async fn get_pending_messages_with_data(pool: PgPool) {
 
     // Insert pending user messages (no agent_session_id)
     let msg1 = make_message_row("task-1", "pending-1");
-    message_dao::append(&pool, &msg1, &[], &ConversationWrite::default())
+    message_fixtures::seed_message(&pool, &msg1, &[], &ConversationWrite::default())
         .await
         .unwrap();
 
     let msg2 = make_message_row("task-1", "pending-2");
-    message_dao::append(&pool, &msg2, &[], &ConversationWrite::default())
+    message_fixtures::seed_message(&pool, &msg2, &[], &ConversationWrite::default())
         .await
         .unwrap();
 

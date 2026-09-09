@@ -69,7 +69,7 @@ sequenceDiagram
     autonumber
     participant Linear
     participant Dispatcher as handlers::dispatch_webhook
-    participant ConnRepo as PgAdapterConnectionDao
+    participant ConnRepo as connections::ConnectionLookup
     participant Sig as signature::verify_signature
     participant Delivery as adapter_delivery (durable)
     participant Worker as adapter-delivery-worker
@@ -79,7 +79,7 @@ sequenceDiagram
     alt missing signature header
         Dispatcher-->>Linear: 200 (ignored, logged)
     end
-    Dispatcher->>ConnRepo: find_by_external_account("linear", org_id)
+    Dispatcher->>ConnRepo: by_external_account("linear", org_id)
     alt no connection
         Dispatcher-->>Linear: 200 (ignored — unknown workspace)
     end
@@ -135,7 +135,7 @@ sequenceDiagram
     participant Runtime as agent_runtime::handle_session_created
     participant API as LinearAgentApi
     participant Tasks as state.tasks
-    participant BindingRepo as PgTaskBindingDao
+    participant BindingRepo as Bindings
     participant Sandbox as state.sandbox
     participant MsgFlow as message::send::send_message_flow
 
@@ -181,7 +181,7 @@ sequenceDiagram
     autonumber
     participant Linear
     participant Runtime as agent_runtime::handle_session_prompted
-    participant BindingRepo as PgTaskBindingDao
+    participant BindingRepo as Bindings
     participant API as LinearAgentApi
     participant MsgFlow as message::send::send_message_flow
     participant Sandbox as SandboxWaker::wake (state.sandbox_waker)
@@ -234,7 +234,7 @@ sequenceDiagram
     autonumber
     participant Linear
     participant Runtime as agent_runtime::handle_comment_created
-    participant BindingRepo as PgTaskBindingDao
+    participant BindingRepo as Bindings
     participant Resolver as bindings::recipients::resolve_recipients
     participant API as LinearAgentApi
     participant MsgFlow as message::send::send_message_flow
@@ -280,8 +280,8 @@ sequenceDiagram
     autonumber
     participant Linear
     participant Runtime as agent_runtime::handle_issue_update
-    participant Rules as LoopDao
-    participant BindingRepo as PgTaskBindingDao
+    participant Rules as LoopReader
+    participant BindingRepo as Bindings
     participant MsgFlow as message::send::send_message_flow
     participant API as LinearAgentApi
     participant Tasks as state.tasks
@@ -487,7 +487,7 @@ sequenceDiagram
     autonumber
     participant CLI as moat CLI / operator
     participant Routes as api_routes
-    participant ResolveConn as access::resolve_connection
+    participant ResolveConn as connections::resolve_connection
     participant API as LinearAgentApi
     participant Bind as bindings::runtime::upsert_binding
     participant TaskAccess as access::ensure_task_access_only

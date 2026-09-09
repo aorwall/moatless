@@ -8,8 +8,9 @@ use async_trait::async_trait;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use super::codex_blob::{CodexBlobOutcome, CodexBlobRefresher};
 use super::models::{GithubTokenPresence, ProviderAccessToken, ProviderToken};
-use super::provider_token_dao::{CodexBlobOutcome, CodexBlobRefresher, ProviderTokenDao};
+use super::provider_token_dao::ProviderTokenDao;
 use moatless_types::agent::CodexScope;
 
 /// Canned `provider_tokens` rows at each scope. Writes are accepted and
@@ -250,25 +251,6 @@ impl ProviderTokenDao for StubProviderTokens {
 
     async fn find_github_row(&self, user_id: &str) -> Result<Option<ProviderToken>, sqlx::Error> {
         Ok(self.github_user_row(user_id).cloned())
-    }
-
-    async fn upsert_github_row(
-        &self,
-        _user_id: &str,
-        _auth_method: &str,
-        _access_token: &str,
-        _token_type: Option<&str>,
-        _metadata: Option<&serde_json::Value>,
-        _provider_user_id: Option<&str>,
-        _provider_login: Option<&str>,
-    ) -> Result<(), sqlx::Error> {
-        self.writes.fetch_add(1, Ordering::Relaxed);
-        Ok(())
-    }
-
-    async fn delete_github_row(&self, _user_id: &str) -> Result<(), sqlx::Error> {
-        self.writes.fetch_add(1, Ordering::Relaxed);
-        Ok(())
     }
 
     async fn find_github_scope_presence(

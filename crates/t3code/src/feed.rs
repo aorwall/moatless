@@ -24,10 +24,10 @@ use std::collections::{HashMap, HashSet};
 use serde_json::{Value, json};
 use tracing::{debug, warn};
 
-use super::dao::ConversationDao;
 use super::{AgentModelDefaults, projection};
+use crate::dao::ConversationDao;
 use crate::listing::UiRpcEnvironmentIdentity;
-use crate::workspace_dao::T3WorkspaceDao;
+use crate::reads::T3Reads;
 use moatless_types::access_control::ScopeContext;
 
 use moatless_core::change_feed::conversation::{ConversationChange, ConversationHead};
@@ -101,16 +101,15 @@ impl ShellFeed {
     /// Decision 7's third place the check has to run.
     pub async fn poll(
         &mut self,
-        workspaces: &dyn T3WorkspaceDao,
-        conversations: &dyn ConversationDao,
+        reads: &T3Reads,
         defaults: &AgentModelDefaults,
         viewer: &ScopeContext,
     ) -> Result<Vec<Value>, sqlx::Error> {
+        let conversations = reads.conversations();
+        let workspaces = reads.workspaces();
         let head = conversations.listing_head().await?;
         if head.identity != self.identity {
-            return self
-                .rebuild(workspaces, conversations, defaults, viewer)
-                .await;
+            return self.rebuild(reads, defaults, viewer).await;
         }
 
         let changes = conversations
@@ -173,9 +172,7 @@ impl ShellFeed {
                     if !self.grouped.contains(project_id) {
                         // Entered a project this client has no group for, and
                         // the pair cannot go out at one position.
-                        return self
-                            .resynchronize(workspaces, conversations, defaults, viewer)
-                            .await;
+                        return self.resynchronize(reads, defaults, viewer).await;
                     }
                     items.push(projection::thread_upserted(
                         row, project_id, defaults, position,
@@ -237,12 +234,11 @@ impl ShellFeed {
     /// silence until it got there.
     async fn rebuild(
         &mut self,
-        workspaces: &dyn T3WorkspaceDao,
-        conversations: &dyn ConversationDao,
+        reads: &T3Reads,
         defaults: &AgentModelDefaults,
         viewer: &ScopeContext,
     ) -> Result<Vec<Value>, sqlx::Error> {
-        let snapshot = super::shell_snapshot(workspaces, conversations, defaults, viewer).await?;
+        let snapshot = super::shell_snapshot(reads, defaults, viewer).await?;
         warn!(
             user_id = %viewer.user_id,
             cursor = self.cursor,
@@ -259,12 +255,11 @@ impl ShellFeed {
     /// without comparing positions.
     async fn resynchronize(
         &mut self,
-        workspaces: &dyn T3WorkspaceDao,
-        conversations: &dyn ConversationDao,
+        reads: &T3Reads,
         defaults: &AgentModelDefaults,
         viewer: &ScopeContext,
     ) -> Result<Vec<Value>, sqlx::Error> {
-        let snapshot = super::shell_snapshot(workspaces, conversations, defaults, viewer).await?;
+        let snapshot = super::shell_snapshot(reads, defaults, viewer).await?;
         debug!(
             user_id = %viewer.user_id,
             sequence = snapshot.sequence,
@@ -385,7 +380,7 @@ impl ThreadFeed {
     /// Neither the workspace listing nor the model defaults are read: a thread
     /// event carries no grouping and no model, unlike the shell rows and the
     /// snapshot this feed continues from.
-    pub async fn poll(
+    pub(crate) async fn poll(
         &mut self,
         conversations: &dyn ConversationDao,
         viewer: &ScopeContext,

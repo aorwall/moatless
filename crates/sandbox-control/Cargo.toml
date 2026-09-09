@@ -48,12 +48,9 @@ sandbox-proto = { workspace = true }
 
 [features]
 # Gate the `#[sqlx::test]` blocks that need a running PostgreSQL (lifecycle DAO,
-# lock, plan, reconciler). Forwards to the lower bands' test-support so the
-# db-tests-gated `Config::test_minimal`, `seed_bare_task`, and mock DAOs
-# compile; no shipping build enables it.
-db-tests = [
-    "moatless-core/test-support",
-]
+# lock, plan, reconciler). No shipping build enables it. The test-only items
+# those blocks name come from this crate's dev-dependencies.
+db-tests = []
 
 [lints]
 workspace = true
@@ -71,8 +68,8 @@ moatless-ports = { workspace = true, features = ["test-support"] }
 moatless-core = { workspace = true, features = ["test-support"] }
 moatless-sandbox-runtime = { workspace = true, features = ["test-support"] }
 # Test-only. The `db-tests` plan test assembles `ProvisionDeps` straight from a
-# pool, so it names the concrete workspace DAOs; production code here reaches
-# the workspace domain only through `WorkspaceResolver` and
+# pool, so it names the workspaces composition root; production code here
+# reaches the workspace domain only through `WorkspaceResolver` and
 # `WorkspaceCredentialReader`, so this edge must never appear under
 # `[dependencies]`.
 moatless-workspaces = { workspace = true }

@@ -14,13 +14,14 @@ use moatless_api_schemas::loops::{
 use serde::Deserialize;
 use utoipa::ToSchema;
 
-use crate::bindings::dao::{LoopRecentTaskRow, TaskBindingDao};
-use crate::loops::access::load_loop_for_auth_with;
-use crate::loops::dao::{LoopDao, LoopListFilter};
+use crate::bindings::dao::LoopRecentTaskRow;
+use crate::bindings::operations::Bindings;
 use crate::loops::http::projection::LoopFilter;
 use crate::loops::http::projection::loop_response;
+use crate::loops::models::LoopListFilter;
+use crate::loops::operations::Loops;
 use crate::loops::sync::LoopSyncService;
-use moatless_adapter_model::dao::AdapterConnectionDao;
+use moatless_adapter_model::connections::AdapterConnections;
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_core::http_auth::AuthUser;
 use moatless_ports::identity::UserResolver;
@@ -92,7 +93,7 @@ fn map_recent_task_item(row: &LoopRecentTaskRow) -> LoopRecentTaskItem {
     responses((status = 200, description = "Loops", body = Vec<Loop>))
 )]
 pub async fn list_loops(
-    State(loops): State<Arc<LoopDao>>,
+    State(loops): State<Arc<Loops>>,
     auth: AuthUser,
     Query(query): Query<LoopFilter>,
 ) -> Result<Json<Vec<Loop>>, AdapterError> {
@@ -121,22 +122,22 @@ pub async fn list_loops(
     responses((status = 200, description = "Loop created", body = Loop))
 )]
 pub async fn create_loop(
-    State(loops): State<Arc<LoopDao>>,
+    State(loops): State<Arc<Loops>>,
     State(users): State<Arc<dyn UserResolver>>,
     State(workspaces): State<Arc<dyn WorkspaceResolver>>,
-    State(adapter_connections): State<Arc<dyn AdapterConnectionDao>>,
+    State(adapter_connections): State<Arc<AdapterConnections>>,
     auth: AuthUser,
     Json(req): Json<CreateLoopRequest>,
 ) -> Result<Json<Loop>, AdapterError> {
-    let record = super::super::mutations::create_loop(
-        loops.as_ref(),
-        users.as_ref(),
-        workspaces.as_ref(),
-        adapter_connections.as_ref(),
-        &auth.scope_context(),
-        req,
-    )
-    .await?;
+    let record = loops
+        .create(
+            users.as_ref(),
+            workspaces.as_ref(),
+            adapter_connections.as_ref(),
+            &auth.scope_context(),
+            req,
+        )
+        .await?;
     Ok(Json(loop_response(&record)))
 }
 
@@ -148,22 +149,22 @@ pub async fn create_loop(
     responses((status = 200, description = "Loop updated", body = Loop))
 )]
 pub async fn update_loop(
-    State(loops): State<Arc<LoopDao>>,
+    State(loops): State<Arc<Loops>>,
     State(workspaces): State<Arc<dyn WorkspaceResolver>>,
-    State(adapter_connections): State<Arc<dyn AdapterConnectionDao>>,
+    State(adapter_connections): State<Arc<AdapterConnections>>,
     auth: AuthUser,
     Path(id): Path<String>,
     Json(req): Json<UpdateLoopRequest>,
 ) -> Result<Json<Loop>, AdapterError> {
-    let record = super::super::mutations::update_loop(
-        loops.as_ref(),
-        workspaces.as_ref(),
-        adapter_connections.as_ref(),
-        &auth.scope_context(),
-        &id,
-        req,
-    )
-    .await?;
+    let record = loops
+        .update(
+            workspaces.as_ref(),
+            adapter_connections.as_ref(),
+            &auth.scope_context(),
+            &id,
+            req,
+        )
+        .await?;
     Ok(Json(loop_response(&record)))
 }
 
@@ -178,11 +179,11 @@ pub async fn update_loop(
     )
 )]
 pub async fn get_loop(
-    State(loops): State<Arc<LoopDao>>,
+    State(loops): State<Arc<Loops>>,
     auth: AuthUser,
     Path(id): Path<String>,
 ) -> Result<Json<Loop>, AdapterError> {
-    let record = load_loop_for_auth_with(loops.as_ref(), &auth.scope_context(), &id).await?;
+    let record = loops.load_for_auth(&auth.scope_context(), &id).await?;
     Ok(Json(loop_response(&record)))
 }
 
@@ -197,15 +198,15 @@ pub async fn get_loop(
     responses((status = 200, body = Vec<LoopRecentTaskItem>))
 )]
 pub async fn list_loop_recent_tasks(
-    State(loops): State<Arc<LoopDao>>,
-    State(task_bindings): State<Arc<dyn TaskBindingDao>>,
+    State(loops): State<Arc<Loops>>,
+    State(task_bindings): State<Arc<Bindings>>,
     auth: AuthUser,
     Path(id): Path<String>,
     Query(query): Query<RecentTasksQuery>,
 ) -> Result<Json<Vec<LoopRecentTaskItem>>, AdapterError> {
-    let _ = load_loop_for_auth_with(loops.as_ref(), &auth.scope_context(), &id).await?;
+    let _ = loops.load_for_auth(&auth.scope_context(), &id).await?;
     let limit = query.limit.unwrap_or(10).min(50) as i64;
-    let rows = task_bindings.find_recent_for_loop(&id, limit).await?;
+    let rows = task_bindings.recent_for_loop(&id, limit).await?;
     Ok(Json(rows.iter().map(map_recent_task_item).collect()))
 }
 
@@ -220,21 +221,21 @@ pub async fn list_loop_recent_tasks(
     )
 )]
 pub async fn delete_loop(
-    State(loops): State<Arc<LoopDao>>,
+    State(loops): State<Arc<Loops>>,
     auth: AuthUser,
     Path(id): Path<String>,
 ) -> Result<StatusCode, AdapterError> {
-    super::super::mutations::delete_loop(loops.as_ref(), &auth.scope_context(), &id).await?;
+    loops.delete(&auth.scope_context(), &id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
 async fn updated_loop(
-    loops: &LoopDao,
+    loops: &Loops,
     ctx: &moatless_types::access_control::ScopeContext,
     id: &str,
 ) -> Result<Json<Loop>, AdapterError> {
     let record = loops
-        .get(id, ctx)
+        .get(ctx, id)
         .await?
         .ok_or_else(|| SharedAdapterError::NotFound(format!("Loop {id} not found")))?;
     Ok(Json(loop_response(&record)))
@@ -248,20 +249,20 @@ async fn updated_loop(
     responses((status = 200, description = "Loop activated", body = Loop))
 )]
 pub async fn activate_loop(
-    State(loops): State<Arc<LoopDao>>,
+    State(loops): State<Arc<Loops>>,
     State(users): State<Arc<dyn UserResolver>>,
     auth: AuthUser,
     Path(id): Path<String>,
     Json(req): Json<ActivateLoopRequest>,
 ) -> Result<Json<Loop>, AdapterError> {
-    super::super::mutations::activate_loop(
-        loops.as_ref(),
-        users.as_ref(),
-        &auth.scope_context(),
-        &id,
-        &req.run_as_user_id,
-    )
-    .await?;
+    loops
+        .activate(
+            users.as_ref(),
+            &auth.scope_context(),
+            &id,
+            &req.run_as_user_id,
+        )
+        .await?;
     updated_loop(loops.as_ref(), &auth.scope_context(), &id).await
 }
 
@@ -272,11 +273,11 @@ pub async fn activate_loop(
     responses((status = 200, description = "Loop paused", body = Loop))
 )]
 pub async fn pause_loop(
-    State(loops): State<Arc<LoopDao>>,
+    State(loops): State<Arc<Loops>>,
     auth: AuthUser,
     Path(id): Path<String>,
 ) -> Result<Json<Loop>, AdapterError> {
-    super::super::mutations::pause_loop(loops.as_ref(), &auth.scope_context(), &id).await?;
+    loops.pause(&auth.scope_context(), &id).await?;
     updated_loop(loops.as_ref(), &auth.scope_context(), &id).await
 }
 
@@ -287,11 +288,11 @@ pub async fn pause_loop(
     responses((status = 200, description = "Loop resumed", body = Loop))
 )]
 pub async fn resume_loop(
-    State(loops): State<Arc<LoopDao>>,
+    State(loops): State<Arc<Loops>>,
     auth: AuthUser,
     Path(id): Path<String>,
 ) -> Result<Json<Loop>, AdapterError> {
-    super::super::mutations::resume_loop(loops.as_ref(), &auth.scope_context(), &id).await?;
+    loops.resume(&auth.scope_context(), &id).await?;
     updated_loop(loops.as_ref(), &auth.scope_context(), &id).await
 }
 
@@ -302,11 +303,11 @@ pub async fn resume_loop(
     responses((status = 200, description = "Git Loop overridden", body = Loop))
 )]
 pub async fn override_loop(
-    State(loops): State<Arc<LoopDao>>,
+    State(loops): State<Arc<Loops>>,
     auth: AuthUser,
     Path(id): Path<String>,
 ) -> Result<Json<Loop>, AdapterError> {
-    super::super::mutations::override_loop(loops.as_ref(), &auth.scope_context(), &id).await?;
+    loops.override_git(&auth.scope_context(), &id).await?;
     updated_loop(loops.as_ref(), &auth.scope_context(), &id).await
 }
 
@@ -317,20 +318,20 @@ pub async fn override_loop(
     responses((status = 200, description = "Loop reset result", body = ResetGitLoopResponse))
 )]
 pub async fn reset_git_loop(
-    State(loops): State<Arc<LoopDao>>,
+    State(loops): State<Arc<Loops>>,
     State(repositories): State<Arc<dyn RepositoryReader>>,
     State(loop_sync): State<Arc<LoopSyncService>>,
     auth: AuthUser,
     Path(id): Path<String>,
 ) -> Result<Json<ResetGitLoopResponse>, AdapterError> {
-    let outcome = super::super::mutations::reset_git_loop(
-        loops.as_ref(),
-        repositories.as_ref(),
-        loop_sync.as_ref(),
-        &auth.scope_context(),
-        &id,
-    )
-    .await?;
+    let outcome = loops
+        .reset_git(
+            repositories.as_ref(),
+            loop_sync.as_ref(),
+            &auth.scope_context(),
+            &id,
+        )
+        .await?;
     Ok(Json(ResetGitLoopResponse {
         loop_: loop_response(&outcome.record),
         resynced: outcome.resynced,

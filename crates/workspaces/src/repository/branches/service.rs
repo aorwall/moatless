@@ -1,10 +1,11 @@
 use super::super::access::git_host_token_error;
-use super::super::dao::{RepositoryDao, RepositoryPatch};
+use super::super::dao::RepositoryDao;
 use super::super::error::RepositoryError;
+use super::super::models::RepositoryPatch;
 use super::super::schemas::{BranchEntry, BranchListResponse};
 use super::providers::{fetch_github_branches, fetch_gitlab_branches, fetch_gitness_branches};
 use crate::workspace::dao::WorkspaceDao;
-use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
+use moatless_identity::credentials::{CredentialError, CredentialService};
 use moatless_ports::identity::GitHostTokenIssuer;
 use moatless_types::access_control::{Actor, ScopeContext};
 use moatless_types::repository::{GitHostRepo, RepositoryProvider};
@@ -16,24 +17,24 @@ pub struct RepositoryBranchService {
     repositories: Arc<dyn RepositoryDao>,
     workspaces: Arc<dyn WorkspaceDao>,
     git_host_tokens: Arc<dyn GitHostTokenIssuer>,
-    provider_tokens: Arc<dyn ProviderTokenDao>,
+    credentials: Arc<CredentialService>,
     http: Arc<reqwest::Client>,
 }
 
 impl RepositoryBranchService {
     /// Bind branch listing to the stores, credential issuer and HTTP client.
-    pub fn new(
+    pub(crate) fn new(
         repositories: Arc<dyn RepositoryDao>,
         workspaces: Arc<dyn WorkspaceDao>,
         git_host_tokens: Arc<dyn GitHostTokenIssuer>,
-        provider_tokens: Arc<dyn ProviderTokenDao>,
+        credentials: Arc<CredentialService>,
         http: Arc<reqwest::Client>,
     ) -> Self {
         Self {
             repositories,
             workspaces,
             git_host_tokens,
-            provider_tokens,
+            credentials,
             http,
         }
     }
@@ -49,7 +50,7 @@ impl RepositoryBranchService {
             repositories,
             workspaces,
             git_host_tokens,
-            provider_tokens,
+            credentials,
             ..
         } = self;
         let repo = repositories
@@ -77,7 +78,6 @@ impl RepositoryBranchService {
             .await
             .map_err(git_host_token_error)?;
 
-        // For Gitness, we also need the base URL from provider_tokens metadata
         let result = match provider {
             RepositoryProvider::Github => {
                 fetch_github_branches(&self.http, remote_url, &access_token).await?
@@ -86,13 +86,12 @@ impl RepositoryBranchService {
                 fetch_gitlab_branches(&self.http, remote_url, &access_token).await?
             }
             RepositoryProvider::Gitness => {
-                let full_token = provider_tokens
-                    .find_provider_token_full(&ctx.user_id, "gitness")
+                let metadata = credentials
+                    .provider_metadata(&ctx.user_id, "gitness")
                     .await
-                    .map_err(RepositoryError::Db)?;
-                let base_url = full_token
+                    .map_err(credential_error)?;
+                let base_url = metadata
                 .as_ref()
-                .and_then(|t| t.metadata.as_ref())
                 .and_then(|m| m.get("base_url"))
                 .and_then(|v| v.as_str())
                 .ok_or_else(|| {
@@ -191,6 +190,15 @@ fn git_host_repo(
             provider.as_str()
         ))
     })
+}
+
+/// A credential read failure, mapped to the status the branch listing answers
+/// with. A store error stays a 500 through [`RepositoryError::Db`].
+fn credential_error(error: CredentialError) -> RepositoryError {
+    match error {
+        CredentialError::Database(source) => RepositoryError::Db(source),
+        other => RepositoryError::ProviderError(other.to_string()),
+    }
 }
 
 #[cfg(test)]

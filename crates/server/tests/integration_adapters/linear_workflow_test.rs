@@ -51,13 +51,14 @@ use moatless_adapter_model::test_support::ProviderStub;
 use moatless_backend::adapters::providers::linear::handlers::linear_webhook;
 use moatless_backend::state::AppState;
 use moatless_core::events::test_support::RecordingPublisher;
-use moatless_tasks::task::dao as task_dao;
+use moatless_loops::bindings::test_support::upsert_binding;
+use moatless_tasks::task::test_support as task_fixtures;
 use moatless_types::access_control::Scope;
 use moatless_types::adapter::TaskBinding;
 use moatless_types::loops::RoutingMode;
 use moatless_types::loops::SubscriptionMatch;
 use moatless_types::task::TaskSubType;
-use moatless_workspaces::repository::dao as repository_dao;
+use moatless_workspaces::compose;
 
 use common::{
     USER_1, drain_linear_adapter_delivery, linear_config, make_repository_row, make_task_row,
@@ -233,7 +234,7 @@ async fn seed_local_repository(pool: &PgPool) {
     let mut repo = make_repository_row("repo-1", USER_1);
     repo.provider = None;
     repo.remote_url = None;
-    repository_dao::insert(pool, &repo)
+    compose::seed_repository(pool, &repo)
         .await
         .expect("seed repository");
     common::seed_workspace_placing(pool, common::FIXTURE_WORKSPACE, "repo-1", USER_1).await;
@@ -243,7 +244,7 @@ async fn seed_local_repository(pool: &PgPool) {
 /// against it fails preflight.
 async fn seed_preflight_failing_repository(pool: &PgPool) {
     seed_team(pool, &format!("personal-{USER_1}")).await;
-    repository_dao::insert(pool, &make_repository_row("repo-1", USER_1))
+    compose::seed_repository(pool, &make_repository_row("repo-1", USER_1))
         .await
         .expect("seed repository");
     common::seed_workspace_placing(pool, common::FIXTURE_WORKSPACE, "repo-1", USER_1).await;
@@ -258,9 +259,9 @@ async fn seed_rule(state: &AppState, config: Option<serde_json::Value>) {
 /// close path is acting for.
 async fn seed_rule_with_id(state: &AppState, id: &str, config: Option<serde_json::Value>) {
     let now = Utc::now();
-    state
-        .loops
-        .upsert_subscription(&SubscriptionMatch {
+    moatless_loops::loops::test_support::upsert_subscription(
+        &state.loops,
+        &SubscriptionMatch {
             name: "test-loop".to_string(),
             id: id.to_string(),
             adapter_kind: AdapterKind::Linear,
@@ -299,9 +300,10 @@ async fn seed_rule_with_id(state: &AppState, id: &str, config: Option<serde_json
             owner_user_id: Some(USER_1.to_string()),
             created_at: now,
             updated_at: now,
-        })
-        .await
-        .expect("seed Linear rule");
+        },
+    )
+    .await
+    .expect("seed Linear rule");
 }
 
 /// A task with one active binding of `subject_kind` on `subject_key`.
@@ -317,14 +319,14 @@ async fn seed_binding(
     loop_id: Option<&str>,
     origin: &str,
 ) {
-    task_dao::insert_task(pool, &make_task_row(task_id, USER_1))
+    task_fixtures::seed_task(pool, &make_task_row(task_id, USER_1))
         .await
         .expect("seed task");
 
     let now = Utc::now();
-    state
-        .task_bindings
-        .upsert(&TaskBinding {
+    upsert_binding(
+        &state.task_bindings,
+        &TaskBinding {
             id: binding_id.to_string(),
             task_id: task_id.to_string(),
             adapter_kind: AdapterKind::Linear,
@@ -346,9 +348,10 @@ async fn seed_binding(
             external_status_updated_at: None,
             active: true,
             deactivated_at: None,
-        })
-        .await
-        .expect("seed binding");
+        },
+    )
+    .await
+    .expect("seed binding");
 }
 
 /// The Subscription and then a session bound under it.
@@ -760,12 +763,9 @@ async fn a_second_provisioning_attempt_creates_no_second_task(pool: PgPool) {
 
     // Re-run the admitted work by hand: reset the record to pending and drain
     // again, which is what a restart mid-attempt produces.
-    sqlx::query(
-        "UPDATE adapter_delivery SET status = 'pending', attempts = 0, next_attempt_at = NOW()",
-    )
-    .execute(&pool)
-    .await
-    .expect("re-arm the record");
+    moatless_loops::adapters::delivery::test_support::requeue_deliveries(&pool)
+        .await
+        .expect("re-arm the record");
     drain(&pool, &stub).await;
 
     let tasks: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM tasks")
@@ -819,7 +819,7 @@ async fn a_prompt_to_a_deactivated_binding_reaches_nothing(pool: PgPool) {
     seed_rule_then_session(&state, &pool, None).await;
     state
         .task_bindings
-        .deactivate_by_task(TASK)
+        .deactivate_for_task(TASK)
         .await
         .expect("deactivate the binding");
 
@@ -944,9 +944,9 @@ async fn a_task_bound_twice_to_one_issue_receives_a_comment_once(pool: PgPool) {
     // A second binding on the same task — the issue-level one a direct send
     // would have created.
     let now = Utc::now();
-    state
-        .task_bindings
-        .upsert(&TaskBinding {
+    upsert_binding(
+        &state.task_bindings,
+        &TaskBinding {
             id: "tb-issue-dup".to_string(),
             task_id: TASK.to_string(),
             adapter_kind: AdapterKind::Linear,
@@ -968,9 +968,10 @@ async fn a_task_bound_twice_to_one_issue_receives_a_comment_once(pool: PgPool) {
             external_status_updated_at: None,
             active: true,
             deactivated_at: None,
-        })
-        .await
-        .expect("seed second binding");
+        },
+    )
+    .await
+    .expect("seed second binding");
 
     deliver(&state, &comment_created("comment-2", None, "please look")).await;
     drain(&pool, &stub).await;
@@ -1231,9 +1232,9 @@ async fn a_task_with_another_binding_is_not_closed(pool: PgPool) {
     .await;
 
     let now = Utc::now();
-    state
-        .task_bindings
-        .upsert(&TaskBinding {
+    upsert_binding(
+        &state.task_bindings,
+        &TaskBinding {
             id: "tb-sibling".to_string(),
             task_id: TASK.to_string(),
             adapter_kind: AdapterKind::Linear,
@@ -1255,9 +1256,10 @@ async fn a_task_with_another_binding_is_not_closed(pool: PgPool) {
             external_status_updated_at: None,
             active: true,
             deactivated_at: None,
-        })
-        .await
-        .expect("seed sibling binding");
+        },
+    )
+    .await
+    .expect("seed sibling binding");
 
     deliver(&state, &issue_updated("s0", "s9", "Done", "completed")).await;
     drain(&pool, &stub).await;

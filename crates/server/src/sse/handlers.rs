@@ -21,9 +21,9 @@ use tracing::{debug, warn};
 use moatless_types::access_control::ScopeContext;
 
 use moatless_core::http_auth::AuthUser;
-use moatless_tasks::task::dao::TaskDao;
-use moatless_tasks::task_event::dao::TaskEventDao;
+use moatless_ports::task::TaskReader;
 use moatless_tasks::task_event::models::TaskEvent;
+use moatless_tasks::task_event::operations::TaskEvents;
 use moatless_types::auth::AuthIdentity;
 use moatless_types::user::UserRole;
 
@@ -154,10 +154,9 @@ pub(crate) async fn sse_handler(
                                     a
                                 } else {
                                     let a = match tasks.as_ref() {
-                                        Some(repo) => repo
-                                            .find_by_id(&task_id, ctx)
-                                            .await
-                                            .is_ok_and(|t| t.is_some()),
+                                        Some(reader) => {
+                                            reader.may_access(&task_id, ctx).await.unwrap_or(false)
+                                        }
                                         None => false,
                                     };
                                     access_cache.insert(task_id, a);
@@ -224,19 +223,19 @@ pub(crate) async fn sse_handler(
 /// the live stream. Each returned envelope carries its `eventId`, so the client
 /// dedupes across the boundary by id — no gap, no duplicate rendered.
 pub(crate) async fn task_events_handler(
-    State(tasks): State<Arc<dyn TaskDao>>,
-    State(task_events): State<Arc<dyn TaskEventDao>>,
+    State(tasks): State<Arc<dyn TaskReader>>,
+    State(task_events): State<Arc<TaskEvents>>,
     auth: AuthUser,
     Path(task_id): Path<String>,
     Query(query): Query<TaskEventsQuery>,
 ) -> Json<Vec<serde_json::Value>> {
     // Cross-tenant guard: only return history for a task the caller can access.
-    // `find_by_id` bakes the scope filter into SQL and returns `None` when the
+    // `may_access` bakes the scope filter into SQL and answers `false` when the
     // user has no access — so an unauthorized (or unknown) task id yields an
     // empty list, never another tenant's events.
-    match tasks.find_by_id(&task_id, &auth.scope_context()).await {
-        Ok(Some(_)) => {}
-        Ok(None) => return Json(vec![]),
+    match tasks.may_access(&task_id, &auth.scope_context()).await {
+        Ok(true) => {}
+        Ok(false) => return Json(vec![]),
         Err(e) => {
             warn!(task_id = %task_id, error = %e, "Failed to authorize task events access");
             return Json(vec![]);
@@ -314,10 +313,8 @@ fn event_row_to_json(row: TaskEvent) -> serde_json::Value {
 mod tests {
     use super::*;
     use chrono::Utc;
-    use moatless_tasks::task::dao::MockTaskDao;
-    use moatless_tasks::task_event::dao::MockTaskEventDao;
-    use moatless_types::access_control::Scope;
-    use moatless_types::task::{Task, TaskStatus, Visibility};
+    use moatless_ports::task::MockTaskReader;
+    use moatless_tasks::task_event::test_support::{RecentEventLog, RecentEventsQuery};
     use serde_json::json;
 
     fn sample_row() -> TaskEvent {
@@ -373,51 +370,10 @@ mod tests {
         assert!(obj.contains_key("payload"));
     }
 
-    /// The task the scoped read hands back — the handler only cares that it
-    /// resolves, so every field beyond the id is filler.
-    fn task_fixture() -> Task {
-        Task {
-            task_id: "task-1".to_string(),
-            short_id: None,
-            created_at: Utc::now(),
-            last_message_at: Utc::now(),
-            agent_type: moatless_types::agent::AgentType("claude-code".to_string()),
-            repository_id: "repo-1".to_string(),
-            status: TaskStatus::Open,
-            total_cost_usd: 0.0,
-            site_url: None,
-            template_id: None,
-            vibe: None,
-            name: None,
-            description: None,
-            site_id: None,
-            site_provider: None,
-            branch: None,
-            model: None,
-            created_by: None,
-            visibility: Visibility::Private,
-            scope: Scope::User,
-            owner_user_id: None,
-            run_as_user_id: None,
-            updated_at: None,
-            append_system_prompt: None,
-            headless: false,
-            ttl_minutes: 0,
-            inactive_ttl_days: 0,
-            loop_id: None,
-            workspace_id: None,
-            sandbox_id: None,
-            checkout_mode: None,
-            skills: Vec::new(),
-        }
-    }
-
-    /// Task repo whose scoped `find_by_id` lets the caller through.
-    fn tasks_allowing_access() -> Arc<dyn TaskDao> {
-        let mut tasks = MockTaskDao::new();
-        tasks
-            .expect_find_by_id()
-            .returning(|_, _| Ok(Some(task_fixture())));
+    /// Task reader whose scoped access check lets the caller through.
+    fn tasks_allowing_access() -> Arc<dyn TaskReader> {
+        let mut tasks = MockTaskReader::new();
+        tasks.expect_may_access().returning(|_, _| Ok(true));
         Arc::new(tasks)
     }
 
@@ -446,24 +402,14 @@ mod tests {
 
     #[tokio::test]
     async fn serves_the_newest_events_when_the_log_is_longer_than_the_limit() {
-        let mut events = MockTaskEventDao::new();
-        // Stands in for the DAO's contract: the newest `limit` rows, handed back
-        // oldest-first. A handler reading from the start of the log instead
-        // would have to ask for something this double does not answer.
-        events
-            .expect_list_recent_events()
-            .withf(|task_id, types, limit, offset| {
-                task_id == "task-1" && types.is_none() && *limit == 2 && *offset == 0
-            })
-            .returning(|_, _, limit, _| {
-                let log = event_log(5);
-                let skip = log.len().saturating_sub(usize::try_from(limit).unwrap());
-                Ok(log.into_iter().skip(skip).collect())
-            });
+        // The owner fixture answers the DAO's contract: the newest `limit`
+        // rows, handed back oldest-first. A handler reading from the start of
+        // the log instead shows up in the query it recorded.
+        let events = RecentEventLog::new(event_log(5));
 
         let Json(body) = task_events_handler(
             State(tasks_allowing_access()),
-            State(Arc::new(events) as Arc<dyn TaskEventDao>),
+            State(events.operations()),
             auth_user(),
             Path("task-1".to_string()),
             Query(TaskEventsQuery {
@@ -478,5 +424,14 @@ mod tests {
             .map(|e| e["eventId"].as_str().expect("eventId"))
             .collect();
         assert_eq!(ids, ["evt-4", "evt-5"]);
+        assert_eq!(
+            events.queries(),
+            [RecentEventsQuery {
+                task_id: "task-1".to_string(),
+                event_types: None,
+                limit: 2,
+                offset: 0,
+            }]
+        );
     }
 }

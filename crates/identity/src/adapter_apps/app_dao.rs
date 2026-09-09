@@ -1,7 +1,9 @@
 //! Adapter app rows, encrypted secrets and carry-over transactions.
 
-use super::models::{AdapterAppRow, AdapterAppSecretRow, SealedAdapterApp, StoredAdapterApp};
-use super::service::app_id;
+use crate::adapter_apps::models::{
+    AdapterAppRow, AdapterAppSecretRow, SealedAdapterApp, StoredAdapterApp,
+};
+use crate::adapter_apps::service::app_id;
 use crate::auth::error::AuthError;
 use moatless_core::db::DbPool;
 use serde_json::{Value, json};
@@ -10,7 +12,10 @@ use std::collections::HashMap;
 use tracing::{info, warn};
 const SYSTEM_ACTOR: &str = "adapter_apps_env_carry_over";
 
-pub(super) async fn has_marker(db: &DbPool, marker: &str) -> Result<bool, AuthError> {
+pub(in crate::adapter_apps) async fn has_marker(
+    db: &DbPool,
+    marker: &str,
+) -> Result<bool, AuthError> {
     let row: (bool,) =
         sqlx::query_as("SELECT EXISTS (SELECT 1 FROM adapter_app_migrations WHERE name = $1)")
             .bind(marker)
@@ -19,7 +24,9 @@ pub(super) async fn has_marker(db: &DbPool, marker: &str) -> Result<bool, AuthEr
     Ok(row.0)
 }
 
-pub async fn list_adapter_apps(db: &DbPool) -> Result<Vec<StoredAdapterApp>, AuthError> {
+pub(in crate::adapter_apps) async fn list_adapter_apps(
+    db: &DbPool,
+) -> Result<Vec<StoredAdapterApp>, AuthError> {
     let rows: Vec<AdapterAppRow> = sqlx::query_as(
         r#"SELECT id, adapter_kind, app_key, display_name, config_json, revision, updated_at
            FROM adapter_apps
@@ -35,7 +42,7 @@ pub async fn list_adapter_apps(db: &DbPool) -> Result<Vec<StoredAdapterApp>, Aut
     Ok(apps)
 }
 
-pub async fn find_adapter_app(
+pub(in crate::adapter_apps) async fn find_adapter_app(
     db: &DbPool,
     adapter_kind: &str,
     app_key: &str,
@@ -86,7 +93,7 @@ async fn stored_app_from_row(
     })
 }
 
-pub async fn delete_adapter_app(
+pub(in crate::adapter_apps) async fn delete_adapter_app(
     db: &DbPool,
     adapter_kind: &str,
     app_key: &str,
@@ -148,7 +155,7 @@ async fn insert_app(
     Ok(true)
 }
 
-pub(super) async fn upsert(
+pub(in crate::adapter_apps) async fn upsert(
     db: &DbPool,
     input: SealedAdapterApp,
     actor_id: &str,
@@ -209,7 +216,7 @@ pub(super) async fn upsert(
         .ok_or_else(|| AuthError::Internal("saved Adapter app was not readable".to_string()))
 }
 
-pub(super) async fn read_secrets(
+pub(in crate::adapter_apps) async fn read_secrets(
     db: &DbPool,
     adapter_kind: &str,
     app_key: &str,
@@ -239,7 +246,11 @@ pub(super) async fn read_secrets(
     Ok(Some((row, secret_rows)))
 }
 
-pub(super) async fn carry_over(db: &DbPool, marker: &str, input: SealedAdapterApp) {
+pub(in crate::adapter_apps) async fn carry_over(
+    db: &DbPool,
+    marker: &str,
+    input: SealedAdapterApp,
+) {
     let mut tx = match db.begin().await {
         Ok(tx) => tx,
         Err(e) => {

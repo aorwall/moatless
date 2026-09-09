@@ -7,6 +7,7 @@ pub mod api_key;
 pub mod api_keys;
 pub mod cache;
 pub mod codex_auth_json;
+pub(crate) mod codex_blob;
 pub mod cookie;
 pub mod credentials;
 pub mod error;
@@ -19,10 +20,11 @@ pub mod oauth;
 pub mod oidc;
 mod oidc_dao;
 pub mod pairing;
-mod pairing_dao;
+pub(crate) mod pairing_dao;
 pub mod password;
 pub mod provider_secret_adapter;
-pub mod provider_token_dao;
+pub(crate) mod provider_token_auth_dao;
+pub(crate) mod provider_token_dao;
 pub mod provider_tokens;
 pub mod routes;
 pub mod schemas;
@@ -33,9 +35,8 @@ mod sessions;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support;
 pub mod test_user;
-pub mod token_refresh;
+pub(crate) mod token_refresh;
 pub mod users;
-
 
 mod authentication;
 mod compose;
@@ -43,11 +44,10 @@ mod handlers;
 mod state;
 pub use authentication::{Authentication, AuthenticationPorts};
 
-mod accounts;
-mod account_status;
-mod password_operations;
 mod account_dao;
+mod account_status;
+mod accounts;
+mod password_operations;
 
-mod api_keys_dao;
-mod users_dao;
-mod provider_tokens_dao;
+pub(crate) mod api_keys_dao;
+pub(crate) mod users_dao;

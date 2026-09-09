@@ -6,7 +6,8 @@ use tracing::{info, warn};
 
 use super::dao::UserCredentialDao;
 use super::hash::{PasswordHashError, generate_password, hash_password};
-use crate::auth::users::{User, UserDao};
+use crate::auth::users::User;
+use crate::auth::users_dao::UserDao;
 use moatless_types::auth::AuthConfig;
 use moatless_types::user::UserRole;
 
@@ -30,7 +31,7 @@ pub enum BootstrapError {
 /// An existing credential is never changed at startup. For a first-time seed,
 /// `ADMIN_PASSWORD` is used when present; otherwise a random password is logged
 /// once and marked for change.
-pub async fn ensure_local_admin(
+pub(crate) async fn ensure_local_admin(
     users: &dyn UserDao,
     credentials: &dyn UserCredentialDao,
     config: &AuthConfig,
@@ -141,7 +142,7 @@ mod tests {
     use super::*;
     use crate::auth::password::dao::MockUserCredentialDao;
     use crate::auth::password::hash::verify_password;
-    use crate::auth::users::MockUserDao;
+    use crate::auth::users_dao::MockUserDao;
     use moatless_types::auth::AuthProvider;
     use std::sync::{Arc, Mutex};
 

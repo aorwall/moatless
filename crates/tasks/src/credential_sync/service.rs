@@ -3,12 +3,12 @@ use std::sync::Arc;
 use tracing::{debug, info, warn};
 
 use crate::task::dao::TaskDao;
-use moatless_ports::sandbox::CredentialBroadcast;
-use moatless_types::agent::CodexScope;
-use moatless_workspaces::credentials::codex::refresh::CodexRefreshOutcome;
-use moatless_workspaces::credentials::{
+use moatless_identity::credentials::codex::refresh::CodexRefreshOutcome;
+use moatless_identity::credentials::{
     CredentialError, CredentialService, StoreOutcome, WriteSource, should_broadcast,
 };
+use moatless_ports::sandbox::CredentialBroadcast;
+use moatless_types::agent::CodexScope;
 
 /// Tasks-band orchestrator: wraps the pure [`CredentialService`] with the
 /// in-flight guard and the sandbox fan-out.
@@ -20,7 +20,7 @@ pub struct CredentialSync {
 
 impl CredentialSync {
     /// Build the orchestrator over a pure credential service.
-    pub fn new(
+    pub(crate) fn new(
         credentials: Arc<CredentialService>,
         tasks: Arc<dyn TaskDao>,
         broadcast: Arc<dyn CredentialBroadcast>,
@@ -257,12 +257,7 @@ mod tests {
     use super::*;
     use crate::task::dao::MockTaskDao;
     use async_trait::async_trait;
-    use moatless_identity::auth::models::{
-        GithubTokenPresence, ProviderAccessToken, ProviderToken,
-    };
-    use moatless_identity::auth::provider_token_dao::{
-        CodexBlobOutcome, CodexBlobRefresher, ProviderTokenDao,
-    };
+    use moatless_identity::credentials::test_support::{InMemoryTokens, credentials_over};
     use moatless_ports::sandbox::{CredentialBroadcast, SandboxError};
 
     /// A `CredentialBroadcast` that must never be reached. Every test below
@@ -283,207 +278,12 @@ mod tests {
         }
     }
 
-    /// Minimal `ProviderTokenDao` fake: `find_provider_token` returns a seeded
-    /// existing value (drives store's dedup), `find_codex_blob` returns a seeded
-    /// blob (drives `read_raw_codex`), everything else is an inert stub.
-    struct FakeTokens {
-        existing: Option<String>,
-        codex_blob: Option<String>,
-    }
-
-    impl FakeTokens {
-        fn empty() -> Self {
-            Self {
-                existing: None,
-                codex_blob: None,
-            }
-        }
-        fn with_codex(blob: &str) -> Self {
-            Self {
-                existing: None,
-                codex_blob: Some(blob.to_string()),
-            }
-        }
-        fn with_existing(value: &str) -> Self {
-            Self {
-                existing: Some(value.to_string()),
-                codex_blob: None,
-            }
-        }
-    }
-
-    fn codex_row(access_token: String) -> ProviderToken {
-        ProviderToken {
-            user_id: "u1".to_string(),
-            provider: "codex".to_string(),
-            access_token,
-            refresh_token: None,
-            token_type: None,
-            auth_method: None,
-            expires_at: None,
-            metadata: None,
-            created_at: None,
-            updated_at: None,
-            provider_user_id: None,
-            provider_login: None,
-        }
-    }
-
-    #[async_trait]
-    impl ProviderTokenDao for FakeTokens {
-        async fn find_user_by_provider_login(
-            &self,
-            _provider: &str,
-            _provider_login: &str,
-        ) -> Result<Option<String>, sqlx::Error> {
-            Ok(None)
-        }
-
-        async fn healthy_codex_scopes(&self) -> Result<Vec<CodexScope>, sqlx::Error> {
-            Ok(Vec::new())
-        }
-
-        async fn find_user_by_provider_account(
-            &self,
-            _provider: &str,
-            _provider_user_id: &str,
-        ) -> Result<Option<String>, sqlx::Error> {
-            Ok(None)
-        }
-
-        async fn find_app_token(
-            &self,
-            _provider: &str,
-        ) -> Result<Option<ProviderToken>, sqlx::Error> {
-            Ok(None)
-        }
-
-        async fn upsert_app_token(
-            &self,
-            _provider: &str,
-            _access_token: &str,
-            _refresh_token: Option<&str>,
-            _token_type: Option<&str>,
-            _metadata: Option<&serde_json::Value>,
-            _expires_at: Option<chrono::DateTime<chrono::Utc>>,
-        ) -> Result<(), sqlx::Error> {
-            Ok(())
-        }
-
-        async fn refresh_codex_blob(
-            &self,
-            _scope: &CodexScope,
-            _refresher: &(dyn CodexBlobRefresher + '_),
-        ) -> Result<Option<CodexBlobOutcome>, sqlx::Error> {
-            Ok(None)
-        }
-
-        async fn find_provider_token(
-            &self,
-            _user_id: &str,
-            _provider: &str,
-        ) -> Result<Option<ProviderAccessToken>, sqlx::Error> {
-            Ok(self
-                .existing
-                .clone()
-                .map(|access_token| ProviderAccessToken { access_token }))
-        }
-
-        async fn find_provider_token_full(
-            &self,
-            _user_id: &str,
-            _provider: &str,
-        ) -> Result<Option<ProviderToken>, sqlx::Error> {
-            Ok(None)
-        }
-
-        async fn upsert_token(
-            &self,
-            _user_id: &str,
-            _provider: &str,
-            _access_token: &str,
-            _refresh_token: Option<&str>,
-            _token_type: Option<&str>,
-            _metadata: Option<&serde_json::Value>,
-        ) -> Result<(), sqlx::Error> {
-            Ok(())
-        }
-
-        async fn upsert_token_with_auth_method(
-            &self,
-            _user_id: &str,
-            _provider: &str,
-            _auth_method: &str,
-            _access_token: &str,
-            _refresh_token: Option<&str>,
-            _token_type: Option<&str>,
-            _metadata: Option<&serde_json::Value>,
-            _expires_at: Option<chrono::DateTime<chrono::Utc>>,
-        ) -> Result<(), sqlx::Error> {
-            Ok(())
-        }
-
-        async fn delete_token(&self, _user_id: &str, _provider: &str) -> Result<(), sqlx::Error> {
-            Ok(())
-        }
-
-        async fn find_codex_blob(
-            &self,
-            _scope: &CodexScope,
-        ) -> Result<Option<ProviderToken>, sqlx::Error> {
-            Ok(self.codex_blob.clone().map(codex_row))
-        }
-
-        async fn upsert_codex_blob(
-            &self,
-            _scope: &CodexScope,
-            _access_token: &str,
-            _refresh_token: Option<&str>,
-            _token_type: Option<&str>,
-            _metadata: Option<&serde_json::Value>,
-        ) -> Result<(), sqlx::Error> {
-            Ok(())
-        }
-
-        async fn delete_codex_blob(&self, _scope: &CodexScope) -> Result<(), sqlx::Error> {
-            Ok(())
-        }
-
-        async fn find_github_row(
-            &self,
-            _user_id: &str,
-        ) -> Result<Option<ProviderToken>, sqlx::Error> {
-            Ok(None)
-        }
-
-        async fn upsert_github_row(
-            &self,
-            _user_id: &str,
-            _auth_method: &str,
-            _access_token: &str,
-            _token_type: Option<&str>,
-            _metadata: Option<&serde_json::Value>,
-            _provider_user_id: Option<&str>,
-            _provider_login: Option<&str>,
-        ) -> Result<(), sqlx::Error> {
-            Ok(())
-        }
-
-        async fn delete_github_row(&self, _user_id: &str) -> Result<(), sqlx::Error> {
-            Ok(())
-        }
-
-        async fn find_github_scope_presence(
-            &self,
-            _user_id: &str,
-        ) -> Result<Option<GithubTokenPresence>, sqlx::Error> {
-            Ok(None)
-        }
-    }
-
-    fn make_sync(repo: Arc<dyn ProviderTokenDao>, tasks: MockTaskDao) -> CredentialSync {
-        let credentials = Arc::new(CredentialService::new(repo));
-        CredentialSync::new(credentials, Arc::new(tasks), Arc::new(NeverBroadcast))
+    fn make_sync(repo: Arc<InMemoryTokens>, tasks: MockTaskDao) -> CredentialSync {
+        CredentialSync::new(
+            credentials_over(repo),
+            Arc::new(tasks),
+            Arc::new(NeverBroadcast),
+        )
     }
 
     // == Test A: the guard predicate ==
@@ -494,7 +294,7 @@ mod tests {
         tasks
             .expect_list_open_codex_tasks_for_scope()
             .returning(|_, _, _| Ok(vec!["task-1".to_string()]));
-        let sync = make_sync(Arc::new(FakeTokens::empty()), tasks);
+        let sync = make_sync(InMemoryTokens::empty(), tasks);
 
         assert!(
             sync.any_other_open_codex_task(&CodexScope::user("u1"), None)
@@ -511,7 +311,7 @@ mod tests {
             .expect_list_open_codex_tasks_for_scope()
             .withf(|kind, id, except| kind == "user" && id == "u1" && except == "task-1")
             .returning(|_, _, _| Ok(vec![]));
-        let sync = make_sync(Arc::new(FakeTokens::empty()), tasks);
+        let sync = make_sync(InMemoryTokens::empty(), tasks);
 
         assert!(
             !sync
@@ -534,7 +334,7 @@ mod tests {
             .expect_list_open_codex_tasks_for_scope()
             .times(1)
             .returning(|_, _, _| Ok(vec![]));
-        let sync = make_sync(Arc::new(FakeTokens::with_codex("seeded-blob")), tasks);
+        let sync = make_sync(InMemoryTokens::with_codex_blob("seeded-blob"), tasks);
 
         let blob = sync
             .ensure_fresh_codex(CodexScope::user("u1"), None)
@@ -558,7 +358,7 @@ mod tests {
             .times(1)
             .returning(|_, _, _| Ok(vec![]));
         // Empty repo → find_provider_token None → a genuine upsert → Persisted.
-        let sync = make_sync(Arc::new(FakeTokens::empty()), tasks);
+        let sync = make_sync(InMemoryTokens::empty(), tasks);
 
         sync.store(
             "u1",
@@ -578,7 +378,7 @@ mod tests {
         // Dedup hit → Unchanged → the resolution query must not fire at all.
         tasks.expect_list_open_codex_tasks_for_scope().times(0);
         // Seed the same value the caller stores → dedup short-circuit.
-        let sync = make_sync(Arc::new(FakeTokens::with_existing("same")), tasks);
+        let sync = make_sync(InMemoryTokens::with_token("u1", "codex", "same"), tasks);
 
         sync.store("u1", "CODEX_AUTH_JSON", "same", WriteSource::UserUiSave)
             .await

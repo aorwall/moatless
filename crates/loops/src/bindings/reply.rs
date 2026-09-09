@@ -9,15 +9,15 @@ use moatless_types::adapter::OutboundPresentation;
 use moatless_types::adapter::TaskBinding;
 
 use crate::bindings::access::ensure_task_access_with;
-use crate::bindings::dao::TaskBindingDao;
+use crate::bindings::operations::Bindings;
 use crate::bindings::outbound;
 use crate::bindings::outbound::OutboundSender;
 use crate::bindings::projection::binding_descriptor;
 use crate::bindings::projection::binding_reply_target;
 use crate::bindings::recently_sent::RecentlySent;
 use crate::loops::dao::LoopDao;
-use moatless_adapter_model::access::load_adapter_connection_for_auth_with;
-use moatless_adapter_model::dao::AdapterConnectionDao;
+
+use moatless_adapter_model::connections::{AdapterConnections, ConnectionRouting};
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_adapter_model::registry::Adapters;
 use moatless_ports::task::{
@@ -32,8 +32,9 @@ use moatless_types::adapter::AdapterKind;
 /// owns, so the ports that path needs never reach this struct's surface.
 pub struct ExternalReplyService {
     pub(super) adapters: Option<Arc<Adapters>>,
-    task_bindings: Arc<dyn TaskBindingDao>,
-    adapter_connections: Arc<dyn AdapterConnectionDao>,
+    task_bindings: Arc<Bindings>,
+    adapter_connections: Arc<AdapterConnections>,
+    connection_routing: Arc<ConnectionRouting>,
     messages: Arc<dyn TranscriptAppend>,
     tasks: Arc<dyn TaskReader>,
     loops: Arc<LoopDao>,
@@ -46,10 +47,11 @@ impl ExternalReplyService {
     #[allow(clippy::too_many_arguments)]
     // reason: a composition-root constructor takes exactly the ports its struct
     // holds; threading `AppState` back in is the edge this slice removes.
-    pub fn new(
+    pub(crate) fn new(
         adapters: Option<Arc<Adapters>>,
-        task_bindings: Arc<dyn TaskBindingDao>,
-        adapter_connections: Arc<dyn AdapterConnectionDao>,
+        task_bindings: Arc<Bindings>,
+        adapter_connections: Arc<AdapterConnections>,
+        connection_routing: Arc<ConnectionRouting>,
         messages: Arc<dyn TranscriptAppend>,
         tasks: Arc<dyn TaskReader>,
         loops: Arc<LoopDao>,
@@ -61,6 +63,7 @@ impl ExternalReplyService {
             adapters,
             task_bindings,
             adapter_connections,
+            connection_routing,
             messages,
             tasks,
             loops,
@@ -103,7 +106,7 @@ impl ExternalReplyService {
 
         let repo = self.task_bindings.clone();
         let bindings = if let Some(binding_id) = binding_id {
-            let binding = repo.find_by_id(binding_id).await?.ok_or_else(|| {
+            let binding = repo.get(binding_id).await?.ok_or_else(|| {
                 SharedAdapterError::NotFound(format!("Binding {binding_id} not found"))
             })?;
             if binding.task_id != task_id {
@@ -112,15 +115,12 @@ impl ExternalReplyService {
                 ))
                 .into());
             }
-            load_adapter_connection_for_auth_with(
-                self.adapter_connections.as_ref(),
-                ctx,
-                &binding.connection_id,
-            )
-            .await?;
+            self.adapter_connections
+                .for_auth(ctx, &binding.connection_id)
+                .await?;
             vec![binding]
         } else {
-            repo.find_by_task_id(task_id).await?
+            repo.for_task(task_id).await?
         };
 
         match bindings.len() {
@@ -201,14 +201,9 @@ impl ExternalReplyService {
         })?;
         let adapter = providers.outbound_for_message_reply_by_name(&provider_key)?;
 
-        // reason: delivery routing for an already read-authorized reply; public
-        // tasks accept replies from non-owners, so the owner's connection row is
-        // resolved with system context.
-        #[allow(clippy::disallowed_methods)]
-        let sys_ctx = ScopeContext::system();
         let connection = self
-            .adapter_connections
-            .find_by_id(&binding.connection_id, &sys_ctx)
+            .connection_routing
+            .by_id_trusted(&binding.connection_id)
             .await?
             .ok_or_else(|| {
                 SharedAdapterError::ConfigNotFound(format!(
@@ -301,7 +296,7 @@ impl ExternalReplyService {
             }
             if let Err(e) = self
                 .task_bindings
-                .touch_cursor(&binding.id, external_id)
+                .advance_cursor(&binding.id, external_id)
                 .await
             {
                 tracing::warn!(
@@ -385,7 +380,7 @@ impl ExternalReplyService {
             }
         }
 
-        let rows = self.task_bindings.find_by_task_id(task_id).await?;
+        let rows = self.task_bindings.for_task(task_id).await?;
 
         select_binding_for_reply(&rows, &candidates, subject_key)
             .cloned()

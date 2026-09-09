@@ -54,7 +54,7 @@ pub(super) async fn insert_pending(
     Ok(row)
 }
 /// Find a pending request by code.
-pub async fn find_by_code(
+pub(super) async fn find_by_code(
     db: &DbPool,
     loop_id: &str,
     code: &str,
@@ -74,7 +74,10 @@ pub async fn find_by_code(
 }
 
 /// List all pending requests for a config.
-pub async fn list_pending(db: &DbPool, loop_id: &str) -> Result<Vec<PairingRequest>, AdapterError> {
+pub(super) async fn list_pending(
+    db: &DbPool,
+    loop_id: &str,
+) -> Result<Vec<PairingRequest>, AdapterError> {
     let rows: Vec<PairingRequest> = sqlx::query_as(
         "SELECT * FROM integration_pairing_requests \
          WHERE loop_id = $1 AND status = 'pending' \
@@ -129,7 +132,7 @@ pub(super) async fn find_by_id(db: &DbPool, id: i32) -> Result<PairingRequest, A
     Ok(updated)
 }
 /// Delete expired pending requests (older than 1 hour).
-pub async fn prune_expired(db: &DbPool) -> Result<u64, AdapterError> {
+pub(super) async fn prune_expired(db: &DbPool) -> Result<u64, AdapterError> {
     let result = sqlx::query(
         "DELETE FROM integration_pairing_requests \
          WHERE status = 'pending' AND created_at < now() - interval '1 hour'",
@@ -177,10 +180,11 @@ mod error_source_tests {
             matches!(err, AdapterError::Shared(SharedAdapterError::Store(_))),
             "got {err:?}"
         );
-        assert!(err
-            .source()
-            .and_then(|s| s.downcast_ref::<sqlx::Error>())
-            .is_some());
+        assert!(
+            err.source()
+                .and_then(|s| s.downcast_ref::<sqlx::Error>())
+                .is_some()
+        );
     }
 
     #[tokio::test]
@@ -188,10 +192,11 @@ mod error_source_tests {
         let serde_err = serde_json::from_str::<serde_json::Value>("nope").unwrap_err();
         let err: AdapterError = SharedAdapterError::ConfigSerialization(serde_err).into();
 
-        assert!(err
-            .source()
-            .and_then(|s| s.downcast_ref::<serde_json::Error>())
-            .is_some());
+        assert!(
+            err.source()
+                .and_then(|s| s.downcast_ref::<serde_json::Error>())
+                .is_some()
+        );
 
         let (status, body) = response_snapshot(err.into_response()).await;
         assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);

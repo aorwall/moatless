@@ -18,7 +18,7 @@ use crate::secret::service::SecretService;
 pub struct SetupContext<'a> {
     pub user_id: &'a str,
     pub is_admin: bool,
-    pub provider_tokens: &'a dyn ProviderTokenDao,
+    pub(crate) provider_tokens: &'a dyn ProviderTokenDao,
     pub secrets: Option<&'a SecretService>,
 }
 

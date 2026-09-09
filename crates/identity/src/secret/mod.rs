@@ -1,7 +1,7 @@
 //! Scoped secret storage and resolution feature.
 
 pub mod audit;
-pub mod dao;
+pub(crate) mod dao;
 pub mod error;
 pub mod handlers;
 pub mod models;
@@ -13,4 +13,4 @@ pub mod service;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support;
 
-mod audit_dao;
+pub(crate) mod audit_dao;

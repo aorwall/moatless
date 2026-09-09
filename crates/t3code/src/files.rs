@@ -25,8 +25,8 @@ use serde_json::{Value, json};
 use tracing::warn;
 
 use super::checkout::{Body, Checkout, Sources};
-use super::dao::ConversationDao;
 use super::workspace::{self, WorkspaceAccessError};
+use crate::reads::T3Reads;
 use moatless_ports::sandbox::SandboxError;
 use moatless_types::access_control::ScopeContext;
 use sandbox_proto::client::{SandboxConnector, classify_grpc_error};
@@ -50,11 +50,12 @@ const MAX_FILE_BYTES: usize = 1024 * 1024;
 /// One conversation's whole file tree, in the shape the contract's
 /// `projects.listEntries` returns.
 pub async fn list_entries(
-    conversations: &dyn ConversationDao,
+    reads: &T3Reads,
     sources: Sources<'_>,
     viewer: &ScopeContext,
     cwd: &str,
 ) -> Result<Value, WorkspaceAccessError> {
+    let conversations = reads.conversations();
     let task_id = workspace::addressed_conversation(conversations, viewer, cwd).await?;
     // Recursive, because the contract has no second call: the client is given
     // the whole tree once and expands it locally. This is the same shape
@@ -111,7 +112,7 @@ fn entry(path: &str) -> Option<Value> {
 /// Case-insensitive always: the input carries no case flag, and what reaches
 /// here is a person typing a fragment of a name.
 pub async fn search_entries(
-    conversations: &dyn ConversationDao,
+    reads: &T3Reads,
     sources: Sources<'_>,
     viewer: &ScopeContext,
     cwd: &str,
@@ -119,6 +120,7 @@ pub async fn search_entries(
     limit: usize,
     kind: Option<&str>,
 ) -> Result<Value, WorkspaceAccessError> {
+    let conversations = reads.conversations();
     let task_id = workspace::addressed_conversation(conversations, viewer, cwd).await?;
     let checkout = Checkout::open(sources, &task_id).await?;
 
@@ -169,13 +171,14 @@ pub async fn search_entries(
 /// missing, so the same rule would turn saving a new root `docs/notes.md` into
 /// overwriting a checkout's existing one.
 pub async fn write_file(
-    conversations: &dyn ConversationDao,
+    reads: &T3Reads,
     sandboxes: &dyn SandboxConnector,
     viewer: &ScopeContext,
     cwd: &str,
     relative_path: &str,
     contents: &str,
 ) -> Result<Value, WorkspaceAccessError> {
+    let conversations = reads.conversations();
     let task_id = workspace::controlled_conversation(conversations, viewer, cwd).await?;
     sandboxes
         .sandbox_client(&task_id)
@@ -201,12 +204,13 @@ pub async fn write_file(
 /// client that keeps addressing the file it opened by the path it typed will
 /// write its edits somewhere else.
 pub async fn read_file(
-    conversations: &dyn ConversationDao,
+    reads: &T3Reads,
     sources: Sources<'_>,
     viewer: &ScopeContext,
     cwd: &str,
     relative_path: &str,
 ) -> Result<Value, WorkspaceAccessError> {
+    let conversations = reads.conversations();
     let task_id = workspace::addressed_conversation(conversations, viewer, cwd).await?;
     let file = Checkout::open(sources, &task_id)
         .await?

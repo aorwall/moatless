@@ -1,55 +1,13 @@
-//! Provider token DAO — queries for credential resolution.
+//! Provider token stores: credential resolution and the auth-state view over
+//! the same `provider_tokens` rows.
 
 use async_trait::async_trait;
 use sqlx::AssertSqlSafe;
 
+use super::codex_blob::{CodexBlobOutcome, CodexBlobRefresh, CodexBlobRefresher, codex_lock_key};
 use super::models::{GithubTokenPresence, ProviderAccessToken, ProviderToken};
 use moatless_core::db::DbPool;
 use moatless_types::agent::CodexScope;
-
-/// What the policy half decided to do with a Codex blob it was handed.
-pub enum CodexBlobRefresh {
-    /// The stored blob is already good. Write nothing.
-    Fresh,
-    /// Replace the blob, and the refresh token beside it when one rotated.
-    Rotated {
-        blob: String,
-        refresh_token: Option<String>,
-    },
-    /// The refresh failed for good. Record `reason` on the row.
-    Permanent { reason: String },
-    /// The refresh failed for now. Keep the stored blob.
-    Transient,
-    /// The stored blob could not be read at all.
-    Unreadable,
-}
-
-/// The policy half of a Codex blob refresh: is this blob stale, and what
-/// replaces it. The store owns the row, the advisory lock, the
-/// compare-and-swap, and the failure marker; the caller owns the staleness rule
-/// and the network call.
-#[async_trait]
-pub trait CodexBlobRefresher: Send + Sync {
-    async fn refresh(&self, blob: &str) -> CodexBlobRefresh;
-}
-
-/// What a [`ProviderTokenDao::refresh_codex_blob`] left on the row.
-pub enum CodexBlobOutcome {
-    /// The stored blob, unchanged — already fresh, a transient failure, or
-    /// another replica held the lock and is doing the work.
-    Unchanged { blob: String },
-    /// The blob was replaced and the new value is persisted.
-    Rotated { blob: String },
-    /// The refresh failed permanently. `reason` is now recorded on the row;
-    /// `was_already_failing` is true when the row already carried the same
-    /// reason, so a caller can log the transition rather than every retry.
-    PermanentFailure {
-        reason: String,
-        was_already_failing: bool,
-    },
-    /// The stored blob could not be read.
-    Unreadable { blob: String },
-}
 
 /// DAO trait for provider token credential resolution.
 ///
@@ -192,21 +150,6 @@ pub trait ProviderTokenDao: Send + Sync {
     /// Find `user_id`'s github `provider_tokens` row.
     async fn find_github_row(&self, user_id: &str) -> Result<Option<ProviderToken>, sqlx::Error>;
 
-    /// Upsert `user_id`'s github row.
-    async fn upsert_github_row(
-        &self,
-        user_id: &str,
-        auth_method: &str,
-        access_token: &str,
-        token_type: Option<&str>,
-        metadata: Option<&serde_json::Value>,
-        provider_user_id: Option<&str>,
-        provider_login: Option<&str>,
-    ) -> Result<(), sqlx::Error>;
-
-    /// Delete `user_id`'s github row.
-    async fn delete_github_row(&self, user_id: &str) -> Result<(), sqlx::Error>;
-
     /// Whether `user_id` holds a github row, returning only addressing info —
     /// no token material, no decrypt, no write. Drives `/me`'s setup
     /// evaluation.
@@ -217,7 +160,7 @@ pub trait ProviderTokenDao: Send + Sync {
 }
 
 /// PostgreSQL implementation of [`ProviderTokenDao`].
-pub struct PgProviderTokenDao(pub DbPool);
+pub(crate) struct PgProviderTokenDao(pub(crate) DbPool);
 
 #[async_trait]
 impl ProviderTokenDao for PgProviderTokenDao {
@@ -639,53 +582,6 @@ impl ProviderTokenDao for PgProviderTokenDao {
         .await
     }
 
-    async fn upsert_github_row(
-        &self,
-        user_id: &str,
-        auth_method: &str,
-        access_token: &str,
-        token_type: Option<&str>,
-        metadata: Option<&serde_json::Value>,
-        provider_user_id: Option<&str>,
-        provider_login: Option<&str>,
-    ) -> Result<(), sqlx::Error> {
-        self.upsert_token_with_auth_method(
-            user_id,
-            "github",
-            auth_method,
-            access_token,
-            None,
-            token_type,
-            metadata,
-            None,
-        )
-        .await?;
-        if provider_user_id.is_some() || provider_login.is_some() {
-            sqlx::query(
-                r#"UPDATE provider_tokens
-                   SET provider_user_id = $2, provider_login = $3
-                   WHERE user_id = $1 AND provider = 'github' AND scope = 'user'"#,
-            )
-            .bind(user_id)
-            .bind(provider_user_id)
-            .bind(provider_login)
-            .execute(&self.0)
-            .await?;
-        }
-        Ok(())
-    }
-
-    async fn delete_github_row(&self, user_id: &str) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            "DELETE FROM provider_tokens \
-             WHERE user_id = $1 AND provider = 'github' AND scope = 'user'",
-        )
-        .bind(user_id)
-        .execute(&self.0)
-        .await?;
-        Ok(())
-    }
-
     async fn find_github_scope_presence(
         &self,
         user_id: &str,
@@ -700,14 +596,6 @@ impl ProviderTokenDao for PgProviderTokenDao {
         .bind(user_id)
         .fetch_optional(&self.0)
         .await
-    }
-}
-
-/// Stable key shared by the advisory lock and in-process credential mutex.
-pub fn codex_lock_key(scope: &CodexScope) -> String {
-    match scope {
-        CodexScope::User(id) => format!("codex-refresh:user:{id}"),
-        CodexScope::Global => "codex-refresh:global".to_string(),
     }
 }
 
@@ -744,17 +632,6 @@ fn codex_where_clause(scope: &CodexScope, placeholder: &str) -> String {
 #[cfg(test)]
 mod scope_tests {
     use super::*;
-
-    #[test]
-    fn lock_key_is_distinct_across_scopes_with_same_id() {
-        let user = codex_lock_key(&CodexScope::user("foo"));
-        let global = codex_lock_key(&CodexScope::Global);
-        assert_eq!(user, "codex-refresh:user:foo");
-        assert_eq!(global, "codex-refresh:global");
-        assert_ne!(user, global);
-        assert!(user.contains("user"));
-        assert!(global.contains("global"));
-    }
 
     #[test]
     fn where_clause_per_scope_is_well_formed() {

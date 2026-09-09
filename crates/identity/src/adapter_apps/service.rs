@@ -232,7 +232,7 @@ pub async fn load_adapter_app(
 }
 
 /// Validate and seal an app before handing it to persistence.
-pub async fn save_adapter_app(
+pub(crate) async fn save_adapter_app(
     dao: &dyn super::dao::AdapterAppDao,
     cipher: &dyn SecretCipher,
     input: AdapterAppInput,

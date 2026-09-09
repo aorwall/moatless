@@ -217,3 +217,7 @@ impl IngressOutbox for PgIngressOutbox {
         Ok(Pending { total, stale })
     }
 }
+
+#[cfg(all(test, feature = "db-tests"))]
+#[path = "outbox_db_tests.rs"]
+mod outbox_db_tests;

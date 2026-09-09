@@ -2,7 +2,7 @@
 
 use moatless_adapter_model::{capabilities::AdapterBindingStatus, registry::Adapters};
 use moatless_api_schemas::task_connections::Connection;
-use moatless_tasks::message::dao::ConnectionMessageCount;
+use moatless_tasks::message::models::ConnectionMessageCount;
 use moatless_types::adapter::TaskBinding;
 use std::collections::HashMap;
 use std::sync::Arc;

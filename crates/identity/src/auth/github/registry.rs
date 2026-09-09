@@ -21,10 +21,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{info, warn};
 
-use crate::adapter_apps::dao::AdapterAppDao;
-use crate::adapter_apps::dao::ENV_CARRY_OVER;
-use crate::adapter_apps::dao::GitHubAppRecord;
-use crate::adapter_apps::dao::NewGitHubApp;
+use crate::adapter_apps::dao::{AdapterAppDao, ENV_CARRY_OVER, GitHubAppRecord, NewGitHubApp};
 use crate::auth::error::AuthError;
 use crate::auth::github::service::GitHubAppService;
 use crate::secret::service::SecretCipher;
@@ -65,7 +62,7 @@ impl GitHubAppRegistry {
     /// The login App is supplied by the caller because it is deployment
     /// configuration and cannot change afterwards. Everything else comes from
     /// `store` at the moment it is asked for.
-    pub fn new(
+    pub(crate) fn new(
         login_app: Option<Arc<GitHubAppService>>,
         store: Option<Arc<dyn AdapterAppDao>>,
         cipher: Option<Arc<dyn SecretCipher>>,
@@ -208,12 +205,12 @@ impl GitHubAppRegistry {
     }
 
     /// Durable state behind admin-registered Apps, when this wiring has any.
-    pub fn store(&self) -> Option<&Arc<dyn AdapterAppDao>> {
+    pub(crate) fn store(&self) -> Option<&Arc<dyn AdapterAppDao>> {
         self.store.as_ref()
     }
 
     /// The cipher stored keys are sealed with, when configured.
-    pub fn cipher(&self) -> Option<&Arc<dyn SecretCipher>> {
+    pub(crate) fn cipher(&self) -> Option<&Arc<dyn SecretCipher>> {
         self.cipher.as_ref()
     }
 
@@ -327,7 +324,6 @@ impl GitHubAppRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::adapter_apps::dao::{GitHubAppRecord, NewGitHubApp};
     use crate::adapter_apps::dao::test_support::InMemoryAdapterAppDao;
     use crate::secret::service::LocalEnvelopeSecretCipher;
     use moatless_types::secret::SecretsConfig;

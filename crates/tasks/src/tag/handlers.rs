@@ -5,8 +5,8 @@ use std::sync::Arc;
 use axum::Json;
 use axum::extract::State;
 
-use super::dao::TagDao;
 use super::error::TagError;
+use super::operations::Tags;
 use super::schemas::TagResponse;
 
 /// List all tags.
@@ -19,9 +19,7 @@ use super::schemas::TagResponse;
         (status = 500, description = "Internal error", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
-pub async fn list_tags(
-    State(tags): State<Arc<dyn TagDao>>,
-) -> Result<Json<Vec<TagResponse>>, TagError> {
+pub async fn list_tags(State(tags): State<Arc<Tags>>) -> Result<Json<Vec<TagResponse>>, TagError> {
     let rows = tags.list_all().await?;
 
     let tags: Vec<TagResponse> = rows

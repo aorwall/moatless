@@ -1,6 +1,31 @@
 //! Feedback domain types — DB row + shared enum re-exports.
 
 use chrono::{DateTime, Utc};
+use moatless_types::access_control::ScopeContext;
+
+/// Filter for the cross-task feedback listing. Every `Some` narrows the result;
+/// `workspace_id` and `repository_id` read the joined task row.
+pub struct FeedbackFilter {
+    pub scope: ScopeContext,
+    pub workspace_id: Option<String>,
+    pub repository_id: Option<String>,
+    pub task_id: Option<String>,
+    /// `'user' | 'agent'`, already validated against `FeedbackSource`.
+    pub source: Option<String>,
+    /// `'task' | 'message' | 'tool_call' | 'preview_failure'`, already
+    /// validated against `FeedbackSurface`.
+    pub surface: Option<String>,
+    /// Already validated against `FeedbackCategory`.
+    pub category: Option<String>,
+    /// `'open' | 'fixed' | 'not_relevant'`, already validated against
+    /// `FeedbackStatus`.
+    pub status: Option<String>,
+    pub created_by: Option<String>,
+    /// Keeps rows created at or after this instant.
+    pub since: Option<DateTime<Utc>>,
+    pub limit: i64,
+    pub offset: i64,
+}
 
 /// One feedback row from the `feedback` table.
 #[derive(Debug, Clone, sqlx::FromRow)]

@@ -35,7 +35,7 @@ use moatless_backend::state::AppState;
 use moatless_types::access_control::Scope;
 use moatless_types::loops::RoutingMode;
 use moatless_types::loops::SubscriptionMatch;
-use moatless_workspaces::repository::dao as repository_dao;
+use moatless_workspaces::compose;
 use sqlx::{PgPool, Row};
 use tower::ServiceExt;
 
@@ -147,13 +147,13 @@ async fn seed_subscription(
     secret: Option<&str>,
 ) {
     let now = Utc::now();
-    repository_dao::insert(pool, &make_repository_row("repo-1", USER_1))
+    compose::seed_repository(pool, &make_repository_row("repo-1", USER_1))
         .await
         .expect("seed repository");
     common::seed_workspace_placing(pool, common::FIXTURE_WORKSPACE, "repo-1", USER_1).await;
-    state
-        .loops
-        .upsert_subscription(&SubscriptionMatch {
+    moatless_loops::loops::test_support::upsert_subscription(
+        &state.loops,
+        &SubscriptionMatch {
             name: "test-loop".to_string(),
             id: TRIGGER.to_string(),
             adapter_kind: AdapterKind::Telegram,
@@ -184,9 +184,10 @@ async fn seed_subscription(
             owner_user_id: Some(USER_1.to_string()),
             created_at: now,
             updated_at: now,
-        })
-        .await
-        .expect("seed Telegram subscription");
+        },
+    )
+    .await
+    .expect("seed Telegram subscription");
 }
 
 /// Every admitted delivery, as `(kind, event_id)`.

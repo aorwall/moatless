@@ -98,7 +98,7 @@ pub(super) async fn receive(
     // that Subscription's secret would let an update route under a Subscription
     // whose secret was never checked (spec Decision 5).
     let Some((connection, subscription)) =
-        moatless_adapter_model::routing::resolve_chat_provider_event(
+        moatless_adapter_model::connections::resolve_chat_provider_event(
             adapter
                 .require_adapter_connections()
                 .map_err(IngressError::Ingress)?,

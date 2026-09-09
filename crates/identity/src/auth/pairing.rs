@@ -12,9 +12,6 @@ use rand::RngExt;
 use sha2::{Digest, Sha256};
 use tracing::{info, warn};
 
-use super::api_key;
-use super::api_keys::ApiKeyDao;
-
 pub const PAIRING_CODE_TTL: Duration = Duration::minutes(5);
 pub const PAIRED_DEVICE_KEY_TTL: Duration = Duration::days(90);
 
@@ -31,20 +28,6 @@ pub struct PairingCode {
     pub label: Option<String>,
     pub created_at: DateTime<Utc>,
     pub expires_at: DateTime<Utc>,
-}
-
-#[async_trait]
-pub trait PairingCodeDao: Send + Sync {
-    async fn insert_pairing_code(&self, code: &PairingCode) -> Result<(), sqlx::Error>;
-    async fn consume_pairing_code(
-        &self,
-        code_hash: &str,
-        now: DateTime<Utc>,
-    ) -> Result<Option<PairingCode>, sqlx::Error>;
-    async fn delete_finished_pairing_codes(
-        &self,
-        cutoff: DateTime<Utc>,
-    ) -> Result<u64, sqlx::Error>;
 }
 
 #[derive(Debug, Clone)]
@@ -95,12 +78,15 @@ pub trait PairingApiKeyIssuer: Send + Sync {
 }
 
 pub struct DevicePairing {
-    codes: Arc<dyn PairingCodeDao>,
+    codes: Arc<dyn super::pairing_dao::PairingCodeDao>,
     api_keys: Arc<dyn PairingApiKeyIssuer>,
 }
 
 impl DevicePairing {
-    pub fn new(codes: Arc<dyn PairingCodeDao>, api_keys: Arc<dyn PairingApiKeyIssuer>) -> Self {
+    pub(crate) fn new(
+        codes: Arc<dyn super::pairing_dao::PairingCodeDao>,
+        api_keys: Arc<dyn PairingApiKeyIssuer>,
+    ) -> Self {
         Self { codes, api_keys }
     }
 
@@ -180,6 +166,44 @@ impl DevicePairing {
     }
 }
 
+/// A [`DevicePairing`] whose only redeemable code is `code`, for a consumer's
+/// tests. Reaches no database. Pruning and issuing report success.
+#[cfg(any(test, feature = "test-support"))]
+pub fn device_pairing_over(
+    code: Option<PairingCode>,
+    api_keys: Arc<dyn PairingApiKeyIssuer>,
+) -> DevicePairing {
+    struct CannedCode(Option<PairingCode>);
+
+    #[async_trait]
+    impl super::pairing_dao::PairingCodeDao for CannedCode {
+        async fn insert_pairing_code(&self, _code: &PairingCode) -> Result<(), sqlx::Error> {
+            Ok(())
+        }
+
+        async fn consume_pairing_code(
+            &self,
+            code_hash: &str,
+            _now: DateTime<Utc>,
+        ) -> Result<Option<PairingCode>, sqlx::Error> {
+            Ok(self
+                .0
+                .as_ref()
+                .filter(|code| code.code_hash == code_hash)
+                .cloned())
+        }
+
+        async fn delete_finished_pairing_codes(
+            &self,
+            _cutoff: DateTime<Utc>,
+        ) -> Result<u64, sqlx::Error> {
+            Ok(0)
+        }
+    }
+
+    DevicePairing::new(Arc::new(CannedCode(code)), api_keys)
+}
+
 fn key_name(code: &PairingCode, client: &PairingClient) -> String {
     let chosen = code
         .label
@@ -218,38 +242,4 @@ pub fn hash_key(key: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(key.as_bytes());
     hex::encode(hasher.finalize())
-}
-
-pub use super::pairing_dao::PgPairingCodeDao;
-
-pub struct PgPairingApiKeyIssuer(pub Arc<dyn ApiKeyDao>);
-
-#[async_trait]
-impl PairingApiKeyIssuer for PgPairingApiKeyIssuer {
-    async fn issue_api_key(
-        &self,
-        user_id: &str,
-        name: &str,
-        scopes: Vec<String>,
-        expires_at: DateTime<Utc>,
-        group_id: Option<&str>,
-    ) -> Result<PairedDevice, PairingError> {
-        let key = api_key::generate_key(
-            self.0.as_ref(),
-            user_id,
-            name,
-            Some(scopes.clone()),
-            Some(expires_at),
-            group_id,
-        )
-        .await
-        .map_err(|error| PairingError::Storage(error.to_string()))?;
-
-        Ok(PairedDevice {
-            key_id: key.id,
-            token: key.key,
-            expires_at,
-            scopes,
-        })
-    }
 }

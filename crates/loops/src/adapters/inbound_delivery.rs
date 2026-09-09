@@ -264,7 +264,7 @@ mod db_tests {
     use tokio_util::sync::CancellationToken;
 
     use crate::adapters::delivery::{
-        AdapterDeliveryPolicy, AdapterDeliveryStore, spawn_adapter_delivery_worker,
+        AdapterDeliveryPolicy, AdapterDeliveryWorker, dao::AdapterDeliveryStore,
     };
     use moatless_adapter_model::delivery::{
         AdapterDeliveryHandlers, AdapterDeliveryRequest, DeliveryAdmission,
@@ -332,8 +332,8 @@ mod db_tests {
         );
 
         let cancel = CancellationToken::new();
-        let handle =
-            spawn_adapter_delivery_worker(Arc::clone(&store), Arc::new(handlers), cancel.clone());
+        let handle = AdapterDeliveryWorker::new(Arc::clone(&store))
+            .spawn(Arc::new(handlers), cancel.clone());
         let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
         while tokio::time::Instant::now() < deadline && runs.load(Ordering::SeqCst) < 3 {
             tokio::time::sleep(Duration::from_millis(10)).await;

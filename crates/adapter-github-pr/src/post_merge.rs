@@ -5,11 +5,11 @@ use std::fmt::Write;
 
 use tracing::{debug, info, warn};
 
-use moatless_types::adapter::AdapterKind;
 use moatless_adapter_model::error::AdapterError;
 use moatless_types::adapter::AdapterConnection;
-use moatless_types::loops::SubscriptionMatch;
+use moatless_types::adapter::AdapterKind;
 use moatless_types::adapter::{Audience, InboundMessage};
+use moatless_types::loops::SubscriptionMatch;
 
 use super::router::GithubPrInboundRouter;
 use super::subject::GithubPrSubject;
@@ -200,7 +200,7 @@ impl GithubPrInboundRouter {
         // Skip unless some active task is still connected to the PR.
         if !self
             .task_bindings
-            .find_by_subject("github", "github_pr", &subject_key)
+            .for_subject("github", "github_pr", &subject_key)
             .await?
             .iter()
             .any(|b| b.active)

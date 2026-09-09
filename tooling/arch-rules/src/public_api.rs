@@ -1,24 +1,86 @@
 //! What a crate exports, as opposed to what sits under its `src/`.
 //!
 //! The walk starts at the crate root, so a `pub` item in a private module or
-//! behind a test-support `cfg` is not counted as exported. Re-exports are
-//! followed one step, under the name an importer writes — under `as`, only the
-//! alias.
+//! behind a test-support `cfg` is not counted as exported. A re-export chain is
+//! followed to its end, under the name an importer writes — under `as`, only
+//! the alias. [`Scope`] decides whether the modules a `test-support` build adds
+//! count as exported.
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::path::Path;
 
 use anyhow::{Context, Result};
+use syn::visit::Visit;
 
-/// A type another crate can name, and the file that defines it.
+/// The kind of declaration an export names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Kind {
+    Struct,
+    Enum,
+    Trait,
+    /// A `type` alias.
+    Alias,
+    Function,
+    /// A `const` or a `static`.
+    Value,
+}
+
+/// An item another crate can name, and the file that defines it.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Export {
     pub name: String,
     pub file: String,
+    pub kind: Kind,
+    /// The module path an importer writes to reach it, below the crate root.
+    pub path: Vec<String>,
+    /// Type names the declaration writes where a caller can see them: `pub`
+    /// fields, enum variant fields, function arguments and returns, trait
+    /// method signatures, and the `pub` methods of its inherent impls. Bodies
+    /// are not read.
+    pub signature: Vec<String>,
 }
 
-/// Every type reachable from `root` through public modules and re-exports.
+impl Export {
+    /// The path an importer writes, joined with `::`.
+    pub fn written(&self) -> String {
+        let mut parts = self.path.clone();
+        parts.push(self.name.clone());
+        parts.join("::")
+    }
+}
+
+/// Which build the walk counts items from.
+///
+/// A consumer that turns on `test-support` or `db-tests` can name what those
+/// features add, so a privacy rule has to ask both questions. `#[cfg(test)]`
+/// alone is never nameable from another crate and stays out of both.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Scope {
+    Default,
+    TestSupport,
+}
+
+impl Scope {
+    fn hides(self, attrs: &[syn::Attribute]) -> bool {
+        let gated = crate::source_index::test_only(attrs);
+        match self {
+            Self::Default => gated,
+            Self::TestSupport => gated && !enabled_by_feature(attrs),
+        }
+    }
+}
+
+/// Every item reachable from `root` through public modules and re-exports.
 pub fn exports(sources: &BTreeMap<String, String>, root: &str) -> Result<Vec<Export>> {
+    exports_in(sources, root, Scope::Default)
+}
+
+/// Every item reachable from `root` in one build scope.
+pub fn exports_in(
+    sources: &BTreeMap<String, String>,
+    root: &str,
+    scope: Scope,
+) -> Result<Vec<Export>> {
     let mut queue = VecDeque::from([(root.to_string(), Vec::new(), true)]);
     let mut visited = BTreeSet::new();
 
@@ -28,6 +90,8 @@ pub fn exports(sources: &BTreeMap<String, String>, root: &str) -> Result<Vec<Exp
     let mut candidates: Vec<(Export, Vec<String>, bool)> = Vec::new();
     let mut written: Vec<Written> = Vec::new();
     let mut modules: BTreeSet<Vec<String>> = BTreeSet::new();
+    // (module, type name) -> the signatures of its inherent `pub` methods.
+    let mut inherent: BTreeMap<(Vec<String>, String), Vec<String>> = BTreeMap::new();
 
     while let Some((file, module, reachable)) = queue.pop_front() {
         if !visited.insert(file.clone()) {
@@ -37,24 +101,31 @@ pub fn exports(sources: &BTreeMap<String, String>, root: &str) -> Result<Vec<Exp
             continue;
         };
         let parsed = syn::parse_file(text).with_context(|| format!("parsing {file}"))?;
-        if crate::source_index::test_only(&parsed.attrs) {
+        if scope.hides(&parsed.attrs) {
             continue;
         }
         let mut found = Scanned::default();
-        scan(&parsed.items, &module, reachable, &mut found);
+        scan(&parsed.items, &module, reachable, scope, &mut found);
 
         modules.insert(module.clone());
         modules.extend(found.inline.iter().cloned());
 
-        for (name, at, public) in found.types {
+        for found in found.types {
             candidates.push((
                 Export {
-                    name,
+                    name: found.name,
                     file: file.clone(),
+                    kind: found.kind,
+                    path: found.at.clone(),
+                    signature: found.signature,
                 },
-                at,
-                public,
+                found.at,
+                found.public,
             ));
+        }
+
+        for (name, at, signature) in found.inherent {
+            inherent.entry((at, name)).or_default().extend(signature);
         }
 
         for (name, public) in found.mods {
@@ -68,49 +139,168 @@ pub fn exports(sources: &BTreeMap<String, String>, root: &str) -> Result<Vec<Exp
             }
         }
 
-        // A `pub use` inside a private module re-exports nothing outward.
-        if reachable {
-            for (at, tree) in found.uses {
-                let mut prefix = Vec::new();
-                walk_use(&tree, &mut prefix, &at, &mut written);
+        for (at, tree) in found.uses {
+            let start = written.len();
+            let mut prefix = Vec::new();
+            walk_use(&tree, &mut prefix, &at, &mut written);
+            for use_ in &mut written[start..] {
+                use_.reachable = reachable;
             }
         }
     }
 
     let mut reexports: Vec<ReExport> = Vec::new();
-    let mut globbed: BTreeSet<Vec<String>> = BTreeSet::new();
+    let mut globs: Vec<Glob> = Vec::new();
     for use_ in written {
         let Some(module) = local_path(&use_.prefix, &use_.at, &modules) else {
             continue;
         };
         match use_.item {
             Some((name, alias)) => reexports.push(ReExport {
+                at: use_.at,
                 module,
                 name,
                 alias,
+                reachable: use_.reachable,
             }),
-            None => {
-                globbed.insert(module);
-            }
+            None => globs.push(Glob {
+                at: use_.at,
+                module,
+                reachable: use_.reachable,
+            }),
         }
     }
 
-    let mut out = BTreeSet::new();
-    for (export, at, public) in candidates {
-        // A type is exported under every name an importer may write for it:
-        // its own where the module chain is public, and the alias of each
-        // `pub use` that names it — which is the only name a rename gives.
-        if public || globbed.iter().any(|glob| at.starts_with(glob)) {
-            out.insert(export.clone());
-        }
-        for lifted in reexports.iter().filter(|r| r.names(&export.name, &at)) {
-            out.insert(Export {
-                name: lifted.alias.clone(),
-                file: export.file.clone(),
-            });
+    let candidates: Vec<(Export, Vec<String>, bool)> = candidates
+        .into_iter()
+        .map(|(export, at, public)| {
+            let signature = with_inherent(&inherent, &at, &export);
+            (
+                Export {
+                    signature,
+                    ..export
+                },
+                at,
+                public,
+            )
+        })
+        .collect();
+
+    let available = reachable_names(&candidates, &reexports, &globs);
+
+    // An item is exported under every name an importer may write for it: its
+    // own where the module chain is public, and the name each reachable `pub
+    // use` gives it — under `as`, the alias only.
+    let mut out: BTreeSet<Export> = candidates
+        .into_iter()
+        .filter(|(_, _, public)| *public)
+        .map(|(export, _, _)| export)
+        .collect();
+    let lifted = reexports
+        .iter()
+        .filter(|r| r.reachable)
+        .map(|r| &r.at)
+        .chain(globs.iter().filter(|g| g.reachable).map(|g| &g.at));
+    for at in lifted {
+        for (held, export) in available.values().flatten() {
+            if held == at {
+                out.insert(export.clone());
+            }
         }
     }
     Ok(out.into_iter().collect())
+}
+
+/// Every name each module holds, keyed by the name an importer writes.
+///
+/// A `pub use` in a private module is followed, because an outer `pub use` may
+/// point at it. That is one re-export chain, and it puts the item on the crate
+/// surface as surely as a single step does. The loop runs to a fixed point, and
+/// duplicate entries are dropped, so a pair of modules that re-export each
+/// other terminates.
+fn reachable_names(
+    candidates: &[(Export, Vec<String>, bool)],
+    reexports: &[ReExport],
+    globs: &[Glob],
+) -> BTreeMap<String, Vec<(Vec<String>, Export)>> {
+    let mut available: BTreeMap<String, Vec<(Vec<String>, Export)>> = BTreeMap::new();
+    for (export, at, _) in candidates {
+        available
+            .entry(export.name.clone())
+            .or_default()
+            .push((at.clone(), export.clone()));
+    }
+    loop {
+        let mut grew = false;
+        for lift in reexports {
+            let lifted: Vec<(String, Export)> = available
+                .get(&lift.name)
+                .into_iter()
+                .flatten()
+                .filter(|(at, _)| at.starts_with(&lift.module))
+                .map(|(_, export)| {
+                    (
+                        lift.alias.clone(),
+                        Export {
+                            name: lift.alias.clone(),
+                            path: lift.at.clone(),
+                            ..export.clone()
+                        },
+                    )
+                })
+                .collect();
+            grew |= admit(&mut available, &lift.at, lifted);
+        }
+        for glob in globs {
+            let lifted: Vec<(String, Export)> = available
+                .iter()
+                .flat_map(|(name, held)| held.iter().map(move |entry| (name, entry)))
+                .filter(|(_, (at, _))| at.starts_with(&glob.module) && at != &glob.at)
+                .map(|(name, (_, export))| {
+                    (
+                        name.clone(),
+                        Export {
+                            path: glob.at.clone(),
+                            ..export.clone()
+                        },
+                    )
+                })
+                .collect();
+            grew |= admit(&mut available, &glob.at, lifted);
+        }
+        if !grew {
+            return available;
+        }
+    }
+}
+
+/// Record each name at `at`, and report whether anything was new.
+fn admit(
+    available: &mut BTreeMap<String, Vec<(Vec<String>, Export)>>,
+    at: &[String],
+    lifted: Vec<(String, Export)>,
+) -> bool {
+    let mut grew = false;
+    for (name, export) in lifted {
+        let slot = available.entry(name).or_default();
+        if !slot.iter().any(|(held, e)| held == at && *e == export) {
+            slot.push((at.to_vec(), export));
+            grew = true;
+        }
+    }
+    grew
+}
+
+fn with_inherent(
+    inherent: &BTreeMap<(Vec<String>, String), Vec<String>>,
+    at: &[String],
+    export: &Export,
+) -> Vec<String> {
+    let mut signature = export.signature.clone();
+    if let Some(methods) = inherent.get(&(at.to_vec(), export.name.clone())) {
+        signature.extend(methods.iter().cloned());
+    }
+    signature
 }
 
 /// A `pub use` as written, before its first segment is resolved.
@@ -121,10 +311,15 @@ struct Written {
     prefix: Vec<String>,
     /// The item's name and the name it is given, or `None` for a glob.
     item: Option<(String, String)>,
+    /// Whether every module enclosing the `use` is public.
+    reachable: bool,
 }
 
 /// A `pub use` of one item, and the name it gives that item.
 struct ReExport {
+    /// The module the `pub use` was written in, which is where an importer
+    /// writes the alias.
+    at: Vec<String>,
     /// The module inside this crate it points into. A path naming another
     /// crate re-exports nothing of ours.
     module: Vec<String>,
@@ -132,25 +327,34 @@ struct ReExport {
     name: String,
     /// What an importer writes, which differs under `as`.
     alias: String,
+    /// Whether an importer outside the crate can write `at`.
+    reachable: bool,
 }
 
-impl ReExport {
-    /// Whether this re-export is the one that lifts a type named `name` out of
-    /// module `at`.
-    ///
-    /// The module is matched as a prefix so a `pub use` pointing at an
-    /// ancestor still lifts, which is how a re-export chain reads from the
-    /// outside.
-    fn names(&self, name: &str, at: &[String]) -> bool {
-        self.name == name && at.starts_with(&self.module)
-    }
+/// A `pub use path::*`, which lifts every name the module holds.
+struct Glob {
+    at: Vec<String>,
+    module: Vec<String>,
+    reachable: bool,
+}
+
+/// One declaration the scan found, before re-exports are resolved.
+struct Declared {
+    name: String,
+    kind: Kind,
+    signature: Vec<String>,
+    /// The module path it sits at.
+    at: Vec<String>,
+    /// Whether every module enclosing it within this file is public.
+    public: bool,
 }
 
 #[derive(Default)]
 struct Scanned {
-    /// Type name, the module path it sits at, and whether every module
-    /// enclosing it within this file is public.
-    types: Vec<(String, Vec<String>, bool)>,
+    types: Vec<Declared>,
+    /// An inherent impl's type name, its module path, and the signatures of
+    /// its `pub` methods.
+    inherent: Vec<(String, Vec<String>, Vec<String>)>,
     /// A child module in another file, and whether it is declared `pub`.
     mods: Vec<(String, bool)>,
     /// Module paths declared inline in this file, at any visibility.
@@ -159,31 +363,183 @@ struct Scanned {
     uses: Vec<(Vec<String>, syn::UseTree)>,
 }
 
-fn scan(items: &[syn::Item], module: &[String], public: bool, out: &mut Scanned) {
+fn scan(items: &[syn::Item], module: &[String], public: bool, scope: Scope, out: &mut Scanned) {
     for item in items {
+        if scope.hides(crate::source_index::attrs(item)) {
+            continue;
+        }
+        let declared = match item {
+            syn::Item::Struct(s) if is_pub(&s.vis) => {
+                Some((s.ident.to_string(), Kind::Struct, fields(&s.fields)))
+            }
+            syn::Item::Enum(e) if is_pub(&e.vis) => Some((
+                e.ident.to_string(),
+                Kind::Enum,
+                e.variants
+                    .iter()
+                    .flat_map(|v| all_fields(&v.fields))
+                    .collect(),
+            )),
+            syn::Item::Trait(t) if is_pub(&t.vis) => {
+                Some((t.ident.to_string(), Kind::Trait, trait_signature(t)))
+            }
+            syn::Item::Type(t) if is_pub(&t.vis) => {
+                Some((t.ident.to_string(), Kind::Alias, named(&t.ty)))
+            }
+            syn::Item::Fn(f) if is_pub(&f.vis) => {
+                Some((f.sig.ident.to_string(), Kind::Function, signature(&f.sig)))
+            }
+            syn::Item::Const(c) if is_pub(&c.vis) => {
+                Some((c.ident.to_string(), Kind::Value, named(&c.ty)))
+            }
+            syn::Item::Static(s) if is_pub(&s.vis) => {
+                Some((s.ident.to_string(), Kind::Value, named(&s.ty)))
+            }
+            _ => None,
+        };
+        if let Some((name, kind, signature)) = declared {
+            out.types.push(Declared {
+                name,
+                kind,
+                signature,
+                at: module.to_vec(),
+                public,
+            });
+        }
         match item {
-            syn::Item::Struct(s) if is_pub(&s.vis) && !crate::source_index::test_only(&s.attrs) => {
-                out.types
-                    .push((s.ident.to_string(), module.to_vec(), public));
+            syn::Item::Impl(i) if i.trait_.is_none() => {
+                if let Some(name) = named(&i.self_ty).first() {
+                    out.inherent.push((
+                        name.clone(),
+                        module.to_vec(),
+                        inherent_signature(i, scope),
+                    ));
+                }
             }
-            syn::Item::Enum(e) if is_pub(&e.vis) && !crate::source_index::test_only(&e.attrs) => {
-                out.types
-                    .push((e.ident.to_string(), module.to_vec(), public));
-            }
-            syn::Item::Mod(m) if !crate::source_index::test_only(&m.attrs) => match &m.content {
+            syn::Item::Mod(m) => match &m.content {
                 Some((_, nested)) => {
                     let mut inner = module.to_vec();
                     inner.push(m.ident.to_string());
                     out.inline.push(inner.clone());
-                    scan(nested, &inner, public && is_pub(&m.vis), out);
+                    scan(nested, &inner, public && is_pub(&m.vis), scope, out);
                 }
                 None => out.mods.push((m.ident.to_string(), is_pub(&m.vis))),
             },
-            syn::Item::Use(u) if is_pub(&u.vis) && !crate::source_index::test_only(&u.attrs) => {
+            syn::Item::Use(u) if is_pub(&u.vis) => {
                 out.uses.push((module.to_vec(), u.tree.clone()));
             }
             _ => {}
         }
+    }
+}
+
+/// Type names in the `pub` fields of a struct, tuple fields included.
+fn fields(fields: &syn::Fields) -> Vec<String> {
+    fields
+        .iter()
+        .filter(|f| is_pub(&f.vis))
+        .flat_map(|f| named(&f.ty))
+        .collect()
+}
+
+/// Type names in every field of an enum variant, which are all public.
+fn all_fields(fields: &syn::Fields) -> Vec<String> {
+    fields.iter().flat_map(|f| named(&f.ty)).collect()
+}
+
+fn trait_signature(t: &syn::ItemTrait) -> Vec<String> {
+    let mut out: Vec<String> = t.supertraits.iter().flat_map(bound).collect();
+    for item in &t.items {
+        match item {
+            syn::TraitItem::Fn(f) => out.extend(signature(&f.sig)),
+            syn::TraitItem::Const(c) => out.extend(named(&c.ty)),
+            syn::TraitItem::Type(ty) => out.extend(ty.bounds.iter().flat_map(bound)),
+            _ => {}
+        }
+    }
+    out
+}
+
+fn inherent_signature(i: &syn::ItemImpl, scope: Scope) -> Vec<String> {
+    i.items
+        .iter()
+        .filter_map(|item| match item {
+            syn::ImplItem::Fn(f) if is_pub(&f.vis) && !scope.hides(&f.attrs) => {
+                Some(signature(&f.sig))
+            }
+            _ => None,
+        })
+        .flatten()
+        .collect()
+}
+
+fn bound(b: &syn::TypeParamBound) -> Vec<String> {
+    let mut found = Types::default();
+    found.visit_type_param_bound(b);
+    found.names
+}
+
+fn signature(sig: &syn::Signature) -> Vec<String> {
+    let mut found = Types::default();
+    found.visit_signature(sig);
+    found.names
+}
+
+/// The last segment of every path a type writes, outermost first.
+pub(crate) fn named(ty: &syn::Type) -> Vec<String> {
+    let mut found = Types::default();
+    found.visit_type(ty);
+    found.names
+}
+
+/// The last segment of every path a declaration writes, with bodies skipped.
+#[derive(Default)]
+struct Types {
+    names: Vec<String>,
+}
+
+impl<'ast> Visit<'ast> for Types {
+    fn visit_path(&mut self, p: &'ast syn::Path) {
+        if let Some(last) = p.segments.last() {
+            self.names.push(last.ident.to_string());
+        }
+        syn::visit::visit_path(self, p);
+    }
+    fn visit_block(&mut self, _: &'ast syn::Block) {}
+    fn visit_attribute(&mut self, _: &'ast syn::Attribute) {}
+}
+
+/// Whether a `cfg` names a feature a consumer can turn on to reach the item.
+fn enabled_by_feature(attrs: &[syn::Attribute]) -> bool {
+    attrs
+        .iter()
+        .filter(|a| a.path().is_ident("cfg"))
+        .any(|a| a.parse_args::<syn::Meta>().is_ok_and(|m| support(&m)))
+}
+
+fn support(meta: &syn::Meta) -> bool {
+    match meta {
+        syn::Meta::NameValue(n) if n.path.is_ident("feature") => {
+            if let syn::Expr::Lit(l) = &n.value {
+                if let syn::Lit::Str(s) = &l.lit {
+                    // `test-support` and `db-tests` are the only two features
+                    // the workspace declares for a consumer to reach test-only
+                    // items with; `source_index::test_only` reads the same pair.
+                    return matches!(s.value().as_str(), "test-support" | "db-tests");
+                }
+            }
+            false
+        }
+        // Only `any` and `all` carry the feature outward. Under `not`, turning
+        // the feature on is what removes the item.
+        syn::Meta::List(l) if l.path.is_ident("any") || l.path.is_ident("all") => {
+            use syn::parse::Parser;
+            let parser = syn::punctuated::Punctuated::<syn::Meta, syn::Token![,]>::parse_terminated;
+            parser
+                .parse2(l.tokens.clone())
+                .is_ok_and(|children| children.iter().any(support))
+        }
+        _ => false,
     }
 }
 
@@ -201,6 +557,7 @@ fn walk_use(tree: &syn::UseTree, prefix: &mut Vec<String>, at: &[String], out: &
                 at: at.to_vec(),
                 prefix: prefix.clone(),
                 item: Some((name.clone(), name)),
+                reachable: true,
             });
         }
         syn::UseTree::Rename(r) => {
@@ -211,6 +568,7 @@ fn walk_use(tree: &syn::UseTree, prefix: &mut Vec<String>, at: &[String], out: &
                 at: at.to_vec(),
                 prefix: prefix.clone(),
                 item: Some((r.ident.to_string(), r.rename.to_string())),
+                reachable: true,
             });
         }
         syn::UseTree::Glob(_) => {
@@ -218,6 +576,7 @@ fn walk_use(tree: &syn::UseTree, prefix: &mut Vec<String>, at: &[String], out: &
                 at: at.to_vec(),
                 prefix: prefix.clone(),
                 item: None,
+                reachable: true,
             });
         }
         syn::UseTree::Group(g) => {
@@ -304,6 +663,15 @@ mod tests {
             .collect()
     }
 
+    fn types(sources: &BTreeMap<String, String>) -> Vec<String> {
+        exports(sources, "src/lib.rs")
+            .unwrap()
+            .into_iter()
+            .filter(|e| matches!(e.kind, Kind::Struct | Kind::Enum))
+            .map(|e| e.name)
+            .collect()
+    }
+
     fn names(sources: &BTreeMap<String, String>) -> Vec<String> {
         exports(sources, "src/lib.rs")
             .unwrap()
@@ -319,7 +687,7 @@ mod tests {
             ("src/task/mod.rs", "pub mod dao;"),
             ("src/task/dao.rs", "pub struct Row;"),
         ]);
-        assert_eq!(names(&sources), vec!["Row"]);
+        assert_eq!(types(&sources), vec!["Row"]);
     }
 
     #[test]
@@ -340,7 +708,7 @@ mod tests {
             ),
             ("src/internal.rs", "pub struct Lifted;\npub struct Left;"),
         ]);
-        assert_eq!(names(&sources), vec!["Lifted"]);
+        assert_eq!(types(&sources), vec!["Lifted"]);
     }
 
     /// An alias is the only name an importer can write, so it is the only
@@ -354,7 +722,7 @@ mod tests {
             ),
             ("src/internal.rs", "pub struct Original;"),
         ]);
-        assert_eq!(names(&sources), vec!["Alias"]);
+        assert_eq!(types(&sources), vec!["Alias"]);
     }
 
     /// Renaming something already public adds a name rather than replacing it:
@@ -368,7 +736,7 @@ mod tests {
             ),
             ("src/inner.rs", "pub struct Original;"),
         ]);
-        assert_eq!(names(&sources), vec!["Alias", "Original"]);
+        assert_eq!(types(&sources), vec!["Alias", "Original"]);
     }
 
     #[test]
@@ -395,7 +763,7 @@ mod tests {
                 "pub struct DeliveryAdmission;\npub struct Unlifted;",
             ),
         ]);
-        assert_eq!(names(&sources), vec!["DeliveryAdmission"]);
+        assert_eq!(types(&sources), vec!["DeliveryAdmission"]);
     }
 
     #[test]
@@ -404,7 +772,7 @@ mod tests {
             ("src/lib.rs", "mod internal;\npub use crate::internal::*;"),
             ("src/internal.rs", "pub struct One;\npub struct Two;"),
         ]);
-        assert_eq!(names(&sources), vec!["One", "Two"]);
+        assert_eq!(types(&sources), vec!["One", "Two"]);
     }
 
     #[test]
@@ -417,7 +785,46 @@ mod tests {
             ("src/test_support.rs", "pub struct Fake;"),
             ("src/real.rs", "pub struct Real;"),
         ]);
-        assert_eq!(names(&sources), vec!["Real"]);
+        assert_eq!(types(&sources), vec!["Real"]);
+    }
+
+    /// The same crate read as a `test-support` consumer sees it: the feature
+    /// is one a consumer turns on, so what it adds is nameable.
+    #[test]
+    fn a_test_support_module_is_part_of_the_test_support_api() {
+        let sources = crate_of(&[
+            (
+                "src/lib.rs",
+                "#[cfg(any(test, feature = \"test-support\"))]\npub mod test_support;\n#[cfg(test)]\npub mod unit;",
+            ),
+            ("src/test_support.rs", "pub struct Fake;"),
+            ("src/unit.rs", "pub struct Local;"),
+        ]);
+        let found: Vec<String> = exports_in(&sources, "src/lib.rs", Scope::TestSupport)
+            .unwrap()
+            .into_iter()
+            .map(|e| e.name)
+            .collect();
+        assert_eq!(found, vec!["Fake"]);
+    }
+
+    /// `not(feature = "test-support")` names the feature and is removed by it,
+    /// so a `test-support` consumer cannot name what it guards either.
+    #[test]
+    fn a_negated_support_feature_does_not_open_a_test_only_item() {
+        let sources = crate_of(&[
+            (
+                "src/lib.rs",
+                "#[cfg(all(test, not(feature = \"test-support\")))]\npub mod local;",
+            ),
+            ("src/local.rs", "pub struct Local;"),
+        ]);
+        assert!(names(&sources).is_empty());
+        assert!(
+            exports_in(&sources, "src/lib.rs", Scope::TestSupport)
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]
@@ -429,7 +836,7 @@ mod tests {
             ),
             ("src/newest.rs", "pub struct Kept;"),
         ]);
-        assert_eq!(names(&sources), vec!["Kept"]);
+        assert_eq!(types(&sources), vec!["Kept"]);
     }
 
     #[test]
@@ -438,7 +845,7 @@ mod tests {
             "src/lib.rs",
             "mod inner { pub struct Hidden; }\npub mod outer { pub struct Shown; }",
         )]);
-        assert_eq!(names(&sources), vec!["Shown"]);
+        assert_eq!(types(&sources), vec!["Shown"]);
     }
 
     #[test]
@@ -448,6 +855,57 @@ mod tests {
             ("src/real.rs", "pub struct Real;"),
             ("src/orphan.rs", "pub struct Orphan;"),
         ]);
-        assert_eq!(names(&sources), vec!["Real"]);
+        assert_eq!(types(&sources), vec!["Real"]);
+    }
+
+    #[test]
+    fn traits_aliases_functions_and_values_are_exported_with_their_kind() {
+        let sources = crate_of(&[(
+            "src/lib.rs",
+            "pub trait Reader {}\npub type Handle = u8;\npub fn read() {}\npub const LIMIT: u8 = 1;",
+        )]);
+        let found = exports(&sources, "src/lib.rs").unwrap();
+        let kinds: Vec<(String, Kind)> = found.iter().map(|e| (e.name.clone(), e.kind)).collect();
+        assert_eq!(
+            kinds,
+            vec![
+                ("Handle".to_string(), Kind::Alias),
+                ("LIMIT".to_string(), Kind::Value),
+                ("Reader".to_string(), Kind::Trait),
+                ("read".to_string(), Kind::Function),
+            ]
+        );
+    }
+
+    /// A private field hides its type; a `pub` one, tuple field included, does
+    /// not. Inherent `pub` methods count as the type's own signature, which is
+    /// where a constructor taking a private type shows up.
+    #[test]
+    fn a_signature_holds_public_fields_arguments_and_inherent_methods() {
+        let sources = crate_of(&[(
+            "src/lib.rs",
+            "pub struct Store { pool: Pool, pub open: Handle }\n\
+             pub struct Wrapper(pub Inner);\n\
+             impl Store { pub fn new(dao: FileDao) -> Self { todo!() } fn hidden(x: Secret) {} }",
+        )]);
+        let found = exports(&sources, "src/lib.rs").unwrap();
+        let store = found.iter().find(|e| e.name == "Store").unwrap();
+        assert!(store.signature.contains(&"Handle".to_string()));
+        assert!(store.signature.contains(&"FileDao".to_string()));
+        assert!(!store.signature.contains(&"Pool".to_string()));
+        assert!(!store.signature.contains(&"Secret".to_string()));
+        let wrapper = found.iter().find(|e| e.name == "Wrapper").unwrap();
+        assert_eq!(wrapper.signature, vec!["Inner".to_string()]);
+    }
+
+    #[test]
+    fn a_written_path_is_the_one_an_importer_types() {
+        let sources = crate_of(&[
+            ("src/lib.rs", "pub mod task;"),
+            ("src/task/mod.rs", "pub mod dao;"),
+            ("src/task/dao.rs", "pub struct TaskDao;"),
+        ]);
+        let found = exports(&sources, "src/lib.rs").unwrap();
+        assert_eq!(found[0].written(), "task::dao::TaskDao");
     }
 }

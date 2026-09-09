@@ -238,10 +238,11 @@ pub fn reach_of(row: &crate::plugin::models::ActivationRow) -> Reach {
 /// used to decide could be, and a plugin-level record already covers skills
 /// added since it was written.
 pub async fn resolve_for(
-    plugins: &dyn crate::plugin::dao::PluginDao,
+    plugins: &crate::plugin::Plugins,
     user_id: Option<uuid::Uuid>,
     workspace_id: Option<&str>,
 ) -> Result<Vec<(crate::plugin::models::Plugin, PickedSkills)>, sqlx::Error> {
+    let plugins = plugins.store();
     let registered = plugins.list_all().await?;
     if registered.is_empty() {
         return Ok(Vec::new());

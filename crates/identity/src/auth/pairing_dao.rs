@@ -1,7 +1,27 @@
-use super::pairing::{PairingCode, PairingCodeDao};
+//! Device pairing table queries, and the API key a redeemed code mints.
+
+use std::sync::Arc;
+
+use super::api_key;
+use super::api_keys_dao::ApiKeyDao;
+use super::pairing::{PairedDevice, PairingApiKeyIssuer, PairingCode, PairingError};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use moatless_core::db::DbPool;
+
+#[async_trait]
+pub(crate) trait PairingCodeDao: Send + Sync {
+    async fn insert_pairing_code(&self, code: &PairingCode) -> Result<(), sqlx::Error>;
+    async fn consume_pairing_code(
+        &self,
+        code_hash: &str,
+        now: DateTime<Utc>,
+    ) -> Result<Option<PairingCode>, sqlx::Error>;
+    async fn delete_finished_pairing_codes(
+        &self,
+        cutoff: DateTime<Utc>,
+    ) -> Result<u64, sqlx::Error>;
+}
 
 /// PostgreSQL implementation of [`PairingCodeDao`].
 pub struct PgPairingCodeDao(pub DbPool);
@@ -86,3 +106,39 @@ impl PairingCodeDao for PgPairingCodeDao {
         Ok(result.rows_affected())
     }
 }
+
+pub struct PgPairingApiKeyIssuer(pub Arc<dyn ApiKeyDao>);
+
+#[async_trait]
+impl PairingApiKeyIssuer for PgPairingApiKeyIssuer {
+    async fn issue_api_key(
+        &self,
+        user_id: &str,
+        name: &str,
+        scopes: Vec<String>,
+        expires_at: DateTime<Utc>,
+        group_id: Option<&str>,
+    ) -> Result<PairedDevice, PairingError> {
+        let key = api_key::generate_key(
+            self.0.as_ref(),
+            user_id,
+            name,
+            Some(scopes.clone()),
+            Some(expires_at),
+            group_id,
+        )
+        .await
+        .map_err(|error| PairingError::Storage(error.to_string()))?;
+
+        Ok(PairedDevice {
+            key_id: key.id,
+            token: key.key,
+            expires_at,
+            scopes,
+        })
+    }
+}
+
+#[cfg(all(test, feature = "db-tests"))]
+#[path = "pairing_dao_tests.rs"]
+mod db_tests;

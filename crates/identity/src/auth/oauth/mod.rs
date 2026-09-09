@@ -2,5 +2,5 @@
 
 pub mod auth0;
 pub mod github_app;
-pub mod provider;
 pub(crate) mod login;
+pub mod provider;

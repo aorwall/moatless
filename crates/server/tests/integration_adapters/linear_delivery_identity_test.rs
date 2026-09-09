@@ -38,12 +38,13 @@ use sqlx::PgPool;
 
 use moatless_backend::adapters::providers::linear::handlers::linear_webhook;
 use moatless_backend::state::AppState;
-use moatless_tasks::task::dao as task_dao;
+use moatless_loops::bindings::test_support::upsert_binding;
+use moatless_tasks::task::test_support as task_fixtures;
 use moatless_types::access_control::Scope;
 use moatless_types::adapter::TaskBinding;
 use moatless_types::loops::RoutingMode;
 use moatless_types::loops::SubscriptionMatch;
-use moatless_workspaces::repository::dao as repository_dao;
+use moatless_workspaces::compose;
 
 use common::{
     USER_1, drain_linear_adapter_delivery, linear_config, make_repository_row, make_task_row,
@@ -159,9 +160,9 @@ fn distinct_identities(messages: &[(String, String)]) -> usize {
 /// pointing at both the session and its issue.
 async fn seed_bound_session(state: &AppState, pool: &PgPool) {
     seed_team(pool, &format!("personal-{USER_1}")).await;
-    let _ = repository_dao::insert(pool, &make_repository_row("repo-1", USER_1)).await;
+    let _ = compose::seed_repository(pool, &make_repository_row("repo-1", USER_1)).await;
     common::seed_workspace_placing(pool, common::FIXTURE_WORKSPACE, "repo-1", USER_1).await;
-    task_dao::insert_task(pool, &make_task_row(TASK, USER_1))
+    task_fixtures::seed_task(pool, &make_task_row(TASK, USER_1))
         .await
         .expect("seed task");
 
@@ -207,9 +208,7 @@ async fn seed_bound_session(state: &AppState, pool: &PgPool) {
         active: true,
         deactivated_at: None,
     };
-    state
-        .task_bindings
-        .upsert(&binding)
+    upsert_binding(&state.task_bindings, &binding)
         .await
         .expect("seed session binding");
 }
@@ -218,9 +217,9 @@ async fn seed_bound_session(state: &AppState, pool: &PgPool) {
 /// without one, so the issue tests need it; the prompt path does not.
 async fn seed_rule(state: &AppState) {
     let now = Utc::now();
-    state
-        .loops
-        .upsert_subscription(&SubscriptionMatch {
+    moatless_loops::loops::test_support::upsert_subscription(
+        &state.loops,
+        &SubscriptionMatch {
             name: "test-loop".to_string(),
             id: "trigger-linear-1".to_string(),
             adapter_kind: AdapterKind::Linear,
@@ -255,9 +254,10 @@ async fn seed_rule(state: &AppState) {
             owner_user_id: Some(USER_1.to_string()),
             created_at: now,
             updated_at: now,
-        })
-        .await
-        .expect("seed Linear rule");
+        },
+    )
+    .await
+    .expect("seed Linear rule");
 }
 
 /// A follow-up prompt on the bound session, carried by one `agentActivity`.

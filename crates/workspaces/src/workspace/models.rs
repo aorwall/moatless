@@ -184,3 +184,65 @@ pub struct ListedWorkspaceRow {
     pub workspace: WorkspaceRow,
     pub readable: bool,
 }
+
+/// A workspace in a widened listing, and whether the caller may actually read
+/// it.
+///
+/// A widened listing is a union of two sets with different rules behind them:
+/// the workspaces the read rule admits, and the workspaces something the caller
+/// may see happens to reference. A row from the second half is present so that a
+/// listing can render a group for it — not because the caller was granted
+/// anything — and a caller that cannot tell the halves apart will project them
+/// alike and disclose the second half's configuration.
+///
+/// The flag is evaluated by the same access filter the `WHERE` clause is built
+/// from, in the same statement, so the two cannot drift.
+#[derive(Debug, Clone)]
+pub struct ListedWorkspace {
+    pub workspace: Workspace,
+    pub readable: bool,
+}
+
+impl TryFrom<ListedWorkspaceRow> for ListedWorkspace {
+    type Error = sqlx::Error;
+
+    fn try_from(row: ListedWorkspaceRow) -> Result<Self, Self::Error> {
+        Ok(Self {
+            workspace: Workspace::try_from(row.workspace)?,
+            readable: row.readable,
+        })
+    }
+}
+
+/// Source ownership and the stored scripts needed for a guarded replacement.
+#[derive(Debug, Clone)]
+pub struct WorkspaceScriptsTarget {
+    pub source: String,
+    pub scripts: Vec<ScriptConfig>,
+}
+
+/// Patch struct for partial workspace updates. Outer `Option` = "field present
+/// in the patch"; inner `Option` = the nullable column value.
+#[derive(Default)]
+pub struct WorkspacePatch {
+    pub name: Option<String>,
+    pub description: Option<Option<String>>,
+    pub kind: Option<WorkspaceKind>,
+    pub scope: Option<Scope>,
+    pub owner_user_id: Option<Option<String>>,
+    pub run_as_user_id: Option<Option<String>>,
+    pub docker_image: Option<Option<String>>,
+    pub docker_access: Option<Option<bool>>,
+    pub sandbox_service_account: Option<Option<String>>,
+    pub system_prompt: Option<Option<String>>,
+    pub setup_commands: Option<Option<Vec<String>>>,
+    pub env_vars: Option<Option<std::collections::HashMap<String, String>>>,
+    pub servers: Option<Option<Vec<ServerConfig>>>,
+    pub scripts: Option<Option<Vec<ScriptConfig>>>,
+    pub resources: Option<Option<ResourceConfig>>,
+    pub network_profile: Option<Option<String>>,
+    pub source: Option<WorkspaceSource>,
+    pub source_repository_id: Option<Option<String>>,
+    pub source_key: Option<Option<String>>,
+    pub source_config_path: Option<Option<String>>,
+}

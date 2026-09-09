@@ -29,7 +29,7 @@ use tracing::{info, warn};
 
 use moatless_core::events::EventPublisher;
 
-use super::outbox::{IngressOutbox, RETRY_CAP_SECS};
+use super::outbox_dao::{IngressOutbox, RETRY_CAP_SECS};
 
 /// How often the relay looks for records whose delivery is unconfirmed.
 const POLL_INTERVAL: Duration = Duration::from_secs(15);
@@ -56,7 +56,7 @@ pub struct IngressRelay {
 }
 
 impl IngressRelay {
-    pub fn new(outbox: Arc<dyn IngressOutbox>, publisher: Arc<dyn EventPublisher>) -> Self {
+    pub(crate) fn new(outbox: Arc<dyn IngressOutbox>, publisher: Arc<dyn EventPublisher>) -> Self {
         Self {
             outbox,
             publisher,

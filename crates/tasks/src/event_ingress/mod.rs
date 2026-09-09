@@ -4,7 +4,6 @@ mod admission;
 mod error;
 mod grpc;
 mod metrics;
-pub mod outbox;
 pub mod relay;
 
 pub use admission::{AdmissionRequest, EventAdmission, is_error_sub_type};
@@ -14,4 +13,4 @@ pub use metrics::describe_ingress_metrics;
 #[cfg(test)]
 mod tests;
 
-mod outbox_dao;
+pub(crate) mod outbox_dao;

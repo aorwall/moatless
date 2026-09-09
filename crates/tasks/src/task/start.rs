@@ -1,6 +1,7 @@
-use super::dao::{TaskDao, TaskPatch};
 use super::error::TaskError;
+use super::models::TaskPatch;
 use super::models::TaskStatus;
+use super::operations::TaskCommands;
 use moatless_core::events::EventPublisher;
 use moatless_ports::sandbox::{PreflightPort, SandboxLifecycle};
 use moatless_ports::workspace::RepositoryReader;
@@ -10,7 +11,7 @@ use moatless_workspaces::workspace::git_sync::GitSyncService;
 
 /// Collaborators needed to validate and start a task.
 pub struct StartTaskPorts<'a> {
-    pub tasks: &'a dyn TaskDao,
+    pub tasks: &'a TaskCommands,
     pub repositories: &'a dyn RepositoryReader,
     pub preflight: &'a dyn PreflightPort,
     pub events: Option<&'a dyn EventPublisher>,

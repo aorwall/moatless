@@ -16,10 +16,10 @@ use sqlx::PgPool;
 use tower::ServiceExt;
 
 use moatless_tasks::feedback::routes::feedback_router;
-use moatless_tasks::message::dao as message_dao;
-use moatless_tasks::task::dao as task_dao;
+use moatless_tasks::message::test_support as message_fixtures;
+use moatless_tasks::task::test_support as task_fixtures;
 use moatless_tasks::task_activities::mapping::ConversationWrite;
-use moatless_workspaces::repository::dao as repository_dao;
+use moatless_workspaces::compose;
 
 use common::{
     USER_1, USER_2, authed_json_request, body_json, make_message_row, make_repository_row,
@@ -34,11 +34,13 @@ fn build_router(pool: PgPool) -> axum::Router {
 
 async fn seed_task(pool: &PgPool, task_id: &str, user: &str) {
     let repo = make_repository_row("repo-1", user);
-    repository_dao::insert(pool, &repo)
+    compose::seed_repository(pool, &repo)
         .await
         .expect("seed repo");
     let task = make_task_row(task_id, user);
-    task_dao::insert_task(pool, &task).await.expect("seed task");
+    task_fixtures::seed_task(pool, &task)
+        .await
+        .expect("seed task");
 }
 
 async fn seed_activity(
@@ -75,7 +77,7 @@ fn unscoped_task_feedback(comment: &str) -> serde_json::Value {
 async fn a_message_with_no_scope_lands_on_the_latest_tool_call(pool: PgPool) {
     seed_task(&pool, "task-1", USER_1).await;
     let msg = make_message_row("task-1", "msg-1");
-    message_dao::append(&pool, &msg, &[], &ConversationWrite::default())
+    message_fixtures::seed_message(&pool, &msg, &[], &ConversationWrite::default())
         .await
         .expect("seed message");
     seed_activity(&pool, "task-1", 1, "msg-1", "tool-1").await;
@@ -100,7 +102,7 @@ async fn a_message_with_no_scope_lands_on_the_latest_tool_call(pool: PgPool) {
 async fn a_message_with_no_scope_falls_back_to_the_latest_message(pool: PgPool) {
     seed_task(&pool, "task-1", USER_1).await;
     let msg = make_message_row("task-1", "msg-1");
-    message_dao::append(&pool, &msg, &[], &ConversationWrite::default())
+    message_fixtures::seed_message(&pool, &msg, &[], &ConversationWrite::default())
         .await
         .expect("seed message");
 
@@ -145,11 +147,11 @@ async fn a_message_with_no_scope_stays_task_level_on_a_task_with_no_messages(poo
 async fn an_explicit_message_scope_is_not_overridden(pool: PgPool) {
     seed_task(&pool, "task-1", USER_1).await;
     let earlier = make_message_row("task-1", "msg-earlier");
-    message_dao::append(&pool, &earlier, &[], &ConversationWrite::default())
+    message_fixtures::seed_message(&pool, &earlier, &[], &ConversationWrite::default())
         .await
         .expect("seed earlier message");
     let later = make_message_row("task-1", "msg-later");
-    message_dao::append(&pool, &later, &[], &ConversationWrite::default())
+    message_fixtures::seed_message(&pool, &later, &[], &ConversationWrite::default())
         .await
         .expect("seed later message");
 
@@ -320,7 +322,7 @@ async fn set_feedback_status_404s_for_an_unknown_id(pool: PgPool) {
 async fn preview_failure_feedback_is_not_scoped_to_the_latest_activity(pool: PgPool) {
     seed_task(&pool, "task-1", USER_1).await;
     let msg = make_message_row("task-1", "msg-1");
-    message_dao::append(&pool, &msg, &[], &ConversationWrite::default())
+    message_fixtures::seed_message(&pool, &msg, &[], &ConversationWrite::default())
         .await
         .expect("seed message");
 

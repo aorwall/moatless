@@ -23,26 +23,23 @@ use crate::common;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use chrono::Utc;
 use serde_json::Value;
 use sqlx::PgPool;
 use tonic::Request;
 
 use moatless_backend::event_handler::agent_handlers::handle_agent_message;
 use moatless_backend::event_handler::consumer::persist_event;
-use moatless_backend::sandbox::grpc_server::BackendSandboxServiceImpl;
+use moatless_backend::sandbox::grpc_server::{BackendSandboxServiceImpl, IngressPorts};
 use moatless_core::events::{EventPublisher, PublishError};
 use moatless_tasks::agent_event::AgentEvent;
-use moatless_tasks::event_ingress::outbox::IngressOutbox;
-use moatless_tasks::event_ingress::outbox::PgIngressOutbox;
-use moatless_tasks::event_ingress::relay::IngressRelay;
-use moatless_tasks::task::dao as task_dao;
+use moatless_tasks::compose::TaskGraph;
+use moatless_tasks::task::test_support as task_fixtures;
 use moatless_types::agent::AgentSubType;
 use moatless_types::sandbox::{
     SandboxEventPayload, SandboxStatus, ServerEventPayload, ServerSubType,
 };
 use moatless_types::task::{TaskSubType, TaskTurnSubType};
-use moatless_workspaces::repository::dao as repository_dao;
+use moatless_workspaces::compose;
 use sandbox_proto::PublishEventRequest;
 use sandbox_proto::backend_sandbox_service_server::BackendSandboxService;
 
@@ -143,21 +140,27 @@ impl EventPublisher for FakeTransport {
 
 async fn seed_task(pool: &PgPool, task_id: &str) {
     let repo = make_repository_row("repo-1", "user-1");
-    repository_dao::insert(pool, &repo).await.unwrap();
+    compose::seed_repository(pool, &repo).await.unwrap();
     let task = make_task_row(task_id, "user-1");
-    task_dao::insert_task(pool, &task).await.unwrap();
+    task_fixtures::seed_task(pool, &task).await.unwrap();
+}
+
+/// The tasks band's stores over `pool`, as the composition root builds them.
+fn task_graph(pool: &PgPool) -> TaskGraph {
+    moatless_tasks::compose::task_graph(pool.clone())
 }
 
 /// The gRPC ingress wired to a real pool, with `transport` as its event
 /// transport (`None` models Redis being disabled entirely).
 fn ingress(pool: &PgPool, transport: Option<Arc<dyn EventPublisher>>) -> BackendSandboxServiceImpl {
+    let graph = task_graph(pool);
     BackendSandboxServiceImpl::for_ingress_tests(
-        transport,
-        Arc::new(moatless_tasks::task_turn::dao::PgTaskTurnDao(pool.clone())),
-        Arc::new(moatless_tasks::task_event::dao::PgTaskEventDao(
-            pool.clone(),
-        )),
-        Arc::new(PgIngressOutbox(pool.clone())),
+        transport.clone(),
+        IngressPorts {
+            admission: graph.event_ingress(transport),
+            task_turns: graph.task_turns(),
+            task_events: graph.task_events(),
+        },
     )
 }
 
@@ -519,8 +522,10 @@ async fn a_failed_transport_recovers_through_the_relay(pool: PgPool) {
         .await
         .unwrap();
 
-    let outbox: Arc<dyn IngressOutbox> = Arc::new(PgIngressOutbox(pool.clone()));
-    let pass = IngressRelay::new(outbox, transport.clone())
+    let pass = task_graph(&pool)
+        .event_ingress(Some(transport.clone()))
+        .relay()
+        .expect("an outbox and a transport compose a relay")
         .relay_once()
         .await;
     assert_eq!(pass.republished, 1);
@@ -541,81 +546,5 @@ async fn a_failed_transport_recovers_through_the_relay(pool: PgPool) {
     let texts = message_texts(&pool, task_id).await;
     assert_eq!(texts.len(), 1);
     assert_eq!(texts[0].as_deref(), Some("survives the outage"));
-    assert!(outbox_event_ids(&pool).await.is_empty());
-}
-
-// =========================================================================
-// The outbox DAO
-// =========================================================================
-
-#[sqlx::test]
-async fn claiming_reschedules_with_backoff_and_admission_is_idempotent(pool: PgPool) {
-    let task_id = "task-outbox-1";
-    seed_task(&pool, task_id).await;
-    let outbox = PgIngressOutbox(pool.clone());
-    let payload = moatless_tasks::event_ingress::outbox::IngressPayload {
-        event_id: "evt-1".to_string(),
-        task_id: task_id.to_string(),
-        event_type: "agent".to_string(),
-        sub_type: "message".to_string(),
-        turn_number: Some(1),
-        payload: serde_json::json!({ "uuid": "msg-1" }),
-        timestamp: "2026-07-20T00:00:00.000Z".to_string(),
-    };
-    let due = Utc::now() - chrono::Duration::seconds(60);
-
-    outbox.admit(&payload, due).await.unwrap();
-    // A retried delivery of an admitted event neither duplicates the record nor
-    // resets its schedule.
-    outbox
-        .admit(&payload, Utc::now() + chrono::Duration::hours(1))
-        .await
-        .unwrap();
-    assert_eq!(outbox_event_ids(&pool).await, ["evt-1"]);
-
-    let claimed = outbox.claim_due(Utc::now(), 10).await.unwrap();
-    assert_eq!(claimed.len(), 1);
-    assert_eq!(claimed[0].attempts, 0);
-    assert_eq!(claimed[0].payload, payload);
-
-    // Claiming reschedules in the same statement, so a second pass — or a
-    // second replica — does not re-publish the same record.
-    assert!(outbox.claim_due(Utc::now(), 10).await.unwrap().is_empty());
-
-    let pending = outbox.pending_counts(Utc::now()).await.unwrap();
-    assert_eq!(pending.total, 1);
-
-    assert!(outbox.delete_delivered("evt-1").await.unwrap());
-    assert!(!outbox.delete_delivered("evt-1").await.unwrap());
-    assert!(outbox_event_ids(&pool).await.is_empty());
-}
-
-#[sqlx::test]
-async fn records_die_with_their_task(pool: PgPool) {
-    let task_id = "task-outbox-2";
-    seed_task(&pool, task_id).await;
-    PgIngressOutbox(pool.clone())
-        .admit(
-            &moatless_tasks::event_ingress::outbox::IngressPayload {
-                event_id: "evt-1".to_string(),
-                task_id: task_id.to_string(),
-                event_type: "agent".to_string(),
-                sub_type: "message".to_string(),
-                turn_number: None,
-                payload: serde_json::json!({}),
-                timestamp: "2026-07-20T00:00:00.000Z".to_string(),
-            },
-            Utc::now(),
-        )
-        .await
-        .unwrap();
-
-    sqlx::query("DELETE FROM tasks WHERE task_id = $1")
-        .bind(task_id)
-        .execute(&pool)
-        .await
-        .unwrap();
-
-    // The spool is transient by construction: nothing outlives its Task.
     assert!(outbox_event_ids(&pool).await.is_empty());
 }

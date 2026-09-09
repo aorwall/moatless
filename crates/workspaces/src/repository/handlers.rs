@@ -1,15 +1,15 @@
 //! Repository HTTP handlers.
 
+use super::error::RepositoryError;
+use super::operations::Repositories;
+use super::schemas::*;
+use crate::workspace::git_sync::GitSyncService;
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use std::sync::Arc;
 use moatless_core::db::DbPool;
 use moatless_core::http_auth::AuthUser;
-use super::dao::RepositoryDao;
-use super::error::RepositoryError;
-use super::schemas::*;
-use crate::workspace::git_sync::GitSyncService;
+use std::sync::Arc;
 
 /// Create a new repository.
 #[utoipa::path(
@@ -23,18 +23,20 @@ use crate::workspace::git_sync::GitSyncService;
     )
 )]
 pub async fn create_repository(
-    State(repositories): State<Arc<dyn RepositoryDao>>,
+    State(repositories): State<Arc<Repositories>>,
     State(git_sync): State<Arc<GitSyncService>>,
     auth: AuthUser,
     Json(req): Json<CreateRepositoryRequest>,
 ) -> Result<(StatusCode, Json<RepositoryResponse>), RepositoryError> {
-    let row = super::mutations::create_repository(repositories.as_ref(), &git_sync, &auth.scope_context(), req).await?;
+    let row = super::mutations::create_repository(
+        repositories.store(),
+        &git_sync,
+        &auth.scope_context(),
+        req,
+    )
+    .await?;
     Ok((StatusCode::CREATED, Json(repository_response(row))))
 }
-
-/// Run `sync_repo_workspaces` and log the outcome (`Ok=>info!`, `Err=>warn!`),
-/// never blocking the caller. A failure yields an empty summary.
-pub use crate::workspace::git_sync::log_workspace_sync;
 
 /// List all repositories for the current user.
 #[utoipa::path(
@@ -46,10 +48,10 @@ pub use crate::workspace::git_sync::log_workspace_sync;
     )
 )]
 pub async fn list_repositories(
-    State(repositories): State<Arc<dyn RepositoryDao>>,
+    State(repositories): State<Arc<Repositories>>,
     auth: AuthUser,
 ) -> Result<Json<Vec<RepositoryResponse>>, RepositoryError> {
-    let rows = repositories.list_all(&auth.scope_context()).await?;
+    let rows = repositories.store().list_all(&auth.scope_context()).await?;
     let repos: Vec<RepositoryResponse> = rows.into_iter().map(repository_response).collect();
     Ok(Json(repos))
 }
@@ -68,11 +70,12 @@ pub async fn list_repositories(
     )
 )]
 pub async fn get_repository(
-    State(repositories): State<Arc<dyn RepositoryDao>>,
+    State(repositories): State<Arc<Repositories>>,
     auth: AuthUser,
     Path(repository_id): Path<String>,
 ) -> Result<Json<RepositoryResponse>, RepositoryError> {
     let row = repositories
+        .store()
         .find_by_id(&repository_id, &auth.scope_context())
         .await?
         .ok_or_else(|| RepositoryError::NotFound(repository_id))?;
@@ -96,17 +99,20 @@ pub async fn get_repository(
     )
 )]
 pub async fn update_repository(
-    State(repositories): State<Arc<dyn RepositoryDao>>,
+    State(repositories): State<Arc<Repositories>>,
     auth: AuthUser,
     Path(repository_id): Path<String>,
     Json(req): Json<UpdateRepositoryRequest>,
 ) -> Result<Json<RepositoryResponse>, RepositoryError> {
-    let row = super::mutations::update_repository(repositories.as_ref(), &auth.scope_context(), repository_id, req).await?;
+    let row = super::mutations::update_repository(
+        repositories.store(),
+        &auth.scope_context(),
+        repository_id,
+        req,
+    )
+    .await?;
     Ok(Json(repository_response(row)))
 }
-
-
-
 
 /// Delete a repository by ID (soft delete).
 #[utoipa::path(
@@ -122,15 +128,20 @@ pub async fn update_repository(
     )
 )]
 pub async fn delete_repository(
-    State(repositories): State<Arc<dyn RepositoryDao>>,
+    State(repositories): State<Arc<Repositories>>,
     State(db): State<DbPool>,
     auth: AuthUser,
     Path(repository_id): Path<String>,
 ) -> Result<StatusCode, RepositoryError> {
-    super::mutations::delete_repository(repositories.as_ref(), &db, &auth.scope_context(), repository_id).await?;
+    super::mutations::delete_repository(
+        repositories.store(),
+        &db,
+        &auth.scope_context(),
+        repository_id,
+    )
+    .await?;
     Ok(StatusCode::NO_CONTENT)
 }
-
 
 /// Convert a remote repository to a template.
 #[utoipa::path(
@@ -147,11 +158,16 @@ pub async fn delete_repository(
     )
 )]
 pub async fn convert_to_template(
-    State(repositories): State<Arc<dyn RepositoryDao>>,
+    State(repositories): State<Arc<Repositories>>,
     auth: AuthUser,
     Path(repository_id): Path<String>,
 ) -> Result<Json<RepositoryResponse>, RepositoryError> {
-    let row = super::mutations::convert_to_template(repositories.as_ref(), &auth.scope_context(), repository_id).await?;
+    let row = super::mutations::convert_to_template(
+        repositories.store(),
+        &auth.scope_context(),
+        repository_id,
+    )
+    .await?;
     Ok(Json(repository_response(row)))
 }
 
@@ -177,5 +193,13 @@ pub async fn get_branches(
     Path(repository_id): Path<String>,
     Query(query): Query<ListBranchesQuery>,
 ) -> Result<Json<BranchListResponse>, RepositoryError> {
-    Ok(Json(branches.list_branches(&auth.scope_context(), &repository_id, query.workspace_id.as_deref()).await?))
+    Ok(Json(
+        branches
+            .list_branches(
+                &auth.scope_context(),
+                &repository_id,
+                query.workspace_id.as_deref(),
+            )
+            .await?,
+    ))
 }

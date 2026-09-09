@@ -7,7 +7,13 @@ use super::models::{Team, TeamMember};
 use moatless_core::db::DbPool;
 
 /// DAO trait for team persistence.
-#[cfg_attr(test, allow(clippy::ref_option_ref, reason = "mockall predicates borrow lifetime-parameterized optional arguments"))]
+#[cfg_attr(
+    test,
+    allow(
+        clippy::ref_option_ref,
+        reason = "mockall predicates borrow lifetime-parameterized optional arguments"
+    )
+)]
 #[cfg_attr(test, mockall::automock)]
 #[async_trait]
 pub trait TeamDao: Send + Sync {

@@ -20,7 +20,7 @@ use tracing::{debug, info, warn};
 use moatless_adapter_model::binding::ADAPTER_EVENT_BINDING_ORIGIN;
 use moatless_adapter_model::error::AdapterError;
 use moatless_core::config::Config;
-use moatless_loops::bindings::dao::TaskBindingDao;
+use moatless_loops::bindings::operations::Bindings;
 use moatless_ports::task::TaskReader;
 use moatless_ports::task::{CloseReason, TaskFinisher};
 use moatless_types::access_control::ScopeContext;
@@ -37,7 +37,7 @@ use super::webhook_payloads::IssuePayload;
 /// that created it, and only that trigger's terminal states may close it. The
 /// connection is already implied — the trigger belongs to one.
 pub(super) async fn close_active_bindings_for_issue(
-    task_bindings: &dyn TaskBindingDao,
+    task_bindings: &Bindings,
     tasks: &dyn TaskReader,
     config: &Config,
     task_closer: &dyn TaskFinisher,
@@ -62,7 +62,7 @@ pub(super) async fn close_active_bindings_for_issue(
 }
 
 async fn binding_is_close_eligible(
-    task_bindings: &dyn TaskBindingDao,
+    task_bindings: &Bindings,
     tasks: &dyn TaskReader,
     rule: &SubscriptionMatch,
     issue: &IssuePayload,
@@ -87,11 +87,11 @@ async fn binding_is_close_eligible(
 }
 
 async fn sole_binding_for_task(
-    binding_repo: &dyn TaskBindingDao,
+    binding_repo: &Bindings,
     issue: &IssuePayload,
     binding: &TaskBinding,
 ) -> bool {
-    let siblings_count = match binding_repo.find_by_task_id(&binding.task_id).await {
+    let siblings_count = match binding_repo.for_task(&binding.task_id).await {
         Ok(rows) => rows.len(),
         Err(e) => {
             warn!(

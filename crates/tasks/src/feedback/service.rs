@@ -1,8 +1,8 @@
-use super::dao::FeedbackDao;
 use super::error::FeedbackError;
 use super::models::Feedback;
+use super::operations::FeedbackNotes;
 use super::schemas::{CreateFeedbackRequest, UpdateFeedbackStatusRequest};
-use crate::task::dao::TaskDao;
+use crate::task::operations::TaskCommands;
 use chrono::Utc;
 use moatless_types::access_control::ScopeContext;
 use moatless_types::feedback::{FeedbackSource, FeedbackStatus, FeedbackSurface};
@@ -11,8 +11,8 @@ const MAX_STATUS_NOTE: usize = 2_000;
 
 /// Record task feedback with caller access and activity selection.
 pub async fn create_feedback(
-    tasks: &dyn TaskDao,
-    feedback: &dyn FeedbackDao,
+    tasks: &TaskCommands,
+    feedback: &FeedbackNotes,
     scope: &ScopeContext,
     source: FeedbackSource,
     req: CreateFeedbackRequest,
@@ -118,8 +118,8 @@ pub async fn create_feedback(
 
 /// Set feedback status when its task is readable.
 pub async fn set_feedback_status(
-    tasks: &dyn TaskDao,
-    feedback: &dyn FeedbackDao,
+    tasks: &TaskCommands,
+    feedback: &FeedbackNotes,
     scope: &ScopeContext,
     feedback_id: String,
     req: UpdateFeedbackStatusRequest,

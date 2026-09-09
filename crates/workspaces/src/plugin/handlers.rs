@@ -9,17 +9,15 @@ use moatless_core::http_auth::AuthUser;
 use moatless_types::access_control::Actor;
 
 use super::activation;
-use super::dao::PluginDao;
 use super::error::PluginError;
 use super::models::{ActivationRow, Plugin};
+use super::operations::Plugins;
 use super::schemas::{
     ActivationReach, ActivationResponse, CreatePluginRequest, EffectivePluginResponse,
     PluginResponse, PluginSkillResponse, SetActivationRequest,
 };
 use super::sync::PluginSyncService;
-use crate::workspace::dao::WorkspaceDao;
-
-
+use crate::workspace::Workspaces;
 
 /// List all plugins.
 #[utoipa::path(
@@ -32,10 +30,10 @@ use crate::workspace::dao::WorkspaceDao;
     )
 )]
 pub async fn list_plugins(
-    State(plugins): State<Arc<dyn PluginDao>>,
+    State(plugins): State<Arc<Plugins>>,
     _auth: AuthUser,
 ) -> Result<Json<Vec<PluginResponse>>, PluginError> {
-    let rows = plugins.list_all().await?;
+    let rows = plugins.store().list_all().await?;
     let items = rows.into_iter().map(to_response).collect();
     Ok(Json(items))
 }
@@ -53,11 +51,11 @@ pub async fn list_plugins(
     )
 )]
 pub async fn create_plugin(
-    State(plugins): State<Arc<dyn PluginDao>>,
+    State(plugins): State<Arc<Plugins>>,
     auth: AuthUser,
     Json(req): Json<CreatePluginRequest>,
 ) -> Result<Json<PluginResponse>, PluginError> {
-    let row = super::registry::create_plugin(plugins.as_ref(), &auth.scope_context(), req).await?;
+    let row = super::registry::create_plugin(plugins.store(), &auth.scope_context(), req).await?;
     Ok(Json(to_response(row)))
 }
 
@@ -74,11 +72,11 @@ pub async fn create_plugin(
     )
 )]
 pub async fn delete_plugin(
-    State(plugins): State<Arc<dyn PluginDao>>,
+    State(plugins): State<Arc<Plugins>>,
     auth: AuthUser,
     Path(id): Path<String>,
 ) -> Result<axum::http::StatusCode, PluginError> {
-    super::registry::delete_plugin(plugins.as_ref(), &auth.scope_context(), id).await?;
+    super::registry::delete_plugin(plugins.store(), &auth.scope_context(), id).await?;
     Ok(axum::http::StatusCode::NO_CONTENT)
 }
 
@@ -99,12 +97,13 @@ pub async fn delete_plugin(
     )
 )]
 pub async fn list_plugin_skills(
-    State(plugins): State<Arc<dyn PluginDao>>,
+    State(plugins): State<Arc<Plugins>>,
     State(plugin_sync): State<Arc<PluginSyncService>>,
     auth: AuthUser,
     Path(id): Path<String>,
 ) -> Result<Json<Vec<PluginSkillResponse>>, PluginError> {
     let plugin = plugins
+        .store()
         .find_by_id(&id)
         .await?
         .ok_or_else(|| PluginError::NotFound(format!("Plugin '{id}' not found")))?;
@@ -148,13 +147,20 @@ pub async fn list_plugin_skills(
     )
 )]
 pub async fn list_plugin_activations(
-    State(plugins): State<Arc<dyn PluginDao>>,
-    State(workspaces): State<Arc<dyn WorkspaceDao>>,
+    State(plugins): State<Arc<Plugins>>,
+    State(workspaces): State<Arc<Workspaces>>,
     auth: AuthUser,
     Path(id): Path<String>,
     Query(params): Query<ActivationSubjectParams>,
 ) -> Result<Json<Vec<ActivationResponse>>, PluginError> {
-    let rows = super::activation_access::list_plugin_activations(plugins.as_ref(), workspaces.as_ref(), &auth.scope_context(), id, params).await?;
+    let rows = super::activation_access::list_plugin_activations(
+        plugins.store(),
+        workspaces.store(),
+        &auth.scope_context(),
+        id,
+        params,
+    )
+    .await?;
     Ok(Json(rows.into_iter().map(to_activation_response).collect()))
 }
 
@@ -212,16 +218,22 @@ pub use super::schemas::ActivationSubjectParams;
     )
 )]
 pub async fn set_plugin_activation(
-    State(plugins): State<Arc<dyn PluginDao>>,
-    State(workspaces): State<Arc<dyn WorkspaceDao>>,
+    State(plugins): State<Arc<Plugins>>,
+    State(workspaces): State<Arc<Workspaces>>,
     auth: AuthUser,
     Path(id): Path<String>,
     Json(req): Json<SetActivationRequest>,
 ) -> Result<Json<ActivationResponse>, PluginError> {
-    let stored = super::activation_access::set_plugin_activation(plugins.as_ref(), workspaces.as_ref(), &auth.scope_context(), id, req).await?;
+    let stored = super::activation_access::set_plugin_activation(
+        plugins.store(),
+        workspaces.store(),
+        &auth.scope_context(),
+        id,
+        req,
+    )
+    .await?;
     Ok(Json(to_activation_response(stored)))
 }
-
 
 /// Remove an activation record.
 ///
@@ -247,13 +259,20 @@ pub async fn set_plugin_activation(
     )
 )]
 pub async fn clear_plugin_activation(
-    State(plugins): State<Arc<dyn PluginDao>>,
-    State(workspaces): State<Arc<dyn WorkspaceDao>>,
+    State(plugins): State<Arc<Plugins>>,
+    State(workspaces): State<Arc<Workspaces>>,
     auth: AuthUser,
     Path(id): Path<String>,
     Query(params): Query<ClearActivationParams>,
 ) -> Result<axum::http::StatusCode, PluginError> {
-    super::activation_access::clear_plugin_activation(plugins.as_ref(), workspaces.as_ref(), &auth.scope_context(), id, params).await?;
+    super::activation_access::clear_plugin_activation(
+        plugins.store(),
+        workspaces.store(),
+        &auth.scope_context(),
+        id,
+        params,
+    )
+    .await?;
     Ok(axum::http::StatusCode::NO_CONTENT)
 }
 
@@ -283,19 +302,30 @@ pub use super::schemas::ClearActivationParams;
     )
 )]
 pub async fn list_effective_plugins(
-    State(plugins): State<Arc<dyn PluginDao>>,
-    State(workspaces): State<Arc<dyn WorkspaceDao>>,
+    State(plugins): State<Arc<Plugins>>,
+    State(workspaces): State<Arc<Workspaces>>,
     auth: AuthUser,
     Query(params): Query<ActivationSubjectParams>,
 ) -> Result<Json<Vec<EffectivePluginResponse>>, PluginError> {
-    let resolved = super::activation_access::list_effective_plugins(plugins.as_ref(), workspaces.as_ref(), &auth.scope_context(), params).await?;
-    Ok(Json(resolved.into_iter().map(|(plugin, skills)| EffectivePluginResponse { plugin_id: plugin.id, plugin_name: plugin.name, skill_names: skills.names, frontload_skill_names: skills.frontloaded }).collect()))
+    let resolved = super::activation_access::list_effective_plugins(
+        &plugins,
+        workspaces.store(),
+        &auth.scope_context(),
+        params,
+    )
+    .await?;
+    Ok(Json(
+        resolved
+            .into_iter()
+            .map(|(plugin, skills)| EffectivePluginResponse {
+                plugin_id: plugin.id,
+                plugin_name: plugin.name,
+                skill_names: skills.names,
+                frontload_skill_names: skills.frontloaded,
+            })
+            .collect(),
+    ))
 }
-
-
-
-
-
 
 fn to_response(r: Plugin) -> PluginResponse {
     PluginResponse {

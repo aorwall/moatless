@@ -15,4 +15,5 @@
 
 pub mod adapters;
 pub mod bindings;
+pub mod compose;
 pub mod loops;

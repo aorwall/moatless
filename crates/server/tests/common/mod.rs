@@ -11,9 +11,9 @@ use async_trait::async_trait;
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use moatless_backend::compose::{LifecycleOptions, compose};
+use moatless_backend::compose::compose;
 use moatless_backend::sandbox::client::SandboxClient;
-use moatless_backend::sandbox::lifecycle::{NotifyPort, ProvisionDeps};
+use moatless_backend::sandbox::lifecycle::NotifyPort;
 use moatless_backend::state::AppState;
 use moatless_core::config::{
     Config, DatabaseConfig, DockerConfig, GithubPrConfig, OtelConfig, ProxyConfig, RedisConfig,
@@ -21,26 +21,15 @@ use moatless_core::config::{
 };
 use moatless_core::events::test_support::RecordingPublisher;
 use moatless_ports::sandbox::SandboxError;
+use moatless_sandbox_control::compose::LifecycleInputs;
 use moatless_sandbox_runtime::operation::ObservedStatus;
 use moatless_sandbox_runtime::runtime::{RuntimeOperationContext, RuntimeOutcome, SandboxRuntime};
-use moatless_tasks::message::models::MessageRole;
-use moatless_tasks::message::models::MessageType;
-use moatless_tasks::message::models::TaskMessage;
-use moatless_tasks::task::models::Task;
-use moatless_tasks::task::models::TaskStatus;
-use moatless_tasks::task::models::Visibility;
 use moatless_types::access_control::ScopeContext;
 use moatless_types::adapter::LinearConfig;
-use moatless_types::agent::AgentType;
 use moatless_types::agent::CodexOAuthConfig;
 use moatless_types::auth::{AuthConfig, AuthProvider};
 use moatless_types::sandbox::{ArchiveRetention, SandboxProviderType};
 use moatless_types::secret::SecretsConfig;
-use moatless_workspaces::repository::models::Repository;
-use moatless_workspaces::repository::models::RepositoryKind;
-use moatless_workspaces::repository::models::RepositoryProvider;
-use moatless_workspaces::workspace::models::Workspace;
-use moatless_workspaces::workspace::models::WorkspaceRepo;
 use sandbox_proto::client::SandboxConnector;
 
 // =========================================================================
@@ -62,15 +51,6 @@ pub async fn seed_github_token(pool: &PgPool, user_id: &str) {
     .await
     .expect("seed GitHub credential");
 }
-
-/// The Workspace [`make_task_row`] runs its task in. Seed it with
-/// [`seed_workspace`] before inserting: `insert_task` refuses a task whose
-/// Workspace does not exist.
-#[allow(
-    dead_code,
-    reason = "shared fixtures are compiled into all integration targets"
-)]
-pub const FIXTURE_WORKSPACE: &str = "ws-1";
 
 /// Seed the workspace required by task and sandbox persistence.
 #[allow(
@@ -95,12 +75,7 @@ pub async fn seed_workspace(pool: &PgPool, id: &str, user_id: &str) {
     dead_code,
     reason = "shared fixtures are compiled into all integration targets"
 )]
-pub async fn seed_workspace_placing(
-    pool: &PgPool,
-    id: &str,
-    repository_id: &str,
-    user_id: &str,
-) {
+pub async fn seed_workspace_placing(pool: &PgPool, id: &str, repository_id: &str, user_id: &str) {
     seed_workspace(pool, id, user_id).await;
     sqlx::query(
         "INSERT INTO workspace_repos (id, workspace_id, repository_id, is_primary) \
@@ -567,7 +542,7 @@ fn build_app_state(
     install_adapters: bool,
     events: Option<Arc<RecordingPublisher>>,
 ) -> AppState {
-    let ports = compose(pool.clone(), &config);
+    let ports = compose(pool.clone(), &config, None);
     let adapter_installations = install_adapters.then(|| {
         Arc::new(
             moatless_backend::adapter_installations::AdapterInstallations::install(&config, &ports),
@@ -575,23 +550,21 @@ fn build_app_state(
     });
     let config = Arc::new(config);
     let connector: Arc<dyn SandboxConnector> = Arc::new(MockSandboxConnector);
-    let lifecycle = ports.build_lifecycle(
-        pool.clone(),
-        ProvisionDeps::new(
-            ports.lifecycle_store(),
+    let sandbox_graph = ports.sandbox_graph();
+    let lifecycle = sandbox_graph.lifecycle(LifecycleInputs {
+        lock_pool: pool.clone(),
+        runtime: Arc::new(MockSandboxRuntime),
+        connector: connector.clone(),
+        plan: sandbox_graph.provision_deps(
             ports.workspace_resolver.clone(),
             ports.user_directory.clone(),
         ),
-        Arc::new(MockSandboxRuntime),
-        connector.clone(),
-        "mock-sandbox:latest".into(),
+        default_sandbox_image: "mock-sandbox:latest".into(),
         // No Redis and no S3 in the handler tests, so no publication and no
         // cold transition.
-        LifecycleOptions {
-            events: None,
-            workspace_archive: None,
-        },
-    );
+        events: None,
+        workspace_archive: None,
+    });
     let events: Option<Arc<dyn moatless_core::events::EventPublisher>> =
         events.map(|r| r as Arc<dyn moatless_core::events::EventPublisher>);
     AppState::new(
@@ -631,138 +604,6 @@ pub fn user_scope(user_id: &str) -> ScopeContext {
     }
 }
 
-/// Seed the `teams` row that repository (and other team-scoped) rows FK to.
-/// Factories use `personal-{user_id}` as the team id; pass that value.
-#[allow(dead_code)]
-pub async fn seed_team(pool: &PgPool, team_id: &str) {
-    sqlx::query(
-        "INSERT INTO teams (id, name, slug) VALUES ($1, $2, $1) ON CONFLICT (id) DO NOTHING",
-    )
-    .bind(team_id)
-    .bind(format!("Team {team_id}"))
-    .execute(pool)
-    .await
-    .expect("seed team row");
-}
-
-/// Create a minimal Task for tests.
-#[allow(dead_code)]
-pub fn make_task_row(task_id: &str, user_id: &str) -> Task {
-    let now = chrono::Utc::now();
-    Task {
-        task_id: task_id.to_string(),
-        short_id: Some(format!("s-{task_id}")),
-        created_at: now,
-        last_message_at: now,
-        agent_type: AgentType(AgentType::CLAUDE_CODE.into()),
-        repository_id: "repo-1".to_string(),
-        status: TaskStatus::Open,
-        total_cost_usd: 0.0,
-        site_url: None,
-        template_id: None,
-        vibe: None,
-        name: Some(format!("Test task {task_id}")),
-        description: None,
-        site_id: None,
-        site_provider: None,
-        branch: Some("main".to_string()),
-        model: None,
-        created_by: Some(user_id.to_string()),
-        visibility: Visibility::Private,
-        scope: moatless_types::access_control::Scope::User,
-        owner_user_id: Some(user_id.to_string()),
-        run_as_user_id: None,
-        updated_at: None,
-        append_system_prompt: None,
-        headless: false,
-        ttl_minutes: 15,
-        inactive_ttl_days: 7,
-        loop_id: None,
-        workspace_id: Some(FIXTURE_WORKSPACE.to_string()),
-        sandbox_id: None,
-        checkout_mode: None,
-        skills: Vec::new(),
-    }
-}
-
-/// Create a minimal Repository for tests.
-#[allow(dead_code)]
-pub fn make_repository_row(id: &str, user_id: &str) -> Repository {
-    let now = chrono::Utc::now();
-    Repository {
-        id: id.to_string(),
-        name: format!("repo-{id}"),
-        kind: RepositoryKind::Git,
-        remote_url: Some(format!("https://github.com/test/{id}.git")),
-        default_branch: Some("main".to_string()),
-        description: None,
-        provider: Some(RepositoryProvider::Github),
-        scope: moatless_types::access_control::Scope::User,
-        owner_user_id: Some(user_id.to_string()),
-        created_by: Some(user_id.to_string()),
-        deleted: false,
-        created_at: Some(now),
-        updated_at: Some(now),
-    }
-}
-
-/// Create a minimal `TaskMessage` for tests.
-#[allow(dead_code)]
-pub fn make_message_row(task_id: &str, uuid: &str) -> TaskMessage {
-    let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
-    TaskMessage {
-        id: 0, // ignored on insert (serial)
-        task_id: task_id.to_string(),
-        uuid: uuid.to_string(),
-        message_type: MessageType::User,
-        user_type: "human".to_string(),
-        parent_uuid: None,
-        is_sidechain: None,
-        cwd: None,
-        session_id: None,
-        turn_number: None,
-        version: None,
-        git_branch: None,
-        request_id: None,
-        timestamp: now,
-        message_role: MessageRole::User,
-        message_text: Some("hello".to_string()),
-        assistant_message_id: None,
-        assistant_message_type: None,
-        assistant_message_model: None,
-        assistant_stop_reason: None,
-        assistant_stop_sequence: None,
-        assistant_usage_input_tokens: None,
-        assistant_usage_output_tokens: None,
-        assistant_usage_cache_creation_input_tokens: None,
-        assistant_usage_cache_read_input_tokens: None,
-        assistant_usage: None,
-        tool_use_result: None,
-        tool_response: None,
-        sdk_metadata: None,
-        attachments: None,
-        agent_session_id: None,
-        will_not_resume: None,
-        run_metrics: None,
-        agent_mode_raw: None,
-        model: None,
-        effort: None,
-        resume: true,
-        skills: Vec::new(),
-        sent_at: None,
-        created_at: None,
-        external_event_id: None,
-        external_adapter: None,
-        external_subject_key: None,
-        external_source_name: None,
-        external_author: None,
-        sent_by: None,
-        external_sender_id: None,
-        source_task_id: None,
-        start_fresh: false,
-    }
-}
-
 // =========================================================================
 // Adapter delivery
 // =========================================================================
@@ -784,11 +625,11 @@ pub async fn drain_linear_adapter_delivery(pool: &PgPool, worker_state: AppState
     let mut handlers = moatless_adapter_model::delivery::AdapterDeliveryHandlers::new();
     let router = Arc::new(
         moatless_backend::adapters::providers::linear::delivery::LinearInboundRouter::new(
-            worker_state.adapter_connections.clone(),
+            worker_state.connection_routing.clone(),
             worker_state.harness_credentials.clone(),
             worker_state.config.clone(),
             worker_state.adapter_apps.clone(),
-            worker_state.loops.clone(),
+            worker_state.loop_reader.clone(),
             worker_state.task_bindings.clone(),
             worker_state.task_reader.clone(),
             worker_state.task_creation.clone(),
@@ -808,11 +649,9 @@ pub async fn drain_linear_adapter_delivery(pool: &PgPool, worker_state: AppState
     moatless_backend::adapters::providers::linear::delivery::register(&mut handlers, router);
 
     let cancel = tokio_util::sync::CancellationToken::new();
-    let handle = moatless_backend::adapters::delivery::spawn_adapter_delivery_worker(
-        worker_state.adapter_delivery.clone(),
-        Arc::new(handlers),
-        cancel.clone(),
-    );
+    let handle = worker_state
+        .adapter_delivery_worker
+        .spawn(Arc::new(handlers), cancel.clone());
 
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
     let mut drained = false;
@@ -903,67 +742,16 @@ pub async fn body_json(response: axum::http::Response<axum::body::Body>) -> serd
 // Workspace factories
 // =========================================================================
 
-/// Create a minimal user-scoped Workspace row for tests.
-///
-/// `kind` starts at `blank`; use `refresh_kind` after adding placements to
-/// derive the real label. Run-config columns are left empty — placement and
-/// ACL behavior is what the DAO tests exercise.
-#[allow(dead_code)]
-pub fn make_workspace_row(id: &str, user_id: &str) -> Workspace {
-    let now = chrono::Utc::now();
-    Workspace {
-        id: id.to_string(),
-        name: format!("ws-{id}"),
-        description: None,
-        kind: moatless_types::workspace::WorkspaceKind::Blank,
-        docker_image: None,
-        docker_access: None,
-        sandbox_service_account: None,
-        system_prompt: None,
-        setup_commands: None,
-        env_vars: None,
-        servers: None,
-        scripts: None,
-        resources: None,
-        network_profile: None,
-        source: moatless_types::workspace::WorkspaceSource::Manual,
-        source_repository_id: None,
-        source_key: None,
-        source_config_path: None,
-        run_as_user_id: None,
-        scope: moatless_types::access_control::Scope::User,
-        owner_user_id: Some(user_id.to_string()),
-        created_by: Some(user_id.to_string()),
-        deleted: false,
-        created_at: Some(now),
-        updated_at: Some(now),
-    }
-}
+/// The row factories the workspaces band owns, so a fixture here writes the
+/// same shape that band's own PostgreSQL tests write.
+#[allow(unused_imports)]
+pub use moatless_workspaces::test_support::{
+    make_repository_row, make_workspace_repo_row, make_workspace_row, run_config, seed_team,
+};
 
-/// Decode a run-config JSON literal into the typed field a `Workspace` carries,
-/// so a test can keep writing the shape the column actually stores.
-#[allow(dead_code)]
-pub fn run_config<T: serde::de::DeserializeOwned>(value: serde_json::Value) -> T {
-    serde_json::from_value(value).expect("decode run-config literal")
-}
-
-/// Create a `WorkspaceRepo` placement row for tests.
-#[allow(dead_code)]
-pub fn make_workspace_repo_row(
-    id: &str,
-    workspace_id: &str,
-    repository_id: &str,
-    is_primary: bool,
-    position: i32,
-) -> WorkspaceRepo {
-    WorkspaceRepo {
-        id: id.to_string(),
-        workspace_id: workspace_id.to_string(),
-        repository_id: repository_id.to_string(),
-        branch: None,
-        mount_name: None,
-        is_primary,
-        position,
-        created_at: Some(chrono::Utc::now()),
-    }
-}
+/// The row factories the tasks band owns, so a fixture here writes the same
+/// shape that band's own PostgreSQL tests write.
+#[allow(unused_imports)]
+pub use moatless_tasks::message::test_support::make_message_row;
+#[allow(unused_imports)]
+pub use moatless_tasks::task::test_support::{FIXTURE_WORKSPACE, make_task_row};

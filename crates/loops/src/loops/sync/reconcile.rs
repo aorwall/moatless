@@ -6,7 +6,7 @@ use super::models::ParsedLoop;
 use super::parser::parse_loop;
 use super::resolve::{ResolveOutcome, declared_agent_type, managed_loop_input};
 use crate::loops::dao::LoopDao;
-use moatless_adapter_model::dao::AdapterConnectionDao;
+use moatless_adapter_model::connections::ConnectionRouting;
 use moatless_api_schemas::loops::{LoopSyncSkip, LoopSyncSummary, LoopSyncWarning};
 use moatless_ports::identity::GitHostTokenIssuer;
 use moatless_ports::task::TagResolver;
@@ -24,7 +24,7 @@ use tracing::{debug, warn};
 /// store, tags, workspaces, and the git-host token seam.
 pub struct LoopSyncService {
     pub(super) fetcher: GitHubLoopFetcher,
-    pub(super) adapter_connections: Arc<dyn AdapterConnectionDao>,
+    pub(super) adapter_connections: Arc<ConnectionRouting>,
     pub(super) loops: Arc<LoopDao>,
     pub(super) tags: Arc<dyn TagResolver>,
     pub(super) workspaces: Arc<dyn WorkspaceResolver>,

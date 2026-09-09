@@ -253,7 +253,7 @@ impl ProtocolSession {
         } = request;
         let viewer = viewer_scope(&identity);
         let stream = match terminal::attach(
-            state.conversations.as_ref(),
+            state.reads.conversations(),
             state.sandboxes.as_ref(),
             &viewer,
             &payload,
@@ -407,8 +407,7 @@ impl ProtocolSession {
         } = request;
         let viewer = viewer_scope(&identity);
         let subscription = match shell_subscription(
-            state.workspaces.as_ref(),
-            state.conversations.as_ref(),
+            &state.reads,
             &state.model_defaults,
             &viewer,
             &state.environment,
@@ -434,18 +433,10 @@ impl ProtocolSession {
             // synchronizing.
             values.push(json!({ "kind": "synchronized" }));
         }
-        let workspaces = state.workspaces.clone();
-        let conversations = state.conversations.clone();
+        let reads = state.reads.clone();
         let model_defaults = state.model_defaults.clone();
         self.streams.start_produced(&id, Some(values), move |sink| {
-            watch::watch_shell(
-                sink,
-                subscription.feed,
-                workspaces,
-                conversations,
-                model_defaults,
-                viewer,
-            )
+            watch::watch_shell(sink, subscription.feed, reads, model_defaults, viewer)
         })
     }
 
@@ -469,8 +460,7 @@ impl ProtocolSession {
         let task_id = task_id.to_string();
         let viewer = viewer_scope(&identity);
         let opened = match thread_subscription(
-            state.workspaces.as_ref(),
-            state.conversations.as_ref(),
+            &state.reads,
             &state.deployment(),
             &viewer,
             &task_id,
@@ -496,10 +486,10 @@ impl ProtocolSession {
         let Some((values, feed)) = opened else {
             return vec![failure_exit(&id, "Conversation not found")];
         };
-        let conversations = state.conversations.clone();
+        let reads = state.reads.clone();
         let frontend_url = state.frontend_url.clone();
         self.streams.start_produced(&id, Some(values), move |sink| {
-            watch::watch_thread(sink, feed, conversations, frontend_url, viewer)
+            watch::watch_thread(sink, feed, reads, frontend_url, viewer)
         })
     }
 
@@ -629,7 +619,7 @@ impl ProtocolSession {
         let Some(cwd) = workspace_cwd(&payload) else {
             return self.streams.start(&id, None);
         };
-        let conversations = state.conversations.clone();
+        let conversations = state.reads.conversations_arc();
         let sandboxes = state.sandboxes.clone();
         let pull_requests = state.pull_requests.clone();
         let viewer = viewer_scope(&identity);
@@ -863,7 +853,7 @@ async fn orchestration_dispatch_command(request: Request) -> Vec<Value> {
         ..
     } = request;
     let ctx = commands::CommandContext {
-        conversations: state.conversations.as_ref(),
+        conversations: state.reads.conversations(),
         agents: state.agents.as_ref(),
         sink: state.commands.as_ref(),
         workspace_script_commands: state.workspace_script_commands.as_ref(),
@@ -918,7 +908,8 @@ async fn orchestration_search_threads(request: Request) -> Vec<Value> {
             limit.min(SEARCH_THREADS_LIMIT)
         });
     match state
-        .conversations
+        .reads
+        .conversations()
         .search_conversations(&viewer_scope(&identity), query, limit)
         .await
     {
@@ -955,15 +946,7 @@ async fn threads_get_shell(request: Request) -> Vec<Value> {
     let Some(task_id) = payload.get("threadId").and_then(Value::as_str) else {
         return vec![failure_exit(&id, "threads.getShell requires a threadId")];
     };
-    match thread_shell(
-        state.workspaces.as_ref(),
-        state.conversations.as_ref(),
-        &state.model_defaults,
-        &viewer,
-        task_id,
-    )
-    .await
-    {
+    match thread_shell(&state.reads, &state.model_defaults, &viewer, task_id).await {
         Ok(thread) => vec![success_exit(
             &id,
             json!({ "thread": thread.unwrap_or(Value::Null) }),
@@ -980,14 +963,7 @@ async fn orchestration_get_archived_shell_snapshot(request: Request) -> Vec<Valu
         ..
     } = request;
     let viewer = viewer_scope(&identity);
-    match archived_shell_snapshot(
-        state.workspaces.as_ref(),
-        state.conversations.as_ref(),
-        &state.model_defaults,
-        &viewer,
-    )
-    .await
-    {
+    match archived_shell_snapshot(&state.reads, &state.model_defaults, &viewer).await {
         Ok(snapshot) => vec![success_exit(&id, snapshot)],
         Err(error) => vec![shell_failure_exit(&id, &error, &identity)],
     }
@@ -1023,7 +999,7 @@ async fn vcs_list_refs(request: Request) -> Vec<Value> {
     // host — the same list the Moatless branch picker shows before a Task runs.
     if projection::is_project_root(&cwd) {
         return match review::workspace_branches(
-            state.workspaces.as_ref(),
+            state.reads.workspaces(),
             state.branches.as_ref(),
             &viewer_scope(&identity),
             &cwd,
@@ -1036,7 +1012,7 @@ async fn vcs_list_refs(request: Request) -> Vec<Value> {
         };
     }
     match review::list_refs(
-        state.conversations.as_ref(),
+        state.reads.conversations(),
         state.sandboxes.as_ref(),
         &viewer_scope(&identity),
         &refs,
@@ -1069,7 +1045,7 @@ async fn vcs_refresh_status(request: Request) -> Vec<Value> {
         )];
     };
     match review::status_result(
-        state.conversations.as_ref(),
+        state.reads.conversations(),
         state.sandboxes.as_ref(),
         state.pull_requests.as_ref(),
         &viewer_scope(&identity),
@@ -1102,7 +1078,7 @@ async fn review_get_diff_preview(request: Request) -> Vec<Value> {
         )];
     };
     match review::diff_preview(
-        state.conversations.as_ref(),
+        state.reads.conversations(),
         state.sandboxes.as_ref(),
         &viewer_scope(&identity),
         &cwd,
@@ -1143,7 +1119,7 @@ async fn pull_requests_summary(request: Request) -> Vec<Value> {
         )];
     };
     match review::pull_request_summary(
-        state.conversations.as_ref(),
+        state.reads.conversations(),
         state.pull_requests.as_ref(),
         &viewer_scope(&identity),
         &project_id,
@@ -1179,8 +1155,8 @@ async fn git_resolve_pull_request(request: Request) -> Vec<Value> {
         ..
     } = request;
     match git_actions::resolve_pull_request(
-        state.workspaces.as_ref(),
-        state.conversations.as_ref(),
+        state.reads.workspaces(),
+        state.reads.conversations(),
         state.pull_requests.as_ref(),
         &viewer_scope(&identity),
         &payload,
@@ -1202,8 +1178,8 @@ async fn git_prepare_pull_request_thread(request: Request) -> Vec<Value> {
         ..
     } = request;
     match git_actions::prepare_pull_request_thread(
-        state.workspaces.as_ref(),
-        state.conversations.as_ref(),
+        state.reads.workspaces(),
+        state.reads.conversations(),
         state.pull_requests.as_ref(),
         &viewer_scope(&identity),
         &payload,
@@ -1231,7 +1207,7 @@ async fn git_run_stacked_action(request: Request) -> Vec<Value> {
         ..
     } = request;
     match git_actions::run_stacked_action(
-        state.conversations.as_ref(),
+        state.reads.conversations(),
         state.commands.as_ref(),
         &viewer_scope(&identity),
         &payload,
@@ -1260,7 +1236,7 @@ async fn terminal_open(request: Request) -> Vec<Value> {
     } = request;
     let viewer = viewer_scope(&identity);
     match terminal::open(
-        state.conversations.as_ref(),
+        state.reads.conversations(),
         state.sandboxes.as_ref(),
         &state.terminal,
         &viewer,
@@ -1283,7 +1259,7 @@ async fn terminal_write(request: Request) -> Vec<Value> {
     } = request;
     let viewer = viewer_scope(&identity);
     match terminal::write(
-        state.conversations.as_ref(),
+        state.reads.conversations(),
         state.sandboxes.as_ref(),
         &viewer,
         &payload,
@@ -1305,7 +1281,7 @@ async fn terminal_resize(request: Request) -> Vec<Value> {
     } = request;
     let viewer = viewer_scope(&identity);
     match terminal::resize(
-        state.conversations.as_ref(),
+        state.reads.conversations(),
         state.sandboxes.as_ref(),
         &viewer,
         &payload,
@@ -1327,7 +1303,7 @@ async fn terminal_clear(request: Request) -> Vec<Value> {
     } = request;
     let viewer = viewer_scope(&identity);
     match terminal::clear(
-        state.conversations.as_ref(),
+        state.reads.conversations(),
         state.sandboxes.as_ref(),
         &state.terminal,
         &viewer,
@@ -1350,7 +1326,7 @@ async fn terminal_restart(request: Request) -> Vec<Value> {
     } = request;
     let viewer = viewer_scope(&identity);
     match terminal::restart(
-        state.conversations.as_ref(),
+        state.reads.conversations(),
         state.sandboxes.as_ref(),
         &state.terminal,
         &viewer,
@@ -1373,7 +1349,7 @@ async fn terminal_close(request: Request) -> Vec<Value> {
     } = request;
     let viewer = viewer_scope(&identity);
     match terminal::close(
-        state.conversations.as_ref(),
+        state.reads.conversations(),
         state.sandboxes.as_ref(),
         &state.terminal,
         &viewer,
@@ -1503,7 +1479,7 @@ async fn scripts_run(request: Request) -> Vec<Value> {
     let viewer = viewer_scope(&identity);
     match scripts::run(
         &state.scripts,
-        state.conversations.as_ref(),
+        state.reads.conversations(),
         state.sandboxes.as_ref(),
         &state.terminal,
         &viewer,
@@ -1739,7 +1715,7 @@ async fn projects_list_entries(request: Request) -> Vec<Value> {
         )];
     };
     match files::list_entries(
-        state.conversations.as_ref(),
+        &state.reads,
         state.file_sources(),
         &viewer_scope(&identity),
         &cwd,
@@ -1774,7 +1750,7 @@ async fn projects_read_file(request: Request) -> Vec<Value> {
         )];
     };
     match files::read_file(
-        state.conversations.as_ref(),
+        &state.reads,
         state.file_sources(),
         &viewer_scope(&identity),
         &cwd,
@@ -1820,7 +1796,7 @@ async fn projects_search_entries(request: Request) -> Vec<Value> {
             (limit as usize).min(SEARCH_ENTRIES_MAX)
         });
     match files::search_entries(
-        state.conversations.as_ref(),
+        &state.reads,
         state.file_sources(),
         &viewer_scope(&identity),
         &cwd,
@@ -1863,7 +1839,7 @@ async fn projects_write_file(request: Request) -> Vec<Value> {
         )];
     };
     match files::write_file(
-        state.conversations.as_ref(),
+        &state.reads,
         state.sandboxes.as_ref(),
         &viewer_scope(&identity),
         &cwd,

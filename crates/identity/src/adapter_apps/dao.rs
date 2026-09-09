@@ -1,4 +1,4 @@
-//! Durable storage for Adapter app registrations.
+//! Durable storage for Adapter app registrations, GitHub Apps included.
 //!
 //! A registration is an administered record: an admin creates it, rotates its
 //! secrets, and removes it, and every backend serving the installation sees the
@@ -24,11 +24,11 @@ use crate::secret::service::SecretCipher;
 use moatless_core::db::DbPool;
 
 /// Name of the one-time carry-over of `GITHUB_APPS_JSON` into durable storage.
-pub const ENV_CARRY_OVER: &str = "github_apps_json_carry_over";
+pub(crate) const ENV_CARRY_OVER: &str = "github_apps_json_carry_over";
 
 /// A registered GitHub App.
 #[derive(Clone)]
-pub struct GitHubAppRecord {
+pub(crate) struct GitHubAppRecord {
     pub id: String,
     /// Short stable name the App is referenced by. Case-sensitive: bot users
     /// already store keys verbatim, so normalising would orphan them.
@@ -46,6 +46,8 @@ pub struct GitHubAppRecord {
     /// Bumped on every write. Obtained GitHub tokens are held against this, so
     /// editing one App discards only that App's tokens.
     pub revision: i32,
+    #[allow(dead_code)]
+    // reason: `SELECT_COLUMNS` decodes the column; no read path uses it.
     pub updated_at: DateTime<Utc>,
     private_key: EncryptedSecretValue,
 }
@@ -69,7 +71,7 @@ impl std::fmt::Debug for GitHubAppRecord {
 
 /// Everything about an App that comes from outside storage: what the admin
 /// supplied, plus what GitHub confirmed when the key was proved.
-pub struct NewGitHubApp {
+pub(crate) struct NewGitHubApp {
     pub app_key: String,
     pub app_id: u64,
     pub name: String,
@@ -85,7 +87,7 @@ impl GitHubAppRecord {
     /// The record id is generated here because it is the additional
     /// authenticated data for the key ciphertext — a key encrypted for one
     /// record cannot be replayed onto another.
-    pub fn seal(
+    pub(crate) fn seal(
         app: NewGitHubApp,
         cipher: &dyn SecretCipher,
         existing_id: Option<String>,
@@ -111,7 +113,7 @@ impl GitHubAppRecord {
 
     /// Recover the signing key. The only path that yields it, and it never
     /// leaves the backend.
-    pub fn private_key_pem(&self, cipher: &dyn SecretCipher) -> Result<String, AuthError> {
+    pub(crate) fn private_key_pem(&self, cipher: &dyn SecretCipher) -> Result<String, AuthError> {
         cipher
             .decrypt_value(&self.id, &self.private_key)
             .map_err(|e| {
@@ -130,7 +132,7 @@ fn fingerprint(private_key_pem: &str) -> String {
 }
 
 /// One thing an admin did to an App, and whether it worked.
-pub struct GitHubAppAuditEntry<'a> {
+pub(crate) struct GitHubAppAuditEntry<'a> {
     pub github_app_id: Option<&'a str>,
     pub app_key: &'a str,
     pub actor_id: &'a str,
@@ -141,7 +143,7 @@ pub struct GitHubAppAuditEntry<'a> {
 
 /// Durable state behind Adapter app administration.
 #[async_trait]
-pub trait AdapterAppDao: Send + Sync {
+pub(crate) trait AdapterAppDao: Send + Sync {
     async fn list_adapter_apps(&self) -> Result<Vec<StoredAdapterApp>, AuthError>;
 
     async fn upsert_adapter_app(
@@ -327,7 +329,7 @@ async fn insert_app(
     Ok(true)
 }
 
-pub struct PgAdapterAppDao(pub DbPool);
+pub(crate) struct PgAdapterAppDao(pub(crate) DbPool);
 
 #[async_trait]
 impl AdapterAppDao for PgAdapterAppDao {
@@ -523,8 +525,8 @@ impl AdapterAppDao for PgAdapterAppDao {
     }
 }
 
-#[cfg(any(test, feature = "test-support"))]
-pub mod test_support {
+#[cfg(test)]
+pub(crate) mod test_support {
     #![allow(
         clippy::expect_used,
         reason = "poisoned test-fixture mutexes should fail the test immediately"
@@ -573,10 +575,6 @@ pub mod test_support {
             }
         }
 
-        pub fn read_count(&self) -> usize {
-            *self.reads.lock().expect("lock")
-        }
-
         pub fn github_app_count(&self) -> usize {
             self.apps.lock().expect("lock").len()
         }
@@ -616,7 +614,17 @@ pub mod test_support {
                 app_key: input.app_key,
                 display_name: input.display_name,
                 config_json: input.config_json,
-                secret_fingerprints: input.fingerprints.as_object().into_iter().flatten().filter_map(|(name,value)| value.as_str().map(|value| (name.clone(), value.to_string()))).collect(),
+                secret_fingerprints: input
+                    .fingerprints
+                    .as_object()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|(name, value)| {
+                        value
+                            .as_str()
+                            .map(|value| (name.clone(), value.to_string()))
+                    })
+                    .collect(),
                 revision,
                 updated_at: chrono::Utc::now(),
             };
@@ -816,3 +824,7 @@ mod tests {
         assert!(debug.contains("reviewer"));
     }
 }
+
+#[cfg(all(test, feature = "db-tests"))]
+#[path = "dao_tests.rs"]
+mod db_tests;

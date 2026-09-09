@@ -7,7 +7,7 @@ use axum::{
 use moatless_api_schemas::loops::SyncConfigResponse;
 use moatless_core::http_auth::AuthUser;
 use moatless_loops::loops::sync::LoopSyncService;
-use moatless_workspaces::repository::{dao::RepositoryDao, error::RepositoryError};
+use moatless_workspaces::repository::{Repositories, error::RepositoryError};
 use moatless_workspaces::workspace::git_sync::GitSyncService;
 use std::sync::Arc;
 
@@ -25,14 +25,14 @@ use std::sync::Arc;
     )
 )]
 pub async fn sync_config(
-    State(repositories): State<Arc<dyn RepositoryDao>>,
+    State(repositories): State<Arc<Repositories>>,
     State(loop_sync): State<Arc<LoopSyncService>>,
     State(git_sync): State<Arc<GitSyncService>>,
     auth: AuthUser,
     Path(repository_id): Path<String>,
 ) -> Result<Json<SyncConfigResponse>, RepositoryError> {
     let result = super::sync::sync_config(
-        repositories.as_ref(),
+        &repositories,
         loop_sync.as_ref(),
         git_sync.as_ref(),
         &auth.scope_context(),

@@ -6,9 +6,9 @@ use axum::extract::FromRef;
 use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
-use super::dao::FeedbackDao;
 use super::handlers;
-use crate::task::dao::TaskDao;
+use super::operations::FeedbackNotes;
+use crate::task::operations::TaskCommands;
 use moatless_core::http_auth::UserTokenVerifier;
 use moatless_ports::workspace::RepositoryReader;
 
@@ -30,14 +30,14 @@ pub struct FeedbackApiDoc;
 ///
 /// Generic over the router state `S` so this module names no root type: the
 /// composition root supplies the concrete state at the call site, and each
-/// handler reaches its ports — `Arc<dyn FeedbackDao>`, `Arc<dyn TaskDao>`,
+/// handler reaches its ports — `Arc<FeedbackNotes>`, `Arc<TaskCommands>`,
 /// `Arc<dyn RepositoryReader>`, and the `UserTokenVerifier` behind `AuthUser`
 /// — through `FromRef<S>`.
 pub fn feedback_router<S>(state: S) -> (axum::Router, utoipa::openapi::OpenApi)
 where
     S: Clone + Send + Sync + 'static,
-    Arc<dyn FeedbackDao>: FromRef<S>,
-    Arc<dyn TaskDao>: FromRef<S>,
+    Arc<FeedbackNotes>: FromRef<S>,
+    Arc<TaskCommands>: FromRef<S>,
     Arc<dyn RepositoryReader>: FromRef<S>,
     Arc<dyn UserTokenVerifier>: FromRef<S>,
 {

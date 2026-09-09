@@ -2,6 +2,7 @@
 
 use chrono::{DateTime, Utc};
 
+use moatless_types::activity::Activity;
 use moatless_types::agent::AgentMode;
 
 pub use moatless_types::message::{MessageRole, MessageType};
@@ -25,6 +26,83 @@ pub use moatless_types::message::{MessageRole, MessageType};
 /// call settled, so the row itself is not a bubble. This names that case rather
 /// than leaving both readers to infer it and drop the row silently.
 pub const TOOL_RESPONSE_USER_TYPE: &str = "tool_response";
+
+// =============================================================================
+// Query shapes
+// =============================================================================
+
+/// A page of Messages with their context rows and the activities that happened
+/// on them — the two ordered collections a conversation is, plus the context
+/// rows the frontend attaches to a user Message.
+pub type MessagePage = (Vec<TaskMessage>, Vec<TaskMessageContext>, Vec<Activity>);
+
+/// How much of the parent a fork's conversation copy carried.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ForkCopyCounts {
+    pub messages: usize,
+    pub activities: usize,
+    pub contexts: usize,
+}
+
+/// Raw tool-call row assembled from the assistant `tool_use` block plus any
+/// matching `tool_result` row(s). Keeps JSON values un-transformed so the handler
+/// can decide which schema to apply.
+#[derive(Debug, Clone)]
+pub struct ToolCallRow {
+    pub tool_use_id: String,
+    pub tool_name: String,
+    pub tool_input: serde_json::Value,
+    pub result_content: Option<String>,
+    pub is_error: Option<bool>,
+    pub tool_use_result: Option<serde_json::Value>,
+    /// UUID of the assistant row containing the `tool_use` block. Surfaced so
+    /// post-message hooks can tag the parent message rather than the hidden
+    /// System `tool_result` row.
+    pub parent_message_uuid: String,
+}
+
+/// Per-connection inbound/outgoing message tally for a task, grouped by the
+/// external adapter + subject key the message was routed through. Drives the
+/// per-connection `↓in / ↑out` counts on the task-connections admin view.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct ConnectionMessageCount {
+    pub task_id: String,
+    pub external_adapter: Option<String>,
+    pub external_subject_key: Option<String>,
+    /// Inbound rows (`message_role = 'user'`).
+    pub incoming: i64,
+    /// Outbound rows (`message_role = 'assistant'`).
+    pub outgoing: i64,
+}
+
+/// One Task carrying unacknowledged user messages, the desired-state
+/// reconciler's message-wake input.
+///
+/// A user-turn that was acknowledged by the sandbox but never reached a
+/// terminal `agent.completed/error/stopped` event — i.e. the sandbox
+/// crashed/restarted mid-run. Used by the recovery RPC to drive a
+/// `claude --resume <session_id>` replay on startup.
+#[derive(Debug, Clone)]
+pub struct InterruptedTurn {
+    /// `task_messages.id` of the turn's first user row, for logging. The
+    /// recovery counter lives on `task_turns` — a turn can hold several user
+    /// messages, so bumping one of them would undercount the batch.
+    pub task_message_id: i32,
+    pub task_id: String,
+    /// Backend-tracked agent session ID. Either `session_id` or
+    /// `agent_session_id` — they're set together at acknowledgement.
+    pub session_id: String,
+    pub turn_number: i32,
+    pub prompt_text: String,
+    pub agent_mode: Option<String>,
+    /// Reasoning effort the interrupted turn ran with, so the replay repeats it.
+    pub effort: Option<String>,
+    pub recovery_attempts: i32,
+    /// The turn's original `run_id`, so the recovery re-drive can reuse it and
+    /// keep its events on this turn. `None` for legacy turns with no recorded
+    /// `run_id` — those fall back to a fresh run (the pre-existing behaviour).
+    pub run_id: Option<String>,
+}
 
 // =============================================================================
 // TaskMessage (DB)
@@ -125,7 +203,6 @@ impl TaskMessage {
     pub fn agent_mode(&self) -> Option<AgentMode> {
         self.agent_mode_raw.clone().map(AgentMode::from)
     }
-
 
     /// Create a new user message with required fields, defaulting all optional fields to `None`.
     pub fn new_user_message(

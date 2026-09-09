@@ -42,6 +42,14 @@ moatless-types = { workspace = true }
 [dev-dependencies]
 http-body-util = { workspace = true }
 mockall = { workspace = true }
+# Test-only: the `#[sqlx::test]` blocks in `dao.rs` seed Task and Workspace rows
+# through the factories those bands own, so a fixture here writes the shape
+# their own PostgreSQL tests write. Production code names neither crate; this
+# edge must never appear under `[dependencies]`.
+moatless-tasks = { workspace = true, features = ["test-support"] }
+moatless-workspaces = { workspace = true, features = ["test-support"] }
+# `device_pairing_over`, for the pairing redemption tests.
+moatless-identity = { workspace = true, features = ["test-support"] }
 # `MockWorkspaceSnapshotSource`, for the stored-backing reads a stopped Task
 # answers from.
 moatless-ports = { workspace = true, features = ["test-support"] }
@@ -53,7 +61,13 @@ tower = { version = "0.5", features = ["util"] }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 
 [features]
+# Gate the tests that need a live backing service (REDIS_URL for the preview-tab
+# store). No shipping build enables it.
+db-tests = []
 live-sandbox-tests = []
+# Expose the read handles a caller outside this crate builds a failure case
+# from. No shipping build enables it.
+test-support = []
 
 [lints]
 workspace = true

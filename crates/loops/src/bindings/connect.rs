@@ -8,9 +8,9 @@ use std::sync::Arc;
 
 use tracing::{info, warn};
 
-use crate::bindings::dao::TaskBindingDao;
+use crate::bindings::operations::Bindings;
 use moatless_adapter_model::capabilities::AdapterDestinationBuilder;
-use moatless_adapter_model::dao::AdapterConnectionDao;
+use moatless_adapter_model::connections::ConnectionRouting;
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_adapter_model::loops::LoopReader;
 use moatless_types::adapter::AdapterConnection;
@@ -35,22 +35,22 @@ use moatless_types::loops::SubscriptionMatch;
 /// builder instead, so nothing below the provider band names a specific kind to
 /// fetch a provider.
 ///
-/// [`Connector::write_binding`] upserts through the port-typed
-/// [`crate::bindings::runtime::upsert_binding_into`], passing `task_bindings`
+/// [`Connector::write_binding`] writes through
+/// [`crate::bindings::operations::Bindings::bind`], holding that handle
 /// directly rather than the whole `AppState`.
 pub struct Connector {
     github_destination: Option<Arc<dyn AdapterDestinationBuilder>>,
-    adapter_connections: Arc<dyn AdapterConnectionDao>,
+    adapter_connections: Arc<ConnectionRouting>,
     loops: Arc<dyn LoopReader>,
-    task_bindings: Arc<dyn TaskBindingDao>,
+    task_bindings: Arc<Bindings>,
 }
 
 impl Connector {
-    pub fn new(
+    pub(crate) fn new(
         github_destination: Option<Arc<dyn AdapterDestinationBuilder>>,
-        adapter_connections: Arc<dyn AdapterConnectionDao>,
+        adapter_connections: Arc<ConnectionRouting>,
         loops: Arc<dyn LoopReader>,
-        task_bindings: Arc<dyn TaskBindingDao>,
+        task_bindings: Arc<Bindings>,
     ) -> Self {
         Self {
             github_destination,
@@ -143,7 +143,7 @@ impl Connector {
                   the top); subscription is read for its effective user and then \
                   forwarded; connection, source_id, task_id, external_thread_id, and \
                   thread_properties are forwarded to the destination builder or to \
-                  bindings::runtime::upsert_binding_into. The four ports this file \
+                  Bindings::bind. The four ports this file \
                   reads now live on Connector's fields, so the width here is the \
                   binding's own identity, with no frame above to hoist a data argument \
                   to."
@@ -171,19 +171,19 @@ impl Connector {
             filter_user_id,
         )?;
 
-        crate::bindings::runtime::upsert_binding_into(
-            self.task_bindings.as_ref(),
-            connection,
-            subscription,
-            task_id,
-            adapter_destination.connection_provider_key(),
-            destination.subject_kind,
-            &destination.subject_key,
-            destination.destination_config,
-            crate::bindings::runtime::ORIGIN_CONNECTED_THREAD,
-            destination.last_external_event_id,
-        )
-        .await
+        self.task_bindings
+            .bind(
+                connection,
+                subscription,
+                task_id,
+                adapter_destination.connection_provider_key(),
+                destination.subject_kind,
+                &destination.subject_key,
+                destination.destination_config,
+                crate::bindings::runtime::ORIGIN_CONNECTED_THREAD,
+                destination.last_external_event_id,
+            )
+            .await
     }
 
     /// Resolve the Adapter connection for a source. Errors when none exists.
@@ -199,14 +199,14 @@ impl Connector {
 
         let connection_repo = self.adapter_connections.clone();
         let mut connection = connection_repo
-            .find_by_scope_value(adapter_key, &scope_value)
+            .by_scope_value(adapter_key, &scope_value)
             .await?;
         if connection.is_none()
             && adapter_destination.allow_default_connection_fallback()
             && scope_value != "default"
         {
             connection = connection_repo
-                .find_by_scope_value(adapter_key, "default")
+                .by_scope_value(adapter_key, "default")
                 .await?;
         }
         connection.ok_or_else(|| {

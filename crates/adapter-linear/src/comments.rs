@@ -23,7 +23,7 @@ use moatless_core::config::Config;
 
 use moatless_adapter_model::error::AdapterError;
 use moatless_adapter_model::loops::LoopReader;
-use moatless_loops::bindings::dao::TaskBindingDao;
+use moatless_loops::bindings::operations::Bindings;
 use moatless_loops::bindings::runtime::RoutingService;
 use moatless_ports::sandbox::SandboxWaker;
 use moatless_ports::task::{InboundTurn, MessageAcceptor, TurnOrigin};
@@ -65,7 +65,7 @@ const ADAPTER_LABEL: &str = "linear";
 pub(super) async fn handle_comment_created(
     config: &Config,
     routing: &RoutingService,
-    task_bindings: &dyn TaskBindingDao,
+    task_bindings: &Bindings,
     loops: &dyn LoopReader,
     message_send: &dyn MessageAcceptor,
     sandbox_waker: &dyn SandboxWaker,

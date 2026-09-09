@@ -8,17 +8,16 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 
 use super::handlers;
 use crate::credential_sync::CredentialSync;
-use crate::message::dao::MessageDao;
+use crate::message::operations::Messages;
 use crate::message::send::MessageSendService;
-use crate::tag::dao::TagDao;
+use crate::tag::operations::Tags;
 use crate::task::bindings::TaskBindings;
 use crate::task::closer::TaskCloser;
 use crate::task::creation::TaskCreationService;
-use crate::task::dao::TaskDao;
 use crate::task::fork::TaskForkService;
+use crate::task::operations::TaskCommands;
 use crate::task::presenter::TaskPresenter;
-use crate::task::relations::TaskRelationDao;
-use crate::task_turn::dao::TaskTurnDao;
+use crate::task_turn::operations::TaskTurns;
 use moatless_core::config::Config;
 use moatless_core::events::EventPublisher;
 use moatless_core::http_auth::UserTokenVerifier;
@@ -60,19 +59,18 @@ pub struct TaskApiDoc;
 /// Generic over the router state `S` so this module names no root type: the
 /// composition root supplies the concrete state at the call site, and each
 /// registered handler reaches its ports — the task/message/creation services,
-/// the task/binding/relation/turn/message DAOs, the repository/workspace/git
+/// the task/binding/turn/message stores, the repository/workspace/git
 /// and tag ports, the sandbox lifecycle and preflight ports, the credential
 /// sync and config, and the `UserTokenVerifier` behind `AuthUser` — through
 /// `FromRef<S>`.
 pub fn task_router<S>(state: S) -> (axum::Router, utoipa::openapi::OpenApi)
 where
     S: Clone + Send + Sync + 'static,
-    Arc<dyn TaskDao>: FromRef<S>,
+    Arc<TaskCommands>: FromRef<S>,
     Arc<dyn TaskBindings>: FromRef<S>,
-    Arc<dyn TaskRelationDao>: FromRef<S>,
-    Arc<dyn TaskTurnDao>: FromRef<S>,
-    Arc<dyn MessageDao>: FromRef<S>,
-    Arc<dyn TagDao>: FromRef<S>,
+    Arc<TaskTurns>: FromRef<S>,
+    Arc<Messages>: FromRef<S>,
+    Arc<Tags>: FromRef<S>,
     Arc<dyn RepositoryReader>: FromRef<S>,
     Arc<dyn WorkspaceResolver>: FromRef<S>,
     Arc<dyn SandboxLifecycle>: FromRef<S>,

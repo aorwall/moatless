@@ -19,10 +19,13 @@ use tokio::sync::Notify;
 
 use moatless_types::sandbox::SandboxStopReason;
 
+use super::dao::LifecycleDao;
 use super::dao::PgLifecycleDao;
+use super::db::lock::PgLifecycleLock;
 use super::events::LifecycleEvent;
-use super::lock::PgLifecycleLock;
-use super::orchestrator::{AgentStopPort, LifecycleDao, LifecycleEventSink, OutstandingCommand};
+use super::orchestrator::{
+    AgentStopPort, LifecycleEventSink, OutstandingCommand, SystemWallClock,
+};
 use super::test_support::seed_task_with as seed;
 use moatless_sandbox_runtime::observation_events::EventFact;
 use moatless_sandbox_runtime::operation::{ObservedStatus, OperationKind};
@@ -30,7 +33,7 @@ use moatless_sandbox_runtime::runtime::RuntimeError;
 use moatless_sandbox_runtime::runtime::{RuntimeOperationContext, RuntimeOutcome, SandboxRuntime};
 use moatless_types::sandbox::ArchiveRetention;
 
-use super::{Lifecycle, LifecycleError, SystemWallClock};
+use super::{Lifecycle, LifecycleError};
 
 // ---- Fixtures ----
 

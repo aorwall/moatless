@@ -160,7 +160,7 @@ pub fn sandbox_access(error: SandboxError) -> WorkspaceAccessError {
 /// message, so it is not a restriction on anyone who can reach the Task at all,
 /// and what the shell paths actually gate on is control — see
 /// [`controlled_conversation`], which is what they call.
-pub async fn addressed_conversation(
+pub(crate) async fn addressed_conversation(
     conversations: &dyn ConversationDao,
     viewer: &ScopeContext,
     cwd: &str,
@@ -184,7 +184,7 @@ pub async fn addressed_conversation(
 /// [`addressed_conversation`] first, so an unreadable Task is unaddressable
 /// rather than forbidden, and then the control check — which a public Task
 /// grants to any signed-in caller and a private one only to its owner.
-pub async fn controlled_conversation(
+pub(crate) async fn controlled_conversation(
     conversations: &dyn ConversationDao,
     viewer: &ScopeContext,
     cwd: &str,

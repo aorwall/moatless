@@ -1,10 +1,11 @@
 //! Team domain module — team management and membership.
 
-pub mod dao;
+pub(crate) mod dao;
 pub mod error;
-pub mod handlers;
+pub(crate) mod handlers;
 pub mod models;
 pub mod routes;
 pub mod schemas;
+pub(crate) mod state;
 
-pub mod operations;
+pub(crate) mod operations;

@@ -1,4 +1,4 @@
-use moatless_tasks::task::dao::TaskDao;
+use moatless_ports::task::TaskReader;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
@@ -12,5 +12,5 @@ pub struct SseState {
     /// non-admin client only receives events for tasks it can read. `None`
     /// when the DB is unconfigured (no filtering possible → firehose disabled
     /// for scoped users; see `sse_handler`).
-    pub tasks: Option<Arc<dyn TaskDao>>,
+    pub tasks: Option<Arc<dyn TaskReader>>,
 }

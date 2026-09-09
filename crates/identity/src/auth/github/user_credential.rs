@@ -12,7 +12,8 @@ use tracing::info;
 use crate::auth::credentials::{StashedGithubCredential, stash_github_oauth_token};
 use crate::auth::error::AuthError;
 use crate::auth::models::{OAuthTokens, ProviderUserInfo};
-use crate::auth::provider_tokens::{AUTH_METHOD_APP_USER, ProviderToken, ProviderTokenAuthDao};
+use crate::auth::provider_token_auth_dao::{ProviderToken, ProviderTokenAuthDao};
+use crate::auth::provider_tokens::AUTH_METHOD_APP_USER;
 use crate::secret::service::SecretService;
 
 /// What became of the freshly authorized token.
@@ -113,7 +114,7 @@ fn expires_at(tokens: &OAuthTokens, now: DateTime<Utc>) -> Option<DateTime<Utc>>
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::auth::provider_tokens::MockProviderTokenAuthDao;
+    use crate::auth::provider_token_auth_dao::MockProviderTokenAuthDao;
     use crate::secret::test_support::service_with;
 
     fn tokens(access_token: &str) -> OAuthTokens {

@@ -13,8 +13,8 @@ use moatless_types::adapter::TaskBinding;
 use moatless_types::loops::SubscriptionMatch;
 use moatless_types::repository::GitHostRepo;
 
-use super::api::GithubPrApi;
 use super::adapter::GithubPrAdapter;
+use super::api::GithubPrApi;
 
 pub(super) struct GithubPrAuth {
     /// The one way to a git-host token. This Adapter holds no credential of its
@@ -264,11 +264,10 @@ pub(super) async fn resolve_github_api(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
-    use moatless_identity::auth::test_support::{github_row, StubProviderTokens};
+    use moatless_identity::auth::test_support::{StubProviderTokens, github_row};
     use moatless_types::adapter::AdapterKind;
 
-    fn auth_with_tokens(provider_tokens: Arc<dyn ProviderTokenDao>) -> GithubPrAuth {
+    fn auth_with_tokens(provider_tokens: Arc<StubProviderTokens>) -> GithubPrAuth {
         GithubPrAuth::new(moatless_identity::git_host_tokens::seam_over(
             provider_tokens,
         ))
@@ -399,13 +398,14 @@ mod tests {
             "filter-user",
             github_row("manual", "filter-token"),
         )));
-        assert!(auth
-            .client_for_reaction(
+        assert!(
+            auth.client_for_reaction(
                 &binding_context(Some("filter-user")),
                 &GitHostRepo::github("soaplabs", "repo"),
             )
             .await
-            .is_ok());
+            .is_ok()
+        );
     }
 
     #[tokio::test]

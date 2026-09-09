@@ -225,8 +225,7 @@ impl AdapterDestinationBuilder for GithubPrAdapter {
 mod tests {
     use std::sync::Arc;
 
-    use moatless_core::db::DbPool;
-    use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
+    use moatless_identity::auth::test_support::StubProviderTokens;
 
     use super::*;
     use crate::adapter::GithubPrAdapter;
@@ -311,18 +310,7 @@ mod tests {
         GithubPrAdapter::new(
             None,
             "https://app.example.com".to_string(),
-            moatless_identity::git_host_tokens::seam_over(fake_provider_tokens()),
+            moatless_identity::git_host_tokens::seam_over(Arc::new(StubProviderTokens::default())),
         )
-    }
-
-    fn fake_db_pool() -> DbPool {
-        sqlx::postgres::PgPoolOptions::new()
-            .max_connections(1)
-            .connect_lazy("postgres://fake:fake@localhost:1/fake")
-            .unwrap()
-    }
-
-    fn fake_provider_tokens() -> Arc<dyn ProviderTokenDao> {
-        Arc::new(moatless_identity::auth::provider_token_dao::PgProviderTokenDao(fake_db_pool()))
     }
 }

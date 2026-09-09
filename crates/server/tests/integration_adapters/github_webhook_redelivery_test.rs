@@ -32,12 +32,11 @@ use axum::http::{HeaderMap, Method, Request, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::any;
 use axum::{Json, Router};
-use moatless_adapter_model::delivery::{AdapterDeliveryRequest, Admission, DeliveryAdmission};
-use moatless_backend::adapters::delivery::spawn_adapter_delivery_worker;
+use moatless_adapter_model::delivery::{AdapterDeliveryRequest, Admission};
 use moatless_backend::adapters::routes::adapter_router;
 use moatless_backend::state::AppState;
-use moatless_tasks::task::dao as task_dao;
-use moatless_workspaces::repository::dao as repository_dao;
+use moatless_tasks::task::test_support as task_fixtures;
+use moatless_workspaces::compose;
 use sqlx::{PgPool, Row};
 use tokio_util::sync::CancellationToken;
 use tower::ServiceExt;
@@ -176,7 +175,7 @@ async fn registered_replica(pool: &PgPool, webhook_secret: Option<&str>) -> AppS
 
 async fn seed_fixtures(pool: &PgPool, task_id: &str) {
     seed_team(pool, &format!("personal-{TASK_USER}")).await;
-    repository_dao::insert(pool, &make_repository_row("repo-1", TASK_USER))
+    compose::seed_repository(pool, &make_repository_row("repo-1", TASK_USER))
         .await
         .expect("seed repository");
 
@@ -198,7 +197,7 @@ async fn seed_fixtures(pool: &PgPool, task_id: &str) {
 }
 
 async fn seed_bound_task(pool: &PgPool, task_id: &str, binding_id: &str, origin: &str) {
-    task_dao::insert_task(pool, &make_task_row(task_id, TASK_USER))
+    task_fixtures::seed_task(pool, &make_task_row(task_id, TASK_USER))
         .await
         .expect("seed task");
 
@@ -525,11 +524,9 @@ async fn run_worker_until(state: &AppState, budget: Duration, done: impl AsyncFn
         .expect("test state installs external Adapters")
         .delivery_handlers(state);
     let cancel = CancellationToken::new();
-    let handle = spawn_adapter_delivery_worker(
-        state.adapter_delivery.clone(),
-        Arc::new(handlers),
-        cancel.clone(),
-    );
+    let handle = state
+        .adapter_delivery_worker
+        .spawn(Arc::new(handlers), cancel.clone());
     let deadline = tokio::time::Instant::now() + budget;
     while tokio::time::Instant::now() < deadline {
         if done().await {

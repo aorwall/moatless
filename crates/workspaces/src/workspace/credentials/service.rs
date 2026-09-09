@@ -5,9 +5,9 @@ use std::sync::Arc;
 
 use tracing::{info, warn};
 
-use moatless_types::access_control::{ScopeContext, ScopedResource};
-use moatless_identity::secret::audit::{SecretAuditDao, SecretAuditInput};
+use moatless_identity::secret::audit::{AuditOutcome, CredentialAction, SecretAudit};
 use moatless_identity::secret::service::SecretCipher;
+use moatless_types::access_control::{ScopeContext, ScopedResource};
 
 use super::dao::WorkspaceCredentialDao;
 use super::models::{WorkspaceCredential, WorkspaceCredentialMetadata, WorkspaceCredentialWrite};
@@ -16,11 +16,6 @@ use crate::workspace::error::WorkspaceError;
 use crate::workspace::models::Workspace;
 
 use moatless_types::workspace::WorkspaceCredentialProvider;
-
-/// `secret_audit_events.scope_type` for a workspace credential. The audit table
-/// is shared with `secrets` so credential material has one trail; the scope
-/// value is what tells the two kinds of row apart.
-const AUDIT_SCOPE: &str = "workspace";
 
 /// Reads, writes and resolves the provider credentials pinned to a Workspace.
 ///
@@ -32,7 +27,7 @@ const AUDIT_SCOPE: &str = "workspace";
 pub struct WorkspaceCredentialService {
     credentials: Arc<dyn WorkspaceCredentialDao>,
     workspaces: Arc<dyn WorkspaceDao>,
-    audits: Arc<dyn SecretAuditDao>,
+    audits: Arc<SecretAudit>,
     /// Envelope cipher. `None` when the deployment configured no
     /// `SECRETS_ENCRYPTION_KEY`, which makes every path here a 503 rather than
     /// a silently unencrypted write.
@@ -40,10 +35,10 @@ pub struct WorkspaceCredentialService {
 }
 
 impl WorkspaceCredentialService {
-    pub fn new(
+    pub(crate) fn new(
         credentials: Arc<dyn WorkspaceCredentialDao>,
         workspaces: Arc<dyn WorkspaceDao>,
-        audits: Arc<dyn SecretAuditDao>,
+        audits: Arc<SecretAudit>,
         cipher: Option<Arc<dyn SecretCipher>>,
     ) -> Self {
         Self {
@@ -79,7 +74,7 @@ impl WorkspaceCredentialService {
                 "Credential value must not be empty".to_string(),
             ));
         }
-        self.controllable_workspace(ctx, workspace_id, provider, "set")
+        self.controllable_workspace(ctx, workspace_id, provider, CredentialAction::Set)
             .await?;
 
         let cipher = self.cipher()?;
@@ -109,7 +104,14 @@ impl WorkspaceCredentialService {
             })
             .await?;
 
-        self.audit(&ctx.user_id, "set", workspace_id, provider, "success")
+        self.audits
+            .record_workspace_credential(
+                &ctx.user_id,
+                CredentialAction::Set,
+                workspace_id,
+                provider,
+                AuditOutcome::Success,
+            )
             .await;
         info!(
             workspace_id,
@@ -134,7 +136,7 @@ impl WorkspaceCredentialService {
         workspace_id: &str,
         provider: WorkspaceCredentialProvider,
     ) -> Result<(), WorkspaceError> {
-        self.controllable_workspace(ctx, workspace_id, provider, "delete")
+        self.controllable_workspace(ctx, workspace_id, provider, CredentialAction::Delete)
             .await?;
 
         if !self
@@ -147,7 +149,14 @@ impl WorkspaceCredentialService {
             )));
         }
 
-        self.audit(&ctx.user_id, "delete", workspace_id, provider, "success")
+        self.audits
+            .record_workspace_credential(
+                &ctx.user_id,
+                CredentialAction::Delete,
+                workspace_id,
+                provider,
+                AuditOutcome::Success,
+            )
             .await;
         info!(
             workspace_id,
@@ -224,7 +233,7 @@ impl WorkspaceCredentialService {
         ctx: &ScopeContext,
         workspace_id: &str,
         provider: WorkspaceCredentialProvider,
-        action: &str,
+        action: CredentialAction,
     ) -> Result<Workspace, WorkspaceError> {
         let workspace = self.readable_workspace(ctx, workspace_id).await?;
         let resource = ScopedResource::borrowed(
@@ -235,47 +244,20 @@ impl WorkspaceCredentialService {
                 .or(workspace.created_by.as_deref()),
         );
         if !ctx.can_write(&resource) {
-            self.audit(&ctx.user_id, action, workspace_id, provider, "denied")
+            self.audits
+                .record_workspace_credential(
+                    &ctx.user_id,
+                    action,
+                    workspace_id,
+                    provider,
+                    AuditOutcome::Denied,
+                )
                 .await;
             return Err(WorkspaceError::Forbidden(format!(
                 "No control access to workspace '{workspace_id}'"
             )));
         }
         Ok(workspace)
-    }
-
-    /// Record the attempt. A failed audit write must not fail the operation it
-    /// describes — the write it records has already committed — so it is logged
-    /// and dropped.
-    async fn audit(
-        &self,
-        actor_id: &str,
-        action: &str,
-        workspace_id: &str,
-        provider: WorkspaceCredentialProvider,
-        result: &str,
-    ) {
-        if let Err(e) = self
-            .audits
-            .record(SecretAuditInput {
-                secret_id: None,
-                actor_id,
-                action,
-                scope_type: AUDIT_SCOPE,
-                scope_id: Some(workspace_id),
-                key: provider.env_key(),
-                result,
-            })
-            .await
-        {
-            warn!(
-                error = %e,
-                workspace_id,
-                provider = provider.as_str(),
-                action,
-                "Failed to record workspace credential audit event"
-            );
-        }
     }
 }
 
@@ -323,9 +305,10 @@ mod tests {
 
     use async_trait::async_trait;
     use chrono::Utc;
+    use moatless_identity::secret::service::LocalEnvelopeSecretCipher;
+    use moatless_identity::secret::test_support::noop_audit;
     use moatless_types::access_control::Scope;
     use moatless_types::secret::SecretsConfig;
-    use moatless_identity::secret::service::LocalEnvelopeSecretCipher;
     use std::sync::Mutex;
 
     use crate::workspace::dao::MockWorkspaceDao;
@@ -408,15 +391,6 @@ mod tests {
         Arc::new(mock)
     }
 
-    struct NoopAudit;
-
-    #[async_trait]
-    impl SecretAuditDao for NoopAudit {
-        async fn record(&self, _input: SecretAuditInput<'_>) -> Result<(), sqlx::Error> {
-            Ok(())
-        }
-    }
-
     // --- fixtures ----------------------------------------------------------
 
     fn workspace(owner: &str) -> Workspace {
@@ -460,7 +434,7 @@ mod tests {
         WorkspaceCredentialService::new(
             Arc::new(FakeCredentials::default()),
             workspaces_holding(workspace("owner")),
-            Arc::new(NoopAudit),
+            noop_audit(),
             cipher,
         )
     }
@@ -579,9 +553,14 @@ mod tests {
             user_id: "root".to_string(),
             is_admin: true,
         };
-        svc.set(&admin, "ws_1", WorkspaceCredentialProvider::Gitlab, "glpat_a")
-            .await
-            .expect("admin controls every workspace");
+        svc.set(
+            &admin,
+            "ws_1",
+            WorkspaceCredentialProvider::Gitlab,
+            "glpat_a",
+        )
+        .await
+        .expect("admin controls every workspace");
     }
 
     #[tokio::test]
@@ -677,7 +656,7 @@ mod tests {
         let good = WorkspaceCredentialService::new(
             credentials.clone(),
             workspaces_holding(workspace("owner")),
-            Arc::new(NoopAudit),
+            noop_audit(),
             cipher(),
         );
         good.set(
@@ -697,7 +676,7 @@ mod tests {
         let stale = WorkspaceCredentialService::new(
             credentials,
             workspaces_holding(workspace("owner")),
-            Arc::new(NoopAudit),
+            noop_audit(),
             other_key,
         );
 

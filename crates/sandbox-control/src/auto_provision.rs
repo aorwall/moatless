@@ -13,7 +13,7 @@ use tracing::{info, warn};
 
 use moatless_types::workspace::{Port, ResourceConfig, ServerConfig};
 
-use crate::lifecycle::orchestrator::LifecycleDao;
+use crate::lifecycle::dao::LifecycleDao;
 use crate::preflight::preflight_validate_sandbox_control;
 use crate::secrets::is_platform_owned_key;
 use moatless_ports::identity::CommitIdentity;
@@ -146,7 +146,7 @@ fn assign_missing_ports(servers: &mut [ServerConfig]) {
 /// operation. The GitHub probe stays on creation and task-start, because this
 /// also runs on every message wake and would put delivery behind GitHub's
 /// availability.
-pub async fn build_provision_request(
+pub(crate) async fn build_provision_request(
     sandboxes: &dyn LifecycleDao,
     workspaces: &dyn WorkspaceResolver,
     users: &dyn CommitIdentity,

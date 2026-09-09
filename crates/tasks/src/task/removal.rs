@@ -1,7 +1,8 @@
 use super::bindings::{TaskBindings, deactivate_task_bindings};
-use super::dao::{TaskDao, TaskPatch};
 use super::error::TaskError;
+use super::models::TaskPatch;
 use super::models::TaskStatus;
+use super::operations::TaskCommands;
 use moatless_ports::sandbox::SandboxLifecycle;
 use moatless_types::access_control::ScopeContext;
 use moatless_types::sandbox::ArchiveRetention;
@@ -10,7 +11,7 @@ use moatless_types::sandbox::ArchiveRetention;
 pub async fn delete_task(
     sandbox: &dyn SandboxLifecycle,
     task_bindings: &dyn TaskBindings,
-    tasks: &dyn TaskDao,
+    tasks: &TaskCommands,
     scope_ctx: &ScopeContext,
     task_id: String,
 ) -> Result<(), TaskError> {

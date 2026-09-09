@@ -7,7 +7,7 @@ use super::models::SecretRecord;
 use moatless_core::db::DbPool;
 use moatless_types::access_control::{ScopeContext, ScopedEntity};
 
-pub struct SecretInsert<'a> {
+pub(crate) struct SecretInsert<'a> {
     pub id: &'a str,
     pub scope: &'a str,
     pub owner_user_id: Option<&'a str>,
@@ -23,7 +23,7 @@ pub struct SecretInsert<'a> {
     pub actor_id: &'a str,
 }
 
-pub struct SecretReplace<'a> {
+pub(crate) struct SecretReplace<'a> {
     pub id: &'a str,
     pub kind: &'a str,
     pub provider: Option<&'a str>,
@@ -46,7 +46,7 @@ const SECRET_COLUMNS: &str = r#"id, scope, owner_user_id, key, kind, provider,
                       last_used_at, version, enabled"#;
 
 #[async_trait]
-pub trait SecretDao: Send + Sync {
+pub(crate) trait SecretDao: Send + Sync {
     async fn list(
         &self,
         ctx: &ScopeContext,
@@ -81,7 +81,7 @@ pub trait SecretDao: Send + Sync {
     async fn mark_used(&self, id: &str) -> Result<(), sqlx::Error>;
 }
 
-pub struct PgSecretDao(pub DbPool);
+pub(crate) struct PgSecretDao(pub(crate) DbPool);
 
 #[async_trait]
 impl SecretDao for PgSecretDao {

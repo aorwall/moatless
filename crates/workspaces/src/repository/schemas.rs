@@ -26,4 +26,3 @@ pub fn repository_response(r: Repository) -> RepositoryResponse {
         }
     }
 }
-

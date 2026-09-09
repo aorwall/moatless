@@ -6,11 +6,14 @@ use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 
-use moatless_core::http_auth::AuthUser;
 use crate::secret::service::SecretService;
+use moatless_core::http_auth::AuthUser;
 
 use super::error::SecretError;
-use super::schemas::{ListSecretsQuery, PatchSecretRequest, PutSecretRequest, SecretMetadataResponse, SecretMutationResponse, ValidateSecretsRequest, ValidateSecretsResponse};
+use super::schemas::{
+    ListSecretsQuery, PatchSecretRequest, PutSecretRequest, SecretMetadataResponse,
+    SecretMutationResponse, ValidateSecretsRequest, ValidateSecretsResponse,
+};
 
 #[utoipa::path(
     get,

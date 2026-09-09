@@ -19,16 +19,14 @@
 //! Routing knows the whole `synchronize` id, number included. What joins them
 //! is the alias, and this is where it is asserted end to end.
 
-use crate::common;
-
 use std::sync::Arc;
+
+use crate::common;
 
 use moatless_adapter_model::capabilities::AdapterInboundPresentation;
 use moatless_ports::task::EventSubject;
-use moatless_tasks::message::dao::MessageDao;
-use moatless_tasks::message::dao::PgMessageDao;
-use moatless_tasks::task::dao as task_dao;
-use moatless_workspaces::repository::dao as repository_dao;
+use moatless_tasks::task::test_support as task_fixtures;
+use moatless_workspaces::compose;
 use sqlx::PgPool;
 
 use common::{make_repository_row, make_task_row};
@@ -41,7 +39,7 @@ const ADAPTER: &str = "github_pr";
 
 async fn seed_task(pool: &PgPool, task_id: &str, user: &str) {
     let repo = make_repository_row(&format!("repo-{task_id}"), user);
-    repository_dao::insert(pool, &repo)
+    compose::seed_repository(pool, &repo)
         .await
         .expect("seed repo");
     let mut task = make_task_row(task_id, user);
@@ -49,17 +47,19 @@ async fn seed_task(pool: &PgPool, task_id: &str, user: &str) {
     let workspace_id = format!("ws_{}", repo.id);
     common::seed_workspace(pool, &workspace_id, user).await;
     task.workspace_id = Some(workspace_id);
-    task_dao::insert_task(pool, &task).await.expect("seed task");
+    task_fixtures::seed_task(pool, &task)
+        .await
+        .expect("seed task");
 }
 
 /// Build the adapter for its external-id codec alone. Routing reaches the same
 /// function through `RoutingService::external_id_aliases`.
-fn adapter(pool: &PgPool) -> moatless_adapter_github_pr::adapter::GithubPrAdapter {
+fn adapter() -> moatless_adapter_github_pr::adapter::GithubPrAdapter {
     moatless_adapter_github_pr::adapter::GithubPrAdapter::new(
         None,
         "https://app.example.com".to_string(),
         moatless_identity::git_host_tokens::seam_over(Arc::new(
-            moatless_identity::auth::provider_token_dao::PgProviderTokenDao(pool.clone()),
+            moatless_identity::auth::test_support::StubProviderTokens::default(),
         )),
     )
 }
@@ -69,10 +69,10 @@ fn adapter(pool: &PgPool) -> moatless_adapter_github_pr::adapter::GithubPrAdapte
 #[sqlx::test]
 async fn a_pushed_sha_names_its_task_when_the_synchronize_event_arrives(pool: PgPool) {
     seed_task(&pool, "task-1", "user-1").await;
-    let messages = Arc::new(PgMessageDao(pool.clone()));
+    let transcript = moatless_tasks::message::test_support::transcript(&pool);
 
     moatless_adapter_github_pr::push_claim::record(
-        &moatless_tasks::ports::Transcript::new(messages.clone()),
+        transcript.as_ref(),
         "task-1",
         "soaplabs",
         "soap-knowledge",
@@ -81,23 +81,23 @@ async fn a_pushed_sha_names_its_task_when_the_synchronize_event_arrives(pool: Pg
     .await
     .unwrap();
 
-    let ids = adapter(&pool).external_id_aliases(&format!(
+    let ids = adapter().external_id_aliases(&format!(
         "github:pr:synchronize:soaplabs/soap-knowledge#101:{SHA}"
     ));
 
     assert_eq!(
-        messages
-            .find_task_id_by_any_external_event_id_on_subject(
-                &ids,
-                EventSubject {
-                    adapter: ADAPTER,
-                    source_name: "soaplabs/soap-knowledge",
-                    subject_key: "soaplabs/soap-knowledge#101",
-                },
-            )
-            .await
-            .unwrap()
-            .as_deref(),
+        moatless_tasks::message::test_support::task_id_for_external_event_on_subject(
+            &pool,
+            &ids,
+            EventSubject {
+                adapter: ADAPTER,
+                source_name: "soaplabs/soap-knowledge",
+                subject_key: "soaplabs/soap-knowledge#101",
+            },
+        )
+        .await
+        .unwrap()
+        .as_deref(),
         Some("task-1"),
     );
 }
@@ -109,24 +109,22 @@ async fn a_pushed_sha_names_its_task_when_the_synchronize_event_arrives(pool: Pg
 #[sqlx::test]
 async fn an_unclaimed_sha_names_no_task(pool: PgPool) {
     seed_task(&pool, "task-1", "user-1").await;
-    let messages = PgMessageDao(pool.clone());
-
-    let ids = adapter(&pool).external_id_aliases(&format!(
+    let ids = adapter().external_id_aliases(&format!(
         "github:pr:synchronize:soaplabs/soap-knowledge#101:{SHA}"
     ));
 
     assert_eq!(
-        messages
-            .find_task_id_by_any_external_event_id_on_subject(
-                &ids,
-                EventSubject {
-                    adapter: ADAPTER,
-                    source_name: "soaplabs/soap-knowledge",
-                    subject_key: "soaplabs/soap-knowledge#101",
-                },
-            )
-            .await
-            .unwrap(),
+        moatless_tasks::message::test_support::task_id_for_external_event_on_subject(
+            &pool,
+            &ids,
+            EventSubject {
+                adapter: ADAPTER,
+                source_name: "soaplabs/soap-knowledge",
+                subject_key: "soaplabs/soap-knowledge#101",
+            },
+        )
+        .await
+        .unwrap(),
         None,
     );
 }
@@ -137,10 +135,10 @@ async fn an_unclaimed_sha_names_no_task(pool: PgPool) {
 #[sqlx::test]
 async fn a_claim_answers_only_for_the_repository_it_was_filed_in(pool: PgPool) {
     seed_task(&pool, "task-1", "user-1").await;
-    let messages = Arc::new(PgMessageDao(pool.clone()));
+    let transcript = moatless_tasks::message::test_support::transcript(&pool);
 
     moatless_adapter_github_pr::push_claim::record(
-        &moatless_tasks::ports::Transcript::new(messages.clone()),
+        transcript.as_ref(),
         "task-1",
         "soaplabs",
         "soap-knowledge",
@@ -149,22 +147,22 @@ async fn a_claim_answers_only_for_the_repository_it_was_filed_in(pool: PgPool) {
     .await
     .unwrap();
 
-    let ids = adapter(&pool).external_id_aliases(&format!(
+    let ids = adapter().external_id_aliases(&format!(
         "github:pr:synchronize:acme/soap-knowledge#101:{SHA}"
     ));
 
     assert_eq!(
-        messages
-            .find_task_id_by_any_external_event_id_on_subject(
-                &ids,
-                EventSubject {
-                    adapter: ADAPTER,
-                    source_name: "acme/soap-knowledge",
-                    subject_key: "acme/soap-knowledge#101",
-                },
-            )
-            .await
-            .unwrap(),
+        moatless_tasks::message::test_support::task_id_for_external_event_on_subject(
+            &pool,
+            &ids,
+            EventSubject {
+                adapter: ADAPTER,
+                source_name: "acme/soap-knowledge",
+                subject_key: "acme/soap-knowledge#101",
+            },
+        )
+        .await
+        .unwrap(),
         None,
     );
 }

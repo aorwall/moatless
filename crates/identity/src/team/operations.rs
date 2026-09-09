@@ -210,15 +210,21 @@ async fn require_team_access(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::dao::MockTeamDao;
+    use super::*;
 
     fn team() -> Team {
         Team {
-            id: "team".into(), name: "Team".into(), slug: "team".into(),
-            description: None, external_id: None, external_provider: None,
-            is_default: false, settings: serde_json::json!({}),
-            created_at: chrono::Utc::now(), updated_at: chrono::Utc::now(),
+            id: "team".into(),
+            name: "Team".into(),
+            slug: "team".into(),
+            description: None,
+            external_id: None,
+            external_provider: None,
+            is_default: false,
+            settings: serde_json::json!({}),
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
         }
     }
 
@@ -228,21 +234,37 @@ mod tests {
         teams.expect_find_by_id().returning(|_| Ok(Some(team())));
         teams.expect_find_members().returning(|_| Ok(vec![]));
         teams.expect_delete().never();
-        let caller = TeamCaller { user_id: uuid::Uuid::nil(), is_admin: false };
-        assert!(matches!(delete_team(&teams, &caller, "team".into()).await,
-            Err(TeamError::Forbidden(_))));
+        let caller = TeamCaller {
+            user_id: uuid::Uuid::nil(),
+            is_admin: false,
+        };
+        assert!(matches!(
+            delete_team(&teams, &caller, "team".into()).await,
+            Err(TeamError::Forbidden(_))
+        ));
     }
 
     #[tokio::test]
     async fn owner_can_delete_without_http_admission() {
         let mut teams = MockTeamDao::new();
         teams.expect_find_by_id().returning(|_| Ok(Some(team())));
-        teams.expect_find_members().returning(|_| Ok(vec![TeamMember {
-            team_id: "team".into(), user_id: uuid::Uuid::nil(), role: "owner".into(),
-            created_at: chrono::Utc::now(),
-        }]));
-        teams.expect_delete().with(mockall::predicate::eq("team")).once().returning(|_| Ok(()));
-        let caller = TeamCaller { user_id: uuid::Uuid::nil(), is_admin: false };
+        teams.expect_find_members().returning(|_| {
+            Ok(vec![TeamMember {
+                team_id: "team".into(),
+                user_id: uuid::Uuid::nil(),
+                role: "owner".into(),
+                created_at: chrono::Utc::now(),
+            }])
+        });
+        teams
+            .expect_delete()
+            .with(mockall::predicate::eq("team"))
+            .once()
+            .returning(|_| Ok(()));
+        let caller = TeamCaller {
+            user_id: uuid::Uuid::nil(),
+            is_admin: false,
+        };
         assert!(delete_team(&teams, &caller, "team".into()).await.is_ok());
     }
 }

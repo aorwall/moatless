@@ -20,7 +20,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use tracing::warn;
 
-use crate::lifecycle::orchestrator::SandboxShape;
+use crate::lifecycle::dao::SandboxShape;
 use crate::secrets::{
     resolve_task_actor, resolve_task_github_token, resolve_workspace_credentials,
 };
@@ -192,7 +192,7 @@ pub async fn preflight_validate_task_control(
 /// The pod authenticates back as `sandboxes.owner_user_id`
 /// (`auto_provision::build_provision_request`), so that is the identity checked
 /// here — not `run_as_user_id`, which is what the pod acts as outward.
-pub async fn preflight_validate_sandbox_control(
+pub(crate) async fn preflight_validate_sandbox_control(
     users: &dyn CommitIdentity,
     sandbox_id: &str,
     shape: &SandboxShape,

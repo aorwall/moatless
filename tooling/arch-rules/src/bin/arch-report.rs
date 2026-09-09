@@ -7,6 +7,7 @@
 //! ```text
 //! cargo run -p moatless-arch-rules --bin arch-report
 //! cargo run -p moatless-arch-rules --bin arch-report -- --update-baseline
+//! cargo run -p moatless-arch-rules --bin arch-report -- --persistence-inventory
 //! ```
 //!
 //! Exits 0 whatever it finds. Enforcement is the test harness's job, so this
@@ -17,5 +18,10 @@ mod report;
 
 fn main() -> anyhow::Result<()> {
     let args: Vec<_> = std::env::args().collect();
-    report::run(args.iter().any(|a| a == "--update-baseline"), args.iter().any(|a| a == "--json"))
+    let set = |flag: &str| args.iter().any(|a| a == flag);
+    report::run(
+        set("--update-baseline"),
+        set("--json"),
+        set("--persistence-inventory"),
+    )
 }

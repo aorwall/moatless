@@ -22,14 +22,14 @@ use tracing::{debug, info, warn};
 use moatless_adapter_model::apps::AdapterAppReader;
 use moatless_core::config::Config;
 
-use moatless_adapter_model::dao::AdapterConnectionDao;
+use moatless_adapter_model::connections::ConnectionLookup;
 use moatless_adapter_model::delivery::{
     AdapterDeliveryFailure, AdapterDeliveryHandlers, AdapterDeliveryRequest,
 };
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_adapter_model::loops::LoopReader;
-use moatless_loops::adapters::delivery::{register_connection_delivery, ConnectionDeliveryPayload};
-use moatless_loops::bindings::dao::TaskBindingDao;
+use moatless_loops::adapters::delivery::{ConnectionDeliveryPayload, register_connection_delivery};
+use moatless_loops::bindings::operations::Bindings;
 use moatless_loops::bindings::runtime::RoutingService;
 use moatless_ports::identity::AppCredentials;
 use moatless_ports::sandbox::SandboxWaker;
@@ -73,12 +73,12 @@ pub const NOTIFICATION: &str = "linear.notification";
 /// so the adapter stays a description of the provider and the worker-side
 /// behaviour keeps its substrate beside it.
 pub struct LinearInboundRouter {
-    adapter_connections: Arc<dyn AdapterConnectionDao>,
+    adapter_connections: Arc<dyn ConnectionLookup>,
     app_tokens: Arc<dyn AppCredentials>,
     config: Arc<Config>,
     apps: Arc<dyn AdapterAppReader>,
     loops: Arc<dyn LoopReader>,
-    task_bindings: Arc<dyn TaskBindingDao>,
+    task_bindings: Arc<Bindings>,
     tasks: Arc<dyn TaskReader>,
     task_creation: Arc<dyn TaskOpener>,
     task_relations: Arc<dyn RelationRecorder>,
@@ -99,12 +99,12 @@ impl LinearInboundRouter {
                   ports"
     )]
     pub fn new(
-        adapter_connections: Arc<dyn AdapterConnectionDao>,
+        adapter_connections: Arc<dyn ConnectionLookup>,
         app_tokens: Arc<dyn AppCredentials>,
         config: Arc<Config>,
         apps: Arc<dyn AdapterAppReader>,
         loops: Arc<dyn LoopReader>,
-        task_bindings: Arc<dyn TaskBindingDao>,
+        task_bindings: Arc<Bindings>,
         tasks: Arc<dyn TaskReader>,
         task_creation: Arc<dyn TaskOpener>,
         task_relations: Arc<dyn RelationRecorder>,

@@ -23,7 +23,8 @@ use moatless_types::user::UserRole;
 use uuid::Uuid;
 
 use crate::auth::provider_token_dao::ProviderTokenDao;
-use crate::auth::users::{User, UserDao};
+use crate::auth::users::User;
+use crate::auth::users_dao::UserDao;
 use crate::secret::service::SecretService;
 
 /// The `users` table, narrowed to the four identity ports peers read.
@@ -37,9 +38,58 @@ pub struct UserDirectory {
     tokens: Arc<dyn ProviderTokenDao>,
 }
 
+/// Where a login stops on the way to its account at a provider.
+///
+/// The two failures are separate facts: a login nobody holds, and a user who
+/// holds no id at that provider.
+#[derive(Debug, Clone)]
+pub enum ProviderAccount {
+    NoUser,
+    Unlinked,
+    Linked(String),
+}
+
 impl UserDirectory {
-    pub fn new(users: Arc<dyn UserDao>, tokens: Arc<dyn ProviderTokenDao>) -> Self {
+    pub(crate) fn new(users: Arc<dyn UserDao>, tokens: Arc<dyn ProviderTokenDao>) -> Self {
         Self { users, tokens }
+    }
+
+    /// Every bot user's id, keyed by the GitHub App key its `bot:` provider id
+    /// names.
+    pub async fn bot_users_by_app_key(&self) -> Result<HashMap<String, String>, StoreError> {
+        self.users
+            .list_bot_users_by_app_key()
+            .await
+            .map_err(|e| StoreError::with_source("list the bot users by app key", e))
+    }
+
+    /// The id a user known by `login` holds at `provider`.
+    pub async fn provider_account_for_login(
+        &self,
+        provider: &str,
+        login: &str,
+    ) -> Result<ProviderAccount, StoreError> {
+        let Some(user) =
+            self.users.get_user_by_login(login).await.map_err(|e| {
+                StoreError::with_source(format!("read the user with login {login}"), e)
+            })?
+        else {
+            return Ok(ProviderAccount::NoUser);
+        };
+        let id = self
+            .users
+            .get_provider_id(&user.id, provider)
+            .await
+            .map_err(|e| {
+                StoreError::with_source(
+                    format!("read the {provider} id for user with login {login}"),
+                    e,
+                )
+            })?;
+        Ok(match id {
+            Some(id) => ProviderAccount::Linked(id),
+            None => ProviderAccount::Unlinked,
+        })
     }
 
     /// Resolve an actor id string to its row. A string that is neither a uuid
@@ -54,6 +104,20 @@ impl UserDirectory {
             .await
             .map_err(|e| StoreError::with_source(format!("look up user {user_id}"), e))
     }
+}
+
+/// A [`UserDirectory`] that answers [`UserDirectory::bot_users_by_app_key`] with
+/// `bot_users` and reaches no database, for a consumer's tests.
+#[cfg(any(test, feature = "test-support"))]
+pub fn user_directory_over_bot_users(bot_users: HashMap<String, String>) -> Arc<UserDirectory> {
+    let mut users = crate::auth::users_dao::MockUserDao::new();
+    users
+        .expect_list_bot_users_by_app_key()
+        .returning(move || Ok(bot_users.clone()));
+    Arc::new(UserDirectory::new(
+        Arc::new(users),
+        Arc::new(crate::auth::test_support::StubProviderTokens::default()),
+    ))
 }
 
 fn display_name(user: User) -> String {
@@ -143,7 +207,7 @@ pub struct HarnessTokens {
 }
 
 impl HarnessTokens {
-    pub fn new(tokens: Arc<dyn ProviderTokenDao>) -> Self {
+    pub(crate) fn new(tokens: Arc<dyn ProviderTokenDao>) -> Self {
         Self { tokens }
     }
 }

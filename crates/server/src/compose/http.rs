@@ -5,7 +5,7 @@ use crate::{
 };
 use axum::{Json, Router};
 use moatless_core::{config::Config, feature_flags::FeatureFlags};
-use moatless_identity::{auth, secret, team};
+use moatless_identity::{auth, secret};
 use moatless_loops::loops;
 use moatless_tasks::{agent, feedback, message, tag, task, task_event};
 use moatless_workspaces::{plugin, repository, skill, workspace};
@@ -27,7 +27,10 @@ pub(crate) fn domain_routes(app_state: &AppState) -> (Router, utoipa::openapi::O
         access_settings::routes::access_settings_router(app_state.clone()),
         adapters::routes::adapter_router(app_state.clone()),
         loops::http::loops_router(app_state.clone()),
-        team::routes::team_router(app_state.clone()),
+        moatless_identity::compose::team_router(
+            app_state.db.clone(),
+            app_state.token_verifier.clone(),
+        ),
         task_event::routes::task_event_router(app_state.clone()),
         plugin::routes::plugin_router(app_state.clone()),
         skill::routes::skill_router(app_state.clone()),
@@ -52,7 +55,6 @@ pub(crate) struct UiRpcInputs {
     pub observer: Arc<dyn sandbox::status_reader::SandboxStatusReader>,
     pub diagnostics: Arc<dyn moatless_ports::sandbox::ClusterDiagnostics>,
     pub ports: Arc<dyn moatless_ports::sandbox::SandboxPortPublisher>,
-    pub preview_tabs: Arc<dyn moatless_t3code::preview_tabs::PreviewTabDao>,
 }
 
 pub(crate) async fn ui_rpc(
@@ -61,50 +63,55 @@ pub(crate) async fn ui_rpc(
     app_state: &AppState,
     inputs: UiRpcInputs,
 ) -> Result<Option<moatless_t3code::UiRpc>, Box<dyn std::error::Error>> {
-    let ui_rpc_conversations = ports.ui_rpc_conversations.clone();
-    moatless_t3code::router_from_env(moatless_t3code::UiRpcDependencies {
-        session_cookie_name: config.auth.session_cookie_name.clone(),
-        session_jwt_secret: auth::jwt::get_jwt_secret(config).map(String::from),
-        pairing: ports.pairing.clone(),
-        workspaces: ui_rpc_conversations.clone(),
-        workspace_script_commands: Arc::new(t3code::backend::WorkspaceScripts(
-            app_state.workspaces.clone(),
-        )),
-        conversations: ui_rpc_conversations.clone(),
-        sandboxes: inputs.connector,
-        snapshots: inputs.snapshots,
-        observer: t3code::projection::contract_observer(
-            inputs.observer,
-            Some(ports.turn_counter.clone()),
-        ),
-        diagnostics: inputs.diagnostics,
-        ports: inputs.ports,
-        tasks: ui_rpc_conversations,
-        intent: app_state.sandbox.clone(),
-        starter: app_state.sandbox.clone(),
-        stopper: app_state.sandbox.clone(),
-        operator: app_state.sandbox.clone(),
-        preview_tabs: inputs.preview_tabs,
-        agents: Arc::new(t3code::backend::AppStateAgents(app_state.clone())),
-        branches: Arc::new(t3code::backend::AppStateBranches(app_state.clone())),
-        skills: Arc::new(t3code::backend::AppStateSkills(app_state.clone())),
-        relations: Arc::new(t3code::backend::AppStateTaskRelations(app_state.clone())),
-        pull_requests: Arc::new(t3code::backend::AppStateBoundPullRequests(
-            app_state.clone(),
-        )),
-        source_control_auth: Arc::new(t3code::backend::AppStateSourceControlAuth(
-            app_state.clone(),
-        )),
-        commands: Arc::new(t3code::backend::AppStateCommands(app_state.clone())),
-        attachments: Arc::new(t3code::backend::AppStateAttachments(app_state.clone())),
-        usage: Arc::new(moatless_t3code::PgUsageDao::new(app_state.db.clone())),
-        model_defaults: moatless_t3code::AgentModelDefaults {
-            claude_code: config.sandbox.default_model.clone(),
-            codex: config.sandbox.default_codex_model.clone(),
+    moatless_t3code::router_from_env(
+        &ports.t3_graph,
+        moatless_t3code::UiRpcDependencies {
+            session_cookie_name: config.auth.session_cookie_name.clone(),
+            session_jwt_secret: auth::jwt::get_jwt_secret(config).map(String::from),
+            pairing: ports.pairing.clone(),
+            workspace_script_commands: Arc::new(t3code::backend::WorkspaceScripts(
+                app_state.workspaces.clone(),
+            )),
+            sandboxes: inputs.connector,
+            snapshots: inputs.snapshots,
+            observer: t3code::projection::contract_observer(
+                inputs.observer,
+                Some(ports.turn_counter.clone()),
+            ),
+            diagnostics: inputs.diagnostics,
+            ports: inputs.ports,
+            intent: app_state.sandbox.clone(),
+            starter: app_state.sandbox.clone(),
+            stopper: app_state.sandbox.clone(),
+            operator: app_state.sandbox.clone(),
+            redis_url: config.redis.url.clone(),
+            preview_tab_ttl: moatless_t3code::preview_tabs::PreviewTabTtl(
+                std::time::Duration::from_secs(config.sandbox.idle_timeout_minutes * 60),
+            ),
+            agents: Arc::new(t3code::backend::AppStateAgents(app_state.clone())),
+            branches: Arc::new(t3code::backend::AppStateBranches(app_state.clone())),
+            skills: Arc::new(t3code::backend::AppStateSkills(app_state.clone())),
+            relations: Arc::new(t3code::backend::AppStateTaskRelations(app_state.clone())),
+            pull_requests: Arc::new(t3code::backend::AppStateBoundPullRequests(
+                app_state.clone(),
+                ports.t3_graph.reads().clone(),
+            )),
+            source_control_auth: Arc::new(t3code::backend::AppStateSourceControlAuth(
+                app_state.clone(),
+            )),
+            commands: Arc::new(t3code::backend::AppStateCommands(app_state.clone())),
+            attachments: Arc::new(t3code::backend::AppStateAttachments(
+                app_state.clone(),
+                ports.t3_graph.reads().clone(),
+            )),
+            model_defaults: moatless_t3code::AgentModelDefaults {
+                claude_code: config.sandbox.default_model.clone(),
+                codex: config.sandbox.default_codex_model.clone(),
+            },
+            otlp_traces_enabled: config.otel.otlp_endpoint.is_some(),
+            frontend_url: config.auth.frontend_url.clone(),
         },
-        otlp_traces_enabled: config.otel.otlp_endpoint.is_some(),
-        frontend_url: config.auth.frontend_url.clone(),
-    })
+    )
     .await
     .map_err(Into::into)
 }

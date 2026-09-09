@@ -5,10 +5,10 @@ use std::sync::Arc;
 use axum::Json;
 use axum::extract::{Path, Query, State};
 
-use super::dao::TaskEventDao;
 use super::error::TaskEventError;
+use super::operations::TaskEvents;
 use super::schemas::*;
-use crate::task::dao::TaskDao;
+use crate::task::operations::TaskCommands;
 use moatless_core::http_auth::AuthUser;
 
 /// List persisted events for a task.
@@ -26,8 +26,8 @@ use moatless_core::http_auth::AuthUser;
     )
 )]
 pub async fn list_task_events(
-    State(tasks): State<Arc<dyn TaskDao>>,
-    State(task_events): State<Arc<dyn TaskEventDao>>,
+    State(tasks): State<Arc<TaskCommands>>,
+    State(task_events): State<Arc<TaskEvents>>,
     auth: AuthUser,
     Path(task_id): Path<String>,
     Query(query): Query<ListTaskEventsQuery>,

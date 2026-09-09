@@ -3,22 +3,11 @@
 use async_trait::async_trait;
 use moatless_core::db::DbPool;
 
-/// A `task_forks` row: the fork, the Task it branched from, and the three
-/// anchors the delivery path hands the pod until the fork has a session of its
-/// own.
-#[derive(Debug, Clone, sqlx::FromRow)]
-pub struct TaskFork {
-    pub task_id: String,
-    pub source_task_id: String,
-    pub at_turn: Option<i32>,
-    pub source_session_id: String,
-    pub source_message_uuid: Option<String>,
-    pub source_agent_turn_id: Option<String>,
-}
+use super::models::TaskFork;
 
 #[cfg_attr(test, mockall::automock)]
 #[async_trait]
-pub trait TaskForkDao: Send + Sync {
+pub(crate) trait TaskForkDao: Send + Sync {
     async fn insert(&self, row: &TaskFork) -> Result<(), sqlx::Error>;
 
     /// The fork row for a Task, or `None` when the Task is not a fork — which
@@ -27,7 +16,7 @@ pub trait TaskForkDao: Send + Sync {
     async fn find(&self, task_id: &str) -> Result<Option<TaskFork>, sqlx::Error>;
 }
 
-pub struct PgTaskForkDao(pub DbPool);
+pub(crate) struct PgTaskForkDao(pub(crate) DbPool);
 
 #[async_trait]
 impl TaskForkDao for PgTaskForkDao {

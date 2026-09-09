@@ -1,8 +1,8 @@
+use super::audit::{SecretAuditDao, SecretAuditInput};
 use async_trait::async_trait;
 use moatless_core::db::DbPool;
-use super::audit::{SecretAuditDao, SecretAuditInput};
 
-pub struct PgSecretAuditDao(pub DbPool);
+pub(crate) struct PgSecretAuditDao(pub(crate) DbPool);
 
 #[async_trait]
 impl SecretAuditDao for PgSecretAuditDao {

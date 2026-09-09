@@ -18,9 +18,9 @@
 
 use std::sync::Arc;
 
-use moatless_adapter_model::dao::AdapterConnectionDao;
+use moatless_adapter_model::connections::ConnectionLookup;
 use moatless_adapter_model::loops::LoopReader;
-use moatless_loops::bindings::dao::TaskBindingDao;
+use moatless_loops::bindings::operations::Bindings;
 use moatless_loops::bindings::runtime::RoutingService;
 use moatless_ports::identity::ProviderIdentityLink;
 use moatless_ports::task::MessageAcceptor;
@@ -35,11 +35,11 @@ use super::adapter::GithubPrAdapter;
 /// downward ports the four delivery handlers read; see the module doc.
 pub struct GithubPrInboundRouter {
     /// Per-provider connection records — resolves a delivery to its connection.
-    pub(super) adapter_connections: Arc<dyn AdapterConnectionDao>,
+    pub(super) adapter_connections: Arc<dyn ConnectionLookup>,
     /// Subscription/trigger lookup — resolves a delivery to its trigger.
     pub(super) loops: Arc<dyn LoopReader>,
     /// Task↔subject bindings — selection, upsert, sibling guard, cursor bumps.
-    pub(super) task_bindings: Arc<dyn TaskBindingDao>,
+    pub(super) task_bindings: Arc<Bindings>,
     /// Resolves an inbound GitHub handle to the system user it belongs to.
     pub(super) users: Arc<dyn ProviderIdentityLink>,
     /// Generic fan-out + external-id aliasing.
@@ -70,9 +70,9 @@ impl GithubPrInboundRouter {
         reason = "the inbound-routing substrate is genuinely wide — twelve downward ports the four delivery handlers read. Bundling them into a sub-struct would only shuffle the same fields behind a one-use type; the width is paid once here at construction rather than threaded through register, the four delivery closures, and every handler, which is the whole point of a constructed-once service."
     )]
     pub fn new(
-        adapter_connections: Arc<dyn AdapterConnectionDao>,
+        adapter_connections: Arc<dyn ConnectionLookup>,
         loops: Arc<dyn LoopReader>,
-        task_bindings: Arc<dyn TaskBindingDao>,
+        task_bindings: Arc<Bindings>,
         users: Arc<dyn ProviderIdentityLink>,
         routing: Arc<RoutingService>,
         messages: Arc<dyn TranscriptAppend>,

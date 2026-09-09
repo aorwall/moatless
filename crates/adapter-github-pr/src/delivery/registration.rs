@@ -22,8 +22,6 @@
 use super::kind;
 use std::sync::Arc;
 
-use moatless_types::access_control::ScopeContext;
-
 use tracing::info;
 
 use moatless_adapter_model::delivery::{
@@ -97,14 +95,9 @@ impl DeliveryContext {
         &self,
         router: &GithubPrInboundRouter,
     ) -> Result<(AdapterConnection, Option<SubscriptionMatch>), AdapterDeliveryFailure> {
-        // reason: a durable Adapter delivery runs in the worker with no user
-        // session; the connection is named by an already-admitted record, not
-        // by caller input.
-        #[allow(clippy::disallowed_methods)]
-        let sys_ctx = ScopeContext::system();
         let connection = router
             .adapter_connections
-            .find_by_id(&self.connection_id, &sys_ctx)
+            .by_id_trusted(&self.connection_id)
             .await
             .map_err(AdapterDeliveryFailure::retryable)?
             .ok_or_else(|| {

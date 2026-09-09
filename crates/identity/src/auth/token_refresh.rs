@@ -9,8 +9,8 @@ use tracing::{info, warn};
 
 use crate::auth::error::AuthError;
 use crate::auth::github::service::GitHubAppService;
+use crate::auth::provider_token_auth_dao::ProviderTokenAuthDao;
 use crate::auth::provider_token_dao::ProviderTokenDao;
-use crate::auth::provider_tokens::ProviderTokenAuthDao;
 
 /// Ensure the GitHub token for a user is fresh.
 ///
@@ -88,7 +88,7 @@ pub async fn ensure_fresh_token_with_dao(
     let new_tokens = github_app_service.refresh_user_token(refresh_token).await?;
 
     let now = Utc::now();
-    let new_pt = crate::auth::provider_tokens::ProviderToken {
+    let new_pt = crate::auth::provider_token_auth_dao::ProviderToken {
         user_id: user_id.to_string(),
         provider: "github".to_string(),
         auth_method: "github_app".to_string(),

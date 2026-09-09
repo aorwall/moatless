@@ -9,7 +9,7 @@ use tracing::{debug, warn};
 use moatless_adapter_model::binding::BindingDestination;
 use moatless_adapter_model::binding::BindingProbe;
 use moatless_adapter_model::capabilities::Adapter;
-use moatless_adapter_model::dao::AdapterConnectionDao;
+use moatless_adapter_model::connections::ConnectionLookup;
 use moatless_adapter_model::delivery::DeliveryAdmission;
 use moatless_adapter_model::delivery::inbound_delivery_request;
 use moatless_adapter_model::error::AdapterError;
@@ -105,7 +105,7 @@ fn challenge(payload: &serde_json::Value) -> String {
 /// reads are the routing tables and the Binding index — no write, and nothing
 /// that outlives a rejected signature.
 async fn resolve(
-    adapter_connections: &dyn AdapterConnectionDao,
+    adapter_connections: &dyn ConnectionLookup,
     loops: &dyn LoopReader,
     task_bindings: &dyn BindingProbe,
     adapter: &SlackAdapter,
@@ -141,7 +141,7 @@ async fn resolve(
         .filter(|s| !s.is_empty())
         .unwrap_or("default");
     let Some((connection, subscription)) =
-        moatless_adapter_model::routing::resolve_chat_provider_event(
+        moatless_adapter_model::connections::resolve_chat_provider_event(
             adapter_connections,
             loops,
             "slack",
@@ -277,7 +277,7 @@ fn admission_event_id(payload: &serde_json::Value, msg: &InboundMessage) -> Stri
 
 /// Resolve, verify, normalize, apply, and durably admit one Slack webhook.
 pub(super) async fn receive(
-    adapter_connections: &dyn AdapterConnectionDao,
+    adapter_connections: &dyn ConnectionLookup,
     loops: &dyn LoopReader,
     task_bindings: &dyn BindingProbe,
     users: &dyn ProviderIdentityLink,
@@ -1112,8 +1112,6 @@ mod tests {
 mod characterization_db {
     use std::sync::Arc;
 
-    use moatless_identity::auth::provider_token_dao::PgProviderTokenDao;
-    use moatless_identity::auth::users::PgUserDao;
     use moatless_identity::ports::UserDirectory;
     use sqlx::PgPool;
 
@@ -1128,11 +1126,8 @@ mod characterization_db {
 
     /// The identity seam over a real pool — what the composition root hands
     /// the ingress.
-    fn users(pool: &PgPool) -> UserDirectory {
-        UserDirectory::new(
-            Arc::new(PgUserDao(pool.clone())),
-            Arc::new(PgProviderTokenDao(pool.clone())),
-        )
+    fn users(pool: &PgPool) -> Arc<UserDirectory> {
+        moatless_identity::compose::user_directory(pool.clone())
     }
 
     fn message(result: Result<Parsed, IngressError>) -> moatless_types::adapter::InboundMessage {
@@ -1179,7 +1174,7 @@ mod characterization_db {
             &adapter,
             &envelope(message_event()),
             &trigger(Some(serde_json::json!({"trigger": "all_messages"}))),
-            &users(&pool),
+            users(&pool).as_ref(),
             false,
         )
         .await;
@@ -1210,7 +1205,7 @@ mod characterization_db {
             &adapter,
             &envelope(message_event()),
             &trigger(Some(serde_json::json!({"trigger": "all_messages"}))),
-            &users(&pool),
+            users(&pool).as_ref(),
             false,
         )
         .await;
@@ -1245,7 +1240,7 @@ mod characterization_db {
                 &adapter,
                 &body,
                 &trigger(Some(serde_json::json!({"trigger": "all_messages"}))),
-                &users(&pool),
+                users(&pool).as_ref(),
                 false,
             )
             .await,
@@ -1315,7 +1310,7 @@ mod characterization_db {
                     "trigger": "all_messages",
                     "allow_bot_messages": true,
                 }))),
-                &users(&pool),
+                users(&pool).as_ref(),
                 false,
             )
             .await,
@@ -1345,11 +1340,21 @@ mod characterization_db {
 
         // `mention_only` is the default, and this message mentions nobody.
         assert_eq!(
-            ignored(parse(&adapter, &body, &trigger(None), &users(&pool), false).await),
+            ignored(
+                parse(
+                    &adapter,
+                    &body,
+                    &trigger(None),
+                    users(&pool).as_ref(),
+                    false
+                )
+                .await
+            ),
             "trigger_filter"
         );
 
-        let message = message(parse(&adapter, &body, &trigger(None), &users(&pool), true).await);
+        let message =
+            message(parse(&adapter, &body, &trigger(None), users(&pool).as_ref(), true).await);
         assert_eq!(message.user_id, OWNER);
         assert_eq!(
             message.adapter_context["is_bot_mentioned"],
@@ -1370,7 +1375,16 @@ mod characterization_db {
             "thread_ts": "1700000000.000100",
         }));
 
-        let message = message(parse(&adapter, &body, &trigger(None), &users(&pool), false).await);
+        let message = message(
+            parse(
+                &adapter,
+                &body,
+                &trigger(None),
+                users(&pool).as_ref(),
+                false,
+            )
+            .await,
+        );
         assert_eq!(message.source_id, "D1");
     }
 
@@ -1392,11 +1406,31 @@ mod characterization_db {
 
         let config = trigger(Some(serde_json::json!({"trigger": "all_messages"})));
         assert_eq!(
-            message(parse(&adapter, &with_blocks, &config, &users(&pool), false).await).text,
+            message(
+                parse(
+                    &adapter,
+                    &with_blocks,
+                    &config,
+                    users(&pool).as_ref(),
+                    false
+                )
+                .await
+            )
+            .text,
             "from blocks"
         );
         assert_eq!(
-            message(parse(&adapter, &with_attachments, &config, &users(&pool), false).await).text,
+            message(
+                parse(
+                    &adapter,
+                    &with_attachments,
+                    &config,
+                    users(&pool).as_ref(),
+                    false
+                )
+                .await
+            )
+            .text,
             "from attachments"
         );
     }
@@ -1414,7 +1448,7 @@ mod characterization_db {
                 &adapter,
                 &envelope(message_event()),
                 &trigger(Some(serde_json::json!({"trigger": "all_messages"}))),
-                &users(&pool),
+                users(&pool).as_ref(),
                 false,
             )
             .await,
@@ -1441,7 +1475,7 @@ mod characterization_db {
                 &adapter,
                 &envelope(message_event()),
                 &trigger(Some(serde_json::json!({"trigger": "all_messages"}))),
-                &users(&pool),
+                users(&pool).as_ref(),
                 false,
             )
             .await,
@@ -1475,7 +1509,7 @@ mod characterization_db {
             &adapter,
             &envelope(message_event()),
             &trigger(Some(serde_json::json!({"trigger": "all_messages"}))),
-            &users(&pool),
+            users(&pool).as_ref(),
             false,
         )
         .await;

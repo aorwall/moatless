@@ -2,17 +2,20 @@
 
 pub mod access;
 pub mod config_reader;
-pub mod dao;
+pub(crate) mod dao;
 pub mod error;
-pub mod handlers;
+pub(crate) mod handlers;
 pub mod models;
+pub mod operations;
 pub mod routes;
 pub mod schemas;
-pub mod seed;
+pub(crate) mod seed;
 
 pub mod branches;
-pub mod mutations;
+pub(crate) mod mutations;
 pub(crate) mod remote_url;
 
 pub mod secret_migration;
 mod secret_migration_dao;
+
+pub use operations::Repositories;

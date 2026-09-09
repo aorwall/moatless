@@ -22,7 +22,7 @@ use super::fetcher::{SkillFetcher, SkillLayout};
 use super::models::{Skill, SkillSource};
 use super::scanner;
 use super::schemas::SkillResponse;
-use crate::plugin::dao::PluginDao;
+use crate::plugin::Plugins;
 use crate::plugin::models::Plugin;
 use crate::plugin::sync::PluginSyncService;
 use crate::repository::dao::RepositoryDao;
@@ -37,7 +37,7 @@ use uuid::Uuid;
 pub struct SkillService {
     repositories: Arc<dyn RepositoryDao>,
     workspaces: Arc<dyn WorkspaceDao>,
-    plugins: Arc<dyn PluginDao>,
+    plugins: Arc<Plugins>,
     git_host_tokens: Arc<dyn GitHostTokenIssuer>,
     fetcher: Arc<dyn SkillFetcher>,
     plugin_sync: Arc<PluginSyncService>,
@@ -46,10 +46,10 @@ pub struct SkillService {
 
 impl SkillService {
     #[allow(clippy::too_many_arguments)]
-    pub fn new(
+    pub(crate) fn new(
         repositories: Arc<dyn RepositoryDao>,
         workspaces: Arc<dyn WorkspaceDao>,
-        plugins: Arc<dyn PluginDao>,
+        plugins: Arc<Plugins>,
         git_host_tokens: Arc<dyn GitHostTokenIssuer>,
         fetcher: Arc<dyn SkillFetcher>,
         plugin_sync: Arc<PluginSyncService>,
@@ -116,12 +116,9 @@ impl SkillService {
 
         // Whatever this caller's activation records give them in this
         // Workspace, in stable order from the DAO.
-        let resolved = crate::plugin::activation::resolve_for(
-            self.plugins.as_ref(),
-            Some(caller),
-            workspace_id,
-        )
-        .await?;
+        let resolved =
+            crate::plugin::activation::resolve_for(&self.plugins, Some(caller), workspace_id)
+                .await?;
         let mut from_plugins: Vec<(Vec<Skill>, Vec<String>)> = Vec::with_capacity(resolved.len());
         for (plugin, picked) in resolved {
             from_plugins.push((self.plugin_skills(&actor, &plugin).await?, picked.names));

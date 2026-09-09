@@ -7,8 +7,8 @@ use chrono::{DateTime, Utc};
 use sqlx::AssertSqlSafe;
 
 use super::models::{
-    CheckoutMode, SandboxDesiredState, SandboxIntentView, Task, TaskRow, TaskStatus, Visibility,
-    sandbox_intent_epoch,
+    CheckoutMode, SandboxDesiredState, SandboxIntentView, Task, TaskFilter, TaskPatch, TaskRow,
+    TaskStatus, Visibility, sandbox_intent_epoch,
 };
 use moatless_core::db::DbPool;
 use moatless_core::db_enum::decode_optional;
@@ -67,29 +67,14 @@ async fn load_sandbox_intent_views(
         .collect()
 }
 
-/// Filter struct for task listing queries.
-pub struct TaskFilter {
-    pub scope: ScopeContext,
-    pub limit: i64,
-    pub offset: i64,
-    pub status: Option<TaskStatus>,
-    /// Exclude tasks with this status (NULL = no exclusion). Complements `status`.
-    pub exclude_status: Option<TaskStatus>,
-    pub repository_id: Option<String>,
-    pub created_by: Option<String>,
-    pub tag: Option<String>,
-    /// When set, restrict results to tasks that have a `created_by` relation
-    /// pointing at this task id (i.e. children of this parent).
-    pub parent_task_id: Option<String>,
-    /// When set, restrict results to tasks this user follows (a row exists in
-    /// `task_follows`). Drives the personal sidebar list.
-    pub followed_by: Option<String>,
-}
-
 /// DAO trait for task persistence.
+///
+/// The mock the attribute generates inherits this trait's visibility, so it
+/// stays inside the crate. `test-support` is in the gate because
+/// [`super::test_support::ScriptedTasks`] builds on the mock for a host test.
 #[cfg_attr(any(test, feature = "test-support"), mockall::automock)]
 #[async_trait]
-pub trait TaskDao: Send + Sync {
+pub(crate) trait TaskDao: Send + Sync {
     /// Find by `task_id`, scoped to access control.
     async fn find_by_id(
         &self,
@@ -286,12 +271,12 @@ pub trait TaskDao: Send + Sync {
 }
 
 /// PostgreSQL implementation of [`TaskDao`].
-pub struct PgTaskDao {
+pub(crate) struct PgTaskDao {
     pool: DbPool,
 }
 
 impl PgTaskDao {
-    pub fn new(pool: DbPool) -> Self {
+    pub(crate) fn new(pool: DbPool) -> Self {
         Self { pool }
     }
 }
@@ -1369,7 +1354,7 @@ impl TaskDao for PgTaskDao {
 }
 
 /// Clear `settled_override`/`settled_at` for every follower of `task_id`.
-pub async fn clear_settled_for_all_followers(
+pub(crate) async fn clear_settled_for_all_followers(
     tx: &mut sqlx::PgConnection,
     task_id: &str,
 ) -> Result<(), sqlx::Error> {
@@ -1385,150 +1370,12 @@ pub async fn clear_settled_for_all_followers(
     .await?;
     Ok(())
 }
-/// Patch struct for partial task updates.
-#[derive(Default)]
-pub struct TaskPatch {
-    pub status: Option<TaskStatus>,
-    pub name: Option<String>,
-    pub branch: Option<String>,
-    pub description: Option<String>,
-    pub last_message_at: Option<String>,
-    pub total_cost_usd: Option<f64>,
-    pub site_url: Option<String>,
-    pub visibility: Option<Visibility>,
-    pub short_id: Option<String>,
-    pub model: Option<String>,
-    pub append_system_prompt: Option<Option<String>>,
-    pub ttl_minutes: Option<i32>,
-    pub inactive_ttl_days: Option<i32>,
-}
 
-impl TaskPatch {
-    /// Whether this patch moves anything a personal sidebar listing shows.
-    ///
-    /// The listed fields are the ones Decision 6 of the T3 shell projection spec
-    /// puts in the change feed: a conversation being closed or reopened, its
-    /// name or description, its visibility (which decides who may still read
-    /// it), and its expiry. The rest — the conversation clock, the running cost,
-    /// the site URL, the short id, the appended prompt, the disabled-server set
-    /// — are written by paths a sidebar does not follow, and the busiest of them
-    /// runs once per agent turn. Recording those would advance the deployment's
-    /// one position counter to move values no sidebar carries.
-    fn touches_listing(&self) -> bool {
-        self.status.is_some()
-            || self.name.is_some()
-            || self.description.is_some()
-            || self.visibility.is_some()
-            || self.ttl_minutes.is_some()
-            || self.inactive_ttl_days.is_some()
-    }
-}
-
-// =========================================================================
-// Free-function wrappers for integration tests
-// =========================================================================
-//
-// Integration tests in `tests/` call these as `task_dao::insert_task(&pool, &row)`.
-// Each wrapper constructs a `PgTaskDao` through [`store_over`] and delegates to
-// the trait method.
-
-/// The store over a pool.
-// `test` stays first so the census keeps scoring this as test-context; the
-// feature exposes it to the backend's integration tests.
+/// The store over a pool. Every fixture in [`crate::task::test_support`] builds
+/// on it.
 #[cfg(any(test, feature = "test-support"))]
-pub fn store_over(pool: &DbPool) -> PgTaskDao {
+pub(crate) fn store_over(pool: &DbPool) -> PgTaskDao {
     PgTaskDao::new(pool.clone())
-}
-
-/// Insert a task (convenience wrapper), creating `row.workspace_id` first when
-/// no such Workspace exists. A fixture names a Workspace it rarely seeds, and
-/// [`TaskDao::insert_task`] refuses a Task whose Workspace is absent. Use
-/// [`store_over`] directly to test that refusal.
-#[cfg(any(test, feature = "test-support"))]
-pub async fn insert_task(pool: &DbPool, row: &Task) -> Result<(), sqlx::Error> {
-    if let Some(workspace_id) = row.workspace_id.as_deref() {
-        sqlx::query(
-            "INSERT INTO workspaces (id, name, scope, owner_user_id) \
-             VALUES ($1, $1, 'user', $2) ON CONFLICT (id) DO NOTHING",
-        )
-        .bind(workspace_id)
-        .bind(row.owner_user_id.as_deref().or(row.created_by.as_deref()))
-        .execute(pool)
-        .await?;
-    }
-    store_over(pool).insert_task(row).await
-}
-
-/// Find by `task_id` scoped to access control (convenience wrapper).
-#[cfg(any(test, feature = "test-support"))]
-pub async fn find_by_id(
-    pool: &DbPool,
-    task_id: &str,
-    ctx: &ScopeContext,
-) -> Result<Option<Task>, sqlx::Error> {
-    store_over(pool).find_by_id(task_id, ctx).await
-}
-
-/// List tasks with individual filter arguments (convenience wrapper).
-#[cfg(any(test, feature = "test-support"))]
-#[allow(clippy::too_many_arguments)]
-pub async fn list_tasks(
-    pool: &DbPool,
-    ctx: &ScopeContext,
-    limit: i64,
-    offset: i64,
-    status: Option<TaskStatus>,
-    repository_id: Option<&str>,
-    created_by: Option<&str>,
-    tag: Option<&str>,
-    parent_task_id: Option<&str>,
-) -> Result<(Vec<Task>, i64), sqlx::Error> {
-    let filter = TaskFilter {
-        scope: ctx.clone(),
-        limit,
-        offset,
-        status,
-        exclude_status: None,
-        repository_id: repository_id.map(String::from),
-        created_by: created_by.map(String::from),
-        tag: tag.map(String::from),
-        parent_task_id: parent_task_id.map(String::from),
-        followed_by: None,
-    };
-    store_over(pool).list_tasks(&filter).await
-}
-
-/// Update task fields (convenience wrapper).
-#[cfg(any(test, feature = "test-support"))]
-pub async fn update_task(
-    pool: &DbPool,
-    task_id: &str,
-    patch: &TaskPatch,
-    ctx: &ScopeContext,
-) -> Result<bool, sqlx::Error> {
-    store_over(pool).update_task(task_id, patch, ctx).await
-}
-
-/// Recompute a task's total cost from its turn metrics (convenience wrapper).
-#[cfg(any(test, feature = "test-support"))]
-pub async fn recompute_total_cost(pool: &DbPool, task_id: &str) -> Result<(), sqlx::Error> {
-    store_over(pool).recompute_total_cost(task_id).await
-}
-
-/// Delete a task (convenience wrapper).
-#[cfg(any(test, feature = "test-support"))]
-pub async fn delete_task(
-    pool: &DbPool,
-    task_id: &str,
-    ctx: &ScopeContext,
-) -> Result<bool, sqlx::Error> {
-    store_over(pool).delete_task(task_id, ctx).await
-}
-
-/// Check if a task with the given `short_id` exists (convenience wrapper).
-#[cfg(any(test, feature = "test-support"))]
-pub async fn exists_by_short_id(pool: &DbPool, short_id: &str) -> Result<bool, sqlx::Error> {
-    store_over(pool).exists_by_short_id(short_id).await
 }
 
 #[cfg(all(test, feature = "db-tests"))]
@@ -1912,3 +1759,7 @@ mod tests {
         assert!(task_exists(&pool, "t1").await);
     }
 }
+
+#[cfg(all(test, feature = "db-tests"))]
+#[path = "dao_db_tests.rs"]
+mod dao_db_tests;

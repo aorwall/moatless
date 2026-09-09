@@ -32,7 +32,8 @@ use crate::repository::error::{RepositoryError, is_remote_url_conflict};
 use crate::repository::models::Repository;
 use crate::repository::remote_url::normalize_remote_url;
 use crate::workspace::config_validation::validate_non_secret_env_vars;
-use crate::workspace::dao::{WorkspaceDao, WorkspacePatch};
+use crate::workspace::dao::WorkspaceDao;
+use crate::workspace::models::WorkspacePatch;
 use crate::workspace::models::{Workspace, WorkspaceKind, WorkspaceRepo, WorkspaceSource};
 use moatless_api_schemas::workspace::{WorkspaceSyncSkip, WorkspaceSyncSummary};
 use moatless_core::db::DbPool;
@@ -176,7 +177,7 @@ pub struct GitSyncService {
 }
 
 impl GitSyncService {
-    pub fn new(
+    pub(crate) fn new(
         db: DbPool,
         workspaces: Arc<dyn WorkspaceDao>,
         repositories: Arc<dyn RepositoryDao>,
@@ -996,3 +997,7 @@ mod tests {
         assert!(!web.repos[0].primary);
     }
 }
+
+#[cfg(all(test, feature = "db-tests"))]
+#[path = "git_sync_db_tests.rs"]
+mod git_sync_db_tests;

@@ -3,16 +3,17 @@
 use moatless_types::access_control::ScopeContext;
 use moatless_types::workspace::ScriptConfig;
 
-use super::dao::WorkspaceDao;
 use super::error::WorkspaceScriptsError;
+use super::operations::Workspaces;
 
 /// Replace readable manual scripts while retaining environments by script name.
 pub async fn replace_scripts_preserving_env(
-    workspaces: &dyn WorkspaceDao,
+    workspaces: &Workspaces,
     viewer: &ScopeContext,
     workspace_id: &str,
     submitted: &[ScriptConfig],
 ) -> Result<(), WorkspaceScriptsError> {
+    let workspaces = workspaces.store();
     let target = workspaces
         .scripts_write_target(viewer, workspace_id)
         .await?
@@ -46,8 +47,15 @@ pub async fn replace_scripts_preserving_env(
 
 #[cfg(test)]
 mod tests {
-    use super::super::dao::{MockWorkspaceDao, WorkspaceScriptsTarget};
+    use super::super::dao::MockWorkspaceDao;
+    use super::super::models::WorkspaceScriptsTarget;
     use super::*;
+    use std::sync::Arc;
+
+    /// The operation handle over a steered store.
+    fn over(dao: MockWorkspaceDao) -> Workspaces {
+        Workspaces::new(Arc::new(dao))
+    }
 
     fn viewer() -> ScopeContext {
         ScopeContext {
@@ -92,7 +100,7 @@ mod tests {
                 ..Default::default()
             },
         ];
-        replace_scripts_preserving_env(&dao, &viewer(), "ws", &submitted)
+        replace_scripts_preserving_env(&over(dao), &viewer(), "ws", &submitted)
             .await
             .unwrap();
     }
@@ -107,7 +115,7 @@ mod tests {
             }))
         });
         assert!(matches!(
-            replace_scripts_preserving_env(&dao, &viewer(), "ws", &[]).await,
+            replace_scripts_preserving_env(&over(dao), &viewer(), "ws", &[]).await,
             Err(WorkspaceScriptsError::GitSynced)
         ));
     }
@@ -123,7 +131,7 @@ mod tests {
         });
         dao.expect_replace_scripts().returning(|_, _, _| Ok(false));
         assert!(matches!(
-            replace_scripts_preserving_env(&dao, &viewer(), "ws", &[]).await,
+            replace_scripts_preserving_env(&over(dao), &viewer(), "ws", &[]).await,
             Err(WorkspaceScriptsError::NotFound)
         ));
     }

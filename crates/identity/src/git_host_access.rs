@@ -152,7 +152,7 @@ pub struct GitHostAccess {
 }
 
 impl GitHostAccess {
-    pub fn new(
+    pub(crate) fn new(
         provider_tokens: Arc<dyn ProviderTokenDao>,
         secrets: Arc<SecretService>,
         validator: Arc<dyn GitHostTokenValidator>,

@@ -8,8 +8,9 @@ use uuid::Uuid;
 
 use super::super::github::user_credential;
 use super::super::models::{OAuthTokens, ProviderUserInfo};
-use super::super::provider_tokens::ProviderTokenAuthDao;
-use super::super::users::{User, UserDao};
+use super::super::provider_token_auth_dao::ProviderTokenAuthDao;
+use super::super::users::User;
+use super::super::users_dao::UserDao;
 use super::dao::{AuthenticatedSession, NewAuthSession, SessionDao};
 use moatless_types::user::UserRole;
 

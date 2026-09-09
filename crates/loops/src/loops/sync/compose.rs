@@ -3,7 +3,7 @@
 use super::fetcher::GitHubLoopFetcher;
 use super::reconcile::LoopSyncService;
 use crate::loops::dao::LoopDao;
-use moatless_adapter_model::dao::AdapterConnectionDao;
+use moatless_adapter_model::connections::ConnectionRouting;
 use moatless_ports::identity::GitHostTokenIssuer;
 use moatless_ports::task::TagResolver;
 use moatless_ports::workspace::WorkspaceResolver;
@@ -11,8 +11,8 @@ use std::sync::Arc;
 use tracing::warn;
 
 impl LoopSyncService {
-    pub fn new(
-        adapter_connections: Arc<dyn AdapterConnectionDao>,
+    pub(crate) fn new(
+        adapter_connections: Arc<ConnectionRouting>,
         loops: Arc<LoopDao>,
         tags: Arc<dyn TagResolver>,
         workspaces: Arc<dyn WorkspaceResolver>,

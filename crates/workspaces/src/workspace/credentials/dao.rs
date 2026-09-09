@@ -21,7 +21,7 @@ const CREDENTIAL_COLUMNS: &str = r#"id, workspace_id, provider,
     created_by, updated_by, created_at, updated_at"#;
 
 #[async_trait]
-pub trait WorkspaceCredentialDao: Send + Sync {
+pub(crate) trait WorkspaceCredentialDao: Send + Sync {
     /// Every credential pinned to a workspace, ordered by provider.
     async fn list(&self, workspace_id: &str) -> Result<Vec<WorkspaceCredential>, sqlx::Error>;
 
@@ -43,7 +43,7 @@ pub trait WorkspaceCredentialDao: Send + Sync {
     async fn delete(&self, workspace_id: &str, provider: &str) -> Result<bool, sqlx::Error>;
 }
 
-pub struct PgWorkspaceCredentialDao(pub DbPool);
+pub(crate) struct PgWorkspaceCredentialDao(pub(crate) DbPool);
 
 #[async_trait]
 impl WorkspaceCredentialDao for PgWorkspaceCredentialDao {

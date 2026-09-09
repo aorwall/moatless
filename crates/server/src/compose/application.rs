@@ -3,7 +3,7 @@
 use crate::adapter_installations::AdapterInstallations;
 use crate::adapters::self_echo::SelfEchoFilter;
 use crate::agent_harness_access::{AgentHarnessAccess, ProviderCodexDeviceLogin};
-use crate::app_administration::{AppAdministration, ProviderGitHubAppProver};
+use crate::app_administration::ProviderGitHubAppProver;
 use crate::compose::Ports;
 use crate::sandbox::join::ConnectorSandboxJoiner;
 use crate::sandbox::lifecycle::{Lifecycle, NotifyPort};
@@ -11,23 +11,15 @@ use crate::sandbox::preflight::{PreflightCredentials, RealGithubValidator, RealP
 use crate::state::AppState;
 use moatless_core::config::Config;
 use moatless_core::events::EventPublisher;
-use moatless_identity::git_host_access::{GitHostAccess, ProviderGitHostTokenValidator};
+use moatless_identity::adapter_apps::administration::AppAdministration;
+use moatless_identity::git_host_access::ProviderGitHostTokenValidator;
 use moatless_loops::bindings::recently_sent::RecentlySent;
-use moatless_loops::loops::sync::LoopSyncService;
+use moatless_loops::compose::{ExternalReplyInputs, OutboundSenderInputs, RoutingInputs};
 use moatless_ports::identity::GitHostTokenIssuer;
 use moatless_ports::sandbox::{PreflightPort, SandboxJoiner};
-use moatless_tasks::credential_sync::CredentialSync;
-use moatless_tasks::message::send::MessageSendService;
-use moatless_tasks::task::closer::TaskCloser;
-use moatless_tasks::task::creation::TaskCreationService;
-use moatless_tasks::task::fork::TaskForkService;
-use moatless_tasks::task::presenter::TaskPresenter;
-use moatless_workspaces::credentials::CredentialService;
-use moatless_workspaces::plugin::sync::PluginSyncService;
+use moatless_tasks::compose::{TaskOperations, TaskWorkflowInputs};
 use moatless_workspaces::skill::fetcher::GitHubSkillFetcher;
 use moatless_workspaces::skill::fetcher::SkillFetcher;
-use moatless_workspaces::skill::service::SkillService;
-use moatless_workspaces::workspace::git_sync::GitSyncService;
 use sandbox_proto::client::SandboxConnector;
 use std::sync::Arc;
 
@@ -52,7 +44,7 @@ impl AppState {
         connector: Arc<dyn SandboxConnector>,
         sandbox_notify: Arc<dyn NotifyPort>,
         events: Option<Arc<dyn EventPublisher>>,
-        s3: Option<crate::file_storage::s3::S3Storage>,
+        s3: Option<moatless_s3::S3Storage>,
         adapter_installations: Option<Arc<AdapterInstallations>>,
     ) -> Self {
         let Ports {
@@ -60,7 +52,8 @@ impl AppState {
             tasks,
             task_reader,
             task_relations,
-            task_forks,
+            task_graph,
+            loop_graph,
             task_bindings,
             binding_directory,
             task_events,
@@ -77,20 +70,18 @@ impl AppState {
             tags,
             tag_resolver,
             files,
-            teams,
             plugins,
             loops,
+            loop_reader,
             adapter_connections,
-            event_receipts,
-            ingress_outbox,
+            connection_routing,
             adapter_delivery,
-            users,
+            adapter_delivery_worker,
             user_directory,
-            provider_tokens,
+            credentials,
+            codex_http,
             harness_credentials,
             adapter_apps,
-            provider_token_auth,
-            secret_records,
             secrets,
             github_apps,
             github_app_service,
@@ -107,86 +98,33 @@ impl AppState {
             .as_ref()
             .map(|installations| installations.adapters());
 
-        // Shared HTTP client for Codex token refresh — kept warm across calls.
-        let codex_http = Arc::new(
-            reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(15))
-                .build()
-                .unwrap_or_else(|e| {
-                    tracing::warn!(
-                        error = %e,
-                        "Failed to build reqwest client for Codex refresh, falling back to default"
-                    );
-                    reqwest::Client::new()
-                }),
+        let repository_branches = moatless_workspaces::compose::repository_branches(
+            pool.clone(),
+            git_host_tokens.clone(),
+            credentials.clone(),
+            codex_http,
         );
-        let credentials_svc = Arc::new(
-            CredentialService::new(provider_tokens.clone())
-                .with_codex_refresh(codex_http.clone())
-                .with_secrets(secrets.clone()),
-        );
-        let repository_branches = Arc::new(
-            moatless_workspaces::repository::branches::RepositoryBranchService::new(
-                repositories.clone(),
-                workspaces.clone(),
-                git_host_tokens.clone(),
-                provider_tokens.clone(),
-                codex_http,
-            ),
-        );
-        // Tasks-band orchestrator (9c): the in-flight guard + sandbox fan-out
-        // that reach up out of the workspaces-band credential service.
-        let credential_sync = Arc::new(CredentialSync::new(
-            credentials_svc.clone(),
-            tasks.clone(),
+        // Tasks-band orchestrator: the in-flight guard + sandbox fan-out over
+        // the pure credential service.
+        let credential_sync = task_graph.credential_sync(
+            credentials.clone(),
             Arc::new(crate::sandbox::notify::CredentialBroadcastService::new(
                 connector.clone(),
             )),
-        ));
+        );
 
-        let git_sync = Arc::new(GitSyncService::new(
-            pool.clone(),
-            workspaces.clone(),
-            repositories.clone(),
-            git_host_tokens.clone(),
-        ));
+        let git_sync =
+            moatless_workspaces::compose::git_sync(pool.clone(), git_host_tokens.clone());
 
-        let loop_sync = Arc::new(LoopSyncService::new(
-            adapter_connections.clone(),
-            loops.clone(),
+        let loop_sync = loop_graph.loop_sync(
+            connection_routing.clone(),
             tag_resolver.clone(),
             workspace_resolver.clone(),
             git_host_tokens.clone(),
-        ));
+        );
 
         // Hoisted so the self-echo filter and the struct literal share one cache.
         let recently_sent = Arc::new(RecentlySent::new());
-        let message_send = Arc::new(MessageSendService::new(
-            messages.clone(),
-            tasks.clone(),
-            task_turns.clone(),
-            files.clone(),
-            Arc::new(SelfEchoFilter::new(recently_sent.clone(), adapters.clone())),
-        ));
-
-        let task_presenter = Arc::new(TaskPresenter::new(
-            tags.clone(),
-            repository_reader.clone(),
-            workspace_resolver.clone(),
-            user_directory.clone(),
-            binding_directory.clone(),
-            task_relations.clone(),
-            tasks.clone(),
-        ));
-
-        let task_closer = Arc::new(TaskCloser::new(
-            tasks.clone(),
-            task_relations.clone(),
-            config.clone(),
-            lifecycle.clone(),
-            binding_directory.clone(),
-            events.clone(),
-        ));
 
         let skill_http = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(30))
@@ -200,20 +138,18 @@ impl AppState {
                 reqwest::Client::new()
             });
         let skill_fetcher: Arc<dyn SkillFetcher> = Arc::new(GitHubSkillFetcher::new(skill_http));
-        let plugin_sync = Arc::new(PluginSyncService::new(
-            plugins.clone(),
+        let plugin_sync = moatless_workspaces::compose::plugin_sync(
+            pool.clone(),
             skill_fetcher.clone(),
             git_host_tokens.clone(),
-        ));
-        let skills = Arc::new(SkillService::new(
-            repositories.clone(),
-            workspaces.clone(),
-            plugins.clone(),
+        );
+        let skills = moatless_workspaces::compose::skills(
+            pool.clone(),
             git_host_tokens.clone(),
             skill_fetcher,
             plugin_sync.clone(),
             std::time::Duration::from_secs(config.skill.cache_ttl_secs),
-        ));
+        );
 
         // Wire GitHub-token preflight once here so every task-creation path
         // (HTTP, loops, adapters) runs the same check. Held on `AppState` as the
@@ -232,24 +168,33 @@ impl AppState {
 
         let sandbox_joiner: Arc<dyn SandboxJoiner> =
             Arc::new(ConnectorSandboxJoiner::new(connector.clone()));
-        let task_fork = Arc::new(TaskForkService::new(
-            tasks.clone(),
-            task_turns.clone(),
-            messages.clone(),
-            tags.clone(),
-        ));
-        let task_creation = Arc::new(TaskCreationService::new(
-            tasks.clone(),
-            tags.clone(),
-            task_relations.clone(),
-            task_forks.clone(),
-            repository_reader.clone(),
-            workspace_resolver.clone(),
-            events.clone(),
-            lifecycle.clone(),
-            sandbox_joiner,
-            preflight.clone(),
-        ));
+
+        // Durable admission is taken off the graph before `assemble` consumes
+        // it; the relay `app.rs` spawns is composed from the same handle.
+        let event_ingress = task_graph.event_ingress(events.clone());
+
+        // The tasks band assembles its own workflow services over the stores it
+        // owns; this process supplies the foreign ports they read.
+        let TaskOperations {
+            task_creation,
+            message_send,
+            task_closer,
+            task_presenter,
+            task_fork,
+        } = task_graph.assemble(TaskWorkflowInputs {
+            repository_reader: repository_reader.clone(),
+            workspace_resolver: workspace_resolver.clone(),
+            user_display: user_directory.clone(),
+            task_bindings: binding_directory.clone(),
+            sandbox: lifecycle.clone(),
+            starter: lifecycle.clone(),
+            joiner: sandbox_joiner,
+            preflight: preflight.clone(),
+            events: events.clone(),
+            files: files.clone(),
+            self_echo: Arc::new(SelfEchoFilter::new(recently_sent.clone(), adapters.clone())),
+            config: config.clone(),
+        });
 
         // Config-section ports, built once so a secret-bearing section is never
         // re-cloned per request. `config` still holds the whole tree for
@@ -259,22 +204,22 @@ impl AppState {
         let secrets_config = Arc::new(config.secrets.clone());
         let s3_config = Arc::new(config.s3.clone());
 
-        let git_host_access = Arc::new(GitHostAccess::new(
-            provider_tokens.clone(),
+        let git_host_access = moatless_identity::compose::git_host_access(
+            pool.clone(),
             secrets.clone(),
             Arc::new(ProviderGitHostTokenValidator::default()),
             config.auth.github_app_oauth().is_some(),
-        ));
+        );
         let agent_harness_access = Arc::new(AgentHarnessAccess::new(
-            provider_tokens.clone(),
+            credentials.clone(),
             credential_sync.clone(),
             codex_oauth_config.clone(),
             Arc::new(ProviderCodexDeviceLogin::default()),
-            users.clone(),
+            user_directory.clone(),
         ));
         let app_administration = Arc::new(AppAdministration::new(
             github_apps.clone(),
-            users.clone(),
+            user_directory.clone(),
             Arc::new(ProviderGitHubAppProver),
         ));
 
@@ -289,64 +234,53 @@ impl AppState {
 
         // The inbound-routing subgraph owns the ten ports it reads, so the
         // routing logic in `bindings/runtime.rs` names none of them through
-        // `AppState`. Built here from the ports the composition root already
-        // assembled; `event_receipts` moves in whole because nothing else on
-        // `AppState` reads it.
-        let routing = Arc::new(moatless_loops::bindings::runtime::RoutingService::new(
-            adapter_connections.clone(),
-            loops.clone(),
-            task_bindings.clone(),
-            transcript.clone(),
-            task_reader.clone(),
-            task_creation.clone(),
-            message_send.clone(),
-            event_receipts,
-            sandbox_waker.clone(),
-            adapters.clone(),
-        ));
+        // `AppState`. The loops band supplies the Binding, Loop and receipt
+        // stores; this process supplies the foreign ports.
+        let routing = loop_graph.routing(RoutingInputs {
+            adapter_connections: connection_routing.clone(),
+            messages: transcript.clone(),
+            tasks: task_reader.clone(),
+            task_creation: task_creation.clone(),
+            message_send: message_send.clone(),
+            sandbox_waker: sandbox_waker.clone(),
+            adapters: adapters.clone(),
+        });
 
         // Outbound reply delivery owns the ports its send path reads. The
         // `OutboundSender` is built here and handed to `ExternalReplyService`
         // (the SelfEchoFilter/RoutingService pattern), so neither struct's
         // constructor takes more than the ports it holds and neither names
         // `AppState`.
-        let outbound_sender = Arc::new(moatless_loops::bindings::outbound::OutboundSender::new(
-            task_bindings.clone(),
-            adapter_connections.clone(),
-            loops.clone(),
-            task_reader.clone(),
-            recently_sent.clone(),
-            transcript.clone(),
-            turn_counter.clone(),
-            s3.clone(),
-            auth_config.clone(),
-            s3_config.clone(),
-            files.clone(),
-            workspace_resolver.clone(),
-            user_directory.clone(),
-        ));
-        let external_reply = Arc::new(moatless_loops::bindings::reply::ExternalReplyService::new(
-            adapters.clone(),
-            task_bindings.clone(),
-            adapter_connections.clone(),
-            transcript.clone(),
-            task_reader.clone(),
-            loops.clone(),
-            recently_sent.clone(),
-            turn_counter.clone(),
-            outbound_sender,
-        ));
+        let outbound_sender = loop_graph.outbound_sender(OutboundSenderInputs {
+            adapter_connections: connection_routing.clone(),
+            tasks: task_reader.clone(),
+            recently_sent: recently_sent.clone(),
+            messages: transcript.clone(),
+            task_turns: turn_counter.clone(),
+            auth_config: auth_config.clone(),
+            files: files.clone(),
+            workspaces: workspace_resolver.clone(),
+            users: user_directory.clone(),
+        });
+        let external_reply = loop_graph.external_reply(ExternalReplyInputs {
+            adapters: adapters.clone(),
+            adapter_connections: adapter_connections.clone(),
+            connection_routing: connection_routing.clone(),
+            messages: transcript.clone(),
+            tasks: task_reader.clone(),
+            recently_sent: recently_sent.clone(),
+            task_turns: turn_counter.clone(),
+            outbound: outbound_sender,
+        });
 
         let adapter_commands = Arc::new(crate::adapters::operations::AdapterCommands {
             adapter_connections: adapter_connections.clone(),
             adapters: adapters.clone(),
             task_reader: task_reader.clone(),
-            s3: s3.clone(),
-            s3_config: s3_config.clone(),
             files: files.clone(),
             external_reply: external_reply.clone(),
             task_bindings: task_bindings.clone(),
-            users: users.clone(),
+            users: user_directory.clone(),
         });
 
         Self {
@@ -356,16 +290,16 @@ impl AppState {
             task_creation,
             task_fork,
             preflight,
-            relation_recorder: Arc::new(moatless_tasks::ports::TaskRelations::new(
-                task_relations.clone(),
-            )),
+            relation_recorder: task_relations.clone(),
             task_relations,
             task_bindings,
             binding_directory,
             adapter_connections,
+            connection_routing,
             routing,
             external_reply,
             loops,
+            loop_reader,
             messages,
             transcript,
             feedback,
@@ -376,17 +310,13 @@ impl AppState {
             tags,
             tag_resolver,
             files,
-            users,
             user_directory,
-            provider_tokens,
+            credentials,
             harness_credentials,
             adapter_apps,
-            provider_token_auth,
-            secret_records,
             secrets,
-            teams,
             task_events,
-            ingress_outbox,
+            event_ingress,
             task_turns,
             turn_counter,
             plugins,
@@ -401,6 +331,7 @@ impl AppState {
             task_closer,
             skills,
             adapter_delivery,
+            adapter_delivery_worker,
             db: pool,
             config,
             auth_config,

@@ -9,13 +9,12 @@ use moatless_api_schemas::task_connections::{
     Connection, GetTaskConnectionsQuery, ListTaskConnectionsQuery, TaskConnectionsResponse,
 };
 use moatless_core::http_auth::AuthUser;
-use moatless_identity::auth::users::UserDao;
-use moatless_loops::bindings::dao::TaskBindingDao;
+use moatless_loops::bindings::operations::Bindings;
+use moatless_ports::identity::UserDisplay;
+use moatless_ports::workspace::RepositoryReader;
 use moatless_tasks::{
-    message::dao::MessageDao,
-    task::{dao::TaskDao, error::TaskError},
+    message::operations::Messages, task::error::TaskError, task::operations::TaskCommands,
 };
-use moatless_workspaces::repository::dao::RepositoryDao;
 use std::sync::Arc;
 
 /// List tasks with their external connections, statuses, and message counts.
@@ -34,11 +33,11 @@ use std::sync::Arc;
     reason = "HTTP extractors supply the six read ports assembled into TaskConnectionReads"
 )]
 pub async fn list_task_connections(
-    State(tasks): State<Arc<dyn TaskDao>>,
-    State(users): State<Arc<dyn UserDao>>,
-    State(repositories): State<Arc<dyn RepositoryDao>>,
-    State(task_bindings): State<Arc<dyn TaskBindingDao>>,
-    State(messages): State<Arc<dyn MessageDao>>,
+    State(tasks): State<Arc<TaskCommands>>,
+    State(users): State<Arc<dyn UserDisplay>>,
+    State(repositories): State<Arc<dyn RepositoryReader>>,
+    State(task_bindings): State<Arc<Bindings>>,
+    State(messages): State<Arc<Messages>>,
     State(adapters): State<Option<Arc<Adapters>>>,
     auth: AuthUser,
     Query(query): Query<ListTaskConnectionsQuery>,
@@ -75,9 +74,9 @@ pub async fn list_task_connections(
     )
 )]
 pub async fn get_task_connections(
-    State(tasks): State<Arc<dyn TaskDao>>,
-    State(task_bindings): State<Arc<dyn TaskBindingDao>>,
-    State(messages): State<Arc<dyn MessageDao>>,
+    State(tasks): State<Arc<TaskCommands>>,
+    State(task_bindings): State<Arc<Bindings>>,
+    State(messages): State<Arc<Messages>>,
     State(adapters): State<Option<Arc<Adapters>>>,
     auth: AuthUser,
     Path(task_id): Path<String>,

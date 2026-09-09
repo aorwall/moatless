@@ -15,7 +15,7 @@ use crate::task::schemas::{FileContextData, MessageContextInput};
 use crate::task_activities::dao::Activity;
 use crate::task_activities::mapping::{ActivityKind, ActivityStatus};
 use crate::task_activities::view::ActivityView;
-use moatless_core::file_storage::models::FileMetadata;
+use moatless_core::file_storage::FileInfo;
 
 use super::schemas::*;
 
@@ -80,7 +80,7 @@ pub fn transform_to_ui_with_files(
     messages: &[TaskMessage],
     contexts: &[TaskMessageContext],
     activities: &[Activity],
-    file_metadata: &HashMap<String, FileMetadata>,
+    file_metadata: &HashMap<String, FileInfo>,
 ) -> Vec<UiMessage> {
     transform_scoped(
         messages,
@@ -183,7 +183,7 @@ fn transform_scoped(
     messages: &[TaskMessage],
     contexts: &[TaskMessageContext],
     activities: &[Activity],
-    file_metadata: &HashMap<String, FileMetadata>,
+    file_metadata: &HashMap<String, FileInfo>,
     scope: RenderScope<'_>,
 ) -> Vec<UiMessage> {
     // Group contexts by message ID
@@ -398,7 +398,7 @@ pub(crate) fn inject_subagent_summaries(
 fn build_user_contexts(
     msg: &TaskMessage,
     rows: &[&TaskMessageContext],
-    file_metadata: &HashMap<String, FileMetadata>,
+    file_metadata: &HashMap<String, FileInfo>,
 ) -> Vec<MessageContextInput> {
     if !rows.is_empty() {
         return rows
@@ -501,7 +501,7 @@ fn transform_assistant(msg: &TaskMessage, activities: &[&Activity], is_last: boo
 fn transform_user(
     msg: &TaskMessage,
     context_rows: &[&TaskMessageContext],
-    file_metadata: &HashMap<String, FileMetadata>,
+    file_metadata: &HashMap<String, FileInfo>,
 ) -> UiMessage {
     // A message is "queued" until the agent confirms receipt via session_init.
     // sent_at is set together with session_id when the agent session starts.
@@ -1068,15 +1068,11 @@ mod tests {
         let mut file_metadata = HashMap::new();
         file_metadata.insert(
             "abc".to_string(),
-            FileMetadata {
+            FileInfo {
                 file_id: "abc".to_string(),
                 filename: "legacy.txt".to_string(),
                 mime_type: "text/plain".to_string(),
                 size: 7,
-                scope: moatless_types::access_control::Scope::User,
-                owner_user_id: Some("user-1".to_string()),
-                created_by: Some("user-1".to_string()),
-                uploaded_at: chrono::Utc::now(),
             },
         );
 

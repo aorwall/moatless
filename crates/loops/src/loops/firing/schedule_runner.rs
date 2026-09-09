@@ -9,6 +9,8 @@ use tracing::{debug, error, info, warn};
 
 use crate::loops::dao::LoopDao;
 use crate::loops::firing::metrics::record_schedule_firing;
+use crate::loops::models::LoopSpawnConfig;
+use crate::loops::models::Schedule;
 use crate::loops::schedule::next_fire_at;
 use moatless_adapter_model::capabilities::AdapterInboundPresentation;
 use moatless_adapter_model::registry::Adapters;
@@ -21,8 +23,6 @@ use moatless_ports::task::{
 use moatless_types::access_control::ScopeContext;
 use moatless_types::adapter::{AdapterKind, Audience, InboundMessage, SCHEDULED_ORIGIN};
 use moatless_types::loops::LoopContext;
-use crate::loops::models::LoopSpawnConfig;
-use crate::loops::models::Schedule;
 use moatless_types::task::TaskStatus;
 
 /// Always prepended to the `append_system_prompt` of a task a schedule fires,
@@ -60,7 +60,7 @@ pub struct ScheduleRunner {
 
 impl ScheduleRunner {
     /// Assemble the runner from the ports it fires schedules through.
-    pub fn new(
+    pub(crate) fn new(
         loops: Arc<LoopDao>,
         tasks: Arc<dyn TaskReader>,
         message_send: Arc<dyn MessageAcceptor>,

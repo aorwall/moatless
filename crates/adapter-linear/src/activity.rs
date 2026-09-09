@@ -31,10 +31,10 @@ use std::sync::Arc;
 use tracing::{debug, warn};
 
 use moatless_adapter_model::apps::AdapterAppReader;
-use moatless_loops::bindings::dao::TaskBindingDao;
+use moatless_loops::bindings::operations::Bindings;
 use moatless_ports::identity::AppCredentials;
 
-use moatless_adapter_model::dao::AdapterConnectionDao;
+use moatless_adapter_model::connections::ConnectionLookup;
 use moatless_ports::task::TranscriptAppend;
 
 use super::agent_api::LinearAgentApi;
@@ -49,8 +49,8 @@ pub use super::agent_api::ActivityKind;
 /// silently without bubbling errors into the event-handler hot path.
 async fn resolve_linear_sessions_for_task(
     app_tokens: &Arc<dyn AppCredentials>,
-    task_bindings: &dyn TaskBindingDao,
-    adapter_connections: &dyn AdapterConnectionDao,
+    task_bindings: &Bindings,
+    adapter_connections: &dyn ConnectionLookup,
     apps: &dyn AdapterAppReader,
     task_id: &str,
 ) -> Vec<(LinearAgentApi, String)> {
@@ -102,8 +102,8 @@ async fn resolve_linear_sessions_for_task(
 )]
 pub async fn notify_linear_status(
     app_tokens: Arc<dyn AppCredentials>,
-    task_bindings: Arc<dyn TaskBindingDao>,
-    adapter_connections: Arc<dyn AdapterConnectionDao>,
+    task_bindings: Arc<Bindings>,
+    adapter_connections: Arc<dyn ConnectionLookup>,
     apps: Arc<dyn AdapterAppReader>,
     task_id: String,
     kind: ActivityKind,
@@ -145,8 +145,8 @@ pub async fn notify_linear_status(
 )]
 pub async fn notify_linear_action(
     app_tokens: Arc<dyn AppCredentials>,
-    task_bindings: Arc<dyn TaskBindingDao>,
-    adapter_connections: Arc<dyn AdapterConnectionDao>,
+    task_bindings: Arc<Bindings>,
+    adapter_connections: Arc<dyn ConnectionLookup>,
     apps: Arc<dyn AdapterAppReader>,
     task_id: String,
     action: String,
@@ -196,8 +196,8 @@ pub async fn notify_linear_action(
 /// - `text` blocks shorter than 4 chars after trim (Claude connector tokens).
 pub async fn notify_linear_message_activities(
     app_tokens: Arc<dyn AppCredentials>,
-    task_bindings: Arc<dyn TaskBindingDao>,
-    adapter_connections: Arc<dyn AdapterConnectionDao>,
+    task_bindings: Arc<Bindings>,
+    adapter_connections: Arc<dyn ConnectionLookup>,
     apps: Arc<dyn AdapterAppReader>,
     task_id: String,
     message: serde_json::Value,
@@ -290,8 +290,8 @@ pub async fn notify_linear_message_activities(
 /// Fire-and-forget: any DB or GraphQL failure is logged and swallowed.
 pub async fn notify_linear_tool_results(
     app_tokens: Arc<dyn AppCredentials>,
-    task_bindings: Arc<dyn TaskBindingDao>,
-    adapter_connections: Arc<dyn AdapterConnectionDao>,
+    task_bindings: Arc<Bindings>,
+    adapter_connections: Arc<dyn ConnectionLookup>,
     apps: Arc<dyn AdapterAppReader>,
     messages: Arc<dyn TranscriptAppend>,
     task_id: String,

@@ -19,7 +19,7 @@ use moatless_core::config::Config;
 
 use moatless_adapter_model::error::AdapterError;
 use moatless_adapter_model::loops::LoopReader;
-use moatless_loops::bindings::dao::TaskBindingDao;
+use moatless_loops::bindings::operations::Bindings;
 use moatless_ports::task::TaskFinisher;
 use moatless_ports::task::TaskReader;
 use moatless_types::adapter::AdapterConnection;
@@ -44,7 +44,7 @@ use super::webhook_payloads::AppUserNotificationData;
               single AppState it used to carry"
 )]
 pub(super) async fn handle_issue_status_notification(
-    task_bindings: &dyn TaskBindingDao,
+    task_bindings: &Bindings,
     tasks: &dyn TaskReader,
     config: &Config,
     task_closer: &dyn TaskFinisher,

@@ -1,16 +1,15 @@
 use crate::config::AgentModelDefaults;
 use crate::config::UiRpcConfig;
-use crate::dao::ConversationDao;
 use crate::listing::UiRpcEnvironmentIdentity;
 use crate::observability;
 use crate::ports;
 use crate::preview::PreviewState;
+use crate::reads::T3Reads;
 use crate::sandbox::SandboxState;
 use crate::scripts::ScriptsState;
 use crate::servers::ServersState;
 use crate::subtasks::SubtasksState;
 use crate::terminal;
-use crate::workspace_dao::T3WorkspaceDao;
 use moatless_identity::auth::pairing::DevicePairing;
 use moatless_ports::sandbox::WorkspaceSnapshotSource;
 use sandbox_proto::client::SandboxConnector;
@@ -36,9 +35,9 @@ pub(crate) struct UiRpcState {
     /// Turns a pairing code into the token a client on another device keeps.
     /// The issuing half lives with the rest of the account routes.
     pub(crate) pairing: Arc<DevicePairing>,
-    pub(crate) workspaces: Arc<dyn T3WorkspaceDao>,
+    /// Every scoped read this surface answers from.
+    pub(crate) reads: T3Reads,
     pub(crate) workspace_script_commands: Arc<dyn ports::WorkspaceScriptCommands>,
-    pub(crate) conversations: Arc<dyn ConversationDao>,
     /// How a conversation's files are reached. The only piece of Moatless
     /// behind this module that is not a database read: a checkout exists inside
     /// its Sandbox and nowhere else.
@@ -51,7 +50,7 @@ pub(crate) struct UiRpcState {
     /// reaches *into* a Sandbox; this only observes one from outside.
     pub(crate) servers: ServersState,
     /// Running a Workspace's declared Scripts: reads the scripts and publishes a
-    /// script's port. The terminal it runs in is reached through `conversations`,
+    /// script's port. The terminal it runs in is reached through `reads`,
     /// `sandboxes` and `terminal`, the same handles `terminal.open` uses.
     pub(crate) scripts: ScriptsState,
     /// What a Task's Sandbox lifecycle is doing, and lifecycle commands.
