@@ -29,6 +29,7 @@ use moatless_tasks::task::operations::TaskCommands;
 use moatless_tasks::task::service as task_service;
 use moatless_types::adapter::TaskBinding;
 use moatless_types::store::StoreError;
+use moatless_types::task::Visibility;
 use moatless_workspaces::repository::error::RepositoryError;
 
 pub struct AppStateAgents(pub AppState);
@@ -1244,6 +1245,47 @@ impl ThreadCommandSink for AppStateCommands {
                 task_id: task_id.to_string(),
             });
         }
+        Ok(())
+    }
+
+    async fn set_visibility(
+        &self,
+        viewer: &ScopeContext,
+        task_id: &str,
+        visibility: Visibility,
+    ) -> Result<(), CommandRefusal> {
+        let patch = TaskPatch {
+            visibility: Some(visibility),
+            ..Default::default()
+        };
+        let updated = self
+            .0
+            .tasks
+            .update_task(task_id, &patch, viewer)
+            .await
+            .map_err(|error| {
+                tracing::warn!(%error, task_id, "T3 visibility update failed");
+                CommandRefusal::Failed {
+                    message: "Could not change that thread's visibility.".to_string(),
+                }
+            })?;
+        // Same clean `false` as `update_meta`, and the same reason for turning
+        // it into a refusal.
+        if !updated {
+            return Err(CommandRefusal::NotWritable {
+                task_id: task_id.to_string(),
+            });
+        }
+        // `info!`, matching the HTTP twin in `tasks::task::handlers`: the
+        // transition opens the Task's Sandbox to every signed-in viewer, and
+        // which surface it was made from must not decide whether it is
+        // recorded. `orchestration_dispatch_command` logs refusals only.
+        tracing::info!(
+            task_id,
+            user_id = %viewer.user_id,
+            %visibility,
+            "Task visibility updated from T3"
+        );
         Ok(())
     }
 

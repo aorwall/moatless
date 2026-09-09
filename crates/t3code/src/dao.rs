@@ -40,7 +40,7 @@ use moatless_types::activity::{Activity, PLAN_TOOL, QUESTION_TOOL};
 use moatless_types::agent::AgentType;
 use moatless_types::message::{MessageRole, MessageType};
 use moatless_types::sandbox::{SandboxDesiredState, SandboxStopReason};
-use moatless_types::task::TaskStatus;
+use moatless_types::task::{TaskStatus, Visibility};
 
 /// One Task, with the derived values a sidebar row is assembled from.
 #[derive(Debug, Clone, sqlx::FromRow)]
@@ -63,6 +63,9 @@ pub struct Conversation {
     /// When this Task was closed. `None` while it is open, which is every row
     /// the live listing returns.
     pub closed_at: Option<DateTime<Utc>>,
+    /// Who may read this Task. `NOT NULL`, defaulting to `Private`.
+    #[sqlx(try_from = "String")]
+    pub visibility: Visibility,
 
     /// The newest Turn, by turn number. `None` when the Task has never run.
     pub turn_number: Option<i32>,
@@ -778,6 +781,7 @@ impl PgConversationDao {
                    t.created_at_db,
                    t.updated_at,
                    t.closed_at,
+                   t.visibility,
                    turn.turn_number,
                    turn.status                AS turn_status,
                    turn.started_at            AS turn_started_at,

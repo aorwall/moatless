@@ -159,6 +159,7 @@ mod tests {
             created_at_db: None,
             updated_at: None,
             closed_at: None,
+            visibility: moatless_types::task::Visibility::Private,
             turn_number: None,
             turn_status: None,
             turn_started_at: None,

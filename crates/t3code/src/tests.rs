@@ -604,6 +604,14 @@ impl ports::ThreadCommandSink for UnreachableCommands {
     ) -> Result<(), ports::CommandRefusal> {
         unreachable!("no test in this file changes an idle timeout")
     }
+    async fn set_visibility(
+        &self,
+        _viewer: &ScopeContext,
+        _task_id: &str,
+        _visibility: moatless_types::task::Visibility,
+    ) -> Result<(), ports::CommandRefusal> {
+        unreachable!("no test in this file changes visibility")
+    }
     async fn archive(
         &self,
         _viewer: &ScopeContext,

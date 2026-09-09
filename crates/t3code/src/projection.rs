@@ -805,7 +805,8 @@ fn conversation_row(
             .map_or(Value::Null, |value| Value::String(value.to_string())),
         "settledAt": nullable_instant(conversation.settled_at),
         "snoozedUntil": nullable_instant(conversation.snoozed_until),
-        "snoozedAt": nullable_instant(conversation.snoozed_at)
+        "snoozedAt": nullable_instant(conversation.snoozed_at),
+        "visibility": conversation.visibility.as_str()
     }) else {
         unreachable!("a json! object literal is an object")
     };
@@ -2077,6 +2078,7 @@ mod tests {
         "backgroundLiveness",
         "linkedPullRequest",
         "linkedPullRequests",
+        "visibility",
     ];
     const THREAD_NON_EMPTY: &[&str] = &["id", "projectId", "title"];
 
@@ -2166,6 +2168,7 @@ mod tests {
             created_at_db: Some(Utc::now()),
             updated_at: Some(Utc::now()),
             closed_at: None,
+            visibility: moatless_types::task::Visibility::Private,
             turn_number: None,
             turn_status: None,
             turn_started_at: None,
@@ -2287,6 +2290,30 @@ mod tests {
         assert_eq!(shell["settledAt"], json!("2026-07-02T09:00:00.000Z"));
         assert_eq!(shell["snoozedUntil"], json!("2026-07-03T09:00:00.000Z"));
         assert_eq!(shell["snoozedAt"], json!("2026-07-02T10:00:00.000Z"));
+    }
+
+    #[test]
+    fn shell_and_detail_rows_carry_the_task_visibility() {
+        let conversation = Conversation {
+            visibility: moatless_types::task::Visibility::Public,
+            ..running_conversation("task-a", "ws-a")
+        };
+        let detail = thread_detail(
+            &conversation,
+            "ws-a",
+            &AgentModelDefaults::default(),
+            &transcript(Vec::new(), Vec::new()),
+            &OriginContext {
+                frontend_url: "http://localhost:3000",
+                source_task_names: &HashMap::new(),
+            },
+        );
+        assert_eq!(one_thread(&conversation)["visibility"], json!("public"));
+        assert_eq!(detail["visibility"], json!("public"));
+        assert_eq!(
+            one_thread(&running_conversation("task-b", "ws-a"))["visibility"],
+            json!("private")
+        );
     }
 
     #[test]
@@ -2981,6 +3008,7 @@ mod tests {
         "proposedPlans",
         "linkedPullRequest",
         "linkedPullRequests",
+        "visibility",
     ];
 
     // `OrchestrationMessage` (`:227-236`).

@@ -455,6 +455,7 @@ mod tests {
             created_at_db: None,
             updated_at: None,
             closed_at: None,
+            visibility: moatless_types::task::Visibility::Private,
             turn_number: None,
             turn_status: None,
             turn_started_at: None,
@@ -534,6 +535,14 @@ mod tests {
             _minutes: i32,
         ) -> Result<(), crate::ports::CommandRefusal> {
             unreachable!("a git action never changes an idle timeout")
+        }
+        async fn set_visibility(
+            &self,
+            _viewer: &ScopeContext,
+            _task_id: &str,
+            _visibility: moatless_types::task::Visibility,
+        ) -> Result<(), crate::ports::CommandRefusal> {
+            unreachable!("a git action never changes visibility")
         }
         async fn archive(
             &self,
@@ -642,6 +651,14 @@ mod tests {
             _viewer: &ScopeContext,
             _task_id: &str,
             _minutes: i32,
+        ) -> Result<(), crate::ports::CommandRefusal> {
+            unreachable!()
+        }
+        async fn set_visibility(
+            &self,
+            _viewer: &ScopeContext,
+            _task_id: &str,
+            _visibility: moatless_types::task::Visibility,
         ) -> Result<(), crate::ports::CommandRefusal> {
             unreachable!()
         }

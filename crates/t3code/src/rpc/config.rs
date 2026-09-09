@@ -25,6 +25,11 @@ pub(crate) fn descriptor(config: &UiRpcConfig) -> Value {
             "connectionProbe": true,
             "threadSettlement": true,
             "threadSnooze": true,
+            // Whether `thread.visibility.set` is understood, and whether a
+            // conversation row carries `visibility`. One flag for the pair: a
+            // client that cannot read the current value has nothing to label
+            // the control with.
+            "threadVisibility": true,
             // Whether `thread.user-input.respond` is understood. A client
             // cannot otherwise tell this server from one that refuses it, and
             // the descriptor is read before any thread is opened.

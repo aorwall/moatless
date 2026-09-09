@@ -14,7 +14,7 @@ use moatless_api_schemas::agent::AgentDescriptor;
 use moatless_api_schemas::repository::BranchListResponse;
 use moatless_types::access_control::ScopeContext;
 use moatless_types::store::StoreError;
-use moatless_types::task::TaskRelationType;
+use moatless_types::task::{TaskRelationType, Visibility};
 use uuid::Uuid;
 
 use moatless_types::agent::AgentMode;
@@ -575,6 +575,19 @@ pub trait ThreadCommandSink: Send + Sync {
         viewer: &ScopeContext,
         task_id: &str,
         minutes: i32,
+    ) -> Result<(), CommandRefusal>;
+
+    /// Set who may reach this thread. `Public` grants every signed-in viewer
+    /// read *and* control — turns, terminal, scripts, sandbox start and stop —
+    /// see [`moatless_types::access_control::ScopeContext::can_control`].
+    /// `Private` returns it to the grants its scope and owner already carry.
+    /// Changing the level is itself a write, so this refuses `NotWritable` for
+    /// everyone but the owner.
+    async fn set_visibility(
+        &self,
+        viewer: &ScopeContext,
+        task_id: &str,
+        visibility: Visibility,
     ) -> Result<(), CommandRefusal>;
 
     /// Archive a thread, which in Moatless is closing the Task: the row leaves

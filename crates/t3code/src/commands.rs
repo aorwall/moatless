@@ -32,6 +32,7 @@ use crate::scripts::{self, ScriptsWriteError};
 use crate::skills;
 use moatless_types::activity as mapping;
 use moatless_types::agent::AgentMode;
+use moatless_types::task::Visibility;
 use uuid::Uuid;
 
 /// What the surface needs in order to answer a command.
@@ -106,6 +107,19 @@ pub async fn dispatch(
         }
         "thread.unsnooze" => {
             ctx.sink.unsnooze(viewer, thread_id(command)?).await?;
+        }
+        "thread.visibility.set" => {
+            let visibility = command
+                .get("visibility")
+                .and_then(Value::as_str)
+                .ok_or_else(|| missing("visibility"))?;
+            let visibility =
+                Visibility::try_from(visibility).map_err(|_| CommandRefusal::Rejected {
+                    message: format!("`{visibility}` is not a visibility."),
+                })?;
+            ctx.sink
+                .set_visibility(viewer, thread_id(command)?, visibility)
+                .await?;
         }
         "thread.user-input.respond" => respond(ctx, viewer, command).await?,
 
@@ -988,6 +1002,10 @@ mod tests {
         Unsnooze {
             task_id: String,
         },
+        SetVisibility {
+            task_id: String,
+            visibility: Visibility,
+        },
         AnswerQuestion {
             task_id: String,
             tool_use_id: String,
@@ -1176,6 +1194,18 @@ mod tests {
             });
             Ok(())
         }
+        async fn set_visibility(
+            &self,
+            _viewer: &ScopeContext,
+            task_id: &str,
+            visibility: Visibility,
+        ) -> Result<(), CommandRefusal> {
+            self.0.lock().unwrap().push(Call::SetVisibility {
+                task_id: task_id.to_string(),
+                visibility,
+            });
+            Ok(())
+        }
         async fn answer_question(
             &self,
             _viewer: &ScopeContext,
@@ -1253,6 +1283,7 @@ mod tests {
             created_at_db: None,
             updated_at: None,
             closed_at: None,
+            visibility: Visibility::Private,
             turn_number: None,
             turn_status: None,
             turn_started_at: None,
@@ -2274,6 +2305,49 @@ mod tests {
         let (result, calls) = run(command).await;
         assert!(matches!(result, Err(CommandRefusal::Rejected { .. })));
         assert!(calls.is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_visibility_change_reaches_the_sink_typed() {
+        for value in ["public", "private"] {
+            let command = json!({
+                "type": "thread.visibility.set",
+                "commandId": "cmd-1",
+                "threadId": "task-1",
+                "visibility": value,
+            });
+            let (result, calls) = run(command).await;
+            assert!(result.is_ok(), "{value}");
+            assert_eq!(
+                calls,
+                vec![Call::SetVisibility {
+                    task_id: "task-1".to_string(),
+                    visibility: Visibility::try_from(value).unwrap(),
+                }],
+                "{value}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn a_visibility_change_rejects_an_unknown_level_before_any_write() {
+        for command in [
+            json!({
+                "type": "thread.visibility.set",
+                "commandId": "cmd-1",
+                "threadId": "task-1",
+            }),
+            json!({
+                "type": "thread.visibility.set",
+                "commandId": "cmd-1",
+                "threadId": "task-1",
+                "visibility": "secret",
+            }),
+        ] {
+            let (result, calls) = run(command).await;
+            assert!(matches!(result, Err(CommandRefusal::Rejected { .. })));
+            assert!(calls.is_empty());
+        }
     }
 
     #[tokio::test]
