@@ -494,17 +494,38 @@ fn issue_transition_resource_id(envelope: &LinearWebhookEnvelope) -> Option<Stri
     Some(format!("{issue_id}:{transition_id}"))
 }
 
-pub(crate) fn issue_state_transition_id(envelope: &LinearWebhookEnvelope) -> Option<String> {
-    let data = envelope.data.as_ref()?;
-    let previous_state_id = envelope
+/// Whether the envelope describes a move between workflow states.
+///
+/// `updatedFrom` is Linear's diff of the fields that changed, so `stateId` is
+/// present only when the issue moved. Every other `Issue`/`update` — a title, a
+/// description, a label, an assignee — is a delivery this adapter has no work
+/// for. [`handle_issue_update`](crate::issues::handle_issue_update) no-ops on
+/// the same two fields.
+pub(crate) fn is_issue_state_change(envelope: &LinearWebhookEnvelope) -> bool {
+    previous_state_id(envelope).is_some() && new_state_id(envelope).is_some()
+}
+
+fn previous_state_id(envelope: &LinearWebhookEnvelope) -> Option<&str> {
+    envelope
         .updated_from
         .as_ref()
         .and_then(|v| v.get("stateId"))
-        .and_then(serde_json::Value::as_str)?;
-    let new_state_id = data
-        .get("state")
+        .and_then(serde_json::Value::as_str)
+}
+
+fn new_state_id(envelope: &LinearWebhookEnvelope) -> Option<&str> {
+    envelope
+        .data
+        .as_ref()
+        .and_then(|v| v.get("state"))
         .and_then(|v| v.get("id"))
-        .and_then(serde_json::Value::as_str)?;
+        .and_then(serde_json::Value::as_str)
+}
+
+pub(crate) fn issue_state_transition_id(envelope: &LinearWebhookEnvelope) -> Option<String> {
+    let data = envelope.data.as_ref()?;
+    let previous_state_id = previous_state_id(envelope)?;
+    let new_state_id = new_state_id(envelope)?;
     let event_clock = data
         .get("updatedAt")
         .and_then(serde_json::Value::as_str)
@@ -800,7 +821,7 @@ mod tests {
     /// plan's Decision 4 names it. The list is a contract from the day it
     /// ships: a rename silently zeroes whatever counted it.
     #[test]
-    fn the_seven_ignore_reasons_are_spelled_as_the_contract_names_them() {
+    fn the_ignore_reasons_are_spelled_as_the_contract_names_them() {
         let reasons = [
             reason::NO_SIGNATURE,
             reason::NO_CONNECTION,
@@ -809,6 +830,7 @@ mod tests {
             reason::MALFORMED_PAYLOAD,
             reason::NO_SUBSCRIPTION,
             reason::EMPTY_BODY,
+            reason::NOT_A_STATE_CHANGE,
         ];
         assert_eq!(
             reasons,
@@ -820,6 +842,7 @@ mod tests {
                 "malformed_payload",
                 "no_subscription",
                 "empty_body",
+                "not_a_state_change",
             ]
         );
     }

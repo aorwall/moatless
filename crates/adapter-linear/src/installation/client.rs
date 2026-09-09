@@ -17,8 +17,22 @@ const LINEAR_GRAPHQL_URL: &str = "https://api.linear.app/graphql";
 /// Scopes requested for the workspace install.
 ///
 /// `app:assignable` + `app:mentionable` enable the Agents UX. `read` /
-/// `write` give the agent permission to read/write workspace content.
-const LINEAR_OAUTH_SCOPE: &str = "read,write,app:assignable,app:mentionable";
+/// `write` give the agent permission to read/write workspace content,
+/// documents included — Linear has no separate document scope.
+///
+/// `initiative:*` and `customer:*` are carved out of `read`/`write` rather
+/// than covered by them: without the carve-out every query against those
+/// entities fails `FORBIDDEN`. Both halves of the initiative pair are named
+/// because Linear documents `:write` as implying `:read`, and this does not
+/// rely on that.
+///
+/// `admin` is unavailable here: Linear refuses it for an `actor=app` install.
+///
+/// A token carries the scopes it was minted with, so adding one here only
+/// takes effect for an install that re-runs `/api/v1/auth/linear/install`.
+/// The scope must also be enabled on the Linear app's own settings page.
+const LINEAR_OAUTH_SCOPE: &str = "read,write,app:assignable,app:mentionable,\
+     initiative:read,initiative:write,customer:read";
 
 #[derive(Clone)]
 pub struct LinearOAuthProvider {
@@ -235,5 +249,43 @@ impl OAuthProvider for LinearOAuthProvider {
             name: identity.agent_viewer_name,
             avatar_url: None,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::LINEAR_OAUTH_SCOPE;
+
+    /// The constant is written across two source lines. A `\` continuation
+    /// that lost its trailing backslash would put a newline and the source
+    /// indent inside the `scope` query parameter, and Linear would reject the
+    /// authorize call for a scope it cannot parse.
+    #[test]
+    fn the_scope_list_is_comma_separated_with_no_whitespace() {
+        assert!(
+            !LINEAR_OAUTH_SCOPE.contains(char::is_whitespace),
+            "scope carries whitespace: {LINEAR_OAUTH_SCOPE:?}"
+        );
+        assert!(LINEAR_OAUTH_SCOPE.split(',').all(|s| !s.is_empty()));
+    }
+
+    /// Every scope the install depends on, named so dropping one is a test
+    /// failure rather than a `FORBIDDEN` in production. `admin` is absent by
+    /// rule: Linear refuses it for an `actor=app` install.
+    #[test]
+    fn the_scope_list_carries_every_scope_the_workspace_install_needs() {
+        let scopes: Vec<&str> = LINEAR_OAUTH_SCOPE.split(',').collect();
+        for expected in [
+            "read",
+            "write",
+            "app:assignable",
+            "app:mentionable",
+            "initiative:read",
+            "initiative:write",
+            "customer:read",
+        ] {
+            assert!(scopes.contains(&expected), "missing {expected}");
+        }
+        assert!(!scopes.contains(&"admin"));
     }
 }

@@ -20,3 +20,7 @@ pub const MALFORMED_PAYLOAD: &str = "malformed_payload";
 pub const NO_SUBSCRIPTION: &str = "no_subscription";
 /// A prompt carrying no body, or no activity to carry one.
 pub const EMPTY_BODY: &str = "empty_body";
+/// An `Issue`/`update` that did not move the issue between workflow states —
+/// a title, a description, a label, an assignee. Linear sends one for every
+/// field, and this Adapter acts on the state only.
+pub const NOT_A_STATE_CHANGE: &str = "not_a_state_change";

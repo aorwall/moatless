@@ -202,14 +202,21 @@ fn issue_event(
         });
     }
 
+    // Settled before the identity below it: an update that moved no state is
+    // ordinary Linear traffic with no work behind it, and refusing one as
+    // unidentifiable would 400 every title and label edit in the workspace.
+    if !super::ingress::is_issue_state_change(envelope) {
+        return Ok(Plan::Ignored {
+            reason: reason::NOT_A_STATE_CHANGE,
+        });
+    }
+
     // The issue-state notification is deduped on the semantic transition, not
     // the webhook attempt. Linear can deliver the same issue mutation twice
     // with different webhook timestamps, so `updatedAt` is the preferred clock
     // and `webhookTimestamp` is only the fallback.
     let Some(transition_id) = super::ingress::issue_state_transition_id(envelope) else {
-        return Err(IngressError::Unidentifiable(
-            "updatedFrom.stateId, data.state.id, and updatedAt or webhookTimestamp",
-        ));
+        return Err(IngressError::Unidentifiable("updatedAt or webhookTimestamp"));
     };
 
     Ok(admit(super::delivery::issue_update_request(
@@ -450,6 +457,39 @@ mod tests {
         }
     }
 
+    /// Regression: Linear sends `Issue`/`update` for every field it stores,
+    /// and `updatedFrom` names only the fields that changed. Requiring
+    /// `updatedFrom.stateId` to build the identity refused each one with a
+    /// `400`, so a workspace editing titles and labels filled its Linear
+    /// webhook log with delivery failures for traffic there was no work behind.
+    #[test]
+    fn an_issue_update_that_moved_no_state_is_ignored_rather_than_refused() {
+        for changed in [
+            serde_json::json!({"title": "Old title"}),
+            serde_json::json!({"description": "old"}),
+            serde_json::json!({"labelIds": []}),
+            serde_json::json!({"assigneeId": null}),
+            serde_json::json!({"priority": 2}),
+        ] {
+            let mut raw = issue("update");
+            raw["updatedFrom"] = changed.clone();
+            assert_eq!(
+                ignored(raw),
+                reason::NOT_A_STATE_CHANGE,
+                "updatedFrom {changed} is not a state change"
+            );
+        }
+    }
+
+    /// The other half: a real move is still admitted.
+    #[test]
+    fn an_issue_update_that_moved_state_is_still_admitted() {
+        assert_eq!(
+            admitted(issue("update")).0,
+            vec![super::super::delivery::ISSUE_UPDATE]
+        );
+    }
+
     // ---- the reasons, one real path each ----
 
     #[test]
@@ -535,9 +575,7 @@ mod tests {
         assert!(
             matches!(
                 error,
-                IngressError::Unidentifiable(
-                    "updatedFrom.stateId, data.state.id, and updatedAt or webhookTimestamp"
-                )
+                IngressError::Unidentifiable("updatedAt or webhookTimestamp")
             ),
             "got {error:?}"
         );
