@@ -224,7 +224,11 @@ mod tests {
 
     fn registry() -> Arc<CommandRegistry> {
         let dir = std::env::temp_dir().join(format!("bgwatch-{}", uuid::Uuid::new_v4()));
-        Arc::new(CommandRegistry::new(Duration::from_mins(1), dir))
+        Arc::new(CommandRegistry::new(
+            Duration::from_mins(1),
+            dir,
+            "task-1".to_string(),
+        ))
     }
 
     fn context(injected: &Arc<Mutex<Vec<String>>>) -> JobContext {

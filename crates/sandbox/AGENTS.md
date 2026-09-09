@@ -92,6 +92,26 @@ Each loss cause has its own counter, and each calls for a different response:
   uses, and that `report_wake_notes` falls back to, then picks the session back
   up with its context.
 
+## Spawning a child process
+
+Give every child process this sandbox spawns for a Member that Member's
+`TASK_ID`, and overwrite whatever the caller supplied. The pod's own `TASK_ID`
+is written once at creation and names the Member that started it, so a shared
+sandbox would otherwise run the second Member's `moat gh pr create` against the
+first Member's Task. `TASK_ID` is in `RESERVED_SECRET_KEYS`, so this is an
+`insert` and not the `or_insert` that `CLAUDE_ENV_DEFAULTS` uses.
+
+Three sites spawn for a Member and stamp. `init::workspace::run_setup_command`
+is the fourth spawn and stamps nothing: init runs only for the pod's initial
+Member, whose pod `TASK_ID` already names it.
+`agent::coordinator::build_input` stamps the
+`Input::env` that every harness layers over the inherited environment.
+`CommandRegistry::run` stamps the `bash -lc` child, and takes the Task as a
+constructor argument so no registry can be built without one.
+`terminal::runtime::spawn_terminal` applies whatever env the request carried,
+and `moatless_t3code::terminal` stamps it there, after the Task the caller is
+authorized for is resolved.
+
 ## Writing files inside the pod
 
 `init/` writes nothing into a checkout under `WORKSPACE_DIR`. A file it creates

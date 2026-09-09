@@ -342,6 +342,7 @@ fn spawn_test_agent_in(
     let commands = Arc::new(moatless_sandbox::commands::CommandRegistry::new(
         std::time::Duration::from_mins(1),
         std::env::temp_dir().join("moat-cmd-it"),
+        "task-1".to_string(),
     ));
 
     let handle = spawn_agent(

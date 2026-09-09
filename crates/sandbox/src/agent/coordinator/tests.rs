@@ -1262,6 +1262,61 @@ fn recording_publisher_with_cancel(
     (GrpcEventPublisher::new(outbox), received, cancel)
 }
 
+/// Stamped per Member; see `crates/sandbox/AGENTS.md` "Spawning a child process".
+#[tokio::test]
+async fn coordinator_service_submits_this_members_task_id_to_the_harness() {
+    let cancel = CancellationToken::new();
+    let config = {
+        let mut c = minimal_config();
+        c.task_id = "fork-task".to_string();
+        c.agent_type = Some("claude-code".to_string());
+        Arc::new(c)
+    };
+    let agent_state = Arc::new(AgentState::new());
+    let recorder: Arc<tokio::sync::Mutex<Vec<Input>>> =
+        Arc::new(tokio::sync::Mutex::new(Vec::new()));
+
+    let script = Script::new(vec![
+        Step::SessionReady(SessionId("sess-1".to_string())),
+        Step::AcceptInput,
+        Step::Completed,
+    ]);
+    let (tx, _received, _events) = service_with_harness(
+        Harness::scripted_recording(script, Arc::clone(&recorder)),
+        Arc::clone(&config),
+        Arc::clone(&agent_state),
+        cancel.clone(),
+    );
+
+    let (ack_tx, _ack_rx) = oneshot::channel();
+    tx.send(AgentCommand::Send {
+        text: "do the thing".to_string(),
+        model: None,
+        agent_mode: None,
+        effort: None,
+        resume_session_id: None,
+        start_fresh: false,
+        fork: None,
+        ack: ack_tx,
+    })
+    .expect("channel open");
+
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    let env = loop {
+        if let Some(input) = recorder.lock().await.first() {
+            break input.env.clone().expect("input carries an environment");
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "no input reached the harness within 5 s"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    };
+
+    assert_eq!(env.get("TASK_ID").map(String::as_str), Some("fork-task"));
+    cancel.cancel();
+}
+
 /// Drive a Submit through a successful scripted execution and assert that
 /// `agent_state.status()` ends `Idle` and a `completed` event was published.
 #[tokio::test]

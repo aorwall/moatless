@@ -401,6 +401,7 @@ mod tests {
         let commands = Arc::new(CommandRegistry::new(
             Duration::from_mins(1),
             std::env::temp_dir().join(format!("sched-{}", uuid::Uuid::new_v4())),
+            "task-1".to_string(),
         ));
         commands
             .run(CommandSpec {

@@ -323,17 +323,21 @@ pub struct CommandRegistry {
     entries: Arc<RwLock<HashMap<String, Entry>>>,
     default_timeout: Duration,
     log_dir: PathBuf,
+    task_id: String,
     journal: Option<Journal>,
     row_mirror: Option<UnreportedMirror>,
     liveness: Option<LivenessReporter>,
 }
 
 impl CommandRegistry {
-    pub fn new(default_timeout: Duration, log_dir: PathBuf) -> Self {
+    /// `task_id` is the Member this registry belongs to; see
+    /// `crates/sandbox/AGENTS.md` "Spawning a child process".
+    pub fn new(default_timeout: Duration, log_dir: PathBuf, task_id: String) -> Self {
         Self {
             entries: Arc::new(RwLock::new(HashMap::new())),
             default_timeout,
             log_dir,
+            task_id,
             journal: None,
             row_mirror: None,
             liveness: None,
@@ -342,8 +346,11 @@ impl CommandRegistry {
 
     /// Report the running-command count to the backend on every change, so a
     /// Task whose turn ended with a build still running does not read as idle.
-    pub fn with_liveness(mut self, publisher: GrpcEventPublisher, task_id: String) -> Self {
-        self.liveness = Some(LivenessReporter { publisher, task_id });
+    pub fn with_liveness(mut self, publisher: GrpcEventPublisher) -> Self {
+        self.liveness = Some(LivenessReporter {
+            publisher,
+            task_id: self.task_id.clone(),
+        });
         self
     }
 
@@ -374,10 +381,10 @@ impl CommandRegistry {
 
     /// Mirror the same commands to a row, which a failed workspace restore does
     /// not take with it. See [`UnreportedMirror`].
-    pub fn with_backend_mirror(mut self, client: Arc<dyn BackendClient>, task_id: String) -> Self {
+    pub fn with_backend_mirror(mut self, client: Arc<dyn BackendClient>) -> Self {
         self.row_mirror = Some(UnreportedMirror {
             client,
-            task_id,
+            task_id: self.task_id.clone(),
             // Seeded from the clock, not from zero: `take_unreported_commands` leaves
             // the prior pod's revision on the row, so a counter that restarted
             // would lose the backend's `<` guard until it caught up — silently
@@ -416,6 +423,7 @@ impl CommandRegistry {
             .stdin(Stdio::null())
             .stdout(Stdio::from(log))
             .stderr(Stdio::from(log_err))
+            .env("TASK_ID", &self.task_id)
             .kill_on_drop(false);
         if let Some(cwd) = &spec.cwd {
             cmd.current_dir(cwd);
@@ -487,6 +495,7 @@ impl CommandRegistry {
         Self::new(
             Duration::from_mins(1),
             std::env::temp_dir().join(format!("moat-cmd-fixture-{}", short_id())),
+            "test-task".to_string(),
         )
     }
 
@@ -787,7 +796,7 @@ mod tests {
 
     fn registry(timeout: Duration) -> CommandRegistry {
         let dir = std::env::temp_dir().join(format!("moat-cmd-test-{}", short_id()));
-        CommandRegistry::new(timeout, dir)
+        CommandRegistry::new(timeout, dir, "task-1".to_string())
     }
 
     /// A registry whose liveness reports land in the returned backend, so a
@@ -808,8 +817,8 @@ mod tests {
             cancel.clone(),
         );
         let dir = std::env::temp_dir().join(format!("moat-cmd-live-{}", short_id()));
-        let reg = CommandRegistry::new(timeout, dir)
-            .with_liveness(GrpcEventPublisher::new(outbox), "task-1".to_string());
+        let reg = CommandRegistry::new(timeout, dir, "task-1".to_string())
+            .with_liveness(GrpcEventPublisher::new(outbox));
         (reg, backend, cancel)
     }
 
@@ -851,7 +860,7 @@ mod tests {
         std::fs::create_dir_all(&dir).expect("journal dir");
         let path = dir.join(".moat-commands.json");
         (
-            CommandRegistry::new(timeout, dir).with_journal(path.clone()),
+            CommandRegistry::new(timeout, dir, "task-1".to_string()).with_journal(path.clone()),
             path,
         )
     }
@@ -872,6 +881,30 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
         panic!("command never reached a terminal state");
+    }
+
+    /// Stamped per Member; see `crates/sandbox/AGENTS.md` "Spawning a child process".
+    #[tokio::test]
+    async fn a_command_sees_the_registrys_own_task_id() {
+        let dir = std::env::temp_dir().join(format!("moat-cmd-env-{}", short_id()));
+        let reg = CommandRegistry::new(Duration::from_mins(1), dir, "fork-task".to_string());
+
+        let cmd = reg
+            .run(CommandSpec {
+                command: "printf %s \"$TASK_ID\"".into(),
+                cwd: None,
+                timeout: None,
+                label: None,
+            })
+            .await
+            .expect("spawn");
+        let done = wait_terminal(&reg, &cmd.id).await;
+        assert_eq!(done.exit_code, Some(0));
+
+        let log = tokio::fs::read_to_string(&cmd.log_path)
+            .await
+            .expect("command log");
+        assert_eq!(log.trim(), "fork-task", "log was {log:?}");
     }
 
     #[tokio::test]
@@ -1191,8 +1224,8 @@ mod tests {
         let backend = Arc::new(crate::events::test_backend::CapturingBackend::default());
         let dir = std::env::temp_dir().join(format!("moat-cmd-mirror-{}", short_id()));
         let start = unix_now_ms();
-        let reg = CommandRegistry::new(Duration::from_mins(1), dir)
-            .with_backend_mirror(Arc::clone(&backend) as Arc<dyn BackendClient>, "t1".into());
+        let reg = CommandRegistry::new(Duration::from_mins(1), dir, "t1".to_string())
+            .with_backend_mirror(Arc::clone(&backend) as Arc<dyn BackendClient>);
 
         let cmd = reg
             .run(CommandSpec {

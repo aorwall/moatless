@@ -234,7 +234,7 @@ pub async fn open_reporting_new_process(
     viewer: &ScopeContext,
     payload: &Value,
 ) -> Result<(Value, bool), TerminalError> {
-    let request = TerminalOpenRequest {
+    let mut request = TerminalOpenRequest {
         thread_id: required_string(payload, "threadId")?.to_string(),
         terminal_id: required_string(payload, "terminalId")?.to_string(),
         cwd: required_string(payload, "cwd")?.to_string(),
@@ -244,6 +244,7 @@ pub async fn open_reporting_new_process(
         env: optional_env(payload)?,
     };
     let task_id = workspace::controlled_conversation(conversations, viewer, &request.cwd).await?;
+    stamp_task_id(&mut request.env, &task_id);
     let client = sandboxes
         .sandbox_client(&task_id)
         .await
@@ -288,7 +289,7 @@ pub async fn attach(
         .sandbox_client(&task_id)
         .await
         .map_err(as_not_running)?;
-    let request = TerminalAttachRequest {
+    let mut request = TerminalAttachRequest {
         thread_id,
         terminal_id: required_string(payload, "terminalId")?.to_string(),
         cwd: optional_string(payload, "cwd")?,
@@ -301,6 +302,7 @@ pub async fn attach(
             .and_then(Value::as_bool)
             .unwrap_or(false),
     };
+    stamp_task_id(&mut request.env, &task_id);
     client
         .terminal_attach(request)
         .await
@@ -384,7 +386,7 @@ pub async fn restart(
     viewer: &ScopeContext,
     payload: &Value,
 ) -> Result<Value, TerminalError> {
-    let request = TerminalRestartRequest {
+    let mut request = TerminalRestartRequest {
         thread_id: required_string(payload, "threadId")?.to_string(),
         terminal_id: required_string(payload, "terminalId")?.to_string(),
         cwd: required_string(payload, "cwd")?.to_string(),
@@ -394,6 +396,7 @@ pub async fn restart(
         env: optional_env(payload)?,
     };
     let task_id = workspace::controlled_conversation(conversations, viewer, &request.cwd).await?;
+    stamp_task_id(&mut request.env, &task_id);
     let client = sandboxes
         .sandbox_client(&task_id)
         .await
@@ -704,6 +707,13 @@ fn optional_env(payload: &Value) -> Result<HashMap<String, String>, TerminalErro
         .collect()
 }
 
+/// Export the Task this terminal was authorized against as `TASK_ID`.
+///
+/// Stamped per Member; see `crates/sandbox/AGENTS.md` "Spawning a child process".
+fn stamp_task_id(env: &mut HashMap<String, String>, task_id: &str) {
+    env.insert("TASK_ID".to_string(), task_id.to_string());
+}
+
 fn terminal_snapshot(snapshot: &TerminalSessionSnapshot) -> Value {
     json!({
         "threadId": snapshot.thread_id,
@@ -864,6 +874,19 @@ mod tests {
         let previous = terminal_summary(&running_snapshot(1111));
 
         assert!(snapshot_is_new_process(Some(&previous), &snapshot));
+    }
+
+    #[test]
+    fn stamp_task_id_replaces_a_client_supplied_task_id() {
+        let mut env = HashMap::from([
+            ("TASK_ID".to_string(), "parent-task".to_string()),
+            ("EDITOR".to_string(), "vim".to_string()),
+        ]);
+
+        stamp_task_id(&mut env, "fork-task");
+
+        assert_eq!(env.get("TASK_ID").map(String::as_str), Some("fork-task"));
+        assert_eq!(env.get("EDITOR").map(String::as_str), Some("vim"));
     }
 
     #[test]

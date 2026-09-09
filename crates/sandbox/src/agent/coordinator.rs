@@ -1664,13 +1664,10 @@ impl CoordinatorService {
             }
         }
 
-        let creds = self.credentials.read().await;
-        let env: Option<HashMap<String, String>> = if creds.is_empty() {
-            None
-        } else {
-            Some(creds.clone())
-        };
-        drop(creds);
+        let mut env: HashMap<String, String> = self.credentials.read().await.clone();
+        // Stamped per Member; see `crates/sandbox/AGENTS.md` "Spawning a child process".
+        env.insert("TASK_ID".to_string(), self.config.task_id.clone());
+        let env = Some(env);
 
         // Resolve resume exactly as `session::resolve_resume_session`: the pod's
         // last known Session id takes precedence, then the backend-provided id,

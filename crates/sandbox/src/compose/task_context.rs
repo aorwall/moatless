@@ -21,15 +21,13 @@ pub(crate) async fn compose_task_context(
         CommandRegistry::new(
             Duration::from_secs(task_config.command_default_timeout_secs),
             crate::commands::default_log_dir(&task_config.task_id),
+            task_config.task_id.clone(),
         )
         .with_journal(crate::commands::default_journal_path(
             &task_config.workspace_dir,
         ))
-        .with_backend_mirror(
-            Arc::clone(&shared.backend_client),
-            task_config.task_id.clone(),
-        )
-        .with_liveness(shared.events.clone(), task_config.task_id.clone()),
+        .with_backend_mirror(Arc::clone(&shared.backend_client))
+        .with_liveness(shared.events.clone()),
     );
     commands.report_initial_liveness().await;
     let credential_failures = CredentialFailureDetector::default();

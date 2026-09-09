@@ -249,6 +249,7 @@ fn test_state_with_config(backend: Arc<dyn BackendClient>, config: Config) -> Sa
     let commands = Arc::new(moatless_sandbox::commands::CommandRegistry::new(
         std::time::Duration::from_mins(1),
         std::env::temp_dir().join("moat-cmd-it"),
+        "task-1".to_string(),
     ));
 
     let agent_handle = spawn_agent(
