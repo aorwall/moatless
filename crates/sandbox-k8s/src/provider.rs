@@ -151,10 +151,33 @@ impl K8sSandboxAdapter {
                 } else {
                     None
                 };
-                let expected = pod_builder::resolve_sandbox_image(&self.config, plan);
-                if current_image.as_deref() == Some(expected.as_str()) {
-                    // Tag unchanged — fast path: scale back up.
-                    info!(task_id = %task_id, image = %expected, "Starting stopped sandbox (image unchanged), scaling up");
+                // The pod template freezes when the Deployment is created and no
+                // other start path rewrites it, so a task keeps the config it
+                // was created with however often it restarts. Compare the whole
+                // config-derived spec rather than the image tag alone, or a
+                // changed env never reaches a long-lived task.
+                //
+                // Build against the claim this Deployment already mounts, so a
+                // mismatch reports a config change and never a storage one.
+                let fresh = pod_builder::build_pod(
+                    &self.config,
+                    task_id,
+                    plan,
+                    deployment::deployment_workspace_claim(&existing_deployment).as_deref(),
+                    None,
+                )
+                .map(|pod| pod_builder::pod_spec_fingerprint(&pod));
+                if let Err(error) = &fresh {
+                    warn!(task_id = %task_id, %error, "Cannot build a pod spec to compare against; falling back to the image tag");
+                }
+                let expected_image = pod_builder::resolve_sandbox_image(&self.config, plan);
+                if stopped_template_is_current(
+                    &existing_deployment,
+                    fresh.as_deref().ok(),
+                    &expected_image,
+                ) {
+                    // Spec unchanged — fast path: scale back up.
+                    info!(task_id = %task_id, image = ?current_image, "Starting stopped sandbox (pod spec unchanged), scaling up");
                     // A stop→start collision (e.g. the idle reaper scales to 0
                     // and the user immediately reopens the task) can leave the
                     // old pod still Terminating while it holds the ReadWriteOnce
@@ -176,22 +199,30 @@ impl K8sSandboxAdapter {
                         .await
                         .map_err(|e| SandboxError::KubeError(Box::new(e)))?;
                 } else {
-                    // Tag changed — rebuild the Deployment from the fresh plan.
+                    // Spec changed — rebuild the Deployment from the fresh plan.
                     info!(
                         task_id = %task_id,
                         old_image = ?current_image,
-                        new_image = %expected,
-                        "Sandbox image changed since stop, rebuilding deployment"
+                        new_image = %expected_image,
+                        "Sandbox pod spec changed since stop, rebuilding deployment"
                     );
                     // Resolve the PVC from the plan rather than the running
                     // Deployment: a repo that turned `pvcEnabled` on since the
                     // last start gets one created here, and one that turned it
                     // off stops carrying the stale claim forward.
-                    let pvc_name = self
-                        .create_or_find_pvc(task_id, plan)
-                        .await
-                        .ok()
-                        .filter(|name| !name.is_empty());
+                    let pvc_name = match self.create_or_find_pvc(task_id, plan).await {
+                        Ok(name) if !name.is_empty() => Some(name),
+                        Ok(_) => None,
+                        // A failed resolve says nothing about what the plan asks
+                        // for, so keep the claim this Deployment already mounts.
+                        // Rebuilding onto an emptyDir would strand the volume,
+                        // and the next start would compare against the template
+                        // this one wrote and keep it there.
+                        Err(error) => {
+                            warn!(task_id = %task_id, %error, "Failed to resolve the workspace claim; keeping the mounted one");
+                            deployment::deployment_workspace_claim(&existing_deployment)
+                        }
+                    };
                     deployment::redeploy_with_plan(
                         &self.k8s,
                         &self.config,
@@ -1114,6 +1145,25 @@ fn deployment_has_workspace_sync(dep: &Deployment) -> bool {
         })
 }
 
+/// True when a stopped Deployment's pod template still matches what the current
+/// config builds, so the start path can scale it up rather than rebuild it.
+///
+/// `fingerprint` is `None` when the comparison pod could not be built. That
+/// build passes the claim the Deployment mounts while `redeploy_with_plan`
+/// resolves its own, and Fargate rejects a claim, so one can fail where the
+/// other succeeds. The image tag stays as the floor for that case, rather than
+/// pinning the task to a template nothing rewrites.
+fn stopped_template_is_current(
+    dep: &Deployment,
+    fingerprint: Option<&str>,
+    expected_image: &str,
+) -> bool {
+    match fingerprint {
+        Some(fingerprint) => deployment::template_matches_spec(dep, fingerprint),
+        None => deployment::deployment_sandbox_image(dep).as_deref() == Some(expected_image),
+    }
+}
+
 /// Result of checking for an existing pod.
 enum ExistingPodResult {
     /// Running and ready — can be reused immediately.
@@ -1121,8 +1171,8 @@ enum ExistingPodResult {
     /// Exists but not yet ready (pending, starting, scaling up).
     Initializing,
     /// Deployment exists but is scaled to 0. Carries the image currently baked
-    /// into the `sandbox` container so the start path can decide whether to
-    /// scale up (tag unchanged) or rebuild (tag changed).
+    /// into the `sandbox` container, which the start path logs beside the image
+    /// it rebuilds with.
     Stopped { current_image: Option<String> },
     /// No deployment/pod found.
     NotFound,
@@ -1373,8 +1423,7 @@ impl K8sSandboxAdapter {
         };
 
         // If Deployment is scaled to 0, report it as Stopped along with the
-        // image currently baked into the pod template. The caller decides
-        // whether to scale up (tag unchanged) or rebuild (tag changed).
+        // image currently baked into the pod template.
         match deployment::get_deployment_replicas(&self.k8s, task_id).await {
             Ok((0, _)) => {
                 return ExistingPodResult::Stopped {
@@ -1425,5 +1474,82 @@ impl K8sSandboxAdapter {
             PodPhase::Running if is_sandbox_container_ready(pod) => ExistingPodResult::Ready,
             _ => ExistingPodResult::Initializing,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use k8s_openapi::api::apps::v1::DeploymentSpec;
+    use k8s_openapi::api::core::v1::{Container, PodSpec, PodTemplateSpec};
+    use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
+
+    fn stopped_deployment(image: &str, fingerprint: Option<&str>) -> Deployment {
+        Deployment {
+            spec: Some(DeploymentSpec {
+                template: PodTemplateSpec {
+                    metadata: Some(ObjectMeta {
+                        annotations: fingerprint.map(|hash| {
+                            BTreeMap::from([(
+                                pod_builder::POD_SPEC_HASH_ANNOTATION.to_string(),
+                                hash.to_string(),
+                            )])
+                        }),
+                        ..Default::default()
+                    }),
+                    spec: Some(PodSpec {
+                        containers: vec![Container {
+                            name: "sandbox".to_string(),
+                            image: Some(image.to_string()),
+                            ..Default::default()
+                        }],
+                        ..Default::default()
+                    }),
+                },
+                ..Default::default()
+            }),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn a_stopped_template_is_current_while_its_hash_holds() {
+        let dep = stopped_deployment("sandbox:v2", Some("abc123"));
+
+        assert!(stopped_template_is_current(
+            &dep,
+            Some("abc123"),
+            "sandbox:v2"
+        ));
+        assert!(!stopped_template_is_current(
+            &dep,
+            Some("def456"),
+            "sandbox:v2"
+        ));
+    }
+
+    /// The comparison pod passes the claim this Deployment mounts, and a rebuild
+    /// resolves its own, so a build can fail here and succeed there. Reading
+    /// that failure as current would pin the task to a template nothing
+    /// rewrites, and it would stop rebuilding even on a new image tag.
+    #[test]
+    fn a_pod_spec_that_will_not_build_falls_back_to_the_image_tag() {
+        let dep = stopped_deployment("sandbox:v2", Some("abc123"));
+
+        assert!(stopped_template_is_current(&dep, None, "sandbox:v2"));
+        assert!(!stopped_template_is_current(&dep, None, "sandbox:v3"));
+    }
+
+    /// Every Deployment created before the hash existed carries none, so it
+    /// rebuilds once and compares normally after that.
+    #[test]
+    fn a_template_stamped_before_the_hash_is_not_current() {
+        let dep = stopped_deployment("sandbox:v2", None);
+
+        assert!(!stopped_template_is_current(
+            &dep,
+            Some("abc123"),
+            "sandbox:v2"
+        ));
     }
 }

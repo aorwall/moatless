@@ -25,6 +25,7 @@ use moatless_types::sandbox::is_reserved_sandbox_port;
 use moatless_types::workspace::Port;
 use moatless_types::workspace::{Cpu, Memory, ResourceConfig, ResourceQuantities, StorageMedium};
 use moatless_types::workspace::{RepoCheckout, WORKSPACE_REPOS_ENV};
+use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap};
 use tracing::{debug, info, warn};
 
@@ -282,7 +283,7 @@ pub fn build_pod(
         all_containers.push(build_dind_container(config));
     }
 
-    let pod = Pod {
+    let mut pod = Pod {
         metadata: k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta {
             name: Some(pod_name.clone()),
             namespace: Some(namespace.clone()),
@@ -324,6 +325,12 @@ pub fn build_pod(
         ..Default::default()
     };
 
+    let fingerprint = pod_spec_fingerprint(&pod);
+    pod.metadata
+        .annotations
+        .get_or_insert_with(BTreeMap::new)
+        .insert(POD_SPEC_HASH_ANNOTATION.to_string(), fingerprint);
+
     let server_count = plan
         .repo_config
         .servers
@@ -347,6 +354,47 @@ pub fn build_pod(
     Ok(pod)
 }
 
+/// Annotation carrying the [`pod_spec_fingerprint`] of the spec a pod template
+/// was built from.
+pub const POD_SPEC_HASH_ANNOTATION: &str = "moatless.io/pod-spec-hash";
+
+/// Env vars minted per build, which say nothing about the config a pod runs.
+const PER_BUILD_ENV: [&str; 2] = ["SANDBOX_BOOTSTRAP_TOKEN", "USER_AUTH_TOKEN"];
+
+/// Hash the part of a pod spec that comes from the config and the plan.
+///
+/// [`build_pod`] stamps the result under [`POD_SPEC_HASH_ANNOTATION`], and the
+/// start path compares it against the value a stopped Deployment carries.
+/// Excluded: the minted auth tokens, the env order, which follows the `HashMap`
+/// iteration in `ProvisionPlan::env_vars`, and the annotations, one of which
+/// holds the build time. The filter matches by name, so the presence of
+/// `USER_AUTH_TOKEN` goes with it: a change to `emit_legacy_user_token_env`
+/// alone rebuilds no template.
+pub fn pod_spec_fingerprint(pod: &Pod) -> String {
+    let mut spec = pod.spec.clone().unwrap_or_default();
+    for container in &mut spec.containers {
+        canonicalize_env(container);
+    }
+    for container in spec.init_containers.iter_mut().flatten() {
+        canonicalize_env(container);
+    }
+
+    // `serde_json::Map` is a `BTreeMap` here, so every object key is ordered.
+    let canonical = serde_json::json!({
+        "labels": pod.metadata.labels,
+        "spec": spec,
+    });
+    hex::encode(Sha256::digest(canonical.to_string().as_bytes()))
+}
+
+fn canonicalize_env(container: &mut Container) {
+    let Some(env) = container.env.as_mut() else {
+        return;
+    };
+    env.retain(|var| !PER_BUILD_ENV.contains(&var.name.as_str()));
+    env.sort_by(|left, right| left.name.cmp(&right.name));
+}
+
 /// Stamp lifecycle's operation identity onto a pod before it becomes a
 /// Deployment template. Kubernetes copies this label to every replacement pod.
 pub fn stamp_operation_generation(pod: &mut Pod, ctx: RuntimeOperationContext) {
@@ -362,8 +410,7 @@ pub fn stamp_operation_generation(pod: &mut Pod, ctx: RuntimeOperationContext) {
 /// Resolve the sandbox image for a plan: per-repo override → default sandbox image.
 ///
 /// An empty override string is treated as unset. This is the single source of
-/// truth for the "expected" image, so the start path can diff it against the
-/// image baked into a stopped Deployment.
+/// truth for the image a sandbox runs.
 pub fn resolve_sandbox_image(config: &Config, plan: &ProvisionPlan) -> String {
     plan.repo_config
         .docker_image
@@ -1534,6 +1581,85 @@ mod tests {
                 .map(String::as_str),
             Some("31")
         );
+    }
+
+    fn pod_with_env(env: Vec<EnvVar>) -> Pod {
+        Pod {
+            spec: Some(PodSpec {
+                containers: vec![Container {
+                    name: "sandbox".to_string(),
+                    env: Some(env),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }),
+            ..Default::default()
+        }
+    }
+
+    /// `ProvisionPlan::env_vars` is a `HashMap`, so the env order changes
+    /// between builds of one config. An order-sensitive hash would rebuild
+    /// every sandbox on every start.
+    #[test]
+    fn pod_spec_fingerprint_ignores_env_order() {
+        let one = pod_with_env(vec![env_var("A", "1"), env_var("B", "2")]);
+        let other = pod_with_env(vec![env_var("B", "2"), env_var("A", "1")]);
+
+        assert_eq!(pod_spec_fingerprint(&one), pod_spec_fingerprint(&other));
+    }
+
+    /// The env the sandbox reads its snapshot format from is set on the backend
+    /// and frozen into the pod template. The start path rebuilds a stopped
+    /// Deployment only when this hash moves, so a task created before the
+    /// setting would keep writing the mirror alone for its whole life.
+    #[test]
+    fn pod_spec_fingerprint_reports_a_changed_snapshot_format() {
+        let mut config = test_config();
+        let plan = test_plan();
+        let before = build_pod(&config, "task-1", &plan, None, None).unwrap();
+
+        config.sandbox.workspace_snapshot_format = Some("restic+mirror".to_string());
+        let after = build_pod(&config, "task-1", &plan, None, None).unwrap();
+
+        assert_ne!(pod_spec_fingerprint(&before), pod_spec_fingerprint(&after));
+        assert_eq!(
+            env_value(
+                &after.spec.as_ref().unwrap().containers[0],
+                "WORKSPACE_SNAPSHOT_FORMAT"
+            ),
+            Some("restic+mirror")
+        );
+    }
+
+    /// The whole round trip an unchanged config takes: a create stamps the hash
+    /// on a pod built with minted tokens, `build_deployment_object` copies it
+    /// onto the template, and a later start compares it against a pod built
+    /// without tokens. All three steps have to agree, or every sandbox rebuilds
+    /// on every start.
+    #[test]
+    fn a_stamped_template_matches_a_later_build_of_the_same_config() {
+        let config = test_config();
+        let plan = test_plan();
+        let created = build_pod(
+            &config,
+            "task-1",
+            &plan,
+            None,
+            Some(SandboxAuthTokens {
+                bootstrap: "bootstrap-token",
+                legacy_user_token: Some("user-token"),
+            }),
+        )
+        .unwrap();
+        let dep =
+            crate::deployment::build_deployment_object("moatless", "task-1", created).unwrap();
+
+        let compared = build_pod(&config, "task-1", &plan, None, None).unwrap();
+
+        assert!(crate::deployment::template_matches_spec(
+            &dep,
+            &pod_spec_fingerprint(&compared)
+        ));
     }
 
     /// Literal value of a container env var, or `None` when it is unset.

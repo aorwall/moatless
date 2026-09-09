@@ -36,7 +36,7 @@ pub struct DeploymentHandle {
 ///
 /// Extracts the pod's `.spec` and wraps it as the Deployment's pod template.
 /// Labels are preserved so the Service selector (`moatless.io/task-id`) still matches.
-fn build_deployment_object(
+pub fn build_deployment_object(
     namespace: &str,
     task_id: &str,
     pod: Pod,
@@ -582,8 +582,7 @@ pub async fn get_deployment_replicas(
 /// Extract the image of the `sandbox` container from a Deployment's pod template.
 ///
 /// Returns `None` if the template, container list, or the `sandbox` container's
-/// image are absent. Used by the start path to detect whether a stopped
-/// Deployment is pinned to a stale image tag.
+/// image are absent.
 pub fn deployment_sandbox_image(dep: &Deployment) -> Option<String> {
     dep.spec
         .as_ref()?
@@ -594,6 +593,36 @@ pub fn deployment_sandbox_image(dep: &Deployment) -> Option<String> {
         .iter()
         .find(|c| c.name == "sandbox")
         .and_then(|c| c.image.clone())
+}
+
+/// Read the claim mounted at the workspace, or `None` when the pod template
+/// runs on an emptyDir.
+pub fn deployment_workspace_claim(dep: &Deployment) -> Option<String> {
+    dep.spec
+        .as_ref()?
+        .template
+        .spec
+        .as_ref()?
+        .volumes
+        .as_ref()?
+        .iter()
+        .find(|volume| volume.name == "workspace-data")
+        .and_then(|volume| volume.persistent_volume_claim.as_ref())
+        .map(|claim| claim.claim_name.clone())
+}
+
+/// True when this Deployment's pod template was built from a spec that hashes
+/// to `fingerprint`.
+///
+/// A template stamped before [`pod_builder::POD_SPEC_HASH_ANNOTATION`] existed
+/// carries no hash and reports `false`, so the next start rebuilds it once.
+pub fn template_matches_spec(dep: &Deployment, fingerprint: &str) -> bool {
+    dep.spec
+        .as_ref()
+        .and_then(|spec| spec.template.metadata.as_ref())
+        .and_then(|metadata| metadata.annotations.as_ref())
+        .and_then(|annotations| annotations.get(pod_builder::POD_SPEC_HASH_ANNOTATION))
+        .is_some_and(|stored| stored == fingerprint)
 }
 
 /// Generate a deterministic Deployment name from a task ID.
@@ -608,7 +637,11 @@ fn generate_deployment_name(task_id: &str) -> String {
 mod tests {
     use super::*;
     use k8s_openapi::api::apps::v1::DeploymentSpec;
-    use k8s_openapi::api::core::v1::{Container, PodSpec, PodTemplateSpec};
+    use k8s_openapi::api::core::v1::{
+        Container, EmptyDirVolumeSource, PersistentVolumeClaimVolumeSource, PodSpec,
+        PodTemplateSpec, Volume,
+    };
+    use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 
     fn deployment_with_containers(containers: Vec<Container>) -> Deployment {
         Deployment {
@@ -632,6 +665,97 @@ mod tests {
             image: image.map(str::to_string),
             ..Default::default()
         }
+    }
+
+    /// A start reuses the template a Deployment already holds, so the hash is
+    /// the only report that the config behind it moved on.
+    #[test]
+    fn template_matches_spec_compares_the_stamped_hash() {
+        let mut dep = deployment_with_containers(vec![container("sandbox", Some("sandbox:v2"))]);
+        dep.spec.as_mut().unwrap().template.metadata = Some(ObjectMeta {
+            annotations: Some(BTreeMap::from([(
+                pod_builder::POD_SPEC_HASH_ANNOTATION.to_string(),
+                "abc123".to_string(),
+            )])),
+            ..Default::default()
+        });
+
+        assert!(template_matches_spec(&dep, "abc123"));
+        assert!(!template_matches_spec(&dep, "def456"));
+    }
+
+    /// Every Deployment created before this annotation existed runs a template
+    /// frozen at its creation, so it must read as stale and rebuild once.
+    #[test]
+    fn template_matches_spec_rejects_an_unstamped_template() {
+        let dep = deployment_with_containers(vec![container("sandbox", Some("sandbox:v2"))]);
+
+        assert!(!template_matches_spec(&dep, "abc123"));
+    }
+
+    #[test]
+    fn deployment_workspace_claim_reads_the_mounted_claim() {
+        let mut dep = deployment_with_containers(vec![container("sandbox", Some("sandbox:v2"))]);
+        let spec = dep.spec.as_mut().unwrap().template.spec.as_mut().unwrap();
+        spec.volumes = Some(vec![
+            Volume {
+                name: "shared-data".to_string(),
+                ..Default::default()
+            },
+            Volume {
+                name: "workspace-data".to_string(),
+                persistent_volume_claim: Some(PersistentVolumeClaimVolumeSource {
+                    claim_name: "moatless-ws-task-1".to_string(),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+        ]);
+
+        assert_eq!(
+            deployment_workspace_claim(&dep).as_deref(),
+            Some("moatless-ws-task-1")
+        );
+    }
+
+    /// A pod on an emptyDir names no claim, and the start path must build its
+    /// comparison pod the same way.
+    #[test]
+    fn deployment_workspace_claim_none_for_an_empty_dir_pod() {
+        let mut dep = deployment_with_containers(vec![container("sandbox", Some("sandbox:v2"))]);
+        let spec = dep.spec.as_mut().unwrap().template.spec.as_mut().unwrap();
+        spec.volumes = Some(vec![Volume {
+            name: "workspace-data".to_string(),
+            empty_dir: Some(EmptyDirVolumeSource::default()),
+            ..Default::default()
+        }]);
+
+        assert_eq!(deployment_workspace_claim(&dep), None);
+    }
+
+    /// The hash is stamped on the pod, and the start path reads it back off the
+    /// Deployment's template, so the wrapper has to carry it across.
+    #[test]
+    fn build_deployment_object_carries_the_pod_spec_hash_into_the_template() {
+        let pod = Pod {
+            metadata: ObjectMeta {
+                annotations: Some(BTreeMap::from([(
+                    pod_builder::POD_SPEC_HASH_ANNOTATION.to_string(),
+                    "abc123".to_string(),
+                )])),
+                ..Default::default()
+            },
+            spec: Some(PodSpec {
+                containers: vec![container("sandbox", Some("sandbox:v2"))],
+                restart_policy: Some("Always".to_string()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+
+        let dep = build_deployment_object("moatless", "task-1", pod).unwrap();
+
+        assert!(template_matches_spec(&dep, "abc123"));
     }
 
     #[test]

@@ -28,6 +28,11 @@ contracts, not decoration:
 - **`app.kubernetes.io/managed-by=moatless`** is what `pod_watcher` watches. A
   pod without it never reaches the watcher.
 
+Build every pod template through `pod_builder::build_pod`. It stamps the
+`moatless.io/pod-spec-hash` annotation, which the start path reads off a stopped
+Deployment to choose between a scale-up and a rebuild. A template written any
+other way carries no hash and rebuilds on every start.
+
 `moatless_sandbox_runtime::runtime::OPERATION_GENERATION_LABEL` is the one label
 this crate does not own. It carries lifecycle's operation identity, and
 `fleet_observer` correlates watcher events back through it.
