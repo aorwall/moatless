@@ -865,16 +865,6 @@ fn build_sandbox_container(
     );
     if storage_backend.syncs_sandbox() {
         env.push(env_var("WORKSPACE_SYNC_ENABLED", "true"));
-        // The mirror defaults on in the sandbox; only a disabling toggle has to
-        // travel, so a mirror-on fleet ships no extra env.
-        if !config.sandbox.default_workspace_mirror_enabled {
-            env.push(env_var("WORKSPACE_MIRROR_ENABLED", "false"));
-        }
-        // Overrides the mirror flag when set, which is how a fleet moves onto
-        // the repository format and how a rollback moves it back.
-        if let Some(format) = &config.sandbox.workspace_snapshot_format {
-            env.push(env_var("WORKSPACE_SNAPSHOT_FORMAT", format));
-        }
     }
     if storage_backend.restore_if_empty() && pvc_name.is_some() {
         env.push(env_var("WORKSPACE_RESTORE_IF_EMPTY", "true"));
@@ -1608,29 +1598,6 @@ mod tests {
         assert_eq!(pod_spec_fingerprint(&one), pod_spec_fingerprint(&other));
     }
 
-    /// The env the sandbox reads its snapshot format from is set on the backend
-    /// and frozen into the pod template. The start path rebuilds a stopped
-    /// Deployment only when this hash moves, so a task created before the
-    /// setting would keep writing the mirror alone for its whole life.
-    #[test]
-    fn pod_spec_fingerprint_reports_a_changed_snapshot_format() {
-        let mut config = test_config();
-        let plan = test_plan();
-        let before = build_pod(&config, "task-1", &plan, None, None).unwrap();
-
-        config.sandbox.workspace_snapshot_format = Some("restic+mirror".to_string());
-        let after = build_pod(&config, "task-1", &plan, None, None).unwrap();
-
-        assert_ne!(pod_spec_fingerprint(&before), pod_spec_fingerprint(&after));
-        assert_eq!(
-            env_value(
-                &after.spec.as_ref().unwrap().containers[0],
-                "WORKSPACE_SNAPSHOT_FORMAT"
-            ),
-            Some("restic+mirror")
-        );
-    }
-
     /// The whole round trip an unchanged config takes: a create stamps the hash
     /// on a pod built with minted tokens, `build_deployment_object` copies it
     /// onto the template, and a later start compares it against a pod built
@@ -1708,8 +1675,6 @@ mod tests {
                 storage_class: None,
                 default_pvc_enabled: true,
                 default_s3_enabled: true,
-                default_workspace_mirror_enabled: true,
-                workspace_snapshot_format: None,
                 node_archive_enabled: false,
                 retain_storage_on_close: false,
                 pod_startup_timeout_secs: 10,

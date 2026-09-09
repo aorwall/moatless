@@ -334,27 +334,10 @@ pub struct SandboxConfig {
     /// A per-repo switch overrides this. Requires the S3 uploads bucket to be
     /// configured; without it the sandbox's sync calls no-op.
     pub default_s3_enabled: bool,
-    /// Whether an S3-syncing sandbox stores its workspace as a per-file mirror
-    /// (one object per file plus a manifest) rather than one tar. The mirror is
-    /// what makes a stopped task's files reachable object-by-object, and ships
-    /// only the delta on each sync. Backward-compatible either way: a reader
-    /// tries the mirror then the tar, and a mirror-off sandbox still reads a tar
-    /// a mirror-on one never wrote. Env `SANDBOX_WORKSPACE_MIRROR_ENABLED`
-    /// (default `true`).
-    pub default_workspace_mirror_enabled: bool,
-    /// How a sandbox stores its workspace: `tar`, `mirror`, `restic`, or
-    /// `restic+mirror`. Empty leaves the sandbox on
-    /// [`Self::default_workspace_mirror_enabled`], which is what a fleet that
-    /// has not adopted the repository format runs.
-    ///
-    /// `restic+mirror` is what a soak runs: both formats are written, so
-    /// rolling back to `mirror` loses nothing.
-    /// Env `SANDBOX_WORKSPACE_SNAPSHOT_FORMAT`.
-    pub workspace_snapshot_format: Option<String>,
     /// Master secret every task's workspace-repository password is derived
     /// from (`moatless_core::workspace_repository::derive_repository_password`).
-    /// Without it no restic repository can be opened or written, and the
-    /// snapshot falls back to the mirror and the tar.
+    /// Without it no restic repository can be opened or written: the sandbox
+    /// falls back to the tar, and a stopped task's files are unreadable.
     /// Env `SANDBOX_WORKSPACE_REPOSITORY_SECRET`.
     pub workspace_repository_secret: Option<String>,
     /// IAM role the backend assumes to hand a sandbox direct S3 access to its
@@ -850,11 +833,6 @@ impl Config {
                 storage_class: env_opt("K8S_SANDBOX_STORAGE_CLASS"),
                 default_pvc_enabled: env_bool("K8S_SANDBOX_DEFAULT_PVC", true),
                 default_s3_enabled: env_bool("K8S_SANDBOX_DEFAULT_S3", true),
-                default_workspace_mirror_enabled: env_bool(
-                    "SANDBOX_WORKSPACE_MIRROR_ENABLED",
-                    true,
-                ),
-                workspace_snapshot_format: env_opt("SANDBOX_WORKSPACE_SNAPSHOT_FORMAT"),
                 workspace_repository_secret: env_opt("SANDBOX_WORKSPACE_REPOSITORY_SECRET"),
                 workspace_repository_role_arn: env_opt("SANDBOX_WORKSPACE_REPOSITORY_ROLE_ARN"),
                 node_archive_enabled: env_bool("K8S_SANDBOX_NODE_ARCHIVE_ENABLED", false),
@@ -1328,8 +1306,6 @@ impl Config {
                 storage_class: None,
                 default_pvc_enabled: true,
                 default_s3_enabled: true,
-                default_workspace_mirror_enabled: true,
-                workspace_snapshot_format: None,
                 workspace_repository_secret: None,
                 workspace_repository_role_arn: None,
                 node_archive_enabled: false,

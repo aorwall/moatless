@@ -520,8 +520,9 @@ storage:
     # -- IAM role the backend assumes to grant a sandbox direct access to its own
     # workspace repository prefix. Its trust policy must name the backend's IRSA
     # role. Each grant is narrowed further by a session policy naming one task's
-    # prefix, so this role stays bucket-wide. Empty disables the restic workspace
-    # format: the sandbox falls back to the file mirror.
+    # prefix, so this role stays bucket-wide. Empty disables the restic
+    # workspace repository: the sandbox falls back to one tar per sync, and a
+    # stopped task's files are unreadable.
     workspaceRepositoryRoleArn: ""
   azureBlob:
     # -- Azure storage account name (required when backend is 'azure-blob')
@@ -814,21 +815,6 @@ kubernetes:
     # -- Snapshot each task's workspace to S3 by default (env
     #    K8S_SANDBOX_DEFAULT_S3). Requires the uploads bucket.
     defaultS3: true
-    # -- How a sandbox stores its workspace: "tar", "mirror", "restic" or
-    #    "restic+mirror" (env SANDBOX_WORKSPACE_SNAPSHOT_FORMAT). Empty leaves
-    #    the fleet on the file mirror.
-    #
-    #    "restic" needs `storage.s3.workspaceRepositoryRoleArn` and
-    #    `secrets.workspaceRepositorySecret`; without either the sandbox falls
-    #    back to the mirror. Soak on "restic+mirror": both formats are written,
-    #    so rolling back to "mirror" loses nothing. Rollback is this value.
-    #
-    #    Take the workspace prefix out of any age-based S3 lifecycle rule
-    #    before enabling "restic". A repository's `config` and `keys/` objects
-    #    are never rewritten, so expiry by object age deletes what a live
-    #    repository still references. The mirror has the same hazard for an
-    #    unchanged file. See the chart README.
-    workspaceSnapshotFormat: ""
     # The cold tier. A stopped task keeps its PVC so the next start is warm, and
     # at scale those idle claims — not the running pods — become the dominant
     # cost: an EBS gp3 volume is billed on provisioned size whether or not
@@ -1065,9 +1051,10 @@ secrets:
   # provision fails without it. Generate with `openssl rand -hex 32`.
   taskTokenSecret: ""
   # -- Master secret every task's workspace-repository password is derived from.
-  # Without it the backend cannot open a task's restic repository and falls back
-  # to the file mirror. Rotating it makes every existing repository unreadable.
-  # Generate with `openssl rand -hex 32`.
+  # Required for workspace durability: without it no restic repository can be
+  # opened or written, the sandbox falls back to one tar per sync, and a stopped
+  # task's files are unreadable. Rotating it makes every existing repository
+  # unreadable. Generate with `openssl rand -hex 32`.
   workspaceRepositorySecret: ""
   # -- Secret for short-lived WebSocket tickets. Browser auth sessions are
   # opaque database-backed tokens and do not use this key.

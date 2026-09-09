@@ -82,14 +82,6 @@ service BackendSandboxService {
   // `FailedPrecondition` when S3 isn't configured. Auth via gRPC metadata.
   rpc GetWorkspaceSyncUrls(GetWorkspaceSyncUrlsRequest) returns (GetWorkspaceSyncUrlsResponse);
 
-  // Mint presigned URLs for individual objects of the workspace file mirror
-  // (`<workspace_prefix>/<task_id>/files/<workspace-relative-path>`), which
-  // stores each file under its own key instead of inside `workspace.tar`. Same
-  // capability model as GetWorkspaceSyncUrls, one URL per path. The backend
-  // owns the key space: the request names workspace-relative paths, never keys.
-  // `FailedPrecondition` when S3 isn't configured. Auth via gRPC metadata.
-  rpc GetWorkspaceObjectUrls(GetWorkspaceObjectUrlsRequest) returns (GetWorkspaceObjectUrlsResponse);
-
   // Grant the sandbox direct S3 access to its own workspace `restic` repository
   // (`<workspace_prefix>/<task_id>/repo/`), plus the password that opens it.
   //
@@ -197,31 +189,8 @@ message GetWorkspaceSyncUrlsResponse {
   string get_url = 2;
   // Seconds until the presigned URLs expire.
   int64 expires_in_secs = 3;
-  // Presigned HTTP PUT URL for the file mirror's manifest. Empty from a backend
-  // that predates the mirror, which is how the sandbox decides to write a tar
-  // instead.
-  string manifest_put_url = 4;
-  // Presigned HTTP GET URL for the file mirror's manifest. A GET that returns
-  // 404 means "no mirror stored", and the sandbox falls back to workspace.tar.
-  string manifest_get_url = 5;
-}
-
-message GetWorkspaceObjectUrlsRequest {
-  string task_id = 1;
-  // Workspace-relative paths, at most 500 per call.
-  repeated string paths = 2;
-  // "put" | "get" | "delete"
-  string operation = 3;
-  // Resolve against the archive a restore reads, which for a fork holding none
-  // of its own is the source task's. Ignored unless `operation` is "get".
-  bool restore_source = 4;
-}
-
-message GetWorkspaceObjectUrlsResponse {
-  // One presigned URL per requested path, in the requested order.
-  repeated string urls = 1;
-  // Seconds until the presigned URLs expire.
-  int64 expires_in_secs = 2;
+  reserved 4, 5;
+  reserved "manifest_put_url", "manifest_get_url";
 }
 
 message GetWorkspaceRepositoryAccessRequest {
@@ -264,7 +233,7 @@ message ReportWorkspaceSyncRequest {
   int64 bytes = 3;
   int64 duration_ms = 4;
   bool ok = 5;
-  string format = 6;       // "tar" | "mirror" | "restic"; empty from a pre-mirror sandbox
+  string format = 6;       // "tar" | "restic"; empty from an older sandbox
   // Why the transfer failed, as the sandbox logged it. Empty when `ok`, and
   // empty from a sandbox predating this field.
   string error = 7;

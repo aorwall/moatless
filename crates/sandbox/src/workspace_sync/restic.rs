@@ -27,8 +27,8 @@ use tracing::{debug, info, warn};
 
 use super::file_set;
 use super::sync::{
-    RestoreAttempt, RestoreDecision, SyncOutcome, clear_dir_contents, is_feature_disabled,
-    primary_repo_is_usable,
+    NotStored, RestoreAttempt, RestoreDecision, SyncOutcome, clear_dir_contents,
+    is_feature_disabled, primary_repo_is_usable,
 };
 use crate::backend_client::BackendClient;
 use crate::config::Config;
@@ -251,7 +251,7 @@ fn write_glob_file(workspace_dir: &Path) -> Result<usize, String> {
     let mut out = String::new();
     let mut written = 0usize;
     for file in &files {
-        let path = file.full.to_string_lossy();
+        let path = file.to_string_lossy();
         // A line-oriented glob file cannot carry either of these, and both are
         // legal on Linux. A newline splits one entry into two patterns; a
         // trailing space is stripped by the gitignore line parser, so the
@@ -286,39 +286,26 @@ fn escape_glob(path: &str) -> String {
     out
 }
 
-/// Why the workspace reached no repository.
-pub(super) enum NotSnapshotted {
-    /// This backend serves no repository, so no snapshot was owed.
-    Absent,
-    /// A snapshot was owed and did not land. The repository still owes this
-    /// tree, so the caller must offer it again.
-    Failed,
-}
-
 /// Snapshot the workspace, or report that it reached no repository.
 ///
-/// `Err` means the caller must write another format so the task keeps a durable
-/// copy.
+/// `Err` means the caller must write the tar so the task keeps a durable copy.
 pub(super) async fn upload(
     config: &Config,
     backend_client: &dyn BackendClient,
     cache: &AccessCache,
-) -> Result<SyncOutcome, NotSnapshotted> {
+) -> Result<SyncOutcome, NotStored> {
     let task_id = config.task_id.clone();
     let workspace_dir = PathBuf::from(&config.workspace_dir);
 
     let access = match cache.get(&task_id, backend_client).await {
         Ok(access) => access,
-        // A sandbox asks for the format its own environment names, and no
-        // backend setting reaches that choice, so one configured with no
-        // `workspace_repository` refuses every tick for the task's whole life.
         Err(status) if is_feature_disabled(&status) => {
             debug!(task_id = %task_id, %status, "This backend serves no workspace repository; falling back");
-            return Err(NotSnapshotted::Absent);
+            return Err(NotStored::Absent);
         }
         Err(status) => {
             debug!(task_id = %task_id, %status, "No workspace repository access; falling back");
-            return Err(NotSnapshotted::Failed);
+            return Err(NotStored::Failed);
         }
     };
 
@@ -356,7 +343,7 @@ pub(super) async fn upload(
             backend_client
                 .report_workspace_sync(&task_id, "upload", FORMAT, 0, elapsed, Some(&error))
                 .await;
-            Err(NotSnapshotted::Failed)
+            Err(NotStored::Failed)
         }
     }
 }
@@ -769,7 +756,10 @@ mod tests {
         // snapshot had to carry.
         let expected: BTreeMap<String, std::fs::Metadata> = file_set::collect(&source)
             .into_iter()
-            .map(|file| (file.rel, file.meta))
+            .filter_map(|file| {
+                let meta = std::fs::symlink_metadata(&file).ok()?;
+                Some((super::super::sync::rel_from(&source, &file), meta))
+            })
             .collect();
         assert!(
             expected.keys().any(|p| p.contains("force-added.log")),

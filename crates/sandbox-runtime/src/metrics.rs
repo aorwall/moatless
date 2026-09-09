@@ -10,7 +10,7 @@
 //! - `outcome` ∈ {`ok`, `error`} for provision; the sync counter's `outcome`
 //!   is the same two values.
 //! - `direction` ∈ {`upload`, `download`, `other`}.
-//! - `format` ∈ {`tar`, `mirror`, `restic`, `other`} — the workspace-snapshot
+//! - `format` ∈ {`tar`, `restic`, `other`} — the workspace-snapshot
 //!   format the sandbox wrote or read.
 //!
 //! Provision / restart durations are timed by the backend directly (synchronous
@@ -111,10 +111,9 @@ pub fn record_restart(backend: StorageBackend, elapsed: Duration) {
 /// Record one workspace-sync report from the sandbox.
 ///
 /// `direction` is validated to `"upload"` / `"download"` and `format` to
-/// `"tar"` / `"mirror"` / `"restic"` (anything else → `"other"`) to keep both
-/// labels bounded.
-/// A sandbox that predates the file mirror sends no format and is recorded as
-/// `"tar"`, which is what it wrote.
+/// `"tar"` / `"restic"` (anything else → `"other"`) to keep both labels bounded.
+/// A sandbox old enough to send no format is recorded as `"tar"`, which is what
+/// it wrote.
 pub fn record_workspace_sync(
     direction: &str,
     format: &str,
@@ -129,7 +128,6 @@ pub fn record_workspace_sync(
     };
     let format: &'static str = match format {
         "" | "tar" => "tar",
-        "mirror" => "mirror",
         "restic" => "restic",
         _ => "other",
     };

@@ -49,7 +49,7 @@ Secret named by `externalSecrets.secretName`):
 | `DATABASE_URL` | Yes, unless `postgres.enabled: true` | Postgres connection string. With the bundled Postgres the chart sets `DATABASE_URL` for you. |
 | `SECRETS_ENCRYPTION_KEY` | Yes | Master key for credential encryption at rest. The backend refuses to boot without it. `openssl rand -base64 32`. |
 | `TASK_TOKEN_SECRET` | Yes | HMAC for task-scoped backend↔sandbox JWTs. Every sandbox provision fails without it. `openssl rand -hex 32`. |
-| `SANDBOX_WORKSPACE_REPOSITORY_SECRET` | Only for `workspaceSnapshotFormat: restic` | Master secret each task's repository password is derived from. Rotating it makes every existing repository unreadable. `openssl rand -hex 32`. |
+| `SANDBOX_WORKSPACE_REPOSITORY_SECRET` | For workspace durability | Master secret each task's repository password is derived from. Without it a sandbox falls back to one tar per sync and a stopped task's files are unreadable. Rotating it makes every existing repository unreadable. `openssl rand -hex 32`. |
 
 Provide the Secret one of three ways:
 
@@ -399,7 +399,6 @@ fronts the deployment.
 | `kubernetes.sandboxStorage.enabled` | Global kill switch for per-task PVCs | `true` |
 | `kubernetes.sandboxStorage.defaultPvc` | Give each task a durable per-task PVC by default | `true` |
 | `kubernetes.sandboxStorage.defaultS3` | Snapshot each task's workspace to S3 by default | `true` |
-| `kubernetes.sandboxStorage.workspaceSnapshotFormat` | Snapshot format: `tar`, `mirror`, `restic` or `restic+mirror` (empty leaves the fleet on the mirror) | `""` |
 | `kubernetes.sandboxStorage.coldAfterHours` | Hours stopped before a task's Deployment and PVC are reclaimed (`0` disables) | `24` |
 | `kubernetes.sandboxStorage.retainOnClose` | Keep a closed task's S3 workspace snapshot | `true` |
 | `kubernetes.nodeArchive.enabled` | Track, retain, and clean node-local archives | `false` |
@@ -454,19 +453,16 @@ calls no-op and an S3-only repo behaves as ephemeral. The global
 Optionally cap a workspace's size with `storage` (it sizes the PVC, or the
 `emptyDir` when there is no PVC).
 
-#### The snapshot format
+#### What a sync writes
 
-`kubernetes.sandboxStorage.workspaceSnapshotFormat` chooses what an S3-backed
-sandbox writes. Leave it empty and the fleet keeps the file mirror.
+A sync writes to a [restic](https://restic.readthedocs.io/) repository per task
+under `<workspacePrefix>/<task-id>/repo/` — the same prefix
+`workspaceRepositoryRoleArn`'s session is scoped to. It ships a delta and
+commits atomically.
 
-| Value | What a sync writes |
-|---|---|
-| `tar` | One gzipped `workspace.tar` per task. Atomic, and reships the whole archive when one byte moves. |
-| `mirror` | A manifest plus one object per file. Ships a delta; a run that dies mid-sync leaves a tree mixed from two generations. |
-| `restic` | A [restic](https://restic.readthedocs.io/) repository per task under `<workspacePrefix>/<task-id>/repo/` — the same prefix `workspaceRepositoryRoleArn`'s session is scoped to. Ships a delta and commits atomically. |
-| `restic+mirror` | Both. The soak setting: rolling back to `mirror` loses nothing. |
-
-`restic` needs two more values, and falls back to the mirror without either:
+That needs two values, and without either the sandbox falls back to one gzipped
+`workspace.tar` per task — atomic, but it reships the whole archive when one
+byte moves, and a stopped task's files are then unreadable from the backend:
 
 - `secrets.workspaceRepositorySecret` — the master secret each task's
   repository password is derived from.
@@ -478,14 +474,8 @@ sandbox writes. Leave it empty and the fleet keeps the file mirror.
 > **Do not expire the `<workspacePrefix>/` prefix by object age.** A
 > repository's `config` and `keys/` objects are written once at creation and
 > never rewritten, and a pack file is immutable, so *any* age-based S3 lifecycle
-> rule eventually deletes objects a live repository still references. The same
-> holds for the file mirror, whose unchanged files keep unchanged objects.
-> Reclaim whole task prefixes instead — see the cold tier below.
-
-Rolling it out: set `restic+mirror` first and leave it for a full agent loop, a
-`git gc`, a `git worktree` and a package install, watching
-`moatless_workspace_sync_*` with `format="restic"`. Then `restic`. Rollback is
-this value.
+> rule eventually deletes objects a live repository still references. Reclaim
+> whole task prefixes instead — see the cold tier below.
 
 #### The cold tier: reclaiming idle claims
 
@@ -520,16 +510,12 @@ Two things to set alongside it:
   either — the reaper closes tasks after 7 days of inactivity, and a
   machine-initiated close is a poor moment to destroy someone's work.
 
-  On `tar`, an S3 lifecycle rule expiring the `<workspacePrefix>/` prefix is
-  enough: each sync rewrites the whole archive, so only an abandoned workspace
-  ages out.
-
-  On `mirror` and `restic` it is not. Both keep objects a live workspace still
-  needs and never rewrites — an unchanged file's object under `files/`, and a
-  repository's `config`, `keys/` and packs — so an age-based rule eventually
-  deletes what the current manifest or index still points at. Set
-  `retainOnClose: false` instead, which deletes a closed task's whole prefix,
-  and leave `<workspacePrefix>/` out of any age-based rule.
+  An S3 lifecycle rule expiring the `<workspacePrefix>/` prefix by age is not
+  it: a repository keeps objects a live workspace still needs and never
+  rewrites — its `config`, `keys/` and packs — so an age-based rule eventually
+  deletes what the current index still points at. Set `retainOnClose: false`
+  instead, which deletes a closed task's whole prefix, and leave
+  `<workspacePrefix>/` out of any age-based rule.
 
 Set `coldAfterHours: 0` to switch the tier off; a per-task
 `tasks.cold_after_hours` overrides the deployment default for one task.

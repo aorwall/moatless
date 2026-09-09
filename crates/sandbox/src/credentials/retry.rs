@@ -108,7 +108,6 @@ async fn value_actually_changed(key: &str, new_value: &str, config: &Config) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::WorkspaceSnapshotFormat;
 
     fn test_config_with_codex_dir(codex_home_dir: String) -> Config {
         use crate::config::{AgentConfig, ProxyConfig};
@@ -141,7 +140,6 @@ mod tests {
             command_default_timeout_secs: crate::config::DEFAULT_COMMAND_TIMEOUT_SECS,
             permission_mode: claude_agent_sdk::PermissionMode::BypassPermissions,
             workspace_sync_enabled: false,
-            workspace_snapshot_format: WorkspaceSnapshotFormat::Mirror,
             workspace_restore_if_empty: false,
             headless: false,
             home_dir: "/tmp/home".to_string(),

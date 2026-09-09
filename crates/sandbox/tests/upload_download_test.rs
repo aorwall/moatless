@@ -19,11 +19,10 @@ use sandbox_proto::{
     DownloadUploadRequest, DownloadUploadResponse, EnqueueSandboxMessageRequest,
     EnqueueSandboxMessageResponse, GetCredentialsRequest, GetCredentialsResponse,
     GetPendingMessagesRequest, GetPendingMessagesResponse, GetSystemPromptRequest,
-    GetSystemPromptResponse, GetWorkspaceObjectUrlsRequest, GetWorkspaceObjectUrlsResponse,
-    GetWorkspaceRepositoryAccessRequest, GetWorkspaceRepositoryAccessResponse,
-    GetWorkspaceSyncUrlsRequest, GetWorkspaceSyncUrlsResponse, PublishEventRequest,
-    PublishEventResponse, RecordGitPushRequest, RecordGitPushResponse,
-    RecordUnreportedCommandsRequest, RecordUnreportedCommandsResponse,
+    GetSystemPromptResponse, GetWorkspaceRepositoryAccessRequest,
+    GetWorkspaceRepositoryAccessResponse, GetWorkspaceSyncUrlsRequest,
+    GetWorkspaceSyncUrlsResponse, PublishEventRequest, PublishEventResponse, RecordGitPushRequest,
+    RecordGitPushResponse, RecordUnreportedCommandsRequest, RecordUnreportedCommandsResponse,
     RecoverInterruptedRunRequest, RecoverInterruptedRunResponse, ReportWorkspaceSyncRequest,
     ReportWorkspaceSyncResponse, TakeUnreportedCommandsRequest, TakeUnreportedCommandsResponse,
     TranscriptChunk, UpdateCredentialRequest, UpdateCredentialResponse, UploadChunk,
@@ -178,13 +177,6 @@ impl BackendSandboxService for UploadOnlyBackend {
         &self,
         _request: Request<GetWorkspaceSyncUrlsRequest>,
     ) -> Result<Response<GetWorkspaceSyncUrlsResponse>, Status> {
-        Err(Status::unimplemented("not used"))
-    }
-
-    async fn get_workspace_object_urls(
-        &self,
-        _request: Request<GetWorkspaceObjectUrlsRequest>,
-    ) -> Result<Response<GetWorkspaceObjectUrlsResponse>, Status> {
         Err(Status::unimplemented("not used"))
     }
 

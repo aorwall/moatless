@@ -25,17 +25,16 @@ use tracing::{debug, warn};
 
 use super::tree::{SnapshotNode, dir_prefix, listing_under, resolve, search_under};
 
-/// How long an open repository and its file set are reused. Matches the
-/// mirror's manifest TTL: a running task can snapshot again while one is held,
-/// so this bounds how long a listing can describe the previous generation.
+/// How long an open repository and its file set are reused. A running task can
+/// snapshot again while one is held, so this bounds how long a listing can
+/// describe the previous generation.
 const REPOSITORY_TTL: Duration = Duration::from_secs(30);
 
 /// Cache slots held at once. An indexed repository holds its whole pack index
-/// in memory, which for a workspace-sized tree is the same order as the
-/// mirror's manifest, so the two caps are kept equal. [`Entry::Absent`] slots
-/// share the budget and cost nothing to rebuild, so a fleet of mirror-format
-/// tasks can evict a live index — which costs one repeated open, never a wrong
-/// answer.
+/// in memory, so this bounds the reader's footprint. [`Entry::Absent`] slots
+/// share the budget and cost nothing to rebuild, so a fleet of tasks holding no
+/// repository can evict a live index — which costs one repeated open, never a
+/// wrong answer.
 const REPOSITORY_CACHE_CAP: usize = 32;
 
 /// Where the local pack cache lives.
@@ -56,7 +55,7 @@ struct Cached {
     fetched: Instant,
 }
 
-/// A cache slot. `Absent` is held so a task on the file mirror does not probe
+/// A cache slot. `Absent` is held so a task holding no repository does not probe
 /// `config` again on every read, list and search.
 enum Entry {
     Open(Cached),
@@ -277,8 +276,8 @@ fn open_and_walk(backend: &ResticS3Backend, password: &str) -> Result<Opened, Sn
     for item in streamer {
         let (path, node) = item
             .map_err(|err| SnapshotError::Unavailable(format!("snapshot tree is broken: {err}")))?;
-        // Directories are dropped: the listing synthesises them from file paths
-        // so this format and the mirror produce identical trees.
+        // Directories are dropped: the listing synthesises them from file
+        // paths.
         let symlink = match &node.node_type {
             NodeType::Dir => continue,
             NodeType::Symlink { linktarget, .. } => Some(linktarget.clone()),
@@ -301,9 +300,9 @@ fn open_and_walk(backend: &ResticS3Backend, password: &str) -> Result<Opened, Sn
 
 #[async_trait]
 impl WorkspaceSnapshotSource for ResticWorkspaceSnapshots {
-    /// No path-safety check, unlike the mirror's: `resolve` only ever returns a
-    /// path already present in the walked node set, so a caller cannot address
-    /// anything the snapshot does not hold.
+    /// No path-safety check: `resolve` only ever returns a path already present
+    /// in the walked node set, so a caller cannot address anything the snapshot
+    /// does not hold.
     async fn read(&self, task_id: &str, path: &str) -> Result<SnapshotFile, SnapshotError> {
         let held = self.opened(task_id).await?;
         let stored = resolve(&held.nodes, path.trim_start_matches('/'))
@@ -316,8 +315,8 @@ impl WorkspaceSnapshotSource for ResticWorkspaceSnapshots {
         tokio::task::spawn_blocking(move || {
             // `resolve` already found the path in this snapshot's node set, so
             // a failure here is the repository, not a missing file. Reporting
-            // it as `NotFound` would send an outage to the caller as an answer:
-            // the chain stops looking and `t3code` logs nothing.
+            // it as `NotFound` would send an outage to the caller as an
+            // answer, and `t3code` would log nothing.
             let node = repo
                 .node_from_snapshot_and_path(&snapshot, &format!("{SNAPSHOT_ROOT}/{stored}"))
                 .map_err(|err| {

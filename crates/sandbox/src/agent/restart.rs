@@ -39,10 +39,7 @@ pub(crate) async fn open_for_work(state: &SandboxState, workspace_origin: Worksp
     // deliver the same wake again. Leaving the baseline unset makes the next
     // upload ship the removal.
     if state.config.workspace_sync_enabled && lost_commands.is_empty() && wake_notes.is_empty() {
-        state
-            .workspace_sync
-            .adopt_current(&state.config, state.backend_client.as_ref())
-            .await;
+        state.workspace_sync.adopt_current(&state.config).await;
     }
 
     *state.init_phase.write().await = InitPhase::Ready;

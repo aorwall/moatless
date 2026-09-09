@@ -21,7 +21,6 @@
 //! operation is best-effort: a fresh clone already gives a working repo.
 
 use std::collections::hash_map::DefaultHasher;
-use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -35,14 +34,14 @@ use flate2::write::GzEncoder;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
-use super::mirror as workspace_mirror;
 use super::restic;
 use crate::backend_client::BackendClient;
 use crate::config::Config;
 use crate::state::SandboxState;
 
 /// The `format` label every transfer this module makes is reported under: it
-/// writes and reads one gzipped tar. The file mirror reports `"mirror"`.
+/// writes and reads one gzipped tar. The `restic` repository reports
+/// `"restic"`.
 const FORMAT: &str = "tar";
 
 /// Default periodic-upload interval when `WORKSPACE_SYNC_INTERVAL_SECS` is unset.
@@ -80,6 +79,16 @@ pub struct SyncOutcome {
     pub bytes: u64,
 }
 
+/// Why the workspace reached neither store.
+pub(super) enum NotStored {
+    /// This backend serves no such store, or the workspace held nothing to
+    /// store, so nothing was owed.
+    Absent,
+    /// Something was owed and did not land, so the caller must offer the tree
+    /// again.
+    Failed,
+}
+
 /// The fingerprint of the last successfully uploaded workspace, shared by every
 /// upload path.
 ///
@@ -95,12 +104,9 @@ pub struct SyncOutcome {
 #[derive(Clone, Default)]
 pub struct WorkspaceSyncTracker {
     last_uploaded: Arc<tokio::sync::Mutex<Option<u64>>>,
-    mirror_baseline: Arc<tokio::sync::Mutex<Option<sandbox_proto::workspace_manifest::Manifest>>>,
     /// Shared by [`restic::upload`], [`restic::restore_on_start`] and
     /// [`restic::forget_and_prune`].
     pub(super) repository_access: Arc<restic::AccessCache>,
-    /// Written by [`Self::mark_mirror_unusable`], read by [`Self::adopt_current`].
-    mirror_unusable: Arc<AtomicBool>,
     /// Written by [`Self::hold_uploads`], read by [`Self::upload_if_changed`].
     uploads_held: Arc<AtomicBool>,
     turn_upload: Arc<TurnUpload>,
@@ -135,34 +141,9 @@ impl WorkspaceSyncTracker {
     ///
     /// Called once init has placed the repos: a workspace that is exactly what
     /// the restore or the clone produced has nothing new to ship.
-    ///
-    /// The two baselines come from different sources because they answer
-    /// different questions. The upload gate only decides *whether* to ship, and
-    /// each format ships whatever it finds when it runs, so an on-disk walk
-    /// answers it regardless of how the tree got there. The mirror baseline is
-    /// the delta base, so it has to be what S3 actually holds —
-    /// [`workspace_mirror::stored_baseline`].
-    pub async fn adopt_current(&self, config: &Config, backend_client: &dyn BackendClient) {
+    pub async fn adopt_current(&self, config: &Config) {
         let dir = PathBuf::from(&config.workspace_dir);
         *self.last_uploaded.lock().await = workspace_fingerprint(dir).await;
-        *self.mirror_baseline.lock().await = if config.workspace_snapshot_format.writes_mirror()
-            && !self.mirror_unusable.load(Ordering::Relaxed)
-        {
-            workspace_mirror::stored_baseline(&config.task_id, backend_client).await
-        } else {
-            None
-        };
-    }
-
-    /// Record that S3 holds a mirror this sandbox could not restore from.
-    ///
-    /// Such a manifest names objects S3 may not hold, so it must not become the
-    /// delta base: [`Self::adopt_current`] then leaves the base unset and the
-    /// next upload ships the whole tree. Without this a task poisoned by a
-    /// pre-#686 sandbox never re-uploads what it is missing, because every
-    /// unchanged file keeps matching the poisoned manifest.
-    pub fn mark_mirror_unusable(&self) {
-        self.mirror_unusable.store(true, Ordering::Relaxed);
     }
 
     /// Refuse every upload for this pod's life.
@@ -188,13 +169,6 @@ impl WorkspaceSyncTracker {
     #[cfg(test)]
     pub(crate) fn uploads_are_held(&self) -> bool {
         self.uploads_held.load(Ordering::Relaxed)
-    }
-
-    /// Whether a mirror delta base is set. Unset means the next upload ships the
-    /// whole tree.
-    #[cfg(test)]
-    pub(crate) async fn has_mirror_baseline(&self) -> bool {
-        self.mirror_baseline.lock().await.is_some()
     }
 
     /// Upload the workspace unless it is unchanged since the last successful
@@ -234,56 +208,35 @@ impl WorkspaceSyncTracker {
         stored.outcome
     }
 
-    /// Write the workspace in each format this config enables, newest first.
+    /// Write the workspace as a `restic` snapshot, falling back to the tar.
     ///
-    /// One format failing holds the baseline back even when another one stored
-    /// the tree, because [`restore_on_start`] reads the newest format that
-    /// answers and never compares generations: a repository one tick behind a
-    /// mirror is still what a restart gets. The cost is that the next tick
-    /// re-writes the format that succeeded, and only while one is failing.
-    async fn store_current(
-        &self,
-        config: &Config,
-        backend_client: &dyn BackendClient,
-    ) -> Stored {
+    /// The repository failing holds the baseline back even when the tar stored
+    /// the tree, because [`restore_on_start`] reads the repository first and
+    /// never compares generations: a repository one tick behind the tar is
+    /// still what a restart gets. The cost is that the next tick re-writes what
+    /// succeeded, and only while the repository is failing.
+    async fn store_current(&self, config: &Config, backend_client: &dyn BackendClient) -> Stored {
         // The repository is incremental and atomic, so it runs first and its
-        // outcome is what a caller sees. During a dual-write soak the mirror
-        // still runs after it, so a rollback loses nothing.
+        // outcome is what a caller sees.
         let mut stored = None;
         let mut missed = false;
-        if config.workspace_snapshot_format.writes_restic() {
-            match restic::upload(config, backend_client, &self.repository_access).await {
-                Ok(outcome) => stored = Some(outcome),
-                // No snapshot was owed, so no snapshot is outstanding.
-                Err(restic::NotSnapshotted::Absent) => {}
-                Err(restic::NotSnapshotted::Failed) => {
-                    missed = true;
-                    debug!(task_id = %config.task_id, "Repository stored nothing; falling back");
-                }
-            }
-        }
-
-        if config.workspace_snapshot_format.writes_mirror() {
-            let mut baseline = self.mirror_baseline.lock().await;
-            if let Ok(outcome) =
-                workspace_mirror::upload(config, backend_client, &mut baseline).await
-            {
-                stored = stored.or(Some(outcome));
-            } else {
+        match restic::upload(config, backend_client, &self.repository_access).await {
+            Ok(outcome) => stored = Some(outcome),
+            Err(NotStored::Absent) => {}
+            Err(NotStored::Failed) => {
                 missed = true;
-                debug!(task_id = %config.task_id, "Mirror stored nothing; writing a tar");
+                debug!(task_id = %config.task_id, "Repository stored nothing; falling back");
             }
         }
 
-        // A format ahead of the tar holds the tree, so a tar would duplicate it.
-        // A tar that lands stands in for the format that missed and does not
-        // repair it, so it does not clear `missed`.
+        // The repository holds the tree, so a tar would duplicate it. A tar that
+        // lands stands in for the repository that missed and does not repair it,
+        // so it does not clear `missed`.
         if stored.is_none() {
-            let outcome = upload_from_config(config, backend_client).await;
-            if outcome.synced {
-                stored = Some(outcome);
-            } else {
-                missed = true;
+            match upload_from_config(config, backend_client).await {
+                Ok(outcome) => stored = Some(outcome),
+                Err(NotStored::Absent) => {}
+                Err(NotStored::Failed) => missed = true,
             }
         }
 
@@ -294,12 +247,12 @@ impl WorkspaceSyncTracker {
     }
 }
 
-/// What one pass over the enabled formats produced.
+/// What one pass over the formats produced.
 struct Stored {
     /// What the caller reports, from the first format that stored the tree.
     outcome: SyncOutcome,
-    /// Whether every enabled format holds this tree. Only `true` may move the
-    /// upload baseline.
+    /// Whether the repository holds this tree. Only `true` may move the upload
+    /// baseline.
     complete: bool,
 }
 
@@ -378,14 +331,13 @@ impl RestoreDecision {
     }
 }
 
-/// What one format's restore concluded, and whether an older format may run.
+/// What the repository's restore concluded, and whether the tar may run.
 ///
 /// Three states, not two. [`Self::Absent`] and [`Self::Failed`] both leave the
-/// workspace empty, but only `Absent` may fall through. Every older format is a
-/// strictly older copy of the same workspace, so descending after a read
-/// failure reverts the task to whatever that copy last held — and the tar has
-/// not been written on the normal sync path since the mirror shipped, so its
-/// age is unbounded.
+/// workspace empty, but only `Absent` may fall through. The tar is a strictly
+/// older copy of the same workspace, so descending after a read failure reverts
+/// the task to whatever that copy last held — and the tar is written only when
+/// the repository stored nothing, so its age is unbounded.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum RestoreAttempt {
     /// The format restored the workspace.
@@ -396,8 +348,8 @@ pub(super) enum RestoreAttempt {
     Failed,
 }
 
-/// Clone, and hold every upload, because `format` holds a snapshot this pod
-/// could not read.
+/// Clone, and hold every upload, because the repository holds a snapshot this
+/// pod could not read.
 ///
 /// The clone is the only tree with a known provenance left: the remote's. It is
 /// missing whatever the snapshot held and the remote does not, which is why the
@@ -407,17 +359,17 @@ pub(super) enum RestoreAttempt {
 /// Returns [`RestoreDecision::CloneOnly`], not `Nothing`: `Nothing` still owes
 /// [`download_on_start`]'s overlay, which extracts the same rescue tar this walk
 /// just refused to descend to.
-fn hold_for_unread_snapshot(state: &SandboxState, format: &str) -> RestoreDecision {
+fn hold_for_unread_snapshot(state: &SandboxState) -> RestoreDecision {
     error!(
         task_id = %state.config.task_id,
-        format,
+        format = restic::FORMAT,
         "Stored workspace snapshot could not be read; cloning and holding every upload so it is not overwritten"
     );
     state.workspace_sync.hold_uploads();
     // The hold lasts the pod's life and silently ends this task's durability,
     // so it is published rather than left in a container log that dies with it.
     let payload = serde_json::json!({
-        "format": format,
+        "format": restic::FORMAT,
         "message": "The stored workspace snapshot could not be read. This pod is running on a fresh clone, and every upload is held so the snapshot is not overwritten.",
     });
     match serde_json::to_string(&payload) {
@@ -459,7 +411,7 @@ fn hold_for_unread_snapshot(state: &SandboxState, format: &str) -> RestoreDecisi
 /// - a transfer/extract fails, or
 /// - the snapshot is working-tree-only and carries no `.git`.
 ///
-/// A format that failed to read a snapshot it holds instead returns
+/// A repository that failed to read a snapshot it holds instead returns
 /// [`RestoreDecision::CloneOnly`], and holds every upload for this pod — see
 /// [`hold_for_unread_snapshot`].
 ///
@@ -479,35 +431,17 @@ pub async fn restore_on_start(state: &SandboxState) -> RestoreDecision {
         return RestoreDecision::UseExistingVolume;
     }
 
-    // Newest format first, and the tar last: it is the rescue path and what a
-    // task last synced by an older sandbox still has. The order does not depend
-    // on what this sandbox writes — a task can hold a repository from before an
-    // operator rolled the format back.
+    // The repository first, and the tar last: the tar is the rescue path and
+    // what a task last synced by an older sandbox still has.
     //
-    // A format that fails to read a snapshot it holds stops the walk, unless the
-    // next format down is one this sandbox also writes; see [`RestoreAttempt`].
+    // A repository that fails to read a snapshot it holds stops the walk rather
+    // than descending to the tar; see [`RestoreAttempt`].
     let repository = restic::restore_on_start(state).await;
     if let RestoreAttempt::Restored(decision) = repository {
         return decision;
     }
-    // During a dual-write soak the same syncs write the mirror, so it is a
-    // current copy rather than an older one and reading it costs nothing.
-    let mirror_is_current = state.config.workspace_snapshot_format.writes_mirror();
-    if repository == RestoreAttempt::Failed && !mirror_is_current {
-        return hold_for_unread_snapshot(state, restic::FORMAT);
-    }
-
-    let mirror = workspace_mirror::restore_on_start(state).await;
-    if let RestoreAttempt::Restored(decision) = mirror {
-        return decision;
-    }
-    // The tar below is written only by the rescue path, so it is never a current
-    // copy of a task either format stored.
-    if mirror == RestoreAttempt::Failed {
-        return hold_for_unread_snapshot(state, workspace_mirror::FORMAT);
-    }
     if repository == RestoreAttempt::Failed {
-        return hold_for_unread_snapshot(state, restic::FORMAT);
+        return hold_for_unread_snapshot(state);
     }
 
     let urls = match state.backend_client.get_workspace_sync_urls(task_id).await {
@@ -700,7 +634,7 @@ pub async fn upload(state: &SandboxState) -> SyncOutcome {
 /// the command channel — user messages, stop requests, and the wake a
 /// [`BackgroundWatchJob`](crate::agent::background_watch_job) injects when a
 /// `moat cmd` finishes. Awaiting the upload there put every one of those behind
-/// an S3 transfer. When the mirror started failing on zero-byte files, each
+/// an S3 transfer. When uploads started failing on zero-byte files, each
 /// attempt burned its full retry budget and a task sat idle for four minutes
 /// with its wake already queued (task `5f0f1eaf`): the agent looked hung, and a
 /// user message appeared to be what unstuck it, when it was really the upload
@@ -771,14 +705,12 @@ pub async fn sync_on_request(state: &SandboxState) -> SyncOutcome {
         return SyncOutcome::default();
     }
     let outcome = upload(state).await;
-    if state.config.workspace_snapshot_format.writes_restic() {
-        restic::forget_and_prune(
-            &state.config,
-            state.backend_client.as_ref(),
-            &state.workspace_sync.repository_access,
-        )
-        .await;
-    }
+    restic::forget_and_prune(
+        &state.config,
+        state.backend_client.as_ref(),
+        &state.workspace_sync.repository_access,
+    )
+    .await;
     outcome
 }
 
@@ -803,24 +735,28 @@ pub async fn rescue_upload(workspace_dir: &str, put_url: &str) -> Result<u64, St
     Ok(bytes)
 }
 
-async fn upload_from_config(config: &Config, backend_client: &dyn BackendClient) -> SyncOutcome {
+/// Tar the workspace and PUT it, or report that it reached no bucket.
+async fn upload_from_config(
+    config: &Config,
+    backend_client: &dyn BackendClient,
+) -> Result<SyncOutcome, NotStored> {
     let task_id = &config.task_id;
     let workspace_dir = PathBuf::from(&config.workspace_dir);
 
     let Some(tar) = build_tar(workspace_dir).await else {
         debug!(task_id = %task_id, "No workspace files to upload");
-        return SyncOutcome::default();
+        return Err(NotStored::Absent);
     };
 
     let urls = match backend_client.get_workspace_sync_urls(task_id).await {
         Ok(u) => u,
         Err(e) if is_feature_disabled(&e) => {
             debug!(task_id = %task_id, "Workspace sync unavailable (backend S3 not configured); skipping upload");
-            return SyncOutcome::default();
+            return Err(NotStored::Absent);
         }
         Err(e) => {
             warn!(task_id = %task_id, error = %e, "Failed to mint workspace sync URLs (non-fatal)");
-            return SyncOutcome::default();
+            return Err(NotStored::Failed);
         }
     };
 
@@ -834,7 +770,7 @@ async fn upload_from_config(config: &Config, backend_client: &dyn BackendClient)
             }
             Err(e) => {
                 warn!(task_id = %task_id, error = %e, "Workspace upload failed (non-fatal)");
-                Some(e.into())
+                Some(e)
             }
         },
         Err(e) => {
@@ -853,11 +789,13 @@ async fn upload_from_config(config: &Config, backend_client: &dyn BackendClient)
         )
         .await;
 
-    let ok = error.is_none();
-    SyncOutcome {
-        synced: ok,
-        bytes: if ok { bytes } else { 0 },
+    if error.is_some() {
+        return Err(NotStored::Failed);
     }
+    Ok(SyncOutcome {
+        synced: true,
+        bytes,
+    })
 }
 
 /// Read the periodic upload interval from `WORKSPACE_SYNC_INTERVAL_SECS`
@@ -953,8 +891,7 @@ pub(super) fn primary_prefix(workspace_dir: &str, repo_dir: &str) -> String {
 ///
 /// The tar paths build one per transfer, which is cheap at the sync cadence
 /// (default 5 min) and keeps no long-lived connection open against the
-/// presigned host. [`workspace_mirror`](super::mirror) builds one for
-/// a whole sync instead — thousands of objects cannot each pay a handshake.
+/// presigned host.
 pub(super) fn http_client(timeout: Duration) -> Result<reqwest::Client, String> {
     reqwest::Client::builder()
         .timeout(timeout)
@@ -968,70 +905,24 @@ pub(super) fn http_client(timeout: Duration) -> Result<reqwest::Client, String> 
 ///
 /// For an empty body reqwest sends neither `Content-Length` nor
 /// `Transfer-Encoding`, and S3 answers an unframed `PUT` with `411 Length
-/// Required`. The mirror puts one object per file, so a single zero-byte file —
-/// a `.gitkeep` is the usual one — failed that sync and every later one, since
-/// the manifest is only written once the objects land. Setting the header
-/// explicitly frames all three cases: an empty body, a small one, and a large
-/// one.
+/// Required`. Setting the header explicitly frames all three cases: an empty
+/// body, a small one, and a large one.
 pub(super) async fn http_put(
     client: &reqwest::Client,
     url: &str,
     body: Vec<u8>,
-) -> Result<(), HttpFailure> {
+) -> Result<(), String> {
     let resp = client
         .put(url)
         .header(reqwest::header::CONTENT_LENGTH, body.len())
         .body(body)
         .send()
         .await
-        .map_err(|e| HttpFailure::transport("PUT", e))?;
+        .map_err(|e| format!("PUT request failed: {e}"))?;
     if resp.status().is_success() {
         Ok(())
     } else {
-        Err(HttpFailure::from_status("PUT", resp.status()))
-    }
-}
-
-/// A failed transfer, and whether trying it again can produce a different
-/// answer.
-#[derive(Debug)]
-pub(super) struct HttpFailure {
-    message: String,
-    /// `false` for a 4xx other than 408 and 429. A presigned URL that S3 has
-    /// refused stays refused, so a retry loop spends its whole budget to reach
-    /// the answer it already had — and on the restore path that budget is a
-    /// share of the pod's startup-probe window.
-    pub(super) retryable: bool,
-}
-
-impl HttpFailure {
-    fn from_status(method: &str, status: reqwest::StatusCode) -> Self {
-        let permanent = status.is_client_error()
-            && status != reqwest::StatusCode::REQUEST_TIMEOUT
-            && status != reqwest::StatusCode::TOO_MANY_REQUESTS;
-        Self {
-            message: format!("{method} returned HTTP {status}"),
-            retryable: !permanent,
-        }
-    }
-
-    fn transport(method: &str, error: reqwest::Error) -> Self {
-        Self {
-            message: format!("{method} request failed: {error}"),
-            retryable: true,
-        }
-    }
-}
-
-impl fmt::Display for HttpFailure {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.message)
-    }
-}
-
-impl From<HttpFailure> for String {
-    fn from(failure: HttpFailure) -> Self {
-        failure.message
+        Err(format!("PUT returned HTTP {}", resp.status()))
     }
 }
 
@@ -1040,22 +931,22 @@ impl From<HttpFailure> for String {
 pub(super) async fn http_get(
     client: &reqwest::Client,
     url: &str,
-) -> Result<Option<Vec<u8>>, HttpFailure> {
+) -> Result<Option<Vec<u8>>, String> {
     let resp = client
         .get(url)
         .send()
         .await
-        .map_err(|e| HttpFailure::transport("GET", e))?;
+        .map_err(|e| format!("GET request failed: {e}"))?;
     if resp.status() == reqwest::StatusCode::NOT_FOUND {
         return Ok(None);
     }
     if !resp.status().is_success() {
-        return Err(HttpFailure::from_status("GET", resp.status()));
+        return Err(format!("GET returned HTTP {}", resp.status()));
     }
     let bytes = resp
         .bytes()
         .await
-        .map_err(|e| HttpFailure::transport("reading the GET body", e))?;
+        .map_err(|e| format!("reading the GET body failed: {e}"))?;
     Ok(Some(bytes.to_vec()))
 }
 
@@ -1495,8 +1386,6 @@ mod tests {
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    use crate::config::WorkspaceSnapshotFormat;
-
     use async_trait::async_trait;
     use sandbox_proto::{
         DownloadUploadResponse, GetCredentialsResponse, GetWorkspaceSyncUrlsResponse,
@@ -1522,11 +1411,6 @@ mod tests {
         /// When a granted session expires, as RFC 3339. `None` grants nothing.
         repository_expiry: Option<String>,
         repository_access_calls: AtomicUsize,
-        /// How `get_workspace_object_urls` answers. `None` reports the feature
-        /// unsupported, like a backend predating the mirror. `Some(n)` fails
-        /// transiently `n` times and then mints.
-        object_url_failures: Option<AtomicUsize>,
-        object_url_calls: AtomicUsize,
     }
 
     /// Turns the URL mint into a valve: it announces each entry on `started` and
@@ -1542,8 +1426,10 @@ mod tests {
             self.url_requests.load(Ordering::SeqCst)
         }
 
-        /// A backend that blocks inside every upload, plus the receiver that
-        /// reports each one starting.
+        /// A backend that blocks inside every upload and then fails the
+        /// transfer, plus the receiver that reports each one starting. It mints
+        /// so that a released upload answers `NotStored::Failed` and the
+        /// baseline stays where a queued upload still reaches the gate.
         fn gated() -> (Arc<Self>, tokio::sync::mpsc::UnboundedReceiver<()>) {
             let (started, rx) = tokio::sync::mpsc::unbounded_channel();
             let backend = Arc::new(Self {
@@ -1551,6 +1437,7 @@ mod tests {
                     started,
                     release: tokio::sync::Semaphore::new(0),
                 }),
+                mint_urls: true,
                 ..Self::default()
             });
             (backend, rx)
@@ -1565,15 +1452,6 @@ mod tests {
         fn minting() -> Self {
             Self {
                 mint_urls: true,
-                ..Self::default()
-            }
-        }
-
-        /// A backend whose object-URL mint fails transiently `n` times before it
-        /// works. `usize::MAX` never works.
-        fn flaky_object_urls(n: usize) -> Self {
-            Self {
-                object_url_failures: Some(AtomicUsize::new(n)),
                 ..Self::default()
             }
         }
@@ -1604,10 +1482,6 @@ mod tests {
                 ),
                 ..Self::default()
             }
-        }
-
-        fn object_url_calls(&self) -> usize {
-            self.object_url_calls.load(Ordering::SeqCst)
         }
 
         fn repository_access_calls(&self) -> usize {
@@ -1695,8 +1569,6 @@ mod tests {
                     put_url: "http://127.0.0.1:1/workspace.tar".to_string(),
                     get_url: "http://127.0.0.1:1/workspace.tar".to_string(),
                     expires_in_secs: 900,
-                    manifest_put_url: "http://127.0.0.1:1/manifest.json.gz".to_string(),
-                    manifest_get_url: "http://127.0.0.1:1/manifest.json.gz".to_string(),
                 });
             }
             Err(tonic::Status::failed_precondition("no S3 in tests"))
@@ -1726,32 +1598,6 @@ mod tests {
                 source_prefix: None,
                 source_password: None,
             })
-        }
-        async fn get_workspace_object_urls(
-            &self,
-            _task_id: &str,
-            paths: &[String],
-            _operation: &str,
-            _restore_source: bool,
-        ) -> Result<Vec<String>, tonic::Status> {
-            self.object_url_calls.fetch_add(1, Ordering::SeqCst);
-            let Some(remaining) = &self.object_url_failures else {
-                return Err(tonic::Status::unimplemented("mirror not supported"));
-            };
-            if remaining
-                .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| {
-                    (n > 0).then(|| n.saturating_sub(1))
-                })
-                .is_ok()
-            {
-                // The shape production failed with: a transport timeout, which
-                // carries no verdict about whether a mirror exists.
-                return Err(tonic::Status::cancelled("Timeout expired"));
-            }
-            Ok(paths
-                .iter()
-                .map(|_| "http://127.0.0.1:1/object".to_string())
-                .collect())
         }
     }
 
@@ -1830,33 +1676,36 @@ mod tests {
         assert!(!RestoreDecision::CloneOnly.restored_snapshot());
     }
 
-    /// The walk itself: a format that cannot read what it stores neither
-    /// descends nor lets the overlay descend for it.
+    /// The walk itself: a repository that cannot read what it stores neither
+    /// descends to the tar nor lets the overlay descend for it.
     ///
     /// This is the assertion the staging loss needed. Before the fix the same
     /// backend produced `Nothing`, which sends `init` on to
     /// [`download_on_start`] — and that extracts the rescue tar over the clone,
     /// which is how the task came up three days stale.
     #[tokio::test(start_paused = true)]
-    async fn a_mirror_that_cannot_be_read_neither_descends_nor_overlays() {
+    async fn a_repository_that_cannot_be_read_neither_descends_nor_overlays() {
         let tmp = tempfile::tempdir().unwrap();
         let mut config = sync_config(tmp.path(), true, false);
-        // Mirror-only, so the repository arm is absent and the mirror decides.
-        config.workspace_snapshot_format = WorkspaceSnapshotFormat::Mirror;
         config.task_id = "task-1".to_string();
 
-        // The incident's shape: the mint is cancelled, so whether a mirror
-        // exists is unknown rather than answered.
-        let backend: Arc<dyn BackendClient> =
-            Arc::new(CountingBackend::sync_urls_failing(tonic::Code::Cancelled));
-        let state = crate::state::test_support::state_with(config, backend);
+        // The incident's shape: the grant is cancelled, so whether a snapshot
+        // exists is unknown rather than answered. The trait default is
+        // `unimplemented`, and that reads as an absence instead.
+        let backend = Arc::new(CountingBackend::repository_access_failing(
+            tonic::Code::Cancelled,
+        ));
+        let state = crate::state::test_support::state_with(
+            config,
+            Arc::clone(&backend) as Arc<dyn BackendClient>,
+        );
 
         let decision = restore_on_start(&state).await;
 
         assert_eq!(
             decision,
             RestoreDecision::CloneOnly,
-            "an unread mirror must not leave the tar overlay owed"
+            "an unread repository must not leave the tar overlay owed"
         );
         assert!(
             decision.skips_overlay(),
@@ -1870,190 +1719,11 @@ mod tests {
             state.workspace_sync.uploads_are_held(),
             "this pod must not overwrite the snapshot it could not read"
         );
-    }
-
-    /// The carve-out, pinned on the observable that separates the two formats:
-    /// whether the mirror is consulted at all.
-    ///
-    /// Both fleets end in a hold, so a decision assertion cannot tell them
-    /// apart. The mint count can: restic-only stops before the mirror because
-    /// it is an older copy, and dual-write walks on to it because the same
-    /// syncs wrote it.
-    #[tokio::test]
-    async fn only_a_dual_write_fleet_reads_the_mirror_after_a_repository_failure() {
-        async fn walk(format: WorkspaceSnapshotFormat) -> (RestoreDecision, usize, bool) {
-            let tmp = tempfile::tempdir().unwrap();
-            let mut config = sync_config(tmp.path(), true, false);
-            config.workspace_snapshot_format = format;
-            config.task_id = "task-1".to_string();
-
-            // The repository arm must report `Failed`, which is the only branch
-            // that reads the carve-out. The trait default is `unimplemented`,
-            // and that reads as an absence.
-            let backend = Arc::new(CountingBackend::repository_access_failing(
-                tonic::Code::Cancelled,
-            ));
-            let state = crate::state::test_support::state_with(
-                config,
-                Arc::clone(&backend) as Arc<dyn BackendClient>,
-            );
-
-            let decision = restore_on_start(&state).await;
-            let held = state.workspace_sync.uploads_are_held();
-            (decision, backend.attempts(), held)
-        }
-
-        let (decision, mints, held) = walk(WorkspaceSnapshotFormat::Restic).await;
-        assert_eq!(decision, RestoreDecision::CloneOnly);
-        assert!(held, "an unread repository holds this pod's uploads");
         assert_eq!(
-            mints, 0,
-            "restic-only: the mirror is an older copy, so the walk stops before it"
+            backend.attempts(),
+            0,
+            "the tar is an older copy, so the walk stops before it"
         );
-
-        let (decision, mints, held) = walk(WorkspaceSnapshotFormat::ResticMirror).await;
-        assert_eq!(decision, RestoreDecision::CloneOnly);
-        assert!(
-            held,
-            "the mirror had nothing either, so the hold still stands"
-        );
-        assert!(
-            mints > 0,
-            "dual-write: the mirror is equally current, so the walk reads it"
-        );
-    }
-
-    /// A transport blip minting object URLs is retried rather than taken as the
-    /// mirror's verdict.
-    ///
-    /// On staging one 20-second gRPC timeout ended the mirror restore, the chain
-    /// descended to a rescue tar three days old, and the next sync mirrored that
-    /// tree back over the snapshot. Only bucket versioning got the work back.
-    #[tokio::test]
-    async fn a_transient_url_mint_is_retried() {
-        // Two blips, spelled out rather than derived from the budget: a test
-        // that reads the constant passes at any value of it, including one.
-        let backend = CountingBackend::flaky_object_urls(2);
-        let paths = vec!["a.txt".to_string()];
-
-        let urls = workspace_mirror::mint_urls(
-            &backend,
-            "task",
-            &paths,
-            "get",
-            false,
-            workspace_mirror::Retry::Upload,
-        )
-        .await;
-
-        assert!(
-            urls.is_ok(),
-            "a blip that clears inside the budget must not fail the restore"
-        );
-        assert_eq!(backend.object_url_calls(), 3);
-    }
-
-    /// The retry is bounded: a backend that is genuinely down must not hold a
-    /// pod's start open indefinitely.
-    #[tokio::test]
-    async fn a_persistent_url_mint_failure_stops_at_the_budget() {
-        let backend = CountingBackend::flaky_object_urls(usize::MAX);
-        let paths = vec!["a.txt".to_string()];
-
-        let urls = workspace_mirror::mint_urls(
-            &backend,
-            "task",
-            &paths,
-            "get",
-            false,
-            workspace_mirror::Retry::Upload,
-        )
-        .await;
-
-        assert!(urls.is_err());
-        assert_eq!(
-            backend.object_url_calls(),
-            workspace_mirror::UPLOAD_ATTEMPTS as usize
-        );
-    }
-
-    /// A restore outlasts what an upload gives up on. The two have opposite
-    /// stakes: the upload retries on the next tick, and the restore clones over
-    /// the snapshot and holds every upload for the pod's life.
-    #[tokio::test(start_paused = true)]
-    async fn a_restore_retries_past_what_an_upload_would() {
-        let backend =
-            CountingBackend::flaky_object_urls(workspace_mirror::UPLOAD_ATTEMPTS as usize);
-        let paths = vec!["a.txt".to_string()];
-
-        let urls = workspace_mirror::mint_urls(
-            &backend,
-            "task",
-            &paths,
-            "get",
-            true,
-            workspace_mirror::Retry::restore(),
-        )
-        .await;
-
-        assert!(urls.is_ok(), "the restore budget outlasts the upload's");
-        assert_eq!(
-            backend.object_url_calls(),
-            workspace_mirror::UPLOAD_ATTEMPTS as usize + 1
-        );
-    }
-
-    /// The feature being off is an answer, not a blip. Retrying it would add the
-    /// whole backoff to every start on a deployment that stores no workspace.
-    #[tokio::test]
-    async fn an_unsupported_mirror_is_not_retried() {
-        let backend = CountingBackend::default();
-        let paths = vec!["a.txt".to_string()];
-
-        let urls = workspace_mirror::mint_urls(
-            &backend,
-            "task",
-            &paths,
-            "get",
-            false,
-            workspace_mirror::Retry::Upload,
-        )
-        .await;
-
-        assert!(urls.is_err());
-        assert_eq!(backend.object_url_calls(), 1);
-    }
-
-    /// `Ok(None)` is what lets the caller descend to an older format, so only a
-    /// real absence may produce it. A cancelled RPC leaves the answer unknown.
-    #[tokio::test]
-    async fn a_cancelled_mint_is_not_an_absent_mirror() {
-        let client = http_client(Duration::from_secs(1)).unwrap();
-
-        let backend = CountingBackend::sync_urls_failing(tonic::Code::Cancelled);
-        let got = workspace_mirror::fetch_stored_manifest(
-            "task",
-            &backend,
-            &client,
-            workspace_mirror::Retry::Upload,
-        )
-        .await;
-        assert!(
-            got.is_err(),
-            "a transport failure must not read as `this task has no mirror`"
-        );
-
-        // The backend saying it stores no workspace at all is an absence: there
-        // is then nothing for any format to read, so descending is correct.
-        let disabled = CountingBackend::default();
-        let got = workspace_mirror::fetch_stored_manifest(
-            "task",
-            &disabled,
-            &client,
-            workspace_mirror::Retry::Upload,
-        )
-        .await;
-        assert!(matches!(got, Ok(None)));
     }
 
     /// A restore that failed against a snapshot that exists leaves this pod
@@ -2069,8 +1739,7 @@ mod tests {
         git_add(&repo, &["a.txt"]);
         git_commit(&repo, "init");
 
-        let mut config = sync_config(tmp.path(), true, true);
-        config.workspace_snapshot_format = WorkspaceSnapshotFormat::Tar;
+        let config = sync_config(tmp.path(), true, true);
         let backend = CountingBackend::default();
         let tracker = WorkspaceSyncTracker::new();
 
@@ -2098,16 +1767,16 @@ mod tests {
         git_add(&repo, &["a.txt"]);
         git_commit(&repo, "init");
 
-        // The tar gate specifically: the mirror's baseline is not a fingerprint
-        // and is seeded from S3, so it is covered by its own test below.
-        let mut config = sync_config(tmp.path(), true, true);
-        config.workspace_snapshot_format = WorkspaceSnapshotFormat::Tar;
-        let backend = CountingBackend::default();
+        // This backend serves no repository, so the tar is what the gate is
+        // read through. Its transfers are reached and then fail, so the last
+        // leg below reads `NotStored::Failed` rather than an absence.
+        let config = sync_config(tmp.path(), true, true);
+        let backend = CountingBackend::minting();
         let tracker = WorkspaceSyncTracker::new();
 
         // Init's baseline: the tar the clone/restore produced is whole, so the
         // first turn ships nothing.
-        tracker.adopt_current(&config, &backend).await;
+        tracker.adopt_current(&config).await;
         upload_after_turn(&config, &backend, &tracker).await;
         assert_eq!(backend.attempts(), 0, "an untouched workspace is skipped");
 
@@ -2116,8 +1785,8 @@ mod tests {
         upload_after_turn(&config, &backend, &tracker).await;
         assert_eq!(backend.attempts(), 1, "a changed workspace is uploaded");
 
-        // The upload failed (no S3 here), so the baseline must not advance —
-        // otherwise a transient failure would silently drop the change.
+        // The PUT failed, so the baseline must not advance: a transient failure
+        // would otherwise silently drop the change.
         upload_after_turn(&config, &backend, &tracker).await;
         assert_eq!(
             backend.attempts(),
@@ -2138,14 +1807,13 @@ mod tests {
         git_add(&repo, &["a.txt"]);
         git_commit(&repo, "init");
 
-        let mut config = sync_config(tmp.path(), true, true);
-        config.workspace_snapshot_format = WorkspaceSnapshotFormat::Restic;
+        let config = sync_config(tmp.path(), true, true);
         // A grant that opens a repository, so the second half reaches a snapshot
         // rather than only reaching for one.
         let backend = CountingBackend::granting_repository_access(chrono::TimeDelta::hours(1));
         let tracker = WorkspaceSyncTracker::new();
 
-        tracker.adopt_current(&config, &backend).await;
+        tracker.adopt_current(&config).await;
         upload_after_turn(&config, &backend, &tracker).await;
         assert_eq!(
             backend.repository_access_calls(),
@@ -2162,13 +1830,13 @@ mod tests {
         );
     }
 
-    /// The gate makes one tick's failure permanent, so a format that stored
-    /// nothing holds the baseline back even when another one answered `Ok`.
-    /// [`restic::restore_on_start`] reads the newest format that answers and
-    /// never compares generations, so a repository that missed a tick is what
-    /// the next restart gets, with a current mirror sitting beside it.
+    /// The gate makes one tick's failure permanent, so a repository that stored
+    /// nothing holds the baseline back even when the tar behind it took the
+    /// tree. [`restore_on_start`] reads the repository first and never compares
+    /// generations, so a repository that missed a tick is what the next restart
+    /// gets, with a current tar sitting beside it.
     #[tokio::test]
-    async fn a_format_that_stored_nothing_holds_the_baseline_back() {
+    async fn a_repository_that_stored_nothing_holds_the_baseline_back() {
         let tmp = tempfile::tempdir().unwrap();
         let repo = tmp.path().join("repo");
         init_repo(&repo);
@@ -2176,21 +1844,17 @@ mod tests {
         git_add(&repo, &["a.txt"]);
         git_commit(&repo, "init");
 
-        let mut config = sync_config(tmp.path(), true, true);
-        config.workspace_snapshot_format = WorkspaceSnapshotFormat::ResticMirror;
-        // The repository fails on its grant, and the mirror behind it answers
-        // `Ok`, so the tick is the partial failure this test is about.
-        let backend = CountingBackend {
-            repository_access_code: Some(tonic::Code::Cancelled),
-            ..CountingBackend::default()
-        };
+        let config = sync_config(tmp.path(), true, true);
+        // The repository fails on its grant, so the tick is the partial failure
+        // this test is about.
+        let backend = CountingBackend::repository_access_failing(tonic::Code::Cancelled);
         let tracker = WorkspaceSyncTracker::new();
 
         upload_after_turn(&config, &backend, &tracker).await;
         assert_eq!(backend.repository_access_calls(), 1);
 
         // Nothing edits the tree again, which is the tick before a stop: the
-        // last turn's work is in the mirror and not in the repository.
+        // last turn's work is in the tar and not in the repository.
         upload_after_turn(&config, &backend, &tracker).await;
         assert_eq!(
             backend.repository_access_calls(),
@@ -2200,10 +1864,8 @@ mod tests {
     }
 
     /// A backend that serves no repository at all owes this tree no snapshot,
-    /// so it must not read as a repository that missed one. The sandbox names
-    /// the format and the backend serves it, and nothing ties the two settings
-    /// together, so a mismatch would otherwise hold the baseline back for the
-    /// task's whole life and cost a mirror walk every tick.
+    /// so it must not read as a repository that missed one — that would hold the
+    /// baseline back for the task's whole life and cost a tar every tick.
     #[tokio::test]
     async fn a_backend_serving_no_repository_leaves_the_gate_working() {
         let tmp = tempfile::tempdir().unwrap();
@@ -2213,8 +1875,7 @@ mod tests {
         git_add(&repo, &["a.txt"]);
         git_commit(&repo, "init");
 
-        let mut config = sync_config(tmp.path(), true, true);
-        config.workspace_snapshot_format = WorkspaceSnapshotFormat::ResticMirror;
+        let config = sync_config(tmp.path(), true, true);
         // Grants nothing and reports it `Unimplemented`, like a backend with no
         // `workspace_repository` configured.
         let backend = CountingBackend::default();
@@ -2232,11 +1893,11 @@ mod tests {
     }
 
     /// A mint that fails transiently stored nothing, so it must not read as a
-    /// stored mirror. With one gate in front of every format, a baseline moved
-    /// on that answer leaves the tree in no format at all until something edits
-    /// it — and the pre-stop sync is gated out too.
+    /// stored tar. With one gate in front of both writers, a baseline moved on
+    /// that answer leaves the tree stored nowhere until something edits it —
+    /// and the pre-stop sync is gated out too.
     #[tokio::test]
-    async fn a_failed_mint_does_not_count_as_a_stored_mirror() {
+    async fn a_failed_mint_does_not_count_as_a_stored_tar() {
         let tmp = tempfile::tempdir().unwrap();
         let repo = tmp.path().join("repo");
         init_repo(&repo);
@@ -2244,8 +1905,7 @@ mod tests {
         git_add(&repo, &["a.txt"]);
         git_commit(&repo, "init");
 
-        let mut config = sync_config(tmp.path(), true, true);
-        config.workspace_snapshot_format = WorkspaceSnapshotFormat::Mirror;
+        let config = sync_config(tmp.path(), true, true);
         // `Cancelled` is a blip rather than a verdict: this backend mints URLs,
         // it just did not this time.
         let backend = CountingBackend::sync_urls_failing(tonic::Code::Cancelled);
@@ -2253,12 +1913,12 @@ mod tests {
 
         upload_after_turn(&config, &backend, &tracker).await;
         let first = backend.attempts();
-        assert!(first > 0, "the mirror reached for its URLs");
+        assert!(first > 0, "the tar reached for its URLs");
 
         upload_after_turn(&config, &backend, &tracker).await;
         assert!(
             backend.attempts() > first,
-            "a tree no format stored is offered again"
+            "a tree nothing stored is offered again"
         );
     }
 
@@ -2301,89 +1961,13 @@ mod tests {
         );
     }
 
-    /// A clone is not a mirror: a tree S3 holds no objects for must not become
-    /// the delta base. Adopting one made the first upload ship only the agent's
-    /// later edits under a manifest naming every file in the tree, and the next
-    /// restore failed on the first object nobody stored, cleared the workspace
-    /// and cloned over the work (PR #684, verified on the cluster).
-    #[tokio::test]
-    async fn a_clone_is_not_adopted_as_the_mirror_baseline() {
-        let tmp = tempfile::tempdir().unwrap();
-        let repo = tmp.path().join("repo");
-        init_repo(&repo);
-        std::fs::write(repo.join("a.txt"), "hello").unwrap();
-        git_add(&repo, &["a.txt"]);
-        git_commit(&repo, "init");
-
-        let config = sync_config(tmp.path(), true, true);
-        assert!(config.workspace_snapshot_format.writes_mirror());
-        let backend = CountingBackend::default();
-        let tracker = WorkspaceSyncTracker::new();
-
-        // This backend mints no URLs, so S3 holds no manifest to adopt.
-        tracker.adopt_current(&config, &backend).await;
-        assert_eq!(backend.attempts(), 1, "the baseline is read from S3");
-        assert!(
-            !tracker.has_mirror_baseline().await,
-            "a tree S3 has no objects for is not a delta base"
-        );
-
-        // Nothing has touched the clone, so the shared gate holds every format:
-        // the remote still reproduces this tree.
-        upload_after_turn(&config, &backend, &tracker).await;
-        assert_eq!(backend.attempts(), 1, "an untouched clone ships nothing");
-
-        // With no baseline the first edit ships the whole tree, not a delta
-        // against a manifest S3 holds no objects for.
-        std::fs::write(repo.join("a.txt"), "edited by the agent").unwrap();
-        upload_after_turn(&config, &backend, &tracker).await;
-        assert_eq!(backend.attempts(), 2, "the first edit ships the whole tree");
-    }
-
-    /// A mirror that would not restore is not a delta base either. A task
-    /// poisoned by a pre-#686 sandbox holds a manifest naming objects S3 never
-    /// stored; adopting it again leaves every unchanged file matching the
-    /// manifest, so the missing objects are never re-uploaded and the task can
-    /// only ever restore what it already has.
-    #[tokio::test]
-    async fn a_mirror_that_would_not_restore_is_not_adopted_as_the_baseline() {
-        let tmp = tempfile::tempdir().unwrap();
-        let repo = tmp.path().join("repo");
-        init_repo(&repo);
-        std::fs::write(repo.join("a.txt"), "hello").unwrap();
-        git_add(&repo, &["a.txt"]);
-        git_commit(&repo, "init");
-
-        let config = sync_config(tmp.path(), true, true);
-        assert!(config.workspace_snapshot_format.writes_mirror());
-        let backend = CountingBackend::default();
-        let tracker = WorkspaceSyncTracker::new();
-
-        tracker.mark_mirror_unusable();
-        tracker.adopt_current(&config, &backend).await;
-        assert_eq!(
-            backend.attempts(),
-            0,
-            "a manifest that failed to restore is not re-fetched"
-        );
-        assert!(
-            !tracker.has_mirror_baseline().await,
-            "a mirror we could not restore from is not a delta base"
-        );
-
-        // The whole tree is the delta, so the first edit ships what S3 lacks.
-        std::fs::write(repo.join("a.txt"), "edited by the agent").unwrap();
-        upload_after_turn(&config, &backend, &tracker).await;
-        assert_eq!(backend.attempts(), 1, "the whole tree is uploaded");
-    }
-
-    /// A mirror that fails still owes the task a durable copy. Task
+    /// A repository that fails still owes the task a durable copy. Task
     /// `5f0f1eaf` ran a whole session against a mirror failing every object
     /// with `411 Length Required`; because a failed transfer returned success,
-    /// no tar was written either, and each restart found no copy of any format
-    /// and cloned over the work.
+    /// no tar was written either, and each restart found no copy at all and
+    /// cloned over the work.
     #[tokio::test]
-    async fn a_failed_mirror_falls_back_to_the_tar() {
+    async fn a_failed_repository_falls_back_to_the_tar() {
         let tmp = tempfile::tempdir().unwrap();
         let repo = tmp.path().join("repo");
         init_repo(&repo);
@@ -2392,21 +1976,24 @@ mod tests {
         git_commit(&repo, "init");
 
         let config = sync_config(tmp.path(), true, true);
-        assert!(config.workspace_snapshot_format.writes_mirror());
-        let backend = CountingBackend::minting();
+        // The grant is cancelled, so the repository reports `Failed` rather than
+        // the absence a default backend reports.
+        let backend = CountingBackend {
+            repository_access_code: Some(tonic::Code::Cancelled),
+            ..CountingBackend::minting()
+        };
         let tracker = WorkspaceSyncTracker::new();
 
-        // The mirror mints its URLs and fails the transfer; the tar then mints
-        // its own, so two mints mean both formats were attempted.
+        // The tar mints its URLs and fails the transfer against a closed port.
         upload_after_turn(&config, &backend, &tracker).await;
+        assert_eq!(backend.repository_access_calls(), 1);
         assert_eq!(
             backend.attempts(),
-            2,
-            "a mirror that stored nothing is followed by a tar"
+            1,
+            "a repository that stored nothing is followed by a tar"
         );
 
-        // Neither format landed, so nothing advanced and the next turn retries.
-        assert!(!tracker.has_mirror_baseline().await);
+        // Neither landed, so nothing advanced and the next turn retries.
         assert_eq!(tracker.baseline().await, None);
     }
 
@@ -2433,10 +2020,10 @@ mod tests {
     /// The turn-boundary upload must not hold up the loop that spawned it, and
     /// the turns that arrive while it runs must not each get their own transfer.
     ///
-    /// Both halves are the same incident: a mirror that failed on zero-byte
-    /// files made every upload burn its full retry budget, and because the
-    /// coordinator awaited it, an already-queued wake sat unread for four
-    /// minutes (task `5f0f1eaf`).
+    /// Both halves are the same incident: an upload that failed on zero-byte
+    /// files burned its full retry budget, and because the coordinator awaited
+    /// it, an already-queued wake sat unread for four minutes (task
+    /// `5f0f1eaf`).
     #[tokio::test]
     async fn turn_uploads_run_off_the_caller_and_coalesce() {
         let tmp = tempfile::tempdir().unwrap();
@@ -2446,11 +2033,7 @@ mod tests {
         git_add(&repo, &["a.txt"]);
         git_commit(&repo, "init");
 
-        // The tar path: the mirror has its own transport and this is about
-        // scheduling, not about what travels.
-        let mut config = sync_config(tmp.path(), true, true);
-        config.workspace_snapshot_format = WorkspaceSnapshotFormat::Tar;
-        let config = Arc::new(config);
+        let config = Arc::new(sync_config(tmp.path(), true, true));
         let (backend, mut started) = CountingBackend::gated();
         let tracker = WorkspaceSyncTracker::new();
 
@@ -2975,10 +2558,7 @@ mod tests {
     /// The framing regression behind `411 Length Required`.
     ///
     /// reqwest sends an empty body with neither `Content-Length` nor
-    /// `Transfer-Encoding`, and S3 rejects an unframed `PUT`. The mirror writes
-    /// one object per file, so a single `.gitkeep` failed every sync of that
-    /// workspace — permanently, because the manifest is only written after the
-    /// objects land.
+    /// `Transfer-Encoding`, and S3 rejects an unframed `PUT`.
     #[tokio::test]
     async fn an_empty_body_is_still_framed_with_a_content_length() {
         let framing = framing_seen_by_a_server(Vec::new()).await;

@@ -15,7 +15,7 @@ Use `secrets list` with the same context/namespace to inspect names, not values.
 | GitHub App client ID/secret | GitHub App login is selected. |
 | Auth0 domain/client ID/client secret | Auth0 login is selected. |
 | Object-store bucket, region and credentials | Selected object-storage configuration requires them; use workload identity when configured. |
-| `SANDBOX_WORKSPACE_REPOSITORY_SECRET` | `kubernetes.sandboxStorage.workspaceSnapshotFormat` includes `restic`. Preserve it: rotating it makes every existing repository unreadable. |
+| `SANDBOX_WORKSPACE_REPOSITORY_SECRET` | Workspace durability. Without it a sandbox falls back to one tar per sync, and a stopped task's files are unreadable. Preserve it: rotating it makes every existing repository unreadable. |
 
 Runtime agent credentials are user/task configuration; bootstrap does not require
 a cluster-wide Anthropic API key. Private-image pull credentials are a separate

@@ -48,7 +48,7 @@ use moatless_sandbox::agent::harness::{
 };
 use moatless_sandbox::agent::types::{AgentStatus, ResumeSession, StopSource};
 use moatless_sandbox::backend_client::BackendClient;
-use moatless_sandbox::config::{AgentConfig, Config, ProxyConfig, WorkspaceSnapshotFormat};
+use moatless_sandbox::config::{AgentConfig, Config, ProxyConfig};
 use moatless_sandbox::credentials::Dispatcher;
 use moatless_sandbox::credentials::recovery::CredentialFailureDetector;
 use moatless_sandbox::events::GrpcEventPublisher;
@@ -259,7 +259,6 @@ fn test_config(tmp: &TempDir, use_tmux: bool, agent_type: &str) -> Config {
         plugins: vec![],
         permission_mode: claude_agent_sdk::PermissionMode::BypassPermissions,
         workspace_sync_enabled: false,
-        workspace_snapshot_format: WorkspaceSnapshotFormat::Mirror,
         workspace_restore_if_empty: false,
         headless: false,
     }

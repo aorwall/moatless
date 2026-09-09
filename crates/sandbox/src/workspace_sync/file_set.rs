@@ -1,10 +1,9 @@
-//! What a workspace sync stores, for the mirror and the `restic` repository.
+//! What a workspace sync stores in the `restic` repository.
 //!
-//! One rule for those two, because a format that walked differently would
-//! restore a different tree. Inside a git repo the set is
-//! `git ls-files -c -o --exclude-standard` plus that repo's whole `.git`, so
-//! ignored build output stays out while HEAD, the index and the dirty tree come
-//! back exactly. Every other directory is walked generically.
+//! Inside a git repo the set is `git ls-files -c -o --exclude-standard` plus
+//! that repo's whole `.git`, so ignored build output stays out while HEAD, the
+//! index and the dirty tree come back exactly. Every other directory is walked
+//! generically.
 //!
 //! The tar is **not** on this walk. `sync::append_tree`, `sync::append_repo`
 //! and `sync::workspace_fingerprint` each carry their own copy of the same
@@ -12,33 +11,24 @@
 
 use std::path::{Path, PathBuf};
 
-use super::sync::{join_prefix, rel_from};
-
-/// One file the sync stores.
-pub(super) struct WorkspaceFile {
-    /// Workspace-relative, `/`-separated.
-    pub rel: String,
-    pub full: PathBuf,
-    pub meta: std::fs::Metadata,
-}
-
-/// Every file under `workspace_dir` a sync stores, unsorted.
+/// Every file under `workspace_dir` a sync stores, unsorted and rooted at
+/// `workspace_dir`.
 ///
 /// Runs `git` as a subprocess and blocks on `std::fs`, so the caller belongs on
 /// a blocking thread.
-pub(super) fn collect(workspace_dir: &Path) -> Vec<WorkspaceFile> {
+pub(super) fn collect(workspace_dir: &Path) -> Vec<PathBuf> {
     let mut files = Vec::new();
     if workspace_dir.is_dir() {
-        collect_tree(&mut files, workspace_dir, workspace_dir);
+        collect_tree(&mut files, workspace_dir);
     }
     files
 }
 
 /// A git repo root is enumerated through git and not descended into; every
 /// other directory is walked.
-fn collect_tree(files: &mut Vec<WorkspaceFile>, root: &Path, dir: &Path) {
+fn collect_tree(files: &mut Vec<PathBuf>, dir: &Path) {
     if dir.join(".git").is_dir() {
-        collect_repo(files, dir, &rel_from(root, dir));
+        collect_repo(files, dir);
         return;
     }
     let Ok(dir_entries) = std::fs::read_dir(dir) else {
@@ -49,16 +39,16 @@ fn collect_tree(files: &mut Vec<WorkspaceFile>, root: &Path, dir: &Path) {
             continue;
         };
         if meta.is_dir() {
-            collect_tree(files, root, &path);
+            collect_tree(files, &path);
         } else if meta.is_file() {
-            push(files, rel_from(root, &path), path, meta);
+            files.push(path);
         }
     }
 }
 
 /// The working-tree file set from `git ls-files -c -o --exclude-standard` plus
 /// the whole `.git`.
-fn collect_repo(files: &mut Vec<WorkspaceFile>, repo_dir: &Path, prefix: &str) {
+fn collect_repo(files: &mut Vec<PathBuf>, repo_dir: &Path) {
     if let Ok(output) = std::process::Command::new("git")
         .arg("-C")
         .arg(repo_dir)
@@ -80,17 +70,17 @@ fn collect_repo(files: &mut Vec<WorkspaceFile>, repo_dir: &Path, prefix: &str) {
                     continue;
                 };
                 if meta.is_file() || meta.is_symlink() {
-                    push(files, join_prefix(prefix, rel), full, meta);
+                    files.push(full);
                 }
             }
         }
     }
-    collect_dir(files, &join_prefix(prefix, ".git"), &repo_dir.join(".git"));
+    collect_dir(files, &repo_dir.join(".git"));
 }
 
-/// Every regular file under `dir`, keyed at `<name_prefix>/<path-below-dir>`.
-/// Used for a repo's `.git`, which has no gitignore to honor.
-fn collect_dir(files: &mut Vec<WorkspaceFile>, name_prefix: &str, dir: &Path) {
+/// Every regular file under `dir`. Used for a repo's `.git`, which has no
+/// gitignore to honor.
+fn collect_dir(files: &mut Vec<PathBuf>, dir: &Path) {
     let Ok(dir_entries) = std::fs::read_dir(dir) else {
         return;
     };
@@ -99,18 +89,10 @@ fn collect_dir(files: &mut Vec<WorkspaceFile>, name_prefix: &str, dir: &Path) {
         let Ok(meta) = std::fs::symlink_metadata(&path) else {
             continue;
         };
-        let Some(file_name) = path.file_name().and_then(|n| n.to_str()) else {
-            continue;
-        };
-        let name = format!("{name_prefix}/{file_name}");
         if meta.is_dir() {
-            collect_dir(files, &name, &path);
+            collect_dir(files, &path);
         } else if meta.is_file() {
-            push(files, name, path, meta);
+            files.push(path);
         }
     }
-}
-
-fn push(files: &mut Vec<WorkspaceFile>, rel: String, full: PathBuf, meta: std::fs::Metadata) {
-    files.push(WorkspaceFile { rel, full, meta });
 }

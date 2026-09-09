@@ -1,7 +1,6 @@
 //! Generated gRPC types and services for sandbox <-> backend communication.
 
 pub mod client;
-pub mod workspace_manifest;
 
 pub mod sandbox {
     pub mod v1 {
@@ -25,4 +24,4 @@ mod workspace_path;
 
 pub use event_conversion::UnrepresentableEventType;
 pub use moatless_types::event;
-pub use workspace_path::{SNAPSHOT_ROOT, is_safe_workspace_path};
+pub use workspace_path::SNAPSHOT_ROOT;

@@ -133,10 +133,6 @@ spec:
               value: {{ .Values.kubernetes.sandboxStorage.defaultPvc | quote }}
             - name: K8S_SANDBOX_DEFAULT_S3
               value: {{ .Values.kubernetes.sandboxStorage.defaultS3 | quote }}
-            {{- with .Values.kubernetes.sandboxStorage.workspaceSnapshotFormat }}
-            - name: SANDBOX_WORKSPACE_SNAPSHOT_FORMAT
-              value: {{ . | quote }}
-            {{- end }}
             # Plain `quote` for the same reason as the two switches above — and
             # `coldAfterHours` has the same hazard with a numeric `0`, which
             # `default` would also read as empty and replace.
@@ -242,8 +238,9 @@ spec:
                   name: {{ include "moatless-vibe.secretsName" . }}
                   key: TASK_TOKEN_SECRET
                   optional: true
-            # Derives each task's workspace-repository password. Optional: without
-            # it the backend reads a stopped task's files from the file mirror.
+            # Derives each task's workspace-repository password. Without it no
+            # repository can be opened, so a stopped task's files are unreadable
+            # and the sandbox has only its tar.
             - name: SANDBOX_WORKSPACE_REPOSITORY_SECRET
               valueFrom:
                 secretKeyRef:

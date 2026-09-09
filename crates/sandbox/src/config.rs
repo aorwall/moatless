@@ -252,19 +252,6 @@ pub struct Config {
     /// storage switch is on; when true, the sandbox restores the workspace from
     /// S3 on boot and syncs it back via backend-minted presigned URLs.
     pub workspace_sync_enabled: bool,
-    /// How this sandbox stores its workspace (env:
-    /// `WORKSPACE_SNAPSHOT_FORMAT`; `WORKSPACE_MIRROR_ENABLED` when unset).
-    ///
-    /// This value chooses what a sync **writes**. A restore does not consult it:
-    /// `workspace_sync::restore_on_start` tries the repository, then the mirror,
-    /// then the tar, whatever this says, so moving a task between formats on
-    /// this image reverts nothing.
-    ///
-    /// **Rolling back to a pre-mirror image costs a turn of work once.** That
-    /// image reads only `workspace.tar`, which stays frozen at whatever the last
-    /// tar-format sync left — so the next boot reverts everything synced since,
-    /// until the first turn writes a fresh tar.
-    pub workspace_snapshot_format: WorkspaceSnapshotFormat,
     /// Whether the volume under `WORKSPACE_DIR` is durable (env:
     /// `WORKSPACE_RESTORE_IF_EMPTY`). Set by the backend when *both* storage
     /// switches are on, i.e. a PVC holds the live copy and S3 only holds a
@@ -438,61 +425,6 @@ fn is_safe_mount_name(name: &str) -> bool {
         && !name.contains('/')
         && !name.contains('\\')
         && !name.contains('\0')
-}
-
-/// How a sandbox stores its workspace so it outlives the pod.
-///
-/// The formats are not alternatives a reader has to choose between: a restore
-/// tries the restic repository, then the mirror, then the rescue
-/// `workspace.tar`, then a clone, whatever this sandbox writes.
-///
-/// One case does read this value. A format that holds a snapshot it could not
-/// read stops the walk rather than descending to an older copy, except where the
-/// format below is one this sandbox also writes and so is equally current —
-/// `workspace_sync::restore_on_start`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum WorkspaceSnapshotFormat {
-    /// One gzipped `workspace.tar` per sync.
-    Tar,
-    /// One S3 object per file plus a manifest.
-    Mirror,
-    /// A `restic` repository per task.
-    Restic,
-    /// Both, so a rollback off `restic` loses nothing. What a soak runs.
-    ResticMirror,
-}
-
-impl WorkspaceSnapshotFormat {
-    /// Whether a sync writes the per-file mirror.
-    pub fn writes_mirror(self) -> bool {
-        matches!(self, Self::Mirror | Self::ResticMirror)
-    }
-
-    /// Whether a sync writes the `restic` repository.
-    pub fn writes_restic(self) -> bool {
-        matches!(self, Self::Restic | Self::ResticMirror)
-    }
-}
-
-/// Parse the `WORKSPACE_SNAPSHOT_FORMAT` env value.
-///
-/// Returns `None` for empty or unrecognised values so the caller falls back to
-/// what the mirror flag says.
-fn parse_snapshot_format(raw: &str) -> Option<WorkspaceSnapshotFormat> {
-    match raw.trim().to_ascii_lowercase().as_str() {
-        "" => None,
-        "tar" => Some(WorkspaceSnapshotFormat::Tar),
-        "mirror" => Some(WorkspaceSnapshotFormat::Mirror),
-        "restic" => Some(WorkspaceSnapshotFormat::Restic),
-        "restic+mirror" => Some(WorkspaceSnapshotFormat::ResticMirror),
-        other => {
-            tracing::warn!(
-                value = %other,
-                "Unrecognised WORKSPACE_SNAPSHOT_FORMAT; falling back to WORKSPACE_MIRROR_ENABLED"
-            );
-            None
-        }
-    }
 }
 
 /// Parse the `SANDBOX_PERMISSION_MODE` env value into a [`PermissionMode`].
@@ -726,18 +658,6 @@ impl Config {
                 .and_then(|v| parse_permission_mode(&v))
                 .unwrap_or(PermissionMode::BypassPermissions),
             workspace_sync_enabled: env_flag_enabled("WORKSPACE_SYNC_ENABLED"),
-            workspace_snapshot_format: env::var("WORKSPACE_SNAPSHOT_FORMAT")
-                .ok()
-                .and_then(|v| parse_snapshot_format(&v))
-                // A backend that predates the format switch sets only the
-                // mirror flag, and a sandbox has no way to ask it which it is.
-                .unwrap_or_else(|| {
-                    if env_flag_override("WORKSPACE_MIRROR_ENABLED").unwrap_or(true) {
-                        WorkspaceSnapshotFormat::Mirror
-                    } else {
-                        WorkspaceSnapshotFormat::Tar
-                    }
-                }),
             workspace_restore_if_empty: env_flag_enabled("WORKSPACE_RESTORE_IF_EMPTY"),
             headless: env_flag_enabled("SANDBOX_HEADLESS"),
 
@@ -812,7 +732,6 @@ impl Config {
 #[cfg(test)]
 pub(crate) mod test_support {
     use super::{AgentConfig, Config, PermissionMode, ProxyConfig};
-    use crate::config::WorkspaceSnapshotFormat;
 
     /// A minimal [`Config`] with empty/default values, suitable for unit tests
     /// that only exercise a few fields. Callers override what they need.
@@ -846,7 +765,6 @@ pub(crate) mod test_support {
             command_default_timeout_secs: crate::config::DEFAULT_COMMAND_TIMEOUT_SECS,
             permission_mode: PermissionMode::BypassPermissions,
             workspace_sync_enabled: false,
-            workspace_snapshot_format: WorkspaceSnapshotFormat::Mirror,
             workspace_restore_if_empty: false,
             headless: false,
             home_dir: "/tmp/home".to_string(),

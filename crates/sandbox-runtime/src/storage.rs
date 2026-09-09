@@ -92,25 +92,12 @@ pub fn sandbox_key(prefix: &str, task_id: &str) -> String {
     format!("{}/{}/workspace.tar", prefix.trim_end_matches('/'), task_id)
 }
 
-/// Build the S3 key for the file mirror's manifest:
-/// `<prefix>/<task_id>/manifest.json.gz`.
-///
-/// Presence of this object is what tells a restore the task has a mirror; its
-/// absence sends the restore to [`sandbox_key`]'s tar.
-pub fn manifest_key(prefix: &str, task_id: &str) -> String {
-    format!(
-        "{}/{}/manifest.json.gz",
-        prefix.trim_end_matches('/'),
-        task_id
-    )
-}
-
 /// Build the prefix holding the task's `restic` repository:
 /// `<prefix>/<task_id>/repo`.
 ///
 /// Its own segment, so restic's `config`, `keys/`, `snapshots/`, `index/` and
-/// `data/` cannot collide with the tar and the mirror that sit beside it under
-/// the task prefix.
+/// `data/` cannot collide with the tar that sits beside it under the task
+/// prefix.
 pub fn workspace_repository_prefix(prefix: &str, task_id: &str) -> String {
     format!("{}/{}/repo", prefix.trim_end_matches('/'), task_id)
 }
@@ -118,9 +105,8 @@ pub fn workspace_repository_prefix(prefix: &str, task_id: &str) -> String {
 /// Build the S3 prefix a `restic` repository's snapshots sit under:
 /// `<prefix>/<task_id>/repo/snapshots/`.
 ///
-/// Any object here is what tells a restore the task has something to restore,
-/// the way [`manifest_key`] answers it for the mirror. It takes a listing rather
-/// than a `head_object` because a snapshot's id is its content hash, and the
+/// Any object here is what tells a restore the task has something to restore. It
+/// takes a listing rather than a `head_object` because a snapshot's id is its content hash, and the
 /// sibling `repo/config` answers the wrong question: `restic::prune` opens the
 /// repository, which creates it, so a task stopped before its first successful
 /// snapshot holds a config and nothing behind it.
@@ -131,25 +117,9 @@ pub fn workspace_repository_snapshots_prefix(prefix: &str, task_id: &str) -> Str
     )
 }
 
-/// The path-safety rule for a mirrored file and the root every snapshot records
-/// under, both owned by the wire contract the sandbox and the backend speak —
-/// see [`sandbox_proto::is_safe_workspace_path`] and
-/// [`sandbox_proto::SNAPSHOT_ROOT`].
-pub use sandbox_proto::{SNAPSHOT_ROOT, is_safe_workspace_path};
-
-/// Build the S3 key for one mirrored workspace file:
-/// `<prefix>/<task_id>/files/<workspace-relative-path>`.
-///
-/// The `files/` segment keeps the per-file objects from colliding with the
-/// archive and the manifest, which sit beside it under the task prefix.
-pub fn workspace_object_key(prefix: &str, task_id: &str, path: &str) -> String {
-    format!(
-        "{}/{}/files/{}",
-        prefix.trim_end_matches('/'),
-        task_id,
-        path.trim_start_matches('/')
-    )
-}
+/// The root every snapshot records under, owned by the wire contract the sandbox
+/// and the backend speak — see [`sandbox_proto::SNAPSHOT_ROOT`].
+pub use sandbox_proto::SNAPSHOT_ROOT;
 
 #[cfg(test)]
 mod tests {

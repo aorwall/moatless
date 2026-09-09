@@ -13,7 +13,7 @@ use sandbox_proto::{
     AcknowledgeMessagesRequest, DownloadTranscriptRequest, DownloadUploadRequest,
     DownloadUploadResponse, EnqueueSandboxMessageRequest, GetCredentialsRequest,
     GetCredentialsResponse, GetPendingMessagesRequest, GetSystemPromptRequest,
-    GetWorkspaceObjectUrlsRequest, GetWorkspaceRepositoryAccessRequest,
+    GetWorkspaceRepositoryAccessRequest,
     GetWorkspaceRepositoryAccessResponse, GetWorkspaceSyncUrlsRequest,
     GetWorkspaceSyncUrlsResponse, InterruptedTurn, PendingAgentDelivery, PublishEventRequest,
     RecordGitPushRequest, RecordUnreportedCommandsRequest, RecoverInterruptedRunRequest,
@@ -147,26 +147,6 @@ pub trait BackendClient: Send + Sync {
         ))
     }
 
-    /// Mint one presigned S3 URL per workspace-relative path for the file
-    /// mirror, in the requested order. `operation` is `"put"`, `"get"` or
-    /// `"delete"`; `restore_source` sends a fork's reads to the source task's
-    /// mirror when it has none of its own, and is ignored for the other two.
-    ///
-    /// Default impl reports the feature unsupported, which is also what a
-    /// backend predating the mirror answers — [`crate::init::workspace_mirror`]
-    /// reads that as "write a tar instead".
-    async fn get_workspace_object_urls(
-        &self,
-        _task_id: &str,
-        _paths: &[String],
-        _operation: &str,
-        _restore_source: bool,
-    ) -> Result<Vec<String>, tonic::Status> {
-        Err(tonic::Status::unimplemented(
-            "workspace file mirror not supported",
-        ))
-    }
-
     /// Report the outcome of a direct-to-S3 workspace transfer so the backend
     /// can record comparison metrics and publish the sandbox event. The legal
     /// `format` values are on `ReportWorkspaceSyncRequest.format` in
@@ -288,9 +268,8 @@ const RPC_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Deadline for the workspace-sync RPCs, on [`BackendGrpcClient::workspace`].
 ///
-/// `GetWorkspaceObjectUrls` presigns a batch of up to 500 keys, so it is the one
-/// call whose server-side work scales with the request. Losing it on a restore
-/// clones over the snapshot, which is worth waiting past [`RPC_TIMEOUT`] for.
+/// Losing `GetWorkspaceSyncUrls` on a restore clones over the snapshot, which is
+/// worth waiting past [`RPC_TIMEOUT`] for.
 const WORKSPACE_RPC_TIMEOUT: Duration = Duration::from_mins(1);
 
 /// Wrapper around `BackendSandboxServiceClient` with auth interceptor.
@@ -581,33 +560,6 @@ impl BackendClient for BackendGrpcClient {
             })
             .await?;
         Ok(resp.into_inner())
-    }
-
-    async fn get_workspace_object_urls(
-        &self,
-        task_id: &str,
-        paths: &[String],
-        operation: &str,
-        restore_source: bool,
-    ) -> Result<Vec<String>, tonic::Status> {
-        let mut client = self.workspace.clone();
-        let resp = client
-            .get_workspace_object_urls(GetWorkspaceObjectUrlsRequest {
-                task_id: task_id.to_string(),
-                paths: paths.to_vec(),
-                operation: operation.to_string(),
-                restore_source,
-            })
-            .await?;
-        let urls = resp.into_inner().urls;
-        if urls.len() != paths.len() {
-            return Err(tonic::Status::internal(format!(
-                "backend returned {} URLs for {} paths",
-                urls.len(),
-                paths.len()
-            )));
-        }
-        Ok(urls)
     }
 
     async fn report_workspace_sync(
