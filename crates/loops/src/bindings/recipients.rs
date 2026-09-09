@@ -13,8 +13,10 @@
 //! check happens after it returns. That is what makes the whole matrix
 //! affordable to enumerate as a table.
 //!
-//! Identity plays no part: the resolver is never given a user identity. A task
-//! is passed over only where it can be *named* as the author of what arrived.
+//! Identity plays no part, here or in the `fan_out` loop that walks this
+//! result: a task is passed over only where it can be *named* as the author of
+//! what arrived. A sender identity cannot name one. Every provider posts under
+//! an identity a person also posts under, so matching on it mutes that person.
 
 use moatless_adapter_model::binding::ADAPTER_EVENT_BINDING_ORIGIN;
 use moatless_types::adapter::Audience;

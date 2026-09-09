@@ -472,17 +472,12 @@ impl RoutingService {
         let mut delivered_task_id = None;
         let receipts = self.event_receipts.clone();
         for binding in bindings {
-            // Two ways to be passed over, and only one of them means this task
-            // already has the event.
-            //
-            // It wrote the event: either provenance names it, or it posted under
-            // the binding's configured filter identity. The identity filter stays
-            // out of the resolver — it is the one place routing may look at *who*
-            // posted, and the resolver is deliberately never given an identity.
-            // Either way the task holds the event, so the skip is accounted for.
-            if author_task_id == Some(binding.task_id.as_str())
-                || should_filter_self_echo(&binding, &msg.user_id)
-            {
+            // Provenance is the only thing asked. Do not also match the sender
+            // against the binding's `filter_user_id`: that field names the
+            // identity the task *posts as*, which on GitHub is the owner's own
+            // credential, so matching it mutes the owner's reviews on the very
+            // pull requests their agent opened.
+            if author_task_id == Some(binding.task_id.as_str()) {
                 debug!(
                     task_id = %binding.task_id,
                     subject_key,
@@ -840,14 +835,6 @@ pub struct Fanout<'a> {
     pub new_task_binding_id: Option<&'a str>,
 }
 
-fn should_filter_self_echo(binding: &TaskBinding, user_id: &str) -> bool {
-    binding
-        .metadata
-        .get("filter_user_id")
-        .and_then(serde_json::Value::as_str)
-        .is_some_and(|filter| filter == user_id)
-}
-
 #[cfg(test)]
 mod tests {
     #[test]
@@ -881,6 +868,24 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// `filter_user_id` names the identity a task *posts as*, so matching an
+    /// inbound sender against it mutes that person's own events. Routing asks
+    /// provenance only.
+    #[test]
+    fn routing_never_matches_an_inbound_sender_against_a_binding_identity() {
+        // Comment lines are dropped: the trap comment in `fan_out` names the
+        // field, and `concat!` keeps this needle out of its own source.
+        let code = include_str!("runtime.rs")
+            .lines()
+            .filter(|line| !line.trim_start().starts_with("//"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            !code.contains(concat!("filter_", "user_id")),
+            "fan_out must ask provenance only, never a sender identity"
+        );
     }
 
     /// A `Vanished` names the row that is gone so an abandoned delivery says why,

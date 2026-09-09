@@ -5,8 +5,8 @@
 //! commits.
 //!
 //! Lossy by design: if the backend restarts between outbound and webhook the
-//! DB tag still catches it, and the per-thread `should_filter_self_echo`
-//! guard catches anything that slips past both.
+//! DB tag still catches it, and on a provider that renders the task-provenance
+//! footer the footer names the authoring task independently of both.
 //!
 //! TTL is `120s` — comfortably above realistic webhook delivery latency and
 //! well below realistic external-id reuse windows.

@@ -55,9 +55,9 @@ const GITHUB_CLOSE: &str = "github.close";
 const GITHUB_PR_MERGED: &str = "github.pr_merged";
 const GITHUB_POST_MERGE: &str = "github.post_merge";
 const GITHUB_MERGE_CONFLICT: &str = "github.merge_conflict";
-/// The task's owner. Deliberately not the connection's user: an event whose
-/// sender resolves to the task owner is filtered as a self-echo, which would
-/// hide the delivery this test is counting.
+/// The task's owner. Deliberately not the connection's user, which is who an
+/// unmapped sender falls back to — the two have to stay distinguishable for
+/// `inbound_sender_prefers_mapped_login_then_connection_owner`.
 const TASK_USER: &str = "user-task-owner";
 const CONNECTION_USER: &str = "user-connection-owner";
 
@@ -322,6 +322,29 @@ fn review_payload(review_id: u64, review_state: &str) -> serde_json::Value {
             "body": "looks good",
             "user": { "login": "octocat" },
             "html_url": "https://github.com/acme/widgets/pull/42#pullrequestreview-1",
+        },
+    })
+}
+
+/// A top-level inline review comment: no `in_reply_to_id`, so it normalizes to
+/// `Audience::ParentAuthor { parent_external_event_id: None }` and reaches the
+/// producer bindings only.
+fn review_comment_payload(comment_id: u64, sender: &str) -> serde_json::Value {
+    serde_json::json!({
+        "action": "created",
+        "repository": {
+            "full_name": REPO_FULL_NAME,
+            "owner": { "login": OWNER },
+        },
+        "sender": { "login": sender },
+        "pull_request": { "number": 42, "title": "Add widgets" },
+        "comment": {
+            "id": comment_id,
+            "body": "rename this",
+            "path": "src/lib.rs",
+            "line": 12,
+            "user": { "login": sender },
+            "html_url": "https://github.com/acme/widgets/pull/42#discussion_r1",
         },
     })
 }
@@ -808,6 +831,64 @@ async fn footer_echo_skips_only_its_authoring_task(pool: PgPool) {
         message_count(&pool, sibling).await,
         1,
         "a sibling Binding still receives the same comment"
+    );
+}
+
+#[sqlx::test]
+async fn an_owner_reviewing_their_own_agents_pull_request_is_not_an_echo(pool: PgPool) {
+    let task_id = "task-owner-review-comment";
+    seed_fixtures(&pool, task_id).await;
+    // What `moat gh pr create` writes: the caller's own moatless id, naming the
+    // identity the task posts as. The sender below resolves to that same id, so
+    // this is the shape that made a task miss its owner's review comments.
+    sqlx::query(
+        r#"UPDATE task_bindings
+              SET destination_config =
+                      destination_config || jsonb_build_object('filter_user_id', $2::text),
+                  metadata = metadata || jsonb_build_object('filter_user_id', $2::text)
+            WHERE id = $1"#,
+    )
+    .bind("binding-1")
+    .bind(TASK_USER)
+    .execute(&pool)
+    .await
+    .expect("record the identity the binding posts as");
+    sqlx::query(
+        r#"INSERT INTO provider_tokens
+               (user_id, provider, access_token, auth_method, provider_login, scope, owner_user_id)
+           VALUES ($1, 'github', 'token', 'manual', 'octocat', 'user', $1)"#,
+    )
+    .bind(TASK_USER)
+    .execute(&pool)
+    .await
+    .expect("map the owner's GitHub login");
+    let state = replica(&pool).await;
+
+    deliver(
+        &state,
+        "pull_request_review_comment",
+        "delivery-owner-review-comment",
+        &review_comment_payload(9500, "octocat"),
+    )
+    .await;
+    let pool_for_check = pool.clone();
+    run_worker_until(&state, Duration::from_secs(30), async || {
+        matches!(
+            status_of(
+                &pool_for_check,
+                GITHUB_PR_MESSAGE,
+                "delivery-owner-review-comment"
+            )
+            .await,
+            Some((ref status, _)) if status == "succeeded" || status == "failed"
+        )
+    })
+    .await;
+
+    assert_eq!(
+        message_count(&pool, task_id).await,
+        1,
+        "only provenance names an echo, and nothing names this task as the author"
     );
 }
 

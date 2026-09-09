@@ -223,6 +223,8 @@ fn outbound_user_id(
         })
 }
 
+/// The identity a task posts as on this binding. Nothing filters on it despite
+/// the key's name: routing asks provenance, never a sender identity.
 fn binding_filter_user_id<'a>(
     destination_config: &'a serde_json::Value,
     metadata: &'a serde_json::Value,
