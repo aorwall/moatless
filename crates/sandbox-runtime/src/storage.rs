@@ -115,6 +115,22 @@ pub fn workspace_repository_prefix(prefix: &str, task_id: &str) -> String {
     format!("{}/{}/repo", prefix.trim_end_matches('/'), task_id)
 }
 
+/// Build the S3 prefix a `restic` repository's snapshots sit under:
+/// `<prefix>/<task_id>/repo/snapshots/`.
+///
+/// Any object here is what tells a restore the task has something to restore,
+/// the way [`manifest_key`] answers it for the mirror. It takes a listing rather
+/// than a `head_object` because a snapshot's id is its content hash, and the
+/// sibling `repo/config` answers the wrong question: `restic::prune` opens the
+/// repository, which creates it, so a task stopped before its first successful
+/// snapshot holds a config and nothing behind it.
+pub fn workspace_repository_snapshots_prefix(prefix: &str, task_id: &str) -> String {
+    format!(
+        "{}/snapshots/",
+        workspace_repository_prefix(prefix, task_id)
+    )
+}
+
 /// The path-safety rule for a mirrored file and the root every snapshot records
 /// under, both owned by the wire contract the sandbox and the backend speak —
 /// see [`sandbox_proto::is_safe_workspace_path`] and

@@ -287,6 +287,28 @@ pub async fn head_object_size(
     }
 }
 
+/// Whether `bucket` holds any object under `prefix`.
+///
+/// Asks for one key, so the cost does not grow with what the prefix holds. Use
+/// it where the question is existence and the keys are not knowable in advance;
+/// [`head_object_modified_at`] answers the same question for one known key.
+pub async fn prefix_has_any_object(
+    client: &aws_sdk_s3::Client,
+    bucket: &str,
+    prefix: &str,
+) -> Result<bool, S3Error> {
+    let resp = client
+        .list_objects_v2()
+        .bucket(bucket)
+        .prefix(prefix)
+        .max_keys(1)
+        .send()
+        .await
+        .map_err(|e| S3Error::ListObjects(Box::new(e)))?;
+
+    Ok(!resp.contents().is_empty())
+}
+
 /// Every key under `prefix` in `bucket`, with its size in bytes.
 pub async fn list_objects_with_size(
     client: &aws_sdk_s3::Client,

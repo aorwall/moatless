@@ -1723,6 +1723,8 @@ mod tests {
                 session_token: "token".to_string(),
                 expires_at: expires_at.clone(),
                 password: "password".to_string(),
+                source_prefix: None,
+                source_password: None,
             })
         }
         async fn get_workspace_object_urls(

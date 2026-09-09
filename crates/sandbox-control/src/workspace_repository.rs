@@ -4,10 +4,11 @@
 //! by prefix on every open, and a signature covers one key; and the repository
 //! is encrypted, so reaching the bytes without the password reads nothing.
 //!
-//! Both are scoped to one task: the STS session policy names only that task's
-//! prefix, and the password is derived from the task id. The sandbox takes this
-//! over gRPC to run its own sync; an administrator takes it over HTTP to open
-//! the repository with the `restic` CLI.
+//! Both are scoped by task: the STS session policy names only the prefixes
+//! asked for, and each prefix's password is derived from the task id that owns
+//! it. A fork adds its source's prefix as a second, read-only one. The sandbox
+//! takes this over gRPC to run its own sync; an administrator takes it over
+//! HTTP to open the repository with the `restic` CLI.
 
 use moatless_core::workspace_repository::derive_repository_password;
 use moatless_sandbox_runtime::storage::workspace_repository_prefix;
@@ -24,6 +25,20 @@ pub struct RepositoryGrant {
     pub secret_access_key: String,
     pub session_token: String,
     pub expires_at: chrono::DateTime<chrono::Utc>,
+    pub password: String,
+    /// The fork source's repository, when the grant was asked for one.
+    pub source: Option<SourceRepository>,
+}
+
+/// A fork source's repository: what the holder restores from and never writes.
+///
+/// Separate from the fields above because the difference is the point — the
+/// session policy grants this prefix `s3:GetObject` and listing only, and it is
+/// encrypted under its own task's password rather than the holder's.
+#[derive(Debug, Clone)]
+pub struct SourceRepository {
+    /// Key prefix the source repository is rooted at, with no trailing slash.
+    pub prefix: String,
     pub password: String,
 }
 
@@ -90,20 +105,31 @@ impl WorkspaceRepositoryAccess {
         workspace_repository_prefix(&self.workspace_prefix, task_id)
     }
 
-    /// Access to `task_id`'s repository, and nothing else in the bucket.
+    /// Access to `task_id`'s repository, plus read-only access to
+    /// `source_task_id`'s, and nothing else in the bucket.
     ///
-    /// The task's own prefix, never a fork's source. A restore reads a parent's
-    /// tar and mirror, but a repository is written as well as read, so pointing
-    /// a fork at its parent would let it snapshot over the tree the parent
-    /// restores from.
-    pub async fn grant(&self, task_id: &str) -> Result<RepositoryGrant, GrantError> {
+    /// Only the task's own prefix is writable, whatever the source is. A
+    /// repository is written as well as read, so a fork that could write its
+    /// source's prefix would snapshot over the tree the source restores from.
+    /// The caller decides whether there is a source at all; a fork that already
+    /// holds a repository of its own passes `None` and reads nothing else.
+    pub async fn grant(
+        &self,
+        task_id: &str,
+        source_task_id: Option<&str>,
+    ) -> Result<RepositoryGrant, GrantError> {
         let prefix = self.prefix_for(task_id);
+        let source = source_task_id.map(|source_task_id| SourceRepository {
+            prefix: self.prefix_for(source_task_id),
+            password: derive_repository_password(&self.master_secret, source_task_id),
+        });
         let session = moatless_s3::assume_role_for_prefix(
             &self.sts,
             &self.role_arn,
             &format!("moatless-workspace-{task_id}"),
             &self.bucket,
             &prefix,
+            source.as_ref().map(|source| source.prefix.as_str()),
         )
         .await
         .map_err(|error| {
@@ -120,6 +146,7 @@ impl WorkspaceRepositoryAccess {
             session_token: session.session_token,
             expires_at: session.expires_at,
             password: derive_repository_password(&self.master_secret, task_id),
+            source,
         })
     }
 }
@@ -154,11 +181,11 @@ mod tests {
         );
     }
 
-    /// A fork restores from its parent's tar and mirror, but a repository is
-    /// written as well as read: pointing a fork at its parent's prefix would
-    /// let it snapshot over the tree the parent restores from.
+    /// A repository is written as well as read, so the writable prefix is the
+    /// task's own even when a source is granted beside it: a fork writing its
+    /// source's prefix would snapshot over the tree the source restores from.
     #[test]
-    fn the_granted_prefix_is_the_task_s_own_and_never_a_fork_source() {
+    fn the_writable_prefix_is_the_task_s_own_and_never_its_fork_source() {
         let access = WorkspaceRepositoryAccess::new(
             Some(sts_client()),
             Some("arn:aws:iam::1:role/repo".into()),
@@ -187,10 +214,28 @@ mod tests {
             session_token: String::new(),
             expires_at: chrono::Utc::now(),
             password: String::new(),
+            source: None,
         };
         assert_eq!(
             grant.restic_url(),
             "s3:https://s3.eu-north-1.amazonaws.com/uploads/workspaces/task-1/repo"
+        );
+    }
+
+    /// The source repository is encrypted under its own task's password, so a
+    /// grant that derived one password for both prefixes would hand the fork
+    /// bytes it cannot decrypt.
+    #[test]
+    fn a_source_repository_carries_the_source_task_s_own_password() {
+        let master = "secret";
+        let source = SourceRepository {
+            prefix: workspace_repository_prefix("workspaces", "task-1"),
+            password: derive_repository_password(master, "task-1"),
+        };
+        assert_eq!(source.prefix, "workspaces/task-1/repo");
+        assert_ne!(
+            source.password,
+            derive_repository_password(master, "fork-1")
         );
     }
 }

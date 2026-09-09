@@ -39,6 +39,7 @@ use crate::sandbox::secrets::{
 };
 use crate::sandbox::storage::{
     is_safe_workspace_path, manifest_key, sandbox_key, workspace_object_key,
+    workspace_repository_snapshots_prefix,
 };
 use crate::sandbox::workspace_repository::GrantError;
 use moatless_core::config::Config;
@@ -143,6 +144,53 @@ fn upload_chunks(upload: LoadedUpload) -> Vec<UploadChunk> {
 fn fork_source_task_id(parent: Option<&TaskRelation>) -> Option<&str> {
     let row = parent?;
     (row.relation_type == TaskRelationType::ForkedFrom).then_some(row.to_task_id.as_str())
+}
+
+/// How "this task holds a workspace in this format" is asked of S3.
+///
+/// The two variants cost the same one request. They differ because a `restic`
+/// snapshot's id is its content hash, so no key that proves one exists can be
+/// built from a task id.
+#[derive(Clone, Copy)]
+enum WorkspaceProbe {
+    /// One object at a known key: `sandbox_key` for the tar, `manifest_key` for
+    /// the mirror.
+    Object(fn(&str, &str) -> String),
+    /// Any object under a prefix: `workspace_repository_snapshots_prefix` for
+    /// the `restic` repository.
+    AnyUnder(fn(&str, &str) -> String),
+}
+
+impl WorkspaceProbe {
+    /// Whether `task_id` holds this format. `Err` when S3 could not answer,
+    /// which every caller reads as "restore the task's own" rather than as `false`.
+    async fn hit(
+        self,
+        s3_client: &moatless_s3::S3Storage,
+        bucket: &str,
+        prefix: &str,
+        task_id: &str,
+    ) -> Result<bool, moatless_s3::S3Error> {
+        match self {
+            Self::Object(key_for) => {
+                let modified = file_s3::head_object_modified_at(
+                    &s3_client.client,
+                    bucket,
+                    &key_for(prefix, task_id),
+                )
+                .await?;
+                Ok(modified.is_some())
+            }
+            Self::AnyUnder(prefix_for) => {
+                file_s3::prefix_has_any_object(
+                    &s3_client.client,
+                    bucket,
+                    &prefix_for(prefix, task_id),
+                )
+                .await
+            }
+        }
+    }
 }
 
 /// Build the S3 key for a task's transcript archive:
@@ -788,7 +836,12 @@ impl BackendSandboxServiceImpl {
         own_key: &str,
     ) -> String {
         let source = self
-            .workspace_restore_task_id(s3_client, bucket, task_id, sandbox_key)
+            .workspace_restore_task_id(
+                s3_client,
+                bucket,
+                task_id,
+                WorkspaceProbe::Object(sandbox_key),
+            )
             .await;
         match source {
             Some(source_task_id) => sandbox_key(&self.workspace_s3_prefix, &source_task_id),
@@ -798,24 +851,27 @@ impl BackendSandboxServiceImpl {
 
     /// The task whose prefix a restore should read, or `None` for the task's own.
     ///
-    /// `key_for` builds the object that decides it — `sandbox_key` for the tar,
-    /// `manifest_key` for the file mirror — so both formats answer the fork
-    /// question against the artifact they actually restore from. The two are
-    /// resolved independently: a fork whose parent wrote a mirror but no tar
-    /// must not be sent to the parent for a tar that is not there.
+    /// `probe` decides it against the artifact the format actually restores from,
+    /// so the formats resolve independently: a fork whose parent wrote a mirror
+    /// but no tar must not be sent to the parent for a tar that is not there.
+    ///
+    /// One level only. `find_parent` is the fork's immediate parent, so a fork of
+    /// a fork whose parent holds nothing in this format restores its own.
     async fn workspace_restore_task_id(
         &self,
         s3_client: &moatless_s3::S3Storage,
         bucket: &str,
         task_id: &str,
-        key_for: fn(&str, &str) -> String,
+        probe: WorkspaceProbe,
     ) -> Option<String> {
-        let own_key = key_for(&self.workspace_s3_prefix, task_id);
-        match file_s3::head_object_modified_at(&s3_client.client, bucket, &own_key).await {
-            Ok(None) => {}
-            Ok(Some(_)) => return None,
+        match probe
+            .hit(s3_client, bucket, &self.workspace_s3_prefix, task_id)
+            .await
+        {
+            Ok(false) => {}
+            Ok(true) => return None,
             Err(e) => {
-                warn!(error = %e, task_id = %task_id, "S3 head_object for the task's workspace failed; restoring its own key");
+                warn!(error = %e, task_id = %task_id, "S3 probe for the task's workspace failed; restoring its own key");
                 return None;
             }
         }
@@ -830,9 +886,16 @@ impl BackendSandboxServiceImpl {
         };
         let source_task_id = fork_source_task_id(parent.as_ref())?.to_string();
 
-        let source_key = key_for(&self.workspace_s3_prefix, &source_task_id);
-        match file_s3::head_object_modified_at(&s3_client.client, bucket, &source_key).await {
-            Ok(Some(_)) => {
+        match probe
+            .hit(
+                s3_client,
+                bucket,
+                &self.workspace_s3_prefix,
+                &source_task_id,
+            )
+            .await
+        {
+            Ok(true) => {
                 info!(
                     task_id = %task_id,
                     source_task_id = %source_task_id,
@@ -840,9 +903,9 @@ impl BackendSandboxServiceImpl {
                 );
                 Some(source_task_id)
             }
-            Ok(None) => None,
+            Ok(false) => None,
             Err(e) => {
-                warn!(error = %e, task_id = %task_id, source_task_id = %source_task_id, "S3 head_object for the source task's workspace failed");
+                warn!(error = %e, task_id = %task_id, source_task_id = %source_task_id, "S3 probe for the source task's workspace failed");
                 None
             }
         }
@@ -2053,7 +2116,12 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
             Status::internal("Failed to presign workspace manifest upload URL")
         })?;
         let manifest_get_key = match self
-            .workspace_restore_task_id(s3_client, bucket, &req.task_id, manifest_key)
+            .workspace_restore_task_id(
+                s3_client,
+                bucket,
+                &req.task_id,
+                WorkspaceProbe::Object(manifest_key),
+            )
             .await
         {
             Some(source_task_id) => manifest_key(&self.workspace_s3_prefix, &source_task_id),
@@ -2117,9 +2185,14 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         }
 
         let key_task_id = if req.operation == "get" && req.restore_source {
-            self.workspace_restore_task_id(s3_client, bucket, &req.task_id, manifest_key)
-                .await
-                .unwrap_or_else(|| req.task_id.clone())
+            self.workspace_restore_task_id(
+                s3_client,
+                bucket,
+                &req.task_id,
+                WorkspaceProbe::Object(manifest_key),
+            )
+            .await
+            .unwrap_or_else(|| req.task_id.clone())
         } else {
             req.task_id.clone()
         };
@@ -2167,8 +2240,13 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
     /// Two things a presigned URL cannot carry. `rustic_core` lists the
     /// repository by prefix on every open, and a signature covers one key; and
     /// the repository is encrypted, so access without the password reads
-    /// nothing. Both are scoped to this task alone: the session policy names
-    /// only this prefix, and the password is derived from the task id.
+    /// nothing. Only this task's prefix is writable, and the password is derived
+    /// from the task id.
+    ///
+    /// A fork that holds no repository of its own is granted its source's
+    /// prefix as well, read-only — the same fallback
+    /// [`Self::workspace_restore_task_id`] resolves for the tar and the mirror,
+    /// against the object each format restores from.
     ///
     /// Auth: task-scoped JWT via gRPC metadata.
     async fn get_workspace_repository_access(
@@ -2183,15 +2261,39 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
                 "Workspace repositories are not configured",
             ));
         };
-        let grant = access.grant(&task_id).await.map_err(|error| match error {
-            GrantError::Sts(_) => Status::internal("Failed to grant workspace repository access"),
-        })?;
+
+        // The repository lives in the workspace bucket, so a deployment with no
+        // S3 client configured has no fork question to ask — the grant is then
+        // this task's own prefix, which is what it was before forks resolved.
+        let source_task_id = match (self.s3.as_ref(), self.s3_bucket.as_ref()) {
+            (Some(s3_client), Some(bucket)) => {
+                self.workspace_restore_task_id(
+                    s3_client,
+                    bucket,
+                    &task_id,
+                    WorkspaceProbe::AnyUnder(workspace_repository_snapshots_prefix),
+                )
+                .await
+            }
+            _ => None,
+        };
+
+        let grant = access
+            .grant(&task_id, source_task_id.as_deref())
+            .await
+            .map_err(|error| match error {
+                GrantError::Sts(_) => {
+                    Status::internal("Failed to grant workspace repository access")
+                }
+            })?;
 
         info!(
             task_id = %task_id,
             expires_at = %grant.expires_at,
+            source_task_id = ?source_task_id,
             "Granted workspace repository access"
         );
+        let source = grant.source;
         Ok(Response::new(GetWorkspaceRepositoryAccessResponse {
             bucket: grant.bucket,
             prefix: grant.prefix,
@@ -2203,6 +2305,8 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
                 .expires_at
                 .to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
             password: grant.password,
+            source_prefix: source.as_ref().map(|source| source.prefix.clone()),
+            source_password: source.map(|source| source.password),
         }))
     }
 

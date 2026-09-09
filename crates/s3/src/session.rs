@@ -26,7 +26,7 @@ pub struct ScopedSession {
 }
 
 /// Assume `role_arn`, narrowed by a session policy to read, write, delete and
-/// list under `prefix` in `bucket`.
+/// list under `prefix` in `bucket`, plus read and list under `read_only_prefix`.
 ///
 /// The narrowing is the session policy, not the role: the role stays
 /// bucket-wide and every session is scoped, so adding a prefix needs no IAM
@@ -37,8 +37,9 @@ pub async fn assume_role_for_prefix(
     session_name: &str,
     bucket: &str,
     prefix: &str,
+    read_only_prefix: Option<&str>,
 ) -> Result<ScopedSession, S3Error> {
-    let policy = prefix_policy(bucket, prefix);
+    let policy = prefix_policy(bucket, prefix, read_only_prefix);
 
     let response = client
         .assume_role()
@@ -65,37 +66,54 @@ pub async fn assume_role_for_prefix(
     })
 }
 
-/// The session policy granting exactly one prefix.
+/// The session policy granting one writable prefix and one readable one.
 ///
 /// `s3:ListBucket` is a bucket-level action, so it is granted on the bucket and
-/// then held to the prefix by a condition on the `prefix` query parameter.
+/// then held to the prefixes by a condition on the `prefix` query parameter.
 /// Object-level permissions alone would let every read through and every
 /// listing fail.
-fn prefix_policy(bucket: &str, prefix: &str) -> String {
+///
+/// `read_only_prefix` gets `s3:GetObject` and listing and no write of any kind.
+/// The caller pointing a session at a prefix it does not own is the whole reason
+/// the two are separate statements rather than two entries on one.
+fn prefix_policy(bucket: &str, prefix: &str, read_only_prefix: Option<&str>) -> String {
     // A leading or trailing slash would produce `//*`, which matches no key and
     // fails every listing.
     let prefix = prefix.trim_matches('/');
-    serde_json::json!({
-        "Version": "2012-10-17",
-        "Statement": [
-            {
-                "Sid": "ListRepositoryPrefix",
-                "Effect": "Allow",
-                "Action": "s3:ListBucket",
-                "Resource": format!("arn:aws:s3:::{bucket}"),
-                "Condition": {
-                    "StringLike": { "s3:prefix": [format!("{prefix}/*")] }
-                }
-            },
-            {
-                "Sid": "ReadWriteRepositoryPrefix",
-                "Effect": "Allow",
-                "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
-                "Resource": format!("arn:aws:s3:::{bucket}/{prefix}/*")
+    let read_only_prefix = read_only_prefix.map(|p| p.trim_matches('/'));
+
+    let listable: Vec<String> = std::iter::once(prefix)
+        .chain(read_only_prefix)
+        .map(|p| format!("{p}/*"))
+        .collect();
+
+    let mut statements = vec![
+        serde_json::json!({
+            "Sid": "ListRepositoryPrefix",
+            "Effect": "Allow",
+            "Action": "s3:ListBucket",
+            "Resource": format!("arn:aws:s3:::{bucket}"),
+            "Condition": {
+                "StringLike": { "s3:prefix": listable }
             }
-        ]
-    })
-    .to_string()
+        }),
+        serde_json::json!({
+            "Sid": "ReadWriteRepositoryPrefix",
+            "Effect": "Allow",
+            "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
+            "Resource": format!("arn:aws:s3:::{bucket}/{prefix}/*")
+        }),
+    ];
+    if let Some(read_only_prefix) = read_only_prefix {
+        statements.push(serde_json::json!({
+            "Sid": "ReadSourceRepositoryPrefix",
+            "Effect": "Allow",
+            "Action": "s3:GetObject",
+            "Resource": format!("arn:aws:s3:::{bucket}/{read_only_prefix}/*")
+        }));
+    }
+
+    serde_json::json!({ "Version": "2012-10-17", "Statement": statements }).to_string()
 }
 
 /// STS accepts `[\w+=,.@-]` and at most 64 characters in a session name, and
@@ -125,10 +143,11 @@ mod tests {
 
     #[test]
     fn the_policy_lists_by_prefix_condition_and_reads_by_resource() {
-        let policy = prefix_policy("bucket", "workspaces/task-1/repo");
+        let policy = prefix_policy("bucket", "workspaces/task-1/repo", None);
         let parsed: serde_json::Value = serde_json::from_str(&policy).unwrap();
         let statements = parsed["Statement"].as_array().unwrap();
 
+        assert_eq!(statements.len(), 2);
         assert_eq!(statements[0]["Action"], "s3:ListBucket");
         assert_eq!(statements[0]["Resource"], "arn:aws:s3:::bucket");
         assert_eq!(
@@ -141,12 +160,57 @@ mod tests {
         );
     }
 
+    /// The whole point of the second prefix: a fork reads its source's
+    /// repository and must not be able to write over it.
+    #[test]
+    fn a_read_only_prefix_is_listable_and_gettable_and_nothing_else() {
+        let policy = prefix_policy(
+            "bucket",
+            "workspaces/fork-1/repo",
+            Some("workspaces/task-1/repo"),
+        );
+        let parsed: serde_json::Value = serde_json::from_str(&policy).unwrap();
+        let statements = parsed["Statement"].as_array().unwrap();
+
+        assert_eq!(
+            statements[0]["Condition"]["StringLike"]["s3:prefix"],
+            serde_json::json!(["workspaces/fork-1/repo/*", "workspaces/task-1/repo/*"])
+        );
+        assert_eq!(
+            statements[1]["Resource"],
+            "arn:aws:s3:::bucket/workspaces/fork-1/repo/*"
+        );
+        assert_eq!(statements[2]["Action"], "s3:GetObject");
+        assert_eq!(
+            statements[2]["Resource"],
+            "arn:aws:s3:::bucket/workspaces/task-1/repo/*"
+        );
+        assert_eq!(statements.len(), 3);
+    }
+
     /// A prefix that arrived with slashes must not produce `//*`, which matches
     /// nothing and would fail every listing.
     #[test]
     fn a_prefix_is_scoped_the_same_however_its_slashes_are_written() {
-        let bare = prefix_policy("bucket", "workspaces/task-1/repo");
-        assert_eq!(bare, prefix_policy("bucket", "/workspaces/task-1/repo/"));
+        let bare = prefix_policy(
+            "bucket",
+            "workspaces/task-1/repo",
+            Some("workspaces/x/repo"),
+        );
+        assert_eq!(
+            bare,
+            prefix_policy(
+                "bucket",
+                "/workspaces/task-1/repo/",
+                Some("/workspaces/x/repo/")
+            )
+        );
+
+        // A non-fork trims too: nothing else covers the `None` arm's own prefix.
+        assert_eq!(
+            prefix_policy("bucket", "workspaces/task-1/repo", None),
+            prefix_policy("bucket", "/workspaces/task-1/repo/", None)
+        );
     }
 
     #[test]

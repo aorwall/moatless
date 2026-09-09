@@ -248,6 +248,14 @@ message GetWorkspaceRepositoryAccessResponse {
   string expires_at = 7;
   // The repository password, derived by the backend for this task alone.
   string password = 8;
+  // The prefix of the repository this task's restore falls back to, set only
+  // for a fork that holds no repository of its own while the task it was forked
+  // from does. The session policy grants it `s3:GetObject` and listing and no
+  // write, so a restore reads it and a snapshot can never reach it.
+  optional string source_prefix = 9;
+  // The password opening `source_prefix`, derived for the task that owns it.
+  // `password` does not open it.
+  optional string source_password = 10;
 }
 
 message ReportWorkspaceSyncRequest {

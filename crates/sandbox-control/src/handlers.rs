@@ -326,12 +326,17 @@ pub async fn workspace_repository_access_handler(
     let access = state.workspace_repository.as_deref().ok_or_else(|| {
         SandboxError::NotReady("workspace repositories are not configured".into())
     })?;
-    // `grant` logs the cause.
-    let grant = access.grant(&task_id).await.map_err(|error| match error {
-        GrantError::Sts(_) => {
-            SandboxError::Internal("Failed to grant workspace repository access".into())
-        }
-    })?;
+    // `grant` logs the cause. No fork source: an admin opening the CLI asked
+    // for this task's repository, and a source would only widen what those
+    // credentials reach.
+    let grant = access
+        .grant(&task_id, None)
+        .await
+        .map_err(|error| match error {
+            GrantError::Sts(_) => {
+                SandboxError::Internal("Failed to grant workspace repository access".into())
+            }
+        })?;
 
     info!(task_id = %task_id, expires_at = %grant.expires_at, "Granted workspace repository access");
     Ok(Json(WorkspaceRepositoryAccessResponse {

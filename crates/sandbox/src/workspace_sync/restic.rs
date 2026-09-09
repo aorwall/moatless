@@ -72,11 +72,23 @@ const SNAPSHOT_LABEL: &str = "workspace";
 /// long-lived task does not accumulate indefinitely.
 const KEEP_SNAPSHOTS: i32 = 10;
 
-/// Everything needed to open one task's repository, as the backend granted it.
+/// One repository: where its files are and what decrypts them.
 #[derive(Clone)]
-pub(super) struct Access {
+pub(super) struct RepoAccess {
     backend: ResticS3Backend,
     password: String,
+}
+
+/// The repositories one task's sync speaks to, as the backend granted them.
+#[derive(Clone)]
+pub(super) struct Access {
+    /// The task's own repository. The only one anything writes.
+    own: RepoAccess,
+    /// The fork source's repository, granted only while this task holds no
+    /// repository of its own. [`restore_on_start`] reads it and nothing else
+    /// touches it — the grant's session policy allows no write there, so a
+    /// snapshot aimed here would fail rather than overwrite the source.
+    source: Option<RepoAccess>,
 }
 
 /// How long before its stated expiry a grant is replaced.
@@ -134,13 +146,36 @@ impl AccessCache {
             None,
             "moatless-workspace",
         );
+        // One client for both repositories: the session policy scopes the
+        // credentials, and the prefix is what tells the two apart.
+        let client = aws_sdk_s3::Client::from_conf(s3_config(granted.region, credentials));
         let access = Access {
-            backend: ResticS3Backend::new(
-                aws_sdk_s3::Client::from_conf(s3_config(granted.region, credentials)),
-                granted.bucket,
-                &granted.prefix,
-            ),
-            password: granted.password,
+            own: RepoAccess {
+                backend: ResticS3Backend::new(
+                    client.clone(),
+                    granted.bucket.clone(),
+                    &granted.prefix,
+                ),
+                password: granted.password,
+            },
+            source: match (granted.source_prefix, granted.source_password) {
+                (Some(prefix), Some(password)) => Some(RepoAccess {
+                    backend: ResticS3Backend::new(client, granted.bucket, &prefix),
+                    password,
+                }),
+                (None, None) => None,
+                // The two are independently `optional` on the wire, so a backend
+                // that set one and not the other would otherwise read as a fork
+                // whose fallback simply never fired.
+                (prefix, _) => {
+                    debug!(
+                        task_id = %task_id,
+                        has_prefix = prefix.is_some(),
+                        "Workspace repository grant carries half a fork source; ignoring it"
+                    );
+                    None
+                }
+            },
         };
 
         *held = match expires_at {
@@ -288,7 +323,7 @@ pub(super) async fn upload(
     };
 
     let started = Instant::now();
-    let outcome = tokio::task::spawn_blocking(move || snapshot(&access, &workspace_dir)).await;
+    let outcome = tokio::task::spawn_blocking(move || snapshot(&access.own, &workspace_dir)).await;
     let elapsed = started.elapsed().as_millis() as u64;
 
     let result = match outcome {
@@ -328,7 +363,7 @@ pub(super) async fn upload(
 
 /// One snapshot, start to finish, on a blocking thread. Returns the bytes the
 /// snapshot added to the repository.
-fn snapshot(access: &Access, workspace_dir: &Path) -> Result<Option<u64>, String> {
+fn snapshot(access: &RepoAccess, workspace_dir: &Path) -> Result<Option<u64>, String> {
     let count = write_glob_file(workspace_dir)?;
     // Not an error: the mirror answers the same state with an empty delta, and
     // reporting a failed `upload` here would put a permanent error-rate gap
@@ -369,7 +404,7 @@ fn snapshot(access: &Access, workspace_dir: &Path) -> Result<Option<u64>, String
 }
 
 /// Open the repository, creating it when the task has none yet.
-fn open(access: &Access) -> Result<Repository<rustic_core::OpenStatus>, String> {
+fn open(access: &RepoAccess) -> Result<Repository<rustic_core::OpenStatus>, String> {
     let backends = RepositoryBackends::new(Arc::new(access.backend.clone()), None);
     let credentials = RepoCredentials::password(&access.password);
     let repo = Repository::new(&options(), &backends)
@@ -432,7 +467,7 @@ pub(super) async fn restore_on_start(state: &SandboxState) -> RestoreAttempt {
     let started = Instant::now();
     let restored = tokio::task::spawn_blocking({
         let workspace_dir = workspace_dir.clone();
-        move || restore(&access, &workspace_dir)
+        move || restore_own_or_source(&access, &workspace_dir)
     })
     .await;
     let elapsed = started.elapsed().as_millis() as u64;
@@ -487,9 +522,33 @@ pub(super) async fn restore_on_start(state: &SandboxState) -> RestoreAttempt {
     attempt
 }
 
+/// Restore from the task's own repository, falling back to the fork source's
+/// when the task's own holds no snapshot.
+///
+/// The order is what makes the fallback safe to leave in place: a fork that has
+/// snapshotted once restores its own tree, and it reaches the source only on the
+/// start that finds nothing of its own. The source is read-only, so a fallback
+/// that fired when it should not have would still not damage the source.
+///
+/// An unreadable own repository propagates rather than falling through: that is
+/// an outage and not an absence, and `restore_on_start`'s ladder already decides
+/// what a failed repository read descends to.
+fn restore_own_or_source(access: &Access, workspace_dir: &Path) -> Result<Option<u64>, String> {
+    match restore(&access.own, workspace_dir)? {
+        Some(bytes) => Ok(Some(bytes)),
+        None => match access.source.as_ref() {
+            Some(source) => {
+                info!("Restoring from the fork source's workspace repository");
+                restore(source, workspace_dir)
+            }
+            None => Ok(None),
+        },
+    }
+}
+
 /// Restore the latest snapshot onto `workspace_dir`, or `Ok(None)` when the
 /// repository holds none. Returns the bytes written.
-fn restore(access: &Access, workspace_dir: &Path) -> Result<Option<u64>, String> {
+fn restore(access: &RepoAccess, workspace_dir: &Path) -> Result<Option<u64>, String> {
     let backends = RepositoryBackends::new(Arc::new(access.backend.clone()), None);
     let credentials = RepoCredentials::password(&access.password);
     let repo = Repository::new(&options(), &backends)
@@ -546,7 +605,7 @@ pub(super) async fn forget_and_prune(
     let Ok(access) = cache.get(&task_id, backend_client).await else {
         return;
     };
-    match tokio::task::spawn_blocking(move || prune(&access)).await {
+    match tokio::task::spawn_blocking(move || prune(&access.own)).await {
         Ok(Ok(forgotten)) => {
             debug!(task_id = %task_id, forgotten, "Pruned the workspace repository");
         }
@@ -561,7 +620,7 @@ pub(super) async fn forget_and_prune(
     }
 }
 
-fn prune(access: &Access) -> Result<usize, String> {
+fn prune(access: &RepoAccess) -> Result<usize, String> {
     let repo = open(access)?;
     let snapshots = repo
         .get_all_snapshots()
@@ -652,6 +711,14 @@ mod tests {
     // Fidelity against a real S3 server
     // =========================================================================
 
+    /// Every test that calls [`snapshot`] takes this for its whole body.
+    ///
+    /// [`GLOB_FILE`] is one fixed path because one sandbox runs one sync, so two
+    /// snapshots in one test process write the same whitelist file. Overlapping
+    /// them makes the second one's file set decide the first one's snapshot, and
+    /// the failure reads as a file the restore lost.
+    static SNAPSHOTTING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
     /// The whole point of the format: what comes back is what went in.
     ///
     /// Ignored, because it needs an endpoint. Start one and run it with
@@ -672,6 +739,8 @@ mod tests {
     async fn a_snapshot_restores_the_file_set_byte_for_byte() {
         use std::collections::BTreeMap;
         use std::os::unix::fs::PermissionsExt;
+
+        let _snapshotting = SNAPSHOTTING.lock().await;
 
         let source = scratch("source");
         let restored = scratch("restored");
@@ -863,9 +932,58 @@ mod tests {
         found
     }
 
+    /// A fork's first start finds nothing under its own prefix, and the tree it
+    /// must come up with is the source's. Ignored for the same reason as
+    /// [`a_snapshot_restores_the_file_set_byte_for_byte`].
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[ignore = "needs an S3 endpoint at 127.0.0.1:19000"]
+    async fn a_fork_with_no_repository_of_its_own_restores_the_source_s() {
+        let _snapshotting = SNAPSHOTTING.lock().await;
+
+        let run = std::process::id();
+        let source_tree = scratch("fork-source");
+        let restored = scratch("fork-restored");
+        std::fs::create_dir_all(source_tree.join("notes")).expect("the source tree is writable");
+        std::fs::write(source_tree.join("notes/only-in-source.txt"), b"parent")
+            .expect("the source file is writable");
+
+        let source = minio_access(&format!("fork/{run}/source")).await;
+        let fork = Access {
+            // Never written in this test, so it stays a prefix holding nothing —
+            // which is exactly a fork that has not snapshotted yet.
+            own: minio_access(&format!("fork/{run}/own")).await,
+            source: Some(source.clone()),
+        };
+
+        tokio::task::spawn_blocking({
+            let source_tree = source_tree.clone();
+            let restored = restored.clone();
+            move || {
+                snapshot(&source, &source_tree).expect("the source snapshotted");
+                let own_only = Access {
+                    own: fork.own.clone(),
+                    source: None,
+                };
+                assert_eq!(
+                    restore_own_or_source(&own_only, &restored).expect("the fork's own repository"),
+                    None,
+                    "the fork's own prefix holds no snapshot to fall back from"
+                );
+                restore_own_or_source(&fork, &restored).expect("the fork restored");
+            }
+        })
+        .await
+        .expect("the restore task ran");
+
+        assert_eq!(
+            std::fs::read(restored.join("notes/only-in-source.txt")).expect("the source's file"),
+            b"parent"
+        );
+    }
+
     /// A repository on the local `MinIO`, addressed by a prefix of its own so
     /// repeated runs do not share state.
-    async fn minio_access(prefix: &str) -> Access {
+    async fn minio_access(prefix: &str) -> RepoAccess {
         let credentials = Credentials::new("spikeadmin", "spikeadmin123", None, None, "test");
         let config = aws_sdk_s3::Config::builder()
             .behavior_version_latest()
@@ -880,7 +998,7 @@ mod tests {
             .bucket("moatless-restic-test")
             .send()
             .await;
-        Access {
+        RepoAccess {
             backend: ResticS3Backend::new(client, "moatless-restic-test", prefix),
             password: "fidelity".to_string(),
         }

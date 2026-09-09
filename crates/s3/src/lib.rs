@@ -23,7 +23,8 @@ mod restic_backend_test;
 pub use error::S3Error;
 pub use objects::{
     delete_object, delete_objects_by_prefix, get_object, get_object_opt, get_object_range,
-    head_object_modified_at, head_object_size, list_objects_with_size, put_object,
+    head_object_modified_at, head_object_size, list_objects_with_size, prefix_has_any_object,
+    put_object,
 };
 pub use presign::{
     PresignOp, PresignedUrl, presign_batch, presign_delete, presign_get, presign_put,
