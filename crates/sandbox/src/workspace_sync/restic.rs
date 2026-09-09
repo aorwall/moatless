@@ -11,8 +11,10 @@
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
+use aws_sdk_s3::config::retry::RetryConfig;
+use aws_sdk_s3::config::timeout::TimeoutConfig;
 use aws_sdk_s3::config::{Credentials, Region};
 use moatless_s3::ResticS3Backend;
 use rustic_core::{
@@ -132,14 +134,9 @@ impl AccessCache {
             None,
             "moatless-workspace",
         );
-        let config = aws_sdk_s3::Config::builder()
-            .behavior_version_latest()
-            .region(Region::new(granted.region))
-            .credentials_provider(credentials)
-            .build();
         let access = Access {
             backend: ResticS3Backend::new(
-                aws_sdk_s3::Client::from_conf(config),
+                aws_sdk_s3::Client::from_conf(s3_config(granted.region, credentials)),
                 granted.bucket,
                 &granted.prefix,
             ),
@@ -169,6 +166,40 @@ impl AccessCache {
     pub(super) async fn invalidate(&self) {
         *self.0.lock().await = None;
     }
+}
+
+/// How many times one S3 request is attempted before the operation carrying it
+/// fails. Above `RetryConfig::standard()`'s own 3: a snapshot is hundreds of
+/// requests and fails on the first one that runs out of attempts.
+const MAX_ATTEMPTS: u32 = 5;
+
+/// How long one attempt may spend reaching the endpoint.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
+
+/// The client every repository operation speaks through.
+///
+/// Both settings are stated here rather than left to `behavior_version_latest()`,
+/// which resolves them from the SDK's own version and today disables retries
+/// outright. `rustic_core` issues hundreds of requests per snapshot, so a single
+/// unretried connect failure fails the whole operation — and on the restore path
+/// [`restore_on_start`] reports that as a repository it could not read, which
+/// holds the pod's uploads for its lifetime.
+///
+/// No operation-attempt timeout, deliberately: a pack upload is unbounded in
+/// size, so a cap would abort the largest transfers rather than the connects it
+/// is meant to catch.
+fn s3_config(region: String, credentials: Credentials) -> aws_sdk_s3::Config {
+    aws_sdk_s3::Config::builder()
+        .behavior_version_latest()
+        .region(Region::new(region))
+        .credentials_provider(credentials)
+        .retry_config(RetryConfig::standard().with_max_attempts(MAX_ATTEMPTS))
+        .timeout_config(
+            TimeoutConfig::builder()
+                .connect_timeout(CONNECT_TIMEOUT)
+                .build(),
+        )
+        .build()
 }
 
 fn options() -> RepositoryOptions {
@@ -564,6 +595,8 @@ fn prune(access: &Access) -> Result<usize, String> {
 
 #[cfg(test)]
 mod tests {
+    use aws_sdk_s3::config::retry::RetryMode;
+
     use super::*;
 
     /// A filename holding a globset metacharacter must still name itself. A
@@ -576,6 +609,33 @@ mod tests {
         assert_eq!(escape_glob("/w/repo/{a,b}"), r"/w/repo/\{a,b\}");
         assert_eq!(escape_glob("/w/repo/back\\slash"), r"/w/repo/back\\slash");
         assert_eq!(escape_glob("/w/repo/plain.rs"), "/w/repo/plain.rs");
+    }
+
+    /// A connect that never completes is the fleet's dominant snapshot failure,
+    /// and the SDK's own defaults move with its version, so the client states
+    /// both itself.
+    #[test]
+    fn the_repository_client_retries_a_request_that_cannot_connect() {
+        let config = s3_config(
+            "eu-north-1".into(),
+            Credentials::new("key", "secret", None, None, "test"),
+        );
+        assert_eq!(
+            config.retry_config().map(RetryConfig::max_attempts),
+            Some(MAX_ATTEMPTS)
+        );
+        // `adaptive()` would satisfy the count above and be a different client:
+        // it adds a client-side rate limiter that throttles ahead of the request.
+        assert_eq!(
+            config.retry_config().map(RetryConfig::mode),
+            Some(RetryMode::Standard)
+        );
+        assert_eq!(
+            config
+                .timeout_config()
+                .and_then(TimeoutConfig::connect_timeout),
+            Some(CONNECT_TIMEOUT)
+        );
     }
 
     /// The glob file must not land in the tree it describes, or it would appear
