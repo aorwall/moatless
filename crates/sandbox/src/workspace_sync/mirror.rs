@@ -278,11 +278,12 @@ fn mtime_nanos(meta: &std::fs::Metadata) -> u64 {
 
 /// Mirror the workspace, or report that S3 holds no mirror generation for it.
 ///
-/// `Ok(outcome)` means the mirror is the format in use and `outcome` says what
-/// moved. `Err(())` means this tree reached no mirror — the backend minted no
-/// manifest URL (it predates the mirror), or the transfer failed — and the
-/// caller must write a tar so the task keeps a durable copy. A failed transfer
-/// leaves `baseline` alone, so the next attempt re-ships the same delta.
+/// `Ok(outcome)` means S3 holds this tree as a mirror and `outcome` says what
+/// moved; `Ok` with nothing moved is a tree already stored, or a backend with no
+/// S3 at all. `Err(())` means this tree reached no mirror — the mint failed or
+/// named no manifest URL, or the transfer did — and the caller must write a tar
+/// so the task keeps a durable copy. A failed transfer leaves `baseline` alone,
+/// so the next attempt re-ships the same delta.
 pub(super) async fn upload(
     config: &Config,
     backend_client: &dyn BackendClient,
@@ -315,7 +316,7 @@ pub(super) async fn upload(
         }
         Err(e) => {
             warn!(task_id = %task_id, error = %e, "Failed to mint workspace sync URLs (non-fatal)");
-            return Ok(SyncOutcome::default());
+            return Err(());
         }
     };
 

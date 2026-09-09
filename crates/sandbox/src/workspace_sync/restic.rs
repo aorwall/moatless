@@ -71,43 +71,104 @@ const SNAPSHOT_LABEL: &str = "workspace";
 const KEEP_SNAPSHOTS: i32 = 10;
 
 /// Everything needed to open one task's repository, as the backend granted it.
-struct Access {
+#[derive(Clone)]
+pub(super) struct Access {
     backend: ResticS3Backend,
     password: String,
 }
 
-/// Fetch access and build the S3 client the repository speaks through.
+/// How long before its stated expiry a grant is replaced.
 ///
-/// Fetched per sync rather than cached: a sync happens minutes apart at most, a
-/// session lasts an hour, and refetching removes the whole class of bug where a
-/// snapshot fails on an expired token the sandbox was still holding.
-async fn access(
-    task_id: &str,
-    backend_client: &dyn BackendClient,
-) -> Result<Access, tonic::Status> {
-    let granted = backend_client
-        .get_workspace_repository_access(task_id)
-        .await?;
-    let credentials = Credentials::new(
-        granted.access_key_id,
-        granted.secret_access_key,
-        Some(granted.session_token),
-        None,
-        "moatless-workspace",
-    );
-    let config = aws_sdk_s3::Config::builder()
-        .behavior_version_latest()
-        .region(Region::new(granted.region))
-        .credentials_provider(credentials)
-        .build();
-    Ok(Access {
-        backend: ResticS3Backend::new(
-            aws_sdk_s3::Client::from_conf(config),
-            granted.bucket,
-            &granted.prefix,
-        ),
-        password: granted.password,
-    })
+/// One operation holds the credentials it opened with for its whole run, and a
+/// snapshot of a large tree runs for minutes, so the margin bounds an operation
+/// rather than a request.
+const REFRESH_MARGIN_SECS: i64 = 300;
+
+/// The grant every repository operation opens with, reused until it is close to
+/// expiring.
+///
+/// A grant costs a backend round trip plus an STS mint and lasts an hour
+/// (`crates/s3/src/session.rs`), so minting one per sync spends a growing share
+/// of a shortening interval on credentials. It reaches one task's prefix only —
+/// the session policy scopes it — so the held grant is keyed by task id.
+#[derive(Default)]
+pub(super) struct AccessCache(tokio::sync::Mutex<Option<CachedAccess>>);
+
+struct CachedAccess {
+    task_id: String,
+    access: Access,
+    /// The grant's own `expires_at`. A grant stating none is used once and
+    /// never held, so this is always a time the backend gave.
+    expires_at: chrono::DateTime<chrono::Utc>,
+}
+
+impl AccessCache {
+    /// The access the repository speaks through, minting a grant when none is
+    /// held or the held one expires within [`REFRESH_MARGIN_SECS`].
+    pub(super) async fn get(
+        &self,
+        task_id: &str,
+        backend_client: &dyn BackendClient,
+    ) -> Result<Access, tonic::Status> {
+        // Held across the mint, so a turn boundary and a periodic tick that
+        // arrive together take one grant between them rather than one each.
+        let mut held = self.0.lock().await;
+        let usable_until = chrono::Utc::now() + chrono::TimeDelta::seconds(REFRESH_MARGIN_SECS);
+        if let Some(cached) = held.as_ref() {
+            if cached.task_id == task_id && cached.expires_at > usable_until {
+                return Ok(cached.access.clone());
+            }
+        }
+
+        let granted = backend_client
+            .get_workspace_repository_access(task_id)
+            .await?;
+        let expires_at = chrono::DateTime::parse_from_rfc3339(&granted.expires_at)
+            .map(|at| at.with_timezone(&chrono::Utc));
+        let credentials = Credentials::new(
+            granted.access_key_id,
+            granted.secret_access_key,
+            Some(granted.session_token),
+            None,
+            "moatless-workspace",
+        );
+        let config = aws_sdk_s3::Config::builder()
+            .behavior_version_latest()
+            .region(Region::new(granted.region))
+            .credentials_provider(credentials)
+            .build();
+        let access = Access {
+            backend: ResticS3Backend::new(
+                aws_sdk_s3::Client::from_conf(config),
+                granted.bucket,
+                &granted.prefix,
+            ),
+            password: granted.password,
+        };
+
+        *held = match expires_at {
+            Ok(expires_at) => Some(CachedAccess {
+                task_id: task_id.to_string(),
+                access: access.clone(),
+                expires_at,
+            }),
+            Err(error) => {
+                debug!(task_id = %task_id, %error, "Repository access states no expiry; minting one per operation");
+                None
+            }
+        };
+        Ok(access)
+    }
+
+    /// Drop the held grant so the next operation mints one.
+    ///
+    /// Called by every operation that fails — [`upload`], [`restore_on_start`]
+    /// and [`forget_and_prune`]. The credentials are one of the things that can
+    /// fail an operation, and a session lasts an hour, so a grant kept past a
+    /// failure would repeat it for the rest of that hour.
+    pub(super) async fn invalidate(&self) {
+        *self.0.lock().await = None;
+    }
 }
 
 fn options() -> RepositoryOptions {
@@ -159,23 +220,39 @@ fn escape_glob(path: &str) -> String {
     out
 }
 
-/// Snapshot the workspace, or report that no repository could be reached.
+/// Why the workspace reached no repository.
+pub(super) enum NotSnapshotted {
+    /// This backend serves no repository, so no snapshot was owed.
+    Absent,
+    /// A snapshot was owed and did not land. The repository still owes this
+    /// tree, so the caller must offer it again.
+    Failed,
+}
+
+/// Snapshot the workspace, or report that it reached no repository.
 ///
-/// `Err(())` means this tree reached no repository — the backend grants none, or
-/// the transfer failed — and the caller must write another format so the task
-/// keeps a durable copy.
+/// `Err` means the caller must write another format so the task keeps a durable
+/// copy.
 pub(super) async fn upload(
     config: &Config,
     backend_client: &dyn BackendClient,
-) -> Result<SyncOutcome, ()> {
+    cache: &AccessCache,
+) -> Result<SyncOutcome, NotSnapshotted> {
     let task_id = config.task_id.clone();
     let workspace_dir = PathBuf::from(&config.workspace_dir);
 
-    let access = match access(&task_id, backend_client).await {
+    let access = match cache.get(&task_id, backend_client).await {
         Ok(access) => access,
+        // A sandbox asks for the format its own environment names, and no
+        // backend setting reaches that choice, so one configured with no
+        // `workspace_repository` refuses every tick for the task's whole life.
+        Err(status) if is_feature_disabled(&status) => {
+            debug!(task_id = %task_id, %status, "This backend serves no workspace repository; falling back");
+            return Err(NotSnapshotted::Absent);
+        }
         Err(status) => {
             debug!(task_id = %task_id, %status, "No workspace repository access; falling back");
-            return Err(());
+            return Err(NotSnapshotted::Failed);
         }
     };
 
@@ -209,10 +286,11 @@ pub(super) async fn upload(
         }
         Err(error) => {
             warn!(task_id = %task_id, %error, "Workspace snapshot failed (non-fatal)");
+            cache.invalidate().await;
             backend_client
                 .report_workspace_sync(&task_id, "upload", FORMAT, 0, elapsed, Some(&error))
                 .await;
-            Err(())
+            Err(NotSnapshotted::Failed)
         }
     }
 }
@@ -299,7 +377,12 @@ pub(super) async fn restore_on_start(state: &SandboxState) -> RestoreAttempt {
     let workspace_dir = PathBuf::from(&state.config.workspace_dir);
     let repo_dir = PathBuf::from(&state.config.repo_dir);
 
-    let access = match access(&task_id, state.backend_client.as_ref()).await {
+    let access = match state
+        .workspace_sync
+        .repository_access
+        .get(&task_id, state.backend_client.as_ref())
+        .await
+    {
         Ok(access) => access,
         // Only the backend saying it mints no repository access at all is an
         // absence. A blip here carries no verdict about whether this task has a
@@ -323,7 +406,7 @@ pub(super) async fn restore_on_start(state: &SandboxState) -> RestoreAttempt {
     .await;
     let elapsed = started.elapsed().as_millis() as u64;
 
-    match restored {
+    let attempt = match restored {
         Ok(Ok(Some(bytes))) => {
             info!(task_id = %task_id, bytes, dir = %workspace_dir.display(), "Restored repos from the workspace repository (skipping clone)");
             state
@@ -365,7 +448,12 @@ pub(super) async fn restore_on_start(state: &SandboxState) -> RestoreAttempt {
                 .await;
             RestoreAttempt::Failed
         }
+    };
+
+    if matches!(attempt, RestoreAttempt::Failed) {
+        state.workspace_sync.repository_access.invalidate().await;
     }
+    attempt
 }
 
 /// Restore the latest snapshot onto `workspace_dir`, or `Ok(None)` when the
@@ -418,9 +506,13 @@ fn restore(access: &Access, workspace_dir: &Path) -> Result<Option<u64>, String>
 /// Pre-stop only, never per turn: a prune rewrites the index, which is work a
 /// turn boundary should not pay for. Best-effort — a repository that keeps a few
 /// snapshots too many still restores.
-pub(super) async fn forget_and_prune(config: &Config, backend_client: &dyn BackendClient) {
+pub(super) async fn forget_and_prune(
+    config: &Config,
+    backend_client: &dyn BackendClient,
+    cache: &AccessCache,
+) {
     let task_id = config.task_id.clone();
-    let Ok(access) = access(&task_id, backend_client).await else {
+    let Ok(access) = cache.get(&task_id, backend_client).await else {
         return;
     };
     match tokio::task::spawn_blocking(move || prune(&access)).await {
@@ -429,9 +521,11 @@ pub(super) async fn forget_and_prune(config: &Config, backend_client: &dyn Backe
         }
         Ok(Err(error)) => {
             warn!(task_id = %task_id, %error, "Pruning the workspace repository failed (non-fatal)");
+            cache.invalidate().await;
         }
         Err(error) => {
             warn!(task_id = %task_id, %error, "Workspace prune panicked (non-fatal)");
+            cache.invalidate().await;
         }
     }
 }

@@ -241,10 +241,10 @@ message GetWorkspaceRepositoryAccessResponse {
   string access_key_id = 4;
   string secret_access_key = 5;
   string session_token = 6;
-  // When the session stops working, as RFC 3339. Read by the admin HTTP path,
-  // which hands these credentials to a person; the sandbox refetches per sync
-  // and never consults it. `crates/s3/src/session.rs` owns how long a session
-  // is minted for and why.
+  // When the session stops working, as RFC 3339. The admin HTTP path hands
+  // these credentials to a person, and the sandbox reuses a grant until shortly
+  // before this. `crates/s3/src/session.rs` owns how long a session is minted
+  // for and why.
   string expires_at = 7;
   // The repository password, derived by the backend for this task alone.
   string password = 8;

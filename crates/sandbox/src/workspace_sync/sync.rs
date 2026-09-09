@@ -88,13 +88,17 @@ pub struct SyncOutcome {
 /// so they share one answer. Without that, each path keeps its own baseline and
 /// a turn-boundary upload is immediately followed by an identical periodic one.
 ///
-/// The fingerprint is taken *before* the tar is built and stored only after the
-/// PUT succeeds, so a change made while the tar was being built is not recorded
-/// as shipped: the next attempt uploads again rather than skipping.
+/// The fingerprint is taken *before* anything is written and stored only after
+/// [`WorkspaceSyncTracker::store_current`] reports every enabled format holding
+/// the tree, so a change made while the transfer ran is not recorded as shipped:
+/// the next attempt uploads again rather than skipping.
 #[derive(Clone, Default)]
 pub struct WorkspaceSyncTracker {
     last_uploaded: Arc<tokio::sync::Mutex<Option<u64>>>,
     mirror_baseline: Arc<tokio::sync::Mutex<Option<sandbox_proto::workspace_manifest::Manifest>>>,
+    /// Shared by [`restic::upload`], [`restic::restore_on_start`] and
+    /// [`restic::forget_and_prune`].
+    pub(super) repository_access: Arc<restic::AccessCache>,
     /// Written by [`Self::mark_mirror_unusable`], read by [`Self::adopt_current`].
     mirror_unusable: Arc<AtomicBool>,
     /// Written by [`Self::hold_uploads`], read by [`Self::upload_if_changed`].
@@ -133,10 +137,10 @@ impl WorkspaceSyncTracker {
     /// the restore or the clone produced has nothing new to ship.
     ///
     /// The two baselines come from different sources because they answer
-    /// different questions. The tar gate only decides *whether* to ship, and
-    /// what it ships is always a whole archive, so an on-disk walk answers it
-    /// regardless of how the tree got there. The mirror baseline is the delta
-    /// base, so it has to be what S3 actually holds —
+    /// different questions. The upload gate only decides *whether* to ship, and
+    /// each format ships whatever it finds when it runs, so an on-disk walk
+    /// answers it regardless of how the tree got there. The mirror baseline is
+    /// the delta base, so it has to be what S3 actually holds —
     /// [`workspace_mirror::stored_baseline`].
     pub async fn adopt_current(&self, config: &Config, backend_client: &dyn BackendClient) {
         let dir = PathBuf::from(&config.workspace_dir);
@@ -196,11 +200,6 @@ impl WorkspaceSyncTracker {
     /// Upload the workspace unless it is unchanged since the last successful
     /// upload. Best-effort: a failed transfer leaves the baseline alone so the
     /// next attempt retries.
-    ///
-    /// The format is chosen per config: with the mirror on, the per-file mirror
-    /// ships the delta, and the tar is written whenever that mirror left no
-    /// generation in S3 — an older backend minting no manifest URL, or a failed
-    /// transfer — so a mirror outage costs a tar rather than the workspace.
     async fn upload_if_changed(
         &self,
         config: &Config,
@@ -211,33 +210,12 @@ impl WorkspaceSyncTracker {
             return SyncOutcome::default();
         }
 
-        // The repository is incremental and atomic, so it runs first and its
-        // outcome is what a caller sees. During a dual-write soak the mirror
-        // still runs after it, so a rollback loses nothing.
-        let mut snapshotted = None;
-        if config.workspace_snapshot_format.writes_restic() {
-            match restic::upload(config, backend_client).await {
-                Ok(outcome) => snapshotted = Some(outcome),
-                Err(()) => {
-                    debug!(task_id = %config.task_id, "Repository stored nothing; falling back");
-                }
-            }
-        }
-
-        if config.workspace_snapshot_format.writes_mirror() {
-            let mut baseline = self.mirror_baseline.lock().await;
-            match workspace_mirror::upload(config, backend_client, &mut baseline).await {
-                Ok(outcome) => return snapshotted.unwrap_or(outcome),
-                Err(()) => {
-                    debug!(task_id = %config.task_id, "Mirror stored nothing; writing a tar");
-                }
-            }
-        }
-        // The repository holds the tree, so a tar would only duplicate it.
-        if let Some(outcome) = snapshotted {
-            return outcome;
-        }
-
+        // One gate for every format, ahead of all of them. A tree that has not
+        // moved is already stored by whatever ran last, and a `restic` snapshot
+        // of it still walks the workspace, reads the index and writes a
+        // snapshot object for no data: 1114 of 3095 snapshots on 2026-09-08 did
+        // exactly that. Agent work always moves the fingerprint, so what the
+        // gate skips is only a tree init produced and its source still holds.
         let mut last = self.last_uploaded.lock().await;
         let current = workspace_fingerprint(PathBuf::from(&config.workspace_dir)).await;
         if current.is_none() {
@@ -249,12 +227,80 @@ impl WorkspaceSyncTracker {
             return SyncOutcome::default();
         }
 
-        let outcome = upload_from_config(config, backend_client).await;
-        if outcome.synced {
+        let stored = self.store_current(config, backend_client).await;
+        if stored.complete {
             *last = current;
         }
-        outcome
+        stored.outcome
     }
+
+    /// Write the workspace in each format this config enables, newest first.
+    ///
+    /// One format failing holds the baseline back even when another one stored
+    /// the tree, because [`restore_on_start`] reads the newest format that
+    /// answers and never compares generations: a repository one tick behind a
+    /// mirror is still what a restart gets. The cost is that the next tick
+    /// re-writes the format that succeeded, and only while one is failing.
+    async fn store_current(
+        &self,
+        config: &Config,
+        backend_client: &dyn BackendClient,
+    ) -> Stored {
+        // The repository is incremental and atomic, so it runs first and its
+        // outcome is what a caller sees. During a dual-write soak the mirror
+        // still runs after it, so a rollback loses nothing.
+        let mut stored = None;
+        let mut missed = false;
+        if config.workspace_snapshot_format.writes_restic() {
+            match restic::upload(config, backend_client, &self.repository_access).await {
+                Ok(outcome) => stored = Some(outcome),
+                // No snapshot was owed, so no snapshot is outstanding.
+                Err(restic::NotSnapshotted::Absent) => {}
+                Err(restic::NotSnapshotted::Failed) => {
+                    missed = true;
+                    debug!(task_id = %config.task_id, "Repository stored nothing; falling back");
+                }
+            }
+        }
+
+        if config.workspace_snapshot_format.writes_mirror() {
+            let mut baseline = self.mirror_baseline.lock().await;
+            if let Ok(outcome) =
+                workspace_mirror::upload(config, backend_client, &mut baseline).await
+            {
+                stored = stored.or(Some(outcome));
+            } else {
+                missed = true;
+                debug!(task_id = %config.task_id, "Mirror stored nothing; writing a tar");
+            }
+        }
+
+        // A format ahead of the tar holds the tree, so a tar would duplicate it.
+        // A tar that lands stands in for the format that missed and does not
+        // repair it, so it does not clear `missed`.
+        if stored.is_none() {
+            let outcome = upload_from_config(config, backend_client).await;
+            if outcome.synced {
+                stored = Some(outcome);
+            } else {
+                missed = true;
+            }
+        }
+
+        Stored {
+            outcome: stored.unwrap_or_default(),
+            complete: !missed,
+        }
+    }
+}
+
+/// What one pass over the enabled formats produced.
+struct Stored {
+    /// What the caller reports, from the first format that stored the tree.
+    outcome: SyncOutcome,
+    /// Whether every enabled format holds this tree. Only `true` may move the
+    /// upload baseline.
+    complete: bool,
 }
 
 /// Whether the periodic upload loop should run at all.
@@ -635,10 +681,10 @@ pub async fn download_on_start(state: &SandboxState) {
         .await;
 }
 
-/// Tar every git repo under `workspace_dir` and upload it, unless the workspace
-/// is unchanged since the last successful upload. No-op when there's nothing to
-/// sync. Best-effort: failures (including a disabled feature) are logged, never
-/// propagated.
+/// Store everything under `workspace_dir` in each format this config enables,
+/// unless the workspace is unchanged since the last successful upload. No-op
+/// when there's nothing to sync. Best-effort: failures (including a disabled
+/// feature) are logged, never propagated.
 pub async fn upload(state: &SandboxState) -> SyncOutcome {
     state
         .workspace_sync
@@ -726,7 +772,12 @@ pub async fn sync_on_request(state: &SandboxState) -> SyncOutcome {
     }
     let outcome = upload(state).await;
     if state.config.workspace_snapshot_format.writes_restic() {
-        restic::forget_and_prune(&state.config, state.backend_client.as_ref()).await;
+        restic::forget_and_prune(
+            &state.config,
+            state.backend_client.as_ref(),
+            &state.workspace_sync.repository_access,
+        )
+        .await;
     }
     outcome
 }
@@ -836,7 +887,7 @@ pub fn read_interval_from_env() -> Option<Duration> {
 /// the workspace (the same tracked/untracked-non-ignored files plus each repo's
 /// `.git` that the tar carries, `.gitignore`d artifacts excluded) and uploads
 /// only when it moved — so an idle sandbox, one churning only gitignored build
-/// output, or one whose last turn already uploaded does not re-ship a tar.
+/// output, or one whose last turn already uploaded ships nothing.
 /// Mirrors the transcript sync: a `tokio::select!` on the lifecycle token and a
 /// fixed interval.
 pub async fn run_workspace_sync(
@@ -1468,6 +1519,9 @@ mod tests {
         /// What `get_workspace_repository_access` fails with. `None` reports the
         /// feature unsupported, like the trait default.
         repository_access_code: Option<tonic::Code>,
+        /// When a granted session expires, as RFC 3339. `None` grants nothing.
+        repository_expiry: Option<String>,
+        repository_access_calls: AtomicUsize,
         /// How `get_workspace_object_urls` answers. `None` reports the feature
         /// unsupported, like a backend predating the mirror. `Some(n)` fails
         /// transiently `n` times and then mints.
@@ -1541,8 +1595,23 @@ mod tests {
             }
         }
 
+        /// A backend that grants repository access expiring in `valid_for`.
+        fn granting_repository_access(valid_for: chrono::TimeDelta) -> Self {
+            Self {
+                repository_expiry: Some(
+                    (chrono::Utc::now() + valid_for)
+                        .to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+                ),
+                ..Self::default()
+            }
+        }
+
         fn object_url_calls(&self) -> usize {
             self.object_url_calls.load(Ordering::SeqCst)
+        }
+
+        fn repository_access_calls(&self) -> usize {
+            self.repository_access_calls.load(Ordering::SeqCst)
         }
     }
 
@@ -1636,12 +1705,25 @@ mod tests {
             &self,
             _task_id: &str,
         ) -> Result<sandbox_proto::GetWorkspaceRepositoryAccessResponse, tonic::Status> {
-            match self.repository_access_code {
-                Some(code) => Err(tonic::Status::new(code, "configured failure")),
-                None => Err(tonic::Status::unimplemented(
-                    "workspace repositories not supported",
-                )),
+            self.repository_access_calls.fetch_add(1, Ordering::SeqCst);
+            if let Some(code) = self.repository_access_code {
+                return Err(tonic::Status::new(code, "configured failure"));
             }
+            let Some(expires_at) = &self.repository_expiry else {
+                return Err(tonic::Status::unimplemented(
+                    "workspace repositories not supported",
+                ));
+            };
+            Ok(sandbox_proto::GetWorkspaceRepositoryAccessResponse {
+                bucket: "workspaces".to_string(),
+                prefix: "workspaces/task/repo".to_string(),
+                region: "eu-north-1".to_string(),
+                access_key_id: "key".to_string(),
+                secret_access_key: "secret".to_string(),
+                session_token: "token".to_string(),
+                expires_at: expires_at.clone(),
+                password: "password".to_string(),
+            })
         }
         async fn get_workspace_object_urls(
             &self,
@@ -2042,6 +2124,181 @@ mod tests {
         );
     }
 
+    /// The gate covers the repository too. A `restic` snapshot of an unchanged
+    /// tree walks the workspace, reads the index and commits a snapshot object
+    /// for no data: on 2026-09-08 that was 1114 of 3095 snapshots.
+    #[tokio::test]
+    async fn an_unchanged_workspace_costs_no_snapshot() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path().join("repo");
+        init_repo(&repo);
+        std::fs::write(repo.join("a.txt"), "hello").unwrap();
+        git_add(&repo, &["a.txt"]);
+        git_commit(&repo, "init");
+
+        let mut config = sync_config(tmp.path(), true, true);
+        config.workspace_snapshot_format = WorkspaceSnapshotFormat::Restic;
+        // A grant that opens a repository, so the second half reaches a snapshot
+        // rather than only reaching for one.
+        let backend = CountingBackend::granting_repository_access(chrono::TimeDelta::hours(1));
+        let tracker = WorkspaceSyncTracker::new();
+
+        tracker.adopt_current(&config, &backend).await;
+        upload_after_turn(&config, &backend, &tracker).await;
+        assert_eq!(
+            backend.repository_access_calls(),
+            0,
+            "an untouched workspace is not snapshotted"
+        );
+
+        std::fs::write(repo.join("a.txt"), "edited by the agent").unwrap();
+        upload_after_turn(&config, &backend, &tracker).await;
+        assert_eq!(
+            backend.repository_access_calls(),
+            1,
+            "a changed workspace is snapshotted"
+        );
+    }
+
+    /// The gate makes one tick's failure permanent, so a format that stored
+    /// nothing holds the baseline back even when another one answered `Ok`.
+    /// [`restic::restore_on_start`] reads the newest format that answers and
+    /// never compares generations, so a repository that missed a tick is what
+    /// the next restart gets, with a current mirror sitting beside it.
+    #[tokio::test]
+    async fn a_format_that_stored_nothing_holds_the_baseline_back() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path().join("repo");
+        init_repo(&repo);
+        std::fs::write(repo.join("a.txt"), "hello").unwrap();
+        git_add(&repo, &["a.txt"]);
+        git_commit(&repo, "init");
+
+        let mut config = sync_config(tmp.path(), true, true);
+        config.workspace_snapshot_format = WorkspaceSnapshotFormat::ResticMirror;
+        // The repository fails on its grant, and the mirror behind it answers
+        // `Ok`, so the tick is the partial failure this test is about.
+        let backend = CountingBackend {
+            repository_access_code: Some(tonic::Code::Cancelled),
+            ..CountingBackend::default()
+        };
+        let tracker = WorkspaceSyncTracker::new();
+
+        upload_after_turn(&config, &backend, &tracker).await;
+        assert_eq!(backend.repository_access_calls(), 1);
+
+        // Nothing edits the tree again, which is the tick before a stop: the
+        // last turn's work is in the mirror and not in the repository.
+        upload_after_turn(&config, &backend, &tracker).await;
+        assert_eq!(
+            backend.repository_access_calls(),
+            2,
+            "a tree the repository missed is offered to it again"
+        );
+    }
+
+    /// A backend that serves no repository at all owes this tree no snapshot,
+    /// so it must not read as a repository that missed one. The sandbox names
+    /// the format and the backend serves it, and nothing ties the two settings
+    /// together, so a mismatch would otherwise hold the baseline back for the
+    /// task's whole life and cost a mirror walk every tick.
+    #[tokio::test]
+    async fn a_backend_serving_no_repository_leaves_the_gate_working() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path().join("repo");
+        init_repo(&repo);
+        std::fs::write(repo.join("a.txt"), "hello").unwrap();
+        git_add(&repo, &["a.txt"]);
+        git_commit(&repo, "init");
+
+        let mut config = sync_config(tmp.path(), true, true);
+        config.workspace_snapshot_format = WorkspaceSnapshotFormat::ResticMirror;
+        // Grants nothing and reports it `Unimplemented`, like a backend with no
+        // `workspace_repository` configured.
+        let backend = CountingBackend::default();
+        let tracker = WorkspaceSyncTracker::new();
+
+        upload_after_turn(&config, &backend, &tracker).await;
+        assert_eq!(backend.repository_access_calls(), 1);
+
+        upload_after_turn(&config, &backend, &tracker).await;
+        assert_eq!(
+            backend.repository_access_calls(),
+            1,
+            "an unchanged tree costs no second reach for a repository nobody serves"
+        );
+    }
+
+    /// A mint that fails transiently stored nothing, so it must not read as a
+    /// stored mirror. With one gate in front of every format, a baseline moved
+    /// on that answer leaves the tree in no format at all until something edits
+    /// it — and the pre-stop sync is gated out too.
+    #[tokio::test]
+    async fn a_failed_mint_does_not_count_as_a_stored_mirror() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path().join("repo");
+        init_repo(&repo);
+        std::fs::write(repo.join("a.txt"), "hello").unwrap();
+        git_add(&repo, &["a.txt"]);
+        git_commit(&repo, "init");
+
+        let mut config = sync_config(tmp.path(), true, true);
+        config.workspace_snapshot_format = WorkspaceSnapshotFormat::Mirror;
+        // `Cancelled` is a blip rather than a verdict: this backend mints URLs,
+        // it just did not this time.
+        let backend = CountingBackend::sync_urls_failing(tonic::Code::Cancelled);
+        let tracker = WorkspaceSyncTracker::new();
+
+        upload_after_turn(&config, &backend, &tracker).await;
+        let first = backend.attempts();
+        assert!(first > 0, "the mirror reached for its URLs");
+
+        upload_after_turn(&config, &backend, &tracker).await;
+        assert!(
+            backend.attempts() > first,
+            "a tree no format stored is offered again"
+        );
+    }
+
+    /// A grant costs a backend round trip plus an STS mint and lasts an hour,
+    /// so a sync interval short enough to bound a reclaim's loss must not spend
+    /// one per tick.
+    #[tokio::test]
+    async fn a_repository_grant_is_held_until_it_nears_expiry() {
+        let backend = CountingBackend::granting_repository_access(chrono::TimeDelta::hours(1));
+        let cache = restic::AccessCache::default();
+        assert!(cache.get("task", &backend).await.is_ok());
+        assert!(cache.get("task", &backend).await.is_ok());
+        assert_eq!(
+            backend.repository_access_calls(),
+            1,
+            "a grant with an hour left is reused"
+        );
+
+        // A grant reaches one task's prefix, so another task's operation mints
+        // its own.
+        assert!(cache.get("other-task", &backend).await.is_ok());
+        assert_eq!(backend.repository_access_calls(), 2);
+
+        // The credentials are one of the things that can fail an operation, and
+        // a session lasts an hour, so a failure drops them.
+        cache.invalidate().await;
+        assert!(cache.get("other-task", &backend).await.is_ok());
+        assert_eq!(backend.repository_access_calls(), 3);
+
+        // A session inside the refresh margin cannot outlast the snapshot that
+        // would open with it.
+        let expiring = CountingBackend::granting_repository_access(chrono::TimeDelta::minutes(1));
+        let cache = restic::AccessCache::default();
+        assert!(cache.get("task", &expiring).await.is_ok());
+        assert!(cache.get("task", &expiring).await.is_ok());
+        assert_eq!(
+            expiring.repository_access_calls(),
+            2,
+            "a grant near expiry is replaced rather than held"
+        );
+    }
+
     /// A clone is not a mirror: a tree S3 holds no objects for must not become
     /// the delta base. Adopting one made the first upload ship only the agent's
     /// later edits under a manifest naming every file in the tree, and the next
@@ -2069,9 +2326,16 @@ mod tests {
             "a tree S3 has no objects for is not a delta base"
         );
 
-        // With no baseline the untouched clone is itself the delta, so it ships.
+        // Nothing has touched the clone, so the shared gate holds every format:
+        // the remote still reproduces this tree.
         upload_after_turn(&config, &backend, &tracker).await;
-        assert_eq!(backend.attempts(), 2, "the clone itself is uploaded");
+        assert_eq!(backend.attempts(), 1, "an untouched clone ships nothing");
+
+        // With no baseline the first edit ships the whole tree, not a delta
+        // against a manifest S3 holds no objects for.
+        std::fs::write(repo.join("a.txt"), "edited by the agent").unwrap();
+        upload_after_turn(&config, &backend, &tracker).await;
+        assert_eq!(backend.attempts(), 2, "the first edit ships the whole tree");
     }
 
     /// A mirror that would not restore is not a delta base either. A task
@@ -2105,7 +2369,8 @@ mod tests {
             "a mirror we could not restore from is not a delta base"
         );
 
-        // The whole tree is the delta, so the next upload ships what S3 lacks.
+        // The whole tree is the delta, so the first edit ships what S3 lacks.
+        std::fs::write(repo.join("a.txt"), "edited by the agent").unwrap();
         upload_after_turn(&config, &backend, &tracker).await;
         assert_eq!(backend.attempts(), 1, "the whole tree is uploaded");
     }
