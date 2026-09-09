@@ -10,7 +10,7 @@
 use std::sync::Arc;
 
 use chrono::{Duration, Utc};
-use moatless_types::user::UserRole;
+use moatless_types::user::{UserRole, UserStatus};
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -54,6 +54,7 @@ async fn seed_user(pool: &PgPool) -> Uuid {
             last_login_at: Utc::now(),
             settings: serde_json::json!({}),
             is_bot: false,
+            status: UserStatus::Active,
         })
         .await
         .unwrap();

@@ -217,6 +217,7 @@ pub async fn seed_local_account(
             last_login_at: now,
             settings: serde_json::json!({}),
             is_bot: false,
+            status: moatless_types::user::UserStatus::Active,
         })
         .await
         .expect("the test account is written");

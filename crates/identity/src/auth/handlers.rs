@@ -26,7 +26,8 @@ use moatless_types::user::UserRole;
 use super::schemas::{
     AdminResetPasswordRequest, AdminUpdateUserRequest, ApiKeyCreateResponse, ApiKeyListItem,
     AuthMode, AuthModeResponse, ChangePasswordRequest, CliLoginQuery, CreateApiKeyRequest,
-    CreatePairingCodeRequest, CreateUserRequest, CreateUserResponse, MessageResponse,
+    CreatePairingCodeRequest, CreateUserRequest, CreateUserResponse, ListUsersQuery,
+    MessageResponse,
     OAuthCallbackQuery, PairingCodeResponse, PasswordLoginRequest, SessionResponse,
     TokenSessionResponse, UpdateUserRequest, UserInfo, UserListItem, UserListResponse,
     format_datetime, format_datetime_opt,
@@ -1366,11 +1367,12 @@ pub(super) async fn create_user_handler(
     Ok((StatusCode::CREATED, Json(created)))
 }
 
-/// List all registered users.
+/// List the user directory.
 #[utoipa::path(
     get,
     path = "/api/v1/users",
     tag = "users",
+    params(("includeDisabled" = Option<bool>, Query, description = "Include disabled accounts")),
     responses(
         (status = 200, description = "List of users", body = UserListResponse),
         (status = 500, description = "Internal error", body = ErrorBody)
@@ -1378,8 +1380,9 @@ pub(super) async fn create_user_handler(
 )]
 pub(super) async fn list_users_handler(
     State(state): State<AuthState>,
+    axum::extract::Query(query): axum::extract::Query<ListUsersQuery>,
 ) -> Result<Json<UserListResponse>, AuthError> {
-    let users = state.users.list_users().await?;
+    let users = state.users.list_users(query.include_disabled).await?;
 
     let items: Vec<UserListItem> = users
         .iter()
@@ -1394,6 +1397,7 @@ pub(super) async fn list_users_handler(
             created_at: format_datetime(u.created_at),
             last_login_at: format_datetime(u.last_login_at),
             is_bot: u.is_bot,
+            status: u.status,
         })
         .collect();
 
@@ -1403,7 +1407,7 @@ pub(super) async fn list_users_handler(
 /// Update a user's profile (name and/or email).
 ///
 /// A user may update their own profile; updating another user requires the
-/// admin role. Backs the `moat user <login> set-email` CLI command so emails
+/// admin role. Backs the `moat user set-email <login>` CLI command so emails
 /// can be corrected without direct DB access. Only the fields present in the
 /// body are changed.
 #[utoipa::path(

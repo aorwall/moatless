@@ -3,7 +3,7 @@ use crate::auth::users::User;
 use crate::auth::users_dao::PgUserDao;
 use crate::auth::users_dao::UserDao;
 use chrono::{Duration, Utc};
-use moatless_types::user::UserRole;
+use moatless_types::user::{UserRole, UserStatus};
 use sqlx::PgPool;
 use uuid::Uuid;
 async fn seed_user(pool: &PgPool) -> Uuid {
@@ -270,6 +270,7 @@ fn make_user(id: Uuid, login: &str, is_bot: bool) -> User {
         last_login_at: now,
         settings: serde_json::json!({}),
         is_bot,
+        status: UserStatus::Active,
     }
 }
 

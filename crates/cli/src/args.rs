@@ -123,10 +123,8 @@ pub(super) enum SharedCommands {
         #[command(subcommand)]
         action: commands::docker::DockerAction,
     },
-    /// Manage users and their provider identity mappings
+    /// List users and manage their provider identity mappings
     User {
-        /// Moatless username (login)
-        login: String,
         #[command(subcommand)]
         action: commands::users::UserAction,
     },

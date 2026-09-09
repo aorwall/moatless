@@ -30,7 +30,7 @@ pub struct LinearIssueCreateRequest {
     /// Assignee: a Moatless login, an email, a display name, or a UUID. `"me"`
     /// resolves to the authenticated agent (the workspace OAuth viewer). A
     /// Moatless login resolves through the Linear user id stored for that user
-    /// (`moat user <login> set-provider-id --provider linear --id <uuid>`), and
+    /// (`moat user set-provider-id <login> --provider linear --id <uuid>`), and
     /// outranks an email or display-name match.
     ///
     /// Omitted on create, this defaults to the caller — their stored Linear

@@ -408,6 +408,7 @@ export * from './userListItem';
 export * from './userListResponse';
 export * from './userProviderIdItem';
 export * from './userRole';
+export * from './userStatus';
 export * from './validateSecretsRequest';
 export * from './validateSecretsResponse';
 export * from './visibility';

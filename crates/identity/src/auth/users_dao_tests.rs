@@ -3,7 +3,7 @@
 //! database, so these run against the real uuid-typed `users.id`.
 
 use chrono::Utc;
-use moatless_types::user::UserRole;
+use moatless_types::user::{UserRole, UserStatus};
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -27,6 +27,7 @@ fn make_user(id: Uuid, login: &str, provider: &str, provider_user_id: &str) -> U
         last_login_at: now,
         settings: serde_json::json!({}),
         is_bot: false,
+        status: UserStatus::Active,
     }
 }
 
@@ -160,6 +161,80 @@ async fn resolves_users_by_provider_and_legacy_id(pool: PgPool) {
             .provider_user_id
             .as_deref(),
         Some("609489")
+    );
+}
+
+/// `update_user_profile_and_role` is the only writer of `status`, and a
+/// disabled row stays disabled through a login and through an unrelated edit.
+#[sqlx::test(migrations = "../core/migrations")]
+async fn only_an_explicit_update_moves_the_status(pool: PgPool) {
+    let repo = PgUserDao(pool);
+    let uid = Uuid::new_v4();
+    repo.upsert_user(&make_user(uid, "departed", "github", "1"))
+        .await
+        .unwrap();
+
+    let updated = repo
+        .update_user_profile_and_role(&uid, None, None, None, Some(UserStatus::Disabled))
+        .await
+        .unwrap()
+        .expect("the row is there");
+    assert_eq!(updated.status, UserStatus::Disabled);
+
+    // A second login upserts with `UserStatus::Active`. The column must not move.
+    repo.upsert_user(&make_user(uid, "departed", "github", "1"))
+        .await
+        .unwrap();
+    assert_eq!(
+        repo.get_user(&uid).await.unwrap().unwrap().status,
+        UserStatus::Disabled
+    );
+
+    // A name change carries `status: None` and must not move it either.
+    let renamed = repo
+        .update_user_profile_and_role(
+            &uid,
+            Some(Some("Departed Person".into())),
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap()
+        .expect("the row is there");
+    assert_eq!(renamed.status, UserStatus::Disabled);
+    assert_eq!(renamed.name.as_deref(), Some("Departed Person"));
+
+    assert_eq!(
+        repo.update_user_profile_and_role(&uid, None, None, None, Some(UserStatus::Active))
+            .await
+            .unwrap()
+            .expect("the row is there")
+            .status,
+        UserStatus::Active
+    );
+}
+
+/// `list_users` hides a disabled row unless the caller asks for it.
+#[sqlx::test(migrations = "../core/migrations")]
+async fn the_directory_hides_disabled_accounts_by_default(pool: PgPool) {
+    let repo = PgUserDao(pool);
+    let departed = Uuid::new_v4();
+    repo.upsert_user(&make_user(departed, "departed", "github", "1"))
+        .await
+        .unwrap();
+    repo.upsert_user(&make_user(Uuid::new_v4(), "present", "github", "2"))
+        .await
+        .unwrap();
+    repo.update_user_profile_and_role(&departed, None, None, None, Some(UserStatus::Disabled))
+        .await
+        .unwrap();
+
+    let logins = |users: Vec<User>| users.into_iter().map(|u| u.login).collect::<Vec<_>>();
+    assert_eq!(logins(repo.list_users(false).await.unwrap()), ["present"]);
+    assert_eq!(
+        logins(repo.list_users(true).await.unwrap()),
+        ["departed", "present"]
     );
 }
 

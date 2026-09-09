@@ -301,7 +301,7 @@ export const useCreateUserHandler = <TError = ErrorType<ErrorBody>,
     }
     /**
  * A user may update their own profile; updating another user requires the
-admin role. Backs the `moat user <login> set-email` CLI command so emails
+admin role. Backs the `moat user set-email <login>` CLI command so emails
 can be corrected without direct DB access. Only the fields present in the
 body are changed.
  * @summary Update a user's profile (name and/or email).

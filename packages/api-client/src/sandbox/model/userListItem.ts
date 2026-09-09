@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { UserRole } from './userRole';
+import type { UserStatus } from './userStatus';
 
 /**
  * Single item in GET /api/v1/users list.
@@ -24,4 +25,5 @@ export interface UserListItem {
   name?: string | null;
   provider: string;
   role: UserRole;
+  status: UserStatus;
 }

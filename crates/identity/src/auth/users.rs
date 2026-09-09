@@ -3,7 +3,7 @@
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
-use moatless_types::user::UserRole;
+use moatless_types::user::{UserRole, UserStatus};
 
 #[derive(sqlx::FromRow, Debug)]
 pub struct User {
@@ -27,6 +27,8 @@ pub struct User {
     /// `provider_tokens` row (`auth_method = 'github_app_installation'`,
     /// `provider_user_id = <app_key>`).
     pub is_bot: bool,
+    #[sqlx(try_from = "String")]
+    pub status: UserStatus,
 }
 
 /// A provider-specific identity linked to a moatless user.

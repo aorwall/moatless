@@ -8091,8 +8091,19 @@
         "tags": [
           "users"
         ],
-        "summary": "List all registered users.",
+        "summary": "List the user directory.",
         "operationId": "list_users_handler",
+        "parameters": [
+          {
+            "name": "includeDisabled",
+            "in": "query",
+            "description": "Include disabled accounts",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "List of users",
@@ -8203,7 +8214,7 @@
           "users"
         ],
         "summary": "Update a user's profile (name and/or email).",
-        "description": "A user may update their own profile; updating another user requires the\nadmin role. Backs the `moat user <login> set-email` CLI command so emails\ncan be corrected without direct DB access. Only the fields present in the\nbody are changed.",
+        "description": "A user may update their own profile; updating another user requires the\nadmin role. Backs the `moat user set-email <login>` CLI command so emails\ncan be corrected without direct DB access. Only the fields present in the\nbody are changed.",
         "operationId": "update_user_handler",
         "parameters": [
           {
@@ -9729,6 +9740,17 @@
               },
               {
                 "$ref": "#/components/schemas/UserRole"
+              }
+            ]
+          },
+          "status": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/UserStatus",
+                "description": "Admin-only, like `role`."
               }
             ]
           }
@@ -12904,7 +12926,7 @@
               "string",
               "null"
             ],
-            "description": "Assignee: a Moatless login, an email, a display name, or a UUID. `\"me\"`\nresolves to the authenticated agent (the workspace OAuth viewer). A\nMoatless login resolves through the Linear user id stored for that user\n(`moat user <login> set-provider-id --provider linear --id <uuid>`), and\noutranks an email or display-name match.\n\nOmitted on create, this defaults to the caller — their stored Linear\nid, or their moat email matched against Linear's members. Both missing\nleaves the issue unassigned.\n\nLinear rejects an app user here and routes it to `delegate` instead:\npass an app agent as [`Self::delegate`] so the read-back is meaningful."
+            "description": "Assignee: a Moatless login, an email, a display name, or a UUID. `\"me\"`\nresolves to the authenticated agent (the workspace OAuth viewer). A\nMoatless login resolves through the Linear user id stored for that user\n(`moat user set-provider-id <login> --provider linear --id <uuid>`), and\noutranks an email or display-name match.\n\nOmitted on create, this defaults to the caller — their stored Linear\nid, or their moat email matched against Linear's members. Both missing\nleaves the issue unassigned.\n\nLinear rejects an app user here and routes it to `delegate` instead:\npass an app agent as [`Self::delegate`] so the read-back is meaningful."
           },
           "bind": {
             "type": [
@@ -18945,7 +18967,8 @@
           "role",
           "createdAt",
           "lastLoginAt",
-          "isBot"
+          "isBot",
+          "status"
         ],
         "properties": {
           "avatarUrl": {
@@ -18987,6 +19010,9 @@
           },
           "role": {
             "$ref": "#/components/schemas/UserRole"
+          },
+          "status": {
+            "$ref": "#/components/schemas/UserStatus"
           }
         }
       },
@@ -19031,6 +19057,14 @@
         "enum": [
           "user",
           "admin"
+        ]
+      },
+      "UserStatus": {
+        "type": "string",
+        "description": "Whether a user may sign in and be routed work.",
+        "enum": [
+          "active",
+          "disabled"
         ]
       },
       "ValidateSecretsRequest": {

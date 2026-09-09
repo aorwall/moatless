@@ -9,7 +9,7 @@ use super::hash::{PasswordHashError, generate_password, hash_password};
 use crate::auth::users::User;
 use crate::auth::users_dao::UserDao;
 use moatless_types::auth::AuthConfig;
-use moatless_types::user::UserRole;
+use moatless_types::user::{UserRole, UserStatus};
 
 /// Length of a generated bootstrap password.
 const GENERATED_PASSWORD_LEN: usize = 24;
@@ -67,7 +67,7 @@ pub(crate) async fn ensure_local_admin(
 
     if existing_user.is_some() {
         users
-            .update_user_profile_and_role(&user_id, None, None, Some(UserRole::Admin))
+            .update_user_profile_and_role(&user_id, None, None, Some(UserRole::Admin), None)
             .await
             .map_err(BootstrapError::Persist)?;
     }
@@ -102,6 +102,7 @@ pub(crate) async fn ensure_local_admin(
         last_login_at: now,
         settings: serde_json::json!({}),
         is_bot: false,
+        status: UserStatus::Active,
     };
 
     if existing_user.is_none() {
@@ -263,13 +264,14 @@ mod tests {
         users.expect_upsert_user().never();
         users
             .expect_update_user_profile_and_role()
-            .withf(move |user_id, name, email, role| {
+            .withf(move |user_id, name, email, role, status| {
                 *user_id == mapped_id
                     && name.is_none()
                     && email.is_none()
                     && *role == Some(UserRole::Admin)
+                    && status.is_none()
             })
-            .returning(|_, _, _, _| Ok(None));
+            .returning(|_, _, _, _, _| Ok(None));
         users
             .expect_upsert_provider_id()
             .returning(|_, _, _| Ok(()));
@@ -289,6 +291,7 @@ mod tests {
                     last_login_at: Utc::now(),
                     settings: serde_json::json!({}),
                     is_bot: false,
+                    status: UserStatus::Active,
                 }))
             });
 

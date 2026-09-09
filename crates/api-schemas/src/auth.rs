@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::enums::UserRole;
+use crate::enums::{UserRole, UserStatus};
 use crate::patch::deserialize_optional_nullable_field;
 use crate::setup::SetupStatus;
 
@@ -54,6 +54,16 @@ pub struct AdminUpdateUserRequest {
     #[serde(default, deserialize_with = "deserialize_optional_nullable_field")]
     pub email: Option<Option<String>>,
     pub role: Option<UserRole>,
+    /// Admin-only, like `role`.
+    pub status: Option<UserStatus>,
+}
+
+/// Query params for GET /api/v1/users.
+#[derive(Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListUsersQuery {
+    #[serde(default)]
+    pub include_disabled: bool,
 }
 
 /// Body for POST /api/v1/auth/api-keys.
@@ -191,6 +201,7 @@ pub struct UserListItem {
     pub created_at: String,
     pub last_login_at: String,
     pub is_bot: bool,
+    pub status: UserStatus,
 }
 
 /// GET /api/v1/users response.

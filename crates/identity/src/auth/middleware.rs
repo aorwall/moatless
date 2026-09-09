@@ -27,6 +27,7 @@ use moatless_api_schemas::error::ErrorBody;
 use moatless_core::config::Config;
 use moatless_core::http_auth::UserTokenVerifier;
 use moatless_types::auth::{AuthIdentity, AuthMethod};
+use moatless_types::user::UserStatus;
 
 /// The one route that accepts a ticket in its query string.
 const WEBSOCKET_PATH: &str = "/ws";
@@ -283,7 +284,7 @@ pub async fn auth_middleware(mut req: Request<Body>, next: Next) -> Response {
         if let Ok(verified) = state.token_verifier.verify_user_token(token) {
             match verified.user_id.parse::<Uuid>() {
                 Ok(user_id) => match state.users.get_user(&user_id).await {
-                    Ok(Some(user)) => {
+                    Ok(Some(user)) if user.status == UserStatus::Active => {
                         debug!(user_id = %user_id, path = %path, "Auth middleware: user token valid");
                         tracing::Span::current().record("user_id", user_id.to_string().as_str());
                         insert_auth_extensions(
@@ -298,6 +299,9 @@ pub async fn auth_middleware(mut req: Request<Body>, next: Next) -> Response {
                             AuthMethod::UserToken,
                         );
                         return next.run(req).await;
+                    }
+                    Ok(Some(_)) => {
+                        warn!(user_id = %user_id, path = %path, "Auth middleware: user token names a disabled account");
                     }
                     Ok(None) => {
                         warn!(user_id = %user_id, path = %path, "Auth middleware: user token names an unknown user");

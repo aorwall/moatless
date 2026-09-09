@@ -18,4 +18,5 @@ pub use moatless_types::access_control::Scope;
 pub use moatless_types::task::TaskRelationType;
 pub use moatless_types::task::TaskStatus;
 pub use moatless_types::user::UserRole;
+pub use moatless_types::user::UserStatus;
 pub use moatless_types::task::Visibility;

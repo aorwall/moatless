@@ -12,7 +12,7 @@ use super::api_keys::ApiKey;
 use super::api_keys_dao::ApiKeyDao;
 use super::users::User;
 use super::users_dao::UserDao;
-use moatless_types::user::UserRole;
+use moatless_types::user::{UserRole, UserStatus};
 
 const TEST_USER_ID: &str = "test-api-user";
 const TEST_USER_LOGIN: &str = "test-api-user";
@@ -47,6 +47,7 @@ pub(crate) async fn ensure_test_user(users: &dyn UserDao, api_keys: &dyn ApiKeyD
         last_login_at: now,
         settings: serde_json::json!({}),
         is_bot: false,
+        status: UserStatus::Active,
     };
 
     if let Err(e) = users.upsert_user(&user).await {

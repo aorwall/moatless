@@ -13,7 +13,7 @@
 use super::users::{User, UserProviderAccount};
 use async_trait::async_trait;
 use moatless_core::db::DbPool;
-use moatless_types::user::UserRole;
+use moatless_types::user::{UserRole, UserStatus};
 use std::collections::HashMap;
 use uuid::Uuid;
 
@@ -25,8 +25,14 @@ pub trait UserDao: Send + Sync {
     async fn get_user_by_login(&self, login: &str) -> Result<Option<User>, sqlx::Error>;
     async fn find_user_by_email(&self, email: &str) -> Result<Option<User>, sqlx::Error>;
     async fn get_users_by_ids(&self, user_ids: &[Uuid]) -> Result<Vec<User>, sqlx::Error>;
+    /// Insert the user, or refresh an existing row from a login.
+    ///
+    /// [`User::status`] applies to the insert only. Do not add
+    /// `status = EXCLUDED.status` to the `DO UPDATE SET`: a login would
+    /// re-enable a disabled account.
     async fn upsert_user(&self, user: &User) -> Result<(), sqlx::Error>;
-    async fn list_users(&self) -> Result<Vec<User>, sqlx::Error>;
+    /// List the directory, `Disabled` rows included only when asked.
+    async fn list_users(&self, include_disabled: bool) -> Result<Vec<User>, sqlx::Error>;
     async fn list_bot_users_by_app_key(&self) -> Result<HashMap<String, String>, sqlx::Error>;
     async fn update_user_profile(
         &self,
@@ -45,6 +51,7 @@ pub trait UserDao: Send + Sync {
         name: Option<Option<String>>,
         email: Option<Option<String>>,
         role: Option<UserRole>,
+        status: Option<UserStatus>,
     ) -> Result<Option<User>, sqlx::Error>;
 
     // Provider ID mapping
@@ -123,8 +130,8 @@ impl UserDao for PgUserDao {
     async fn upsert_user(&self, user: &User) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"
-            INSERT INTO users (id, login, email, name, avatar_url, provider, provider_user_id, role, created_at, last_login_at, is_bot)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+            INSERT INTO users (id, login, email, name, avatar_url, provider, provider_user_id, role, created_at, last_login_at, is_bot, status)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
             ON CONFLICT (id) DO UPDATE SET
                 login = EXCLUDED.login,
                 email = COALESCE(users.email, EXCLUDED.email),
@@ -146,15 +153,19 @@ impl UserDao for PgUserDao {
         .bind(user.created_at)
         .bind(user.last_login_at)
         .bind(user.is_bot)
+        .bind(user.status.as_str())
         .execute(&self.0)
         .await?;
         Ok(())
     }
 
-    async fn list_users(&self) -> Result<Vec<User>, sqlx::Error> {
-        sqlx::query_as::<_, User>("SELECT * FROM users ORDER BY login ASC")
-            .fetch_all(&self.0)
-            .await
+    async fn list_users(&self, include_disabled: bool) -> Result<Vec<User>, sqlx::Error> {
+        sqlx::query_as::<_, User>(
+            "SELECT * FROM users WHERE ($1 OR status = 'active') ORDER BY login ASC",
+        )
+        .bind(include_disabled)
+        .fetch_all(&self.0)
+        .await
     }
 
     async fn list_bot_users_by_app_key(&self) -> Result<HashMap<String, String>, sqlx::Error> {
@@ -196,6 +207,7 @@ impl UserDao for PgUserDao {
         name: Option<Option<String>>,
         email: Option<Option<String>>,
         role: Option<UserRole>,
+        status: Option<UserStatus>,
     ) -> Result<Option<User>, sqlx::Error> {
         let should_update_name = name.is_some();
         let should_update_email = email.is_some();
@@ -203,7 +215,8 @@ impl UserDao for PgUserDao {
             r#"UPDATE users
                SET name = CASE WHEN $2 THEN $3 ELSE name END,
                    email = CASE WHEN $4 THEN $5 ELSE email END,
-                   role = COALESCE($6, role)
+                   role = COALESCE($6, role),
+                   status = COALESCE($7, status)
                WHERE id = $1
                RETURNING *"#,
         )
@@ -213,6 +226,7 @@ impl UserDao for PgUserDao {
         .bind(should_update_email)
         .bind(email.flatten())
         .bind(role.map(UserRole::as_str))
+        .bind(status.map(UserStatus::as_str))
         .fetch_optional(&self.0)
         .await
     }

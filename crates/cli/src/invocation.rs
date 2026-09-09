@@ -158,8 +158,8 @@ async fn run_shared(
         SharedCommands::Docker { action } => {
             commands::docker::run(action, json).await?;
         }
-        SharedCommands::User { login, action } => {
-            commands::users::run(moat, &login, action, json).await?;
+        SharedCommands::User { action } => {
+            commands::users::run(moat, action, json).await?;
         }
         SharedCommands::Bot { action } => {
             commands::bots::run(moat, action, json).await?;

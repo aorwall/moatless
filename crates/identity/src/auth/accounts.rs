@@ -10,7 +10,7 @@ use super::{
 use moatless_api_schemas::user::{SetProviderIdRequest, UserProviderIdItem};
 use moatless_types::{
     auth::{AuthIdentity, AuthProvider},
-    user::UserRole,
+    user::{UserRole, UserStatus},
 };
 use tracing::info;
 
@@ -244,20 +244,37 @@ pub(super) async fn update_user(
     if identity.user_id != user_id && identity.role != UserRole::Admin {
         return Err(AuthError::Forbidden);
     }
-    if body.role.is_some() && identity.role != UserRole::Admin {
+    if (body.role.is_some() || body.status.is_some()) && identity.role != UserRole::Admin {
         return Err(AuthError::Forbidden);
+    }
+    // Disabling yourself refuses every credential you hold, and re-enabling
+    // needs an admin session. There is no way back inside the product.
+    if body.status == Some(UserStatus::Disabled) && user_id == identity.user_id {
+        return Err(AuthError::BadRequest(
+            "an admin cannot disable their own account".into(),
+        ));
     }
 
     let user = state
         .users
-        .update_user_profile_and_role(&user_id, body.name.clone(), body.email.clone(), body.role)
+        .update_user_profile_and_role(
+            &user_id,
+            body.name.clone(),
+            body.email.clone(),
+            body.role,
+            body.status,
+        )
         .await?
         .ok_or_else(|| AuthError::NotFound(format!("User '{login}' not found")))?;
 
     info!(
         actor = %identity.user_id,
         target_user = %user_id,
-        "Updated user profile (name/email)"
+        name = body.name.is_some(),
+        email = body.email.is_some(),
+        role = ?body.role,
+        status = ?body.status,
+        "Updated user"
     );
 
     Ok(UserInfo {

@@ -12,7 +12,7 @@ use super::super::provider_token_auth_dao::ProviderTokenAuthDao;
 use super::super::users::User;
 use super::super::users_dao::UserDao;
 use super::dao::{AuthenticatedSession, NewAuthSession, SessionDao};
-use moatless_types::user::UserRole;
+use moatless_types::user::{UserRole, UserStatus};
 
 /// Generate a cryptographically secure session ID (64 hex chars).
 fn generate_token() -> String {
@@ -28,6 +28,18 @@ pub(in crate::auth) struct IssuedAuthSession {
 
 pub(in crate::auth) fn hash_token(token: &str) -> Vec<u8> {
     Sha256::digest(token.as_bytes()).to_vec()
+}
+
+/// Refuse a `Disabled` account before it gets a session.
+///
+/// Every session issuance runs this. [`validate_session`] re-reads the column
+/// on each request, so a disable also ends the sessions already out.
+fn reject_disabled(user: &User) -> Result<(), crate::auth::error::AuthError> {
+    if user.status == UserStatus::Disabled {
+        warn!(user_id = %user.id, login = %user.login, "Refused a login for a disabled account");
+        return Err(crate::auth::error::AuthError::Forbidden);
+    }
+    Ok(())
 }
 
 async fn issue_auth_session(
@@ -91,6 +103,9 @@ pub(in crate::auth) async fn create_session(
 
     // Upsert user (keyed on the internal uuid).
     let existing_user = users.get_user(&user_id).await?;
+    if let Some(user) = &existing_user {
+        reject_disabled(user)?;
+    }
     if existing_user.is_none()
         && !user_info
             .email
@@ -118,6 +133,9 @@ pub(in crate::auth) async fn create_session(
             .as_ref()
             .map_or_else(|| serde_json::json!({}), |u| u.settings.clone()),
         is_bot: existing_user.as_ref().is_some_and(|u| u.is_bot),
+        status: existing_user
+            .as_ref()
+            .map_or(UserStatus::Active, |u| u.status),
     };
     users.upsert_user(&user_row).await?;
 
@@ -215,6 +233,7 @@ pub(in crate::auth) async fn create_session_from_user_with_provider(
     absolute_lifetime_secs: u64,
     provider: &str,
 ) -> Result<IssuedAuthSession, crate::auth::error::AuthError> {
+    reject_disabled(user)?;
     let token = issue_auth_session(
         sessions,
         user.id,
@@ -292,6 +311,31 @@ mod tests {
             idle_expires_at: Utc::now() + Duration::minutes(1),
             absolute_expires_at: Utc::now() + Duration::minutes(2),
         }
+    }
+
+    #[test]
+    fn a_disabled_account_is_refused_before_a_session_is_issued() {
+        let user = |status| User {
+            id: Uuid::new_v4(),
+            login: "alice".into(),
+            email: None,
+            name: None,
+            avatar_url: None,
+            provider: "local".into(),
+            provider_user_id: None,
+            role: UserRole::User,
+            created_at: Utc::now(),
+            last_login_at: Utc::now(),
+            settings: serde_json::json!({}),
+            is_bot: false,
+            status,
+        };
+
+        assert!(reject_disabled(&user(UserStatus::Active)).is_ok());
+        assert!(matches!(
+            reject_disabled(&user(UserStatus::Disabled)),
+            Err(crate::auth::error::AuthError::Forbidden)
+        ));
     }
 
     #[tokio::test]

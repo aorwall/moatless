@@ -10,7 +10,7 @@ use tracing::{debug, info, warn};
 use super::api_keys::ApiKey;
 use super::api_keys_dao::ApiKeyDao;
 use super::users_dao::UserDao;
-use moatless_types::user::UserRole;
+use moatless_types::user::{UserRole, UserStatus};
 
 const KEY_PREFIX: &str = "mvk_";
 const KEY_BYTES: usize = 32;
@@ -128,6 +128,11 @@ pub(crate) async fn validate_key(
         Err(_) => None,
     };
     let (user_name, role) = match user {
+        // A disabled account's key stops working, like its sessions.
+        Some(u) if u.status == UserStatus::Disabled => {
+            debug!(user_id = %u.id, key_id = %row.id, "API key belongs to a disabled account");
+            return Ok(None);
+        }
         Some(u) => (Some(u.login), u.role),
         None => (None, UserRole::User),
     };
@@ -141,7 +146,11 @@ pub(crate) async fn validate_key(
     }))
 }
 
-/// Validate an API key with cache-aside. Used by `verify_handler` only.
+/// Validate an API key with cache-aside. `auth_middleware` takes this path for
+/// every `Bearer mvk_` request, and `verify_handler` for the gate.
+///
+/// A cache hit skips [`validate_key`], and with it the `status` check, until the
+/// entry ages out. See `docs/deferred-changes.md`.
 ///
 /// 1. Compute SHA-256 hash (CPU-only, no DB)
 /// 2. Check cache by hash → return if hit (with expiry check)
