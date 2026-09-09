@@ -494,18 +494,12 @@ fn issue_transition_resource_id(envelope: &LinearWebhookEnvelope) -> Option<Stri
     Some(format!("{issue_id}:{transition_id}"))
 }
 
-/// Whether the envelope describes a move between workflow states.
+/// The state the issue left.
 ///
 /// `updatedFrom` is Linear's diff of the fields that changed, so `stateId` is
 /// present only when the issue moved. Every other `Issue`/`update` — a title, a
-/// description, a label, an assignee — is a delivery this adapter has no work
-/// for. [`handle_issue_update`](crate::issues::handle_issue_update) no-ops on
-/// the same two fields.
-pub(crate) fn is_issue_state_change(envelope: &LinearWebhookEnvelope) -> bool {
-    previous_state_id(envelope).is_some() && new_state_id(envelope).is_some()
-}
-
-fn previous_state_id(envelope: &LinearWebhookEnvelope) -> Option<&str> {
+/// description, a label, an assignee — leaves it absent.
+pub(crate) fn previous_state_id(envelope: &LinearWebhookEnvelope) -> Option<&str> {
     envelope
         .updated_from
         .as_ref()
@@ -513,7 +507,10 @@ fn previous_state_id(envelope: &LinearWebhookEnvelope) -> Option<&str> {
         .and_then(serde_json::Value::as_str)
 }
 
-fn new_state_id(envelope: &LinearWebhookEnvelope) -> Option<&str> {
+/// The state the issue entered. Absent on an `Issue` payload that carries no
+/// `state` at all, which [`IssuePayload`](crate::webhook_payloads::IssuePayload)
+/// permits.
+pub(crate) fn new_state_id(envelope: &LinearWebhookEnvelope) -> Option<&str> {
     envelope
         .data
         .as_ref()

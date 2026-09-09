@@ -31,8 +31,14 @@ const LINEAR_GRAPHQL_URL: &str = "https://api.linear.app/graphql";
 /// A token carries the scopes it was minted with, so adding one here only
 /// takes effect for an install that re-runs `/api/v1/auth/linear/install`.
 /// The scope must also be enabled on the Linear app's own settings page.
-const LINEAR_OAUTH_SCOPE: &str = "read,write,app:assignable,app:mentionable,\
-     initiative:read,initiative:write,customer:read";
+///
+/// `concat!` rather than a `\` line continuation: a continuation that lost its
+/// backslash would put a newline and the source indent inside the `scope`
+/// query parameter.
+const LINEAR_OAUTH_SCOPE: &str = concat!(
+    "read,write,app:assignable,app:mentionable,",
+    "initiative:read,initiative:write,customer:read"
+);
 
 #[derive(Clone)]
 pub struct LinearOAuthProvider {
@@ -255,19 +261,6 @@ impl OAuthProvider for LinearOAuthProvider {
 #[cfg(test)]
 mod tests {
     use super::LINEAR_OAUTH_SCOPE;
-
-    /// The constant is written across two source lines. A `\` continuation
-    /// that lost its trailing backslash would put a newline and the source
-    /// indent inside the `scope` query parameter, and Linear would reject the
-    /// authorize call for a scope it cannot parse.
-    #[test]
-    fn the_scope_list_is_comma_separated_with_no_whitespace() {
-        assert!(
-            !LINEAR_OAUTH_SCOPE.contains(char::is_whitespace),
-            "scope carries whitespace: {LINEAR_OAUTH_SCOPE:?}"
-        );
-        assert!(LINEAR_OAUTH_SCOPE.split(',').all(|s| !s.is_empty()));
-    }
 
     /// Every scope the install depends on, named so dropping one is a test
     /// failure rather than a `FORBIDDEN` in production. `admin` is absent by

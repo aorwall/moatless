@@ -205,9 +205,18 @@ fn issue_event(
     // Settled before the identity below it: an update that moved no state is
     // ordinary Linear traffic with no work behind it, and refusing one as
     // unidentifiable would 400 every title and label edit in the workspace.
-    if !super::ingress::is_issue_state_change(envelope) {
+    if super::ingress::previous_state_id(envelope).is_none() {
         return Ok(Plan::Ignored {
             reason: reason::NOT_A_STATE_CHANGE,
+        });
+    }
+
+    // `updatedFrom` says the issue moved, so a payload naming no state it moved
+    // *to* is malformed rather than uneventful. `IssuePayload::state` is
+    // optional, so such a payload parses and clears the guard above.
+    if super::ingress::new_state_id(envelope).is_none() {
+        return Ok(Plan::Ignored {
+            reason: reason::MALFORMED_PAYLOAD,
         });
     }
 
@@ -481,13 +490,18 @@ mod tests {
         }
     }
 
-    /// The other half: a real move is still admitted.
+    /// `updatedFrom` naming a `stateId` says the issue moved, so a payload
+    /// carrying no `state` it moved *to* is malformed rather than uneventful.
+    /// `IssuePayload::state` is `Option` behind `#[serde(default)]`, so that
+    /// shape parses and clears the malformed guard above the state checks.
     #[test]
-    fn an_issue_update_that_moved_state_is_still_admitted() {
-        assert_eq!(
-            admitted(issue("update")).0,
-            vec![super::super::delivery::ISSUE_UPDATE]
-        );
+    fn a_move_whose_payload_names_no_new_state_is_malformed_not_uneventful() {
+        let mut raw = issue("update");
+        raw["data"]
+            .as_object_mut()
+            .expect("data object")
+            .remove("state");
+        assert_eq!(ignored(raw), reason::MALFORMED_PAYLOAD);
     }
 
     // ---- the reasons, one real path each ----
