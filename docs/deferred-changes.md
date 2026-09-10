@@ -338,6 +338,15 @@ would be a flush of the parent before the Fork provisions — the
 `SyncWorkspaceRequest.include_transcripts` toggle is the hook — and is worth doing
 when a Fork is observed losing context on a parent whose pod is still running.
 
+## Observability
+
+| Deferred | Anchor | Entry condition |
+|---|---|---|
+| A blocked storage reclaim reaches no panel and no rule | `crates/sandbox-runtime/src/metrics.rs::STORAGE_RECLAIM_TOTAL` — the dashboards under `k8s/helm/moatless-vibe/dashboards/` query it nowhere | When someone next edits `k8s/helm/moatless-vibe/templates/prometheusrule.yaml`. `blocked` means the archive could not be proven current and the rescue did not land, so it is the one reclaim outcome that costs a workspace |
+| The live Grafana dashboard is not provisioned from this chart | `k8s/helm/moatless-vibe/dashboards/moatless-vibe-live.json` against the `Moatless Vibe Live` dashboard in the Soap Grafana workspace, whose `meta.provisioned` is `false`. `k8s/helm/moatless-vibe/values.yaml::monitoring.grafana.enabled` defaults to `false`, so nothing applies this file. Anyone who edits it must apply the same change through the Grafana API, or the two diverge. The live copy is missing the `Sandbox Storage (EBS volumes)` row and its 9 panels today | When `monitoring.grafana.enabled` is turned on, or when the drift next costs a reader a wrong answer |
+| `node_reclaimed` reaches no counter, so no rule can fire on it | `crates/sandbox-k8s/src/pod_watcher.rs::process_watcher_event` — `sandbox_container_terminations_total` is incremented inside the `transition.is_error_event` branch, and `crates/sandbox-k8s/src/pod_observation_policy.rs` maps only `PodEvicted` and `PodFailed` to `SandboxStatus::Error`. Every other way a pod dies takes the `else` arm and is logged only. Over the last 7 days that hid 1057 `node_reclaimed` events across 248 tasks — a spot instance taken back is the fleet's largest single cause of a lost sandbox — against 22 `pod_evicted` the counter did see | When the `Sandbox Lifecycle Events` row on `moatless-vibe-live.json` is not enough, which is the first time anyone wants an alert rather than a panel. Widening the counter is the fix, not widening `is_error_event`: that flag also forces every server container to `Failed`, and a reclaimed node is followed by a replacement pod |
+| No rule fires on a workspace sync failure or a mirror restore | the same `prometheusrule.yaml`, which holds one rule, `LinearAdapterAuthFailing`. The `Workspace Sync (restic / mirror)` row on `moatless-vibe-live.json` plots both, so only a reader who opens the dashboard sees them | The same pass. A mirror restore needs care as an alert: `crates/sandbox/src/workspace_sync/restic.rs::restore_on_start` returns `Absent` on three paths, and one of them has already recorded a restic download |
+
 ## Test and CI structure
 
 | Deferred | Anchor | Entry condition |

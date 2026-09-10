@@ -1868,7 +1868,7 @@
         "type": "prometheus",
         "uid": "${datasource}"
       },
-      "description": "Non-intentional sandbox container terminations. Backend application metric. Populates once the backend /metrics scrape annotation ships (backend-deployment.yaml).",
+      "description": "Non-intentional sandbox container terminations, counted by the pod watcher. The counter registers on the first termination after a backend rollout, so the line is empty until then and flat at zero between events. Read it with Sandbox Starts per Hour beside it: a restart the backend performs on purpose is not counted here.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -1955,12 +1955,1375 @@
       "type": "timeseries"
     },
     {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "Every sandbox that reached Ready, from the startup histogram's count, timed once per pod. A pod that never becomes Ready \u2014 ImagePullBackOff, a crash before first Ready \u2014 is not counted, so read this as a floor on the start rate. A stop and a start creates a new pod, so the container restart counter beside it does not see it.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 48
+      },
+      "id": 64,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum(rate(moatless_sandbox_startup_seconds_count[$__rate_interval])) * 3600",
+          "refId": "A",
+          "legendFormat": "starts/hour"
+        }
+      ],
+      "title": "Sandbox Starts per Hour",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "The 10 sandbox pods the kubelet restarted a container in most over the selected range, evaluated once at the end of it. The count is the exact in-range delta, not an `increase()` estimate: a pod that starts inside the range would otherwise report a fraction. This survives a backend rollout. The pod name carries the task id.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 48
+      },
+      "id": 65,
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "sortBy": [
+          {
+            "displayName": "Restarts (range)",
+            "desc": true
+          }
+        ]
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "topk(10, sum by (pod, container)(max_over_time(kube_pod_container_status_restarts_total{namespace=\"moatless\", pod=~\"moatless-ws-.*\"}[$__range]) - min_over_time(kube_pod_container_status_restarts_total{namespace=\"moatless\", pod=~\"moatless-ws-.*\"}[$__range])))",
+          "refId": "A",
+          "instant": true,
+          "format": "table"
+        }
+      ],
+      "title": "Sandbox Container Restarts by Pod (range, top 10)",
+      "type": "table",
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "pattern": "pod|container|Value"
+            }
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "renameByName": {
+              "pod": "Pod",
+              "container": "Container",
+              "Value": "Restarts (range)"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "Sandbox pods grouped by the last termination reason the kubelet recorded. This is a population and not a rate: the gauge holds at 1 for the rest of the container's life, so a pod that restarted last week still counts here. kube-state-metrics is the only source on this dashboard that names OOMKilled and Evicted. Sandbox Container Terminations above counts the events instead.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 48
+      },
+      "id": 66,
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "sortBy": [
+          {
+            "displayName": "Pods",
+            "desc": true
+          }
+        ]
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum by (reason)(kube_pod_container_status_last_terminated_reason{namespace=\"moatless\", pod=~\"moatless-ws-.*\"} > 0)",
+          "refId": "A",
+          "instant": true,
+          "format": "table"
+        }
+      ],
+      "title": "Sandbox Pods by Last Termination Reason",
+      "type": "table",
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "pattern": "reason|Value"
+            }
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "renameByName": {
+              "reason": "Last termination reason",
+              "Value": "Pods"
+            }
+          }
+        }
+      ]
+    },
+    {
       "collapsed": false,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 48
+        "y": 56
+      },
+      "id": 70,
+      "panels": [],
+      "title": "Sandbox Lifecycle Events",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "${loki}"
+      },
+      "description": "Every non-intentional pod lifecycle transition the watcher published, from the backend log stream. The watcher writes an error transition under a second message, so the query matches both lines: sandbox_container_terminations_total counts pod_evicted and pod_failed only, and this panel is the only place node_reclaimed and container_restarted appear at all.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "bars",
+            "fillOpacity": 60,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "node_reclaimed"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "red",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "pod_evicted"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "orange",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "container_oom_killed"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "dark-red",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "pod_failed"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "semi-dark-orange",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "container_crash_loop"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "purple",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "container_restarted"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "yellow",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "pod_ready"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "green",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "pod_scheduled"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "blue",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "pod_succeeded"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "dark-green",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "sandbox_completed"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "text",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 57
+      },
+      "id": 67,
+      "options": {
+        "legend": {
+          "calcs": [
+            "sum"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "${loki}"
+          },
+          "editorMode": "code",
+          "expr": "sum by (lifecycle_event) (count_over_time({namespace=\"moatless\", container=\"backend\"} |~ \"Pod lifecycle event detected|Sandbox container terminated unexpectedly\" | json | __error__=\"\" | intentional_stop!=\"true\" [$__interval]))",
+          "legendFormat": "{{lifecycle_event}}",
+          "queryType": "range",
+          "refId": "A"
+        }
+      ],
+      "title": "Sandbox Lifecycle Events by Type",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "${loki}"
+      },
+      "description": "The subset that ends a running sandbox against its will. node_reclaimed is a node the cluster took back, and it dominates on spot capacity. The sandbox restarts on a new node with an empty workspace.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "node_reclaimed"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "red",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "pod_evicted"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "orange",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "container_oom_killed"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "dark-red",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "pod_failed"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "semi-dark-orange",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "container_crash_loop"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "purple",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 12,
+        "y": 57
+      },
+      "id": 68,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "${loki}"
+          },
+          "editorMode": "code",
+          "expr": "sum by (lifecycle_event) (count_over_time({namespace=\"moatless\", container=\"backend\"} |~ \"Pod lifecycle event detected|Sandbox container terminated unexpectedly\" | json | __error__=\"\" | intentional_stop!=\"true\" | lifecycle_event=~\"node_reclaimed|pod_evicted|pod_failed|container_oom_killed|container_crash_loop\" [$__interval]))",
+          "legendFormat": "{{lifecycle_event}}",
+          "queryType": "range",
+          "refId": "A"
+        }
+      ],
+      "title": "Unexpected Sandbox Kills by Cause",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "${loki}"
+      },
+      "description": "The tasks that lost the most sandbox pods to an unexpected kill over the selected range.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 18,
+        "y": 57
+      },
+      "id": 69,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": true,
+            "displayName": "Kills"
+          }
+        ]
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "${loki}"
+          },
+          "editorMode": "code",
+          "expr": "topk(10, sum by (task_id) (count_over_time({namespace=\"moatless\", container=\"backend\"} |~ \"Pod lifecycle event detected|Sandbox container terminated unexpectedly\" | json | __error__=\"\" | intentional_stop!=\"true\" | lifecycle_event=~\"node_reclaimed|pod_evicted|pod_failed|container_oom_killed|container_crash_loop\" [$__range])))",
+          "instant": true,
+          "queryType": "instant",
+          "refId": "A"
+        }
+      ],
+      "title": "Tasks Losing Sandboxes (range, top 10)",
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "pattern": "task_id|Value"
+            }
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "renameByName": {
+              "Value": "Kills",
+              "task_id": "Task"
+            }
+          }
+        }
+      ],
+      "type": "table"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 65
+      },
+      "id": 57,
+      "panels": [],
+      "title": "Workspace Sync (restic / mirror)",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "Every sandbox reports each upload and download over ReportWorkspaceSync. A format that stops appearing means the sandboxes writing it stopped, or their pod template froze without WORKSPACE_SNAPSHOT_FORMAT.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 66
+      },
+      "id": 58,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum by (direction, format, outcome)(rate(moatless_workspace_sync_total{namespace=\"moatless\"}[$__rate_interval]))",
+          "refId": "A",
+          "legendFormat": "{{direction}} {{format}} {{outcome}}"
+        }
+      ],
+      "title": "Sync Outcomes by Direction and Format",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "A download recorded as mirror means restic declined the restore. Three paths reach it: no snapshot, no repository access minted, or a restored tree with no usable primary repo. The third path also records a restic download, so one restore lands on both lines. While the fleet config asks for restic+mirror, this line has to stay at zero.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 66
+      },
+      "id": 59,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum by (format)(rate(moatless_workspace_sync_total{namespace=\"moatless\", direction=\"download\", outcome=\"ok\"}[$__rate_interval]))",
+          "refId": "A",
+          "legendFormat": "{{format}}"
+        }
+      ],
+      "title": "Restores by Format",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "A failed upload loses the work since the last good one. A failed download makes the pod clear the tree and clone.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 66
+      },
+      "id": 60,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum by (direction, format)(rate(moatless_workspace_sync_total{namespace=\"moatless\", outcome=\"error\"}[$__rate_interval]))",
+          "refId": "A",
+          "legendFormat": "{{direction}} {{format}}"
+        }
+      ],
+      "title": "Sync Failures by Direction and Format",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "Successful transfers only. Read it against the sync cadence: a p95 near the interval means the next sync starts late.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 74
+      },
+      "id": 61,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le, direction, format)(rate(moatless_workspace_sync_duration_seconds_bucket{namespace=\"moatless\"}[$__rate_interval])))",
+          "refId": "A",
+          "legendFormat": "{{direction}} {{format}}"
+        }
+      ],
+      "title": "Sync Duration p95 by Direction and Format",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "Successful transfers only. Restic uploads move the changed blocks, so a restic line near the mirror line means the deduplication is not holding.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "binBps"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 74
+      },
+      "id": 62,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum by (direction, format)(rate(moatless_workspace_sync_bytes_sum{namespace=\"moatless\"}[$__rate_interval]))",
+          "refId": "A",
+          "legendFormat": "{{direction}} {{format}}"
+        }
+      ],
+      "title": "Sync Throughput by Direction and Format",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "Both histograms register on first use, so each line starts at the first restart or provision after a backend rollout.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 74
+      },
+      "id": 63,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le, storage_backend)(rate(moatless_sandbox_restart_duration_seconds_bucket{namespace=\"moatless\"}[$__rate_interval])))",
+          "refId": "A",
+          "legendFormat": "restart {{storage_backend}}"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le, storage_backend)(rate(moatless_sandbox_provision_duration_seconds_bucket{namespace=\"moatless\", outcome=\"ok\"}[$__rate_interval])))",
+          "refId": "B",
+          "legendFormat": "provision {{storage_backend}}"
+        }
+      ],
+      "title": "Restart and Provision p95 by Storage Backend",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 82
       },
       "id": 25,
       "panels": [],
@@ -1996,7 +3359,7 @@
         "h": 4,
         "w": 5,
         "x": 0,
-        "y": 49
+        "y": 83
       },
       "id": 26,
       "options": {
@@ -2056,7 +3419,7 @@
         "h": 4,
         "w": 5,
         "x": 5,
-        "y": 49
+        "y": 83
       },
       "id": 27,
       "options": {
@@ -2116,7 +3479,7 @@
         "h": 4,
         "w": 5,
         "x": 10,
-        "y": 49
+        "y": 83
       },
       "id": 28,
       "options": {
@@ -2176,7 +3539,7 @@
         "h": 4,
         "w": 5,
         "x": 15,
-        "y": 49
+        "y": 83
       },
       "id": 29,
       "options": {
@@ -2236,7 +3599,7 @@
         "h": 4,
         "w": 4,
         "x": 20,
-        "y": 49
+        "y": 83
       },
       "id": 30,
       "options": {
@@ -2328,7 +3691,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 53
+        "y": 87
       },
       "id": 31,
       "options": {
@@ -2483,7 +3846,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 53
+        "y": 87
       },
       "id": 32,
       "options": {
@@ -2601,7 +3964,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 61
+        "y": 95
       },
       "id": 33,
       "options": {
@@ -2667,7 +4030,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 61
+        "y": 95
       },
       "id": 34,
       "options": {
@@ -2733,7 +4096,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 69
+        "y": 103
       },
       "id": 47,
       "panels": [],
@@ -2801,7 +4164,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 70
+        "y": 104
       },
       "id": 48,
       "options": {
@@ -2892,7 +4255,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 70
+        "y": 104
       },
       "id": 49,
       "options": {
@@ -2983,7 +4346,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 70
+        "y": 104
       },
       "id": 50,
       "options": {
@@ -3074,7 +4437,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 78
+        "y": 112
       },
       "id": 51,
       "options": {
@@ -3183,7 +4546,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 78
+        "y": 112
       },
       "id": 52,
       "options": {
@@ -3292,7 +4655,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 78
+        "y": 112
       },
       "id": 53,
       "options": {
@@ -3438,7 +4801,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 86
+        "y": 120
       },
       "id": 54,
       "options": {
@@ -3529,7 +4892,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 86
+        "y": 120
       },
       "id": 55,
       "options": {
@@ -3620,7 +4983,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 86
+        "y": 120
       },
       "id": 56,
       "options": {
@@ -3656,7 +5019,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 94
+        "y": 128
       },
       "id": 35,
       "panels": [],
@@ -3724,7 +5087,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 95
+        "y": 129
       },
       "id": 36,
       "options": {
@@ -3847,7 +5210,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 95
+        "y": 129
       },
       "id": 37,
       "options": {
@@ -3947,7 +5310,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 95
+        "y": 129
       },
       "id": 38,
       "options": {
@@ -3992,7 +5355,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 103
+        "y": 137
       },
       "id": 39,
       "panels": [],
@@ -4060,7 +5423,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 104
+        "y": 138
       },
       "id": 40,
       "options": {
@@ -4200,7 +5563,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 104
+        "y": 138
       },
       "id": 41,
       "options": {
@@ -4291,7 +5654,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 104
+        "y": 138
       },
       "id": 42,
       "options": {
@@ -4336,7 +5699,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 112
+        "y": 146
       },
       "id": 43,
       "panels": [],
@@ -4465,7 +5828,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 113
+        "y": 147
       },
       "id": 44,
       "options": {
@@ -4556,7 +5919,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 113
+        "y": 147
       },
       "id": 45,
       "options": {
@@ -4599,7 +5962,7 @@
         "h": 11,
         "w": 24,
         "x": 0,
-        "y": 121
+        "y": 155
       },
       "id": 46,
       "options": {
