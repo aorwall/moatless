@@ -299,6 +299,16 @@ pub struct ForgejoInstancesResponse {
     pub instances: Vec<ForgejoInstanceSummary>,
 }
 
+/// Every registered instance, each carrying the caller's own connection to it.
+///
+/// This is not [`ForgejoInstancesResponse`]: that one is the admin view of the
+/// registered OAuth2 applications, and it names a `client_id`.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ForgejoConnectionsResponse {
+    pub instances: Vec<ForgejoProviderTokenStatusResponse>,
+}
+
 #[derive(Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct RegisterForgejoInstanceRequest {

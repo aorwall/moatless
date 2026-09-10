@@ -201,6 +201,38 @@ pub async fn get_forgejo_config(
     )))
 }
 
+/// List every registered instance with the caller's own connection to each.
+///
+/// Any signed-in caller reads this, unlike
+/// [`admin_list_forgejo_instances`]: a hostname is not a secret, and the
+/// settings screen cannot offer a Connect button without one.
+#[utoipa::path(
+    get,
+    path = "/api/v1/settings/forgejo/instances",
+    tag = "git-host-access",
+    responses(
+        (status = 200, description = "Registered instances and the caller's connection to each", body = ForgejoConnectionsResponse),
+        (status = 401, description = "Not authenticated", body = moatless_api_schemas::error::ErrorBody)
+    )
+)]
+pub async fn list_forgejo_connections(
+    State(instances): State<Arc<ForgejoInstances>>,
+    State(access): State<Arc<ForgejoAccess>>,
+    auth: AuthUser,
+) -> Result<Json<ForgejoConnectionsResponse>, AccessSettingsError> {
+    let user_id = auth.user_id.to_string();
+    let registered = instances.list().await.map_err(auth_error)?;
+    let mut connections = Vec::with_capacity(registered.len());
+    for instance in registered {
+        connections.push(forgejo_status(
+            access.status(&user_id, &instance.host).await?,
+        ));
+    }
+    Ok(Json(ForgejoConnectionsResponse {
+        instances: connections,
+    }))
+}
+
 #[utoipa::path(
     put,
     path = "/api/v1/settings/forgejo/pat",

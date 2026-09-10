@@ -32,6 +32,7 @@ use crate::state::AppState;
         handlers::save_gitness_pat,
         handlers::delete_gitness_config,
         handlers::get_forgejo_config,
+        handlers::list_forgejo_connections,
         handlers::save_forgejo_pat,
         handlers::delete_forgejo_pat_override,
         handlers::delete_forgejo_config,
@@ -85,6 +86,7 @@ pub fn access_settings_router(state: AppState) -> (axum::Router, utoipa::openapi
             handlers::get_forgejo_config,
             handlers::delete_forgejo_config
         ))
+        .routes(routes!(handlers::list_forgejo_connections))
         .routes(routes!(
             handlers::save_forgejo_pat,
             handlers::delete_forgejo_pat_override

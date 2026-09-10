@@ -28,6 +28,7 @@ import type {
   DeleteForgejoConfigParams,
   DeleteForgejoPatOverrideParams,
   ErrorBody,
+  ForgejoConnectionsResponse,
   ForgejoProviderTokenStatusResponse,
   GetForgejoConfigParams,
   GitHubProviderTokenStatusResponse,
@@ -439,7 +440,128 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       > => {
       return useMutation(getDeleteForgejoPatOverrideMutationOptions(options), queryClient);
     }
-    export type getGithubConfigResponse200 = {
+    export type listForgejoConnectionsResponse200 = {
+  data: ForgejoConnectionsResponse
+  status: 200
+}
+
+export type listForgejoConnectionsResponse401 = {
+  data: ErrorBody
+  status: 401
+}
+
+export type listForgejoConnectionsResponseSuccess = (listForgejoConnectionsResponse200) & {
+  headers: Headers;
+};
+export type listForgejoConnectionsResponseError = (listForgejoConnectionsResponse401) & {
+  headers: Headers;
+};
+
+export type listForgejoConnectionsResponse = (listForgejoConnectionsResponseSuccess | listForgejoConnectionsResponseError)
+
+export const getListForgejoConnectionsUrl = () => {
+
+
+
+
+  return `/api/v1/settings/forgejo/instances`
+}
+
+export const listForgejoConnections = async ( options?: RequestInit): Promise<listForgejoConnectionsResponse> => {
+
+  return customInstance<listForgejoConnectionsResponse>(getListForgejoConnectionsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+export const getListForgejoConnectionsQueryKey = () => {
+    return [
+    `/api/v1/settings/forgejo/instances`
+    ] as const;
+    }
+
+
+export const getListForgejoConnectionsQueryOptions = <TData = Awaited<ReturnType<typeof listForgejoConnections>>, TError = ErrorType<ErrorBody>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listForgejoConnections>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListForgejoConnectionsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listForgejoConnections>>> = ({ signal }) => listForgejoConnections({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listForgejoConnections>>, TError, TData> & { queryKey: DataTag<QueryKey, TData> }
+}
+
+export type ListForgejoConnectionsQueryResult = NonNullable<Awaited<ReturnType<typeof listForgejoConnections>>>
+export type ListForgejoConnectionsQueryError = ErrorType<ErrorBody>
+
+
+export function useListForgejoConnections<TData = Awaited<ReturnType<typeof listForgejoConnections>>, TError = ErrorType<ErrorBody>>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listForgejoConnections>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listForgejoConnections>>,
+          TError,
+          Awaited<ReturnType<typeof listForgejoConnections>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+export function useListForgejoConnections<TData = Awaited<ReturnType<typeof listForgejoConnections>>, TError = ErrorType<ErrorBody>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listForgejoConnections>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listForgejoConnections>>,
+          TError,
+          Awaited<ReturnType<typeof listForgejoConnections>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+export function useListForgejoConnections<TData = Awaited<ReturnType<typeof listForgejoConnections>>, TError = ErrorType<ErrorBody>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listForgejoConnections>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+
+export function useListForgejoConnections<TData = Awaited<ReturnType<typeof listForgejoConnections>>, TError = ErrorType<ErrorBody>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listForgejoConnections>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> } {
+
+  const queryOptions = getListForgejoConnectionsQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+export const prefetchListForgejoConnectionsQuery = async <TData = Awaited<ReturnType<typeof listForgejoConnections>>, TError = ErrorType<ErrorBody>>(
+ queryClient: QueryClient,  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listForgejoConnections>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+
+  ): Promise<QueryClient> => {
+
+  const queryOptions = getListForgejoConnectionsQueryOptions(options)
+
+  await queryClient.prefetchQuery(queryOptions);
+
+  return queryClient;
+}
+
+
+
+export type getGithubConfigResponse200 = {
   data: GitHubProviderTokenStatusResponse
   status: 200
 }

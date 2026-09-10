@@ -112,6 +112,7 @@ export * from './fileTreeHandlerParams';
 export * from './fileTreeNodeDto';
 export * from './fileTreeResponse';
 export * from './followTaskResponse';
+export * from './forgejoConnectionsResponse';
 export * from './forgejoInstancesResponse';
 export * from './forgejoInstanceSummary';
 export * from './forgejoProviderTokenStatusResponse';

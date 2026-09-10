@@ -3,9 +3,11 @@ import {
   deleteForgejoConfig,
   deleteForgejoPatOverride,
   getForgejoConfig,
+  listForgejoConnections,
   saveForgejoPat,
 } from '@moatless/api-client/sandbox/git-host-access/git-host-access'
 import type {
+  ForgejoConnectionsResponse,
   ForgejoProviderTokenStatusResponse,
   SaveForgejoProviderTokenRequest,
 } from '@moatless/api-client/sandbox/model'
@@ -15,6 +17,10 @@ import type {
  * hold a separate credential per host.
  */
 export const forgejoConnectionApi = {
+  /** Every registered instance, each with the caller's own connection to it. */
+  listInstances: (): Promise<ForgejoConnectionsResponse> =>
+    unwrapResponse<ForgejoConnectionsResponse>(listForgejoConnections()),
+
   getConfig: (host: string): Promise<ForgejoProviderTokenStatusResponse> =>
     unwrapResponse<ForgejoProviderTokenStatusResponse>(getForgejoConfig({ host })),
 

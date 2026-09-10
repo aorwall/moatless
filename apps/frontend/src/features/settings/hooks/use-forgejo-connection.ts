@@ -12,6 +12,14 @@ import { forgejoConnectionApi } from '@/features/settings/api/forgejo-connection
 import type { ApiError } from '@/lib/api/client'
 import { queryKeys } from '@/lib/api/query-keys'
 
+/** Every registered Forgejo instance, each with the caller's own connection. */
+export function useForgejoInstances() {
+  return useQuery({
+    queryKey: queryKeys.settings.forgejoInstances(),
+    queryFn: () => forgejoConnectionApi.listInstances(),
+  })
+}
+
 /**
  * The caller's connection to one Forgejo instance.
  *
@@ -38,7 +46,7 @@ export function useDisconnectForgejo(
     mutationFn: () => forgejoConnectionApi.disconnect(host),
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: queryKeys.settings.forgejo(host),
+        queryKey: queryKeys.settings.forgejoAll(),
       })
     },
     ...options,
@@ -47,7 +55,6 @@ export function useDisconnectForgejo(
 
 /** Save a personal access token for the instance named by `baseUrl`. */
 export function useSaveForgejoPAT(
-  host: string,
   options?: UseMutationOptions<
     ForgejoProviderTokenStatusResponse,
     ApiError,
@@ -60,7 +67,7 @@ export function useSaveForgejoPAT(
     mutationFn: forgejoConnectionApi.savePAT,
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: queryKeys.settings.forgejo(host),
+        queryKey: queryKeys.settings.forgejoAll(),
       })
     },
     ...options,
@@ -78,7 +85,7 @@ export function useRemoveForgejoPatOverride(
     mutationFn: () => forgejoConnectionApi.removePatOverride(host),
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: queryKeys.settings.forgejo(host),
+        queryKey: queryKeys.settings.forgejoAll(),
       })
     },
     ...options,
