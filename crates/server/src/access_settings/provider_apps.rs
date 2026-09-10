@@ -7,15 +7,31 @@
 //! migrates either.
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
+use chrono::{DateTime, Utc};
 use moatless_api_schemas::provider_apps::{ProviderAppField, ProviderAppSpec, ProviderAppSummary};
 use moatless_core::git_provider::GitProviderError;
-use moatless_identity::adapter_apps::administration::{AdapterAppSave, require_admin};
-use moatless_identity::forgejo::{ForgejoOAuth, ForgejoOAuthApp, callback_url, normalize_host};
+use moatless_identity::adapter_apps::administration::{
+    AdapterAppSave, AppAdministration, require_admin,
+};
+use moatless_identity::forgejo::{
+    ForgejoInstances, ForgejoOAuth, ForgejoOAuthApp, callback_url, normalize_host,
+};
 use moatless_types::access_control::ScopeContext;
 
 use crate::access_settings::error::{AccessSettingsError, auth_error};
-use crate::state::AppState;
+
+/// The two stores a provider app lands in, and the frontend origin
+/// [`callback_url`] derives the Forgejo redirect URI from.
+///
+/// A handler extracts it as `State<ProviderApps>`, through the `FromRef`
+/// implementation in `crate::state`.
+pub struct ProviderApps {
+    pub forgejo_instances: Arc<ForgejoInstances>,
+    pub app_administration: Arc<AppAdministration>,
+    pub frontend_url: String,
+}
 
 pub const FORGEJO: &str = "forgejo";
 pub const SLACK: &str = "slack";
@@ -33,11 +49,46 @@ struct SpecEntry {
 
 struct FieldEntry {
     name: &'static str,
+    /// The name the provider's own store writes this field under.
+    ///
+    /// [`rekey`] translates it back to [`FieldEntry::name`] on every read path,
+    /// so every name a [`ProviderAppSummary`] returns is one [`save`] accepts
+    /// back. The adapter store writes `bot_user_id` where the spec publishes
+    /// `botUserId`, and `forgejo_instances` returns `client_id`.
+    stored_as: &'static str,
     label: &'static str,
     description: &'static str,
     secret: bool,
     required: bool,
 }
+
+/// Forgejo's own entry, named so the read paths that build a Forgejo summary
+/// without an adapter row still take its display name and its field names from
+/// [`SPECS`].
+const FORGEJO_SPEC: SpecEntry = SpecEntry {
+    provider: FORGEJO,
+    display_name: "Forgejo",
+    key_label: "host",
+    key_description: "The instance's hostname, as it appears in a repository's clone URL.",
+    fields: &[
+        FieldEntry {
+            name: "clientId",
+            stored_as: "client_id",
+            label: "Client ID",
+            description: "The OAuth2 application's client ID.",
+            secret: false,
+            required: true,
+        },
+        FieldEntry {
+            name: "clientSecret",
+            stored_as: "client_secret",
+            label: "Client secret",
+            description: "Shown once by Forgejo when the application is created.",
+            secret: true,
+            required: true,
+        },
+    ],
+};
 
 /// Every provider this endpoint registers.
 ///
@@ -45,28 +96,7 @@ struct FieldEntry {
 /// proved against GitHub before it is stored, which is not a flat string field.
 /// `moat github-app` and `/api/v1/admin/settings/github/apps` own it.
 const SPECS: &[SpecEntry] = &[
-    SpecEntry {
-        provider: FORGEJO,
-        display_name: "Forgejo",
-        key_label: "host",
-        key_description: "The instance's hostname, as it appears in a repository's clone URL.",
-        fields: &[
-            FieldEntry {
-                name: "clientId",
-                label: "Client ID",
-                description: "The OAuth2 application's client ID.",
-                secret: false,
-                required: true,
-            },
-            FieldEntry {
-                name: "clientSecret",
-                label: "Client secret",
-                description: "Shown once by Forgejo when the application is created.",
-                secret: true,
-                required: true,
-            },
-        ],
-    },
+    FORGEJO_SPEC,
     SpecEntry {
         provider: SLACK,
         display_name: "Slack",
@@ -75,6 +105,7 @@ const SPECS: &[SpecEntry] = &[
         fields: &[
             FieldEntry {
                 name: "botToken",
+                stored_as: "bot_token",
                 label: "Bot token",
                 description: "The 'xoxb-' token from OAuth & Permissions.",
                 secret: true,
@@ -82,6 +113,7 @@ const SPECS: &[SpecEntry] = &[
             },
             FieldEntry {
                 name: "signingSecret",
+                stored_as: "signing_secret",
                 label: "Signing secret",
                 description: "Verifies that an inbound request came from Slack.",
                 secret: true,
@@ -89,6 +121,7 @@ const SPECS: &[SpecEntry] = &[
             },
             FieldEntry {
                 name: "botUserId",
+                stored_as: "bot_user_id",
                 label: "Bot user ID",
                 description: "The bot's own 'U...' id, so its own messages are ignored.",
                 secret: false,
@@ -104,6 +137,7 @@ const SPECS: &[SpecEntry] = &[
         fields: &[
             FieldEntry {
                 name: "botToken",
+                stored_as: "bot_token",
                 label: "Bot token",
                 description: "The token BotFather issued.",
                 secret: true,
@@ -111,6 +145,7 @@ const SPECS: &[SpecEntry] = &[
             },
             FieldEntry {
                 name: "mode",
+                stored_as: "mode",
                 label: "Mode",
                 description: "'webhook' or 'polling'. Defaults to 'webhook'.",
                 secret: false,
@@ -126,6 +161,7 @@ const SPECS: &[SpecEntry] = &[
         fields: &[
             FieldEntry {
                 name: "webhookSecret",
+                stored_as: "webhook_secret",
                 label: "Webhook secret",
                 description: "Verifies that an inbound webhook came from Linear.",
                 secret: true,
@@ -133,6 +169,7 @@ const SPECS: &[SpecEntry] = &[
             },
             FieldEntry {
                 name: "oauthClientId",
+                stored_as: "oauth_client_id",
                 label: "OAuth client ID",
                 description: "From the Linear OAuth application.",
                 secret: true,
@@ -140,6 +177,7 @@ const SPECS: &[SpecEntry] = &[
             },
             FieldEntry {
                 name: "oauthClientSecret",
+                stored_as: "oauth_client_secret",
                 label: "OAuth client secret",
                 description: "From the Linear OAuth application.",
                 secret: true,
@@ -147,6 +185,7 @@ const SPECS: &[SpecEntry] = &[
             },
             FieldEntry {
                 name: "oauthCallbackUrl",
+                stored_as: "oauth_callback_url",
                 label: "OAuth callback URL",
                 description: "The redirect URI registered on the Linear application.",
                 secret: false,
@@ -154,6 +193,7 @@ const SPECS: &[SpecEntry] = &[
             },
             FieldEntry {
                 name: "apiBaseUrl",
+                stored_as: "api_base_url",
                 label: "API base URL",
                 description: "Overrides Linear's default GraphQL endpoint.",
                 secret: false,
@@ -167,45 +207,62 @@ const SPECS: &[SpecEntry] = &[
 pub fn specs(frontend_url: &str) -> Vec<ProviderAppSpec> {
     SPECS
         .iter()
-        .map(|entry| ProviderAppSpec {
-            provider: entry.provider.to_string(),
-            display_name: entry.display_name.to_string(),
-            key_label: entry.key_label.to_string(),
-            key_description: entry.key_description.to_string(),
-            callback_url: (entry.provider == FORGEJO).then(|| callback_url(frontend_url)),
-            fields: entry
-                .fields
-                .iter()
-                .map(|field| ProviderAppField {
-                    name: field.name.to_string(),
-                    label: field.label.to_string(),
-                    description: field.description.to_string(),
-                    secret: field.secret,
-                    required: field.required,
-                })
-                .collect(),
-        })
+        .map(|entry| spec_of(entry, frontend_url))
         .collect()
 }
 
-fn is_registered(provider: &str) -> bool {
-    SPECS.iter().any(|entry| entry.provider == provider)
+fn spec_of(entry: &SpecEntry, frontend_url: &str) -> ProviderAppSpec {
+    ProviderAppSpec {
+        provider: entry.provider.to_string(),
+        display_name: entry.display_name.to_string(),
+        key_label: entry.key_label.to_string(),
+        key_description: entry.key_description.to_string(),
+        callback_url: (entry.provider == FORGEJO).then(|| callback_url(frontend_url)),
+        fields: entry
+            .fields
+            .iter()
+            .map(|field| ProviderAppField {
+                name: field.name.to_string(),
+                label: field.label.to_string(),
+                description: field.description.to_string(),
+                secret: field.secret,
+                required: field.required,
+            })
+            .collect(),
+    }
 }
 
-fn spec(provider: &str) -> Result<ProviderAppSpec, AccessSettingsError> {
-    specs("")
+fn entry(provider: &str) -> Option<&'static SpecEntry> {
+    SPECS.iter().find(|entry| entry.provider == provider)
+}
+
+fn registered(provider: &str) -> Result<&'static SpecEntry, AccessSettingsError> {
+    entry(provider).ok_or_else(|| {
+        let known = SPECS
+            .iter()
+            .map(|entry| entry.provider)
+            .collect::<Vec<_>>()
+            .join(", ");
+        AccessSettingsError::NotFound(format!(
+            "'{provider}' is not a provider this deployment registers apps for. Known: {known}"
+        ))
+    })
+}
+
+/// `stored` keyed by [`FieldEntry::name`] rather than [`FieldEntry::stored_as`].
+///
+/// A key no field claims is returned unchanged, so a value a provider's store
+/// holds under a name this spec does not publish still reaches the reader.
+fn rekey(entry: &SpecEntry, stored: BTreeMap<String, String>) -> BTreeMap<String, String> {
+    stored
         .into_iter()
-        .find(|spec| spec.provider == provider)
-        .ok_or_else(|| {
-            let known = SPECS
-                .iter()
-                .map(|entry| entry.provider)
-                .collect::<Vec<_>>()
-                .join(", ");
-            AccessSettingsError::NotFound(format!(
-                "'{provider}' is not a provider this deployment registers apps for. Known: {known}"
-            ))
-        })
+        .map(
+            |(name, value)| match entry.fields.iter().find(|field| field.stored_as == name) {
+                Some(field) => (field.name.to_string(), value),
+                None => (name, value),
+            },
+        )
+        .collect()
 }
 
 /// `fields`, checked against `spec` and trimmed.
@@ -252,57 +309,64 @@ fn validate(
 
 /// Every app registered under any provider in [`SPECS`].
 pub async fn list(
-    state: &AppState,
+    apps_state: &ProviderApps,
     ctx: &ScopeContext,
 ) -> Result<Vec<ProviderAppSummary>, AccessSettingsError> {
     require_admin(ctx, "read")?;
     let mut apps = Vec::new();
-    for instance in state.forgejo_instances.list().await.map_err(auth_error)? {
-        apps.push(ProviderAppSummary {
-            provider: FORGEJO.to_string(),
-            key: instance.host,
-            display_name: "Forgejo".to_string(),
-            config: BTreeMap::from([("clientId".to_string(), instance.client_id)]),
-            // `forgejo_instances` stores no digest of the client secret.
-            secret_fingerprints: BTreeMap::new(),
-            updated_at: instance.updated_at.to_rfc3339(),
-        });
+    for instance in apps_state
+        .forgejo_instances
+        .list()
+        .await
+        .map_err(auth_error)?
+    {
+        apps.push(forgejo_summary(
+            instance.host,
+            instance.client_id,
+            instance.updated_at,
+        ));
     }
-    for app in state.app_administration.list_adapter_apps(ctx).await? {
-        if !is_registered(&app.adapter_kind) {
+    for app in apps_state.app_administration.list_adapter_apps(ctx).await? {
+        let Some(entry) = entry(&app.adapter_kind) else {
             continue;
-        }
+        };
         apps.push(ProviderAppSummary {
             provider: app.adapter_kind,
             key: app.app_key,
             display_name: app.display_name,
-            config: config_map(&app.config_json),
-            secret_fingerprints: app.secret_fingerprints.into_iter().collect(),
+            config: rekey(entry, config_map(&app.config_json)),
+            secret_fingerprints: rekey(entry, app.secret_fingerprints.into_iter().collect()),
             updated_at: app.updated_at.to_rfc3339(),
         });
     }
     Ok(apps)
 }
 
-/// Store `fields` as `provider`'s app for `key`, replacing any already there.
+/// Store `fields` as `provider`'s app for `key`.
+///
+/// **A field the request omits is cleared, not left as it was.** The adapter
+/// store deletes every secret row and rewrites `config_json` whole on each save
+/// (`app_dao::upsert`), so a caller changing one field sends the others again.
+/// `moat app set` refuses to drop a stored secret without `--clear-omitted`.
 ///
 /// Forgejo is checked against its instance first, so a pair it rejects is never
 /// written. The adapters have no equivalent check that costs one request.
 pub async fn save(
-    state: &AppState,
+    apps_state: &ProviderApps,
     ctx: &ScopeContext,
     provider: &str,
     key: &str,
     fields: BTreeMap<String, String>,
 ) -> Result<ProviderAppSummary, AccessSettingsError> {
     require_admin(ctx, "save")?;
-    let spec = spec(provider)?;
+    let entry = registered(provider)?;
+    let spec = spec_of(entry, &apps_state.frontend_url);
     let fields = validate(&spec, fields)?;
 
-    if provider == FORGEJO {
-        return save_forgejo(state, ctx, key, &fields).await;
+    if entry.provider == FORGEJO {
+        return save_forgejo(apps_state, ctx, key, &fields).await;
     }
-    let saved = state
+    let saved = apps_state
         .app_administration
         .save_adapter_app(provider, key, adapter_save(provider, &fields)?, ctx)
         .await?;
@@ -310,23 +374,23 @@ pub async fn save(
         provider: saved.adapter_kind,
         key: saved.app_key,
         display_name: saved.display_name,
-        config: config_map(&saved.config_json),
-        secret_fingerprints: saved.secret_fingerprints.into_iter().collect(),
+        config: rekey(entry, config_map(&saved.config_json)),
+        secret_fingerprints: rekey(entry, saved.secret_fingerprints.into_iter().collect()),
         updated_at: saved.updated_at.to_rfc3339(),
     })
 }
 
 /// Remove `provider`'s app for `key`. Returns whether one was registered.
 pub async fn remove(
-    state: &AppState,
+    apps_state: &ProviderApps,
     ctx: &ScopeContext,
     provider: &str,
     key: &str,
 ) -> Result<bool, AccessSettingsError> {
     require_admin(ctx, "delete")?;
-    let spec = spec(provider)?;
-    if spec.provider == FORGEJO {
-        return state
+    let entry = registered(provider)?;
+    if entry.provider == FORGEJO {
+        return apps_state
             .forgejo_instances
             .remove(key)
             .await
@@ -334,7 +398,7 @@ pub async fn remove(
     }
     // `delete_adapter_app` reports no row count, so the caller is told whether
     // anything was registered by reading first.
-    let registered = state
+    let registered = apps_state
         .app_administration
         .list_adapter_apps(ctx)
         .await?
@@ -343,7 +407,7 @@ pub async fn remove(
     if !registered {
         return Ok(false);
     }
-    state
+    apps_state
         .app_administration
         .delete_adapter_app(ctx, provider, key)
         .await?;
@@ -351,7 +415,7 @@ pub async fn remove(
 }
 
 async fn save_forgejo(
-    state: &AppState,
+    apps_state: &ProviderApps,
     ctx: &ScopeContext,
     key: &str,
     fields: &BTreeMap<String, String>,
@@ -367,25 +431,43 @@ async fn save_forgejo(
         client_id: required(fields, "clientId")?,
         client_secret: required(fields, "clientSecret")?,
     };
-    let redirect_uri = callback_url(&state.config.auth.frontend_url);
+    let redirect_uri = callback_url(&apps_state.frontend_url);
     ForgejoOAuth::default()
         .verify_client_credentials(&app, &redirect_uri)
         .await
         .map_err(|error| forgejo_rejection(error, &host, &redirect_uri))?;
 
-    let registered = state
+    let instance = apps_state
         .forgejo_instances
         .register(&host, &app.client_id, &app.client_secret, &ctx.user_id)
         .await
         .map_err(auth_error)?;
-    Ok(ProviderAppSummary {
+    Ok(forgejo_summary(
+        instance.host,
+        instance.client_id,
+        instance.updated_at,
+    ))
+}
+
+/// A Forgejo registration as a summary. `forgejo_instances` returns the column
+/// names, so [`rekey`] carries them to the names [`FORGEJO_SPEC`] publishes.
+fn forgejo_summary(
+    host: String,
+    client_id: String,
+    updated_at: DateTime<Utc>,
+) -> ProviderAppSummary {
+    ProviderAppSummary {
         provider: FORGEJO.to_string(),
-        key: registered.host,
-        display_name: "Forgejo".to_string(),
-        config: BTreeMap::from([("clientId".to_string(), registered.client_id)]),
+        key: host,
+        display_name: FORGEJO_SPEC.display_name.to_string(),
+        config: rekey(
+            &FORGEJO_SPEC,
+            BTreeMap::from([("client_id".to_string(), client_id)]),
+        ),
+        // `forgejo_instances` stores no digest of the client secret.
         secret_fingerprints: BTreeMap::new(),
-        updated_at: registered.updated_at.to_rfc3339(),
-    })
+        updated_at: updated_at.to_rfc3339(),
+    }
 }
 
 /// A pair Forgejo itself refused is the admin's to fix, so it answers 400 and
@@ -461,10 +543,17 @@ fn config_map(config: &serde_json::Value) -> BTreeMap<String, String> {
 
 #[cfg(test)]
 mod tests {
+    use moatless_identity::adapter_apps::administration::adapter_app_input;
+
     use super::*;
 
+    fn spec_for(provider: &str) -> ProviderAppSpec {
+        let entry = registered(provider).expect("a registered provider");
+        spec_of(entry, "https://app.example")
+    }
+
     fn forgejo_spec() -> ProviderAppSpec {
-        spec(FORGEJO).expect("forgejo is a registered provider")
+        spec_for(FORGEJO)
     }
 
     fn fields(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
@@ -523,11 +612,19 @@ mod tests {
     #[test]
     fn every_spec_field_maps_to_its_adapter_app_save_variant() {
         for provider in [SLACK, TELEGRAM, LINEAR] {
-            let spec = spec(provider).expect("a registered provider");
+            let spec = spec_for(provider);
             let given = spec
                 .fields
                 .iter()
-                .map(|field| (field.name.clone(), format!("value-of-{}", field.name)))
+                .map(|field| {
+                    // `adapter_app_input` checks Telegram's mode against its two
+                    // legal values, so this one field takes a real one.
+                    let value = match field.name.as_str() {
+                        "mode" => "webhook".to_string(),
+                        name => format!("value-of-{name}"),
+                    };
+                    (field.name.clone(), value)
+                })
                 .collect::<BTreeMap<_, _>>();
 
             let checked = validate(&spec, given.clone()).expect("every field is its own");
@@ -537,7 +634,58 @@ mod tests {
             for value in given.values() {
                 assert!(printed.contains(value), "{provider} dropped {value}");
             }
+
+            // The names the store writes, read off the input it is given rather
+            // than off `AdapterAppSave`'s field idents. A key renamed in
+            // `adapter_app_input` alone stops `rekey` translating, and this is
+            // what catches it.
+            let input = adapter_app_input(provider, "default", save).expect("a store input");
+            for field in registered(provider).expect("a registered provider").fields {
+                let stored = input
+                    .config_json
+                    .get(field.stored_as)
+                    .is_some_and(|value| !value.is_null())
+                    || input
+                        .secrets
+                        .iter()
+                        .any(|secret| secret.name == field.stored_as);
+                assert!(
+                    stored,
+                    "{provider} stores no '{}' for '{}'",
+                    field.stored_as, field.name
+                );
+            }
         }
+    }
+
+    #[test]
+    fn a_stored_value_reads_back_under_the_name_the_spec_publishes() {
+        // A summary a client cannot feed back to `save` is a form it cannot
+        // pre-fill, so every stored name maps onto a field the spec names.
+        for entry in SPECS {
+            let stored = entry
+                .fields
+                .iter()
+                .map(|field| (field.stored_as.to_string(), "kept".to_string()))
+                .collect();
+            let read = rekey(entry, stored);
+            let spec = spec_for(entry.provider);
+            for name in read.keys() {
+                assert!(
+                    spec.field(name).is_some(),
+                    "{} returns '{name}', which is not one of its fields",
+                    entry.provider
+                );
+            }
+            assert_eq!(read.len(), entry.fields.len(), "{}", entry.provider);
+        }
+
+        let summary = forgejo_summary(
+            "git.acme.dev".to_string(),
+            "Iv1.abc".to_string(),
+            Utc::now(),
+        );
+        assert_eq!(summary.config.get("clientId"), Some(&"Iv1.abc".to_string()));
     }
 
     #[test]

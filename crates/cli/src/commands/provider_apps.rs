@@ -12,7 +12,9 @@ use std::collections::BTreeMap;
 use std::io::Read;
 
 use clap::Subcommand;
-use moatless_api_schemas::provider_apps::{ProviderAppSpec, ProviderAppsResponse};
+use moatless_api_schemas::provider_apps::{
+    ProviderAppSpec, ProviderAppSummary, ProviderAppsResponse,
+};
 
 use crate::client::{ClientError, MoatClient};
 use crate::output;
@@ -37,9 +39,18 @@ pub enum ProviderAppAction {
 
     /// Register or replace an app.
     ///
-    /// A required secret left out is prompted for. The provider is asked to
-    /// confirm the credentials where it can, and nothing is stored when it
-    /// refuses them.
+    /// A save replaces every field, so a field this command omits is cleared. A
+    /// value already registered and not secret is sent again unchanged. A
+    /// secret cannot be read back, so this command handles an omitted one by
+    /// what the provider's spec says about it:
+    ///
+    /// - Required, such as Slack's bot token: prompted for. The prompt needs a
+    ///   terminal, so a script sends every required secret again.
+    /// - Optional, such as Linear's webhook secret: the command stops rather
+    ///   than clear a stored value, unless `--clear-omitted` says to drop it.
+    ///
+    /// The provider is asked to confirm the credentials where it can, and
+    /// nothing is stored when it refuses them.
     Set {
         /// A provider named by `moat app list`, e.g. `forgejo`.
         provider: String,
@@ -48,9 +59,15 @@ pub enum ProviderAppAction {
         key: String,
 
         /// `name=value`, repeated once per field. `name=@path` reads the value
-        /// from a file and `name=-` reads it from standard input.
+        /// from a file. `name=-` reads it from standard input, which serves one
+        /// field per command.
         #[arg(long = "field", value_name = "NAME=VALUE")]
         fields: Vec<String>,
+
+        /// Clear every optional registered field this command gives no value
+        /// for. A required field is prompted for either way.
+        #[arg(long)]
+        clear_omitted: bool,
     },
 
     /// Remove an app.
@@ -82,10 +99,15 @@ pub async fn run(
             provider,
             key,
             fields,
-        } => set(moat, &provider, &key, &fields, json).await,
+            clear_omitted,
+        } => set(moat, &provider, &key, &fields, clear_omitted, json).await,
         ProviderAppAction::Remove { provider, key } => {
-            moat.raw_delete(&format!("{PATH}/{provider}/{key}")).await?;
-            println!("Removed the {provider} app registered as '{key}'.");
+            let response = moat.raw_delete(&format!("{PATH}/{provider}/{key}")).await?;
+            if json {
+                output::print_json_typed(&response);
+            } else {
+                println!("Removed the {provider} app registered as '{key}'.");
+            }
             Ok(())
         }
     }
@@ -132,9 +154,11 @@ async fn set(
     provider: &str,
     key: &str,
     given: &[String],
+    clear_omitted: bool,
     json: bool,
 ) -> Result<(), ClientError> {
-    let spec = spec(moat, provider).await?;
+    let response = fetch(moat).await?;
+    let spec = pick_spec(&response, provider)?;
     let mut fields = BTreeMap::new();
     for field in given {
         let (name, value) = field.split_once('=').ok_or_else(|| {
@@ -155,6 +179,24 @@ async fn set(
         if field.required && !fields.contains_key(&field.name) {
             fields.insert(field.name.clone(), prompt(&field.label, field.secret)?);
         }
+    }
+
+    let registered = response
+        .apps
+        .iter()
+        .find(|app| app.provider == provider && app.key == key);
+    if let Some(app) = registered.filter(|_| !clear_omitted) {
+        let dropped = secrets_that_would_be_cleared(&spec, app, &fields);
+        if !dropped.is_empty() {
+            return Err(ClientError::Other(format!(
+                "Saving replaces every field of the {} app, and these are stored today but this \
+                 command gives no value for them: {}. Give each one again, or pass \
+                 --clear-omitted to drop them.",
+                spec.display_name,
+                dropped.join(", ")
+            )));
+        }
+        carry_forward(&spec, app, &mut fields);
     }
 
     let body = serde_json::json!({ "fields": fields });
@@ -187,7 +229,13 @@ async fn fetch(moat: &MoatClient) -> Result<ProviderAppsResponse, ClientError> {
 }
 
 async fn spec(moat: &MoatClient, provider: &str) -> Result<ProviderAppSpec, ClientError> {
-    let response = fetch(moat).await?;
+    pick_spec(&fetch(moat).await?, provider)
+}
+
+fn pick_spec(
+    response: &ProviderAppsResponse,
+    provider: &str,
+) -> Result<ProviderAppSpec, ClientError> {
     response
         .specs
         .iter()
@@ -204,6 +252,42 @@ async fn spec(moat: &MoatClient, provider: &str) -> Result<ProviderAppSpec, Clie
                 "'{provider}' is not a provider this deployment registers apps for. Known: {known}"
             ))
         })
+}
+
+/// The secret fields `app` has stored that `fields` gives no value for.
+///
+/// A save replaces every field, so each one named here would be cleared. A
+/// secret cannot be read back, so this command cannot send it again on the
+/// caller's behalf the way [`carry_forward`] sends a plain value.
+fn secrets_that_would_be_cleared(
+    spec: &ProviderAppSpec,
+    app: &ProviderAppSummary,
+    fields: &BTreeMap<String, String>,
+) -> Vec<String> {
+    spec.fields
+        .iter()
+        .filter(|field| field.secret)
+        .filter(|field| !fields.contains_key(&field.name))
+        .filter(|field| app.secret_fingerprints.contains_key(&field.name))
+        .map(|field| field.name.clone())
+        .collect()
+}
+
+/// Add every registered plain value `fields` gives no value for, so changing
+/// one field of an app does not clear the rest.
+fn carry_forward(
+    spec: &ProviderAppSpec,
+    app: &ProviderAppSummary,
+    fields: &mut BTreeMap<String, String>,
+) {
+    for field in spec.fields.iter().filter(|field| !field.secret) {
+        if fields.contains_key(&field.name) {
+            continue;
+        }
+        if let Some(value) = app.config.get(&field.name) {
+            fields.insert(field.name.clone(), value.clone());
+        }
+    }
 }
 
 fn print_spec(spec: &ProviderAppSpec) {
@@ -262,7 +346,87 @@ fn prompt(label: &str, secret: bool) -> Result<String, ClientError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use moatless_api_schemas::provider_apps::ProviderAppField;
     use std::io::Write;
+
+    fn field(name: &str, secret: bool) -> ProviderAppField {
+        ProviderAppField {
+            name: name.to_string(),
+            label: name.to_string(),
+            description: String::new(),
+            secret,
+            required: false,
+        }
+    }
+
+    fn linear_spec() -> ProviderAppSpec {
+        ProviderAppSpec {
+            provider: "linear".to_string(),
+            display_name: "Linear".to_string(),
+            key_label: "app key".to_string(),
+            key_description: String::new(),
+            callback_url: None,
+            fields: vec![
+                field("webhookSecret", true),
+                field("oauthClientId", true),
+                field("apiBaseUrl", false),
+            ],
+        }
+    }
+
+    fn linear_app() -> ProviderAppSummary {
+        ProviderAppSummary {
+            provider: "linear".to_string(),
+            key: "default".to_string(),
+            display_name: "Linear".to_string(),
+            config: BTreeMap::from([(
+                "apiBaseUrl".to_string(),
+                "https://linear.example/graphql".to_string(),
+            )]),
+            secret_fingerprints: BTreeMap::from([
+                ("webhookSecret".to_string(), "abc123".to_string()),
+                ("oauthClientId".to_string(), "def456".to_string()),
+            ]),
+            updated_at: "2026-09-10T00:00:00Z".to_string(),
+        }
+    }
+
+    #[test]
+    fn a_stored_secret_is_not_dropped_by_a_command_that_omits_it() {
+        // A save replaces every field, so `--field apiBaseUrl=…` alone would
+        // clear both Linear secrets. Nothing about Linear is required, so
+        // nothing prompts and only this stops it.
+        let dropped = secrets_that_would_be_cleared(
+            &linear_spec(),
+            &linear_app(),
+            &BTreeMap::from([(
+                "apiBaseUrl".to_string(),
+                "https://other.example".to_string(),
+            )]),
+        );
+        assert_eq!(dropped, vec!["webhookSecret", "oauthClientId"]);
+
+        let given = BTreeMap::from([
+            ("webhookSecret".to_string(), "shh".to_string()),
+            ("oauthClientId".to_string(), "id".to_string()),
+        ]);
+        assert!(secrets_that_would_be_cleared(&linear_spec(), &linear_app(), &given).is_empty());
+    }
+
+    #[test]
+    fn a_registered_plain_value_is_sent_again_rather_than_cleared() {
+        let mut fields = BTreeMap::from([("webhookSecret".to_string(), "shh".to_string())]);
+        carry_forward(&linear_spec(), &linear_app(), &mut fields);
+        assert_eq!(
+            fields.get("apiBaseUrl"),
+            Some(&"https://linear.example/graphql".to_string())
+        );
+
+        // What the command did give wins over what is registered.
+        let mut fields = BTreeMap::from([("apiBaseUrl".to_string(), "https://new".to_string())]);
+        carry_forward(&linear_spec(), &linear_app(), &mut fields);
+        assert_eq!(fields.get("apiBaseUrl"), Some(&"https://new".to_string()));
+    }
 
     #[test]
     fn a_field_reads_from_a_file_or_inline() {

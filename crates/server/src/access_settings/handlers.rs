@@ -6,12 +6,11 @@ use axum::Json;
 use axum::extract::{Path, Query, State};
 
 use crate::access_settings::error::{AccessSettingsError, auth_error};
-use crate::access_settings::provider_apps;
+use crate::access_settings::provider_apps::{self, ProviderApps};
 use crate::access_settings::schemas::*;
 use crate::agent_harness_access::{
     AgentHarnessAccess, AgentHarnessCredentialStatus, DeviceLoginPoll,
 };
-use crate::state::AppState;
 use moatless_api_schemas::provider_apps::{
     ProviderAppSummary, ProviderAppsResponse, SaveProviderAppRequest,
 };
@@ -569,12 +568,12 @@ pub async fn poll_codex_device_login(
     )
 )]
 pub async fn admin_list_provider_apps(
-    State(state): State<AppState>,
+    State(apps): State<ProviderApps>,
     auth: AuthUser,
 ) -> Result<Json<ProviderAppsResponse>, AccessSettingsError> {
     Ok(Json(ProviderAppsResponse {
-        specs: provider_apps::specs(&state.config.auth.frontend_url),
-        apps: provider_apps::list(&state, &auth.scope_context()).await?,
+        specs: provider_apps::specs(&apps.frontend_url),
+        apps: provider_apps::list(&apps, &auth.scope_context()).await?,
     }))
 }
 
@@ -592,18 +591,19 @@ pub async fn admin_list_provider_apps(
         (status = 400, description = "A field is unknown, missing, or the provider rejected the credentials", body = moatless_api_schemas::error::ErrorBody),
         (status = 401, description = "Not authenticated", body = moatless_api_schemas::error::ErrorBody),
         (status = 403, description = "Admin only", body = moatless_api_schemas::error::ErrorBody),
-        (status = 404, description = "No such provider", body = moatless_api_schemas::error::ErrorBody)
+        (status = 404, description = "No such provider", body = moatless_api_schemas::error::ErrorBody),
+        (status = 502, description = "The provider could not be reached to check the credentials", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
 pub async fn admin_save_provider_app(
-    State(state): State<AppState>,
+    State(apps): State<ProviderApps>,
     auth: AuthUser,
     Path((provider, key)): Path<(String, String)>,
     Json(request): Json<SaveProviderAppRequest>,
 ) -> Result<Json<ProviderAppSummary>, AccessSettingsError> {
     Ok(Json(
         provider_apps::save(
-            &state,
+            &apps,
             &auth.scope_context(),
             &provider,
             &key,
@@ -629,11 +629,11 @@ pub async fn admin_save_provider_app(
     )
 )]
 pub async fn admin_remove_provider_app(
-    State(state): State<AppState>,
+    State(apps): State<ProviderApps>,
     auth: AuthUser,
     Path((provider, key)): Path<(String, String)>,
 ) -> Result<axum::http::StatusCode, AccessSettingsError> {
-    if provider_apps::remove(&state, &auth.scope_context(), &provider, &key).await? {
+    if provider_apps::remove(&apps, &auth.scope_context(), &provider, &key).await? {
         Ok(axum::http::StatusCode::NO_CONTENT)
     } else {
         Err(AccessSettingsError::NotFound(format!(

@@ -506,7 +506,12 @@ impl AppAdministration {
     }
 }
 
-fn adapter_app_input(
+/// Map a save request to the row the adapter store writes.
+///
+/// The key names it puts in [`AdapterAppInput::config_json`] and
+/// [`AdapterAppSecretInput::name`] are the names every read path returns, so a
+/// caller that publishes its own field names translates between the two.
+pub fn adapter_app_input(
     adapter_kind: &str,
     app_key: &str,
     input: AdapterAppSave,

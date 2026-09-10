@@ -4,6 +4,7 @@
 //! enabling full unit-test mocking without a real database. They are built by
 //! the composition root ([`crate::compose`]) and handed to [`AppState::new`].
 
+use crate::access_settings::provider_apps::ProviderApps;
 use crate::adapter_installations::AdapterInstallations;
 use crate::agent_harness_access::AgentHarnessAccess;
 use crate::git_proxy::GitProxy;
@@ -499,6 +500,16 @@ impl axum::extract::FromRef<AppState> for Arc<AgentHarnessAccess> {
 impl axum::extract::FromRef<AppState> for Arc<AppAdministration> {
     fn from_ref(state: &AppState) -> Self {
         state.app_administration.clone()
+    }
+}
+
+impl axum::extract::FromRef<AppState> for ProviderApps {
+    fn from_ref(state: &AppState) -> Self {
+        ProviderApps {
+            forgejo_instances: state.forgejo_instances.clone(),
+            app_administration: state.app_administration.clone(),
+            frontend_url: state.config.auth.frontend_url.clone(),
+        }
     }
 }
 
