@@ -156,6 +156,14 @@ impl TaskCommands {
         self.store.list_open_task_ids().await
     }
 
+    /// See [`TaskDao::list_sandbox_members`].
+    pub async fn list_sandbox_members(
+        &self,
+        sandbox_ids: &[String],
+    ) -> Result<Vec<(String, String)>, sqlx::Error> {
+        self.store.list_sandbox_members(sandbox_ids).await
+    }
+
     /// See [`TaskDao::mark_task_read`].
     pub async fn mark_task_read(
         &self,

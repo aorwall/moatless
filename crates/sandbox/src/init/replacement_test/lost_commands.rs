@@ -26,12 +26,12 @@ fn journalled(id: &str, label: &str, state: CommandState) -> JournaledCommand {
 }
 
 /// Write `commands` where a restored workspace snapshot would have put them.
-async fn seed_journal(workspace_dir: &str, commands: &[JournaledCommand]) {
+async fn seed_journal(workspace_dir: &str, task_id: &str, commands: &[JournaledCommand]) {
     tokio::fs::create_dir_all(workspace_dir)
         .await
         .expect("workspace dir");
     tokio::fs::write(
-        default_journal_path(workspace_dir),
+        default_journal_path(workspace_dir, task_id),
         serde_json::to_vec(commands).expect("encode"),
     )
     .await
@@ -43,8 +43,10 @@ async fn a_command_lost_to_the_restart_wakes_the_agent() {
     let tmp = tempfile::TempDir::new().expect("tmp");
     let config = tmp_config("claude-code", &tmp);
     let workspace_dir = config.workspace_dir.clone();
+    let task_id = config.task_id.clone();
     seed_journal(
         &workspace_dir,
+        &task_id,
         &[journalled("c33e9d6e", "verify", CommandState::Running)],
     )
     .await;
@@ -81,8 +83,10 @@ async fn the_wake_fires_once_across_repeated_restarts() {
     let tmp = tempfile::TempDir::new().expect("tmp");
     let config = tmp_config("claude-code", &tmp);
     let workspace_dir = config.workspace_dir.clone();
+    let task_id = config.task_id.clone();
     seed_journal(
         &workspace_dir,
+        &task_id,
         &[journalled("c33e9d6e", "verify", CommandState::Running)],
     )
     .await;
@@ -93,7 +97,7 @@ async fn the_wake_fires_once_across_repeated_restarts() {
     assert_eq!(recorded_inputs(&recorder, 1).await.len(), 1);
 
     assert!(
-        !default_journal_path(&workspace_dir).exists(),
+        !default_journal_path(&workspace_dir, &task_id).exists(),
         "the journal must be cleared as it is read"
     );
 
@@ -119,8 +123,10 @@ async fn consuming_a_journal_leaves_the_workspace_owing_an_upload() {
     let mut config = tmp_config("claude-code", &tmp);
     config.workspace_sync_enabled = true;
     let workspace_dir = config.workspace_dir.clone();
+    let task_id = config.task_id.clone();
     seed_journal(
         &workspace_dir,
+        &task_id,
         &[journalled("c33e9d6e", "verify", CommandState::Running)],
     )
     .await;
@@ -193,8 +199,10 @@ async fn a_pending_message_does_not_swallow_the_lost_command_wake() {
     let tmp = tempfile::TempDir::new().expect("tmp");
     let config = tmp_config("claude-code", &tmp);
     let workspace_dir = config.workspace_dir.clone();
+    let task_id = config.task_id.clone();
     seed_journal(
         &workspace_dir,
+        &task_id,
         &[journalled("c33e9d6e", "verify", CommandState::Running)],
     )
     .await;

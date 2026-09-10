@@ -26,6 +26,7 @@ pub(crate) async fn compose_task_context(
         )
         .with_journal(crate::commands::default_journal_path(
             &task_config.workspace_dir,
+            &task_config.task_id,
         ))
         .with_backend_mirror(Arc::clone(&shared.backend_client))
         .with_liveness(shared.events.clone()),

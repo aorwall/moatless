@@ -250,17 +250,21 @@ back a command an older watch still polls.
 polls status on its own schedule, so a poll that marked a command seen would
 swallow the wake.
 
-`grpc_server::run_command` falls back to `workspace_dir` when a request carries
-no cwd. Never let it inherit the sandbox process's cwd, `/opt/moatless`, which is
-neither the workspace nor a checkout: a relative path would resolve somewhere the
-caller never chose.
+`grpc_server::run_command` falls back to the resolved Member's `workspace_dir`
+when a request carries no cwd. Never let it inherit the sandbox process's cwd,
+`/opt/moatless`, which is neither the workspace nor a checkout: a relative path
+would resolve somewhere the caller never chose. Take the fallback from the
+`TaskContext` and not from `Config`, whose `workspace_dir` names the Member the
+pod booted with.
 
 ### Surviving a pod replacement
 
 The registry is in memory, so a replacement destroys every command, its log under
 `/tmp`, and the armed watch. `CommandRegistry::with_journal` mirrors the
-unreported set to `$WORKSPACE_DIR/.moat-commands.json`, the S3 workspace snapshot
-being the only sandbox state that survives one. The journal holds metadata only;
+unreported set to `$WORKSPACE_DIR/.moat-commands-<task-id>.json`, the S3
+workspace snapshot being the only sandbox state that survives one. Key the file
+by Member: a shared checkout gives two Members one `WORKSPACE_DIR`, and each
+write is absolute. The journal holds metadata only;
 logs stay in `/tmp` (`default_log_dir`), where an unbounded build log cannot fill
 the volume whose size limit causes these evictions.
 
@@ -281,6 +285,9 @@ be dropped.
 
 `agent::restart::open_for_work` reads both through `take_lost_commands`
 **before** anything else, or a recovered run or a new command overwrites them.
+It covers the Member the pod booted with, and only that one.
+`task_context::registration::register` runs the same read for a Member that
+joins later, before it composes that Member's registry.
 `report_wake_notes` turns the merged set into the wake the watch could not
 deliver. Each read clears its source, so the loss is announced exactly once. Key
 the journal on `Entry::reported`, like the watch.

@@ -241,8 +241,12 @@ pub async fn take_journal(path: &Path) -> Vec<JournaledCommand> {
 /// Where a task's command journal lives. Inside `WORKSPACE_DIR` so it rides the
 /// snapshot into a replacement pod, and a sibling of the checkouts rather than
 /// a path inside one, so it stays out of the user's `git status`.
-pub fn default_journal_path(workspace_dir: &str) -> PathBuf {
-    Path::new(workspace_dir).join(".moat-commands.json")
+///
+/// Keyed by task: a shared checkout gives every Member one `workspace_dir`, and
+/// each registry writes its journal absolutely, so a shared name would let one
+/// Member erase the other's record of what a replacement destroyed.
+pub fn default_journal_path(workspace_dir: &str, task_id: &str) -> PathBuf {
+    Path::new(workspace_dir).join(format!(".moat-commands-{task_id}.json"))
 }
 
 /// Publishes the running-command count to the backend whenever it moves.
@@ -863,6 +867,39 @@ mod tests {
             CommandRegistry::new(timeout, dir, "task-1".to_string()).with_journal(path.clone()),
             path,
         )
+    }
+
+    /// A shared checkout gives two Members one `WORKSPACE_DIR`, and each take
+    /// deletes the file it read, so one Member's recovery must leave the other's
+    /// record of what the restart destroyed.
+    #[tokio::test]
+    async fn one_members_take_leaves_the_other_members_journal() {
+        let dir = std::env::temp_dir().join(format!("moat-cmd-shared-{}", short_id()));
+        tokio::fs::create_dir_all(&dir).await.expect("journal dir");
+        let workspace = dir.display().to_string();
+        let entry = |id: &str| JournaledCommand {
+            id: id.to_string(),
+            command: "bash /tmp/verify.sh".to_string(),
+            label: "verify".to_string(),
+            started_at_unix_ms: 1,
+            state: CommandState::Running,
+            exit_code: None,
+        };
+        for (task_id, id) in [("task-a", "aaaaaaaa"), ("task-b", "bbbbbbbb")] {
+            tokio::fs::write(
+                default_journal_path(&workspace, task_id),
+                serde_json::to_vec(&[entry(id)]).expect("encode"),
+            )
+            .await
+            .expect("seed");
+        }
+
+        let taken = take_journal(&default_journal_path(&workspace, "task-a")).await;
+        assert_eq!(taken, vec![entry("aaaaaaaa")]);
+        assert_eq!(
+            journal_now(&default_journal_path(&workspace, "task-b")).await,
+            vec![entry("bbbbbbbb")]
+        );
     }
 
     async fn journal_now(path: &Path) -> Vec<JournaledCommand> {

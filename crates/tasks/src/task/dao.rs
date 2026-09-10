@@ -196,6 +196,14 @@ pub(crate) trait TaskDao: Send + Sync {
     /// List task IDs of all tasks currently in `status = 'open'`.
     async fn list_open_task_ids(&self) -> Result<Vec<String>, sqlx::Error>;
 
+    /// List `(task_id, sandbox_id)` for every active member of the given
+    /// sandboxes. A member is a task attached to the sandbox, including the one
+    /// whose id names it, so a sandbox with no fork returns one pair.
+    async fn list_sandbox_members(
+        &self,
+        sandbox_ids: &[String],
+    ) -> Result<Vec<(String, String)>, sqlx::Error>;
+
     /// Upsert a user's read marker for a task. Monotonic — never moves the
     /// stored `last_read_at` backwards, so out-of-order calls are safe.
     async fn mark_task_read(
@@ -1093,6 +1101,25 @@ impl TaskDao for PgTaskDao {
         Ok(rows.into_iter().map(|(id,)| id).collect())
     }
 
+    async fn list_sandbox_members(
+        &self,
+        sandbox_ids: &[String],
+    ) -> Result<Vec<(String, String)>, sqlx::Error> {
+        // `error` joins `open` because a member whose last turn failed still
+        // holds its checkout and its registered commands.
+        sqlx::query_as(
+            r#"
+            SELECT task_id, sandbox_id
+            FROM tasks
+            WHERE sandbox_id = ANY($1)
+              AND status IN ('open', 'error')
+            "#,
+        )
+        .bind(sandbox_ids)
+        .fetch_all(&self.pool)
+        .await
+    }
+
     async fn mark_task_read(
         &self,
         user_id: &str,
@@ -1643,6 +1670,36 @@ mod tests {
                 .await
                 .unwrap();
         assert_eq!(remaining_member_sandbox.as_deref(), Some("t1"));
+    }
+
+    /// The reaper folds a Sandbox's decision over this result, so a member the
+    /// query drops is a member whose live turn the reaper closes.
+    #[sqlx::test]
+    async fn list_sandbox_members_returns_the_owner_and_its_active_forks(pool: PgPool) {
+        seed_bare_task(&pool, "t1", "open").await;
+        seed_bare_task(&pool, "t2", "open").await;
+        seed_bare_task(&pool, "t3", "error").await;
+        seed_bare_task(&pool, "t4", "closed").await;
+        seed_bare_task(&pool, "t5", "open").await;
+        for fork in ["t2", "t3", "t4"] {
+            seed_sandbox_member(&pool, fork, "t1").await;
+        }
+
+        let mut members = store_over(&pool)
+            .list_sandbox_members(&["t1".to_string()])
+            .await
+            .unwrap();
+        members.sort();
+
+        assert_eq!(
+            members,
+            vec![
+                ("t1".to_string(), "t1".to_string()),
+                ("t2".to_string(), "t1".to_string()),
+                ("t3".to_string(), "t1".to_string()),
+            ],
+            "the owner and its open and error forks, without the closed fork or t5"
+        );
     }
 
     async fn seed_message(pool: &PgPool, task_id: &str) {

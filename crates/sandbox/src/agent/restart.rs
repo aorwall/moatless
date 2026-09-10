@@ -24,7 +24,8 @@ pub(crate) async fn open_for_work(state: &SandboxState, workspace_origin: Worksp
     // Read and clear what a prior pod left behind before anything — a recovered
     // run, a new command — can overwrite it. The registry this pod started with
     // is empty, so these entries exist only on the workspace snapshot.
-    let lost_commands = take_lost_commands(state).await;
+    let lost_commands =
+        take_lost_commands(state, &state.config.task_id, &state.config.workspace_dir).await;
     let wake_notes = wake_note::take(&wake_note::default_path(&state.config.workspace_dir)).await;
 
     recover_interrupted_run_unless_pending(state, workspace_origin).await;
@@ -56,24 +57,26 @@ pub(crate) async fn open_for_work(state: &SandboxState, workspace_origin: Worksp
     report_wake_notes(state, wake_notes, lost_commands).await;
 }
 
-/// Read and clear both copies of what a prior pod left unreported, and merge them.
+/// Read and clear both copies of what a prior pod left unreported for one
+/// Member, and merge them.
 ///
 /// Both are cleared by the read, so the merge announces each command once and
 /// no later restart announces it again.
-async fn take_lost_commands(state: &SandboxState) -> Vec<crate::commands::JournaledCommand> {
-    let journal = crate::commands::take_journal(&crate::commands::default_journal_path(
-        &state.config.workspace_dir,
-    ))
-    .await;
+///
+/// Call this before the Member's registry can run a command. Each mirror write
+/// is absolute, so the first `run` erases both copies this reads.
+pub(crate) async fn take_lost_commands(
+    state: &SandboxState,
+    task_id: &str,
+    workspace_dir: &str,
+) -> Vec<crate::commands::JournaledCommand> {
+    let journal_path = crate::commands::default_journal_path(workspace_dir, task_id);
+    let journal = crate::commands::take_journal(&journal_path).await;
 
-    let stored = match state
-        .backend_client
-        .take_unreported_commands(&state.config.task_id)
-        .await
-    {
+    let stored = match state.backend_client.take_unreported_commands(task_id).await {
         Ok(stored) => stored,
         Err(error) => {
-            warn!(task_id = %state.config.task_id, %error, "Failed to read the stored unreported commands");
+            warn!(task_id, %error, "Failed to read the stored unreported commands");
             Vec::new()
         }
     };
@@ -144,14 +147,27 @@ fn wake_messages(
     }
     bodies
         .into_iter()
-        .map(|(task_id, parts)| {
-            let text = format!(
-                "<sandbox-restart-note>\n{}\n</sandbox-restart-note>",
-                parts.join("\n\n")
-            );
-            (task_id, text)
-        })
+        .map(|(task_id, parts)| (task_id, wrap_restart_note(&parts)))
         .collect()
+}
+
+/// The wake a Member joining a replacement pod is owed for the commands that pod
+/// destroyed, or `None` when it is owed none.
+///
+/// [`open_for_work`] covers the Member the pod booted with. A Member that joins
+/// later has its own journal and its own `sandbox_unreported_commands` row, and
+/// neither is read on any other path.
+pub(crate) fn lost_commands_wake(lost: &[crate::commands::JournaledCommand]) -> Option<String> {
+    lost_commands_body(lost).map(|body| wrap_restart_note(std::slice::from_ref(&body)))
+}
+
+/// One `<sandbox-restart-note>` around every part a Member is owed, so a Member
+/// never gets two.
+fn wrap_restart_note(parts: &[String]) -> String {
+    format!(
+        "<sandbox-restart-note>\n{}\n</sandbox-restart-note>",
+        parts.join("\n\n")
+    )
 }
 
 /// What a restart destroyed, or `None` when no command was owed a wake.

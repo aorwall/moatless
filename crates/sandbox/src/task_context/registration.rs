@@ -35,6 +35,12 @@ pub(crate) async fn register(
         super::checkout::materialize_checkout(&state.config, &task_id, checkout_mode)
             .await
             .map_err(RegisterTaskContextError::CheckoutMaterialization)?;
+    // Before the insert below: `run_command` resolves this Member's registry
+    // from `task_contexts`, and the first `run` mirrors absolutely over both
+    // copies this reads.
+    let lost_commands =
+        crate::agent::restart::take_lost_commands(state, &task_id, &workspace_dir).await;
+
     let mut task_config = (*state.config).clone();
     task_config.task_id = task_id.clone();
     task_config.workspace_dir = workspace_dir;
@@ -42,7 +48,31 @@ pub(crate) async fn register(
     let task_config = Arc::new(task_config);
 
     let context = crate::compose::compose_task_context(task_config, checkout_mode, state).await;
-    let mut contexts = state.task_contexts.write().await;
-    contexts.insert(task_id, Arc::clone(&context));
+    {
+        let mut contexts = state.task_contexts.write().await;
+        contexts.insert(task_id.clone(), Arc::clone(&context));
+    }
+
+    report_lost_commands(state, task_id, lost_commands);
     Ok(context)
+}
+
+/// Wake a joining Member about the commands a pod replacement destroyed.
+///
+/// Detached: `JoinTask` is the reconciler's own call, so a slow backend must not
+/// hold the RPC open behind it.
+fn report_lost_commands(
+    state: &SandboxState,
+    task_id: String,
+    lost: Vec<crate::commands::JournaledCommand>,
+) {
+    let Some(text) = crate::agent::restart::lost_commands_wake(&lost) else {
+        return;
+    };
+    let state = state.clone();
+    crate::agent::dispatcher::spawn_supervised("member-lost-commands", async move {
+        // No idempotency key: the take cleared both copies, so this Member is
+        // owed exactly one wake and its text is what distinguishes it.
+        crate::agent::dispatcher::queue_and_dispatch(&state, &task_id, text, None).await;
+    });
 }

@@ -254,6 +254,13 @@ impl TaskReaper {
                 .await
                 .map_err(|e| ReaperError::SandboxQuery(Box::new(e)))?;
 
+        // The Members attached to those Sandboxes. Same failure contract as the
+        // LIST: an empty set would be read as "no Members", and every Member's
+        // live turn would be closed under it.
+        let members = self.tasks.list_sandbox_members(&sandbox_ids).await?;
+        let sandboxes = group_members(&sandbox_ids, members);
+        let live_ids = live_task_ids(&sandboxes);
+
         // Tasks whose latest turn is stuck `active` past the floor.
         let cutoff = Utc::now() - chrono::Duration::seconds(RECONCILE_STUCK_TURN_THRESHOLD_SECS);
         let stuck_turns = match self.task_turns.list_unclosed_active_turns(cutoff).await {
@@ -267,8 +274,7 @@ impl TaskReaper {
         // Close turns left stuck `active` by a lost terminal event.
         // Independent of the idle/close passes below and best-effort, so a
         // failure here never blocks them.
-        self.reconcile_orphaned_turns(&sandbox_ids, &stuck_turns)
-            .await;
+        self.reconcile_orphaned_turns(&live_ids, &stuck_turns).await;
 
         // The converse: turns closed while their run kept going. Same
         // best-effort contract.
@@ -277,7 +283,7 @@ impl TaskReaper {
             .list_settled_turns_with_later_activity()
             .await
         {
-            Ok(settled) => self.reconcile_live_runs(&sandbox_ids, &settled).await,
+            Ok(settled) => self.reconcile_live_runs(&live_ids, &settled).await,
             Err(e) => {
                 warn!(error = %e, "reconcile: failed to list settled turns with later activity");
             }
@@ -297,7 +303,10 @@ impl TaskReaper {
             self.gc_orphaned_resources().await;
         }
 
-        let Some(snapshot) = self.load_reaper_snapshot(&sandbox_ids, defaults).await? else {
+        let Some(snapshot) = self
+            .load_reaper_snapshot(sandboxes, &live_ids, defaults)
+            .await?
+        else {
             return Ok(());
         };
 
@@ -308,9 +317,56 @@ impl TaskReaper {
     }
 }
 
+/// A running Sandbox and the Tasks attached to it.
+struct RunningSandbox {
+    sandbox_id: String,
+    /// Every active Member, including the Task whose id names the Sandbox. Never
+    /// empty: a Sandbox with no fork and no open owner row still lists its own
+    /// id, which is what the idle-stop branch decides on.
+    members: Vec<String>,
+}
+
+/// Group `(task_id, sandbox_id)` pairs under the Sandboxes that are running.
+fn group_members(sandbox_ids: &[String], members: Vec<(String, String)>) -> Vec<RunningSandbox> {
+    let mut by_sandbox: HashMap<&str, Vec<String>> = sandbox_ids
+        .iter()
+        .map(|id| (id.as_str(), vec![id.clone()]))
+        .collect();
+    for (task_id, sandbox_id) in members {
+        if let Some(entry) = by_sandbox.get_mut(sandbox_id.as_str()) {
+            if !entry.contains(&task_id) {
+                entry.push(task_id);
+            }
+        }
+    }
+    sandbox_ids
+        .iter()
+        .map(|sandbox_id| RunningSandbox {
+            sandbox_id: sandbox_id.clone(),
+            members: by_sandbox
+                .remove(sandbox_id.as_str())
+                .unwrap_or_else(|| vec![sandbox_id.clone()]),
+        })
+        .collect()
+}
+
+/// Every Task id running inside one of the Sandboxes, deduplicated.
+fn live_task_ids(sandboxes: &[RunningSandbox]) -> Vec<String> {
+    let mut seen: HashSet<&str> = HashSet::new();
+    let mut ids = Vec::new();
+    for sandbox in sandboxes {
+        for member in &sandbox.members {
+            if seen.insert(member.as_str()) {
+                ids.push(member.clone());
+            }
+        }
+    }
+    ids
+}
+
 struct ReaperSnapshot {
     all_ids: Vec<String>,
-    sandbox_ids: Vec<String>,
+    sandboxes: Vec<RunningSandbox>,
     open_ids: Vec<String>,
     latest_times: HashMap<String, DateTime<Utc>>,
     ttl_map: HashMap<String, i32>,
@@ -341,7 +397,8 @@ struct ReaperStats {
 impl TaskReaper {
     async fn load_reaper_snapshot(
         &self,
-        sandbox_ids: &[String],
+        sandboxes: Vec<RunningSandbox>,
+        live_ids: &[String],
         defaults: ReapCycleDefaults,
     ) -> Result<Option<ReaperSnapshot>, ReaperError> {
         let open_ids = match self.tasks.list_open_task_ids().await {
@@ -354,8 +411,8 @@ impl TaskReaper {
 
         // Union the two sets so we fetch activity timestamps for everything we may act on.
         let mut all_ids_set: HashSet<String> =
-            HashSet::with_capacity(sandbox_ids.len() + open_ids.len());
-        all_ids_set.extend(sandbox_ids.iter().cloned());
+            HashSet::with_capacity(live_ids.len() + open_ids.len());
+        all_ids_set.extend(live_ids.iter().cloned());
         all_ids_set.extend(open_ids.iter().cloned());
 
         if all_ids_set.is_empty() {
@@ -365,7 +422,8 @@ impl TaskReaper {
 
         let all_ids: Vec<String> = all_ids_set.iter().cloned().collect();
         debug!(
-            sandbox_count = sandbox_ids.len(),
+            sandbox_count = sandboxes.len(),
+            member_count = live_ids.len(),
             open_count = open_ids.len(),
             unique_count = all_ids.len(),
             "Task reaper considering tasks"
@@ -376,11 +434,11 @@ impl TaskReaper {
         let inactive_map = load_inactive_ttl_map(&self.tasks, &all_ids).await;
         let cold_map = load_cold_map(&self.tasks, &all_ids).await;
         let stopped_since = self.load_stopped_since(&open_ids).await;
-        let agent_lifecycle = self.load_agent_lifecycle(sandbox_ids).await;
+        let agent_lifecycle = self.load_agent_lifecycle(live_ids).await;
 
         Ok(Some(ReaperSnapshot {
             all_ids,
-            sandbox_ids: sandbox_ids.to_vec(),
+            sandboxes,
             open_ids,
             latest_times,
             ttl_map,
@@ -502,14 +560,14 @@ async fn load_cold_map(tasks: &Arc<TaskCommands>, all_ids: &[String]) -> HashMap
 impl TaskReaper {
     async fn load_agent_lifecycle(
         &self,
-        sandbox_ids: &[String],
+        live_ids: &[String],
     ) -> HashMap<String, (String, DateTime<Utc>)> {
-        // Latest agent run-state per sandbox task, used to date the idle-stop floor
-        // from when the agent last stopped (and to never reap a running agent).
-        // Only sandbox tasks reach the reap branch, so query just those. Falls back
-        // to the activity floor on error.
+        // Latest agent run-state per Member, used to date the idle-stop floor
+        // from when each agent last stopped (and to never reap a running agent).
+        // Only Members reach the reap branch, so query just those. Falls back to
+        // the activity floor on error.
         self.task_events
-        .get_latest_agent_lifecycle(sandbox_ids)
+        .get_latest_agent_lifecycle(live_ids)
         .await
         .unwrap_or_else(|e| {
             warn!(error = %e, "Failed to fetch agent lifecycle events, reaper falls back to activity floor");
@@ -517,17 +575,42 @@ impl TaskReaper {
         })
     }
 
+    /// Two passes, one per subject. The Task pass closes and reclaims per Task
+    /// row; the Sandbox pass stops per pod, folding every Member.
     async fn apply_reaper_decisions(&self, snapshot: ReaperSnapshot) -> ReaperStats {
-        let sandbox_set: HashSet<&str> = snapshot.sandbox_ids.iter().map(String::as_str).collect();
-        let open_set: HashSet<&str> = snapshot.open_ids.iter().map(String::as_str).collect();
-
         let mut stats = ReaperStats {
             stopped: 0,
             closed: 0,
             reclaimed: 0,
         };
 
+        let closed = self.apply_task_decisions(&snapshot, &mut stats).await;
+        self.apply_sandbox_decisions(&snapshot, &closed, &mut stats)
+            .await;
+
+        stats
+    }
+
+    /// The per-Task pass: auto-close an inactive Open task, or reclaim the
+    /// storage of one whose sandbox has been stopped long enough. Returns the
+    /// tasks it closed.
+    async fn apply_task_decisions(
+        &self,
+        snapshot: &ReaperSnapshot,
+        stats: &mut ReaperStats,
+    ) -> HashSet<String> {
+        let live_set: HashSet<&str> = snapshot
+            .sandboxes
+            .iter()
+            .flat_map(|s| s.members.iter().map(String::as_str))
+            .collect();
+        let open_set: HashSet<&str> = snapshot.open_ids.iter().map(String::as_str).collect();
+        let mut closed = HashSet::new();
+
         for task_id in &snapshot.all_ids {
+            if !open_set.contains(task_id.as_str()) {
+                continue;
+            }
             let latest_at = snapshot.latest_times.get(task_id).copied();
             let inactive_ttl_days = snapshot
                 .inactive_map
@@ -537,9 +620,7 @@ impl TaskReaper {
 
             // Close supersedes stop — `auto_close_task` calls `cleanup`, which
             // tears down the Deployment regardless of whether it was scaled to 0.
-            if open_set.contains(task_id.as_str())
-                && decide_close(inactive_ttl_days, latest_at, snapshot.now) == CloseDecision::Close
-            {
+            if decide_close(inactive_ttl_days, latest_at, snapshot.now) == CloseDecision::Close {
                 info!(
                     task_id = %task_id,
                     inactive_ttl_days,
@@ -547,52 +628,63 @@ impl TaskReaper {
                     "Auto-closing inactive task"
                 );
                 self.auto_close_task(task_id).await;
+                closed.insert(task_id.clone());
                 stats.closed += 1;
                 continue;
             }
 
-            if !sandbox_set.contains(task_id.as_str()) {
-                // Not running, so the idle-stop branch has nothing to do — but a
-                // task that has been stopped long enough is still holding a
-                // volume, and that is what the cold branch reclaims.
-                if open_set.contains(task_id.as_str())
-                    && self.reclaim_cold_storage(task_id, &snapshot).await
-                {
-                    stats.reclaimed += 1;
-                }
+            // A task running inside a pod still holds its volume, so the cold
+            // branch has nothing to reclaim from it.
+            if !live_set.contains(task_id.as_str())
+                && self.reclaim_cold_storage(task_id, snapshot).await
+            {
+                stats.reclaimed += 1;
+            }
+        }
+
+        closed
+    }
+
+    /// The per-Sandbox pass: stop a pod whose every Member is idle past the
+    /// folded TTL.
+    async fn apply_sandbox_decisions(
+        &self,
+        snapshot: &ReaperSnapshot,
+        closed: &HashSet<String>,
+        stats: &mut ReaperStats,
+    ) {
+        for sandbox in &snapshot.sandboxes {
+            // A close this cycle may already be tearing the pod down. The next
+            // cycle decides on the membership the close left behind.
+            if sandbox.members.iter().any(|m| closed.contains(m)) {
                 continue;
             }
 
-            // Fold the agent run-state into the idle-stop floor so a running agent
-            // is never reaped and a stopped agent's TTL counts from when it stopped.
-            let reap_floor = compute_reap_floor(
-                snapshot.agent_lifecycle.get(task_id),
-                latest_at,
+            let latest_at = fold_latest_activity(&sandbox.members, &snapshot.latest_times);
+            let reap_floor = fold_reap_floor(
+                &sandbox.members,
+                &snapshot.agent_lifecycle,
+                &snapshot.latest_times,
                 snapshot.now,
             );
+            let ttl_minutes = fold_ttl_minutes(
+                &sandbox.members,
+                &snapshot.ttl_map,
+                snapshot.default_ttl_minutes,
+            );
 
-            let ttl_minutes = snapshot
-                .ttl_map
-                .get(task_id)
-                .copied()
-                .unwrap_or(snapshot.default_ttl_minutes);
             match decide_reap(ttl_minutes, reap_floor, snapshot.now) {
                 ReapDecision::Skip(reason) => {
-                    debug!(task_id = %task_id, reason, "Skipping sandbox reap");
+                    debug!(sandbox_id = %sandbox.sandbox_id, reason, "Skipping sandbox reap");
                 }
                 ReapDecision::Keep => {}
                 ReapDecision::Stop => {
-                    if self
-                        .stop_idle_sandbox(task_id, ttl_minutes, latest_at)
-                        .await
-                    {
+                    if self.stop_idle_sandbox(sandbox, ttl_minutes, latest_at).await {
                         stats.stopped += 1;
                     }
                 }
             }
         }
-
-        stats
     }
 
     /// The cold branch: reclaim the Deployment and volume of a task that has
@@ -632,19 +724,25 @@ impl TaskReaper {
 
     async fn stop_idle_sandbox(
         &self,
-        task_id: &str,
+        sandbox: &RunningSandbox,
         ttl_minutes: i32,
         latest_at: Option<DateTime<Utc>>,
     ) -> bool {
-        // Defense in depth: the activity floor can go stale, so ask the agent
-        // itself before pulling the plug. An unreadable status falls through.
-        if let Some(status) = agent_status_snapshot(self.connector.as_ref(), task_id).await {
+        // Defense in depth: the activity floor can go stale, so ask each Member's
+        // agent before pulling the plug. One Member still working keeps the pod,
+        // because the pod is what every Member's process lives in. An unreadable
+        // status falls through.
+        for member in &sandbox.members {
+            let Some(status) = agent_status_snapshot(self.connector.as_ref(), member).await else {
+                continue;
+            };
             if agent_holds_the_sandbox(&status.status) {
                 info!(
-                    task_id = %task_id,
+                    sandbox_id = %sandbox.sandbox_id,
+                    task_id = %member,
                     ttl_minutes,
                     last_activity = ?latest_at,
-                    "Idle floor expired but agent reports running, skipping stop"
+                    "Idle floor expired but a member's agent reports running, skipping stop"
                 );
                 return false;
             }
@@ -654,32 +752,34 @@ impl TaskReaper {
             // than any fixed one this side could pick.
             if status.busy_processes {
                 info!(
-                    task_id = %task_id,
+                    sandbox_id = %sandbox.sandbox_id,
+                    task_id = %member,
                     ttl_minutes,
                     last_activity = ?latest_at,
-                    "Idle floor expired but sandbox reports a running registered command, deferring stop"
+                    "Idle floor expired but a member reports a running registered command, deferring stop"
                 );
                 return false;
             }
         }
 
         info!(
-            task_id = %task_id,
+            sandbox_id = %sandbox.sandbox_id,
+            member_count = sandbox.members.len(),
             ttl_minutes,
             last_activity = ?latest_at,
             "Stopping idle sandbox"
         );
         match self
             .sandbox
-            .stop(task_id, SandboxStopReason::IdleReaper)
+            .stop(&sandbox.sandbox_id, SandboxStopReason::IdleReaper)
             .await
         {
             Ok(()) => {
-                info!(task_id = %task_id, "Idle sandbox stopped successfully");
+                info!(sandbox_id = %sandbox.sandbox_id, "Idle sandbox stopped successfully");
                 true
             }
             Err(e) => {
-                warn!(task_id = %task_id, error = %e, "Failed to stop idle sandbox");
+                warn!(sandbox_id = %sandbox.sandbox_id, error = %e, "Failed to stop idle sandbox");
                 false
             }
         }
@@ -715,21 +815,17 @@ fn log_reaper_stats(stats: ReaperStats) {
 /// event log — turn state is committed transactionally at ingress, so this
 /// is a pure backstop for the rare lost-terminal case.
 ///
-/// A turn is closed only once confirmed genuinely orphaned: either its sandbox
-/// Deployment is gone (not in `running_sandbox_ids`) or its agent reports
+/// A turn is closed only once confirmed genuinely orphaned: either the task is
+/// running in no pod (not in `live_task_ids`) or its agent reports
 /// `idle`/`stopped`. A turn whose agent is still `running`, or whose status
 /// can't be determined, is left alone so a slow-but-live turn is never killed.
 impl TaskReaper {
-    async fn reconcile_orphaned_turns(
-        &self,
-        running_sandbox_ids: &[String],
-        stuck: &[UnclosedTurn],
-    ) {
+    async fn reconcile_orphaned_turns(&self, live_task_ids: &[String], stuck: &[UnclosedTurn]) {
         if stuck.is_empty() {
             return;
         }
 
-        let running: HashSet<&str> = running_sandbox_ids.iter().map(String::as_str).collect();
+        let running: HashSet<&str> = live_task_ids.iter().map(String::as_str).collect();
 
         for turn in stuck {
             if !self.task_desires_running(&turn.task_id).await {
@@ -747,7 +843,7 @@ impl TaskReaper {
                     Some(true)
                 )
             } else {
-                // No running Deployment ⇒ nothing can still be driving the turn.
+                // The task runs in no pod ⇒ nothing can still be driving the turn.
                 true
             };
 
@@ -768,16 +864,16 @@ impl TaskReaper {
     /// allocator. The same run the row already closed is a contradiction, and
     /// an absent `run_id` is unattributable; both are counted and neither is
     /// written, so the defect stays visible.
-    async fn reconcile_live_runs(&self, running_sandbox_ids: &[String], settled: &[SettledTurn]) {
+    async fn reconcile_live_runs(&self, live_task_ids: &[String], settled: &[SettledTurn]) {
         if settled.is_empty() {
             return;
         }
 
-        let running: HashSet<&str> = running_sandbox_ids.iter().map(String::as_str).collect();
+        let running: HashSet<&str> = live_task_ids.iter().map(String::as_str).collect();
 
         for turn in settled {
-            // No Deployment means nothing can be driving a run, whatever the
-            // activity floor says.
+            // No pod means nothing can be driving a run, whatever the activity
+            // floor says.
             if !running.contains(turn.task_id.as_str()) {
                 continue;
             }
@@ -1208,6 +1304,68 @@ fn compute_reap_floor(
     }
 }
 
+/// The idle-stop floor for a whole Sandbox: the newest
+/// [`compute_reap_floor`] across its Members.
+///
+/// A Member whose agent is running contributes `now`, so one working Member
+/// keeps the pod for every other Member on it.
+fn fold_reap_floor(
+    members: &[String],
+    agent_lifecycle: &HashMap<String, (String, DateTime<Utc>)>,
+    latest_times: &HashMap<String, DateTime<Utc>>,
+    now: DateTime<Utc>,
+) -> Option<DateTime<Utc>> {
+    members
+        .iter()
+        .filter_map(|member| {
+            compute_reap_floor(
+                agent_lifecycle.get(member),
+                latest_times.get(member).copied(),
+                now,
+            )
+        })
+        .max()
+}
+
+/// The newest activity timestamp across a Sandbox's Members. Reported on the
+/// stop, and never a decision input.
+fn fold_latest_activity(
+    members: &[String],
+    latest_times: &HashMap<String, DateTime<Utc>>,
+) -> Option<DateTime<Utc>> {
+    members
+        .iter()
+        .filter_map(|member| latest_times.get(member).copied())
+        .max()
+}
+
+/// The idle TTL for a whole Sandbox: the largest across its Members, and `0`
+/// when any Member is pinned.
+///
+/// `decide_reap` reads `0` as indefinite, so a pinned Member pins the pod it
+/// shares. This matches the teardown guard in
+/// `sandbox_control::lifecycle::orchestrator::run_remove`, which keeps a
+/// Sandbox while an active peer is attached.
+fn fold_ttl_minutes(
+    members: &[String],
+    ttl_map: &HashMap<String, i32>,
+    default_ttl_minutes: i32,
+) -> i32 {
+    let mut folded = 0;
+    for member in members {
+        let ttl = ttl_map
+            .get(member)
+            .copied()
+            .unwrap_or(default_ttl_minutes)
+            .max(0);
+        if ttl == 0 {
+            return 0;
+        }
+        folded = folded.max(ttl);
+    }
+    folded
+}
+
 /// Pure decision function: decide whether to reap a single sandbox.
 ///
 /// `ttl_minutes == 0` means the task is pinned indefinitely — never reap.
@@ -1406,6 +1564,93 @@ mod tests {
         assert!(agent_holds_the_sandbox("running"));
         // A status this build does not know is treated as live.
         assert!(agent_holds_the_sandbox("from-a-newer-sandbox"));
+    }
+
+    fn members(ids: &[&str]) -> Vec<String> {
+        ids.iter().map(|id| (*id).to_string()).collect()
+    }
+
+    /// A fork runs inside its parent's pod, so both Tasks reach the passes that
+    /// decide whether anything is still driving a turn.
+    #[test]
+    fn a_fork_is_grouped_under_the_sandbox_it_runs_in() {
+        let sandboxes = group_members(
+            &members(&["sandbox-a", "sandbox-b"]),
+            vec![
+                ("sandbox-a".to_string(), "sandbox-a".to_string()),
+                ("fork-1".to_string(), "sandbox-a".to_string()),
+                ("closed-task".to_string(), "sandbox-c".to_string()),
+            ],
+        );
+
+        assert_eq!(sandboxes[0].members, members(&["sandbox-a", "fork-1"]));
+        // A Sandbox whose owner row is not open still decides on its own id.
+        assert_eq!(sandboxes[1].members, members(&["sandbox-b"]));
+        assert_eq!(
+            live_task_ids(&sandboxes),
+            members(&["sandbox-a", "fork-1", "sandbox-b"])
+        );
+    }
+
+    /// The defect this pass fixes: the owner went idle, the fork was working,
+    /// and the pod both of them live in was stopped anyway.
+    #[test]
+    fn a_working_member_keeps_the_whole_sandbox() {
+        let now = Utc::now();
+        let long_ago = now - chrono::Duration::hours(3);
+        let lifecycle = HashMap::from([
+            (
+                "sandbox-a".to_string(),
+                ("stopped".to_string(), long_ago),
+            ),
+            ("fork-1".to_string(), ("started".to_string(), long_ago)),
+        ]);
+        let latest = HashMap::from([
+            ("sandbox-a".to_string(), long_ago),
+            ("fork-1".to_string(), long_ago),
+        ]);
+
+        let floor = fold_reap_floor(&members(&["sandbox-a", "fork-1"]), &lifecycle, &latest, now);
+
+        assert_eq!(floor, Some(now));
+        assert_eq!(decide_reap(30, floor, now), ReapDecision::Keep);
+    }
+
+    /// Every Member idle past the folded TTL is what a stop needs.
+    #[test]
+    fn a_sandbox_whose_every_member_is_idle_is_stopped() {
+        let now = Utc::now();
+        let lifecycle = HashMap::new();
+        let latest = HashMap::from([
+            ("sandbox-a".to_string(), now - chrono::Duration::hours(3)),
+            ("fork-1".to_string(), now - chrono::Duration::hours(2)),
+        ]);
+
+        let floor = fold_reap_floor(&members(&["sandbox-a", "fork-1"]), &lifecycle, &latest, now);
+
+        assert_eq!(floor, Some(now - chrono::Duration::hours(2)));
+        assert_eq!(decide_reap(30, floor, now), ReapDecision::Stop);
+    }
+
+    /// `0` is indefinite, so a pinned Member pins the pod it shares.
+    #[test]
+    fn one_pinned_member_pins_the_sandbox() {
+        let ttl_map = HashMap::from([("fork-1".to_string(), 0)]);
+        assert_eq!(
+            fold_ttl_minutes(&members(&["sandbox-a", "fork-1"]), &ttl_map, 30),
+            0
+        );
+    }
+
+    /// Otherwise the most patient Member sets the TTL: a shorter one must not
+    /// take the pod out from under it.
+    #[test]
+    fn the_largest_member_ttl_wins() {
+        let ttl_map = HashMap::from([("sandbox-a".to_string(), 10)]);
+        assert_eq!(
+            fold_ttl_minutes(&members(&["sandbox-a", "fork-1"]), &ttl_map, 45),
+            45
+        );
     }
 
     /// A turn parked on a person is not a finished turn: it continues where it

@@ -15,28 +15,31 @@ use tracing::warn;
 
 use super::client::K8sClient;
 
-/// Task-ids whose sandbox Deployment is meant to be running.
+/// Sandbox-ids whose Deployment is meant to be running.
+///
+/// A Sandbox is named for the Task that created it, and other Tasks can be
+/// attached to it, so this is not the set of Tasks that are running.
 pub async fn list_running_sandbox_ids(k8s: &K8sClient) -> Result<Vec<String>, kube::Error> {
     // The replica filter is k8s-spec semantics, so it lives here; the caller
-    // sees only the running task-ids it needs.
+    // sees only the running sandbox-ids it needs.
     let deployments = list_sandbox_deployments(k8s).await?;
     Ok(deployments
         .into_iter()
         .filter(|d| d.desired_replicas > 0)
-        .map(|d| d.task_id)
+        .map(|d| d.sandbox_id)
         .collect())
 }
 
 /// A managed sandbox Deployment, reduced to what the reaper cycle needs.
 struct DeploymentInfo {
-    task_id: String,
+    sandbox_id: String,
     /// `spec.replicas` (defaults to 1 when unset). `0` means intentionally
     /// stopped; `> 0` means the sandbox is meant to be running.
     desired_replicas: i32,
 }
 
-/// List all managed sandbox Deployments (any replica count) with their task-id
-/// and desired replicas via a single cluster-wide LIST.
+/// List all managed sandbox Deployments (any replica count) with their
+/// sandbox-id and desired replicas via a single cluster-wide LIST.
 async fn list_sandbox_deployments(k8s: &K8sClient) -> Result<Vec<DeploymentInfo>, kube::Error> {
     let deployments: Api<Deployment> = Api::namespaced(k8s.client.clone(), k8s.namespace());
     let lp = ListParams::default().labels("app.kubernetes.io/managed-by=moatless");
@@ -47,14 +50,16 @@ async fn list_sandbox_deployments(k8s: &K8sClient) -> Result<Vec<DeploymentInfo>
         .items
         .into_iter()
         .filter_map(|dep| {
-            let task_id = dep
+            // The Deployment is labeled with its creating Task's id, which is
+            // also the Sandbox's id.
+            let sandbox_id = dep
                 .metadata
                 .labels
                 .as_ref()
                 .and_then(|labels| labels.get("moatless.io/task-id").cloned())?;
             let desired_replicas = dep.spec.as_ref().and_then(|s| s.replicas).unwrap_or(1);
             Some(DeploymentInfo {
-                task_id,
+                sandbox_id,
                 desired_replicas,
             })
         })

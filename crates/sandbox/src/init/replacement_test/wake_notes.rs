@@ -102,7 +102,7 @@ async fn a_note_and_a_lost_command_open_one_turn() {
     let workspace_dir = config.workspace_dir.clone();
     seed_note(&workspace_dir, &config.task_id, "you restarted me").await;
     tokio::fs::write(
-        default_journal_path(&workspace_dir),
+        default_journal_path(&workspace_dir, &config.task_id),
         serde_json::to_vec(&[JournaledCommand {
             id: "c33e9d6e".to_string(),
             command: "bash /tmp/verify.sh".to_string(),

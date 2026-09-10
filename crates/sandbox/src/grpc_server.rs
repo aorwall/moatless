@@ -260,10 +260,10 @@ impl SandboxService for SandboxServiceImpl {
         }
         // Without this the child would inherit the *sandbox process's* cwd,
         // which is neither the workspace nor a checkout, so a command using a
-        // relative path would run somewhere the caller never chose.
-        let cwd = req
-            .cwd
-            .unwrap_or_else(|| self.state.config.workspace_dir.clone());
+        // relative path would run somewhere the caller never chose. Take the
+        // Member's own workspace: an isolated Member has its own, and the pod's
+        // names the Member it booted with.
+        let cwd = req.cwd.unwrap_or_else(|| context.workspace_dir.clone());
         let command = context
             .commands
             .run(CommandSpec {
