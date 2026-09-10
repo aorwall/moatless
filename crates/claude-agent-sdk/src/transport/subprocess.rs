@@ -567,8 +567,14 @@ fn log_stdout_message(msg: &RawStdoutMessage) {
             trace!("CLI stdout: keep_alive");
         }
         RawStdoutMessage::Unknown(value) => {
+            // The CLI reports a run it handled locally through a frame this SDK
+            // does not model (`conversation_reset` for `/clear`), and then returns
+            // a result with no turns. The type is the only record of the cause.
+            // Keep the body out of the WARN: an unparsed `control_request` lands
+            // here too, and its `request` holds tool input.
             let type_str = value.get("type").and_then(|v| v.as_str()).unwrap_or("?");
-            debug!(raw = %value, "CLI stdout: unknown type={}", type_str);
+            warn!("CLI stdout: unknown type={}", type_str);
+            debug!(raw = %value, "CLI stdout: unknown type={} body", type_str);
         }
     }
 }
@@ -663,20 +669,33 @@ fn log_content_message(kind: &str, uuid: Option<&str>, content: &[ContentBlock])
     }
 }
 
+/// Log the terminal result. The summary is INFO, and an empty run is WARN: it
+/// ends a turn having answered nothing, and the result is the only record of why.
 fn log_result_message(result: &ResultMessage) {
     match result {
         ResultMessage::Success(r) => {
             let dur = r.duration_ms as f64 / 1000.0;
-            let text = indent(&r.result, "  ");
-            debug!(
-                "CLI stdout: result success turns={} duration={:.1}s cost=${:.4}\n{}",
-                r.num_turns, dur, r.total_cost_usd, text
-            );
+            if r.num_turns == 0 {
+                warn!(
+                    "CLI stdout: result success with no turns duration={:.1}s api={}ms cost=${:.4} model={:?} result={:?}",
+                    dur,
+                    r.duration_api_ms,
+                    r.total_cost_usd,
+                    r.model_usage.keys().collect::<Vec<_>>(),
+                    truncate(&r.result, 500)
+                );
+            } else {
+                info!(
+                    "CLI stdout: result success turns={} duration={:.1}s cost=${:.4}",
+                    r.num_turns, dur, r.total_cost_usd
+                );
+            }
+            debug!("CLI stdout: result text\n{}", indent(&r.result, "  "));
         }
         ResultMessage::Error(r) => {
             let dur = r.duration_ms as f64 / 1000.0;
             let errors = r.errors.join("; ");
-            debug!(
+            warn!(
                 "CLI stdout: result error subtype={} turns={} duration={:.1}s cost=${:.4} errors={}",
                 r.subtype, r.num_turns, dur, r.total_cost_usd, errors
             );

@@ -15,10 +15,15 @@ const MAX_DIAGNOSTIC: usize = 500;
 
 fn truncate_diagnostic(text: &str) -> String {
     if text.len() <= MAX_DIAGNOSTIC {
-        text.to_string()
-    } else {
-        format!("{}…", &text[..MAX_DIAGNOSTIC])
+        return text.to_string();
     }
+    // Walk back to a char boundary: a diagnostic carries a repo path or an
+    // ellipsis, and slicing through a multi-byte char panics.
+    let mut end = MAX_DIAGNOSTIC;
+    while end > 0 && !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}…", &text[..end])
 }
 
 /// Whether a startup failure means the resume-target transcript is unavailable
@@ -92,6 +97,20 @@ pub(super) fn classify_stream_error(error: &SdkError) -> HarnessError {
 /// any error result becomes a classified failure the coordinator maps to policy.
 pub(super) fn classify_result(result: &ResultMessage) -> ProcessTermination {
     match result {
+        // A success carrying no turns is the CLI ending the run without ever
+        // reaching the model, so the person's message was consumed and answered
+        // with nothing. Retrying re-drives the same text into the same session.
+        ResultMessage::Success(success) if !success.is_error && success.num_turns == 0 => {
+            ProcessTermination::Failed(HarnessError::new(
+                FailureStage::Execution,
+                ErrorClass::ProcessExit,
+                SessionImpact::Intact,
+                format!(
+                    "Agent returned an empty result with no turns after {}ms",
+                    success.duration_ms
+                ),
+            ))
+        }
         ResultMessage::Success(success) if !success.is_error => ProcessTermination::Completed,
         ResultMessage::Success(success) => {
             ProcessTermination::Failed(result_failure("", &success.result))

@@ -44,7 +44,8 @@ pub enum ErrorClass {
     InvalidInput,
     /// Native protocol output could not be parsed.
     NativeProtocol,
-    /// The Agent process exited unexpectedly (includes unexpected EOF).
+    /// The Agent process ended the run without producing it: an unexpected exit,
+    /// an unexpected EOF, or a terminal result that reports no turns.
     ProcessExit,
     /// The Agent process stopped responding.
     UnresponsiveProcess,

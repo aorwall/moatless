@@ -681,6 +681,8 @@ async fn finalize(
     input_id: &InputId,
 ) -> Result<(), SignalClosed> {
     if started {
+        // Read the cancel flag before the termination: an interrupt ends the run
+        // with a zero-turn result, which `classify_result` reports as a failure.
         let outcome = if cancel_requested {
             Outcome::Cancelled
         } else {

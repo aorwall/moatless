@@ -217,6 +217,36 @@ fn clean_result_completes() {
     ));
 }
 
+/// The CLI can end a run without ever reaching the model: a clean result with no
+/// turns, no text and no model usage. Reporting that as a completed turn answers
+/// the person's message with silence and consumes it, so it must retry instead.
+#[test]
+fn zero_turn_result_fails_as_retryable() {
+    let result = ResultMessage::Success(ResultSuccess {
+        uuid: "u".to_string(),
+        session_id: "sess".to_string(),
+        duration_ms: 37,
+        duration_api_ms: 0,
+        is_error: false,
+        num_turns: 0,
+        result: String::new(),
+        total_cost_usd: 0.0,
+        usage: usage(),
+        model_usage: HashMap::new(),
+        permission_denials: vec![],
+        structured_output: None,
+    });
+    match classify_result(&result) {
+        ProcessTermination::Failed(error) => {
+            assert_eq!(error.stage, FailureStage::Execution);
+            assert_eq!(error.class, ErrorClass::ProcessExit);
+            assert_eq!(error.session_impact, SessionImpact::Intact);
+            assert!(crate::agent::retry::is_retryable_harness_error(&error));
+        }
+        other => panic!("expected failure, got {other:?}"),
+    }
+}
+
 #[test]
 fn rate_limited_error_result_classifies_as_rate_limit() {
     let result = ResultMessage::Error(ResultError {
@@ -461,6 +491,17 @@ fn cli_not_found_is_invalid_configuration() {
         classify_startup_error(&error, false).class,
         ErrorClass::InvalidConfiguration
     );
+}
+
+#[test]
+fn long_multi_byte_diagnostic_is_truncated_without_panic() {
+    // 3 bytes per char, under a 16-byte Display prefix, so byte 500 falls inside
+    // a char: (500 - 16) % 3 == 1. A 2-byte char lands on a boundary and cuts cleanly.
+    let error = SdkError::Internal("日".repeat(400));
+    let diagnostic = classify_stream_error(&error).diagnostic;
+    assert!(diagnostic.ends_with('…'));
+    assert!(diagnostic.len() <= 503);
+    assert!(diagnostic.is_char_boundary(diagnostic.len() - '…'.len_utf8()));
 }
 
 #[test]
