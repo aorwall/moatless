@@ -2,10 +2,12 @@
 //! pending-message result, interrupted-Run payload, and session-state archive
 //! are fixed per test; `acknowledge_messages` prunes the acked row so a later
 //! probe sees it gone — modelling the real ack the startup race hinges on.
+//! `enqueue_sandbox_message` appends to the same pending list, so a caller that
+//! queues and then dispatches finds the row it just wrote.
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use async_trait::async_trait;
 use sandbox_proto::{
@@ -27,6 +29,11 @@ pub(super) struct ReplayBackend {
     /// Number of `acknowledge_messages` calls that fail (without pruning) before
     /// the RPC starts succeeding — models a transient ack outage.
     ack_failures: AtomicUsize,
+    /// Every `enqueue_sandbox_message` as `(idempotency_key, text)`, in call
+    /// order. Doubles as the dedup store the real backend keys on.
+    queued: Mutex<Vec<(String, String)>>,
+    /// Models a backend the pod cannot reach, which forces the direct send.
+    enqueue_fails: AtomicBool,
     get_pending_calls: AtomicUsize,
     recover_calls: AtomicUsize,
 }
@@ -36,27 +43,13 @@ impl ReplayBackend {
         pending: Result<Vec<PendingAgentDelivery>, ()>,
         interrupted: Option<InterruptedTurn>,
     ) -> Arc<Self> {
-        Arc::new(Self {
-            pending: Mutex::new(pending),
-            interrupted,
-            download_tar: Vec::new(),
-            ack_failures: AtomicUsize::new(0),
-            get_pending_calls: AtomicUsize::new(0),
-            recover_calls: AtomicUsize::new(0),
-        })
+        Self::build(pending, interrupted, Vec::new())
     }
 
     /// A backend that serves `tar` from `download_transcript`, with no pending
     /// messages and no interrupted run — for the restore tests.
     pub(super) fn with_archive(tar: Vec<u8>) -> Arc<Self> {
-        Arc::new(Self {
-            pending: Mutex::new(Ok(Vec::new())),
-            interrupted: None,
-            download_tar: tar,
-            ack_failures: AtomicUsize::new(0),
-            get_pending_calls: AtomicUsize::new(0),
-            recover_calls: AtomicUsize::new(0),
-        })
+        Self::build(Ok(Vec::new()), None, tar)
     }
 
     /// A backend that serves both `tar` and an interrupted run, with no pending
@@ -65,11 +58,21 @@ impl ReplayBackend {
         tar: Vec<u8>,
         interrupted: InterruptedTurn,
     ) -> Arc<Self> {
+        Self::build(Ok(Vec::new()), Some(interrupted), tar)
+    }
+
+    fn build(
+        pending: Result<Vec<PendingAgentDelivery>, ()>,
+        interrupted: Option<InterruptedTurn>,
+        download_tar: Vec<u8>,
+    ) -> Arc<Self> {
         Arc::new(Self {
-            pending: Mutex::new(Ok(Vec::new())),
-            interrupted: Some(interrupted),
-            download_tar: tar,
+            pending: Mutex::new(pending),
+            interrupted,
+            download_tar,
             ack_failures: AtomicUsize::new(0),
+            queued: Mutex::new(Vec::new()),
+            enqueue_fails: AtomicBool::new(false),
             get_pending_calls: AtomicUsize::new(0),
             recover_calls: AtomicUsize::new(0),
         })
@@ -81,6 +84,29 @@ impl ReplayBackend {
         self.ack_failures.store(n, Ordering::SeqCst);
     }
 
+    /// Make every `enqueue_sandbox_message` fail.
+    pub(super) fn fail_enqueue(&self) {
+        self.enqueue_fails.store(true, Ordering::SeqCst);
+    }
+
+    pub(super) async fn queued(&self) -> Vec<(String, String)> {
+        self.queued.lock().await.clone()
+    }
+
+    /// Rows still awaiting acknowledgment. A row a dispatch declined to take is
+    /// still here; one the agent accepted has been pruned.
+    pub(super) async fn pending(&self) -> Vec<PendingAgentDelivery> {
+        self.pending.lock().await.clone().unwrap_or_default()
+    }
+
+    /// A row that arrives after the backend was built — a person writing while
+    /// the pod already holds pending rows of its own.
+    pub(super) async fn push_pending(&self, delivery: PendingAgentDelivery) {
+        if let Ok(msgs) = &mut *self.pending.lock().await {
+            msgs.push(delivery);
+        }
+    }
+
     pub(super) fn get_pending_calls(&self) -> usize {
         self.get_pending_calls.load(Ordering::SeqCst)
     }
@@ -88,6 +114,30 @@ impl ReplayBackend {
     pub(super) fn recover_calls(&self) -> usize {
         self.recover_calls.load(Ordering::SeqCst)
     }
+}
+
+/// One delivery per fetch, carrying every pending row's uuid and their texts
+/// joined with `\n`. Serving a row per delivery would be more permissive than
+/// `AgentPromptBuilder::build_pending_deliveries`, and a sandbox-side filter that
+/// works per delivery would pass here and fail in production.
+///
+/// The uuid and text coalescing is all this models. The real builder also stops
+/// at the first `start_fresh` row, so honour that boundary here before writing a
+/// test that sets one.
+fn coalesce(rows: Vec<PendingAgentDelivery>) -> Vec<PendingAgentDelivery> {
+    let Some(first) = rows.first() else {
+        return Vec::new();
+    };
+    vec![PendingAgentDelivery {
+        message_uuids: rows.iter().flat_map(|r| r.message_uuids.clone()).collect(),
+        prompt_text: rows
+            .iter()
+            .map(|r| r.prompt_text.as_str())
+            .collect::<Vec<_>>()
+            .join("\n"),
+        prompt_response: rows.iter().find_map(|r| r.prompt_response.clone()),
+        ..first.clone()
+    }]
 }
 
 #[async_trait]
@@ -101,10 +151,11 @@ impl BackendClient for ReplayBackend {
         _task_id: &str,
     ) -> Result<Vec<PendingAgentDelivery>, tonic::Status> {
         self.get_pending_calls.fetch_add(1, Ordering::SeqCst);
-        match &*self.pending.lock().await {
-            Ok(msgs) => Ok(msgs.clone()),
-            Err(()) => Err(tonic::Status::unavailable("simulated probe failure")),
-        }
+        let rows = match &*self.pending.lock().await {
+            Ok(msgs) => msgs.clone(),
+            Err(()) => return Err(tonic::Status::unavailable("simulated probe failure")),
+        };
+        Ok(coalesce(rows))
     }
 
     async fn acknowledge_messages(
@@ -187,5 +238,34 @@ impl BackendClient for ReplayBackend {
 
     async fn download_transcript(&self, _task_id: &str) -> Result<Vec<u8>, tonic::Status> {
         Ok(self.download_tar.clone())
+    }
+
+    /// Queue the message as a pending delivery, so the caller's dispatch finds
+    /// the row it just wrote — the production path, where the row is what makes
+    /// the turn recoverable.
+    async fn enqueue_sandbox_message(
+        &self,
+        _task_id: &str,
+        text: &str,
+        idempotency_key: Option<&str>,
+    ) -> Result<Option<String>, tonic::Status> {
+        if self.enqueue_fails.load(Ordering::SeqCst) {
+            return Err(tonic::Status::unavailable("simulated enqueue failure"));
+        }
+        let key = idempotency_key.unwrap_or(text).to_string();
+        let mut queued = self.queued.lock().await;
+        if queued.iter().any(|(seen, _)| seen == &key) {
+            return Ok(None);
+        }
+        queued.push((key, text.to_string()));
+        let uuid = format!("queued-{}", queued.len());
+        if let Ok(msgs) = &mut *self.pending.lock().await {
+            msgs.push(PendingAgentDelivery {
+                message_uuids: vec![uuid.clone()],
+                prompt_text: text.to_string(),
+                ..Default::default()
+            });
+        }
+        Ok(Some(uuid))
     }
 }

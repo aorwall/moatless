@@ -211,11 +211,16 @@ pub trait BackendClient: Send + Sync {
     /// path an external send takes.
     ///
     /// Returns the queued message's uuid, or `None` when the send was refused —
-    /// the text is already queued, or the Task is closed.
+    /// this message is already queued, or the Task is closed.
+    ///
+    /// `idempotency_key` is what "already queued" compares; `None` compares the
+    /// text. Pass a key whenever two distinct sends can carry the same text, or
+    /// the second is dropped.
     async fn enqueue_sandbox_message(
         &self,
         _task_id: &str,
         _text: &str,
+        _idempotency_key: Option<&str>,
     ) -> Result<Option<String>, tonic::Status> {
         Err(tonic::Status::unimplemented(
             "sandbox message enqueue not supported",
@@ -648,12 +653,14 @@ impl BackendClient for BackendGrpcClient {
         &self,
         task_id: &str,
         text: &str,
+        idempotency_key: Option<&str>,
     ) -> Result<Option<String>, Status> {
         let mut client = self.client.clone();
         let uuid = client
             .enqueue_sandbox_message(EnqueueSandboxMessageRequest {
                 task_id: task_id.to_string(),
                 text: text.to_string(),
+                idempotency_key: idempotency_key.unwrap_or_default().to_string(),
             })
             .await?
             .into_inner()

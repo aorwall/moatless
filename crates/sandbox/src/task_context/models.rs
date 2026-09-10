@@ -3,6 +3,7 @@ use crate::agent::handle::AgentHandle;
 use crate::agent::scheduled_job::ScheduledJobRegistry;
 use crate::commands::CommandRegistry;
 use crate::credentials::recovery::CredentialFailureDetector;
+use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::sync::{Mutex, RwLock};
 
@@ -34,6 +35,17 @@ pub struct TaskContext {
     pub commands: Arc<CommandRegistry>,
     /// Single-flight guard for this task's pending-message dispatch.
     pub dispatch_lock: Arc<Mutex<()>>,
+    /// Uuids of the rows this pod queued for itself, through
+    /// `dispatcher::dispatch_self_queued`. A parked `AskUserQuestion` or
+    /// `ExitPlanMode` waits on a person, so `dispatcher::resolve_pending_prompt`
+    /// never acknowledges a row from here as their answer.
+    ///
+    /// In memory deliberately: a parked prompt dies with its pod, so a row the
+    /// replacement finds still pending is ordinary input to it.
+    ///
+    /// Private: [`Self::mark_self_queued`], [`Self::split_self_queued`] and
+    /// [`Self::forget_self_queued`] are the only way in.
+    self_queued: Arc<Mutex<HashSet<String>>>,
     /// Tracks credential failures observed on this task's agent stderr.
     pub credential_failures: CredentialFailureDetector,
     /// Last system prompt fetched for this task. Used as a fallback when
@@ -65,8 +77,38 @@ impl TaskContext {
             scheduled_jobs,
             commands,
             dispatch_lock: Default::default(),
+            self_queued: Default::default(),
             credential_failures,
             system_prompt_cache,
+        }
+    }
+
+    /// Record a row this pod queued for itself. See [`Self::self_queued`].
+    pub async fn mark_self_queued(&self, uuid: String) {
+        self.self_queued.lock().await.insert(uuid);
+    }
+
+    /// Split a delivery's uuids into `(self_queued, rest)`. The backend
+    /// coalesces every pending row into one delivery, so a wake and a person's
+    /// answer arrive together and have to be told apart row by row.
+    pub async fn split_self_queued(&self, uuids: &[String]) -> (Vec<String>, Vec<String>) {
+        let self_queued = self.self_queued.lock().await;
+        uuids
+            .iter()
+            .cloned()
+            .partition(|uuid| self_queued.contains(uuid))
+    }
+
+    /// Forget rows the harness has accepted, so a pod running a `/loop` does not
+    /// accumulate one entry per tick for its whole life.
+    ///
+    /// Call this only once acceptance is confirmed. A row that was dispatched but
+    /// not taken is still pending and still a wake, and forgetting it early lets
+    /// the redispatch answer a prompt parked in between with it.
+    pub async fn forget_self_queued(&self, uuids: &[String]) {
+        let mut self_queued = self.self_queued.lock().await;
+        for uuid in uuids {
+            self_queued.remove(uuid);
         }
     }
 }

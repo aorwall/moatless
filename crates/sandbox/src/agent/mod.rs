@@ -9,6 +9,7 @@ pub mod heartbeat;
 pub mod options;
 pub mod permission_handler;
 pub mod prompt;
+pub mod queued_injector;
 pub mod scheduled_job;
 pub(crate) mod skills;
 pub mod types;

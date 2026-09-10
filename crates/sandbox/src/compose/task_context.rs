@@ -1,5 +1,6 @@
 use crate::agent::agent_state::AgentState;
 use crate::agent::handle::spawn_agent;
+use crate::agent::queued_injector::QueuedInjector;
 use crate::agent::scheduled_job::{LateInjector, ScheduledJobRegistry};
 use crate::commands::CommandRegistry;
 use crate::config::Config;
@@ -47,7 +48,10 @@ pub(crate) async fn compose_task_context(
         shared.heartbeat.clone(),
         shared.workspace_sync.clone(),
     );
-    late_injector.set(Box::new(agent_handle.clone()));
+    late_injector.set(Box::new(QueuedInjector::new(
+        task_config.task_id.clone(),
+        shared.clone(),
+    )));
 
     Arc::new(TaskContext::new(
         task_config.task_id.clone(),

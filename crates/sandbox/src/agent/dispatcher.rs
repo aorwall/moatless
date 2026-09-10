@@ -57,24 +57,103 @@ pub(crate) fn spawn_supervised(
 /// If the agent is waiting for user input (AskUserQuestion/ExitPlanMode),
 /// resolves the pending prompt. Otherwise sends text to the agent lifecycle task.
 pub async fn dispatch_pending_messages(state: SandboxState) {
-    let context = match state.task_context(None).await {
-        Ok(context) => context,
-        Err(e) => {
-            warn!(error = %e, "Dispatch skipped: task context unavailable");
-            return;
-        }
+    let Some(context) = context_for(&state, None).await else {
+        return;
     };
     dispatch_pending_messages_for_context(state, context).await;
 }
 
 pub async fn dispatch_pending_messages_for_task(state: SandboxState, task_id: String) {
-    let context = match state.task_context(Some(&task_id)).await {
-        Ok(context) => context,
-        Err(e) => {
-            warn!(error = %e, task_id = %task_id, "Dispatch skipped: task context unavailable");
-            return;
-        }
+    let Some(context) = context_for(&state, Some(&task_id)).await else {
+        return;
     };
+    dispatch_pending_messages_for_context(state, context).await;
+}
+
+/// The context this pod's work runs against. `None` names the sole registered
+/// task.
+async fn context_for(
+    state: &SandboxState,
+    task_id: Option<&str>,
+) -> Option<std::sync::Arc<TaskContext>> {
+    match state.task_context(task_id).await {
+        Ok(context) => Some(context),
+        Err(e) => {
+            warn!(error = %e, ?task_id, "Task context unavailable; nothing was delivered");
+            None
+        }
+    }
+}
+
+/// Queue `text` as this pod's own message for `task_id` and open the turn it
+/// asks for. Every in-pod caller that opens a turn goes through here: a
+/// scheduled job's prompt, and the wake a pod replacement owes.
+///
+/// The queued row is what `find_interrupted_turn` selects on, so a pod that dies
+/// inside this turn is recoverable. A backend that cannot be reached falls back
+/// to the direct send, whose turn is not.
+///
+/// `idempotency_key` is what a resend dedups on. `None` keys on the text, which
+/// a caller sending one distinct wake wants; a caller that can send the same
+/// text twice passes a key, or the second send is swallowed.
+pub(crate) async fn queue_and_dispatch(
+    state: &SandboxState,
+    task_id: &str,
+    text: String,
+    idempotency_key: Option<&str>,
+) {
+    match state
+        .backend_client
+        .enqueue_sandbox_message(task_id, &text, idempotency_key)
+        .await
+    {
+        // Dispatching on a refusal would claim a row that nothing wrote.
+        Ok(None) => {
+            info!(
+                task_id,
+                "The backend refused the message; nothing to dispatch"
+            );
+        }
+        Ok(Some(uuid)) => {
+            info!(task_id, "Queued this pod's own message");
+            dispatch_self_queued(state.clone(), task_id.to_string(), uuid).await;
+        }
+        Err(error) => {
+            warn!(task_id, %error, "Falling back to a direct send; the turn it opens is not recoverable");
+            send_directly(state, task_id, text).await;
+        }
+    }
+}
+
+/// Hand `text` straight to the agent, opening a turn no `user` row backs. Only
+/// [`queue_and_dispatch`] calls this, when the backend refused the queue.
+async fn send_directly(state: &SandboxState, task_id: &str, text: String) {
+    let Some(context) = context_for(state, Some(task_id)).await else {
+        return;
+    };
+    // The caller has nothing to ack; drop the receiver so the lifecycle task
+    // does not wait on one.
+    drop(
+        context
+            .agent_handle
+            .send(text, None, None, None, None, None, false, None),
+    );
+}
+
+/// Dispatch a row this pod queued for itself. `uuid` is the row
+/// `BackendClient::enqueue_sandbox_message` just wrote.
+///
+/// The uuid is recorded through [`TaskContext::mark_self_queued`] before the
+/// dispatch, so a run parked on an `AskUserQuestion` or an `ExitPlanMode` never
+/// takes it as the person's answer: the parked call waits on a person, and a wake
+/// acknowledged as their answer would reject a plan nobody read and be consumed
+/// doing it. `resolve_pending_prompt` leaves the row pending instead, and it opens
+/// its own turn once the real answer arrives.
+pub(crate) async fn dispatch_self_queued(state: SandboxState, task_id: String, uuid: String) {
+    let Some(context) = context_for(&state, Some(&task_id)).await else {
+        return;
+    };
+    context.mark_self_queued(uuid).await;
     dispatch_pending_messages_for_context(state, context).await;
 }
 
@@ -274,6 +353,11 @@ async fn dispatch_pending_messages_for_context(
                 schedule_redispatch(redelivery_state, redelivery_context).await;
                 return;
             };
+            // Taken as ordinary input, which is what a self-queued row is here
+            // for. Marked until acceptance and not before: every path above
+            // leaves the row pending, and one that came back unmarked could
+            // answer a prompt the agent parked in the meantime.
+            redelivery_context.forget_self_queued(&uuids).await;
             // The harness has already accepted this Input, so the Message must
             // never be resubmitted — only the ack RPC may still fail. Retry it
             // until it lands or the pod stops (a failed ack is never treated as
@@ -406,8 +490,21 @@ async fn resolve_pending_prompt(state: &SandboxState, context: &std::sync::Arc<T
     let Some(prompt_delivery) = deliveries.first() else {
         return;
     };
-    let prompt_response_uuids = prompt_delivery.message_uuids.clone();
-    let has_remaining_messages = deliveries.len() > 1;
+
+    // A row this pod queued for itself is a wake and not an answer — see
+    // [`dispatch_self_queued`]. `build_pending_deliveries` coalesces every pending
+    // row into this one delivery, so a wake arrives alongside the person's answer
+    // and has to be withheld row by row: it is left unacknowledged, and the
+    // redispatch below opens the turn it was owed. Answering with the delivery
+    // whole would ack the wake as part of the answer and lose it.
+    let (wakes, prompt_response_uuids) = context
+        .split_self_queued(&prompt_delivery.message_uuids)
+        .await;
+    if prompt_response_uuids.is_empty() && !wakes.is_empty() {
+        info!("Only this pod's own wakes are pending; leaving the prompt parked");
+        return;
+    }
+    let has_remaining_messages = deliveries.len() > 1 || !wakes.is_empty();
 
     // The answer joins the run that asked the question, so it is acknowledged
     // against that run's identity. Resolve it *before* consuming the prompt:
@@ -441,6 +538,9 @@ async fn resolve_pending_prompt(state: &SandboxState, context: &std::sync::Arc<T
         return;
     };
 
+    // A withheld wake's uuid is held back but its text is not: the rows were joined
+    // with `\n` before the delivery left the backend. See `docs/deferred-changes.md`,
+    // "A withheld wake's text still rides in the answer that carried it".
     let text = prompt_delivery.prompt_text.clone();
 
     info!(tool = ?prompt.tool_name, "Resolving interactive prompt with pending message");

@@ -169,6 +169,8 @@ message TakeUnreportedCommandsResponse {
 message EnqueueSandboxMessageRequest {
   string task_id = 1;
   string text = 2;
+  // What a resend of this message dedups on. Empty means the text.
+  string idempotency_key = 3;
 }
 
 message EnqueueSandboxMessageResponse {

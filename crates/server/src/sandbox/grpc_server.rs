@@ -2400,6 +2400,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
             tasks.as_ref(),
             &task_id,
             &req.text,
+            (!req.idempotency_key.is_empty()).then_some(req.idempotency_key.as_str()),
         )
         .await
         .map_err(|error| {

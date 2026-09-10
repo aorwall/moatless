@@ -4,9 +4,8 @@
 //! tool input into a `WakeupJob` and registers it against the shared `ScheduledJobRegistry`
 //! once the turn ends successfully (latest-wins replaces any prior wakeup).
 //! When the timer fires, the job hands the agent-supplied prompt back to the
-//! lifecycle owner via `ctx.injector.inject(...)`, which goes through
-//! `AgentHandle::send` → mpsc. If `Stop` is in flight the synthetic send is
-//! dropped.
+//! lifecycle owner via `ctx.inject(...)`. If `Stop` is in flight the synthetic
+//! send is dropped.
 
 use std::time::Duration;
 
@@ -111,7 +110,7 @@ impl ScheduledJob for WakeupJob {
                 debug!(id = %self.id, "Wakeup cancelled (run token)");
             }
             () = tokio::time::sleep_until(self.wakeup_at) => {
-                ctx.injector.inject(self.prompt);
+                ctx.inject(self.prompt).await;
             }
         }
     }

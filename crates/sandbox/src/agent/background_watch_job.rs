@@ -190,7 +190,7 @@ impl ScheduledJob for BackgroundWatchJob {
                         let reported: Vec<String> =
                             finished.iter().map(|c| c.id.clone()).collect();
                         self.registry.mark_reported(&reported).await;
-                        ctx.injector.inject(Self::wake_prompt(&finished));
+                        ctx.inject(Self::wake_prompt(&finished)).await;
                         return;
                     }
                 }
@@ -216,8 +216,9 @@ mod tests {
 
     struct CapturingInjector(Arc<Mutex<Vec<String>>>);
 
+    #[async_trait::async_trait]
     impl JobInjector for CapturingInjector {
-        fn inject(&self, text: String) {
+        async fn inject(&self, _idempotency_key: &str, text: String) {
             self.0.lock().expect("lock").push(text);
         }
     }
@@ -232,11 +233,12 @@ mod tests {
     }
 
     fn context(injected: &Arc<Mutex<Vec<String>>>) -> JobContext {
-        JobContext {
-            injector: Arc::new(CapturingInjector(Arc::clone(injected))),
-            job_cancel: CancellationToken::new(),
-            run_cancel: CancellationToken::new(),
-        }
+        JobContext::new(
+            "bgwatch-test".to_string(),
+            Arc::new(CapturingInjector(Arc::clone(injected))),
+            CancellationToken::new(),
+            CancellationToken::new(),
+        )
     }
 
     async fn spawn(reg: &CommandRegistry, command: &str) -> String {

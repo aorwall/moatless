@@ -6,10 +6,10 @@
 //! events from the CLI's watcher never reach the agent — so Monitor is
 //! disallowed at the CLI flag level instead.
 //!
-//! Each job runs in its own tokio task and injects synthetic user messages
-//! back into the running Claude session via `JobInjector`. The registry owns
-//! cancellation tokens, deduplicates by job id, and exposes a single status
-//! snapshot for the gRPC `GetAgentStatus` endpoint.
+//! Each job runs in its own tokio task and injects a synthetic user message
+//! back into the running Claude session through `JobContext::inject`. The
+//! registry owns cancellation tokens, deduplicates by job id, and exposes a
+//! single status snapshot for the gRPC `GetAgentStatus` endpoint.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -22,14 +22,24 @@ use tracing::{info, warn};
 use crate::agent::handle::AgentHandle;
 
 /// Trait that lets the registry hand a synthetic user message back to the
-/// running agent. Implemented in production by `AgentHandle`; tests provide a
-/// capturing double.
+/// running agent. Implemented in production by `QueuedInjector`, which queues
+/// the message with the backend so the turn it opens is recoverable; tests
+/// provide the `AgentHandle` impl or a capturing double.
+#[async_trait::async_trait]
 pub trait JobInjector: Send + Sync + 'static {
-    fn inject(&self, text: String);
+    /// Hand `text` to the agent. `idempotency_key` is what a resend of this
+    /// message dedups on, for an implementation that queues rather than sends
+    /// straight at the agent: two jobs carrying identical text are distinct
+    /// injections, and each must open its own turn.
+    async fn inject(&self, idempotency_key: &str, text: String);
 }
 
+/// For a test that drives the agent directly. Production goes through
+/// `QueuedInjector`: a direct send leaves no `user` row, and that row is what
+/// `find_interrupted_turn` selects on.
+#[async_trait::async_trait]
 impl JobInjector for AgentHandle {
-    fn inject(&self, text: String) {
+    async fn inject(&self, _idempotency_key: &str, text: String) {
         // The job has nothing to ack; drop the receiver so the lifecycle task
         // doesn't wait. The coordinator's session-id resolution still works.
         drop(self.send(text, None, None, None, None, None, false, None));
@@ -64,10 +74,11 @@ impl Default for LateInjector {
     }
 }
 
+#[async_trait::async_trait]
 impl JobInjector for LateInjector {
-    fn inject(&self, text: String) {
+    async fn inject(&self, idempotency_key: &str, text: String) {
         if let Some(injector) = self.inner.get() {
-            injector.inject(text);
+            injector.inject(idempotency_key, text).await;
         } else {
             warn!("Scheduled job result dropped: injector not yet initialised");
         }
@@ -117,8 +128,30 @@ pub struct JobContext {
     pub job_cancel: CancellationToken,
     /// Cancels every job for the current agent run.
     pub run_cancel: CancellationToken,
-    /// Used to inject synthetic user messages back into the session.
-    pub injector: Arc<dyn JobInjector>,
+    /// The registering job's `ScheduledJob::id`, which keys its injection.
+    job_id: String,
+    injector: Arc<dyn JobInjector>,
+}
+
+impl JobContext {
+    pub fn new(
+        job_id: String,
+        injector: Arc<dyn JobInjector>,
+        job_cancel: CancellationToken,
+        run_cancel: CancellationToken,
+    ) -> Self {
+        Self {
+            job_cancel,
+            run_cancel,
+            job_id,
+            injector,
+        }
+    }
+
+    /// Hand `text` to the agent as a synthetic user message from this job.
+    pub async fn inject(&self, text: String) {
+        self.injector.inject(&self.job_id, text).await;
+    }
 }
 
 /// A unit of deferred work owned by the `ScheduledJobRegistry`.
@@ -128,7 +161,7 @@ pub trait ScheduledJob: Send + Sync + 'static {
     fn id(&self) -> &str;
     fn kind(&self) -> JobKind;
     fn snapshot(&self) -> JobSnapshot;
-    /// Run until done or cancelled. Inject results via `ctx.injector`.
+    /// Run until done or cancelled. Inject results via `ctx.inject`.
     async fn run(self: Box<Self>, ctx: JobContext);
 }
 
@@ -170,11 +203,12 @@ impl ScheduledJobRegistry {
         let kind = job.kind();
         let snapshot = job.snapshot();
         let cancel = CancellationToken::new();
-        let ctx = JobContext {
-            job_cancel: cancel.clone(),
+        let ctx = JobContext::new(
+            id.clone(),
+            Arc::clone(&self.injector),
+            cancel.clone(),
             run_cancel,
-            injector: Arc::clone(&self.injector),
-        };
+        );
 
         info!(id = %id, ?kind, "Registering scheduled job");
 
@@ -258,18 +292,23 @@ mod tests {
 
     #[derive(Default, Clone)]
     struct CapturingInjector {
-        messages: Arc<Mutex<Vec<String>>>,
+        messages: Arc<Mutex<Vec<(String, String)>>>,
     }
 
     impl CapturingInjector {
-        fn snapshot(&self) -> Vec<String> {
+        /// Each injection as `(idempotency_key, text)`.
+        fn snapshot(&self) -> Vec<(String, String)> {
             self.messages.lock().expect("mutex poisoned").clone()
         }
     }
 
+    #[async_trait::async_trait]
     impl JobInjector for CapturingInjector {
-        fn inject(&self, text: String) {
-            self.messages.lock().expect("mutex poisoned").push(text);
+        async fn inject(&self, idempotency_key: &str, text: String) {
+            self.messages
+                .lock()
+                .expect("mutex poisoned")
+                .push((idempotency_key.to_string(), text));
         }
     }
 
@@ -309,7 +348,11 @@ mod tests {
         assert!(ok, "expected the wakeup prompt to be injected");
         let messages = injector.snapshot();
         assert_eq!(messages.len(), 1);
-        assert_eq!(messages[0], "continue work");
+        assert_eq!(
+            messages[0],
+            ("toolu_wake_1".to_string(), "continue work".to_string()),
+            "the job id keys the injection, so two ticks of one prompt stay distinct"
+        );
     }
 
     #[tokio::test]
@@ -427,7 +470,9 @@ mod tests {
         let ok = wait_until(Duration::from_secs(5), || !injector.snapshot().is_empty()).await;
         assert!(ok, "expected a wake injection after the command exited");
         assert!(
-            injector.snapshot()[0].contains("background command has finished"),
+            injector.snapshot()[0]
+                .1
+                .contains("background command has finished"),
             "wake message should name the finished command"
         );
         assert!(

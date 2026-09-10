@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use sandbox_proto::{InterruptedTurn, PendingAgentDelivery};
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::{Mutex, RwLock, oneshot};
 use tokio_util::sync::CancellationToken;
 
 use crate::agent::agent_state::AgentState;
@@ -15,6 +15,7 @@ use crate::agent::coordinator::{Coordinator, CoordinatorService};
 use crate::agent::handle::AgentHandle;
 use crate::agent::harness::{Harness, Input, Script, SessionId, Step};
 use crate::agent::heartbeat::Heartbeat;
+use crate::agent::prompt::{PendingPrompt, PromptResponse, PromptToolName};
 use crate::agent::scheduled_job::{LateInjector, ScheduledJobRegistry};
 use crate::backend_client::BackendClient;
 use crate::config::Config;
@@ -164,8 +165,8 @@ pub(super) fn recording_state_with_config(
 }
 
 /// A `SandboxState` over an explicit `config` with a bare (undriven) agent
-/// channel — for restore tests that call `download_on_start` and never touch
-/// the agent.
+/// channel — for a restore test that calls `download_on_start` and never touches
+/// the agent, and for a dispatch test that needs the send's ack dropped.
 pub(super) fn restore_state(
     config: Arc<Config>,
     phase: InitPhase,
@@ -274,4 +275,29 @@ pub(super) async fn settled_inputs(recorder: &InputRecorder) -> Vec<Input> {
     }
     tokio::time::sleep(Duration::from_millis(20)).await;
     recorder.lock().await.clone()
+}
+
+/// Park an `ExitPlanMode` on `context`, under the run identity
+/// `resolve_pending_prompt` needs to answer one. Returns the receiver the parked
+/// call waits on, so a test reads back whether it was answered.
+pub(super) async fn park_plan_prompt(
+    context: &TaskContext,
+    tool_use_id: &str,
+) -> oneshot::Receiver<PromptResponse> {
+    context.agent.set_session_id("sess-1".to_string()).await;
+    context.agent.set_run_id("run-1".to_string()).await;
+    let (sender, receiver) = oneshot::channel();
+    assert!(
+        context
+            .agent
+            .set_pending_prompt(PendingPrompt {
+                tool_name: PromptToolName::ExitPlanMode,
+                tool_use_id: tool_use_id.to_string(),
+                input: serde_json::json!({}),
+                sender,
+            })
+            .await,
+        "the run already holds a parked prompt"
+    );
+    receiver
 }

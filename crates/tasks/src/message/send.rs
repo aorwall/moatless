@@ -168,12 +168,19 @@ fn pending_user_row(task_id: &str, uuid: String, text: String, timestamp: String
 /// a caller that retries a call it could not confirm collapses onto the first
 /// row rather than opening a second turn.
 ///
+/// `idempotency_key` is what that collapse keys on. `None` keys it on `text`,
+/// which is what a caller resending one wake wants. A caller whose text repeats
+/// verbatim across genuinely distinct sends passes its own: a `/loop` tick
+/// carries the same prompt every time, so keying on the text would swallow
+/// every tick after the first.
+///
 /// `Ok(None)` means the message is already queued, or the Task is closed.
 pub async fn enqueue_sandbox_message(
     messages: &Messages,
     tasks: &TaskCommands,
     task_id: &str,
     text: &str,
+    idempotency_key: Option<&str>,
 ) -> Result<Option<String>, MessageError> {
     // reason: the pod authenticated as itself over gRPC; there is no user request behind this.
     #[allow(clippy::disallowed_methods)]
@@ -190,7 +197,7 @@ pub async fn enqueue_sandbox_message(
         Err(e) => return Err(MessageError::Db(e)),
     }
 
-    let uuid = agent_send_idempotency_uuid(task_id, task_id, text);
+    let uuid = agent_send_idempotency_uuid(task_id, task_id, idempotency_key.unwrap_or(text));
     if let Some(existing) = messages
         .find_by_uuid(&uuid)
         .await
@@ -1033,15 +1040,16 @@ mod db_tests {
         let messages = graph.messages();
         let tasks = graph.tasks();
 
-        let uuid = enqueue_sandbox_message(&messages, &tasks, "t1", "<sandbox-restart-note>hi")
-            .await
-            .expect("enqueue")
-            .expect("a fresh wake is queued");
+        let uuid =
+            enqueue_sandbox_message(&messages, &tasks, "t1", "<sandbox-restart-note>hi", None)
+                .await
+                .expect("enqueue")
+                .expect("a fresh wake is queued");
 
         // Resending the same text is the retry of a call the pod could not
         // confirm; it must collapse onto the first row, not open a second turn.
         assert!(
-            enqueue_sandbox_message(&messages, &tasks, "t1", "<sandbox-restart-note>hi")
+            enqueue_sandbox_message(&messages, &tasks, "t1", "<sandbox-restart-note>hi", None)
                 .await
                 .expect("enqueue")
                 .is_none()
@@ -1066,9 +1074,34 @@ mod db_tests {
     async fn a_closed_task_refuses_the_wake(pool: PgPool) {
         seed_bare_task(&pool, "t1", "closed").await;
         let graph = crate::compose::task_graph(pool.clone());
-        let queued = enqueue_sandbox_message(&graph.messages(), &graph.tasks(), "t1", "hi")
+        let queued = enqueue_sandbox_message(&graph.messages(), &graph.tasks(), "t1", "hi", None)
             .await
             .expect("enqueue");
         assert!(queued.is_none());
+    }
+
+    /// A `/loop` tick repeats its prompt verbatim, so keying the dedup on the
+    /// text would queue the first tick and silently swallow every one after it.
+    #[sqlx::test]
+    async fn identical_texts_under_distinct_keys_each_open_a_turn(pool: PgPool) {
+        seed_bare_task(&pool, "t1", "open").await;
+        let graph = crate::compose::task_graph(pool.clone());
+        let (messages, tasks) = (graph.messages(), graph.tasks());
+
+        let first = enqueue_sandbox_message(&messages, &tasks, "t1", "tick", Some("job-1"))
+            .await
+            .expect("enqueue");
+        let second = enqueue_sandbox_message(&messages, &tasks, "t1", "tick", Some("job-2"))
+            .await
+            .expect("enqueue");
+        assert!(first.is_some() && second.is_some() && first != second);
+
+        // The same key twice is one job's retry, and still collapses.
+        assert!(
+            enqueue_sandbox_message(&messages, &tasks, "t1", "tick", Some("job-1"))
+                .await
+                .expect("enqueue")
+                .is_none()
+        );
     }
 }

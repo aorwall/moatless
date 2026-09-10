@@ -107,55 +107,17 @@ fn merge_lost_commands(
 /// neither could deliver. The resumed session (`--continue` for Claude, restored
 /// to disk in init) carries the context.
 ///
-/// The wake is queued as a `user` message and then dispatched, rather than
-/// pushed straight at the agent handle. The row is what the conversation shows
-/// and what `find_interrupted_turn` selects on, so a pod that dies inside a turn
-/// this opened is recoverable; a handle send leaves no row and no recovery. The
-/// handle is the fallback for a backend that cannot be reached, where an
-/// undelivered wake is the worse outcome.
+/// `dispatcher::queue_and_dispatch` owns the delivery, so the wake is a `user`
+/// row the conversation shows and `find_interrupted_turn` can resume.
 async fn report_wake_notes(
     state: &SandboxState,
     notes: BTreeMap<String, WakeNote>,
     lost: Vec<crate::commands::JournaledCommand>,
 ) {
     for (task_id, text) in wake_messages(&state.config.task_id, notes, &lost) {
-        match state
-            .backend_client
-            .enqueue_sandbox_message(&task_id, &text)
-            .await
-        {
-            // `None` is a refusal, not a queue: the task is closed, or this
-            // exact wake is already pending from an earlier restart. Dispatching
-            // on it would claim a row that nothing wrote.
-            Ok(None) => {
-                info!(task_id = %task_id, "The backend refused the wake; nothing to dispatch");
-            }
-            Ok(Some(_)) => {
-                info!(task_id = %task_id, "Queued the wake for what the restart could not report");
-                crate::agent::dispatcher::dispatch_pending_messages_for_task(
-                    state.clone(),
-                    task_id,
-                )
-                .await;
-            }
-            Err(error) => {
-                warn!(task_id = %task_id, %error, "Falling back to a direct wake; it will not appear in the conversation");
-                send_wake_directly(state, &task_id, text).await;
-            }
-        }
-    }
-}
-
-async fn send_wake_directly(state: &SandboxState, task_id: &str, text: String) {
-    match state.task_context(Some(task_id)).await {
-        Ok(context) => drop(
-            context
-                .agent_handle
-                .send(text, None, None, None, None, None, false, None),
-        ),
-        Err(e) => {
-            warn!(error = %e, task_id, "Cannot deliver a wake note without task context");
-        }
+        // No idempotency key: each Member is owed one wake, and its text is what
+        // distinguishes it.
+        crate::agent::dispatcher::queue_and_dispatch(state, &task_id, text, None).await;
     }
 }
 

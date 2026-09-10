@@ -17,6 +17,8 @@
 //! - [`precedence`] — interrupted-Run vs pending-Message precedence + fail-closed.
 //! - [`restore`] — session-state archive restore (happy / missing / corrupt) and
 //!   the restore-then-replay lifecycle.
+//! - [`job_prompts`] — the turn a scheduled job's prompt opens, and the row
+//!   that makes it recoverable.
 //! - [`lost_commands`] — the wake for `moat cmd` commands the replacement
 //!   destroyed, which no interrupted run covers because the turn had completed.
 //! - [`wake_notes`] — the wake for a caller that took the pod down and died
@@ -28,6 +30,7 @@
 mod backend;
 mod support;
 
+mod job_prompts;
 mod lost_commands;
 mod precedence;
 mod readiness;

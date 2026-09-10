@@ -88,9 +88,9 @@ Each loss cause has its own counter, and each calls for a different response:
 - A restart wake resumes the prior session. `build_input` resolves the resume
   target in order: the pod's last session id, then the backend-provided id, then
   `--continue` for the Claude family. Init restores transcripts to disk before
-  Ready. The plain `send(text, None, …, None, false, None)` that `JobInjector`
-  uses, and that `report_wake_notes` falls back to, then picks the session back
-  up with its context.
+  Ready. The plain `send(text, None, …, None, false, None)` that
+  `dispatcher::queue_and_dispatch` falls back to then picks the session back up
+  with its context.
 
 ## Spawning a child process
 
@@ -288,11 +288,29 @@ the journal on `Entry::reported`, like the watch.
 Install the journal by writing a sibling `.json.tmp` and renaming over it, so a
 kill or a snapshot racing the write cannot leave a truncated file.
 
-Deliver a wake by queueing it through `BackendClient::enqueue_sandbox_message`
-and then dispatching, not by calling `agent_handle.send`. Only the queued row
-carries the `agent_session_id` that `find_interrupted_turn` selects on, so a pod
-that dies inside a turn a direct send opened is never recovered. The direct send
-stays as the fallback for an unreachable backend.
+Deliver a wake through `dispatcher::queue_and_dispatch`, which queues the row and
+then dispatches it. Never deliver one with `agent_handle.send`. Only the queued
+row carries the `agent_session_id` that `find_interrupted_turn` selects on, so a
+pod that dies inside a turn a direct send opened is never recovered. The direct
+send stays inside that helper, as the fallback for an unreachable backend. This
+binds every in-pod caller that opens a turn: a scheduled job goes the same way,
+through `QueuedInjector`.
+
+A queued message dedups on its `idempotency_key`, and on its text when no key is
+given. Pass a key wherever two distinct sends can carry the same text; a
+scheduled job passes its `ScheduledJob::id`.
+
+Never dispatch such a row through `dispatch_pending_messages_for_task`.
+`queue_and_dispatch` records it as this pod's own, so a run parked on an
+`AskUserQuestion` or an `ExitPlanMode` never settles it as the person's answer —
+the parked call waits on a person, and a wake taken for that answer rejects a
+plan nobody read and is consumed doing it.
+
+`AgentPromptBuilder::build_pending_deliveries` coalesces every pending row into
+one delivery, so the person's answer and a waiting wake arrive together. Tell
+them apart per row, never per delivery: `resolve_pending_prompt` withholds the
+wake's uuid from the acknowledgment and redispatches it. A double that serves a
+delivery per row makes a per-delivery filter look correct.
 
 A **wake note** (`agent::wake_note`) is the general form of the same mechanism:
 text an in-pod caller leaves for the agent, held in

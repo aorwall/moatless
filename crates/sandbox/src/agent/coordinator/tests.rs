@@ -1239,8 +1239,9 @@ struct CapturingInjector {
     injected: Arc<Mutex<Vec<String>>>,
 }
 
+#[async_trait::async_trait]
 impl JobInjector for CapturingInjector {
-    fn inject(&self, text: String) {
+    async fn inject(&self, _idempotency_key: &str, text: String) {
         self.injected.lock().expect("lock").push(text);
     }
 }
