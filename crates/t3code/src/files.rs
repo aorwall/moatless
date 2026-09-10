@@ -73,12 +73,100 @@ pub async fn list_entries(
             "Sandbox file listing exceeded the T3 UI entry cap; reporting it truncated"
         );
     }
-    let entries: Vec<Value> = files
-        .iter()
-        .take(MAX_ENTRIES)
-        .filter_map(|path| entry(path))
+    let entries: Vec<Value> = share_cap(&files, MAX_ENTRIES)
+        .into_iter()
+        .filter_map(entry)
         .collect();
     Ok(json!({ "entries": entries, "truncated": truncated }))
+}
+
+/// The listing cut to `cap`, with each top-level entry holding its own share.
+///
+/// A dot entry is served in the second round, out of what the first leaves. A
+/// checkout is always `{workspace_dir}/{mount_name}` (`SandboxConfig::repos`),
+/// so a dot entry at the root is what a tool wrote and never a checkout's own
+/// `.github/`. Cloning a repo at the root would take that away.
+///
+/// Smallest group first inside a round, so a share a small entry leaves over
+/// goes to the groups still being cut and none of the cap is left unspent.
+///
+/// A cut group keeps its shallowest paths, ties broken by name, so the client
+/// gets the top of that tree and not one deep branch of it. A path's ancestors
+/// are shallower than it is, so they reach the listing beside it.
+fn share_cap(files: &[String], cap: usize) -> Vec<&str> {
+    let mut paths: Vec<&str> = files.iter().map(String::as_str).collect();
+    // Sorted here rather than relied on: the live walk sorts, the snapshot
+    // backing does not.
+    paths.sort_unstable();
+    if paths.len() <= cap {
+        return paths;
+    }
+
+    let mut groups: Vec<&[&str]> = Vec::new();
+    let mut start = 0;
+    while start < paths.len() {
+        let name = top_level(paths[start]);
+        let end = paths[start..]
+            .iter()
+            .position(|path| top_level(path) != name)
+            .map_or(paths.len(), |offset| start + offset);
+        groups.push(&paths[start..end]);
+        start = end;
+    }
+
+    let (dotted, plain): (Vec<usize>, Vec<usize>) = (0..groups.len())
+        .partition(|&group| groups[group][0].starts_with('.'));
+    let mut taken = vec![0usize; groups.len()];
+    let mut budget = cap;
+    for mut round in [plain, dotted] {
+        round.sort_unstable_by_key(|&group| groups[group].len());
+        let mut unserved = round.len();
+        for group in round {
+            let share = budget / unserved;
+            taken[group] = groups[group].len().min(share);
+            budget -= taken[group];
+            unserved -= 1;
+        }
+    }
+
+    let mut kept: Vec<&str> = groups
+        .iter()
+        .zip(&taken)
+        .flat_map(|(group, &share)| shallowest(group, share))
+        .collect();
+    kept.sort_unstable();
+    kept
+}
+
+/// The `share` shallowest paths of `group`, ties broken by name.
+fn shallowest<'a>(group: &[&'a str], share: usize) -> Vec<&'a str> {
+    // The dot round leaves a group at zero whenever the checkouts spent the
+    // cap, so this is the common path and not a corner.
+    if share == 0 {
+        return Vec::new();
+    }
+    if share == group.len() {
+        return group.to_vec();
+    }
+    let mut ordered = group.to_vec();
+    ordered.sort_unstable_by_key(|path| (depth(path), *path));
+    ordered.truncate(share);
+    ordered
+}
+
+/// How many directories `path` hangs under. A trailing slash marks a directory
+/// and does not count as one of them.
+fn depth(path: &str) -> usize {
+    path.strip_suffix('/')
+        .unwrap_or(path)
+        .matches('/')
+        .count()
+}
+
+/// The first segment of `path`, which is the entry the workspace root holds it
+/// under. A root-level file is its own segment, and so its own group.
+fn top_level(path: &str) -> &str {
+    path.split('/').next().unwrap_or(path)
 }
 
 /// One entry of a Sandbox listing, in the contract's shape.
@@ -104,12 +192,13 @@ fn entry(path: &str) -> Option<Value> {
 /// (`packages/contracts/src/project.ts:19`), it is what the file picker opens
 /// with, and the Sandbox's walker returns nothing for it
 /// (`crates/sandbox/src/files/search.rs:49`) — so that case is answered from the same
-/// listing [`list_entries`] reads, cut to `limit`.
+/// listing [`list_entries`] reads, shared across the root's entries by
+/// [`share_cap`].
 ///
 /// The reference server orders that browse by frecency. Moatless records no
 /// per-file access history and a picker's first paint does not justify a table
-/// to hold one, so the order is the walk's own. A *bounded browse* is all the
-/// contract asks for.
+/// to hold one, so the order is the sorted listing's. A *bounded browse* is all
+/// the contract asks for.
 ///
 /// Case-insensitive always: the input carries no case flag, and what reaches
 /// here is a person typing a fragment of a name.
@@ -129,10 +218,9 @@ pub async fn search_entries(
     let (mut entries, truncated) = if query.is_empty() {
         let files = checkout.listing().await?;
         let truncated = files.len() > limit;
-        let entries: Vec<Value> = files
-            .iter()
-            .take(limit)
-            .filter_map(|path| entry(path))
+        let entries: Vec<Value> = share_cap(&files, limit)
+            .into_iter()
+            .filter_map(entry)
             .collect();
         (entries, truncated)
     } else {
@@ -271,6 +359,136 @@ mod tests {
         );
         assert_eq!(entry("/"), None, "a bare slash carries no path");
         assert_eq!(entry(""), None);
+    }
+
+    /// A workspace root holding a dependency cache beside its checkouts, which
+    /// is what a Sandbox looks like after an agent has run an installer in it.
+    fn workspace(cache_packages: usize, repo_files: usize) -> Vec<String> {
+        let mut files = vec![
+            ".cache/".to_string(),
+            "repo/".to_string(),
+            "repo/src/".to_string(),
+        ];
+        for n in 0..cache_packages {
+            files.push(format!(".cache/package-{n:05}/"));
+            files.push(format!(".cache/package-{n:05}/index.js"));
+        }
+        files.extend((0..repo_files).map(|n| format!("repo/src/file-{n:05}.rs")));
+        files
+    }
+
+    #[test]
+    fn a_cache_bigger_than_the_cap_does_not_hide_the_checkouts() {
+        let files = workspace(30_000, 400);
+        let kept = share_cap(&files, 1_000);
+
+        assert_eq!(kept.len(), 1_000);
+        assert_eq!(
+            kept.iter().filter(|path| path.starts_with("repo")).count(),
+            402,
+            "the repository is under its share, so all of it is kept"
+        );
+        assert!(
+            kept.contains(&"repo/"),
+            "the client has a row to hang it on"
+        );
+    }
+
+    #[test]
+    fn a_share_the_small_entries_do_not_use_goes_to_the_cut_ones() {
+        // Twelve paths outside the cache, so the cache takes the other 988
+        // rather than the 500 an equal split would have given it.
+        let files = workspace(30_000, 10);
+        let kept = share_cap(&files, 1_000);
+        assert_eq!(kept.len(), 1_000);
+        assert_eq!(
+            kept.iter()
+                .filter(|path| path.starts_with(".cache"))
+                .count(),
+            988,
+        );
+    }
+
+    #[test]
+    fn a_dot_entry_takes_only_what_the_checkouts_leave() {
+        // The repository alone is over the cap, so the cache gets nothing.
+        let files = workspace(30_000, 2_000);
+        let kept = share_cap(&files, 1_000);
+        assert_eq!(kept.len(), 1_000);
+        assert_eq!(
+            kept.iter()
+                .filter(|path| path.starts_with(".cache"))
+                .count(),
+            0,
+        );
+    }
+
+    #[test]
+    fn a_root_of_only_dot_entries_still_spends_the_cap() {
+        // A sandbox with no repo to clone, so the first round is empty.
+        let mut files = vec![".cache/".to_string(), ".moatless/".to_string()];
+        files.extend((0..3_000).map(|n| format!(".cache/package-{n:05}")));
+        assert_eq!(share_cap(&files, 1_000).len(), 1_000);
+    }
+
+    #[test]
+    fn the_two_rounds_compose_over_two_checkouts() {
+        let mut files = vec![
+            "alpha/".to_string(),
+            "beta/".to_string(),
+            ".cache/".to_string(),
+        ];
+        files.extend((0..100).map(|n| format!("alpha/file-{n:05}.rs")));
+        files.extend((0..5_000).map(|n| format!("beta/file-{n:05}.rs")));
+        files.extend((0..10_000).map(|n| format!(".cache/package-{n:05}")));
+
+        let kept = share_cap(&files, 1_000);
+        let count = |prefix: &str| kept.iter().filter(|path| path.starts_with(prefix)).count();
+        assert_eq!(count("alpha"), 101, "under its share, so kept whole");
+        assert_eq!(count("beta"), 899, "its share, plus what alpha left");
+        assert_eq!(count(".cache"), 0, "the checkouts spent the cap");
+    }
+
+    #[test]
+    fn a_cut_group_keeps_the_top_of_its_tree() {
+        // The share stops inside the third level, so ordering by name alone
+        // would spend it all inside `repo/a/` and drop the two siblings.
+        let mut files = vec![
+            "repo/".to_string(),
+            "repo/a/".to_string(),
+            "repo/b/".to_string(),
+            "repo/c/".to_string(),
+        ];
+        for directory in ["a", "b", "c"] {
+            files.extend((0..100).map(|n| format!("repo/{directory}/file-{n:05}.rs")));
+        }
+
+        let kept = share_cap(&files, 20);
+        assert_eq!(kept.len(), 20);
+        assert!(kept.contains(&"repo/b/"), "the second directory is listed");
+        assert!(kept.contains(&"repo/c/"), "the third directory is listed");
+    }
+
+    #[test]
+    fn every_kept_path_keeps_the_directories_it_hangs_under() {
+        let files = workspace(30_000, 400);
+        let kept = share_cap(&files, 1_000);
+        let directories: std::collections::HashSet<&str> = kept
+            .iter()
+            .filter_map(|path| path.strip_suffix('/'))
+            .collect();
+        for path in &kept {
+            let path = path.strip_suffix('/').unwrap_or(path);
+            if let Some((parent, _)) = path.rsplit_once('/') {
+                assert!(directories.contains(parent), "{path} hangs under {parent}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_listing_inside_the_cap_is_kept_whole() {
+        let files = workspace(10, 10);
+        assert_eq!(share_cap(&files, 1_000).len(), files.len());
     }
 
     #[test]
