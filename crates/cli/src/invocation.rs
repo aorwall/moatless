@@ -167,6 +167,9 @@ async fn run_shared(
         SharedCommands::GithubApp { action } => {
             commands::github_apps::run(moat, action, json).await?;
         }
+        SharedCommands::App { action } => {
+            commands::provider_apps::run(moat, action, json).await?;
+        }
         SharedCommands::Send(args) => {
             commands::send::run(moat, *args, cfg, json).await?;
         }

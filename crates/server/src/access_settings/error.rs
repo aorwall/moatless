@@ -6,6 +6,19 @@ use tracing::error;
 
 use moatless_core::error::error_response;
 use moatless_identity::adapter_apps::administration::AppAdministrationError;
+use moatless_identity::auth::error::AuthError;
+
+/// A registration that cannot be read or written is a configuration fault, and
+/// it is answered as one: only a rejected input is the caller's to fix.
+pub(crate) fn auth_error(error: AuthError) -> AccessSettingsError {
+    match error {
+        AuthError::BadRequest(message) => AccessSettingsError::BadRequest(message),
+        AuthError::NotFound(message) => AccessSettingsError::NotFound(message),
+        AuthError::Database(source) => AccessSettingsError::Db(source),
+        AuthError::Store(source) => AccessSettingsError::Store(source),
+        other => AccessSettingsError::Internal(other),
+    }
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum AccessSettingsError {

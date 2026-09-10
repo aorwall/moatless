@@ -12,6 +12,17 @@ use crate::forgejo::instances::{ForgejoOAuthApp, base_url};
 
 const OPERATION: &str = "Forgejo";
 
+/// The authorization code [`ForgejoOAuth::verify_client_credentials`] presents.
+/// Forgejo has to reject it, and what it says while rejecting it is the answer.
+const PROBE_CODE: &str = "moatless-credential-probe";
+
+/// The `error_description` fragments Forgejo answers `unauthorized_client` with
+/// when the client credentials themselves are wrong, lowercased for comparison.
+///
+/// From `handleAuthorizationCode` (`routers/web/auth/oauth.go`): "invalid client
+/// secret", "invalid empty client secret" and "unexpected redirect URI".
+const CLIENT_REJECTIONS: [&str; 2] = ["client secret", "unexpected redirect uri"];
+
 /// A credential Forgejo issued, and when it stops working.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ForgejoOAuthTokens {
@@ -70,6 +81,27 @@ impl ForgejoOAuth {
             ],
         )
         .await
+    }
+
+    /// Check `app`'s client id, client secret and `redirect_uri` against its
+    /// instance, with nobody authorizing anything.
+    ///
+    /// Forgejo validates all three before it looks an authorization code up, so
+    /// a code it is bound to reject still says which of them is wrong. Returns
+    /// that rejection unchanged.
+    ///
+    /// A public client proves only its id: Forgejo checks a secret only when
+    /// the application sets `ConfidentialClient`.
+    pub async fn verify_client_credentials(
+        &self,
+        app: &ForgejoOAuthApp,
+        redirect_uri: &str,
+    ) -> Result<(), GitProviderError> {
+        match self.exchange_code(app, PROBE_CODE, redirect_uri).await {
+            Ok(_) => Ok(()),
+            Err(error) if only_the_code_was_rejected(&error) => Ok(()),
+            Err(error) => Err(error),
+        }
     }
 
     /// Exchange a refresh token for a fresh credential.
@@ -147,6 +179,32 @@ impl ForgejoOAuth {
     }
 }
 
+/// Whether `error` is Forgejo rejecting [`PROBE_CODE`] alone, having accepted
+/// the client id, the client secret and the redirect URI before it reached the
+/// code.
+///
+/// Wording under `unauthorized_client` that matches no [`CLIENT_REJECTIONS`]
+/// entry counts as the code: a description a later Forgejo release rewords then
+/// still registers, rather than locking every admin out.
+fn only_the_code_was_rejected(error: &GitProviderError) -> bool {
+    let GitProviderError::OAuthRejected {
+        code, description, ..
+    } = error
+    else {
+        return false;
+    };
+    match code.as_str() {
+        "invalid_grant" => true,
+        "unauthorized_client" => {
+            let description = description.to_ascii_lowercase();
+            !CLIENT_REJECTIONS
+                .iter()
+                .any(|fragment| description.contains(fragment))
+        }
+        _ => false,
+    }
+}
+
 #[derive(Deserialize)]
 struct TokenResponse {
     access_token: Option<String>,
@@ -183,5 +241,52 @@ mod tests {
             "{url}"
         );
         assert!(url.contains("state=st8"), "{url}");
+    }
+
+    fn rejected(code: &str, description: &str) -> GitProviderError {
+        GitProviderError::OAuthRejected {
+            provider: OPERATION,
+            code: code.to_string(),
+            description: description.to_string(),
+        }
+    }
+
+    #[test]
+    fn a_rejected_client_is_told_apart_from_a_rejected_code() {
+        // The three `handleAuthorizationCode` checks that run before the code.
+        assert!(!only_the_code_was_rejected(&rejected(
+            "invalid_client",
+            "cannot load client with client id: 'nope'"
+        )));
+        assert!(!only_the_code_was_rejected(&rejected(
+            "unauthorized_client",
+            "invalid client secret"
+        )));
+        assert!(!only_the_code_was_rejected(&rejected(
+            "unauthorized_client",
+            "invalid empty client secret"
+        )));
+        assert!(!only_the_code_was_rejected(&rejected(
+            "unauthorized_client",
+            "unexpected redirect URI"
+        )));
+
+        // Past all three: the probe code is the only thing left to fail on.
+        assert!(only_the_code_was_rejected(&rejected(
+            "unauthorized_client",
+            "client is not authorized"
+        )));
+        assert!(only_the_code_was_rejected(&rejected("invalid_grant", "")));
+        // Reworded by a later release, and still registered.
+        assert!(only_the_code_was_rejected(&rejected(
+            "unauthorized_client",
+            "no such authorization"
+        )));
+
+        assert!(!only_the_code_was_rejected(
+            &GitProviderError::MalformedResponse(
+                "Forgejo answered 200 with no access_token".into()
+            )
+        ));
     }
 }

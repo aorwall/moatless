@@ -37,6 +37,20 @@ pub fn base_url(host: &str) -> String {
     format!("https://{host}")
 }
 
+/// The `redirect_uri` every authorization request carries, and the one each
+/// registered Forgejo application must list.
+///
+/// Derived from the frontend origin rather than configured separately: the
+/// browser reaches this deployment's API through the frontend host, which
+/// proxies `/api`, and that is also the origin the `oauth_state` cookie the
+/// callback reads is set on.
+pub fn callback_url(frontend_url: &str) -> String {
+    format!(
+        "{}/api/v1/auth/forgejo/callback",
+        frontend_url.trim_end_matches('/')
+    )
+}
+
 /// `host` as it is stored and compared: lowercased, with any scheme, path,
 /// query, fragment or trailing dot removed.
 ///
@@ -188,6 +202,14 @@ mod tests {
         // satisfy `forgejo_instances_host_format_chk`, which admits neither.
         assert_eq!(normalize_host("git.acme.dev?next=/x"), "git.acme.dev");
         assert_eq!(normalize_host("https://git.acme.dev#top"), "git.acme.dev");
+    }
+
+    #[test]
+    fn the_callback_url_is_one_path_under_the_frontend_origin() {
+        assert_eq!(
+            callback_url("https://app.example/"),
+            "https://app.example/api/v1/auth/forgejo/callback"
+        );
     }
 
     #[test]

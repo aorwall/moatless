@@ -26,6 +26,7 @@ pub mod loops;
 pub mod message;
 pub mod patch;
 pub mod plugin;
+pub mod provider_apps;
 pub mod repository;
 pub mod sandbox;
 pub mod setup;

@@ -20,7 +20,7 @@ use super::connect_return::{approved_return_url, redirect, with_outcome};
 use super::cookie;
 use super::error::AuthError;
 use super::state::AuthState;
-use crate::forgejo::normalize_host;
+use crate::forgejo::{callback_url, normalize_host};
 use crate::git_host_access::{GitHostAccessError, GitHostPrincipal};
 
 /// Query parameter the return URL is loaded with, so the page that sent the
@@ -59,20 +59,6 @@ pub(super) fn parse_connect_state(state: &str) -> Option<ConnectState<'_>> {
         host,
         return_url,
     })
-}
-
-/// The `redirect_uri` every authorization request carries, and the one each
-/// registered Forgejo application must list.
-///
-/// Derived from the frontend origin rather than configured separately: the
-/// browser reaches this deployment's API through the frontend host, which
-/// proxies `/api`, and that is also the origin the `oauth_state` cookie the
-/// callback reads is set on.
-pub(super) fn callback_url(frontend_url: &str) -> String {
-    format!(
-        "{}/api/v1/auth/forgejo/callback",
-        frontend_url.trim_end_matches('/')
-    )
 }
 
 /// Send the browser to `host` to authorize this deployment on `user_id`'s
@@ -217,7 +203,10 @@ mod tests {
         assert_eq!(parsed.user_id, user());
         // The port is part of the host, and `:` is therefore not a delimiter.
         assert_eq!(parsed.host, "git.acme.dev:3000");
-        assert_eq!(parsed.return_url, "https://t3.example/settings/account?tab=git");
+        assert_eq!(
+            parsed.return_url,
+            "https://t3.example/settings/account?tab=git"
+        );
     }
 
     #[test]
@@ -226,8 +215,10 @@ mod tests {
         assert!(parse_connect_state("deadbeef:cli:1234").is_none());
         // A GitHub connect state: it has the user id, but no host field.
         assert!(
-            parse_connect_state("deadbeef:11111111-2222-3333-4444-555555555555:connect:https://t3.example/s")
-                .is_none()
+            parse_connect_state(
+                "deadbeef:11111111-2222-3333-4444-555555555555:connect:https://t3.example/s"
+            )
+            .is_none()
         );
     }
 
@@ -238,14 +229,6 @@ mod tests {
         assert!(parse_connect_state("deadbeef|git.acme.dev|https://t3.example/s").is_none());
         assert!(
             parse_connect_state("deadbeef:not-a-uuid|git.acme.dev|https://t3.example/s").is_none()
-        );
-    }
-
-    #[test]
-    fn the_callback_url_is_one_path_under_the_frontend_origin() {
-        assert_eq!(
-            callback_url("https://app.example/"),
-            "https://app.example/api/v1/auth/forgejo/callback"
         );
     }
 }

@@ -16,5 +16,7 @@ pub mod oauth;
 pub(crate) use client::http_client;
 
 pub use access::{ForgejoAccess, ForgejoProviderTokenStatus};
-pub use instances::{ForgejoInstances, ForgejoOAuthApp, RegisteredForgejoInstance, normalize_host};
+pub use instances::{
+    ForgejoInstances, ForgejoOAuthApp, RegisteredForgejoInstance, callback_url, normalize_host,
+};
 pub use oauth::{ForgejoOAuth, ForgejoOAuthTokens};

@@ -139,6 +139,12 @@ pub(super) enum SharedCommands {
         #[command(subcommand)]
         action: commands::github_apps::GitHubAppAction,
     },
+    /// Provider app administration — register the Forgejo, Slack, Telegram and
+    /// Linear credentials this deployment connects with.
+    App {
+        #[command(subcommand)]
+        action: commands::provider_apps::ProviderAppAction,
+    },
     /// Send a message — drive a task, DM a user, or pass through an adapter
     /// destination (Slack channel/DM/thread, Linear issue, ...). Replies and
     /// emoji reactions to specific messages live under `moat messages`.

@@ -22,6 +22,9 @@ use crate::state::AppState;
         handlers::admin_register_github_app,
         handlers::admin_rotate_github_app_key,
         handlers::admin_remove_github_app,
+        handlers::admin_list_provider_apps,
+        handlers::admin_save_provider_app,
+        handlers::admin_remove_provider_app,
         handlers::admin_list_adapter_apps,
         handlers::admin_save_adapter_app,
         handlers::admin_delete_adapter_app,
@@ -63,6 +66,11 @@ pub fn access_settings_router(state: AppState) -> (axum::Router, utoipa::openapi
         ))
         .routes(routes!(handlers::admin_remove_github_app))
         .routes(routes!(handlers::admin_rotate_github_app_key))
+        .routes(routes!(handlers::admin_list_provider_apps))
+        .routes(routes!(
+            handlers::admin_save_provider_app,
+            handlers::admin_remove_provider_app
+        ))
         .routes(routes!(handlers::admin_list_adapter_apps))
         .routes(routes!(
             handlers::admin_save_adapter_app,

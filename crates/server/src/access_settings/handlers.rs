@@ -5,17 +5,21 @@ use std::sync::Arc;
 use axum::Json;
 use axum::extract::{Path, Query, State};
 
-use crate::access_settings::error::AccessSettingsError;
+use crate::access_settings::error::{AccessSettingsError, auth_error};
+use crate::access_settings::provider_apps;
 use crate::access_settings::schemas::*;
 use crate::agent_harness_access::{
     AgentHarnessAccess, AgentHarnessCredentialStatus, DeviceLoginPoll,
+};
+use crate::state::AppState;
+use moatless_api_schemas::provider_apps::{
+    ProviderAppSummary, ProviderAppsResponse, SaveProviderAppRequest,
 };
 use moatless_core::http_auth::AuthUser;
 use moatless_identity::adapter_apps::administration::{
     AdapterAppSave, AppAdministration, GitHubAppRegistration, GitHubAppRegistrationInput,
     GitHubAppView,
 };
-use moatless_identity::auth::error::AuthError;
 use moatless_identity::forgejo::{
     ForgejoAccess, ForgejoInstances, ForgejoProviderTokenStatus, RegisteredForgejoInstance,
 };
@@ -38,18 +42,6 @@ fn require_admin(auth: &AuthUser) -> Result<(), AccessSettingsError> {
         Err(AccessSettingsError::Forbidden(
             "Only administrators can administer Forgejo instances".to_string(),
         ))
-    }
-}
-
-/// A registration that cannot be read or written is a configuration fault, and
-/// it is answered as one: only a rejected input is the caller's to fix.
-fn auth_error(error: AuthError) -> AccessSettingsError {
-    match error {
-        AuthError::BadRequest(message) => AccessSettingsError::BadRequest(message),
-        AuthError::NotFound(message) => AccessSettingsError::NotFound(message),
-        AuthError::Database(source) => AccessSettingsError::Db(source),
-        AuthError::Store(source) => AccessSettingsError::Store(source),
-        other => AccessSettingsError::Internal(other),
     }
 }
 
@@ -564,6 +556,90 @@ pub async fn poll_codex_device_login(
         },
     };
     Ok(Json(response))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/admin/settings/apps",
+    tag = "app-administration",
+    responses(
+        (status = 200, description = "Every provider spec, and every app registered", body = ProviderAppsResponse),
+        (status = 401, description = "Not authenticated", body = moatless_api_schemas::error::ErrorBody),
+        (status = 403, description = "Admin only", body = moatless_api_schemas::error::ErrorBody)
+    )
+)]
+pub async fn admin_list_provider_apps(
+    State(state): State<AppState>,
+    auth: AuthUser,
+) -> Result<Json<ProviderAppsResponse>, AccessSettingsError> {
+    Ok(Json(ProviderAppsResponse {
+        specs: provider_apps::specs(&state.config.auth.frontend_url),
+        apps: provider_apps::list(&state, &auth.scope_context()).await?,
+    }))
+}
+
+#[utoipa::path(
+    put,
+    path = "/api/v1/admin/settings/apps/{provider}/{key}",
+    tag = "app-administration",
+    params(
+        ("provider" = String, Path, description = "A provider named by GET /api/v1/admin/settings/apps"),
+        ("key" = String, Path, description = "A Forgejo host, or an adapter's app key")
+    ),
+    request_body = SaveProviderAppRequest,
+    responses(
+        (status = 200, description = "App registered", body = ProviderAppSummary),
+        (status = 400, description = "A field is unknown, missing, or the provider rejected the credentials", body = moatless_api_schemas::error::ErrorBody),
+        (status = 401, description = "Not authenticated", body = moatless_api_schemas::error::ErrorBody),
+        (status = 403, description = "Admin only", body = moatless_api_schemas::error::ErrorBody),
+        (status = 404, description = "No such provider", body = moatless_api_schemas::error::ErrorBody)
+    )
+)]
+pub async fn admin_save_provider_app(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Path((provider, key)): Path<(String, String)>,
+    Json(request): Json<SaveProviderAppRequest>,
+) -> Result<Json<ProviderAppSummary>, AccessSettingsError> {
+    Ok(Json(
+        provider_apps::save(
+            &state,
+            &auth.scope_context(),
+            &provider,
+            &key,
+            request.fields,
+        )
+        .await?,
+    ))
+}
+
+#[utoipa::path(
+    delete,
+    path = "/api/v1/admin/settings/apps/{provider}/{key}",
+    tag = "app-administration",
+    params(
+        ("provider" = String, Path, description = "A provider named by GET /api/v1/admin/settings/apps"),
+        ("key" = String, Path, description = "A Forgejo host, or an adapter's app key")
+    ),
+    responses(
+        (status = 204, description = "App removed"),
+        (status = 401, description = "Not authenticated", body = moatless_api_schemas::error::ErrorBody),
+        (status = 403, description = "Admin only", body = moatless_api_schemas::error::ErrorBody),
+        (status = 404, description = "Nothing is registered under that provider and key", body = moatless_api_schemas::error::ErrorBody)
+    )
+)]
+pub async fn admin_remove_provider_app(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Path((provider, key)): Path<(String, String)>,
+) -> Result<axum::http::StatusCode, AccessSettingsError> {
+    if provider_apps::remove(&state, &auth.scope_context(), &provider, &key).await? {
+        Ok(axum::http::StatusCode::NO_CONTENT)
+    } else {
+        Err(AccessSettingsError::NotFound(format!(
+            "No {provider} app is registered as '{key}'"
+        )))
+    }
 }
 
 #[utoipa::path(
