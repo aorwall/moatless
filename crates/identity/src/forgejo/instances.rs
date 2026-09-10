@@ -116,6 +116,28 @@ impl ForgejoInstances {
         }))
     }
 
+    /// Whether `host` has a registered application, without opening its secret.
+    ///
+    /// A deployment with no encryption key configured has no usable
+    /// registration, because every stored client secret stays sealed. Unlike
+    /// [`Self::app`] this decrypts nothing, so a screen can ask it per listed
+    /// host.
+    pub(crate) async fn app_available(&self, host: &str) -> Result<bool, AuthError> {
+        if self.cipher.is_none() {
+            // Registering needs a cipher, so no row here is usable.
+            tracing::warn!(
+                host,
+                "No secret encryption key: reporting the Forgejo application unavailable"
+            );
+            return Ok(false);
+        }
+        Ok(self
+            .instances
+            .find_by_host(&normalize_host(host))
+            .await?
+            .is_some())
+    }
+
     pub async fn list(&self) -> Result<Vec<RegisteredForgejoInstance>, AuthError> {
         Ok(self
             .instances

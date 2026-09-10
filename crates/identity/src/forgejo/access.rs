@@ -296,12 +296,12 @@ impl ForgejoAccess {
             })
     }
 
-    /// Whether `host` has a registered application to connect through. A
-    /// registration that cannot be read is reported as unavailable and logged:
-    /// this only decides which buttons a screen offers.
+    /// Whether `host` has a registered application to connect through. A read
+    /// that fails is reported as unavailable and logged: this only decides
+    /// which buttons a screen offers.
     async fn oauth_available(&self, host: &str) -> bool {
-        match self.instances.app(host).await {
-            Ok(app) => app.is_some(),
+        match self.instances.app_available(host).await {
+            Ok(available) => available,
             Err(error) => {
                 tracing::warn!(%error, host, "Failed to read the Forgejo OAuth application");
                 false
