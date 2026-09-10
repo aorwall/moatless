@@ -156,19 +156,21 @@ fn file_url(resource: &Value) -> Result<Value, AssetUrlError> {
 
     // The client resolves a workspace path against the `cwd` it was given, so
     // what arrives is this module's own nominal worktree with the file hanging
-    // off it. A path that is already relative is taken as it stands.
+    // off it. What is left is the path an agent wrote: relative to a checkout,
+    // or the absolute one it used inside the Sandbox. The root comes off either
+    // way, because it has to become a segment of a URL, and
+    // [`Checkout::resolve`] reads a mention with or without one.
     let relative = path
         .strip_prefix(&projection::nominal_worktree(thread_id))
-        .map_or(path, |nested| nested.trim_start_matches('/'));
-    // What is minted has to be something [`serve`] can read, and it reads
-    // through the Sandbox's own `validate_path` (`crates/sandbox/src/files`),
-    // which refuses a leading `/` and any `..` before it looks at the disk.
-    // Minting either answers the frame a 400 carrying that refusal instead of
-    // the tag the client renders as a sentence — the same invisible refusal
-    // this module exists to avoid. A `media-file` may name an absolute path
-    // outside the workspace and this is where that stops: nothing outside the
-    // checkout is reachable from here.
-    if relative.is_empty() || relative.starts_with('/') || relative.contains("..") {
+        .unwrap_or(path)
+        .trim_start_matches('/');
+    // A `..` names nothing this can resolve and the Sandbox refuses it outright
+    // (`crates/sandbox/src/files/path.rs`), so it is refused here in the
+    // contract's own type: minting it would answer the frame a status code
+    // where the client renders a sentence. An absolute path is not refused
+    // here — [`serve`] resolves one against the workspace listing, which is
+    // what keeps a path outside the checkout unreachable.
+    if relative.is_empty() || relative.contains("..") {
         return Err(AssetUrlError::NotFound);
     }
     let lowered = relative.to_ascii_lowercase();
@@ -389,32 +391,37 @@ mod tests {
         ));
     }
 
-    /// A `media-file` path may name somewhere outside the workspace, and the
-    /// Sandbox refuses a leading `/` or a `..` before it reads anything — so
-    /// minting one would answer the frame a 400 carrying that refusal instead
-    /// of the tag the client renders as a sentence.
+    /// A `..` resolves to nothing in [`Checkout`] and the Sandbox refuses it
+    /// outright, so minting one would answer the frame a status code where the
+    /// client renders a sentence.
     #[test]
     fn a_path_the_sandbox_would_refuse_is_refused_in_the_contracts_own_type() {
         let media = |path: &str| json!({ "_tag": "media-file", "threadId": "t-1", "path": path });
-        for path in [
-            "/etc/passwd.png",
-            "/var/run/secrets/x.png",
-            "../../etc/x.png",
-            "docs/../../x.png",
-        ] {
+        for path in ["../../etc/x.png", "docs/../../x.png"] {
             assert!(
                 matches!(create_url(&media(path)), Err(AssetUrlError::NotFound)),
                 "{path} was minted, and the Sandbox would refuse it"
             );
         }
-        // The same guard on the tag that has always been here: an absolute path
-        // outside the checkout never resolved, it only failed later.
-        assert!(matches!(
-            create_url(&workspace_file("/etc/passwd.png")),
-            Err(AssetUrlError::NotFound)
-        ));
         // A path inside the checkout still mints, dots in a name and all.
         assert!(create_url(&media("/moatless/tasks/t-1/a.b.png")).is_ok());
+    }
+
+    /// An agent writes the path it used inside the Sandbox, and that is the one
+    /// that reaches this surface: the client's `workspaceRoot` is the nominal
+    /// worktree, so it has no root to subtract and passes the mention through
+    /// (`packages/client-runtime/src/mediaReference.ts`). Refusing it here left
+    /// every agent-written image in a transcript unrendered.
+    #[test]
+    fn an_absolute_sandbox_path_is_minted_for_serve_to_resolve() {
+        let minted = create_url(&workspace_file(
+            "/opt/moatless/workspace/moatless/docs/shot.png",
+        ))
+        .expect("a previewable file");
+        assert_eq!(
+            minted["relativeUrl"], "/api/assets/t-1/opt/moatless/workspace/moatless/docs/shot.png",
+            "the root becomes a segment: a URL with `//` in it is one a proxy may merge"
+        );
     }
 
     /// An attachment is an upload, so it is addressed where uploads are — and

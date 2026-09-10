@@ -18,8 +18,10 @@
 //!
 //! **A read is addressed from the workspace root, and a mention is not.** The
 //! root holds a checkout per repository, so a path an agent writes into a
-//! transcript is one directory short of a file here. Reading resolves that
-//! ([`crate::checkout::nested_match`]); writing deliberately does not.
+//! transcript is one directory short of a file here — or, when the agent wrote
+//! the path it used inside the Sandbox, a whole disk long. Reading resolves both
+//! ([`crate::checkout::nested_match`], [`crate::checkout::rooted_match`]);
+//! writing deliberately does not.
 
 use serde_json::{Value, json};
 use tracing::warn;
@@ -199,10 +201,10 @@ pub async fn write_file(
 /// returns.
 ///
 /// **The path that comes back is the path that was read**, which is not always
-/// the path that was asked for — see [`crate::checkout::nested_match`]. The
-/// contract carries `relativePath` in the result for exactly this reason, and a
-/// client that keeps addressing the file it opened by the path it typed will
-/// write its edits somewhere else.
+/// the path that was asked for — see [`crate::checkout::nested_match`] and
+/// [`crate::checkout::rooted_match`]. The contract carries `relativePath` in the
+/// result for exactly this reason, and a client that keeps addressing the file
+/// it opened by the path it typed will write its edits somewhere else.
 pub async fn read_file(
     reads: &T3Reads,
     sources: Sources<'_>,

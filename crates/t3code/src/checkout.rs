@@ -174,21 +174,26 @@ impl<'a> Checkout<'a> {
         }
     }
 
-    /// One file, resolving a path that names it from inside a checkout.
+    /// One file, resolving a path an agent wrote rather than one this module
+    /// issued.
     ///
-    /// A miss at the workspace root is retried against
-    /// [`crate::checkout::nested_match`], because the paths an agent writes into
-    /// a transcript are relative to the repository it works in and this module
-    /// addresses from the root. The [`Content::path`] that comes back is the one
-    /// that was read.
+    /// A path the workspace root holds is read as it stands, and anything else
+    /// goes to [`Self::resolve`]. The [`Content::path`] that comes back is the
+    /// one that was read.
     pub(crate) async fn read(&self, relative_path: &str) -> Result<Content, WorkspaceAccessError> {
-        let miss = match self.read_at(relative_path).await {
-            Ok(content) => return Ok(content),
-            Err(WorkspaceAccessError::Sandbox(SandboxError::NotFound(message))) => message,
-            Err(error) => return Err(error),
+        // Reading an absolute path is refused before either backing looks at
+        // the file, so there is no miss to learn anything from.
+        let miss = if relative_path.starts_with('/') {
+            relative_path.to_string()
+        } else {
+            match self.read_at(relative_path).await {
+                Ok(content) => return Ok(content),
+                Err(WorkspaceAccessError::Sandbox(SandboxError::NotFound(message))) => message,
+                Err(error) => return Err(error),
+            }
         };
-        match self.nested(relative_path).await {
-            Some(nested) => self.read_at(&nested).await,
+        match self.resolve(relative_path).await {
+            Some(path) => self.read_at(&path).await,
             // Nothing in the workspace is called this, so the miss is the
             // answer.
             None => Err(WorkspaceAccessError::Sandbox(SandboxError::NotFound(miss))),
@@ -246,10 +251,20 @@ impl<'a> Checkout<'a> {
         }
     }
 
-    /// The workspace path a repository-relative path names, when the workspace
-    /// root has no such file. See [`nested_match`].
-    async fn nested(&self, relative_path: &str) -> Option<String> {
-        let needle = relative_path.trim_start_matches("./").trim_end_matches('/');
+    /// The workspace path a mention names, when this module's own addressing
+    /// does not reach the file.
+    ///
+    /// A mention arrives either short of the workspace root or past it, and the
+    /// string does not say which: the asset route spends a Sandbox path's
+    /// leading `/` on the URL it is a segment of, and a proxy that merges
+    /// duplicate slashes would eat it anyway. So the root is stripped and both
+    /// readings are tried, [`nested_match`] first because a repository-relative
+    /// mention is the one an agent writes most.
+    async fn resolve(&self, mention: &str) -> Option<String> {
+        let needle = mention
+            .trim_start_matches('/')
+            .trim_start_matches("./")
+            .trim_end_matches('/');
         if needle.is_empty() {
             return None;
         }
@@ -257,13 +272,12 @@ impl<'a> Checkout<'a> {
             .listing()
             .await
             .inspect_err(|error| {
-                warn!(
-                    ?error,
-                    "Could not list the workspace to resolve a repository-relative path"
-                );
+                warn!(?error, "Could not list the workspace to resolve a mention");
             })
             .ok()?;
-        nested_match(&listing, needle).map(str::to_string)
+        nested_match(&listing, needle)
+            .or_else(|| rooted_match(&listing, &format!("/{needle}")))
+            .map(str::to_string)
     }
 
     /// What a caller is told when the snapshot could not answer.
@@ -319,6 +333,36 @@ pub(crate) fn nested_match<'l>(listing: &'l [String], needle: &str) -> Option<&'
         .filter(|path| !path.ends_with('/') && path.ends_with(&suffix))
         .map(String::as_str)
         .min_by_key(|path| (path.len(), *path))
+}
+
+/// The one entry of `listing` that an absolute `needle` names.
+///
+/// An agent works inside the Sandbox and writes the path it used there, so a
+/// transcript carries `/opt/moatless/workspace/moatless/README.md` as readily as
+/// it carries a repository-relative path. Both name a file the tree already
+/// shows, and neither is addressable as it stands: this module addresses from
+/// the workspace root, and the Sandbox refuses a leading `/` before it opens
+/// anything (`crates/sandbox/src/files/path.rs`).
+///
+/// Where that root sits on the Sandbox's disk is the Sandbox's own business and
+/// no field this crate is given, so the match is on the listing instead: the
+/// longest entry the absolute path ends on, at a segment boundary. Longest
+/// rather than shallowest, deliberately — every shorter match is a different
+/// file that happens to share a tail, and the longest is the one the person
+/// named. A path that ends on nothing in the listing stays unresolved, which is
+/// what keeps `/etc/passwd` out of a workspace read.
+pub(crate) fn rooted_match<'l>(listing: &'l [String], needle: &str) -> Option<&'l str> {
+    listing
+        .iter()
+        // Directories carry a trailing slash and are not files to open.
+        .filter(|path| !path.ends_with('/'))
+        .map(String::as_str)
+        .filter(|path| {
+            needle
+                .strip_suffix(*path)
+                .is_some_and(|root| root.ends_with('/'))
+        })
+        .max_by_key(|path| path.len())
 }
 
 #[cfg(test)]
@@ -522,5 +566,107 @@ mod tests {
     fn a_path_that_is_nowhere_in_the_workspace_resolves_to_nothing() {
         let listing = ["moatless/backend/migrations/0125.sql".to_string()];
         assert_eq!(nested_match(&listing, "nowhere/at/all.sql"), None);
+    }
+
+    /// The other shape a mention arrives in: the path the agent used inside its
+    /// Sandbox, which no caller here can subtract the workspace root from.
+    #[test]
+    fn an_absolute_path_names_the_file_it_ends_on() {
+        let listing = [
+            "moatless/".to_string(),
+            "moatless/README.md".to_string(),
+            "moatless/crates/t3code/src/files.rs".to_string(),
+        ];
+        assert_eq!(
+            rooted_match(
+                &listing,
+                "/opt/moatless/workspace/moatless/crates/t3code/src/files.rs"
+            ),
+            Some("moatless/crates/t3code/src/files.rs"),
+        );
+        assert_eq!(
+            rooted_match(&listing, "/opt/moatless/workspace/moatless/README.md"),
+            Some("moatless/README.md"),
+        );
+    }
+
+    /// Every shorter tail is a different file that happens to end the same way,
+    /// so the longest one is the only match that is the file the person named.
+    #[test]
+    fn the_longest_match_wins_and_a_partial_segment_is_not_one() {
+        let listing = [
+            "README.md".to_string(),
+            "moatless/README.md".to_string(),
+            "docs/moatless/README.md".to_string(),
+        ];
+        assert_eq!(
+            rooted_match(&listing, "/opt/moatless/workspace/docs/moatless/README.md"),
+            Some("docs/moatless/README.md"),
+        );
+        assert_eq!(
+            rooted_match(&["adme.md".to_string()], "/opt/workspace/README.md"),
+            None,
+            "a tail that stops inside a segment names nothing",
+        );
+    }
+
+    /// A path outside the workspace ends on nothing the tree shows, and this is
+    /// what stops the read from reaching it.
+    #[test]
+    fn an_absolute_path_outside_the_workspace_resolves_to_nothing() {
+        let listing = [
+            "moatless/README.md".to_string(),
+            "moatless/passwd".to_string(),
+        ];
+        assert_eq!(rooted_match(&listing, "/etc/passwd"), None);
+    }
+
+    /// The whole point of resolving before the read: neither backing accepts a
+    /// leading `/`, so an unresolved absolute path costs a round trip that can
+    /// only fail.
+    #[tokio::test]
+    async fn an_absolute_read_opens_the_file_it_ends_on() {
+        let mut source = MockWorkspaceSnapshotSource::new();
+        source.expect_read().returning(|_, path| {
+            if path == "repo/src/main.rs" {
+                Ok(StoredFile {
+                    content: b"fn main() {}".to_vec(),
+                    synced_at: Utc::now(),
+                })
+            } else {
+                Err(SnapshotError::NotFound)
+            }
+        });
+        source
+            .expect_list()
+            .returning(|_, _, _| Ok(listing(&[("repo", true), ("repo/src/main.rs", false)])));
+
+        let checkout = stored(source).await;
+        for mention in [
+            "/opt/moatless/workspace/repo/src/main.rs",
+            // The asset route's form: the root spent on the URL it is a
+            // segment of.
+            "opt/moatless/workspace/repo/src/main.rs",
+        ] {
+            let found = checkout.read(mention).await.unwrap();
+            assert_eq!(found.path, "repo/src/main.rs", "{mention}");
+        }
+    }
+
+    /// The person asked for a file, so they are told it is not here — not that
+    /// the request itself was malformed, which sends them nowhere.
+    #[tokio::test]
+    async fn an_absolute_read_that_matches_nothing_is_a_miss_on_the_path_asked_for() {
+        let mut source = MockWorkspaceSnapshotSource::new();
+        source
+            .expect_list()
+            .returning(|_, _, _| Ok(listing(&[("repo/src/main.rs", false)])));
+
+        let Err(WorkspaceAccessError::Sandbox(SandboxError::NotFound(missed))) =
+            stored(source).await.read("/etc/passwd").await
+        else {
+            panic!("a path the workspace does not hold is a miss");
+        };
+        assert_eq!(missed, "/etc/passwd");
     }
 }
