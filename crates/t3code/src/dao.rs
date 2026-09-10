@@ -146,6 +146,16 @@ pub struct ConversationPullRequest {
     /// for an unrefreshed binding too. The columns
     /// [`crate::ports::BoundPullRequest::status_read_at`] reports.
     pub status_read_at: DateTime<Utc>,
+    /// When the binding was written. T3's `linkedAt`, and what orders links of
+    /// equal standing there.
+    pub linked_at: DateTime<Utc>,
+    /// `task_bindings.origin`, translated to a T3 link source by
+    /// [`crate::projection::thread_pull_request_source`].
+    pub origin: String,
+    /// Latest review verdict, GitHub's spelling. `None` until one is recorded.
+    pub review_decision: Option<String>,
+    /// GitHub's coarse mergeable state. `None` until it is computed.
+    pub mergeable_state: Option<String>,
 }
 
 impl Conversation {
@@ -918,7 +928,11 @@ impl PgConversationDao {
                                   'base_ref', bound.base_ref,
                                   'head_ref', bound.head_ref,
                                   'state_kind', bound.state_kind,
-                                  'status_read_at', bound.status_read_at
+                                  'status_read_at', bound.status_read_at,
+                                  'linked_at', bound.linked_at,
+                                  'origin', bound.origin,
+                                  'review_decision', bound.review_decision,
+                                  'mergeable_state', bound.mergeable_state
                               )
                               ORDER BY bound.live DESC, bound.number DESC
                           ) AS pull_requests
@@ -937,6 +951,10 @@ impl PgConversationDao {
                            b.external_state_kind AS state_kind,
                            COALESCE(b.external_status_updated_at, b.last_event_at)
                                AS status_read_at,
+                           b.created_at AS linked_at,
+                           b.origin AS origin,
+                           b.external_review_decision AS review_decision,
+                           b.external_mergeable_state AS mergeable_state,
                            (COALESCE(b.external_state_kind, 'open')
                                 NOT IN ('merged', 'closed')) AS live
                        FROM task_bindings b

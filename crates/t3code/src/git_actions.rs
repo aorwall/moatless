@@ -601,6 +601,20 @@ mod tests {
         ) -> Result<(), crate::ports::CommandRefusal> {
             unreachable!("a git action never forks a thread")
         }
+        async fn link_pull_request(
+            &self,
+            _viewer: &ScopeContext,
+            _reference: crate::ports::ThreadPullRequestRef,
+        ) -> Result<(), crate::ports::CommandRefusal> {
+            unreachable!("a git action never links a pull request")
+        }
+        async fn unlink_pull_request(
+            &self,
+            _viewer: &ScopeContext,
+            _reference: crate::ports::ThreadPullRequestRef,
+        ) -> Result<(), crate::ports::CommandRefusal> {
+            unreachable!("a git action never unlinks a pull request")
+        }
     }
 
     /// A sink that refuses every send, standing in for the write failing after
@@ -716,6 +730,20 @@ mod tests {
             &self,
             _viewer: &ScopeContext,
             _fork: crate::ports::ForkThread,
+        ) -> Result<(), crate::ports::CommandRefusal> {
+            unreachable!()
+        }
+        async fn link_pull_request(
+            &self,
+            _viewer: &ScopeContext,
+            _reference: crate::ports::ThreadPullRequestRef,
+        ) -> Result<(), crate::ports::CommandRefusal> {
+            unreachable!()
+        }
+        async fn unlink_pull_request(
+            &self,
+            _viewer: &ScopeContext,
+            _reference: crate::ports::ThreadPullRequestRef,
         ) -> Result<(), crate::ports::CommandRefusal> {
             unreachable!()
         }

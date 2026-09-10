@@ -669,6 +669,20 @@ impl ports::ThreadCommandSink for UnreachableCommands {
     ) -> Result<(), ports::CommandRefusal> {
         unreachable!("no test in this file forks a thread")
     }
+    async fn link_pull_request(
+        &self,
+        _viewer: &ScopeContext,
+        _reference: ports::ThreadPullRequestRef,
+    ) -> Result<(), ports::CommandRefusal> {
+        unreachable!("no test in this file links a pull request")
+    }
+    async fn unlink_pull_request(
+        &self,
+        _viewer: &ScopeContext,
+        _reference: ports::ThreadPullRequestRef,
+    ) -> Result<(), ports::CommandRefusal> {
+        unreachable!("no test in this file unlinks a pull request")
+    }
 }
 
 /// These tests are about the envelope encoding, so the listing behind it

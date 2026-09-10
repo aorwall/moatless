@@ -224,6 +224,7 @@ impl PgTaskBindingDao {
     }
 
     pub(crate) async fn upsert(&self, row: &TaskBinding) -> Result<TaskBinding, sqlx::Error> {
+        let mut tx = self.0.begin().await?;
         let row = sqlx::query_as::<_, TaskBindingRow>(
             r#"INSERT INTO task_bindings
                (id, task_id, adapter_kind, subject_kind, subject_key, connection_id,
@@ -266,9 +267,52 @@ impl PgTaskBindingDao {
         .bind(&row.origin)
         .bind(row.created_at)
         .bind(row.last_event_at)
-        .fetch_one(&self.0)
+        .fetch_one(&mut *tx)
         .await?;
+        // Last in the transaction: `record_change` takes the listing counter,
+        // and a writer that takes it before its own row is the deadlock the
+        // ordering prevents. See `moatless_core::change_feed::listing`.
+        moatless_core::change_feed::listing::record_change(&mut tx, &row.task_id).await?;
+        tx.commit().await?;
         Ok(TaskBinding::from(row))
+    }
+
+    /// Set whether the Binding joining one Task to one subject routes, and
+    /// report whether the row changed.
+    ///
+    /// The `active <> $5` predicate is what makes this idempotent, so a second
+    /// unlink of the same pull request answers `false` rather than re-stamping
+    /// `deactivated_at`.
+    pub(crate) async fn set_active_for_subject(
+        &self,
+        task_id: &str,
+        adapter_kind: &str,
+        subject_kind: &str,
+        subject_key: &str,
+        active: bool,
+    ) -> Result<bool, sqlx::Error> {
+        let mut tx = self.0.begin().await?;
+        let changed = sqlx::query(
+            "UPDATE task_bindings \
+             SET active = $5, deactivated_at = CASE WHEN $5 THEN NULL ELSE now() END \
+             WHERE task_id = $1 AND adapter_kind = $2 AND subject_kind = $3 \
+               AND subject_key = $4 AND active <> $5",
+        )
+        .bind(task_id)
+        .bind(adapter_kind)
+        .bind(subject_kind)
+        .bind(subject_key)
+        .bind(active)
+        .execute(&mut *tx)
+        .await?
+        .rows_affected()
+            > 0;
+        if changed {
+            // Ordered as in [`Self::upsert`].
+            moatless_core::change_feed::listing::record_change(&mut tx, task_id).await?;
+        }
+        tx.commit().await?;
+        Ok(changed)
     }
 
     /// Deactivate every active binding for a task — called when the task closes

@@ -189,6 +189,22 @@ pub struct ThreadMeta {
     pub model: Option<String>,
 }
 
+/// The pull request a link or an unlink command named, as this surface
+/// understood it.
+///
+/// T3's `source` is not carried: Moatless decides a Binding's origin from the
+/// path that wrote it, and the projection reads that back
+/// (`projection::thread_pull_request_source`). Nor is `url`, which the host,
+/// repository and number already determine.
+pub struct ThreadPullRequestRef {
+    pub task_id: String,
+    /// The git host T3 keys the link by. Only `github.com` can be bound.
+    pub host: String,
+    /// `owner/name`.
+    pub repository: String,
+    pub number: i64,
+}
+
 /// A fork, as this surface understood it.
 pub struct ForkThread {
     /// The id the client minted for the fork and has already navigated to —
@@ -617,6 +633,25 @@ pub trait ThreadCommandSink: Send + Sync {
         &self,
         viewer: &ScopeContext,
         answer: QuestionAnswer,
+    ) -> Result<(), CommandRefusal>;
+
+    /// Bind a Thread to a pull request, so it appears in `pullRequests` on the
+    /// Thread's row. Idempotent: linking one that is already linked reports
+    /// success and writes nothing new.
+    async fn link_pull_request(
+        &self,
+        viewer: &ScopeContext,
+        reference: ThreadPullRequestRef,
+    ) -> Result<(), CommandRefusal>;
+
+    /// Release a Thread's pull request. The Binding stops routing and is kept,
+    /// which is what `deactivate` means everywhere else on this table, so the
+    /// admin Task Connections view still shows it. Idempotent in the same way
+    /// [`ThreadCommandSink::link_pull_request`] is.
+    async fn unlink_pull_request(
+        &self,
+        viewer: &ScopeContext,
+        reference: ThreadPullRequestRef,
     ) -> Result<(), CommandRefusal>;
 }
 

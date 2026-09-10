@@ -18,7 +18,8 @@ use moatless_t3code::ports::{
     BoundPullRequestSource, BranchListError, ChildTask, CommandRefusal, DeclaredAttachment,
     ForkThread, GithubIdentity, NewThread, PullRequestError, QuestionAnswer,
     RepositoryBranchSource, ResolvedPullRequest, SkillCatalog, SourceControlAuthSource,
-    TaskRelationSource, ThreadCommandSink, ThreadMeta, ThreadTurn, TurnAttachment, WorkspaceSkill,
+    TaskRelationSource, ThreadCommandSink, ThreadMeta, ThreadPullRequestRef, ThreadTurn,
+    TurnAttachment, WorkspaceSkill,
 };
 use moatless_tasks::message::error::MessageError;
 use moatless_tasks::message::service as message_service;
@@ -632,6 +633,40 @@ impl AppStateCommands {
             });
         }
         Ok(())
+    }
+
+    /// Switch one pull request Binding's routing, reporting success whether or
+    /// not the row moved — both commands are idempotent, and the client sends
+    /// either one against the state it already believes.
+    async fn set_pull_request_routing(
+        &self,
+        reference: &ThreadPullRequestRef,
+        active: bool,
+    ) -> Result<(), CommandRefusal> {
+        let subject_key = format!("{}#{}", reference.repository, reference.number);
+        self.0
+            .task_bindings
+            .set_routing(
+                &reference.task_id,
+                "github",
+                "github_pr",
+                &subject_key,
+                active,
+            )
+            .await
+            .map(|_| ())
+            .map_err(|error| {
+                tracing::warn!(
+                    %error,
+                    task_id = %reference.task_id,
+                    subject_key,
+                    active,
+                    "T3 pull request routing change failed"
+                );
+                CommandRefusal::Failed {
+                    message: "That pull request could not be updated.".to_string(),
+                }
+            })
     }
 
     fn state_refusal(task_id: &str, error: sqlx::Error) -> CommandRefusal {
@@ -1417,6 +1452,77 @@ impl ThreadCommandSink for AppStateCommands {
         .map(|_| ())
         .map_err(|e| send_refusal(&answer.task_id, e))
     }
+
+    async fn link_pull_request(
+        &self,
+        viewer: &ScopeContext,
+        reference: ThreadPullRequestRef,
+    ) -> Result<(), CommandRefusal> {
+        let (owner, repo) = github_owner_repo(&reference)?;
+        let Some(connector) = self
+            .0
+            .adapter_installations
+            .as_ref()
+            .map(|installations| installations.github_connector())
+        else {
+            return Err(CommandRefusal::Failed {
+                message: "GitHub is not configured on this server.".to_string(),
+            });
+        };
+        connector
+            .connect_github_binding(
+                &reference.repository,
+                &reference.task_id,
+                serde_json::json!({
+                    "owner": owner,
+                    "repo": repo,
+                    "pr_number": reference.number,
+                }),
+                Some(&viewer.user_id),
+            )
+            .await
+            .map_err(|error| {
+                tracing::warn!(%error, task_id = %reference.task_id, "T3 pull request link failed");
+                CommandRefusal::Failed {
+                    message: "That pull request could not be linked.".to_string(),
+                }
+            })?;
+        // A Binding released by an earlier unlink is re-bound rather than
+        // re-created — `connect_github_binding` upserts on the same key and
+        // leaves `active` alone — so linking it again has to switch routing back
+        // on for the row to reach `pullRequests`.
+        self.set_pull_request_routing(&reference, true).await
+    }
+
+    async fn unlink_pull_request(
+        &self,
+        _viewer: &ScopeContext,
+        reference: ThreadPullRequestRef,
+    ) -> Result<(), CommandRefusal> {
+        github_owner_repo(&reference)?;
+        self.set_pull_request_routing(&reference, false).await
+    }
+}
+
+/// The `owner` and `repo` a `ThreadPullRequestKey` names, if this server can
+/// bind it at all.
+///
+/// Only GitHub is bound, so a key on another host is refused by name rather
+/// than bound to a repository that happens to share the path.
+fn github_owner_repo(reference: &ThreadPullRequestRef) -> Result<(&str, &str), CommandRefusal> {
+    if reference.host != "github.com" {
+        return Err(CommandRefusal::Unsupported {
+            command: "thread.pull-request.link".to_string(),
+            reason: format!("`{}` pull requests are not supported.", reference.host),
+        });
+    }
+    reference
+        .repository
+        .split_once('/')
+        .filter(|(owner, repo)| !owner.is_empty() && !repo.is_empty())
+        .ok_or_else(|| CommandRefusal::Rejected {
+            message: format!("`{}` is not an `owner/name` repository.", reference.repository),
+        })
 }
 
 /// The agent a thread created from T3 runs.

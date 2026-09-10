@@ -64,7 +64,13 @@ pub(crate) fn descriptor(config: &UiRpcConfig) -> Value {
             // that runs one where the server can actually run it. T3's own
             // server omits this key and answers `scripts.run` with
             // `UnsupportedMethodError`.
-            "workspaceScripts": true
+            "workspaceScripts": true,
+            // Whether `thread.pull-request.link` and `.unlink` are understood,
+            // and whether a conversation row carries `pullRequests`. One flag
+            // for the set: a client that cannot read the current links has
+            // nothing to unlink, and `linkedPullRequest` beside them is the
+            // single reference a client from before this key reads instead.
+            "threadPullRequests": true
         }
     });
 

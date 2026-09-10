@@ -229,6 +229,24 @@ impl Bindings {
         self.store.mark_task_link_sent(id).await
     }
 
+    /// Set whether the Binding joining this Task to this subject routes, and
+    /// report whether the row changed.
+    ///
+    /// One subject, unlike [`Bindings::deactivate_for_task`]: this is how a
+    /// person releases a single pull request from a Thread that is still open.
+    pub async fn set_routing(
+        &self,
+        task_id: &str,
+        adapter_kind: &str,
+        subject_kind: &str,
+        subject_key: &str,
+        active: bool,
+    ) -> Result<bool, sqlx::Error> {
+        self.store
+            .set_active_for_subject(task_id, adapter_kind, subject_kind, subject_key, active)
+            .await
+    }
+
     /// Stop every still-active Binding of a closed Task from routing, and
     /// return how many changed. Idempotent: a second call reports 0.
     pub async fn deactivate_for_task(&self, task_id: &str) -> Result<u64, sqlx::Error> {

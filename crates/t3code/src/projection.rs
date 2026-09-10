@@ -766,7 +766,7 @@ fn conversation_row(
     defaults: &AgentModelDefaults,
 ) -> Map<String, Value> {
     let created = created_at(conversation);
-    let linked = linked_pull_requests(conversation, project_id);
+    let pull_requests = thread_pull_requests(conversation);
     let Value::Object(row) = json!({
         "id": conversation.task_id,
         "projectId": project_id,
@@ -786,14 +786,12 @@ fn conversation_row(
             .and_then(non_empty)
             .map_or(Value::Null, Value::String),
         "worktreePath": worktree_path(conversation),
-        // `linkedPullRequest` is the primary of `linkedPullRequests`. Both are
-        // emitted: upstream's surfaces read the single reference, and only the
-        // fork's multi-pull-request rows read the list.
-        "linkedPullRequest": linked
-            .first()
-            .cloned()
-            .unwrap_or(Value::Null),
-        "linkedPullRequests": Value::Array(linked),
+        // `linkedPullRequest` is the primary of `pullRequests`. Both are
+        // emitted: a client from before `threadPullRequests` reads the single
+        // reference, and the capability is what tells a newer one to prefer the
+        // list.
+        "linkedPullRequest": legacy_linked_pull_request(pull_requests.first(), project_id),
+        "pullRequests": Value::Array(pull_requests),
         "latestTurn": latest_turn(conversation),
         "createdAt": instant(created),
         "updatedAt": instant(conversation.updated_at.unwrap_or(created)),
@@ -1494,13 +1492,14 @@ fn worktree_path(conversation: &Conversation) -> Value {
     }
 }
 
-/// Every pull request a thread row links to, as T3's `ThreadLinkedPullRequest`,
+/// Every pull request a Task is bound to, as T3's `ThreadPullRequestLink`,
 /// primary first — see [`Conversation::pull_requests`] for that order.
 ///
-/// A T3 project is a Moatless Workspace, so each reference is placed against the
-/// same `projectId` the row carries. Empty where the Task has no reportable
-/// GitHub PR binding.
-fn linked_pull_requests(conversation: &Conversation, project_id: &str) -> Vec<Value> {
+/// Empty where the Task has no reportable GitHub PR binding. The client reads
+/// this whenever the descriptor carries `threadPullRequests`, and derives its
+/// own current pull request from it; `linkedPullRequest` beside it is the legacy
+/// single reference, and stays the first element of this list.
+fn thread_pull_requests(conversation: &Conversation) -> Vec<Value> {
     let Some(bound) = conversation.pull_requests.as_deref() else {
         return Vec::new();
     };
@@ -1512,51 +1511,138 @@ fn linked_pull_requests(conversation: &Conversation, project_id: &str) -> Vec<Va
             if pr.number <= 0 {
                 return None;
             }
-            let mut reference = Map::from_iter([
-                ("projectId".to_string(), json!(project_id)),
-                ("repository".to_string(), json!(repository)),
-                ("number".to_string(), json!(pr.number)),
-                ("url".to_string(), json!(url)),
-            ]);
-            if let Some(status) = pull_request_status(pr, &repository) {
-                reference.extend(status);
-            }
-            Some(Value::Object(reference))
+            Some(json!({
+                "host": pull_request_host(&url),
+                "repository": repository,
+                "number": pr.number,
+                "url": url,
+                "source": thread_pull_request_source(&pr.origin),
+                "linkedAt": instant(pr.linked_at),
+                "snapshot": pull_request_snapshot(pr, &repository),
+                // Moatless reads no stack from GitHub, so a link never carries
+                // one and the client chains by base and head branch instead.
+                "stack": Value::Null
+            }))
         })
         .collect()
 }
 
-/// What a fetched binding's status adds to a reference, or `None` while its
-/// blob is still NULL: a client reads a title and a state off a row that
-/// carries the group, and asks `pullRequests.summary` about one that does not.
+/// The legacy single reference for the primary of [`thread_pull_requests`].
+///
+/// A T3 project is a Moatless Workspace, so the reference is placed against the
+/// same `projectId` the row carries. `ThreadPullRequestKey` is host-level and
+/// carries no project, which is why this is built here rather than sliced off
+/// the link.
+fn legacy_linked_pull_request(link: Option<&Value>, project_id: &str) -> Value {
+    let Some(link) = link else {
+        return Value::Null;
+    };
+    json!({
+        "projectId": project_id,
+        "repository": link["repository"],
+        "number": link["number"],
+        "url": link["url"]
+    })
+}
+
+/// The git host a pull request URL names, or `github.com` where it names none.
+///
+/// T3 keys a link by host so the same pull request reached through two projects
+/// compares equal. Every binding this projection reports comes from the GitHub
+/// adapter, so the default is the host that adapter talks to.
+fn pull_request_host(url: &str) -> String {
+    url.split_once("://")
+        .map_or(url, |(_, rest)| rest)
+        .split('/')
+        .next()
+        .and_then(non_empty)
+        .unwrap_or_else(|| "github.com".to_string())
+}
+
+/// Who linked a pull request, as T3 names it.
+///
+/// Moatless records the direction a Task and a subject met, not who acted, so
+/// only the CLI-filed binding maps onto one of T3's authors. Everything else
+/// reports `manual` — the client shows it as "Linked by you", and uses the
+/// value itself only to hide a `stack-dismissed` tombstone, which no Moatless
+/// binding is.
+fn thread_pull_request_source(origin: &str) -> &'static str {
+    match origin {
+        // `moatless_adapter_model::binding::TASK_OWNED_BINDING_ORIGIN`, spelled
+        // out: that crate sits behind a band this one reaches through a seam.
+        "task_owned" => "created",
+        _ => "manual",
+    }
+}
+
+/// The host state a fetched binding carries, or `Null` while its blob is still
+/// NULL: the client paints a title and a state off a link that has one, and
+/// leaves the badge pending for one that does not.
 ///
 /// Gate and stand-ins are `bound_pull_request_from_binding`'s
-/// (`crates/server/src/t3code/backend.rs`), which answers that call off the same
-/// blob. A row carrying the group is a row nothing asks again, so the two
-/// readers must not disagree about what the blob holds.
-fn pull_request_status(
-    pr: &ConversationPullRequest,
-    repository: &str,
-) -> Option<Map<String, Value>> {
+/// (`crates/server/src/t3code/backend.rs`), which answers `pullRequests.summary`
+/// off the same blob, so the two readers must not disagree about what it holds.
+fn pull_request_snapshot(pr: &ConversationPullRequest, repository: &str) -> Value {
     // Only a refresh writes the branches, which is what makes them the gate.
-    let head_branch = non_empty(pr.head_ref.as_deref()?)?;
-    let base_branch = non_empty(pr.base_ref.as_deref()?)?;
-    // Trimmed, not merely non-empty as the sibling has it: the contract types
-    // `title` as a trimmed non-empty string, and a blank one fails validation.
+    let Some(head_branch) = pr.head_ref.as_deref().and_then(non_empty) else {
+        return Value::Null;
+    };
+    let Some(base_branch) = pr.base_ref.as_deref().and_then(non_empty) else {
+        return Value::Null;
+    };
+    // Trimmed, not merely non-empty: the contract types `title` as a trimmed
+    // non-empty string, and a blank one fails validation.
     let title = pr
         .title
         .as_deref()
         .and_then(non_empty)
         .unwrap_or_else(|| format!("{repository}#{}", pr.number));
     let state_kind = pr.state_kind.as_deref().unwrap_or("open");
-    Some(Map::from_iter([
-        ("title".to_string(), json!(title)),
+    let mut snapshot = Map::from_iter([
         ("state".to_string(), json!(t3_pr_state(state_kind))),
-        ("isDraft".to_string(), json!(is_draft(state_kind))),
+        ("title".to_string(), json!(title)),
         ("headBranch".to_string(), json!(head_branch)),
         ("baseBranch".to_string(), json!(base_branch)),
-        ("updatedAt".to_string(), json!(instant(pr.status_read_at))),
-    ]))
+        ("isDraft".to_string(), json!(is_draft(state_kind))),
+        // When this deployment read the pull request, which is not when GitHub
+        // last changed it: the status blob carries no such stamp, and reporting
+        // the read as the change would have every surface claim the pull
+        // request moved on every refresh.
+        ("updatedAt".to_string(), Value::Null),
+        ("syncedAt".to_string(), json!(instant(pr.status_read_at))),
+    ]);
+    if let Some(decision) = pr.review_decision.as_deref().and_then(t3_review_decision) {
+        snapshot.insert("reviewDecision".to_string(), json!(decision));
+    }
+    if let Some(state) = pr.mergeable_state.as_deref() {
+        snapshot.insert("mergeability".to_string(), json!(t3_mergeability(state)));
+    }
+    // No `checksState`: nothing records one, and the contract reads an absent
+    // key as "this server does not say" rather than "the checks are pending".
+    Value::Object(snapshot)
+}
+
+/// GitHub's review verdict as T3's `PullRequestReviewDecision`, or `None` for a
+/// verdict T3 has no word for. `dismissed` and `commented` are the two: neither
+/// approves nor blocks a merge, so both read as no decision at all.
+fn t3_review_decision(decision: &str) -> Option<&'static str> {
+    match decision {
+        "approved" => Some("approved"),
+        "changes_requested" => Some("changes-requested"),
+        "review_required" => Some("review-required"),
+        _ => None,
+    }
+}
+
+/// GitHub's mergeable state as T3's `PullRequestMergeability`. Only `dirty`
+/// means merge conflicts; `blocked`, `behind` and `unstable` describe a
+/// mergeable branch waiting on something else, and T3 has no word for that.
+fn t3_mergeability(state: &str) -> &'static str {
+    match state {
+        "dirty" => "conflicting",
+        "clean" => "mergeable",
+        _ => "unknown",
+    }
 }
 
 /// A distinct, stable, nominal worktree path for one conversation.
@@ -2077,7 +2163,7 @@ mod tests {
         "archivedAt",
         "backgroundLiveness",
         "linkedPullRequest",
-        "linkedPullRequests",
+        "pullRequests",
         "visibility",
     ];
     const THREAD_NON_EMPTY: &[&str] = &["id", "projectId", "title"];
@@ -2554,6 +2640,10 @@ mod tests {
             head_ref: None,
             state_kind: None,
             status_read_at: instant_at("2026-02-03T04:05:06Z"),
+            linked_at: instant_at("2026-02-03T04:00:00Z"),
+            origin: "connected_thread".to_string(),
+            review_decision: None,
+            mergeable_state: None,
         }
     }
 
@@ -2568,6 +2658,11 @@ mod tests {
         }
     }
 
+    /// The first link a row reports.
+    fn first_link(row: &Conversation) -> Value {
+        one_thread(row)["pullRequests"][0].clone()
+    }
+
     /// The link is the Task's binding, so it holds whatever branch the checkout
     /// is on — including none at all, which is the ordinary case for a Task
     /// created without picking one.
@@ -2577,11 +2672,27 @@ mod tests {
         row.branch = None;
         row.pull_requests = Some(Json(vec![bound("acme/web", 42)]));
 
-        let linked = &one_thread(&row)["linkedPullRequest"];
-        assert_eq!(linked["projectId"], "ws-a");
-        assert_eq!(linked["repository"], "acme/web");
-        assert_eq!(linked["number"], 42);
-        assert_eq!(linked["url"], "https://github.com/acme/web/pull/42");
+        let link = first_link(&row);
+        assert_eq!(link["host"], "github.com");
+        assert_eq!(link["repository"], "acme/web");
+        assert_eq!(link["number"], 42);
+        assert_eq!(link["url"], "https://github.com/acme/web/pull/42");
+        assert_eq!(link["linkedAt"], "2026-02-03T04:00:00.000Z");
+        assert_eq!(link["stack"], Value::Null);
+    }
+
+    /// A client from before `threadPullRequests` reads the single reference, so
+    /// the row keeps answering it with the primary of the list.
+    #[test]
+    fn a_thread_row_also_links_the_primary_as_the_legacy_reference() {
+        let mut row = conversation("task-a", "ws-a");
+        row.pull_requests = Some(Json(vec![bound("acme/web", 42)]));
+
+        let legacy = &one_thread(&row)["linkedPullRequest"];
+        assert_eq!(legacy["projectId"], "ws-a");
+        assert_eq!(legacy["repository"], "acme/web");
+        assert_eq!(legacy["number"], 42);
+        assert_eq!(legacy["url"], "https://github.com/acme/web/pull/42");
     }
 
     /// The query orders the list, so the row takes its first element as the
@@ -2593,30 +2704,75 @@ mod tests {
         row.pull_requests = Some(Json(vec![bound("acme/web", 7), bound("acme/web", 42)]));
 
         let thread = one_thread(&row);
-        let linked = thread["linkedPullRequests"]
+        let links = thread["pullRequests"]
             .as_array()
-            .expect("linkedPullRequests is an array");
-        assert_eq!(linked.len(), 2);
-        assert_eq!(linked[0]["number"], 7);
-        assert_eq!(linked[1]["number"], 42);
+            .expect("pullRequests is an array");
+        assert_eq!(links.len(), 2);
+        assert_eq!(links[0]["number"], 7);
+        assert_eq!(links[1]["number"], 42);
         assert_eq!(thread["linkedPullRequest"]["number"], 7);
+    }
+
+    /// Moatless records the direction a Task and a subject met, so the CLI's own
+    /// binding is the only one T3 can call `created`.
+    #[test]
+    fn a_thread_row_reports_a_task_owned_binding_as_created_from_the_thread() {
+        let mut row = conversation("task-a", "ws-a");
+        row.pull_requests = Some(Json(vec![
+            ConversationPullRequest {
+                origin: "task_owned".to_string(),
+                ..bound("acme/web", 42)
+            },
+            bound("acme/web", 7),
+        ]));
+
+        let thread = one_thread(&row);
+        assert_eq!(thread["pullRequests"][0]["source"], "created");
+        assert_eq!(thread["pullRequests"][1]["source"], "manual");
     }
 
     /// What the rows of the composer's pull-request menu and the sidebar's
     /// status chip read, so neither has to ask `pullRequests.summary` for a
     /// binding this deployment has already fetched.
     #[test]
-    fn a_thread_row_carries_the_status_a_refreshed_binding_recorded() {
+    fn a_thread_row_carries_the_snapshot_a_refreshed_binding_recorded() {
         let mut row = conversation("task-a", "ws-a");
         row.pull_requests = Some(Json(vec![fetched(bound("acme/web", 42), "open")]));
 
-        let linked = &one_thread(&row)["linkedPullRequest"];
-        assert_eq!(linked["title"], "Ship 42");
-        assert_eq!(linked["state"], "open");
-        assert_eq!(linked["isDraft"], false);
-        assert_eq!(linked["baseBranch"], "main");
-        assert_eq!(linked["headBranch"], "feature/42");
-        assert_eq!(linked["updatedAt"], "2026-02-03T04:05:06.000Z");
+        let snapshot = first_link(&row)["snapshot"].clone();
+        assert_eq!(snapshot["title"], "Ship 42");
+        assert_eq!(snapshot["state"], "open");
+        assert_eq!(snapshot["isDraft"], false);
+        assert_eq!(snapshot["baseBranch"], "main");
+        assert_eq!(snapshot["headBranch"], "feature/42");
+        assert_eq!(snapshot["syncedAt"], "2026-02-03T04:05:06.000Z");
+    }
+
+    /// `syncedAt` is when this deployment read GitHub. The blob records no
+    /// instant at which GitHub itself changed the pull request, so `updatedAt`
+    /// stays null rather than repeating the read.
+    #[test]
+    fn a_snapshot_reports_no_update_instant_of_its_own() {
+        let mut row = conversation("task-a", "ws-a");
+        row.pull_requests = Some(Json(vec![fetched(bound("acme/web", 42), "open")]));
+
+        assert_eq!(first_link(&row)["snapshot"]["updatedAt"], Value::Null);
+    }
+
+    /// GitHub's spellings reach the wire as T3's, and a state neither side
+    /// names is reported as `unknown` rather than dropped.
+    #[test]
+    fn a_snapshot_translates_the_review_and_merge_verdicts() {
+        let mut row = conversation("task-a", "ws-a");
+        row.pull_requests = Some(Json(vec![ConversationPullRequest {
+            review_decision: Some("changes_requested".to_string()),
+            mergeable_state: Some("dirty".to_string()),
+            ..fetched(bound("acme/web", 42), "open")
+        }]));
+
+        let snapshot = first_link(&row)["snapshot"].clone();
+        assert_eq!(snapshot["reviewDecision"], "changes-requested");
+        assert_eq!(snapshot["mergeability"], "conflicting");
     }
 
     /// A draft reports the same `state` as an open pull request, because the
@@ -2626,9 +2782,9 @@ mod tests {
         let mut row = conversation("task-a", "ws-a");
         row.pull_requests = Some(Json(vec![fetched(bound("acme/web", 42), "draft")]));
 
-        let linked = &one_thread(&row)["linkedPullRequest"];
-        assert_eq!(linked["state"], "open");
-        assert_eq!(linked["isDraft"], true);
+        let snapshot = first_link(&row)["snapshot"].clone();
+        assert_eq!(snapshot["state"], "open");
+        assert_eq!(snapshot["isDraft"], true);
     }
 
     /// A blob holding the branches but neither a title nor a state is one
@@ -2644,33 +2800,31 @@ mod tests {
             ..fetched(bound("acme/web", 42), "open")
         }]));
 
-        let linked = &one_thread(&row)["linkedPullRequest"];
-        assert_eq!(linked["title"], "acme/web#42");
-        assert_eq!(linked["state"], "open");
-        assert_eq!(linked["isDraft"], false);
+        let snapshot = first_link(&row)["snapshot"].clone();
+        assert_eq!(snapshot["title"], "acme/web#42");
+        assert_eq!(snapshot["state"], "open");
+        assert_eq!(snapshot["isDraft"], false);
     }
 
     /// A binding is written with its blob NULL and filled in by a refresh no
-    /// listing can trigger, so the reference travels alone rather than with a
-    /// state nobody read off GitHub. `pullRequests.summary` is what the client
-    /// falls back to, and what refreshes it.
+    /// listing can trigger, so the link travels without a snapshot rather than
+    /// with a state nobody read off GitHub. `pullRequests.summary` is what the
+    /// client falls back to, and what refreshes it.
     #[test]
-    fn a_thread_row_carries_no_status_for_a_binding_never_fetched() {
+    fn a_thread_row_carries_no_snapshot_for_a_binding_never_fetched() {
         let mut row = conversation("task-a", "ws-a");
         row.pull_requests = Some(Json(vec![bound("acme/web", 42)]));
 
-        let linked = &one_thread(&row)["linkedPullRequest"];
-        assert_eq!(linked["number"], 42);
-        for absent in ["title", "state", "isDraft", "baseBranch", "headBranch", "updatedAt"] {
-            assert_eq!(linked.get(absent), None, "{absent} has nothing to report");
-        }
+        let link = first_link(&row);
+        assert_eq!(link["number"], 42);
+        assert_eq!(link["snapshot"], Value::Null);
     }
 
     #[test]
     fn a_thread_row_with_no_binding_links_no_pull_request() {
         let thread = one_thread(&conversation("task-a", "ws-a"));
         assert_eq!(thread["linkedPullRequest"], Value::Null);
-        assert_eq!(thread["linkedPullRequests"], json!([]));
+        assert_eq!(thread["pullRequests"], json!([]));
     }
 
     /// A reference is written whole, so a half-filled one is a bug upstream of
@@ -2687,10 +2841,7 @@ mod tests {
         ]));
 
         let thread = one_thread(&row);
-        assert_eq!(
-            thread["linkedPullRequests"].as_array().map(Vec::len),
-            Some(1)
-        );
+        assert_eq!(thread["pullRequests"].as_array().map(Vec::len), Some(1));
         assert_eq!(thread["linkedPullRequest"]["number"], 7);
     }
 
@@ -3007,7 +3158,7 @@ mod tests {
         "archivedAt",
         "proposedPlans",
         "linkedPullRequest",
-        "linkedPullRequests",
+        "pullRequests",
         "visibility",
     ];
 
