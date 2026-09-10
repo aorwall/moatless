@@ -224,20 +224,29 @@ pub(crate) enum AskForApproval {
 // Server → client notifications
 // =============================================================================
 
-// Every notification also carries the `threadId` (and, below the Turn, the
-// `turnId`) it belongs to. One process owns exactly one thread and runs one Turn
-// at a time, so there is nothing to correlate against and none of them are
-// modelled.
+// Every notification but `thread/started` carries the `threadId` it belongs to,
+// and one connection carries several: a native sub-agent (`collabAgentToolCall`)
+// runs on its own thread and streams over the same pipe. Each is modelled as
+// `Option<String>` and read through [`ServerEvent::thread_id`], which
+// `CodexProcess::absorb` matches against the thread it opened. A build that
+// stops sending the field must fail open — see that method.
+//
+// The `turnId` below the Turn is not modelled: one thread runs one Turn at a
+// time, so matching the thread already picks out a single Turn.
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct TurnStartedNotification {
+    #[serde(default)]
+    pub(crate) thread_id: Option<String>,
     pub(crate) turn: Turn,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct TurnCompletedNotification {
+    #[serde(default)]
+    pub(crate) thread_id: Option<String>,
     pub(crate) turn: Turn,
 }
 
@@ -245,12 +254,16 @@ pub(crate) struct TurnCompletedNotification {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ItemNotification {
+    #[serde(default)]
+    pub(crate) thread_id: Option<String>,
     pub(crate) item: ThreadItem,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ThreadTokenUsageUpdatedNotification {
+    #[serde(default)]
+    pub(crate) thread_id: Option<String>,
     pub(crate) token_usage: ThreadTokenUsage,
 }
 
@@ -289,6 +302,8 @@ pub(crate) struct TokenUsageBreakdown {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ErrorNotification {
+    #[serde(default)]
+    pub(crate) thread_id: Option<String>,
     pub(crate) error: TurnError,
     pub(crate) will_retry: bool,
 }
@@ -302,6 +317,8 @@ pub(crate) struct ErrorNotification {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct TurnPlanUpdatedNotification {
+    #[serde(default)]
+    pub(crate) thread_id: Option<String>,
     pub(crate) plan: Vec<TurnPlanStep>,
 }
 

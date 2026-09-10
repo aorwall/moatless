@@ -400,15 +400,44 @@ impl CodexProcess {
         classify::classify_turn_error(error)
     }
 
+    /// Whether a notification belongs to the thread this process opened.
+    ///
+    /// A native sub-agent runs on a thread of its own and streams over the same
+    /// connection, so a `turn/completed` on this pipe is not necessarily *this*
+    /// Turn's terminal. Everything the sub-agent's thread emits belongs to that
+    /// thread: its items are not this Turn's transcript, and its token totals
+    /// are not this Turn's spend.
+    ///
+    /// **Fails open.** A notification the server attributed to no thread is
+    /// taken as this one's. Dropping an unattributed `turn/completed` would
+    /// leave the Turn with no terminal at all, which costs more than the
+    /// mis-attribution it would prevent.
+    fn owns_thread(&self, event: &ServerEvent) -> bool {
+        let (Some(own), Some(event_thread)) = (self.thread_id.as_deref(), event.thread_id()) else {
+            return true;
+        };
+        own == event_thread
+    }
+
     /// Turn one server event into zero or more `ProcessEvent`s, appended to the
     /// pending queue in native order.
     fn absorb(&mut self, event: ServerEvent) {
+        if !self.owns_thread(&event) {
+            debug!(
+                thread_id = event.thread_id(),
+                own_thread_id = self.thread_id.as_deref(),
+                "Ignoring a Codex notification from another thread"
+            );
+            return;
+        }
         match event {
             ServerEvent::ThreadStarted(started) => {
                 // A fresh thread announces itself twice — in the `thread/start`
                 // response and here — but an injected test session only ever
                 // sees this one, so the id every `turn/*` request needs is taken
-                // from whichever arrives.
+                // from whichever arrives. A sub-agent's own announcement never
+                // reaches here: `owns_thread` rejects it against the id the
+                // response already set.
                 self.thread_id = Some(started.thread.id.clone());
                 self.announce_session(started.thread.id);
             }
@@ -421,14 +450,14 @@ impl CodexProcess {
             // re-emits on start (the running plan tracker, which did, is a
             // notification on this transport). Logged rather than dropped so a
             // Turn that stops making progress names what it stopped on.
-            ServerEvent::ItemStarted(ItemNotification { item }) => {
+            ServerEvent::ItemStarted(ItemNotification { item, .. }) => {
                 debug!(
                     item_id = item.id(),
                     item_type = item.type_name(),
                     "Codex item started"
                 );
             }
-            ServerEvent::ItemCompleted(ItemNotification { item }) => {
+            ServerEvent::ItemCompleted(ItemNotification { item, .. }) => {
                 self.push_item_blocks(&item);
             }
             ServerEvent::PlanUpdated(plan) => {

@@ -69,6 +69,23 @@ pub(crate) enum ServerEvent {
 }
 
 impl ServerEvent {
+    /// The thread this notification belongs to, or `None` where the server
+    /// stated none.
+    ///
+    /// `thread/started` announces its thread as the envelope's own id rather
+    /// than a `threadId` field, so it reports that.
+    pub(crate) fn thread_id(&self) -> Option<&str> {
+        match self {
+            Self::ThreadStarted(started) => Some(started.thread.id.as_str()),
+            Self::TurnStarted(started) => started.thread_id.as_deref(),
+            Self::TurnCompleted(completed) => completed.thread_id.as_deref(),
+            Self::ItemStarted(item) | Self::ItemCompleted(item) => item.thread_id.as_deref(),
+            Self::TokenUsage(usage) => usage.thread_id.as_deref(),
+            Self::PlanUpdated(plan) => plan.thread_id.as_deref(),
+            Self::Error(error) => error.thread_id.as_deref(),
+        }
+    }
+
     /// Parse a notification, or `Ok(None)` for a method this client ignores.
     fn parse(method: &str, params: serde_json::Value) -> Result<Option<Self>, serde_json::Error> {
         let event = match method {

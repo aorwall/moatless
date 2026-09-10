@@ -122,6 +122,28 @@ fn every_fixture_deserializes_into_its_protocol_type() {
     }
 }
 
+/// `CodexProcess::absorb` tells this Turn's stream from a native sub-agent's by
+/// the thread each notification names, and fails open on one that names none. A
+/// CLI that stopped sending `threadId` would therefore restore the bug silently,
+/// so every observed notification is pinned to carrying a thread.
+#[test]
+fn every_observed_notification_names_its_thread() {
+    for (name, source) in OBSERVED {
+        let message = message(source);
+        let Some(method) = message.method else {
+            continue;
+        };
+        let params = message.params.unwrap_or(serde_json::Value::Null);
+        let event = ServerEvent::parse(&method, params)
+            .unwrap_or_else(|e| panic!("{name} ({method}) did not decode: {e}"))
+            .unwrap_or_else(|| panic!("{name}: {method} is not a consumed method"));
+        assert!(
+            event.thread_id().is_some(),
+            "{name} ({method}) names no thread"
+        );
+    }
+}
+
 #[test]
 fn observed_and_schema_derived_fixtures_stay_separate() {
     for (name, _) in OBSERVED {
