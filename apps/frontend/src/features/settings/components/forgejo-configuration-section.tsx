@@ -19,10 +19,16 @@ import { Button } from '@/lib/components/ui/button'
 import { Input } from '@/lib/components/ui/input'
 import { getErrorMessage } from '@/lib/utils/error'
 
-/** Strips a scheme and any path, so a pasted URL and a bare host agree. */
+/**
+ * The authority of what someone typed, so a pasted URL and a bare host agree.
+ *
+ * Matches the server's `normalize_host`: a host the two disagree on is a host
+ * listed twice.
+ */
 function hostOf(value: string): string {
   const withoutScheme = value.trim().replace(/^https?:\/\//, '')
-  return (withoutScheme.split('/')[0] ?? '').toLowerCase()
+  const authority = withoutScheme.split(/[/?#]/)[0] ?? ''
+  return authority.replace(/\.+$/, '').toLowerCase()
 }
 
 function connectionSummary(status: ForgejoProviderTokenStatusResponse): string {
@@ -148,7 +154,7 @@ function ForgejoInstanceCard({ status }: { status: ForgejoProviderTokenStatusRes
       </div>
 
       {showTokenForm ? (
-        <ForgejoTokenForm host={host} />
+        <ForgejoTokenForm host={host} onSaved={() => setTokenFormOpen(false)} />
       ) : (
         <Button
           onClick={() => setTokenFormOpen(true)}
@@ -196,7 +202,7 @@ function ForgejoInstanceCard({ status }: { status: ForgejoProviderTokenStatusRes
   )
 }
 
-function ForgejoTokenForm({ host }: { host: string }) {
+function ForgejoTokenForm({ host, onSaved }: { host: string; onSaved: () => void }) {
   const [pat, setPat] = useState('')
   const savePAT = useSaveForgejoPAT()
 
@@ -212,6 +218,7 @@ function ForgejoTokenForm({ host }: { host: string }) {
         onSuccess: () => {
           toast.success(`Connected to ${host}`)
           setPat('')
+          onSaved()
         },
         onError: (error) => {
           toast.error('Failed to save Forgejo connection', {
