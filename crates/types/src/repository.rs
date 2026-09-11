@@ -49,6 +49,20 @@ pub struct Repository {
 /// The one host GitHub serves, which no other provider here is fixed to.
 pub const GITHUB_HOST: &str = "github.com";
 
+/// Normalize a remote URL for identity matching without changing persisted spelling.
+///
+/// Two repositories are the same connection when this agrees on them, so the
+/// uniqueness check, the git-sync cache key and any caller deciding whether a
+/// host's repository is already registered must all go through this.
+pub fn normalize_remote_url(remote_url: &str) -> String {
+    remote_url
+        .trim()
+        .trim_end_matches('/')
+        .trim_end_matches(".git")
+        .trim_end_matches('/')
+        .to_ascii_lowercase()
+}
+
 /// A repository named on a git host: which host, whose account, and what it is
 /// called.
 ///

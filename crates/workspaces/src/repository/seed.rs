@@ -4,7 +4,7 @@ use tracing::info;
 
 use super::dao::RepositoryDao;
 use super::models::Repository;
-use super::remote_url::normalize_remote_url;
+use moatless_types::repository::normalize_remote_url;
 use moatless_types::access_control::Scope;
 use moatless_types::repository::{RepositoryKind, RepositoryProvider};
 

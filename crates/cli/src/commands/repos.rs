@@ -9,7 +9,7 @@ use moatless_api_schemas::enums::{RepositoryKind, RepositoryProvider, Scope};
 use moatless_api_schemas::repository::{
     CreateRepositoryRequest, RepositoryResponse, UpdateRepositoryRequest,
 };
-use moatless_types::repository::{GitHostRepo, is_ssh_url};
+use moatless_types::repository::{GitHostRepo, is_ssh_url, normalize_remote_url};
 use moatless_types::workspace::{derive_mount_name, proxy_clone_url, sanitize_mount_name};
 
 use crate::client::{ClientError, MoatClient};
@@ -18,12 +18,27 @@ use crate::output;
 #[derive(Subcommand)]
 pub enum RepoAction {
     /// List repositories
-    List,
+    List {
+        /// Keep only repositories hosted by this provider (github, gitlab, gitness, forgejo)
+        #[arg(long)]
+        provider: Option<String>,
+        /// Keep only repositories at this scope: global or user
+        #[arg(long)]
+        scope: Option<String>,
+        /// Keep only repositories whose name, description or remote URL contains
+        /// this text, matched case-insensitively
+        #[arg(long)]
+        search: Option<String>,
+    },
     /// Get repository details
-    Get { repo_id: String },
-    /// Clone a repository by id
+    Get {
+        /// Repository id, or its name as `repos list` shows it
+        repo: String,
+    },
+    /// Clone a repository by id or name
     Clone {
-        repo_id: String,
+        /// Repository id, or its name as `repos list` shows it
+        repo: String,
         /// Directory to clone into. Defaults to the repository's own name.
         dir: Option<String>,
         /// Branch to check out. Defaults to the repository's default branch.
@@ -73,10 +88,30 @@ pub enum RepoAction {
         #[arg(long)]
         description: Option<String>,
     },
+    /// Register every repository a GitHub organization owns that is missing
+    /// here, and fill in a description the registry lacks from the one GitHub
+    /// carries. Reads the organization through the local `gh` CLI.
+    Import {
+        /// GitHub organization or user to read repositories from
+        #[arg(long)]
+        org: String,
+        /// Scope to create missing repositories at: global or user
+        #[arg(long, default_value = "global")]
+        scope: String,
+        /// Include archived repositories, which are skipped by default
+        #[arg(long)]
+        include_archived: bool,
+        /// Report what would change and write nothing
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// Sync .moatless/ loops and workspaces from the remote repository.
     /// Warning: this is the explicit sync, so it also reclaims workspaces that
     /// were overridden from the UI/CLI, replacing their local changes.
-    SyncConfig { repo_id: String },
+    SyncConfig {
+        /// Repository id, or its name as `repos list` shows it
+        repo: String,
+    },
     /// Delete a repository (soft-delete — marks as deleted, preserves history)
     Delete {
         repo_id: String,
@@ -88,28 +123,31 @@ pub enum RepoAction {
 
 pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<(), ClientError> {
     match action {
-        RepoAction::List => {
+        RepoAction::List {
+            provider,
+            scope,
+            search,
+        } => {
+            let filter = RepoFilter::parse(provider.as_deref(), scope.as_deref(), search)?;
             let repos = client.api().list_repositories().await?;
+            let repos: Vec<RepositoryResponse> =
+                repos.into_iter().filter(|r| filter.matches(r)).collect();
             if json {
                 output::print_json_typed(&repos);
             } else {
                 format_repo_list(&repos);
             }
         }
-        RepoAction::Get { repo_id } => {
-            let repo = client.api().get_repository(&repo_id).await?;
+        RepoAction::Get { repo } => {
+            let repo = resolve_repo(client, &repo).await?;
             if json {
                 output::print_json_typed(&repo);
             } else {
                 format_repo_detail(&repo);
             }
         }
-        RepoAction::Clone {
-            repo_id,
-            dir,
-            branch,
-        } => {
-            let repo = client.api().get_repository(&repo_id).await?;
+        RepoAction::Clone { repo, dir, branch } => {
+            let repo = resolve_repo(client, &repo).await?;
             let url = clone_url(client.base_url(), &repo)?;
             let target = dir.unwrap_or_else(|| checkout_dir(&repo));
             let branch = branch.or_else(|| repo.default_branch.clone());
@@ -187,8 +225,30 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
                 println!("Repository {} updated.", updated.id);
             }
         }
-        RepoAction::SyncConfig { repo_id } => {
-            let result = client.api().sync_config(&repo_id).await?;
+        RepoAction::Import {
+            org,
+            scope,
+            include_archived,
+            dry_run,
+        } => {
+            let scope = parse_scope(&scope).ok_or_else(|| {
+                ClientError::Other(format!(
+                    "Invalid --scope '{scope}' (expected: global or user)"
+                ))
+            })?;
+            let (report, outcome) = import_org(client, &org, scope, include_archived, dry_run).await;
+            if json {
+                output::print_json_typed(&report);
+            } else {
+                format_import_report(&report, dry_run);
+            }
+            // Report first: a failure part-way leaves the rows written so far,
+            // and propagating straight out would print none of them.
+            outcome?;
+        }
+        RepoAction::SyncConfig { repo } => {
+            let repo = resolve_repo(client, &repo).await?;
+            let result = client.api().sync_config(&repo.id).await?;
             if json {
                 output::print_json_typed(&result);
             } else {
@@ -258,6 +318,45 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
         }
     }
     Ok(())
+}
+
+/// Resolve a repository from an id or a name.
+///
+/// Anything that parses as a UUID is an id and goes straight to the backend;
+/// everything else is matched against the registry by name, case-insensitively.
+/// A name two repositories share is refused rather than picked between, because
+/// checking out the wrong one stays silent until the build fails.
+async fn resolve_repo(
+    client: &MoatClient,
+    id_or_name: &str,
+) -> Result<RepositoryResponse, ClientError> {
+    if uuid::Uuid::parse_str(id_or_name).is_ok() {
+        return Ok(client.api().get_repository(id_or_name).await?);
+    }
+    let mut matches: Vec<RepositoryResponse> = client
+        .api()
+        .list_repositories()
+        .await?
+        .into_iter()
+        .filter(|r| r.name.eq_ignore_ascii_case(id_or_name))
+        .collect();
+    match matches.len() {
+        1 => Ok(matches.remove(0)),
+        0 => Err(ClientError::Other(format!(
+            "No repository named '{id_or_name}' — run `moat repos list --search {id_or_name}` to find it"
+        ))),
+        _ => {
+            let ids = matches
+                .iter()
+                .map(|r| r.id.as_str())
+                .collect::<Vec<_>>()
+                .join(", ");
+            Err(ClientError::Other(format!(
+                "'{id_or_name}' names {} repositories — use an id: {ids}",
+                matches.len()
+            )))
+        }
+    }
 }
 
 /// The remote `git clone` is pointed at.
@@ -357,6 +456,329 @@ fn parse_scope(s: &str) -> Option<Scope> {
     }
 }
 
+/// One repository as `gh repo list --json` reports it.
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GhRepo {
+    name: String,
+    url: String,
+    description: Option<String>,
+    is_archived: bool,
+    default_branch_ref: Option<GhBranchRef>,
+}
+
+#[derive(serde::Deserialize)]
+struct GhBranchRef {
+    name: String,
+}
+
+/// What one repository in the organization needed.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportEntry {
+    pub name: String,
+    pub action: &'static str,
+    /// The registry row, absent while `--dry-run` and on a skipped repository.
+    pub id: Option<String>,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportReport {
+    pub org: String,
+    pub created: usize,
+    pub described: usize,
+    pub unchanged: usize,
+    pub skipped_archived: usize,
+    pub skipped_name_taken: usize,
+    pub entries: Vec<ImportEntry>,
+}
+
+/// `gh` caps a listing at 30 without `--limit`, which silently truncates an org
+/// this size and makes the import look complete.
+const GH_LIST_LIMIT: usize = 500;
+
+/// Key a repository by the identity no transport spelling changes.
+///
+/// `normalize_remote_url` only trims and lowercases, so `git@github.com:o/r.git`
+/// and `https://github.com/o/r` key apart under it and the import re-creates a
+/// repository the registry already holds. The fallback keeps a URL
+/// `parse_github` rejects — `ssh://git@github.com/o/r` — matching as it did.
+fn github_key(remote_url: &str) -> String {
+    GitHostRepo::parse(RepositoryProvider::Github, remote_url).map_or_else(
+        || normalize_remote_url(remote_url),
+        |parsed| format!("{}/{}", parsed.owner(), parsed.name()).to_ascii_lowercase(),
+    )
+}
+
+/// What the import does to one organization repository.
+#[derive(Debug, PartialEq, Eq)]
+enum ImportPlan {
+    Create,
+    /// The registry carries the row without a description and GitHub has one.
+    /// Holds the id of the row to fill.
+    Describe(String),
+    Unchanged,
+    SkipArchived,
+    /// A different row already answers to this name, so creating would leave
+    /// `repos clone <name>` unable to resolve either one.
+    SkipNameTaken,
+}
+
+fn plan_import(
+    known: Option<&RepositoryResponse>,
+    repo: &GhRepo,
+    include_archived: bool,
+    name_taken: bool,
+) -> ImportPlan {
+    if repo.is_archived && !include_archived {
+        return ImportPlan::SkipArchived;
+    }
+    let Some(known) = known else {
+        return if name_taken {
+            ImportPlan::SkipNameTaken
+        } else {
+            ImportPlan::Create
+        };
+    };
+    if known.description.is_none() && repo.description.is_some() {
+        ImportPlan::Describe(known.id.clone())
+    } else {
+        ImportPlan::Unchanged
+    }
+}
+
+async fn import_org(
+    client: &MoatClient,
+    org: &str,
+    scope: Scope,
+    include_archived: bool,
+    dry_run: bool,
+) -> (ImportReport, Result<(), ClientError>) {
+    let mut report = ImportReport {
+        org: org.to_string(),
+        created: 0,
+        described: 0,
+        unchanged: 0,
+        skipped_archived: 0,
+        skipped_name_taken: 0,
+        entries: Vec::new(),
+    };
+
+    let remote = match fetch_org_repos(org) {
+        Ok(remote) => remote,
+        Err(e) => return (report, Err(e)),
+    };
+    let existing = match client.api().list_repositories().await {
+        Ok(existing) => existing,
+        Err(e) => return (report, Err(e.into())),
+    };
+
+    let by_key: std::collections::HashMap<String, &RepositoryResponse> = existing
+        .iter()
+        .filter_map(|r| Some((github_key(r.remote_url.as_deref()?), r)))
+        .collect();
+    let names: std::collections::HashSet<String> =
+        existing.iter().map(|r| r.name.to_lowercase()).collect();
+
+    for repo in &remote {
+        let known = by_key.get(&github_key(&repo.url)).copied();
+        let name_taken = known.is_none() && names.contains(&repo.name.to_lowercase());
+        match plan_import(known, repo, include_archived, name_taken) {
+            ImportPlan::SkipArchived => report.skipped_archived += 1,
+            ImportPlan::Unchanged => report.unchanged += 1,
+            ImportPlan::SkipNameTaken => {
+                report.skipped_name_taken += 1;
+                report.entries.push(ImportEntry {
+                    name: repo.name.clone(),
+                    action: "name taken",
+                    id: None,
+                });
+            }
+            ImportPlan::Describe(known_id) => {
+                let id = if dry_run {
+                    None
+                } else {
+                    let req = UpdateRepositoryRequest {
+                        description: repo.description.clone(),
+                        ..Default::default()
+                    };
+                    match client.api().update_repository(&known_id, &req).await {
+                        Ok(updated) => Some(updated.id),
+                        Err(e) => return (report, Err(e.into())),
+                    }
+                };
+                report.described += 1;
+                report.entries.push(ImportEntry {
+                    name: repo.name.clone(),
+                    action: "described",
+                    id,
+                });
+            }
+            ImportPlan::Create => {
+                let id = if dry_run {
+                    None
+                } else {
+                    let req = CreateRepositoryRequest {
+                        name: repo.name.clone(),
+                        kind: RepositoryKind::Remote,
+                        remote_url: Some(repo.url.clone()),
+                        default_branch: repo
+                            .default_branch_ref
+                            .as_ref()
+                            .map(|b| b.name.clone())
+                            .or_else(|| Some("main".to_string())),
+                        provider: Some(RepositoryProvider::Github),
+                        description: repo.description.clone(),
+                        scope: Some(scope),
+                    };
+                    match client.api().create_repository(&req).await {
+                        Ok(created) => Some(created.id),
+                        Err(e) => return (report, Err(e.into())),
+                    }
+                };
+                report.created += 1;
+                report.entries.push(ImportEntry {
+                    name: repo.name.clone(),
+                    action: "created",
+                    id,
+                });
+            }
+        }
+    }
+
+    (report, Ok(()))
+}
+
+fn fetch_org_repos(org: &str) -> Result<Vec<GhRepo>, ClientError> {
+    let args: Vec<String> = [
+        "repo",
+        "list",
+        org,
+        "--limit",
+        &GH_LIST_LIMIT.to_string(),
+        "--json",
+        "name,url,description,isArchived,defaultBranchRef",
+    ]
+    .iter()
+    .map(ToString::to_string)
+    .collect();
+    let token = super::gh::github_token_for_gh();
+    let stdout = super::gh::gh_command_output(&args, token.as_deref())
+        .map_err(|e| ClientError::Other(e.to_string()))?;
+    let mut remote: Vec<GhRepo> = serde_json::from_slice(&stdout)
+        .map_err(|e| ClientError::Other(format!("could not read `gh repo list` output: {e}")))?;
+    // `gh repo list` reports no total, so a listing that comes back exactly at
+    // the limit is the only signal that it was cut.
+    if remote.len() >= GH_LIST_LIMIT {
+        eprintln!(
+            "`gh repo list {org}` returned the full {GH_LIST_LIMIT}-row limit; some repositories may be missing."
+        );
+    }
+    remote.sort_by_key(|r| r.name.to_lowercase());
+    Ok(remote)
+}
+
+fn format_import_report(report: &ImportReport, dry_run: bool) {
+    if report.entries.is_empty() {
+        let seen = report.unchanged + report.skipped_archived;
+        if seen == 0 {
+            println!(
+                "`gh repo list {}` returned no repositories — check the organization name.",
+                report.org
+            );
+        } else {
+            println!(
+                "{} is fully registered: {} repositories, {} archived and skipped.",
+                report.org, report.unchanged, report.skipped_archived
+            );
+        }
+        return;
+    }
+    let rows: Vec<Vec<String>> = report
+        .entries
+        .iter()
+        .map(|e| {
+            vec![
+                e.action.to_string(),
+                e.name.clone(),
+                e.id.clone().unwrap_or_else(|| "-".to_string()),
+            ]
+        })
+        .collect();
+    output::print_table(&["ACTION", "NAME", "ID"], &rows);
+    let verb = if dry_run { "would be" } else { "were" };
+    println!(
+        "{}: {} {verb} created, {} {verb} described, {} already correct, {} archived and skipped, {} skipped for a name already in use.",
+        report.org,
+        report.created,
+        report.described,
+        report.unchanged,
+        report.skipped_archived,
+        report.skipped_name_taken
+    );
+}
+
+/// The `--provider`, `--scope` and `--search` predicates a listing applies
+/// client-side; `GET /api/v1/repositories` takes no query parameters.
+struct RepoFilter {
+    provider: Option<RepositoryProvider>,
+    scope: Option<Scope>,
+    search: Option<String>,
+}
+
+impl RepoFilter {
+    fn parse(
+        provider: Option<&str>,
+        scope: Option<&str>,
+        search: Option<String>,
+    ) -> Result<Self, ClientError> {
+        let provider = match provider {
+            Some(p) => Some(parse_repo_provider(p).ok_or_else(|| {
+                ClientError::Other(format!(
+                    "Invalid --provider '{p}' (expected: github, gitlab, gitness or forgejo)"
+                ))
+            })?),
+            None => None,
+        };
+        let scope = match scope {
+            Some(s) => Some(parse_scope(s).ok_or_else(|| {
+                ClientError::Other(format!("Invalid --scope '{s}' (expected: global or user)"))
+            })?),
+            None => None,
+        };
+        Ok(Self {
+            provider,
+            scope,
+            search: search.map(|s| s.to_lowercase()),
+        })
+    }
+
+    fn matches(&self, repo: &RepositoryResponse) -> bool {
+        if self.provider.is_some_and(|p| repo.provider != Some(p)) {
+            return false;
+        }
+        if self.scope.is_some_and(|s| repo.scope != s) {
+            return false;
+        }
+        let Some(needle) = &self.search else {
+            return true;
+        };
+        [
+            Some(repo.name.as_str()),
+            repo.description.as_deref(),
+            repo.remote_url.as_deref(),
+        ]
+        .into_iter()
+        .flatten()
+        .any(|field| field.to_lowercase().contains(needle))
+    }
+}
+
+/// Width the description is cut to, so a long one does not push NAME and
+/// PROVIDER off a terminal. `--json` and `repos get` carry the full text.
+const DESCRIPTION_WIDTH: usize = 72;
+
 fn format_repo_list(repos: &[RepositoryResponse]) {
     let rows: Vec<Vec<String>> = repos
         .iter()
@@ -368,11 +790,28 @@ fn format_repo_list(repos: &[RepositoryResponse]) {
                     .as_ref()
                     .map_or("-".to_string(), ToString::to_string),
                 r.default_branch.as_deref().unwrap_or("-").to_string(),
+                r.scope.to_string(),
+                truncate(r.description.as_deref().unwrap_or("-"), DESCRIPTION_WIDTH),
             ]
         })
         .collect();
 
-    output::print_table(&["ID", "NAME", "PROVIDER", "BRANCH"], &rows);
+    output::print_table(
+        &["ID", "NAME", "PROVIDER", "BRANCH", "SCOPE", "DESCRIPTION"],
+        &rows,
+    );
+}
+
+/// Cut `text` to at most `width` characters, ending in `…` when anything was
+/// dropped. The `…` takes the last character's place rather than following it,
+/// so the result never exceeds `width`.
+fn truncate(text: &str, width: usize) -> String {
+    if text.chars().count() <= width {
+        return text.to_string();
+    }
+    let mut out: String = text.chars().take(width.saturating_sub(1)).collect();
+    out.push('…');
+    out
 }
 
 fn format_repo_detail(r: &RepositoryResponse) {
@@ -502,5 +941,125 @@ mod tests {
     fn a_repository_with_no_remote_is_named_after_itself() {
         let repo = repository(Some(RepositoryProvider::Github), None);
         assert_eq!(checkout_dir(&repo), "config-default");
+    }
+
+    fn filter(provider: Option<&str>, scope: Option<&str>, search: Option<&str>) -> RepoFilter {
+        RepoFilter::parse(provider, scope, search.map(str::to_string)).expect("parses")
+    }
+
+    #[test]
+    fn a_filter_naming_no_predicate_keeps_every_repository() {
+        let repo = repository(Some(RepositoryProvider::Github), None);
+        assert!(filter(None, None, None).matches(&repo));
+    }
+
+    #[test]
+    fn provider_and_scope_narrow_independently() {
+        let repo = repository(
+            Some(RepositoryProvider::Forgejo),
+            Some("https://git.example.com/owner/repo.git"),
+        );
+        assert!(filter(Some("forgejo"), None, None).matches(&repo));
+        assert!(!filter(Some("github"), None, None).matches(&repo));
+        assert!(filter(None, Some("user"), None).matches(&repo));
+        assert!(!filter(None, Some("global"), None).matches(&repo));
+    }
+
+    #[test]
+    fn search_reads_name_description_and_remote_url_case_insensitively() {
+        let mut repo = repository(
+            Some(RepositoryProvider::Github),
+            Some("https://github.com/soaplabs/soap-backend.git"),
+        );
+        repo.description = Some("Core AML API".to_string());
+        assert!(filter(None, None, Some("CONFIG")).matches(&repo));
+        assert!(filter(None, None, Some("aml api")).matches(&repo));
+        assert!(filter(None, None, Some("soaplabs")).matches(&repo));
+        assert!(!filter(None, None, Some("screening")).matches(&repo));
+    }
+
+    #[test]
+    fn an_unreadable_predicate_is_refused_rather_than_ignored() {
+        assert!(RepoFilter::parse(Some("bitbucket"), None, None).is_err());
+        assert!(RepoFilter::parse(None, Some("team"), None).is_err());
+    }
+
+    #[test]
+    fn a_description_is_cut_only_when_it_is_too_long() {
+        assert_eq!(truncate("short", 10), "short");
+        assert_eq!(truncate("0123456789", 10), "0123456789");
+        assert_eq!(truncate("0123456789x", 10), "012345678…");
+        assert_eq!(truncate("0123456789x", 10).chars().count(), 10);
+    }
+
+    fn gh_repo(name: &str, description: Option<&str>, is_archived: bool) -> GhRepo {
+        GhRepo {
+            name: name.to_string(),
+            url: format!("https://github.com/soaplabs/{name}"),
+            description: description.map(str::to_string),
+            is_archived,
+            default_branch_ref: None,
+        }
+    }
+
+    #[test]
+    fn every_spelling_of_one_github_repository_shares_a_key() {
+        let https = github_key("https://github.com/soaplabs/Foo");
+        assert_eq!(https, "soaplabs/foo");
+        assert_eq!(github_key("https://github.com/soaplabs/foo.git"), https);
+        assert_eq!(github_key("git@github.com:soaplabs/foo.git"), https);
+    }
+
+    #[test]
+    fn a_url_github_cannot_parse_still_keys_by_its_text() {
+        // `parse_github` rejects the `ssh://` form, so this falls back rather
+        // than dropping a row the URL key used to match.
+        assert_eq!(
+            github_key("ssh://git@github.com/soaplabs/foo.git/"),
+            "ssh://git@github.com/soaplabs/foo"
+        );
+    }
+
+    #[test]
+    fn an_archived_repository_is_skipped_unless_it_is_asked_for() {
+        let repo = gh_repo("foo", Some("a description"), true);
+        assert_eq!(
+            plan_import(None, &repo, false, false),
+            ImportPlan::SkipArchived
+        );
+        assert_eq!(plan_import(None, &repo, true, false), ImportPlan::Create);
+    }
+
+    #[test]
+    fn a_description_is_filled_only_where_the_registry_has_none() {
+        let mut known = repository(Some(RepositoryProvider::Github), None);
+        let described = gh_repo("foo", Some("what it does"), false);
+
+        assert_eq!(
+            plan_import(Some(&known), &described, false, false),
+            ImportPlan::Describe(REPO_ID.to_string())
+        );
+
+        known.description = Some("what we already say".to_string());
+        assert_eq!(
+            plan_import(Some(&known), &described, false, false),
+            ImportPlan::Unchanged
+        );
+
+        known.description = None;
+        let undescribed = gh_repo("foo", None, false);
+        assert_eq!(
+            plan_import(Some(&known), &undescribed, false, false),
+            ImportPlan::Unchanged
+        );
+    }
+
+    #[test]
+    fn a_repository_whose_name_is_taken_is_reported_rather_than_duplicated() {
+        let repo = gh_repo("foo", Some("a description"), false);
+        assert_eq!(
+            plan_import(None, &repo, false, true),
+            ImportPlan::SkipNameTaken
+        );
     }
 }

@@ -30,7 +30,7 @@ pub(crate) trait RepositoryDao: Send + Sync {
     /// Find a non-deleted repository whose `remote_url` normalizes to `url_key`
     /// (trimmed, trailing `/`/`.git` stripped, lowercased), scoped to the given
     /// scope+owner so resolution never crosses tenants. `url_key` must be
-    /// pre-normalized by [`super::handlers::normalize_remote_url`].
+    /// pre-normalized by [`moatless_types::repository::normalize_remote_url`].
     async fn find_by_normalized_remote_url(
         &self,
         url_key: &str,

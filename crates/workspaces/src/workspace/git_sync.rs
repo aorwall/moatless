@@ -30,7 +30,7 @@ use crate::repository::config_reader::fetch_provider_file;
 use crate::repository::dao::RepositoryDao;
 use crate::repository::error::{RepositoryError, is_remote_url_conflict};
 use crate::repository::models::Repository;
-use crate::repository::remote_url::normalize_remote_url;
+use moatless_types::repository::normalize_remote_url;
 use crate::workspace::config_validation::validate_non_secret_env_vars;
 use crate::workspace::dao::WorkspaceDao;
 use crate::workspace::models::WorkspacePatch;

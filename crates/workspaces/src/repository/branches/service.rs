@@ -211,7 +211,7 @@ mod tests {
     use super::*;
     use crate::repository::models::Repository;
     use crate::repository::mutations::preserved_user_scope;
-    use crate::repository::remote_url::normalize_remote_url;
+    use moatless_types::repository::normalize_remote_url;
     use moatless_types::access_control::Scope;
     use moatless_types::repository::RepositoryKind;
 

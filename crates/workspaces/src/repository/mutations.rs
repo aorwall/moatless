@@ -2,7 +2,7 @@ use super::dao::RepositoryDao;
 use super::error::RepositoryError;
 use super::models::Repository;
 use super::models::RepositoryPatch;
-use super::remote_url::normalize_remote_url;
+use moatless_types::repository::normalize_remote_url;
 use super::schemas::{CreateRepositoryRequest, UpdateRepositoryRequest};
 use crate::workspace::git_sync::{GitSyncService, SyncForce, log_workspace_sync_for};
 use moatless_core::db::DbPool;

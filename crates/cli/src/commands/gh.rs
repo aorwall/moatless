@@ -454,7 +454,7 @@ fn gh_command(args: &[String], token: Option<&str>) -> std::process::Command {
 /// path that script bakes in, and the one `moatless-sandbox` binds.
 const BROKER_SOCKET: &str = "/run/moatless/credentials.sock";
 
-fn github_token_for_gh() -> Option<String> {
+pub(super) fn github_token_for_gh() -> Option<String> {
     resolve_gh_token(
         std::path::Path::new(BROKER_SOCKET).exists(),
         env_github_token_is_set(),
@@ -637,7 +637,7 @@ fn resolve_pr_target(
     }))
 }
 
-fn gh_command_output(
+pub(super) fn gh_command_output(
     args: &[String],
     token: Option<&str>,
 ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
