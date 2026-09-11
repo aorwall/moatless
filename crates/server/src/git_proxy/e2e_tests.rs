@@ -18,8 +18,8 @@ use axum::Router;
 use axum::routing::{get, post};
 use base64::Engine as _;
 use moatless_core::sandbox_jwt::generate_user_auth_token;
-use moatless_ports::identity::MockGitHostTokenIssuer;
-use moatless_ports::workspace::{MockWorkspaceResolver, RepoPlacement};
+use moatless_ports::identity::{MockCommitIdentity, MockGitHostTokenIssuer};
+use moatless_ports::workspace::{MockRepositoryReader, MockWorkspaceResolver, RepoPlacement};
 use moatless_types::access_control::Scope;
 use moatless_types::repository::{Repository, RepositoryKind, RepositoryProvider};
 
@@ -91,9 +91,18 @@ async fn proxy(env: &Env, repository_id: &str) -> GitProxy {
         .expect_token()
         .returning(move |_, _| Ok(token.clone()));
 
+    // Nothing outside the placement is reachable here, so an id the workspace
+    // does not place stays a 404 rather than falling through to a real read.
+    let mut repositories = MockRepositoryReader::new();
+    repositories.expect_describe().returning(|_, _| Ok(None));
+    let mut users = MockCommitIdentity::new();
+    users.expect_is_platform_admin().returning(|_| Ok(false));
+
     GitProxy::new(
         ingress,
         Arc::new(workspaces),
+        Arc::new(repositories),
+        Arc::new(users),
         Arc::new(tokens),
         Some(SECRET.to_string()),
     )

@@ -184,7 +184,7 @@ impl RepoCheckout {
 ///
 /// A Forgejo token is never delivered into a pod, so the pod addresses the
 /// backend and the backend attaches the credential. Every other provider's
-/// `clone_url` reaches its host directly.
+/// checkout `clone_url` reaches its host directly.
 pub const PROXIED_PROVIDER: &str = "forgejo";
 
 /// The proxied remote for `repository_id`: `{backend_api_url}/git/{repository_id}`.
@@ -296,12 +296,8 @@ impl WorkspaceCredentialProvider {
     /// call against that host presents, so it is resolved by
     /// `moatless_identity::git_host_tokens::GitHostTokens` rather than only
     /// delivered as an environment variable.
-    pub const GIT_HOSTS: &'static [Self] = &[
-        Self::Github,
-        Self::Gitlab,
-        Self::Gitness,
-        Self::Forgejo,
-    ];
+    pub const GIT_HOSTS: &'static [Self] =
+        &[Self::Github, Self::Gitlab, Self::Gitness, Self::Forgejo];
 
     pub fn as_str(self) -> &'static str {
         match self {

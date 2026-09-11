@@ -9,6 +9,8 @@ use moatless_api_schemas::enums::{RepositoryKind, RepositoryProvider, Scope};
 use moatless_api_schemas::repository::{
     CreateRepositoryRequest, RepositoryResponse, UpdateRepositoryRequest,
 };
+use moatless_types::repository::{GitHostRepo, is_ssh_url};
+use moatless_types::workspace::{derive_mount_name, proxy_clone_url, sanitize_mount_name};
 
 use crate::client::{ClientError, MoatClient};
 use crate::output;
@@ -19,6 +21,15 @@ pub enum RepoAction {
     List,
     /// Get repository details
     Get { repo_id: String },
+    /// Clone a repository by id
+    Clone {
+        repo_id: String,
+        /// Directory to clone into. Defaults to the repository's own name.
+        dir: Option<String>,
+        /// Branch to check out. Defaults to the repository's default branch.
+        #[arg(long)]
+        branch: Option<String>,
+    },
     /// Create a repository
     Create {
         #[arg(long)]
@@ -32,7 +43,7 @@ pub enum RepoAction {
         git_url: Option<String>,
         #[arg(long, default_value = "main")]
         branch: String,
-        /// Hosting provider (github, gitlab, gitness). Ignored for SSH clone URLs,
+        /// Hosting provider (github, gitlab, gitness, forgejo). Ignored for SSH clone URLs,
         /// which authenticate via an `ssh_key` secret rather than a provider token.
         #[arg(long, default_value = "github")]
         provider: String,
@@ -91,6 +102,31 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
                 output::print_json_typed(&repo);
             } else {
                 format_repo_detail(&repo);
+            }
+        }
+        RepoAction::Clone {
+            repo_id,
+            dir,
+            branch,
+        } => {
+            let repo = client.api().get_repository(&repo_id).await?;
+            let url = clone_url(client.base_url(), &repo)?;
+            let target = dir.unwrap_or_else(|| checkout_dir(&repo));
+            let branch = branch.or_else(|| repo.default_branch.clone());
+            git_clone(&url, &target, branch.as_deref())?;
+            if json {
+                output::print_json_typed(&serde_json::json!({
+                    "id": repo.id,
+                    "name": repo.name,
+                    "path": target,
+                }));
+            } else {
+                println!("Cloned {} into {target}", repo.name);
+                if let Some(gh_repo) = gh_repo_hint(&repo, &url) {
+                    println!(
+                        "Pass `-R {gh_repo}` to `moat gh`: origin is the backend git proxy, not a GitHub remote."
+                    );
+                }
             }
         }
         RepoAction::Create {
@@ -224,6 +260,77 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
     Ok(())
 }
 
+/// The remote `git clone` is pointed at.
+///
+/// Every repository whose row names a provider clones through the backend git
+/// proxy, which resolves the credential from the Workspace's run-as identity: no
+/// provider token has to reach the pod at all, and a Forgejo one never does. The
+/// task token travels as the HTTP Basic password, supplied by the pod's
+/// `credential.<backend>.helper`, so this command runs inside a sandbox.
+///
+/// An SSH remote clones from its own host instead. It authenticates with the
+/// pod's `ssh_key` secret, and the proxy has only a token to present.
+fn clone_url(base_url: &str, repo: &RepositoryResponse) -> Result<String, ClientError> {
+    let remote_url = repo.remote_url.clone().ok_or_else(|| {
+        ClientError::Other(format!(
+            "Repository {} ({}) has no clone URL",
+            repo.name, repo.id
+        ))
+    })?;
+    if repo.provider.is_some() && !is_ssh_url(&remote_url) {
+        return Ok(proxy_clone_url(base_url, &repo.id));
+    }
+    Ok(remote_url)
+}
+
+/// The `owner/repo` a `moat gh` command run in this checkout has to be given,
+/// or `None` when its origin already names one.
+///
+/// `gh::resolve_repo` reads `git remote get-url origin`, and a proxied origin is
+/// the backend's `/git/{id}` path.
+fn gh_repo_hint(repo: &RepositoryResponse, cloned_from: &str) -> Option<String> {
+    let remote_url = repo.remote_url.as_deref()?;
+    if cloned_from == remote_url {
+        return None;
+    }
+    let parsed = GitHostRepo::parse(RepositoryProvider::Github, remote_url)?;
+    Some(format!("{}/{}", parsed.owner(), parsed.name()))
+}
+
+/// The directory a clone lands in.
+///
+/// Derived from the remote and not from the URL git is given: a proxied URL
+/// ends in the repository id, so git would name the checkout after a UUID.
+fn checkout_dir(repo: &RepositoryResponse) -> String {
+    match repo.remote_url.as_deref() {
+        Some(remote_url) => derive_mount_name(remote_url),
+        None => sanitize_mount_name(&repo.name).unwrap_or_else(|| "repo".to_string()),
+    }
+}
+
+/// Run `git clone`, with git's own progress on this process's stderr.
+///
+/// `GIT_TERMINAL_PROMPT=0` turns a missing credential into an error rather than
+/// a prompt no agent shell answers.
+fn git_clone(url: &str, target: &str, branch: Option<&str>) -> Result<(), ClientError> {
+    let mut command = std::process::Command::new("git");
+    command.env("GIT_TERMINAL_PROMPT", "0").arg("clone");
+    if let Some(branch) = branch {
+        command.args(["--branch", branch]);
+    }
+    // `--` closes the option list: nothing validates a stored `remote_url`, so a
+    // row starting one with `-` would otherwise hand `git clone` a flag.
+    let status = command
+        .args(["--", url, target])
+        .status()
+        .map_err(|e| ClientError::Other(format!("Failed to run git: {e}")))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(ClientError::Other(format!("git clone exited {status}")))
+    }
+}
+
 fn parse_repo_kind(s: &str) -> RepositoryKind {
     match s {
         "template" => RepositoryKind::Template,
@@ -237,6 +344,7 @@ fn parse_repo_provider(s: &str) -> Option<RepositoryProvider> {
         "github" => Some(RepositoryProvider::Github),
         "gitlab" => Some(RepositoryProvider::Gitlab),
         "gitness" => Some(RepositoryProvider::Gitness),
+        "forgejo" => Some(RepositoryProvider::Forgejo),
         _ => None,
     }
 }
@@ -284,5 +392,115 @@ fn format_repo_detail(r: &RepositoryResponse) {
     println!("Scope:      {}", r.scope);
     if let Some(ref owner) = r.owner_user_id {
         println!("Owner:      {owner}");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const REPO_ID: &str = "6a12f676-2716-4de8-9bcc-8889e7f7fe3c";
+    const BASE_URL: &str = "https://moatless.dev";
+
+    fn repository(
+        provider: Option<RepositoryProvider>,
+        remote_url: Option<&str>,
+    ) -> RepositoryResponse {
+        RepositoryResponse {
+            id: REPO_ID.to_string(),
+            name: "config default".to_string(),
+            kind: RepositoryKind::Git,
+            remote_url: remote_url.map(str::to_string),
+            default_branch: None,
+            description: None,
+            provider,
+            scope: Scope::User,
+            owner_user_id: None,
+            created_by: None,
+            created_at: None,
+            updated_at: None,
+        }
+    }
+
+    fn proxied() -> String {
+        format!("https://moatless.dev/git/{REPO_ID}")
+    }
+
+    #[test]
+    fn a_forgejo_repository_clones_through_the_proxy() {
+        let repo = repository(
+            Some(RepositoryProvider::Forgejo),
+            Some("https://git.example.com/owner/config-default.git"),
+        );
+        assert_eq!(clone_url(BASE_URL, &repo).unwrap(), proxied());
+    }
+
+    #[test]
+    fn a_github_repository_clones_through_the_proxy() {
+        let repo = repository(
+            Some(RepositoryProvider::Github),
+            Some("https://github.com/owner/repo.git"),
+        );
+        assert_eq!(clone_url(BASE_URL, &repo).unwrap(), proxied());
+    }
+
+    #[test]
+    fn an_ssh_remote_clones_from_its_own_host() {
+        let remote = "ssh://git@git.example.com:2222/owner/repo.git";
+        let repo = repository(Some(RepositoryProvider::Gitness), Some(remote));
+        assert_eq!(clone_url(BASE_URL, &repo).unwrap(), remote);
+    }
+
+    #[test]
+    fn a_repository_naming_no_provider_clones_from_its_own_host() {
+        let remote = "https://git.example.com/owner/repo.git";
+        let repo = repository(None, Some(remote));
+        assert_eq!(clone_url(BASE_URL, &repo).unwrap(), remote);
+    }
+
+    #[test]
+    fn a_repository_with_no_remote_has_no_clone_url() {
+        let repo = repository(Some(RepositoryProvider::Github), None);
+        assert!(clone_url(BASE_URL, &repo).is_err());
+    }
+
+    #[test]
+    fn a_proxied_github_checkout_reports_the_repository_gh_needs() {
+        let repo = repository(
+            Some(RepositoryProvider::Github),
+            Some("https://github.com/owner/repo.git"),
+        );
+        assert_eq!(
+            gh_repo_hint(&repo, &proxied()).as_deref(),
+            Some("owner/repo")
+        );
+    }
+
+    #[test]
+    fn a_checkout_gh_can_read_itself_reports_nothing() {
+        let remote = "https://github.com/owner/repo.git";
+        let repo = repository(Some(RepositoryProvider::Github), Some(remote));
+        assert_eq!(gh_repo_hint(&repo, remote), None);
+
+        let forgejo = repository(
+            Some(RepositoryProvider::Forgejo),
+            Some("https://git.example.com/owner/repo.git"),
+        );
+        assert_eq!(gh_repo_hint(&forgejo, &proxied()), None);
+    }
+
+    #[test]
+    fn a_proxied_clone_is_named_after_the_remote() {
+        let repo = repository(
+            Some(RepositoryProvider::Forgejo),
+            Some("https://git.example.com/owner/config-default.git"),
+        );
+        assert_eq!(checkout_dir(&repo), "config-default");
+    }
+
+    #[test]
+    fn a_repository_with_no_remote_is_named_after_itself() {
+        let repo = repository(Some(RepositoryProvider::Github), None);
+        assert_eq!(checkout_dir(&repo), "config-default");
     }
 }

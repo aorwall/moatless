@@ -46,6 +46,9 @@ pub struct Repository {
     pub updated_at: Option<DateTime<Utc>>,
 }
 
+/// The one host GitHub serves, which no other provider here is fixed to.
+pub const GITHUB_HOST: &str = "github.com";
+
 /// A repository named on a git host: which host, whose account, and what it is
 /// called.
 ///
@@ -57,16 +60,15 @@ pub struct GitHostRepo {
     provider: RepositoryProvider,
     owner: String,
     name: String,
-    host: Option<String>,
+    host: String,
 }
 
 impl GitHostRepo {
     /// Parse a supported remote URL for `provider`.
     ///
     /// Both HTTPS/HTTP and the common SCP-style SSH form are accepted. GitHub
-    /// has exactly one host, so a URL on any other host is rejected and `host`
-    /// stays `None`. GitLab, Gitness and Forgejo are self-hostable, so any host
-    /// is accepted and carried.
+    /// has exactly one host, so a URL on any other host is rejected. GitLab,
+    /// Gitness and Forgejo are self-hostable, so any host is accepted.
     pub fn parse(provider: RepositoryProvider, remote_url: &str) -> Option<Self> {
         match provider {
             RepositoryProvider::Github => Self::parse_github(remote_url),
@@ -83,7 +85,7 @@ impl GitHostRepo {
             provider: RepositoryProvider::Github,
             owner: owner.into(),
             name: name.into(),
-            host: None,
+            host: GITHUB_HOST.to_string(),
         }
     }
 
@@ -99,9 +101,10 @@ impl GitHostRepo {
         &self.name
     }
 
-    /// The host, for a provider that does not have exactly one.
-    pub fn host(&self) -> Option<&str> {
-        self.host.as_deref()
+    /// The host to address this repository on. Always [`GITHUB_HOST`] for
+    /// GitHub, and whatever the remote URL named for a self-hostable provider.
+    pub fn host(&self) -> &str {
+        &self.host
     }
 
     /// Extra path segments, an empty owner and any host but `github.com` are
@@ -113,7 +116,7 @@ impl GitHostRepo {
         } else {
             let parsed = url::Url::parse(trimmed).ok()?;
             if !matches!(parsed.scheme(), "http" | "https")
-                || !parsed.host_str()?.eq_ignore_ascii_case("github.com")
+                || !parsed.host_str()?.eq_ignore_ascii_case(GITHUB_HOST)
             {
                 return None;
             }
@@ -131,7 +134,7 @@ impl GitHostRepo {
             provider: RepositoryProvider::Github,
             owner: owner.to_string(),
             name: name.to_string(),
-            host: None,
+            host: GITHUB_HOST.to_string(),
         })
     }
 
@@ -165,8 +168,27 @@ impl GitHostRepo {
             provider,
             owner: owner.to_string(),
             name: name.to_string(),
-            host: Some(host),
+            host,
         })
+    }
+}
+
+/// Whether a clone URL uses SSH transport.
+///
+/// Matches both `ssh://…` URLs and scp-like `[user@]host:path` syntax
+/// (e.g. `git@github.com:owner/repo.git`), while excluding HTTP(S) URLs.
+pub fn is_ssh_url(url: &str) -> bool {
+    if url.starts_with("ssh://") || url.starts_with("git+ssh://") {
+        return true;
+    }
+    if url.starts_with("http://") || url.starts_with("https://") {
+        return false;
+    }
+    // scp-like syntax: user@host:path — an '@' before a ':', and the ':' is not
+    // part of a URL scheme.
+    match (url.find('@'), url.find(':')) {
+        (Some(at), Some(colon)) => colon > at,
+        _ => false,
     }
 }
 
@@ -206,12 +228,13 @@ mod tests {
     }
 
     #[test]
-    fn github_carries_no_host_because_it_has_only_one() {
+    fn github_carries_the_one_host_it_has() {
         let repo = GitHostRepo::parse(RepositoryProvider::Github, "https://github.com/acme/repo")
             .expect("parses");
-        assert_eq!(repo.host(), None);
+        assert_eq!(repo.host(), GITHUB_HOST);
         assert_eq!(repo.provider(), RepositoryProvider::Github);
         assert_eq!(repo.to_string(), "acme/repo");
+        assert_eq!(GitHostRepo::github("acme", "repo").host(), GITHUB_HOST);
     }
 
     #[test]
@@ -221,7 +244,7 @@ mod tests {
             "https://gitlab.example.com/acme/repo.git",
         )
         .expect("parses");
-        assert_eq!(repo.host(), Some("gitlab.example.com"));
+        assert_eq!(repo.host(), "gitlab.example.com");
         assert_eq!(repo.owner(), "acme");
         assert_eq!(repo.name(), "repo");
 
@@ -230,7 +253,7 @@ mod tests {
             "git@gitness.internal:team/repo",
         )
         .expect("parses");
-        assert_eq!(ssh.host(), Some("gitness.internal"));
+        assert_eq!(ssh.host(), "gitness.internal");
         assert_eq!(ssh.owner(), "team");
     }
 
@@ -243,6 +266,21 @@ mod tests {
         .expect("parses");
         assert_eq!(repo.owner(), "group/subgroup");
         assert_eq!(repo.name(), "repo");
+    }
+
+    #[test]
+    fn detects_ssh_urls() {
+        assert!(is_ssh_url("git@github.com:owner/repo.git"));
+        assert!(is_ssh_url("git@gitlab.example.com:group/sub/repo.git"));
+        assert!(is_ssh_url("ssh://git@example.com/owner/repo.git"));
+        assert!(is_ssh_url("deploy@10.0.0.1:/srv/git/repo.git"));
+    }
+
+    #[test]
+    fn rejects_non_ssh_urls() {
+        assert!(!is_ssh_url("https://github.com/owner/repo.git"));
+        assert!(!is_ssh_url("http://gitlab.example.com/owner/repo.git"));
+        assert!(!is_ssh_url("https://user:tok@github.com/owner/repo.git"));
     }
 
     #[test]

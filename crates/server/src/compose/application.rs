@@ -215,6 +215,8 @@ impl AppState {
         let git_proxy = Arc::new(crate::git_proxy::GitProxy::new(
             ports.sandbox_graph.sandbox_ingress(),
             workspace_resolver.clone(),
+            repository_reader.clone(),
+            user_directory.clone(),
             git_host_tokens.clone(),
             config.sandbox.task_token_secret.clone(),
         ));

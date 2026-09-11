@@ -322,14 +322,7 @@ impl GitHostTokens {
         actor: &Actor,
         repo: &GitHostRepo,
     ) -> Result<String, GitHostTokenError> {
-        let host = repo.host().ok_or_else(|| GitHostTokenError::Broken {
-            actor: actor.clone(),
-            provider: RepositoryProvider::Forgejo,
-            source: Box::new(AuthError::Config(
-                "A Forgejo repository URL must carry the instance's host".to_string(),
-            )),
-        })?;
-
+        let host = repo.host();
         let row = self
             .provider_tokens
             .find_provider_token_full(actor.user_id(), &forgejo_provider_key(host))

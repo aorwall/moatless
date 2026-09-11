@@ -234,9 +234,7 @@ pub(super) async fn fetch_forgejo_branches(
     let parsed = GitHostRepo::parse(GitHostProvider::Forgejo, remote_url).ok_or_else(|| {
         RepositoryError::BadRequest(format!("Cannot parse Forgejo URL: {remote_url}"))
     })?;
-    let host = parsed.host().ok_or_else(|| {
-        RepositoryError::BadRequest(format!("Forgejo URL names no host: {remote_url}"))
-    })?;
+    let host = parsed.host();
     let (owner, repo) = (parsed.owner(), parsed.name());
     let repo_api = format!("https://{host}/api/v1/repos/{owner}/{repo}");
 

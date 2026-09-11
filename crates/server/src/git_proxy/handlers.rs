@@ -12,11 +12,34 @@ use tracing::{info, warn};
 
 use crate::git_proxy::service::{GitProxy, GitProxyError, Upstream};
 
-/// The two services git advertises, and the only two this proxy forwards.
+/// The two git services this proxy forwards.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum GitService {
+    UploadPack,
+    ReceivePack,
+}
+
+impl GitService {
+    /// The name git puts in `?service=` and in the RPC path.
+    fn name(self) -> &'static str {
+        match self {
+            Self::UploadPack => "git-upload-pack",
+            Self::ReceivePack => "git-receive-pack",
+        }
+    }
+}
+
+/// The service `name` asks for, or `None` for one this proxy does not forward.
 ///
 /// Anything else is a path git never asks for, and forwarding it would make the
 /// proxy a general-purpose fetcher for whatever the credential can reach.
-const SERVICES: [&str; 2] = ["git-upload-pack", "git-receive-pack"];
+fn service_named(name: &str) -> Option<GitService> {
+    match name {
+        "git-upload-pack" => Some(GitService::UploadPack),
+        "git-receive-pack" => Some(GitService::ReceivePack),
+        _ => None,
+    }
+}
 
 /// Headers copied from git's request onto the upstream one.
 ///
@@ -51,14 +74,14 @@ pub async fn info_refs(
     Query(query): Query<RefsQuery>,
     headers: HeaderMap,
 ) -> Response {
-    if !SERVICES.contains(&query.service.as_str()) {
+    let Some(service) = service_named(&query.service) else {
         return GitProxyError::NotFound.into_response();
-    }
+    };
     let upstream = match resolve(&proxy, &repository_id, &headers).await {
         Ok(upstream) => upstream,
         Err(response) => return response,
     };
-    let url = format!("{}/info/refs?service={}", upstream.base_url, query.service);
+    let url = format!("{}/info/refs?service={}", upstream.base_url, service.name());
     forward(
         &proxy,
         upstream,
@@ -78,7 +101,7 @@ pub async fn upload_pack(
     headers: HeaderMap,
     body: Body,
 ) -> Response {
-    service_rpc(proxy, repository_id, "git-upload-pack", headers, body).await
+    service_rpc(proxy, repository_id, GitService::UploadPack, headers, body).await
 }
 
 /// `POST /git/{repository_id}/git-receive-pack` — the push. The resolved
@@ -89,13 +112,13 @@ pub async fn receive_pack(
     headers: HeaderMap,
     body: Body,
 ) -> Response {
-    service_rpc(proxy, repository_id, "git-receive-pack", headers, body).await
+    service_rpc(proxy, repository_id, GitService::ReceivePack, headers, body).await
 }
 
 async fn service_rpc(
     proxy: Arc<GitProxy>,
     repository_id: String,
-    service: &str,
+    service: GitService,
     headers: HeaderMap,
     body: Body,
 ) -> Response {
@@ -103,7 +126,7 @@ async fn service_rpc(
         Ok(upstream) => upstream,
         Err(response) => return response,
     };
-    let url = format!("{}/{service}", upstream.base_url);
+    let url = format!("{}/{}", upstream.base_url, service.name());
     forward(&proxy, upstream, reqwest::Method::POST, url, &headers, body).await
 }
 

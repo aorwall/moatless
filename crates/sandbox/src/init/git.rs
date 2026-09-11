@@ -7,6 +7,7 @@
 use std::path::Path;
 use std::time::{Duration, Instant};
 
+use moatless_types::repository::is_ssh_url;
 use moatless_types::workspace::{PROXIED_PROVIDER, RepoCheckout};
 use tokio::net::TcpStream;
 use tokio::process::Command;
@@ -22,13 +23,21 @@ pub async fn configure_git(config: &Config) -> Result<(), String> {
     let is_ssh = config.git_clone_url.as_deref().is_some_and(is_ssh_url);
     let is_github = config.git_provider == "github";
 
-    // A proxied checkout presents the pod's own task token, which the broker
-    // answers for the backend's origin. Wired ahead of the no-token exits below:
-    // a pod whose only repos are proxied holds no `GIT_TOKEN` at all.
-    let proxy_origin = proxied_origin(config);
+    // The broker answers the backend origin with the pod's task token. Wired
+    // wherever that origin is known, and not only where a checkout clones from
+    // it: `moat repos clone <id>` fetches a repository the Workspace places no
+    // checkout for. Ahead of the no-token exits below, which a pod holding only
+    // proxied repos would otherwise take before reaching this.
+    let proxy_origin = config.backend_api_origin();
     if let Some(origin) = &proxy_origin {
         wire_broker_git_helper(origin).await;
     }
+
+    // The broker answers github.com with the task's `GITHUB_TOKEN` whatever the
+    // pod's own provider (`credentials::broker::get_git_credential`), so a
+    // Forgejo or SSH pod reaches `moat repos clone <github_id>` too. The GitHub
+    // branch below wires the same entry again: `gh auth setup-git` replaces it.
+    wire_broker_git_helper("https://github.com").await;
 
     if is_ssh {
         // SSH remotes authenticate with the private key(s) materialized into
@@ -39,7 +48,7 @@ pub async fn configure_git(config: &Config) -> Result<(), String> {
     } else if is_github {
         // GitHub-specific: use gh CLI for credential management
         if std::env::var("GIT_TOKEN").is_err() {
-            info!("No git token set — skipping git configuration");
+            info!("No git token set — skipping gh's helper and the git identity");
             return Ok(());
         }
 
@@ -68,7 +77,7 @@ pub async fn configure_git(config: &Config) -> Result<(), String> {
         )
         .await;
     } else if std::env::var("GIT_TOKEN").is_err() && proxy_origin.is_none() {
-        info!(provider = %config.git_provider, "No git token set — skipping git configuration");
+        info!(provider = %config.git_provider, "No git token set — skipping the provider helper and the git identity");
         return Ok(());
     }
 
@@ -400,6 +409,9 @@ async fn clone_checkout(repo: &RepoCheckout, dest: &str, pod_provider: &str) -> 
             git_args.push("--branch");
             git_args.push(b);
         }
+        // `--` closes the option list: nothing validates a stored `remote_url`,
+        // so a row starting one with `-` would otherwise arrive here as a flag.
+        git_args.push("--");
         git_args.push(clone_url);
         git_args.push(dest);
         return match run_command("git", &git_args).await {
@@ -445,6 +457,7 @@ async fn clone_checkout(repo: &RepoCheckout, dest: &str, pod_provider: &str) -> 
             git_args.push("--branch");
             git_args.push(b);
         }
+        git_args.push("--");
         git_args.push(&auth_url);
         git_args.push(dest);
         match run_command("git", &git_args).await {
@@ -465,6 +478,7 @@ async fn clone_checkout(repo: &RepoCheckout, dest: &str, pod_provider: &str) -> 
         git_args.push("--branch");
         git_args.push(b);
     }
+    git_args.push("--");
     git_args.push(clone_url);
     git_args.push(dest);
     match run_command("git", &git_args).await {
@@ -559,25 +573,6 @@ fn extract_github_repo_path(url: &str) -> String {
         .to_string()
 }
 
-/// Whether a clone URL uses SSH transport.
-///
-/// Matches both `ssh://…` URLs and scp-like `[user@]host:path` syntax
-/// (e.g. `git@github.com:owner/repo.git`), while excluding HTTP(S) URLs.
-pub(crate) fn is_ssh_url(url: &str) -> bool {
-    if url.starts_with("ssh://") || url.starts_with("git+ssh://") {
-        return true;
-    }
-    if url.starts_with("http://") || url.starts_with("https://") {
-        return false;
-    }
-    // scp-like syntax: user@host:path — an '@' before a ':', and the ':' is not
-    // part of a URL scheme.
-    match (url.find('@'), url.find(':')) {
-        (Some(at), Some(colon)) => colon > at,
-        _ => false,
-    }
-}
-
 /// Inject a token into an HTTPS clone URL.
 ///
 /// Converts `https://host/path.git` → `https://x-access-token:{token}@host/path.git`.
@@ -635,21 +630,6 @@ async fn resolve_github_user() -> Result<(Option<String>, Option<String>), Strin
 /// Path to the credential-broker-backed git helper script. Shipped in the
 /// sandbox image alongside the sandbox binary.
 const BROKER_HELPER_PATH: &str = "/usr/local/bin/moatless-git-cred";
-
-/// The backend origin this pod's proxied checkouts clone from, or `None` when
-/// none of them is proxied.
-///
-/// [`crate::config::Config`] has already rewritten a proxied checkout's
-/// `clone_url` to that origin, so a checkout still naming its own host is one
-/// the proxy could not be addressed for and needs no helper here.
-fn proxied_origin(config: &Config) -> Option<String> {
-    let origin = config.backend_api_origin()?;
-    config
-        .repos
-        .iter()
-        .any(|repo| repo.clone_url.starts_with(&origin))
-        .then_some(origin)
-}
 
 /// Configure git to use the broker-backed credential helper as the primary
 /// credential source for `origin`, with `gh auth git-credential` retained as a
@@ -849,34 +829,6 @@ mod tests {
         };
         assert_eq!(resolve_provider_git_token("forgejo", "forgejo", env), None);
         assert_eq!(resolve_provider_git_token("forgejo", "github", env), None);
-    }
-
-    /// The helper is bound only when a checkout actually clones from the
-    /// backend: a Forgejo repo the proxy could not be addressed for still names
-    /// its own host, and wiring the pod's task token onto the backend origin for
-    /// it would advertise a credential nothing asks for.
-    #[test]
-    fn the_proxy_origin_follows_the_rewritten_clone_urls() {
-        let mut config = minimal_config();
-        config.backend_api_url = Some("http://backend:8001".to_string());
-        config.repos = vec![checkout("api", "github", true)];
-        assert_eq!(proxied_origin(&config), None);
-
-        config.repos.push(RepoCheckout {
-            clone_url: "http://backend:8001/git/repo_1".to_string(),
-            repository_id: "repo_1".to_string(),
-            branch: None,
-            provider: "forgejo".to_string(),
-            mount_name: "forge".to_string(),
-            is_primary: false,
-        });
-        assert_eq!(
-            proxied_origin(&config).as_deref(),
-            Some("http://backend:8001")
-        );
-
-        config.backend_api_url = None;
-        assert_eq!(proxied_origin(&config), None);
     }
 
     /// The probe answers from the resolver and the TCP stack, so both verdicts
@@ -1148,20 +1100,5 @@ mod tests {
     fn inject_token_ssh_passthrough() {
         let ssh_url = "git@github.com:owner/repo.git";
         assert_eq!(inject_token_into_url(ssh_url, "tok"), ssh_url);
-    }
-
-    #[test]
-    fn detects_ssh_urls() {
-        assert!(is_ssh_url("git@github.com:owner/repo.git"));
-        assert!(is_ssh_url("git@gitlab.example.com:group/sub/repo.git"));
-        assert!(is_ssh_url("ssh://git@example.com/owner/repo.git"));
-        assert!(is_ssh_url("deploy@10.0.0.1:/srv/git/repo.git"));
-    }
-
-    #[test]
-    fn rejects_non_ssh_urls() {
-        assert!(!is_ssh_url("https://github.com/owner/repo.git"));
-        assert!(!is_ssh_url("http://gitlab.example.com/owner/repo.git"));
-        assert!(!is_ssh_url("https://user:tok@github.com/owner/repo.git"));
     }
 }

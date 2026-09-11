@@ -175,9 +175,7 @@ fn forgejo_api_url(
     let parsed = GitHostRepo::parse(GitHostProvider::Forgejo, remote_url).ok_or_else(|| {
         RepositoryError::BadRequest(format!("Cannot parse Forgejo URL: {remote_url}"))
     })?;
-    let host = parsed.host().ok_or_else(|| {
-        RepositoryError::BadRequest(format!("Forgejo URL names no host: {remote_url}"))
-    })?;
+    let host = parsed.host();
     let (owner, repo) = (parsed.owner(), parsed.name());
     let mut url = format!("https://{host}/api/v1/repos/{owner}/{repo}/{suffix}");
     if let Some(r) = branch {
