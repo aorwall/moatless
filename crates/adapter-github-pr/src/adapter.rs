@@ -188,7 +188,7 @@ impl AdapterOutboundContent for GithubPrAdapter {
 
 #[async_trait::async_trait]
 impl AdapterInboundPresentation for GithubPrAdapter {
-    fn reply_instructions(&self) -> Option<String> {
+    async fn reply_instructions(&self) -> Option<String> {
         Some(
             "## GitHub PR Agent Notes\n\
              - Always read the live PR state via the `moat gh` commands from the \
@@ -243,7 +243,10 @@ mod tests {
 
     #[tokio::test]
     async fn reply_instructions_cover_reply_paths_and_completion_behavior() {
-        let notes = provider().reply_instructions().expect("instructions");
+        let notes = provider()
+            .reply_instructions()
+            .await
+            .expect("instructions");
         assert!(notes.contains("## GitHub PR Agent Notes"));
         assert!(notes.contains("moat gh pr reply <pr_number> <comment_id>"));
         assert!(notes.contains("moat gh pr comment <pr_number>"));

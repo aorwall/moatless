@@ -77,11 +77,10 @@ struct AuthTestResponse {
 /// Identity the current token authenticates as (from `auth.test`).
 #[derive(Debug, Clone)]
 pub struct AuthTestInfo {
-    #[allow(dead_code, reason = "read by Slack bot-id resolution tests")]
     pub user_id: String,
-    #[allow(dead_code, reason = "read by Slack bot-id resolution tests")]
+    #[allow(dead_code, reason = "logged with the resolved bot identity")]
     pub user: Option<String>,
-    #[allow(dead_code, reason = "read by Slack bot-id resolution tests")]
+    #[allow(dead_code, reason = "logged with the resolved bot identity")]
     pub team: Option<String>,
     pub team_id: Option<String>,
 }

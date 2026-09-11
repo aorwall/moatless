@@ -61,6 +61,10 @@ pub struct SlackAdapter {
     /// Workspace (team) id memoized after the first `auth.test` call so
     /// direct sends don't ping Slack on every send.
     workspace_id: OnceCell<String>,
+    /// Bot user id memoized after the first successful resolution, so a
+    /// deployment that configured none pays one `auth.test` rather than one per
+    /// fired task. A failed resolution stores nothing and is retried.
+    resolved_bot_user_id: OnceCell<String>,
 }
 
 impl SlackAdapter {
@@ -85,6 +89,7 @@ impl SlackAdapter {
             apps: None,
             users: None,
             workspace_id: OnceCell::new(),
+            resolved_bot_user_id: OnceCell::new(),
         }
     }
 
@@ -101,6 +106,7 @@ impl SlackAdapter {
             apps: Some(apps),
             users: Some(users),
             workspace_id: OnceCell::new(),
+            resolved_bot_user_id: OnceCell::new(),
         }
     }
 
@@ -122,6 +128,7 @@ impl SlackAdapter {
             apps: None,
             users: None,
             workspace_id: OnceCell::new(),
+            resolved_bot_user_id: OnceCell::new(),
         }
     }
 
@@ -166,9 +173,32 @@ impl SlackAdapter {
             .cloned()
     }
 
-    /// The bot's own Slack user ID, when it is known.
-    pub(super) fn bot_user_id(&self) -> Option<&str> {
-        self.bot_user_id.as_deref()
+    /// The bot's own Slack user ID, asking `auth.test` when the app configured
+    /// none.
+    ///
+    /// The id drives the agent's response discipline, not just self-echo
+    /// suppression: without it the system prompt loses the block that tells the
+    /// agent to stay out of a conversation between two other people
+    /// (`text::reply_instructions`). Leaving it to configuration alone made an
+    /// unset optional field silently change what the agent does, so it is
+    /// derived here instead.
+    pub(super) async fn ensure_bot_user_id(&self) -> Option<&str> {
+        self.resolved_bot_user_id
+            .get_or_try_init(|| async {
+                // Through `app`, like `ensure_workspace_id`: the stored app owns
+                // both the `bot_user_id` setting and the token `auth.test` has
+                // to answer for.
+                let app = self
+                    .app(moatless_adapter_model::apps::DEFAULT_APP_KEY)
+                    .await
+                    .map_err(|e| tracing::warn!(error = %e, "Slack app unresolved, bot identity unknown"))?;
+                super::auth::bot_user_id(&app.api, app.bot_user_id.as_deref())
+                    .await
+                    .ok_or(())
+            })
+            .await
+            .ok()
+            .map(String::as_str)
     }
 
     /// The Slack ↔ Moatless links, where this adapter was built with a pool.

@@ -568,10 +568,10 @@ impl GithubPrInboundRouter {
         // Self-resolve: github_pr's reply instructions are its own constant, so
         // read them off this adapter rather than the registry of all providers,
         // and pass them to the firing entry point as a value.
-        let reply_instructions = self
-            .adapter
-            .as_ref()
-            .and_then(|adapter| adapter.reply_instructions());
+        let reply_instructions = match self.adapter.as_ref() {
+            Some(adapter) => adapter.reply_instructions().await,
+            None => None,
+        };
         let outcome = moatless_loops::loops::firing::inbound::create_task_from_loop(
             self.task_creation.as_ref(),
             &config,

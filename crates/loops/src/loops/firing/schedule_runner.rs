@@ -12,7 +12,6 @@ use crate::loops::firing::metrics::record_schedule_firing;
 use crate::loops::models::LoopSpawnConfig;
 use crate::loops::models::Schedule;
 use crate::loops::schedule::next_fire_at;
-use moatless_adapter_model::capabilities::AdapterInboundPresentation;
 use moatless_adapter_model::registry::Adapters;
 use moatless_core::leader::LeaderGuard;
 use moatless_ports::sandbox::SandboxWaker;
@@ -271,9 +270,12 @@ async fn create_scheduled_task(
     // `provision_failed` metric using the provision outcome it reports back.
     // Resolve the bound adapter's reply instructions from the registry and
     // pass them to the firing entry point as a value.
-    let reply_instructions = adapters
-        .and_then(|providers| providers.inbound_presentation_by_name(&config.adapter_kind))
-        .and_then(AdapterInboundPresentation::reply_instructions);
+    let presentation =
+        adapters.and_then(|providers| providers.inbound_presentation_by_name(&config.adapter_kind));
+    let reply_instructions = match presentation {
+        Some(p) => p.reply_instructions().await,
+        None => None,
+    };
     let outcome = match crate::loops::firing::inbound::create_task_for_external_message(
         task_creation,
         config,

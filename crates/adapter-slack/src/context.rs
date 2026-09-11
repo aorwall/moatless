@@ -13,8 +13,8 @@ use super::{subject, text};
 
 #[async_trait::async_trait]
 impl AdapterInboundPresentation for SlackAdapter {
-    fn reply_instructions(&self) -> Option<String> {
-        Some(text::reply_instructions(self.bot_user_id()))
+    async fn reply_instructions(&self) -> Option<String> {
+        Some(text::reply_instructions(self.ensure_bot_user_id().await))
     }
 
     fn inbound_message_prefix(&self, msg: &InboundMessage) -> Option<String> {
@@ -348,12 +348,79 @@ mod tests {
         );
     }
 
-    #[test]
-    fn the_reply_instructions_name_the_bot() {
-        assert!(SlackAdapter::new("token", "secret", Some("U0BOT".into()))
+    #[tokio::test]
+    async fn the_reply_instructions_name_the_configured_bot_without_asking_slack() {
+        let stub = slack_stub().await;
+
+        let instructions = adapter(&stub, Some("U0BOT"))
             .reply_instructions()
-            .expect("Slack always has instructions")
-            .contains("Slack user ID `U0BOT`"));
+            .await
+            .expect("Slack always has instructions");
+
+        assert!(instructions.contains("Slack user ID `U0BOT`"));
+        assert!(stub.paths().is_empty(), "a configured id costs no call");
+    }
+
+    /// The reported incident: an app registered with no `bot_user_id` produced
+    /// a system prompt with no response-discipline block at all, and the agent
+    /// answered a question two other people were having. The id is derivable,
+    /// so an unset optional field must not decide what the agent does.
+    #[tokio::test]
+    async fn an_unconfigured_bot_id_is_derived_so_the_silence_rules_still_ship() {
+        let stub = identified_stub().await;
+        let adapter = adapter(&stub, None);
+
+        let instructions = adapter
+            .reply_instructions()
+            .await
+            .expect("Slack always has instructions");
+
+        assert!(instructions.contains("Slack user ID `U0DERIVED`"));
+        assert!(instructions.contains("### When to respond in thread conversations"));
+        assert!(instructions.contains("**Stay silent** when people are talking to each other"));
+
+        adapter
+            .reply_instructions()
+            .await
+            .expect("Slack always has instructions");
+        assert_eq!(
+            stub.paths(),
+            vec!["/auth.test".to_string()],
+            "the derived id is memoized across firings"
+        );
+    }
+
+    /// A deployment whose Slack is unreachable still fires tasks. It loses the
+    /// bot's name, not the whole prompt.
+    #[tokio::test]
+    async fn an_unreachable_slack_still_yields_instructions() {
+        let adapter = SlackAdapter::with_api(
+            SlackApi::with_base_url(
+                "xoxb-test",
+                moatless_adapter_model::test_support::UNREACHABLE_BASE,
+            ),
+            "secret",
+            None,
+        );
+
+        let instructions = adapter
+            .reply_instructions()
+            .await
+            .expect("Slack always has instructions");
+
+        assert!(instructions.contains("not configured"));
+        assert!(!instructions.contains("### When to respond in thread conversations"));
+    }
+
+    async fn identified_stub() -> ProviderStub {
+        ProviderStub::start(|path| match path {
+            "/auth.test" => serde_json::json!({
+                "ok": true, "user_id": "U0DERIVED", "user": "soapbot",
+                "team": "acme", "team_id": "T1",
+            }),
+            other => serde_json::json!({"ok": false, "error": format!("unexpected {other}")}),
+        })
+        .await
     }
 
     /// The budget: one `conversations.replies`. The cursor is sent bare, the

@@ -513,7 +513,7 @@ pub(super) const REPLY_INSTRUCTIONS: &str = "## Linear Agent Notes\n\
 
 #[async_trait::async_trait]
 impl AdapterInboundPresentation for LinearAdapter {
-    fn reply_instructions(&self) -> Option<String> {
+    async fn reply_instructions(&self) -> Option<String> {
         Some(REPLY_INSTRUCTIONS.to_string())
     }
 

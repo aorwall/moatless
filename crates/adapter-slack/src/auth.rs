@@ -202,12 +202,17 @@ pub(super) async fn cache_provider_id(
 
 /// Prefer the explicitly configured value; when absent, ask `auth.test` so the
 /// agent's system prompt always has the bot's identity available.
-#[cfg(test)]
+///
+/// `auth.test` answers for whichever token calls it, and every outbound post
+/// uses that same bot token, so the id it returns is the one the agent's own
+/// messages carry in the thread. Do not derive this from a Loop's
+/// `run_as_user_id`: that is a Moatless identity, and Slack never attributes a
+/// post to it.
 pub(super) async fn bot_user_id(api: &SlackApi, configured: Option<&str>) -> Option<String> {
     if let Some(id) = configured {
         let id = id.trim();
         if !id.is_empty() {
-            tracing::info!(bot_user_id = %id, "Slack bot identity from env var");
+            tracing::info!(bot_user_id = %id, "Slack bot identity from configured app setting");
             return Some(id.to_string());
         }
     }
@@ -225,7 +230,7 @@ pub(super) async fn bot_user_id(api: &SlackApi, configured: Option<&str>) -> Opt
         Err(e) => {
             tracing::warn!(
                 error = %e,
-                "Could not resolve Slack bot identity — set SLACK_BOT_USER_ID explicitly; \
+                "Could not resolve Slack bot identity — set the app's `bot_user_id` explicitly; \
                  agent system prompt will fall back to an unknown-identity message"
             );
             None

@@ -11,7 +11,6 @@ use crate::loops::dao::LoopDao;
 use crate::loops::firing::inbound;
 use crate::loops::firing::receipts_dao::EventReceipts;
 use moatless_adapter_model::binding::binding_context;
-use moatless_adapter_model::capabilities::AdapterInboundPresentation;
 use moatless_adapter_model::connections::ConnectionRouting;
 use moatless_adapter_model::delivery::AdapterDeliveryFailure;
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
@@ -317,11 +316,14 @@ impl RoutingService {
             let config = subscription_context(subscription);
             // Resolve the bound adapter's reply instructions from the registry
             // and pass them to the firing entry point as a value.
-            let reply_instructions = self
+            let presentation = self
                 .adapters
                 .as_ref()
-                .and_then(|providers| providers.inbound_presentation_by_name(&config.adapter_kind))
-                .and_then(AdapterInboundPresentation::reply_instructions);
+                .and_then(|providers| providers.inbound_presentation_by_name(&config.adapter_kind));
+            let reply_instructions = match presentation {
+                Some(p) => p.reply_instructions().await,
+                None => None,
+            };
             // The creation service records the `related_to` relation and provisions
             // the sandbox as part of the owned sequence.
             match inbound::create_task_for_external_message(

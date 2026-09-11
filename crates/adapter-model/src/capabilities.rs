@@ -211,7 +211,10 @@ pub trait AdapterInboundPresentation: Send + Sync {
         None
     }
 
-    fn reply_instructions(&self) -> Option<String> {
+    /// The adapter-specific reply guidance appended to a fired task's system
+    /// prompt. Async because an adapter may have to ask the provider who it is
+    /// before it can tell the agent — see Slack's `ensure_bot_user_id`.
+    async fn reply_instructions(&self) -> Option<String> {
         None
     }
 
