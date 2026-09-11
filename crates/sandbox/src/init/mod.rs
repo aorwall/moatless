@@ -2,7 +2,7 @@
 //! readiness and reports failures without failing the process.
 
 mod claude_code_settings;
-mod codex_config;
+pub mod codex_config;
 mod dirs;
 mod error;
 pub(crate) mod git;

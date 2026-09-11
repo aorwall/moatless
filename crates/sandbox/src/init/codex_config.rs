@@ -36,7 +36,10 @@ const HUB_PROVIDER_ID: &str = "cliproxy";
 /// named variable, which the credential channel supplies.
 /// `requires_openai_auth = false` bypasses `auth.json`, so the hub key never
 /// reaches the file that [`super::codex_watcher`] mirrors back to the backend.
-fn config_toml(base_url: Option<&str>) -> String {
+///
+/// Public because `tests/agent_transport_e2e.rs` drives `spawn_agent` without
+/// running init, and has to stage the same file itself.
+pub fn render_config_toml(base_url: Option<&str>) -> String {
     let Some(base_url) = base_url else {
         return CONFIG_TOML.to_string();
     };
@@ -69,7 +72,7 @@ pub(super) async fn write_codex_config(codex_home_dir: &str, base_url: Option<&s
     }
 
     let path = format!("{codex_home_dir}/config.toml");
-    match fs::write(&path, config_toml(base_url)).await {
+    match fs::write(&path, render_config_toml(base_url)).await {
         Ok(()) => info!(path = %path, routed = base_url.is_some(), "Wrote Codex config.toml"),
         Err(e) => warn!(error = %e, path = %path, "Failed to write Codex config.toml"),
     }
@@ -79,7 +82,7 @@ pub(super) async fn write_codex_config(codex_home_dir: &str, base_url: Option<&s
 mod tests {
     use tempfile::TempDir;
 
-    use super::{CONFIG_TOML, HUB_PROVIDER_ID, config_toml, write_codex_config};
+    use super::{CONFIG_TOML, HUB_PROVIDER_ID, render_config_toml, write_codex_config};
 
     #[tokio::test]
     async fn writes_expected_config() {
@@ -159,12 +162,12 @@ mod tests {
 
     #[test]
     fn unrouted_config_is_unchanged() {
-        assert_eq!(config_toml(None), CONFIG_TOML);
+        assert_eq!(render_config_toml(None), CONFIG_TOML);
     }
 
     #[test]
     fn base_url_quotes_are_escaped() {
-        let rendered = config_toml(Some(r#"http://h/"x"#));
+        let rendered = render_config_toml(Some(r#"http://h/"x"#));
         assert!(rendered.contains(r#"base_url = "http://h/\"x""#));
     }
 }

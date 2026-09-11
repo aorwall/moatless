@@ -16,17 +16,22 @@
 //! runs under `CLAUDE_SDK_E2E=1`, the tmux test under `CLAUDE_TMUX_E2E=1` (and
 //! requires `tmux` on PATH). Both are `#[ignore]`, so run with `-- --ignored`.
 //!
-//! Run:
-//! `CLAUDE_SDK_E2E=1 CLAUDE_CODE_OAUTH_TOKEN=... cargo test -p moatless-sandbox
-//! --test agent_transport_e2e -- --ignored --nocapture` (use `CLAUDE_TMUX_E2E=1`
-//! for the tmux variant).
+//! Run (a pod's own `ANTHROPIC_*` and `OPENAI_*` variables already route both
+//! CLIs through the proxy, so export no further credential):
+//! `CLAUDE_SDK_E2E=1 cargo test -p moatless-sandbox --test agent_transport_e2e
+//! -- --ignored --nocapture` (use `CLAUDE_TMUX_E2E=1` for the tmux variant).
 //!
 //! The agent binaries are resolved from `CLAUDE_CLI_PATH` and `CODEX_CLI_PATH`
-//! (defaults `/usr/local/bin/claude` and `/usr/local/bin/codex`), and the auth
-//! token from `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY` — set so the
-//! tests can run hermetically inside the sandbox image (which ships both CLIs
-//! and `tmux`). Point the two path vars at a candidate build to check a CLI
-//! upgrade before its pin lands in `docker/cli-versions.env`.
+//! (defaults `/usr/local/bin/claude` and `/usr/local/bin/codex`), and
+//! `auth_credentials` reads `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY` —
+//! set so the tests can run hermetically inside the sandbox image (which ships
+//! both CLIs and `tmux`). Point the two path vars at a candidate build to check
+//! a CLI upgrade before its pin lands in `docker/cli-versions.env`.
+//!
+//! The harness routes Codex the way a pod does: it renders the same
+//! `config.toml` that `init::codex_config` writes from `OPENAI_BASE_URL`, and
+//! Codex takes the key from `OPENAI_API_KEY`. With no base URL it falls back to
+//! `CODEX_AUTH_JSON` against `api.openai.com`.
 
 #![allow(
     clippy::unwrap_used,
@@ -79,6 +84,17 @@ const TEST_PROMPT: &str = "What is 2+2? Reply with only the number.";
 /// cheaper model.
 fn codex_test_model() -> Option<String> {
     std::env::var("CODEX_TEST_MODEL").ok()
+}
+
+/// The proxy Codex routes through, read the way `Config::from_env` reads it.
+///
+/// `Some` puts the CLI on `OPENAI_API_KEY` against the proxy, which is what a
+/// pod does. `None` sends it to `api.openai.com` on the ChatGPT tokens in
+/// `auth.json` — a path no deployment runs, so a pod's key fails there.
+fn codex_base_url() -> Option<String> {
+    std::env::var("OPENAI_BASE_URL")
+        .ok()
+        .filter(|u| !u.trim().is_empty())
 }
 
 // ── Auth token from the host environment ────────────────────────────────────
@@ -240,7 +256,7 @@ fn test_config(tmp: &TempDir, use_tmux: bool, agent_type: &str) -> Config {
         frontend_url: None,
         default_model: None,
         default_codex_model: None,
-        openai_base_url: None,
+        openai_base_url: codex_base_url(),
         use_tmux,
         command_default_timeout_secs: moatless_sandbox::config::DEFAULT_COMMAND_TIMEOUT_SECS,
         home_dir: home.display().to_string(),
@@ -287,9 +303,15 @@ fn spawn_test_agent(
     ] {
         std::fs::create_dir_all(tmp.path().join(sub)).expect("create test dir");
     }
-    // In a pod `init::credentials` turns CODEX_AUTH_JSON into this file; these
-    // tests drive `spawn_agent` directly and never run init, so without it the
-    // Codex CLI sees an empty CODEX_HOME and every turn 401s.
+    // In a pod `init` writes both of these; these tests drive `spawn_agent`
+    // directly and never run init. Codex reads its base URL from `config.toml`
+    // alone — it has no `ANTHROPIC_BASE_URL` equivalent — so without the file
+    // the CLI ignores `OPENAI_BASE_URL` and sends every turn to api.openai.com.
+    std::fs::write(
+        tmp.path().join("home/.codex/config.toml"),
+        moatless_sandbox::init::codex_config::render_config_toml(codex_base_url().as_deref()),
+    )
+    .expect("write Codex config.toml");
     if let Ok(auth_json) = std::env::var("CODEX_AUTH_JSON") {
         std::fs::write(tmp.path().join("home/.codex/auth.json"), auth_json)
             .expect("write Codex auth.json");

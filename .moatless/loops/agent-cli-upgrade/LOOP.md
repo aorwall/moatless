@@ -127,8 +127,6 @@ Which transport gates the PR is the rule below the block.
 npm i --prefix /tmp/cli-probe "@anthropic-ai/claude-code@<new-claude>" "@openai/codex@<new-codex>" --no-audit --no-fund
 export CLAUDE_CLI_PATH=/tmp/cli-probe/node_modules/.bin/claude
 export CODEX_CLI_PATH=/tmp/cli-probe/node_modules/.bin/codex
-export CLAUDE_CODE_OAUTH_TOKEN=$(python3 -c "import json,os;print(json.load(open(os.environ['CLAUDE_CONFIG_DIR']+'/.credentials'))['claudeAiOauth']['accessToken'])")
-export CODEX_AUTH_JSON=$(cat "$CODEX_HOME/auth.json")
 CLAUDE_SDK_E2E=1 CODEX_E2E=1 CLAUDE_TEST_MODEL=<claude-model> CODEX_TEST_MODEL=<codex-model> \
   cargo test -p moatless-sandbox --test agent_transport_e2e \
   -- --ignored --nocapture --test-threads=1 --skip tmux
@@ -145,13 +143,17 @@ verifies the pin already in the image.
 transport, so skipping them leaves that transport unverified — say so in the PR
 body rather than implying the whole suite ran.
 
-Both credentials are read from this sandbox's own stores, which are
-`$CLAUDE_CONFIG_DIR` and `$CODEX_HOME` — not `$HOME/.claude` and `$HOME/.codex`,
-which do not exist here. Set them as above rather than passing them on a command
-line, where `moat cmd list` would show them. A missing credential does not skip
-the test: Claude fails the turn and Codex 401s through five reconnects, so an
-empty variable reads as a broken CLI. Echo both as non-empty before trusting a
-failure. A bump verified only by `clippy` is a bump nobody checked.
+Both CLIs run on the proxy this pod already points them at. The environment
+holds `ANTHROPIC_BASE_URL`, `ANTHROPIC_API_KEY`, `OPENAI_BASE_URL` and
+`OPENAI_API_KEY`, and the harness renders the routed Codex `config.toml` from
+them. Export no further credential. A `CLAUDE_CODE_OAUTH_TOKEN` or a
+`CODEX_AUTH_JSON` you set here sends the CLI to `api.anthropic.com` or
+`api.openai.com`, which no deployment uses, and this pod's proxy key fails
+there. Never pass a credential on a command line, where `moat cmd list` would
+show it. A missing credential does not skip the test: Claude fails the turn and
+Codex 401s through five reconnects, so an empty variable reads as a broken CLI.
+Echo the four variables as non-empty before you trust a failure. A bump verified
+only by `clippy` is a bump nobody checked.
 
 **The gate covers the CLIs this run is bumping, and only those.** When one CLI
 is already at `latest`, its transport is not evidence about this change: its
