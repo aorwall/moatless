@@ -23,6 +23,7 @@ use moatless_api_schemas::github::{
     GithubBindPrRequest, GithubCommentRequest, GithubCreatePrRequest, GithubExternalEventRequest,
     GithubExternalEventSubject, GithubReplyRequest,
 };
+use moatless_types::workspace::proxy_clone_repository_id;
 use std::collections::HashSet;
 use std::io::Write;
 
@@ -152,8 +153,14 @@ pub async fn run(
             run_pr_reply(client, cfg, a, json).await
         }
         Some(TypedInvocation::Stack(a)) => run_stack(client, cfg, a, json).await,
-        None if args.first().is_some_and(|a| a == "api") => run_api(client, cfg, &args).await,
-        None => passthrough(&args),
+        None if args.first().is_some_and(|a| a == "api") => {
+            let gh_repo = proxied_gh_repo(client).await;
+            run_api(client, cfg, &args, gh_repo.as_deref()).await
+        }
+        None => {
+            let gh_repo = proxied_gh_repo(client).await;
+            passthrough(&args, gh_repo.as_deref())
+        }
     }
 }
 
@@ -259,7 +266,7 @@ async fn run_pr_create(
     args: PrCreateArgs,
     json: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let (owner, repo) = resolve_repo(args.repo.as_deref())?;
+    let (owner, repo) = resolve_repo(client, args.repo.as_deref()).await?;
     let head = match args.head {
         Some(h) => h,
         None => current_git_branch()?,
@@ -297,7 +304,7 @@ async fn run_comment(
     args: CommentArgs,
     json: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let (owner, repo) = resolve_repo(args.repo.as_deref())?;
+    let (owner, repo) = resolve_repo(client, args.repo.as_deref()).await?;
     let task_id = args.task.or_else(|| cfg.task_id().map(str::to_string));
     let body = required_body(args.body, args.body_file.as_deref())?;
     let req = GithubCommentRequest { body, task_id };
@@ -322,7 +329,7 @@ async fn run_pr_reply(
     args: ReplyArgs,
     json: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let (owner, repo) = resolve_repo(args.repo.as_deref())?;
+    let (owner, repo) = resolve_repo(client, args.repo.as_deref()).await?;
     let task_id = args.task.or_else(|| cfg.task_id().map(str::to_string));
     let body = required_body(args.body, args.body_file.as_deref())?;
     let req = GithubReplyRequest { body, task_id };
@@ -348,7 +355,8 @@ async fn run_stack(
     json: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let token = github_token_for_gh();
-    let status = gh_command(&invocation.args, token.as_deref())
+    let gh_repo = proxied_gh_repo(client).await;
+    let status = gh_command(&invocation.args, token.as_deref(), gh_repo.as_deref())
         .status()
         .map_err(|e| format!("failed to run gh: {e} (is the gh CLI installed?)"))?;
     if !status.success() {
@@ -370,7 +378,13 @@ async fn run_stack(
         return Ok(());
     };
 
-    let prs = stack_prs_to_bind(&invocation.args, token.as_deref())?;
+    let prs = stack_prs_to_bind(
+        client,
+        &invocation.args,
+        token.as_deref(),
+        gh_repo.as_deref(),
+    )
+    .await?;
     if prs.is_empty() {
         return Ok(());
     }
@@ -403,12 +417,12 @@ async fn run_stack(
 
 /// Exec the local `gh` binary with the original args, inheriting stdio, and
 /// propagate its exit code.
-fn passthrough(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
+fn passthrough(args: &[String], gh_repo: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
     // Thread the git-credential token exactly as the typed and stack paths do,
     // so a passthrough (`pr view`, `api`, `run watch`, …) authenticates the
     // same way. See [`resolve_gh_token`] for which source wins.
     let token = github_token_for_gh();
-    let status = gh_command(args, token.as_deref())
+    let status = gh_command(args, token.as_deref(), gh_repo)
         .status()
         .map_err(|e| format!("failed to run gh: {e} (is the gh CLI installed?)"))?;
     command_status(status.code().unwrap_or(1))
@@ -441,11 +455,19 @@ fn required_body(
     read_body(body, body_file)?.ok_or_else(|| "no --body or --body-file given".into())
 }
 
-fn gh_command(args: &[String], token: Option<&str>) -> std::process::Command {
+fn gh_command(
+    args: &[String],
+    token: Option<&str>,
+    gh_repo: Option<&str>,
+) -> std::process::Command {
     let mut cmd = std::process::Command::new("gh");
     cmd.args(args);
     if let Some(token) = token {
         cmd.env("GH_TOKEN", token);
+    }
+    // An explicit `-R` on the command line still wins: gh reads the flag first.
+    if let Some(gh_repo) = gh_repo {
+        cmd.env("GH_REPO", gh_repo);
     }
     cmd
 }
@@ -526,12 +548,14 @@ struct PullRequestRef {
     number: u64,
 }
 
-fn stack_prs_to_bind(
+async fn stack_prs_to_bind(
+    client: &MoatClient,
     args: &[String],
     token: Option<&str>,
+    gh_repo: Option<&str>,
 ) -> Result<Vec<PullRequestRef>, Box<dyn std::error::Error>> {
     let subcommand = args.get(1).map(String::as_str);
-    let (owner, repo) = resolve_repo(None)?;
+    let (owner, repo) = resolve_repo(client, gh_repo).await?;
     let mut refs = Vec::new();
 
     match subcommand {
@@ -547,7 +571,7 @@ fn stack_prs_to_bind(
             }
         }
         Some("submit") => {
-            for branch in stack_view_branch_names(token)? {
+            for branch in stack_view_branch_names(token, gh_repo)? {
                 if let Some(pr) = resolve_pr_target(&owner, &repo, &branch, token)? {
                     refs.push(pr);
                 }
@@ -582,13 +606,16 @@ fn stack_link_operands(args: &[String]) -> Vec<String> {
     operands
 }
 
-fn stack_view_branch_names(token: Option<&str>) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+fn stack_view_branch_names(
+    token: Option<&str>,
+    gh_repo: Option<&str>,
+) -> Result<Vec<String>, Box<dyn std::error::Error>> {
     let args = vec![
         "stack".to_string(),
         "view".to_string(),
         "--json".to_string(),
     ];
-    let out = gh_command_output(&args, token)?;
+    let out = gh_command_output(&args, token, gh_repo)?;
     let value: serde_json::Value = serde_json::from_slice(&out)?;
     let branches = value
         .get("branches")
@@ -617,7 +644,7 @@ fn resolve_pr_target(
         "--json".to_string(),
         "number,url".to_string(),
     ];
-    let out = match gh_command_output(&args, token) {
+    let out = match gh_command_output(&args, token, None) {
         Ok(out) => out,
         Err(_) => return Ok(None),
     };
@@ -640,8 +667,9 @@ fn resolve_pr_target(
 pub(super) fn gh_command_output(
     args: &[String],
     token: Option<&str>,
+    gh_repo: Option<&str>,
 ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
-    let output = gh_command(args, token)
+    let output = gh_command(args, token, gh_repo)
         .output()
         .map_err(|e| format!("failed to run gh: {e} (is the gh CLI installed?)"))?;
     if output.status.success() {
@@ -708,7 +736,14 @@ fn non_empty_task_id(task_id: Option<String>) -> Option<String> {
 // ---------------------------------------------------------------------------
 
 /// Resolve `(owner, repo)` from an explicit `-R` value or the cwd git repo.
-fn resolve_repo(flag: Option<&str>) -> Result<(String, String), Box<dyn std::error::Error>> {
+///
+/// `moat repos clone <repository_id>` leaves the backend's `/git/{id}` path as
+/// `origin`, which names no owner. The id is read back through the API, and the
+/// row's own `remote_url` answers.
+async fn resolve_repo(
+    client: &MoatClient,
+    flag: Option<&str>,
+) -> Result<(String, String), Box<dyn std::error::Error>> {
     if let Some(value) = flag {
         return parse_repo_arg(value)
             .ok_or_else(|| format!("invalid repository `{value}` — expected owner/repo").into());
@@ -716,13 +751,57 @@ fn resolve_repo(flag: Option<&str>) -> Result<(String, String), Box<dyn std::err
     let url = git_stdout(&["remote", "get-url", "origin"]).map_err(|e| {
         format!("could not infer the GitHub repository ({e}) — pass `-R owner/repo`")
     })?;
-    parse_github_remote(url.trim()).ok_or_else(|| {
+    let url = url.trim();
+    if let Some(parsed) = parse_github_remote(url) {
+        return Ok(parsed);
+    }
+    if let Some(id) = proxy_clone_repository_id(client.base_url(), url) {
+        return proxied_repo(client, id).await;
+    }
+    Err(format!("origin remote `{url}` is not a GitHub repository — pass `-R owner/repo`").into())
+}
+
+/// The `(owner, repo)` the repository row behind a proxied origin names.
+async fn proxied_repo(
+    client: &MoatClient,
+    repository_id: &str,
+) -> Result<(String, String), Box<dyn std::error::Error>> {
+    let row = client.api().get_repository(repository_id).await?;
+    let Some(remote) = row.remote_url else {
+        return Err(format!("repository {repository_id} stores no remote URL").into());
+    };
+    parse_github_remote(&remote).ok_or_else(|| {
         format!(
-            "origin remote `{}` is not a GitHub repository — pass `-R owner/repo`",
-            url.trim()
+            "repository {repository_id} has remote `{remote}`, which is not on GitHub — \
+             `moat gh` serves GitHub only"
         )
         .into()
     })
+}
+
+/// The `owner/repo` to hand a spawned `gh` as `GH_REPO`.
+///
+/// `gh` reads `origin` for itself, and a proxied origin names no owner, so
+/// every repository-scoped subcommand fails in such a checkout without this.
+/// Returns `None` for an ordinary remote, for a caller that set `GH_REPO`, and
+/// for a proxied row on another git host, which `moat gh` does not serve. Only a
+/// failed read is announced, because a Forgejo checkout reaches here on every
+/// invocation and has nothing to fix.
+async fn proxied_gh_repo(client: &MoatClient) -> Option<String> {
+    if std::env::var_os("GH_REPO").is_some() {
+        return None;
+    }
+    let url = git_stdout(&["remote", "get-url", "origin"]).ok()?;
+    let id = proxy_clone_repository_id(client.base_url(), url.trim())?;
+    let row = match client.api().get_repository(id).await {
+        Ok(row) => row,
+        Err(e) => {
+            eprintln!("moat: could not read the proxied origin's repository ({e})");
+            return None;
+        }
+    };
+    let (owner, repo) = parse_github_remote(row.remote_url.as_deref()?)?;
+    Some(format!("{owner}/{repo}"))
 }
 
 /// Parse a `-R` value: `owner/repo` shorthand or any GitHub remote URL form.
@@ -847,16 +926,17 @@ async fn run_api(
     client: &MoatClient,
     cfg: &Config,
     args: &[String],
+    gh_repo: Option<&str>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let Some(created) = parse_api_creation(&args[1..]) else {
-        return passthrough(args);
+        return passthrough(args, gh_repo);
     };
     let Some(task_id) = cfg.task_id().map(str::to_string) else {
-        return passthrough(args);
+        return passthrough(args, gh_repo);
     };
 
     let token = github_token_for_gh();
-    let output = gh_command(args, token.as_deref())
+    let output = gh_command(args, token.as_deref(), gh_repo)
         .stderr(std::process::Stdio::inherit())
         .output()
         .map_err(|e| format!("failed to run gh: {e} (is the gh CLI installed?)"))?;
@@ -929,7 +1009,7 @@ fn review_comment_ids(created: &ApiCreation, review_id: u64, token: Option<&str>
         "--paginate".to_string(),
         "--slurp".to_string(),
     ];
-    match gh_command_output(&args, token) {
+    match gh_command_output(&args, token, None) {
         Ok(body) => ids_in_comment_list(&body),
         Err(e) => {
             eprintln!("moat: could not list the review's inline comments: {e}");
@@ -1662,6 +1742,29 @@ mod tests {
             resolve_gh_token(false, true, || Some("helper".to_string())),
             None
         );
+    }
+
+    fn gh_repo_env(gh_repo: Option<&str>) -> Option<String> {
+        gh_command(&argv(&["pr", "view"]), None, gh_repo)
+            .get_envs()
+            .find(|(key, _)| *key == std::ffi::OsStr::new("GH_REPO"))
+            .and_then(|(_, value)| value)
+            .map(|value| value.to_string_lossy().into_owned())
+    }
+
+    /// Without this, `gh` reads `origin` for itself and finds the backend's
+    /// `/git/{id}` path, which names no owner.
+    #[test]
+    fn a_proxied_checkout_names_its_repository_for_gh() {
+        assert_eq!(
+            gh_repo_env(Some("owner/repo")).as_deref(),
+            Some("owner/repo")
+        );
+    }
+
+    #[test]
+    fn a_checkout_gh_can_read_itself_leaves_its_environment_alone() {
+        assert_eq!(gh_repo_env(None), None);
     }
 
     #[test]

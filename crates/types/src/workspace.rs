@@ -198,6 +198,17 @@ pub fn proxy_clone_url(backend_api_url: &str, repository_id: &str) -> String {
     )
 }
 
+/// The repository id in a [`proxy_clone_url`] against `backend_api_url`.
+///
+/// Returns `None` when `url` names another origin, which is every checkout that
+/// clones from its own git host.
+pub fn proxy_clone_repository_id<'a>(backend_api_url: &str, url: &'a str) -> Option<&'a str> {
+    let prefix = format!("{}/git/", backend_api_url.trim_end_matches('/'));
+    let id = url.strip_prefix(&prefix)?.trim_end_matches('/');
+    let id = id.strip_suffix(".git").unwrap_or(id);
+    (!id.is_empty() && !id.contains('/')).then_some(id)
+}
+
 /// Derive a mount name from a clone URL: the last path segment with any trailing
 /// `.git` and slashes stripped. Falls back to `"repo"` for URLs that don't yield
 /// a usable segment.
@@ -1013,6 +1024,43 @@ mod tests {
         assert_eq!(
             environment_keys.len(),
             WorkspaceCredentialProvider::ALL.len()
+        );
+    }
+
+    #[test]
+    fn proxy_clone_repository_id_reads_back_what_proxy_clone_url_wrote() {
+        let base = "https://backend.example.com";
+        let id = "6d0b4d9a-6d8e-4c0a-9b1a-0f2f0a1b2c3d";
+        let url = proxy_clone_url(base, id);
+        assert_eq!(proxy_clone_repository_id(base, &url), Some(id));
+        assert_eq!(
+            proxy_clone_repository_id("https://backend.example.com/", &url),
+            Some(id)
+        );
+        assert_eq!(
+            proxy_clone_repository_id(base, &format!("{url}.git")),
+            Some(id)
+        );
+    }
+
+    #[test]
+    fn proxy_clone_repository_id_rejects_another_origin() {
+        let base = "https://backend.example.com";
+        assert_eq!(
+            proxy_clone_repository_id(base, "https://github.com/owner/repo.git"),
+            None
+        );
+        assert_eq!(
+            proxy_clone_repository_id(base, "https://other.example.com/git/abc"),
+            None
+        );
+        assert_eq!(
+            proxy_clone_repository_id(base, &format!("{base}/git/")),
+            None
+        );
+        assert_eq!(
+            proxy_clone_repository_id(base, &format!("{base}/git/abc/info/refs")),
+            None
         );
     }
 

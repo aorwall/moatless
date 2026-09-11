@@ -160,11 +160,6 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
                 }));
             } else {
                 println!("Cloned {} into {target}", repo.name);
-                if let Some(gh_repo) = gh_repo_hint(&repo, &url) {
-                    println!(
-                        "Pass `-R {gh_repo}` to `moat gh`: origin is the backend git proxy, not a GitHub remote."
-                    );
-                }
             }
         }
         RepoAction::Create {
@@ -236,7 +231,8 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
                     "Invalid --scope '{scope}' (expected: global or user)"
                 ))
             })?;
-            let (report, outcome) = import_org(client, &org, scope, include_archived, dry_run).await;
+            let (report, outcome) =
+                import_org(client, &org, scope, include_archived, dry_run).await;
             if json {
                 output::print_json_typed(&report);
             } else {
@@ -380,20 +376,6 @@ fn clone_url(base_url: &str, repo: &RepositoryResponse) -> Result<String, Client
         return Ok(proxy_clone_url(base_url, &repo.id));
     }
     Ok(remote_url)
-}
-
-/// The `owner/repo` a `moat gh` command run in this checkout has to be given,
-/// or `None` when its origin already names one.
-///
-/// `gh::resolve_repo` reads `git remote get-url origin`, and a proxied origin is
-/// the backend's `/git/{id}` path.
-fn gh_repo_hint(repo: &RepositoryResponse, cloned_from: &str) -> Option<String> {
-    let remote_url = repo.remote_url.as_deref()?;
-    if cloned_from == remote_url {
-        return None;
-    }
-    let parsed = GitHostRepo::parse(RepositoryProvider::Github, remote_url)?;
-    Some(format!("{}/{}", parsed.owner(), parsed.name()))
 }
 
 /// The directory a clone lands in.
@@ -664,7 +646,7 @@ fn fetch_org_repos(org: &str) -> Result<Vec<GhRepo>, ClientError> {
     .map(ToString::to_string)
     .collect();
     let token = super::gh::github_token_for_gh();
-    let stdout = super::gh::gh_command_output(&args, token.as_deref())
+    let stdout = super::gh::gh_command_output(&args, token.as_deref(), None)
         .map_err(|e| ClientError::Other(e.to_string()))?;
     let mut remote: Vec<GhRepo> = serde_json::from_slice(&stdout)
         .map_err(|e| ClientError::Other(format!("could not read `gh repo list` output: {e}")))?;
@@ -901,31 +883,6 @@ mod tests {
     fn a_repository_with_no_remote_has_no_clone_url() {
         let repo = repository(Some(RepositoryProvider::Github), None);
         assert!(clone_url(BASE_URL, &repo).is_err());
-    }
-
-    #[test]
-    fn a_proxied_github_checkout_reports_the_repository_gh_needs() {
-        let repo = repository(
-            Some(RepositoryProvider::Github),
-            Some("https://github.com/owner/repo.git"),
-        );
-        assert_eq!(
-            gh_repo_hint(&repo, &proxied()).as_deref(),
-            Some("owner/repo")
-        );
-    }
-
-    #[test]
-    fn a_checkout_gh_can_read_itself_reports_nothing() {
-        let remote = "https://github.com/owner/repo.git";
-        let repo = repository(Some(RepositoryProvider::Github), Some(remote));
-        assert_eq!(gh_repo_hint(&repo, remote), None);
-
-        let forgejo = repository(
-            Some(RepositoryProvider::Forgejo),
-            Some("https://git.example.com/owner/repo.git"),
-        );
-        assert_eq!(gh_repo_hint(&forgejo, &proxied()), None);
     }
 
     #[test]
