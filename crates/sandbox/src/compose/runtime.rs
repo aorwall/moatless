@@ -109,6 +109,7 @@ pub(crate) async fn compose_runtime(config: &Config) -> (SandboxState, Superviso
         heartbeat,
         backend_client,
         init_phase: Arc::new(RwLock::new(InitPhase::Starting)),
+        workspace_origin: Default::default(),
         credentials,
         lifecycle_cancel,
         credential_dispatcher,

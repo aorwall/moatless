@@ -676,6 +676,7 @@ fn test_state(backend: Arc<dyn BackendClient>, dir: &tempfile::TempDir) -> Sandb
         heartbeat,
         backend_client: backend,
         init_phase: Arc::new(RwLock::new(InitPhase::Ready)),
+        workspace_origin: Default::default(),
         credentials,
         lifecycle_cancel,
         credential_dispatcher,

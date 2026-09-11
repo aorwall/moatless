@@ -13,7 +13,7 @@ use crate::config::Config;
 use crate::credentials::Dispatcher;
 use crate::credentials::codex_watcher::WatcherHandle;
 use crate::events::GrpcEventPublisher;
-use crate::init::InitPhase;
+use crate::init::{InitPhase, WorkspaceOrigin};
 use crate::supervisor::SupervisorHealth;
 use crate::terminal::TerminalManager;
 use crate::workspace_sync::WorkspaceSyncTracker;
@@ -43,6 +43,14 @@ pub struct SandboxState {
     pub backend_client: Arc<dyn BackendClient>,
     /// Current initialization phase — tracked for health probes and consumer gating.
     pub init_phase: Arc<RwLock<InitPhase>>,
+    /// How this pod's workspace came to exist on this start.
+    ///
+    /// Written once by `agent::restart::open_for_work`, under
+    /// `task_context_registration`, so a Member joining after Ready prepends the
+    /// same `<sandbox-restart-note>` to its recovered run as the Member the pod
+    /// booted with. Every checkout shares the pod's workspace volume, so one
+    /// value describes them all.
+    pub workspace_origin: Arc<RwLock<WorkspaceOrigin>>,
     /// Credentials fetched during init, passed to agent subprocess via `ClaudeOptions.env`.
     ///
     /// Git-provider tokens (`GITHUB_TOKEN`, `GH_TOKEN`, `GIT_TOKEN`) are intentionally
@@ -232,6 +240,7 @@ pub(crate) mod test_support {
             heartbeat: Heartbeat::new(),
             backend_client,
             init_phase: Arc::new(RwLock::new(InitPhase::Ready)),
+            workspace_origin: Default::default(),
             credentials: Arc::new(RwLock::new(HashMap::new())),
             lifecycle_cancel,
             credential_dispatcher: Arc::new(Dispatcher::new()),
@@ -376,6 +385,7 @@ mod tests {
             heartbeat: Heartbeat::new(),
             backend_client,
             init_phase: Arc::new(RwLock::new(InitPhase::Ready)),
+            workspace_origin: Default::default(),
             credentials: Arc::new(RwLock::new(HashMap::new())),
             lifecycle_cancel,
             credential_dispatcher: Arc::new(Dispatcher::new()),

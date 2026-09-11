@@ -19,6 +19,8 @@
 //!   the restore-then-replay lifecycle.
 //! - [`job_prompts`] — the turn a scheduled job's prompt opens, and the row
 //!   that makes it recoverable.
+//! - [`joined_member`] — the same precedence for a Member that rejoins the
+//!   replacement pod through `JoinTask` rather than booting it.
 //! - [`lost_commands`] — the wake for `moat cmd` commands the replacement
 //!   destroyed, which no interrupted run covers because the turn had completed.
 //! - [`wake_notes`] — the wake for a caller that took the pod down and died
@@ -31,6 +33,7 @@ mod backend;
 mod support;
 
 mod job_prompts;
+mod joined_member;
 mod lost_commands;
 mod precedence;
 mod readiness;

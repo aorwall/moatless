@@ -293,6 +293,7 @@ fn test_state_with_config(backend: Arc<dyn BackendClient>, config: Config) -> Sa
         heartbeat,
         backend_client: backend,
         init_phase: Arc::new(RwLock::new(InitPhase::Ready)),
+        workspace_origin: Default::default(),
         credentials,
         lifecycle_cancel: CancellationToken::new(),
         credential_dispatcher,

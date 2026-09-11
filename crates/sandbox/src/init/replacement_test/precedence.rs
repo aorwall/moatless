@@ -29,7 +29,8 @@ async fn no_pending_message_replays_the_interrupted_run_for_each_family() {
         );
         let (state, recorder) = recording_state(Some(family), InitPhase::Ready, backend.clone());
 
-        recover_interrupted_run_unless_pending(&state, WorkspaceOrigin::Persisted).await;
+        let context = state.task_context(None).await.expect("boot member");
+        recover_interrupted_run_unless_pending(&state, &context, WorkspaceOrigin::Persisted).await;
 
         let inputs = recorded_inputs(&recorder, 1).await;
         assert_eq!(
@@ -67,7 +68,8 @@ async fn pending_message_supersedes_the_interrupted_run() {
     );
     let (state, recorder) = recording_state(Some("claude-code"), InitPhase::Ready, backend.clone());
 
-    recover_interrupted_run_unless_pending(&state, WorkspaceOrigin::Persisted).await;
+    let context = state.task_context(None).await.expect("boot member");
+    recover_interrupted_run_unless_pending(&state, &context, WorkspaceOrigin::Persisted).await;
     assert!(
         settled_inputs(&recorder).await.is_empty(),
         "a pending message must suppress the interrupted-run replay"
@@ -105,7 +107,8 @@ async fn pending_probe_error_fails_closed_and_skips_replay() {
     );
     let (state, recorder) = recording_state(Some("claude-code"), InitPhase::Ready, backend.clone());
 
-    recover_interrupted_run_unless_pending(&state, WorkspaceOrigin::Persisted).await;
+    let context = state.task_context(None).await.expect("boot member");
+    recover_interrupted_run_unless_pending(&state, &context, WorkspaceOrigin::Persisted).await;
 
     assert!(
         settled_inputs(&recorder).await.is_empty(),

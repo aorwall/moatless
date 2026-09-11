@@ -53,8 +53,30 @@ pub(crate) async fn register(
         contexts.insert(task_id.clone(), Arc::clone(&context));
     }
 
+    recover_interrupted_run(state, &context).await;
     report_lost_commands(state, task_id, lost_commands);
     Ok(context)
+}
+
+/// Replay the interrupted Run a pod replacement cut off for a Member that joins
+/// afterwards.
+///
+/// `open_for_work` covers only the Members registered when init reached Ready,
+/// and the reconciler re-issues `JoinTask` for the rest. Without this, a Member
+/// whose turn the replacement interrupted sits idle until the backend's reaper
+/// closes that turn as `reconciled_orphaned_turn`, and a person has to prod it.
+///
+/// Awaited rather than detached, and under the registration lock the caller
+/// already holds: `open_for_work` takes the same lock across its own recovery
+/// pass and the Ready flip, so each Member is recovered by exactly one of the
+/// two. Before Ready the just-inserted context is what that pass will iterate,
+/// so recovering here as well would replay the Run twice.
+async fn recover_interrupted_run(state: &SandboxState, context: &TaskContext) {
+    if !state.is_ready().await {
+        return;
+    }
+    let origin = *state.workspace_origin.read().await;
+    crate::agent::restart::recover_interrupted_run_unless_pending(state, context, origin).await;
 }
 
 /// Wake a joining Member about the commands a pod replacement destroyed.

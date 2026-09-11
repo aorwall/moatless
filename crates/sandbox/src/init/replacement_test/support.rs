@@ -69,6 +69,7 @@ fn build_state(
         backend_client: backend,
         workspace_sync: Default::default(),
         init_phase: Arc::new(RwLock::new(phase)),
+        workspace_origin: Default::default(),
         credentials: Arc::new(RwLock::new(HashMap::new())),
         lifecycle_cancel: CancellationToken::new(),
         credential_dispatcher: Arc::new(Dispatcher::new()),

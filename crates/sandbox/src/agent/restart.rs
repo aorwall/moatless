@@ -2,16 +2,17 @@ use std::collections::BTreeMap;
 
 use crate::agent::wake_note::{self, WakeNote};
 use crate::init::InitPhase;
-use crate::state::SandboxState;
+use crate::state::{SandboxState, TaskContext};
 use tracing::{info, warn};
 
 /// Cross the boundary from "restored but private" to "open for work", in the one
 /// order that closes the startup precedence race:
 ///
-/// 1. **Decide precedence while dispatch is still gated.** Session state was
-///    restored to disk in `run_core_init` (before Ready). We probe for a pending
-///    Message and, only when none is waiting, enqueue the interrupted-Run replay.
-///    External gRPC dispatch is still a no-op here because init is not yet Ready.
+/// 1. **Decide precedence while dispatch is still gated**, for every Member
+///    registered so far. Session state was restored to disk in `run_core_init`
+///    (before Ready). We probe for a pending Message and, only when none is
+///    waiting, enqueue the interrupted-Run replay. External gRPC dispatch is
+///    still a no-op here because init is not yet Ready.
 /// 2. **Open the gate.** Flip `InitPhase::Ready` (health now returns 200).
 /// 3. **Dispatch once, authoritatively.** Drain any pending Message — a no-op if
 ///    step 1 already enqueued a Recover, otherwise the Message that superseded it.
@@ -28,8 +29,6 @@ pub(crate) async fn open_for_work(state: &SandboxState, workspace_origin: Worksp
         take_lost_commands(state, &state.config.task_id, &state.config.workspace_dir).await;
     let wake_notes = wake_note::take(&wake_note::default_path(&state.config.workspace_dir)).await;
 
-    recover_interrupted_run_unless_pending(state, workspace_origin).await;
-
     // Adopt whatever the restore or the clone produced as the upload baseline: a
     // workspace nobody has touched since is not worth shipping back.
     //
@@ -43,7 +42,20 @@ pub(crate) async fn open_for_work(state: &SandboxState, workspace_origin: Worksp
         state.workspace_sync.adopt_current(&state.config).await;
     }
 
-    *state.init_phase.write().await = InitPhase::Ready;
+    {
+        // Held across the recovery pass and the Ready flip, because
+        // `task_context::register` takes the same lock and recovers a Member it
+        // registers once Ready. A `JoinTask` racing this therefore either lands
+        // before the snapshot below — and this pass recovers it — or blocks until
+        // Ready and recovers itself. Drop the lock and a Member registering
+        // between the snapshot and the flip is recovered by neither.
+        let _registration = state.task_context_registration.lock().await;
+        *state.workspace_origin.write().await = workspace_origin;
+        for context in state.task_contexts_snapshot().await {
+            recover_interrupted_run_unless_pending(state, &context, workspace_origin).await;
+        }
+        *state.init_phase.write().await = InitPhase::Ready;
+    }
     // No event: the watcher publishes `pod_ready` a moment later off the same
     // health endpoint this flips, and that is the row that says the Sandbox is up.
     info!(task_id = %state.config.task_id, "Core init complete — health is now ready");
@@ -215,10 +227,13 @@ fn lost_commands_body(lost: &[crate::commands::JournaledCommand]) -> Option<Stri
 
 /// How the workspace came to exist on this start — determines what (if anything)
 /// a resuming agent must be warned lost across the restart.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum WorkspaceOrigin {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum WorkspaceOrigin {
     /// Repo persisted in place (EBS/PVC volume already held it) or this is a
-    /// fresh task — nothing was lost, so no restart note is needed.
+    /// fresh task — nothing was lost, so no restart note is needed. The default,
+    /// so [`SandboxState::workspace_origin`]'s constructors can write
+    /// `Default::default()`.
+    #[default]
     Persisted,
     /// Restored byte-for-byte from an S3 snapshot (the `s3` storage backend).
     /// The git tree — committed history plus uncommitted, non-gitignored changes
@@ -280,21 +295,31 @@ fn workspace_recloned_note(workspace_dir: &str) -> String {
          </sandbox-restart-note>\n\n"
     )
 }
-/// Interrupted-run precedence gate: probe for pending user messages first, and
-/// replay the interrupted run **only** when none are waiting. A fresh user
-/// message supersedes the interrupted turn — `dispatch_pending_messages` resumes
-/// the prior session with the new text as the prompt instead. A probe error
-/// **fails closed** — treated as "pending present", skipping the replay — so an
-/// unknown probe result can't resume the stale Run only to have a newer Message
-/// dispatched concurrently once the backend recovers.
+/// Interrupted-run precedence gate for one Member: probe for pending user
+/// messages first, and replay the interrupted run **only** when none are
+/// waiting. A fresh user message supersedes the interrupted turn —
+/// `dispatch_pending_messages` resumes the prior session with the new text as
+/// the prompt instead. A probe error **fails closed** — treated as "pending
+/// present", skipping the replay — so an unknown probe result can't resume the
+/// stale Run only to have a newer Message dispatched concurrently once the
+/// backend recovers.
+///
+/// Everything below keys on `context` and never on `state.config`, whose
+/// `task_id` and `repo_dir` name the Member the pod booted with: in a shared
+/// pod every other Member has its own interrupted Run and its own checkout.
+///
+/// Call this exactly once per Member per start — [`open_for_work`] covers the
+/// Members registered at init, and [`crate::task_context::register`] covers one
+/// that joins after Ready.
 ///
 /// `pub(crate)` so the Sandbox-replacement lifecycle can be exercised in-crate
 /// with an in-memory backend without driving the whole of `run_init`.
 pub(crate) async fn recover_interrupted_run_unless_pending(
     state: &SandboxState,
+    context: &TaskContext,
     origin: WorkspaceOrigin,
 ) {
-    let task_id = &state.config.task_id;
+    let task_id = &context.task_id;
     // Fail closed on a probe error: treat "unknown" as "pending present" and skip
     // the interrupted-run replay. Replaying on an unknown probe result risks
     // resuming the stale Run and then having a newer Message dispatched
@@ -317,14 +342,15 @@ pub(crate) async fn recover_interrupted_run_unless_pending(
             "Pending messages present (or probe failed) on startup; skipping interrupted-run replay"
         );
     } else {
-        recover_interrupted_run(state, origin).await;
+        recover_interrupted_run(state, context, origin).await;
     }
 }
 
-/// Detect any interrupted agent run via the backend RPC and queue a resume on
-/// the agent lifecycle task. Runs once on startup, **only when there are no new pending
-/// user messages** — a fresh message supersedes the interrupted turn and
-/// `dispatch_pending_messages` carries it forward instead.
+/// Detect `context`'s interrupted agent run via the backend RPC and queue a
+/// resume on its agent lifecycle task. Its one caller runs it once per Member
+/// per start, **only when there are no new pending user messages** — a fresh
+/// message supersedes the interrupted turn and `dispatch_pending_messages`
+/// carries it forward instead.
 ///
 /// The backend handler does the heavy lifting (looks up the unfinished
 /// user-turn, increments `recovery_attempts`, publishes the
@@ -335,15 +361,12 @@ pub(crate) async fn recover_interrupted_run_unless_pending(
 /// restored from an S3 snapshot on this restart, a `<sandbox-restart-note>` is
 /// prepended to the resumed prompt telling the agent exactly what pre-restart
 /// state (unpushed commits, or just gitignored build artifacts) is gone.
-async fn recover_interrupted_run(state: &SandboxState, origin: WorkspaceOrigin) {
-    let task_id = &state.config.task_id;
-    let context = match state.task_context(Some(task_id)).await {
-        Ok(context) => context,
-        Err(e) => {
-            tracing::warn!(error = %e, task_id = %task_id, "Cannot recover interrupted run without task context");
-            return;
-        }
-    };
+async fn recover_interrupted_run(
+    state: &SandboxState,
+    context: &TaskContext,
+    origin: WorkspaceOrigin,
+) {
+    let task_id = &context.task_id;
     match state.backend_client.recover_interrupted_run(task_id).await {
         Ok(Some(turn)) => {
             tracing::warn!(
@@ -356,7 +379,7 @@ async fn recover_interrupted_run(state: &SandboxState, origin: WorkspaceOrigin) 
             // Prepend a restart note so the resuming agent doesn't assume its
             // prior scratch state survived. Which note depends on how the
             // workspace was reconstituted (see `WorkspaceOrigin`).
-            let prompt_text = match origin.restart_note(&state.config.repo_dir) {
+            let prompt_text = match origin.restart_note(&context.checkout_dir) {
                 Some(note) => format!("{note}{}", turn.prompt_text),
                 None => turn.prompt_text,
             };

@@ -35,7 +35,9 @@ pub(super) struct ReplayBackend {
     /// Models a backend the pod cannot reach, which forces the direct send.
     enqueue_fails: AtomicBool,
     get_pending_calls: AtomicUsize,
-    recover_calls: AtomicUsize,
+    /// Every `recover_interrupted_run` call's task id, in call order — which
+    /// Member the pod asked to recover, and how many times.
+    recovered: std::sync::Mutex<Vec<String>>,
 }
 
 impl ReplayBackend {
@@ -74,7 +76,7 @@ impl ReplayBackend {
             queued: Mutex::new(Vec::new()),
             enqueue_fails: AtomicBool::new(false),
             get_pending_calls: AtomicUsize::new(0),
-            recover_calls: AtomicUsize::new(0),
+            recovered: std::sync::Mutex::new(Vec::new()),
         })
     }
 
@@ -112,7 +114,11 @@ impl ReplayBackend {
     }
 
     pub(super) fn recover_calls(&self) -> usize {
-        self.recover_calls.load(Ordering::SeqCst)
+        self.recovered_task_ids().len()
+    }
+
+    pub(super) fn recovered_task_ids(&self) -> Vec<String> {
+        self.recovered.lock().expect("poisoned").clone()
     }
 }
 
@@ -222,9 +228,12 @@ impl BackendClient for ReplayBackend {
 
     async fn recover_interrupted_run(
         &self,
-        _task_id: &str,
+        task_id: &str,
     ) -> Result<Option<InterruptedTurn>, tonic::Status> {
-        self.recover_calls.fetch_add(1, Ordering::SeqCst);
+        self.recovered
+            .lock()
+            .expect("poisoned")
+            .push(task_id.to_string());
         Ok(self.interrupted.clone())
     }
 
