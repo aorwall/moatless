@@ -120,7 +120,9 @@ pub struct GithubBindPrResponse {
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase", tag = "kind", content = "value")]
 pub enum GithubExternalEventSubject {
-    /// `POST repos/{owner}/{repo}/pulls/{n}/comments` — an inline review comment.
+    /// An inline review comment, from either
+    /// `POST repos/{owner}/{repo}/pulls/{n}/comments` or one of the comments a
+    /// `POST …/pulls/{n}/reviews` carried.
     ReviewComment(u64),
     /// `POST repos/{owner}/{repo}/pulls/{n}/reviews` — a review submission.
     Review(u64),

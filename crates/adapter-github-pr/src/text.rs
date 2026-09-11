@@ -76,6 +76,16 @@ pub(super) fn issue_comment_text(sender: &str, number: u64, comment_id: u64, bod
     format!("**@{sender}** commented on #{number} (comment id: {comment_id}):\n\n{body}")
 }
 
+/// The line [`review_comment_text`] writes for a comment that opens its own
+/// thread. [`super::adapter`] interpolates it into the agent's instructions, so
+/// the agent is told to decide on the string a message actually carries.
+pub(super) const NEW_THREAD_MARKER: &str = "> Starts a new thread — replies to nobody";
+
+/// The line [`review_comment_text`] writes for a comment with a parent, ahead
+/// of the parent's id. Interpolated into the instructions like
+/// [`NEW_THREAD_MARKER`].
+pub(super) const IN_REPLY_MARKER: &str = "> In reply to comment";
+
 /// Inputs for [`review_comment_text`] — grouped to keep the signature small.
 pub(super) struct ReviewCommentText<'a> {
     pub(super) sender: &'a str,
@@ -108,8 +118,16 @@ pub(super) fn review_comment_text(p: &ReviewCommentText<'_>) -> String {
     }
     let _ = writeln!(text, "Comment id: {}", p.comment_id);
 
-    if let Some(reply_id) = p.in_reply_to_id {
-        let _ = write!(text, "\n> In reply to comment {reply_id}\n");
+    // State both cases. An absent `in_reply_to_id` is the fact that settles
+    // whether the comment is addressed to the agent, and rendering only the
+    // reply case leaves the agent to read meaning into a missing line.
+    match p.in_reply_to_id {
+        Some(reply_id) => {
+            let _ = write!(text, "\n{IN_REPLY_MARKER} {reply_id}\n");
+        }
+        None => {
+            let _ = write!(text, "\n{NEW_THREAD_MARKER}\n");
+        }
     }
 
     let _ = write!(text, "\n{}", p.body);
@@ -242,6 +260,26 @@ mod tests {
         assert!(text.contains("Comment id: 777"));
         assert!(!text.contains("```diff"));
         assert!(text.ends_with("rename this"));
+    }
+
+    #[test]
+    fn review_comment_text_states_whether_the_comment_replies_to_anything() {
+        let mut p = ReviewCommentText {
+            sender: "alice",
+            path: "src/lib.rs",
+            start_line: None,
+            line: Some(10),
+            html_url: "",
+            comment_id: 777,
+            in_reply_to_id: None,
+            body: "rename this",
+        };
+        assert!(review_comment_text(&p).contains(NEW_THREAD_MARKER));
+
+        p.in_reply_to_id = Some(555);
+        let reply = review_comment_text(&p);
+        assert!(reply.contains(&format!("{IN_REPLY_MARKER} 555")));
+        assert!(!reply.contains(NEW_THREAD_MARKER));
     }
 
     #[test]

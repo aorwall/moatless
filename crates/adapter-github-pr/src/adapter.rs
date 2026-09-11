@@ -189,7 +189,9 @@ impl AdapterOutboundContent for GithubPrAdapter {
 #[async_trait::async_trait]
 impl AdapterInboundPresentation for GithubPrAdapter {
     async fn reply_instructions(&self) -> Option<String> {
-        Some(
+        let in_reply = super::text::IN_REPLY_MARKER;
+        let new_thread = super::text::NEW_THREAD_MARKER;
+        Some(format!(
             "## GitHub PR Agent Notes\n\
              - Always read the live PR state via the `moat gh` commands from the \
                initial message (`pr view`, `pr diff`, `api …/comments`) — the \
@@ -206,9 +208,38 @@ impl AdapterInboundPresentation for GithubPrAdapter {
              - Task completion does NOT auto-post anything to GitHub — when you \
                finish, post your final summary explicitly via \
                `moat gh pr comment`.\n\
-             - Markdown is supported in all comment bodies."
-                .to_string(),
-        )
+             - Markdown is supported in all comment bodies.\n\
+             \n\
+             ### When to respond\n\
+             You receive every comment on the pull request, not only the ones \
+             addressed to you. Decide on who a comment addresses, not on what \
+             it is about. A comment is addressed to you when any of these \
+             holds:\n\
+             - It names you with an `@` mention. A mention outranks every rule \
+               below. Read the account you post as with `moat gh api user`; \
+               when that call fails you are posting as a bot, and `user.login` \
+               on a comment you already posted names it.\n\
+             - It replies inside a thread you started — the `{in_reply} <id>` \
+               line names a comment you posted.\n\
+             - You opened this pull request. Review feedback on your own diff \
+               is addressed to you, whichever thread it opens.\n\
+             \n\
+             - **Stay silent** when an inline comment carries `{new_thread}` \
+               and you did not open this pull request. It opens a conversation \
+               with the pull request author, not with you.\n\
+             - **Stay silent** when two other people are talking, even on a \
+               line you reviewed. Reviewing a line does not make every later \
+               comment on that line yours to answer.\n\
+             - Only an inline review comment carries those two lines. A \
+               top-level conversation comment carries neither, so judge it by \
+               what it says: answer it when it asks you something or asks for \
+               work only you are doing, and stay silent for a status update, \
+               an acknowledgement, or a question aimed at somebody else.\n\
+             - When in doubt, stay silent.\n\
+             - To stay silent, do nothing. Post no comment and no reply. \
+               Posting your own review findings is not a response and is \
+               always allowed."
+        ))
     }
 
     fn external_id_aliases(&self, external_id: &str) -> Vec<String> {
@@ -252,6 +283,20 @@ mod tests {
         assert!(notes.contains("moat gh pr comment <pr_number>"));
         assert!(notes.contains("moat messages reply --message"));
         assert!(notes.contains("does NOT auto-post"));
+    }
+
+    /// Asserted against the renderer's own constants, so a reworded marker
+    /// cannot leave the instructions naming a line no message carries.
+    #[tokio::test]
+    async fn reply_instructions_state_when_a_comment_is_addressed_to_the_agent() {
+        let notes = provider().reply_instructions().await.expect("instructions");
+        assert!(notes.contains("### When to respond"));
+        assert!(notes.contains(&format!("`{} <id>`", crate::text::IN_REPLY_MARKER)));
+        assert!(notes.contains(crate::text::NEW_THREAD_MARKER));
+        assert!(notes.contains("A mention outranks every rule below."));
+        assert!(notes.contains("You opened this pull request."));
+        assert!(notes.contains("top-level conversation comment carries neither"));
+        assert!(notes.contains("To stay silent, do nothing."));
     }
 
     #[tokio::test]

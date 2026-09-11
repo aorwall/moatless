@@ -796,6 +796,8 @@ fn git_stdout(args: &[&str]) -> Result<String, String> {
 struct ApiCreation {
     owner: String,
     repo: String,
+    /// The pull request or issue the endpoint path names.
+    number: u64,
     kind: ApiCreated,
 }
 
@@ -868,16 +870,20 @@ async fn run_api(
         let text = String::from_utf8_lossy(&output.stdout);
         match parse_created_id(&text, created.kind) {
             Some(id) => {
-                let req = GithubExternalEventRequest {
-                    task_id,
-                    subject: created.kind.event_subject(id),
-                    source_name: Some(format!("{}/{}", created.owner, created.repo)),
-                };
-                if let Err(e) = client.api().github_record_external_event(&req).await {
-                    // Nothing is suppressed as a result: the event is delivered
-                    // and the task reads back its own comment, which costs one
-                    // wasted turn.
-                    eprintln!("moat: could not record what this call created: {e}");
+                record_event(client, &task_id, &created, created.kind.event_subject(id)).await;
+
+                // The review id recognises none of the comments the same call
+                // created; see `review_comment_ids`.
+                if created.kind == ApiCreated::Review {
+                    for comment_id in review_comment_ids(&created, id, token.as_deref()) {
+                        record_event(
+                            client,
+                            &task_id,
+                            &created,
+                            GithubExternalEventSubject::ReviewComment(comment_id),
+                        )
+                        .await;
+                    }
                 }
             }
             None => eprintln!("moat: gh api response named no id — nothing recorded"),
@@ -885,6 +891,73 @@ async fn run_api(
     }
 
     command_status(output.status.code().unwrap_or(1))
+}
+
+/// Record one created object against the task, and report a failure to stderr.
+async fn record_event(
+    client: &MoatClient,
+    task_id: &str,
+    created: &ApiCreation,
+    subject: GithubExternalEventSubject,
+) {
+    let req = GithubExternalEventRequest {
+        task_id: task_id.to_string(),
+        subject,
+        source_name: Some(format!("{}/{}", created.owner, created.repo)),
+    };
+    if let Err(e) = client.api().github_record_external_event(&req).await {
+        // Nothing is suppressed as a result: the event is delivered and the
+        // task reads back its own comment, which costs one wasted turn.
+        eprintln!("moat: could not record what this call created: {e}");
+    }
+}
+
+/// The ids of the inline comments a submitted review created.
+///
+/// GitHub delivers each one as its own `pull_request_review_comment` webhook
+/// under its own id, which the review id recognises as nothing, so each needs a
+/// record of its own. The POST response carries the review alone, so the ids
+/// are read back from the endpoint that lists them. A failure here yields none:
+/// the review is already recorded, and an unrecorded comment costs one wasted
+/// turn rather than suppressing somebody else's event.
+fn review_comment_ids(created: &ApiCreation, review_id: u64, token: Option<&str>) -> Vec<u64> {
+    // `--slurp` is what makes the body parseable: `--paginate` alone prints one
+    // JSON array per page, and two pages concatenated parse as nothing.
+    let args = vec![
+        "api".to_string(),
+        review_comments_endpoint(created, review_id),
+        "--paginate".to_string(),
+        "--slurp".to_string(),
+    ];
+    match gh_command_output(&args, token) {
+        Ok(body) => ids_in_comment_list(&body),
+        Err(e) => {
+            eprintln!("moat: could not list the review's inline comments: {e}");
+            Vec::new()
+        }
+    }
+}
+
+fn review_comments_endpoint(created: &ApiCreation, review_id: u64) -> String {
+    format!(
+        "repos/{}/{}/pulls/{}/reviews/{review_id}/comments",
+        created.owner, created.repo, created.number
+    )
+}
+
+/// The `id` of every comment in a slurped page list — an array of pages, each
+/// itself an array of comments. Anything else yields none.
+fn ids_in_comment_list(body: &[u8]) -> Vec<u64> {
+    let Ok(serde_json::Value::Array(pages)) = serde_json::from_slice::<serde_json::Value>(body)
+    else {
+        return Vec::new();
+    };
+    pages
+        .iter()
+        .filter_map(serde_json::Value::as_array)
+        .flatten()
+        .filter_map(|item| item.get("id").and_then(serde_json::Value::as_u64))
+        .collect()
 }
 
 /// Detect a `gh api` argument list that creates a review comment, a review or
@@ -962,9 +1035,7 @@ fn parse_api_endpoint(arg: &str) -> Option<ApiCreation> {
     if parts.next().is_some() || owner.is_empty() || repo.is_empty() {
         return None;
     }
-    if number.parse::<u64>().is_err() {
-        return None;
-    }
+    let number = number.parse::<u64>().ok()?;
 
     let kind = match (subject, leaf) {
         ("pulls", "comments") => ApiCreated::ReviewComment,
@@ -976,6 +1047,7 @@ fn parse_api_endpoint(arg: &str) -> Option<ApiCreation> {
     Some(ApiCreation {
         owner: owner.to_string(),
         repo: repo.to_string(),
+        number,
         kind,
     })
 }
@@ -1386,6 +1458,7 @@ mod tests {
             Some(ApiCreation {
                 owner: "soaplabs".into(),
                 repo: "soap-config".into(),
+                number: 42,
                 kind: ApiCreated::ReviewComment,
             })
         );
@@ -1401,6 +1474,40 @@ mod tests {
         assert_eq!(
             api_kind("api -f body=hi repos/o/r/pulls/7/comments"),
             Some(ApiCreated::ReviewComment)
+        );
+    }
+
+    #[test]
+    fn a_submitted_review_names_the_endpoint_listing_its_own_comments() {
+        let created = parse_api_creation(&argv(&[
+            "--method",
+            "POST",
+            "repos/soaplabs/soap-config/pulls/42/reviews",
+            "-f",
+            "event=COMMENT",
+        ]))
+        .expect("a review submission");
+        assert_eq!(
+            review_comments_endpoint(&created, 555),
+            "repos/soaplabs/soap-config/pulls/42/reviews/555/comments"
+        );
+    }
+
+    #[test]
+    fn every_comment_in_a_slurped_page_list_is_read_and_a_broken_body_reads_none() {
+        assert_eq!(
+            ids_in_comment_list(br#"[[{"id": 1}, {"id": 2}], [{"id": 3}]]"#),
+            vec![1, 2, 3]
+        );
+        assert_eq!(ids_in_comment_list(b"[[]]"), Vec::<u64>::new());
+        // What `--paginate` prints without `--slurp`, and an error message.
+        assert_eq!(
+            ids_in_comment_list(br#"[{"id": 1}][{"id": 2}]"#),
+            Vec::<u64>::new()
+        );
+        assert_eq!(
+            ids_in_comment_list(b"gh: Not Found (HTTP 404)"),
+            Vec::<u64>::new()
         );
     }
 
