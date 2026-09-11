@@ -443,7 +443,6 @@ mod tests {
                 "GPT-5.6 Terra",
                 "GPT-5.6 Luna",
                 "GPT-5.5",
-                "GPT-5.4 Mini",
                 "GPT-5.3 Codex Spark"
             ]
         );
@@ -474,7 +473,6 @@ mod tests {
                 "gpt-5.6-terra",
                 "gpt-5.6-luna",
                 "gpt-5.5",
-                "gpt-5.4-mini",
                 "gpt-5.3-codex-spark"
             ]
         );

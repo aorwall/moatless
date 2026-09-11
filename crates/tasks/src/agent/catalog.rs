@@ -168,8 +168,10 @@ pub const CODEX: AgentEntry = AgentEntry {
     default_model: "default",
     // "Default" resolves to `DEFAULT_CODEX_MODEL` (`gpt-6-astra`) in the sandbox —
     // see `crates/sandbox/src/agent/codex_app_server/mod.rs`. The explicit entries below mirror
-    // the Codex CLI's own `model/list` at the version pinned in
-    // `docker/cli-versions.env`, in the order it returns them.
+    // the `gpt-*` half of the Codex CLI's own `model/list` at the version pinned in
+    // `docker/cli-versions.env`, in the order it returns them. `model/list` also returns the
+    // `claude-*` ids Codex can drive; they are deliberately absent here, because a Codex turn on
+    // one routes at Anthropic rather than through the OpenAI proxy a pod is configured for.
     models: &[
         ModelEntry {
             id: "default",
@@ -194,10 +196,6 @@ pub const CODEX: AgentEntry = AgentEntry {
         ModelEntry {
             id: "gpt-5.5",
             label: "GPT-5.5",
-        },
-        ModelEntry {
-            id: "gpt-5.4-mini",
-            label: "GPT-5.4 Mini",
         },
         ModelEntry {
             id: "gpt-5.3-codex-spark",

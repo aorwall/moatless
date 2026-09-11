@@ -373,12 +373,12 @@ RUN cd /tmp/inspector-build/packages/inspector \
 # The symlink target is resolved from the npm prefix, not `which`: /usr/local/bin
 # precedes npm's bin dir on PATH, so once the symlink exists `which` returns it
 # and the link points at itself (ELOOP at runtime).
-ARG CODEX_CLI_VERSION=0.153.4
+ARG CODEX_CLI_VERSION=0.154.0
 RUN npm install -g "@openai/codex@${CODEX_CLI_VERSION}" \
     && ln -sf "$(npm prefix -g)/bin/codex" /usr/local/bin/codex \
     && (codex --version 2>/dev/null || echo "unknown") > /opt/moatless/.codex-cli-version
 
-ARG CLAUDE_CLI_VERSION=2.1.266
+ARG CLAUDE_CLI_VERSION=2.1.268
 RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CLI_VERSION}" \
     && ln -sf "$(npm prefix -g)/bin/claude" /usr/local/bin/claude \
     && (claude --version 2>/dev/null || echo "unknown") > /opt/moatless/.claude-cli-version

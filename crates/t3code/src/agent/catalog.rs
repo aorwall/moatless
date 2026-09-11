@@ -110,10 +110,6 @@ pub const CODEX: UiRpcAgentEntry = UiRpcAgentEntry {
             label: "GPT-5.5",
         },
         UiRpcModelEntry {
-            id: "gpt-5.4-mini",
-            label: "GPT-5.4 Mini",
-        },
-        UiRpcModelEntry {
             id: "gpt-5.3-codex-spark",
             label: "GPT-5.3 Codex Spark",
         },

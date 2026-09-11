@@ -38,7 +38,7 @@ const HARNESSES: Harness[] = [
   {
     scenario: 'AGENT-09.2',
     agentType: 'codex',
-    model: 'gpt-5.4-mini',
+    model: 'gpt-5.3-codex-spark',
     modelPrefix: 'gpt-',
   },
 ]
