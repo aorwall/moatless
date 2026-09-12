@@ -20,6 +20,7 @@ pub mod persistence_sql_location;
 pub mod process_exit;
 pub mod dependency_privacy;
 pub mod duplicate_names;
+pub mod file_size;
 pub mod floor_type_admission;
 pub mod manifest_inheritance;
 pub mod module_names;

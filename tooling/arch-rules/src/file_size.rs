@@ -1,4 +1,7 @@
 //! A source file stays under a line limit.
+//!
+//! The rule, and how to clear a violation of it, is stated in
+//! `crates/AGENTS.md`.
 
 use anyhow::Result;
 

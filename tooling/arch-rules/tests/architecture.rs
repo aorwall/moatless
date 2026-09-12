@@ -144,5 +144,6 @@ enforce!(
     band_order,
     manifest_inheritance,
     closed_dependency_list,
-    base_surface
+    base_surface,
+    file_size
 );

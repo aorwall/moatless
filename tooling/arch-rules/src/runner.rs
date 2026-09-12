@@ -2,8 +2,8 @@ use crate::workspace::Workspace;
 use crate::{
     Violation, adapter_boundaries, agents_symlink, annotations, band_order, base_surface,
     closed_dependency_list, composition_root, declaration_only_roots, dependency_privacy,
-    duplicate_names, floor_type_admission, manifest_inheritance, module_names, persistence_export,
-    persistence_sql_location, port_admission, process_exit, route_registration,
+    duplicate_names, file_size, floor_type_admission, manifest_inheritance, module_names,
+    persistence_export, persistence_sql_location, port_admission, process_exit, route_registration,
     row_stays_with_query, single_implementation_trait, store_privacy, table_ownership,
     transport_direction,
 };
@@ -56,6 +56,7 @@ rules!(
     duplicate_names => "A public type name is defined in more than one shared-vocabulary crate.",
     dependency_privacy => "A crate names a dependency its band forbids.",
     module_names => "A module is named for the kind of thing it holds rather than for its domain.",
+    file_size => "A source file stays under the line limit.",
 );
 
 /// Run every registered rule against one workspace read.
@@ -65,7 +66,7 @@ pub fn run_all(ws: &Workspace) -> Result<Vec<Violation>> {
     let mut found = Vec::new();
     for rule in RULES {
         // Name the rule: every test reads this one run, so a bare error would
-        // panic all 22 of them with the same message.
+        // panic all of them with the same message.
         found.extend((rule.check)(ws).with_context(|| format!("rule `{}`", rule.name))?);
     }
     found.sort();
