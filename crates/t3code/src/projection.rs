@@ -251,9 +251,9 @@ fn thread(conversation: &Conversation, project_id: &str, defaults: &AgentModelDe
         "hasActionableProposedPlan".into(),
         Value::Bool(conversation.pending_plan),
     );
-    // Who the row belongs to, which the sidebar shows only for a Task somebody
-    // else owns. Null rather than absent, and the listing has already decided
-    // it: the read is per-viewer, so a name here means "not yours".
+    // Null rather than absent, because the client reads the key to clear its
+    // previous answer. Which rows carry a name is the listing's decision; see
+    // `Conversation::owner_name`.
     row.insert(
         "ownerName".into(),
         conversation

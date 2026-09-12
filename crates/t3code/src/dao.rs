@@ -66,9 +66,9 @@ pub struct Conversation {
     /// Who may read this Task. `NOT NULL`, defaulting to `Private`.
     #[sqlx(try_from = "String")]
     pub visibility: Visibility,
-    /// The owner's display name, and `None` when the viewer is that owner — a
-    /// per-viewer value, like the follower state below. Owner is the access
-    /// rule's own `COALESCE(owner_user_id, created_by)`.
+    /// The owner's display name, `None` when the viewer owns the Task or the
+    /// owner resolves to no user — a per-viewer value, like the follower state
+    /// below. Owner is the access rule's own `COALESCE(owner_user_id, created_by)`.
     pub owner_name: Option<String>,
 
     /// The newest Turn, by turn number. `None` when the Task has never run.
@@ -822,9 +822,8 @@ impl PgConversationDao {
                -- Whose Task this is, for the rows that are somebody else's. The
                -- viewer test is in the `ON` clause rather than a `CASE`, so a
                -- viewer's own Task simply misses the join and reports no name.
-               -- `users.id` is a native uuid and the owner columns are text, so
-               -- the comparison is made on the id's text form: casting the other
-               -- way would raise on a `created_by` that is not a uuid.
+               -- The id is compared on its text form for the reason
+               -- `TRANSCRIPT_ORIGIN_JOINS` states.
                LEFT JOIN users owner
                  ON owner.id::text = COALESCE(t.owner_user_id, t.created_by)
                 AND COALESCE(t.owner_user_id, t.created_by) IS DISTINCT FROM ${follower}

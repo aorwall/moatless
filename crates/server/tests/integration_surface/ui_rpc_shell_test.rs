@@ -629,6 +629,7 @@ const THREAD_OPTIONAL: &[&str] = &[
     "settledAt",
     "snoozedUntil",
     "snoozedAt",
+    "ownerName",
 ];
 const THREAD_NON_EMPTY: &[&str] = &["id", "projectId", "title"];
 
