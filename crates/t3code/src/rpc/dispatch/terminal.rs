@@ -1,0 +1,144 @@
+//! The `terminal.*` methods that are not the attach stream.
+
+use super::routing::Request;
+use crate::authentication::viewer_scope;
+use crate::rpc::frames::success_exit;
+use crate::rpc::frames::terminal_failure_exit;
+use crate::terminal;
+use serde_json::Value;
+
+pub(super) async fn terminal_open(request: Request) -> Vec<Value> {
+    let Request {
+        id,
+        payload,
+        state,
+        identity,
+        ..
+    } = request;
+    let viewer = viewer_scope(&identity);
+    match terminal::open(
+        state.reads.conversations(),
+        state.sandboxes.as_ref(),
+        &state.terminal,
+        &viewer,
+        &payload,
+    )
+    .await
+    {
+        Ok(snapshot) => vec![success_exit(&id, snapshot)],
+        Err(error) => vec![terminal_failure_exit(&id, &payload, &error, &identity)],
+    }
+}
+
+pub(super) async fn terminal_write(request: Request) -> Vec<Value> {
+    let Request {
+        id,
+        payload,
+        state,
+        identity,
+        ..
+    } = request;
+    let viewer = viewer_scope(&identity);
+    match terminal::write(
+        state.reads.conversations(),
+        state.sandboxes.as_ref(),
+        &viewer,
+        &payload,
+    )
+    .await
+    {
+        Ok(()) => vec![success_exit(&id, Value::Null)],
+        Err(error) => vec![terminal_failure_exit(&id, &payload, &error, &identity)],
+    }
+}
+
+pub(super) async fn terminal_resize(request: Request) -> Vec<Value> {
+    let Request {
+        id,
+        payload,
+        state,
+        identity,
+        ..
+    } = request;
+    let viewer = viewer_scope(&identity);
+    match terminal::resize(
+        state.reads.conversations(),
+        state.sandboxes.as_ref(),
+        &viewer,
+        &payload,
+    )
+    .await
+    {
+        Ok(()) => vec![success_exit(&id, Value::Null)],
+        Err(error) => vec![terminal_failure_exit(&id, &payload, &error, &identity)],
+    }
+}
+
+pub(super) async fn terminal_clear(request: Request) -> Vec<Value> {
+    let Request {
+        id,
+        payload,
+        state,
+        identity,
+        ..
+    } = request;
+    let viewer = viewer_scope(&identity);
+    match terminal::clear(
+        state.reads.conversations(),
+        state.sandboxes.as_ref(),
+        &state.terminal,
+        &viewer,
+        &payload,
+    )
+    .await
+    {
+        Ok(()) => vec![success_exit(&id, Value::Null)],
+        Err(error) => vec![terminal_failure_exit(&id, &payload, &error, &identity)],
+    }
+}
+
+pub(super) async fn terminal_restart(request: Request) -> Vec<Value> {
+    let Request {
+        id,
+        payload,
+        state,
+        identity,
+        ..
+    } = request;
+    let viewer = viewer_scope(&identity);
+    match terminal::restart(
+        state.reads.conversations(),
+        state.sandboxes.as_ref(),
+        &state.terminal,
+        &viewer,
+        &payload,
+    )
+    .await
+    {
+        Ok(snapshot) => vec![success_exit(&id, snapshot)],
+        Err(error) => vec![terminal_failure_exit(&id, &payload, &error, &identity)],
+    }
+}
+
+pub(super) async fn terminal_close(request: Request) -> Vec<Value> {
+    let Request {
+        id,
+        payload,
+        state,
+        identity,
+        ..
+    } = request;
+    let viewer = viewer_scope(&identity);
+    match terminal::close(
+        state.reads.conversations(),
+        state.sandboxes.as_ref(),
+        &state.terminal,
+        &viewer,
+        &payload,
+    )
+    .await
+    {
+        Ok(()) => vec![success_exit(&id, Value::Null)],
+        Err(error) => vec![terminal_failure_exit(&id, &payload, &error, &identity)],
+    }
+}

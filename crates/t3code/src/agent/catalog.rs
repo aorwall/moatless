@@ -1,3 +1,10 @@
+/// A catalog model choice that names no model.
+///
+/// It means *whatever this agent picks*, is resolved inside the Sandbox at run
+/// time, and is never written back. Reporting it as a model identity would put
+/// a word in the row that names nothing, so the chain falls through it.
+pub(crate) const UNRESOLVED_MODEL_CHOICE: &str = "default";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UiRpcAgentKind {
     ClaudeCode,
@@ -22,11 +29,11 @@ pub const CLAUDE_CODE: UiRpcAgentEntry = UiRpcAgentEntry {
     id: "claude-code",
     label: "Claude Code",
     kind: UiRpcAgentKind::ClaudeCode,
-    default_model: "default",
+    default_model: UNRESOLVED_MODEL_CHOICE,
     missing_credential_hint: "Add CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY in Settings > Secrets",
     models: &[
         UiRpcModelEntry {
-            id: "default",
+            id: UNRESOLVED_MODEL_CHOICE,
             label: "Default",
         },
         UiRpcModelEntry {
@@ -52,7 +59,7 @@ pub const CLAUDE_CODE_TUI: UiRpcAgentEntry = UiRpcAgentEntry {
     id: "claude-code-tui",
     label: "Claude Code (TUI)",
     kind: UiRpcAgentKind::ClaudeCode,
-    default_model: "default",
+    default_model: UNRESOLVED_MODEL_CHOICE,
     missing_credential_hint: CLAUDE_CODE.missing_credential_hint,
     models: CLAUDE_CODE.models,
 };
@@ -61,7 +68,7 @@ pub const CLAUDE_CODE_CLI: UiRpcAgentEntry = UiRpcAgentEntry {
     id: "claude-code-cli",
     label: "Claude Code (CLI)",
     kind: UiRpcAgentKind::ClaudeCode,
-    default_model: "default",
+    default_model: UNRESOLVED_MODEL_CHOICE,
     missing_credential_hint: CLAUDE_CODE.missing_credential_hint,
     models: CLAUDE_CODE.models,
 };
@@ -82,11 +89,11 @@ pub const CODEX: UiRpcAgentEntry = UiRpcAgentEntry {
     id: "codex",
     label: "Codex",
     kind: UiRpcAgentKind::Codex,
-    default_model: "default",
+    default_model: UNRESOLVED_MODEL_CHOICE,
     missing_credential_hint: "Add CODEX_AUTH_JSON or OPENAI_API_KEY in Settings > Secrets",
     models: &[
         UiRpcModelEntry {
-            id: "default",
+            id: UNRESOLVED_MODEL_CHOICE,
             label: "Default",
         },
         UiRpcModelEntry {

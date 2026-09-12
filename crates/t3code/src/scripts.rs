@@ -34,6 +34,7 @@ use tracing::warn;
 
 use crate::dao::ConversationDao;
 use crate::preview::{self, PreviewState};
+use crate::nominal_path;
 use crate::projection;
 use crate::terminal::{self, TerminalError, TerminalHub};
 use crate::workspace_dao::T3WorkspaceDao;
@@ -176,7 +177,7 @@ pub(crate) async fn run(
     // makes the new-process check below able to tell a re-run from a first run.
     let terminal_id = format!("script-{}", script.name);
     // The nominal worktree path the sandbox maps back to the real checkout.
-    let cwd = projection::nominal_worktree(task_id);
+    let cwd = nominal_path::nominal_worktree(task_id);
 
     let mut open_payload = json!({
         "threadId": task_id,

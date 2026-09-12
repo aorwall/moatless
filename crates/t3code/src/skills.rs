@@ -12,14 +12,14 @@ use serde_json::{Value, json};
 
 use crate::dao::ConversationDao;
 use crate::ports::WorkspaceSkill;
-use crate::projection;
+use crate::nominal_path;
 use moatless_types::access_control::ScopeContext;
 
 /// The Workspace a T3 `cwd` names, whichever of the two forms it takes.
 ///
 /// A composer on a draft thread addresses its project root and a composer on a
 /// started thread addresses that thread's worktree; both are nominal paths this
-/// surface issued ([`projection::nominal_worktree`]). Answers `None` for a path
+/// surface issued ([`nominal_path::nominal_worktree`]). Answers `None` for a path
 /// this module never issued, a Task this viewer cannot be shown, and a Task
 /// that belongs to no Workspace.
 pub(crate) async fn workspace_of(
@@ -27,10 +27,10 @@ pub(crate) async fn workspace_of(
     viewer: &ScopeContext,
     cwd: &str,
 ) -> Option<String> {
-    if let Some(workspace_id) = projection::workspace_id_from_project_root(cwd) {
+    if let Some(workspace_id) = nominal_path::workspace_id_from_project_root(cwd) {
         return Some(workspace_id.to_string());
     }
-    let task_id = projection::task_id_from_cwd(cwd)?;
+    let task_id = nominal_path::task_id_from_cwd(cwd)?;
     match conversations.readable_by_id(viewer, task_id).await {
         Ok(conversation) => conversation?.workspace_id,
         Err(error) => {

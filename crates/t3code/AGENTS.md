@@ -29,7 +29,7 @@ constants live in `moatless_types::activity`; `moatless_ports::activity` holds
 renders it read one definition.
 
 Do not re-declare a T3-shaped copy of a Moatless row here. The translation
-belongs in `projection.rs`, where the wire shape is built.
+belongs under `projection/`, in the child named for the wire shape it builds.
 
 ## Reaching another band through a seam
 
@@ -55,9 +55,9 @@ under `[dependencies]` they are the band edge this section forbids.
 ## Answering a request off the frame loop
 
 One connection reads one frame at a time, so a request answered inside the loop
-holds every frame the client sent after it. `rpc::dispatch::detach` is the whole
-list of the methods that do not: it spawns them onto the connection's frame
-channel and the loop reads on.
+holds every frame the client sent after it. `rpc::dispatch::routing::detach` is
+the whole list of the methods that do not: it spawns them onto the connection's
+frame channel and the loop reads on.
 
 **Detach a read; keep a transition on the loop.** A method that moves a named
 resource from one state to another — `terminal.*`, `projects.writeFile`,
@@ -73,10 +73,12 @@ State a detached method genuinely needs goes in `SharedSession`
 (`rpc/session.rs`) behind its own lock, held for a single read or write and
 never across an await.
 
-**One function per method, in `dispatch.rs`.** `detach` and `handle_request` are
-routing tables and hold no method body; the two matches together are the whole
-list of what this surface serves. Name a method's function for its tag, snake
-cased: `pullRequests.summary` is `pull_requests_summary`.
+**One function per method, under `rpc/dispatch/`, grouped by the surface it
+answers for.** `detach` and `handle_request` are routing tables and hold no
+method body; both live in `dispatch/routing.rs`, and the two matches together are
+the whole list of what this surface serves. Name a method's function for its tag,
+snake cased: `pullRequests.summary` is `pull_requests_summary`. A method that
+holds the frame loop goes in `dispatch/streams.rs`.
 
 The subscription-open arms are on the loop and hold it; see
 `docs/deferred-changes.md`.

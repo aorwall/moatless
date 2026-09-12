@@ -20,7 +20,7 @@
 //!   answers as a conversation with no worktree rather than as a failure.
 
 use super::dao::ConversationDao;
-use super::projection;
+use super::nominal_path;
 use chrono::{DateTime, Utc};
 use moatless_ports::sandbox::SandboxError;
 use moatless_types::access_control::Scope;
@@ -203,10 +203,10 @@ pub(crate) async fn controlled_conversation(
 }
 
 fn addressable_task_id(cwd: &str) -> Result<String, WorkspaceAccessError> {
-    if projection::is_project_root(cwd) {
+    if nominal_path::is_project_root(cwd) {
         return Err(WorkspaceAccessError::NoWorktree);
     }
-    projection::task_id_from_cwd(cwd)
+    nominal_path::task_id_from_cwd(cwd)
         .map(str::to_string)
         .ok_or(WorkspaceAccessError::Unaddressable)
 }

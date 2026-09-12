@@ -25,7 +25,7 @@ use super::ports::{
     BoundPullRequest, BoundPullRequestSource, BranchListError, RepositoryBranchSource, is_draft,
     primary_pull_request, t3_pr_state,
 };
-use super::projection;
+use super::nominal_path;
 use super::workspace::{self, WorkspaceAccessError};
 use crate::workspace_dao::T3WorkspaceDao;
 use moatless_api_schemas::repository::{BranchEntry, BranchListResponse};
@@ -373,7 +373,7 @@ pub async fn workspace_branches(
     request: &RefRequest<'_>,
 ) -> Result<Value, BranchListError> {
     let workspace_id =
-        projection::workspace_id_from_project_root(cwd).ok_or(BranchListError::None)?;
+        nominal_path::workspace_id_from_project_root(cwd).ok_or(BranchListError::None)?;
     let Some(repository_id) = workspaces
         .primary_repository(viewer, workspace_id)
         .await

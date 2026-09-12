@@ -18,6 +18,7 @@ pub mod files;
 mod git_actions;
 mod handlers;
 pub mod listing;
+mod nominal_path;
 mod oauth;
 mod observability;
 pub mod ports;

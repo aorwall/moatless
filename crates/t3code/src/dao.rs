@@ -154,7 +154,7 @@ pub struct ConversationPullRequest {
     /// equal standing there.
     pub linked_at: DateTime<Utc>,
     /// `task_bindings.origin`, translated to a T3 link source by
-    /// [`crate::projection::thread_pull_request_source`].
+    /// [`crate::projection::pull_request::thread_pull_request_source`].
     pub origin: String,
     /// Latest review verdict, GitHub's spelling. `None` until one is recorded.
     pub review_decision: Option<String>,

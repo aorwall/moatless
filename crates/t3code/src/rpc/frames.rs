@@ -3,7 +3,7 @@ use crate::oauth;
 use crate::ports;
 use crate::preview;
 use crate::preview::PreviewError;
-use crate::projection;
+use crate::nominal_path;
 use crate::review;
 use crate::rpc::metrics as rpc_metrics;
 use crate::sandbox::SandboxRpcError;
@@ -478,7 +478,7 @@ pub(crate) fn branch_list_exit(
 /// branch is fixed once its checkout exists.
 pub(crate) fn branch_switch_result(payload: &Value) -> Option<Value> {
     let cwd = workspace_cwd(payload)?;
-    if !projection::is_project_root(&cwd) {
+    if !nominal_path::is_project_root(&cwd) {
         return None;
     }
     let ref_name = payload.get("refName").and_then(Value::as_str)?.trim();

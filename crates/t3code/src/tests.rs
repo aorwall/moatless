@@ -829,7 +829,7 @@ fn state_with_attachments(attachments: Arc<dyn ports::AttachmentStore>) -> UiRpc
 /// database in `backend/tests/integration_surface/ui_rpc_shell_test.rs`.
 ///
 /// A detached request answers on that channel rather than to its caller, so a
-/// test naming one of the tags `rpc::dispatch::detach` matches uses
+/// test naming one of the tags `rpc::dispatch::routing::detach` matches uses
 /// [`connection`] instead.
 fn session() -> ProtocolSession {
     ProtocolSession::new(mpsc::channel(OUTBOUND_FRAMES).0)

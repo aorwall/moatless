@@ -16,7 +16,7 @@ use crate::dao::ConversationDao;
 use crate::ports::{
     BoundPullRequestSource, PullRequestError, ResolvedPullRequest, ThreadCommandSink, ThreadTurn,
 };
-use crate::projection;
+use crate::nominal_path;
 use crate::workspace;
 use crate::workspace::WorkspaceAccessError;
 use crate::workspace_dao::T3WorkspaceDao;
@@ -344,9 +344,9 @@ async fn repository_for_cwd(
     viewer: &ScopeContext,
     cwd: &str,
 ) -> Result<String, PullRequestError> {
-    let workspace_id = if let Some(id) = projection::workspace_id_from_project_root(cwd) {
+    let workspace_id = if let Some(id) = nominal_path::workspace_id_from_project_root(cwd) {
         id.to_string()
-    } else if let Some(task_id) = projection::task_id_from_cwd(cwd) {
+    } else if let Some(task_id) = nominal_path::task_id_from_cwd(cwd) {
         conversations
             .readable_by_id(viewer, task_id)
             .await

@@ -35,7 +35,8 @@ use tracing::{debug, warn};
 use crate::checkout::Checkout;
 use crate::workspace;
 use crate::workspace::WorkspaceAccessError;
-use crate::{UiRpcState, projection, viewer_scope};
+use crate::nominal_path;
+use crate::{UiRpcState, viewer_scope};
 use moatless_types::ui_rpc::UiRpcAuthIdentity;
 
 /// Where [`create_url`]'s answers point, and what [`serve`] is mounted at.
@@ -161,7 +162,7 @@ fn file_url(resource: &Value) -> Result<Value, AssetUrlError> {
     // way, because it has to become a segment of a URL, and
     // [`Checkout::resolve`] reads a mention with or without one.
     let relative = path
-        .strip_prefix(&projection::nominal_worktree(thread_id))
+        .strip_prefix(&nominal_path::nominal_worktree(thread_id))
         .unwrap_or(path)
         .trim_start_matches('/');
     // A `..` names nothing this can resolve and the Sandbox refuses it outright
@@ -229,7 +230,7 @@ pub(crate) async fn serve(
     Path((thread_id, relative_path)): Path<(String, String)>,
 ) -> Response {
     let viewer = viewer_scope(&identity);
-    let cwd = projection::nominal_worktree(&thread_id);
+    let cwd = nominal_path::nominal_worktree(&thread_id);
     let task_id =
         match workspace::addressed_conversation(state.reads.conversations(), &viewer, &cwd).await {
             Ok(task_id) => task_id,

@@ -1,0 +1,472 @@
+//! The messages a sandbox takes off its queue, and the prompt it runs them with.
+
+use tonic::{Request, Response, Status};
+use tracing::{debug, info, warn};
+
+use sandbox_proto::{
+    AcknowledgeMessagesRequest, AcknowledgeMessagesResponse, EnqueueSandboxMessageRequest,
+    EnqueueSandboxMessageResponse, GetPendingMessagesRequest, GetPendingMessagesResponse,
+    GetSystemPromptRequest, GetSystemPromptResponse,
+};
+
+use moatless_types::access_control::ScopeContext;
+
+use moatless_tasks::agent::prompt;
+use moatless_tasks::task_turn::models::TurnStatus;
+use moatless_types::agent::AgentType;
+
+use super::state::BackendSandboxServiceImpl;
+
+/// Return pending messages for a task.
+///
+/// The sandbox polls this instead of the HTTP endpoint. The response
+/// format matches what the sandbox consumer expects.
+#[tracing::instrument(
+    skip_all,
+    fields(
+        request_id = %uuid::Uuid::new_v4(),
+        task_id = tracing::field::Empty,
+        user_id = tracing::field::Empty
+    )
+)]
+pub(super) async fn get_pending_messages(
+    service: &BackendSandboxServiceImpl,
+    request: Request<GetPendingMessagesRequest>,
+) -> Result<Response<GetPendingMessagesResponse>, Status> {
+    // Verify the token and confirm the caller may operate on this task before
+    // we hand back its queued messages.
+    let task_id = request.get_ref().task_id.clone();
+    let grant = service.authorizer.authorize(&request, &task_id).await?;
+    tracing::Span::current().record("user_id", grant.ctx.user_id.as_str());
+
+    let req = request.into_inner();
+    tracing::Span::current().record("task_id", req.task_id.as_str());
+
+    let Some(messages) = service.handlers.as_ref().map(|h| &h.messages) else {
+        return Ok(Response::new(GetPendingMessagesResponse {
+            deliveries: vec![],
+        }));
+    };
+
+    let task = if let Some(tasks) = service.handlers.as_ref().map(|h| &h.tasks) {
+        // reason: pending-message gate reads task status across all owners (no user ctx)
+        #[allow(clippy::disallowed_methods)]
+        let sys = ScopeContext::system();
+        tasks.find_by_id(&req.task_id, &sys).await.ok().flatten()
+    } else {
+        None
+    };
+
+    // Gate: a Closed task is terminal — never start a turn on it. The
+    // sandbox dispatcher no-ops on an empty list, so returning empty here
+    // means no `agent.started`, no turn — even if the pod is still finishing
+    // its termination grace period. Fail open on unknown (None / DB-error,
+    // both collapsed by `.ok().flatten()`): only a confirmed-Closed task is
+    // gated, mirroring `send.rs`.
+    if matches!(
+        task.as_ref().map(|t| t.status),
+        Some(moatless_types::task::TaskStatus::Closed)
+    ) {
+        debug!(task_id = %req.task_id, "get_pending_messages: task is Closed, returning no messages");
+        return Ok(Response::new(GetPendingMessagesResponse {
+            deliveries: vec![],
+        }));
+    }
+
+    let task_agent_type = task.as_ref().map_or_else(
+        || AgentType::CLAUDE_CODE.to_string(),
+        |t| t.agent_type.0.clone(),
+    );
+    let task_model = task.as_ref().and_then(|t| t.model.clone());
+    let task_skills = task.as_ref().map(|t| t.skills.clone()).unwrap_or_default();
+
+    // Fetch pending user messages from DB
+    let pending = messages.get_pending_user(&req.task_id).await.map_err(|e| {
+        warn!(error = %e, task_id = %req.task_id, "Failed to fetch pending messages");
+        Status::internal("Failed to fetch pending messages")
+    })?;
+
+    // Look up latest agent_session_id for --resume <id>
+    let latest_agent_session_id = messages
+        .get_latest_agent_session_id(&req.task_id)
+        .await
+        .unwrap_or(None);
+
+    // Fork intent, while the Task is a fork whose own session has not
+    // landed. The sentinel is that latest session id: a fresh fork's newest
+    // Message is a copy of the parent's and still carries the parent's
+    // session, so the two are equal until the fork's first turn reports one
+    // of its own. Nothing is stamped when intent is *sent*, because a first
+    // turn that died before a session landed would consume the stamp and
+    // leave the fork permanently unforked.
+    let fork_row = match (&latest_agent_session_id, service.handlers.as_ref()) {
+        (Some(_), Some(handlers)) => handlers.task_forks.find(&req.task_id).await,
+        _ => Ok(None),
+    };
+    let fork = match &latest_agent_session_id {
+        Some(session_id) => match fork_row {
+            Ok(Some(row)) if &row.source_session_id == session_id => {
+                Some(sandbox_proto::ForkSession {
+                    source_session_id: row.source_session_id,
+                    source_message_uuid: row.source_message_uuid,
+                    source_agent_turn_id: row.source_agent_turn_id,
+                })
+            }
+            Ok(_) => None,
+            Err(e) => {
+                // A fork that loses its intent starts on a fresh session and
+                // says so in its first answer; one that resumes the parent's
+                // session id would write into the parent's transcript.
+                warn!(error = %e, task_id = %req.task_id, "Failed to read fork anchors; first turn starts fresh");
+                None
+            }
+        },
+        None => None,
+    };
+
+    let task_resume_session_id = latest_agent_session_id;
+
+    // Check the last closed turn — a turn that ended `stopped` or `error`
+    // cut its agent session off mid-flight, so the next run starts fresh
+    // rather than `--resume` into a transcript ending on an unanswered tool
+    // call. Turn state is authoritative here: routine stops leave no result
+    // row behind (see `message::models::stop_is_reported`).
+    let cut_off = match service.ingress.as_ref().map(|i| &i.task_turns) {
+        Some(turns) => match turns.latest_closed_turn_status(&req.task_id).await {
+            Ok(status) => status.is_some_and(TurnStatus::cut_off_session),
+            Err(e) => {
+                warn!(error = %e, task_id = %req.task_id, "Failed to read last closed turn; assuming resumable");
+                false
+            }
+        },
+        None => false,
+    };
+
+    // Check will_not_resume on the last result — if explicitly set,
+    // don't pass a resume session ID. Also
+    // auto-skip resume when the last result row was an error: retrying the
+    // same resume session ID would loop the same failure.
+    let task_resume_session_id = if task_resume_session_id.is_none() {
+        None
+    } else if cut_off {
+        debug!(
+            task_id = %req.task_id,
+            "Last closed turn was stopped or errored, clearing resume_session_id"
+        );
+        None
+    } else {
+        match messages.get_last_result(&req.task_id).await {
+            Ok(Some(last_result)) if last_result.will_not_resume == Some(true) => {
+                debug!(
+                    task_id = %req.task_id,
+                    "Last result has will_not_resume=true, clearing resume_session_id"
+                );
+                None
+            }
+            Ok(Some(last_result))
+                if last_result.message_type
+                    == moatless_tasks::message::models::MessageType::Error =>
+            {
+                debug!(
+                    task_id = %req.task_id,
+                    "Last result is an error, clearing resume_session_id to start fresh"
+                );
+                None
+            }
+            _ => task_resume_session_id,
+        }
+    };
+
+    // Pre-resolve the logins the headers name. An internal row is keyed by
+    // its `sent_by` user id for `<sent_by>`; an external row is keyed by
+    // the writer's own Adapter id for `<from>`, which is the only field
+    // that names the writer rather than the trigger owner.
+    let mut login_cache: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
+    if let Some(handlers) = service.handlers.as_ref() {
+        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for row in &pending {
+            if row.external_event_id.is_some() {
+                let (Some(adapter), Some(sender_id)) = (
+                    row.external_adapter.as_deref(),
+                    row.external_sender_id.as_deref(),
+                ) else {
+                    continue;
+                };
+                let key = moatless_tasks::message::enricher::sender_key(adapter, sender_id);
+                if !seen.insert(key.clone()) {
+                    continue;
+                }
+                match handlers.provider_link.user_at(adapter, sender_id).await {
+                    Ok(Some(user)) => {
+                        login_cache.insert(key, user.login);
+                    }
+                    // Not an error: an unmapped writer is named by their
+                    // Adapter handle instead, which stays true.
+                    Ok(None) => debug!(
+                        adapter,
+                        sender_id, "sender is not mapped, <from> names their handle"
+                    ),
+                    Err(e) => warn!(
+                        adapter, sender_id, error = %e,
+                        "sender lookup failed, <from> names their handle"
+                    ),
+                }
+                continue;
+            }
+            if let Some(uid) = row.sent_by.as_deref() {
+                if seen.insert(uid.to_string()) {
+                    let Ok(uuid) = uid.parse::<uuid::Uuid>() else {
+                        continue;
+                    };
+                    match handlers.user_logins.run_as_target(&uuid.to_string()).await {
+                        Ok(Some(user)) => {
+                            login_cache.insert(uid.to_string(), user.login);
+                        }
+                        Ok(None) => {
+                            debug!(user_id = %uid, "sent_by user not found, omitting <sent_by> tag");
+                        }
+                        Err(e) => {
+                            warn!(user_id = %uid, error = %e, "user lookup failed, omitting <sent_by> tag");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // The agent's view of a queued Message is rebuilt here, not read back.
+    //
+    // The row stores what the person wrote; the preview URL, the selected
+    // element, the attribution to a sending Task and the attached files are
+    // each persisted as their own row or column, and pre-rendering them into
+    // the Message would only create a second copy that can disagree with
+    // them.
+    let ids: Vec<i32> = pending.iter().map(|row| row.id).collect();
+    let contexts_by_message = messages
+        .get_contexts_for_messages(&req.task_id, &ids)
+        .await
+        .unwrap_or_else(|e| {
+            warn!(task_id = %req.task_id, error = %e, "Failed to load message contexts; delivering without them");
+            std::collections::HashMap::new()
+        });
+
+    let builder = moatless_tasks::message::enricher::AgentPromptBuilder::new(
+        service.handlers.as_ref().map(|h| h.files.as_ref()),
+        Some(service.backend_config.as_ref()),
+        task_agent_type,
+        task_model,
+        task_resume_session_id,
+        task_skills,
+        &login_cache,
+    );
+    let deliveries = builder
+        .build_pending_deliveries(&pending, &contexts_by_message)
+        .await
+        .into_iter()
+        .map(|delivery| sandbox_proto::PendingAgentDelivery {
+            message_uuids: delivery.message_uuids,
+            prompt_text: delivery.prompt_text,
+            file_ids: delivery.file_ids,
+            model: delivery.model,
+            agent_type: delivery.agent_type,
+            agent_mode: delivery.agent_mode,
+            effort: delivery.effort,
+            skills: delivery.skills,
+            // A fork's first turn resumes nothing by id and asks for a
+            // fresh start, which is what a pod that does not know `fork`
+            // falls back to. The alternative — leaving `resume_session_id`
+            // set — would have such a pod resume the *parent's* session and
+            // write two Tasks into one transcript.
+            resume_session_id: if fork.is_some() {
+                None
+            } else {
+                delivery.resume_session_id.clone()
+            },
+            resume: delivery.resume,
+            start_fresh: delivery.start_fresh || fork.is_some(),
+            fork: fork.clone(),
+            prompt_response: delivery.prompt_response.map(|response| {
+                sandbox_proto::PromptResponse {
+                    tool_use_id: response.tool_use_id,
+                    tool_name: response.tool_name,
+                    answers: response.answers.into_iter().collect(),
+                    approved: response.approved,
+                    feedback: response.feedback,
+                }
+            }),
+        })
+        .collect();
+
+    Ok(Response::new(GetPendingMessagesResponse { deliveries }))
+}
+
+/// Acknowledge that pending messages have been delivered to an agent session.
+///
+/// Sets `sent_at`, `session_id`, and `agent_session_id` on the specified
+/// messages, transitioning them from "queued" to "sent".
+pub(super) async fn acknowledge_messages(
+    service: &BackendSandboxServiceImpl,
+    request: Request<AcknowledgeMessagesRequest>,
+) -> Result<Response<AcknowledgeMessagesResponse>, Status> {
+    // Cross-tenant guard: only the task's owner/admin may acknowledge
+    // (mark sent) its queued messages.
+    let task_id = request.get_ref().task_id.clone();
+    service.authorizer.authorize(&request, &task_id).await?;
+
+    let req = request.into_inner();
+
+    let Some(messages) = service.handlers.as_ref().map(|h| &h.messages) else {
+        return Ok(Response::new(AcknowledgeMessagesResponse {}));
+    };
+
+    // The acknowledging run decides the turn: whichever of the ack and the
+    // run's `taskTurn.active` reaches the backend first allocates it, the
+    // other joins. Messages injected into a run in flight ack with that
+    // run's id and so share its turn.
+    let Some(turn_number) = service
+        .resolve_turn_for_event(&req.task_id, &req.run_id)
+        .await
+    else {
+        warn!(
+            task_id = %req.task_id,
+            run_id = %req.run_id,
+            "Cannot acknowledge messages without a resolvable turn"
+        );
+        return Err(Status::internal("Failed to resolve turn for run"));
+    };
+
+    match messages
+        .acknowledge_messages(
+            &req.task_id,
+            &req.message_uuids,
+            &req.session_id,
+            turn_number,
+        )
+        .await
+    {
+        Ok(count) => {
+            info!(
+                task_id = %req.task_id,
+                session_id = %req.session_id,
+                run_id = %req.run_id,
+                turn_number,
+                requested = req.message_uuids.len(),
+                acknowledged = count,
+                "Messages acknowledged"
+            );
+            for uuid in &req.message_uuids {
+                moatless_tasks::message::hooks::emit_message_upsert_from_daos(
+                    service.events.as_ref(),
+                    messages,
+                    service.handlers.as_ref().map(|h| &h.files),
+                    &req.task_id,
+                    uuid,
+                )
+                .await;
+            }
+        }
+        Err(e) => {
+            warn!(
+                task_id = %req.task_id,
+                error = %e,
+                "Failed to acknowledge messages"
+            );
+            return Err(Status::internal("Failed to acknowledge messages"));
+        }
+    }
+
+    let answered_prompt = (!req.answered_prompt_tool_use_id.is_empty())
+        .then(|| req.message_uuids.first())
+        .flatten();
+    if let Some(carrier) = answered_prompt {
+        moatless_tasks::message::send::settle_answered_prompt(
+            messages.as_ref(),
+            &req.task_id,
+            &req.answered_prompt_tool_use_id,
+            carrier,
+        )
+        .await;
+    }
+
+    Ok(Response::new(AcknowledgeMessagesResponse {}))
+}
+
+/// Queue a user message the sandbox wrote for its own Task.
+///
+/// The row is what makes the turn visible to the conversation and to
+/// `find_interrupted_turn`; waking the agent handle alone leaves none. Auth:
+/// task-scoped JWT via gRPC metadata.
+pub(super) async fn enqueue_sandbox_message(
+    service: &BackendSandboxServiceImpl,
+    request: Request<EnqueueSandboxMessageRequest>,
+) -> Result<Response<EnqueueSandboxMessageResponse>, Status> {
+    let task_id = request.get_ref().task_id.clone();
+    service.authorizer.authorize(&request, &task_id).await?;
+    let req = request.into_inner();
+
+    if req.text.trim().is_empty() {
+        return Err(Status::invalid_argument("text is required"));
+    }
+
+    let (messages, tasks) = service
+        .handlers
+        .as_ref()
+        .map(|h| (h.messages.clone(), h.tasks.clone()))
+        .ok_or_else(|| Status::failed_precondition("Database not configured"))?;
+
+    let queued = moatless_tasks::message::send::enqueue_sandbox_message(
+        messages.as_ref(),
+        tasks.as_ref(),
+        &task_id,
+        &req.text,
+        (!req.idempotency_key.is_empty()).then_some(req.idempotency_key.as_str()),
+    )
+    .await
+    .map_err(|error| {
+        warn!(task_id, %error, "failed to enqueue sandbox message");
+        Status::internal("Failed to enqueue sandbox message")
+    })?;
+
+    Ok(Response::new(EnqueueSandboxMessageResponse {
+        message_uuid: queued.unwrap_or_default(),
+    }))
+}
+
+/// Build and return the assembled append-system-prompt for a task.
+///
+/// The sandbox calls this once per agent run (in `start_session`) and
+/// caches the result for fallback on subsequent failures. Assembly
+/// reads `Task.name`, `Task.append_system_prompt`, the workspace's
+/// `system_prompt` + `servers`, and the configured frontend/proxy URLs.
+pub(super) async fn get_system_prompt(
+    service: &BackendSandboxServiceImpl,
+    request: Request<GetSystemPromptRequest>,
+) -> Result<Response<GetSystemPromptResponse>, Status> {
+    // Cross-tenant guard: the assembled system prompt embeds task/repo
+    // details, so only the task's owner/admin may fetch it.
+    let task_id = request.get_ref().task_id.clone();
+    let grant = service.authorizer.authorize(&request, &task_id).await?;
+    let req = request.into_inner();
+
+    // Load the task for prompt assembly through the caller's scope context.
+    let task = match service.handlers.as_ref().map(|h| &h.tasks) {
+        Some(tasks) => tasks
+            .find_by_id(&req.task_id, &grant.ctx)
+            .await
+            .ok()
+            .flatten(),
+        None => None,
+    };
+
+    let system_prompt = prompt::build_for_task(
+        &req.task_id,
+        task.as_ref(),
+        service.handlers.as_ref().map(|h| &h.workspace_resolver),
+        service.handlers.as_ref().map(|h| h.task_relations.as_ref()),
+        Some(&service.backend_config),
+    )
+    .await;
+
+    Ok(Response::new(GetSystemPromptResponse { system_prompt }))
+}

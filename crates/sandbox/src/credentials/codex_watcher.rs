@@ -23,7 +23,7 @@ use crate::backend_client::BackendClient;
 
 /// Credential key used by both `GetCredentialsResponse.credentials` and
 /// `UpdateCredentialRequest.key` for the Codex auth blob. Must match
-/// `backend::sandbox::grpc_server::CredentialKey::CODEX_AUTH_JSON`.
+/// `backend::sandbox::grpc_server::credentials::CredentialKey::CODEX_AUTH_JSON`.
 const CODEX_AUTH_KEY: &str = "CODEX_AUTH_JSON";
 
 /// Coalescing window for filesystem events. Codex may write `auth.json`

@@ -140,7 +140,7 @@ pub(crate) struct SharedSession {
 pub(crate) struct ProtocolSession {
     pub(crate) streams: StreamSet,
     /// The requests this connection has running elsewhere. See
-    /// [`crate::rpc::dispatch::detach`] for which ones go here.
+    /// [`crate::rpc::dispatch::routing::detach`] for which ones go here.
     pub(crate) detached: DetachedSet,
     pub(crate) shared: SharedSession,
 }
