@@ -33,9 +33,9 @@ use serde_json::{Value, json};
 use tracing::{debug, warn};
 
 use crate::checkout::Checkout;
+use crate::nominal_path;
 use crate::workspace;
 use crate::workspace::WorkspaceAccessError;
-use crate::nominal_path;
 use crate::{UiRpcState, viewer_scope};
 use moatless_types::ui_rpc::UiRpcAuthIdentity;
 

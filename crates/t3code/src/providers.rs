@@ -19,9 +19,8 @@
 use serde_json::{Value, json};
 
 use crate::AgentModelDefaults;
-use crate::agent::catalog::{UiRpcAgentKind, catalog};
+use crate::agent::catalog::{UNRESOLVED_MODEL_CHOICE, UiRpcAgentKind, catalog};
 use crate::agent::schemas::AgentDescriptor;
-use crate::agent::catalog::UNRESOLVED_MODEL_CHOICE;
 
 /// The two provider instances this surface publishes, in display order.
 pub const CLAUDE_INSTANCE: &str = "claudeAgent";

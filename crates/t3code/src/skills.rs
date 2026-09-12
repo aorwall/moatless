@@ -11,8 +11,8 @@ use std::collections::HashSet;
 use serde_json::{Value, json};
 
 use crate::dao::ConversationDao;
-use crate::ports::WorkspaceSkill;
 use crate::nominal_path;
+use crate::ports::WorkspaceSkill;
 use moatless_types::access_control::ScopeContext;
 
 /// The Workspace a T3 `cwd` names, whichever of the two forms it takes.

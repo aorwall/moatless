@@ -21,11 +21,11 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 use super::dao::ConversationDao;
+use super::nominal_path;
 use super::ports::{
     BoundPullRequest, BoundPullRequestSource, BranchListError, RepositoryBranchSource, is_draft,
     primary_pull_request, t3_pr_state,
 };
-use super::nominal_path;
 use super::workspace::{self, WorkspaceAccessError};
 use crate::workspace_dao::T3WorkspaceDao;
 use moatless_api_schemas::repository::{BranchEntry, BranchListResponse};

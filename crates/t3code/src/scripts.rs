@@ -33,8 +33,8 @@ use serde_json::{Value, json};
 use tracing::warn;
 
 use crate::dao::ConversationDao;
-use crate::preview::{self, PreviewState};
 use crate::nominal_path;
+use crate::preview::{self, PreviewState};
 use crate::projection;
 use crate::terminal::{self, TerminalError, TerminalHub};
 use crate::workspace_dao::T3WorkspaceDao;

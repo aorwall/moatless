@@ -13,10 +13,10 @@ use moatless_types::access_control::ScopeContext;
 use serde_json::{Value, json};
 
 use crate::dao::ConversationDao;
+use crate::nominal_path;
 use crate::ports::{
     BoundPullRequestSource, PullRequestError, ResolvedPullRequest, ThreadCommandSink, ThreadTurn,
 };
-use crate::nominal_path;
 use crate::workspace;
 use crate::workspace::WorkspaceAccessError;
 use crate::workspace_dao::T3WorkspaceDao;
