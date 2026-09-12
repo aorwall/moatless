@@ -83,17 +83,14 @@ pub(super) fn provider_instance(conversation: &Conversation) -> &'static str {
 
 /// The Workspace's default model, in the `ModelSelection` shape T3 sends back.
 ///
-/// `Null` for a Workspace that pins no model, or that pins one this catalog no
-/// longer publishes: a selection naming a slug absent from the provider list is
-/// dropped by the client anyway, and substituting a model nobody chose is the
-/// failure `providers::publish_model` exists to avoid. The effort rides along as
-/// an option under the instance's own descriptor id, which is where
-/// `commands::selected_effort` reads it back.
+/// `Null` for a Workspace that pins no model, or one this catalog no longer
+/// publishes: the client drops a selection naming an unpublished slug anyway.
+/// The effort rides along as an option under the instance's own descriptor id,
+/// where `commands::selected_effort` reads it back.
 ///
-/// The effort gets the same treatment: `default_effort` is an open column no
-/// write path validates, and a level the selected model does not publish is a
-/// choice that cannot run, so one outside `providers::publishes_effort` is
-/// dropped and the model runs at its own default.
+/// `default_effort` is an open column no write path validates, and a level the
+/// selected model does not publish is a choice that cannot run, so one outside
+/// `providers::publishes_effort` is dropped and the model runs at its own default.
 pub(super) fn default_model_selection(workspace: &Workspace) -> Value {
     let Some(catalog_model) = workspace.default_model.as_deref() else {
         return Value::Null;

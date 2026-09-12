@@ -35,17 +35,12 @@ pub(super) fn session(conversation: &Conversation) -> Value {
         "status": session_status(conversation, desired_state),
         // A *driver kind*, not the catalog's display label. The client decodes
         // this field as one (`ProviderSessionDirectory.ts:27`) and locks the
-        // composer to whatever it names; a label happens to satisfy
-        // `ProviderDriverKind`'s pattern — it is an open branded slug, not an
-        // enum — so `"Codex"` decoded, matched no published instance, and left
-        // the composer disabled telling the person to enable a provider that
-        // was already enabled.
+        // composer to whatever it names, and `ProviderDriverKind` is an open
+        // branded slug that a display label also satisfies — so a label here
+        // matches no published instance and leaves the composer disabled.
         //
-        // The same string as `providerInstanceId` below, and that is correct
-        // rather than redundant here: this backend publishes exactly one
-        // instance per driver (`providers.rs`), so on this deployment an
-        // instance id *is* a driver kind. A deployment with two Codex
-        // instances would need them to diverge; this one does not have that.
+        // The same string as `providerInstanceId` below, because this backend
+        // publishes exactly one instance per driver (`providers.rs`).
         "providerName": provider_instance(conversation),
         "providerInstanceId": provider_instance(conversation),
         // `runtimeMode` is omitted: the session's copy carries a decoding

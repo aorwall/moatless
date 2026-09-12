@@ -113,13 +113,8 @@ impl ProtocolSession {
             )]);
         }
 
-        // The grant this deployment advertised, enforced. A client is told at
-        // pairing which scopes it has; refusing here is what makes that
-        // advertised list a description of the server rather than a wish.
-        //
-        // This is the deployment's grant, not the client's — see the plan's Out
-        // of scope note. A pairing that asked for less than this still gets a
-        // credential carrying all of it.
+        // The deployment's grant, not the client's: a pairing that asked for
+        // less than this still gets a credential carrying all of it.
         let required = oauth::required_scope(tag);
         if !oauth::GRANTED_SCOPES.contains(&required) {
             // `warn!`, not `debug!`: deployments run at `RUST_LOG=info`, and a
@@ -206,17 +201,11 @@ enum Dispatch {
 /// Route one request, building it where it detaches.
 ///
 /// This match is the whole record of which methods answer off the frame loop: a
-/// tag absent from it reaches [`ProtocolSession::handle_request`]. A method
-/// belongs here when it only reads — anything that moves a named resource from
-/// one state to another stays on the loop.
+/// tag absent from it reaches [`ProtocolSession::handle_request`].
+/// `crates/t3code/AGENTS.md` states which methods belong here.
 ///
-/// **What that buys, and what it costs.** The loop is sequential, so a
-/// transition on it finishes before anything the client sent after it is even
-/// dispatched — later in the same batch, or in any later frame. Read-your-writes
-/// therefore survives detaching without a client-side convention. What does not
-/// survive is the reverse: a detached read may now observe a transition the
-/// client sent *after* it, and answers in no particular order against the
-/// requests around it.
+/// A detached read may observe a transition the client sent *after* it, and
+/// answers in no particular order against the requests around it.
 fn detach(request: Request) -> Dispatch {
     // Cloned so an arm can take `request`: a `match` holds its scrutinee
     // borrowed across every arm, and each arm here moves the request into the

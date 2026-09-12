@@ -17,10 +17,7 @@ use moatless_types::agent::AgentType;
 
 use super::state::BackendSandboxServiceImpl;
 
-/// Return pending messages for a task.
-///
-/// The sandbox polls this instead of the HTTP endpoint. The response
-/// format matches what the sandbox consumer expects.
+/// Return pending messages for a task, which the sandbox polls for.
 #[tracing::instrument(
     skip_all,
     fields(
@@ -33,8 +30,6 @@ pub(super) async fn get_pending_messages(
     service: &BackendSandboxServiceImpl,
     request: Request<GetPendingMessagesRequest>,
 ) -> Result<Response<GetPendingMessagesResponse>, Status> {
-    // Verify the token and confirm the caller may operate on this task before
-    // we hand back its queued messages.
     let task_id = request.get_ref().task_id.clone();
     let grant = service.authorizer.authorize(&request, &task_id).await?;
     tracing::Span::current().record("user_id", grant.ctx.user_id.as_str());
@@ -80,7 +75,6 @@ pub(super) async fn get_pending_messages(
     let task_model = task.as_ref().and_then(|t| t.model.clone());
     let task_skills = task.as_ref().map(|t| t.skills.clone()).unwrap_or_default();
 
-    // Fetch pending user messages from DB
     let pending = messages.get_pending_user(&req.task_id).await.map_err(|e| {
         warn!(error = %e, task_id = %req.task_id, "Failed to fetch pending messages");
         Status::internal("Failed to fetch pending messages")
@@ -142,10 +136,8 @@ pub(super) async fn get_pending_messages(
         None => false,
     };
 
-    // Check will_not_resume on the last result — if explicitly set,
-    // don't pass a resume session ID. Also
-    // auto-skip resume when the last result row was an error: retrying the
-    // same resume session ID would loop the same failure.
+    // `will_not_resume` is the explicit refusal. An error row is the implicit
+    // one: resuming the same session id would loop the same failure.
     let task_resume_session_id = if task_resume_session_id.is_none() {
         None
     } else if cut_off {
@@ -235,13 +227,10 @@ pub(super) async fn get_pending_messages(
         }
     }
 
-    // The agent's view of a queued Message is rebuilt here, not read back.
-    //
-    // The row stores what the person wrote; the preview URL, the selected
-    // element, the attribution to a sending Task and the attached files are
-    // each persisted as their own row or column, and pre-rendering them into
-    // the Message would only create a second copy that can disagree with
-    // them.
+    // The agent's view of a queued Message is rebuilt here, not read back. The
+    // row stores what the person wrote, and everything around it — preview URL,
+    // selected element, sending Task, attached files — is its own row or column.
+    // Pre-rendering them into the Message would create a copy that can disagree.
     let ids: Vec<i32> = pending.iter().map(|row| row.id).collect();
     let contexts_by_message = messages
         .get_contexts_for_messages(&req.task_id, &ids)
@@ -302,15 +291,10 @@ pub(super) async fn get_pending_messages(
 }
 
 /// Acknowledge that pending messages have been delivered to an agent session.
-///
-/// Sets `sent_at`, `session_id`, and `agent_session_id` on the specified
-/// messages, transitioning them from "queued" to "sent".
 pub(super) async fn acknowledge_messages(
     service: &BackendSandboxServiceImpl,
     request: Request<AcknowledgeMessagesRequest>,
 ) -> Result<Response<AcknowledgeMessagesResponse>, Status> {
-    // Cross-tenant guard: only the task's owner/admin may acknowledge
-    // (mark sent) its queued messages.
     let task_id = request.get_ref().task_id.clone();
     service.authorizer.authorize(&request, &task_id).await?;
 
@@ -395,8 +379,7 @@ pub(super) async fn acknowledge_messages(
 /// Queue a user message the sandbox wrote for its own Task.
 ///
 /// The row is what makes the turn visible to the conversation and to
-/// `find_interrupted_turn`; waking the agent handle alone leaves none. Auth:
-/// task-scoped JWT via gRPC metadata.
+/// `find_interrupted_turn`; waking the agent handle alone leaves none.
 pub(super) async fn enqueue_sandbox_message(
     service: &BackendSandboxServiceImpl,
     request: Request<EnqueueSandboxMessageRequest>,
@@ -435,21 +418,17 @@ pub(super) async fn enqueue_sandbox_message(
 
 /// Build and return the assembled append-system-prompt for a task.
 ///
-/// The sandbox calls this once per agent run (in `start_session`) and
-/// caches the result for fallback on subsequent failures. Assembly
-/// reads `Task.name`, `Task.append_system_prompt`, the workspace's
-/// `system_prompt` + `servers`, and the configured frontend/proxy URLs.
+/// The sandbox calls this once per agent run, in `start_session`, and caches
+/// the result as the fallback for a later failure.
 pub(super) async fn get_system_prompt(
     service: &BackendSandboxServiceImpl,
     request: Request<GetSystemPromptRequest>,
 ) -> Result<Response<GetSystemPromptResponse>, Status> {
-    // Cross-tenant guard: the assembled system prompt embeds task/repo
-    // details, so only the task's owner/admin may fetch it.
+    // The assembled prompt embeds task and repo details, so it is owner-only.
     let task_id = request.get_ref().task_id.clone();
     let grant = service.authorizer.authorize(&request, &task_id).await?;
     let req = request.into_inner();
 
-    // Load the task for prompt assembly through the caller's scope context.
     let task = match service.handlers.as_ref().map(|h| &h.tasks) {
         Some(tasks) => tasks
             .find_by_id(&req.task_id, &grant.ctx)

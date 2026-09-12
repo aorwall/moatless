@@ -38,10 +38,9 @@ impl BackendSandboxServiceImpl {
     /// Mirror the pod's running-command count onto the Sandbox row, where the
     /// Task listing can read it.
     ///
-    /// Logged rather than propagated: the event is already durably admitted, so
-    /// answering retryable would only earn a duplicate the dedup table refuses
-    /// without ever reaching this write. The count is absolute, so the next
-    /// command transition corrects what a failure here left behind.
+    /// Logged rather than propagated: the event is already durably admitted,
+    /// and the count is absolute, so the next command transition corrects what
+    /// a failure here left behind.
     pub(super) async fn record_running_commands(&self, task_id: &str, running: i32) {
         let Some(sandboxes) = self.handlers.as_ref().map(|h| &h.sandboxes) else {
             return;
@@ -62,7 +61,7 @@ impl BackendSandboxServiceImpl {
 ///
 /// The pod's own journal rides the S3 workspace snapshot, so a replacement
 /// whose restore fails loses it and never tells the agent what died. This row
-/// is the copy no restore touches. Auth: task-scoped JWT via gRPC metadata.
+/// is the copy no restore touches.
 pub(super) async fn record_unreported_commands(
     service: &BackendSandboxServiceImpl,
     request: Request<RecordUnreportedCommandsRequest>,
@@ -93,7 +92,7 @@ pub(super) async fn record_unreported_commands(
 /// Read and clear what a prior pod recorded.
 ///
 /// Clearing here is what makes the loss announced exactly once, however many
-/// times the pod restarts. Auth: task-scoped JWT via gRPC metadata.
+/// times the pod restarts.
 pub(super) async fn take_unreported_commands(
     service: &BackendSandboxServiceImpl,
     request: Request<TakeUnreportedCommandsRequest>,

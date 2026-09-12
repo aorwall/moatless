@@ -25,18 +25,15 @@ use crate::workspace::UiRpcListedWorkspace;
 /// The shell listing: the viewer's projects, and the conversations in them.
 ///
 /// A conversation whose project is absent from `workspaces` is left out here.
-/// The client groups conversations by project and silently skips any whose
-/// project it cannot find — a bare `continue`, with no error and nothing logged
-/// — so a row emitted against a missing project vanishes with no way to
-/// diagnose it. Dropping it here costs the same row and leaves a warning behind.
+/// The client skips one whose project it cannot find with a bare `continue`,
+/// so the row would vanish with nothing logged; dropping it here leaves a
+/// warning behind.
 ///
-/// `sequence` is the listing position the snapshot was read at. The client
-/// stores it and discards every later event at or below it, so it has to be
-/// read *before* the rows: a position taken afterwards would sit above a change
-/// already reflected in those rows, and the event carrying that change would be
-/// discarded as stale — leaving one row frozen with no sign that anything was
-/// dropped. Taken beforehand the worst case is a change delivered twice, and a
-/// re-read of the whole row twice is the same row.
+/// `sequence` is the listing position the snapshot was read at, and it has to
+/// be read *before* the rows. The client discards every later event at or below
+/// it, so a position taken afterwards would discard the event for a change the
+/// rows already reflect. Taken beforehand the worst case is one change
+/// delivered twice.
 pub(crate) fn shell_snapshot(
     workspaces: &[UiRpcListedWorkspace],
     conversations: &[Conversation],
@@ -105,12 +102,10 @@ pub(crate) fn thread_upserted(
 
 /// One conversation leaving a viewer's listing.
 ///
-/// The client filters its held conversations by id, so an id it does not hold is
-/// a no-op *for the client*. It is not a no-op for this server: the id is the
-/// whole payload, and a deployment that emitted one whenever a re-read came back
-/// empty would tell every connected client the id of every conversation that
-/// changed anywhere. So this is only ever built for a conversation the viewer
-/// was previously sent — see `ShellFeed`.
+/// Built only for a conversation the viewer was previously sent — see
+/// `ShellFeed`. The id is the whole payload, so emitting one whenever a re-read
+/// came back empty would tell every connected client the id of every
+/// conversation that changed anywhere.
 pub(crate) fn thread_removed(task_id: &str, sequence: i64) -> Value {
     json!({
         "kind": "thread-removed",
@@ -173,10 +168,9 @@ pub(super) fn thread(
             .map_or(Value::Null, Value::String),
     );
     // A `moat cmd` command outlives the turn that started it, and the agent
-    // reports idle the moment that turn ends — so without this the sidebar row
-    // for a Task running a build is the row for a finished one. `working`
-    // rather than `monitoring`: the contract reserves that for watch loops with
-    // no other live work, and a build is work.
+    // reports idle the moment that turn ends. `working` rather than
+    // `monitoring`: the contract reserves that for watch loops with no other
+    // live work, and a build is work.
     row.insert(
         "backgroundLiveness".into(),
         if conversation.running_commands > 0 {

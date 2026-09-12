@@ -19,27 +19,21 @@ use moatless_types::activity::Activity;
 /// Everything one recorded change tells a client that already holds this
 /// conversation, as stream items, in the order the client applies them.
 ///
-/// The contract numbers events, so each item's sequence comes from the change's
-/// position and its own index within the change — see
-/// [`ConversationChange::sequence`]. That is also the ceiling on how much one
-/// change may say: past [`EVENTS_PER_CHANGE`] the next position begins, and
-/// this stops rather than colliding with it.
+/// Each item's sequence comes from the change's position and its own index
+/// within the change — see [`ConversationChange::sequence`]. That is also the
+/// ceiling on how much one change may say: past [`EVENTS_PER_CHANGE`] the next
+/// position begins, and this stops rather than colliding with it.
 ///
 /// `window` is the changed Message and the short run before it
-/// (`ConversationDao::changed_messages`); a change naming a Message the window
-/// does not hold — deleted, or never rendered — says nothing, which is a
-/// complete answer rather than a failure.
+/// (`ConversationDao::changed_messages`). A change naming a Message the window
+/// does not hold says nothing, which is a complete answer.
 ///
 /// A change to one Message emits its bubble (`thread.message-sent`) and its
 /// work-log rows (`thread.activity-appended`), both upserts keyed on their own
-/// ids. A change naming a uuid with no Message row — a turn that only called
-/// tools — emits the activities alone. A change naming an activity rather than a
-/// Message emits that row alone and no `session_set`.
-///
-/// A rewind names neither, because the rows it is about are already deleted; it
-/// carries [`ConversationChange::reverted_to_turn`] instead and emits
-/// `thread.reverted`, which is the one event here that tells a client to drop
-/// what it holds rather than to take something new.
+/// ids. A change naming a uuid with no Message row emits the activities alone,
+/// and one naming an activity emits that row alone and no `session_set`. A
+/// rewind names neither: it carries
+/// [`ConversationChange::reverted_to_turn`] and emits `thread.reverted`.
 pub(crate) fn change_events(
     conversation: &Conversation,
     change: &ConversationChange,
@@ -122,12 +116,10 @@ pub(crate) fn change_events(
 /// The one work-log row a change names by activity id, as its event.
 ///
 /// A Sandbox lifecycle change and a context-window reading happen on no Message,
-/// so the change names the activity itself and this is its whole projection: no
-/// bubble, and no `session_set` — nothing about the conversation's own session
-/// moved. The row is numbered `ordinal + 1` for the reason a Message's
-/// activities are, so a client sees the same sequence whether the row arrived in
-/// a snapshot (via [`activity_sequence`]) or here. A change naming a row the
-/// window does not hold says nothing, which is a complete answer.
+/// so the change names the activity itself: no bubble, and no `session_set`.
+/// The row is numbered `ordinal + 1` like a Message's activities, so a client
+/// sees the same sequence whether the row arrived in a snapshot (via
+/// [`activity_sequence`]) or here.
 fn activity_change_events(
     conversation: &Conversation,
     change: &ConversationChange,
@@ -250,14 +242,12 @@ pub(super) fn message_sent_payload(task_id: &str, bubble: &Value) -> Value {
 /// One event, in the envelope every event on this contract carries.
 ///
 /// Five of the envelope's fields are null or empty and stay that way. Moatless
-/// has no command bus: nothing here was caused by a numbered command, so
-/// `commandId` and `correlationId` have nothing to name, and no event is
-/// derived from another so `causationEventId` names nothing either. `metadata`
-/// is provider bookkeeping this projection does not read.
+/// has no command bus, so `commandId`, `correlationId` and `causationEventId`
+/// name nothing, and `metadata` is provider bookkeeping this projection does
+/// not read.
 ///
-/// `eventId` is the conversation and the sequence, because that pair is what
-/// identifies an event here: the same change re-read produces the same ids, and
-/// a client that sees one twice sees the same event rather than a new one.
+/// `eventId` is the conversation and the sequence: the same change re-read
+/// produces the same ids, so a client that sees one twice sees the same event.
 pub(super) fn event(
     conversation: &Conversation,
     sequence: i64,

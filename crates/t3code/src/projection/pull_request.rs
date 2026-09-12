@@ -78,9 +78,8 @@ fn pull_request_host(url: &str) -> String {
 ///
 /// Moatless records the direction a Task and a subject met, not who acted, so
 /// only the CLI-filed binding maps onto one of T3's authors. Everything else
-/// reports `manual` — the client shows it as "Linked by you", and uses the
-/// value itself only to hide a `stack-dismissed` tombstone, which no Moatless
-/// binding is.
+/// reports `manual`, which the client uses only to hide a `stack-dismissed`
+/// tombstone that no Moatless binding is.
 fn thread_pull_request_source(origin: &str) -> &'static str {
     match origin {
         // `moatless_adapter_model::binding::TASK_OWNED_BINDING_ORIGIN`, spelled
@@ -119,10 +118,9 @@ fn pull_request_snapshot(pr: &ConversationPullRequest, repository: &str) -> Valu
         ("headBranch".to_string(), json!(head_branch)),
         ("baseBranch".to_string(), json!(base_branch)),
         ("isDraft".to_string(), json!(is_draft(state_kind))),
-        // When this deployment read the pull request, which is not when GitHub
-        // last changed it: the status blob carries no such stamp, and reporting
-        // the read as the change would have every surface claim the pull
-        // request moved on every refresh.
+        // When this deployment read the pull request, not when GitHub last
+        // changed it: the status blob carries no such stamp, and reporting the
+        // read as the change would claim the pull request moved on every refresh.
         ("updatedAt".to_string(), Value::Null),
         ("syncedAt".to_string(), json!(instant(pr.status_read_at))),
     ]);

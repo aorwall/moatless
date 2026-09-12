@@ -116,13 +116,9 @@ fn a_window_never_cuts_a_character_in_half() {
 // Copied from `packages/contracts/src/orchestration.ts` in
 // `soaplabs/t3code@moatless-adapter` — `OrchestrationShellSnapshot`,
 // `OrchestrationProjectShell` and `ProjectScript` — and deliberately *not*
-// derived from the projection below. A test written from the projection
-// cannot see a required field the projection never thought to emit, and a
-// single missing one makes the entire listing undecodable, so the sidebar
-// goes blank rather than losing one button.
-//
-// Note that the shell listing carries `OrchestrationProjectShell`, which is
-// the near-twin of `OrchestrationProject` minus `deletedAt`.
+// derived from the projection below: a test written from the projection
+// cannot see a required field the projection never thought to emit, and one
+// missing field makes the entire listing undecodable.
 
 const SNAPSHOT_REQUIRED: &[&str] = &["snapshotSequence", "projects", "threads", "updatedAt"];
 const SNAPSHOT_OPTIONAL: &[&str] = &[];
@@ -2605,12 +2601,9 @@ fn each_panel_reaches_the_client_in_the_shape_its_parser_requires() {
 /// A question the run has stopped waiting on reaches the client resolved,
 /// with no resolution row of its own.
 ///
-/// The client keeps a panel open until it sees a row naming the same request
-/// resolved, and refuses to answer a call that has come back — so a panel
-/// left `requested` here is one nobody can get rid of. The call's own status
-/// is the fact, and it is settled whoever settled it: this covers a question
-/// answered from another surface and one a resuming session dropped, neither
-/// of which writes a resolution.
+/// The call's own status is the fact, and it is settled whoever settled it:
+/// this covers a question answered from another surface and one a resuming
+/// session dropped, neither of which writes a resolution.
 #[test]
 fn a_question_whose_call_came_back_is_projected_resolved() {
     let mut asked = activity("msg-2", 2, 0, ActivityKind::UserInputRequested, "Question");
@@ -2950,12 +2943,10 @@ fn a_panel_row_and_its_call_do_not_share_one_sequence() {
 /// A panel row reaches the client resolved even when the call it names is
 /// not among the rows being projected.
 ///
-/// A resuming session re-presents the call under a new Message. The call
-/// itself is stored once — `(task_id, tool_use_id)` is unique, so the second
-/// arrival is dropped — but the panel row beside it carries no
-/// `tool_use_id`, so it is written again, on the new Message. From then on
-/// the two live on different Messages, and every change naming the panel's
-/// one carries the panel without the call.
+/// A resuming session re-presents the call under a new Message. The call is
+/// stored once — `(task_id, tool_use_id)` is unique — but the panel row beside
+/// it carries no `tool_use_id` and is written again, so from then on the two
+/// live on different Messages.
 #[test]
 fn a_panel_row_is_resolved_by_a_call_outside_the_rows_being_read() {
     let mut panel = activity("msg-9", 9, 0, ActivityKind::UserInputRequested, "Question");

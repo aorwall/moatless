@@ -22,17 +22,15 @@ use moatless_ports::sandbox::CodexCredentials;
 
 use super::state::BackendSandboxServiceImpl;
 
-/// Known credential env var names.
-///
-/// Used as map keys in `GetCredentialsResponse` for type-safe credential handling.
+/// Known credential env var names, used as the map keys in
+/// `GetCredentialsResponse`.
 pub(crate) struct CredentialKey;
 
 impl CredentialKey {
-    /// Long-lived user auth token the sandbox uses to authenticate its gRPC
-    /// calls back to the backend. Delivered over this channel (instead of the pod
-    /// spec) and swapped in by the sandbox after its bootstrap-authenticated
-    /// initial fetch; re-minted on every fetch so the 15-min refresher keeps it
-    /// fresh.
+    /// Long-lived user auth token the sandbox authenticates its gRPC calls
+    /// back to the backend with. Delivered over this channel rather than the
+    /// pod spec, and re-minted on every fetch, so the sandbox's 15-minute
+    /// refresh loop propagates a rotation.
     pub const USER_AUTH_TOKEN: &str = "USER_AUTH_TOKEN";
     pub const GITHUB_TOKEN: &str = secret_keys::GITHUB_TOKEN;
     pub const GITLAB_TOKEN: &str = secret_keys::GITLAB_TOKEN;
@@ -45,9 +43,9 @@ impl CredentialKey {
 
 /// The provider a sandbox may write a rotated credential back to, if any.
 ///
-/// `None` is what refuses the write, and it is the whole rule: only an
-/// OAuth-style rotating credential has a write-back path, and a static API key
-/// is managed in the backend. Not the same question as
+/// `None` refuses the write: only an OAuth-style rotating credential has a
+/// write-back path, and a static API key is managed in the backend. Not the
+/// same question as
 /// `moatless_identity::credentials::models::credential_key_to_provider`, which
 /// names every key a person may write.
 fn sandbox_rotatable_provider(key: &str) -> Option<&'static str> {
@@ -60,11 +58,9 @@ fn sandbox_rotatable_provider(key: &str) -> Option<&'static str> {
 impl BackendSandboxServiceImpl {
     /// Mint the long-lived user auth token delivered over `GetCredentials`.
     ///
-    /// The sandbox swaps this in for its bootstrap token and uses it for all
-    /// subsequent gRPC calls. Bound to `task_id` (the grant's task) so the
-    /// delivered token carries the same per-task binding the verification layer
-    /// enforces. Returns `None` (with a warning) if the secret is unset — the
-    /// sandbox then falls back to whatever token it already holds.
+    /// Bound to the grant's `task_id`, so the delivered token carries the same
+    /// per-task binding the verification layer enforces. Returns `None` when
+    /// the secret is unset, and the sandbox keeps the token it already holds.
     fn mint_user_auth_token(&self, user_id: &str, login: &str, task_id: &str) -> Option<String> {
         let secret = self.task_token_secret.as_ref()?;
         let ttl = self.backend_config.sandbox.user_token_ttl_secs;
@@ -96,9 +92,7 @@ pub(super) async fn get_credentials(
     service: &BackendSandboxServiceImpl,
     request: Request<GetCredentialsRequest>,
 ) -> Result<Response<GetCredentialsResponse>, Status> {
-    // GetCredentials accepts bootstrap and long-lived user tokens. The grant
-    // confirms the caller may operate on this task before we resolve and
-    // return its provider credentials.
+    // Both the bootstrap token and the long-lived user token are accepted here.
     let task_id = request.get_ref().task_id.clone();
     let grant = service
         .authorizer
@@ -122,9 +116,8 @@ pub(super) async fn get_credentials(
     )
     .await;
     // A workspace credential that cannot be read must not degrade into the
-    // run-as user's own token: the sandbox would come up authenticated as
-    // the wrong account. Fail the fetch instead — the pod retries, and the
-    // operator sees the cause in the backend log.
+    // run-as user's own token: the sandbox would come up authenticated as the
+    // wrong account. Failing the fetch leaves the pod retrying instead.
     let workspace_credentials = resolve_workspace_credentials(
         handlers.map(|h| &h.workspace_credentials),
         targets.workspace_id.as_deref(),
@@ -152,10 +145,9 @@ pub(super) async fn get_credentials(
         &grant.ctx.user_id,
     )
     .await;
-    // Workspace-scoped configuration travels on this channel too, not just
-    // the pod spec: the pod env is only the process's starting environment
-    // and the per-turn map overlays it, so a workspace var delivered solely
-    // through the plan would lose to a user- or global-scoped secret.
+    // Workspace-scoped configuration travels on this channel and not only the
+    // pod spec: the per-turn map overlays the pod env, so a workspace var
+    // delivered solely through the plan loses to a user- or global-scoped secret.
     let workspace_env_vars = resolve_workspace_env_vars(
         handlers.map(|h| &h.workspace_resolver),
         targets.workspace_id.as_deref(),
@@ -175,9 +167,6 @@ pub(super) async fn get_credentials(
     })
     .await;
 
-    // Deliver the long-lived user auth token over this channel rather than
-    // the pod spec. The sandbox swaps its bootstrap token for this one and
-    // re-fetches on the 15-min refresh loop, so a rotated token propagates.
     if let Some(user_token) =
         service.mint_user_auth_token(&grant.ctx.user_id, &grant.login, &grant.sandbox_id)
     {
@@ -217,11 +206,9 @@ pub(super) async fn get_credentials(
 /// Persist a credential rotated locally inside the sandbox back into
 /// `provider_tokens`.
 ///
-/// Called by the sandbox when a runtime (currently Codex) rotates its OAuth
-/// refresh token. Without write-back the next backend-driven refresh would
-/// overwrite the rotated value with the now-stale stored copy, permanently
-/// invalidating the credential.
-///
+/// Called when a runtime, currently Codex, rotates its OAuth refresh token.
+/// Without the write-back the next backend-driven refresh overwrites the
+/// rotated value with the stale stored copy and invalidates the credential.
 /// Always updates the user-level credential row.
 #[tracing::instrument(
     skip_all,
@@ -235,8 +222,6 @@ pub(super) async fn update_credential(
     service: &BackendSandboxServiceImpl,
     request: Request<UpdateCredentialRequest>,
 ) -> Result<Response<UpdateCredentialResponse>, Status> {
-    // Cross-tenant guard: the caller must own/have access to this task
-    // before we persist a rotated credential against its user row.
     let task_id = request.get_ref().task_id.clone();
     let grant = service.authorizer.authorize(&request, &task_id).await?;
     let req = request.into_inner();

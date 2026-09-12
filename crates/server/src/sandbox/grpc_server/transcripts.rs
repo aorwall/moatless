@@ -44,11 +44,10 @@ fn transcript_key(prefix: &str, task_id: &str) -> String {
 impl BackendSandboxServiceImpl {
     /// The transcript archive of the Task a fork branched from.
     ///
-    /// Empty when the Task is not a fork, or the source archive is missing, or
-    /// the lookup fails: a restore that serves nothing leaves the pod on a
-    /// fresh session, which is what it would have had anyway. The caller
-    /// reaches here only when the Task has no archive of its own, so this
-    /// cannot displace a fork's own transcript.
+    /// Empty when the Task is not a fork, the source archive is missing, or the
+    /// lookup fails: the pod then starts on a fresh session, which is what it
+    /// would have had anyway. The caller reaches here only when the Task has no
+    /// archive of its own, so this cannot displace a fork's own transcript.
     async fn source_transcript(
         &self,
         s3_client: &moatless_s3::S3Storage,
@@ -94,13 +93,11 @@ impl BackendSandboxServiceImpl {
 
 /// Receive a streamed transcript tar from the sandbox and store it in S3.
 ///
-/// The sandbox is AWS-credential-less, so it proxies all transcript I/O
-/// through here. Client-streaming so a transcript bigger than tonic's unary
-/// cap still round-trips; the chunks are reassembled in memory (a task's tar
-/// is a few MB) and `put_object`ed to `<bucket>/<prefix>/<task_id>/transcripts.tar`.
-///
-/// Auth: task-scoped JWT via gRPC metadata, like `download_upload`. The
-/// `task_id` is taken from the first chunk.
+/// The sandbox is AWS-credential-less, so it proxies all transcript I/O through
+/// here. Client-streaming, so a transcript bigger than tonic's unary cap still
+/// round-trips; the chunks are reassembled in memory and `put_object`ed to
+/// `<bucket>/<prefix>/<task_id>/transcripts.tar`. The `task_id` is taken from
+/// the first chunk.
 pub(super) async fn upload_transcript(
     service: &BackendSandboxServiceImpl,
     request: Request<Streaming<TranscriptChunk>>,
@@ -132,8 +129,6 @@ pub(super) async fn upload_transcript(
         ));
     }
 
-    // Now that the task is known, resolve the grant — the token's binding
-    // must match it and the caller must control it.
     service.authorizer.resolve_grant(verified, &task_id).await?;
 
     let bytes_received = data.len() as i64;
@@ -151,12 +146,10 @@ pub(super) async fn upload_transcript(
 
 /// Stream the task's stored transcript tar back to the sandbox.
 ///
-/// Returns an empty stream when no transcript has been stored yet (first run,
-/// or the ephemeral tier's first boot) — the sandbox treats that as "nothing
-/// to restore". A fork with no archive of its own falls back to the archive of
-/// the Task it branched from, which is the only way the session its first turn
-/// resumes reaches an isolated fork's fresh pod. Reuses `AppState.s3` + the
-/// uploads bucket like `download_upload`.
+/// Returns an empty stream when no transcript has been stored yet, which the
+/// sandbox reads as "nothing to restore". A fork with no archive of its own
+/// falls back to the archive of the Task it branched from: that is the only
+/// way the session its first turn resumes reaches an isolated fork's fresh pod.
 pub(super) async fn download_transcript(
     service: &BackendSandboxServiceImpl,
     request: Request<DownloadTranscriptRequest>,
@@ -181,12 +174,10 @@ pub(super) async fn download_transcript(
         })?
         .filter(|bytes| !bytes.is_empty());
 
-    // A fork that has not run yet has no archive of its own, and the
-    // session its first turn resumes is the parent's. An isolated fork gets
-    // a fresh pod, so that transcript is only there if it is served here —
-    // a same-Sandbox fork finds it already on disk. Falling back only when
-    // the fork's own object is absent is what keeps a restart after its
-    // first turn on its own transcript rather than back on the parent's.
+    // A fork that has not run yet has no archive of its own, and the session
+    // its first turn resumes is the parent's. Falling back only when the fork's
+    // own object is absent is what keeps a restart after that first turn on its
+    // own transcript rather than back on the parent's.
     let data = match own {
         Some(bytes) => bytes,
         None => {

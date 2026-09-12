@@ -109,16 +109,11 @@ pub(super) async fn orchestration_search_threads(request: Request) -> Vec<Value>
     }
 }
 
-/// Still answers with nothing, and deliberately. This is not the path a
-/// reconnecting client takes: no T3 client calls it — web, desktop and mobile
-/// all share `client-runtime`, whose only resume is `subscribeShell` with
-/// `afterSequence` (`state/shell.ts:181`), and `replayEvents` appears outside
-/// `packages/contracts` only in the reference server and its own tests. Its
-/// result type is `OrchestrationEvent`, which carries an event id, an aggregate,
-/// a causation chain and a typed payload; a listing change record carries a
-/// position and a Task id and nothing else, on purpose. Filling this in would
-/// mean inventing an event log this backend does not have, for a method nothing
-/// calls.
+/// Answers with nothing, deliberately. No T3 client calls it: web, desktop and
+/// mobile share `client-runtime`, whose only resume is `subscribeShell` with
+/// `afterSequence` (`state/shell.ts:181`). Its `OrchestrationEvent` result
+/// carries an event id, an aggregate and a causation chain, none of which this
+/// backend records.
 pub(super) fn orchestration_replay_events(request: Request) -> Vec<Value> {
     vec![success_exit(&request.id, json!([]))]
 }

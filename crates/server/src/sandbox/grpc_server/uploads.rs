@@ -28,9 +28,8 @@ struct LoadedUpload {
 /// upload still yields one chunk, so the filename always reaches the sandbox
 /// and an empty stream stays available to mean "protocol violation".
 fn upload_chunks(upload: LoadedUpload) -> Vec<UploadChunk> {
-    /// 1 MiB, matching the transcript stream. Small enough to sit well inside
-    /// any default per-message cap, large enough that a 50 MiB upload is tens
-    /// of messages rather than thousands.
+    /// 1 MiB, matching the transcript stream: well inside any default
+    /// per-message cap, and tens of messages for a 50 MiB upload.
     const CHUNK_SIZE: usize = 1024 * 1024;
 
     let mut chunks: Vec<UploadChunk> = upload
@@ -62,9 +61,8 @@ fn upload_chunks(upload: LoadedUpload) -> Vec<UploadChunk> {
 impl BackendSandboxServiceImpl {
     /// Read an uploaded file's bytes and metadata for the download RPCs.
     ///
-    /// Defense in depth on top of the caller's JWT check: the `file_id` must be
-    /// referenced by a message belonging to `task_id`, so even a valid token
-    /// cannot pull another task's uploads.
+    /// The `file_id` must be referenced by a message belonging to `task_id`, so
+    /// even a valid token cannot pull another task's uploads.
     async fn load_upload(&self, task_id: &str, file_id: &str) -> Result<LoadedUpload, Status> {
         let Some(ref s3_client) = self.s3 else {
             return Err(Status::failed_precondition("S3 not configured"));
@@ -149,15 +147,14 @@ pub(super) async fn download_upload(
 
 /// Stream an uploaded file's bytes to the sandbox, chunk by chunk.
 ///
-/// The sandbox calls this for every `file_id` carried on a pending message
-/// before invoking the agent, so the on-disk path advertised in the prompt
-/// ("Saved to: …") is valid by the time the agent reads it. Chunking is
-/// what keeps an upload's size off the wire's critical path: each message
-/// is `CHUNK_SIZE`, whatever the file weighs.
+/// The sandbox calls this for every `file_id` on a pending message before it
+/// invokes the agent, so the path the prompt advertises ("Saved to: …") is
+/// valid by the time the agent reads it. Each message is `CHUNK_SIZE`, whatever
+/// the file weighs.
 ///
 /// The object is read from S3 before the first chunk goes out, so the
-/// client-side call timeout — which tonic applies to the response headers
-/// and not to the body that follows — covers the S3 read.
+/// client-side call timeout — which tonic applies to the response headers and
+/// not to the body that follows — covers the S3 read.
 ///
 /// Auth and scope checks are [`BackendSandboxServiceImpl::load_upload`]'s.
 pub(super) async fn download_upload_chunked(
@@ -178,8 +175,6 @@ pub(super) async fn download_upload_chunked(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    // DownloadUploadChunked — the chunk sequence the sandbox reassembles
 
     /// The chunk size `upload_chunks` splits on. Kept in the test as a literal
     /// so a change to the constant has to be restated here deliberately.

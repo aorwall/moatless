@@ -10,11 +10,10 @@ use super::state::BackendSandboxServiceImpl;
 /// Claim a sha the task pushed, so GitHub's `synchronize` webhook for it is
 /// passed over rather than delivered back to its author.
 ///
-/// Ahead of the webhook by construction — the sandbox calls this as the push
+/// Ahead of the webhook by construction: the sandbox calls this as the push
 /// completes, and the delivery that reads the claim runs in the worker off a
-/// durable record. A failure is returned rather than swallowed: the watcher
-/// leaves the sha unclaimed and refiles it on the next push into the same
-/// repository. Auth: task-scoped JWT via gRPC metadata.
+/// durable record. A failure is returned rather than swallowed, so the watcher
+/// leaves the sha unclaimed and refiles it on the next push to that repository.
 pub(super) async fn record_git_push(
     service: &BackendSandboxServiceImpl,
     request: Request<RecordGitPushRequest>,

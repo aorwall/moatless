@@ -13,16 +13,15 @@ use moatless_tasks::task::operations::TaskCommands;
 
 /// A resolved authorization to act on one task over the sandbox gRPC API.
 ///
-/// Produced by [`SandboxAuthorizer`]. Carries the sandbox binding plus the
-/// caller's scope context, so handlers can run scoped DB work as the caller.
+/// Produced by [`SandboxAuthorizer`]. Its `ctx` is what a handler runs its
+/// scoped DB work as.
 #[derive(Debug)]
 pub(crate) struct TaskGrant {
     /// The sandbox the task is a member of.
     pub sandbox_id: String,
     /// The caller's scope context (user id + platform-admin flag).
     pub ctx: ScopeContext,
-    /// The caller's login. Needed by `GetCredentials` to mint the delivered user
-    /// token and resolve provider credentials. Empty for the dev bypass.
+    /// The caller's login. Empty for the dev bypass.
     pub login: String,
 }
 
@@ -49,21 +48,19 @@ pub(super) enum VerifiedToken {
     Claimless { claims: jwt::UserTokenClaims },
 }
 
-/// The single verification layer for the sandbox gRPC API (Decision 7).
+/// The single verification layer for the sandbox gRPC API.
 ///
-/// Every RPC begins by calling [`authorize`](Self::authorize) (or, for the one
-/// `GetCredentials` exception, [`authorize_bootstrap`](Self::authorize_bootstrap)).
-/// It verifies the bearer token in the request metadata, resolves it to a
-/// [`TaskGrant`], and rejects any request whose in-band `task_id` disagrees with
-/// the token's `taskId` claim. A concrete type, not a trait: there is exactly
-/// one verification path, and the dev-mode bypass lives in exactly one
-/// constructor ([`dev_unauthenticated`](Self::dev_unauthenticated)).
+/// Every RPC begins at [`authorize`](Self::authorize), or at
+/// [`authorize_bootstrap`](Self::authorize_bootstrap) for the one
+/// `GetCredentials` exception. A concrete type and not a trait: there is one
+/// verification path, and the dev-mode bypass has one constructor
+/// ([`dev_unauthenticated`](Self::dev_unauthenticated)).
 pub struct SandboxAuthorizer {
     /// JWT signing secret. Enforcing mode has one; the dev bypass has none.
     secret: Option<String>,
     /// Accept claim-less tokens via the DB fallback when the grace flag is set.
     accept_claimless: bool,
-    /// Task DAO — the claim-less DB fallback and the control gate.
+    /// Task DAO, for the claim-less fallback and the control gate.
     tasks: Option<Arc<TaskCommands>>,
     /// The platform-admin lookup behind the control gate.
     users: Option<Arc<dyn CommitIdentity>>,
@@ -119,10 +116,9 @@ impl SandboxAuthorizer {
     /// Extract and verify the bearer token from request metadata.
     ///
     /// `allow_bootstrap` is set only for `GetCredentials`, which uniquely accepts
-    /// both bootstrap and long-lived user tokens. Returns the token-level
-    /// verdict; the task grant is resolved
-    /// separately by [`resolve_grant`](Self::resolve_grant) once the request's
-    /// `task_id` is known (it arrives in-band on the streaming RPCs).
+    /// both bootstrap and long-lived user tokens. The grant is resolved
+    /// separately by [`resolve_grant`](Self::resolve_grant), because a streaming
+    /// RPC's `task_id` arrives in-band and is not known yet.
     #[allow(clippy::result_large_err)] // reason: tonic::Status is the required gRPC error type
     pub(super) fn verify_token<T>(
         &self,
@@ -163,11 +159,6 @@ impl SandboxAuthorizer {
     }
 
     /// Resolve a verified token to a [`TaskGrant`] for `request_task_id`.
-    ///
-    /// - `TaskBound`: the request's task must equal the claim's task, then the
-    ///   claim's user must control it (owner or admin).
-    /// - `Claimless`: the request's task is authorized by the DB control check.
-    /// - `DevBypass`: trusted; a system-scope grant for the requested task.
     pub(super) async fn resolve_grant(
         &self,
         verified: VerifiedToken,
@@ -356,12 +347,8 @@ mod tests {
     use super::super::test_support::users_regular;
     use super::*;
 
-    // SandboxAuthorizer — the single verification layer shared by every
-    // task-scoped gRPC handler (credentials, messages, transcripts, uploads,
-    // workspace-sync URLs). `resolve_write` = scoped read + `ctx.can_write`
-    // (admin or owner); `resolve_grant` additionally enforces the token's task
-    // binding. The scoped read's SQL filter is covered by `scope.rs` tests;
-    // these exercise the control-gate composition and the binding check.
+    // The scoped read's SQL filter is covered by `scope.rs` tests; these
+    // exercise the control-gate composition and the token binding check.
 
     use moatless_types::access_control::Scope;
 

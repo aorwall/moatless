@@ -64,9 +64,7 @@ impl WorkspaceProbe {
 }
 
 /// Lifetime of the presigned workspace-sync URLs. The sandbox re-mints them on
-/// every sync tick, so this only needs to cover a single transfer. Kept short to
-/// bound the blast radius of a leaked URL, but generous enough for a large tar
-/// on a slow link.
+/// every sync tick, so this needs to cover one transfer and no more.
 const WORKSPACE_PRESIGN_TTL: std::time::Duration = std::time::Duration::from_mins(15);
 
 impl BackendSandboxServiceImpl {
@@ -169,12 +167,10 @@ impl BackendSandboxServiceImpl {
 
 /// Mint presigned PUT + GET URLs for the task's workspace archive.
 ///
-/// The `s3` storage backend uses this instead of the transcript-style gRPC
-/// proxy: the workspace tar can be hundreds of MB, so rather than stream it
-/// through the backend, we hand the sandbox short-lived URLs scoped to
-/// exactly `<prefix>/<task_id>/workspace.tar` and it transfers directly to
-/// S3. The sandbox stays AWS-credential-less; the URL is the only capability
-/// it holds and it expires. Auth: task-scoped JWT via gRPC metadata.
+/// The workspace tar can be hundreds of MB, so the `s3` backend transfers it
+/// directly rather than streaming it through the backend as the transcript
+/// proxy does. Each URL is scoped to `<prefix>/<task_id>/workspace.tar` and
+/// expires, so it is the only capability the sandbox holds.
 pub(super) async fn get_workspace_sync_urls(
     service: &BackendSandboxServiceImpl,
     request: Request<GetWorkspaceSyncUrlsRequest>,
@@ -223,18 +219,14 @@ pub(super) async fn get_workspace_sync_urls(
 /// Hand the sandbox direct S3 access to its own workspace `restic`
 /// repository, plus the password that opens it.
 ///
-/// Two things a presigned URL cannot carry. `rustic_core` lists the
-/// repository by prefix on every open, and a signature covers one key; and
-/// the repository is encrypted, so access without the password reads
-/// nothing. Only this task's prefix is writable, and the password is derived
-/// from the task id.
+/// Two things a presigned URL cannot carry: `rustic_core` lists the repository
+/// by prefix on every open and a signature covers one key, and the repository
+/// is encrypted, so access without the password reads nothing. Only this task's
+/// prefix is writable, and the password is derived from the task id.
 ///
-/// A fork that holds no repository of its own is granted its source's
-/// prefix as well, read-only — the same fallback
-/// [`BackendSandboxServiceImpl::workspace_restore_task_id`] resolves for the tar, against the
-/// object each restores from.
-///
-/// Auth: task-scoped JWT via gRPC metadata.
+/// A fork that holds no repository of its own is granted its source's prefix
+/// read-only, the same fallback
+/// [`BackendSandboxServiceImpl::workspace_restore_task_id`] resolves for the tar.
 pub(super) async fn get_workspace_repository_access(
     service: &BackendSandboxServiceImpl,
     request: Request<GetWorkspaceRepositoryAccessRequest>,
@@ -299,7 +291,7 @@ pub(super) async fn get_workspace_repository_access(
 /// metrics. The `s3` backend transfers directly to S3, so the backend never
 /// sees the bytes and must be told the size/duration/outcome to build the
 /// EBS-vs-S3 comparison. Best-effort: it only touches metrics, never fails
-/// the sandbox's sync. Auth: task-scoped JWT via gRPC metadata.
+/// the sandbox's sync.
 pub(super) async fn report_workspace_sync(
     service: &BackendSandboxServiceImpl,
     request: Request<ReportWorkspaceSyncRequest>,
@@ -316,13 +308,10 @@ pub(super) async fn report_workspace_sync(
         req.ok,
     );
 
-    // Every direction is recorded, and a failure as well as a success. The
-    // sandbox only warns into its own container log, so without a durable
-    // event a workspace that has stopped reaching S3 is invisible to `moat
-    // events`, `moat tasks diagnose` and the UI — and the agent goes on
-    // being told its working tree survives a restart when it does not. A
-    // failed download is the more consequential of the two: that pod clears
-    // the tree and clones, and its log dies with it.
+    // Every direction is recorded, failures included. The sandbox only warns
+    // into its own container log, so without a durable event a workspace that
+    // has stopped reaching S3 is invisible to `moat events`, `moat tasks
+    // diagnose` and the UI.
     if let Some(task_events) = service.ingress.as_ref().map(|i| &i.task_events) {
         let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
         let mut payload = serde_json::json!({
@@ -387,8 +376,6 @@ mod tests {
     use super::*;
 
     use moatless_types::access_control::Scope;
-
-    // GetWorkspaceRepositoryAccess — what an unconfigured deployment answers
 
     fn repository_request(task_id: &str) -> Request<GetWorkspaceRepositoryAccessRequest> {
         Request::new(GetWorkspaceRepositoryAccessRequest {

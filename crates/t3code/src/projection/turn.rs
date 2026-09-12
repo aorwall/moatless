@@ -24,9 +24,6 @@ pub(super) fn turn_reference(conversation: &Conversation, message: &TranscriptMe
 /// turn's `started_at`.
 ///
 /// `assistantMessageId` is null because the shell listing carries no messages.
-/// Choosing the identity a message reports belongs with the projection that
-/// emits messages, and inventing one here that a later phase then has to match
-/// would be the more expensive mistake.
 pub(super) fn latest_turn(conversation: &Conversation) -> Value {
     let (Some(turn_number), Some(status)) = (
         conversation.turn_number,
@@ -54,13 +51,11 @@ pub(super) fn latest_turn(conversation: &Conversation) -> Value {
 
 /// Moatless turn state in T3's four-value vocabulary.
 ///
-/// Five states map onto four. Two of the pairings are not the name match:
+/// Five states map onto four, and two pairings are not the name match.
 /// *stopped* is a person cutting a turn short, which is what T3 calls
-/// *interrupted*; and Moatless's own *interrupted* means the Sandbox went away
-/// mid-turn, which leaves the turn **open** — it resumes on reschedule, and the
-/// reaper reconciles it into a terminal state if it never does. Reporting that
-/// as T3's *interrupted* would show a turn that is about to carry on as a turn
-/// that ended, and the sidebar would quietly stop showing live work.
+/// *interrupted*. Moatless's own *interrupted* means the Sandbox went away
+/// mid-turn, which leaves the turn **open**: it resumes on reschedule, and
+/// reporting it as T3's *interrupted* would stop the sidebar showing live work.
 ///
 /// `None` for a status this build does not know — a row written by a newer
 /// backend, which has no honest counterpart.

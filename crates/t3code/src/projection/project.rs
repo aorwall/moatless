@@ -32,10 +32,8 @@ struct UiRpcScriptConfig {
 /// The icons the contract accepts, and the one anything else becomes.
 ///
 /// The contract's icon is a closed set and an unknown value fails the whole
-/// listing to decode. A workspace is free to store any string, so the value is
-/// checked here rather than trusted: an unrecognized icon is reported as the
-/// default instead of refusing the script, because an icon is not worth losing
-/// a script over.
+/// listing to decode, while a workspace is free to store any string. An
+/// unrecognized icon is reported as the default rather than refusing the script.
 pub(super) const SCRIPT_ICONS: [&str; 6] = ["play", "test", "lint", "configure", "build", "debug"];
 
 const DEFAULT_SCRIPT_ICON: &str = "play";
@@ -52,27 +50,21 @@ pub(crate) fn is_script_icon(icon: &str) -> bool {
 
 /// One project, in the shape the shell listing carries.
 ///
-/// This is the contract's *shell* project, which is not quite its full project:
-/// the shell one has no deletion timestamp, and soft-deleted workspaces never
-/// reach here anyway.
+/// This is the contract's *shell* project: it has no deletion timestamp, and
+/// soft-deleted workspaces never reach here anyway.
 ///
 /// # Two halves of a union, projected differently
 ///
 /// The listing's projects are a union: the Workspaces this viewer may read,
 /// plus the Workspaces a listed conversation references whether or not they may
 /// read them. The widening is load-bearing — a conversation whose project is
-/// absent is dropped by the client in silence — and what justifies it is the
-/// *names*.
+/// absent is dropped by the client in silence.
 ///
-/// A start command is not a name: it carries paths, flags and whatever else is
-/// in a server config, so the widened half is projected down to what the
-/// contract needs to render a group and no more.
-/// [`UiRpcListedWorkspace`](crate::workspace::UiRpcListedWorkspace) carries the
-/// difference rather than having it re-derived.
-///
-/// That minimum still discloses the id, the name, the root synthesized *from*
-/// the id, and the two timestamps. The timestamps stay because the contract
-/// requires them and supplies no empty value for either.
+/// The widened half is projected down to what the contract needs to render a
+/// group and no more: the id, the name, the root synthesized from the id, and
+/// the two timestamps the contract requires and supplies no empty value for.
+/// [`UiRpcListedWorkspace`](crate::workspace::UiRpcListedWorkspace) carries
+/// which half a row came from.
 pub(super) fn project(listed: &UiRpcListedWorkspace) -> Value {
     let workspace = &listed.workspace;
     json!({
@@ -101,17 +93,11 @@ pub(super) fn project(listed: &UiRpcListedWorkspace) -> Value {
         // Required by the contract, so the narrowed shape is an empty list
         // rather than an absent field.
         "scripts": if listed.readable { scripts(workspace) } else { Vec::new() },
-        // Whether this project's scripts can be edited from the client at all.
-        //
-        // Reported rather than left for the write to refuse, because the answer
-        // is a property of the Workspace and does not change with what somebody
-        // types: a git-synced run config is reconciled from
-        // `.moatless/workspaces.json`, so an edit here would be silently undone
-        // by the next sync. The client hides the controls instead of offering
-        // an action that can only fail. The widened half of the union is not
-        // editable either — it is projected without its scripts — and neither
-        // is a deleted one, which is listed only because open work still names
-        // it.
+        // Reported rather than left for the write to refuse: a git-synced run
+        // config is reconciled from `.moatless/workspaces.json`, so an edit here
+        // would be undone by the next sync, and the client hides the controls
+        // instead. The widened half of the union is not editable either, being
+        // projected without its scripts.
         "scriptsEditable": listed.readable
             && !is_git_synced(workspace)
             && workspace.deleted != Some(true),
@@ -192,11 +178,9 @@ fn is_git_synced(workspace: &Workspace) -> bool {
 
 /// The workspace's declared Scripts.
 ///
-/// Only Scripts. The workspace's *servers* were mapped here once, which put a
-/// runnable-looking entry in the client's top bar for something the Sandbox
-/// already runs as a container — pressing it would have started a second
-/// process on a bound port. Setup commands are provisioning and are likewise
-/// not scripts.
+/// Only Scripts. A *server* is not one: the Sandbox already runs it as a
+/// container, so a runnable entry for it would start a second process on a
+/// bound port. Setup commands are provisioning and are likewise not scripts.
 pub(super) fn scripts(workspace: &Workspace) -> Vec<Value> {
     let Some(scripts) = workspace.scripts.as_ref() else {
         return Vec::new();
@@ -248,12 +232,10 @@ pub(super) fn scripts(workspace: &Workspace) -> Vec<Value> {
                 // A script that serves a port is worth auto-opening a preview
                 // for; one that prints to a console is not.
                 "autoOpenPreview": script.port.is_some(),
-                // The port itself, so the client can show and edit it. This is
-                // the fork's stand-in for upstream's `previewUrl`, which a
-                // Moatless script cannot carry: the published address only
-                // exists once a Task has a sandbox serving that port, and
-                // `scripts.run` returns the real one. `previewUrl` is therefore
-                // omitted rather than guessed.
+                // The stand-in for upstream's `previewUrl`, which a Moatless
+                // script cannot carry: the published address exists only once a
+                // Task has a sandbox serving the port, and `scripts.run`
+                // returns it. `previewUrl` is omitted rather than guessed.
                 "port": script.port
             }))
         })

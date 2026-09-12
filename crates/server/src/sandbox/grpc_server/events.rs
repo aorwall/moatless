@@ -22,16 +22,13 @@ use super::state::BackendSandboxServiceImpl;
 /// Decode one `PublishEventRequest` into the parts admission needs, rejecting
 /// wire-contract violations terminally.
 ///
-/// The three rejections are all unfixable by repetition, so they are
-/// [`AdmissionError::Invalid`] (gRPC `INVALID_ARGUMENT`) rather than retryable:
-/// an unknown event-type discriminant, an absent event id — without which
-/// neither deduplication nor idempotent persistence can converge (the durable-ingress decision
-/// requires a *stable, non-empty* id) — and a payload that is not JSON.
+/// All three rejections are unfixable by repetition, so each is
+/// [`AdmissionError::Invalid`] rather than retryable: an unknown event-type
+/// discriminant, an absent event id, and a payload that is not JSON.
 fn decode_request(event: &PublishEventRequest) -> Result<(&'static str, Value), AdmissionError> {
     // `event_type` is an open integer on the wire. Validate it here, at
     // ingress, so an unknown discriminant is rejected instead of defaulting
-    // to a variant. The dispatch strings come from the domain enum so they
-    // cannot drift from the wire contract.
+    // to a variant.
     let event_type = match sandbox_proto::EventType::try_from(event.event_type) {
         Ok(proto_event_type) => moatless_types::event::EventType::from(proto_event_type).as_str(),
         Err(e) => {
@@ -197,24 +194,14 @@ impl BackendSandboxServiceImpl {
 
 /// Admit an event from the sandbox and fan it out to Redis Streams.
 ///
-/// Success means the **complete payload is durably admitted** — committed
-/// state for a state-bearing event, a durable ingress-outbox record for full
-/// `agent.message` content, a `task_events` row for everything else
-/// (the durable-ingress decision). Anything short of that is a retryable `UNAVAILABLE` and the
-/// sandbox resends under the same id; the retry contract lives on
-/// [`AdmissionError`].
+/// Success means the complete payload is durably admitted. Anything short of
+/// that is a retryable `UNAVAILABLE` and the sandbox resends under the same id;
+/// the retry contract lives on [`AdmissionError`].
 ///
-/// Authenticated like every other RPC: the caller's task-bound token must
-/// match `event.task_id`.
-///
-/// This does not risk event loss, but the reason is narrower than "the
-/// sandbox always holds a valid token". A sandbox boots with a *bootstrap*
-/// token and only swaps in the long-lived one after its first
-/// `GetCredentials`, and this path calls `authorize`, not
-/// `authorize_bootstrap` — so events published in that window are rejected.
-/// They survive because the outbox treats only `INVALID_ARGUMENT` as
-/// permanent and retries everything else with backoff until acknowledged,
-/// so a rejected event is redelivered once the swap lands.
+/// This path calls `authorize` and not `authorize_bootstrap`, so an event
+/// published before the sandbox swaps in its long-lived token is rejected.
+/// Nothing is lost: the outbox treats only `INVALID_ARGUMENT` as permanent and
+/// redelivers the rest once the swap lands.
 #[tracing::instrument(
     skip_all,
     fields(request_id = %uuid::Uuid::new_v4(), task_id = tracing::field::Empty)
