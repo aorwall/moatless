@@ -1399,6 +1399,7 @@ mod tests {
             updated_at: None,
             closed_at: None,
             visibility: Visibility::Private,
+            owner_name: None,
             turn_number: None,
             turn_status: None,
             turn_started_at: None,

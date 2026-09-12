@@ -251,6 +251,17 @@ fn thread(conversation: &Conversation, project_id: &str, defaults: &AgentModelDe
         "hasActionableProposedPlan".into(),
         Value::Bool(conversation.pending_plan),
     );
+    // Who the row belongs to, which the sidebar shows only for a Task somebody
+    // else owns. Null rather than absent, and the listing has already decided
+    // it: the read is per-viewer, so a name here means "not yours".
+    row.insert(
+        "ownerName".into(),
+        conversation
+            .owner_name
+            .as_deref()
+            .and_then(non_empty)
+            .map_or(Value::Null, Value::String),
+    );
     // A `moat cmd` command outlives the turn that started it, and the agent
     // reports idle the moment that turn ends — so without this the sidebar row
     // for a Task running a build is the row for a finished one. `working`
@@ -2191,6 +2202,7 @@ mod tests {
         "linkedPullRequest",
         "pullRequests",
         "visibility",
+        "ownerName",
     ];
     const THREAD_NON_EMPTY: &[&str] = &["id", "projectId", "title"];
 
@@ -2281,6 +2293,7 @@ mod tests {
             updated_at: Some(Utc::now()),
             closed_at: None,
             visibility: moatless_types::task::Visibility::Private,
+            owner_name: None,
             turn_number: None,
             turn_status: None,
             turn_started_at: None,
@@ -2316,6 +2329,7 @@ mod tests {
             sandbox_updated_at: Some(now),
             latest_user_message_at: Some(now),
             assistant_model: Some("claude-sonnet-4-6".to_string()),
+            owner_name: Some("Ada Lovelace".to_string()),
             running_commands: 2,
             ..conversation(task_id, workspace_id)
         }
@@ -2425,6 +2439,21 @@ mod tests {
         assert_eq!(
             one_thread(&running_conversation("task-b", "ws-a"))["visibility"],
             json!("private")
+        );
+    }
+
+    #[test]
+    fn a_row_names_its_owner_only_when_the_listing_read_one() {
+        // The listing leaves the name out for a Task the viewer owns, so a row
+        // that carries one is a row that belongs to somebody else. Null and not
+        // absent: the client reads the key to clear the previous answer.
+        assert_eq!(
+            one_thread(&conversation("task-a", "ws-a"))["ownerName"],
+            Value::Null
+        );
+        assert_eq!(
+            one_thread(&running_conversation("task-b", "ws-a"))["ownerName"],
+            json!("Ada Lovelace")
         );
     }
 

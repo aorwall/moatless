@@ -603,6 +603,7 @@ mod tests {
             updated_at: None,
             closed_at: None,
             visibility: moatless_types::task::Visibility::Private,
+            owner_name: None,
             turn_number: Some(3),
             turn_status: Some("active".into()),
             turn_started_at: None,

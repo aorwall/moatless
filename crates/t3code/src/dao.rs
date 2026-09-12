@@ -66,6 +66,10 @@ pub struct Conversation {
     /// Who may read this Task. `NOT NULL`, defaulting to `Private`.
     #[sqlx(try_from = "String")]
     pub visibility: Visibility,
+    /// The owner's display name, and `None` when the viewer is that owner — a
+    /// per-viewer value, like the follower state below. Owner is the access
+    /// rule's own `COALESCE(owner_user_id, created_by)`.
+    pub owner_name: Option<String>,
 
     /// The newest Turn, by turn number. `None` when the Task has never run.
     pub turn_number: Option<i32>,
@@ -738,7 +742,8 @@ impl PgConversationDao {
         let started = full_listing.then(Instant::now);
 
         // `$1`/`$2` are the access filter's admin flag and user id; `$3` is the
-        // follower. The read rule is the shared fragment rather than a copy, so
+        // follower, and the same viewer the owner name is decided against. The
+        // read rule is the shared fragment rather than a copy, so
         // a change to what "may read" means reaches this listing too.
         //
         // The status rule is the third filter, and it is the enum's own spelling
@@ -792,6 +797,7 @@ impl PgConversationDao {
                    t.updated_at,
                    t.closed_at,
                    t.visibility,
+                   COALESCE(owner.name, owner.login) AS owner_name,
                    turn.turn_number,
                    turn.status                AS turn_status,
                    turn.started_at            AS turn_started_at,
@@ -813,6 +819,15 @@ impl PgConversationDao {
                    COALESCE(pr.pull_requests, '[]'::jsonb) AS pull_requests
                FROM listed t
                LEFT JOIN sandboxes s ON s.sandbox_id = t.sandbox_id
+               -- Whose Task this is, for the rows that are somebody else's. The
+               -- viewer test is in the `ON` clause rather than a `CASE`, so a
+               -- viewer's own Task simply misses the join and reports no name.
+               -- `users.id` is a native uuid and the owner columns are text, so
+               -- the comparison is made on the id's text form: casting the other
+               -- way would raise on a `created_by` that is not a uuid.
+               LEFT JOIN users owner
+                 ON owner.id::text = COALESCE(t.owner_user_id, t.created_by)
+                AND COALESCE(t.owner_user_id, t.created_by) IS DISTINCT FROM ${follower}
                LEFT JOIN LATERAL (
                    SELECT tt.turn_number, tt.status, tt.started_at, tt.ended_at
                    FROM task_turns tt
