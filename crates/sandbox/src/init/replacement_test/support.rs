@@ -46,6 +46,7 @@ fn build_state(
         config.workspace_dir.clone(),
         config.repo_dir.clone(),
         crate::state::CheckoutMode::Shared,
+        config.agent_type.clone(),
         agent,
         agent_handle,
         scheduled_jobs,

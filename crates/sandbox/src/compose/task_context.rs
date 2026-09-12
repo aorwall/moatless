@@ -59,6 +59,7 @@ pub(crate) async fn compose_task_context(
         task_config.workspace_dir.clone(),
         task_config.repo_dir.clone(),
         checkout_mode,
+        task_config.agent_type.clone(),
         agent_state,
         agent_handle,
         scheduled_jobs,

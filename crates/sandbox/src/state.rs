@@ -127,8 +127,9 @@ impl SandboxState {
         &self,
         task_id: String,
         checkout_mode: Option<&str>,
+        agent_type: Option<&str>,
     ) -> Result<Arc<TaskContext>, RegisterTaskContextError> {
-        crate::task_context::register(self, task_id, checkout_mode).await
+        crate::task_context::register(self, task_id, checkout_mode, agent_type).await
     }
 
     /// The `/livez` decision: is this pod still able to make progress?
@@ -221,6 +222,7 @@ pub(crate) mod test_support {
             config.workspace_dir.clone(),
             config.repo_dir.clone(),
             CheckoutMode::Shared,
+            config.agent_type.clone(),
             Arc::new(AgentState::new()),
             agent_handle,
             Arc::new(ScheduledJobRegistry::new(Arc::new(LateInjector::new()))),
@@ -366,6 +368,7 @@ mod tests {
             config.workspace_dir.clone(),
             config.repo_dir.clone(),
             CheckoutMode::Shared,
+            config.agent_type.clone(),
             Arc::new(AgentState::new()),
             agent_handle,
             Arc::new(ScheduledJobRegistry::new(Arc::new(LateInjector::new()))),
@@ -401,7 +404,7 @@ mod tests {
         let state = test_state();
 
         let joined = state
-            .register_task_context("task-2".to_string(), Some("shared"))
+            .register_task_context("task-2".to_string(), Some("shared"), None)
             .await
             .expect("join registers");
 
@@ -416,11 +419,11 @@ mod tests {
         let state = test_state();
 
         let first = state
-            .register_task_context("task-2".to_string(), Some("shared"))
+            .register_task_context("task-2".to_string(), Some("shared"), None)
             .await
             .expect("first join registers");
         let second = state
-            .register_task_context("task-2".to_string(), Some("shared"))
+            .register_task_context("task-2".to_string(), Some("shared"), None)
             .await
             .expect("second join reuses");
 
@@ -428,12 +431,74 @@ mod tests {
         assert_eq!(state.task_contexts_snapshot().await.len(), 2);
     }
 
+    /// The regression this guards: the pod boots `claude-code`, a Codex Task
+    /// joins it, and the joined Member's harness must be Codex. Building it from
+    /// the pod's `AGENT_TYPE` instead hands that Member's Turns to the Claude
+    /// CLI, which rejects the model the delivery carries and kills the turn
+    /// half a second in, with nothing surfaced to the person who sent it.
+    #[tokio::test]
+    async fn joined_member_harness_comes_from_the_join_not_the_pod() {
+        let state = test_state();
+        assert_eq!(state.config.agent_type.as_deref(), Some("claude-code"));
+
+        let joined = state
+            .register_task_context("task-2".to_string(), Some("shared"), Some("codex"))
+            .await
+            .expect("join registers");
+
+        assert_eq!(joined.agent_type.as_deref(), Some("codex"));
+        // The boot Member keeps its own.
+        let boot = state.task_context(Some("task-1")).await.expect("boot member");
+        assert_eq!(boot.agent_type.as_deref(), Some("claude-code"));
+    }
+
+    /// A caller that predates `JoinTaskRequest.agent_type` leaves the Member on
+    /// the pod's own selection, which is what it had before the field existed.
+    #[tokio::test]
+    async fn joined_member_without_an_agent_type_inherits_the_pod() {
+        let state = test_state();
+
+        let joined = state
+            .register_task_context("task-2".to_string(), Some("shared"), None)
+            .await
+            .expect("join registers");
+
+        assert_eq!(joined.agent_type.as_deref(), Some("claude-code"));
+    }
+
+    /// Refused at the join rather than at `spawn_agent`, which answers an
+    /// unsupported harness by closing the Member's command channel — and
+    /// `is_live` reads every Member's, so one bad join would replace the pod.
+    #[tokio::test]
+    async fn register_task_context_rejects_unsupported_agent_type() {
+        let state = test_state();
+
+        let Err(err) = state
+            .register_task_context("task-2".to_string(), Some("shared"), Some("gpt-9000"))
+            .await
+        else {
+            panic!("unsupported agent type is rejected");
+        };
+
+        let RegisterTaskContextError::UnsupportedAgentType(diagnostic) = &err else {
+            panic!("unsupported agent type is rejected as such, got {err}");
+        };
+        assert!(diagnostic.contains("gpt-9000"), "{diagnostic}");
+        // The accepted set travels with the rejection: the reconciler retries
+        // the join every 30s, and its log line is where this is read.
+        assert!(diagnostic.contains("codex"), "{diagnostic}");
+        // No context was composed, so no closed command channel is left behind
+        // for `is_live` to read.
+        assert!(state.task_context(Some("task-2")).await.is_err());
+        assert_eq!(state.task_contexts_snapshot().await.len(), 1);
+    }
+
     #[tokio::test]
     async fn register_task_context_rejects_unknown_checkout_mode() {
         let state = test_state();
 
         let Err(err) = state
-            .register_task_context("task-2".to_string(), Some("exclusive"))
+            .register_task_context("task-2".to_string(), Some("exclusive"), None)
             .await
         else {
             panic!("unknown checkout mode is rejected");
@@ -459,7 +524,7 @@ mod tests {
         };
 
         let joined = state
-            .register_task_context("task-2".to_string(), Some("isolated"))
+            .register_task_context("task-2".to_string(), Some("isolated"), None)
             .await
             .expect("isolated join registers");
 
@@ -476,7 +541,7 @@ mod tests {
     async fn omitted_task_id_is_ambiguous_after_join() {
         let state = test_state();
         state
-            .register_task_context("task-2".to_string(), Some("shared"))
+            .register_task_context("task-2".to_string(), Some("shared"), None)
             .await
             .expect("join registers");
 

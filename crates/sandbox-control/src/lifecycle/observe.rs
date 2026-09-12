@@ -49,7 +49,11 @@ impl MemberRegistryPort for GrpcMemberRegistry {
             .await
             .map_err(|e| MemberRegistryError::with_source("connect sandbox for JoinTask", e))?;
         client
-            .join_task(&member.task_id, Some(member.checkout_mode.as_str()))
+            .join_task(
+                &member.task_id,
+                Some(member.checkout_mode.as_str()),
+                Some(member.agent_type.as_str()),
+            )
             .await
             .map_err(|e| {
                 MemberRegistryError::with_source(

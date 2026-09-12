@@ -435,7 +435,11 @@ impl TaskCreationService {
         // down.
         let mut join_deferred_to_start = false;
         if let Some(checkout_mode) = join_checkout_mode {
-            match self.joiner.join_task(&task_id, checkout_mode).await {
+            match self
+                .joiner
+                .join_task(&task_id, checkout_mode, &row.agent_type)
+                .await
+            {
                 Ok(()) => {}
                 Err(SandboxError::NotReady(reason)) => {
                     tracing::info!(
@@ -1079,11 +1083,14 @@ mod tests {
         let join_order = Arc::clone(&order);
         joiner
             .expect_join_task()
-            .withf(|task_id, checkout_mode| {
-                !task_id.is_empty() && *checkout_mode == CheckoutMode::Shared
+            .withf(|task_id, checkout_mode, agent_type| {
+                !task_id.is_empty()
+                    && *checkout_mode == CheckoutMode::Shared
+                    // The joining Task's own harness, not the shared pod's.
+                    && agent_type.as_str() == AgentType::CLAUDE_CODE
             })
             .times(1)
-            .returning(move |_, _| {
+            .returning(move |_, _, _| {
                 join_order.lock().expect("order lock").push("join");
                 Ok(())
             });
@@ -1146,7 +1153,7 @@ mod tests {
         starter.expect_start().never();
         let mut joiner = MockSandboxJoiner::new();
         let join_order = Arc::clone(&order);
-        joiner.expect_join_task().times(1).returning(move |_, _| {
+        joiner.expect_join_task().times(1).returning(move |_, _, _| {
             join_order.lock().expect("order lock").push("join");
             // A genuine join failure — not `NotReady`, which defers to a start
             // (covered by `shared_sandbox_join_not_ready_starts_the_shared_sandbox`).
@@ -1209,7 +1216,7 @@ mod tests {
         });
         let mut joiner = MockSandboxJoiner::new();
         let join_order = Arc::clone(&order);
-        joiner.expect_join_task().times(1).returning(move |_, _| {
+        joiner.expect_join_task().times(1).returning(move |_, _, _| {
             join_order.lock().expect("order lock").push("join");
             Err(SandboxError::NotReady("Sandbox is stopped".to_string()))
         });

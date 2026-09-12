@@ -34,11 +34,12 @@ pub(crate) const AGENT_TYPE_CODEX: &str = "codex";
 /// Resolve a raw agent-type string into the canonical harness identifier,
 /// rejecting values this Sandbox has no harness for.
 ///
-/// Used to validate the Task's fixed selection at Sandbox construction (the fixed-harness decision):
-/// an unsupported harness is an invalid-configuration failure surfaced at
-/// startup rather than a silent fall-through to Claude. The Claude transport,
-/// model, and mode variants all resolve to the one Claude harness — they are
-/// configuration of that harness, not separate harnesses.
+/// Used to validate the Task's fixed selection when its Member's agent loop is
+/// composed (the fixed-harness decision): an unsupported harness is an
+/// invalid-configuration failure surfaced at startup rather than a silent
+/// fall-through to Claude. The Claude transport, model, and mode variants all
+/// resolve to the one Claude harness — they are configuration of that harness,
+/// not separate harnesses.
 pub(crate) fn resolve_agent_harness(raw: &str) -> Result<&'static str, String> {
     match raw {
         AGENT_TYPE_CODEX => Ok(AGENT_TYPE_CODEX),
@@ -54,15 +55,19 @@ pub(crate) fn resolve_agent_harness(raw: &str) -> Result<&'static str, String> {
     }
 }
 
-/// Construct the single Agent harness fixed for this Sandbox (the fixed-harness decision),
-/// selected by the resolved agent type: Codex, or Claude over the persistent
-/// (tmux) or one-shot (subprocess) transport per `config.use_tmux`. An
+/// Construct the single Agent harness fixed for one Member (the fixed-harness
+/// decision), selected by the resolved agent type: Codex, or Claude over the
+/// persistent (tmux) or one-shot (subprocess) transport per `config.use_tmux`. An
 /// unsupported type is an invalid-configuration failure surfaced at startup,
 /// never a silent default.
 ///
+/// A shared Sandbox runs one of these per Member, each over that Member's own
+/// `Config` — see [`Config::agent_type`](crate::config::Config::agent_type) for
+/// which writer sets it.
+///
 /// All per-Turn configuration — including the coordinator-resolved `env` and
 /// `system_prompt` — rides on the submitted `Input`, so the harness itself
-/// stays fixed for the Sandbox lifetime.
+/// stays fixed for the Member's lifetime.
 pub fn build_harness(
     config: &Arc<Config>,
     agent_state: &Arc<AgentState>,

@@ -142,7 +142,7 @@ change that found it.
 | The pod's `Config` names one Member, and three sites read it as if it named every Member | `crates/sandbox/src/config.rs::Config` — `task_id` and `workspace_dir` name the Member the pod booted with, and `task_context::registration::register` clones the struct per Member to override them. `transcript_sync::upload_on_stop` and `download_on_start` key `transcript_dir` on `state.config`, so an isolated Member's transcripts sit under `projects/-<workspace>-.moatless-members-<id>` and no replacement restores them; `app.rs::spawn_git_push_watcher` claims every checkout's push for `state.config.task_id`, and watches no isolated Member's checkout; 29 `#[tracing::instrument]` attributes in `crates/sandbox/src` label a Member's span with the boot Member's id | When a shared sandbox runs two Members that both push, or when a Member's lost transcript costs a resume. The fix is the `PodConfig` / `MemberConfig` split in `docs/ideas/sandbox-member-seams.md`: `Config` carries ~50 fields over 63 read sites, so it is a pass of its own and not a rider on a defect fix |
 | Three branch-fetch loops guess the page size instead of reading it | `crates/workspaces/src/repository/branches/providers.rs` — `fetch_github_branches`, `fetch_gitlab_branches` and `fetch_gitness_branches` each stop on `count < 100`, which asserts the host honoured the 100 that was asked for. True of those three today; not true of Forgejo, whose `MAX_RESPONSE_ITEMS` defaults to 50, and its copy of the same loop silently returned one page until #799 changed it to stop on an empty page | When a fifth provider is added, or when one of the three is next edited. One paginate helper taking a page-fetching closure collapses all four; doing it inside a Forgejo change would have rewritten three provider paths no test in this repo exercises |
 | A `moat push` commit claim is process-local | `crates/adapter-github-pr/src/api_routes.rs::claim_change`, the `GithubClaimSubject::Commit` arm — `RecentlySent::note_commit` only | When a `pull_request.synchronize` is observed reaching a replica that did not serve the claim; see below |
-| Every member of a shared Sandbox runs the first member's agent harness | `crates/sandbox/src/state.rs::register_task_context` — its three-field config clone leaves `agent_type` and `use_tmux` inherited from the pod, while `spawn_agent` is already called per member and `TaskContext` already holds its own `AgentHandle` | When a shared warm Sandbox needs two harnesses at once; see below |
+| Every member of a shared Sandbox runs the first member's Claude transport | `crates/sandbox/src/agent/compose.rs::build_harness` picks the persistent (tmux) or one-shot transport from `Config::use_tmux`, which `auto_provision` writes once from `sandboxes.use_tmux`. `task_context::registration::register` overrides `agent_type` per member and leaves `use_tmux` inherited, so a `claude-code-tui` member joining a pod booted `claude-code-cli` gets its own CLI over the pod's transport | When a shared warm Sandbox needs two transports at once; see below |
 | A Codex sub-agent's own items reach no reader | `crates/sandbox/src/agent/harness/codex/process.rs::CodexProcess::owns_thread` drops every notification from a thread this Turn did not open, which is what stops a sub-agent's `turn/completed` ending the Turn (#806). Its `item/completed` notifications go the same way, so what a sub-agent said and did renders nowhere. The parent's own `collabAgentToolCall` block still names the sub-agent and its `agentsStates` | When `agentsStates` is no longer enough to follow what a sub-agent did, or when sub-agent output is worth a stream of its own. The thread id the filter already reads is what would attribute the items, so the work is in the block and event model above it, not in this filter |
 | A Task auto-close spares for its sibling Bindings is told nothing about the PR | `crates/adapter-github-pr/src/routing.rs::close_subject`, the `siblings_count > 1` arm | When a Task bound to two pull requests is observed missing the close of one; see below |
 | The tar keeps its own copy of the file-set walk | `crates/sandbox/src/workspace_sync/sync.rs::append_tree` and `::append_repo`, plus `::workspace_fingerprint` — three copies of the `git ls-files -c -o --exclude-standard -z` plus whole-`.git` rule that `workspace_sync::file_set::collect` owns for the repository. `append_repo` and `collect_repo` are the pair that drifting would hurt: they would restore different trees from the same workspace | When the tar path is next touched. The tar is now only the fallback a sandbox without a repository writes, plus the rescue path, so the walk it duplicates is exercised least where it would drift most |
@@ -296,28 +296,27 @@ observed reaching a replica that did not serve the claim — an equality index o
 the full sha would do it, and the prefix match only exists for the abbreviated
 shas the old transcript scan had to work from.
 
-**Per-member agent harness.** The pod already builds one harness per joined
-Task: `register_task_context` calls `spawn_agent` for each member and the
-resulting `TaskContext` holds its own `AgentHandle`, and the image carries both
-CLIs. What it does not do is vary the harness. The function clones the pod
-config and overrides three fields — `task_id`, `workspace_dir`, `repo_dir` —
-so `Config::agent_type` and `Config::use_tmux` stay whatever the pod was
-provisioned with, which is the first member's selection. A second member that
-asked for a different agent silently runs the first one's.
+**Per-member Claude transport.** `register_task_context` clones the pod config
+per member and overrides four fields — `task_id`, `workspace_dir`, `repo_dir`
+and `agent_type`, the last one from `JoinTaskRequest`. `Config::use_tmux` is not
+among them, so it stays whatever the pod was provisioned with, which is the
+first member's selection. `build_harness` reads it to pick the Claude transport,
+so a `claude-code-tui` member joining a pod booted `claude-code-cli` runs the
+Claude CLI it asked for over the other member's transport, and the reverse for a
+`claude-code-cli` member on a tui pod.
 
-This has no effect while a Sandbox has one member, which is every Sandbox that
-does not use `tasks.sandbox_id`. It becomes wrong the first time two members of
-a shared warm Sandbox want different harnesses.
+Milder than the harness half was: both are the Claude harness, so the turn runs
+and the model is accepted. What differs is whether the CLI keeps a persistent
+tmux session between turns.
 
-The shape of the fix is known and small: a field on `JoinTaskRequest`
-(`crates/sandbox-proto/proto/sandbox/v1/sandbox.proto`, which today carries only
-`task_id` and `checkout_mode`), two lines in `register_task_context` to override
-the cloned config, and the value threaded from the joining Task through
-`SandboxJoiner::join_task`. It is deliberately not part of the Task-controls-
-Sandbox change, because it moves in the opposite direction: that change made the
-harness pod shape (`sandboxes.agent_type`, `sandboxes.use_tmux`), and this one
-makes it per member again. Do it as its own change, with the pod-level columns
-kept as the default a member inherits when it asks for nothing.
+The fix wants a per-Task source for the value. `agent_type` had one in
+`tasks.agent_type`; `use_tmux` is a Sandbox column
+(`auto_provision` reads `shape.use_tmux` and writes `SANDBOX_USE_TMUX`), so
+this is a `tasks` column or a derivation from the member's own `agent_type`
+variant, and then a second optional field on `JoinTaskRequest`. Do it when a
+shared warm Sandbox is observed holding members that disagree, with the
+pod-level column kept as the default a member inherits when it asks for
+nothing.
 
 **An isolated Fork's Workspace.** A Fork carries a copy of the parent's
 conversation (`message::fork::copy_conversation`) and, on its first Turn, resumes

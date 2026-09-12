@@ -271,6 +271,7 @@ fn test_state_with_config(backend: Arc<dyn BackendClient>, config: Config) -> Sa
         config.workspace_dir.clone(),
         config.repo_dir.clone(),
         moatless_sandbox::state::CheckoutMode::Shared,
+        config.agent_type.clone(),
         agent_state,
         agent_handle,
         scheduled_jobs,

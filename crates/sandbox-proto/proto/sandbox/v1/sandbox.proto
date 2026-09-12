@@ -847,6 +847,9 @@ message ExecuteAgentResponse {}
 message JoinTaskRequest {
   string task_id = 1;
   optional string checkout_mode = 2;
+  // The joining Member's own Agent harness. Absent means the caller predates
+  // this field, and the pod falls back to its boot Member's AGENT_TYPE.
+  optional string agent_type = 3;
 }
 
 message JoinTaskResponse {}

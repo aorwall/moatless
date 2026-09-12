@@ -1672,7 +1672,8 @@ impl CoordinatorService {
         // Resolve resume exactly as `session::resolve_resume_session`: the pod's
         // last known Session id takes precedence, then the backend-provided id,
         // then a `--continue` for the Claude family. The harness is fixed for the
-        // Sandbox, so the family is `config.agent_type`, not the per-Turn value.
+        // Member, so the family is `config.agent_type` — this service's own
+        // per-Member `Config` — and not the per-Turn value.
         let harness_family = self
             .config
             .agent_type

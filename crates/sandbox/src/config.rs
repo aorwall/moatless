@@ -158,12 +158,15 @@ pub struct Config {
     pub sandbox_id: String,
     /// Initial member Task ID.
     pub task_id: String,
-    /// The Task's selected Agent harness, fixed for the Sandbox lifetime and
-    /// delivered at construction via the `AGENT_TYPE` env (the fixed-harness decision). `None`
-    /// means the pod has no valid harness selection and is surfaced as an invalid
-    /// configuration by the agent lifecycle owner. When set it is validated at
-    /// load, so an unsupported value fails startup instead of silently running
-    /// Claude.
+    /// The Task's selected Agent harness, fixed for the Member's lifetime (the
+    /// fixed-harness decision). The `AGENT_TYPE` env delivers the boot Member's
+    /// at construction; `task_context::register` writes each joining Member's
+    /// onto that Member's own `Config` clone, so the pod env is only the default
+    /// a join without one inherits. `None` means the pod has no valid harness
+    /// selection and is surfaced as an invalid configuration by the agent
+    /// lifecycle owner. When set it is validated — at load for the pod env, at
+    /// the join for a Member — so an unsupported value fails instead of silently
+    /// running Claude.
     pub agent_type: Option<String>,
     /// Workspace directory — the persisted *container* dir (e.g.
     /// `/opt/moatless/workspace`). This is the agent's cwd and the root of the

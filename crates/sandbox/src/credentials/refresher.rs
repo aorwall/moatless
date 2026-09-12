@@ -274,6 +274,7 @@ mod tests {
             config.workspace_dir.clone(),
             config.repo_dir.clone(),
             crate::state::CheckoutMode::Shared,
+            config.agent_type.clone(),
             agent_state,
             agent_handle,
             scheduled_jobs,

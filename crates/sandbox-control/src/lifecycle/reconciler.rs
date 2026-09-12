@@ -33,6 +33,7 @@ use super::reconcile::{ReconcileInput, decide};
 use moatless_ports::task::PendingWorkReader;
 use moatless_sandbox_runtime::convergence::{ReconcileAction, SandboxObservedStatus};
 use moatless_sandbox_runtime::runtime::ErrorClass;
+use moatless_types::agent::AgentType;
 use moatless_types::sandbox::ArchiveRetention;
 use moatless_types::task::CheckoutMode;
 
@@ -43,6 +44,10 @@ pub struct SandboxMember {
     pub sandbox_id: String,
     #[sqlx(try_from = "String")]
     pub checkout_mode: CheckoutMode,
+    /// The harness this Member's agent loop runs. See
+    /// [`SandboxJoiner::join_task`](moatless_ports::sandbox::SandboxJoiner::join_task).
+    #[sqlx(try_from = "String")]
+    pub agent_type: AgentType,
 }
 
 /// Delivers a pending-message wake to an already-Ready sandbox over gRPC.
@@ -990,6 +995,7 @@ mod tests {
             task_id: task_id.to_string(),
             sandbox_id: sandbox_id.to_string(),
             checkout_mode: CheckoutMode::Shared,
+            agent_type: AgentType::CLAUDE_CODE.into(),
         }
     }
 
@@ -1933,7 +1939,9 @@ mod db_tests {
     async fn reissues_join_task_for_all_running_sandbox_members(pool: PgPool) {
         seed(&pool, "t1", "open", "running").await;
         seed_bare_task(&pool, "t2", "open").await;
-        sqlx::query("UPDATE tasks SET sandbox_id = 't1' WHERE task_id = 't2'")
+        // `t2` joins `t1`'s pod under its own harness. The pod's `AGENT_TYPE`
+        // names `t1` only, so each re-registration has to carry the Member's.
+        sqlx::query("UPDATE tasks SET sandbox_id = 't1', agent_type = 'codex' WHERE task_id = 't2'")
             .execute(&pool)
             .await
             .unwrap();
@@ -1967,14 +1975,17 @@ mod db_tests {
                     task_id: "t1".to_string(),
                     sandbox_id: "t1".to_string(),
                     checkout_mode: moatless_types::task::CheckoutMode::Shared,
+                    agent_type: AgentType::CLAUDE_CODE.into(),
                 },
                 SandboxMember {
                     task_id: "t2".to_string(),
                     sandbox_id: "t1".to_string(),
                     checkout_mode: moatless_types::task::CheckoutMode::Shared,
+                    agent_type: AgentType::CODEX.into(),
                 },
             ],
-            "reconciler rebuilds in-pod members from DB membership after restart"
+            "reconciler rebuilds in-pod members from DB membership after restart, each under \
+             its own harness"
         );
     }
 

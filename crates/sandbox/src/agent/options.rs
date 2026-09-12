@@ -379,7 +379,7 @@ fn build_managed_command_note(config: &Config) -> Option<String> {
 }
 
 /// The root instruction filenames to look for, in preference order, for the
-/// harness this sandbox runs: Claude reads `CLAUDE.md` and Codex reads
+/// harness this Member runs: Claude reads `CLAUDE.md` and Codex reads
 /// `AGENTS.md`, so the agent is pointed at the file it would have loaded itself.
 /// A repo commits one of the two (often as a symlink to the other), so the other
 /// name is the fallback.

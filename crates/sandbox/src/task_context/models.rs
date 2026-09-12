@@ -22,6 +22,11 @@ pub struct TaskContext {
     pub checkout_dir: String,
     /// Checkout relationship requested by the backend for this member.
     pub checkout_mode: CheckoutMode,
+    /// Agent type this member's harness was built from. A shared sandbox runs
+    /// one harness per member, so this is the member's own selection and not the
+    /// pod's `AGENT_TYPE`, which names only the member it booted with. `None`
+    /// when neither was set.
+    pub agent_type: Option<String>,
     /// Agent execution state (status, session, cancel token, pending prompts).
     pub agent: Arc<AgentState>,
     /// Agent command handle — send messages via `agent_handle.send()`.
@@ -60,6 +65,7 @@ impl TaskContext {
         workspace_dir: String,
         checkout_dir: String,
         checkout_mode: CheckoutMode,
+        agent_type: Option<String>,
         agent: Arc<AgentState>,
         agent_handle: AgentHandle,
         scheduled_jobs: Arc<ScheduledJobRegistry>,
@@ -72,6 +78,7 @@ impl TaskContext {
             workspace_dir,
             checkout_dir,
             checkout_mode,
+            agent_type,
             agent,
             agent_handle,
             scheduled_jobs,
@@ -154,6 +161,11 @@ pub enum RegisterTaskContextError {
     EmptyTaskId,
     #[error("unsupported checkout_mode: {0}")]
     InvalidCheckoutMode(String),
+    /// Carries `resolve_agent_harness`'s own diagnostic, which names the
+    /// accepted set — the reconciler retries the join every 30s and its log line
+    /// is the only place this surfaces.
+    #[error("{0}")]
+    UnsupportedAgentType(String),
     #[error("failed to materialize isolated checkout: {0}")]
     CheckoutMaterialization(String),
 }

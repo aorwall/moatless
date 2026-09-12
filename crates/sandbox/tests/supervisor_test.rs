@@ -654,6 +654,7 @@ fn test_state(backend: Arc<dyn BackendClient>, dir: &tempfile::TempDir) -> Sandb
         config.workspace_dir.clone(),
         config.repo_dir.clone(),
         moatless_sandbox::state::CheckoutMode::Shared,
+        config.agent_type.clone(),
         agent_state,
         agent_handle,
         scheduled_jobs,

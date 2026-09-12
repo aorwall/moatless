@@ -46,7 +46,7 @@ async fn a_member_joining_a_ready_pod_recovers_its_own_interrupted_run() {
     let (state, _boot) = joinable_state(&tmp, InitPhase::Ready, Arc::clone(&backend));
 
     state
-        .register_task_context("joined-task".to_string(), Some("shared"))
+        .register_task_context("joined-task".to_string(), Some("shared"), None)
         .await
         .expect("join");
 
@@ -70,7 +70,7 @@ async fn a_pending_message_supersedes_a_joining_members_interrupted_run() {
     let (state, _boot) = joinable_state(&tmp, InitPhase::Ready, Arc::clone(&backend));
 
     state
-        .register_task_context("joined-task".to_string(), Some("shared"))
+        .register_task_context("joined-task".to_string(), Some("shared"), None)
         .await
         .expect("join");
 
@@ -93,7 +93,7 @@ async fn a_member_joining_before_ready_is_recovered_once_by_init() {
     let (state, boot) = joinable_state(&tmp, InitPhase::Starting, Arc::clone(&backend));
 
     state
-        .register_task_context("joined-task".to_string(), Some("shared"))
+        .register_task_context("joined-task".to_string(), Some("shared"), None)
         .await
         .expect("join");
     assert!(

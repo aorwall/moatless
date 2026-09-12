@@ -4,7 +4,7 @@
 //! is looked up in three places, in order:
 //!
 //! 1. the repo's own skill roots, under every checkout in the workspace;
-//! 2. the home skills dir of the harness this Sandbox runs, which
+//! 2. the home skills dir of the harness this Member runs, which
 //!    [`init::home_skills`] and [`init::dirs`] fill from the repo and the image
 //!    staging area;
 //! 3. each installed plugin's skills dir ([`init::plugin_skills`]).
@@ -129,7 +129,7 @@ async fn skill_roots(config: &Config) -> Vec<SkillRoot> {
     roots
 }
 
-/// `<home>/skills` for the harness this Sandbox is fixed to.
+/// `<home>/skills` for the harness this Member is fixed to.
 fn home_skills_dir(config: &Config) -> PathBuf {
     let is_codex = config
         .agent_type

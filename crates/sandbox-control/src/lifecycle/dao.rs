@@ -348,7 +348,8 @@ impl LifecycleDao for PgLifecycleDao {
             r#"SELECT
                    t.task_id,
                    s.sandbox_id,
-                   COALESCE(t.checkout_mode, 'shared') AS checkout_mode
+                   COALESCE(t.checkout_mode, 'shared') AS checkout_mode,
+                   t.agent_type
                FROM sandboxes s
                JOIN tasks t ON t.sandbox_id = s.sandbox_id
                WHERE s.desired_state = 'running'
