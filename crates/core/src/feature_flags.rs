@@ -9,6 +9,7 @@ pub struct FeatureFlags {
     pub show_model_selector: bool,
     pub gitlab_enabled: bool,
     pub forgejo_enabled: bool,
+    pub workspace_settings: bool,
 }
 
 impl FeatureFlags {
@@ -25,6 +26,7 @@ impl FeatureFlags {
             show_model_selector: flag_value(lookup("FF_SHOW_MODEL_SELECTOR").as_deref(), true),
             gitlab_enabled: flag_value(lookup("FF_GITLAB_ENABLED").as_deref(), false),
             forgejo_enabled: flag_value(lookup("FF_FORGEJO_ENABLED").as_deref(), false),
+            workspace_settings: flag_value(lookup("FF_WORKSPACE_SETTINGS").as_deref(), true),
         }
     }
 }
@@ -38,6 +40,7 @@ impl Default for FeatureFlags {
             show_model_selector: true,
             gitlab_enabled: false,
             forgejo_enabled: false,
+            workspace_settings: true,
         }
     }
 }
@@ -63,6 +66,7 @@ mod tests {
                 show_model_selector: true,
                 gitlab_enabled: false,
                 forgejo_enabled: false,
+                workspace_settings: true,
             }
         );
     }
@@ -74,6 +78,7 @@ mod tests {
             ("FF_SHOW_CLAUDE_SETTINGS", "1"),
             ("FF_SHOW_CODEX_SETTINGS", "false"),
             ("FF_SHOW_MODEL_SELECTOR", "TRUE"),
+            ("FF_WORKSPACE_SETTINGS", "false"),
         ]);
 
         let flags = FeatureFlags::from_lookup(|name| values.get(name).map(ToString::to_string));
@@ -87,6 +92,7 @@ mod tests {
                 show_model_selector: false,
                 gitlab_enabled: false,
                 forgejo_enabled: false,
+                workspace_settings: false,
             }
         );
     }

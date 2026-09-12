@@ -23,6 +23,12 @@ pub struct FeatureFlagsResponse {
     pub gitlab_enabled: bool,
     /// Whether the deployment offers Forgejo instances, connections and repos.
     pub forgejo_enabled: bool,
+    /// Whether a T3 project's settings page edits the Workspace behind it.
+    ///
+    /// On, the page gains the Workspace's own description, repositories, image
+    /// and defaults, and drops the three rows a Moatless Workspace does not
+    /// have (`defaultThreadEnvMode`, auto-pull, agent browser access).
+    pub workspace_settings: bool,
     /// Whether the settings dialog offers to pair a device.
     ///
     /// Not an `FF_*` variable of its own: pairing is the bootstrap half of the
@@ -42,6 +48,7 @@ impl FeatureFlagsResponse {
             show_model_selector: flags.show_model_selector,
             gitlab_enabled: flags.gitlab_enabled,
             forgejo_enabled: flags.forgejo_enabled,
+            workspace_settings: flags.workspace_settings,
             device_pairing,
             slack: slack_team_id.map(|team_id| SlackConfig { team_id }),
         }
@@ -98,6 +105,7 @@ mod tests {
             show_model_selector: false,
             gitlab_enabled: true,
             forgejo_enabled: true,
+            workspace_settings: true,
         }
     }
 
@@ -114,6 +122,7 @@ mod tests {
                 show_model_selector: false,
                 gitlab_enabled: true,
                 forgejo_enabled: true,
+                workspace_settings: true,
                 device_pairing: false,
                 slack: Some(SlackConfig {
                     team_id: "T0123".into(),

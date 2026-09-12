@@ -14,8 +14,8 @@ use moatless_types::access_control::Scope;
 
 /// The workspace vocabulary a caller reaches through this module.
 pub use moatless_types::workspace::{
-    ResourceConfig, ScriptConfig, ServerConfig, Workspace, WorkspaceKind, WorkspaceRepo,
-    WorkspaceSource,
+    ResourceConfig, ScriptConfig, ServerConfig, Workspace, WorkspaceIcon, WorkspaceKind,
+    WorkspaceRepo, WorkspaceSource,
 };
 
 // =============================================================================
@@ -28,6 +28,7 @@ pub struct WorkspaceRow {
     pub id: String,
     pub name: String,
     pub description: Option<String>,
+    pub icon: Option<serde_json::Value>,
     /// Derived label from the `WorkspaceRepo` count: `blank`, `single`, `multi`.
     pub kind: String,
     // --- Run configuration ---
@@ -41,6 +42,9 @@ pub struct WorkspaceRow {
     pub scripts: Option<serde_json::Value>,
     pub resources: Option<serde_json::Value>,
     pub network_profile: Option<String>,
+    // --- Task defaults ---
+    pub default_model: Option<String>,
+    pub default_effort: Option<String>,
     // --- Provenance ---
     pub source: String,
     pub source_repository_id: Option<String>,
@@ -72,9 +76,12 @@ impl TryFrom<WorkspaceRow> for Workspace {
             servers: decode_column(row.servers, &id, "servers"),
             scripts: decode_column(row.scripts, &id, "scripts"),
             resources: decode_column(row.resources, &id, "resources"),
+            icon: decode_column(row.icon, &id, "icon"),
             id,
             name: row.name,
             description: row.description,
+            default_model: row.default_model,
+            default_effort: row.default_effort,
             docker_image: row.docker_image,
             docker_access: row.docker_access,
             sandbox_service_account: row.sandbox_service_account,
@@ -227,6 +234,7 @@ pub struct WorkspaceScriptsTarget {
 pub struct WorkspacePatch {
     pub name: Option<String>,
     pub description: Option<Option<String>>,
+    pub icon: Option<Option<WorkspaceIcon>>,
     pub kind: Option<WorkspaceKind>,
     pub scope: Option<Scope>,
     pub owner_user_id: Option<Option<String>>,
@@ -241,6 +249,8 @@ pub struct WorkspacePatch {
     pub scripts: Option<Option<Vec<ScriptConfig>>>,
     pub resources: Option<Option<ResourceConfig>>,
     pub network_profile: Option<Option<String>>,
+    pub default_model: Option<Option<String>>,
+    pub default_effort: Option<Option<String>>,
     pub source: Option<WorkspaceSource>,
     pub source_repository_id: Option<Option<String>>,
     pub source_key: Option<Option<String>>,

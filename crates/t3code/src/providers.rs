@@ -19,7 +19,7 @@
 use serde_json::{Value, json};
 
 use crate::AgentModelDefaults;
-use crate::agent::catalog::UiRpcAgentKind;
+use crate::agent::catalog::{UiRpcAgentKind, catalog};
 use crate::agent::schemas::AgentDescriptor;
 use crate::projection::UNRESOLVED_MODEL_CHOICE;
 
@@ -95,6 +95,15 @@ fn effort_levels(instance: &str, catalog_model: &str) -> &'static [&'static str]
         .iter()
         .find(|(model, _)| *model == catalog_model)
         .map_or(CODEX_BASE_EFFORT_LEVELS, |(_, levels)| *levels)
+}
+
+/// Whether a published model row offers `level`.
+///
+/// See [`CODEX_EFFORT_LEVELS`]: a level the model rejects fails the turn rather
+/// than falling back, so a stored default naming one is dropped rather than
+/// handed to the client as a choice.
+pub fn publishes_effort(instance: &str, catalog_model: &str, level: &str) -> bool {
+    effort_levels(instance, catalog_model).contains(&level)
 }
 
 fn effort_label(level: &str) -> &str {
@@ -183,6 +192,26 @@ pub fn catalog_model_for(agents: &[AgentDescriptor], instance: &str, slug: &str)
         .into_iter()
         .find(|(id, _)| published_slug(instance, id) == slug)
         .map(|(id, _)| id)
+}
+
+/// `(instance id, published slug)` for a catalog model id, or `None` when no
+/// instance publishes one.
+///
+/// Resolves against the static catalog rather than a runtime `AgentDescriptor`
+/// list, because the project projection runs without one. A model missing a
+/// credential is still published here: the instance owns installability, and
+/// this answers which instance and slug name the model.
+pub fn publish_model(catalog_model: &str) -> Option<(&'static str, String)> {
+    if catalog_model == UNRESOLVED_MODEL_CHOICE {
+        return None;
+    }
+    catalog()
+        .iter()
+        .find(|agent| agent.models.iter().any(|m| m.id == catalog_model))
+        .map(|agent| {
+            let instance = instance_for(agent.kind);
+            (instance, published_slug(instance, catalog_model))
+        })
 }
 
 /// Every `(catalog id, label)` an instance offers, deduplicated across the

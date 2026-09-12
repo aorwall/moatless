@@ -20,9 +20,5 @@ export interface AdminUpdateUserRequest {
   /** @nullable */
   name?: string | null;
   role?: null | UserRole;
-  /**
-   * Admin-only, like `role`.
-   * @nullable
-   */
   status?: null | UserStatus;
 }

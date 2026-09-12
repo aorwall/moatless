@@ -1421,6 +1421,8 @@ extraEnv:
   FF_SHOW_MODEL_SELECTOR: "false"
   # Shows the Forgejo tab in settings. The Forgejo API routes ignore this flag.
   FF_FORGEJO_ENABLED: "false"
+  # Lets the T3 project settings page edit the workspace behind the project.
+  FF_WORKSPACE_SETTINGS: "true"
   # Session
   SESSION_MAX_AGE: "604800"
   # Default visibility for new repositories (valid: "private" | "public")

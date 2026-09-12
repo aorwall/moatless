@@ -496,6 +496,10 @@ impl GitSyncService {
                     id: id.clone(),
                     name: desired.name.clone(),
                     description: desired.description.clone(),
+                    // Presentation and Task defaults are not declared in git.
+                    icon: None,
+                    default_model: None,
+                    default_effort: None,
                     kind: WorkspaceKind::Single, // refresh_kind fixes below
                     docker_image: desired.run.docker_image.clone(),
                     docker_access: desired.run.docker_access,
@@ -538,6 +542,11 @@ impl GitSyncService {
             owner_user_id: Some(repo.owner_user_id.clone()),
             // Absent from the patch, so a reconcile leaves whatever an admin set.
             run_as_user_id: None,
+            // Likewise: never declared in git, so a reconcile must not clear
+            // what a user picked in the settings UI.
+            icon: None,
+            default_model: None,
+            default_effort: None,
             docker_image: Some(desired.run.docker_image.clone()),
             docker_access: Some(desired.run.docker_access),
             sandbox_service_account: Some(desired.run.sandbox_service_account.clone()),

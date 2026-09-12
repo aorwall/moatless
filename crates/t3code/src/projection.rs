@@ -18,6 +18,7 @@ use super::ports::{is_draft, t3_pr_state};
 use crate::activity::T3ActivityViewExt;
 use crate::agent::catalog;
 use crate::agent::catalog::UiRpcAgentKind;
+use crate::providers;
 use crate::workspace::{UiRpcListedWorkspace, WorkspaceView as Workspace};
 use moatless_core::change_feed::conversation::{ConversationChange, EVENTS_PER_CHANGE};
 use moatless_types::activity::Activity;
@@ -1819,8 +1820,19 @@ fn project(listed: &UiRpcListedWorkspace) -> Value {
         // The environment advertises no repository identity, so the client
         // never groups projects across environments by git remote.
         "repositoryIdentity": Value::Null,
-        // Model choice belongs to a Turn in Moatless, not to a Workspace.
-        "defaultModelSelection": Value::Null,
+        // The Workspace's own defaults, which the client uses to seed a new
+        // thread. Only the widened half is withheld: neither is a name, but
+        // both are configuration the viewer may not read.
+        "projectIcon": if listed.readable {
+            project_icon(workspace.icon.as_ref())
+        } else {
+            Value::Null
+        },
+        "defaultModelSelection": if listed.readable {
+            default_model_selection(workspace)
+        } else {
+            Value::Null
+        },
         // Required by the contract, so the narrowed shape is an empty list
         // rather than an absent field.
         "scripts": if listed.readable { scripts(workspace) } else { Vec::new() },
@@ -1841,6 +1853,102 @@ fn project(listed: &UiRpcListedWorkspace) -> Value {
         "createdAt": timestamp(workspace.created_at),
         "updatedAt": timestamp(workspace.updated_at)
     })
+}
+
+/// The Workspace's default model, in the `ModelSelection` shape T3 sends back.
+///
+/// `Null` for a Workspace that pins no model, or that pins one this catalog no
+/// longer publishes: a selection naming a slug absent from the provider list is
+/// dropped by the client anyway, and substituting a model nobody chose is the
+/// failure `providers::publish_model` exists to avoid. The effort rides along as
+/// an option under the instance's own descriptor id, which is where
+/// `commands::selected_effort` reads it back.
+///
+/// The effort gets the same treatment: `default_effort` is an open column no
+/// write path validates, and a level the selected model does not publish is a
+/// choice that cannot run, so one outside `providers::publishes_effort` is
+/// dropped and the model runs at its own default.
+fn default_model_selection(workspace: &Workspace) -> Value {
+    let Some(catalog_model) = workspace.default_model.as_deref() else {
+        return Value::Null;
+    };
+    let Some((instance, slug)) = providers::publish_model(catalog_model) else {
+        return Value::Null;
+    };
+    let mut selection = json!({ "instanceId": instance, "model": slug });
+    if let Some(effort) = workspace
+        .default_effort
+        .as_deref()
+        .map(str::trim)
+        .filter(|level| providers::publishes_effort(instance, catalog_model, level))
+    {
+        selection["options"] = json!([{
+            "id": providers::effort_option_id(instance),
+            "value": effort,
+        }]);
+    }
+    selection
+}
+
+/// The colours a `ProjectIconOverride` may name, from `ProjectIconColor` in the
+/// client's `packages/contracts/src/orchestration.ts`, which is the authority.
+///
+/// A colour added there and not copied here draws the project's automatic glyph
+/// until it is, which is the failure worth having: see [`project_icon`].
+const PROJECT_ICON_COLORS: &[&str] = &[
+    "gray", "red", "orange", "amber", "yellow", "lime", "green", "emerald", "teal", "cyan", "sky",
+    "blue", "indigo", "violet", "purple", "fuchsia", "pink", "rose",
+];
+
+/// The Workspace's icon as a `ProjectIconOverride`, or `Null` when the stored
+/// value is not one.
+///
+/// `workspaces.icon` is open jsonb any `PATCH` may write, and the client decodes
+/// a project strictly — an icon its schema rejects fails the whole
+/// `OrchestrationProject`, which takes the project and its conversations off the
+/// client. So the shape is checked here rather than trusted, against the same
+/// bounds the client's schema states.
+fn project_icon(icon: Option<&Value>) -> Value {
+    let icon = icon.unwrap_or(&Value::Null);
+    let field = |name: &str| {
+        icon.get(name)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .unwrap_or_default()
+    };
+    match icon.get("kind").and_then(Value::as_str) {
+        Some("lucide") => {
+            let (name, color) = (field("name"), field("color"));
+            if is_lucide_icon_name(name) && PROJECT_ICON_COLORS.contains(&color) {
+                json!({ "kind": "lucide", "name": name, "color": color })
+            } else {
+                Value::Null
+            }
+        }
+        Some("emoji") => {
+            let emoji = field("emoji");
+            // `isMaxLength` counts what JS counts, so the bound is UTF-16 units.
+            if emoji.is_empty() || emoji.encode_utf16().count() > 32 {
+                Value::Null
+            } else {
+                json!({ "kind": "emoji", "emoji": emoji })
+            }
+        }
+        _ => Value::Null,
+    }
+}
+
+/// The client's `ProjectLucideIconName`: `^[a-z0-9]+(?:-[a-z0-9]+)*$`, at most
+/// 64 characters.
+fn is_lucide_icon_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 64
+        && name.split('-').all(|part| {
+            !part.is_empty()
+                && part
+                    .bytes()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
+        })
 }
 
 /// Whether git owns this Workspace's run config.
@@ -2152,7 +2260,7 @@ mod tests {
     // `scriptsEditable` is a fork addition to `OrchestrationProjectShell`: the
     // client hides the script edit controls when it is false. Optional so an
     // older web build ignores it.
-    const PROJECT_OPTIONAL: &[&str] = &["repositoryIdentity", "scriptsEditable"];
+    const PROJECT_OPTIONAL: &[&str] = &["repositoryIdentity", "projectIcon", "scriptsEditable"];
 
     const SCRIPT_REQUIRED: &[&str] = &["id", "name", "command", "icon", "runOnWorktreeCreate"];
     // `port` is a fork addition to `ProjectScript`: it stands in for upstream's
@@ -3028,6 +3136,9 @@ mod tests {
                 id: id.to_string(),
                 name: name.to_string(),
                 description: None,
+                icon: None,
+                default_model: None,
+                default_effort: None,
                 kind: "blank".to_string(),
                 docker_image: None,
                 docker_access: None,
@@ -3076,6 +3187,104 @@ mod tests {
         assert_eq!(projects[0]["title"], "Alpha");
         assert_eq!(projects[1]["id"], "ws-b");
         assert_ne!(projects[0]["workspaceRoot"], projects[1]["workspaceRoot"]);
+    }
+
+    #[test]
+    fn the_workspace_defaults_reach_the_client_as_an_icon_and_a_model_selection() {
+        let mut ws = workspace("ws-a", "Alpha");
+        ws.workspace.icon = Some(json!({ "kind": "lucide", "name": "rocket", "color": "blue" }));
+        ws.workspace.default_model = Some("opus".to_string());
+        ws.workspace.default_effort = Some("max".to_string());
+
+        let project = project(&ws);
+
+        assert_eq!(project["projectIcon"]["name"], "rocket");
+        assert_eq!(
+            project["defaultModelSelection"],
+            json!({
+                "instanceId": "claudeAgent",
+                "model": "claude-opus-5",
+                "options": [{ "id": "effort", "value": "max" }],
+            }),
+            "the catalog id is published as T3's own slug, under the instance's effort descriptor"
+        );
+    }
+
+    #[test]
+    fn a_model_this_catalog_does_not_publish_selects_nothing() {
+        let mut ws = workspace("ws-a", "Alpha");
+        ws.workspace.default_model = Some("retired-model".to_string());
+        assert_eq!(project(&ws)["defaultModelSelection"], Value::Null);
+
+        // The `default` sentinel names no model, so it is not a selection either.
+        ws.workspace.default_model = Some(UNRESOLVED_MODEL_CHOICE.to_string());
+        assert_eq!(project(&ws)["defaultModelSelection"], Value::Null);
+    }
+
+    #[test]
+    fn the_widened_half_of_the_listing_discloses_neither_default() {
+        let mut ws = a_referenced_workspace("ws-a", "Alpha");
+        ws.workspace.icon = Some(json!({ "kind": "emoji", "emoji": "🚀" }));
+        ws.workspace.default_model = Some("opus".to_string());
+
+        let project = project(&ws);
+
+        assert_eq!(project["projectIcon"], Value::Null);
+        assert_eq!(project["defaultModelSelection"], Value::Null);
+    }
+
+    #[test]
+    fn an_effort_the_selected_model_does_not_offer_selects_nothing() {
+        let mut ws = workspace("ws-a", "Alpha");
+        ws.workspace.default_model = Some("gpt-5.6-luna".to_string());
+        ws.workspace.default_effort = Some("ultra".to_string());
+
+        // `ultra` is a level its sibling models take and this one rejects, and
+        // Codex fails the turn on one it does not know.
+        assert_eq!(
+            project(&ws)["defaultModelSelection"]["options"],
+            Value::Null
+        );
+
+        ws.workspace.default_model = Some("gpt-5.6-sol".to_string());
+        assert_eq!(
+            project(&ws)["defaultModelSelection"]["options"],
+            json!([{ "id": "reasoningEffort", "value": "ultra" }])
+        );
+
+        // Whitespace is not a level either.
+        ws.workspace.default_effort = Some("  ".to_string());
+        assert_eq!(
+            project(&ws)["defaultModelSelection"]["options"],
+            Value::Null
+        );
+    }
+
+    #[test]
+    fn an_icon_the_clients_schema_rejects_is_not_published() {
+        let mut ws = workspace("ws-a", "Alpha");
+        for icon in [
+            json!({ "kind": "lucide", "name": "rocket", "color": "puce" }),
+            json!({ "kind": "lucide", "name": "Rocket Ship", "color": "blue" }),
+            json!({ "kind": "lucide", "name": "rocket" }),
+            json!({ "kind": "emoji", "emoji": "" }),
+            json!({ "kind": "sticker", "sticker": "rocket" }),
+            json!("rocket"),
+        ] {
+            ws.workspace.icon = Some(icon.clone());
+            assert_eq!(
+                project(&ws)["projectIcon"],
+                Value::Null,
+                "the client drops a project whose icon it cannot decode: {icon}"
+            );
+        }
+
+        ws.workspace.icon = Some(json!({ "kind": "emoji", "emoji": " 🚀 " }));
+        assert_eq!(
+            project(&ws)["projectIcon"],
+            json!({ "kind": "emoji", "emoji": "🚀" }),
+            "the schema takes a trimmed string, so the stored one is trimmed"
+        );
     }
 
     #[test]

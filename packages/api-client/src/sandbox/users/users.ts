@@ -30,6 +30,7 @@ import type {
   CreateUserRequest,
   CreateUserResponse,
   ErrorBody,
+  ListUsersHandlerParams,
   MessageResponse,
   SendDmRequest,
   SendDmResponse,
@@ -52,7 +53,7 @@ type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
 
 
 /**
- * @summary List all registered users.
+ * @summary List the user directory.
  */
 export type listUsersHandlerResponse200 = {
   data: UserListResponse
@@ -73,17 +74,24 @@ export type listUsersHandlerResponseError = (listUsersHandlerResponse500) & {
 
 export type listUsersHandlerResponse = (listUsersHandlerResponseSuccess | listUsersHandlerResponseError)
 
-export const getListUsersHandlerUrl = () => {
+export const getListUsersHandlerUrl = (params?: ListUsersHandlerParams,) => {
+  const normalizedParams = new URLSearchParams();
 
+  Object.entries(params || {}).forEach(([key, value]) => {
+    
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
 
-  
+  const stringifiedParams = normalizedParams.toString();
 
-  return `/api/v1/users`
+  return stringifiedParams.length > 0 ? `/api/v1/users?${stringifiedParams}` : `/api/v1/users`
 }
 
-export const listUsersHandler = async ( options?: RequestInit): Promise<listUsersHandlerResponse> => {
+export const listUsersHandler = async (params?: ListUsersHandlerParams, options?: RequestInit): Promise<listUsersHandlerResponse> => {
   
-  return customInstance<listUsersHandlerResponse>(getListUsersHandlerUrl(),
+  return customInstance<listUsersHandlerResponse>(getListUsersHandlerUrl(params),
   {      
     ...options,
     method: 'GET'
@@ -96,23 +104,23 @@ export const listUsersHandler = async ( options?: RequestInit): Promise<listUser
 
 
 
-export const getListUsersHandlerQueryKey = () => {
+export const getListUsersHandlerQueryKey = (params?: ListUsersHandlerParams,) => {
     return [
-    `/api/v1/users`
+    `/api/v1/users`, ...(params ? [params] : [])
     ] as const;
     }
 
     
-export const getListUsersHandlerQueryOptions = <TData = Awaited<ReturnType<typeof listUsersHandler>>, TError = ErrorType<ErrorBody>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listUsersHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+export const getListUsersHandlerQueryOptions = <TData = Awaited<ReturnType<typeof listUsersHandler>>, TError = ErrorType<ErrorBody>>(params?: ListUsersHandlerParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listUsersHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
 
-  const queryKey =  queryOptions?.queryKey ?? getListUsersHandlerQueryKey();
+  const queryKey =  queryOptions?.queryKey ?? getListUsersHandlerQueryKey(params);
 
   
 
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof listUsersHandler>>> = ({ signal }) => listUsersHandler({ signal, ...requestOptions });
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listUsersHandler>>> = ({ signal }) => listUsersHandler(params, { signal, ...requestOptions });
 
       
 
@@ -126,7 +134,7 @@ export type ListUsersHandlerQueryError = ErrorType<ErrorBody>
 
 
 export function useListUsersHandler<TData = Awaited<ReturnType<typeof listUsersHandler>>, TError = ErrorType<ErrorBody>>(
-  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listUsersHandler>>, TError, TData>> & Pick<
+ params: undefined |  ListUsersHandlerParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listUsersHandler>>, TError, TData>> & Pick<
         DefinedInitialDataOptions<
           Awaited<ReturnType<typeof listUsersHandler>>,
           TError,
@@ -136,7 +144,7 @@ export function useListUsersHandler<TData = Awaited<ReturnType<typeof listUsersH
  , queryClient?: QueryClient
   ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
 export function useListUsersHandler<TData = Awaited<ReturnType<typeof listUsersHandler>>, TError = ErrorType<ErrorBody>>(
-  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listUsersHandler>>, TError, TData>> & Pick<
+ params?: ListUsersHandlerParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listUsersHandler>>, TError, TData>> & Pick<
         UndefinedInitialDataOptions<
           Awaited<ReturnType<typeof listUsersHandler>>,
           TError,
@@ -146,19 +154,19 @@ export function useListUsersHandler<TData = Awaited<ReturnType<typeof listUsersH
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
 export function useListUsersHandler<TData = Awaited<ReturnType<typeof listUsersHandler>>, TError = ErrorType<ErrorBody>>(
-  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listUsersHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ params?: ListUsersHandlerParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listUsersHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
 /**
- * @summary List all registered users.
+ * @summary List the user directory.
  */
 
 export function useListUsersHandler<TData = Awaited<ReturnType<typeof listUsersHandler>>, TError = ErrorType<ErrorBody>>(
-  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listUsersHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ params?: ListUsersHandlerParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listUsersHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient 
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> } {
 
-  const queryOptions = getListUsersHandlerQueryOptions(options)
+  const queryOptions = getListUsersHandlerQueryOptions(params,options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> };
 
@@ -166,14 +174,14 @@ export function useListUsersHandler<TData = Awaited<ReturnType<typeof listUsersH
 }
 
 /**
- * @summary List all registered users.
+ * @summary List the user directory.
  */
 export const prefetchListUsersHandlerQuery = async <TData = Awaited<ReturnType<typeof listUsersHandler>>, TError = ErrorType<ErrorBody>>(
- queryClient: QueryClient,  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listUsersHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ queryClient: QueryClient, params?: ListUsersHandlerParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listUsersHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
 
   ): Promise<QueryClient> => {
 
-  const queryOptions = getListUsersHandlerQueryOptions(options)
+  const queryOptions = getListUsersHandlerQueryOptions(params,options)
 
   await queryClient.prefetchQuery(queryOptions);
 

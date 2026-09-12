@@ -9,6 +9,13 @@ use std::collections::{BTreeMap, HashMap};
 use serde::{Deserialize, Serialize};
 
 use crate::enums::Scope;
+use crate::patch::deserialize_optional_nullable_field;
+
+/// The glyph a client renders beside a Workspace name.
+///
+/// The domain enum itself; a DTO naming it names the same shape the column
+/// stores, so there is no wire spelling to convert to.
+pub use moatless_types::workspace::WorkspaceIcon;
 
 // =============================================================================
 // ResourceConfig
@@ -177,6 +184,8 @@ pub struct CreateWorkspaceRequest {
     #[serde(default)]
     pub description: Option<String>,
     #[serde(default)]
+    pub icon: Option<WorkspaceIcon>,
+    #[serde(default)]
     pub scope: Option<Scope>,
     /// Identity every Task on this Workspace acts as on a git host. When set it
     /// outranks the Task's own owner.
@@ -204,6 +213,11 @@ pub struct CreateWorkspaceRequest {
     pub resources: Option<ResourceConfig>,
     #[serde(default)]
     pub network_profile: Option<String>,
+    // --- Task defaults ---
+    #[serde(default)]
+    pub default_model: Option<String>,
+    #[serde(default)]
+    pub default_effort: Option<String>,
     // --- Composition ---
     /// Repository placements. May be empty (a blank/scratch workspace).
     #[serde(default)]
@@ -238,6 +252,28 @@ pub struct UpdateWorkspaceRequest {
     pub scripts: Option<Vec<ScriptConfig>>,
     pub resources: Option<ResourceConfig>,
     pub network_profile: Option<String>,
+    /// Omit to leave the icon unchanged; send `null` to clear it back to the
+    /// client's automatic glyph. The same holds for the two fields below.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_nullable_field"
+    )]
+    pub icon: Option<Option<WorkspaceIcon>>,
+    /// Model catalog id a new Task on this Workspace starts with.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_nullable_field"
+    )]
+    pub default_model: Option<Option<String>>,
+    /// Reasoning-effort level paired with `default_model`.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_nullable_field"
+    )]
+    pub default_effort: Option<Option<String>>,
 }
 
 // =============================================================================
@@ -288,6 +324,8 @@ pub struct WorkspaceResponse {
     pub id: String,
     pub name: String,
     pub description: Option<String>,
+    #[serde(default)]
+    pub icon: Option<WorkspaceIcon>,
     /// Derived from the placement count: `blank` (0), `single` (1), `multi` (n).
     pub kind: String,
     pub docker_image: Option<String>,
@@ -303,6 +341,13 @@ pub struct WorkspaceResponse {
     pub resources: Option<ResourceConfig>,
     #[serde(default)]
     pub network_profile: Option<String>,
+    /// Model catalog id a new Task on this Workspace starts with. An open
+    /// string: the catalog is deployment configuration.
+    #[serde(default)]
+    pub default_model: Option<String>,
+    /// Reasoning-effort level paired with `default_model`.
+    #[serde(default)]
+    pub default_effort: Option<String>,
     /// `manual` or `git`. Git-synced workspaces are read-only in the UI and
     /// write API — only a re-sync from git changes them.
     #[serde(default)]
@@ -423,6 +468,69 @@ pub struct WorkspaceCredentialResponse {
     pub updated_by: String,
     pub created_at: String,
     pub updated_at: String,
+}
+
+#[cfg(test)]
+mod update_workspace_request_tests {
+    use super::{UpdateWorkspaceRequest, WorkspaceIcon};
+    use serde_json::json;
+
+    #[test]
+    fn the_clearable_fields_distinguish_omitted_null_and_value() {
+        let omitted: UpdateWorkspaceRequest = serde_json::from_value(json!({})).unwrap();
+        assert_eq!(omitted.icon, None);
+        assert_eq!(omitted.default_model, None);
+        assert_eq!(omitted.default_effort, None);
+
+        let cleared: UpdateWorkspaceRequest = serde_json::from_value(json!({
+            "icon": null,
+            "defaultModel":null,
+            "defaultEffort":null,
+        }))
+        .unwrap();
+        assert_eq!(cleared.icon, Some(None));
+        assert_eq!(cleared.default_model, Some(None));
+        assert_eq!(cleared.default_effort, Some(None));
+
+        let set: UpdateWorkspaceRequest = serde_json::from_value(json!({
+            "icon": { "kind": "emoji", "emoji": "🚀" },
+            "defaultModel":"opus",
+            "defaultEffort":"high",
+        }))
+        .unwrap();
+        assert_eq!(
+            set.icon,
+            Some(Some(WorkspaceIcon::Emoji {
+                emoji: "🚀".to_string()
+            }))
+        );
+        assert_eq!(set.default_model, Some(Some("opus".to_string())));
+        assert_eq!(set.default_effort, Some(Some("high".to_string())));
+    }
+
+    /// `moat workspaces update` sends this struct with every field it has no
+    /// flag for left `None`, so an omitted field must not arrive as a clear.
+    #[test]
+    fn an_omitted_field_survives_a_round_trip_as_omitted() {
+        let round_trip = |patch: UpdateWorkspaceRequest| -> UpdateWorkspaceRequest {
+            serde_json::from_str(&serde_json::to_string(&patch).unwrap()).unwrap()
+        };
+
+        let omitted = round_trip(UpdateWorkspaceRequest::default());
+        assert_eq!(omitted.icon, None);
+        assert_eq!(omitted.default_model, None);
+        assert_eq!(omitted.default_effort, None);
+
+        let cleared = round_trip(UpdateWorkspaceRequest {
+            icon: Some(None),
+            default_model: Some(None),
+            default_effort: Some(None),
+            ..UpdateWorkspaceRequest::default()
+        });
+        assert_eq!(cleared.icon, Some(None));
+        assert_eq!(cleared.default_model, Some(None));
+        assert_eq!(cleared.default_effort, Some(None));
+    }
 }
 
 #[cfg(test)]

@@ -32,11 +32,14 @@ import type {
   ForgejoInstancesResponse,
   GitHubAppRegistrationResponse,
   GitHubAppsResponse,
+  ProviderAppSummary,
+  ProviderAppsResponse,
   RegisterForgejoInstanceRequest,
   RegisterGitHubAppRequest,
   RemoveGitHubAppResponse,
   RotateGitHubAppKeyRequest,
-  SaveAdapterAppRequest
+  SaveAdapterAppRequest,
+  SaveProviderAppRequest
 } from '.././model';
 
 import { customInstance } from '../../../custom-instance';
@@ -665,6 +668,333 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
         TContext
       > => {
       return useMutation(getAdminDeleteAdapterAppMutationOptions(options), queryClient);
+    }
+    export type adminListProviderAppsResponse200 = {
+  data: ProviderAppsResponse
+  status: 200
+}
+
+export type adminListProviderAppsResponse401 = {
+  data: ErrorBody
+  status: 401
+}
+
+export type adminListProviderAppsResponse403 = {
+  data: ErrorBody
+  status: 403
+}
+    
+export type adminListProviderAppsResponseSuccess = (adminListProviderAppsResponse200) & {
+  headers: Headers;
+};
+export type adminListProviderAppsResponseError = (adminListProviderAppsResponse401 | adminListProviderAppsResponse403) & {
+  headers: Headers;
+};
+
+export type adminListProviderAppsResponse = (adminListProviderAppsResponseSuccess | adminListProviderAppsResponseError)
+
+export const getAdminListProviderAppsUrl = () => {
+
+
+  
+
+  return `/api/v1/admin/settings/apps`
+}
+
+export const adminListProviderApps = async ( options?: RequestInit): Promise<adminListProviderAppsResponse> => {
+  
+  return customInstance<adminListProviderAppsResponse>(getAdminListProviderAppsUrl(),
+  {      
+    ...options,
+    method: 'GET'
+    
+    
+  }
+);}
+
+
+
+
+
+export const getAdminListProviderAppsQueryKey = () => {
+    return [
+    `/api/v1/admin/settings/apps`
+    ] as const;
+    }
+
+    
+export const getAdminListProviderAppsQueryOptions = <TData = Awaited<ReturnType<typeof adminListProviderApps>>, TError = ErrorType<ErrorBody>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof adminListProviderApps>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getAdminListProviderAppsQueryKey();
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof adminListProviderApps>>> = ({ signal }) => adminListProviderApps({ signal, ...requestOptions });
+
+      
+
+      
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof adminListProviderApps>>, TError, TData> & { queryKey: DataTag<QueryKey, TData> }
+}
+
+export type AdminListProviderAppsQueryResult = NonNullable<Awaited<ReturnType<typeof adminListProviderApps>>>
+export type AdminListProviderAppsQueryError = ErrorType<ErrorBody>
+
+
+export function useAdminListProviderApps<TData = Awaited<ReturnType<typeof adminListProviderApps>>, TError = ErrorType<ErrorBody>>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof adminListProviderApps>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof adminListProviderApps>>,
+          TError,
+          Awaited<ReturnType<typeof adminListProviderApps>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+export function useAdminListProviderApps<TData = Awaited<ReturnType<typeof adminListProviderApps>>, TError = ErrorType<ErrorBody>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof adminListProviderApps>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof adminListProviderApps>>,
+          TError,
+          Awaited<ReturnType<typeof adminListProviderApps>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+export function useAdminListProviderApps<TData = Awaited<ReturnType<typeof adminListProviderApps>>, TError = ErrorType<ErrorBody>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof adminListProviderApps>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+
+export function useAdminListProviderApps<TData = Awaited<ReturnType<typeof adminListProviderApps>>, TError = ErrorType<ErrorBody>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof adminListProviderApps>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> } {
+
+  const queryOptions = getAdminListProviderAppsQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+export const prefetchAdminListProviderAppsQuery = async <TData = Awaited<ReturnType<typeof adminListProviderApps>>, TError = ErrorType<ErrorBody>>(
+ queryClient: QueryClient,  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof adminListProviderApps>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+
+  ): Promise<QueryClient> => {
+
+  const queryOptions = getAdminListProviderAppsQueryOptions(options)
+
+  await queryClient.prefetchQuery(queryOptions);
+
+  return queryClient;
+}
+
+
+
+export type adminSaveProviderAppResponse200 = {
+  data: ProviderAppSummary
+  status: 200
+}
+
+export type adminSaveProviderAppResponse400 = {
+  data: ErrorBody
+  status: 400
+}
+
+export type adminSaveProviderAppResponse401 = {
+  data: ErrorBody
+  status: 401
+}
+
+export type adminSaveProviderAppResponse403 = {
+  data: ErrorBody
+  status: 403
+}
+
+export type adminSaveProviderAppResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+
+export type adminSaveProviderAppResponse502 = {
+  data: ErrorBody
+  status: 502
+}
+    
+export type adminSaveProviderAppResponseSuccess = (adminSaveProviderAppResponse200) & {
+  headers: Headers;
+};
+export type adminSaveProviderAppResponseError = (adminSaveProviderAppResponse400 | adminSaveProviderAppResponse401 | adminSaveProviderAppResponse403 | adminSaveProviderAppResponse404 | adminSaveProviderAppResponse502) & {
+  headers: Headers;
+};
+
+export type adminSaveProviderAppResponse = (adminSaveProviderAppResponseSuccess | adminSaveProviderAppResponseError)
+
+export const getAdminSaveProviderAppUrl = (provider: string,
+    key: string,) => {
+
+
+  
+
+  return `/api/v1/admin/settings/apps/${provider}/${key}`
+}
+
+export const adminSaveProviderApp = async (provider: string,
+    key: string,
+    saveProviderAppRequest: SaveProviderAppRequest, options?: RequestInit): Promise<adminSaveProviderAppResponse> => {
+  
+  return customInstance<adminSaveProviderAppResponse>(getAdminSaveProviderAppUrl(provider,key),
+  {      
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      saveProviderAppRequest,)
+  }
+);}
+
+
+
+
+export const getAdminSaveProviderAppMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminSaveProviderApp>>, TError,{provider: string;key: string;data: SaveProviderAppRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminSaveProviderApp>>, TError,{provider: string;key: string;data: SaveProviderAppRequest}, TContext> => {
+
+const mutationKey = ['adminSaveProviderApp'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminSaveProviderApp>>, {provider: string;key: string;data: SaveProviderAppRequest}> = (props) => {
+          const {provider,key,data} = props ?? {};
+
+          return  adminSaveProviderApp(provider,key,data,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminSaveProviderAppMutationResult = NonNullable<Awaited<ReturnType<typeof adminSaveProviderApp>>>
+    export type AdminSaveProviderAppMutationBody = SaveProviderAppRequest
+    export type AdminSaveProviderAppMutationError = ErrorType<ErrorBody>
+
+    export const useAdminSaveProviderApp = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminSaveProviderApp>>, TError,{provider: string;key: string;data: SaveProviderAppRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof adminSaveProviderApp>>,
+        TError,
+        {provider: string;key: string;data: SaveProviderAppRequest},
+        TContext
+      > => {
+      return useMutation(getAdminSaveProviderAppMutationOptions(options), queryClient);
+    }
+    export type adminRemoveProviderAppResponse204 = {
+  data: void
+  status: 204
+}
+
+export type adminRemoveProviderAppResponse401 = {
+  data: ErrorBody
+  status: 401
+}
+
+export type adminRemoveProviderAppResponse403 = {
+  data: ErrorBody
+  status: 403
+}
+
+export type adminRemoveProviderAppResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+    
+export type adminRemoveProviderAppResponseSuccess = (adminRemoveProviderAppResponse204) & {
+  headers: Headers;
+};
+export type adminRemoveProviderAppResponseError = (adminRemoveProviderAppResponse401 | adminRemoveProviderAppResponse403 | adminRemoveProviderAppResponse404) & {
+  headers: Headers;
+};
+
+export type adminRemoveProviderAppResponse = (adminRemoveProviderAppResponseSuccess | adminRemoveProviderAppResponseError)
+
+export const getAdminRemoveProviderAppUrl = (provider: string,
+    key: string,) => {
+
+
+  
+
+  return `/api/v1/admin/settings/apps/${provider}/${key}`
+}
+
+export const adminRemoveProviderApp = async (provider: string,
+    key: string, options?: RequestInit): Promise<adminRemoveProviderAppResponse> => {
+  
+  return customInstance<adminRemoveProviderAppResponse>(getAdminRemoveProviderAppUrl(provider,key),
+  {      
+    ...options,
+    method: 'DELETE'
+    
+    
+  }
+);}
+
+
+
+
+export const getAdminRemoveProviderAppMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminRemoveProviderApp>>, TError,{provider: string;key: string}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminRemoveProviderApp>>, TError,{provider: string;key: string}, TContext> => {
+
+const mutationKey = ['adminRemoveProviderApp'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminRemoveProviderApp>>, {provider: string;key: string}> = (props) => {
+          const {provider,key} = props ?? {};
+
+          return  adminRemoveProviderApp(provider,key,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminRemoveProviderAppMutationResult = NonNullable<Awaited<ReturnType<typeof adminRemoveProviderApp>>>
+    
+    export type AdminRemoveProviderAppMutationError = ErrorType<ErrorBody>
+
+    export const useAdminRemoveProviderApp = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminRemoveProviderApp>>, TError,{provider: string;key: string}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof adminRemoveProviderApp>>,
+        TError,
+        {provider: string;key: string},
+        TContext
+      > => {
+      return useMutation(getAdminRemoveProviderAppMutationOptions(options), queryClient);
     }
     export type adminListGithubAppsResponse200 = {
   data: GitHubAppsResponse

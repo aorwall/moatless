@@ -296,6 +296,11 @@ pub async fn run(
             let req = CreateWorkspaceRequest {
                 name,
                 description,
+                // Presentation and task defaults are set from the settings UI;
+                // this command has no flags for them.
+                icon: None,
+                default_model: None,
+                default_effort: None,
                 scope: scope.as_deref().and_then(parse_scope),
                 docker_image,
                 docker_access,
@@ -338,6 +343,10 @@ pub async fn run(
             let req = UpdateWorkspaceRequest {
                 name,
                 description,
+                // See the create arm above: absent leaves each one unchanged.
+                icon: None,
+                default_model: None,
+                default_effort: None,
                 scope: parsed_scope,
                 docker_image,
                 docker_access,
@@ -377,6 +386,10 @@ pub async fn run(
             let req = UpdateWorkspaceRequest {
                 name,
                 description,
+                // See the create arm above.
+                icon: None,
+                default_model: None,
+                default_effort: None,
                 scope: None,
                 docker_image,
                 docker_access,

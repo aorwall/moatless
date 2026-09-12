@@ -24,6 +24,7 @@ const FEATURE_FLAGS_FALLBACK: FeatureFlagsResponse = {
   show_codex_settings: true,
   show_model_selector: true,
   device_pairing: false,
+  workspace_settings: false,
 }
 
 async function loadFeatureFlags(): Promise<FeatureFlagsResponse> {

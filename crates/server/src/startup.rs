@@ -534,6 +534,7 @@ mod openapi_dump_tests {
                 "show_codex_settings",
                 "show_model_selector",
                 "slack",
+                "workspace_settings",
             ]
         );
     }

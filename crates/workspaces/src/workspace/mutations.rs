@@ -10,6 +10,14 @@ use crate::repository::dao::RepositoryDao;
 use moatless_ports::identity::UserResolver;
 use moatless_types::access_control::{ScopeContext, resolve_scope_for_create};
 
+/// Whether this Workspace takes a write at all.
+///
+/// The subject is the Workspace's provenance, not the field: a git-synced one
+/// refuses the whole `PATCH`, including the fields `DesiredWorkspace` never
+/// declares and `GitSyncService` therefore never reconciles — `run_as_user_id`,
+/// `icon`, `default_model`, `default_effort`. Editing one of those is
+/// `override_workspace`, which is the write that makes the Workspace stop being
+/// git's and says so.
 fn ensure_workspace_mutable(ws: &Workspace) -> Result<(), WorkspaceError> {
     if ws.deleted {
         return Err(WorkspaceError::Conflict(
@@ -156,6 +164,7 @@ pub async fn create_workspace(
         id: workspace_id.clone(),
         name: req.name,
         description: req.description,
+        icon: req.icon,
         kind: kind_for(req.repos.len()),
         docker_image: req.docker_image,
         docker_access: req.docker_access,
@@ -167,6 +176,8 @@ pub async fn create_workspace(
         scripts: req.scripts.map(script_configs_from_wire),
         resources: req.resources.map(resource_config_from_wire).transpose()?,
         network_profile: req.network_profile,
+        default_model: req.default_model,
+        default_effort: req.default_effort,
         source: WorkspaceSource::Manual,
         source_repository_id: None,
         source_key: None,
@@ -267,6 +278,9 @@ pub async fn update_workspace(
             .map(|config| resource_config_from_wire(config).map(Some))
             .transpose()?,
         network_profile: req.network_profile.map(Some),
+        icon: req.icon,
+        default_model: req.default_model,
+        default_effort: req.default_effort,
         run_as_user_id,
         kind: None,
         // Provenance not editable via the write API.
@@ -331,6 +345,9 @@ pub async fn override_workspace(
             .map(|config| resource_config_from_wire(config).map(Some))
             .transpose()?,
         network_profile: req.network_profile.map(Some),
+        icon: req.icon,
+        default_model: req.default_model,
+        default_effort: req.default_effort,
         run_as_user_id,
         // Mark as manually managed; provenance columns stay unchanged.
         source: Some(WorkspaceSource::Manual),
@@ -549,6 +566,9 @@ mod tests {
             id: "ws_1".to_string(),
             name: "w".to_string(),
             description: None,
+            icon: None,
+            default_model: None,
+            default_effort: None,
             kind: WorkspaceKind::Single,
             docker_image: None,
             docker_access: None,

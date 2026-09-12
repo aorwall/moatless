@@ -279,19 +279,21 @@ impl WorkspaceDao for PgWorkspaceDao {
     async fn insert_workspace(&self, row: &Workspace) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"INSERT INTO workspaces (
-                   id, name, description, kind,
+                   id, name, description, icon, kind,
                    docker_image, docker_access, sandbox_service_account,
                    system_prompt, setup_commands, env_vars, servers, scripts, resources,
-                   network_profile, source, source_repository_id, source_key, source_config_path,
+                   network_profile, default_model, default_effort,
+                   source, source_repository_id, source_key, source_config_path,
                    scope, owner_user_id, run_as_user_id, created_by, deleted
                ) VALUES (
-                   $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
-                   $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23
+                   $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
+                   $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26
                )"#,
         )
         .bind(&row.id)
         .bind(&row.name)
         .bind(&row.description)
+        .bind(encode_column(row.icon.as_ref(), "icon")?)
         .bind(row.kind.as_str())
         .bind(&row.docker_image)
         .bind(row.docker_access)
@@ -306,6 +308,8 @@ impl WorkspaceDao for PgWorkspaceDao {
         .bind(encode_column(row.scripts.as_ref(), "scripts")?)
         .bind(encode_column(row.resources.as_ref(), "resources")?)
         .bind(&row.network_profile)
+        .bind(&row.default_model)
+        .bind(&row.default_effort)
         .bind(row.source.as_str())
         .bind(&row.source_repository_id)
         .bind(&row.source_key)
@@ -420,6 +424,7 @@ impl WorkspaceDao for PgWorkspaceDao {
 
         push_set!(name);
         push_set!(description);
+        push_set!(icon);
         push_set!(kind);
         push_set!(scope);
         push_set!(owner_user_id);
@@ -434,6 +439,8 @@ impl WorkspaceDao for PgWorkspaceDao {
         push_set!(scripts);
         push_set!(resources);
         push_set!(network_profile);
+        push_set!(default_model);
+        push_set!(default_effort);
         push_set!(source);
         push_set!(source_repository_id);
         push_set!(source_key);
@@ -475,6 +482,7 @@ impl WorkspaceDao for PgWorkspaceDao {
 
         bind_opt!(name);
         bind_opt!(description);
+        bind_json!(icon);
         if let Some(kind) = patch.kind {
             q = q.bind(kind.as_str());
         }
@@ -493,6 +501,8 @@ impl WorkspaceDao for PgWorkspaceDao {
         bind_json!(scripts);
         bind_json!(resources);
         bind_opt!(network_profile);
+        bind_opt!(default_model);
+        bind_opt!(default_effort);
         if let Some(source) = patch.source {
             q = q.bind(source.as_str());
         }

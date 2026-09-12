@@ -9,8 +9,19 @@ import type { ResourceConfig } from './resourceConfig';
 import type { Scope } from './scope';
 import type { ServerConfig } from './serverConfig';
 import type { UpdateWorkspaceRequestEnvVars } from './updateWorkspaceRequestEnvVars';
+import type { WorkspaceIcon } from './workspaceIcon';
 
 export interface UpdateWorkspaceRequest {
+  /**
+   * See [`WorkspaceResponse::default_effort`]. `Some(None)` clears it.
+   * @nullable
+   */
+  defaultEffort?: string | null;
+  /**
+   * See [`WorkspaceResponse::default_model`]. `Some(None)` clears it.
+   * @nullable
+   */
+  defaultModel?: string | null;
   /** @nullable */
   description?: string | null;
   /** @nullable */
@@ -19,6 +30,7 @@ export interface UpdateWorkspaceRequest {
   dockerImage?: string | null;
   /** @nullable */
   envVars?: UpdateWorkspaceRequestEnvVars;
+  icon?: null | WorkspaceIcon;
   /** @nullable */
   name?: string | null;
   /** @nullable */

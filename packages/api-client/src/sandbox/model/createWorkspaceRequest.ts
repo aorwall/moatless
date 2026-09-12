@@ -9,9 +9,14 @@ import type { CreateWorkspaceRequestEnvVars } from './createWorkspaceRequestEnvV
 import type { ResourceConfig } from './resourceConfig';
 import type { Scope } from './scope';
 import type { ServerConfig } from './serverConfig';
+import type { WorkspaceIcon } from './workspaceIcon';
 import type { WorkspaceRepoInput } from './workspaceRepoInput';
 
 export interface CreateWorkspaceRequest {
+  /** @nullable */
+  defaultEffort?: string | null;
+  /** @nullable */
+  defaultModel?: string | null;
   /** @nullable */
   description?: string | null;
   /** @nullable */
@@ -20,6 +25,7 @@ export interface CreateWorkspaceRequest {
   dockerImage?: string | null;
   /** @nullable */
   envVars?: CreateWorkspaceRequestEnvVars;
+  icon?: null | WorkspaceIcon;
   name: string;
   /** @nullable */
   networkProfile?: string | null;

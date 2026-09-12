@@ -602,13 +602,14 @@ async fn meta_update(
 /// The project fields this surface changes: its Workspace's Scripts, and
 /// nothing else.
 ///
-/// `project.meta.update` is one command carrying seven optional fields, and
-/// only one of them names something a Workspace holds. The rest — the title,
-/// the root path, the default model, the favicon, the env mode — describe a T3
-/// project, which here is a *projection* of a Moatless Workspace: its title is
-/// the workspace's name, its root is synthesized from the id, and its model
-/// belongs to a Turn. Accepting the command wholesale and quietly dropping
-/// those would report a save that did not happen, so each is refused by name.
+/// `project.meta.update` is one command carrying eight optional fields, and
+/// only one of them names something this surface may set. The rest — the title,
+/// the root path, the default model and effort, the icon, the favicon, the env
+/// mode — describe a T3 project, which here is a *projection* of a Moatless
+/// Workspace: its root is synthesized from the id, and the rest are Workspace
+/// columns the settings page edits over REST. Accepting the command wholesale
+/// and quietly dropping those would report a save that did not happen, so each
+/// is refused by name.
 async fn project_meta_update(
     ctx: &CommandContext<'_>,
     viewer: &ScopeContext,
@@ -660,12 +661,13 @@ async fn project_meta_update(
 
 /// The `project.meta.update` fields that describe a Moatless Workspace rather
 /// than anything this surface may set.
-const PROJECT_FIELDS_MOATLESS_OWNS: [&str; 5] = [
+const PROJECT_FIELDS_MOATLESS_OWNS: [&str; 6] = [
     "title",
     "workspaceRoot",
     "defaultModelSelection",
     "defaultThreadEnvMode",
     "faviconPath",
+    "projectIcon",
 ];
 
 /// An answer to what the agent asked.

@@ -51,6 +51,19 @@ crate::string_enum!(
     }
 );
 
+/// The glyph a client renders beside a Workspace name.
+///
+/// Mirrors the T3 client's `ProjectIconOverride`: it is the only surface that
+/// picks one, and its own schema enumerates the legal glyph names and colours.
+/// Neither vocabulary is restated here — both would drift from the client's.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum WorkspaceIcon {
+    Lucide { name: String, color: String },
+    Emoji { emoji: String },
+}
+
 /// The composition of one or more repositories plus the run configuration a
 /// Task runs against.
 ///
@@ -62,6 +75,7 @@ pub struct Workspace {
     pub id: String,
     pub name: String,
     pub description: Option<String>,
+    pub icon: Option<WorkspaceIcon>,
     pub kind: WorkspaceKind,
     // --- Run configuration ---
     pub docker_image: Option<String>,
@@ -78,6 +92,12 @@ pub struct Workspace {
     /// its own, and the set of valid names is deployment configuration, so this
     /// stays an open string.
     pub network_profile: Option<String>,
+    // --- Task defaults ---
+    /// Model catalog id (`opus`, `sonnet`) a new Task on this Workspace starts
+    /// with. An open string: the catalog is deployment configuration.
+    pub default_model: Option<String>,
+    /// Reasoning-effort level paired with [`Self::default_model`] (`high`).
+    pub default_effort: Option<String>,
     // --- Provenance ---
     pub source: WorkspaceSource,
     /// The repository whose git tree declared this Workspace.
@@ -1024,6 +1044,26 @@ mod tests {
         assert_eq!(
             environment_keys.len(),
             WorkspaceCredentialProvider::ALL.len()
+        );
+    }
+
+    /// The client reads this shape, and nothing on its side is vendored here.
+    #[test]
+    fn a_workspace_icon_serializes_as_the_clients_project_icon_override() {
+        assert_eq!(
+            serde_json::to_value(WorkspaceIcon::Lucide {
+                name: "rocket".to_string(),
+                color: "blue".to_string(),
+            })
+            .unwrap(),
+            serde_json::json!({ "kind": "lucide", "name": "rocket", "color": "blue" })
+        );
+        assert_eq!(
+            serde_json::to_value(WorkspaceIcon::Emoji {
+                emoji: "🚀".to_string(),
+            })
+            .unwrap(),
+            serde_json::json!({ "kind": "emoji", "emoji": "🚀" })
         );
     }
 

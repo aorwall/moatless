@@ -8,6 +8,7 @@
 import type { ResourceConfig } from './resourceConfig';
 import type { Scope } from './scope';
 import type { ServerConfig } from './serverConfig';
+import type { WorkspaceIcon } from './workspaceIcon';
 import type { WorkspaceRepoResponse } from './workspaceRepoResponse';
 import type { WorkspaceResponseEnvVars } from './workspaceResponseEnvVars';
 
@@ -16,6 +17,17 @@ export interface WorkspaceResponse {
   createdAt?: string | null;
   /** @nullable */
   createdBy?: string | null;
+  /**
+   * Reasoning-effort level paired with `default_model`.
+   * @nullable
+   */
+  defaultEffort?: string | null;
+  /**
+   * Model catalog id a new Task on this Workspace starts with. An open
+string: the catalog is deployment configuration.
+   * @nullable
+   */
+  defaultModel?: string | null;
   /** Soft-deleted workspaces are normally hidden. Git-origin tombstones remain
 visible in admin so users can restore them from git without automatic
 sync recreating them behind their back. */
@@ -28,6 +40,7 @@ sync recreating them behind their back. */
   dockerImage?: string | null;
   /** @nullable */
   envVars?: WorkspaceResponseEnvVars;
+  icon?: null | WorkspaceIcon;
   id: string;
   /** Derived from the placement count: `blank` (0), `single` (1), `multi` (n). */
   kind: string;
