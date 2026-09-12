@@ -24,6 +24,7 @@ use moatless_t3code::ports::{
 use moatless_tasks::message::error::MessageError;
 use moatless_tasks::message::service as message_service;
 use moatless_tasks::task::error::TaskError;
+use moatless_tasks::task::models::Task;
 use moatless_tasks::task::models::TaskPatch;
 use moatless_tasks::task::models::TaskStatus;
 use moatless_tasks::task::operations::TaskCommands;
@@ -595,22 +596,34 @@ impl AppStateCommands {
         }
     }
 
+    /// The Task under the viewer's own access filter, refusing one they may not
+    /// read as `NotWritable` rather than reporting it missing.
+    async fn readable_task(
+        &self,
+        viewer: &ScopeContext,
+        task_id: &str,
+    ) -> Result<Task, CommandRefusal> {
+        self.0
+            .tasks
+            .find_by_id(task_id, viewer)
+            .await
+            .map_err(|error| {
+                tracing::warn!(%error, task_id, "T3 thread command could not resolve its thread");
+                CommandRefusal::Failed {
+                    message: "Could not reach that thread.".to_string(),
+                }
+            })?
+            .ok_or_else(|| CommandRefusal::NotWritable {
+                task_id: task_id.to_string(),
+            })
+    }
+
     async fn ensure_followed_open(
         &self,
         viewer: &ScopeContext,
         task_id: &str,
     ) -> Result<(), CommandRefusal> {
-        let Some(task) = self.0.tasks.find_by_id(task_id, viewer).await.map_err(|error| {
-            tracing::warn!(%error, task_id, "T3 settlement command could not resolve its thread");
-            CommandRefusal::Failed {
-                message: "Could not reach that thread.".to_string(),
-            }
-        })?
-        else {
-            return Err(CommandRefusal::NotWritable {
-                task_id: task_id.to_string(),
-            });
-        };
+        let task = self.readable_task(viewer, task_id).await?;
         if task.status != TaskStatus::Open {
             return Err(CommandRefusal::NotWritable {
                 task_id: task_id.to_string(),
@@ -670,7 +683,7 @@ impl AppStateCommands {
     }
 
     fn state_refusal(task_id: &str, error: sqlx::Error) -> CommandRefusal {
-        tracing::warn!(%error, task_id, "T3 settlement state update failed");
+        tracing::warn!(%error, task_id, "T3 per-viewer thread state update failed");
         CommandRefusal::Failed {
             message: "Could not update that thread.".to_string(),
         }
@@ -1367,6 +1380,38 @@ impl ThreadCommandSink for AppStateCommands {
         .map_err(|e| create_refusal(task_id, e))
     }
 
+    async fn follow(&self, viewer: &ScopeContext, task_id: &str) -> Result<(), CommandRefusal> {
+        // The same gate the HTTP twin in `tasks::task::handlers` uses: a Task
+        // the viewer cannot read must not be reachable by following it, and a
+        // follow row for a Task that does not exist would list nothing.
+        self.readable_task(viewer, task_id).await?;
+        self.0
+            .tasks
+            .follow_task(&viewer.user_id, task_id)
+            .await
+            .map_err(|e| Self::state_refusal(task_id, e))?;
+        // `info!` for the reason `set_visibility` gives, and matching the same
+        // pair of lines in the HTTP twin.
+        tracing::info!(task_id, user_id = %viewer.user_id, "Task followed from T3");
+        Ok(())
+    }
+
+    async fn unfollow(&self, viewer: &ScopeContext, task_id: &str) -> Result<(), CommandRefusal> {
+        // No readability check, deliberately unlike `follow` and unlike the
+        // HTTP twin: this deletes the viewer's own follow row, and a Task that
+        // went private or was deleted underneath them is exactly the one they
+        // still need to be able to drop. `docs/deferred-changes.md` holds the
+        // HTTP side.
+        self.0
+            .tasks
+            .unfollow_task(&viewer.user_id, task_id)
+            .await
+            .map_err(|e| Self::state_refusal(task_id, e))?;
+        // See `follow`.
+        tracing::info!(task_id, user_id = %viewer.user_id, "Task unfollowed from T3");
+        Ok(())
+    }
+
     async fn settle(&self, viewer: &ScopeContext, task_id: &str) -> Result<(), CommandRefusal> {
         self.ensure_followed_open(viewer, task_id).await?;
         self.0
@@ -1748,7 +1793,6 @@ mod tests {
 
     mod thread_ids {
         use super::*;
-        use moatless_tasks::task::models::Task;
         use moatless_tasks::task::test_support::{ScriptedTasks, TaskStoreCalls};
         use moatless_types::access_control::Scope;
 

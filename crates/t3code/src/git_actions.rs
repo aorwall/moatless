@@ -558,6 +558,20 @@ mod tests {
         ) -> Result<(), crate::ports::CommandRefusal> {
             unreachable!("a git action never unarchives a thread")
         }
+        async fn follow(
+            &self,
+            _viewer: &ScopeContext,
+            _task_id: &str,
+        ) -> Result<(), crate::ports::CommandRefusal> {
+            unreachable!("a git action never follows a thread")
+        }
+        async fn unfollow(
+            &self,
+            _viewer: &ScopeContext,
+            _task_id: &str,
+        ) -> Result<(), crate::ports::CommandRefusal> {
+            unreachable!("a git action never unfollows a thread")
+        }
         async fn settle(
             &self,
             _viewer: &ScopeContext,
@@ -684,6 +698,20 @@ mod tests {
             unreachable!()
         }
         async fn unarchive(
+            &self,
+            _viewer: &ScopeContext,
+            _task_id: &str,
+        ) -> Result<(), crate::ports::CommandRefusal> {
+            unreachable!()
+        }
+        async fn follow(
+            &self,
+            _viewer: &ScopeContext,
+            _task_id: &str,
+        ) -> Result<(), crate::ports::CommandRefusal> {
+            unreachable!()
+        }
+        async fn unfollow(
             &self,
             _viewer: &ScopeContext,
             _task_id: &str,

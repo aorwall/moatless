@@ -616,6 +616,17 @@ pub trait ThreadCommandSink: Send + Sync {
     /// the next message does that.
     async fn unarchive(&self, viewer: &ScopeContext, task_id: &str) -> Result<(), CommandRefusal>;
 
+    /// Put this thread in the viewer's own listing, which in Moatless is
+    /// following the Task. Any Task a viewer may read may be followed, and a
+    /// re-follow writes nothing. Grants nothing: the follow decides which
+    /// listing a Task appears in and never what a viewer may do with it.
+    async fn follow(&self, viewer: &ScopeContext, task_id: &str) -> Result<(), CommandRefusal>;
+
+    /// Take this thread out of the viewer's own listing. Touches that viewer's
+    /// follow and nothing else, so it neither ends the Task nor changes what
+    /// anyone else sees.
+    async fn unfollow(&self, viewer: &ScopeContext, task_id: &str) -> Result<(), CommandRefusal>;
+
     async fn settle(&self, viewer: &ScopeContext, task_id: &str) -> Result<(), CommandRefusal>;
 
     async fn unsettle(&self, viewer: &ScopeContext, task_id: &str) -> Result<(), CommandRefusal>;

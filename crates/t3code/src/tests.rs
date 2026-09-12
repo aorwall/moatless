@@ -626,6 +626,20 @@ impl ports::ThreadCommandSink for UnreachableCommands {
     ) -> Result<(), ports::CommandRefusal> {
         unreachable!("no test in this file unarchives a thread")
     }
+    async fn follow(
+        &self,
+        _viewer: &ScopeContext,
+        _task_id: &str,
+    ) -> Result<(), ports::CommandRefusal> {
+        unreachable!("no test in this file follows a thread")
+    }
+    async fn unfollow(
+        &self,
+        _viewer: &ScopeContext,
+        _task_id: &str,
+    ) -> Result<(), ports::CommandRefusal> {
+        unreachable!("no test in this file unfollows a thread")
+    }
     async fn settle(
         &self,
         _viewer: &ScopeContext,
@@ -1178,6 +1192,21 @@ async fn the_descriptor_advertises_the_sandbox_commands() {
 
     assert_eq!(
         output.frames[0]["exit"]["value"]["environment"]["capabilities"]["sandboxCommands"],
+        json!(true)
+    );
+}
+
+/// The client gates both halves of following on this key: opening a thread by
+/// link adds it to the listing, and the menu item takes it back out. Drop the
+/// key and a viewer reaches neither.
+#[tokio::test]
+async fn the_descriptor_advertises_thread_follow() {
+    let frame = request("1", "server.getConfig", json!({}));
+    let mut connection = connection();
+    let output = connection.exchange(&frame, &state(), &viewer()).await;
+
+    assert_eq!(
+        output.frames[0]["exit"]["value"]["environment"]["capabilities"]["threadFollow"],
         json!(true)
     );
 }

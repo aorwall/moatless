@@ -30,6 +30,12 @@ pub(crate) fn descriptor(config: &UiRpcConfig) -> Value {
             // client that cannot read the current value has nothing to label
             // the control with.
             "threadVisibility": true,
+            // Whether `thread.follow` and `thread.unfollow` are understood. A
+            // listing here is the open work a viewer follows rather than every
+            // thread there is, so a client that cannot follow has no way to put
+            // a thread it reached by link into the sidebar, and no way out of
+            // one it did.
+            "threadFollow": true,
             // Whether `thread.user-input.respond` is understood. A client
             // cannot otherwise tell this server from one that refuses it, and
             // the descriptor is read before any thread is opened.

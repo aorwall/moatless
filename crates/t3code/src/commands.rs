@@ -82,6 +82,12 @@ pub async fn dispatch(
         "thread.unarchive" => {
             ctx.sink.unarchive(viewer, thread_id(command)?).await?;
         }
+        "thread.follow" => {
+            ctx.sink.follow(viewer, thread_id(command)?).await?;
+        }
+        "thread.unfollow" => {
+            ctx.sink.unfollow(viewer, thread_id(command)?).await?;
+        }
         "thread.settle" => {
             ctx.sink.settle(viewer, thread_id(command)?).await?;
         }
@@ -1033,6 +1039,12 @@ mod tests {
         Unarchive {
             task_id: String,
         },
+        Follow {
+            task_id: String,
+        },
+        Unfollow {
+            task_id: String,
+        },
         Settle {
             task_id: String,
         },
@@ -1199,6 +1211,26 @@ mod tests {
             task_id: &str,
         ) -> Result<(), CommandRefusal> {
             self.0.lock().unwrap().push(Call::Unarchive {
+                task_id: task_id.to_string(),
+            });
+            Ok(())
+        }
+        async fn follow(
+            &self,
+            _viewer: &ScopeContext,
+            task_id: &str,
+        ) -> Result<(), CommandRefusal> {
+            self.0.lock().unwrap().push(Call::Follow {
+                task_id: task_id.to_string(),
+            });
+            Ok(())
+        }
+        async fn unfollow(
+            &self,
+            _viewer: &ScopeContext,
+            task_id: &str,
+        ) -> Result<(), CommandRefusal> {
+            self.0.lock().unwrap().push(Call::Unfollow {
                 task_id: task_id.to_string(),
             });
             Ok(())
@@ -2388,6 +2420,33 @@ mod tests {
         let (result, calls) = run(command).await;
         assert!(matches!(result, Err(CommandRefusal::Rejected { .. })));
         assert!(calls.is_empty());
+    }
+
+    #[tokio::test]
+    async fn following_and_unfollowing_reach_the_sink() {
+        for (tag, expected) in [
+            (
+                "thread.follow",
+                Call::Follow {
+                    task_id: "task-1".to_string(),
+                },
+            ),
+            (
+                "thread.unfollow",
+                Call::Unfollow {
+                    task_id: "task-1".to_string(),
+                },
+            ),
+        ] {
+            let command = json!({
+                "type": tag,
+                "commandId": "cmd-1",
+                "threadId": "task-1",
+            });
+            let (result, calls) = run(command).await;
+            assert!(result.is_ok(), "{tag}");
+            assert_eq!(calls, vec![expected], "{tag}");
+        }
     }
 
     #[tokio::test]
