@@ -270,6 +270,15 @@ pub struct Transcript {
     /// The rows past `TRANSCRIPT_LIMIT` that were left out, oldest first.
     /// Zero for every transcript that fits, which is nearly all of them.
     pub omitted: i64,
+    /// Every `task_turns.turn_number` this Task has, ascending.
+    ///
+    /// Read from `task_turns` rather than off `messages`, because that is the
+    /// set a rewind decides a cut against: a turn whose agent only called tools
+    /// has no Message to be seen through, and a turn older than
+    /// `TRANSCRIPT_LIMIT` has none left here. Empty from
+    /// [`ConversationDao::changed_messages`], whose caller projects no
+    /// checkpoints.
+    pub turns: Vec<i32>,
     /// Of the requests these rows ask, the ones whose call has come back.
     ///
     /// A panel row is written *beside* the call rather than being it, so no
@@ -1622,10 +1631,21 @@ impl ConversationDao for PgConversationDao {
             activity_dao::settled_requests(&self.pool, task_id, &activities).await?;
         let subagent_usage = activity_dao::subagent_usage(&self.pool, task_id, &activities).await?;
 
+        // Uncapped, unlike the Messages above: one `i32` per turn, and a
+        // checkpoint the rewind will refuse is a control that refuses when
+        // pressed.
+        let turns: Vec<i32> = sqlx::query_scalar(
+            "SELECT turn_number FROM task_turns WHERE task_id = $1 ORDER BY turn_number",
+        )
+        .bind(task_id)
+        .fetch_all(&self.pool)
+        .await?;
+
         Ok(Transcript {
             messages,
             activities,
             omitted,
+            turns,
             settled_requests,
             subagent_usage,
         })
@@ -1678,6 +1698,7 @@ impl ConversationDao for PgConversationDao {
                 messages: Vec::new(),
                 activities: Vec::new(),
                 omitted: 0,
+                turns: Vec::new(),
                 settled_requests: HashSet::new(),
                 subagent_usage: HashMap::new(),
             });
@@ -1734,6 +1755,7 @@ impl ConversationDao for PgConversationDao {
             messages,
             activities,
             omitted: 0,
+            turns: Vec::new(),
             settled_requests,
             subagent_usage,
         })

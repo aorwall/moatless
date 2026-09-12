@@ -10,6 +10,8 @@ pub mod models;
 pub mod operations;
 pub mod presenter;
 pub mod relations;
+pub mod rewind;
+pub(crate) mod rewind_dao;
 pub mod routes;
 pub mod schemas;
 pub mod service;

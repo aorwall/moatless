@@ -575,6 +575,14 @@ impl ports::ThreadCommandSink for UnreachableCommands {
     ) -> Result<(), ports::CommandRefusal> {
         unreachable!("no test in this file creates a thread")
     }
+    async fn revert(
+        &self,
+        _viewer: &ScopeContext,
+        _task_id: &str,
+        _keep_through: i32,
+    ) -> Result<(), ports::CommandRefusal> {
+        unreachable!("no test in this file rewinds a thread")
+    }
     async fn update_meta(
         &self,
         _viewer: &ScopeContext,

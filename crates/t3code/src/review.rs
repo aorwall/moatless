@@ -11,11 +11,11 @@
 //! # What this surface does not carry
 //!
 //! The panel's other scope is a *turn checkpoint*: the worktree as it stood at
-//! the end of one turn, diffed against the turn before. Moatless records no
-//! such snapshot, so a conversation's `checkpoints` are empty and the panel
-//! offers the two git scopes alone. Deriving a turn diff from the transcript
-//! would put a revert control and a per-turn patch in front of a person that
-//! nothing behind them can honour.
+//! the end of one turn, diffed against the turn before. Moatless records no such
+//! snapshot, so every checkpoint `projection::checkpoints` reports carries no
+//! `files` and the panel offers the two git scopes alone. A checkpoint here
+//! names a turn a person may rewind the *conversation* to, and nothing about the
+//! working copy.
 
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};

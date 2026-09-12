@@ -45,6 +45,7 @@ use moatless_tasks::task::fork::TaskForkService;
 use moatless_tasks::task::operations::TaskCommands;
 use moatless_tasks::task::presenter::TaskPresenter;
 use moatless_tasks::task::relations::TaskRelations;
+use moatless_tasks::task::rewind::TaskRewindService;
 use moatless_tasks::task_event::operations::TaskEvents;
 use moatless_tasks::task_turn::operations::TaskTurns;
 use moatless_types::agent::CodexOAuthConfig;
@@ -158,6 +159,10 @@ pub struct AppState {
     /// Resolves where a fork cuts and copies the parent's conversation onto it.
     /// The create itself still goes through `task_creation`.
     pub task_fork: Arc<TaskForkService>,
+    /// Cuts a Task's own conversation back to a completed turn, in place. The
+    /// same cut `task_fork` resolves, applied to the Task instead of copied off
+    /// it.
+    pub task_rewind: Arc<TaskRewindService>,
     /// GitHub-token preflight, assembled once at the composition root. The
     /// task-start handler calls the same port `task_creation` runs rather than
     /// reassembling the credential handles and validator per request.
@@ -685,6 +690,12 @@ impl axum::extract::FromRef<AppState> for Arc<TaskPresenter> {
 impl axum::extract::FromRef<AppState> for Arc<TaskForkService> {
     fn from_ref(state: &AppState) -> Self {
         state.task_fork.clone()
+    }
+}
+
+impl axum::extract::FromRef<AppState> for Arc<TaskRewindService> {
+    fn from_ref(state: &AppState) -> Self {
+        state.task_rewind.clone()
     }
 }
 

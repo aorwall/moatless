@@ -508,6 +508,14 @@ mod tests {
         ) -> Result<(), crate::ports::CommandRefusal> {
             unreachable!("a git action never creates a thread")
         }
+        async fn revert(
+            &self,
+            _viewer: &ScopeContext,
+            _task_id: &str,
+            _keep_through: i32,
+        ) -> Result<(), crate::ports::CommandRefusal> {
+            unreachable!("a git action never rewinds a thread")
+        }
         async fn update_meta(
             &self,
             _viewer: &ScopeContext,
@@ -651,6 +659,14 @@ mod tests {
             &self,
             _viewer: &ScopeContext,
             _thread: crate::ports::NewThread,
+        ) -> Result<(), crate::ports::CommandRefusal> {
+            unreachable!()
+        }
+        async fn revert(
+            &self,
+            _viewer: &ScopeContext,
+            _task_id: &str,
+            _keep_through: i32,
         ) -> Result<(), crate::ports::CommandRefusal> {
             unreachable!()
         }

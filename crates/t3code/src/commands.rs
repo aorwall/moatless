@@ -11,7 +11,10 @@
 //! business). Everything else refused is refused because it cannot be honoured.
 //!
 //! Archiving is the one command whose vocabularies differ: T3 archives a thread,
-//! Moatless closes a Task, and they are the same act.
+//! Moatless closes a Task, and they are the same act. The two reverts differ the
+//! other way: `thread.conversation.revert` cuts the transcript and is carried
+//! out, while `thread.checkpoint.revert` also restores the files and is refused,
+//! because nothing here snapshots a worktree.
 
 use chrono::{DateTime, Utc};
 use serde_json::{Value, json};
@@ -153,10 +156,29 @@ pub async fn dispatch(
                 reason: "Projects are Moatless workspaces and are managed there.".to_string(),
             });
         }
-        "thread.approval.respond" | "thread.checkpoint.revert" => {
+        "thread.conversation.revert" => {
+            let turn_count = command
+                .get("turnCount")
+                .and_then(Value::as_i64)
+                .and_then(|n| i32::try_from(n).ok())
+                .filter(|n| *n >= 0)
+                .ok_or_else(|| missing("turnCount"))?;
+            ctx.sink
+                .revert(viewer, thread_id(command)?, turn_count)
+                .await?;
+        }
+        "thread.checkpoint.revert" => {
             return Err(CommandRefusal::Unsupported {
                 command: tag,
-                reason: "Approvals and checkpoints are not part of this server.".to_string(),
+                reason: "This server takes no worktree snapshots, so files cannot be \
+                         restored. Revert the conversation and keep the changes instead."
+                    .to_string(),
+            });
+        }
+        "thread.approval.respond" => {
+            return Err(CommandRefusal::Unsupported {
+                command: tag,
+                reason: "Approvals are not part of this server.".to_string(),
             });
         }
         other => {
@@ -1024,6 +1046,10 @@ mod tests {
             agent_mode: Option<String>,
             effort: Option<String>,
         },
+        Revert {
+            task_id: String,
+            keep_through: i32,
+        },
         UpdateMeta {
             task_id: String,
             title: Option<String>,
@@ -1158,6 +1184,18 @@ mod tests {
                 model: fork.model,
                 agent_mode: fork.agent_mode.map(|m| m.0),
                 effort: fork.effort,
+            });
+            Ok(())
+        }
+        async fn revert(
+            &self,
+            _viewer: &ScopeContext,
+            task_id: &str,
+            keep_through: i32,
+        ) -> Result<(), CommandRefusal> {
+            self.0.lock().unwrap().push(Call::Revert {
+                task_id: task_id.to_string(),
+                keep_through,
             });
             Ok(())
         }
@@ -2757,6 +2795,66 @@ mod tests {
                 "{tag} was not refused"
             );
             assert!(calls.is_empty(), "{tag} reached the sink");
+        }
+    }
+
+    /// `turnCount` is the cut itself and reaches the sink unchanged: it is the
+    /// `checkpointTurnCount` this server reported, which is a `task_turns`
+    /// number, so a translation on either side would move the cut.
+    #[tokio::test]
+    async fn a_conversation_revert_carries_its_turn_count_through() {
+        let (result, calls) = run(json!({
+            "type": "thread.conversation.revert",
+            "commandId": "cmd-1",
+            "threadId": "task-1",
+            "turnCount": 4
+        }))
+        .await;
+        assert!(result.is_ok(), "{result:?}");
+        assert_eq!(
+            calls,
+            vec![Call::Revert {
+                task_id: "task-1".to_string(),
+                keep_through: 4
+            }]
+        );
+    }
+
+    /// `0` empties the thread, and is a cut like any other.
+    #[tokio::test]
+    async fn a_conversation_revert_to_zero_reaches_the_sink() {
+        let (result, calls) = run(json!({
+            "type": "thread.conversation.revert",
+            "commandId": "cmd-1",
+            "threadId": "task-1",
+            "turnCount": 0
+        }))
+        .await;
+        assert!(result.is_ok(), "{result:?}");
+        assert_eq!(
+            calls,
+            vec![Call::Revert {
+                task_id: "task-1".to_string(),
+                keep_through: 0
+            }]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_conversation_revert_without_a_usable_turn_count_writes_nothing() {
+        for turn_count in [json!(-1), json!("4"), Value::Null] {
+            let (result, calls) = run(json!({
+                "type": "thread.conversation.revert",
+                "commandId": "cmd-1",
+                "threadId": "task-1",
+                "turnCount": turn_count
+            }))
+            .await;
+            assert!(
+                matches!(result, Err(CommandRefusal::Rejected { .. })),
+                "{turn_count} was not rejected: {result:?}"
+            );
+            assert!(calls.is_empty(), "{turn_count} reached the sink");
         }
     }
 

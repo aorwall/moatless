@@ -241,6 +241,7 @@ pub const CONCERNS: &[Concern] = &[
         roots: &[
             "crates/tasks/src/message/dao",
             "crates/tasks/src/message/fork_dao",
+            "crates/tasks/src/task/rewind_dao",
         ],
         tables: &[
             "task_message_content_blocks",
@@ -417,6 +418,10 @@ const FEED_OPERATIONS: &[(&str, &str)] = &[
     (
         "moatless-core",
         "change_feed::conversation::record_message_change",
+    ),
+    (
+        "moatless-core",
+        "change_feed::conversation::record_revert_change",
     ),
     (
         "moatless-core",

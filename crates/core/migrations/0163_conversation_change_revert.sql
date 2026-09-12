@@ -1,0 +1,16 @@
+-- What a change is about, when it is about rows that are gone.
+--
+-- Every other record here is a *name* the reader re-reads at delivery time —
+-- `message_uuid`, `activity_id`, or neither for the conversation's own session.
+-- A rewind deletes rows, and a deleted row re-reads as nothing, so a name would
+-- project no event at all and the client would keep showing a transcript the
+-- server no longer holds. This column carries the fact instead: the
+-- `task_turns.turn_number` the conversation was cut back to, which is every turn
+-- it still has. 0 means none survived.
+--
+-- Set on a record naming no Message and no activity, so a reader that predates
+-- this column reads one as a session change and re-sends the session — stale,
+-- but not wrong about anything it names.
+--
+-- No index and no foreign key, as on the two columns beside it.
+ALTER TABLE task_conversation_changes ADD COLUMN IF NOT EXISTS reverted_to_turn integer;

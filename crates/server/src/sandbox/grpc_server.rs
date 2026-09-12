@@ -776,13 +776,18 @@ impl BackendSandboxServiceImpl {
         let Some(handlers) = self.handlers.as_ref() else {
             return Vec::new();
         };
-        let source_task_id = match handlers.task_forks.find(task_id).await {
-            Ok(Some(row)) => row.source_task_id,
-            Ok(None) => return Vec::new(),
+        let parent = match handlers.task_relations.find_parent(task_id).await {
+            Ok(parent) => parent,
             Err(e) => {
-                warn!(error = %e, task_id = %task_id, "Failed to read fork row; restoring no transcript");
+                warn!(error = %e, task_id = %task_id, "Failed to read the fork relation; restoring no transcript");
                 return Vec::new();
             }
+        };
+        // The parent edge, not `task_forks`: a rewind overwrites that row's
+        // `source_task_id` with the Task's own, so a rewound fork would ask for
+        // its own missing archive. See [`fork_source_task_id`].
+        let Some(source_task_id) = fork_source_task_id(parent.as_ref()).map(str::to_owned) else {
+            return Vec::new();
         };
 
         let key = transcript_key(&self.transcript_s3_prefix, &source_task_id);

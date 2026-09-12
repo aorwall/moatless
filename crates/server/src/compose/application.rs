@@ -183,6 +183,7 @@ impl AppState {
             task_closer,
             task_presenter,
             task_fork,
+            task_rewind,
         } = task_graph.assemble(TaskWorkflowInputs {
             repository_reader: repository_reader.clone(),
             workspace_resolver: workspace_resolver.clone(),
@@ -299,6 +300,7 @@ impl AppState {
             task_reader,
             task_creation,
             task_fork,
+            task_rewind,
             preflight,
             relation_recorder: task_relations.clone(),
             task_relations,

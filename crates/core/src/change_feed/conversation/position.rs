@@ -133,6 +133,11 @@ pub struct ConversationChange {
     /// lifecycle change, a context-window reading. At most one of this and
     /// `message_uuid` is set; neither means the conversation's own session moved.
     pub activity_id: Option<String>,
+    /// The turn the conversation was rewound to, for the one change that names
+    /// no surviving row: everything above it was deleted. 0 means none
+    /// survived. Set only alongside two `None`s — a reader re-reads what a
+    /// change names, and this one names what is gone.
+    pub reverted_to_turn: Option<i32>,
 }
 
 impl ConversationChange {
@@ -224,11 +229,13 @@ mod tests {
             position: 4,
             message_uuid: None,
             activity_id: None,
+            reverted_to_turn: None,
         };
         let second = ConversationChange {
             position: 5,
             message_uuid: None,
             activity_id: None,
+            reverted_to_turn: None,
         };
         assert_eq!(first.sequence(0), Some(4 * EVENTS_PER_CHANGE));
         assert!(first.sequence(0) < first.sequence(1));
@@ -249,6 +256,7 @@ mod tests {
             position: 7,
             message_uuid: None,
             activity_id: None,
+            reverted_to_turn: None,
         };
         let halfway = change.sequence(3).unwrap();
         assert_eq!(position_of(halfway), 7);

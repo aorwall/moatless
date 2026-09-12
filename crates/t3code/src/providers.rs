@@ -337,6 +337,11 @@ pub fn providers(
             },
             "checkedAt": checked_at,
             "showInteractionModeToggle": true,
+            // Both harnesses resume a branched transcript, which is the whole of
+            // what a history-only rewind needs. The file-restoring half is
+            // refused in `commands::dispatch` rather than turned off here: this
+            // flag is per provider and would take both with it.
+            "supportsConversationRollback": true,
             "availability": "available",
             "models": models,
             "slashCommands": [],

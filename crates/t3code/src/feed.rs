@@ -464,7 +464,8 @@ impl ThreadFeed {
 /// position order. A row is named by a Message uuid or, for the activities that
 /// happened on no Message, by its own activity id; both fold the same way.
 /// Changes naming neither are the conversation's own and are all kept: each is a
-/// distinct transition of its session.
+/// distinct transition of its session, or a rewind, which is ordered against the
+/// changes around it and so cannot be folded into one of them.
 fn coalesced(changes: Vec<ConversationChange>) -> Vec<ConversationChange> {
     let mut latest: HashMap<&str, i64> = HashMap::new();
     for change in &changes {
@@ -504,6 +505,7 @@ mod tests {
             position,
             message_uuid: uuid.map(str::to_string),
             activity_id: None,
+            reverted_to_turn: None,
         }
     }
 
@@ -512,6 +514,7 @@ mod tests {
             position,
             message_uuid: None,
             activity_id: Some(activity_id.to_string()),
+            reverted_to_turn: None,
         }
     }
 
@@ -663,6 +666,7 @@ mod tests {
                 messages: vec![a_message(11, "msg-a")],
                 activities: Vec::new(),
                 omitted: 0,
+                turns: Vec::new(),
                 settled_requests: HashSet::new(),
                 subagent_usage: HashMap::new(),
             })

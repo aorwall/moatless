@@ -27,7 +27,7 @@ pub async fn record_message_change(
     task_id: &str,
     message_uuid: &str,
 ) -> Result<i64, sqlx::Error> {
-    allocate(tx, task_id, Some(message_uuid), None).await
+    allocate(tx, task_id, Some(message_uuid), None, None).await
 }
 
 /// Record that the conversation itself moved — its Turn, or the Sandbox its
@@ -40,7 +40,7 @@ pub async fn record_session_change(
     tx: &mut PgConnection,
     task_id: &str,
 ) -> Result<i64, sqlx::Error> {
-    allocate(tx, task_id, None, None).await
+    allocate(tx, task_id, None, None, None).await
 }
 
 /// Record that an activity happened on no Message — a Sandbox lifecycle change,
@@ -55,7 +55,25 @@ pub async fn record_activity_change(
     task_id: &str,
     activity_id: &str,
 ) -> Result<i64, sqlx::Error> {
-    allocate(tx, task_id, None, Some(activity_id)).await
+    allocate(tx, task_id, None, Some(activity_id), None).await
+}
+
+/// Record that the conversation was rewound to `reverted_to_turn`, dropping
+/// every turn above it. `0` keeps none.
+///
+/// Names no Message and no activity, unlike every other record here, because
+/// the rows it is about are gone by the time a reader looks: a name would
+/// re-read nothing and project no event, leaving the client showing a
+/// transcript this server no longer holds.
+///
+/// Same transaction rule and same ordering against the shell's allocator as
+/// [`record_message_change`].
+pub async fn record_revert_change(
+    tx: &mut PgConnection,
+    task_id: &str,
+    reverted_to_turn: i32,
+) -> Result<i64, sqlx::Error> {
+    allocate(tx, task_id, None, None, Some(reverted_to_turn)).await
 }
 
 /// Take the next position without recording a change.
@@ -94,6 +112,7 @@ async fn allocate(
     task_id: &str,
     message_uuid: Option<&str>,
     activity_id: Option<&str>,
+    reverted_to_turn: Option<i32>,
 ) -> Result<i64, sqlx::Error> {
     let (position,): (i64,) = sqlx::query_as(
         r#"WITH allocated AS (
@@ -102,13 +121,15 @@ async fn allocate(
                  SET position = task_conversation_position.position + 1
                RETURNING position
            )
-           INSERT INTO task_conversation_changes (task_id, position, message_uuid, activity_id)
-           SELECT $1, position, $2, $3 FROM allocated
+           INSERT INTO task_conversation_changes
+               (task_id, position, message_uuid, activity_id, reverted_to_turn)
+           SELECT $1, position, $2, $3, $4 FROM allocated
            RETURNING position"#,
     )
     .bind(task_id)
     .bind(message_uuid)
     .bind(activity_id)
+    .bind(reverted_to_turn)
     .fetch_one(tx)
     .await?;
     Ok(position)
@@ -150,7 +171,7 @@ pub async fn changes_from(
     limit: i64,
 ) -> Result<Vec<ConversationChange>, sqlx::Error> {
     sqlx::query_as(
-        r#"SELECT position, message_uuid, activity_id
+        r#"SELECT position, message_uuid, activity_id, reverted_to_turn
            FROM task_conversation_changes
            WHERE task_id = $1 AND position >= $2
            ORDER BY position

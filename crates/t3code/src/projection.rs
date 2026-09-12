@@ -399,11 +399,7 @@ fn github_pr_url(subject_key: Option<&str>, external_event_id: Option<&str>) -> 
 /// One conversation, in the shape the thread view carries: the shared row plus
 /// the transcript.
 ///
-/// `checkpoints` is empty here and stays empty: they are T3's per-turn worktree
-/// snapshots and Moatless captures none — the diff a person sees comes from the
-/// Sandbox's own git state, not from a checkpoint ref this backend holds.
-/// Filling it with something derived would put a revert button in front of a
-/// person that nothing behind it can honour.
+/// `checkpoints` is the completed turns — see [`checkpoints`].
 ///
 /// `proposedPlans` is read back out of the transcript — see [`proposed_plans`].
 ///
@@ -431,8 +427,86 @@ pub(super) fn thread_detail(
         "proposedPlans".into(),
         Value::Array(proposed_plans(conversation, transcript)),
     );
-    row.insert("checkpoints".into(), Value::Array(Vec::new()));
+    row.insert(
+        "checkpoints".into(),
+        Value::Array(checkpoints(conversation, transcript)),
+    );
     Value::Object(row)
+}
+
+/// The turns a person may rewind this conversation to, oldest first.
+///
+/// A T3 checkpoint is a per-turn worktree snapshot, and Moatless takes none.
+/// What it does have is the turn itself, which is the whole of what the client
+/// needs to offer the history-only rewind: every rewind decision it makes reads
+/// `checkpointTurnCount`, and `commands::dispatch` refuses the file-restoring
+/// half. So `files` is empty and `checkpointRef` names the turn rather than a
+/// tree.
+///
+/// `status` is `ready` and never `missing`, even carrying no files.
+/// `resolveProactiveTurnDiffAction` defers on `missing` and its caller keeps the
+/// turn eligible, so a completed turn would be re-examined for a diff for as long
+/// as the thread stays open.
+///
+/// `checkpointTurnCount` is the `task_turns.turn_number` itself, not a position
+/// in this list: the client only ever compares these against each other, and the
+/// number it sends back is then the cut `TaskRewindService::rewind` takes
+/// verbatim. The set is [`Transcript::turns`] and not the Messages' turn
+/// numbers, so it is the set that cut is decided against — a turn past
+/// `TRANSCRIPT_LIMIT`, and a turn whose agent only called tools, is offered
+/// like any other. Neither has a Message here to read a label off, so both
+/// report a null `assistantMessageId` and the conversation's own instant.
+///
+/// Empty while a turn is in flight, because `rewind` refuses every cut while one
+/// is — including a cut below it, unlike a fork.
+fn checkpoints(conversation: &Conversation, transcript: &Transcript) -> Vec<Value> {
+    if turn_is_open(conversation) {
+        return Vec::new();
+    }
+
+    // One pass rather than a scan per turn: each turn's last assistant bubble,
+    // which is the one the client scans forward to when it labels the revert
+    // action, and its last Message of any kind to fall back on.
+    let mut labels: HashMap<i32, (Option<&TranscriptMessage>, &TranscriptMessage)> = HashMap::new();
+    for message in &transcript.messages {
+        let Some(number) = message.turn_number else {
+            continue;
+        };
+        let entry = labels.entry(number).or_insert((None, message));
+        entry.1 = message;
+        if message.message_type == MessageType::Assistant
+            && message
+                .message_text
+                .as_deref()
+                .is_some_and(|text| !text.is_empty())
+        {
+            entry.0 = Some(message);
+        }
+    }
+
+    transcript
+        .turns
+        .iter()
+        .copied()
+        .map(|number| {
+            let labelled = labels.get(&number);
+            let closing = labelled.and_then(|(closing, _)| *closing);
+            let completed_at = closing
+                .or_else(|| labelled.map(|(_, last)| *last))
+                .map_or_else(|| instant(created_at(conversation)), |message| {
+                    instant(message_instant(conversation, message))
+                });
+            json!({
+                "turnId": turn_id(&conversation.task_id, number),
+                "checkpointTurnCount": number,
+                "checkpointRef": turn_id(&conversation.task_id, number),
+                "status": "ready",
+                "files": Value::Array(Vec::new()),
+                "assistantMessageId": closing.map_or(Value::Null, |message| json!(message.uuid)),
+                "completedAt": completed_at
+            })
+        })
+        .collect()
 }
 
 /// One child Task, in the shape `Subtask` has on the wire
@@ -591,12 +665,22 @@ fn answered_at(transcript: &Transcript, call: &Activity) -> Option<String> {
 /// ids. A change naming a uuid with no Message row — a turn that only called
 /// tools — emits the activities alone. A change naming an activity rather than a
 /// Message emits that row alone and no `session_set`.
+///
+/// A rewind names neither, because the rows it is about are already deleted; it
+/// carries [`ConversationChange::reverted_to_turn`] instead and emits
+/// `thread.reverted`, which is the one event here that tells a client to drop
+/// what it holds rather than to take something new.
 pub(super) fn change_events(
     conversation: &Conversation,
     change: &ConversationChange,
     window: &Transcript,
     origins: &OriginContext<'_>,
 ) -> Vec<Value> {
+    if let Some(turn_count) = change.reverted_to_turn {
+        return revert_event(conversation, change, turn_count)
+            .into_iter()
+            .collect();
+    }
     if let Some(activity_id) = change.activity_id.as_deref() {
         return activity_change_events(conversation, change, window, activity_id);
     }
@@ -723,6 +807,35 @@ fn session_set(conversation: &Conversation, change: &ConversationChange) -> Opti
         &at,
         "thread.session-set",
         json!({ "threadId": conversation.task_id, "session": session }),
+    ))
+}
+
+/// The cut a rewind made, as the event that applies it to a client's copy.
+///
+/// `turnCount` is the highest `task_turns.turn_number` the conversation kept, and
+/// the client drops every checkpoint above it along with that turn's messages,
+/// activities and plans — the same number a [`checkpoints`] entry reports, so the
+/// comparison it makes is against values this projection also produced.
+///
+/// Slot 0, like [`session_set`]: a rewind names no row, so nothing else shares
+/// its position.
+fn revert_event(
+    conversation: &Conversation,
+    change: &ConversationChange,
+    turn_count: i32,
+) -> Option<Value> {
+    let at = instant(
+        conversation
+            .updated_at
+            .unwrap_or_else(|| created_at(conversation)),
+    );
+    let sequence = change.sequence(0)?;
+    Some(event(
+        conversation,
+        sequence,
+        &at,
+        "thread.reverted",
+        json!({ "threadId": conversation.task_id, "turnCount": turn_count.max(0) }),
     ))
 }
 
@@ -3459,6 +3572,18 @@ mod tests {
     ];
     const ACTIVITY_OPTIONAL: &[&str] = &["sequence"];
     const ACTIVITY_NON_EMPTY: &[&str] = &["id", "kind", "summary"];
+
+    /// `OrchestrationCheckpointSummary` (`:597-605`).
+    const CHECKPOINT_REQUIRED: &[&str] = &[
+        "turnId",
+        "checkpointTurnCount",
+        "checkpointRef",
+        "status",
+        "files",
+        "assistantMessageId",
+        "completedAt",
+    ];
+    const CHECKPOINT_OPTIONAL: &[&str] = &[];
     /// `OrchestrationThreadActivityTone` (`:304-309`).
     const ACTIVITY_TONES: &[&str] = &["info", "tool", "approval", "error"];
 
@@ -3568,10 +3693,16 @@ mod tests {
             })
             .filter_map(|activity| activity.tool_use_id.clone())
             .collect();
+        let mut turns: Vec<i32> = messages.iter().filter_map(|m| m.turn_number).collect();
+        turns.sort_unstable();
+        turns.dedup();
         Transcript {
             messages,
             activities,
             omitted: 0,
+            // What `task_turns` holds for these rows. A test about a turn with
+            // no Message of its own sets this itself.
+            turns,
             settled_requests,
             subagent_usage: HashMap::new(),
         }
@@ -3622,8 +3753,20 @@ mod tests {
     }
 
     fn detail(transcript: &Transcript) -> Value {
+        detail_of(running_conversation("task-a", "ws-a"), transcript)
+    }
+
+    /// The same, with the fixture's turn finished — the only state that offers
+    /// a checkpoint, since a rewind is refused while a turn is in flight.
+    fn quiet_detail(transcript: &Transcript) -> Value {
+        let mut conversation = running_conversation("task-a", "ws-a");
+        conversation.turn_status = Some("completed".to_string());
+        detail_of(conversation, transcript)
+    }
+
+    fn detail_of(conversation: Conversation, transcript: &Transcript) -> Value {
         thread_detail(
-            &running_conversation("task-a", "ws-a"),
+            &conversation,
             "ws-a",
             &AgentModelDefaults::default(),
             transcript,
@@ -4818,6 +4961,97 @@ mod tests {
         assert_eq!(detail["activities"].as_array().unwrap().len(), 1);
     }
 
+    // ── Checkpoints ─────────────────────────────────────────────────────
+
+    #[test]
+    fn a_checkpoint_per_turn_labelled_by_its_closing_bubble() {
+        let mut messages = vec![
+            message(1, MessageType::User, "do a thing"),
+            message(2, MessageType::Assistant, "did it"),
+            message(3, MessageType::User, "and another"),
+            message(4, MessageType::Assistant, "did that too"),
+        ];
+        messages[0].turn_number = Some(1);
+        messages[1].turn_number = Some(1);
+
+        let detail = quiet_detail(&transcript(messages, Vec::new()));
+        let checkpoints = detail["checkpoints"].as_array().unwrap();
+        assert_eq!(checkpoints.len(), 2);
+        assert_keys(
+            &checkpoints[0],
+            "checkpoint",
+            CHECKPOINT_REQUIRED,
+            CHECKPOINT_OPTIONAL,
+        );
+        assert_eq!(checkpoints[0]["turnId"], "task-a:1");
+        assert_eq!(checkpoints[0]["checkpointRef"], "task-a:1");
+        assert_eq!(checkpoints[0]["checkpointTurnCount"], json!(1));
+        assert_eq!(checkpoints[0]["assistantMessageId"], "msg-2");
+        assert_eq!(checkpoints[0]["completedAt"], "2026-07-01T10:02:00.000Z");
+        assert_eq!(checkpoints[1]["checkpointTurnCount"], json!(3));
+        assert_eq!(checkpoints[1]["assistantMessageId"], "msg-4");
+    }
+
+    /// `rewind` refuses every cut while a turn is open — including one below it,
+    /// unlike a fork — so offering any checkpoint would be offering a control
+    /// that refuses when pressed.
+    #[test]
+    fn no_checkpoint_while_a_turn_is_in_flight() {
+        let mut message = message(1, MessageType::Assistant, "did it");
+        message.turn_number = Some(1);
+        let detail = detail(&transcript(vec![message], Vec::new()));
+        assert_eq!(detail["checkpoints"], json!([]));
+    }
+
+    /// `ready` with no files, never `missing`: the client defers on `missing`
+    /// and would re-examine the turn for a diff for as long as the thread is
+    /// open, and this backend has no worktree snapshot to hand it either way.
+    #[test]
+    fn a_checkpoint_is_ready_and_carries_no_files() {
+        let mut message = message(1, MessageType::Assistant, "did it");
+        message.turn_number = Some(1);
+        let detail = quiet_detail(&transcript(vec![message], Vec::new()));
+        assert_eq!(detail["checkpoints"][0]["status"], "ready");
+        assert_eq!(detail["checkpoints"][0]["files"], json!([]));
+    }
+
+    /// A turn whose agent only called tools wrote no bubble to name.
+    #[test]
+    fn a_checkpoint_on_a_silent_turn_names_no_assistant_message() {
+        let mut message = message(1, MessageType::User, "do a thing");
+        message.turn_number = Some(1);
+        let detail = quiet_detail(&transcript(vec![message], Vec::new()));
+        assert_eq!(detail["checkpoints"][0]["assistantMessageId"], Value::Null);
+    }
+
+    /// The turns are `task_turns`, not the Messages: a turn past
+    /// `TRANSCRIPT_LIMIT` is one a rewind still takes, and withholding it would
+    /// make a long thread's older turns silently unrewindable.
+    #[test]
+    fn a_turn_with_no_message_in_the_window_is_still_a_checkpoint() {
+        let mut rows = transcript(Vec::new(), Vec::new());
+        rows.turns = vec![7];
+        let mut conversation = running_conversation("task-a", "ws-a");
+        conversation.turn_status = Some("completed".to_string());
+        conversation.created_at_db = Some(instant_at("2026-07-01T09:00:00Z"));
+        let detail = detail_of(conversation, &rows);
+        let checkpoints = detail["checkpoints"].as_array().unwrap();
+        assert_eq!(checkpoints.len(), 1);
+        assert_eq!(checkpoints[0]["checkpointTurnCount"], json!(7));
+        assert_eq!(checkpoints[0]["assistantMessageId"], Value::Null);
+        assert_eq!(checkpoints[0]["completedAt"], "2026-07-01T09:00:00.000Z");
+    }
+
+    /// A queued Message has no Turn, and a checkpoint the client cannot revert
+    /// to would be a control that refuses when pressed.
+    #[test]
+    fn a_queued_message_is_no_checkpoint() {
+        let mut message = message(1, MessageType::User, "not picked up yet");
+        message.turn_number = None;
+        let detail = quiet_detail(&transcript(vec![message], Vec::new()));
+        assert_eq!(detail["checkpoints"], json!([]));
+    }
+
     #[test]
     fn an_empty_conversation_still_decodes() {
         let detail = detail(&transcript(Vec::new(), Vec::new()));
@@ -4850,6 +5084,7 @@ mod tests {
             position,
             message_uuid: uuid.map(str::to_string),
             activity_id: None,
+            reverted_to_turn: None,
         }
     }
 
@@ -4859,6 +5094,7 @@ mod tests {
             position,
             message_uuid: None,
             activity_id: Some(activity_id.to_string()),
+            reverted_to_turn: None,
         }
     }
 
@@ -4878,6 +5114,39 @@ mod tests {
             item["event"].clone()
         })
         .collect()
+    }
+
+    /// The rows a rewind dropped are gone, so the change that carries it names
+    /// none of them and this is read off the change itself.
+    #[test]
+    fn a_rewind_emits_the_cut_it_made() {
+        let cut = ConversationChange {
+            position: 7,
+            message_uuid: None,
+            activity_id: None,
+            reverted_to_turn: Some(2),
+        };
+        let emitted = events(&cut, &transcript(Vec::new(), Vec::new()));
+        assert_eq!(emitted.len(), 1);
+        assert_keys(&emitted[0], "event", EVENT_REQUIRED, &[]);
+        assert_eq!(emitted[0]["type"], "thread.reverted");
+        assert_eq!(emitted[0]["payload"]["threadId"], "task-a");
+        assert_eq!(emitted[0]["payload"]["turnCount"], json!(2));
+    }
+
+    /// A rewind that kept nothing is `0`, not an absence: the client empties the
+    /// thread rather than leaving what it holds in place.
+    #[test]
+    fn a_rewind_to_nothing_says_zero() {
+        let cut = ConversationChange {
+            position: 7,
+            message_uuid: None,
+            activity_id: None,
+            reverted_to_turn: Some(0),
+        };
+        let emitted = events(&cut, &transcript(Vec::new(), Vec::new()));
+        assert_eq!(emitted[0]["type"], "thread.reverted");
+        assert_eq!(emitted[0]["payload"]["turnCount"], json!(0));
     }
 
     /// A call and the panel row derived from it are two rows in one change, and

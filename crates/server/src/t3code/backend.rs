@@ -1229,6 +1229,19 @@ impl ThreadCommandSink for AppStateCommands {
         Ok(())
     }
 
+    async fn revert(
+        &self,
+        viewer: &ScopeContext,
+        task_id: &str,
+        keep_through: i32,
+    ) -> Result<(), CommandRefusal> {
+        self.0
+            .task_rewind
+            .rewind(viewer, task_id, keep_through)
+            .await
+            .map_err(|e| create_refusal(task_id, e))
+    }
+
     async fn update_meta(
         &self,
         viewer: &ScopeContext,

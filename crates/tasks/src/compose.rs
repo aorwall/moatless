@@ -38,6 +38,7 @@ use crate::task::operations::TaskCommands;
 use crate::task::presenter::TaskPresenter;
 use crate::task::relations::TaskRelations;
 use crate::task::relations_dao::{PgTaskRelationDao, TaskRelationDao};
+use crate::task::rewind::TaskRewindService;
 use crate::task_event::dao::{PgTaskEventDao, TaskEventDao};
 use crate::task_event::operations::TaskEvents;
 use crate::task_turn::dao::{PgTaskTurnDao, TaskTurnDao};
@@ -248,6 +249,12 @@ impl TaskGraph {
                 self.relations,
                 self.tasks.clone(),
             )),
+            task_rewind: Arc::new(TaskRewindService::new(
+                self.db,
+                self.tasks.clone(),
+                self.turns.clone(),
+                self.messages.clone(),
+            )),
             task_fork: Arc::new(TaskForkService::new(
                 self.tasks,
                 self.turns,
@@ -284,4 +291,5 @@ pub struct TaskOperations {
     pub task_closer: Arc<TaskCloser>,
     pub task_presenter: Arc<TaskPresenter>,
     pub task_fork: Arc<TaskForkService>,
+    pub task_rewind: Arc<TaskRewindService>,
 }

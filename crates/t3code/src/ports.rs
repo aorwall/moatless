@@ -568,6 +568,20 @@ pub trait ThreadCommandSink: Send + Sync {
     /// and navigated to `fork.new_task_id`, so there is nothing to hand back.
     async fn fork(&self, viewer: &ScopeContext, fork: ForkThread) -> Result<(), CommandRefusal>;
 
+    /// Drop every turn of this Thread above `keep_through`, which `0` empties.
+    /// The same cut [`fork`](Self::fork) resolves, applied in place instead of
+    /// copied onto a new Thread.
+    ///
+    /// Only the conversation moves. The Sandbox's working copy is left exactly
+    /// as the deleted turns wrote it, which is why this serves T3's
+    /// `thread.conversation.revert` and not `thread.checkpoint.revert`.
+    async fn revert(
+        &self,
+        viewer: &ScopeContext,
+        task_id: &str,
+        keep_through: i32,
+    ) -> Result<(), CommandRefusal>;
+
     async fn update_meta(
         &self,
         viewer: &ScopeContext,
