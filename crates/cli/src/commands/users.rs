@@ -17,31 +17,34 @@ pub enum UserAction {
     },
     /// Set a user's email address (admin-only when targeting another user)
     SetEmail {
-        /// Moatless username (login)
-        login: String,
+        /// Moatless username (login), or the user id as `user list` reports it
+        user: String,
         /// New email address
         email: String,
     },
     /// Set a user's display name (admin-only when targeting another user)
     SetName {
-        /// Moatless username (login)
-        login: String,
+        /// Moatless username (login), or the user id as `user list` reports it
+        user: String,
         /// New display name
         name: String,
     },
     /// Let a disabled account sign in and take work again (admin-only)
     Activate {
-        /// Moatless username (login)
-        login: String,
+        /// Moatless username (login), or the user id as `user list` reports it
+        user: String,
     },
     /// Disable an account — a departed person, or a superseded duplicate
     /// (admin-only)
     ///
     /// Every login path refuses a disabled account, its sessions and API keys
     /// stop working, and the directory hides it.
+    ///
+    /// A login shared by two accounts always names the older one. Pass the id
+    /// to disable the newer.
     Deactivate {
-        /// Moatless username (login)
-        login: String,
+        /// Moatless username (login), or the user id as `user list` reports it
+        user: String,
     },
     /// Associate a provider-specific user ID with a moatless user
     SetProviderId {
@@ -100,38 +103,34 @@ pub async fn run(moat: &MoatClient, action: UserAction, json: bool) -> Result<()
             }
         }
 
-        UserAction::SetEmail { login, email } => {
+        UserAction::SetEmail { user, email } => {
             let body = serde_json::json!({ "email": email });
-            let resp = moat
-                .raw_patch(&format!("/api/v1/users/{login}"), &body)
-                .await?;
+            let resp = patch_user(moat, &user, &body).await?;
             if json {
                 output::print_json_typed(&resp);
             } else {
                 let updated = resp.get("email").and_then(|v| v.as_str()).unwrap_or(&email);
-                println!("Updated '{login}' email to {updated}");
+                println!("Updated {} email to {updated}", describe(&resp, &user));
             }
         }
 
-        UserAction::SetName { login, name } => {
+        UserAction::SetName { user, name } => {
             let body = serde_json::json!({ "name": name });
-            let resp = moat
-                .raw_patch(&format!("/api/v1/users/{login}"), &body)
-                .await?;
+            let resp = patch_user(moat, &user, &body).await?;
             if json {
                 output::print_json_typed(&resp);
             } else {
                 let updated = resp.get("name").and_then(|v| v.as_str()).unwrap_or(&name);
-                println!("Updated '{login}' name to {updated}");
+                println!("Updated {} name to {updated}", describe(&resp, &user));
             }
         }
 
-        UserAction::Activate { login } => {
-            set_status(moat, &login, UserStatus::Active, json).await?;
+        UserAction::Activate { user } => {
+            set_status(moat, &user, UserStatus::Active, json).await?;
         }
 
-        UserAction::Deactivate { login } => {
-            set_status(moat, &login, UserStatus::Disabled, json).await?;
+        UserAction::Deactivate { user } => {
+            set_status(moat, &user, UserStatus::Disabled, json).await?;
         }
 
         UserAction::SetProviderId { login, provider, id } => {
@@ -190,18 +189,45 @@ pub async fn run(moat: &MoatClient, action: UserAction, json: bool) -> Result<()
 
 async fn set_status(
     moat: &MoatClient,
-    login: &str,
+    user: &str,
     status: UserStatus,
     json: bool,
 ) -> Result<(), ClientError> {
     let body = serde_json::json!({ "status": status });
-    let resp = moat
-        .raw_patch(&format!("/api/v1/users/{login}"), &body)
-        .await?;
+    let resp = patch_user(moat, user, &body).await?;
     if json {
         output::print_json_typed(&resp);
     } else {
-        println!("'{login}' is now {status}.");
+        println!("{} is now {status}.", describe(&resp, user));
     }
     Ok(())
+}
+
+/// PATCH the user `target` names, by id when it parses as a uuid.
+///
+/// A login is tried only when the target is not a uuid, so a login shaped like
+/// one still resolves to the row it names. The id-keyed path is the only way to
+/// reach the newer account of a login two accounts share: the login-keyed path
+/// answers with the older one.
+async fn patch_user(
+    moat: &MoatClient,
+    target: &str,
+    body: &serde_json::Value,
+) -> Result<serde_json::Value, ClientError> {
+    let path = match uuid::Uuid::parse_str(target) {
+        Ok(id) => format!("/api/v1/admin/users/{id}"),
+        Err(_) => format!("/api/v1/users/{target}"),
+    };
+    moat.raw_patch(&path, body).await
+}
+
+/// Name the account a PATCH landed on, as `'login' (id)`.
+///
+/// A login alone is ambiguous in exactly the case the id-keyed path exists for.
+fn describe(resp: &serde_json::Value, target: &str) -> String {
+    let login = resp.get("login").and_then(|v| v.as_str()).unwrap_or(target);
+    match resp.get("id").and_then(|v| v.as_str()) {
+        Some(id) => format!("'{login}' ({id})"),
+        None => format!("'{login}'"),
+    }
 }

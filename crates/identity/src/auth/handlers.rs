@@ -1502,6 +1502,39 @@ pub(super) async fn update_user_handler(
     ))
 }
 
+/// Update the user an internal id names. Admin only.
+///
+/// A login is not unique — the same handle exists once per provider — and
+/// `PATCH /api/v1/users/{login}` resolves one to its oldest row. Reach any
+/// newer row of a shared login here, keyed on the `id` that `GET /api/v1/users`
+/// already reports. The body is the one `PATCH /api/v1/users/{login}` takes.
+#[utoipa::path(
+    patch,
+    path = "/api/v1/admin/users/{user_id}",
+    tag = "users",
+    params(("user_id" = uuid::Uuid, Path, description = "Target user id")),
+    request_body = AdminUpdateUserRequest,
+    responses(
+        (status = 200, description = "User updated", body = UserInfo),
+        (status = 400, description = "An admin cannot disable their own account", body = ErrorBody),
+        (status = 401, description = "Not authenticated", body = ErrorBody),
+        (status = 403, description = "Admin only", body = ErrorBody),
+        (status = 404, description = "User not found", body = ErrorBody)
+    )
+)]
+pub(super) async fn admin_update_user_handler(
+    State(state): State<AuthState>,
+    headers: HeaderMap,
+    Path(user_id): Path<uuid::Uuid>,
+    Json(body): Json<AdminUpdateUserRequest>,
+) -> Result<Json<UserInfo>, AuthError> {
+    super::accounts::validate_profile_update(&body)?;
+    let identity = authenticate_request(&state, &headers).await?;
+    Ok(Json(
+        super::accounts::update_user_by_id(&state, &identity, user_id, body).await?,
+    ))
+}
+
 // ============================================================================
 // Provider ID management
 // ============================================================================

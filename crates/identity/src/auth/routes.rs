@@ -32,6 +32,7 @@ use utoipa_axum::{router::OpenApiRouter, routes};
         handlers::list_users_handler,
         handlers::create_user_handler,
         handlers::update_user_handler,
+        handlers::admin_update_user_handler,
         handlers::set_user_provider_id_handler,
         handlers::delete_user_provider_id_handler,
         handlers::list_user_provider_ids_handler,
@@ -115,6 +116,7 @@ fn documented_auth_routes() -> OpenApiRouter<AuthState> {
             handlers::create_user_handler
         ))
         .routes(routes!(handlers::update_user_handler))
+        .routes(routes!(handlers::admin_update_user_handler))
         .routes(routes!(
             handlers::set_user_provider_id_handler,
             handlers::delete_user_provider_id_handler

@@ -247,6 +247,37 @@ pub(super) async fn update_user(
     if (body.role.is_some() || body.status.is_some()) && identity.role != UserRole::Admin {
         return Err(AuthError::Forbidden);
     }
+
+    apply_user_update(state, identity, user_id, body).await
+}
+
+/// Update the user `user_id` names, for an administrator.
+///
+/// A login is not unique, and [`resolve_login_to_user_id`] answers with the
+/// oldest row carrying one. Every newer row of a shared login is reachable only
+/// here, so an admin can disable a superseded duplicate whose login still
+/// resolves to the account that survives it.
+pub(super) async fn update_user_by_id(
+    state: &AuthState,
+    identity: &AuthIdentity,
+    user_id: uuid::Uuid,
+    body: AdminUpdateUserRequest,
+) -> Result<UserInfo, AuthError> {
+    validate_profile_update(&body)?;
+    if identity.role != UserRole::Admin {
+        return Err(AuthError::Forbidden);
+    }
+
+    apply_user_update(state, identity, user_id, body).await
+}
+
+/// Write an authorized update and report the row it left behind.
+async fn apply_user_update(
+    state: &AuthState,
+    identity: &AuthIdentity,
+    user_id: uuid::Uuid,
+    body: AdminUpdateUserRequest,
+) -> Result<UserInfo, AuthError> {
     // Disabling yourself refuses every credential you hold, and re-enabling
     // needs an admin session. There is no way back inside the product.
     if body.status == Some(UserStatus::Disabled) && user_id == identity.user_id {
@@ -265,7 +296,7 @@ pub(super) async fn update_user(
             body.status,
         )
         .await?
-        .ok_or_else(|| AuthError::NotFound(format!("User '{login}' not found")))?;
+        .ok_or_else(|| AuthError::NotFound(format!("User '{user_id}' not found")))?;
 
     info!(
         actor = %identity.user_id,

@@ -91,6 +91,40 @@ async fn active_sessions(pool: &PgPool, user: Uuid) -> i64 {
     .unwrap()
 }
 
+/// Add a second row carrying `login`, an hour newer than the one already there.
+///
+/// A login is unique to a provider, not to the table: signing in to a second
+/// provider under the same handle leaves two rows.
+async fn seed_newer_duplicate(pool: &PgPool, login: &str, email: &str) -> Uuid {
+    let id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO users (id, login, email, provider, role, created_at, last_login_at, is_bot, status)
+         VALUES ($1, $2, $3, 'github_app', 'user', now() + interval '1 hour', now(), false, 'active')",
+    )
+    .bind(id)
+    .bind(login)
+    .bind(email)
+    .execute(pool)
+    .await
+    .unwrap();
+    id
+}
+
+async fn user_status(pool: &PgPool, user: Uuid) -> String {
+    sqlx::query_scalar("SELECT status FROM users WHERE id = $1")
+        .bind(user)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+}
+
+async fn body_json(response: Response) -> Value {
+    let bytes = axum::body::to_bytes(response.into_body(), 64 * 1024)
+        .await
+        .unwrap();
+    serde_json::from_slice(&bytes).unwrap()
+}
+
 #[sqlx::test]
 async fn failed_login_is_indistinguishable_and_throttling_precedes_password_work(pool: PgPool) {
     let user = seed_user(&pool, "alice", UserRole::User).await;
@@ -301,6 +335,81 @@ async fn racing_account_creation_commits_one_complete_account(pool: PgPool) {
     let count: i64 = sqlx::query_scalar("SELECT count(*) FROM users u JOIN user_credentials c ON c.user_id = u.id JOIN user_provider_ids p ON p.user_id = u.id WHERE u.email_normalized = 'new@example.com'")
         .fetch_one(&pool).await.unwrap();
     assert_eq!(count, 1);
+}
+
+/// `PATCH /api/v1/users/{login}` answers with the oldest row carrying a login,
+/// so a superseded duplicate is unreachable there. The id-keyed admin route is
+/// the handle on every other row.
+#[sqlx::test]
+async fn id_keyed_update_reaches_the_duplicate_a_shared_login_hides(pool: PgPool) {
+    let original = seed_user(&pool, "alice", UserRole::User).await;
+    let duplicate = seed_newer_duplicate(&pool, "alice", "alice@github.example.com").await;
+    seed_user(&pool, "admin", UserRole::Admin).await;
+    let app = router(&pool);
+    let cookie = session_cookie(&login(&app, "admin", PASSWORD).await);
+
+    let by_login = request(
+        &app,
+        "PATCH",
+        "/api/v1/users/alice",
+        json!({"status": "disabled"}),
+        Some(&cookie),
+    )
+    .await;
+    assert_eq!(by_login.status(), StatusCode::OK);
+    assert_eq!(body_json(by_login).await["id"], original.to_string());
+    assert_eq!(user_status(&pool, duplicate).await, "active");
+
+    let by_id = request(
+        &app,
+        "PATCH",
+        &format!("/api/v1/admin/users/{duplicate}"),
+        json!({"status": "disabled"}),
+        Some(&cookie),
+    )
+    .await;
+    assert_eq!(by_id.status(), StatusCode::OK);
+    assert_eq!(body_json(by_id).await["id"], duplicate.to_string());
+    assert_eq!(user_status(&pool, duplicate).await, "disabled");
+}
+
+/// The id-keyed route is admin-only, and it keeps the guard that stops an admin
+/// disabling the account they are signed in as.
+#[sqlx::test]
+async fn id_keyed_update_refuses_a_non_admin_and_a_self_disable(pool: PgPool) {
+    let alice = seed_user(&pool, "alice", UserRole::User).await;
+    let admin = seed_user(&pool, "admin", UserRole::Admin).await;
+    let app = router(&pool);
+    let user_cookie = session_cookie(&login(&app, "alice", PASSWORD).await);
+    let admin_cookie = session_cookie(&login(&app, "admin", PASSWORD).await);
+
+    // A non-admin is refused even on the row they own.
+    assert_eq!(
+        request(
+            &app,
+            "PATCH",
+            &format!("/api/v1/admin/users/{alice}"),
+            json!({"name": "self-service"}),
+            Some(&user_cookie)
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        request(
+            &app,
+            "PATCH",
+            &format!("/api/v1/admin/users/{admin}"),
+            json!({"status": "disabled"}),
+            Some(&admin_cookie)
+        )
+        .await
+        .status(),
+        StatusCode::BAD_REQUEST
+    );
+    assert_eq!(user_status(&pool, admin).await, "active");
+    assert_eq!(user_status(&pool, alice).await, "active");
 }
 
 #[sqlx::test]
