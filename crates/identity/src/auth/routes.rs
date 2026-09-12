@@ -14,28 +14,28 @@ use utoipa_axum::{router::OpenApiRouter, routes};
         (name = "users", description = "User listing"),
     ),
     paths(
-        handlers::verify_handler,
-        handlers::auth_mode_handler,
-        handlers::password_login_handler,
-        handlers::change_password_handler,
-        handlers::admin_reset_password_handler,
-        handlers::me_handler,
-        handlers::update_me_handler,
-        handlers::logout_handler,
-        handlers::logout_all_handler,
-        handlers::exchange_api_key_handler,
-        handlers::exchange_token_handler,
-        handlers::create_api_key_handler,
-        handlers::list_api_keys_handler,
-        handlers::revoke_api_key_handler,
-        handlers::create_pairing_code_handler,
-        handlers::list_users_handler,
-        handlers::create_user_handler,
-        handlers::update_user_handler,
-        handlers::admin_update_user_handler,
-        handlers::set_user_provider_id_handler,
-        handlers::delete_user_provider_id_handler,
-        handlers::list_user_provider_ids_handler,
+        handlers::session::verify_handler,
+        handlers::login::auth_mode_handler,
+        handlers::password::password_login_handler,
+        handlers::password::change_password_handler,
+        handlers::password::admin_reset_password_handler,
+        handlers::users::me_handler,
+        handlers::users::update_me_handler,
+        handlers::logout::logout_handler,
+        handlers::logout::logout_all_handler,
+        handlers::exchange::exchange_api_key_handler,
+        handlers::exchange::exchange_token_handler,
+        handlers::api_keys::create_api_key_handler,
+        handlers::api_keys::list_api_keys_handler,
+        handlers::api_keys::revoke_api_key_handler,
+        handlers::api_keys::create_pairing_code_handler,
+        handlers::users::list_users_handler,
+        handlers::users::create_user_handler,
+        handlers::users::update_user_handler,
+        handlers::users::admin_update_user_handler,
+        handlers::users::set_user_provider_id_handler,
+        handlers::users::delete_user_provider_id_handler,
+        handlers::users::list_user_provider_ids_handler,
     )
 )]
 pub struct AuthApiDoc;
@@ -49,42 +49,51 @@ pub(super) fn auth_router(state: AuthState) -> (axum::Router, utoipa::openapi::O
 
     // Build a separate plain Router for OAuth redirect routes (not in OpenAPI — browser-only flows)
     let oauth_router = axum::Router::new()
-        .route("/api/v1/auth/login", get(handlers::login_handler))
-        .route("/api/v1/auth/cli/login", get(handlers::cli_login_handler))
+        .route("/api/v1/auth/login", get(handlers::login::login_handler))
+        .route(
+            "/api/v1/auth/cli/login",
+            get(handlers::login::cli_login_handler),
+        )
         .route(
             "/api/v1/auth/github-app",
-            get(handlers::github_app_init_handler),
+            get(handlers::provider::github_app_init_handler),
         )
         .route(
             "/api/v1/auth/github-app/connect",
-            get(handlers::github_app_connect_handler),
+            get(handlers::provider::github_app_connect_handler),
         )
         .route(
             "/api/v1/auth/github-app/callback",
-            get(handlers::github_app_callback_handler),
+            get(handlers::provider::github_app_callback_handler),
         )
         .route(
             "/api/v1/auth/forgejo/connect",
-            get(handlers::forgejo_connect_handler),
+            get(handlers::provider::forgejo_connect_handler),
         )
         .route(
             "/api/v1/auth/forgejo/callback",
-            get(handlers::forgejo_callback_handler),
+            get(handlers::provider::forgejo_callback_handler),
         )
-        .route("/api/v1/auth/auth0", get(handlers::auth0_init_handler))
+        .route(
+            "/api/v1/auth/auth0",
+            get(handlers::provider::auth0_init_handler),
+        )
         .route(
             "/api/v1/auth/auth0/callback",
-            get(handlers::auth0_callback_handler),
+            get(handlers::provider::auth0_callback_handler),
         )
         .route(
             "/api/v1/auth/oidc/{provider}/start",
-            get(handlers::oidc_start_handler),
+            get(handlers::provider::oidc_start_handler),
         )
         .route(
             "/api/v1/auth/oidc/{provider}/callback",
-            get(handlers::oidc_callback_handler),
+            get(handlers::provider::oidc_callback_handler),
         )
-        .route("/api/v1/auth/logout", get(handlers::logout_get_handler))
+        .route(
+            "/api/v1/auth/logout",
+            get(handlers::logout::logout_get_handler),
+        )
         .with_state(state);
 
     // Merge both into a single Router
@@ -95,33 +104,36 @@ pub(super) fn auth_router(state: AuthState) -> (axum::Router, utoipa::openapi::O
 
 fn documented_auth_routes() -> OpenApiRouter<AuthState> {
     OpenApiRouter::with_openapi(AuthApiDoc::openapi())
-        .routes(routes!(handlers::verify_handler))
-        .routes(routes!(handlers::auth_mode_handler))
-        .routes(routes!(handlers::password_login_handler))
-        .routes(routes!(handlers::change_password_handler))
-        .routes(routes!(handlers::admin_reset_password_handler))
-        .routes(routes!(handlers::me_handler, handlers::update_me_handler))
-        .routes(routes!(handlers::logout_handler))
-        .routes(routes!(handlers::logout_all_handler))
-        .routes(routes!(handlers::exchange_api_key_handler))
-        .routes(routes!(handlers::exchange_token_handler))
+        .routes(routes!(handlers::session::verify_handler))
+        .routes(routes!(handlers::login::auth_mode_handler))
+        .routes(routes!(handlers::password::password_login_handler))
+        .routes(routes!(handlers::password::change_password_handler))
+        .routes(routes!(handlers::password::admin_reset_password_handler))
         .routes(routes!(
-            handlers::create_api_key_handler,
-            handlers::list_api_keys_handler
+            handlers::users::me_handler,
+            handlers::users::update_me_handler
         ))
-        .routes(routes!(handlers::revoke_api_key_handler))
-        .routes(routes!(handlers::create_pairing_code_handler))
+        .routes(routes!(handlers::logout::logout_handler))
+        .routes(routes!(handlers::logout::logout_all_handler))
+        .routes(routes!(handlers::exchange::exchange_api_key_handler))
+        .routes(routes!(handlers::exchange::exchange_token_handler))
         .routes(routes!(
-            handlers::list_users_handler,
-            handlers::create_user_handler
+            handlers::api_keys::create_api_key_handler,
+            handlers::api_keys::list_api_keys_handler
         ))
-        .routes(routes!(handlers::update_user_handler))
-        .routes(routes!(handlers::admin_update_user_handler))
+        .routes(routes!(handlers::api_keys::revoke_api_key_handler))
+        .routes(routes!(handlers::api_keys::create_pairing_code_handler))
         .routes(routes!(
-            handlers::set_user_provider_id_handler,
-            handlers::delete_user_provider_id_handler
+            handlers::users::list_users_handler,
+            handlers::users::create_user_handler
         ))
-        .routes(routes!(handlers::list_user_provider_ids_handler))
+        .routes(routes!(handlers::users::update_user_handler))
+        .routes(routes!(handlers::users::admin_update_user_handler))
+        .routes(routes!(
+            handlers::users::set_user_provider_id_handler,
+            handlers::users::delete_user_provider_id_handler
+        ))
+        .routes(routes!(handlers::users::list_user_provider_ids_handler))
 }
 
 #[cfg(test)]
