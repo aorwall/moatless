@@ -11,7 +11,7 @@
 //! property of two SQL statements: what `append_activities` records, and what
 //! `changed_messages` reads back.
 
-use crate::dao::{ConversationDao, PgConversationDao};
+use crate::dao::{ConversationBrowse, ConversationDao, PgConversationDao};
 use moatless_api_schemas::task::{FileContextData, MessageContextInput, PreviewUrlContextData};
 use moatless_core::change_feed::conversation::changes_from;
 use moatless_core::change_feed::conversation::current_head;
@@ -19,6 +19,7 @@ use moatless_tasks::message::contexts::message_context_input_to_row;
 use moatless_tasks::message::models::MessageType;
 use moatless_tasks::message::test_support as message_fixtures;
 use moatless_tasks::message::test_support::make_message_row;
+use moatless_tasks::tag::test_support as tag_fixtures;
 use moatless_tasks::task::test_support::make_task_row;
 use moatless_tasks::task_activities::mapping::BlockContext;
 use moatless_tasks::task_activities::mapping::ConversationWrite;
@@ -26,12 +27,18 @@ use moatless_tasks::task_activities::mapping::context_window_updated;
 use moatless_tasks::task_activities::mapping::map_content;
 use moatless_tasks::task_activities::mapping::sandbox_activity;
 use moatless_tasks::task_activities::mapping::{ActivityKind, ActivityStatus};
+use moatless_types::access_control::ScopeContext;
 use moatless_types::sandbox::SandboxEventPayload;
+use moatless_types::task::TaskStatus;
+use moatless_types::task::Visibility;
 use moatless_workspaces::test_support::make_repository_row;
 use sqlx::PgPool;
 
 const TASK: &str = "task-thread-window";
 const USER_1: &str = "11111111-1111-1111-1111-111111111111";
+const USER_2: &str = "22222222-2222-2222-2222-222222222222";
+/// The browsing viewer, who owns none of the Tasks below and follows none.
+const ADMIN: &str = "33333333-3333-3333-3333-333333333333";
 
 /// The read model over `pool`, with its activity seam on the same pool.
 fn conversations_over(pool: &PgPool) -> PgConversationDao {
@@ -488,4 +495,184 @@ async fn a_message_carries_the_uploads_attached_to_it(pool: PgPool) {
         plain.file_contexts, None,
         "a Message with no uploads joins to nothing rather than to an empty array"
     );
+}
+
+/// Seed one open Task owned by `user_id`, tagged with each name given.
+async fn seed_browsable(pool: &PgPool, task_id: &str, user_id: &str, tags: &[&str]) {
+    let task = make_task_row(task_id, user_id);
+    moatless_tasks::task::test_support::seed_task(pool, &task)
+        .await
+        .expect("seed task");
+    tag_with(pool, task_id, tags).await;
+}
+
+async fn tag_with(pool: &PgPool, task_id: &str, tags: &[&str]) {
+    if tags.is_empty() {
+        return;
+    }
+    let names: Vec<String> = tags.iter().map(|name| (*name).to_string()).collect();
+    let created = tag_fixtures::find_or_create_tags(pool, &names)
+        .await
+        .expect("create tags");
+    let ids: Vec<String> = created.into_iter().map(|tag| tag.tag_id).collect();
+    tag_fixtures::add_task_tags(pool, task_id, &ids)
+        .await
+        .expect("tag task");
+}
+
+/// A browse reaches the Tasks of somebody the viewer is not, and each filter
+/// narrows it.
+///
+/// The property this holds is that the browse drops the *follow* rule and
+/// nothing else: none of these Tasks is followed, the viewer owns none of them,
+/// and only the ones the filter names come back.
+#[sqlx::test]
+async fn a_browse_reaches_tasks_the_viewer_neither_follows_nor_owns(pool: PgPool) {
+    let repo = make_repository_row("repo-1", USER_1);
+    moatless_workspaces::compose::seed_repository(&pool, &repo)
+        .await
+        .expect("seed repo");
+    seed_browsable(&pool, "browse-hers-tagged", USER_1, &["backend"]).await;
+    seed_browsable(&pool, "browse-hers-plain", USER_1, &[]).await;
+    seed_browsable(&pool, "browse-theirs-tagged", USER_2, &["backend"]).await;
+
+    let dao = conversations_over(&pool);
+    let viewer = ScopeContext {
+        user_id: ADMIN.to_string(),
+        is_admin: true,
+    };
+
+    let by_owner = dao
+        .list_browsable(
+            &viewer,
+            &ConversationBrowse::new(Some(USER_1.to_string()), None, false).expect("a filter"),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        browsed_ids(&by_owner),
+        vec!["browse-hers-plain", "browse-hers-tagged"],
+        "an owner filter reaches every Task of that person's and nobody else's"
+    );
+
+    let by_tag = dao
+        .list_browsable(
+            &viewer,
+            &ConversationBrowse::new(None, Some("backend".to_string()), false).expect("a filter"),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        browsed_ids(&by_tag),
+        vec!["browse-hers-tagged", "browse-theirs-tagged"],
+        "a tag filter reaches the tagged Tasks of everyone"
+    );
+
+    let by_both = dao
+        .list_browsable(
+            &viewer,
+            &ConversationBrowse::new(
+                Some(USER_1.to_string()),
+                Some("backend".to_string()),
+                false,
+            )
+            .expect("a filter"),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        browsed_ids(&by_both),
+        vec!["browse-hers-tagged"],
+        "the two filters narrow together rather than widening"
+    );
+}
+
+/// Closed Tasks come back only when the browse asks for them.
+///
+/// Closing is what T3 calls archiving, and the archived listing is a separate
+/// read for a viewer's own Follows. A browse folds both halves into one read, so
+/// this is the flag that decides which it is.
+#[sqlx::test]
+async fn a_browse_leaves_closed_tasks_out_until_it_is_asked_for_them(pool: PgPool) {
+    let repo = make_repository_row("repo-1", USER_1);
+    moatless_workspaces::compose::seed_repository(&pool, &repo)
+        .await
+        .expect("seed repo");
+    seed_browsable(&pool, "browse-open", USER_1, &[]).await;
+    let mut closed = make_task_row("browse-closed", USER_1);
+    closed.status = TaskStatus::Closed;
+    moatless_tasks::task::test_support::seed_task(&pool, &closed)
+        .await
+        .expect("seed task");
+
+    let dao = conversations_over(&pool);
+    let viewer = ScopeContext {
+        user_id: ADMIN.to_string(),
+        is_admin: true,
+    };
+    let owner = || Some(USER_1.to_string());
+
+    let open_only = dao
+        .list_browsable(
+            &viewer,
+            &ConversationBrowse::new(owner(), None, false).expect("a filter"),
+        )
+        .await
+        .unwrap();
+    assert_eq!(browsed_ids(&open_only), vec!["browse-open"]);
+
+    let with_closed = dao
+        .list_browsable(
+            &viewer,
+            &ConversationBrowse::new(owner(), None, true).expect("a filter"),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        browsed_ids(&with_closed),
+        vec!["browse-closed", "browse-open"],
+        "asked for them, the closed half arrives alongside the open one"
+    );
+}
+
+/// A viewer who is not an administrator browses what they may read, which is
+/// what makes the filter safe to serve to everyone: the read rule is untouched.
+#[sqlx::test]
+async fn a_browse_by_a_non_administrator_reaches_only_what_they_may_read(pool: PgPool) {
+    let repo = make_repository_row("repo-1", USER_1);
+    moatless_workspaces::compose::seed_repository(&pool, &repo)
+        .await
+        .expect("seed repo");
+    seed_browsable(&pool, "browse-private", USER_1, &["backend"]).await;
+    let mut public = make_task_row("browse-public", USER_1);
+    public.visibility = Visibility::Public;
+    moatless_tasks::task::test_support::seed_task(&pool, &public)
+        .await
+        .expect("seed task");
+    tag_with(&pool, "browse-public", &["backend"]).await;
+
+    let browsed = conversations_over(&pool)
+        .list_browsable(
+            &ScopeContext {
+                user_id: USER_2.to_string(),
+                is_admin: false,
+            },
+            &ConversationBrowse::new(None, Some("backend".to_string()), false).expect("a filter"),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        browsed_ids(&browsed),
+        vec!["browse-public"],
+        "somebody else's private Task is not reachable by tagging it"
+    );
+}
+
+fn browsed_ids(conversations: &[crate::dao::Conversation]) -> Vec<String> {
+    let mut ids: Vec<String> = conversations
+        .iter()
+        .map(|conversation| conversation.task_id.clone())
+        .collect();
+    ids.sort();
+    ids
 }

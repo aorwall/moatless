@@ -4,6 +4,7 @@ use crate::authentication::viewer_scope;
 use crate::commands;
 use crate::config::T3_CLIENT_CONTRACT_VERSION;
 use crate::config::T3_ENVIRONMENT_LABEL;
+use crate::dao::ConversationBrowse;
 use crate::files;
 use crate::git_actions;
 use crate::oauth;
@@ -56,6 +57,7 @@ use crate::servers;
 use crate::servers::ServersError;
 use crate::snapshots::after_sequence;
 use crate::snapshots::archived_shell_snapshot;
+use crate::snapshots::browse_snapshot;
 use crate::snapshots::thread_shell;
 use crate::snapshots::workspace_cwd;
 use crate::state::UiRpcState;
@@ -674,6 +676,7 @@ fn detach(request: Request) -> Dispatch {
         "projects.searchEntries" => Box::pin(projects_search_entries(request)),
         "orchestration.searchThreads" => Box::pin(orchestration_search_threads(request)),
         "threads.getShell" => Box::pin(threads_get_shell(request)),
+        "threads.browse" => Box::pin(threads_browse(request)),
         "orchestration.getArchivedShellSnapshot" => {
             Box::pin(orchestration_get_archived_shell_snapshot(request))
         }
@@ -951,6 +954,51 @@ async fn threads_get_shell(request: Request) -> Vec<Value> {
             &id,
             json!({ "thread": thread.unwrap_or(Value::Null) }),
         )],
+        Err(error) => vec![shell_failure_exit(&id, &error, &identity)],
+    }
+}
+
+/// The listing rows a filter names, for conversations outside the viewer's own
+/// listing.
+///
+/// The refusal is the filter being empty, not the viewer not being an
+/// administrator: what a browse may reach is the read rule, which
+/// `list_browsable` applies to everyone alike. Empty is refused because that
+/// read unnarrowed is every Task an administrator may read.
+async fn threads_browse(request: Request) -> Vec<Value> {
+    let Request {
+        id,
+        payload,
+        state,
+        identity,
+        ..
+    } = request;
+    let viewer = viewer_scope(&identity);
+    let text = |key: &str| {
+        payload
+            .get(key)
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+    };
+    let Some(filter) = ConversationBrowse::new(
+        text("ownerUserId"),
+        text("tag"),
+        payload
+            .get("includeClosed")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+    ) else {
+        warn!(
+            user_id = %viewer.user_id,
+            "T3 UI thread browse refused; it names neither an owner nor a tag"
+        );
+        return vec![failure_exit(
+            &id,
+            "threads.browse requires an ownerUserId or a tag",
+        )];
+    };
+    match browse_snapshot(&state.reads, &state.model_defaults, &viewer, &filter).await {
+        Ok(threads) => vec![success_exit(&id, threads)],
         Err(error) => vec![shell_failure_exit(&id, &error, &identity)],
     }
 }

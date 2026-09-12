@@ -318,6 +318,64 @@ pub struct InteractiveCall {
     pub settled: bool,
 }
 
+/// What narrows a browse of conversations the viewer does **not** follow.
+///
+/// At least one of `owner_user_id` and `tag` is always set, which is why the
+/// only constructor is [`ConversationBrowse::new`]: the read behind this is
+/// [`Reach::Readable`], and unfiltered that is every Task an administrator may
+/// read — the whole deployment. A browse that narrows nothing is refused
+/// rather than served.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConversationBrowse {
+    /// Whose Tasks, as `COALESCE(owner_user_id, created_by)` — the same
+    /// expression the listing resolves `owner_name` against, so picking a name
+    /// off a row finds the rest of that person's rows.
+    pub owner_user_id: Option<String>,
+    /// A tag by `tags.name`, the handle the Moatless UI and the REST listing
+    /// both filter on (`ListTasksQuery::tag`).
+    pub tag: Option<String>,
+    /// Whether closed Tasks come back alongside open ones. Closing is what T3
+    /// calls archiving, so this is the archived half folded into the same read.
+    pub include_closed: bool,
+}
+
+impl ConversationBrowse {
+    /// `None` where neither filter is set — see the type's own doc.
+    ///
+    /// A value is trimmed before it is judged empty, as `snapshots::workspace_cwd`
+    /// trims the same kind of client-typed field: whitespace around a tag is a
+    /// filter that matches nothing, and the refusal says what happened where an
+    /// empty listing does not.
+    pub fn new(
+        owner_user_id: Option<String>,
+        tag: Option<String>,
+        include_closed: bool,
+    ) -> Option<Self> {
+        let trimmed = |value: String| {
+            let trimmed = value.trim();
+            (!trimmed.is_empty()).then(|| trimmed.to_owned())
+        };
+        let owner_user_id = owner_user_id.and_then(trimmed);
+        let tag = tag.and_then(trimmed);
+        if owner_user_id.is_none() && tag.is_none() {
+            return None;
+        }
+        Some(Self {
+            owner_user_id,
+            tag,
+            include_closed,
+        })
+    }
+
+    fn statuses(&self) -> &'static [TaskStatus] {
+        if self.include_closed {
+            LISTED_STATUSES
+        } else {
+            &[TaskStatus::Open]
+        }
+    }
+}
+
 /// Read the conversations one viewer's sidebar is built from, and the position
 /// a client watching it resumes from.
 ///
@@ -359,6 +417,29 @@ pub trait ConversationDao: Send + Sync {
     async fn list_followed_closed(
         &self,
         viewer: &ScopeContext,
+    ) -> Result<Vec<Conversation>, sqlx::Error>;
+
+    /// Every Task the viewer may **read** that `filter` names, newest first,
+    /// whether or not they follow it.
+    ///
+    /// At most [`BROWSE_LIMIT`] rows plus one: the extra row says the filter
+    /// matched more than the cap, and a caller that shows these drops it.
+    ///
+    /// The listings above answer "what am I involved in"; this answers "what is
+    /// there", which is a different question and so drops the only rule that
+    /// made the others a sidebar. The read rule is untouched: this is
+    /// [`Reach::Readable`], the same widening [`Self::readable_by_id`] applies,
+    /// so a viewer who is not an administrator browses their own Tasks and the
+    /// public ones and learns of nothing else. The status rule moves into
+    /// [`ConversationBrowse::include_closed`].
+    ///
+    /// Follower state (`settled_*`, `snoozed_*`) is absent on a row the viewer
+    /// does not follow, and so are the writes that would set it — following is
+    /// what a client offers on a browsed row instead.
+    async fn list_browsable(
+        &self,
+        viewer: &ScopeContext,
+        filter: &ConversationBrowse,
     ) -> Result<Vec<Conversation>, sqlx::Error>;
 
     /// Both halves at once, narrowed to Tasks a change has named.
@@ -567,6 +648,19 @@ fn store_read(error: moatless_types::store::StoreError) -> sqlx::Error {
 const FULL_LISTING_CONCURRENCY: usize = 1;
 const FULL_LISTING_STATEMENT_TIMEOUT: &str = "5s";
 
+/// How many rows a browse returns.
+///
+/// The listings are bounded by what one person follows; a browse is bounded by
+/// nothing but the filter, and "every open Task of the busiest person here" has
+/// no ceiling. The rows are the newest, so the cap truncates the far end of a
+/// list nobody scrolls to rather than hiding recent work.
+///
+/// The query asks for one row past this, which is how
+/// `snapshots::browse_snapshot` tells a cut list from one that ends exactly on
+/// the cap. Counting at the cap instead would call a complete list of 200
+/// truncated.
+pub(crate) const BROWSE_LIMIT: i64 = 200;
+
 /// How many of a Task's Messages one transcript read returns.
 ///
 /// T3's thread contract carries the whole transcript in one snapshot and offers
@@ -693,11 +787,11 @@ impl PgConversationDao {
     pub fn new(pool: UiRpcDbPool, activities: Arc<dyn ActivitySource>) -> Self {
         metrics::describe_histogram!(
             LISTING_DURATION,
-            "Full T3 shell listing duration by outcome"
+            "Full T3 shell listing duration by kind and outcome"
         );
         metrics::describe_counter!(
             LISTING_REJECTIONS,
-            "Full T3 shell listings rejected before completion by reason"
+            "Full T3 shell listings rejected before completion by reason and kind"
         );
         Self {
             pool,
@@ -718,20 +812,34 @@ impl PgConversationDao {
     ///
     /// `statuses` is a set because the two listings are one partition and the
     /// re-read behind the feed spans both of them.
+    ///
+    /// `browse` is the third narrowing, and unlike `task_ids` it caps the rows:
+    /// see [`ConversationDao::list_browsable`].
     async fn list(
         &self,
         viewer: &ScopeContext,
         reach: Reach,
         statuses: &[TaskStatus],
         task_ids: Option<&[String]>,
+        browse: Option<&ConversationBrowse>,
     ) -> Result<Vec<Conversation>, sqlx::Error> {
         let full_listing = task_ids.is_none();
+        // A browse takes the same permit, deliberately: it is the other read
+        // here with no follow join to narrow it, and its `LIMIT` bounds the rows
+        // it returns rather than the scan that finds them. A permit of its own
+        // would let two deployment-sized reads onto the pool at once, which is
+        // the thing this bounds. So the two reject each other, and `kind` is
+        // what tells them apart afterwards — `task_ids.is_none()` no longer
+        // means "the sidebar's listing".
+        let kind = if browse.is_some() { "browse" } else { "listing" };
         let _permit = if full_listing {
             let Ok(permit) = self.full_listing.try_acquire() else {
-                metrics::counter!(LISTING_REJECTIONS, "reason" => "at_capacity").increment(1);
+                metrics::counter!(LISTING_REJECTIONS, "reason" => "at_capacity", "kind" => kind)
+                    .increment(1);
                 warn!(
                     user_id = %viewer.user_id,
-                    "T3 UI shell listing rejected; another full listing is in progress"
+                    kind,
+                    "T3 UI full listing rejected; another one is in progress"
                 );
                 return Err(sqlx::Error::PoolTimedOut);
             };
@@ -759,9 +867,55 @@ impl PgConversationDao {
         let follower = access.next_param();
         let question_tool = follower + 1;
         let plan_tool = follower + 2;
+        // Every clause below allocates the next position in turn, and the binds
+        // at the bottom of this function follow the same order.
+        let mut next_param = plan_tool;
+        let mut param = move || {
+            next_param += 1;
+            next_param
+        };
         let narrowed = task_ids
-            .map(|_| format!("\n                 AND t.task_id = ANY(${})", plan_tool + 1))
+            .map(|_| format!("\n                 AND t.task_id = ANY(${})", param()))
             .unwrap_or_default();
+        // Each browse filter is a clause only when it is set, rather than a
+        // `$n IS NULL OR` pair: an unset one has to disappear from the query
+        // for the index behind it to be reachable, and the browse read is the
+        // one here with no follow join to narrow it first.
+        //
+        // Predicates only. The cap is appended after them and holds no
+        // parameter, so a filter added here cannot land behind `LIMIT` and
+        // produce SQL that fails at runtime instead of at compile time.
+        let mut predicates: Vec<String> = Vec::new();
+        if let Some(browse) = browse {
+            if browse.owner_user_id.is_some() {
+                predicates.push(format!(
+                    "AND COALESCE(t.owner_user_id, t.created_by) = ${}",
+                    param()
+                ));
+            }
+            if browse.tag.is_some() {
+                predicates.push(format!(
+                    "AND EXISTS (
+                          SELECT 1 FROM task_tags tt
+                          JOIN tags tg ON tg.tag_id = tt.tag_id
+                          WHERE tt.task_id = t.task_id AND tg.name = ${}
+                      )",
+                    param()
+                ));
+            }
+        }
+        let browsed = match browse {
+            None => String::new(),
+            // The cap is inside the CTE, which is also where the order it takes
+            // the newest rows by has to live: the outer `ORDER BY` runs after
+            // the laterals, and ordering there would cap an arbitrary set.
+            Some(_) => format!(
+                "\n                 {}\n                 ORDER BY t.updated_at DESC NULLS LAST, \
+                 t.task_id ASC LIMIT {}",
+                predicates.join("\n                 "),
+                BROWSE_LIMIT + 1
+            ),
+        };
         // The follow rule is the join, so widening past it is the join kind and
         // nothing else: `${follower}` moves into the `ON` clause, leaving the
         // status rule, the read rule and the narrowing exactly as they are, at
@@ -784,7 +938,7 @@ impl PgConversationDao {
             r#"WITH listed AS MATERIALIZED (
                    SELECT t.*, tf.settled_override, tf.settled_at, tf.snoozed_until, tf.snoozed_at
                    {follows} t.status IN ({statuses})
-                     AND {}{narrowed}
+                     AND {}{narrowed}{browsed}
                )
                SELECT
                    t.task_id,
@@ -991,14 +1145,26 @@ impl PgConversationDao {
             access.sql(),
         );
 
-        let query = sqlx::query_as::<_, Conversation>(AssertSqlSafe(sql))
+        let mut query = sqlx::query_as::<_, Conversation>(AssertSqlSafe(sql))
             .bind(viewer.is_admin)
             .bind(&viewer.user_id)
             .bind(&viewer.user_id)
             .bind(QUESTION_TOOL)
             .bind(PLAN_TOOL);
+        // Bound in the order the clauses above allocated their positions.
+        if let Some(task_ids) = task_ids {
+            query = query.bind(task_ids.to_vec());
+        }
+        if let Some(browse) = browse {
+            if let Some(owner_user_id) = browse.owner_user_id.clone() {
+                query = query.bind(owner_user_id);
+            }
+            if let Some(tag) = browse.tag.clone() {
+                query = query.bind(tag);
+            }
+        }
         let result = match task_ids {
-            Some(task_ids) => query.bind(task_ids.to_vec()).fetch_all(&self.pool).await,
+            Some(_) => query.fetch_all(&self.pool).await,
             None => {
                 async {
                     let mut tx = self.pool.begin().await?;
@@ -1017,13 +1183,17 @@ impl PgConversationDao {
             let outcome = match &result {
                 Ok(_) => "ok",
                 Err(sqlx::Error::Database(error)) if error.code().as_deref() == Some("57014") => {
-                    metrics::counter!(LISTING_REJECTIONS, "reason" => "statement_timeout")
-                        .increment(1);
+                    metrics::counter!(
+                        LISTING_REJECTIONS,
+                        "reason" => "statement_timeout",
+                        "kind" => kind
+                    )
+                    .increment(1);
                     "statement_timeout"
                 }
                 Err(_) => "error",
             };
-            metrics::histogram!(LISTING_DURATION, "outcome" => outcome)
+            metrics::histogram!(LISTING_DURATION, "outcome" => outcome, "kind" => kind)
                 .record(started.elapsed().as_secs_f64());
         }
         result
@@ -1174,7 +1344,7 @@ impl PgConversationDao {
 #[async_trait]
 impl ConversationDao for PgConversationDao {
     async fn list_followed(&self, viewer: &ScopeContext) -> Result<Vec<Conversation>, sqlx::Error> {
-        self.list(viewer, Reach::Followed, &[TaskStatus::Open], None)
+        self.list(viewer, Reach::Followed, &[TaskStatus::Open], None, None)
             .await
     }
 
@@ -1182,8 +1352,23 @@ impl ConversationDao for PgConversationDao {
         &self,
         viewer: &ScopeContext,
     ) -> Result<Vec<Conversation>, sqlx::Error> {
-        self.list(viewer, Reach::Followed, &[TaskStatus::Closed], None)
+        self.list(viewer, Reach::Followed, &[TaskStatus::Closed], None, None)
             .await
+    }
+
+    async fn list_browsable(
+        &self,
+        viewer: &ScopeContext,
+        filter: &ConversationBrowse,
+    ) -> Result<Vec<Conversation>, sqlx::Error> {
+        self.list(
+            viewer,
+            Reach::Readable,
+            filter.statuses(),
+            None,
+            Some(filter),
+        )
+        .await
     }
 
     async fn list_followed_by_ids(
@@ -1194,8 +1379,14 @@ impl ConversationDao for PgConversationDao {
         if task_ids.is_empty() {
             return Ok(Vec::new());
         }
-        self.list(viewer, Reach::Followed, LISTED_STATUSES, Some(task_ids))
-            .await
+        self.list(
+            viewer,
+            Reach::Followed,
+            LISTED_STATUSES,
+            Some(task_ids),
+            None,
+        )
+        .await
     }
 
     async fn readable_by_id(
@@ -1209,6 +1400,7 @@ impl ConversationDao for PgConversationDao {
                 Reach::Readable,
                 LISTED_STATUSES,
                 Some(&[task_id.to_string()]),
+                None,
             )
             .await?
             .into_iter()
@@ -1223,8 +1415,14 @@ impl ConversationDao for PgConversationDao {
         if task_ids.is_empty() {
             return Ok(Vec::new());
         }
-        self.list(viewer, Reach::Readable, LISTED_STATUSES, Some(task_ids))
-            .await
+        self.list(
+            viewer,
+            Reach::Readable,
+            LISTED_STATUSES,
+            Some(task_ids),
+            None,
+        )
+        .await
     }
 
     async fn controls_conversation(

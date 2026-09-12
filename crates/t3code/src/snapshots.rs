@@ -1,5 +1,6 @@
 use crate::config::AgentModelDefaults;
 use crate::dao::Conversation;
+use crate::dao::ConversationBrowse;
 use crate::dao::ConversationDao;
 use crate::dao::Transcript;
 use crate::listing::UiRpcEnvironmentIdentity;
@@ -292,6 +293,43 @@ impl ShellSnapshot {
             })
             .unwrap_or_default()
     }
+}
+
+/// The listing rows a browse filter names — rows for conversations the viewer
+/// may read and does not necessarily follow.
+///
+/// Rows only, and narrowed to the projects the viewer may **read** rather than
+/// the wider set [`shell_snapshot`] assembles. A browse is read alongside a
+/// shell listing the client already holds, and the readable projects are in it;
+/// the extras that listing adds are the ones it referenced itself, which a
+/// browsed row cannot rely on being there. One whose project the client would
+/// not hold is dropped here rather than sent to be silently discarded.
+///
+/// No sequence travels with these. Nothing pushes a browsed row — the change
+/// feed re-reads by Follow — so a client keeps them current by asking again,
+/// and a position it could mistake for its listing's would have it discard live
+/// events instead.
+///
+/// `truncated` says the filter matched more rows than `dao::BROWSE_LIMIT`
+/// returns, so a client can say a list is partial. It is decided on the rows the
+/// query answered with rather than the projected ones, because a row dropped for
+/// its project is dropped after the cap and would otherwise read as room to
+/// spare — and on the row past the cap rather than on a count, so a filter
+/// matching exactly `BROWSE_LIMIT` reports a complete list.
+pub async fn browse_snapshot(
+    reads: &T3Reads,
+    defaults: &AgentModelDefaults,
+    viewer: &ScopeContext,
+    filter: &ConversationBrowse,
+) -> Result<Value, sqlx::Error> {
+    let mut conversations = reads.conversations().list_browsable(viewer, filter).await?;
+    let truncated = conversations.len() as i64 > crate::dao::BROWSE_LIMIT;
+    conversations.truncate(crate::dao::BROWSE_LIMIT as usize);
+    let workspaces = reads.workspaces().list_readable_including(viewer, &[]).await?;
+    Ok(json!({
+        "threads": projection::listed_threads(&workspaces, &conversations, defaults),
+        "truncated": truncated,
+    }))
 }
 
 /// The archived half of the listing: the closed conversations the viewer

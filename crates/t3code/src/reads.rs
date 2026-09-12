@@ -76,7 +76,9 @@ impl T3Reads {
 #[cfg(feature = "test-support")]
 mod refusal {
     use super::*;
-    use crate::dao::{Conversation, ConversationMatch, InteractiveCall, Transcript};
+    use crate::dao::{
+        Conversation, ConversationBrowse, ConversationMatch, InteractiveCall, Transcript,
+    };
     use crate::listing::UiRpcListingChange;
     use async_trait::async_trait;
     use moatless_core::change_feed::conversation::{ConversationChange, ConversationHead};
@@ -148,6 +150,14 @@ mod refusal {
             viewer: &ScopeContext,
         ) -> Result<Vec<Conversation>, sqlx::Error> {
             self.0.list_followed_closed(viewer).await
+        }
+
+        async fn list_browsable(
+            &self,
+            viewer: &ScopeContext,
+            filter: &ConversationBrowse,
+        ) -> Result<Vec<Conversation>, sqlx::Error> {
+            self.0.list_browsable(viewer, filter).await
         }
 
         async fn list_followed_by_ids(

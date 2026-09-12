@@ -36,6 +36,11 @@ pub(crate) fn descriptor(config: &UiRpcConfig) -> Value {
             // a thread it reached by link into the sidebar, and no way out of
             // one it did.
             "threadFollow": true,
+            // Whether `threads.browse` is understood. A listing is what this
+            // viewer follows, so without this a client has no way to reach the
+            // work of somebody who is not them, and must offer no filter for
+            // it at all.
+            "threadBrowse": true,
             // Whether `thread.user-input.respond` is understood. A client
             // cannot otherwise tell this server from one that refuses it, and
             // the descriptor is read before any thread is opened.

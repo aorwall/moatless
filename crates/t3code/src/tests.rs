@@ -1211,6 +1211,55 @@ async fn the_descriptor_advertises_thread_follow() {
     );
 }
 
+/// The sidebar hides its filter entirely when this key is missing, and the
+/// popover behind it is the only control that calls `threads.browse`. Drop the
+/// key and a viewer has the method and no way to reach it.
+#[tokio::test]
+async fn the_descriptor_advertises_thread_browse() {
+    let frame = request("1", "server.getConfig", json!({}));
+    let mut connection = connection();
+    let output = connection.exchange(&frame, &state(), &viewer()).await;
+
+    assert_eq!(
+        output.frames[0]["exit"]["value"]["environment"]["capabilities"]["threadBrowse"],
+        json!(true)
+    );
+}
+
+/// An unfiltered browse is every Task the viewer may read, so the refusal has to
+/// land before the query. `state()` sets no `expect_list_browsable`, and mockall
+/// panics on a call it was never told to answer, so a refusal that stopped
+/// short of the database is what a passing assertion means here.
+#[tokio::test]
+async fn a_browse_naming_neither_owner_nor_tag_never_reaches_the_database() {
+    let mut connection = connection();
+    let output = connection
+        .exchange(
+            &request("1", "threads.browse", json!({})),
+            &state(),
+            &viewer(),
+        )
+        .await;
+
+    assert_eq!(output.frames[0]["exit"]["_tag"], "Failure");
+    assert_eq!(
+        output.frames[0]["exit"]["cause"][0]["defect"],
+        "threads.browse requires an ownerUserId or a tag"
+    );
+
+    // A field holding only whitespace is the same request with a keystroke in
+    // it, and `ConversationBrowse::new` trims so it lands on the same refusal.
+    let output = connection
+        .exchange(
+            &request("2", "threads.browse", json!({ "tag": "   " })),
+            &state(),
+            &viewer(),
+        )
+        .await;
+
+    assert_eq!(output.frames[0]["exit"]["_tag"], "Failure");
+}
+
 /// The two keys the composer reads before it decides how to send a file.
 /// Reporting `attachmentUploads` moves it off the inline data-URL path for
 /// images too, so a server that reports one without serving the other

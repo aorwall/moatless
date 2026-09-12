@@ -146,11 +146,26 @@ pub(super) fn shell_snapshot(
     defaults: &AgentModelDefaults,
     sequence: i64,
 ) -> Value {
+    json!({
+        "snapshotSequence": sequence,
+        "projects": workspaces.iter().map(project).collect::<Vec<_>>(),
+        "threads": listed_threads(workspaces, conversations, defaults),
+        "updatedAt": Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true)
+    })
+}
+
+/// The rows of a listing, dropping each conversation whose project `workspaces`
+/// does not carry — see [`shell_snapshot`] for why that drop is here.
+pub(super) fn listed_threads(
+    workspaces: &[UiRpcListedWorkspace],
+    conversations: &[Conversation],
+    defaults: &AgentModelDefaults,
+) -> Vec<Value> {
     let projects: HashSet<&str> = workspaces
         .iter()
         .map(|listed| listed.workspace.id.as_str())
         .collect();
-    let threads: Vec<Value> = conversations
+    conversations
         .iter()
         .filter_map(|conversation| {
             let project_id = conversation
@@ -167,14 +182,7 @@ pub(super) fn shell_snapshot(
             };
             Some(thread(conversation, project_id, defaults))
         })
-        .collect();
-
-    json!({
-        "snapshotSequence": sequence,
-        "projects": workspaces.iter().map(project).collect::<Vec<_>>(),
-        "threads": threads,
-        "updatedAt": Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true)
-    })
+        .collect()
 }
 
 /// One conversation's row, re-read and sent whole, at the position that carried
