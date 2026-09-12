@@ -19554,14 +19554,14 @@
               "string",
               "null"
             ],
-            "description": "See [`WorkspaceResponse::default_effort`]. `Some(None)` clears it."
+            "description": "Reasoning-effort level paired with `default_model`."
           },
           "defaultModel": {
             "type": [
               "string",
               "null"
             ],
-            "description": "See [`WorkspaceResponse::default_model`]. `Some(None)` clears it."
+            "description": "Model catalog id a new Task on this Workspace starts with."
           },
           "description": {
             "type": [
@@ -19600,7 +19600,7 @@
               },
               {
                 "$ref": "#/components/schemas/WorkspaceIcon",
-                "description": "`Some(None)` clears the icon back to the client's default glyph."
+                "description": "Omit to leave the icon unchanged; send `null` to clear it back to the\nclient's automatic glyph. The same holds for the two fields below."
               }
             ]
           },
@@ -19646,7 +19646,7 @@
               },
               {
                 "$ref": "#/components/schemas/Scope",
-                "description": "Change the workspace's access scope (`global` or `user`). When set,\n`owner_user_id` is re-resolved from the new scope. Requesting `global`\nrequires admin."
+                "description": "Change the workspace's access scope (`global` or `user`). When set,\n`owner_user_id` is re-resolved from the new scope. Requesting `global`\nrequires admin, and this write promotes every repository the workspace\nplaces at the time to `global` as well — a repository placed afterwards\nkeeps its own scope. Returning to `user` leaves those repositories global."
               }
             ]
           },

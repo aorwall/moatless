@@ -128,6 +128,7 @@ pub async fn get_workspace(
 )]
 pub async fn update_workspace(
     State(workspaces): State<Arc<Workspaces>>,
+    State(repositories): State<Arc<Repositories>>,
     State(users): State<Arc<dyn UserResolver>>,
     auth: AuthUser,
     Path(workspace_id): Path<String>,
@@ -135,6 +136,7 @@ pub async fn update_workspace(
 ) -> Result<Json<WorkspaceResponse>, WorkspaceError> {
     super::mutations::update_workspace(
         workspaces.store(),
+        repositories.store(),
         users.as_ref(),
         &auth.scope_context(),
         workspace_id.clone(),

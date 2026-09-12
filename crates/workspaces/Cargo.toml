@@ -47,4 +47,7 @@ mockall = { workspace = true }
 # from this crate's own `#[cfg(test)]` unit tests in plugin/sync and
 # workspace/credentials.
 moatless-identity = { workspace = true, features = ["test-support"] }
+# `MockUserResolver`, which workspace/mutations' unit tests pass where a handler
+# passes the real resolver.
+moatless-ports = { workspace = true, features = ["test-support"] }
 tokio-test = { workspace = true }

@@ -7,8 +7,10 @@ use super::schemas::{
     resource_config_from_wire, script_configs_from_wire, server_configs_from_wire,
 };
 use crate::repository::dao::RepositoryDao;
+use crate::repository::error::RepositoryError;
+use crate::repository::mutations::promote_repositories_to_global;
 use moatless_ports::identity::UserResolver;
-use moatless_types::access_control::{ScopeContext, resolve_scope_for_create};
+use moatless_types::access_control::{Scope, ScopeContext, resolve_scope_for_create};
 
 /// Whether this Workspace takes a write at all.
 ///
@@ -30,6 +32,25 @@ fn ensure_workspace_mutable(ws: &Workspace) -> Result<(), WorkspaceError> {
         ));
     }
     Ok(())
+}
+
+/// A repository the scope cascade could not promote fails the Workspace's move.
+///
+/// The caller acts on the repository, so its own message travels: a remote URL
+/// already registered globally is a 409 they can resolve, not an internal error.
+fn scope_cascade_error(error: RepositoryError) -> WorkspaceError {
+    match error {
+        RepositoryError::Db(error) => WorkspaceError::Db(error),
+        // `Store` is internal on the repository side too, and its own
+        // `IntoResponse` redacts it. Kept out of the arm below so it is not the
+        // one variant that reaches the client verbatim.
+        error @ RepositoryError::Store(_) => {
+            WorkspaceError::Db(sqlx::Error::Protocol(error.to_string()))
+        }
+        other => WorkspaceError::Conflict(format!(
+            "Cannot move this workspace to global scope: {other}"
+        )),
+    }
 }
 
 fn kind_for(count: usize) -> WorkspaceKind {
@@ -229,6 +250,7 @@ pub async fn create_workspace(
 /// Apply the caller-authorized workspace mutation.
 pub async fn update_workspace(
     workspaces: &dyn WorkspaceDao,
+    repositories: &dyn RepositoryDao,
     users: &dyn UserResolver,
     ctx: &ScopeContext,
     workspace_id: String,
@@ -254,6 +276,22 @@ pub async fn update_workspace(
         }
         None => (None, None),
     };
+
+    // A Workspace that becomes global is readable by everyone, so the
+    // repositories placed in it move with it — otherwise the Workspace lists
+    // repositories its new readers cannot open. Before `workspaces.update`, so a
+    // repository that cannot be promoted leaves the Workspace where it was.
+    if scope == Some(Scope::Global) {
+        let repository_ids: Vec<String> = workspaces
+            .find_repos(&workspace_id)
+            .await?
+            .into_iter()
+            .map(|placement| placement.repository_id)
+            .collect();
+        promote_repositories_to_global(repositories, ctx, &repository_ids)
+            .await
+            .map_err(scope_cascade_error)?;
+    }
 
     let patch = WorkspacePatch {
         name: req.name,
@@ -501,8 +539,12 @@ pub async fn set_workspace_primary_repo(
 
 #[cfg(test)]
 mod tests {
+    use super::super::dao::MockWorkspaceDao;
     use super::super::reset::reset_source;
     use super::*;
+    use crate::repository::dao::MockRepositoryDao;
+    use crate::repository::models::{Repository, RepositoryKind};
+    use moatless_ports::identity::MockUserResolver;
 
     fn input(mount: Option<&str>) -> WorkspaceRepoInput {
         WorkspaceRepoInput {
@@ -648,5 +690,230 @@ mod tests {
         let placements = vec![input(Some("api")), input(Some("api"))];
         let err = ensure_unique_mount_names(&placements).unwrap_err();
         assert!(matches!(err, WorkspaceError::BadRequest(_)));
+    }
+
+    fn repository(id: &str, scope: Scope) -> Repository {
+        Repository {
+            id: id.to_string(),
+            name: id.to_string(),
+            kind: RepositoryKind::Remote,
+            remote_url: Some(format!("https://github.com/acme/{id}")),
+            default_branch: None,
+            description: None,
+            provider: None,
+            scope,
+            owner_user_id: (scope == Scope::User).then(|| "u1".to_string()),
+            created_by: None,
+            deleted: false,
+            created_at: None,
+            updated_at: None,
+        }
+    }
+
+    fn placement(repository_id: &str) -> WorkspaceRepo {
+        WorkspaceRepo {
+            id: format!("wsr_{repository_id}"),
+            workspace_id: "ws_1".to_string(),
+            repository_id: repository_id.to_string(),
+            branch: None,
+            mount_name: None,
+            is_primary: false,
+            position: 0,
+            created_at: None,
+        }
+    }
+
+    fn manual_workspace_dao() -> MockWorkspaceDao {
+        let mut workspaces = MockWorkspaceDao::new();
+        workspaces
+            .expect_find_by_id()
+            .returning(|_, _| Ok(Some(workspace_with_source(WorkspaceSource::Manual))));
+        workspaces.expect_update().returning(|_, _, _| Ok(true));
+        workspaces
+    }
+
+    fn scope_request(scope: Scope) -> UpdateWorkspaceRequest {
+        UpdateWorkspaceRequest {
+            scope: Some(scope),
+            ..Default::default()
+        }
+    }
+
+    /// A Workspace that becomes global takes its repositories with it, so
+    /// everyone who can now read it can open what it places. A repository
+    /// already global is left alone — `expect_update` accepts no other id.
+    #[tokio::test]
+    async fn global_move_promotes_the_repositories_it_places() {
+        let mut workspaces = manual_workspace_dao();
+        workspaces
+            .expect_find_repos()
+            .returning(|_| Ok(vec![placement("r_user"), placement("r_global")]));
+
+        let mut repositories = MockRepositoryDao::new();
+        repositories.expect_find_by_id().returning(|id, _| {
+            let scope = if id == "r_global" {
+                Scope::Global
+            } else {
+                Scope::User
+            };
+            Ok(Some(repository(id, scope)))
+        });
+        repositories
+            .expect_find_by_normalized_remote_url()
+            .returning(|_, _, _| Ok(None));
+        repositories
+            .expect_update()
+            .withf(|id, patch, _| {
+                id == "r_user"
+                    && patch.scope == Some(Scope::Global)
+                    && patch.owner_user_id == Some(None)
+            })
+            .once()
+            .returning(|_, _, _| Ok(true));
+
+        update_workspace(
+            &workspaces,
+            &repositories,
+            &MockUserResolver::new(),
+            &ctx(true),
+            "ws_1".to_string(),
+            scope_request(Scope::Global),
+        )
+        .await
+        .unwrap();
+    }
+
+    /// The cascade runs one way only. Both mocks are bare here, so reading the
+    /// placements or writing a repository would fail the test.
+    #[tokio::test]
+    async fn user_move_leaves_the_repositories_global() {
+        let workspaces = manual_workspace_dao();
+        let repositories = MockRepositoryDao::new();
+
+        update_workspace(
+            &workspaces,
+            &repositories,
+            &MockUserResolver::new(),
+            &ctx(true),
+            "ws_1".to_string(),
+            scope_request(Scope::User),
+        )
+        .await
+        .unwrap();
+    }
+
+    /// A repository whose remote URL is already registered globally blocks the
+    /// move, and nothing is written: not the Workspace, whose `expect_update` is
+    /// never set, and not the repository checked before the colliding one, whose
+    /// promotion would drop an owner no later failure can hand back.
+    #[tokio::test]
+    async fn a_colliding_repository_blocks_the_global_move() {
+        let mut workspaces = MockWorkspaceDao::new();
+        workspaces
+            .expect_find_by_id()
+            .returning(|_, _| Ok(Some(workspace_with_source(WorkspaceSource::Manual))));
+        workspaces
+            .expect_find_repos()
+            .returning(|_| Ok(vec![placement("r_first"), placement("r_colliding")]));
+
+        let mut repositories = MockRepositoryDao::new();
+        repositories
+            .expect_find_by_id()
+            .returning(|id, _| Ok(Some(repository(id, Scope::User))));
+        repositories
+            .expect_find_by_normalized_remote_url()
+            .returning(|url_key, _, _| {
+                Ok(url_key
+                    .contains("r_colliding")
+                    .then(|| repository("r_other", Scope::Global)))
+            });
+        repositories.expect_update().never();
+
+        let err = update_workspace(
+            &workspaces,
+            &repositories,
+            &MockUserResolver::new(),
+            &ctx(true),
+            "ws_1".to_string(),
+            scope_request(Scope::Global),
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(err, WorkspaceError::Conflict(_)));
+    }
+
+    /// One repository placed twice is one row to promote. `workspace_repos` has
+    /// no unique `(workspace_id, repository_id)`, so a Workspace may place the
+    /// same repository at two branches, and the move must not read its second
+    /// placement as a second claim on its URL.
+    #[tokio::test]
+    async fn a_repository_placed_twice_is_promoted_once() {
+        let mut workspaces = manual_workspace_dao();
+        workspaces
+            .expect_find_repos()
+            .returning(|_| Ok(vec![placement("r_twice"), placement("r_twice")]));
+
+        let mut repositories = MockRepositoryDao::new();
+        repositories
+            .expect_find_by_id()
+            .returning(|id, _| Ok(Some(repository(id, Scope::User))));
+        repositories
+            .expect_find_by_normalized_remote_url()
+            .returning(|_, _, _| Ok(None));
+        repositories
+            .expect_update()
+            .withf(|id, _, _| id == "r_twice")
+            .once()
+            .returning(|_, _, _| Ok(true));
+
+        update_workspace(
+            &workspaces,
+            &repositories,
+            &MockUserResolver::new(),
+            &ctx(true),
+            "ws_1".to_string(),
+            scope_request(Scope::Global),
+        )
+        .await
+        .unwrap();
+    }
+
+    /// Two rows for one upstream URL are legal while each has its own owner, and
+    /// illegal once the promotion has dropped both. No global row holds the URL
+    /// here, so only the batch's own claims catch it — before either write, as
+    /// `expect_update().never()` asserts.
+    #[tokio::test]
+    async fn two_placements_of_one_url_block_the_global_move() {
+        let mut workspaces = MockWorkspaceDao::new();
+        workspaces
+            .expect_find_by_id()
+            .returning(|_, _| Ok(Some(workspace_with_source(WorkspaceSource::Manual))));
+        workspaces
+            .expect_find_repos()
+            .returning(|_| Ok(vec![placement("r_mine"), placement("r_theirs")]));
+
+        let mut repositories = MockRepositoryDao::new();
+        repositories.expect_find_by_id().returning(|id, _| {
+            let mut existing = repository(id, Scope::User);
+            existing.remote_url = Some("https://github.com/acme/shared.git".to_string());
+            existing.owner_user_id = Some(if id == "r_mine" { "u1" } else { "u2" }.to_string());
+            Ok(Some(existing))
+        });
+        repositories
+            .expect_find_by_normalized_remote_url()
+            .returning(|_, _, _| Ok(None));
+        repositories.expect_update().never();
+
+        let err = update_workspace(
+            &workspaces,
+            &repositories,
+            &MockUserResolver::new(),
+            &ctx(true),
+            "ws_1".to_string(),
+            scope_request(Scope::Global),
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(err, WorkspaceError::Conflict(_)));
     }
 }

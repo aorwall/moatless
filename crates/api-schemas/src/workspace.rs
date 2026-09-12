@@ -236,7 +236,9 @@ pub struct UpdateWorkspaceRequest {
     pub description: Option<String>,
     /// Change the workspace's access scope (`global` or `user`). When set,
     /// `owner_user_id` is re-resolved from the new scope. Requesting `global`
-    /// requires admin.
+    /// requires admin, and this write promotes every repository the workspace
+    /// places at the time to `global` as well — a repository placed afterwards
+    /// keeps its own scope. Returning to `user` leaves those repositories global.
     pub scope: Option<Scope>,
     /// Identity every Task on this Workspace acts as on a git host. When set it
     /// outranks the Task's own owner. An explicit empty string clears it.
