@@ -333,7 +333,7 @@ by lifecycle and the reconciler.
   row lets the reconciler request Running when causal precedence permits it.
   Which is why a pod being torn down mid-turn must **not** close the turn: the
   sandbox's SIGTERM handler cancels the in-flight run and publishes
-  `taskTurn/turn_interrupted` (`crates/sandbox/src/agent/coordinator.rs`), never
+  `taskTurn/turn_interrupted` (`crates/sandbox/src/agent/coordinator/service.rs`), never
   `agent/stopped`. `agent/stopped` is reserved for an explicit `StopAgent`,
   which carries a stop source; a graceful drain that published one would tell
   the replacement pod the turn had ended and leave the work half-finished.

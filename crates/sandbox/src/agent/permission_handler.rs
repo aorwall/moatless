@@ -135,7 +135,7 @@ impl InteractivePermissionHandler {
 
 /// The `agent.message` payload announcing one parked interactive call.
 ///
-/// Byte-for-byte the shape `coordinator::message_payload` publishes for an
+/// Byte-for-byte the shape `coordinator::seam::message_payload` publishes for an
 /// ordinary per-block source event, because it is read by the same handler:
 /// one `blockIndex`, one `content` block, the message's own uuid on the outside
 /// and the inside.

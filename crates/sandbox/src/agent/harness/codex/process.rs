@@ -612,5 +612,5 @@ fn not_steerable(reason: &str) -> HarnessError {
 }
 
 #[cfg(test)]
-#[path = "tests.rs"]
+#[path = "tests/mod.rs"]
 mod tests;

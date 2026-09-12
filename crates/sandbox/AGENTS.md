@@ -104,8 +104,8 @@ first Member's Task. `TASK_ID` is in `RESERVED_SECRET_KEYS`, so this is an
 Three sites spawn for a Member and stamp. `init::workspace::run_setup_command`
 is the fourth spawn and stamps nothing: init runs only for the pod's initial
 Member, whose pod `TASK_ID` already names it.
-`agent::coordinator::build_input` stamps the
-`Input::env` that every harness layers over the inherited environment.
+`agent::coordinator::service::build_input` stamps the `Input::env` that every
+harness layers over the inherited environment.
 `CommandRegistry::run` stamps the `bash -lc` child, and takes the Task as a
 constructor argument so no registry can be built without one.
 `terminal::runtime::spawn_terminal` applies whatever env the request carried,

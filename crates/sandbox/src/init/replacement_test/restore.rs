@@ -9,7 +9,8 @@
 //!      `(UnavailableSession, Lost)` — `claude::tests::resume_startup_failure_is_
 //!      unavailable_session_and_lost` (and the Codex equivalent in `codex::classify`);
 //!   3. a `Lost` verdict drives one fresh same-family turn and keeps the ack —
-//!      `coordinator::tests::lost_resume_recovers_with_a_fresh_turn_and_keeps_the_ack`.
+//!      `coordinator::tests::context_recovery::lost_resume_recovers_with_a_
+//!      fresh_turn_and_keeps_the_ack`.
 //!
 //! Link 2 is deterministic: the Claude Session module checks the restored
 //! transcript before spawning the CLI, while the native `TransportClosed` resume
