@@ -1141,86 +1141,8 @@ impl MessageDao for PgMessageDao {
         task_id: &str,
         turn_number: Option<i32>,
     ) -> Result<bool, sqlx::Error> {
-        // Scope to the reconciled turn first: a stale open turn must not be
-        // closed as completed on the strength of a later turn's final reply
-        // when it already has substantive assistant/system/result state of its
-        // own (for example, a mid-tool interruption).
-        let row: Option<(String, Option<String>)> = sqlx::query_as(
-            r#"SELECT message_type, assistant_stop_reason FROM task_messages
-               WHERE task_id = $1
-                 AND ($2::int IS NULL OR turn_number = $2)
-               ORDER BY timestamp DESC, id DESC
-               LIMIT 1"#,
-        )
-        .bind(task_id)
-        .bind(turn_number)
-        .fetch_optional(&self.0)
-        .await?;
-
-        // A final assistant reply ends with stop_reason `end_turn`; a turn cut
-        // off mid-tool ends with `tool_use` (or no assistant row at all), which
-        // stays a genuine orphan.
-        let row = row
-            .map(|(kind, reason)| {
-                decode_required::<super::models::MessageType>("message_type", kind)
-                    .map(|kind| (kind, reason))
-            })
-            .transpose()?;
-        if matches!(
-            row,
-            Some((super::models::MessageType::Assistant, Some(reason))) if reason == "end_turn"
-        ) {
-            return Ok(true);
-        }
-
-        let Some(turn_number) = turn_number else {
-            return Ok(false);
-        };
-
-        // Coalesced pending-message run: the orphaned lower turn contains only
-        // the inbound user message (plus possible empty assistant placeholders),
-        // while the actual final assistant reply was attributed to a later
-        // sibling turn by MAX(turn_number)-at-event-arrival resolution.
-        let (has_user, has_substantive_non_user, latest_later_completed): (bool, bool, bool) =
-            sqlx::query_as(
-                r#"SELECT
-                     EXISTS (
-                       SELECT 1 FROM task_messages
-                       WHERE task_id = $1
-                         AND turn_number = $2
-                         AND message_type = 'user'
-                     ) AS has_user,
-                     EXISTS (
-                       SELECT 1 FROM task_messages
-                       WHERE task_id = $1
-                         AND turn_number = $2
-                         AND message_type <> 'user'
-                         -- An empty assistant placeholder: a row that stopped
-                         -- for no stated reason and said nothing. Text is the
-                         -- row itself, so an empty one is a row with no text
-                         -- on it.
-                         AND NOT (
-                           message_type = 'assistant'
-                           AND assistant_stop_reason IS NULL
-                           AND COALESCE(message_text, '') = ''
-                         )
-                     ) AS has_substantive_non_user,
-                     COALESCE((
-                       SELECT message_type = 'assistant'
-                          AND assistant_stop_reason = 'end_turn'
-                          AND COALESCE(turn_number > $2, false)
-                       FROM task_messages
-                       WHERE task_id = $1
-                       ORDER BY timestamp DESC, id DESC
-                       LIMIT 1
-                     ), false) AS latest_later_completed"#,
-            )
-            .bind(task_id)
-            .bind(turn_number)
-            .fetch_one(&self.0)
-            .await?;
-
-        Ok(has_user && !has_substantive_non_user && latest_later_completed)
+        crate::message::recovery_dao::last_message_is_completed_reply(&self.0, task_id, turn_number)
+            .await
     }
 
     async fn get_latest_message_times(
@@ -1274,21 +1196,14 @@ impl MessageDao for PgMessageDao {
         provider: &'a str,
         source_name: Option<&'a str>,
     ) -> Result<bool, sqlx::Error> {
-        let result = sqlx::query(
-            r#"UPDATE task_messages
-               SET external_event_id = $2,
-                   external_adapter    = $3,
-                   external_source_name = $4
-               WHERE uuid = $1 AND external_event_id IS NULL"#,
+        crate::message::external_events_dao::set_source_metadata(
+            &self.0,
+            message_uuid,
+            external_id,
+            provider,
+            source_name,
         )
-        .bind(message_uuid)
-        .bind(external_id)
-        .bind(provider)
-        .bind(source_name)
-        .execute(&self.0)
-        .await?;
-
-        Ok(result.rows_affected() > 0)
+        .await
     }
 
     async fn record_external_event<'a>(
@@ -1313,8 +1228,7 @@ impl MessageDao for PgMessageDao {
         task_id: &str,
         external_id: &str,
     ) -> Result<bool, sqlx::Error> {
-        self.has_any_external_event_id(task_id, std::slice::from_ref(&external_id.to_string()))
-            .await
+        crate::message::external_events_dao::has(&self.0, task_id, external_id).await
     }
 
     async fn has_any_external_event_id(
@@ -1322,64 +1236,18 @@ impl MessageDao for PgMessageDao {
         task_id: &str,
         external_ids: &[String],
     ) -> Result<bool, sqlx::Error> {
-        if external_ids.is_empty() {
-            return Ok(false);
-        }
-        let row: (bool,) = sqlx::query_as(
-            r#"SELECT EXISTS(
-                SELECT 1 FROM task_messages
-                WHERE task_id = $1 AND external_event_id = ANY($2)
-            )"#,
-        )
-        .bind(task_id)
-        .bind(external_ids)
-        .fetch_one(&self.0)
-        .await?;
-
-        if row.0 {
-            return Ok(true);
-        }
-        // An event the Task caused through a command rather than through a
-        // Message it wrote.
-        crate::task::outbound_events_dao::has_any(&self.0, task_id, external_ids).await
+        crate::message::external_events_dao::has_any(&self.0, task_id, external_ids).await
     }
 
     async fn get_external_event_ids(&self, task_id: &str) -> Result<Vec<String>, sqlx::Error> {
-        let mut ids: Vec<String> = sqlx::query_scalar(
-            r#"SELECT external_event_id FROM task_messages
-               WHERE task_id = $1 AND external_event_id IS NOT NULL"#,
-        )
-        .bind(task_id)
-        .fetch_all(&self.0)
-        .await?;
-
-        ids.extend(crate::task::outbound_events_dao::ids_for_task(&self.0, task_id).await?);
-        Ok(ids)
+        crate::message::external_events_dao::ids_for_task(&self.0, task_id).await
     }
 
     async fn find_task_id_by_any_external_event_id(
         &self,
         external_ids: &[String],
     ) -> Result<Option<String>, sqlx::Error> {
-        if external_ids.is_empty() {
-            return Ok(None);
-        }
-
-        let by_message = sqlx::query_scalar::<_, String>(
-            r#"SELECT task_id
-               FROM task_messages
-               WHERE external_event_id = ANY($1)
-               ORDER BY id DESC
-               LIMIT 1"#,
-        )
-        .bind(external_ids)
-        .fetch_optional(&self.0)
-        .await?;
-
-        if let Some(task_id) = by_message {
-            return Ok(Some(task_id));
-        }
-        crate::task::outbound_events_dao::task_for_any(&self.0, external_ids).await
+        crate::message::external_events_dao::task_for_any(&self.0, external_ids).await
     }
 
     async fn find_task_id_by_any_external_event_id_on_subject<'a>(
@@ -1387,35 +1255,8 @@ impl MessageDao for PgMessageDao {
         external_ids: &[String],
         subject: EventSubject<'a>,
     ) -> Result<Option<String>, sqlx::Error> {
-        if external_ids.is_empty() {
-            return Ok(None);
-        }
-
-        let by_message = sqlx::query_scalar::<_, String>(
-            r#"SELECT task_id
-               FROM task_messages
-               WHERE external_event_id = ANY($1)
-                 AND external_adapter = $2
-                 AND external_subject_key = $3
-               ORDER BY id DESC
-               LIMIT 1"#,
-        )
-        .bind(external_ids)
-        .bind(subject.adapter)
-        .bind(subject.subject_key)
-        .fetch_optional(&self.0)
-        .await?;
-
-        if let Some(task_id) = by_message {
-            return Ok(Some(task_id));
-        }
-        crate::task::outbound_events_dao::task_for_any_from_source(
-            &self.0,
-            external_ids,
-            subject.adapter,
-            subject.source_name,
-        )
-        .await
+        crate::message::external_events_dao::task_for_any_on_subject(&self.0, external_ids, subject)
+            .await
     }
 
     async fn get_paginated(
@@ -1630,102 +1471,7 @@ impl MessageDao for PgMessageDao {
         &self,
         task_id: &str,
     ) -> Result<Option<InterruptedTurn>, sqlx::Error> {
-        // A turn can hold several user messages — everything the sandbox
-        // coalesced into one agent run — so this selects the newest turn that
-        // never reached a terminal event and then returns *all* of its user
-        // rows, oldest first.
-        let rows: Vec<(
-            i32,
-            Option<String>,
-            i32,
-            Option<String>,
-            Option<String>,
-            Option<String>,
-        )> = sqlx::query_as(
-            r#"SELECT m.id, m.agent_session_id, m.turn_number,
-                      m.message_text, m.agent_mode, m.effort
-               FROM task_messages m
-               WHERE m.task_id = $1
-                 AND m.message_type = 'user'
-                 AND m.turn_number = (
-                   SELECT c.turn_number
-                   FROM task_messages c
-                   WHERE c.task_id = $1
-                     AND c.message_type = 'user'
-                     AND c.agent_session_id IS NOT NULL
-                     AND c.agent_session_id <> ''
-                     AND c.turn_number IS NOT NULL
-                     AND NOT EXISTS (
-                       SELECT 1 FROM task_events e
-                       WHERE e.task_id = c.task_id
-                         AND e.turn_number = c.turn_number
-                         AND (
-                           (e.type = 'agent' AND e.sub_type IN ('completed', 'error', 'stopped'))
-                           OR (e.type = 'taskTurn' AND e.sub_type IN ('completed', 'error', 'stopped'))
-                           OR (e.type = 'sandbox' AND e.sub_type = 'stopped')
-                         )
-                     )
-                   ORDER BY c.turn_number DESC
-                   LIMIT 1
-                 )
-               ORDER BY m.timestamp, m.id"#,
-        )
-        .bind(task_id)
-        .fetch_all(&self.0)
-        .await?;
-
-        if rows.is_empty() {
-            return Ok(None);
-        }
-
-        let turn_number = rows[0].2;
-        let task_message_id = rows[0].0;
-        // Any row of the turn carries the session (they were acknowledged
-        // together); take the first that actually has one.
-        let Some(session_id) = rows
-            .iter()
-            .find_map(|(_, sid, _, _, _, _)| sid.clone().filter(|s| !s.is_empty()))
-        else {
-            return Ok(None);
-        };
-        let agent_mode = rows
-            .iter()
-            .rev()
-            .find_map(|(_, _, _, _, mode, _)| mode.clone());
-        let effort = rows
-            .iter()
-            .rev()
-            .find_map(|(_, _, _, _, _, effort)| effort.clone());
-
-        // Reproduces what the sandbox dispatcher itself builds from the same
-        // rows (`extract_text_from_messages`, joined with newlines over
-        // `get_pending_user`'s ordering), so a replay re-sends the same prompt.
-        let prompt_text = rows
-            .iter()
-            .map(|(_, _, _, text, _, _)| text.clone().unwrap_or_default())
-            .collect::<Vec<_>>()
-            .join("\n");
-
-        let turn_row: Option<(i32, Option<String>)> = sqlx::query_as(
-            "SELECT recovery_attempts, run_id FROM task_turns WHERE task_id = $1 AND turn_number = $2",
-        )
-        .bind(task_id)
-        .bind(turn_number)
-        .fetch_optional(&self.0)
-        .await?;
-        let (recovery_attempts, run_id) = turn_row.unwrap_or((0, None));
-
-        Ok(Some(InterruptedTurn {
-            task_message_id,
-            task_id: task_id.to_string(),
-            session_id,
-            turn_number,
-            prompt_text,
-            agent_mode,
-            effort,
-            recovery_attempts,
-            run_id,
-        }))
+        crate::message::recovery_dao::find_interrupted_turn(&self.0, task_id).await
     }
 
     async fn turn_progressed_since_last_recovery(
@@ -1733,32 +1479,12 @@ impl MessageDao for PgMessageDao {
         task_id: &str,
         turn_number: i32,
     ) -> Result<bool, sqlx::Error> {
-        // An `agent.message` row is only written once the resumed run produced
-        // assistant output (its content lives in `task_messages`; the event is a
-        // skeleton). Its presence after the last `recovery_started` means the
-        // re-drive got past resume and did real work. `created_at` (timestamptz)
-        // is the reliable ordering key; `timestamp` is free-form text.
-        let (progressed,): (bool,) = sqlx::query_as(
-            r#"SELECT EXISTS (
-                   SELECT 1 FROM task_events e
-                   WHERE e.task_id = $1
-                     AND e.turn_number = $2
-                     AND e.type = 'agent'
-                     AND e.sub_type = 'message'
-                     AND e.created_at > COALESCE(
-                       (SELECT MAX(r.created_at) FROM task_events r
-                          WHERE r.task_id = $1
-                            AND r.turn_number = $2
-                            AND r.type = 'agent'
-                            AND r.sub_type = 'recovery_started'),
-                       '-infinity'::timestamptz)
-               )"#,
+        crate::message::recovery_dao::turn_progressed_since_last_recovery(
+            &self.0,
+            task_id,
+            turn_number,
         )
-        .bind(task_id)
-        .bind(turn_number)
-        .fetch_one(&self.0)
-        .await?;
-        Ok(progressed)
+        .await
     }
 
     async fn fork_anchors(
@@ -1785,212 +1511,8 @@ impl MessageDao for PgMessageDao {
 }
 
 #[cfg(all(test, feature = "db-tests"))]
-mod db_tests {
-    use super::*;
-    use crate::task::test_support::seed_bare_task;
-    use sqlx::PgPool;
-
-    async fn append_user_message(pool: &PgPool, task_id: &str, uuid: &str) {
-        PgMessageDao(pool.clone())
-            .append(
-                &TaskMessage::new_user_message(
-                    task_id.to_string(),
-                    uuid.to_string(),
-                    "hello".to_string(),
-                    Utc::now().to_rfc3339(),
-                ),
-                &[],
-                &crate::task_activities::mapping::ConversationWrite::default(),
-            )
-            .await
-            .expect("append message");
-    }
-
-    async fn pending_work_at(pool: &PgPool, sandbox_id: &str) -> Option<DateTime<Utc>> {
-        sqlx::query_scalar("SELECT pending_work_at FROM sandboxes WHERE sandbox_id = $1")
-            .bind(sandbox_id)
-            .fetch_one(pool)
-            .await
-            .expect("read pending_work_at")
-    }
-
-    /// The wake signal is a fact on the Sandbox row, so the reconciler can see
-    /// that work is waiting while the pod is down. A stopped Sandbox is exactly
-    /// that case, and the one the signal exists for.
-    #[sqlx::test]
-    async fn a_user_message_queues_work_on_a_stopped_sandbox(pool: PgPool) {
-        seed_bare_task(&pool, "t1", "open").await;
-        sqlx::query("UPDATE sandboxes SET desired_state = 'stopped' WHERE sandbox_id = 't1'")
-            .execute(&pool)
-            .await
-            .unwrap();
-
-        append_user_message(&pool, "t1", "m1").await;
-
-        assert!(
-            pending_work_at(&pool, "t1").await.is_some(),
-            "a message written to a stopped Sandbox still queues its wake"
-        );
-    }
-
-    /// An agent Message is not work waiting on the pod.
-    #[sqlx::test]
-    async fn an_assistant_message_queues_nothing(pool: PgPool) {
-        seed_bare_task(&pool, "t1", "open").await;
-        let mut msg = TaskMessage::new_user_message(
-            "t1".to_string(),
-            "m1".to_string(),
-            "hi".to_string(),
-            Utc::now().to_rfc3339(),
-        );
-        msg.message_type = MessageType::Assistant;
-        PgMessageDao(pool.clone())
-            .append(
-                &msg,
-                &[],
-                &crate::task_activities::mapping::ConversationWrite::default(),
-            )
-            .await
-            .unwrap();
-
-        assert_eq!(pending_work_at(&pool, "t1").await, None);
-    }
-
-    /// Claiming the last unacknowledged Message settles the Sandbox.
-    #[sqlx::test]
-    async fn claiming_every_message_clears_the_signal(pool: PgPool) {
-        seed_bare_task(&pool, "t1", "open").await;
-        append_user_message(&pool, "t1", "m1").await;
-        assert!(pending_work_at(&pool, "t1").await.is_some());
-
-        PgMessageDao(pool.clone())
-            .set_session_id_for_task("t1", "sess-1")
-            .await
-            .unwrap();
-
-        assert_eq!(
-            pending_work_at(&pool, "t1").await,
-            None,
-            "nothing is waiting any more"
-        );
-    }
-
-    /// A fork's cut is resolved from rows the production write path produced,
-    /// never from a hand-stamped fixture.
-    ///
-    /// `agent_session_id` is written only by `set_session_id_for_task` and
-    /// `acknowledge_messages`, both of which filter to `user`/`error`, so an
-    /// assistant row carries its session in `session_id` alone. An anchor query
-    /// keyed on `agent_session_id` therefore matched no assistant row and every
-    /// fork silently started on a fresh session. Seed the way ingest does —
-    /// acknowledge the user turn, then append the assistant row with
-    /// `session_id` set and `agent_session_id` left `None` — so this fails if
-    /// the anchor goes back to a column production never fills.
-    #[sqlx::test]
-    async fn the_fork_anchor_comes_off_the_assistant_row_ingest_actually_writes(pool: PgPool) {
-        seed_bare_task(&pool, "t1", "open").await;
-        append_user_message(&pool, "t1", "m1").await;
-
-        let dao = PgMessageDao(pool.clone());
-        dao.acknowledge_messages("t1", &["m1".to_string()], "sess-1", 1)
-            .await
-            .unwrap();
-
-        // The assistant row as ingest builds it: its uuid is the Anthropic
-        // message id, the session lands in `session_id`, and nothing sets
-        // `agent_session_id`.
-        let mut assistant = TaskMessage::new_user_message(
-            "t1".to_string(),
-            "msg_01ANCHOR".to_string(),
-            "done".to_string(),
-            Utc::now().to_rfc3339(),
-        );
-        assistant.message_type = MessageType::Assistant;
-        assistant.session_id = Some("sess-1".to_string());
-        assistant.agent_session_id = None;
-        assistant.turn_number = Some(1);
-        dao.append(
-            &assistant,
-            &[],
-            &crate::task_activities::mapping::ConversationWrite::default(),
-        )
-        .await
-        .unwrap();
-
-        let anchors = dao
-            .fork_anchors("t1", Some(1))
-            .await
-            .expect("anchor query runs")
-            .expect("a forkable turn resolves an anchor");
-
-        assert_eq!(anchors.session_id, "sess-1");
-        assert_eq!(
-            anchors.message_uuid.as_deref(),
-            Some("msg_01ANCHOR"),
-            "the anchor is the assistant message id the transcript repeats as message.id"
-        );
-    }
-
-    /// An early clear drops work: acknowledging one Message must leave the
-    /// signal up while another is still unacknowledged.
-    #[sqlx::test]
-    async fn acknowledging_one_of_two_keeps_the_signal(pool: PgPool) {
-        seed_bare_task(&pool, "t1", "open").await;
-        append_user_message(&pool, "t1", "m1").await;
-        append_user_message(&pool, "t1", "m2").await;
-
-        PgMessageDao(pool.clone())
-            .acknowledge_messages("t1", &["m1".to_string()], "sess-1", 1)
-            .await
-            .unwrap();
-
-        assert!(
-            pending_work_at(&pool, "t1").await.is_some(),
-            "m2 is still waiting"
-        );
-
-        PgMessageDao(pool.clone())
-            .acknowledge_messages("t1", &["m2".to_string()], "sess-1", 1)
-            .await
-            .unwrap();
-
-        assert_eq!(pending_work_at(&pool, "t1").await, None);
-    }
-
-    /// The signal belongs to the Sandbox, not the Task: a peer member's
-    /// unacknowledged Message keeps it up.
-    #[sqlx::test]
-    async fn a_peer_members_message_keeps_the_signal(pool: PgPool) {
-        seed_bare_task(&pool, "t1", "open").await;
-        seed_bare_task(&pool, "t2", "open").await;
-        // t2 joins t1's Sandbox; its own row goes with the fixture's default.
-        sqlx::query("UPDATE tasks SET sandbox_id = 't1' WHERE task_id = 't2'")
-            .execute(&pool)
-            .await
-            .unwrap();
-
-        append_user_message(&pool, "t1", "m1").await;
-        append_user_message(&pool, "t2", "m2").await;
-        assert!(pending_work_at(&pool, "t1").await.is_some());
-
-        PgMessageDao(pool.clone())
-            .set_session_id_for_task("t1", "sess-1")
-            .await
-            .unwrap();
-
-        assert!(
-            pending_work_at(&pool, "t1").await.is_some(),
-            "t2's message is still waiting on the shared Sandbox"
-        );
-
-        PgMessageDao(pool.clone())
-            .set_session_id_for_task("t2", "sess-1")
-            .await
-            .unwrap();
-
-        assert_eq!(pending_work_at(&pool, "t1").await, None);
-    }
-}
+#[path = "dao_pending_work_db_tests.rs"]
+mod dao_pending_work_db_tests;
 
 #[cfg(all(test, feature = "db-tests"))]
 #[path = "dao_db_tests.rs"]

@@ -19,3 +19,6 @@ pub mod transform;
 pub mod wake;
 
 pub(crate) mod fork_dao;
+
+mod external_events_dao;
+mod recovery_dao;

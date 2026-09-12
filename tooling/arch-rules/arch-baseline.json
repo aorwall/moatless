@@ -57,8 +57,6 @@
   "file-size::crates/t3code/src/dao.rs",
   "file-size::crates/t3code/src/projection/tests.rs",
   "file-size::crates/t3code/src/tests.rs",
-  "file-size::crates/tasks/src/message/dao.rs",
-  "file-size::crates/tasks/src/task/dao.rs",
   "floor-type-admission::moatless_types::access_control::ResolvedScope read by moatless-adapter-model",
   "floor-type-admission::moatless_types::adapter::SlackBlock read by moatless-adapter-slack",
   "floor-type-admission::moatless_types::adapter::SlackPlainText read by ",

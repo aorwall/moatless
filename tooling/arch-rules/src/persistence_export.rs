@@ -240,7 +240,9 @@ pub const CONCERNS: &[Concern] = &[
         owner: "moatless-tasks",
         roots: &[
             "crates/tasks/src/message/dao",
+            "crates/tasks/src/message/external_events_dao",
             "crates/tasks/src/message/fork_dao",
+            "crates/tasks/src/message/recovery_dao",
             "crates/tasks/src/task/rewind_dao",
         ],
         tables: &[
