@@ -253,10 +253,7 @@ pub(super) async fn update_user(
 
 /// Update the user `user_id` names, for an administrator.
 ///
-/// A login is not unique, and [`resolve_login_to_user_id`] answers with the
-/// oldest row carrying one. Every newer row of a shared login is reachable only
-/// here, so an admin can disable a superseded duplicate whose login still
-/// resolves to the account that survives it.
+/// The only handle on a row that [`resolve_login_to_user_id`] passes over.
 pub(super) async fn update_user_by_id(
     state: &AuthState,
     identity: &AuthIdentity,

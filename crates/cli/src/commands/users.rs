@@ -91,6 +91,7 @@ pub async fn run(moat: &MoatClient, action: UserAction, json: bool) -> Result<()
                     .iter()
                     .map(|u| {
                         vec![
+                            u.id.to_string(),
                             u.login.clone(),
                             u.name.clone().unwrap_or_else(|| "-".into()),
                             u.email.clone().unwrap_or_else(|| "-".into()),
@@ -99,7 +100,7 @@ pub async fn run(moat: &MoatClient, action: UserAction, json: bool) -> Result<()
                         ]
                     })
                     .collect();
-                output::print_table(&["LOGIN", "NAME", "EMAIL", "BOT", "STATUS"], &rows);
+                output::print_table(&["ID", "LOGIN", "NAME", "EMAIL", "BOT", "STATUS"], &rows);
             }
         }
 
@@ -205,10 +206,8 @@ async fn set_status(
 
 /// PATCH the user `target` names, by id when it parses as a uuid.
 ///
-/// A login is tried only when the target is not a uuid, so a login shaped like
-/// one still resolves to the row it names. The id-keyed path is the only way to
-/// reach the newer account of a login two accounts share: the login-keyed path
-/// answers with the older one.
+/// A uuid-shaped target is always read as an id, so a login of that shape is
+/// unreachable here.
 async fn patch_user(
     moat: &MoatClient,
     target: &str,

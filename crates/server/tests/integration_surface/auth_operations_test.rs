@@ -92,9 +92,6 @@ async fn active_sessions(pool: &PgPool, user: Uuid) -> i64 {
 }
 
 /// Add a second row carrying `login`, an hour newer than the one already there.
-///
-/// A login is unique to a provider, not to the table: signing in to a second
-/// provider under the same handle leaves two rows.
 async fn seed_newer_duplicate(pool: &PgPool, login: &str, email: &str) -> Uuid {
     let id = Uuid::new_v4();
     sqlx::query(
@@ -337,9 +334,8 @@ async fn racing_account_creation_commits_one_complete_account(pool: PgPool) {
     assert_eq!(count, 1);
 }
 
-/// `PATCH /api/v1/users/{login}` answers with the oldest row carrying a login,
-/// so a superseded duplicate is unreachable there. The id-keyed admin route is
-/// the handle on every other row.
+/// The login-keyed route disables the older `alice` and leaves the newer one
+/// active; only the id-keyed route reaches the newer one.
 #[sqlx::test]
 async fn id_keyed_update_reaches_the_duplicate_a_shared_login_hides(pool: PgPool) {
     let original = seed_user(&pool, "alice", UserRole::User).await;
@@ -358,6 +354,7 @@ async fn id_keyed_update_reaches_the_duplicate_a_shared_login_hides(pool: PgPool
     .await;
     assert_eq!(by_login.status(), StatusCode::OK);
     assert_eq!(body_json(by_login).await["id"], original.to_string());
+    assert_eq!(user_status(&pool, original).await, "disabled");
     assert_eq!(user_status(&pool, duplicate).await, "active");
 
     let by_id = request(
