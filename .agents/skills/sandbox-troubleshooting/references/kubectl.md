@@ -15,7 +15,7 @@ kubectl --context <context> -n <namespace> top pod <pod> --containers
 Select the pod by UID, creation time, and container state if more than one matches.
 Do not filter only Running pods: Pending, failed, and evicted pods contain the
 cause of provisioning failures. Running also does not imply all containers are ready.
-Names and labels come from [pod_builder.rs](../../../../crates/sandbox-k8s/src/pod_builder.rs)
+Names and labels come from [pod.rs](../../../../crates/sandbox-k8s/src/pod_builder/pod.rs)
 and [naming.rs](../../../../crates/sandbox-k8s/src/naming.rs).
 
 Discover the actual pod service account and test its permissions:

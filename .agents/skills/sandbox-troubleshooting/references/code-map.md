@@ -4,9 +4,9 @@ Use code and tests to settle behavior; documentation is a routing aid.
 
 | Question | Owner |
 |---|---|
-| Pod lifecycle observation | [pod_watcher.rs](../../../../crates/sandbox-k8s/src/pod_watcher.rs) |
+| Pod lifecycle observation | [event.rs](../../../../crates/sandbox-k8s/src/pod_watcher/event.rs), [observed.rs](../../../../crates/sandbox-k8s/src/pod_watcher/observed.rs) |
 | Health classification | [status_resolver.rs](../../../../crates/sandbox-k8s/src/status_resolver.rs), [pod_status.rs](../../../../crates/sandbox-k8s/src/pod_status.rs) |
-| Pod construction, env, resources | [pod_builder.rs](../../../../crates/sandbox-k8s/src/pod_builder.rs) |
+| Pod construction, env, resources | [pod.rs](../../../../crates/sandbox-k8s/src/pod_builder/pod.rs), [containers.rs](../../../../crates/sandbox-k8s/src/pod_builder/containers.rs) |
 | Sandbox runtime operations | [Kubernetes provider](../../../../crates/sandbox-k8s/src/provider.rs), [Docker provider](../../../../crates/sandbox-docker/src/provider.rs) |
 | Lifecycle orchestration | [sandbox-control](../../../../crates/sandbox-control/src) |
 | Workspace persistence | [storage.rs](../../../../crates/sandbox-runtime/src/storage.rs) |

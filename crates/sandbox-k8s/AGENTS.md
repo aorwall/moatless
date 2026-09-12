@@ -18,7 +18,7 @@ first. `src/lib.rs` states what this crate may name.
 
 ## What each Kubernetes label marks
 
-The writers (`deployment.rs`, `pod_builder.rs`, `service.rs`, `pvc.rs`) hold
+The writers (`deployment.rs`, `pod_builder/pod.rs`, `service.rs`, `pvc.rs`) hold
 every label as a literal beside the resource it stamps. Two of them are lookup
 contracts, not decoration:
 
