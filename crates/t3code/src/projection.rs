@@ -487,13 +487,16 @@ fn subtask_status(conversation: &Conversation) -> &'static str {
     }
 }
 
-/// The plans the agent proposed and nobody has answered.
+/// The plans the agent proposed, answered or not.
 ///
-/// A Moatless proposed plan is an `ExitPlanMode` call still in progress: the run
-/// is parked on it, and it leaves that state the moment the call settles. So the
-/// list is read off the transcript rather than stored — one entry per unanswered
-/// call, identified by the call's own activity id, which is stable across
-/// re-reads because the block that wrote it is.
+/// A Moatless proposed plan is an `ExitPlanMode` call: the run parks on it, and
+/// an answer releases it. The list is read off the transcript rather than
+/// stored — one entry per call, identified by the call's own activity id, which
+/// is stable across re-reads because the block that wrote it is.
+///
+/// An answered call keeps its entry and carries `implementedAt`, which is what
+/// the client reads to stop offering the plan. A rejected call carries it too:
+/// the field says the plan was answered, not that it was approved.
 ///
 /// The card is a rendering of the plan. What answers it is the question joined
 /// to the same call, which reaches the person as the answer panel.
@@ -504,7 +507,6 @@ fn proposed_plans(conversation: &Conversation, transcript: &Transcript) -> Vec<V
         .filter(|activity| {
             activity.kind == ActivityKind::ToolCall
                 && activity.summary == moatless_types::activity::PLAN_TOOL
-                && !activity.is_settled()
         })
         .filter_map(|activity| {
             let plan = activity
@@ -513,17 +515,41 @@ fn proposed_plans(conversation: &Conversation, transcript: &Transcript) -> Vec<V
                 .and_then(Value::as_str)
                 .filter(|plan| !plan.trim().is_empty())?;
             let (turn, at) = activity_anchor(conversation, transcript, activity);
+            let implemented_at = answered_at(transcript, activity);
             Some(json!({
                 "id": activity.activity_id,
                 "turnId": turn,
                 "planMarkdown": plan,
-                "implementedAt": Value::Null,
+                "implementedAt": implemented_at,
                 "implementationThreadId": Value::Null,
                 "createdAt": at,
-                "updatedAt": at
+                "updatedAt": implemented_at.as_deref().unwrap_or(at.as_str())
             }))
         })
         .collect()
+}
+
+/// When the answer to a parked interactive call landed, or `None` while it is
+/// still parked.
+///
+/// The join is `requestId`: the resolved row leaves its own `tool_use_id` column
+/// empty and carries the call's id in its payload instead
+/// (`mapping::user_input_resolved`). A settled call whose resolved row the
+/// window does not reach reports the call's own instant, so that no settled
+/// call reads as still parked.
+fn answered_at(transcript: &Transcript, call: &Activity) -> Option<String> {
+    if !call.is_settled() {
+        return None;
+    }
+    // A row with no id to join on matches nothing: comparing two `None`s here
+    // would take the first resolved row that carries no `requestId` either.
+    let resolved = call.tool_use_id.as_deref().and_then(|tool_use_id| {
+        transcript.activities.iter().find(|activity| {
+            activity.kind == ActivityKind::UserInputResolved
+                && activity.payload.get("requestId").and_then(Value::as_str) == Some(tool_use_id)
+        })
+    });
+    Some(instant(resolved.unwrap_or(call).created_at))
 }
 
 /// Everything one recorded change tells a client that already holds this
@@ -4224,10 +4250,9 @@ mod tests {
     // ── the four panels ─────────────────────────────────────────────
 
     /// The card is read off the transcript: a Moatless proposed plan is an
-    /// `ExitPlanMode` call still in progress, and it leaves that state the
-    /// moment the call settles.
+    /// `ExitPlanMode` call, and an unanswered one is a call still in progress.
     #[test]
-    fn an_unanswered_plan_is_a_proposed_plan_and_a_settled_one_is_not() {
+    fn an_unanswered_plan_is_a_proposed_plan_carrying_no_answer() {
         let mut proposed = call(
             "msg-2",
             2,
@@ -4238,7 +4263,7 @@ mod tests {
         );
         proposed.status = ActivityStatus::InProgress;
 
-        let plans = detail(&transcript(Vec::new(), vec![proposed.clone()]))["proposedPlans"]
+        let plans = detail(&transcript(Vec::new(), vec![proposed]))["proposedPlans"]
             .as_array()
             .unwrap()
             .clone();
@@ -4249,14 +4274,54 @@ mod tests {
         // Nothing behind these, so neither is claimed.
         assert_eq!(plans[0]["implementedAt"], Value::Null);
         assert_eq!(plans[0]["implementationThreadId"], Value::Null);
+    }
 
-        let mut answered = proposed;
-        answered.status = ActivityStatus::Completed;
-        answered.payload["result"] = json!({ "approved": true });
-        assert_eq!(
-            detail(&transcript(Vec::new(), vec![answered]))["proposedPlans"],
-            json!([])
+    /// An answered plan keeps its card, and reports when the answer landed.
+    #[test]
+    fn an_answered_plan_is_still_a_proposed_plan_and_reports_when_it_was_answered() {
+        let mut answered = call(
+            "msg-2",
+            2,
+            0,
+            "call-1",
+            moatless_types::activity::PLAN_TOOL,
+            json!({ "plan": "1. Do the thing" }),
         );
+        answered.payload["result"] = json!({ "approved": true });
+        let mut resolved = activity("msg-3", 3, 0, ActivityKind::UserInputResolved, "Answered");
+        resolved.payload = json!({ "requestId": "call-1", "answers": [{ "answer": "Approve" }] });
+
+        let plans = detail(&transcript(Vec::new(), vec![answered, resolved]))["proposedPlans"]
+            .as_array()
+            .unwrap()
+            .clone();
+        assert_eq!(plans.len(), 1);
+        assert_eq!(plans[0]["id"], "msg-2:0");
+        assert_eq!(plans[0]["planMarkdown"], "1. Do the thing");
+        assert_eq!(plans[0]["implementedAt"], instant(at(103)));
+        assert_eq!(plans[0]["updatedAt"], instant(at(103)));
+    }
+
+    /// The window holds a fixed span, so it can reach the call without the row
+    /// that answered it. A settled call reports an answer time either way.
+    #[test]
+    fn an_answered_plan_whose_answer_is_out_of_window_falls_back_to_its_own_instant() {
+        let mut answered = call(
+            "msg-2",
+            2,
+            0,
+            "call-1",
+            moatless_types::activity::PLAN_TOOL,
+            json!({ "plan": "1. Do the thing" }),
+        );
+        answered.payload["result"] = json!({ "approved": true });
+
+        let plans = detail(&transcript(Vec::new(), vec![answered]))["proposedPlans"]
+            .as_array()
+            .unwrap()
+            .clone();
+        assert_eq!(plans.len(), 1);
+        assert_eq!(plans[0]["implementedAt"], instant(at(102)));
     }
 
     /// A card with no plan in it is a card rendering nothing.
