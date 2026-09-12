@@ -12,7 +12,7 @@
 //! These tests drive the coordinator end-to-end with a no-op `BackendClient` and a
 //! real `claude` CLI, asserting the agent reaches `Idle` with no error.
 //!
-//! Gating (mirrors `crates/claude-agent-sdk/tests/e2e.rs`): the subprocess test
+//! Gating (mirrors `crates/claude-agent-sdk/tests/e2e/`): the subprocess test
 //! runs under `CLAUDE_SDK_E2E=1`, the tmux test under `CLAUDE_TMUX_E2E=1` (and
 //! requires `tmux` on PATH). Both are `#[ignore]`, so run with `-- --ignored`.
 //!

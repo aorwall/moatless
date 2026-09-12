@@ -8,7 +8,8 @@ backend drives the TUI and is hook-driven.
 ```bash
 # Build, test and clippy: the root AGENTS.md lines cover this crate.
 
-# E2E, subprocess backend (requires the `claude` CLI + an API key, ~$0.01-0.05/test)
+# E2E, subprocess backend (requires the `claude` CLI and `ANTHROPIC_API_KEY` or
+# `CLAUDE_CODE_OAUTH_TOKEN`, ~$0.01-0.05/test)
 CLAUDE_SDK_E2E=1 cargo test -p claude-agent-sdk -- --ignored --nocapture
 # E2E, tmux backend (additionally requires `tmux` on PATH)
 CLAUDE_TMUX_E2E=1 cargo test -p claude-agent-sdk -- --ignored --nocapture
@@ -21,7 +22,10 @@ CLAUDE_SDK_E2E=1 cargo test -p claude-agent-sdk --test smoke -- --ignored --noca
 ./crates/claude-agent-sdk/scripts/test-docker.sh smoke
 ```
 
-## Naming an E2E test (`tests/e2e.rs`)
+## Adding an E2E test (`tests/e2e/`)
+
+`main.rs` holds the two gating macros and the module list. Put a new test in the
+child that owns its subject, and put anything two children need in `harness.rs`.
 
 - Name a paired test `test_<name>_subprocess` and `test_<name>_tmux`. Both share
   one `run_<name>(Backend)` body, and a capability difference gates on
@@ -30,6 +34,9 @@ CLAUDE_SDK_E2E=1 cargo test -p claude-agent-sdk --test smoke -- --ignored --noca
 - Name a subprocess-only test `test_<name>`, with no suffix. Use that form when
   the test exercises a capability tmux lacks. Those are the permission handler,
   the hook handler, SDK MCP servers, real System init, and real cost data.
+- Name a tmux-only test `test_<name>_tmux`, the same suffix a paired test takes.
+  Both of them live in `tui.rs`, which is where a test that drives the TUI
+  across many turns belongs.
 
 The smoke test (`tests/smoke.rs`) asserts that the on-PATH `claude --version`
 matches the pin in `docker/Dockerfile.sandbox-base`. It then runs a roundtrip

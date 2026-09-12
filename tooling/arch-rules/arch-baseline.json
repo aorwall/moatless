@@ -45,7 +45,6 @@
   "duplicate-type-name::ResourceQuantities in moatless-api-schemas, moatless-types",
   "duplicate-type-name::SandboxError in moatless-sandbox, moatless-sandbox-runtime, moatless-types",
   "duplicate-type-name::ServerConfig in moatless-api-schemas, moatless-core, moatless-types",
-  "file-size::crates/claude-agent-sdk/tests/e2e.rs",
   "file-size::crates/sandbox-control/src/lifecycle/orchestrator.rs",
   "file-size::crates/sandbox-control/src/lifecycle/reconciler.rs",
   "file-size::crates/sandbox-k8s/src/pod_builder.rs",
