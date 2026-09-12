@@ -13,7 +13,7 @@
 //! No T3 vocabulary appears in this file. The names are Moatless's; the
 //! translation belongs one module up.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -26,19 +26,17 @@ use tokio::sync::Semaphore;
 use tracing::warn;
 
 use crate::UiRpcDbPool;
-use crate::activity_dao;
-use crate::activity_dao::SubagentUsage;
 use crate::listing::{UiRpcListingChange, UiRpcListingHead};
 use crate::task_dao::{T3TaskDao, TaskView};
+use crate::transcript_dao::Transcript;
 use crate::workspace::UiRpcListedWorkspace;
 use crate::workspace_dao::T3WorkspaceDao;
 use moatless_api_schemas::workspace::ScriptConfig;
 use moatless_core::change_feed::conversation::{ConversationChange, ConversationHead};
 use moatless_ports::activity::ActivitySource;
 use moatless_types::access_control::{ScopeContext, ScopedEntity};
-use moatless_types::activity::{Activity, PLAN_TOOL, QUESTION_TOOL};
+use moatless_types::activity::{PLAN_TOOL, QUESTION_TOOL};
 use moatless_types::agent::AgentType;
-use moatless_types::message::{MessageRole, MessageType};
 use moatless_types::sandbox::{SandboxDesiredState, SandboxStopReason};
 use moatless_types::task::{TaskStatus, Visibility};
 
@@ -186,116 +184,6 @@ impl Conversation {
             }
         }
     }
-}
-
-/// One Message of a Task's transcript, with the columns a transcript is
-/// rendered from and nothing else.
-///
-/// Deliberately not the backend's `TaskMessage`: that row carries
-/// forty columns because it is the write model, and a transcript read that
-/// selected all of them would pull every tool result's raw payload and every
-/// run's metrics out of the database to project six fields.
-#[derive(Debug, Clone, sqlx::FromRow)]
-pub struct TranscriptMessage {
-    /// The insertion order this transcript is assembled in.
-    // Selected by `TRANSCRIPT_COLUMNS` and ordered on in SQL; the wire carries
-    // `uuid`.
-    #[allow(dead_code)]
-    pub id: i32,
-    pub uuid: String,
-    #[sqlx(try_from = "String")]
-    pub message_type: MessageType,
-    // Projected from `message_type` and `user_type`, not from this column.
-    #[allow(dead_code)]
-    #[sqlx(try_from = "String")]
-    pub message_role: MessageRole,
-    /// What was said, and only that. A user Message holds the person's own
-    /// text: the files, contexts and attribution the agent is sent are rebuilt
-    /// at delivery time and were never part of this column.
-    pub message_text: Option<String>,
-    /// Which kind of `user` row this is. The agent's tool responses are
-    /// persisted as `user` too, and are not something a person said.
-    pub user_type: String,
-    /// The Turn this Message was acknowledged into. `None` while it is queued.
-    pub turn_number: Option<i32>,
-    /// When the writer said it happened (RFC 3339 text, `NOT NULL`).
-    pub timestamp: String,
-    /// When the database recorded it. `None` is impossible under the current
-    /// schema's default and is treated as a missing value rather than assumed.
-    pub created_at: Option<DateTime<Utc>>,
-    /// The adapter a Message reached this Task through — `slack`, `github_pr`,
-    /// `linear`. `None` on a Message that came from inside Moatless.
-    pub external_adapter: Option<String>,
-    /// The name the subscription knows the source by — a channel, a repository.
-    pub external_source_name: Option<String>,
-    /// The binding identity this Message belongs to — the join key to its
-    /// Binding, and for GitHub PR the `owner/repo#N` the pull-request URL is
-    /// built from.
-    pub external_subject_key: Option<String>,
-    /// The adapter's own id for this event — `github:ic:{id}`, `slack:ts:{ts}`.
-    /// Distinguishes a PR comment url from a review-comment url.
-    pub external_event_id: Option<String>,
-    /// The handle the external system knows the writer by. `None` on a Message
-    /// written before the column existed.
-    pub external_author: Option<String>,
-    /// The Task a Message was authored by, when it came from `moat send --task`.
-    /// Present means the origin is a Task rather than an adapter.
-    pub source_task_id: Option<String>,
-    /// The web address of the Binding this Message's subject key resolves to,
-    /// joined in. `None` when no Binding matches or it records no url.
-    pub binding_url: Option<String>,
-    /// What the Binding calls its subject — a Linear issue identifier such as
-    /// `SP-2454`. Preferred over `external_source_name`, which for Linear is the
-    /// subscription's team id rather than anything a reader would recognise.
-    pub binding_label: Option<String>,
-    /// The display name of the Moatless user `sent_by` resolved to, joined in.
-    /// The `user` fallback where no external author was recorded.
-    pub sent_by_name: Option<String>,
-    /// The uploads attached to this Message, joined in from its `file` context
-    /// rows as a JSON array of `{referenceId, data}` — the upload's id and the
-    /// filename, mime type and size resolved when it was sent. Read from the
-    /// contexts rather than from `task_messages.attachments`, which holds ids
-    /// alone. `None` on a Message with no uploads.
-    pub file_contexts: Option<serde_json::Value>,
-}
-
-/// A Task's transcript, and whether it is all of it.
-pub struct Transcript {
-    /// Oldest first — the order a transcript is read in.
-    pub messages: Vec<TranscriptMessage>,
-    /// What happened on the way, oldest first. Not a subset of `messages`: a
-    /// turn whose agent only called tools said nothing and has no Message row
-    /// at all, and its calls reach a reader only through here.
-    pub activities: Vec<Activity>,
-    /// The rows past `TRANSCRIPT_LIMIT` that were left out, oldest first.
-    /// Zero for every transcript that fits, which is nearly all of them.
-    pub omitted: i64,
-    /// Every `task_turns.turn_number` this Task has, ascending.
-    ///
-    /// Read from `task_turns` rather than off `messages`, because that is the
-    /// set a rewind decides a cut against: a turn whose agent only called tools
-    /// has no Message to be seen through, and a turn older than
-    /// `TRANSCRIPT_LIMIT` has none left here. Empty from
-    /// [`ConversationDao::changed_messages`], whose caller projects no
-    /// checkpoints.
-    pub turns: Vec<i32>,
-    /// Of the requests these rows ask, the ones whose call has come back.
-    ///
-    /// A panel row is written *beside* the call rather than being it, so no
-    /// result ever lands on it and its own status never moves: the call's status
-    /// is the whole answer. The call is not always among these rows. It is
-    /// stored once — `(task_id, tool_use_id)` is unique — while the panel row
-    /// beside it carries no `tool_use_id` and so is written again every time a
-    /// resuming session re-presents the call, on whichever Message it lands on.
-    /// From then on the two sit on different Messages, and a read narrowed to
-    /// one of them holds the panel without the call. So this is looked up by
-    /// request id rather than read out of `activities`.
-    pub settled_requests: HashSet<String>,
-    /// What each subagent these rows spawned has spent, by its call's
-    /// `tool_use_id`. Looked up rather than read out of the rows for the reason
-    /// the transcript excludes them: a subagent's own Messages carry the
-    /// spawning id as `parent_uuid` and are never among `activities`.
-    pub subagent_usage: HashMap<String, SubagentUsage>,
 }
 
 /// One conversation a search matched, and the text that matched in it.
@@ -650,7 +538,7 @@ pub struct PgConversationDao {
 /// A published-seam read that failed, in the `sqlx::Error` the T3 DAO trait
 /// returns. The whole chain is kept as the protocol text so the response
 /// boundary logs what actually failed.
-fn store_read(error: moatless_types::store::StoreError) -> sqlx::Error {
+pub(crate) fn store_read(error: moatless_types::store::StoreError) -> sqlx::Error {
     sqlx::Error::Protocol(moatless_core::error::causal_chain(&error))
 }
 
@@ -669,86 +557,6 @@ const FULL_LISTING_STATEMENT_TIMEOUT: &str = "5s";
 /// the cap. Counting at the cap instead would call a complete list of 200
 /// truncated.
 pub(crate) const BROWSE_LIMIT: i64 = 200;
-
-/// How many of a Task's Messages one transcript read returns.
-///
-/// T3's thread contract carries the whole transcript in one snapshot and offers
-/// no pagination, so this cap is the only thing between an unusually long
-/// conversation and a multi-megabyte frame. The **newest** rows are the ones
-/// kept: an open conversation is read from its end, and a reader who has lost
-/// the opening prompt is better served than one who has lost what just
-/// happened. What was dropped is reported rather than silently absent — see
-/// [`Transcript::omitted`] and its projection.
-///
-/// A thousand rows is roughly a megabyte once projected, which is the size a
-/// subscription re-sends whenever the conversation moves. That is the number
-/// this cap is chosen against, not the database's comfort.
-const TRANSCRIPT_LIMIT: i64 = 1_000;
-
-/// The columns a transcript read projects, over the capped set aliased `m` and
-/// the two tables joined onto it. Kept in one place because the snapshot read
-/// and the live-delta read must select exactly the same shape into
-/// [`TranscriptMessage`] — a column on one and not the other is a field that is
-/// present on reload and absent on the frame that delivered it.
-const TRANSCRIPT_COLUMNS: &str = r#"m.id, m.uuid, m.message_type, m.message_role,
-                      m.message_text, m.user_type, m.turn_number, m."timestamp",
-                      m.created_at, m.external_adapter, m.external_source_name,
-                      m.external_subject_key, m.external_event_id,
-                      m.external_author, m.source_task_id,
-                      COALESCE(b.destination_config ->> 'issue_url',
-                               b.destination_config ->> 'url') AS binding_url,
-                      COALESCE(b.destination_config ->> 'identifier',
-                               b.destination_config ->> 'issue_identifier')
-                          AS binding_label,
-                      COALESCE(u.name, u.login) AS sent_by_name,
-                      files.file_contexts"#;
-
-/// The two joins that carry a Message's origin out of the database: what its
-/// Binding says the subject is called and where it lives, and the display name
-/// of the Moatless user `sent_by` resolved to.
-///
-/// Both destination-config reads take the two keys each value has been written
-/// under, the same pair and the same precedence as
-/// `adapters::providers::linear::status::binding_label_and_url`: a Binding made
-/// from an inbound issue or agent session writes `issue_url`, and one made by
-/// posting out to Linear writes `url`. An adapter that stores neither — Slack
-/// and Telegram keep channel coordinates, not links — yields no url, and the
-/// origin carries a label without one.
-///
-/// The message carries a subject *key* but no subject *kind*, and the unique
-/// binding index is on `(task_id, adapter_kind, subject_kind, subject_key)`, so
-/// the key is not unique on its own. The lateral `ORDER BY created_at DESC LIMIT
-/// 1` makes the result deterministic — the most recent binding on that subject —
-/// rather than whichever row the planner returns first.
-///
-/// `sent_by` is a polymorphic text column: a user uuid's text form, but also
-/// sentinels like `system` and the Linear adapters' raw actor ids. `users.id` is
-/// a native `uuid`, so the comparison is made on its text form — casting
-/// `sent_by` the other way would raise on every value that is not a uuid. Those
-/// yield no name rather than a wrong one.
-const TRANSCRIPT_ORIGIN_JOINS: &str = r#"LEFT JOIN LATERAL (
-                          SELECT tb.destination_config
-                          FROM task_bindings tb
-                          WHERE m.external_subject_key IS NOT NULL
-                            AND tb.task_id = m.task_id
-                            AND tb.adapter_kind = m.external_adapter
-                            AND tb.subject_key = m.external_subject_key
-                          ORDER BY tb.created_at DESC
-                          LIMIT 1
-                      ) b ON true
-                      LEFT JOIN users u ON u.id::text = m.sent_by
-                      LEFT JOIN LATERAL (
-                          SELECT jsonb_agg(
-                                     jsonb_build_object(
-                                         'referenceId', c.reference_id,
-                                         'data', c.data
-                                     )
-                                     ORDER BY c.id
-                                 ) AS file_contexts
-                          FROM task_message_contexts c
-                          WHERE c.task_message_id = m.id
-                            AND c.type = 'file'
-                      ) files ON true"#;
 
 /// The statuses a conversation can be listed under: the sidebar and the archive
 /// together. A Task at any other status is in neither, and comes back absent
@@ -840,7 +648,11 @@ impl PgConversationDao {
         // the thing this bounds. So the two reject each other, and `kind` is
         // what tells them apart afterwards — `task_ids.is_none()` no longer
         // means "the sidebar's listing".
-        let kind = if browse.is_some() { "browse" } else { "listing" };
+        let kind = if browse.is_some() {
+            "browse"
+        } else {
+            "listing"
+        };
         let _permit = if full_listing {
             let Ok(permit) = self.full_listing.try_acquire() else {
                 metrics::counter!(LISTING_REJECTIONS, "reason" => "at_capacity", "kind" => kind)
@@ -1556,99 +1368,7 @@ impl ConversationDao for PgConversationDao {
     }
 
     async fn transcript(&self, task_id: &str) -> Result<Transcript, sqlx::Error> {
-        // Newest first so the cap keeps the end of the conversation, then
-        // reversed below into the order it is read in. The ordering matches the
-        // shell listing's — and carries its caveat: `"timestamp"` is `text`, so
-        // this is a lexicographic sort standing in for a chronological one,
-        // sound only while every writer emits RFC 3339 at fixed precision in
-        // `Z`. `id` breaks ties. It is also exactly `task_messages_task_idx`,
-        // read backwards, so the cap is a bounded index scan rather than a sort
-        // of the whole conversation.
-        //
-        // Subagent rows are excluded here rather than after the cap: they are
-        // the bulk of a long transcript, they are never rendered inline
-        // (`message/transform.rs` assembles them on demand behind their
-        // spawning tool call), and counting them against the cap would evict
-        // the conversation a person is reading.
-        // The cap is applied in the inner subquery, before the origin joins, so
-        // the index-driven bounded scan still decides which rows are read and
-        // the joins run over at most `TRANSCRIPT_LIMIT` of them rather than the
-        // whole conversation. The outer `ORDER BY` re-establishes the order a
-        // subquery does not promise to keep; `reverse` then reads it forward.
-        let sql = format!(
-            r#"SELECT {TRANSCRIPT_COLUMNS}
-               FROM (
-                   SELECT *
-                   FROM task_messages
-                   WHERE task_id = $1
-                     AND parent_uuid IS NULL
-                   ORDER BY "timestamp" DESC, id DESC
-                   LIMIT $2
-               ) m
-               {TRANSCRIPT_ORIGIN_JOINS}
-               ORDER BY m."timestamp" DESC, m.id DESC"#,
-        );
-        let mut messages = sqlx::query_as::<_, TranscriptMessage>(AssertSqlSafe(sql))
-            .bind(task_id)
-            .bind(TRANSCRIPT_LIMIT)
-            .fetch_all(&self.pool)
-            .await?;
-        messages.reverse();
-
-        // Only when the cap was actually reached. Nearly every conversation is
-        // shorter than it, and paying for a count on all of them to discover a
-        // zero would be the wrong trade.
-        let omitted = if messages.len() as i64 == TRANSCRIPT_LIMIT {
-            let total: i64 = sqlx::query_scalar(
-                r#"SELECT count(*)
-                   FROM task_messages
-                   WHERE task_id = $1
-                     AND parent_uuid IS NULL"#,
-            )
-            .bind(task_id)
-            .fetch_one(&self.pool)
-            .await?;
-            (total - TRANSCRIPT_LIMIT).max(0)
-        } else {
-            0
-        };
-
-        // From the oldest Message kept, not by that Message's uuid: a turn that
-        // only called tools has no Message row to be named by, and its calls
-        // are exactly what the cap must not drop. `None` — an empty
-        // conversation, or one whose newest rows predate `created_at` — reads
-        // the activities whole, which for an empty conversation is none.
-        let activities = self
-            .activities
-            .since(
-                task_id,
-                messages.first().and_then(|message| message.created_at),
-            )
-            .await
-            .map_err(store_read)?;
-
-        let settled_requests =
-            activity_dao::settled_requests(&self.pool, task_id, &activities).await?;
-        let subagent_usage = activity_dao::subagent_usage(&self.pool, task_id, &activities).await?;
-
-        // Uncapped, unlike the Messages above: one `i32` per turn, and a
-        // checkpoint the rewind will refuse is a control that refuses when
-        // pressed.
-        let turns: Vec<i32> = sqlx::query_scalar(
-            "SELECT turn_number FROM task_turns WHERE task_id = $1 ORDER BY turn_number",
-        )
-        .bind(task_id)
-        .fetch_all(&self.pool)
-        .await?;
-
-        Ok(Transcript {
-            messages,
-            activities,
-            omitted,
-            turns,
-            settled_requests,
-            subagent_usage,
-        })
+        crate::transcript_dao::transcript(&self.pool, &*self.activities, task_id).await
     }
 
     async fn source_task_names(
@@ -1693,72 +1413,14 @@ impl ConversationDao for PgConversationDao {
         uuids: &[String],
         activity_ids: &[String],
     ) -> Result<Transcript, sqlx::Error> {
-        if uuids.is_empty() && activity_ids.is_empty() {
-            return Ok(Transcript {
-                messages: Vec::new(),
-                activities: Vec::new(),
-                omitted: 0,
-                turns: Vec::new(),
-                settled_requests: HashSet::new(),
-                subagent_usage: HashMap::new(),
-            });
-        }
-        // Just the named rows. A result no longer lands on a Message of its
-        // own: it settles the activity the call already wrote, and the change
-        // that records it names the Message that *made* the call
-        // (`agent_handlers::anchor_message_uuid`). So the row a change names is
-        // always the row the change is about, and the run of Messages this used
-        // to read before each result-carrying one is gone with the reason for
-        // it.
-        //
-        // `parent_uuid IS NULL` for the reason the transcript has it: subagent
-        // rows are never rendered inline.
-        let sql = format!(
-            r#"SELECT {TRANSCRIPT_COLUMNS}
-               FROM (
-                   SELECT *
-                   FROM task_messages
-                   WHERE task_id = $1
-                     AND uuid = ANY($2)
-                     AND parent_uuid IS NULL
-               ) m
-               {TRANSCRIPT_ORIGIN_JOINS}
-               ORDER BY m.id"#,
-        );
-        let messages = sqlx::query_as::<_, TranscriptMessage>(AssertSqlSafe(sql))
-            .bind(task_id)
-            .bind(uuids)
-            .fetch_all(&self.pool)
-            .await?;
-
-        // By the named uuids, not by the Messages just read: a change can name
-        // a uuid that has no Message row at all — a turn that only called
-        // tools — and those activities are the whole of what it changed. The
-        // activities named directly by their own id — the ones on no Message —
-        // join the same set by a primary-key lookup.
-        let mut activities = self
-            .activities
-            .for_messages(task_id, uuids)
-            .await
-            .map_err(store_read)?;
-        activities.extend(
-            self.activities
-                .for_ids(task_id, activity_ids)
-                .await
-                .map_err(store_read)?,
-        );
-        let settled_requests =
-            activity_dao::settled_requests(&self.pool, task_id, &activities).await?;
-        let subagent_usage = activity_dao::subagent_usage(&self.pool, task_id, &activities).await?;
-
-        Ok(Transcript {
-            messages,
-            activities,
-            omitted: 0,
-            turns: Vec::new(),
-            settled_requests,
-            subagent_usage,
-        })
+        crate::transcript_dao::changed_messages(
+            &self.pool,
+            &*self.activities,
+            task_id,
+            uuids,
+            activity_ids,
+        )
+        .await
     }
 
     async fn listing_head(&self) -> Result<UiRpcListingHead, sqlx::Error> {

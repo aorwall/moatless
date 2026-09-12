@@ -17,8 +17,8 @@ use crate::UiRpcDbPool;
 ///
 /// One indexed lookup on `(task_id, tool_use_id)` per read, and none at all for
 /// a read that asks nothing — which is nearly every one. See
-/// [`crate::dao::Transcript::settled_requests`] for why the call cannot be found
-/// among the rows themselves.
+/// [`crate::transcript_dao::Transcript::settled_requests`] for why the call
+/// cannot be found among the rows themselves.
 pub async fn settled_requests(
     pool: &UiRpcDbPool,
     task_id: &str,

@@ -350,7 +350,7 @@ pub const CONCERNS: &[Concern] = &[
     Concern {
         name: "t3 conversation projection",
         owner: "moatless-t3code",
-        roots: &["crates/t3code/src/dao"],
+        roots: &["crates/t3code/src/dao", "crates/t3code/src/transcript_dao"],
         tables: &[],
         slice: 17,
     },

@@ -1,0 +1,25 @@
+//! Unit tests for the command table, one module per group of commands.
+
+use super::*;
+use crate::dao::{InteractiveCall, MockConversationDao};
+use crate::listing::{UiRpcEnvironmentIdentity, UiRpcListingHead};
+use crate::ports::MockWorkspaceScriptCommands;
+use async_trait::async_trait;
+use moatless_types::agent::AgentType;
+use std::sync::Mutex;
+
+mod fixtures;
+
+mod answers;
+mod archive_and_revert;
+mod attachments;
+mod create;
+mod discarded_and_refused;
+mod fork;
+mod lifecycle;
+mod meta;
+mod models;
+mod pull_requests;
+mod scope;
+mod scripts;
+mod turns;

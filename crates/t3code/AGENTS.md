@@ -49,8 +49,8 @@ and implemented by the Task band itself (`moatless_tasks::ports::Activities`).
 Add a seam. Do not add a dependency on the crate behind it.
 
 `moatless-tasks` and `moatless-workspaces` are `[dev-dependencies]` here, for the
-row factories the `#[sqlx::test]` blocks in `dao.rs` seed with. Keep them there:
-under `[dependencies]` they are the band edge this section forbids.
+row factories the `#[sqlx::test]` blocks in `dao_db_tests.rs` seed with. Keep
+them there: under `[dependencies]` they are the band edge this section forbids.
 
 ## Answering a request off the frame loop
 

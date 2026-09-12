@@ -12,7 +12,8 @@ use super::transcript::activity_slot;
 use super::transcript::message_bubble;
 use super::transcript::message_instant;
 use super::turn::turn_reference;
-use crate::dao::{Conversation, Transcript};
+use crate::dao::Conversation;
+use crate::transcript_dao::Transcript;
 use moatless_core::change_feed::conversation::ConversationChange;
 use moatless_types::activity::Activity;
 

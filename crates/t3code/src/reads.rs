@@ -76,10 +76,9 @@ impl T3Reads {
 #[cfg(feature = "test-support")]
 mod refusal {
     use super::*;
-    use crate::dao::{
-        Conversation, ConversationBrowse, ConversationMatch, InteractiveCall, Transcript,
-    };
+    use crate::dao::{Conversation, ConversationBrowse, ConversationMatch, InteractiveCall};
     use crate::listing::UiRpcListingChange;
+    use crate::transcript_dao::Transcript;
     use async_trait::async_trait;
     use moatless_core::change_feed::conversation::{ConversationChange, ConversationHead};
     use moatless_types::access_control::ScopeContext;

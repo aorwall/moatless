@@ -494,7 +494,8 @@ fn coalesced(changes: Vec<ConversationChange>) -> Vec<ConversationChange> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dao::{Conversation, MockConversationDao, Transcript, TranscriptMessage};
+    use crate::dao::{Conversation, MockConversationDao};
+    use crate::transcript_dao::{Transcript, TranscriptMessage};
     use moatless_core::change_feed::conversation::EVENTS_PER_CHANGE;
     use moatless_types::agent::AgentType;
     use moatless_types::message::{MessageRole, MessageType};

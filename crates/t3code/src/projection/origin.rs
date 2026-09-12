@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use serde_json::{Value, json};
 
-use crate::dao::TranscriptMessage;
+use crate::transcript_dao::TranscriptMessage;
 
 /// What the projection needs to say where a Message came from, beyond the
 /// Message row itself: the deployment's own address, for a link back into

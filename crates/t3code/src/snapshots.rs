@@ -2,11 +2,11 @@ use crate::config::AgentModelDefaults;
 use crate::dao::Conversation;
 use crate::dao::ConversationBrowse;
 use crate::dao::ConversationDao;
-use crate::dao::Transcript;
 use crate::listing::UiRpcEnvironmentIdentity;
 use crate::projection;
 use crate::reads::T3Reads;
 use crate::state::Deployment;
+use crate::transcript_dao::Transcript;
 use moatless_core::change_feed::conversation::ConversationHead;
 use moatless_types::access_control::ScopeContext;
 use serde_json::Value;
@@ -325,7 +325,10 @@ pub async fn browse_snapshot(
     let mut conversations = reads.conversations().list_browsable(viewer, filter).await?;
     let truncated = conversations.len() as i64 > crate::dao::BROWSE_LIMIT;
     conversations.truncate(crate::dao::BROWSE_LIMIT as usize);
-    let workspaces = reads.workspaces().list_readable_including(viewer, &[]).await?;
+    let workspaces = reads
+        .workspaces()
+        .list_readable_including(viewer, &[])
+        .await?;
     Ok(json!({
         "threads": projection::listed_threads(&workspaces, &conversations, defaults),
         "truncated": truncated,

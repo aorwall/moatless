@@ -42,6 +42,7 @@ mod subscriptions;
 mod subtasks;
 pub(crate) mod task_dao;
 mod terminal;
+mod transcript_dao;
 mod usage;
 pub mod usage_limit_sources;
 pub mod workspace;
