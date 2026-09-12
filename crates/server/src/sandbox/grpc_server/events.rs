@@ -24,7 +24,8 @@ use super::state::BackendSandboxServiceImpl;
 ///
 /// All three rejections are unfixable by repetition, so each is
 /// [`AdmissionError::Invalid`] rather than retryable: an unknown event-type
-/// discriminant, an absent event id, and a payload that is not JSON.
+/// discriminant, an absent event id that no retry can make stable, and a
+/// payload that is not JSON.
 fn decode_request(event: &PublishEventRequest) -> Result<(&'static str, Value), AdmissionError> {
     // `event_type` is an open integer on the wire. Validate it here, at
     // ingress, so an unknown discriminant is rejected instead of defaulting

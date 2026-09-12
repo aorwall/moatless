@@ -50,8 +50,7 @@ pub(crate) fn is_script_icon(icon: &str) -> bool {
 
 /// One project, in the shape the shell listing carries.
 ///
-/// This is the contract's *shell* project: it has no deletion timestamp, and
-/// soft-deleted workspaces never reach here anyway.
+/// This is the contract's *shell* project: it has no deletion timestamp.
 ///
 /// # Two halves of a union, projected differently
 ///
@@ -97,7 +96,8 @@ pub(super) fn project(listed: &UiRpcListedWorkspace) -> Value {
         // config is reconciled from `.moatless/workspaces.json`, so an edit here
         // would be undone by the next sync, and the client hides the controls
         // instead. The widened half of the union is not editable either, being
-        // projected without its scripts.
+        // projected without its scripts, and neither is a deleted one
+        // (`T3WorkspaceDao::list_readable_including`).
         "scriptsEditable": listed.readable
             && !is_git_synced(workspace)
             && workspace.deleted != Some(true),

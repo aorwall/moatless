@@ -209,6 +209,7 @@ pub(super) async fn get_credentials(
 /// Called when a runtime, currently Codex, rotates its OAuth refresh token.
 /// Without the write-back the next backend-driven refresh overwrites the
 /// rotated value with the stale stored copy and invalidates the credential.
+///
 /// Always updates the user-level credential row.
 #[tracing::instrument(
     skip_all,
