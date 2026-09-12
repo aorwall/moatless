@@ -48,7 +48,6 @@
   "file-size::crates/claude-agent-sdk/tests/e2e.rs",
   "file-size::crates/cli/src/commands/gh.rs",
   "file-size::crates/cli/src/commands/tasks.rs",
-  "file-size::crates/core/src/config.rs",
   "file-size::crates/identity/src/auth/handlers.rs",
   "file-size::crates/sandbox-control/src/lifecycle/orchestrator.rs",
   "file-size::crates/sandbox-control/src/lifecycle/reconciler.rs",
