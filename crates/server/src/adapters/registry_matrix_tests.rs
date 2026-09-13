@@ -2,10 +2,10 @@
 //!
 //! These build the five concrete providers, which live in this crate above the
 //! loops band, so they cannot live in the Adapter kernel alongside the registry
-//! itself. They call the registry's capability accessors directly, which is what
-//! makes the assertion worth something: the lookup under test is the production
-//! lookup. The registry-only tests that need no provider (empty registry,
-//! registry-owned error) stay beside it in the kernel.
+//! itself. They call the registry's capability accessors directly, which is
+//! what makes the assertion worth something: the lookup under test is the
+//! production lookup. The registry-only tests that need no provider (empty
+//! registry, registry-owned error) stay beside it in the kernel.
 
 use std::sync::Arc;
 
@@ -195,12 +195,11 @@ async fn registry_exposes_expected_capability_slots_for_current_adapters() {
     );
 }
 
-/// Every adapter kind that registers a direct-*message* capability must also
-/// register a direct-*destination* sender — the message path has nowhere to
-/// deliver otherwise. Quantified over the whole `AdapterKind` enum rather than
-/// over the registered kinds: `ALL` lists every variant, and `known_kind`'s
-/// wildcard-free match makes a newly added variant fail to compile here until it
-/// is added to both, so a new kind can never slip past the sweep.
+/// Every adapter kind registering a direct-*message* capability must also
+/// register a direct-*destination* sender, or the message has nowhere to go.
+///
+/// Quantified over the whole `AdapterKind` enum: `known_kind`'s wildcard-free
+/// match forces a new variant into both lists before it compiles.
 #[tokio::test]
 async fn direct_message_registration_requires_direct_destination_send() {
     let providers = registry_with_all_current_adapters();
@@ -278,12 +277,10 @@ async fn capability_lookup_by_name_preserves_provider_aliases() {
     }
 }
 
-/// Name resolution reads the `Adapter` map, not a separate identity map. It must
-/// still resolve a kind's canonical key, its provider aliases, and an unknown
-/// name exactly as before — the `github` connection alias resolving to the
-/// `github_pr` provider key is the case a silent regression here would break.
-/// Uses the public `get_by_name` accessor (the `pub(crate)` `identity_by_name`
-/// it wraps stays in-crate, exercised by `provider_key_for_name`).
+/// Name resolution reads the `Adapter` map, not a separate identity map.
+///
+/// Resolves a canonical key, a provider alias, and an unknown name exactly as
+/// before — `github` resolving to `github_pr` is the regression case.
 #[tokio::test]
 async fn name_resolution_resolves_against_the_adapter_map() {
     let providers = registry_with_all_current_adapters();

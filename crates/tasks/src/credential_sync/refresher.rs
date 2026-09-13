@@ -6,9 +6,8 @@
 //!
 //! The actual refresh decision and HTTP call live in
 //! [`crate::credential_sync::CredentialSync::ensure_fresh_codex`]; this module
-//! is just the periodic driver that picks rows out of `provider_tokens` and
-//! hands each one to the orchestrator. It sits in the tasks band with
-//! `CredentialSync` because it calls the guarded refresh, not the pure one.
+//! just drives the periodic sweep of `provider_tokens` and sits in the tasks
+//! band because it calls the guarded refresh, not the pure one.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -24,15 +23,9 @@ use moatless_types::store::StoreError;
 
 /// Spawn the background Codex refresher as a tokio task.
 ///
-/// Every `interval`, the leader replica:
-/// 1. Asks the token store for every codex scope with no permanent
-///    `refresh_failure` already recorded.
-/// 2. For each user, calls
-///    [`CredentialSync::ensure_fresh_codex`] which is itself a no-op when
-///    the row's access token is still fresh.
-///
-/// The expensive part (`refresh_chatgpt_tokens`) only runs when the row is
-/// actually near expiry; the sweeper is effectively idle most of the time.
+/// Every `interval`, the leader replica sweeps codex scopes with no permanent
+/// `refresh_failure` and calls [`CredentialSync::ensure_fresh_codex`], a no-op
+/// when the row is still fresh — so the sweeper is idle most of the time.
 pub fn spawn_codex_refresher(
     codex_scopes: Arc<dyn CodexScopeReader>,
     credential_sync: Arc<CredentialSync>,

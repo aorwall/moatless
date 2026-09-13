@@ -1,23 +1,19 @@
 //! Which conversation's Sandbox a `cwd` names, and whether this viewer may be
 //! told it exists.
 //!
-//! T3 addresses a workspace by the only handle it has for one: the `cwd` it was
-//! given. There is no thread id, no project id and no session on the requests
-//! that read a workspace — `{ cwd }` and `{ cwd, relativePath }` are the whole
-//! of those contracts' input — so the path *is* the addressing, and every
-//! surface that reads a Sandbox comes through here.
+//! T3 addresses a workspace by the only handle it has: the `cwd` it was given.
+//! There is no thread id, project id or session on these requests — `{ cwd }`
+//! and `{ cwd, relativePath }` are the whole input — so the path *is* the
+//! addressing, and every surface that reads a Sandbox comes through here.
 //!
-//! Two consequences are worth stating rather than discovering:
+//! **A `cwd` is a claim, not a capability**: every request re-reads the Task it
+//! names through the same follow-and-access filter the shell listing uses, so a
+//! Task the viewer may not read is indistinguishable from one that does not
+//! exist.
 //!
-//! - **A `cwd` is a claim, not a capability.** It arrives from the client and
-//!   names a Task, so every request re-reads that Task through the same follow
-//!   *and* access filter the shell listing uses. A conversation the viewer does
-//!   not follow, or may no longer read, is indistinguishable here from one that
-//!   does not exist — which is what stops a guessed Task id from being a way to
-//!   read someone else's repository.
-//! - **A Sandbox that was removed has had its working copy reclaimed.** The
-//!   `cwd` naming it is a path the client held from before the removal, and it
-//!   answers as a conversation with no worktree rather than as a failure.
+//! **A removed Sandbox has had its working copy reclaimed**: a `cwd` naming it,
+//! held from before the removal, answers as a conversation with no worktree
+//! rather than as a failure.
 
 use super::dao::ConversationDao;
 use super::nominal_path;
@@ -70,8 +66,8 @@ pub struct UiRpcListedWorkspace {
 /// Why a conversation's workspace could not be read.
 ///
 /// The split is by what the client should be told, not by where the failure
-/// came from: the first three are answers about the request, and the last two
-/// are this deployment failing to produce one.
+/// came from: the first three are answers about the request, the last two are
+/// this deployment failing to produce one.
 #[derive(Debug)]
 pub enum WorkspaceAccessError {
     /// The `cwd` names a project rather than a conversation's worktree, which
@@ -82,21 +78,22 @@ pub enum WorkspaceAccessError {
     /// viewer cannot be shown. Deliberately one variant: telling the two apart
     /// on the wire would answer whether a Task id exists.
     Unaddressable,
-    /// The viewer may be shown the conversation but may not operate it. Its own
-    /// variant rather than [`Self::Unaddressable`], because here the person is
-    /// looking at the thing they are being refused: hiding its existence from
-    /// someone who is reading it says nothing and reads as a defect.
+    /// The viewer may be shown the conversation but may not operate it.
+    ///
+    /// Its own variant rather than [`Self::Unaddressable`]: here the person is
+    /// looking at the thing they are refused, so hiding its existence reads as
+    /// a defect.
     NoControl,
     /// The conversation's Sandbox was not ready to be called at all — stopped,
     /// still starting, or gone. This is the readiness gate refusing, before any
     /// request is made.
     NotRunning(SandboxError),
     /// The Sandbox was ready and the request to it still failed: it refused the
-    /// request, or it never answered. Kept apart from [`Self::NotRunning`]
-    /// because the two send the person to different places — one waits for a
-    /// sandbox to come up, the other is a sandbox that is up and unreachable
-    /// from this backend, and telling the second it is "not running" sends them
-    /// looking in the wrong direction.
+    /// request, or it never answered.
+    ///
+    /// Kept apart from [`Self::NotRunning`]: the two send the person to
+    /// different places, and telling an unreachable-but-up sandbox "not
+    /// running" sends them looking in the wrong direction.
     Sandbox(SandboxError),
     Database(sqlx::Error),
 }
@@ -110,9 +107,9 @@ impl From<sqlx::Error> for WorkspaceAccessError {
 impl WorkspaceAccessError {
     /// What the person in front of the client is told.
     ///
-    /// The client squashes the failure and renders `message` verbatim in the
-    /// panel that asked, so this is user-facing text and not a log line. Causes
-    /// stay behind: they are logged once, where the frame is built.
+    /// The client renders `message` verbatim in the panel that asked, so this
+    /// is user-facing text, not a log line; causes stay behind and are logged
+    /// once, where the frame is built.
     pub fn message(&self) -> String {
         match self {
             Self::NoWorktree => {
@@ -155,14 +152,10 @@ pub fn sandbox_access(error: SandboxError) -> WorkspaceAccessError {
 /// The conversation a `cwd` names, once this viewer is allowed to be told it
 /// exists.
 ///
-/// The access filter is applied again here, through the same read a link
-/// resolves through: a `cwd` is client-supplied, and the fact that one was
-/// issued to *somebody* says nothing about who is holding it now.
-///
-/// Following is **not** re-checked. A Follow is acquired by posting one
-/// message, so it is not a restriction on anyone who can reach the Task at all,
-/// and what the shell paths actually gate on is control — see
-/// [`controlled_conversation`], which is what they call.
+/// The access filter is re-applied here since a `cwd` is client-supplied and
+/// being issued to *somebody* says nothing about who holds it now. Following is
+/// **not** re-checked — a Follow gates nothing, and what the shell paths
+/// actually gate on is control (see [`controlled_conversation`]).
 pub(crate) async fn addressed_conversation(
     conversations: &dyn ConversationDao,
     viewer: &ScopeContext,
@@ -181,12 +174,12 @@ pub(crate) async fn addressed_conversation(
     }
 }
 
-/// The conversation a `cwd` names, for a caller that is about to *operate* it:
-/// open a terminal, run a script, write a file, commit.
+/// The conversation a `cwd` names, for a caller about to *operate* it: open a
+/// terminal, run a script, write a file, commit.
 ///
 /// [`addressed_conversation`] first, so an unreadable Task is unaddressable
-/// rather than forbidden, and then the control check — which a public Task
-/// grants to any signed-in caller and a private one only to its owner.
+/// rather than forbidden, then the control check — a public Task grants it to
+/// any signed-in caller, a private one only to its owner.
 pub(crate) async fn controlled_conversation(
     conversations: &dyn ConversationDao,
     viewer: &ScopeContext,

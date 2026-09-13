@@ -86,9 +86,8 @@ pub struct ListFeedbackResponse {
 
 /// Query parameters for `GET /api/v1/feedback`.
 ///
-/// Every filter is an AND: an unset field imposes no restriction. The
-/// workspace and repository filters read the joined task, not the feedback
-/// row, which carries only `task_id`.
+/// Every filter is an AND; workspace/repository filters read the joined task,
+/// not the feedback row, which carries only `task_id`.
 #[derive(Debug, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::IntoParams))]
 #[serde(rename_all = "camelCase")]

@@ -1,19 +1,11 @@
 //! Hook-driven lifecycle plumbing for the tmux Claude TUI.
 //!
-//! Registers `SessionStart` and `Stop` hooks via inline `--settings` JSON. The
-//! relay shell script writes each event payload (one line per event:
-//! `"<event>\t<payload>\n"`) to a FIFO this module owns. The supervisor drains
-//! the FIFO asynchronously.
+//! Registers `SessionStart` and `Stop` hooks via inline `--settings` JSON; a
+//! relay shell script writes each event payload (`"<event>\t<payload>\n"`) to a
+//! FIFO this module owns, which the supervisor drains asynchronously.
 //!
-//! Lifetime: caller owns the [`HookHarness`]. `Drop` removes the per-run temp
-//! dir, the FIFO, and the script.
-//!
-//! Mirrors the `claude-p` Zig project's `src/hook.zig` 1:1.
-//!
-//! Why this exists: it replaces a hard-coded 500ms sleep before pasting the
-//! first prompt (`SessionStart` tells us when the TUI is actually accepting
-//! input) and replaces snapshot-diff JSONL discovery (Stop's payload carries
-//! the transcript path).
+//! Caller owns the [`HookHarness`]; `Drop` removes the per-run temp dir, FIFO,
+//! and script.
 
 // reason: items are introduced module-by-module across the rollout (see
 // "Implementation order" in the plan). Each step wires another helper in.
@@ -104,8 +96,8 @@ impl Drop for HookHarness {
 }
 
 /// Relay script body. Writes one line `"<event>\t<payload>\n"` to
-/// `$CLAUDE_P_FIFO` per invocation. Single quotes in `printf` guard against
-/// `%` interpolation in the payload.
+/// `$CLAUDE_P_FIFO` per invocation. Single quotes in `printf` guard against `%`
+/// interpolation in the payload.
 const SCRIPT_BODY: &str = r#"#!/bin/sh
 # Relay a Claude Code hook event to the claude-agent-sdk hook FIFO.
 #   $1     = event name (e.g. "Stop", "SessionStart")
@@ -199,18 +191,10 @@ fn extract_string_field(payload_json: &str, field: &str) -> Option<String> {
         .map(std::string::ToString::to_string)
 }
 
-/// Spawn a blocking reader thread that drains the FIFO, parses each line, and
-/// forwards parsed [`HookLine`]s through `tx`. The reader thread exits when
-/// the cancellation token is fired (after best-effort closing the FIFO from
-/// our side).
-///
-/// Open with `O_RDONLY | O_RDWR` (keeps a writer fd attached locally) so reads
-/// block on data, never on EOF — important because the relay script writes
-/// one short payload and exits, so the writer side toggles between connected
-/// and disconnected.
-///
-/// MUST be called BEFORE spawning the child (claude) process. Otherwise the
-/// child's first hook write blocks waiting for a reader.
+/// Opens `O_RDONLY | O_RDWR` so reads block on data, not EOF, since the relay
+/// writes one payload per connection; exits when `cancellation_token` fires.
+/// MUST be called BEFORE spawning the child process, or its first hook write
+/// blocks waiting for a reader.
 pub(crate) fn spawn_reader(
     fifo_path: PathBuf,
     tx: mpsc::UnboundedSender<HookLine>,
@@ -281,10 +265,11 @@ pub(crate) async fn for_each_line(
     }
 }
 
-/// Create a FIFO at `path` with the given mode (octal). Shells out to the
-/// POSIX `mkfifo` binary so we don't need an `unsafe` libc call. The binary
-/// is required by POSIX and present on every Unix the rest of the tmux
-/// backend already requires.
+/// Create a FIFO at `path` with the given mode (octal).
+///
+/// Shells out to the POSIX `mkfifo` binary to avoid an `unsafe` libc call;
+/// required by POSIX and already assumed present by the rest of the tmux
+/// backend.
 fn mkfifo(path: &Path, mode: u32) -> Result<()> {
     let status = std::process::Command::new("mkfifo")
         .arg("-m")

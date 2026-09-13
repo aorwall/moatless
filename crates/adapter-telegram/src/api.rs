@@ -35,8 +35,8 @@ impl TelegramApi {
 
     /// Send a text message, chunking if it exceeds 4096 characters.
     ///
-    /// `message_thread_id` is used for forum/topic groups — when set, the message
-    /// is posted into the specified forum topic.
+    /// `message_thread_id`, when set, posts into that forum/topic group's
+    /// specified topic.
     pub async fn send_message(
         &self,
         chat_id: &str,
@@ -177,11 +177,9 @@ impl TelegramApi {
 
     /// Long-poll for new updates via Telegram's `getUpdates` API.
     ///
-    /// * `offset` — pass `last_update_id + 1` to acknowledge previous updates.
-    /// * `timeout` — how many seconds Telegram should hold the connection open.
-    ///
-    /// Returns the raw `result` array from the response so callers can feed each
-    /// element into [`super::ingress::receive`].
+    /// `offset` is `last_update_id + 1`, acknowledging previous updates;
+    /// returns the raw `result` array so callers can feed each element into
+    /// [`super::ingress::receive`].
     pub async fn get_updates(
         &self,
         offset: Option<i64>,
@@ -259,11 +257,12 @@ impl TelegramApi {
         Ok(())
     }
 
-    /// Set (or clear) a reaction on a Telegram message via `setMessageReaction`.
+    /// Set (or clear) a reaction on a Telegram message via
+    /// `setMessageReaction`.
     ///
-    /// Telegram's API is an **idempotent set**, not an add/remove pair: it
-    /// replaces the entire reaction list. Passing `Some(emoji)` sets that
-    /// single reaction; passing `None` clears all of them.
+    /// Telegram's API is an idempotent set, not an add/remove pair — it
+    /// replaces the entire reaction list; `Some(emoji)` sets that one, `None`
+    /// clears all.
     pub async fn set_message_reaction(
         &self,
         chat_id: &str,
@@ -343,7 +342,8 @@ async fn parse_send_message_id(resp: reqwest::Response) -> Result<i64, AdapterEr
         })
 }
 
-/// Split text into chunks of at most `max_len` characters, breaking at newlines when possible.
+/// Split text into chunks of at most `max_len` characters, breaking at newlines
+/// when possible.
 fn chunk_text(text: &str, max_len: usize) -> Vec<&str> {
     if text.len() <= max_len {
         return vec![text];

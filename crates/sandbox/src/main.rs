@@ -1,11 +1,8 @@
-/// Where the Claude CLI writes its debug logs — pointed at `/tmp` to work around
-/// an SDK lazy-init race. Child CLI processes inherit it from this process.
+/// Where the Claude CLI writes its debug logs — pointed at `/tmp` to work
+/// around an SDK lazy-init race; child CLI processes inherit it.
 ///
-/// `docker/docker-entrypoint-sandbox.sh` exports the same value and remains the
-/// source for image-entrypoint launches, but the K8s pod spec overrides the
-/// entrypoint with `command: ["/usr/local/bin/sandbox"]` (see
-/// `backend/src/sandbox/k8s/pod_builder.rs`), so on that path the script never
-/// runs and the binary has to guarantee the variable itself.
+/// K8s overrides the entrypoint script that also sets this (see
+/// `backend/src/sandbox/k8s/pod_builder.rs`), so the binary sets it itself.
 const CLAUDE_CODE_DEBUG_LOGS_DIR: &str = "/tmp/claude-debug.log";
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {

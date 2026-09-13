@@ -60,10 +60,11 @@ pub(super) async fn start_turn(pool: &PgPool, task_id: &str, run_id: &str) -> i3
         .unwrap()
 }
 
-/// Apply a state-bearing event through the gRPC ingress writer, classified by
-/// the same function the ingress itself uses — so a `(type, sub_type)` pair
-/// that stops bearing turn state fails here rather than quietly delivering
-/// nothing.
+/// Applies a state-bearing event through the gRPC ingress writer.
+///
+/// Classified by the same function the ingress itself uses, so a `(type,
+/// sub_type)` pair that stops bearing turn state fails here rather than quietly
+/// delivering nothing.
 pub(super) async fn ingress(
     pool: &PgPool,
     task_id: &str,
@@ -92,10 +93,11 @@ pub(super) async fn ingress(
     .unwrap();
 }
 
-/// How many changes were recorded past a position. Used to show a test's
-/// premise held: a coalescing assertion means nothing if only one change was
-/// ever recorded, and a filtering assertion means nothing if the change the
-/// viewer should not see was never written.
+/// How many changes were recorded past a position.
+///
+/// Confirms a test's premise held: a coalescing assertion means nothing with
+/// only one change recorded, and a filtering assertion means nothing if the
+/// excluded change was never written.
 pub(super) async fn recorded_after(pool: &PgPool, after: i64) -> usize {
     reads(pool)
         .listing_changes_after(after, 100)
@@ -118,9 +120,8 @@ pub(super) async fn reconnect(
 /// The same reconnection, for a deployment that started against `environment`
 /// and is now reading `pool`.
 ///
-/// The two are the same database in every test but the restore ones, which is
-/// the whole of what those tests vary: the process is unchanged, its clients are
-/// unchanged, and the database underneath it is not the one it started with.
+/// The two are the same database except in the restore tests, where only the
+/// database underneath changes — the process and its clients don't.
 pub(super) async fn reconnect_to(
     pool: &PgPool,
     environment: &UiRpcEnvironmentIdentity,
@@ -133,13 +134,12 @@ pub(super) async fn reconnect_to(
     (subscription.values, subscription.feed)
 }
 
-/// Advance the deployment's position past the resume window without pretending
+/// Advances the deployment's position past the resume window without pretending
 /// the changes belong to anything.
 ///
-/// They are recorded through the real allocator, on a Task id nothing in the
-/// listing references, so the head moves exactly as it would after a few days
-/// of other people's work — which is the disconnection acceptance criterion 2
-/// is about.
+/// Recorded through the real allocator on a Task id nothing references, so the
+/// head moves as it would after days of other people's work — disconnection
+/// criterion 2.
 pub(super) async fn other_peoples_work(pool: &PgPool, count: i64) {
     let mut tx = pool.begin().await.unwrap();
     for index in 0..count {
@@ -159,16 +159,12 @@ pub(super) async fn one_item(pool: &PgPool, feed: &mut ShellFeed, viewer: &Scope
     items[0].clone()
 }
 
-/// The ids a client holds after applying everything it has been sent, folded
-/// exactly as `applyShellStreamEvent` folds them
-/// (`client-runtime/src/state/shellReducer.ts`). Asserting on this rather than
-/// on the events is what makes a test say *what is on the screen*.
+/// The ids a client holds after applying everything sent, folded exactly as
+/// `applyShellStreamEvent` does (`shellReducer.ts`); asserting on this says
+/// what is on screen.
 ///
-/// `threads` is the sidebar, so an archived conversation is not in it. The
-/// client keeps that row cached and renders it under its archive; the sidebar
-/// filters it out by `archivedAt` (`SidebarV2.tsx`, `threadSort.ts`). Both
-/// halves of that are the client's, and only the first is what these tests are
-/// about.
+/// `threads` is the sidebar: an archived conversation is cached but filtered
+/// out by `archivedAt`, and only the sidebar half is what these tests cover.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub(super) struct Held {
     pub(super) threads: Vec<String>,

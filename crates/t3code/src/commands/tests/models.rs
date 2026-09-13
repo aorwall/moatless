@@ -21,10 +21,11 @@ async fn a_published_slug_reaches_the_sink_as_a_catalog_id() {
     );
 }
 
-/// A task's harness is fixed at creation, so this cannot be honoured. The
-/// point of the assertion is that nothing reaches the sink: refusing after
-/// a write would leave the message in a conversation the person was told
-/// had refused it.
+/// A task's harness is fixed at creation, so this cannot be honoured.
+///
+/// The assertion's point is that nothing reaches the sink: refusing after a
+/// write would leave the message in a conversation the person was told had
+/// refused it.
 #[tokio::test]
 async fn a_model_from_the_other_instance_is_refused_before_any_write() {
     let (result, calls) = run(turn(Some(("codex", "gpt-5.6-sol")))).await;
@@ -32,9 +33,8 @@ async fn a_model_from_the_other_instance_is_refused_before_any_write() {
     assert!(calls.is_empty());
 }
 
-/// Silently substituting the default is the failure the published model
-/// names exist to prevent, so an unknown slug refuses rather than falls
-/// back.
+/// Silently substituting the default is the failure the published model names
+/// exist to prevent, so an unknown slug refuses rather than falls back.
 #[tokio::test]
 async fn a_model_we_never_published_is_refused_rather_than_defaulted() {
     let (result, calls) = run(turn(Some(("claudeAgent", "claude-opus-4-8")))).await;
@@ -80,8 +80,8 @@ async fn codex_reads_its_effort_off_its_own_descriptor_id() {
 }
 
 /// A selection keyed by an id this server never published for the instance
-/// belongs to some other provider; forwarding it would hand an agent a
-/// setting it has no vocabulary for.
+/// belongs to some other provider; forwarding it would hand an agent a setting
+/// it has no vocabulary for.
 #[tokio::test]
 async fn an_option_the_instance_never_published_is_ignored() {
     let command = turn_with_options(

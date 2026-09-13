@@ -7,8 +7,8 @@ use codex_sdk::{
     FileChangeRequestApprovalParams, query,
 };
 
-/// A custom approval handler that logs and approves command executions,
-/// but denies file changes.
+/// A custom approval handler that logs and approves command executions, but
+/// denies file changes.
 struct ReadOnlyApprovalHandler;
 
 #[async_trait]

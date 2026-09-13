@@ -4,10 +4,11 @@
 use super::fixtures::*;
 use super::*;
 
-/// `archivedAt` is the Task's close time. An open conversation carries
-/// null, which is what puts it in the sidebar rather than the archive; a
-/// closed one carries the time, which is what the archived listing renders
-/// and what T3 reads to tell the two apart.
+/// `archivedAt` is the Task's close time.
+///
+/// An open conversation carries null, which puts it in the sidebar rather than
+/// the archive; a closed one carries the time, which T3 reads to tell the two
+/// apart.
 #[test]
 fn a_closed_conversation_is_archived_at_the_time_it_was_closed() {
     let open = one_thread(&running_conversation("task-a", "ws-a"));
@@ -149,8 +150,8 @@ fn background_liveness_reports_the_axis_not_the_count() {
     assert_eq!(one["backgroundLiveness"], many["backgroundLiveness"]);
 }
 
-/// The instance id is a branded slug, and an id that does not match is
-/// refused at decode rather than downgraded.
+/// The instance id is a branded slug, and an id that does not match is refused
+/// at decode rather than downgraded.
 #[test]
 fn the_provider_instance_is_a_well_formed_slug() {
     for agent_type in ["claude-code", "codex", "claude-code-fable", "made-up"] {
@@ -206,8 +207,8 @@ fn an_unmappable_turn_state_reports_no_turn_rather_than_a_guess() {
     assert_eq!(thread["session"]["activeTurnId"], Value::Null);
 }
 
-/// The session's turn and the row's turn are the same turn, so the two ids
-/// have to agree — the client uses one to look up the other.
+/// The session's turn and the row's turn are the same turn, so the two ids have
+/// to agree — the client uses one to look up the other.
 #[test]
 fn an_open_turn_is_the_sessions_active_turn() {
     let thread = one_thread(&running_conversation("task-a", "ws-a"));
@@ -229,9 +230,11 @@ fn a_finished_turn_leaves_the_session_with_no_active_turn() {
 }
 
 /// A turn opens from inside the Sandbox, so between a person sending and the
-/// agent starting there is a window — seconds warm, minutes when scheduling
-/// is slow — with work in flight and no turn to show for it. The session
-/// reads as running across it, not as a thread with nothing happening.
+/// agent starting there is a window with work in flight and no turn to show for
+/// it.
+///
+/// The session reads as running across it, not as a thread with nothing
+/// happening.
 #[test]
 fn a_sandbox_coming_up_for_a_message_is_a_session_working() {
     let mut row = running_conversation("task-a", "ws-a");
@@ -259,8 +262,8 @@ fn a_sandbox_coming_up_for_a_message_is_a_session_working() {
     assert_eq!(one_thread(&row)["session"]["status"], "running");
 }
 
-/// A turn that finished without recording when says nothing either way, and
-/// is read as settled rather than leaving the session running for good.
+/// A turn that finished without recording when says nothing either way, and is
+/// read as settled rather than leaving the session running for good.
 #[test]
 fn a_turn_that_ended_at_no_recorded_time_owes_nothing() {
     let mut row = running_conversation("task-a", "ws-a");

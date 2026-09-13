@@ -1,8 +1,8 @@
 /// One rule breach.
 ///
 /// `key` identifies the breach across unrelated edits so a baseline entry does
-/// not churn when a line moves. It never contains a line number; `locations`
-/// carries those, and they are printed but not baselined.
+/// not churn when a line moves; it never contains a line number — `locations`
+/// carries those, and is printed but not baselined.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Violation {
     pub rule: &'static str,

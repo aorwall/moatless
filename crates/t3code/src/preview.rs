@@ -1,17 +1,13 @@
 //! The `preview.*` methods: opening, moving and closing a Task's browser tabs.
 //!
-//! A tab here is what T3 calls a preview — an in-app browser tab session — and
-//! not what Moatless calls one. Nothing in this module knows about a preview
-//! *server*; it stores a URL somebody asked to look at and tells everyone else
-//! looking at the same Task about it.
+//! A tab here is what T3 calls a preview — an in-app browser tab session, not
+//! what Moatless calls one. This module stores a URL somebody asked to look at
+//! and tells everyone else watching the Task about it; it knows nothing of a
+//! preview *server*.
 //!
-//! The client cannot be trusted to report where a tab ended up, because on the
-//! web it has no way to find out: the frame is cross-origin and opaque. So
-//! `navigate` records what was *commanded* rather than what loaded, with an
-//! empty title, and only the desktop client — which owns a `<webview>` and can
-//! see — ever calls `reportStatus`. An invented title would put a value in the
-//! contract that nothing measured; the tab strip already falls back to the
-//! URL's host when the title is blank.
+//! The web client cannot see where a tab ended up (cross-origin, opaque), so
+//! `navigate` records what was *commanded*; only the desktop client's
+//! `<webview>` calls `reportStatus` with what it actually saw.
 
 use std::sync::Arc;
 
@@ -117,10 +113,9 @@ fn commanded(url: &str) -> Value {
 
 /// Store a whole tab, then tell every replica about it.
 ///
-/// The write lands first: an event announcing a snapshot the store does not
-/// hold would be one a reconnecting client silently discards. A publish that
-/// fails leaves the tab stored and the caller answered — the clients that
-/// missed it converge on their next `preview.list`.
+/// The write lands first — a publish failure leaves the tab stored and the
+/// caller answered; clients that missed the event converge on their next
+/// `preview.list`.
 async fn commit(
     state: &PreviewState,
     tab: PreviewTab,
@@ -176,15 +171,9 @@ pub async fn open(
 
 /// Open a tab at a caller-chosen id, replacing whatever that id held.
 ///
-/// [`open`] mints an id because two clients opening a tab at the same moment
-/// must not collide. A Script is the opposite case: every run of one Script is
-/// the same tab, so its id is derived from the Script and a second run
-/// re-announces the tab the first run opened rather than stacking another one
-/// beside it — see [`crate::scripts::run`]. The viewport is carried over for
-/// the same reason: a size somebody chose belongs to the tab, not to the run.
-/// `url` is commanded, so a re-open pulls every viewer of the Task back to it
-/// from wherever they had navigated the tab — a restart is a fresh process, and
-/// what it serves is what the tab is for.
+/// Unlike [`open`], which mints one: every run of one Script is the same tab
+/// (see [`crate::scripts::run`]), so this re-announces it, carrying the
+/// viewport over and pulling every viewer back to `url`.
 pub async fn open_at(
     state: &PreviewState,
     viewer: &ScopeContext,
@@ -254,8 +243,8 @@ pub async fn resize(
 /// Reloading a frame changes nothing anyone else can observe.
 ///
 /// No stored state moves and no event is published — the client that asked
-/// re-keys its own frame. Publishing one would make every other client reload
-/// a page nobody asked them to.
+/// re-keys its own frame; publishing one would reload the page for everyone
+/// else.
 pub async fn refresh(
     state: &PreviewState,
     viewer: &ScopeContext,
@@ -269,8 +258,8 @@ pub async fn refresh(
 
 /// What the desktop client saw, written verbatim.
 ///
-/// This is the one method whose values are observations rather than commands,
-/// and the only one a web client never calls.
+/// The one method whose values are observations rather than commands — and the
+/// only one a web client never calls.
 pub async fn report_status(
     state: &PreviewState,
     viewer: &ScopeContext,
@@ -299,9 +288,8 @@ pub async fn report_status(
 
 /// Close one tab, or every tab on the Task when no `tabId` is given.
 ///
-/// It closes for everyone who can read the Task. That is a consequence of a
-/// tab belonging to the Task rather than to whoever opened it, and it is the
-/// behaviour the desktop app has had all along.
+/// Closes for everyone who can read the Task — a tab belongs to the Task, not
+/// to whoever opened it, matching the desktop app's long-standing behaviour.
 pub async fn close(
     state: &PreviewState,
     viewer: &ScopeContext,
@@ -336,10 +324,9 @@ pub async fn close(
 
 /// Every tab open on a Task, and the position the read was taken at.
 ///
-/// `serverEpoch` and `revision` are not decoration: the client rejects a
-/// listing older than one it already applied, and refetches wholesale when the
-/// epoch moves. A listing without them decodes to nothing and reads as "no
-/// tabs", which is how the stub this replaces managed to look like it worked.
+/// `serverEpoch` and `revision` are load-bearing: the client rejects a listing
+/// older than one already applied and refetches wholesale when the epoch moves;
+/// without them a listing decodes to nothing and reads as "no tabs".
 pub async fn list(
     state: &PreviewState,
     viewer: &ScopeContext,
@@ -373,9 +360,8 @@ async fn require_tab(
 /// The error a client's schema knows how to decode, when there is one.
 ///
 /// `PreviewSessionLookupError` is declared on every method in the group, so an
-/// unknown tab reaches the panel as its own message. Everything else is a
-/// defect the client renders as an unexpected server failure, which is what it
-/// is.
+/// unknown tab reaches the panel as its own message; everything else renders as
+/// an unexpected server failure.
 pub fn typed_error(error: &PreviewError) -> Option<Value> {
     match error {
         PreviewError::UnknownTab { thread_id, tab_id } => Some(json!({
@@ -426,8 +412,9 @@ mod tests {
         }
     }
 
-    /// The stub this replaces answered `{"sessions": []}`, which the contract
-    /// cannot decode — so it read as "no tabs" instead of as an error.
+    /// An empty listing still carries `revision` and `serverEpoch`: the
+    /// contract cannot decode a bare `{"sessions": []}`, and the client reads
+    /// that failure as "no tabs" rather than as an error.
     #[tokio::test]
     async fn listing_a_task_with_no_tabs_still_carries_an_epoch_and_a_revision() {
         let state = state(Some("task"));

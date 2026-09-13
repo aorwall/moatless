@@ -1,29 +1,11 @@
 //! Write the GitHub token straight into `~/.config/gh/hosts.yml`.
 //!
-//! The `gh` CLI's git credential helper (`gh auth git-credential`) reads this
-//! file fresh on every invocation. By writing the current token here on each
-//! refresh cycle, git/gh operations spawned from a long-running agent turn pick
-//! up rotated tokens without needing the agent's process env to change.
-//!
-//! # Why not `gh auth login --with-token`
-//!
-//! That command validates the token before persisting it and **hard-requires
-//! the `read:org` scope**, exiting non-zero on any token that lacks it. The
-//! credential the sandbox is handed is frequently narrower than that — a
-//! workspace-pinned PAT is meant to be a least-privilege machine credential,
-//! and `repo` alone is enough for everything the sandbox does with git. Routing
-//! through `gh auth login` made `read:org` a de-facto requirement for using
-//! `gh` at all: without it login failed, no `hosts.yml` was written, and `gh`
-//! sat unauthenticated even though the very same token drove `git push` fine
-//! through the credential broker.
-//!
-//! Writing the file ourselves keeps the scope requirement where it belongs — on
-//! the API call that actually needs the scope, which fails with GitHub's own
-//! error rather than being pre-empted by a blanket check.
-//!
-//! This function is the only writer of `hosts.yml` in the pod, so it renders
-//! the whole file rather than merging. A host entry added by hand inside the
-//! sandbox does not survive the next refresh cycle.
+//! `gh auth git-credential` reads this file fresh on every invocation, so
+//! writing here each refresh cycle lets git/gh pick up rotation without an env
+//! change. We skip `gh auth login --with-token`, which hard-requires `read:org`
+//! and rejects narrower tokens that are otherwise sufficient for `git push`.
+//! This is the only writer of `hosts.yml`; it renders the whole file rather
+//! than merging.
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -35,11 +17,9 @@ const LOGIN_LOOKUP_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Username recorded when the token's own login can't be resolved.
 ///
-/// GitHub App installation tokens (`ghs_`) have no user behind them and answer
-/// `GET /user` with 403; this is the username git itself uses for them, so it
-/// stays truthful about what the credential is. `gh` needs *some* user key —
-/// its multi-account migration errors out on a host entry without one — but
-/// only ever reads the token back out.
+/// Matches what git itself uses for GitHub App installation tokens (`ghs_`,
+/// which get 403 from `GET /user`); `gh`'s multi-account migration requires
+/// some user key even though it only reads the token back out.
 const FALLBACK_LOGIN: &str = "x-access-token";
 
 /// Write `token` into the gh CLI's `hosts.yml`.
@@ -80,10 +60,8 @@ fn hosts_path(home_dir: &str) -> PathBuf {
 
 /// Render the single-host `hosts.yml` `gh` expects.
 ///
-/// Both the top-level `oauth_token` and the `users` entry are written: the
-/// former is what older `gh` reads directly, the latter is what its
-/// multi-account migration expects to find. Emitting both means neither
-/// version has to migrate the file on first use.
+/// Writes both the top-level `oauth_token` (older `gh`) and the `users` entry
+/// (multi-account migration), so neither version has to migrate the file.
 fn render_hosts_yml(login: &str, token: &str) -> String {
     format!(
         "github.com:\n    \
@@ -96,21 +74,12 @@ fn render_hosts_yml(login: &str, token: &str) -> String {
     )
 }
 
-/// Write `contents` to `path` with `0600`, never leaving a partial file where
-/// `gh` could read it.
+/// Write `contents` to `path` at `0600` via an atomic same-dir rename, so a
+/// racing `gh` invocation never sees a partial file.
 ///
-/// The token goes to a temp file in the same directory and is then renamed over
-/// the target — an atomic swap on the same filesystem, so a `gh` invocation
-/// racing the refresher sees either the old file or the new one.
-///
-/// The temp file is *created* `0600` rather than chmod'd afterwards. Writing
-/// first and tightening second would put the token on disk at the umask's mode
-/// (`0644` under the usual `022`) for the width of that window, and the temp
-/// path is predictable, so anything else in the sandbox could open it in the
-/// meantime. `create_new` after an unlink means we own the inode we're writing
-/// into: a leftover temp file from an interrupted run — which may carry
-/// permissions we never set, or be a symlink aimed elsewhere — can't be
-/// written through.
+/// The temp file is *created* `0600` (never chmod'd, which would leave a window
+/// at the umask's mode) and opened via `create_new` after an unlink, so a
+/// leftover file — wrong permissions, or a symlink — can't be written through.
 async fn write_private(path: &std::path::Path, contents: &str) -> Result<(), String> {
     let tmp = path.with_extension("yml.tmp");
 
@@ -151,8 +120,7 @@ async fn write_new_private(path: &std::path::Path, contents: &str) -> std::io::R
 /// Resolve the GitHub login the token authenticates as.
 ///
 /// Returns `None` on any failure — a wrong username in `hosts.yml` is cosmetic
-/// (`gh` reads the token back out regardless), so this must never be the reason
-/// a token fails to reach `gh`.
+/// (`gh` reads the token back out regardless), never a reason to fail.
 async fn resolve_login(token: &str) -> Option<String> {
     let client = reqwest::Client::builder()
         .timeout(LOGIN_LOOKUP_TIMEOUT)

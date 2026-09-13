@@ -1,8 +1,8 @@
 //! Application-level auth middleware.
 //!
-//! Validates opaque auth-session cookies and API keys directly, independent of any
-//! ingress-layer `ForwardAuth`. Strips inbound `X-User-*` headers to prevent
-//! spoofing, then injects validated headers for downstream extractors.
+//! Validates opaque auth-session cookies and API keys directly, independent of
+//! any ingress-layer `ForwardAuth`. Strips inbound `X-User-*` headers to
+//! prevent spoofing, then injects validated headers for downstream extractors.
 
 use std::sync::Arc;
 
@@ -136,7 +136,8 @@ fn is_exempt(path: &str) -> bool {
     )
 }
 
-/// Strip all inbound `X-User-*`, `X-Group-Id`, and `X-Team-Ids` headers to prevent spoofing.
+/// Strip all inbound `X-User-*`, `X-Group-Id`, and `X-Team-Ids` headers to
+/// prevent spoofing.
 fn strip_user_headers(req: &mut Request<Body>) {
     let headers = req.headers_mut();
     headers.remove("x-user-id");
@@ -552,8 +553,8 @@ mod tests {
         assert!(websocket_ticket(&request_to("/ws?authToken=abc")).is_none());
     }
 
-    /// Percent-encoded because that is what `URLSearchParams` produces, which is
-    /// what builds the URL on the other side.
+    /// Percent-encoded because that is what `URLSearchParams` produces, which
+    /// is what builds the URL on the other side.
     #[test]
     fn a_percent_encoded_ticket_is_decoded() {
         assert_eq!(

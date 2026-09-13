@@ -15,10 +15,10 @@ use crate::sandbox::lifecycle::SandboxIngress;
 
 /// Where one proxied request goes, and what it presents on arrival.
 pub struct Upstream {
-    /// `https://{host}/{owner}/{name}.git`, rebuilt from the parsed remote
-    /// rather than taken from it. A Workspace controls the stored `git_url`, and
-    /// honouring its scheme would let one downgrade the connection its own
-    /// credential travels over.
+    /// `https://{host}/{owner}/{name}.git`, rebuilt from the parsed remote.
+    ///
+    /// Honouring the stored `git_url`'s scheme would let one downgrade the
+    /// connection its own credential travels over.
     pub base_url: String,
     /// Presented as the HTTP Basic password, which is how git hosts take a
     /// token over smart-HTTP.
@@ -87,16 +87,10 @@ impl GitProxy {
 
     /// Resolve `repository_id` for the sandbox `task_token` was minted for.
     ///
-    /// The credential is the one the sandbox's *run-as* identity holds, which is
-    /// not the identity in the token: a Workspace's `run_as_user_id` overrides
-    /// it, and a credential the Workspace pins overrides that in turn. Reading
-    /// the token's own `userId` would hand the pod the starter's credential and
-    /// silently ignore both.
-    ///
-    /// Authorization is the other way round, and it is two arms. The Workspace's
-    /// placement list answers first. A repository the placements do not cover
-    /// falls through to every repository the token's own identity may use, which
-    /// is what `moat repos clone <repository_id>` reaches.
+    /// The credential is the sandbox's *run-as* identity, not the token's
+    /// `userId` — a Workspace's `run_as_user_id` or pinned credential overrides
+    /// it. Authorization checks the Workspace's placements first, then falls
+    /// back to every repository the token's own identity may use.
     pub async fn resolve(
         &self,
         repository_id: &str,
@@ -184,20 +178,10 @@ impl GitProxy {
 /// The repository `user_id` may fetch and push by id, or `None` when there is
 /// none.
 ///
-/// `user_id` is the pod's own identity, the task's `created_by`, and the same
-/// one `sandbox::grpc_server::resolve_write` gates a pod's task writes on. It is
-/// deliberately not the run-as actor the credential comes from: a Workspace
-/// pinned to a bot would otherwise lend every member the bot's whole reach. The
-/// *credential* is still that actor's, so a caller who may read a
-/// `Scope::Global` row reaches it on the bot's token.
-///
-/// The gate is `ScopeContext::can_use_repository`, the same one that admits a
-/// repository to a Workspace. Admission also requires write on the Workspace, so
-/// a member of a bot-pinned `Scope::Global` Workspace pushes where no placement
-/// they could write would reach.
-///
-/// Returns `None` for a repository the reader hides, for one the caller may not
-/// use, and for a read that failed, so a caller cannot tell the three apart.
+/// `user_id` is the pod's own identity (`created_by`), never the run-as actor
+/// the credential comes from, so it is checked with
+/// `ScopeContext::can_use_repository` against the row's owner. Returns `None`
+/// alike for a hidden repository, an unauthorized one, and a failed read.
 async fn usable_repository(
     repositories: &Arc<dyn RepositoryReader>,
     users: &Arc<dyn CommitIdentity>,
@@ -228,9 +212,8 @@ async fn usable_repository(
 /// The remote a proxied request forwards to, or `None` when the repository
 /// names none this proxy can address.
 ///
-/// The row's own provider decides, so every provider `GitHostTokenIssuer` mints
-/// a token for is proxied. A row naming no provider, or a remote URL its
-/// provider's parser rejects, has no host to forward to.
+/// A row naming no provider, or a remote URL its provider's parser rejects, has
+/// no host to forward to.
 fn git_host_repo(repository: &Repository) -> Option<GitHostRepo> {
     GitHostRepo::parse(repository.provider?, repository.remote_url.as_deref()?)
 }
@@ -276,8 +259,8 @@ mod tests {
         }
     }
 
-    /// A reader answering `shown` for every id, and an identity that is nobody's
-    /// admin.
+    /// A reader answering `shown` for every id, and an identity that is
+    /// nobody's admin.
     fn ports(
         shown: Result<Option<Repository>, String>,
     ) -> (Arc<dyn RepositoryReader>, Arc<dyn CommitIdentity>) {

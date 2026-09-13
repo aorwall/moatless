@@ -14,18 +14,18 @@ use moatless_types::sandbox::SandboxDesiredState;
 
 /// The runtime mode every conversation reports.
 ///
-/// The contract requires one of four named modes and supplies no empty value.
-/// Moatless has no equivalent, and the permissive mode is both the contract's
-/// own default and an honest description of a Sandbox: the agent runs as a
-/// process in a pod with no approval gate in front of it.
+/// The contract requires one of four named modes with no empty value; Moatless
+/// has no equivalent, and the permissive mode is both the contract's default
+/// and an honest description — the agent runs as a process in a pod with no
+/// approval gate.
 pub(super) const RUNTIME_MODE: &str = "full-access";
 
 /// The conversation's session, or null when no Sandbox was ever requested.
 ///
 /// The contract's session carries what Moatless splits in two: the durable
 /// Sandbox lifecycle intent and the agent session running inside it. Absence of
-/// a `sandboxes` row is the lazy converged-Stopped default, and it is the one
-/// case that means *no session*, not *a stopped session*.
+/// a `sandboxes` row is the lazy converged-Stopped default — the one case
+/// meaning *no session*, not *a stopped session*.
 pub(super) fn session(conversation: &Conversation) -> Value {
     let Some(desired_state) = conversation.sandbox_desired_state() else {
         return Value::Null;
@@ -59,9 +59,9 @@ pub(super) fn session(conversation: &Conversation) -> Value {
 /// What the agent is doing, in T3's session vocabulary.
 ///
 /// The rule itself is [`derive_running`], shared with the REST live-status
-/// route so the two surfaces cannot disagree. This function is only the
-/// translation: T3 has no separate word for a run parked on a person, and
-/// spends `ready` on a Sandbox that is up with nothing in flight.
+/// route so the two surfaces cannot disagree; T3 has no separate word for a run
+/// parked on a person, and spends `ready` on a Sandbox that is up with nothing
+/// in flight.
 fn session_status(conversation: &Conversation, desired_state: SandboxDesiredState) -> &'static str {
     match derive_running(&running_inputs(conversation, desired_state)) {
         Working::Running | Working::Waiting => "running",
@@ -74,9 +74,9 @@ fn session_status(conversation: &Conversation, desired_state: SandboxDesiredStat
 
 /// The working copy's location, or null when there is none.
 ///
-/// A removed Sandbox has had its working copy reclaimed, so it reports none —
-/// and null is also what tells the client there are no files to ask for, since
-/// it falls back to the project's root and gets an answer saying so.
+/// A removed Sandbox has had its working copy reclaimed; null also tells the
+/// client there are no files to ask for, so it falls back to the project's root
+/// and gets an answer saying so.
 pub(super) fn worktree_path(conversation: &Conversation) -> Value {
     match conversation.sandbox_desired_state() {
         Some(SandboxDesiredState::Running | SandboxDesiredState::Stopped) => {

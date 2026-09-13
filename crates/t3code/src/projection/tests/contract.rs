@@ -38,8 +38,8 @@ const SCRIPT_REQUIRED: &[&str] = &["id", "name", "command", "icon", "runOnWorktr
 // `previewUrl`, which a Moatless script cannot carry (see the projection).
 const SCRIPT_OPTIONAL: &[&str] = &["previewUrl", "autoOpenPreview", "port"];
 
-/// Trimmed-non-empty strings in the transcribed types above. An empty value
-/// is refused by the contract exactly as a missing key would be.
+/// Trimmed-non-empty strings in the transcribed types above. An empty value is
+/// refused by the contract exactly as a missing key would be.
 pub(super) const PROJECT_NON_EMPTY: &[&str] = &["id", "title", "workspaceRoot"];
 const SCRIPT_NON_EMPTY: &[&str] = &["id", "name", "command"];
 
@@ -345,9 +345,9 @@ fn the_detail_wire_shape_matches_the_contract_field_for_field() {
     }
 }
 
-/// The shell's four extra fields are the shell's. Emitting one here is not
-/// a harmless extra: `OrchestrationThread` is a closed struct, so an
-/// undeclared key fails the decode and the conversation never renders.
+/// The shell's four extra fields are the shell's. Emitting one here is not a
+/// harmless extra: `OrchestrationThread` is a closed struct, so an undeclared
+/// key fails the decode and the conversation never renders.
 #[test]
 fn the_detail_row_carries_none_of_the_shells_own_fields() {
     let thread = detail(&a_conversation());

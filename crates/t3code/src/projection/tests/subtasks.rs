@@ -3,10 +3,11 @@
 use super::fixtures::*;
 use super::*;
 
-/// Field for field against `Subtask` in
-/// `packages/contracts/src/subtasks.ts`. Every field there is required, and
-/// the three nullable ones are written as null rather than skipped: a
-/// client decoding a struct does not get to treat an absent key as null.
+/// Field for field against `Subtask` in `packages/contracts/src/subtasks.ts`;
+/// every field there is required.
+///
+/// The three nullable ones are written as null rather than skipped: a client
+/// decoding a struct does not get to treat an absent key as null.
 #[test]
 fn a_subtask_carries_every_field_the_contract_requires() {
     let mut child = running_conversation("task-child", "ws-1");
@@ -46,9 +47,9 @@ fn a_forked_child_is_labelled_as_one() {
     );
 }
 
-/// Closing outranks the newest turn. A child whose last turn errored and
-/// which was then closed is finished, and reporting it as failing would
-/// keep a settled fleet looking broken.
+/// Closing outranks the newest turn. A child whose last turn errored and which
+/// was then closed is finished, and reporting it as failing would keep a
+/// settled fleet looking broken.
 #[test]
 fn subtask_status_reads_closing_before_the_newest_turn() {
     let mut child = running_conversation("task-child", "ws-1");
@@ -65,8 +66,8 @@ fn subtask_status_reads_closing_before_the_newest_turn() {
     );
 }
 
-/// The four turn states a child can settle in, and the one it sits at
-/// before it has ever run.
+/// The four turn states a child can settle in, and the one it sits at before it
+/// has ever run.
 #[test]
 fn every_turn_state_maps_onto_the_panels_vocabulary() {
     let mut child = running_conversation("task-child", "ws-1");
@@ -96,8 +97,8 @@ fn every_turn_state_maps_onto_the_panels_vocabulary() {
     );
 }
 
-/// Waiting on a person is not a state of the run, so it rides beside the
-/// status rather than replacing it.
+/// Waiting on a person is not a state of the run, so it rides beside the status
+/// rather than replacing it.
 #[test]
 fn awaiting_input_is_reported_beside_a_running_status() {
     let mut child = running_conversation("task-child", "ws-1");
@@ -114,8 +115,8 @@ fn awaiting_input_is_reported_beside_a_running_status() {
     );
 }
 
-/// An unnamed child gets the contract's placeholder: `title` refuses a
-/// blank string, and `tasks.name` is nullable.
+/// An unnamed child gets the contract's placeholder: `title` refuses a blank
+/// string, and `tasks.name` is nullable.
 #[test]
 fn an_unnamed_subtask_falls_back_to_the_contracts_placeholder() {
     let mut child = conversation("task-child", "ws-1");

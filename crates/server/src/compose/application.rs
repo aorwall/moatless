@@ -26,9 +26,9 @@ use std::sync::Arc;
 impl AppState {
     /// Build `AppState` over the ports the composition root assembled.
     ///
-    /// The services wired here are the ones that need a runtime handle the
-    /// composition root does not have — the sandbox connector and the lifecycle
-    /// handle — so they are assembled from `ports` rather than in it.
+    /// The services wired here need a runtime handle the composition root lacks
+    /// — the sandbox connector and lifecycle handle — so they're assembled from
+    /// `ports` rather than in it.
     #[expect(
         clippy::too_many_arguments,
         reason = "eight independent infrastructure handles — ports, config, \

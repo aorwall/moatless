@@ -20,10 +20,9 @@ use crate::dao::store_read;
 /// One Message of a Task's transcript, with the columns a transcript is
 /// rendered from and nothing else.
 ///
-/// Deliberately not the backend's `TaskMessage`: that row carries
-/// forty columns because it is the write model, and a transcript read that
-/// selected all of them would pull every tool result's raw payload and every
-/// run's metrics out of the database to project six fields.
+/// Deliberately not the backend's `TaskMessage`, whose forty write-model
+/// columns would pull every tool result's raw payload and every run's metrics
+/// out of the database to project six fields.
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct TranscriptMessage {
     /// The insertion order this transcript is assembled in.
@@ -67,24 +66,26 @@ pub struct TranscriptMessage {
     /// The handle the external system knows the writer by. `None` on a Message
     /// written before the column existed.
     pub external_author: Option<String>,
-    /// The Task a Message was authored by, when it came from `moat send --task`.
-    /// Present means the origin is a Task rather than an adapter.
+    /// The Task a Message was authored by, when it came from `moat send
+    /// --task`. Present means the origin is a Task rather than an adapter.
     pub source_task_id: Option<String>,
     /// The web address of the Binding this Message's subject key resolves to,
     /// joined in. `None` when no Binding matches or it records no url.
     pub binding_url: Option<String>,
     /// What the Binding calls its subject — a Linear issue identifier such as
-    /// `SP-2454`. Preferred over `external_source_name`, which for Linear is the
-    /// subscription's team id rather than anything a reader would recognise.
+    /// `SP-2454`. Preferred over `external_source_name`, which for Linear is
+    /// the subscription's team id rather than anything a reader would
+    /// recognise.
     pub binding_label: Option<String>,
     /// The display name of the Moatless user `sent_by` resolved to, joined in.
     /// The `user` fallback where no external author was recorded.
     pub sent_by_name: Option<String>,
     /// The uploads attached to this Message, joined in from its `file` context
     /// rows as a JSON array of `{referenceId, data}` — the upload's id and the
-    /// filename, mime type and size resolved when it was sent. Read from the
-    /// contexts rather than from `task_messages.attachments`, which holds ids
-    /// alone. `None` on a Message with no uploads.
+    /// filename, mime type and size resolved when it was sent.
+    ///
+    /// Read from the contexts rather than from `task_messages.attachments`,
+    /// which holds ids alone; `None` on a Message with no uploads.
     pub file_contexts: Option<serde_json::Value>,
 }
 
@@ -96,57 +97,47 @@ pub struct Transcript {
     /// turn whose agent only called tools said nothing and has no Message row
     /// at all, and its calls reach a reader only through here.
     pub activities: Vec<Activity>,
-    /// The rows past `TRANSCRIPT_LIMIT` that were left out, oldest first.
-    /// Zero for every transcript that fits, which is nearly all of them.
+    /// The rows past `TRANSCRIPT_LIMIT` that were left out, oldest first. Zero
+    /// for every transcript that fits, which is nearly all of them.
     pub omitted: i64,
     /// Every `task_turns.turn_number` this Task has, ascending.
     ///
-    /// Read from `task_turns` rather than off `messages`, because that is the
-    /// set a rewind decides a cut against: a turn whose agent only called tools
-    /// has no Message to be seen through, and a turn older than
-    /// `TRANSCRIPT_LIMIT` has none left here. Empty from
+    /// Read from `task_turns` rather than off `messages`, since that is the set
+    /// a rewind cuts against — a tool-only turn has no Message, and a turn
+    /// older than `TRANSCRIPT_LIMIT` has none left here. Empty from
     /// [`crate::dao::ConversationDao::changed_messages`], whose caller projects
     /// no checkpoints.
     pub turns: Vec<i32>,
     /// Of the requests these rows ask, the ones whose call has come back.
     ///
-    /// A panel row is written *beside* the call rather than being it, so no
-    /// result ever lands on it and its own status never moves: the call's status
-    /// is the whole answer. The call is not always among these rows. It is
-    /// stored once — `(task_id, tool_use_id)` is unique — while the panel row
-    /// beside it carries no `tool_use_id` and so is written again every time a
-    /// resuming session re-presents the call, on whichever Message it lands on.
-    /// From then on the two sit on different Messages, and a read narrowed to
-    /// one of them holds the panel without the call. So this is looked up by
+    /// A panel row sits *beside* the call rather than being it — the call's
+    /// status is the whole answer — and a resumed session can rewrite the panel
+    /// onto a different Message than the call's, so this is looked up by
     /// request id rather than read out of `activities`.
     pub settled_requests: HashSet<String>,
     /// What each subagent these rows spawned has spent, by its call's
-    /// `tool_use_id`. Looked up rather than read out of the rows for the reason
-    /// the transcript excludes them: a subagent's own Messages carry the
-    /// spawning id as `parent_uuid` and are never among `activities`.
+    /// `tool_use_id`.
+    ///
+    /// Looked up rather than read out of the rows: a subagent's own Messages
+    /// carry the spawning id as `parent_uuid` and are never among `activities`.
     pub subagent_usage: HashMap<String, SubagentUsage>,
 }
 
 /// How many of a Task's Messages one transcript read returns.
 ///
-/// T3's thread contract carries the whole transcript in one snapshot and offers
-/// no pagination, so this cap is the only thing between an unusually long
-/// conversation and a multi-megabyte frame. The **newest** rows are the ones
-/// kept: an open conversation is read from its end, and a reader who has lost
-/// the opening prompt is better served than one who has lost what just
-/// happened. What was dropped is reported rather than silently absent — see
-/// [`Transcript::omitted`] and its projection.
-///
-/// A thousand rows is roughly a megabyte once projected, which is the size a
-/// subscription re-sends whenever the conversation moves. That is the number
-/// this cap is chosen against, not the database's comfort.
+/// T3's contract carries the whole transcript in one unpaginated snapshot, so
+/// this cap is the only guard against a multi-megabyte frame; the **newest**
+/// rows are kept, and what was dropped is reported via [`Transcript::omitted`]
+/// rather than silently absent.
 const TRANSCRIPT_LIMIT: i64 = 1_000;
 
 /// The columns a transcript read projects, over the capped set aliased `m` and
-/// the two tables joined onto it. Kept in one place because the snapshot read
-/// and the live-delta read must select exactly the same shape into
-/// [`TranscriptMessage`] — a column on one and not the other is a field that is
-/// present on reload and absent on the frame that delivered it.
+/// the two tables joined onto it.
+///
+/// Kept in one place because the snapshot read and the live-delta read must
+/// select exactly the same shape into [`TranscriptMessage`] — a column on one
+/// and not the other is present on reload and absent on the frame that
+/// delivered it.
 const TRANSCRIPT_COLUMNS: &str = r#"m.id, m.uuid, m.message_type, m.message_role,
                       m.message_text, m.user_type, m.turn_number, m."timestamp",
                       m.created_at, m.external_adapter, m.external_source_name,
@@ -160,29 +151,16 @@ const TRANSCRIPT_COLUMNS: &str = r#"m.id, m.uuid, m.message_type, m.message_role
                       COALESCE(u.name, u.login) AS sent_by_name,
                       files.file_contexts"#;
 
-/// The two joins that carry a Message's origin out of the database: what its
-/// Binding says the subject is called and where it lives, and the display name
-/// of the Moatless user `sent_by` resolved to.
+/// The two joins carrying a Message's origin out of the database: what its
+/// Binding calls the subject and where it lives, and the display name `sent_by`
+/// resolves to.
 ///
-/// Both destination-config reads take the two keys each value has been written
-/// under, the same pair and the same precedence as
-/// `adapters::providers::linear::status::binding_label_and_url`: a Binding made
-/// from an inbound issue or agent session writes `issue_url`, and one made by
-/// posting out to Linear writes `url`. An adapter that stores neither — Slack
-/// and Telegram keep channel coordinates, not links — yields no url, and the
-/// origin carries a label without one.
-///
-/// The message carries a subject *key* but no subject *kind*, and the unique
-/// binding index is on `(task_id, adapter_kind, subject_kind, subject_key)`, so
-/// the key is not unique on its own. The lateral `ORDER BY created_at DESC LIMIT
-/// 1` makes the result deterministic — the most recent binding on that subject —
-/// rather than whichever row the planner returns first.
-///
-/// `sent_by` is a polymorphic text column: a user uuid's text form, but also
-/// sentinels like `system` and the Linear adapters' raw actor ids. `users.id` is
-/// a native `uuid`, so the comparison is made on its text form — casting
-/// `sent_by` the other way would raise on every value that is not a uuid. Those
-/// yield no name rather than a wrong one.
+/// Destination-config precedence matches
+/// `adapters::providers::linear::status::binding_label_and_url`; the subject
+/// key alone is not unique, so `ORDER BY created_at DESC LIMIT 1` picks the
+/// most recent binding deterministically; and the `users.id` comparison casts
+/// to text rather than casting the polymorphic `sent_by` to `uuid`, which would
+/// raise on a non-uuid value.
 const TRANSCRIPT_ORIGIN_JOINS: &str = r#"LEFT JOIN LATERAL (
                           SELECT tb.destination_config
                           FROM task_bindings tb

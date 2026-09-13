@@ -114,8 +114,8 @@ pub(super) fn workspace(id: &str, name: &str) -> UiRpcListedWorkspace {
     }
 }
 
-/// The same row, listed only because something the viewer follows runs in
-/// it. The read rule refused it.
+/// The same row, listed only because something the viewer follows runs in it.
+/// The read rule refused it.
 pub(super) fn a_referenced_workspace(id: &str, name: &str) -> UiRpcListedWorkspace {
     UiRpcListedWorkspace {
         readable: false,
@@ -123,8 +123,8 @@ pub(super) fn a_referenced_workspace(id: &str, name: &str) -> UiRpcListedWorkspa
     }
 }
 
-/// A fixed instant the fixture's rows are dated from, so the ordering
-/// between a Message and an activity is stated rather than raced.
+/// A fixed instant the fixture's rows are dated from, so the ordering between a
+/// Message and an activity is stated rather than raced.
 pub(super) fn at(offset: i64) -> DateTime<Utc> {
     DateTime::from_timestamp(1_780_000_000 + offset, 0).expect("valid instant")
 }
@@ -219,8 +219,8 @@ pub(super) fn call(
 }
 
 /// The rows, plus the requests the database would report settled for them —
-/// which for rows that carry their own call is exactly what it reads off
-/// them. A test whose call sits outside the rows sets the field directly.
+/// which for rows that carry their own call is exactly what it reads off them.
+/// A test whose call sits outside the rows sets the field directly.
 pub(super) fn transcript(
     messages: Vec<TranscriptMessage>,
     activities: Vec<Activity>,
@@ -247,9 +247,9 @@ pub(super) fn transcript(
     }
 }
 
-/// The fixture transcript: a person asks; the agent thinks, runs a command
-/// that works and one that fails — saying nothing at all while it does, so
-/// that turn has activities and no Message row — and then answers.
+/// The fixture transcript: a person asks; the agent thinks, runs a command that
+/// works and one that fails — saying nothing at all while it does, so that turn
+/// has activities and no Message row — and then answers.
 pub(super) fn a_conversation() -> Transcript {
     let mut bash = call(
         "msg-2",

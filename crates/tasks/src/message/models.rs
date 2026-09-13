@@ -22,9 +22,9 @@ pub use moatless_types::message::{MessageRole, MessageType};
 /// `user_type` on a `user` row that exists only to hand a tool response to the
 /// agent — the person's answer to `AskUserQuestion` or `ExitPlanMode`.
 ///
-/// The answer renders under the call that asked for it, from the activity that
-/// call settled, so the row itself is not a bubble. This names that case rather
-/// than leaving both readers to infer it and drop the row silently.
+/// The answer renders under the call it settled, not as its own bubble; this
+/// names the case explicitly rather than leaving readers to infer and drop the
+/// row silently.
 pub const TOOL_RESPONSE_USER_TYPE: &str = "tool_response";
 
 // =============================================================================
@@ -45,8 +45,8 @@ pub struct ForkCopyCounts {
 }
 
 /// Raw tool-call row assembled from the assistant `tool_use` block plus any
-/// matching `tool_result` row(s). Keeps JSON values un-transformed so the handler
-/// can decide which schema to apply.
+/// matching `tool_result` row(s). Keeps JSON values un-transformed so the
+/// handler can decide which schema to apply.
 #[derive(Debug, Clone)]
 pub struct ToolCallRow {
     pub tool_use_id: String,
@@ -64,10 +64,9 @@ pub struct ToolCallRow {
 /// One Task carrying unacknowledged user messages, the desired-state
 /// reconciler's message-wake input.
 ///
-/// A user-turn that was acknowledged by the sandbox but never reached a
-/// terminal `agent.completed/error/stopped` event — i.e. the sandbox
-/// crashed/restarted mid-run. Used by the recovery RPC to drive a
-/// `claude --resume <session_id>` replay on startup.
+/// A user-turn acknowledged by the sandbox but never reaching a terminal
+/// `agent.completed/error/stopped` event (i.e. the sandbox crashed/restarted
+/// mid-run); drives a `claude --resume <session_id>` replay on startup.
 #[derive(Debug, Clone)]
 pub struct InterruptedTurn {
     /// `task_messages.id` of the turn's first user row, for logging. The
@@ -81,7 +80,8 @@ pub struct InterruptedTurn {
     pub turn_number: i32,
     pub prompt_text: String,
     pub agent_mode: Option<String>,
-    /// Reasoning effort the interrupted turn ran with, so the replay repeats it.
+    /// Reasoning effort the interrupted turn ran with, so the replay repeats
+    /// it.
     pub effort: Option<String>,
     pub recovery_attempts: i32,
     /// The turn's original `run_id`, so the recovery re-drive can reuse it and
@@ -114,9 +114,9 @@ pub struct TaskMessage {
     pub timestamp: String,
     #[sqlx(try_from = "String")]
     pub message_role: MessageRole,
-    /// What was said, as text. `None` for a Message with no text — which
-    /// after the conversation split is a row that should not exist, and does
-    /// only where something wrote one before its text arrived.
+    /// What was said, as text. `None` for a Message with no text — which after
+    /// the conversation split is a row that should not exist, and does only
+    /// where something wrote one before its text arrived.
     pub message_text: Option<String>,
     pub assistant_message_id: Option<String>,
     pub assistant_message_type: Option<String>,
@@ -127,23 +127,26 @@ pub struct TaskMessage {
     pub assistant_usage_output_tokens: Option<i32>,
     pub assistant_usage_cache_creation_input_tokens: Option<i32>,
     pub assistant_usage_cache_read_input_tokens: Option<i32>,
-    /// Complete raw token-usage object from the assistant message (input/output
-    /// tokens, ephemeral cache-write breakdown, cache reads, server tool use,
-    /// service tier). Kept whole so cost can be derived downstream from
-    /// tokens + model — the tmux transport never reports `total_cost_usd`.
+    /// Complete raw token-usage object from the assistant message (tokens,
+    /// cache-write breakdown, cache reads, server tool use, service tier).
+    ///
+    /// Kept whole so cost can be derived downstream from tokens + model — the
+    /// tmux transport never reports `total_cost_usd`.
     pub assistant_usage: Option<serde_json::Value>,
     pub tool_use_result: Option<serde_json::Value>,
-    /// A person's answer to an interactive tool call, with its structure intact:
-    /// `{toolUseId, toolName, answers?, approved?, feedback?}`. What reaches the
-    /// sandbox as a prompt response rather than as text. `None` unless this row
-    /// is a tool response.
+    /// A person's answer to an interactive tool call, structure intact:
+    /// `{toolUseId, toolName, answers?, approved?, feedback?}`.
+    ///
+    /// Reaches the sandbox as a prompt response, not text. `None` unless this
+    /// row is a tool response.
     pub tool_response: Option<serde_json::Value>,
     pub sdk_metadata: Option<serde_json::Value>,
     pub attachments: Option<serde_json::Value>,
     pub agent_session_id: Option<String>,
     pub will_not_resume: Option<bool>,
     pub run_metrics: Option<serde_json::Value>,
-    /// Persisted column. Read the typed value through [`TaskMessage::agent_mode`].
+    /// Persisted column. Read the typed value through
+    /// [`TaskMessage::agent_mode`].
     #[sqlx(rename = "agent_mode")]
     pub agent_mode_raw: Option<String>,
     pub model: Option<String>,
@@ -159,21 +162,24 @@ pub struct TaskMessage {
     pub external_event_id: Option<String>,
     pub external_adapter: Option<String>,
     /// Thread/binding identity this inbound message belongs to (the binding's
-    /// `subject_key`, e.g. `T06…:C0A…:1781593153.718929`). Lets a reply select
-    /// the exact binding and lets the agent tell concurrent threads apart.
-    /// `None` for non-binding-sourced rows (user sends, schedulers, replies).
+    /// `subject_key`, e.g. `T06…:C0A…:1781593153.718929`).
+    ///
+    /// Lets a reply select the exact binding and lets the agent tell concurrent
+    /// threads apart. `None` for non-binding-sourced rows.
     pub external_subject_key: Option<String>,
     pub external_source_name: Option<String>,
     /// The handle the external system knows the writer by — a GitHub login, a
-    /// Slack display name, a Linear actor. Not a Moatless identity and never
-    /// resolved to one: `sent_by` holds that, and on most adapters it is the
-    /// subscription's owner rather than whoever actually wrote this.
+    /// Slack display name, a Linear actor.
+    ///
+    /// Not a Moatless identity and never resolved to one: `sent_by` holds that,
+    /// and on most adapters names the subscription's owner, not whoever wrote
+    /// this.
     pub external_author: Option<String>,
-    /// The raw external id of whoever wrote this — a Slack `U0000000001`. The
-    /// sender label resolves from this rather than `sent_by`, because
-    /// `sent_by` holds the trigger owner when the writer has no Moatless
-    /// mapping. `None` on internal rows and on rows written before the column
-    /// existed.
+    /// The raw external id of whoever wrote this — a Slack `U0000000001`.
+    ///
+    /// The sender label resolves from this, never `sent_by`, since `sent_by`
+    /// holds the trigger owner when the writer has no Moatless mapping. `None`
+    /// on internal rows and rows predating this column.
     pub external_sender_id: Option<String>,
     pub source_task_id: Option<String>,
     /// User declared the next agent run should NOT resume the prior session.
@@ -185,12 +191,14 @@ pub struct TaskMessage {
 }
 
 impl TaskMessage {
-    /// The agent mode this message was produced under, when the column names one.
+    /// The agent mode this message was produced under, when the column names
+    /// one.
     pub fn agent_mode(&self) -> Option<AgentMode> {
         self.agent_mode_raw.clone().map(AgentMode::from)
     }
 
-    /// Create a new user message with required fields, defaulting all optional fields to `None`.
+    /// Create a new user message with required fields, defaulting all optional
+    /// fields to `None`.
     pub fn new_user_message(
         task_id: String,
         uuid: String,
@@ -252,8 +260,8 @@ impl TaskMessage {
 
     /// Extract the persisted file IDs from the `attachments` JSON column.
     ///
-    /// Format: `{"file_ids": ["<uuid>", ...]}`. Returns an empty Vec when
-    /// `attachments` is absent or doesn't contain a `file_ids` array.
+    /// Format: `{"file_ids": ["<uuid>", ...]}`; empty when absent or missing
+    /// that array.
     pub fn file_ids(&self) -> Vec<String> {
         self.attachments
             .as_ref()

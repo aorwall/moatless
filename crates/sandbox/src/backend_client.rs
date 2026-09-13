@@ -1,9 +1,8 @@
 //! gRPC client wrapper for backend communication.
 //!
 //! A single gRPC connection to the backend's `BackendSandboxService` carries
-//! event publishing and message polling.
-//! Includes an auth interceptor that injects `authorization: Bearer <token>`
-//! metadata on every outbound call.
+//! event publishing and message polling. Includes an auth interceptor that
+//! injects `authorization: Bearer <token>` metadata on every outbound call.
 
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
@@ -41,9 +40,9 @@ pub enum BackendGrpcClientError {
 pub trait BackendClient: Send + Sync {
     /// Attempt a single publish of an event to the backend.
     ///
-    /// One gRPC attempt with the channel's call timeout — no internal retry.
-    /// Retry/backoff and ordering live in [`crate::outbox`], which owns the
-    /// at-least-once guarantee; this method just reports the attempt's outcome.
+    /// One gRPC attempt with the channel's call timeout, no internal retry;
+    /// retry/backoff and ordering live in [`crate::outbox`], which owns the
+    /// at-least-once guarantee.
     async fn publish_event(&self, req: PublishEventRequest) -> Result<(), tonic::Status>;
 
     /// Fetch pending messages for a task.
@@ -52,13 +51,11 @@ pub trait BackendClient: Send + Sync {
         task_id: &str,
     ) -> Result<Vec<PendingAgentDelivery>, tonic::Status>;
 
-    /// Acknowledge that messages have been delivered to a session.
-    /// `run_id` identifies the agent run that consumed the messages; the
-    /// backend uses it to put them on that run's turn.
+    /// `run_id` identifies the agent run that consumed the messages, so the
+    /// backend can put them on that run's turn.
     ///
     /// `answered_prompt` names the interactive call these messages answered,
-    /// and is `None` on an ordinary ack. See
-    /// `AcknowledgeMessagesRequest.answered_prompt_tool_use_id`.
+    /// `None` on an ordinary ack (see `answered_prompt_tool_use_id`).
     async fn acknowledge_messages(
         &self,
         task_id: &str,
@@ -82,49 +79,45 @@ pub trait BackendClient: Send + Sync {
     ) -> Result<(), tonic::Status>;
 
     /// Fetch the assembled append-system-prompt for a task. Called once per
-    /// agent run; the result is cached locally as a fallback for transient
-    /// gRPC failures.
+    /// agent run; the result is cached locally as a fallback for transient gRPC
+    /// failures.
     async fn get_system_prompt(&self, task_id: &str) -> Result<String, tonic::Status>;
 
-    /// Fetch the bytes of an uploaded file by `file_id`. Used by the agent
-    /// pre-fetch path to land attached files on disk before invoking the
-    /// agent. Backend-side scope-checks the `file_id` against this task.
-    ///
-    /// The bytes arrive as a chunk stream and are reassembled here, so the
-    /// upload's size is bounded by the sandbox's memory rather than by any
-    /// per-message limit on the wire.
+    /// Fetch the bytes of an uploaded file by `file_id`, for the agent
+    /// pre-fetch path that lands attached files on disk before invoking the
+    /// agent. Backend-side scope-checks `file_id` against this task.
     async fn download_upload(
         &self,
         task_id: &str,
         file_id: &str,
     ) -> Result<DownloadUploadResponse, tonic::Status>;
 
-    /// Ask the backend whether the previous agent run for this task was
-    /// interrupted. Returns `Some(turn)` when the most recent user-turn was
-    /// acknowledged but never reached a terminal `agent` event, or `None`
-    /// when nothing needs recovery (or the recovery cap has been reached).
+    /// Returns `Some(turn)` when the most recent user-turn was acknowledged
+    /// but never reached a terminal `agent` event; `None` when nothing needs
+    /// recovery or the recovery cap is reached.
     async fn recover_interrupted_run(
         &self,
         task_id: &str,
     ) -> Result<Option<InterruptedTurn>, tonic::Status>;
 
-    /// Upload the task's transcript tar to S3 via the backend (the sandbox has no
-    /// AWS credentials). The bytes are streamed in chunks. Best-effort at the call
-    /// site — failures are logged, never fatal.
+    /// Upload the task's transcript tar to S3 via the backend (the sandbox has
+    /// no AWS credentials). The bytes are streamed in chunks. Best-effort at
+    /// the call site — failures are logged, never fatal.
     async fn upload_transcript(
         &self,
         task_id: &str,
         tar_data: Vec<u8>,
     ) -> Result<(), tonic::Status>;
 
-    /// Download the task's transcript tar from S3 via the backend, reassembling the
-    /// streamed chunks. Returns an empty `Vec` when no transcript is stored yet.
+    /// Download the task's transcript tar from S3 via the backend, reassembling
+    /// the streamed chunks. Returns an empty `Vec` when no transcript is stored
+    /// yet.
     async fn download_transcript(&self, task_id: &str) -> Result<Vec<u8>, tonic::Status>;
 
     /// Mint short-lived presigned S3 PUT/GET URLs for this task's workspace
-    /// archive (the `s3` storage backend). The sandbox transfers the workspace
-    /// tar directly to/from S3 with these URLs — the backend never sees the
-    /// bytes. Default impl reports the feature unsupported so test doubles that
+    /// archive, so the backend never sees the tar's bytes.
+    ///
+    /// Default impl reports the feature unsupported, so test doubles that
     /// don't exercise workspace sync need not implement it.
     async fn get_workspace_sync_urls(
         &self,
@@ -147,13 +140,11 @@ pub trait BackendClient: Send + Sync {
         ))
     }
 
-    /// Report the outcome of a direct-to-S3 workspace transfer so the backend
-    /// can record comparison metrics and publish the sandbox event. The legal
-    /// `format` values are on `ReportWorkspaceSyncRequest.format` in
-    /// `sandbox.proto`. `error` is `None` on success, and otherwise the
-    /// failure this sandbox logged — the event is the only copy that outlives
-    /// the pod, so a caller that has a reason must pass it.
-    /// Fire-and-forget; the default impl is a no-op.
+    /// Report a direct-to-S3 transfer's outcome for the backend's metrics and
+    /// sandbox event (`format`: `ReportWorkspaceSyncRequest.format`).
+    ///
+    /// `error` is `None` on success, else the failure logged here: the only
+    /// copy that outlives the pod. Fire-and-forget; default impl is a no-op.
     async fn report_workspace_sync(
         &self,
         _task_id: &str,
@@ -168,8 +159,8 @@ pub trait BackendClient: Send + Sync {
     /// Claim a sha this task pushed to `owner/repo`, so GitHub's
     /// `pull_request.synchronize` webhook for it is not delivered back here.
     ///
-    /// The error is returned rather than logged: the caller leaves an unclaimed
-    /// sha out of its claimed set so the next push refiles it.
+    /// The error is returned, not logged: the caller leaves an unclaimed sha
+    /// out of its claimed set so the next push refiles it.
     async fn record_git_push(
         &self,
         _task_id: &str,
@@ -180,14 +171,11 @@ pub trait BackendClient: Send + Sync {
         Err(tonic::Status::unimplemented("git push claim not supported"))
     }
 
-    /// Mirror the commands that still owe the agent an outcome onto the Sandbox
-    /// row, so a replacement pod can name them when the workspace snapshot the
-    /// journal rides is lost.
+    /// Mirror commands owed an outcome onto the Sandbox row so a replacement
+    /// pod can name them after a lost snapshot.
     ///
-    /// `revision` is [`crate::commands::CommandRegistry`]'s own counter, taken
-    /// under the entries lock. This call is made off that lock, so two of them
-    /// can arrive out of order and the backend keeps the highest it has seen.
-    /// Fire-and-forget; the journal is the copy that survives a backend outage.
+    /// `revision` comes from [`crate::commands::CommandRegistry`]; fire-and-
+    /// forget — the journal survives a backend outage.
     async fn record_unreported_commands(
         &self,
         _task_id: &str,
@@ -210,12 +198,8 @@ pub trait BackendClient: Send + Sync {
     /// Queue a user message this sandbox wrote for its own Task, on the same
     /// path an external send takes.
     ///
-    /// Returns the queued message's uuid, or `None` when the send was refused —
-    /// this message is already queued, or the Task is closed.
-    ///
-    /// `idempotency_key` is what "already queued" compares; `None` compares the
-    /// text. Pass a key whenever two distinct sends can carry the same text, or
-    /// the second is dropped.
+    /// Returns the queued uuid, or `None` when refused (already queued, or Task
+    /// closed); pass `idempotency_key` so a same-text resend is not dropped.
     async fn enqueue_sandbox_message(
         &self,
         _task_id: &str,
@@ -229,18 +213,16 @@ pub trait BackendClient: Send + Sync {
 
     /// Replace the Bearer token injected on subsequent gRPC calls.
     ///
-    /// The sandbox starts with a short-lived *bootstrap* token (enough to
-    /// authenticate the initial `GetCredentials` call) and swaps to the
-    /// long-lived user token delivered in that response. Default no-op so test
-    /// doubles need not implement it.
+    /// Default no-op so test doubles need not implement it; see
+    /// [`AuthInterceptor`] for the bootstrap-to-user-token swap this backs.
     fn update_auth_token(&self, _token: String) {}
 }
 
 /// Auth interceptor that injects a Bearer token on every outbound gRPC call.
 ///
 /// The token lives behind a shared `RwLock` so it can be swapped at runtime:
-/// the sandbox boots with a bootstrap token and, after its first
-/// `GetCredentials`, swaps in the long-lived user token without reconnecting.
+/// the sandbox boots with a bootstrap token and swaps in the long-lived user
+/// token after its first `GetCredentials`, without reconnecting.
 #[derive(Clone)]
 pub struct AuthInterceptor {
     token: Arc<RwLock<Option<String>>>,
@@ -273,32 +255,31 @@ const RPC_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Deadline for the workspace-sync RPCs, on [`BackendGrpcClient::workspace`].
 ///
-/// Losing `GetWorkspaceSyncUrls` on a restore clones over the snapshot, which is
-/// worth waiting past [`RPC_TIMEOUT`] for.
+/// Losing `GetWorkspaceSyncUrls` on a restore clones over the snapshot, which
+/// is worth waiting past [`RPC_TIMEOUT`] for.
 const WORKSPACE_RPC_TIMEOUT: Duration = Duration::from_mins(1);
 
 /// Wrapper around `BackendSandboxServiceClient` with auth interceptor.
 #[derive(Clone)]
 pub struct BackendGrpcClient {
     client: BackendSandboxServiceClient<InterceptedService<Channel, AuthInterceptor>>,
-    /// The same service over a channel carrying [`WORKSPACE_RPC_TIMEOUT`]. A
-    /// second channel rather than a per-call deadline: `Endpoint::timeout`
-    /// applies to every request on the channel and a longer `grpc-timeout`
-    /// header cannot outlive it.
+    /// The same service over a channel carrying [`WORKSPACE_RPC_TIMEOUT`].
+    ///
+    /// A second channel, not a per-call deadline: `Endpoint::timeout` applies
+    /// to every request on the channel and a longer `grpc-timeout` header
+    /// cannot outlive it.
     workspace: BackendSandboxServiceClient<InterceptedService<Channel, AuthInterceptor>>,
-    /// Shared handle to the interceptor's token so it can be swapped at runtime.
+    /// Shared handle to the interceptor's token so it can be swapped at
+    /// runtime.
     auth_token: Arc<RwLock<Option<String>>>,
 }
 
 impl BackendGrpcClient {
     /// Create a new client with lazy connection to the backend gRPC server.
     ///
-    /// `connect_lazy()` returns immediately — the actual TCP/HTTP2 connection
-    /// is established on the first RPC call. This lets the sandbox start
-    /// before the backend gRPC server is ready.
-    ///
-    /// The `auth_token` is injected as a Bearer token on every outbound call and
-    /// can later be replaced via [`BackendClient::update_auth_token`].
+    /// `connect_lazy()` returns immediately — the connection is established on
+    /// the first RPC call, letting the sandbox start before the backend gRPC
+    /// server is ready. See [`AuthInterceptor`] for how `auth_token` is used.
     pub fn connect(url: &str, auth_token: Option<String>) -> Result<Self, BackendGrpcClientError> {
         let endpoint = |timeout| {
             Channel::from_shared(url.to_string()).map(|endpoint| {

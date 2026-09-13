@@ -4,10 +4,9 @@
 use super::super::*;
 use super::harness::*;
 
-/// A detached operation must not run under the span of whoever asked for
-/// it: see [`Lifecycle::detached_span`]. Asserted on the span tree because
-/// that is where the fault was — a task that holds the caller's span
-/// rewrites the caller's end time for as long as it runs.
+/// A detached operation must not run under the span of whoever asked for it:
+/// see [`Lifecycle::detached_span`] for why. Asserted on the span tree, since
+/// that's where the fault actually appears.
 #[tokio::test]
 async fn a_detached_operation_gets_a_root_span_linked_back_to_the_caller() {
     use std::sync::Mutex as StdMutex;

@@ -6,9 +6,11 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 /// Lexically normalise a raw cwd to match `canonicalize`'s no-trailing-slash
-/// form: trim a trailing `/` (preserving root `/`). The dashed encoding in
-/// [`resolve_project_dir`] is just `replace('/', "-")`, so matching the
-/// trailing-slash shape is all that's needed for the names to line up.
+/// form: trim a trailing `/` (preserving root `/`).
+///
+/// [`resolve_project_dir`]'s dashed encoding is just `replace('/', "-")`, so
+/// matching the trailing-slash shape is all that's needed for the names to line
+/// up.
 fn lexical_cwd(c: &str) -> String {
     let trimmed = c.trim_end_matches('/');
     if trimmed.is_empty() {
@@ -18,27 +20,8 @@ fn lexical_cwd(c: &str) -> String {
     }
 }
 
-/// Resolve `<claude-config-dir>/projects/<dashed-cwd>/`.
-///
-/// The config dir is resolved by the shared [`crate::resolve_claude_config_dir`]
-/// helper, which mirrors the Claude CLI's precedence: `CLAUDE_CONFIG_DIR`, then
-/// its documented `CLAUDE_HOME` alias, then `$HOME/.claude`. The TUI encodes a
-/// cwd by replacing `/` with `-` (e.g. `/Users/x/y` becomes `-Users-x-y`).
-///
-/// `canonicalize(cwd)` is best-effort: it only serves as the cache-key for the
-/// transcript dir, but a transient failure on a known-good absolute path (e.g.
-/// an `EACCES` from a SELinux relabel race while a remounted PVC initialises)
-/// must not be fatal. On failure we fall back to a lexically-normalised form of
-/// the raw cwd and `warn!`. tmux launches claude with the same raw cwd
-/// (`tmux new-session ... -c <cwd>`), and Node resolves symlinks at runtime, so
-/// for a non-symlink path the lexical fallback yields the identical
-/// `projects/<dashed-cwd>` name as canonicalize. In the rare symlink+failure
-/// case, discovery falls back to snapshot-diff / the Stop hook.
-/// The Claude project directory that holds a cwd's `<session_id>.jsonl`
-/// transcripts, resolved the same way the tmux transport and `--resume` do
-/// (`CLAUDE_CONFIG_DIR` → `CLAUDE_HOME` → `$HOME/.claude`, then
-/// `projects/<dashed-cwd>`). Exposed for the sandbox's fork path, which reads a
-/// parent session's transcript and writes a truncated copy under a fresh id.
+/// Thin wrapper around [`resolve_project_dir`], exposed for the sandbox's
+/// fork path.
 pub fn transcript_dir(cwd: Option<&str>) -> Result<PathBuf> {
     let options = ClaudeOptions {
         cwd: cwd.map(ToString::to_string),
@@ -47,6 +30,11 @@ pub fn transcript_dir(cwd: Option<&str>) -> Result<PathBuf> {
     resolve_project_dir(&options)
 }
 
+/// Resolves `<claude-config-dir>/projects/<dashed-cwd>/`. Config dir
+/// precedence: `CLAUDE_CONFIG_DIR` → `CLAUDE_HOME` → `$HOME/.claude`; cwd is
+/// dashed by replacing `/` with `-`. `canonicalize` failures fall back to a
+/// lexically-normalised cwd instead of erroring, since a transient failure on a
+/// good path must not be fatal.
 pub(crate) fn resolve_project_dir(options: &ClaudeOptions) -> Result<PathBuf> {
     let cwd_str = if let Some(c) = &options.cwd {
         match std::path::PathBuf::from(c).canonicalize() {
@@ -81,20 +69,11 @@ pub(crate) fn resolve_project_dir(options: &ClaudeOptions) -> Result<PathBuf> {
     Ok(config_dir.join("projects").join(dashed))
 }
 
-/// Resolve the transcript the SDK should target on disk directly, ahead of
-/// snapshot-diff and the Stop hook. Two resume shapes append to an EXISTING
-/// transcript (so snapshot-diff never sees a new file):
-///
-/// - `--resume <id>` → `<id>.jsonl`.
-/// - `--continue`    → the most-recently-modified existing transcript, i.e. the
-///   one `claude --continue` reopens. Without targeting it directly, discovery
-///   falls back to the Stop hook, which only fires at turn-end and so times out
-///   with `JsonlNotFound` on long first turns.
-///
-/// The fork case (`--resume <id> --fork-session`) writes a NEW transcript, so
-/// snapshot-diff / Stop handle it — return None there. Returns None when no
-/// matching transcript exists (e.g. `--continue` with an empty project dir),
-/// leaving discovery to its snapshot-diff / Stop fallbacks.
+/// Handles resume shapes that append to an EXISTING transcript: `--resume <id>`
+/// (`<id>.jsonl`) and `--continue` (most-recently-modified transcript, else
+/// long first turns time out waiting for Stop). Returns None for
+/// `--fork-session` (new transcript) or no match, leaving discovery to its
+/// fallbacks.
 pub(crate) async fn resolve_resume_target(
     options: &ClaudeOptions,
     project_dir: &Path,
@@ -171,14 +150,11 @@ pub(crate) async fn has_transcript_in(dir: &Path) -> bool {
     false
 }
 
-/// True when the Claude project dir for `cwd` contains a transcript —
-/// i.e. `--continue` has something to reopen. Resolves the dir the same way
-/// the tmux transport does (`CLAUDE_CONFIG_DIR` → `CLAUDE_HOME` →
-/// `$HOME/.claude`, then `projects/<dashed-cwd>`). A cwd canonicalize failure
-/// does not propagate from [`resolve_project_dir`] (it falls back to the
-/// lexical path), so the probe returns `Ok(false)` (start fresh) rather than
-/// `Err`; the soft caller handles `Ok(false)` correctly. The `Result` is kept
-/// for the remaining I/O-error surface.
+/// True when `cwd`'s Claude project dir already has a transcript to resume.
+///
+/// A cwd canonicalize failure falls back to the lexical path rather than
+/// erroring, so this returns `Ok(false)` (start fresh) instead of `Err`;
+/// `Result` is kept for the remaining I/O-error surface.
 pub async fn has_resumable_transcript(cwd: Option<&str>) -> Result<bool> {
     let options = ClaudeOptions {
         cwd: cwd.map(ToString::to_string),

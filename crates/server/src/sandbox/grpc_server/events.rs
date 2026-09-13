@@ -22,10 +22,8 @@ use super::state::BackendSandboxServiceImpl;
 /// Decode one `PublishEventRequest` into the parts admission needs, rejecting
 /// wire-contract violations terminally.
 ///
-/// All three rejections are unfixable by repetition, so each is
-/// [`AdmissionError::Invalid`] rather than retryable: an unknown event-type
-/// discriminant, an absent event id that no retry can make stable, and a
-/// payload that is not JSON.
+/// All three cases (unknown event type, absent event id, non-JSON payload) are
+/// unfixable by repetition, so each is [`AdmissionError::Invalid`].
 fn decode_request(event: &PublishEventRequest) -> Result<(&'static str, Value), AdmissionError> {
     // `event_type` is an open integer on the wire. Validate it here, at
     // ingress, so an unknown discriminant is rejected instead of defaulting
@@ -82,14 +80,9 @@ fn running_commands_reported(event_type: &str, sub_type: &str, payload: &Value) 
 impl BackendSandboxServiceImpl {
     /// The turn an inbound event belongs to.
     ///
-    /// An event published from inside an agent run carries that run's id, which
-    /// resolves to its turn — allocating it if this is the run's first signal
-    /// to arrive. That is what makes attribution exact: a terminal event
-    /// delayed in the sandbox outbox past the start of the next run still
-    /// closes its own turn rather than whichever turn is open on arrival.
-    ///
-    /// Events published outside a run carry no id and bear no turn state; they
-    /// fall back to the task's latest turn.
+    /// A run-id resolves to its turn (allocating on first signal), so a
+    /// terminal event delayed past the next run's start still closes its own
+    /// turn, not whichever is open on arrival.
     pub(super) async fn resolve_turn_for_event(&self, task_id: &str, run_id: &str) -> Option<i32> {
         let turns = &self.ingress.as_ref()?.task_turns;
         if run_id.is_empty() {
@@ -195,14 +188,10 @@ impl BackendSandboxServiceImpl {
 
 /// Admit an event from the sandbox and fan it out to Redis Streams.
 ///
-/// Success means the complete payload is durably admitted. Anything short of
-/// that is a retryable `UNAVAILABLE` and the sandbox resends under the same id;
-/// the retry contract lives on [`AdmissionError`].
-///
-/// This path calls `authorize` and not `authorize_bootstrap`, so an event
-/// published before the sandbox swaps in its long-lived token is rejected.
-/// Nothing is lost: the outbox treats only `INVALID_ARGUMENT` as permanent and
-/// redelivers the rest once the swap lands.
+/// Anything short of durable admission is a retryable `UNAVAILABLE` resent
+/// under the same id (contract on [`AdmissionError`]); uses `authorize`, not
+/// `authorize_bootstrap`, so a pre-token-swap event is rejected but not lost —
+/// the outbox redelivers everything except `INVALID_ARGUMENT`.
 #[tracing::instrument(
     skip_all,
     fields(request_id = %uuid::Uuid::new_v4(), task_id = tracing::field::Empty)
@@ -329,10 +318,10 @@ pub(super) async fn recover_interrupted_run(
 mod tests {
     use super::*;
 
-    /// `publish_event` derives its dispatch string from the domain enum, and
-    /// `classify_turn_transition` plus the Redis consumer key off that exact
-    /// string. Pin the wire integer → dispatch string contract so a rename in
-    /// the shared crate cannot silently re-route ingress.
+    /// Pins the wire integer → dispatch string contract:
+    /// `classify_turn_transition` and the Redis consumer key off this exact
+    /// string, so a rename in the shared crate cannot silently re-route
+    /// ingress.
     #[test]
     fn every_wire_event_type_keeps_its_dispatch_string() {
         for (wire, expected) in [
@@ -353,8 +342,8 @@ mod tests {
         }
     }
 
-    /// Ingress rejects unknown discriminants instead of defaulting to a variant;
-    /// the handler turns this failure into `InvalidArgument`.
+    /// Ingress rejects unknown discriminants instead of defaulting to a
+    /// variant; the handler turns this failure into `InvalidArgument`.
     #[test]
     fn unknown_wire_event_type_integers_do_not_decode() {
         for unknown in [-1, 6, 99] {

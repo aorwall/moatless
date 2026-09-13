@@ -1,11 +1,11 @@
-//! What a per-repo service account, network profile or egress opt-in changes
-//! on the pod.
+//! What a per-repo service account, network profile or egress opt-in changes on
+//! the pod.
 
 use super::fixtures::*;
 use super::*;
 
-/// Per-repo `sandboxServiceAccount` overrides the global default SA, and
-/// falls back to the global default (here `None`) when unset.
+/// Per-repo `sandboxServiceAccount` overrides the global default SA, and falls
+/// back to the global default (here `None`) when unset.
 #[test]
 fn per_repo_sandbox_service_account_overrides_global() {
     // Unset on the repo → falls back to the global default (None in test_config).
@@ -71,8 +71,8 @@ fn per_repo_network_profile_sets_pod_label() {
     );
 }
 
-/// The egress proxy env is injected only when a URL is configured AND the
-/// pod's network profile is in the opt-in list.
+/// The egress proxy env is injected only when a URL is configured AND the pod's
+/// network profile is in the opt-in list.
 #[test]
 fn egress_proxy_env_injected_only_for_opted_in_profile() {
     const URL: &str = "http://moatless-vibe-egress-proxy.moatless.svc.cluster.local:3128";

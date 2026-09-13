@@ -82,9 +82,8 @@ pub async fn delete_plugin(
 
 /// List a plugin's skills, syncing from its source first.
 ///
-/// This is the admin view's read path, and it goes through the same sync as
-/// task provisioning — so opening the page both shows current skills and
-/// leaves them stored for the next task that needs them.
+/// Goes through the same sync as task provisioning, so opening this admin view
+/// both shows current skills and leaves them stored for the next task.
 #[utoipa::path(
     get,
     path = "/api/v1/plugins/{id}/skills",
@@ -122,14 +121,11 @@ pub async fn list_plugin_skills(
     ))
 }
 
-/// The activation records that bear on one person for one plugin: every global
-/// record plus theirs, and nobody else's — plus one Workspace's when `workspaceId`
-/// names one. The person is the caller unless `userId` names another, which is
-/// an administrator's call.
+/// The activation records that bear on one person for one plugin — global,
+/// theirs, and one Workspace's when `workspaceId` names one.
 ///
-/// This is the read half of the two write endpoints below. Without it a control
-/// can show what somebody *gets* but not which record put it there, so "turn
-/// off my personal override" and "the default is already off" look identical.
+/// The read half of the write endpoints below: without it, "turn off my
+/// override" and "the default is already off" look identical.
 #[utoipa::path(
     get,
     path = "/api/v1/plugins/{id}/activations",
@@ -194,15 +190,10 @@ pub use super::schemas::ActivationSubjectParams;
 
 /// Turn a plugin, or one skill inside it, on or off.
 ///
-/// Setting the default for everyone is an administrator's call; setting one's
-/// own is anybody's, and setting somebody else's — a bot user, which has no way
-/// to sign in and set its own — is an administrator's again. Setting a
-/// Workspace's is whoever the Workspace resolves for, the same gate that
-/// governs its run configuration.
-///
-/// Each reach wins over the one below it in both directions, so this same
-/// endpoint is how somebody escapes a plugin that arrived by default, and how a
-/// Workspace adds one nobody turned on.
+/// The global default and somebody else's record need an administrator; one's
+/// own is anybody's; a Workspace's needs whoever the Workspace resolves for.
+/// Each reach wins over the one below it either direction, so this is how
+/// somebody escapes a default and how a Workspace adds one nobody turned on.
 #[utoipa::path(
     put,
     path = "/api/v1/plugins/{id}/activation",
@@ -237,8 +228,8 @@ pub async fn set_plugin_activation(
 
 /// Remove an activation record.
 ///
-/// Clearing a record is not the same as setting it to off: it hands the subject
-/// back to whatever the next reach down says.
+/// Not the same as setting it to off: clearing hands the subject back to
+/// whatever the next reach down says.
 #[utoipa::path(
     delete,
     path = "/api/v1/plugins/{id}/activation",
@@ -278,14 +269,12 @@ pub async fn clear_plugin_activation(
 
 pub use super::schemas::ClearActivationParams;
 
-/// What one person actually gets, once the global defaults, their own records
-/// and — when `workspaceId` names one — that Workspace's have been resolved
-/// against each other. The caller unless `userId` names another, which is an
-/// administrator's call.
+/// What one person actually gets, once global defaults, their own records, and
+/// — when `workspaceId` names one — that Workspace's are resolved against each
+/// other.
 ///
-/// The same read whoever it is asked about: an administrator setting a bot
-/// user's records needs to see what those records add up to for the bot, not
-/// for themselves, and resolution is the server's to do either way.
+/// The same read whoever it's asked about, so an administrator sees what a bot
+/// user's records add up to for the bot, not for themselves.
 #[utoipa::path(
     get,
     path = "/api/v1/plugins/effective",

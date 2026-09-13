@@ -1,23 +1,19 @@
 //! Default Claude Code `settings.json` for the sandbox.
 //!
-//! Writes a known-good settings file at `$CLAUDE_CONFIG_DIR/settings.json`
-//! so every sandbox boots with the same Claude CLI configuration.
+//! Writes a known-good settings file at `$CLAUDE_CONFIG_DIR/settings.json` so
+//! every sandbox boots with the same Claude CLI configuration.
 //!
-//! Env-var defaults are not written here. Claude's settings `env` block
-//! outranks the process environment, so a value set in this file could not be
-//! overridden by a scoped value delivered on the credential channel. They live
-//! in [`crate::agent::options::CLAUDE_ENV_DEFAULTS`] instead, applied as a
-//! floor under that channel.
+//! Env-var defaults are not written here — see
+//! [`crate::agent::options::CLAUDE_ENV_DEFAULTS`] for why.
 
 use tokio::fs;
 use tracing::{info, warn};
 
-/// Absolute `CLAUDE.md` paths to exclude from Claude's memory loading — the root
-/// instruction file of every checked-out repo. Those instructions are instead
-/// embedded in the agent's system prompt (see [`crate::agent::options`]), so
-/// listing them here stops Claude pulling the same file in a second time when the
-/// agent opens a file inside that directory. Claude's `claudeMdExcludes` matches
-/// absolute file paths.
+/// Absolute `CLAUDE.md` paths to exclude from Claude's memory loading.
+///
+/// Those instructions are already embedded in the system prompt (see
+/// [`crate::agent::options`]), so this stops Claude loading the same file a
+/// second time.
 pub(super) fn claude_md_excludes(repo_dirs: &[String]) -> Vec<String> {
     repo_dirs
         .iter()
@@ -27,10 +23,9 @@ pub(super) fn claude_md_excludes(repo_dirs: &[String]) -> Vec<String> {
 
 /// Write the default Claude Code settings file into `claude_config_dir`.
 ///
-/// `claude_md_excludes` is the absolute `CLAUDE.md` paths to keep out of memory
-/// loading (see [`claude_md_excludes`]). Always overwrites — the values are
-/// static defaults we own. Failure is logged but never fatal: the Claude CLI
-/// still works without this file, it just won't pick up our preferred defaults.
+/// Always overwrites the static defaults we own. Failure is logged but
+/// non-fatal: Claude CLI still runs without this file, just without our
+/// preferred defaults.
 pub(super) async fn write_claude_code_settings(
     claude_config_dir: &str,
     claude_md_excludes: &[String],

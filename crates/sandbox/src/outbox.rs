@@ -41,7 +41,8 @@ use crate::backend_client::BackendClient;
 
 /// Max number of events buffered before the admission policy applies.
 pub const MAX_QUEUE_EVENTS: usize = 10_000;
-/// Max total payload bytes buffered before the admission policy applies (~32 MiB).
+/// Max total payload bytes buffered before the admission policy applies (~32
+/// MiB).
 pub const MAX_QUEUE_BYTES: usize = 32 * 1024 * 1024;
 
 /// Backoff applied before the first retry; doubles each attempt up to the cap.
@@ -59,10 +60,9 @@ pub const EVENTS_DROPPED_SUB_TYPE: &str = "events_dropped";
 
 /// Why an event never reached the backend.
 ///
-/// These are not interchangeable: two are load conditions, one is a
-/// wire-contract violation, one is a bug in this process. Each has its own
-/// counter in [`OutboxMetrics`] and its own marker reason, so an operator
-/// reading either surface can tell which happened.
+/// Not interchangeable: two are load conditions, one a wire-contract violation,
+/// one a bug in this process; each has its own counter in [`OutboxMetrics`] and
+/// marker reason.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DropReason {
     /// Capacity-driven: the buffer was full and this was the oldest evictable
@@ -113,11 +113,9 @@ impl DropReason {
 
 /// A point-in-time reading of the send buffer's counters.
 ///
-/// The four things that have to stay distinguishable (and the ticket's
-/// measurement criterion) map onto these fields as: *dropped* —
-/// `dropped_overflow` + `dropped_terminal` + `dropped_unrepresentable`;
-/// *backpressured or failed* — `rejected_saturated` + `rejected_shutdown`;
-/// *retried* — `retried`; *undrained* — `undrained`.
+/// *Dropped* — `dropped_overflow` + `dropped_terminal` +
+/// `dropped_unrepresentable`; *backpressured or failed* — `rejected_saturated`
+/// + `rejected_shutdown`.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct OutboxMetrics {
     /// Events evicted because the buffer was at capacity.
@@ -153,10 +151,9 @@ fn backoff_for(attempt: u32) -> Duration {
 
 /// Whether an event is in the priority class that survives eviction.
 ///
-/// Lifecycle events drive downstream reconciliation (the reaper keys off the
-/// `taskTurn/active` row, terminal `agent` events close turns) so losing one
-/// silently corrupts task state. They are evicted last — but they are still
-/// capped; see the module docs for what happens when they alone fill the buffer.
+/// Lifecycle events drive downstream reconciliation (the reaper keys off
+/// `taskTurn/active`, terminal `agent` events close turns), so losing one
+/// silently corrupts task state; evicted last, but still capped.
 fn is_lifecycle(req: &PublishEventRequest) -> bool {
     use sandbox_proto::EventType;
     match EventType::try_from(req.event_type) {
@@ -216,7 +213,8 @@ struct Admission {
 /// Bounded FIFO buffer with the admission policy.
 ///
 /// Kept free of the drainer's async machinery so the policy is unit-testable in
-/// isolation; the caller accounts for whatever [`EventBuffer::push`] hands back.
+/// isolation; the caller accounts for whatever [`EventBuffer::push`] hands
+/// back.
 struct EventBuffer {
     buf: VecDeque<QueuedEvent>,
     bytes: usize,
@@ -244,11 +242,9 @@ impl EventBuffer {
 
     /// Append `ev` and re-establish the caps.
     ///
-    /// Eviction takes the oldest non-lifecycle event first and repeats until the
-    /// buffer is back within budget. If nothing evictable is left the newest
-    /// event is refused instead, so no priority class grows without bound. A
-    /// buffer holding a single event is never emptied: a lone event larger than
-    /// the byte cap must still be deliverable rather than dropped into oblivion.
+    /// Evicts the oldest non-lifecycle event first until back within budget,
+    /// refusing the newest if nothing evictable is left. A lone buffered event
+    /// is never evicted, so one larger than the byte cap is still deliverable.
     fn push(&mut self, ev: QueuedEvent) -> Admission {
         self.bytes += ev.size;
         self.buf.push_back(ev);
@@ -302,13 +298,11 @@ impl EventBuffer {
     }
 }
 
-/// One [`DropReason`]'s ledger: what was lost, and how much of that loss the
-/// drainer has already announced on the stream.
+/// One [`DropReason`]'s ledger: what was lost, and how much of that loss has
+/// been announced on the stream.
 ///
-/// `recorded` is written by whoever loses the event (producer or drainer);
-/// `announced` is written only by the drainer, so it needs no read-modify-write.
-/// The difference is the marker debt [`EventOutbox::flush`] has to wait out —
-/// without it, a graceful shutdown could return with a gap still unannounced.
+/// `recorded` is written by whoever loses the event; `announced` only by the
+/// drainer — their gap is the marker debt [`EventOutbox::flush`] waits out.
 #[derive(Default)]
 struct DropLedger {
     recorded: AtomicU64,
@@ -345,10 +339,9 @@ impl Counters {
 
 /// Everything admission has to decide against, behind one lock.
 ///
-/// `drainer_stopped` lives here rather than in an atomic beside the buffer
-/// because the two have to be read and written *together*: a producer that
-/// tested a separate flag and then took the buffer lock could be descheduled in
-/// between, let the drainer terminate, and push an event nothing will ever send.
+/// `drainer_stopped` lives here, not a separate atomic, since the two must be
+/// read and written together — otherwise a producer descheduled between the two
+/// checks could push an event nothing will ever send.
 struct AdmissionState {
     buffer: EventBuffer,
     /// The one event the drainer has popped but not yet resolved. Counted as
@@ -377,10 +370,11 @@ struct Shared {
 }
 
 impl Shared {
-    /// The admission guard. Poison recovery is deliberate: nothing inside the
-    /// critical section can panic short of allocation failure, and forfeiting
-    /// every queued event over a poisoned lock would be strictly worse than
-    /// continuing.
+    /// The admission guard.
+    ///
+    /// Poison recovery is deliberate: nothing inside the critical section can
+    /// panic short of allocation failure, so forfeiting every queued event over
+    /// a poisoned lock would be worse than continuing.
     fn state(&self) -> MutexGuard<'_, AdmissionState> {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }
@@ -410,8 +404,8 @@ impl Shared {
     }
 
     /// Close admission. Taken under the admission lock, so once this returns no
-    /// producer can add an event the drainer will never see: a submission is
-    /// either already buffered (and reported as undrained) or refused.
+    /// producer can add an event the drainer never sees: a submission is either
+    /// already buffered (reported undrained) or refused.
     fn stop_admission(&self) {
         self.state().drainer_stopped = true;
     }
@@ -441,8 +435,9 @@ impl Shared {
 
 /// Cloneable producer handle to the send buffer.
 ///
-/// Cheap to clone (all shared state is `Arc`-wrapped). Held by
-/// [`crate::events::GrpcEventPublisher`]; `enqueue` is the only hot-path method.
+/// Cheap to clone (`Arc`-wrapped); held by
+/// [`crate::events::GrpcEventPublisher`], with `enqueue` as the only hot-path
+/// method.
 #[derive(Clone)]
 pub struct EventOutbox {
     shared: Arc<Shared>,
@@ -452,8 +447,7 @@ impl EventOutbox {
     /// Build the send buffer and spawn its single drainer task.
     ///
     /// Returns the producer handle and the owned [`OutboxDrainerHandle`]; the
-    /// drainer runs until `cancel` fires. `task_id` labels the synthetic drop
-    /// marker.
+    /// drainer runs until `cancel` fires.
     pub fn spawn(
         client: Arc<dyn BackendClient>,
         task_id: String,
@@ -492,22 +486,11 @@ impl EventOutbox {
         (Self { shared }, OutboxDrainerHandle { join })
     }
 
-    /// Submit an event for at-least-once delivery. Non-blocking; never fails the
-    /// caller.
+    /// Submit an event for at-least-once delivery; non-blocking, never fails
+    /// the caller. Returns whether *this* event entered the buffer.
     ///
-    /// Capacity is enforced here, synchronously, so a stalled drainer cannot let
-    /// the queue grow past its caps. Whether the drainer is still running is
-    /// decided in the *same* critical section, so a submission is never buffered
-    /// into a queue with no consumer. Whatever the policy loses is counted under
-    /// [`OutboxMetrics::dropped_overflow`], [`OutboxMetrics::rejected_saturated`]
-    /// or [`OutboxMetrics::rejected_shutdown`] and, for a drop, announced in
-    /// stream order.
-    ///
-    /// Returns whether *this* event entered the buffer. A caller that records
-    /// having published something needs that answer: the admission policy
-    /// refuses a submission outright when the buffer is saturated or the drainer
-    /// has stopped, and a caller told nothing would go on believing an event it
-    /// never sent is on its way.
+    /// Capacity is enforced in the same critical section that checks the
+    /// drainer is still running, so nothing is ever buffered with no consumer.
     pub fn enqueue(&self, req: PublishEventRequest) -> bool {
         // Scoped so the guard is released before any logging. `Err` hands the
         // request back out so the refusal can be logged outside the lock.
@@ -561,11 +544,9 @@ impl EventOutbox {
 
     /// Account for an event the producer could not put on the wire at all.
     ///
-    /// The event never entered the buffer, so this is the producer's only way to
-    /// reach the drop-accounting seam. It is a bug in this process, not a load
-    /// condition — it is counted under
-    /// [`OutboxMetrics::dropped_unrepresentable`] and announced like any other
-    /// gap.
+    /// The event never entered the buffer, so this is the producer's only way
+    /// to reach the drop-accounting seam; a bug in this process, not a load
+    /// condition.
     pub fn record_unrepresentable(&self) {
         self.shared.record_drop(DropReason::UnrepresentableType);
         self.shared.work.notify_one();
@@ -584,10 +565,8 @@ impl EventOutbox {
     /// Wait until the buffer is fully drained or `timeout` elapses, whichever
     /// comes first. Called on graceful shutdown before the transcript flush.
     ///
-    /// Bounded and best-effort by construction: on timeout it reports what is
-    /// still undrained and returns, leaving the drainer to keep retrying in the
-    /// background until the process exits. It also returns early once the
-    /// drainer has stopped, because nothing left will move then.
+    /// Bounded and best-effort: on timeout it reports what is still undrained,
+    /// leaving the drainer to keep retrying in the background.
     pub async fn flush(&self, timeout: Duration) {
         let outcome = tokio::time::timeout(timeout, async {
             loop {
@@ -632,22 +611,9 @@ impl EventOutbox {
 
 /// Owned handle to the spawned drainer task.
 ///
-/// # Ownership and criticality
-///
-/// **Criticality: critical.** The drainer is the only thing that turns a
-/// buffered event into a delivered one. A process whose drainer has terminated
-/// keeps producing events that can never be sent — which is why
-/// [`EventOutbox::enqueue`] refuses admission once
-/// [`OutboxDrainerHandle::is_finished`] would report `true`, counting the
-/// refusals under [`OutboxMetrics::rejected_shutdown`] instead of silently
-/// buffering them.
-///
-/// The handle is returned to the composition root rather than discarded, and is
-/// `#[must_use]` so dropping it is a deliberate act. The drainer participates in
-/// cancellation through the token passed to [`EventOutbox::spawn`], and
-/// [`Self::shutdown`] joins it within a bounded deadline.
-/// [`Self::into_join_handle`] hands the raw handle to a supervisor that wants to
-/// own termination policy itself.
+/// **Critical:** the drainer alone delivers a buffered event. Once
+/// [`OutboxDrainerHandle::is_finished`], [`EventOutbox::enqueue`] refuses
+/// admission rather than queuing behind a dead task.
 #[must_use = "the drainer handle owns critical work; dropping it detaches the task"]
 pub struct OutboxDrainerHandle {
     join: JoinHandle<()>,
@@ -822,32 +788,12 @@ impl Drainer {
         true
     }
 
-    /// Send one request, retrying with exponential backoff until it is
-    /// acknowledged, permanently refused, or the drainer is cancelled.
+    /// Send one request, retrying with exponential backoff until acknowledged,
+    /// permanently refused, or the drainer is cancelled.
     ///
-    /// Two codes are terminal, both for the same reason: the request cannot
-    /// succeed no matter how often it is resent, so retrying would wedge this
-    /// drainer's head forever and take the task's entire event stream with it.
-    /// Both are dropped and counted under [`DropReason::TerminalRejection`],
-    /// which announces the gap with a marker rather than losing it silently.
-    ///
-    /// - `INVALID_ARGUMENT` — the request violates the wire contract (unknown
-    ///   `event_type`, empty `event_id`, unparseable `payload_json`; see the
-    ///   backend's `AdmissionError`).
-    /// - `OUT_OF_RANGE` — the encoded message exceeds a gRPC size limit. tonic
-    ///   raises this from the codec on both sides, and neither end of this path
-    ///   configures a limit, so the backend's decode ceiling is tonic's 4 MiB
-    ///   default. An `agent.message` carrying a large tool result can cross it,
-    ///   and the payload is fixed by the time it reaches here — re-encoding the
-    ///   same bytes produces the identical rejection every time.
-    /// - repeated durable-admission `UNAVAILABLE` — the backend deliberately
-    ///   redacts commit failures behind one retryable status. A short outage
-    ///   should converge, but the same event failing through the whole retry
-    ///   budget is more likely poison content than recoverable downtime. Drop it
-    ///   with a marker so later messages can still reach the task.
-    ///
-    /// `RESOURCE_EXHAUSTED` is deliberately *not* terminal: it is the standard
-    /// code for quota and rate limiting, which is exactly what backoff is for.
+    /// `INVALID_ARGUMENT`, `OUT_OF_RANGE`, and repeated durable-admission
+    /// `UNAVAILABLE` are terminal; `RESOURCE_EXHAUSTED` is not — that's
+    /// quota/rate-limit, which backoff handles.
     async fn deliver(&mut self, req: &PublishEventRequest) -> Delivery {
         let mut attempt: u32 = 0;
         loop {
@@ -895,9 +841,9 @@ impl Drainer {
         }
     }
 
-    /// Build the synthetic drop marker. It rides the same ordered stream as real
-    /// events (its own `event_id` + sequence) so the backend records the gap
-    /// without special-casing.
+    /// Build the synthetic drop marker. It rides the same ordered stream as
+    /// real events (its own `event_id` + sequence) so the backend records the
+    /// gap without special-casing.
     fn build_marker(&self, reason: DropReason, count: u64) -> PublishEventRequest {
         let payload = serde_json::json!({
             "reason": reason.marker_reason(),

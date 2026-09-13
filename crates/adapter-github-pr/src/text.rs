@@ -14,10 +14,11 @@ pub(super) struct PrOpenedText<'a> {
     pub(super) repo: &'a str,
 }
 
-/// Initial task message for a newly opened PR. Deliberately minimal — the PR
-/// description and comments evolve after task creation, so instead of
-/// inlining them (they'd go stale) the agent is pointed at the `moat gh`
-/// commands that read the live state.
+/// Initial task message for a newly opened PR.
+///
+/// Deliberately minimal: the PR description and comments evolve after task
+/// creation, so instead of inlining them (they'd go stale) the agent is pointed
+/// at the `moat gh` commands that read live state.
 pub(super) fn pr_opened_text(p: &PrOpenedText<'_>) -> String {
     let mut text = format!(
         "## New Pull Request: #{}\n\n\
@@ -69,9 +70,9 @@ pub(super) fn pr_synchronized_text(
     text
 }
 
-/// Task message for an `issue_comment` webhook. Carries the PR/issue number
-/// and the numeric comment id so the agent can reply via
-/// `moat gh pr reply` / the GitHub API without guessing ids.
+/// Task message for an `issue_comment` webhook. Carries the PR/issue number and
+/// the numeric comment id so the agent can reply via `moat gh pr reply` / the
+/// GitHub API without guessing ids.
 pub(super) fn issue_comment_text(sender: &str, number: u64, comment_id: u64, body: &str) -> String {
     format!("**@{sender}** commented on #{number} (comment id: {comment_id}):\n\n{body}")
 }

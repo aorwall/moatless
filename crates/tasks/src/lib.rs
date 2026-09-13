@@ -2,18 +2,16 @@
 // workspace `deny`/`warn`.
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
-//! Tasks band (band 5): task lifecycle (CRUD, close/reopen, reap), messages and
-//! tool responses, agent turns and activities, event ingress, feedback, task
-//! events, tags, the Task listing feed, and file storage.
+//! Tasks band (band 5): task lifecycle, messages, agent turns, and the feeds
+//! over them.
 //!
-//! The backend composes this crate through permanent facade modules
-//! (`backend/src/{task,message,agent,agent_event,credential_sync,event_ingress,
-//! feedback,tag,task_activities,task_event,task_listing,task_turn}`) that re-export
-//! these paths, so the higher bands still in the backend keep naming
-//! `crate::task::…` etc. The facade is not transitional: the backend stays the
-//! composition root that wires these ports into `AppState`. Every router here is
-//! generic over the state `S` with `FromRef<S>` bounds, so this crate names no
-//! concrete `AppState` — the `FromRef` impls live in the backend.
+//! CRUD, close/reopen and reap; tool responses; activities; event ingress;
+//! feedback; task events; tags; the Task listing feed; and file storage.
+//!
+//! The backend re-exports these paths through permanent facade modules under
+//! `backend/src/`, so higher bands keep naming `crate::task::…` while the
+//! backend stays the composition root; every router here is generic over state
+//! `S` via `FromRef<S>`, so this crate names no concrete `AppState`.
 
 pub mod agent;
 pub mod agent_event;

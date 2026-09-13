@@ -1,15 +1,12 @@
 //! Closing a task and its created-by cascade.
 //!
-//! A close reads six ports — the task and relation DAOs, the sandbox lifecycle,
-//! the binding DAO, the close-retention config, and the event stream — and
-//! every close (a single task, or a cascade down the created-by tree) threads
-//! the same set through every frame, so they are bundled here rather than
-//! passed function to function. [`TaskCloser::close_for`] is the choiceless
-//! close the T3 compatibility surface makes; the HTTP `close_task` handler makes
-//! the cascade choice explicit and drives [`TaskCloser::close_single`] /
-//! [`TaskCloser::close_tree`]. [`TaskCloser::close_with_event`] is the same close
-//! with a caller-shaped `Closed` event — the entry the provider webhooks use to
-//! carry their own `reason` + metadata (see [`CloseEvent`]).
+//! A close reads six ports — DAOs, sandbox lifecycle, bindings, retention
+//! config, event stream — bundled here since single and cascaded closes thread
+//! the same set through every frame. [`TaskCloser::close_for`] is T3's
+//! choiceless close; `close_task` drives the cascade choice via
+//! [`TaskCloser::close_single`] / [`TaskCloser::close_tree`], and
+//! [`TaskCloser::close_with_event`] adds a caller-shaped `Closed` event for
+//! provider webhooks (see [`CloseEvent`]).
 
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -43,26 +40,23 @@ pub struct TaskCloser {
 
 /// The event-shaping overrides a caller layers onto a close.
 ///
-/// The provider close paths (GitHub PR / Linear webhooks) publish an *enriched*
-/// `Closed` task event — a `reason` string the UI renders (`event-messages.ts`
-/// falls back to it as the event's message text) plus provider metadata — and
-/// record a fixed actor, while every other close wants the neutral shape. The
-/// payload is kept opaque: the caller builds a `serde_json::Value`, so provider
-/// specifics never reach this crate. Pass one to [`TaskCloser::close_with_event`];
-/// [`CloseEvent::neutral`] is what the plain closes use.
+/// Provider close paths (GitHub PR / Linear webhooks) publish an *enriched*
+/// `Closed` event — a `reason` string the UI renders plus provider metadata,
+/// with a fixed actor — while every other close wants the neutral shape
+/// ([`CloseEvent::neutral`]). Pass to [`TaskCloser::close_with_event`].
 pub struct CloseEvent {
     /// Actor recorded on the `Closed` task event. `None` uses the task's own
     /// `agent_type` — the neutral default.
     pub actor: Option<String>,
-    /// Extra fields merged into the `Closed` task event payload. Empty (`{}`) in
-    /// the neutral shape.
+    /// Extra fields merged into the `Closed` task event payload. Empty (`{}`)
+    /// in the neutral shape.
     pub payload: serde_json::Value,
 }
 
 impl CloseEvent {
-    /// The neutral close event: the task's own `agent_type`, empty payload — byte
-    /// for byte what every close published before the enriched entry existed.
-    /// Every non-provider close uses this.
+    /// The neutral close event: the task's own `agent_type`, empty payload —
+    /// byte for byte what every close published before the enriched entry
+    /// existed. Every non-provider close uses this.
     pub fn neutral() -> Self {
         Self {
             actor: None,
@@ -73,12 +67,9 @@ impl CloseEvent {
     /// An enriched provider close event: `actor` is recorded on the published
     /// `Closed` event, and `payload` is merged into it verbatim.
     ///
-    /// `tasks` does NOT interpret `payload` — the provider owns its shape and
-    /// this crate forwards it untouched, so provider specifics never travel down
-    /// into band 5. GitHub PR builds `{ "reason": "pr_closed", "pr_number": N }`;
-    /// Linear builds `{ "reason": "linear_state_terminal", "issue_identifier":
-    /// ..., "state_name": ... }`. The `reason` is what the frontend renders as
-    /// the event's message text (`event-messages.ts`); the rest rides wholesale
+    /// This crate never interprets `payload` — the provider owns its shape, and
+    /// only the `reason` field is special: the frontend renders it as the
+    /// event's message text (`event-messages.ts`); the rest rides wholesale
     /// through the event sinks.
     pub fn enriched(actor: impl Into<String>, payload: serde_json::Value) -> Self {
         Self {
@@ -215,9 +206,8 @@ impl TaskCloser {
 
     /// Close one task on `scope_ctx`'s behalf, leaving any children open.
     ///
-    /// The close a caller with no way to ask about children makes — the T3
-    /// compatibility surface, where archiving a thread is this. The HTTP route
-    /// makes that choice explicit instead, and cascades when it is `true`.
+    /// The choiceless close T3 compatibility uses; the HTTP route makes the
+    /// cascade choice explicit instead.
     pub async fn close_for(
         &self,
         scope_ctx: &ScopeContext,
@@ -232,11 +222,9 @@ impl TaskCloser {
     /// Close one task on `scope_ctx`'s behalf, publishing a caller-shaped
     /// `Closed` event.
     ///
-    /// The enriched entry the provider webhooks use: a GitHub PR / Linear close
-    /// carries its own `reason` + metadata and a fixed actor via [`CloseEvent`],
-    /// which this forwards verbatim to the event stream (the payload stays opaque
-    /// here). Authorization and termination are otherwise identical to
-    /// [`close_for`](Self::close_for) — the two differ only in the event shape.
+    /// The entry provider webhooks use to carry their own `reason` + metadata
+    /// via [`CloseEvent`]; otherwise identical to
+    /// [`close_for`](Self::close_for) — the two differ only in event shape.
     pub async fn close_with_event(
         &self,
         scope_ctx: &ScopeContext,
@@ -257,7 +245,8 @@ impl TaskCloser {
 }
 
 impl TaskCloser {
-    /// Close a task after validating access and the caller's child-close choice.
+    /// Close a task after validating access and the caller's child-close
+    /// choice.
     pub async fn close_requested(
         &self,
         scope_ctx: &ScopeContext,

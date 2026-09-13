@@ -1,8 +1,8 @@
 //! Typed relations between tasks (e.g. `created_by`).
 //!
 //! Each row links one task (`from_task_id`) to another (`to_task_id`) with a
-//! typed `relation_type` and an optional JSON `context` describing why/how
-//! the link was created.
+//! typed `relation_type` and an optional JSON `context` describing why/how the
+//! link was created.
 
 use std::sync::Arc;
 
@@ -17,8 +17,8 @@ use moatless_types::task::RelatedTask;
 #[derive(Debug, Clone)]
 pub struct CreatedByParent {
     pub parent_task_id: String,
-    /// Free-form metadata describing why/how the relation was created
-    /// (e.g. `{"via":"github_pr_webhook","subject_kind":"github_pr","subject_key":"o/r#42"}`).
+    /// Free-form metadata describing why/how the relation was created (e.g.
+    /// `{"via":"github_pr_webhook","subject_kind":"github_pr","subject_key":"o/r#42"}`).
     pub context: serde_json::Value,
 }
 
@@ -91,10 +91,9 @@ impl TaskRelations {
     }
 }
 
-/// Fire-and-forget helper to record a `created_by` relation. Errors are
-/// logged at WARN and swallowed — callers are typically in webhook paths
-/// where the task itself was already created successfully and we don't want
-/// to fail the whole request because the linkage couldn't be stored.
+/// Fire-and-forget helper to record a `created_by` relation. Errors are logged
+/// at WARN and swallowed — the task itself already created successfully, so a
+/// failed linkage should not fail the whole request.
 pub(crate) async fn record_created_by(
     repo: &dyn TaskRelationDao,
     from_task_id: &str,
@@ -116,13 +115,9 @@ pub(crate) async fn record_created_by(
     }
 }
 
-/// Record the `forked_from` edge from a fork to the Task it was branched off.
-///
-/// Not fire-and-forget, unlike its two neighbours: a fork whose edge is missing
-/// shows up as an orphan with a conversation it cannot explain, and the fork
-/// handler still has the transaction open to undo it. `at_turn` goes in the
-/// context because that is what the presenter and the system prompt display;
-/// the anchors the pod needs are typed columns on `task_forks`.
+/// Record the `forked_from` edge from a fork to its source Task. Not
+/// fire-and-forget: a missing edge shows an orphan, and the fork handler still
+/// holds the transaction open to undo it.
 pub(crate) async fn record_forked_from(
     repo: &dyn TaskRelationDao,
     from_task_id: &str,
@@ -139,9 +134,8 @@ pub(crate) async fn record_forked_from(
 }
 
 /// Fire-and-forget helper to record a `related_to` peer relation. Same
-/// swallow-and-log semantics as `record_created_by`. Used by webhook paths
-/// that discover a peer task via shared bindings, where the peer is not a
-/// parent.
+/// swallow-and-log semantics as `record_created_by`, for webhook paths that
+/// discover a peer via shared bindings, not a parent.
 pub(crate) async fn record_related_to(
     repo: &dyn TaskRelationDao,
     from_task_id: &str,

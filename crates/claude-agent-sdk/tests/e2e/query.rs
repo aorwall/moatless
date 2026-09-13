@@ -1,5 +1,5 @@
-//! One-shot `query`: the message flow it produces, the session id the
-//! `Result` carries, and the model and tool list a real `System` init holds.
+//! One-shot `query`: the message flow it produces, the session id the `Result`
+//! carries, and the model and tool list a real `System` init holds.
 
 use crate::harness::{
     Backend, TEST_TIMEOUT, collect_messages, e2e_options, e2e_options_with_cwd,

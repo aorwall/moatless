@@ -1,5 +1,5 @@
-//! The git review surfaces: the patch a reviewer reads, the branch state
-//! behind it, and the refs they can diff against.
+//! The git review surfaces: the patch a reviewer reads, the branch state behind
+//! it, and the refs they can diff against.
 //!
 //! # What a path in here means
 //!
@@ -52,10 +52,9 @@ const METADATA_TIMEOUT_SECS: u64 = 5;
 
 /// Arguments every patch here is produced with.
 ///
-/// `--no-color`/`--no-ext-diff`/`--no-textconv` keep a repository's own git
-/// configuration from rewriting the patch into something that is no longer a
-/// patch, and `core.quotepath=false` keeps a non-ASCII path readable rather
-/// than octal-escaped.
+/// `--no-color`/`--no-ext-diff`/`--no-textconv` keep repo config from rewriting
+/// the patch; `core.quotepath=false` keeps non-ASCII paths readable, not
+/// octal-escaped.
 const PATCH_ARGS: &[&str] = &[
     "-c",
     "core.quotepath=false",
@@ -69,7 +68,8 @@ const PATCH_ARGS: &[&str] = &[
 ];
 
 /// Both diff scopes of one workspace, and what each repository was compared
-/// against.
+/// against. `working_tree` is what is not committed; `branch` is what this
+/// branch has committed since it left its base.
 #[derive(Debug, Default)]
 pub struct DiffPreview {
     pub working_tree: Patch,
@@ -105,10 +105,10 @@ pub struct RepoStatus {
     pub has_upstream: bool,
     pub ahead_count: u32,
     pub behind_count: u32,
-    /// Commits on HEAD that are not on the default branch. Unlike `ahead_count`,
-    /// which is measured against the upstream and drops to zero once the branch
-    /// is pushed, this stays positive for a branch that has left the default
-    /// branch, which is what decides whether a pull request can still be opened.
+    /// Commits on HEAD that are not on the default branch. Unlike
+    /// `ahead_count`, which is measured against upstream and drops to zero once
+    /// pushed, this stays positive until the branch merges — deciding whether a
+    /// PR can open.
     pub ahead_of_default_count: u32,
     pub has_working_tree_changes: bool,
     pub working_tree_files: Vec<WorkingTreeFile>,
@@ -144,13 +144,11 @@ pub struct RefInfo {
 
 // ─── Diff preview ────────────────────────────────────────────────
 
-/// Both diff scopes of a workspace: what is not committed, and what this branch
-/// has committed since it left its base.
+/// See [`DiffPreview`]'s fields for what each diff scope means.
 ///
-/// `base_ref` overrides each repository's detected base. A repository that
-/// cannot resolve it contributes nothing to the branch scope rather than
-/// silently falling back — a patch taken against a base the caller did not ask
-/// for reads as the one they did.
+/// `base_ref` overrides each repo's detected base; a repo that can't resolve it
+/// contributes nothing to the branch scope rather than silently falling back to
+/// a different base.
 pub async fn diff_preview(
     workspace_dir: &str,
     base_ref: Option<&str>,
@@ -212,9 +210,8 @@ async fn working_tree_patch(repo: &GitRepo, prefixes: &[String], ignore_whitespa
 
 /// Every untracked file in one repository, as an addition diff.
 ///
-/// `diff --no-index` against `/dev/null` is what makes these real patches
-/// rather than hand-assembled ones: git decides the mode, the blob hashes,
-/// whether the file is binary, and whether it ends in a newline.
+/// `diff --no-index` against `/dev/null` gives real patches, not hand-assembled
+/// ones: git decides the mode, blob hashes, binary-ness, and trailing newline.
 async fn untracked_patch(repo: &GitRepo, prefixes: &[String]) -> Patch {
     let listed = quiet(
         &repo.abs_path,
@@ -398,9 +395,9 @@ fn parse_ahead_behind(field: &str) -> (u32, u32) {
 
 /// Per-file line counts for what is not committed, at workspace-relative paths.
 ///
-/// An unborn HEAD has nothing to diff against, so the staged and unstaged
-/// counts are read separately and added — which is the same total the single
-/// `diff HEAD` gives once a first commit exists.
+/// An unborn HEAD has nothing to diff against, so staged and unstaged counts
+/// are read separately and added — the same total `diff HEAD` gives once a
+/// first commit exists.
 async fn working_tree_files(workspace_dir: &str, repo_dir: &str) -> Vec<WorkingTreeFile> {
     let numstat = capture(
         repo_dir,
@@ -446,8 +443,8 @@ async fn working_tree_files(workspace_dir: &str, repo_dir: &str) -> Vec<WorkingT
 
 /// Add one `--numstat` block's counts into `totals`.
 ///
-/// A binary file reports `-` for both counts; it is a changed file with no
-/// lines, so it lands with zeroes rather than being dropped.
+/// A binary file reports `-` for both counts; it lands as a changed file with
+/// zero lines rather than being dropped.
 fn accumulate_numstat(output: &str, totals: &mut HashMap<String, (u32, u32)>) {
     for line in output.lines() {
         let mut fields = line.split('\t');
@@ -579,10 +576,9 @@ async fn default_branch(repo_dir: &str) -> Option<String> {
 
 /// What this repository's branch should be read against.
 ///
-/// The remote-tracking ref is preferred over the local branch of the same name:
-/// a sandbox checks out a task branch and the local `main` beside it is
-/// whatever the clone happened to fetch, while `origin/main` is what the change
-/// will actually be proposed against.
+/// The remote-tracking ref is preferred: a sandbox's local `main` is whatever
+/// the clone fetched, while `origin/main` is what the change will actually be
+/// proposed against.
 async fn detect_base_ref(repo_dir: &str, head_ref: Option<&str>) -> Option<String> {
     let default = default_branch(repo_dir).await?;
     // A branch is not a base for itself; the working-tree scope is what has
@@ -648,9 +644,9 @@ async fn capture(dir: &str, args: &[&str], timeout_secs: u64) -> Result<git::Git
 
 /// Run a git command whose failure is not worth failing the whole surface for.
 ///
-/// Every caller of this is assembling one part of a review that is still
-/// readable without it, so a repository git refused to answer about contributes
-/// nothing rather than emptying the panel.
+/// Every caller assembles one part of a review that stays readable without it,
+/// so a repo git refused to answer about contributes nothing rather than
+/// emptying the panel.
 async fn quiet(dir: &str, args: &[&str], timeout_secs: u64) -> String {
     match capture(dir, args, timeout_secs).await {
         Ok(output) if output.succeeded() => output.stdout,
@@ -675,8 +671,8 @@ async fn quiet(dir: &str, args: &[&str], timeout_secs: u64) -> String {
 /// A patch under construction, and the byte budget it stops at.
 ///
 /// The budget is the whole scope's, not one repository's: a workspace whose
-/// first repository has rewritten everything must not push the second one's
-/// changes past what the client will render without saying so.
+/// first repo rewrote everything must not push the second repo's changes past
+/// what the client will render without saying so.
 struct PatchBuilder {
     budget: usize,
     out: String,
@@ -840,9 +836,8 @@ mod tests {
     }
 
     /// Against real repositories, because what is under test is what `git`
-    /// actually prints — the prefixes it rewrites, the headers it writes for an
-    /// untracked file, the porcelain fields it fills in — and none of that is
-    /// observable from a mock.
+    /// actually prints — the prefixes it rewrites, the headers for an untracked
+    /// file, the porcelain fields — and none of that is observable from a mock.
     mod against_git {
         use super::*;
         use std::path::Path;
@@ -865,9 +860,9 @@ mod tests {
             );
         }
 
-        /// A workspace holding one repository in `repo/`, on a `feature`
-        /// branch that has committed one change since `main`, with one
-        /// uncommitted edit and one untracked file beside it.
+        /// A workspace holding one repository in `repo/`, on a `feature` branch
+        /// that has committed one change since `main`, with one uncommitted
+        /// edit and one untracked file beside it.
         fn workspace() -> TempDir {
             let workspace = TempDir::new().expect("a temp dir");
             let repo = workspace.path().join("repo");

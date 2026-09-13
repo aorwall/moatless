@@ -1,13 +1,5 @@
-//! Pure, synchronous pod inspection functions and shared failure-reason constants.
-//!
-//! Everything in this module operates on `&Pod` (or `&[Pod]`) without
-//! making any async calls.  This is the single source of truth for:
-//!
-//! * sandbox container readiness checks
-//! * permanent failure detection
-//! * container waiting-reason extraction
-//! * multi-pod ranking ("pick best pod")
-//! * container observed-status extraction (for server monitoring)
+//! Pure, synchronous pod inspection functions and shared failure-reason
+//! constants — no async calls; operates only on `&Pod` / `&[Pod]`.
 
 use k8s_openapi::api::core::v1::Pod;
 
@@ -18,7 +10,7 @@ use moatless_sandbox_runtime::container_status::{ContainerObservedStatus, Contai
 // =============================================================================
 
 /// Waiting reasons that indicate a **permanent** failure of the *sandbox*
-/// container.  Used by [`check_sandbox_permanent_failure`].
+/// container. Used by [`check_sandbox_permanent_failure`].
 pub const SANDBOX_PERMANENT_FAILURE_REASONS: &[&str] = &[
     "ImagePullBackOff",
     "ErrImagePull",
@@ -31,12 +23,12 @@ pub const SANDBOX_PERMANENT_FAILURE_REASONS: &[&str] = &[
 // Pod inspection functions
 // =============================================================================
 
-/// Check if the sandbox container in a pod is ready (started + ready probes passed).
+/// Whether the sandbox container in a pod is ready (started + ready probes
+/// passed).
 ///
-/// We check the sandbox container specifically rather than the pod-level Ready
-/// condition because server containers (files-server, preview-server) may have
-/// image pull issues that block the pod-level Ready condition even though the
-/// sandbox is fine.
+/// Checks the sandbox container specifically, not the pod-level Ready
+/// condition, since a server container's image-pull issue can block that while
+/// sandbox itself is fine.
 pub fn is_sandbox_container_ready(pod: &Pod) -> bool {
     pod.status
         .as_ref()
@@ -45,14 +37,9 @@ pub fn is_sandbox_container_ready(pod: &Pod) -> bool {
         .is_some_and(|cs| cs.started.unwrap_or(false) && cs.ready)
 }
 
-/// Check for permanent container failures in the **sandbox** container.
-///
-/// Only checks the `sandbox` container — server containers (files-server,
-/// preview-server) may have image pull issues that shouldn't block the
-/// main sandbox readiness.
-///
-/// Returns `Some(message)` describing the failure, or `None` if no permanent
-/// failure is detected.
+/// Checks for a permanent failure of the `sandbox` container only (server
+/// containers may have unrelated image-pull issues). Returns `Some(message)`
+/// describing the failure, else `None`.
 pub fn check_sandbox_permanent_failure(pod: &Pod) -> Option<String> {
     let container_statuses = pod.status.as_ref()?.container_statuses.as_ref()?;
     for cs in container_statuses {
@@ -81,14 +68,9 @@ pub fn check_sandbox_permanent_failure(pod: &Pod) -> Option<String> {
     None
 }
 
-/// Pick the best pod from a list when multiple pods exist for a task.
-///
-/// During Deployment rolling updates, both old (terminating) and new pods may
-/// coexist.  We prefer the non-terminating pod so that status reflects the
-/// replacement rather than the dying pod.
-///
-/// Priority among non-terminating pods: Running > Pending > Unknown > everything else.
-/// If ALL pods are terminating, return the first one (genuinely removing).
+/// Picks the best pod when multiple exist for a task: prefers a non-terminating
+/// pod, ranked Running > Pending > Unknown > other; if all are terminating,
+/// returns the first.
 pub fn pick_best_pod(pods: &[Pod]) -> Option<&Pod> {
     if pods.is_empty() {
         return None;
@@ -125,18 +107,16 @@ pub fn pick_best_pod(pods: &[Pod]) -> Option<&Pod> {
         .or(terminating.first().copied())
 }
 
-/// Extract observed statuses for **all** containers in a K8s Pod.
-///
-/// Unlike [`extract_container_observed_statuses`], this includes the `sandbox`
-/// container. Used for diagnostics/troubleshooting.
+/// Extract observed statuses for **all** containers in a K8s Pod, including
+/// `sandbox` (unlike [`extract_container_observed_statuses`]). Used for
+/// diagnostics/troubleshooting.
 pub fn extract_all_container_statuses(pod: &Pod) -> Vec<ContainerObservedStatus> {
     extract_container_statuses_filtered(pod, false)
 }
 
-/// Extract container observed statuses from a K8s Pod.
-///
-/// Excludes the `sandbox` container — this is used for monitoring *server*
-/// containers only (files-server, preview-server, etc.).
+/// Extract container observed statuses from a K8s Pod, excluding `sandbox` —
+/// used for monitoring *server* containers only (files-server, preview-server,
+/// etc.).
 pub fn extract_container_observed_statuses(pod: &Pod) -> Vec<ContainerObservedStatus> {
     extract_container_statuses_filtered(pod, true)
 }

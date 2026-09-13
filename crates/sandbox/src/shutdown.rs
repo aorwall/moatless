@@ -3,10 +3,9 @@
 //! The sandbox runs one agent per pod. Without signal handling the process
 //! blocks on `axum::serve` and is SIGKILLed (exit 137) at the end of the pod's
 //! ~30s termination grace period on *every* teardown — idle-down, node drain,
-//! eviction, and PR-close. That churn is the source of the exit-137 kills seen
-//! in production. Installing a SIGTERM/SIGINT handler that stops the agent,
-//! flushes CLI session state, and cancels the lifecycle token lets the process
-//! drain and exit promptly.
+//! eviction, and PR-close. Installing a SIGTERM/SIGINT handler that stops the
+//! agent, flushes CLI session state, and cancels the lifecycle token lets the
+//! process drain and exit promptly instead.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -17,37 +16,18 @@ use tracing::{error, info};
 use crate::agent::agent_state::AgentState;
 use crate::state::SandboxState;
 
-/// Bounded time budget for draining the event send buffer on graceful shutdown.
-///
-/// Kept small so the total teardown stays within the pod's 30s termination grace
-/// period. The bounded steps run strictly in sequence, so they add up:
-///
-/// | step | budget |
-/// |---|---|
-/// | this drain | 5s |
-/// | `transcript_sync::flush_on_shutdown` | 12s |
-/// | `workspace_sync::flush_on_shutdown` | 10s |
-/// | the root supervisor's join ([`crate::supervisor::SHUTDOWN_JOIN_DEADLINE`]) | 2s |
-///
-/// That is 29s of ~30s, and it does not count `agent.stop()` at the front.
-/// **Anything added here has to come out of that margin** — check this table
-/// before introducing another bounded step, and update it if you do.
-///
-/// The supervisor join is the single owner of the arithmetic at the tail,
-/// including the HTTP server's graceful-shutdown wait and the outbox drainer
-/// join.
+/// 5s budget for draining the event send buffer on shutdown — one of several
+/// steps that must fit the pod's 30s termination grace period.
 ///
 /// On timeout the drainer keeps retrying in the background until the process
-/// exits — best-effort, not a hard guarantee.
+/// exits, best-effort only.
 const OUTBOX_FLUSH_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// Side effects to run when a shutdown signal arrives: stop the running agent
-/// (best-effort), flush CLI session state to S3, then cancel the lifecycle
-/// token so background tasks and both servers wind down.
+/// Stops the running agent (best-effort), flushes CLI session state to S3, then
+/// cancels the lifecycle token so background tasks and both servers wind down.
 ///
-/// Extracted from the signal handler so it can be unit-tested without raising a
-/// real OS signal. `state` is optional purely so the agent-stop/token-cancel
-/// behavior can be exercised in isolation; production always passes `Some`.
+/// `state` is `None` only to exercise agent-stop/token-cancel in isolation;
+/// production always passes `Some`.
 pub async fn perform_shutdown(
     agent: &AgentState,
     lifecycle_cancel: &CancellationToken,
@@ -57,8 +37,8 @@ pub async fn perform_shutdown(
     finish_shutdown(lifecycle_cancel, state).await;
 }
 
-/// Variant used by the sandbox runtime, which owns all registered task
-/// contexts and therefore stops every member agent on process teardown.
+/// Variant used by the sandbox runtime, which owns all registered task contexts
+/// and therefore stops every member agent on process teardown.
 pub async fn perform_shutdown_for_state(state: &SandboxState) {
     let agents: Vec<Arc<AgentState>> = state
         .task_contexts_snapshot()
@@ -147,8 +127,8 @@ async fn finish_shutdown(lifecycle_cancel: &CancellationToken, state: Option<&Sa
 
 /// Await the first SIGTERM or SIGINT.
 ///
-/// Resolves as soon as either signal is delivered. SIGTERM is what Kubernetes
-/// sends on pod termination; SIGINT covers `Ctrl-C` in local runs.
+/// Resolves as soon as either is delivered; SIGTERM is what Kubernetes sends on
+/// pod termination, SIGINT covers `Ctrl-C` in local runs.
 pub async fn await_shutdown_signal() {
     use tokio::signal::unix::{SignalKind, signal};
 
@@ -175,17 +155,11 @@ pub async fn await_shutdown_signal() {
     }
 }
 
-/// Spawn the shutdown driver: wait for a signal, then run [`perform_shutdown`].
+/// Spawn the shutdown driver: wait for a signal, then run
+/// [`perform_shutdown_for_state`]. Returns the join handle.
 ///
-/// Takes a clone of the whole [`SandboxState`] so the transcript flush can reach
-/// the backend client and config. `main`'s `state` stays intact for the servers,
-/// which observe the same lifecycle token via graceful shutdown.
-///
-/// Returns the task's join handle so the root supervisor owns its termination:
-/// this task performs required cleanup, and losing it before the signal arrives
-/// is what reintroduces the exit-137 kills this module exists to prevent. Its
-/// own normal return happens only after [`perform_shutdown`] has cancelled the
-/// lifecycle token, so the supervisor classifies it as shutdown, not failure.
+/// Losing this task before the signal reintroduces the exit-137 kill; returning
+/// only after cancelling the lifecycle token reads as shutdown, not failure.
 #[must_use = "the shutdown driver owns required cleanup; register it with the supervisor"]
 pub fn spawn_shutdown_driver(state: SandboxState) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {

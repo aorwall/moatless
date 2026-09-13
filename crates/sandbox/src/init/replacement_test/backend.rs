@@ -26,8 +26,8 @@ pub(super) struct ReplayBackend {
     interrupted: Option<InterruptedTurn>,
     /// The session-state archive `download_transcript` serves (immutable).
     download_tar: Vec<u8>,
-    /// Number of `acknowledge_messages` calls that fail (without pruning) before
-    /// the RPC starts succeeding — models a transient ack outage.
+    /// Number of `acknowledge_messages` calls that fail (without pruning)
+    /// before the RPC starts succeeding — models a transient ack outage.
     ack_failures: AtomicUsize,
     /// Every `enqueue_sandbox_message` as `(idempotency_key, text)`, in call
     /// order. Doubles as the dedup store the real backend keys on.
@@ -122,14 +122,11 @@ impl ReplayBackend {
     }
 }
 
-/// One delivery per fetch, carrying every pending row's uuid and their texts
-/// joined with `\n`. Serving a row per delivery would be more permissive than
-/// `AgentPromptBuilder::build_pending_deliveries`, and a sandbox-side filter that
-/// works per delivery would pass here and fail in production.
+/// Joins every pending row's uuid and text (`\n`-joined) into one delivery per
+/// fetch, mirroring `AgentPromptBuilder::build_pending_deliveries`.
 ///
-/// The uuid and text coalescing is all this models. The real builder also stops
-/// at the first `start_fresh` row, so honour that boundary here before writing a
-/// test that sets one.
+/// Does not model the real builder's stop at the first `start_fresh` row —
+/// honour that separately in a test that sets one.
 fn coalesce(rows: Vec<PendingAgentDelivery>) -> Vec<PendingAgentDelivery> {
     let Some(first) = rows.first() else {
         return Vec::new();

@@ -9,9 +9,9 @@ use tokio::sync::{Mutex, RwLock};
 
 /// Per-task runtime state inside a sandbox process.
 ///
-/// A warm sandbox starts with one context keyed by the boot task. Joined tasks
-/// get their own context so agent status, turns, prompts, scheduled jobs, and
-/// dispatch single-flight state stay isolated by task.
+/// A warm sandbox starts with one context keyed by the boot task; each joined
+/// task gets its own, isolating agent status, turns, prompts, jobs and dispatch
+/// state.
 #[derive(Clone)]
 pub struct TaskContext {
     /// Task this context serves.
@@ -22,10 +22,9 @@ pub struct TaskContext {
     pub checkout_dir: String,
     /// Checkout relationship requested by the backend for this member.
     pub checkout_mode: CheckoutMode,
-    /// Agent type this member's harness was built from. A shared sandbox runs
-    /// one harness per member, so this is the member's own selection and not the
-    /// pod's `AGENT_TYPE`, which names only the member it booted with. `None`
-    /// when neither was set.
+    /// Agent type this member's harness was built from — the member's own
+    /// selection, not the pod's `AGENT_TYPE` (which only names the boot
+    /// member). `None` when neither was set.
     pub agent_type: Option<String>,
     /// Agent execution state (status, session, cancel token, pending prompts).
     pub agent: Arc<AgentState>,
@@ -40,16 +39,11 @@ pub struct TaskContext {
     pub commands: Arc<CommandRegistry>,
     /// Single-flight guard for this task's pending-message dispatch.
     pub dispatch_lock: Arc<Mutex<()>>,
-    /// Uuids of the rows this pod queued for itself, through
-    /// `dispatcher::dispatch_self_queued`. A parked `AskUserQuestion` or
-    /// `ExitPlanMode` waits on a person, so `dispatcher::resolve_pending_prompt`
-    /// never acknowledges a row from here as their answer.
+    /// Uuids of rows this pod queued for itself.
     ///
-    /// In memory deliberately: a parked prompt dies with its pod, so a row the
-    /// replacement finds still pending is ordinary input to it.
-    ///
-    /// Private: [`Self::mark_self_queued`], [`Self::split_self_queued`] and
-    /// [`Self::forget_self_queued`] are the only way in.
+    /// `resolve_pending_prompt` never treats one as a person's answer to a
+    /// parked `AskUserQuestion`/`ExitPlanMode`; kept in memory only, since a
+    /// parked prompt dies with its pod.
     self_queued: Arc<Mutex<HashSet<String>>>,
     /// Tracks credential failures observed on this task's agent stderr.
     pub credential_failures: CredentialFailureDetector,
@@ -106,12 +100,11 @@ impl TaskContext {
             .partition(|uuid| self_queued.contains(uuid))
     }
 
-    /// Forget rows the harness has accepted, so a pod running a `/loop` does not
-    /// accumulate one entry per tick for its whole life.
+    /// Forget rows the harness has accepted, so a `/loop` pod does not
+    /// accumulate one entry per tick.
     ///
-    /// Call this only once acceptance is confirmed. A row that was dispatched but
-    /// not taken is still pending and still a wake, and forgetting it early lets
-    /// the redispatch answer a prompt parked in between with it.
+    /// Call only once acceptance is confirmed — forgetting a still-pending row
+    /// early lets a redispatch answer a prompt parked in between with it.
     pub async fn forget_self_queued(&self, uuids: &[String]) {
         let mut self_queued = self.self_queued.lock().await;
         for uuid in uuids {
@@ -162,8 +155,8 @@ pub enum RegisterTaskContextError {
     #[error("unsupported checkout_mode: {0}")]
     InvalidCheckoutMode(String),
     /// Carries `resolve_agent_harness`'s own diagnostic, which names the
-    /// accepted set — the reconciler retries the join every 30s and its log line
-    /// is the only place this surfaces.
+    /// accepted set — the reconciler retries the join every 30s and its log
+    /// line is the only place this surfaces.
     #[error("{0}")]
     UnsupportedAgentType(String),
     #[error("failed to materialize isolated checkout: {0}")]

@@ -9,10 +9,10 @@
 /// Adapter name on `adapter_delivery` rows, metrics, and bindings.
 pub const ADAPTER: &str = "telegram";
 
-/// Routing one inbound Telegram message.
+/// Routing kind for one inbound Telegram message.
 ///
-/// Namespaced under `telegram.` so kinds stay owned by exactly one Adapter and
-/// two migrations never contend for the same name.
+/// Namespaced under `telegram.` so two migrations never contend for the same
+/// name.
 pub const INBOUND_MESSAGE: &str = "telegram.inbound_message";
 
 #[cfg(test)]

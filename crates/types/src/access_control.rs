@@ -1,31 +1,11 @@
 //! Canonical access control: which identity acts, and what it may reach.
 //!
-//! The `Scope` enum is owned here. `ScopeContext` is used for both query
-//! filtering and pure policy checks. The policy is a pure function of
-//! `(user_id, is_admin)` × `(scope, owner, visibility)` — no database input:
-//!
-//! - **read**: `is_admin ∨ scope = global ∨ owner = me ∨ (Task ∧ visibility = public)`
-//! - **control**: `is_admin ∨ (scope = user ∧ owner = me) ∨ (Task ∧ visibility = public)`
-//! - **write**: `is_admin ∨ (scope = user ∧ owner = me)`
-//!
-//! Owner is `COALESCE(owner_user_id, created_by)`. For tasks, read includes
-//! interact (send message, follow, mark read) by product rule — a public task
-//! is collaborative.
-//!
-//! Control is what operates a Task's Sandbox: start, stop, restart, redeploy,
-//! open a shell, run the agent. Write is what changes something the owner
-//! would otherwise have to find and undo: remove the Sandbox, reconfigure its
-//! servers, close or rename or delete the Task. Control includes a shell, so
-//! anything a shell can reach is control by construction — refusing a file
-//! write while granting `terminal.open` is a rule one command undoes.
-//!
-//! [`Actor`] names the identity a call acts as. Every constructor on it is one
-//! way an identity can be chosen, so a reader can enumerate the rules without
-//! searching for them. Two rules cannot live here, because they read types
-//! this band cannot see: the GitHub PR Adapter's outbound precedence
-//! (`TaskBinding`, `SubscriptionMatch`) and its webhook sender mapping. Both
-//! stay in `adapter-github-pr/src/auth.rs` and end in [`Actor::of`], which is
-//! why that constructor exists.
+//! [`ScopeContext`]'s policy is a pure function of `(user_id, is_admin)` ×
+//! `(scope, owner, visibility)` with no database input; owner is
+//! `COALESCE(owner_user_id, created_by)`, and control includes a shell, so
+//! anything a shell reaches is control by construction. See
+//! [`ScopeContext::can_read`], [`ScopeContext::can_write`], and
+//! [`ScopeContext::can_control`] for the exact rules.
 
 #![cfg_attr(
     test,
@@ -42,10 +22,8 @@ use crate::task::Visibility;
 
 /// Access scope for repositories, tasks, integrations, and credentials.
 ///
-/// Reads: `global` is readable by every authenticated user; `user` only by
-/// its owner (and admins). Writes: `global` is admin-managed; `user` is
-/// owner-managed. Task `visibility = 'public'` additionally grants
-/// read/interact and control on tasks — never write.
+/// `global` is world-readable and admin-writable; `user` is owner-managed. A
+/// public Task additionally grants read/interact and control, never write.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
@@ -95,8 +73,8 @@ impl TryFrom<String> for Scope {
 
 /// Declares access-control schema properties for each entity type.
 ///
-/// The entity determines whether `visibility = 'public'` bypasses scope checks —
-/// callers never choose this themselves, eliminating a class of bugs.
+/// The entity determines whether `visibility = 'public'` bypasses scope checks
+/// — callers never choose this themselves, eliminating a class of bugs.
 #[derive(Debug, Clone, Copy)]
 pub enum ScopedEntity {
     /// `tasks` table — has a `visibility` column.
@@ -157,27 +135,12 @@ impl ScopeContext {
     /// Reserved user id for the internal system principal.
     pub const SYSTEM_USER_ID: &'static str = "system";
 
-    /// Full-access context for internal system callers that have no
-    /// authenticated user to derive a scope from — background jobs, reapers,
-    /// pod watchers, adapter/webhook runtimes, and sandbox-pod-facing requests
-    /// already authenticated by their own transport.
+    /// Full-access context for an internal system caller: `is_admin = true`
+    /// matches every row.
     ///
-    /// Semantically equivalent to an unscoped query: `is_admin = true` makes
-    /// the filters match every row (the `$is_admin` disjunct is always true).
-    /// Every call site is a deliberate access-control bypass and must carry
-    /// `#[allow(clippy::disallowed_methods)]` with a `// reason:` comment —
-    /// enforced via `disallowed-methods` in `clippy.toml`.
-    ///
-    /// The required form at a call site:
-    ///
-    /// ```
-    /// use moatless_types::access_control::ScopeContext;
-    ///
-    /// // reason: reaper sweeps idle sandboxes across all owners (no user ctx)
-    /// #[allow(clippy::disallowed_methods)]
-    /// let sys = ScopeContext::system();
-    /// assert!(sys.is_admin);
-    /// ```
+    /// Each call site is a deliberate bypass; `clippy.toml`'s
+    /// `disallowed-methods` refuses one without `#[allow(...)]` and a `//
+    /// reason:` line.
     pub fn system() -> Self {
         Self {
             user_id: Self::SYSTEM_USER_ID.to_string(),
@@ -187,8 +150,8 @@ impl ScopeContext {
 
     /// Check if this context can read a resource with the given scope.
     ///
-    /// Task visibility is not an input here: the public-task read arm lives
-    /// in the persistence filter and in callers that already hold the row.
+    /// Task visibility is not an input here: the public-task read arm lives in
+    /// the persistence filter and in callers that already hold the row.
     pub fn can_read(&self, resource: &ScopedResource) -> bool {
         if self.is_admin {
             return true;
@@ -219,14 +182,9 @@ impl ScopeContext {
 
     /// Check if this context can control (operate) a Task's Sandbox.
     ///
-    /// Write, plus the public-task arm: a public Task is collaborative, and a
-    /// Sandbox nobody but the owner can wake, restart or work in is what makes
-    /// that collaboration unusable. Visibility is an input here, unlike
-    /// [`Self::can_read`], because it is the whole of what this grant adds.
-    ///
-    /// Only a Task has a Sandbox to operate, so this takes a [`Visibility`]
-    /// rather than a [`ScopedEntity`]: a caller holding anything else has no
-    /// grant between read and write and calls [`Self::can_write`].
+    /// Write, plus the public-task arm. Takes [`Visibility`] not
+    /// [`ScopedEntity`] since only a Task has a Sandbox; everything else calls
+    /// [`Self::can_write`].
     pub fn can_control(&self, resource: &ScopedResource, visibility: Visibility) -> bool {
         visibility == Visibility::Public || self.can_write(resource)
     }
@@ -247,19 +205,17 @@ impl ScopeContext {
 
     /// Semantic gate for task/sandbox creation from a repository.
     ///
-    /// Today this intentionally delegates to repository read access; call sites
-    /// use this method anyway so future policy can diverge without hunting for
-    /// generic reads.
+    /// Delegates to repository read access today; call sites use this method
+    /// anyway so future policy can diverge without hunting for generic reads.
     pub fn can_use_repository(&self, repository: &ScopedResource) -> bool {
         self.can_read(repository)
     }
 
     /// Whether this context may start work that acts as `target_user_id`.
     ///
-    /// Acting as yourself is always allowed and changes nothing. Acting as
-    /// another identity is an admin power, and only ever over a bot: a bot has
-    /// no session of its own to take over, so no person is impersonated. An
-    /// admin therefore cannot borrow another person's account.
+    /// Acting as yourself is always allowed; acting as another is an admin
+    /// power over a bot only, since a bot has no session for an admin to
+    /// borrow.
     pub fn can_run_as(&self, target_user_id: &str, target_is_bot: bool) -> bool {
         self.user_id == target_user_id || (self.is_admin && target_is_bot)
     }
@@ -271,16 +227,8 @@ impl ScopeContext {
 
 /// The identity a git-host call is made as.
 ///
-/// There is no way to obtain a git-host token without naming one — see
-/// `moatless_identity::git_host_tokens::GitHostTokens`.
-///
-/// A Workspace may pin the token its work presents to a git host. An Actor
-/// therefore carries the Workspace the call is made on behalf of, when there is
-/// one: the pin outranks the user's own credential, and naming the Workspace
-/// here is what lets every caller resolve the same token from the same seam
-/// rather than each deciding for itself. [`Self::workspace_id`] is `None` for
-/// work no Workspace is behind — a settings check, an interactive request — and
-/// that resolves to the user's own credential.
+/// A Workspace may pin the token its work presents, outranking the user's own
+/// credential; `None` means no Workspace and falls back to it.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Actor {
     user_id: String,
@@ -288,7 +236,9 @@ pub struct Actor {
 }
 
 impl Actor {
-    /// A user id chosen by a rule this band cannot express.
+    /// A user id chosen by a rule this band cannot express — the GitHub PR
+    /// Adapter's outbound precedence and webhook sender mapping, both in
+    /// `adapter-github-pr/src/auth.rs`.
     pub fn of(user_id: impl Into<String>) -> Self {
         Self {
             user_id: user_id.into(),
@@ -296,16 +246,16 @@ impl Actor {
         }
     }
 
-    /// The caller of a request. An admin acts as themselves, never as the
-    /// owner of what they are looking at.
+    /// The caller of a request. An admin acts as themselves, never as the owner
+    /// of what they are looking at.
     pub fn caller(ctx: &ScopeContext) -> Self {
         Self::of(ctx.user_id.clone())
     }
 
     /// The owner of a scoped resource — a Task, say.
     ///
-    /// Reads [`ScopedResource::owner_user_id`], which a Task fills from
-    /// `owner_user_id` falling back to `created_by`, so this cannot drift from
+    /// Reads [`ScopedResource::owner_user_id`], filled from `owner_user_id`
+    /// falling back to `created_by`, so this cannot drift from
     /// `Task::scoped_resource`.
     pub fn owner_of(resource: &ScopedResource) -> Option<Self> {
         resource

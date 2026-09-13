@@ -28,8 +28,8 @@ macro_rules! skip_unless_subprocess_e2e {
     };
 }
 
-/// Skip tmux-backed test unless `CLAUDE_TMUX_E2E=1` is set AND `tmux` binary
-/// is on PATH.
+/// Skip tmux-backed test unless `CLAUDE_TMUX_E2E=1` is set AND `tmux` binary is
+/// on PATH.
 macro_rules! skip_unless_tmux_e2e {
     () => {
         if std::env::var("CLAUDE_TMUX_E2E").as_deref() != Ok("1") {

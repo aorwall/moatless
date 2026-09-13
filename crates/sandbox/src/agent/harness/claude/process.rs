@@ -17,25 +17,12 @@ use crate::agent::harness::signal::{ContextWindow, Input, InputId, RunTotals, Se
 
 use super::normalize::Normalizer;
 
-/// What the turn's last model response says about the context window.
+/// What the turn's last main-thread response says about the context window.
 ///
-/// The maximum only ever exists on the provider's wire — no column holds one —
-/// and the terminal `ResultMessage` carries it per model, as a running maximum.
-/// The largest is the window the turn ran in; a sub-agent model with a smaller
-/// one would otherwise decide the meter.
-///
-/// Used is that last response's own usage. For one API request the input,
-/// cache-creation and cache-read counts are its prompt and `output_tokens` is
-/// its completion, so the four together are what occupies the window once it
-/// returns. The token counts beside the maximum are running totals instead —
-/// cost accumulates in the same object — so they measure what the turn
-/// processed, and a cached prefix read on every request of a long turn takes
-/// them past the window many times over.
-///
-/// Sub-agent responses are skipped: they occupy their own window, not this one.
-/// Clamped to the maximum, so a reading that cannot be right reads as full
-/// rather than as impossible. `None` before any response has landed — a turn
-/// with nothing to say rather than an empty window.
+/// `max_tokens` is the largest window across all models used in the run (a
+/// sub-agent's smaller window must not decide the meter); `used_tokens` comes
+/// only from `last_response` (sub-agent usage skipped), clamped to
+/// `max_tokens`, and is `None` before any main-thread response lands.
 fn context_window(result: &ResultMessage, last_response: Option<&Usage>) -> Option<ContextWindow> {
     let model_usage = match result {
         ResultMessage::Success(success) => &success.model_usage,
@@ -62,9 +49,9 @@ fn context_window(result: &ResultMessage, last_response: Option<&Usage>) -> Opti
 
 /// The run's authoritative token and cost totals from the terminal result.
 ///
-/// Cost is `Some`: Claude prices the run itself. `model` is the `modelUsage` key
-/// that produced the most output, used only as a label. `reasoning_output_tokens`
-/// is `0` — Claude reports none.
+/// Cost is always `Some` (Claude prices the run itself); `model` is the
+/// `modelUsage` key with the most output, used only as a label;
+/// `reasoning_output_tokens` is always `0` since Claude reports none.
 pub(super) fn run_totals(result: &ResultMessage) -> RunTotals {
     let (usage, model_usage, cost, num_turns, duration_ms, duration_api_ms) = match result {
         ResultMessage::Success(s) => (
@@ -130,12 +117,11 @@ pub(crate) struct ClaudeProcess {
 
 /// Build the `UserMessage` frame for an input injected into a running Session.
 ///
-/// `Next` is load-bearing: the CLI folds the message into the execution already
-/// running (reporting it as an extra internal turn) and still emits exactly one
-/// `Result`, which is what lets the one-shot transport — whose orchestrator ends
-/// the stream at the first `Result` — carry an injected input at all. `Now`
-/// means *interrupt*: it abandons the in-flight work and returns an empty result
-/// immediately, so it must not be used here.
+/// `Next` is load-bearing: it folds the message into the running execution (as
+/// an extra internal turn) while still emitting exactly one `Result`, which is
+/// what lets the one-shot transport carry an injected input at all; `Now` means
+/// *interrupt* — it abandons in-flight work and returns an empty result, so it
+/// must not be used here.
 fn user_message(text: &str, session_id: &str) -> UserMessage {
     UserMessage {
         uuid: None,
@@ -186,9 +172,11 @@ impl ClaudeProcess {
     }
 
     /// Turn one `SdkMessage` into zero or more `ProcessEvent`s, appended to the
-    /// pending queue in native order. The one-shot lifecycle: the first `System`
-    /// init proves the process is up (Session known + input accepted at spawn),
-    /// and the terminal `Result` ends the single execution by ending the process.
+    /// pending queue in native order.
+    ///
+    /// One-shot lifecycle: the first `System` init proves the process is up
+    /// (Session known + input accepted at spawn), and the terminal `Result`
+    /// ends the single execution by ending the process.
     fn absorb(&mut self, msg: SdkMessage) {
         match msg {
             SdkMessage::System(init) => {
@@ -253,10 +241,11 @@ impl ClaudeProcess {
         }
     }
 
-    /// Resolve the resume mode for this input. `start_fresh` always wins; a
-    /// `Last` (`--continue`) request is downgraded to fresh when there is no
-    /// on-disk transcript, because `--continue` against an empty project dir
-    /// makes the CLI exit immediately.
+    /// Resolve the resume mode for this input.
+    ///
+    /// `start_fresh` always wins; a `Last` (`--continue`) request downgrades to
+    /// fresh when there is no on-disk transcript, because `--continue` against
+    /// an empty project dir makes the CLI exit immediately.
     async fn resolve_resume(&self, input: &Input) -> Option<ResumeSession> {
         // A fork's first Turn resumes a truncated copy of the parent's
         // transcript, not the parent's Session, and rides ahead of `start_fresh`

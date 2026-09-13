@@ -7,8 +7,8 @@ use super::mcp::McpServerConfig;
 use super::messages::SdkMessage;
 use super::permissions::{PermissionMode, PermissionUpdate};
 
-/// Raw message from the CLI's stdout. This is the top-level envelope
-/// that wraps SDK messages, control protocol, and keep-alive signals.
+/// Raw message from the CLI's stdout. This is the top-level envelope that wraps
+/// SDK messages, control protocol, and keep-alive signals.
 #[derive(Debug, Clone)]
 pub enum RawStdoutMessage {
     /// A regular SDK message (assistant, user, result, system, etc.).

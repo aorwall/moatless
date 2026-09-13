@@ -1,26 +1,13 @@
 //! Frontload activated skills into the user turn.
 //!
-//! The backend ships skill *names*; the body lives on this pod's disk. Each name
-//! is looked up in three places, in order:
-//!
-//! 1. the repo's own skill roots, under every checkout in the workspace;
-//! 2. the home skills dir of the harness this Member runs, which
-//!    [`init::home_skills`] and [`init::dirs`] fill from the repo and the image
-//!    staging area;
-//! 3. each installed plugin's skills dir ([`init::plugin_skills`]).
-//!
-//! Plugins need their own root because nothing copies them into the home dir:
-//! Codex gets them staged under `/etc/codex/skills` namespaced `{plugin}--{skill}`,
-//! and Claude reads them in place through `PluginConfig`. Reading the plugin
-//! source directly covers both harnesses with one root.
+//! The backend ships skill *names*; the body lives on this pod's disk. Each
+//! name is looked up in order: the repo's own skill roots under every checkout,
+//! then the harness's home skills dir, then each installed plugin's skills dir
+//! — plugins keep their own root since nothing copies them into the home dir.
 //!
 //! The first root holding `<name>/SKILL.md` wins and names itself in the
-//! preamble, so the agent is told which copy it was handed. Repo before plugin
+//! preamble, so the agent knows which copy it was handed. Repo before plugin
 //! matches how the backend merges the two for the picker.
-//!
-//! [`init::home_skills`]: crate::init::home_skills
-//! [`init::dirs`]: crate::init::dirs
-//! [`init::plugin_skills`]: crate::init::plugin_skills
 
 use std::path::{Path, PathBuf};
 
@@ -33,16 +20,17 @@ use crate::init::home_skills::REPO_SKILL_ROOTS;
 /// One place a skill can live, plus how the preamble names it.
 struct SkillRoot {
     dir: PathBuf,
-    /// Prefix the matched skill's directory is reported under. Repo-relative for
-    /// the repo roots, absolute for the home dir — which no repo is relative to.
+    /// Prefix the matched skill's directory is reported under. Repo-relative
+    /// for the repo roots, absolute for the home dir — which no repo is
+    /// relative to.
     label_prefix: String,
 }
 
 /// Prepend a preamble per resolved skill to `prompt`, in the order the backend
 /// listed them.
 ///
-/// A name that resolves nowhere is warned about and skipped: a turn still has to
-/// run. Returns `prompt` unchanged when nothing resolves.
+/// A name that resolves nowhere is warned about and skipped; returns `prompt`
+/// unchanged when nothing resolves.
 pub(crate) async fn frontload_skills(config: &Config, skills: &[String], prompt: &str) -> String {
     if skills.is_empty() {
         return prompt.to_string();
@@ -73,9 +61,9 @@ pub(crate) async fn frontload_skills(config: &Config, skills: &[String], prompt:
 /// The turn's own skills, behind the ones an activation record asked to
 /// frontload everywhere.
 ///
-/// The standing skills lead: what somebody picked for this turn belongs
-/// closest to what they wrote. A name already requested is not repeated, and
-/// neither is one two plugins both deliver.
+/// The standing skills lead: what somebody picked for this turn belongs closest
+/// to what they wrote. A name already requested is not repeated, nor one two
+/// plugins both deliver.
 pub(crate) fn with_always_frontloaded(config: &Config, requested: Vec<String>) -> Vec<String> {
     let mut skills: Vec<String> = Vec::new();
     for name in config
@@ -170,8 +158,8 @@ fn is_safe_skill_name(name: &str) -> bool {
         && !name.contains('\0')
 }
 
-/// A self-contained block ending in a blank line, so several concatenate and the
-/// prompt follows without a separator of its own.
+/// A self-contained block ending in a blank line, so several concatenate and
+/// the prompt follows without a separator of its own.
 fn preamble(label: &str, body: &str) -> String {
     format!("Activated {label}:\n\n{}\n\n", body.trim_end())
 }

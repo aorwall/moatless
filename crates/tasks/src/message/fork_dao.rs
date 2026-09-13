@@ -1,15 +1,12 @@
 //! Copying one Task's conversation into a fork.
 //!
-//! A fork holds its own rows rather than pointing at the parent's: every
-//! conversation reader, the T3 projection and the per-Task change feed would
-//! otherwise each have to learn the indirection, and deleting the parent would
-//! take the fork's history with it.
+//! A fork holds its own rows rather than pointing at the parent's — every
+//! reader, the T3 projection, and the change feed would otherwise learn the
+//! indirection, and deleting the parent would take the fork's history too.
 //!
-//! The copy re-keys everything that is unique outside its Task — a Message's
-//! `uuid`, an activity's `activity_id` — and drops everything that claims
-//! something in the world: `external_event_id` is what tells a webhook echo
-//! apart from a new Message, and two Tasks claiming one id would make the
-//! parent's echo look like the fork's own work.
+//! The copy re-keys everything unique outside its Task (`uuid`, `activity_id`)
+//! and drops world-claiming fields like `external_event_id`, so a Task can
+//! never inherit the parent's echo as its own.
 
 use std::collections::HashMap;
 
@@ -22,16 +19,14 @@ use super::models::{ForkCopyCounts, TaskMessage};
 /// lands on.
 #[derive(Debug, Clone)]
 pub(crate) struct ForkAnchors {
-    /// The parent's `session_id` at the cut — the Claude session or Codex thread
-    /// the pod branches from. Read from `session_id` rather than
-    /// `agent_session_id`: only `user` and `error` rows are ever stamped with the
-    /// latter, so an assistant row carries the session in `session_id` alone.
+    /// The parent's `session_id` at the cut — the Claude session or Codex
+    /// thread the pod branches from. Read from `session_id`, never
+    /// `agent_session_id`: only `user` and `error` rows are ever stamped with
+    /// the latter.
     pub session_id: String,
-    /// The last assistant `task_messages.uuid` at or before the cut. For a
-    /// Claude turn that is the Anthropic message id, which the CLI writes as
-    /// `message.id` on every transcript line belonging to the message — the one
-    /// identifier the stored row and the transcript share. `None` only when the
-    /// session is known from a row that carries no usable uuid.
+    /// The last assistant `task_messages.uuid` at or before the cut — for a
+    /// Claude turn, the Anthropic message id the CLI repeats as `message.id` on
+    /// every transcript line. `None` when the anchoring row has no usable uuid.
     pub message_uuid: Option<String>,
 }
 
@@ -49,12 +44,10 @@ struct CopiedActivity {
 /// The predicate that decides which of `task_id`'s Messages a cut at `at_turn`
 /// keeps.
 ///
-/// `$2` is the turn, `NULL` for a cut at head. A row with no `turn_number` is
-/// kept only at head: it cannot be placed relative to the cut, and the turn it
-/// belongs to may be a later one.
-///
-/// A macro rather than a `const`: sqlx 0.9 takes only `&'static str`, and a
-/// `format!` here would be dynamic SQL the workspace lint refuses.
+/// `$2` is the turn (`NULL` at head); a row with no `turn_number` is kept only
+/// at head, since it can't be placed relative to the cut. A macro, not a
+/// `const`, because sqlx 0.9 takes only `&'static str` and `format!` would be
+/// lint-refused dynamic SQL.
 macro_rules! at_or_before_cut {
     () => {
         "($2::int IS NULL OR (turn_number IS NOT NULL AND turn_number <= $2))"
@@ -64,8 +57,8 @@ macro_rules! at_or_before_cut {
 /// The parent's session and transcript anchor at the cut.
 ///
 /// `None` when the parent has no agent-written Message at or before the cut
-/// carrying a session — a Task whose agent never ran, or one forked at a turn
-/// before it did. Such a fork carries the conversation and no agent context.
+/// carrying a session — the agent never ran, or the fork cuts before it did;
+/// such a fork carries the conversation with no agent context.
 pub(crate) async fn anchors(
     pool: &DbPool,
     task_id: &str,
@@ -106,9 +99,8 @@ pub(crate) async fn anchors(
 /// Copy `source_task_id`'s conversation up to and including `at_turn` onto
 /// `dest_task_id`, in one transaction.
 ///
-/// Runs before the fork's own Task row exists: neither `task_messages` nor
-/// `task_activities` has a foreign key to `tasks` — both say so in their
-/// migrations, for the same reason this needs it — so the copy can land first
+/// Runs before the fork's own Task row exists — neither `task_messages` nor
+/// `task_activities` has a foreign key to `tasks`, so the copy can land first
 /// and the create that follows delivers the fork's first message after it.
 pub(crate) async fn copy_conversation(
     pool: &DbPool,
@@ -317,17 +309,11 @@ pub(crate) async fn copy_conversation(
 
 /// Delete a fork's copied conversation.
 ///
-/// `copy_conversation` commits `task_messages`, `task_message_usage` and
-/// `task_activities` under the fork's id before the fork's Task row exists, so a
-/// create that fails after the copy would leave those rows with no Task to
-/// belong to — no foreign key takes them down, by the same design that lets the
-/// copy land first. This is the undo the create path runs on that failure, and
-/// only then: once the fork's own turns start writing under this id, its history
-/// is indistinguishable from the copy and must not be swept.
-///
-/// One transaction, so a fork's rows never half-vanish. `task_message_contexts`
-/// is not deleted here: it has a foreign key to `task_messages` with `ON DELETE
-/// CASCADE`, so the Message delete below takes each Message's contexts with it.
+/// The undo `copy_conversation`'s create path runs if it fails afterward, since
+/// the copy lands with no Task row (and no FK) to protect it — call only until
+/// the fork's own turns start writing, after which its history is
+/// indistinguishable from the copy and must not be swept. Runs in one
+/// transaction; `task_message_contexts` cascades via its FK to `task_messages`.
 pub(crate) async fn discard_conversation(
     pool: &DbPool,
     dest_task_id: &str,
@@ -350,10 +336,10 @@ pub(crate) async fn discard_conversation(
 
 /// Re-derive an activity's primary key for the fork.
 ///
-/// `activity_id` is `{message_uuid}:{block_index}` for a block and the event id
-/// for a Sandbox activity, and the column is a primary key over the whole
-/// table — so a copied row that kept its id would collide with the parent's.
-/// A block's id follows its Message's new uuid; anything else takes a fresh one.
+/// `activity_id` is `{message_uuid}:{block_index}` for a block, or the raw
+/// event id for a Sandbox activity; the column is a primary key over the whole
+/// table, so a copied row keeping its id would collide with the parent's. A
+/// block's id follows its Message's new uuid; anything else gets a fresh one.
 fn rekey_activity_id(activity_id: &str, uuids: &HashMap<String, String>) -> String {
     if let Some((prefix, suffix)) = activity_id.split_once(':') {
         if let Some(new_uuid) = uuids.get(prefix) {

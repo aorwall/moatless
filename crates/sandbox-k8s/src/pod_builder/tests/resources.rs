@@ -24,9 +24,9 @@ fn sandbox_container_has_memory_request_and_limit() {
     assert_eq!(limits.get("cpu").map(|q| q.0.as_str()), Some("4"));
 }
 
-/// The prompt's "Saved to:" line is rendered from `file_mount_path`, so the
-/// pod has to be told the same path rather than falling back to a default of
-/// its own.
+/// The prompt's "Saved to:" line is rendered from `file_mount_path`, so the pod
+/// has to be told the same path rather than falling back to a default of its
+/// own.
 #[test]
 fn sandbox_container_takes_upload_dir_from_file_mount_path() {
     let mut config = test_config();

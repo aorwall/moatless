@@ -142,8 +142,8 @@ fn a_malformed_client_trace_id_mints_a_fresh_root_and_records_the_raw_value() {
     );
 }
 
-/// A `Die` reaches Tempo as an error span, which is what makes "show me
-/// the failing requests" a search rather than a read of every span.
+/// A `Die` reaches Tempo as an error span, which is what makes "show me the
+/// failing requests" a search rather than a read of every span.
 #[test]
 fn a_failed_request_marks_its_span_as_an_error() {
     let exporter = InMemorySpanExporter::default();
@@ -184,8 +184,8 @@ fn a_failed_request_marks_its_span_as_an_error() {
     );
 }
 
-/// The counterpart: a success must not be searchable as an error, and
-/// it still carries the outcome so a Tempo search can name it.
+/// The counterpart: a success must not be searchable as an error, and it still
+/// carries the outcome so a Tempo search can name it.
 #[test]
 fn a_successful_request_leaves_its_span_unset() {
     let exporter = InMemorySpanExporter::default();

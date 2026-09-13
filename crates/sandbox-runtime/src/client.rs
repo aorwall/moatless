@@ -15,10 +15,10 @@ use super::schemas::{
 // separate crate, so these proto conversions cannot be inherent or `From` impls
 // (orphan rule) and live here as free functions in the crate that names both.
 
-/// Convert a proto `ManagedCommand` into the API schema. An unrecognised state
-/// reads as `Running`: a sandbox newer than this backend reporting a state it
-/// has no name for is still work in flight, and treating it as finished would
-/// let the reaper stop the pod underneath it.
+/// Converts a proto `ManagedCommand` into the API schema.
+///
+/// An unrecognised state reads as `Running`: treating an unknown-but-in-flight
+/// state as finished would let the reaper stop the pod underneath it.
 pub fn managed_command_from_proto(proto: sandbox_proto::ManagedCommand) -> SchemaManagedCommand {
     let state = match proto.state() {
         sandbox_proto::ManagedCommandState::Exited => SchemaManagedCommandState::Exited,

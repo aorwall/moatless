@@ -1,5 +1,5 @@
-//! The observed state of a pod and its server containers, read off one
-//! `Pod` object.
+//! The observed state of a pod and its server containers, read off one `Pod`
+//! object.
 
 use super::*;
 
@@ -14,7 +14,8 @@ pub(crate) struct ServerContainerState {
     pub(crate) exit_code: Option<i32>,
     pub(crate) memory_limit: Option<String>,
     pub(crate) running_since: Option<chrono::DateTime<chrono::Utc>>,
-    /// Restart count of this server container (used for crash-loop auto-disable).
+    /// Restart count of this server container (used for crash-loop
+    /// auto-disable).
     pub(crate) restart_count: i32,
 }
 
@@ -32,8 +33,9 @@ pub(crate) struct PodObservedState {
     pub(crate) pod_name: String,
     /// Exit code from the sandbox container's *current* terminated state.
     pub(crate) exit_code: Option<i32>,
-    /// Exit code from the sandbox container's *last* terminated state — survives a
-    /// K8s restart so a crash that's already been restarted into Running isn't lost.
+    /// Exit code from the sandbox container's *last* terminated state —
+    /// survives a K8s restart so a crash that's already been restarted into
+    /// Running isn't lost.
     pub(crate) last_exit_code: Option<i32>,
     /// Termination reason from the sandbox container's *last* terminated state.
     pub(crate) last_terminated_reason: Option<String>,
@@ -45,14 +47,18 @@ pub(crate) struct PodObservedState {
     /// Suppresses repeated fatal events during `CrashLoopBackOff`.
     pub(super) fatal_published: bool,
     /// Server names already reported as crash-looping during this pod's
-    /// lifecycle. Fire-once guard so the watcher publishes one `Failed` event
-    /// per container instead of one per watch event while it keeps crashing in
-    /// this pod. Cleared naturally when a new pod replaces this map entry.
+    /// lifecycle.
+    ///
+    /// Fire-once guard so the watcher publishes one `Failed` event per
+    /// container instead of once per watch event while it keeps crashing;
+    /// cleared naturally when a new pod replaces this map entry.
     pub(super) crash_reported_servers: HashSet<String>,
-    /// Whether the `moatless_sandbox_startup_seconds` histogram has already been
-    /// recorded for this pod. Carried over so a pod that goes Ready→NotReady→
-    /// Ready (e.g. after a container restart) is only timed on its *first* ready,
-    /// keeping startup latency from being inflated by re-readies.
+    /// Whether the `moatless_sandbox_startup_seconds` histogram has already
+    /// been recorded for this pod.
+    ///
+    /// Carried over so a pod that goes Ready→NotReady→Ready (e.g. after a
+    /// container restart) is only timed on its first ready, keeping startup
+    /// latency from being inflated by re-readies.
     pub(crate) startup_recorded: bool,
     /// Node the pod is scheduled on (`pod.spec.node_name`), once bound. `None`
     /// while the pod is still `Pending` and unscheduled.
@@ -65,8 +71,8 @@ pub(crate) struct PodObservedState {
     /// states never carry it, so this is the only reliable eviction signal.
     pub(crate) pod_status_reason: Option<String>,
     /// Pod-level `status.message` — for evictions this holds the actionable
-    /// cause (e.g. `Usage of EmptyDir volume "docker-storage" exceeds the
-    /// limit "10Gi"`).
+    /// cause (e.g. `Usage of EmptyDir volume "docker-storage" exceeds the limit
+    /// "10Gi"`).
     pub(crate) pod_status_message: Option<String>,
     /// Pod `creationTimestamp` as epoch milliseconds, used to derive
     /// `pending_seconds` on the Pending→scheduled edge.
@@ -78,33 +84,39 @@ pub(crate) struct PodObservedState {
     /// Fire-once guard: a `startup_slow` event has been emitted for this pod's
     /// slow-container-start window (e.g. long volume attach).
     pub(crate) startup_slow_published: bool,
-    /// Fire-once guard: an attach-failure storage fallback has been requested for
-    /// this pod. Keyed per pod, so it is effectively once per generation — a
-    /// rebuild replaces the pod, and the fresh pod starts the guard clear. Set
-    /// whatever the outcome, so a failed rebuild waits for the next clean start
-    /// rather than retrying every sweep.
+    /// Fire-once guard: an attach-failure storage fallback has been requested
+    /// for this pod.
+    ///
+    /// Keyed per pod, so it's effectively once per generation — a rebuild
+    /// replaces the pod, and the fresh pod starts the guard clear. Set
+    /// regardless of outcome, so a failed rebuild waits for the next clean
+    /// start rather than retrying every sweep.
     pub(crate) storage_fallback_requested: bool,
     /// Epoch ms when this pod was first observed in the terminal `Failed`
-    /// phase. K8s never garbage-collects Failed pods (e.g. evicted for
-    /// exceeding an emptyDir sizeLimit), so the sweep deletes them once this
-    /// is older than the GC grace period.
+    /// phase.
+    ///
+    /// K8s never garbage-collects Failed pods (e.g. evicted for exceeding an
+    /// emptyDir sizeLimit), so the sweep deletes them once this is older than
+    /// the GC grace period.
     pub(crate) failed_since_ms: Option<i64>,
     /// Fire-once guard: a GC delete has been issued for this Failed pod.
     pub(crate) gc_requested: bool,
     /// An auto-stop (scale Deployment to 0) has been decided for this pod — via
     /// the crash-restart threshold crossing or the exit-78 fast-fail — but not
-    /// yet confirmed by a successful `scale_deployment` call. Set when the
-    /// decision is made, cleared only on a successful scale-to-0, and retried on
-    /// every subsequent watcher event and in the periodic sweep. Without this, a
-    /// failed scale is lost: `restart_count` stays `>= threshold` so the "new
-    /// crossing" edge never re-fires and the pod crash-loops forever.
+    /// yet confirmed by a successful `scale_deployment` call.
+    ///
+    /// Cleared only on a successful scale-to-0, and retried on every watcher
+    /// event and the periodic sweep; without this, a failed scale is lost and
+    /// `restart_count` staying `>= threshold` means the "new crossing" edge
+    /// never re-fires, so the pod crash-loops forever.
     pub(super) auto_stop_pending: bool,
     /// Sandbox status most recently published from this pod's lifecycle
-    /// transitions, carried across Apply events. Used to suppress consecutive
-    /// identical publishes from the high-frequency container `sub_types`
-    /// (restart/crash-loop/terminated), which otherwise fire once per K8s
-    /// watch Apply while a container flaps. Watcher restart resets this —
-    /// acceptable (one extra event per pod after failover).
+    /// transitions, carried across Apply events.
+    ///
+    /// Suppresses consecutive identical publishes from the high-frequency
+    /// container `sub_types` (restart/crash-loop/terminated), which otherwise
+    /// fire once per K8s watch Apply while a container flaps; watcher restart
+    /// resets this (acceptable — one extra event per pod after failover).
     pub(crate) last_published_sandbox_status: Option<SandboxStatus>,
 }
 
@@ -132,11 +144,10 @@ pub(super) fn extract_task_id(pod: &Pod) -> Option<String> {
         .cloned()
 }
 
-/// Build the observed state from a pod's current status.
-/// Record sandbox startup latency (pod creation → first sandbox-container Ready)
-/// into the `moatless_sandbox_startup_seconds` histogram.
+/// Record sandbox startup latency (pod creation → first sandbox-container
+/// Ready) into the `moatless_sandbox_startup_seconds` histogram.
 ///
-/// Uses the pod's `metadata.creationTimestamp` as the start. Skips pods without
+/// Uses the pod's `metadata.creationTimestamp` as the start; skips pods without
 /// a creation timestamp or with a negative (clock-skew) elapsed time.
 pub(super) fn record_sandbox_startup(pod: &Pod) {
     // k8s-openapi represents `creationTimestamp` as a jiff `Timestamp`, not
@@ -327,8 +338,9 @@ pub(crate) fn extract_pod_observed_state(
 
 /// Generate a human-readable message for a server container event.
 ///
-/// Since `server_name` and `status` are separate fields, this returns only
-/// the contextual detail (e.g. "`ContainerCreating`", "Out of memory (limit: 1536Mi)").
+/// Since `server_name` and `status` are separate fields, this returns only the
+/// contextual detail (e.g. "`ContainerCreating`", "Out of memory (limit:
+/// 1536Mi)").
 pub(super) fn format_server_message(sc: Option<&ServerContainerState>) -> String {
     let sc = match sc {
         Some(s) => s,

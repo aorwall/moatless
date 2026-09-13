@@ -3,9 +3,10 @@
 
 use super::*;
 
-/// Resolve the sandbox image for a plan: per-repo override → default sandbox image.
+/// Resolve the sandbox image for a plan: per-repo override → default sandbox
+/// image.
 ///
-/// An empty override string is treated as unset. This is the single source of
+/// An empty override string is treated as unset; this is the single source of
 /// truth for the image a sandbox runs.
 pub fn resolve_sandbox_image(config: &Config, plan: &ProvisionPlan) -> String {
     plan.repo_config
@@ -16,9 +17,10 @@ pub fn resolve_sandbox_image(config: &Config, plan: &ProvisionPlan) -> String {
         .unwrap_or_else(|| config.sandbox.image.clone())
 }
 
-/// Resolve the sandbox storage size for the PVC-less (emptyDir) case: a per-repo
-/// `resources.storage` override wins over the global `K8S_SANDBOX_STORAGE_SIZE`.
-/// One knob sizes both — the PVC reads the same value in `pvc.rs`.
+/// Resolve the sandbox storage size for the PVC-less (emptyDir) case: a
+/// per-repo `resources.storage` override wins over the global
+/// `K8S_SANDBOX_STORAGE_SIZE`. One knob sizes both — the PVC reads the same
+/// value in `pvc.rs`.
 pub(super) fn resolve_sandbox_size(config: &Config, plan: &ProvisionPlan) -> String {
     plan.repo_config
         .resources
@@ -29,12 +31,11 @@ pub(super) fn resolve_sandbox_size(config: &Config, plan: &ProvisionPlan) -> Str
 
 /// Express a retained-node placement so the scheduler still runs.
 ///
-/// `spec.nodeName` binds the pod directly and skips scheduling, so a node that
-/// cannot fit the pod rejects it at admission (`OutOfmemory`) and the
-/// `ReplicaSet` respawns it without end. Affinity leaves an unschedulable pod
-/// `Pending` instead. The only thing that pins is a cache — dind's data root —
-/// so the preference is soft: prefer the recorded node, settle for any other
-/// and pay a cold rebuild.
+/// `spec.nodeName` binds directly and skips scheduling, so a node that can't
+/// fit the pod rejects it at admission and the `ReplicaSet` respawns forever;
+/// affinity leaves an unschedulable pod `Pending` instead. Only a cache (dind's
+/// data root) pins here, so the preference is soft: prefer the recorded node,
+/// settle for another and pay a cold rebuild.
 pub(crate) fn retained_node_affinity(node_name: &str) -> Affinity {
     let term = NodeSelectorTerm {
         match_fields: Some(vec![NodeSelectorRequirement {
@@ -84,8 +85,10 @@ pub(super) fn resolve_dind_storage_backend(plan: &ProvisionPlan) -> StorageMediu
 
 /// Resolve the `docker-storage` emptyDir cap for the dind sidecar: a per-repo
 /// `resources.dockerStorage` override wins over the global
-/// `K8S_SANDBOX_DOCKER_DIND_STORAGE_SIZE`. Exceeding the cap gets the pod
-/// evicted by the kubelet (wiping dind data), so DB-heavy repos need headroom.
+/// `K8S_SANDBOX_DOCKER_DIND_STORAGE_SIZE`.
+///
+/// Exceeding the cap gets the pod evicted by the kubelet (wiping dind data), so
+/// DB-heavy repos need headroom.
 pub(super) fn resolve_dind_storage_size(config: &Config, plan: &ProvisionPlan) -> String {
     plan.repo_config
         .resources
@@ -99,10 +102,10 @@ pub(super) fn resolve_dind_storage_size(config: &Config, plan: &ProvisionPlan) -
 
 /// Parent directory of the package-cache root (e.g. `/mnt` for `/mnt/cache`).
 ///
-/// The `nvme-setup` init container bind-mounts this parent with bidirectional
-/// propagation so that the NVMe it mounts at `<parent>/<basename>` propagates
-/// back to the host and is visible to the sibling `pkg-cache` hostPath mount.
-/// Falls back to `/` if the root has no parent component.
+/// `nvme-setup` bind-mounts this parent with bidirectional propagation so the
+/// NVMe it mounts at `<parent>/<basename>` is visible to the sibling
+/// `pkg-cache` hostPath mount; falls back to `/` if the root has no parent
+/// component.
 pub(super) fn cache_host_parent(root: &str) -> &str {
     let trimmed = root.trim_end_matches('/');
     match trimmed.rsplit_once('/') {

@@ -78,10 +78,9 @@ pub(crate) fn is_terminal_state_kind(state_kind: &str) -> bool {
 
 /// Human label and web URL for the issue a binding points at.
 ///
-/// The label prefers the issue identifier (`SP-1721`) the destination config
-/// records under either of the two keys it has used, falling back to the
-/// binding's `subject_key` — which for agent-session bindings is an opaque
-/// UUID, hence the preference.
+/// Prefers the issue identifier (`SP-1721`) under either destination-config key
+/// it has used, falling back to `subject_key` — an opaque UUID for
+/// agent-session bindings, hence the preference.
 pub(crate) fn binding_label_and_url(binding: &TaskBinding) -> (String, Option<String>) {
     let cfg = &binding.destination_config;
     let label = config_str(cfg, "identifier")

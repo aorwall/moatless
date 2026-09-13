@@ -2,9 +2,9 @@ use crate::EventType;
 
 /// A domain event type the sandbox protocol has no representation for.
 ///
-/// `sandbox.v1.EventType` is deliberately narrower than
-/// `moatless_types::event::EventType`: `message.*` events are derived by the backend
-/// while assembling `task_messages` (the agent.message skeleton) and never originate in a sandbox.
+/// `sandbox.v1.EventType` is narrower than the domain type: `message.*` events
+/// are derived by the backend while assembling `task_messages`, never
+/// originating in a sandbox.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct UnrepresentableEventType(pub moatless_types::event::EventType);
 
@@ -22,9 +22,9 @@ impl std::error::Error for UnrepresentableEventType {}
 
 /// Narrows a domain event type onto the wire enum.
 ///
-/// Partial by construction — the domain enum carries a value the protocol
-/// cannot express, and mapping it onto a neighbouring variant would publish an
-/// event under the wrong type.
+/// Partial by construction: the domain enum carries a value the protocol can't
+/// express, and mapping it onto a neighboring variant would publish the wrong
+/// type.
 impl TryFrom<moatless_types::event::EventType> for EventType {
     type Error = UnrepresentableEventType;
 
@@ -71,9 +71,8 @@ mod event_type_conversion_tests {
 
     /// Every domain event type, paired with whether the protocol can carry it.
     ///
-    /// The `match` is exhaustive, so adding a variant to
-    /// `moatless_types::event::EventType` fails to compile until this wire contract is
-    /// revisited — it cannot be silently mis-mapped.
+    /// The `match` is exhaustive, so adding a domain variant fails to compile
+    /// here until this wire contract is revisited — never silently mis-mapped.
     fn is_representable(e: Domain) -> bool {
         match e {
             Domain::Task

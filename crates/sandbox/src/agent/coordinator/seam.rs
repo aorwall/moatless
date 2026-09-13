@@ -1,24 +1,8 @@
 //! Maps one [`Harness`]'s signal stream onto Run events and acknowledgements.
 //!
-//! It drives a fixed [`Harness`] through its command/signal seam alone: it
-//! never sees a Claude or Codex handle and never matches on the selected
-//! harness.
-//!
-//! Invariants it enforces:
-//! - A fresh Run id is minted on every [`Signal::ExecutionStarted`] and stamped
-//!   on every event and acknowledgement of that Run.
-//! - A Message opening an execution is acknowledged only after
-//!   [`Signal::InputAccepted`]; one injected into a running execution only after
-//!   a later non-terminal signal proves the execution continued past the
-//!   injection. On a terminal signal the ack is dropped, so the backend
-//!   redispatches.
-//! - Each [`Signal::Source`] is published as one per-block `agent.message`
-//!   grouped by `uuid`. The coordinator forwards blocks; it never assembles a
-//!   Message.
-//! - A resume reported as [`SessionImpact::Lost`] publishes the
-//!   `session_context_lost` notice and re-drives one recovery Turn under the
-//!   same Run, keeping the pending ack alive. The harness refuses to start
-//!   fresh; the coordinator decides to, once.
+//! Drives a fixed [`Harness`] alone, never touching a Claude or Codex handle. A
+//! fresh Run id is minted per [`Signal::ExecutionStarted`] and stamped on every
+//! event and ack of that Run.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -43,8 +27,8 @@ use crate::agent::wakeup_job::WakeupJob;
 use crate::events::GrpcEventPublisher;
 
 /// How often a rate-limited liveness [`Signal::Activity`] is republished. The
-/// reaper's idle floor only needs minute-level granularity against a TTL of tens
-/// of minutes, and a chatty tool would otherwise flood the event stream.
+/// reaper's idle floor only needs minute-level granularity against a TTL of
+/// tens of minutes, and a chatty tool would otherwise flood the event stream.
 const ACTIVITY_PUBLISH_INTERVAL: Duration = Duration::from_mins(1);
 
 /// Drives one fixed [`Harness`], mapping its [`Signal`] stream onto Run
@@ -58,47 +42,47 @@ pub struct Coordinator {
     run_id: String,
     /// The Session id reported by the most recent [`Signal::ExecutionStarted`].
     session_id: String,
-    /// Acks awaiting their input's [`Signal::InputAccepted`], keyed by input id.
+    /// Acks awaiting their input's [`Signal::InputAccepted`], keyed by input
+    /// id.
     pending_acks: HashMap<InputId, oneshot::Sender<RunAck>>,
     /// The input that opened the current execution. Its ack can resolve as soon
     /// as it is accepted; accepted inputs not matching this joined an active
     /// execution and wait for later non-terminal output before acking.
     opening_input: Option<InputId>,
-    /// Accepted inputs injected into the active execution. They stay unacked
-    /// until the harness emits later non-terminal output (`Source` / `Activity`);
-    /// if the next signal is terminal, the senders are dropped so the dispatcher
-    /// leaves the backend batch unacknowledged for redispatch.
+    /// Accepted inputs injected into the active execution; unacked until later
+    /// non-terminal output (`Source` / `Activity`). Dropped on a terminal
+    /// signal instead, so the dispatcher leaves the backend batch unacked for
+    /// redispatch.
     accepted_injected_acks: Vec<(InputId, oneshot::Sender<RunAck>)>,
     /// Submitted inputs awaiting acceptance or rejection, keyed by input id.
     /// Retained so a resume that the harness reports as [`SessionImpact::Lost`]
-    /// can be re-driven as a fresh context-recovery Turn instead of being dropped.
+    /// can be re-driven as a fresh context-recovery Turn instead of being
+    /// dropped.
     pending_inputs: HashMap<InputId, Input>,
-    /// Next `blockIndex` per native Message id, reset at each Run start. Lets the
-    /// backend assemble per-block source events in native order (server-owned assembly).
+    /// Next `blockIndex` per native Message id, reset at each Run start. Lets
+    /// the backend assemble per-block source events in native order
+    /// (server-owned assembly).
     block_indices: HashMap<String, usize>,
     /// When the last rate-limited liveness event was published.
     last_activity_publish: Option<Instant>,
-    /// Reuse the current `run_id` on the next [`Signal::ExecutionStarted`] instead
-    /// of minting a fresh one. Set when a context-loss recovery mints the Run for
-    /// its notice, so the recovered Turn continues the same logical Run.
+    /// Reuse the current `run_id` on the next [`Signal::ExecutionStarted`]
+    /// instead of minting a fresh one. Set when a context-loss recovery mints
+    /// the Run for its notice, so the recovered Turn continues the same logical
+    /// Run.
     hold_run_id: bool,
     /// One-shot: suppress the terminal `error` event for the next `Failed`
-    /// outcome. The service sets this when it has decided to retry a transient
-    /// failure, so the user sees `retrying` (published by the service) instead of
-    /// a terminal error.
+    /// outcome, so the user sees `retrying` instead once the service decides to
+    /// retry a transient failure.
     suppress_failure_event: bool,
     /// The state machine this coordinator drives.
     ///
-    /// Held here so a signal reaches the state machine and the event stream as
-    /// one act; a turn open in one and not the other is what the backend then
-    /// has to reconcile. It also records an interactive call as published,
-    /// whichever route published it, so one call writes one row.
-    ///
-    /// `None` in tests that drive a coordinator with no agent behind it.
+    /// Held here so a signal reaches it and the event stream as one act; a turn
+    /// open in one and not the other is what the backend must reconcile. `None`
+    /// in tests with no agent behind the coordinator.
     agent_state: Option<Arc<AgentState>>,
     /// Root of the run's cancellation tree, from which each turn's token is
-    /// minted. Bound by [`super::service::CoordinatorService::new`], which owns the root.
-    /// `None` for the same coordinators `agent_state` is `None` for.
+    /// minted. Bound by [`super::service::CoordinatorService::new`], which owns
+    /// the root. `None` for the same coordinators `agent_state` is `None` for.
     run_cancel: Option<CancellationToken>,
     /// Whether a turn is open, as the same act that opened or closed it left
     /// it. The service reads it rather than tracking its own copy.
@@ -129,9 +113,9 @@ impl Coordinator {
         }
     }
 
-    /// Share the state machine with a coordinator that has no service behind
-    /// it — the permission-dedup tests. A service binds it itself, along with
-    /// the cancellation root a turn transition also needs; see [`Self::bind`].
+    /// Share the state machine with a coordinator that has no service behind it
+    /// — the permission-dedup tests. A service binds it itself, along with the
+    /// cancellation root a turn transition also needs; see [`Self::bind`].
     #[must_use]
     #[cfg(test)]
     pub fn driving(mut self, agent_state: Arc<AgentState>) -> Self {
@@ -141,11 +125,9 @@ impl Coordinator {
 
     /// Bind the state machine and the run's cancellation root.
     ///
-    /// Called by [`super::service::CoordinatorService::new`] with the very `AgentState` the
-    /// service holds, so a coordinator and its service can never end up driving
-    /// two different state machines — which is the disagreement this pairing
-    /// exists to prevent. Binding the cancellation root here too means the
-    /// turn's token is minted where the turn is opened.
+    /// Takes the very `AgentState` [`super::service::CoordinatorService::new`]
+    /// holds, so coordinator and service can't drive two different machines;
+    /// binding the root here mints a turn's token where the turn opens.
     pub(crate) fn bind(&mut self, agent_state: Arc<AgentState>, run_cancel: CancellationToken) {
         self.agent_state = Some(agent_state);
         self.run_cancel = Some(run_cancel);
@@ -175,10 +157,11 @@ impl Coordinator {
     }
 
     /// Drive signals until one execution reaches its terminal signal
-    /// (`ExecutionFinished` / `InputRejected`), then stop. A persistent harness
-    /// parks awaiting the next input rather than closing, so draining the stream
-    /// to its end would never return within a single-turn test; this bounds the
-    /// loop deterministically instead.
+    /// (`ExecutionFinished` / `InputRejected`), then stop.
+    ///
+    /// A persistent harness parks awaiting the next input instead of closing,
+    /// so draining to the stream's end would never return in a single-turn
+    /// test.
     #[cfg(test)]
     pub(crate) async fn pump_one_execution(&mut self) {
         while let Some(signal) = self.harness.next_signal().await {
@@ -193,7 +176,8 @@ impl Coordinator {
         }
     }
 
-    /// Receive the next normalized signal, or `None` once the harness has stopped.
+    /// Receive the next normalized signal, or `None` once the harness has
+    /// stopped.
     pub(crate) async fn next_signal(&mut self) -> Option<Signal> {
         self.harness.next_signal().await
     }
@@ -204,35 +188,39 @@ impl Coordinator {
         &self.run_id
     }
 
-    /// Whether a context-loss recovery is in flight — the coordinator re-drove a
-    /// fresh Turn after a lost resume and is holding the Run for it. The service
-    /// reads this to avoid recording a terminal error for a rejection the
-    /// coordinator already recovered (which would otherwise pollute the
-    /// consecutive-error count the dispatcher and circuit breaker read).
+    /// Whether a context-loss recovery is in flight: the coordinator re-drove a
+    /// fresh Turn after a lost resume and is holding the Run for it.
+    ///
+    /// The service reads this to skip recording a terminal error for a
+    /// rejection already recovered, which would otherwise pollute the
+    /// consecutive-error count the dispatcher and circuit breaker read.
     pub(crate) fn is_recovering(&self) -> bool {
         self.hold_run_id
     }
 
-    /// Keep the current Run id on the next `ExecutionStarted` instead of minting a
-    /// fresh one — used when re-driving the same Turn (a transient-error retry),
-    /// so the retried attempt continues the same Run the backend maps to the Turn.
+    /// Keep the current Run id on the next `ExecutionStarted` instead of
+    /// minting a fresh one — used when re-driving the same Turn (a
+    /// transient-error retry), so the retried attempt continues the same Run
+    /// the backend maps to the Turn.
     pub(crate) fn reuse_run_on_next_start(&mut self) {
         self.hold_run_id = true;
     }
 
-    /// Resume an interrupted turn under its original Run id. The next
-    /// `ExecutionStarted` adopts `run_id` rather than minting a fresh one, so the
-    /// recovery run's events (and its terminal close) map back to the interrupted
-    /// turn instead of forking a new one that the reaper would later orphan.
+    /// Resume an interrupted turn under its original Run id: the next
+    /// `ExecutionStarted` adopts `run_id` instead of minting a fresh one.
+    ///
+    /// Maps the recovery run's events and terminal close back onto the
+    /// interrupted turn instead of forking a new one the reaper would later
+    /// orphan.
     pub(crate) fn resume_run(&mut self, run_id: String) {
         self.run_id = run_id;
         self.hold_run_id = true;
     }
 
-    /// Suppress the terminal `error` event for the next `Failed` outcome. The
-    /// service calls this when it has classified the failure as a retryable
-    /// transient error with retry budget remaining, so the coordinator stays
-    /// silent and the service publishes `retrying` instead.
+    /// Suppress the terminal `error` event for the next `Failed` outcome.
+    ///
+    /// Called when the service classifies the failure as a retryable transient
+    /// error with budget remaining, so it can publish `retrying` instead.
     pub(crate) fn suppress_next_failure_event(&mut self) {
         self.suppress_failure_event = true;
     }
@@ -240,8 +228,8 @@ impl Coordinator {
     /// Map one signal onto Run/ack/state/publication effects.
     ///
     /// Returns the cancellation token of a turn this signal opened, for the run
-    /// loop to adopt as its cancellation arm. `None` for every other signal, and
-    /// for a coordinator with no state machine behind it.
+    /// loop to adopt as its cancellation arm; `None` otherwise, including with
+    /// no state machine behind the coordinator.
     pub(crate) async fn handle_signal(&mut self, signal: Signal) -> Option<CancellationToken> {
         let mut opened = None;
         match signal {
@@ -374,11 +362,9 @@ impl Coordinator {
     }
 
     /// Move the state machine into the turn this signal opened, and mint that
-    /// turn's cancellation token — so `agent_state.stop()` cancels the token,
-    /// which the run loop's cancellation arm turns into a harness cancel.
-    ///
-    /// `None` when there is no state machine behind this coordinator, which is
-    /// also when there is no turn to cancel.
+    /// turn's cancellation token, so `agent_state.stop()` cancels it and the
+    /// run loop's cancellation arm turns that into a harness cancel. `None`
+    /// with no state machine behind the coordinator.
     async fn open_turn(&mut self) -> Option<CancellationToken> {
         let (Some(state), Some(run_cancel)) = (&self.agent_state, &self.run_cancel) else {
             return None;
@@ -394,10 +380,9 @@ impl Coordinator {
     /// Move the state machine out of the turn this outcome ended.
     ///
     /// Only the status is decided here; retry budget, the breaker, scheduled
-    /// jobs and workspace sync stay the service's. A failure is the exception —
-    /// the service settles the status before handing the signal over, so this
-    /// leaves it alone. Either way the turn is left before any event says it
-    /// ended.
+    /// jobs, and workspace sync stay the service's — except a failure, whose
+    /// status the service already settled. Either way, the turn is left before
+    /// any event says it ended.
     async fn close_turn(&mut self, outcome: &Outcome) {
         self.turn_active = false;
         let Some(state) = &self.agent_state else {
@@ -428,11 +413,10 @@ impl Coordinator {
 
     /// Whether the permission handler already published this block's call.
     ///
-    /// Only the calls it parks on are asked about: those are announced from the
-    /// handler as it waits, because a person cannot answer a question they were
-    /// never shown. The block itself still arrives here, carrying the same
-    /// tool-use id, and the conversation keeps one row per id — so exactly one
-    /// of the two publishes it, and it is whichever got here first.
+    /// Only calls it parks on are asked about, announced while it waits so a
+    /// person is never asked a question they weren't shown; the block itself
+    /// also arrives here under the same tool-use id, and whichever route got
+    /// there first is the one that publishes it.
     async fn published_as_a_prompt(&self, block: &CanonicalContentBlock) -> bool {
         let (Some(state), CanonicalContentBlock::ToolUse { id, name, .. }) =
             (&self.agent_state, block)
@@ -514,10 +498,9 @@ impl Coordinator {
 
     /// One context-window reading, as its own event.
     ///
-    /// Not rate-limited the way liveness is: a reading is what the meter shows,
-    /// and dropping one leaves the meter stale. Codex reports per model request,
-    /// so several can arrive in a turn — the projection keeps the newest per turn
-    /// on the way out rather than the writer keeping fewer.
+    /// Not rate-limited like liveness: dropping a reading leaves the meter
+    /// stale. Codex reports per model request, so several can arrive per turn;
+    /// the projection keeps the newest rather than the writer dropping any.
     async fn publish_context_window(&mut self, window: ContextWindow) {
         self.run_events()
             .publish_agent_event(
@@ -570,14 +553,12 @@ impl Coordinator {
             .await;
     }
 
-    /// Drive a single context-loss recovery for a resume the harness reported as
-    /// [`SessionImpact::Lost`]. Mints the Run for the recovery Turn (held so its
-    /// `ExecutionStarted` continues it), publishes the user-visible
-    /// `session_context_lost` notice, and re-submits a fresh Turn whose prompt
-    /// instructs the Agent to recover the prior conversation. The pending ack is
-    /// left registered, so the recovered Turn's acceptance resolves the original
-    /// Message. The recovery input carries no resume, so a further failure can
-    /// never re-enter recovery — the attempt is bounded to one.
+    /// Drive a single context-loss recovery for a resume reported
+    /// [`SessionImpact::Lost`].
+    ///
+    /// Mints the held Run and re-submits a recovery Turn with no resume,
+    /// bounding it to one attempt; the pending ack stays registered so its
+    /// acceptance resolves the original Message.
     async fn recover_lost_session(&mut self, input: InputId, original: &Input, err: &HarnessError) {
         self.run_id = new_run_id();
         self.hold_run_id = true;
@@ -605,16 +586,16 @@ impl Coordinator {
     }
 }
 
-/// Whether a rejected input was a resume attempt whose Session the harness could
-/// not load — the one condition that turns a rejection into a context-loss
-/// recovery rather than a plain failure.
+/// Whether a rejected input was a resume attempt whose Session the harness
+/// could not load — the one condition that turns a rejection into a
+/// context-loss recovery rather than a plain failure.
 fn is_lost_resume(input: &Input, err: &HarnessError) -> bool {
     err.session_impact == SessionImpact::Lost && input.resume.is_some() && !input.start_fresh
 }
 
-/// Build the fresh recovery Turn for a lost resume: same Turn configuration, but
-/// starting a new Session (`start_fresh`, no resume) with a prompt that tells the
-/// Agent to recover the prior conversation before acting.
+/// Build the fresh recovery Turn for a lost resume: same Turn configuration,
+/// but starting a new Session (`start_fresh`, no resume) with a prompt that
+/// tells the Agent to recover the prior conversation before acting.
 fn recovery_input(original: &Input, task_id: &str) -> Input {
     Input {
         id: original.id.clone(),
@@ -632,8 +613,8 @@ fn recovery_input(original: &Input, task_id: &str) -> Input {
     }
 }
 
-/// The stale Session id a lost resume was targeting, for the `session_context_lost`
-/// notice. A `--continue` (`Last`) resume names no id.
+/// The stale Session id a lost resume was targeting, for the
+/// `session_context_lost` notice. A `--continue` (`Last`) resume names no id.
 fn stale_session_id(resume: &Option<ResumeSession>) -> String {
     match resume {
         Some(ResumeSession::WithId(id)) => id.clone(),
@@ -642,9 +623,10 @@ fn stale_session_id(resume: &Option<ResumeSession>) -> String {
 }
 
 /// Wrap a prompt so the fresh recovery Session rebuilds the lost conversation
-/// context via the `moat` CLI before acting. The prior transcript is still
-/// readable through `moat messages list` even though it is no longer in the
-/// resumed CLI Session.
+/// context via the `moat` CLI before acting.
+///
+/// The prior transcript stays readable through `moat messages list` even though
+/// it is no longer in the resumed CLI Session.
 pub(super) fn context_recovery_prompt(task_id: &str, prompt: &str) -> String {
     format!(
         "<context-recovery>\n\
@@ -664,17 +646,13 @@ fn new_run_id() -> String {
     uuid::Uuid::new_v4().to_string()
 }
 
-/// Payload for the `taskTurn.turn_interrupted` published when the pod's own
-/// shutdown cancels a Turn nobody asked to end (SIGTERM from a node drain, spot
-/// reclaim, eviction, or a lifecycle restart).
+/// Payload for `taskTurn.turn_interrupted`, published when the pod's own
+/// shutdown cancels a Turn nobody asked to end.
 ///
-/// It deliberately does **not** publish `agent.stopped`: a terminal
-/// `agent`/`taskTurn` `completed`/`error`/`stopped` row is exactly what
-/// `find_interrupted_turn` treats as "this Turn ended", so publishing one here
-/// would tell the replacement pod there is nothing to resume — the Turn would
-/// sit half-finished until a human noticed and said "carry on". Mirrors the
-/// message the pod watcher emits for the ungraceful (SIGKILL) case, so both
-/// interruption paths read the same in the UI.
+/// Never publish `agent.stopped` alongside it — that's what
+/// `find_interrupted_turn` reads as "this Turn ended," leaving the replacement
+/// pod nothing to resume. Mirrors the pod watcher's SIGKILL-path message so
+/// both interruptions read the same in the UI.
 pub(super) fn interrupted_turn_payload() -> Value {
     json!({
         "message": "Turn interrupted — the sandbox pod was shut down mid-turn. \
@@ -696,9 +674,10 @@ pub(super) fn extract_wakeup_from_block(block: &CanonicalContentBlock) -> Option
 }
 
 /// Wrap one native block into the per-block `agent.message` payload the backend
-/// assembler consumes (server-owned assembly): the single-block `content` array plus the
-/// `blockIndex` and `uuid` it merges on, and the `session_id` /
-/// `parent_tool_use_id` it groups by.
+/// assembler consumes.
+///
+/// The single-block `content` array plus the `blockIndex`/`uuid` it merges on,
+/// and the `session_id`/`parent_tool_use_id` it groups by.
 fn message_payload(event: &SourceEvent, block_index: usize) -> Value {
     let mut message = json!({
         "role": role_str(event.role),

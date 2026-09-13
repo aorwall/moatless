@@ -9,8 +9,8 @@ use super::models::Repository;
 
 /// The `repositories` table, as a host and this crate's own routes reach it.
 ///
-/// The store behind it stays private to this crate. A peer band that only reads
-/// a repository takes [`moatless_ports::workspace::RepositoryReader`] instead.
+/// The store stays private to this crate; a peer band that only reads a
+/// repository takes [`moatless_ports::workspace::RepositoryReader`] instead.
 pub struct Repositories {
     store: Arc<dyn RepositoryDao>,
 }

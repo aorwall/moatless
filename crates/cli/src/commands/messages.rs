@@ -38,10 +38,10 @@ pub enum MessageAction {
         /// File(s) to attach. Repeatable.
         #[arg(long = "file")]
         files: Vec<String>,
-        /// Adapter-native rich payload, inline JSON or `@file`. The payload
-        /// names the adapter it addresses, e.g.
-        /// `{"kind":"slack","blocks":[...]}`. `--text` is still sent, and is
-        /// what the notification and the task timeline show.
+        /// Adapter-native rich payload, inline JSON or `@file`, naming the
+        /// adapter it addresses (e.g. `{"kind":"slack","blocks":[...]}`).
+        /// `--text` is still sent and is what the notification and task
+        /// timeline show.
         #[arg(long)]
         rich: Option<String>,
     },
@@ -173,10 +173,10 @@ fn format_messages(messages: &[UiMessage]) {
     output::print_table(&["ID", "ROLE", "CONTENT", "SESSION", "TIMESTAMP"], &rows);
 }
 
-/// Render messages as a full-text transcript: one block per message with
-/// role + timestamp header, complete text content, and compact markers for
-/// tool calls / tool results. Designed for conversation-context recovery
-/// (e.g. an agent re-reading its own task history after a lost session).
+/// Render messages as a full-text transcript: one block per message with a
+/// role + timestamp header, complete text, and compact tool-call/result
+/// markers — for conversation-context recovery, e.g. re-reading task history
+/// after a lost session.
 fn format_transcript(messages: &[UiMessage]) -> String {
     use std::fmt::Write as _;
 

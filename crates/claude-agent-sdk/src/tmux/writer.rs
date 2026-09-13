@@ -1,15 +1,10 @@
-//! `StdinWriter` implementation that delivers user text to the TUI via the
-//! tmux paste buffer.
+//! `StdinWriter` implementation that delivers user text to the TUI via the tmux
+//! paste buffer: load the text into a named buffer, bracket-paste it into the
+//! pane (so embedded newlines aren't treated as submit), then send `Enter` to
+//! submit.
 //!
-//! For each user message we:
-//! 1. `tmux load-buffer -b <name> -` (text streamed over stdin).
-//! 2. `tmux paste-buffer -t <session>:0 -b <name> -p -d` (bracket-paste so
-//!    embedded newlines aren't treated as submit; `-d` deletes the buffer
-//!    after).
-//! 3. `tmux send-keys -t <session>:0 Enter` to submit the prompt.
-//!
-//! Control envelopes from `QueryHandle` (interrupt, `set_permission_mode`, etc.)
-//! are not supported by the TUI; we log and drop them.
+//! Control envelopes from `QueryHandle` (interrupt, `set_permission_mode`,
+//! etc.) are not supported by the TUI; we log and drop them.
 
 use async_trait::async_trait;
 use serde_json::Value;
@@ -25,7 +20,8 @@ use crate::transport::StdinWriter;
 pub(crate) struct TmuxPasteWriter {
     pub(crate) session_name: String,
     /// The session's private tmux server socket — must match the one
-    /// [`super::session::TmuxSession`] was spawned on so paste/send-keys reach it.
+    /// [`super::session::TmuxSession`] was spawned on so paste/send-keys reach
+    /// it.
     pub(crate) socket: PathBuf,
 }
 
@@ -119,23 +115,9 @@ impl TmuxPasteWriter {
         Ok(())
     }
 
-    /// Submit a freshly-pasted prompt: wait for the paste to render into the
-    /// input box, then press Enter and confirm the box clears.
-    ///
-    /// Two phases:
-    /// 1. **Land** — poll the pane until the pasted text is visible in the input
-    ///    region. Pressing Enter only after the paste has rendered keeps the
-    ///    keypress out of Ink's bracketed-paste burst (where it would be
-    ///    absorbed) and makes the post-submit "input cleared" check unambiguous
-    ///    (empty == submitted, not == still-rendering).
-    /// 2. **Submit** — press Enter, then re-send it while the prompt is still
-    ///    sitting in the input box (Ink can still occasionally swallow a
-    ///    keypress). Re-sending Enter on an already-empty input is a no-op, so
-    ///    the budget only costs latency on a genuinely wedged prompt.
-    ///
-    /// Best-effort: a prompt too short to produce a needle can't be detected in
-    /// the pane, so it falls back to a fixed settle + single Enter — behaviour
-    /// never regresses below the original single-Enter path.
+    /// An early Enter is absorbed into Ink's bracketed-paste burst instead of
+    /// submitting; short prompts lacking a match needle fall back to a fixed
+    /// settle + single Enter.
     async fn submit_pasted_text(&self, target: &str, text: &str) {
         let needle = submit_needle(text);
 
@@ -193,12 +175,12 @@ impl TmuxPasteWriter {
         );
     }
 
-    /// Capture the pane and report whether a prompt is still sitting unsent in
-    /// the input region (after the last `❯` marker). Returns true when either
-    /// the literal prompt `needle` OR the collapsed-paste placeholder
-    /// (`[Pasted text #N +M lines]`, which the TUI shows for multi-line pastes
-    /// instead of the literal text) is present. Returns false on any capture
-    /// issue, so behaviour never regresses below the single-Enter path.
+    /// Report whether a prompt is still sitting unsent in the input region
+    /// (after the last `❯` marker).
+    ///
+    /// Matches the literal `needle` or the collapsed-paste placeholder; returns
+    /// false on any capture issue so behaviour never regresses below
+    /// single-Enter.
     async fn prompt_pending(&self, target: &str, needle: Option<&[u8]>) -> bool {
         let output = tmux_command(&self.socket)
             .args(["capture-pane", "-t", target, "-p"])
@@ -222,19 +204,18 @@ impl TmuxPasteWriter {
 /// Poll gap while waiting for a freshly-pasted prompt to render into the input
 /// box (Phase 1 of submission).
 const SUBMIT_LAND_GAP: std::time::Duration = std::time::Duration::from_millis(100);
-/// Max polls waiting for the paste to render before submitting anyway
-/// (best-effort). ~4 s budget — paste render is sub-second in practice; this
-/// only guards a badly lagging TUI and stays far under the 120 s discovery
-/// `init_timeout` that follows.
+/// Max polls waiting for paste render before submitting anyway; ~4 s budget,
+/// sub-second in practice, guarding only a badly lagging TUI well under the 120
+/// s `init_timeout` that follows.
 const SUBMIT_LAND_ATTEMPTS: usize = 40;
 /// Fixed settle before the single best-effort Enter, used only for prompts too
 /// short to detect in the pane.
 const SUBMIT_SETTLE: std::time::Duration = std::time::Duration::from_millis(200);
 /// Gap between submit-confirmation retries (Phase 2).
 const SUBMIT_CONFIRM_GAP: std::time::Duration = std::time::Duration::from_millis(250);
-/// Max number of Enter re-sends before giving up (best-effort). Re-sending Enter
-/// on an already-submitted (empty) input is a no-op, so a generous budget only
-/// costs latency on a genuinely wedged prompt — ~3 s of retries here.
+/// Max number of Enter re-sends before giving up (best-effort). Re-sending
+/// Enter on an already-submitted (empty) input is a no-op, so a generous budget
+/// only costs latency on a genuinely wedged prompt — ~3 s of retries here.
 const SUBMIT_CONFIRM_ATTEMPTS: usize = 12;
 /// Max needle length taken from the prompt for input-region matching.
 const SUBMIT_NEEDLE_LEN: usize = 32;
@@ -242,10 +223,9 @@ const SUBMIT_NEEDLE_LEN: usize = 32;
 const SUBMIT_NEEDLE_MIN: usize = 8;
 /// The `❯` input-prompt marker (U+276F) preceding the claude TUI readline.
 const INPUT_MARKER: &[u8] = "❯".as_bytes();
-/// Whitespace-stripped, lowercased form of the TUI's collapsed-paste hint
-/// (`[Pasted text #1 +5 lines]`). The TUI renders this instead of the literal
-/// text for multi-line pastes, so the literal-prompt needle won't match while
-/// the paste sits unsent — this does.
+/// Whitespace-stripped, lowercased collapsed-paste hint (`[Pasted text #1 +5
+/// lines]`), shown instead of literal text for multi-line pastes — matches when
+/// the prompt needle won't.
 const PASTE_PLACEHOLDER: &[u8] = b"[pastedtext";
 
 /// Build a whitespace-stripped, lowercased needle from the start of the prompt.
@@ -261,11 +241,11 @@ fn submit_needle(text: &str) -> Option<Vec<u8>> {
     (collapsed.len() >= SUBMIT_NEEDLE_MIN).then_some(collapsed)
 }
 
-/// True if `needle` appears in the pane region AFTER the last input marker
-/// (`❯`), with whitespace removed. Post-submit the input region is empty and
-/// the prompt has scrolled into the history above the marker, so a match means
-/// the prompt is still pending submission. `needle` must already be
-/// whitespace-stripped and lowercased (see [`submit_needle`]).
+/// True if `needle` appears in the pane region after the last input marker
+/// (`❯`), whitespace removed.
+///
+/// A match means the prompt is still pending submission; `needle` must already
+/// be stripped/lowercased (see [`submit_needle`]).
 fn input_region_contains(stripped: &[u8], needle: &[u8]) -> bool {
     let Some(start) = last_index_of(stripped, INPUT_MARKER) else {
         return false;
@@ -311,8 +291,8 @@ impl StdinWriter for TmuxPasteWriter {
     }
 }
 
-/// Extract the user-visible text from a serialized `UserMessage` JSON.
-/// Handles both string and array-of-blocks `content` shapes.
+/// Extract the user-visible text from a serialized `UserMessage` JSON. Handles
+/// both string and array-of-blocks `content` shapes.
 fn extract_user_text(value: &Value) -> Option<String> {
     let content = value.get("message").and_then(|m| m.get("content"))?;
     if let Some(s) = content.as_str() {

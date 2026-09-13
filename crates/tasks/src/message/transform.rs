@@ -1,8 +1,8 @@
 //! Transform DB rows → UI message format.
 //!
-//! This is the most complex transformation — converts raw DB rows into
-//! the UI message format with merged tool calls, content blocks, and
-//! pending user input detection.
+//! This is the most complex transformation — converts raw DB rows into the UI
+//! message format with merged tool calls, content blocks, and pending user
+//! input detection.
 
 use std::collections::{HashMap, HashSet};
 
@@ -27,9 +27,8 @@ const INTERACTIVE_TOOLS: &[&str] = &["AskUserQuestion", "ExitPlanMode"];
 
 /// Which slice of rows a transform pass renders.
 ///
-/// `TopLevel` renders the task's own conversation and drops subagent rows
-/// (those carrying a `parent_uuid` — the spawning `Agent` tool-use id).
-/// `Subagent` renders exactly one subagent's transcript: the rows whose
+/// `TopLevel` drops subagent rows (those carrying a `parent_uuid`, the spawning
+/// `Agent` tool-use id); `Subagent` renders exactly the rows whose
 /// `parent_uuid` equals the given tool-use id.
 #[derive(Clone, Copy)]
 enum RenderScope<'a> {
@@ -48,11 +47,9 @@ impl RenderScope<'_> {
 
 /// One turn: what was said, and what happened on the way to saying it.
 ///
-/// Both halves are optional and that is the point. A turn that only called tools
-/// said nothing and has no Message row at all; a person's turn does nothing and
-/// has no activities. `key` is what puts the two kinds in one order — the
-/// Message's own timestamp where there is one, and otherwise when the first
-/// activity was recorded.
+/// Both halves are optional: a tool-only turn has no Message row, a person's
+/// turn has no activities. `key` orders the two kinds — the Message's own
+/// timestamp where there is one, else the first activity's.
 struct Turn<'a> {
     key: String,
     uuid: String,
@@ -69,13 +66,11 @@ pub fn transform_to_ui(
     transform_to_ui_with_files(messages, contexts, activities, &HashMap::new())
 }
 
-/// Like [`transform_to_ui`] but with a pre-fetched `file_metadata` map used to
-/// synthesise File contexts for legacy messages persisted before the
-/// `task_message_contexts` write path was wired up. Such messages still have
-/// `attachments.file_ids` populated by the previous PR.
+/// Like [`transform_to_ui`] but with a pre-fetched `file_metadata` map.
 ///
-/// Top-level only: subagent rows (those carrying a `parent_uuid`) are excluded.
-/// Their transcripts are assembled on demand via [`transform_subagent_transcript`].
+/// Synthesises File contexts for legacy messages (pre-`task_message_contexts`)
+/// from their `attachments.file_ids`. Top-level only — subagent rows are
+/// assembled on demand via [`transform_subagent_transcript`].
 pub fn transform_to_ui_with_files(
     messages: &[TaskMessage],
     contexts: &[TaskMessageContext],
@@ -286,8 +281,8 @@ fn call_results(activities: &[&Activity]) -> Vec<UiToolResult> {
 /// Whether this turn is still waiting on a person.
 ///
 /// An interactive call that has not come back is the whole condition: the
-/// person's answer settles the call's activity, so `in_progress` on one of these
-/// two tools *is* "waiting".
+/// person's answer settles the call's activity, so `in_progress` on one of
+/// these two tools *is* "waiting".
 fn has_unanswered_question(activities: &[&Activity]) -> bool {
     activities.iter().any(|activity| {
         let activity = ActivityView::new(activity);
@@ -351,10 +346,11 @@ pub(crate) fn agent_tool_use_ids(messages: &[UiMessage]) -> Vec<String> {
 }
 
 /// Inject `subagentSummary` onto each `Agent` tool-use block from the batched
-/// `(message_count, tokens)` aggregate keyed by tool-use id. `status` is derived
-/// from the outer `Agent` `tool_result` inlined on the owning Message: present +
-/// `is_error` → `Error`; present → `Completed`; absent → `Running`. A missing
-/// aggregate entry yields a zeroed count (a just-spawned subagent).
+/// `(message_count, tokens)` aggregate keyed by tool-use id.
+///
+/// `status` derives from the outer `tool_result` inlined on the Message:
+/// present + `is_error` → `Error`; present → `Completed`; absent → `Running`. A
+/// missing aggregate entry yields a zeroed count (a just-spawned subagent).
 pub(crate) fn inject_subagent_summaries(
     messages: &mut [UiMessage],
     aggregates: &HashMap<String, (u32, u32)>,
@@ -391,10 +387,9 @@ pub(crate) fn inject_subagent_summaries(
 
 /// Build the `UiMessage.contexts` list for a user message.
 ///
-/// If the message has persisted `task_message_contexts` rows, return them.
-/// Otherwise fall back to synthesising File contexts from `attachments.file_ids`
-/// using the supplied `file_metadata` map — covers legacy messages persisted
-/// before `task_message_contexts` was actually written to.
+/// Returns persisted `task_message_contexts` rows if present; otherwise
+/// synthesises File contexts from `attachments.file_ids` via `file_metadata`,
+/// covering legacy messages predating that write path.
 fn build_user_contexts(
     msg: &TaskMessage,
     rows: &[&TaskMessageContext],
@@ -587,9 +582,9 @@ fn transform_result(msg: &TaskMessage) -> UiMessage {
 
 /// A Message's text, as the one content block the frontend renders it from.
 ///
-/// Empty where there is none, which is what a caller that has already decided
-/// this row is worth rendering needs — a Message with no text is not written at
-/// all, so this only ever fires for rows that predate the change.
+/// Empty where there is none — a caller has already decided this row is worth
+/// rendering, and a Message with no text is only ever a row predating that
+/// write path.
 fn text_blocks(text: Option<&str>) -> Vec<UiContentBlock> {
     text.filter(|text| !text.is_empty())
         .map(|text| {
@@ -606,11 +601,11 @@ fn text_blocks(text: Option<&str>) -> Vec<UiContentBlock> {
         .unwrap_or_default()
 }
 
-/// For codex tool calls, re-validate the stored `tool_use_result` against
-/// the shared typed schemas so the frontend receives a known-shape payload.
+/// For codex tool calls, re-validate the stored `tool_use_result` against the
+/// shared typed schemas so the frontend receives a known-shape payload.
 ///
-/// Falls back to the raw value when the tool name is not a codex tool or
-/// when deserialization fails — no message is ever dropped.
+/// Falls back to the raw value when the tool isn't a codex tool or
+/// deserialization fails — no message is ever dropped.
 pub(crate) fn enrich_codex_typed_result(
     tool_name: &str,
     tool_input: Option<&serde_json::Value>,
@@ -651,10 +646,9 @@ pub(crate) fn enrich_codex_typed_result(
 
 /// Render a stable external event id as a short human-readable label.
 ///
-/// Mirrors the prefix scheme produced by inbound adapters:
-/// `github:ic:N`, `github:rc:N`, `github:rv:N`, `github:cr:N`, `github:cs:N`,
-/// `github:pr:<action>:<number>[:<sha>]`, `slack:ts:<ts>`, `tg:m:<id>`.
-/// Falls back to the raw value for legacy bare-int rows or unknown shapes.
+/// Mirrors the prefix scheme produced by inbound adapters (`github:*`,
+/// `slack:ts:*`, `tg:m:*`); falls back to the raw value for legacy bare-int
+/// rows or unknown shapes.
 pub(crate) fn format_external_label(raw: &str) -> String {
     let parts: Vec<&str> = raw.split(':').collect();
     if parts.len() < 2 {

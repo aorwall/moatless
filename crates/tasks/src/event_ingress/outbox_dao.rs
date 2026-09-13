@@ -1,7 +1,8 @@
 //! The durable ingress outbox: storage for admitted dispatch payloads.
 //!
 //! A record lives from durable admission until its consumer commits the message
-//! it carries. See the module docs on [`super`] for where this sits in the durable-ingress decision.
+//! it carries. See the module docs on [`super`] for where this sits in the
+//! durable-ingress decision.
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -9,10 +10,9 @@ use serde_json::Value;
 
 use moatless_core::db::DbPool;
 
-/// Base delay before the relay's first re-publish of a record, and the factor
-/// its backoff doubles from. Long enough that the ingress publish (and the
-/// consumer's commit of it) normally wins the race and deletes the record
-/// before the relay ever looks at it.
+/// Base delay before the relay's first re-publish, and the factor its backoff
+/// doubles from — long enough that the ingress publish and consumer commit
+/// normally win the race and delete it first.
 pub(super) const RETRY_BASE_SECS: i32 = 30;
 
 /// Cap on the relay's per-record backoff. A record that has been failing for
@@ -40,22 +40,23 @@ pub struct ClaimedPayload {
     pub payload: IngressPayload,
     /// Relay attempts made before this one (0 on the first claim).
     pub attempts: i32,
-    /// When the ingress admitted the record — the age of an undelivered payload.
+    /// When the ingress admitted the record — the age of an undelivered
+    /// payload.
     pub admitted_at: DateTime<Utc>,
 }
 
 /// Persistence for the transactional ingress outbox.
 ///
 /// Two consumers justify the seam: the gRPC ingress (admit) and the relay
-/// (claim/republish), plus the event-handler consumer's delete. Unit tests of
-/// admission and of the relay drive it through fakes.
+/// (claim/republish), plus the event-handler consumer's delete.
 #[cfg_attr(test, mockall::automock)]
 #[async_trait]
 pub trait IngressOutbox: Send + Sync {
     /// Durably admit `payload`, scheduling its first relay attempt for
-    /// `first_attempt_at`. Idempotent on `event_id`: a retried delivery of an
-    /// already-admitted event neither duplicates the record nor resets its
-    /// retry schedule.
+    /// `first_attempt_at`.
+    ///
+    /// Idempotent on `event_id`: a retried delivery of an already-admitted
+    /// event neither duplicates the record nor resets its retry schedule.
     async fn admit(
         &self,
         payload: &IngressPayload,
@@ -63,9 +64,10 @@ pub trait IngressOutbox: Send + Sync {
     ) -> Result<(), sqlx::Error>;
 
     /// Drop the record for `event_id` because its content is now committed to
-    /// its canonical table. The **only** delete: a record is removed on
-    /// confirmed delivery and never on a publish that was merely attempted.
-    /// Returns whether a record was present.
+    /// its canonical table — the only delete in this path.
+    ///
+    /// Removed only on confirmed delivery, never on a publish merely attempted;
+    /// returns whether a record was present.
     async fn delete_delivered(&self, event_id: &str) -> Result<bool, sqlx::Error>;
 
     /// Claim up to `limit` records whose next attempt is due at `now`,

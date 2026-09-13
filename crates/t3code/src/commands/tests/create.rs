@@ -35,8 +35,8 @@ async fn a_bootstrapped_turn_creates_the_thread_with_its_first_message() {
     );
 }
 
-/// The branch the person picked in the composer reaches the sink, so the
-/// Task is created against it rather than the repository's default.
+/// The branch the person picked in the composer reaches the sink, so the Task
+/// is created against it rather than the repository's default.
 #[tokio::test]
 async fn a_bootstrapped_turn_carries_the_picked_branch() {
     let mut command = turn(Some(("claudeAgent", "claude-opus-5")));
@@ -90,8 +90,8 @@ async fn a_standalone_create_carries_no_first_message() {
     );
 }
 
-/// The draft's Script run: the Task is created for the Sandbox rather than
-/// for a turn, so the create is the only thing that will ever ask for one.
+/// The draft's Script run: the Task is created for the Sandbox rather than for
+/// a turn, so the create is the only thing that will ever ask for one.
 #[tokio::test]
 async fn a_standalone_create_can_ask_for_a_sandbox() {
     let mut command = json!({

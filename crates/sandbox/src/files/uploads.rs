@@ -1,14 +1,11 @@
 //! Pre-fetch user-uploaded files referenced by pending messages.
 //!
-//! When a user attaches files to a message, the backend persists their
-//! `file_id`s on the message and advertises an on-disk path (under
-//! `UPLOAD_DIR`) in the prompt. This module fetches the bytes via gRPC and
-//! writes them to that path before the agent runs, so the prompt is valid
-//! by the time the agent reads it.
+//! The backend advertises an on-disk path under `UPLOAD_DIR` in the prompt
+//! before the bytes exist; this module fetches them via gRPC so the path is
+//! valid by the time the agent reads it.
 //!
-//! `UPLOAD_DIR` lives under `WORKSPACE_DIR`, so what is written here rides the
-//! workspace snapshot: a restarted pod restores the bytes with the rest of the
-//! workspace and [`ensure_upload_on_disk`] skips the re-fetch.
+//! `UPLOAD_DIR` lives under `WORKSPACE_DIR` and rides the workspace snapshot —
+//! see [`ensure_upload_on_disk`] for the restart-idempotent behavior it backs.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -19,8 +16,8 @@ use crate::backend_client::BackendClient;
 
 /// Errors from pre-fetching uploaded files into the sandbox filesystem.
 ///
-/// `tonic::Status` is large, so it's boxed to keep this enum cheap to pass
-/// around (clippy `result_large_err`).
+/// `tonic::Status` is boxed to keep this enum cheap to pass around (clippy
+/// `result_large_err`).
 #[derive(Debug, thiserror::Error)]
 pub enum UploadFetchError {
     #[error("gRPC download failed: {0}")]
@@ -37,11 +34,11 @@ impl From<tonic::Status> for UploadFetchError {
     }
 }
 
-/// Ensure an uploaded file is on disk under `<upload_dir>/<file_id>/<filename>`.
+/// Ensure an uploaded file is on disk under
+/// `<upload_dir>/<file_id>/<filename>`.
 ///
-/// Idempotent: if the target directory already contains files we assume a
-/// previous turn wrote them, or a restart restored them with the workspace,
-/// and return without making the gRPC call.
+/// Idempotent: skips the gRPC call when the target directory is already
+/// populated.
 pub async fn ensure_upload_on_disk(
     backend: &Arc<dyn BackendClient>,
     task_id: &str,
@@ -76,11 +73,10 @@ pub async fn ensure_upload_on_disk(
     Ok(target_dir)
 }
 
-/// Batch fetch — a failure on one file does not stop the others, and none of
-/// them stops the turn. Returns the `file_id`s that did not land on disk,
-/// paired with why, so the caller can correct the prompt: the backend has
-/// already written a "Saved to: …" line for every attached file, and a path
-/// that was never written would otherwise be advertised to the agent as valid.
+/// Batch fetch — a failure on one file stops neither the others nor the turn.
+///
+/// Returns the failed `file_id`s paired with why, so the caller can correct a
+/// prompt that would otherwise advertise an unwritten path as valid.
 pub async fn fetch_uploads_for_messages(
     backend: &Arc<dyn BackendClient>,
     task_id: &str,
@@ -97,12 +93,11 @@ pub async fn fetch_uploads_for_messages(
     failed
 }
 
-/// Render the note appended to a turn's prompt when an attachment did not
-/// reach the sandbox.
+/// Render the note appended to a turn's prompt when an attachment did not reach
+/// the sandbox.
 ///
-/// The prompt names each attachment by `file_id` in its "Saved to:" path, so
-/// naming the same id is enough for the agent to match the note to the line it
-/// contradicts. Returns `None` when every fetch succeeded.
+/// Names each attachment by `file_id`, matching the prompt's "Saved to:" line
+/// it contradicts. Returns `None` when every fetch succeeded.
 pub fn failed_upload_note(failed: &[(String, String)]) -> Option<String> {
     if failed.is_empty() {
         return None;

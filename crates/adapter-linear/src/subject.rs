@@ -1,17 +1,14 @@
 //! What a Linear Binding points at, and how to find one.
 //!
-//! Two subject kinds, and the difference is not cosmetic. A
-//! `linear_agent_session` Binding names a Linear agent session — it has a panel
-//! that can be kept alive with an activity, and replies land there. A
-//! `linear_issue` Binding names an issue with no session behind it, created by
-//! the CLI, by an operator, or by an issue entering a trigger state; it has no
-//! panel, so it costs no activity call and hears only comments.
+//! Two subject kinds. A `linear_agent_session` Binding names a Linear agent
+//! session with a live panel, kept alive by an activity, that replies land in.
+//! A `linear_issue` Binding (CLI, operator, or trigger-state created) names an
+//! issue with no session, no panel, and no activity calls — only comments.
 //!
-//! Both carry the issue id in `destination_config`, which is what lets one
-//! comment reach a task bound either way. That is also why the two
-//! `destination_config` literals live here rather than at the two provisioning
-//! sites: `issue_id` is a lookup key, and a provisioning path that spelled it
-//! differently would write a Binding nothing could find.
+//! Both carry `issue_id` in `destination_config`, so one comment can reach a
+//! task bound either way — which is why both destination-config literals live
+//! here rather than at their two provisioning sites: a differently-spelled key
+//! would write a Binding nothing could find.
 
 use moatless_adapter_model::error::AdapterError;
 use moatless_adapter_model::loops::LoopReader;
@@ -29,9 +26,9 @@ pub(super) const SUBJECT_KIND_SESSION: &str = "linear_agent_session";
 
 /// Which Bindings a lookup is asking for.
 ///
-/// The two shapes differ only in which key they filter on, which is why they
-/// are one lookup with a parameter rather than two: everything else about them
-/// — the adapter, the subject kinds, the pending guard — has to stay in step.
+/// The two shapes differ only in which key they filter on, so this is one
+/// lookup with a parameter rather than two — everything else (adapter, subject
+/// kinds, pending guard) has to stay in step.
 pub(super) enum BindingScope<'a> {
     /// Every Binding of either subject kind pointing at this issue. Used by the
     /// close path, which must consider a task bound through a session and a
@@ -44,14 +41,11 @@ pub(super) enum BindingScope<'a> {
 
 /// The Bindings `scope` names, in no particular order.
 ///
-/// Both shapes skip a Binding its `destination_config` still marks pending: a
-/// provisioning path writes one before the Linear side exists, and neither
-/// caller may act on a subject that does not exist yet, so the guard is part of
-/// this lookup rather than left to each caller to remember.
-///
-/// Note this deliberately does *not* filter on `active`: the close path needs
-/// to see a Binding in order to decide about it, and the emitters' callers
-/// filter for themselves. Callers that want only live Bindings say so.
+/// Skips a Binding still marked pending in `destination_config` (written before
+/// its Linear side exists) so no caller acts on a subject that doesn't exist
+/// yet; deliberately does *not* filter on `active` — the close path needs to
+/// see a Binding to decide about it, so callers that want only live Bindings
+/// say so themselves.
 pub(super) async fn bindings_in_scope(
     task_bindings: &Bindings,
     scope: BindingScope<'_>,
@@ -94,12 +88,10 @@ fn is_pending(binding: &TaskBinding) -> bool {
 /// Every active Binding of either subject kind listening to `issue_id`, scoped
 /// to `connection`, session Bindings first.
 ///
-/// Not de-duplicated per task. Which of a task's Bindings hears a given comment
-/// depends on the comment — an issue Binding hears every comment on the issue, a
-/// session Binding only its own thread (see `comments::recipients_for_comment`)
-/// — and the panel heartbeat wants the session Binding specifically. The
-/// session-first order lets the recipient step keep the session Binding whenever
-/// a task's session is the one that matched.
+/// Not de-duplicated per task: which Binding hears a given comment depends on
+/// the comment (see `comments::recipients_for_comment`), and the session-first
+/// order lets the recipient step keep the session Binding whenever a task's
+/// session is the one that matched.
 pub(super) async fn active_comment_bindings(
     task_bindings: &Bindings,
     connection: &AdapterConnection,
@@ -141,10 +133,9 @@ pub(super) async fn active_bindings_on_issue(
 
 /// The Subscription a Binding was created by, if it still exists.
 ///
-/// A Binding whose Subscription has since been deleted keeps working —
-/// `None` here means "no Subscription context", not "stop". Existing Bindings
-/// keep receiving events; only new trigger-created Task behaviour is gated on
-/// the Subscription.
+/// `None` means "no Subscription context", not "stop" — a Binding whose
+/// Subscription was deleted keeps receiving events; only new trigger-created
+/// Task behavior is gated on it.
 pub(super) async fn rule_for_binding(
     loops: &dyn LoopReader,
     binding: &TaskBinding,
@@ -157,9 +148,9 @@ pub(super) async fn rule_for_binding(
 
 /// The `destination_config` of a Binding created from a Linear agent session.
 ///
-/// `session_id` is what makes it a session Binding — the reply path and the
-/// heartbeat both read it, and its absence is what tells the two kinds apart at
-/// a call site that only has the JSON.
+/// `session_id` is what makes it a session Binding — the reply path and
+/// heartbeat both read it, and its absence is what distinguishes the two kinds
+/// at a call site that only has the JSON.
 pub(super) fn session_destination_config(
     session: &AgentSession,
     issue_id: &str,
@@ -196,8 +187,9 @@ pub(super) fn issue_destination_config(issue: &IssuePayload, team_id: &str) -> s
 }
 
 /// `task_bindings.subject_kind` for bindings that point to a Linear issue
-/// (CLI-created or operator-initiated). Distinct from the existing
-/// `linear_agent_session` kind, which routes replies through
+/// (CLI-created or operator-initiated).
+///
+/// Distinct from `linear_agent_session`, which routes replies through
 /// `agentActivityCreate`; `linear_issue` routes through `commentCreate`.
 pub const SUBJECT_KIND_ISSUE: &str = "linear_issue";
 
@@ -219,8 +211,8 @@ mod tests {
 
     /// A session Binding carries `session_id`; an issue Binding does not.
     ///
-    /// That difference is load-bearing: `send_reply_for_binding` and the
-    /// comment heartbeat both branch on whether the key is present.
+    /// Load-bearing: `send_reply_for_binding` and the comment heartbeat both
+    /// branch on whether the key is present.
     #[test]
     fn only_a_session_binding_carries_a_session_id() {
         let session = AgentSession {

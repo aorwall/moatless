@@ -3,9 +3,9 @@
 
 use super::*;
 
-/// What the sink was asked to do. Every assertion about the command table
-/// is an assertion about this list, because the table's whole job is
-/// deciding which of these happens.
+/// What the sink was asked to do. Every assertion about the command table is an
+/// assertion about this list, because the table's whole job is deciding which
+/// of these happens.
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum Call {
     SendTurn {
@@ -14,8 +14,7 @@ pub(super) enum Call {
         model: Option<String>,
         agent_mode: Option<String>,
         effort: Option<String>,
-        /// Each attachment as it reached the sink, in the order it was
-        /// sent.
+        /// Each attachment as it reached the sink, in the order it was sent.
         attachments: Vec<Attached>,
         skills: Vec<String>,
     },
@@ -97,9 +96,9 @@ pub(super) enum Call {
     },
 }
 
-/// One attachment as the sink received it. An inline one is recorded by
-/// what its bytes turned out to be — not by what the client declared — and
-/// an uploaded one by the only thing it carries.
+/// One attachment as the sink received it. An inline one is recorded by what
+/// its bytes turned out to be — not by what the client declared — and an
+/// uploaded one by the only thing it carries.
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum Attached {
     Inline(String, String, usize),
@@ -462,8 +461,9 @@ pub(super) fn named(name: &str) -> Conversation {
 }
 
 /// A DAO that answers with one conversation, or with none when `found` is
-/// `None` — which is what "the viewer cannot be shown it" looks like from
-/// here. Control is granted; the test that withholds it overrides
+/// `None` — "the viewer cannot be shown it", from here.
+///
+/// Control is granted; the test that withholds it overrides
 /// `controls_conversation` itself.
 pub(super) fn conversations(found: Option<Conversation>) -> MockConversationDao {
     let mut dao = MockConversationDao::new();
@@ -480,8 +480,8 @@ pub(super) fn conversations(found: Option<Conversation>) -> MockConversationDao 
     dao
 }
 
-/// The stored call an answer names — the unanswered `AskUserQuestion` a
-/// panel is derived from, unless a test says otherwise.
+/// The stored call an answer names — the unanswered `AskUserQuestion` a panel
+/// is derived from, unless a test says otherwise.
 pub(super) fn asked(tool_name: &str) -> InteractiveCall {
     InteractiveCall {
         tool_name: tool_name.to_string(),

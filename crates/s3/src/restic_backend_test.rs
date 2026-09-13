@@ -6,10 +6,11 @@ use crate::objects_test::{endpoint, response};
 /// A repository id is 32 bytes, so its name on the wire is 64 hex characters.
 const ID: &str = "ab12000000000000000000000000000000000000000000000000000000000000";
 
-/// The backend blocks on a runtime of its own, which panics if the calling
-/// thread is already driving one. The fake endpoint therefore gets a separate
-/// runtime that stays alive for the whole test, and every backend call runs on
-/// the test thread — the arrangement `spawn_blocking` produces in production.
+/// Runs the fake endpoint on a separate runtime, since the backend's own panics
+/// if the calling thread already drives one.
+///
+/// The runtime outlives the test, mirroring the `spawn_blocking` arrangement
+/// production uses.
 fn harness(exchanges: Vec<(&'static str, String)>) -> (tokio::runtime::Runtime, ResticS3Backend) {
     let server = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(1)

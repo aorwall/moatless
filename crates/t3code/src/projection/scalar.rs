@@ -28,7 +28,7 @@ pub(super) fn nullable_instant(value: Option<DateTime<Utc>>) -> Value {
 
 /// When the conversation was created.
 ///
-/// `tasks` records this twice: as text the caller supplied, and as a database
+/// `tasks` records this twice: as caller-supplied text, and as a database
 /// timestamp added later. The typed column wins; the text is the fallback for
 /// rows written before it existed.
 pub(super) fn created_at(conversation: &Conversation) -> DateTime<Utc> {

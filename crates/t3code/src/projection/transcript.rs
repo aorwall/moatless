@@ -1,4 +1,5 @@
-//! The transcript: one window of messages and activities as the client renders it.
+//! The transcript: one window of messages and activities as the client renders
+//! it.
 
 use std::collections::HashSet;
 
@@ -23,10 +24,10 @@ use moatless_types::message::MessageType;
 
 const TOOL_RESPONSE_USER_TYPE: &str = "tool_response";
 
-/// What `ChatImageAttachment` and `ChatFileAttachment` accept, field for field
-/// (`contracts/src/orchestration.ts:186-205`). An attachment is projected as
-/// whichever member it fits, and one that fits neither is left out rather than
-/// sent for the client to refuse — see [`message_attachments`].
+/// `ChatAttachmentId`'s max length (`contracts/src/orchestration.ts:186-205`).
+///
+/// An attachment past this, or matching neither member's shape, is left out
+/// rather than sent for the client to refuse — see [`message_attachments`].
 const ATTACHMENT_ID_MAX_CHARS: usize = 128;
 
 pub(super) const ATTACHMENT_NAME_MAX_CHARS: usize = 255;
@@ -42,10 +43,9 @@ use crate::attachments::SUPPORTED_IMAGE_MIME_TYPES;
 
 /// The two collections a conversation's transcript becomes.
 ///
-/// T3 splits a conversation the way a reader does and Moatless does not: what
-/// somebody *said* is a message, and what the agent *did* on the way to saying
-/// it is an activity. One Moatless Message therefore produces a message and
-/// several activities, or only activities.
+/// T3 splits what somebody *said* (a message) from what the agent *did* to say
+/// it (activities); one Moatless Message can therefore produce both, or only
+/// activities.
 pub(super) struct RenderedTranscript {
     pub(super) messages: Vec<Value>,
     pub(super) activities: Vec<Value>,
@@ -53,10 +53,9 @@ pub(super) struct RenderedTranscript {
 
 /// Split a Task's stored rows into the messages and activities T3 renders.
 ///
-/// Two walks rather than one: an activity belongs to a Message by provenance
-/// and not by containment, and a turn that only called tools has activities and
-/// no Message at all. Ordering is carried explicitly on each side — Message
-/// order for the bubbles, the conversation's `position` for the work log.
+/// Two walks, not one: an activity belongs to a Message by provenance, not
+/// containment, and a turn that only called tools has activities and no Message
+/// at all.
 pub(super) fn rendered_transcript(
     conversation: &Conversation,
     transcript: &Transcript,
@@ -97,13 +96,9 @@ pub(super) fn rendered_transcript(
 
 /// Which context-window readings a snapshot carries: the newest per turn.
 ///
-/// The client reads the meter off the newest reading it holds, so every earlier
-/// one in the same turn is a row nothing renders. This projection re-sends its
-/// whole log whenever the conversation moves, so the superseded ones are dropped
-/// on the way out rather than stored differently.
-///
-/// Per turn rather than per conversation: a Turn is the unit a person scrolls
-/// back to, and the reading a finished turn ended on stays legible beside it.
+/// The client reads the meter off the newest reading it holds, so earlier ones
+/// in the same turn render nothing; per turn, not per conversation, so a
+/// finished turn's ending reading stays legible beside it.
 fn surviving_context_windows(transcript: &Transcript) -> HashSet<&str> {
     let mut newest: std::collections::HashMap<Value, &Activity> = std::collections::HashMap::new();
     for activity in &transcript.activities {
@@ -139,8 +134,8 @@ fn surviving_context_windows(transcript: &Transcript) -> HashSet<&str> {
 /// The bubble one Message contributes to the conversation, or `None` when it
 /// contributes none.
 ///
-/// Three of the four ways to contribute nothing are about *which* Message it
-/// is rather than what it holds, so this matches on the type.
+/// Three of the four ways to contribute nothing are about *which* Message it is
+/// rather than what it holds, so this matches on the type.
 pub(super) fn message_bubble(
     message: &TranscriptMessage,
     turn: &Value,
@@ -192,16 +187,9 @@ pub(super) fn message_bubble(
 
 /// The uploads on a Message, as the contract's `ChatAttachment` union.
 ///
-/// Which member an upload becomes is decided by which one it *fits*, not by
-/// what its mime type looks like. The image member names four types — gif,
-/// jpeg, png, webp — at up to 10 MiB and may be zero bytes; the file member
-/// takes any type at one byte to 50 MiB
-/// (`contracts/src/orchestration.ts:186-205`). So an SVG, and a 20 MiB PNG,
-/// are files.
-///
-/// An upload past *both* members is left out rather than sent: the client
-/// decodes the whole thread snapshot against that schema, so one field that
-/// fails its check costs the reader the conversation.
+/// Decided by which member it *fits*, not by mime type name; an upload past
+/// both is left out rather than sent, since a snapshot field that fails its
+/// schema costs the reader the whole conversation.
 pub(super) fn message_attachments(message: &TranscriptMessage) -> Vec<Value> {
     let Some(contexts) = message.file_contexts.as_ref().and_then(Value::as_array) else {
         return Vec::new();
@@ -253,7 +241,8 @@ pub(super) fn message_attachments(message: &TranscriptMessage) -> Vec<Value> {
 
 /// `ChatAttachmentId`'s alphabet (`contracts/src/orchestration.ts:152-155`). An
 /// upload id is a uuid and always passes; this is what keeps a hand-written or
-/// migrated id from reaching a client that would refuse the snapshot holding it.
+/// migrated id from reaching a client that would refuse the snapshot holding
+/// it.
 fn is_attachment_id(id: &str) -> bool {
     id.bytes()
         .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
@@ -261,9 +250,9 @@ fn is_attachment_id(id: &str) -> bool {
 
 /// Cut `text` to at most `max` bytes without splitting a character.
 ///
-/// Bytes rather than characters, and deliberately: the contract's limit counts
-/// UTF-16 units, which no multi-byte character can exceed the byte count of, so
-/// a byte cut is never the looser reading of the same rule.
+/// Deliberately bytes, not characters: the contract's limit counts UTF-16
+/// units, which no multi-byte character exceeds the byte count of, so a byte
+/// cut is never looser than the rule.
 fn truncate_on_char_boundary(text: &str, max: usize) -> &str {
     if text.len() <= max {
         return text;
@@ -277,16 +266,10 @@ fn truncate_on_char_boundary(text: &str, max: usize) -> &str {
 
 /// The Turn an activity is shown under, and when it happened.
 ///
-/// An activity carries no turn of its own, so the Turn is borrowed in three
-/// steps:
-///
-/// 1. From the Message the activity was written with, when that Message exists.
-/// 2. From the newest Message before it, when it does not — a turn that only
-///    called tools wrote no Message, and its calls belong with the turn already
-///    under way.
-/// 3. From the conversation's newest Turn, when the window holds no Message at
-///    all. This is the live path: a change is read moments after it was
-///    recorded, so the newest Turn is the one it happened in.
+/// An activity carries no turn of its own: borrowed from the Message it was
+/// written with, else the newest Message before it, else the conversation's
+/// newest Turn when the window holds no Message at all (the live path, read
+/// moments after recording).
 pub(super) fn activity_anchor(
     conversation: &Conversation,
     window: &Transcript,
@@ -352,13 +335,10 @@ fn message_row(
 
 /// One stored activity as the work-log row the contract carries.
 ///
-/// The preview is stored in its own column, cut once when the result arrived
-/// rather than on every send. Full `input`, `result` and `typedResult` stay in
-/// storage for the Moatless frontend, which asks for one activity at a time;
-/// this contract re-sends its whole snapshot whenever the conversation moves.
-///
-/// `sequence` is the number this row's own event carries — see
-/// [`activity_sequence`].
+/// The preview is cut once, in its own column, when the result arrived, rather
+/// than on every send; full `input`/`result`/`typedResult` stay in storage
+/// since this contract re-sends its whole snapshot on every move. `sequence`
+/// matches [`activity_sequence`].
 pub(super) fn activity_row(
     activity: &Activity,
     turn: &Value,
@@ -383,10 +363,9 @@ pub(super) fn activity_row(
 
 /// What the subagent this row spawned has spent, on the row that names it.
 ///
-/// Stamped here rather than in the payload projection because the numbers are
-/// not on the row: they are summed across Messages the transcript excludes, and
-/// reach this point on the transcript that read them. Keyed by the `taskId` the
-/// payload projection stamped, so a row naming no subagent is left alone.
+/// Stamped here, not in the payload projection, because the numbers are summed
+/// across Messages the transcript excludes; keyed by the `taskId` already
+/// stamped, so a row naming no subagent is left alone.
 fn stamp_subagent_usage(payload: &mut Map<String, Value>, window: &Transcript) {
     let Some(usage) = payload
         .get("taskId")
@@ -410,13 +389,9 @@ type SettledCalls = HashSet<String>;
 
 /// What a question's panel row is, once its call has come back.
 ///
-/// The row a panel is derived from is written beside the call rather than being
-/// it, so no result ever lands on it and its own status never moves. Left at
-/// `requested` it asks forever: the client keeps the panel open until a row
-/// naming the same request resolves, and an answer to a settled call is refused.
-///
-/// The call's status is what settles it, however it was settled — answered here,
-/// answered on another surface, or dropped by a resuming session.
+/// The panel row is written beside the call, not as it, so its own status never
+/// moves; left at `requested` the client would keep it open forever, however
+/// the call was actually settled.
 fn panel_kind(activity: &Activity, settled: &SettledCalls) -> Option<&'static str> {
     if activity.kind != ActivityKind::UserInputRequested {
         return None;
@@ -429,28 +404,19 @@ fn panel_kind(activity: &Activity, settled: &SettledCalls) -> Option<&'static st
 
 /// Where one activity sits in the conversation's event numbering.
 ///
-/// `position * EVENTS_PER_CHANGE + ordinal + 1` — the number
-/// [`ConversationChange::sequence`] computes for the same row, so a client sees
-/// the same value whether it arrived in a snapshot or as an event. That is the
-/// invariant `task_activities::models` states.
-///
-/// **Slot 0 is the Message's bubble, whether or not one is emitted.** An index
-/// counted while walking would shift by one depending on whether the caller's
-/// slice held that Message at all. A change with nothing to say leaves a gap,
-/// and a sequence is a cursor rather than a count.
+/// Matches what [`ConversationChange::sequence`] computes for the same row, so
+/// a client sees the same value whether it arrived in a snapshot or as an
+/// event; slot 0 is always the Message's bubble, whether or not one is emitted.
 pub(super) fn activity_sequence(activity: &Activity) -> i64 {
     activity.position * EVENTS_PER_CHANGE + activity_slot(activity) + 1
 }
 
 /// The slot a row owns inside its change, above the bubble's slot 0.
 ///
-/// A row a panel is derived from is written beside the call at the same Message
-/// and the same block, so the block alone numbers the two identically, and a
-/// reader delivering each sequence once would drop the panel row on the way out.
-/// Derived rows therefore take a band above every block a Message can hold.
-///
-/// Read off the row rather than stored on it, so rows already written are
-/// numbered by the same rule and a snapshot and a live change go on agreeing.
+/// A panel row is written beside its call at the same block, so block-only
+/// numbering would collide and drop it; derived rows take a band above every
+/// block a Message can hold. Read off the row, not stored, so old and new rows
+/// agree.
 pub(super) fn activity_slot(activity: &Activity) -> i64 {
     let ordinal = i64::from(activity.ordinal);
     match activity.kind {
@@ -459,17 +425,17 @@ pub(super) fn activity_slot(activity: &Activity) -> i64 {
     }
 }
 
-/// Where the derived rows' slots begin. Above any block count a Message reaches,
-/// and low enough that the band itself stays inside [`EVENTS_PER_CHANGE`].
+/// Where the derived rows' slots begin. Above any block count a Message
+/// reaches, and low enough that the band itself stays inside
+/// [`EVENTS_PER_CHANGE`].
 const DERIVED_SLOT_BASE: i64 = 512;
 
 /// When a Message happened.
 ///
-/// `timestamp` is what the writer said and what the transcript is ordered by,
-/// normalized because the client compares these as strings and a row in another
-/// format would sort away from its neighbours. A row whose `timestamp` will not
-/// parse falls back to when the database recorded it, then to the
-/// conversation's own start.
+/// `timestamp` is what the transcript is ordered by, normalized because the
+/// client compares these as strings; a row whose `timestamp` will not parse
+/// falls back to when the database recorded it, then to the conversation's
+/// start.
 pub(super) fn message_instant(
     conversation: &Conversation,
     message: &TranscriptMessage,

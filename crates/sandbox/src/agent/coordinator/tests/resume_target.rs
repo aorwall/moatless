@@ -1,8 +1,8 @@
 //! Which session a replayed or next Turn resumes.
 //!
-//! Session state is restored to disk during init before Ready, and the harness is
-//! fixed for the Sandbox, so a resumed run must target the restored session id for
-//! whichever family the pod runs.
+//! Session state is restored to disk during init before Ready, and the harness
+//! is fixed for the Sandbox, so a resumed run must target the restored session
+//! id for whichever family the pod runs.
 
 use super::*;
 

@@ -3,11 +3,6 @@
 
 //! Demonstrates custom permission handling and hooks.
 //!
-//! This example shows how to:
-//! - Implement a custom `PermissionHandler` to control which tools Claude can use
-//! - Implement a `HookHandler` to observe and modify tool execution
-//!
-//! # Usage
 //! ```bash
 //! cargo run -p claude-agent-sdk --example permissions_and_hooks
 //! ```

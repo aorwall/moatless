@@ -146,15 +146,11 @@ pub(crate) async fn validate_key(
     }))
 }
 
-/// Validate an API key with cache-aside. `auth_middleware` takes this path for
-/// every `Bearer mvk_` request, and `verify_handler` for the gate.
+/// Validates an API key with cache-aside — the path `auth_middleware` and
+/// `verify_handler` take for every `Bearer mvk_` request.
 ///
-/// A cache hit skips [`validate_key`], and with it the `status` check, until the
-/// entry ages out. See `docs/deferred-changes.md`.
-///
-/// 1. Compute SHA-256 hash (CPU-only, no DB)
-/// 2. Check cache by hash → return if hit (with expiry check)
-/// 3. Miss → call `validate_key()` → build `VerifyPayload` → insert cache → return
+/// A cache hit skips [`validate_key`], and with it the `status` check, until
+/// the entry ages out. See `docs/deferred-changes.md`.
 pub(crate) async fn validate_key_cached(
     api_keys: Arc<dyn ApiKeyDao>,
     users: &dyn UserDao,
@@ -200,8 +196,8 @@ pub(crate) async fn validate_key_cached(
     Ok(Some(verify))
 }
 
-/// Revoke (delete) an API key. Only the owner can revoke.
-/// Returns `Some(key_hash)` on success for cache invalidation, `None` if not found.
+/// Revoke (delete) an API key. Only the owner can revoke. Returns
+/// `Some(key_hash)` on success for cache invalidation, `None` if not found.
 pub(crate) async fn revoke_key(
     api_keys: &dyn ApiKeyDao,
     key_id: &str,

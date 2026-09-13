@@ -11,7 +11,8 @@ use super::service::list_agents;
 use moatless_core::http_auth::AuthUser;
 use moatless_ports::identity::{HarnessCredentials, SecretCatalog};
 
-/// List supported agents with installed / credential status for the current user.
+/// List supported agents with installed / credential status for the current
+/// user.
 #[utoipa::path(
     get,
     path = "/api/v1/agents",

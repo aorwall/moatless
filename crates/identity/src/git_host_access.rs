@@ -41,7 +41,8 @@ pub struct GitHubProviderTokenStatus {
     /// nothing behind it is the only credential there is, not an override.
     pub has_pat_override: bool,
     /// Whether this deployment can run the App authorization flow at all. False
-    /// leaves a PAT as the only way to connect, which is what the screen offers.
+    /// leaves a PAT as the only way to connect, which is what the screen
+    /// offers.
     pub app_connect_available: bool,
 }
 

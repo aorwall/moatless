@@ -224,9 +224,10 @@ impl BackendSandboxService for UploadOnlyBackend {
 }
 
 /// Serve `backend` on an ephemeral loopback port and return a client wired to
-/// it, plus the shutdown trigger. The client is the production one, so the test
-/// exercises the real channel configuration — decoding cap and call timeout
-/// included.
+/// it, plus the shutdown trigger.
+///
+/// The client is the production one, so the test exercises the real channel
+/// configuration, decoding cap and call timeout included.
 async fn serve(
     backend: UploadOnlyBackend,
 ) -> (BackendGrpcClient, tokio::sync::oneshot::Sender<()>) {

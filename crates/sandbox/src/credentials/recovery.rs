@@ -1,11 +1,9 @@
 //! Per-credential failure flags.
 //!
 //! The Codex harness recognises an expired credential from the named
-//! `codexErrorInfo` on the failed Turn and flips this flag; the agent loop polls
-//! it at turn-failure boundaries and triggers a credential pull + retry.
-//!
-//! The detector consumes typed, turn-scoped errors only. Background stderr can
-//! contain unrelated credential noise, so line scanning is not a valid signal.
+//! `codexErrorInfo` on the failed Turn and flips this flag; the agent loop
+//! polls it at turn-failure boundaries and triggers a credential pull + retry.
+//! Only typed, turn-scoped errors set it, never scanned background stderr.
 //!
 //! Adding a new credential is a one-entry change to [`KNOWN_CREDENTIALS`].
 
@@ -41,9 +39,9 @@ impl Default for CredentialFailureDetector {
 }
 
 impl CredentialFailureDetector {
-    /// Flag a credential as failed. Called by the harness when a Turn fails with
-    /// the named code for an unauthorized request. Unknown keys are ignored —
-    /// the flag map is fixed at construction.
+    /// Flag a credential as failed. Called by the harness when a Turn fails
+    /// with the named code for an unauthorized request. Unknown keys are
+    /// ignored — the flag map is fixed at construction.
     pub fn trigger(&self, key: &str) {
         if let Some(flag) = self.triggered.get(key) {
             flag.store(true, Ordering::SeqCst);

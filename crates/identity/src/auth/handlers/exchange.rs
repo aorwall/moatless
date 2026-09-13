@@ -83,9 +83,8 @@ pub(in crate::auth) async fn exchange_api_key_handler(
 
 /// Exchange a sandbox user auth token (JWT) for a session cookie.
 ///
-/// Sandbox pods carry a `USER_AUTH_TOKEN` JWT signed with `TASK_TOKEN_SECRET`.
-/// This endpoint verifies that token and creates a session, allowing the CLI
-/// to call authenticated `/api/v1/*` endpoints.
+/// Sandbox pods carry a `USER_AUTH_TOKEN` JWT signed with `TASK_TOKEN_SECRET`;
+/// verifying it lets the CLI call authenticated `/api/v1/*` endpoints.
 #[utoipa::path(
     post,
     path = "/api/v1/auth/token/session",

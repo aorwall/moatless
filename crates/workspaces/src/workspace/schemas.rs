@@ -161,8 +161,9 @@ pub fn workspace_repo_response(r: WorkspaceRepo) -> WorkspaceRepoResponse {
 }
 
 /// Build a [`WorkspaceResponse`] from a workspace row plus its placements.
-/// (A free function rather than `From<(..)>` — the orphan rule forbids
-/// implementing a foreign trait for a foreign type keyed on a tuple.)
+///
+/// A free function rather than `From<(..)>`: the orphan rule forbids
+/// implementing a foreign trait for a foreign type keyed on a tuple.
 pub fn workspace_response(w: Workspace, repos: Vec<WorkspaceRepo>) -> WorkspaceResponse {
     WorkspaceResponse {
         id: w.id,

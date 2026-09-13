@@ -1,8 +1,7 @@
-/// A catalog model choice that names no model.
+/// A catalog model choice that names no model — resolved inside the Sandbox at
+/// run time and never written back.
 ///
-/// It means *whatever this agent picks*, is resolved inside the Sandbox at run
-/// time, and is never written back. Reporting it as a model identity would put
-/// a word in the row that names nothing, so the chain falls through it.
+/// Never report it as a model identity: it names nothing.
 pub(crate) const UNRESOLVED_MODEL_CHOICE: &str = "default";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

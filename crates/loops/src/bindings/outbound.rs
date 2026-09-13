@@ -28,7 +28,7 @@ use moatless_ports::workspace::WorkspaceResolver;
 /// Whether this thread has already carried a provenance footer.
 ///
 /// The footer names the thread, not the message, so it renders once and the
-/// lookups behind it are paid once. The binding is already loaded at every send
+/// lookups behind it are paid once; the binding is already loaded at every send
 /// site, so asking costs nothing.
 pub fn task_link_already_sent(binding: &TaskBinding) -> bool {
     binding
@@ -57,10 +57,8 @@ pub fn checked_presentation(
 }
 
 /// Binding-based outbound delivery, owning the ports the send path reads rather
-/// than the whole `AppState`. Held by `ExternalReplyService`, which is the only
-/// consumer; this is a module boundary made concrete (a plain struct, no trait,
-/// no second implementation) rather than a speculative abstraction — what earns
-/// it is the parameter list `send_to_binding` would otherwise carry.
+/// than the whole `AppState`. Held by `ExternalReplyService`, its only
+/// consumer.
 pub struct OutboundSender {
     task_bindings: Arc<Bindings>,
     adapter_connections: Arc<ConnectionRouting>,
@@ -110,11 +108,10 @@ impl OutboundSender {
 
     /// Send a reply to the external target referenced by a task binding.
     ///
-    /// Loads the binding, its adapter connection, and its optional
-    /// subscription loop, then calls `send_reply_for_binding` on the matching
-    /// adapter. Persists a visible assistant stub up front, tags it with the
-    /// returned external id, populates the `recently_sent` race-window cache, and
-    /// advances the binding cursor.
+    /// Loads the binding, connection, and optional subscription loop, then
+    /// calls `send_reply_for_binding`; persists a visible assistant stub up
+    /// front, tags it with the returned external id, populates the
+    /// `recently_sent` race-window cache, and advances the binding cursor.
     pub(crate) async fn send_to_binding(
         &self,
         providers: &Adapters,
@@ -289,14 +286,10 @@ impl OutboundSender {
 
     /// The provenance footer for adapters that render the task link themselves.
     ///
-    /// `None` for the Markdown-comment adapters — they carry the link in
-    /// `footer` via `render_footer` instead — and when no frontend URL is
-    /// configured. Each lookup is best-effort: a failure drops its own segment
-    /// rather than the reply, the way `task_comment_footer` already treats a
-    /// failed task-name read.
-    ///
-    /// `rule` names the Loop that fired the task. A direct send has none, so
-    /// the origin falls back to the person who started it.
+    /// `None` for Markdown-comment adapters (link is in `footer` instead) or
+    /// when no frontend URL is configured; best-effort, so a failed lookup
+    /// drops its own segment, not the reply, and `rule` names the firing Loop
+    /// else falls back to who started the task.
     pub async fn maybe_task_provenance(
         &self,
         adapter_kind: AdapterKind,
@@ -440,8 +433,8 @@ impl OutboundSender {
 
 /// Truncate text to a max byte length, appending "..." if truncated.
 ///
-/// The cut is pulled back to the nearest UTF-8 char boundary so multibyte
-/// input never panics (see PR #621).
+/// The cut is pulled back to the nearest UTF-8 char boundary so multibyte input
+/// never panics (see PR #621).
 pub fn truncate_text(text: &str, max: usize) -> String {
     if text.len() <= max {
         return text.to_string();

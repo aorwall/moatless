@@ -37,18 +37,13 @@ use moatless_ports::task::TaskReader;
 // Logging
 // =========================================================================
 
-/// Install the layered tracing subscriber: the JSON `fmt` layer (stdout,
-/// shipped to Loki) plus, when `otel.otlp_endpoint` is set, a
-/// `tracing-opentelemetry` layer exporting spans to that OTLP collector.
+/// Install the layered tracing subscriber: JSON `fmt` (stdout, shipped to
+/// Loki), plus a `tracing-opentelemetry` layer when `otel.otlp_endpoint` is
+/// set.
 ///
-/// With no endpoint configured the OTel layer is omitted and behaviour is
-/// identical to the plain `fmt`-only subscriber this replaced. Returns the
-/// `SdkTracerProvider` when export is active — the caller (`main`) owns its
-/// shutdown so buffered spans flush before the process exits.
-///
-/// `RUST_LOG` still controls verbosity via the shared `EnvFilter`; it gates
-/// both layers equally; a lost span there means fewer exported traces, not a
-/// filter divergence between what's logged and what's traced.
+/// Returns the `SdkTracerProvider` when export is active — the caller (`main`)
+/// owns its shutdown so buffered spans flush before exit. `RUST_LOG` gates both
+/// layers equally via the shared `EnvFilter`.
 pub fn init_tracing(otel: &OtelConfig) -> Option<SdkTracerProvider> {
     let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
 
@@ -95,9 +90,8 @@ pub fn init_tracing(otel: &OtelConfig) -> Option<SdkTracerProvider> {
 /// Build the `tracing-opentelemetry` layer and its owning `SdkTracerProvider`
 /// for one configured OTLP/gRPC endpoint (default port 4317).
 ///
-/// Sampling is parent-based: a span with an already-sampled remote parent
-/// (the client's `sampled` flag — see `ui_rpc::mod::request_root_span`) is
-/// always kept; a root span is sampled at `otel.sampling_ratio`.
+/// Sampling is parent-based: an already-sampled remote parent is always kept; a
+/// root span is sampled at `otel.sampling_ratio`.
 fn build_otel_layer<S>(
     otel: &OtelConfig,
     endpoint: &str,
@@ -137,9 +131,10 @@ where
 }
 
 /// The active span's OTel trace/span ids as lowercase hex, when a valid OTel
-/// context is attached. `None` whenever export is off (no OTel layer
-/// installed) or no span is currently active — the JSON line then carries no
-/// `trace_id`/`span_id`, exactly as before this existed.
+/// context is attached.
+///
+/// `None` when export is off or no span is active — the JSON line then carries
+/// no `trace_id`/`span_id`.
 fn current_trace_context() -> Option<(String, String)> {
     let cx = tracing::Span::current().context();
     let span_context = cx.span().span_context().clone();
@@ -152,11 +147,9 @@ fn current_trace_context() -> Option<(String, String)> {
     ))
 }
 
-/// Wraps the standard JSON event formatter to splice `trace_id`/`span_id`
-/// from the active OTel span onto every log line, so a Loki line can be
-/// pivoted to its Tempo trace. Delegates the whole line to the wrapped
-/// formatter and only post-processes when a valid trace context exists, so
-/// output is byte-for-byte the same as before with OTel export off.
+/// Wraps the standard JSON event formatter to splice `trace_id`/`span_id` from
+/// the active OTel span onto every log line, so a Loki line can be pivoted to
+/// its Tempo trace. See [`current_trace_context`] for when that's absent.
 struct TraceContextJson<F>(F);
 
 impl<S, N, F> FormatEvent<S, N> for TraceContextJson<F>
@@ -198,7 +191,7 @@ where
 /// Spawn the Prometheus metrics server on a dedicated port.
 ///
 /// Returned for the root supervisor to own: a bind failure or an early end to
-/// `serve` returns from the task, and the supervisor turns that into a
+/// `serve` returns from the task, which the supervisor turns into a
 /// process-level failure.
 pub fn spawn_metrics_server(port: u16, cancel: CancellationToken) -> JoinHandle<()> {
     let handle = metrics::init_metrics();
@@ -240,17 +233,9 @@ pub fn spawn_metrics_server(port: u16, cancel: CancellationToken) -> JoinHandle<
 
 /// Create the SSE broadcast sender and optionally spawn the Redis consumer.
 ///
-/// Redis feeds only the live SSE tail (via the broadcast bus). Historical event
-/// replay is served from the `task_events` Postgres table by the AppState-based
-/// `task_events_router` (`GET /api/v1/tasks/{task_id}/events`), which authorizes
-/// the caller against the task — so it is wired separately from this firehose.
-///
-/// The consumer's join handle is returned for the root supervisor to own; it is
-/// `None` when Redis is not configured and no consumer was started.
-///
-/// Per-tenant firehose filtering resolves each event's task against the
-/// caller's scope through `tasks`. Without a database the firehose can't
-/// authorize scoped users.
+/// Redis feeds only the live tail; historical replay is served separately from
+/// `task_events` Postgres. Without `tasks`, per-tenant firehose filtering can't
+/// authorize scoped users against their task.
 pub async fn init_sse(
     config: &Config,
     tasks: Option<Arc<dyn TaskReader>>,
@@ -325,9 +310,8 @@ pub fn spawn_grpc_server(
 
 /// Spawn a task that cancels the root token on a shutdown signal.
 ///
-/// Cancelling the root token is what starts the supervised shutdown, so the
-/// handler listens for SIGTERM as well as Ctrl-C: SIGTERM is how Kubernetes
-/// terminates a pod, and without it the bounded join never runs in production.
+/// Listens for SIGTERM as well as Ctrl-C: SIGTERM is how Kubernetes terminates
+/// a pod, and without it the supervised shutdown never runs in production.
 pub fn install_shutdown_handler(cancel: CancellationToken) -> JoinHandle<()> {
     tokio::spawn(async move {
         shutdown_signal().await;
@@ -366,14 +350,12 @@ async fn shutdown_signal() {
 // Readiness
 // =========================================================================
 
-/// Build the `/ready` readiness probe.
+/// Build the `/ready` readiness probe, distinct from `/health` (pure liveness).
 ///
-/// Distinct from `/health`, which is a pure liveness probe (process up). The
-/// probe reports unavailable when a readiness-critical supervised task has
-/// terminated, the main database pool cannot serve a trivial query promptly, or
-/// Redis is unreachable — task creation degrades silently when event publishes
-/// time out. Either way Kubernetes sheds traffic to a replica that can still do
-/// the work.
+/// Reports unavailable when a readiness-critical supervised task has
+/// terminated, the DB pool can't serve a trivial query promptly, or Redis is
+/// unreachable (task creation would otherwise degrade silently), so Kubernetes
+/// sheds traffic to a healthier replica.
 pub fn readiness_router(
     database: Option<DbPool>,
     events: Option<Arc<dyn EventPublisher>>,

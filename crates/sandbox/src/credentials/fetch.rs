@@ -6,9 +6,9 @@
 
 //! Credential fetching and application.
 //!
-//! Fetches credentials from the backend via gRPC `GetCredentials` RPC,
-//! sets them as environment variables, and writes credential files
-//! needed by the Claude CLI.
+//! Fetches credentials from the backend via gRPC `GetCredentials` RPC, sets
+//! them as environment variables, and writes credential files needed by the
+//! Claude CLI.
 
 use std::collections::HashMap;
 use std::time::Duration;
@@ -28,10 +28,9 @@ pub enum CredentialFetchError {
     /// Retriable — e.g. the backend is not yet routable, or a temporary error.
     /// K8s restarts the container and init tries again.
     Transient(String),
-    /// Unrecoverable without re-provisioning. Emitted once the backend has
-    /// refused every token this sandbox can present: retries and container
-    /// restarts offer the same set again, so we surface an actionable error and
-    /// stop the crash loop instead.
+    /// Unrecoverable without re-provisioning: the backend refused every token
+    /// this sandbox holds, and a retry or restart offers the same set. Surface
+    /// an actionable error and stop the crash loop.
     Permanent(String),
 }
 
@@ -45,36 +44,30 @@ impl std::fmt::Display for CredentialFetchError {
 
 /// Keys that must NOT be set in the sandbox process environment via `set_var`.
 ///
-/// `gh` (and `gh auth git-credential`, which git uses for push) checks env vars
-/// before `~/.config/gh/hosts.yml`. Setting these here would freeze a stale
-/// value into every subprocess spawned for the lifetime of the pod. Auth for
-/// these credentials is handled exclusively via `~/.config/gh/hosts.yml`, which
-/// the credential refresher rewrites on every cycle.
+/// `gh` checks env vars before `~/.config/gh/hosts.yml`; setting these would
+/// freeze a stale value for the pod's lifetime — auth for these stays
+/// exclusively in hosts.yml, which the refresher rewrites each cycle.
 const ENV_SET_BLOCKLIST: &[&str] = &["GITHUB_TOKEN", "GH_TOKEN"];
 
 /// Keys that must NOT be inherited by the agent subprocess.
 ///
-/// `GIT_TOKEN` is still set in the sandbox process env (for init-time git clone)
-/// but must not reach the long-lived agent subprocess for the same staleness
-/// reason as the keys above.
+/// `GIT_TOKEN` stays set in the sandbox process env for init-time git clone,
+/// but must not reach the long-lived agent subprocess — same staleness reason
+/// as the keys above.
 const AGENT_EXCLUDED_KEYS: &[&str] = &["GITHUB_TOKEN", "GH_TOKEN", "GIT_TOKEN"];
 
-/// Credential key carrying the long-lived user auth token the sandbox uses to
-/// authenticate its gRPC calls back to the backend. Delivered over
-/// `GetCredentials` rather than the pod spec; consumed here (swapped into the
-/// gRPC client + persisted) and removed from the map so it never leaks into the
-/// agent subprocess env, `server.env`, or agent credentials.
+/// Credential key for the long-lived user auth token.
+///
+/// Delivered over `GetCredentials`; consumed here (swapped into the gRPC
+/// client, persisted) and stripped from the map so it never reaches agent env
+/// or files.
 const USER_AUTH_TOKEN_KEY: &str = "USER_AUTH_TOKEN";
 
 /// Wall-clock ceiling on the credential-fetch retry loop.
 ///
-/// The pod's startup probe kills the container after
-/// `K8S_POD_STARTUP_TIMEOUT_SECS / 5 + 6` failed `/health` checks at 5s spacing
-/// — 150s at the default. `/health` stays 503 for the whole of init, so a retry
-/// loop that outlasts that budget is SIGKILLed mid-backoff and never reports
-/// why it was failing. Staying well under the smallest such window means the
-/// loop always returns its own error, and the container restart is the outer
-/// retry for anything longer.
+/// The startup probe SIGKILLs the container after `K8S_POD_STARTUP_TIMEOUT_SECS
+/// / 5 + 6` failed `/health` checks (150s default); staying under that window
+/// lets the loop report its own error before the probe kills it mid-backoff.
 const RETRY_BUDGET: Duration = Duration::from_secs(90);
 
 /// Longest single backoff between attempts.
@@ -82,7 +75,7 @@ const MAX_RETRY_DELAY: Duration = Duration::from_mins(1);
 
 /// Produce the credential map passed to the agent subprocess env.
 ///
-/// Strips git-provider tokens that would otherwise freeze to whatever value was
+/// Strips git-provider tokens that would otherwise freeze at whatever value was
 /// current when the agent subprocess was spawned.
 pub fn filter_agent_credentials(credentials: &HashMap<String, String>) -> HashMap<String, String> {
     credentials
@@ -102,23 +95,21 @@ fn server_sidecar_env(
     env
 }
 
-/// Whether `fetch_and_apply_credentials` is being called for the first time
-/// (during sandbox init) or by the periodic refresher.
-///
-/// On `Refresh`, Codex's `auth.json` is left alone — the watcher in
-/// `codex_watcher` is the source of truth for that file post-startup, and a
-/// refresher that re-wrote a stale blob from `provider_tokens` would clobber
-/// any rotation that happened locally.
+/// Whether `fetch_and_apply_credentials` runs at sandbox init or from the
+/// periodic refresher.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum PersistMode {
     Initial,
+    /// Codex's `auth.json` is left alone — `codex_watcher` owns that file
+    /// post-startup, and overwriting it from `provider_tokens` would clobber a
+    /// local rotation.
     Refresh,
 }
 
 /// Fetch credentials from backend and apply them.
 ///
-/// Retries with exponential backoff inside [`RETRY_BUDGET`].
-/// The backend may not be routable when the sandbox pod first starts.
+/// Retries with exponential backoff inside [`RETRY_BUDGET`] since the backend
+/// may not be routable when the sandbox pod first starts.
 pub async fn fetch_and_apply_credentials(state: &SandboxState) -> Result<(), CredentialFetchError> {
     fetch_and_apply_credentials_with_mode(state, PersistMode::Initial).await
 }
@@ -290,12 +281,11 @@ pub async fn fetch_and_apply_credentials_with_mode(
     }
 }
 
-/// The tokens init falls back to, in order, when the backend refuses the one the
-/// gRPC client is presenting.
+/// The tokens init falls back to when the backend refuses the client's token.
 ///
-/// The client boots on the first of [`Config::initial_auth_token_candidates`],
-/// so the fallbacks are the rest. A refresh has none: the sandbox keeps the
-/// token it already authenticated with.
+/// The client boots on the first of [`Config::initial_auth_token_candidates`];
+/// the fallbacks are the rest. A refresh has none — it keeps the token it
+/// already authenticated with.
 fn fallback_tokens(config: &Config, mode: PersistMode) -> Vec<String> {
     match mode {
         PersistMode::Initial => config
@@ -307,13 +297,10 @@ fn fallback_tokens(config: &Config, mode: PersistMode) -> Vec<String> {
     }
 }
 
-/// Whether the backend refused the auth token on an *initial* fetch, meaning
-/// init should present its next candidate and, once they run out, give up
-/// permanently.
+/// Whether the backend refused the auth token on an *initial* fetch.
 ///
-/// Refresh-mode failures are never treated this way: the running sandbox keeps
-/// the token it already authenticated with, and the refresher retries on its
-/// next cycle.
+/// Refresh-mode failures are never treated this way — the refresher keeps its
+/// already-authenticated token and retries next cycle regardless.
 fn is_auth_rejection(mode: PersistMode, code: tonic::Code) -> bool {
     mode == PersistMode::Initial && code == tonic::Code::Unauthenticated
 }
@@ -321,9 +308,8 @@ fn is_auth_rejection(mode: PersistMode, code: tonic::Code) -> bool {
 /// Why a failed credential fetch is unrecoverable, or `None` if retrying may
 /// still succeed (→ [`CredentialFetchError::Permanent`] vs `Transient`).
 ///
-/// `PermissionDenied` is an authorization decision, in either mode. It does
-/// not change on retry, and a container restart presents the same identity
-/// from the same `ReplicaSet`, so only fixing the task itself helps.
+/// `PermissionDenied` is an authorization decision either way: it won't change
+/// on retry, and a restart reuses the same `ReplicaSet` identity.
 fn terminal_rejection_reason(_mode: PersistMode, code: tonic::Code) -> Option<&'static str> {
     match code {
         tonic::Code::PermissionDenied => {
@@ -335,11 +321,8 @@ fn terminal_rejection_reason(_mode: PersistMode, code: tonic::Code) -> Option<&'
 
 /// Persist credential files used by local agent runtimes.
 ///
-/// On `PersistMode::Refresh`, Codex's `auth.json` is intentionally left alone.
-/// Codex rotates its OAuth refresh token on every refresh; the in-pod watcher
-/// (`codex_watcher`) is the source of truth for that file post-startup. A
-/// refresher that re-wrote a stale blob from `provider_tokens` would actively
-/// undo rotation and cause `refresh_token_reused` failures.
+/// On `PersistMode::Refresh`, Codex's `auth.json` is left alone — see
+/// [`PersistMode`] for why.
 pub async fn persist_agent_credentials(
     config: &Config,
     credentials: &std::collections::HashMap<String, String>,
@@ -377,8 +360,8 @@ pub async fn persist_agent_credentials(
 /// Persist the long-lived user auth token to disk so a container restart can
 /// reuse it (see [`Config::persisted_user_token_path`]).
 ///
-/// Best-effort: a write failure only means the sandbox falls back to the
-/// initial token on the next restart, so failures are logged not fatal.
+/// Best-effort: a write failure just falls back to the initial token on the
+/// next restart, so failures are logged, not fatal.
 async fn persist_user_auth_token(config: &Config, token: &str) {
     purge_exposed_user_tokens(config).await;
 
@@ -401,12 +384,8 @@ async fn persist_user_auth_token(config: &Config, token: &str) {
     }
 }
 
-/// Paths that must never hold the user auth token, because the agent and the
-/// repo code in the server sidecars can reach them.
-///
-/// Under the workspace tree `workspace_sync` would archive the token into the
-/// task's snapshot and restore it into pods it was not minted for; under
-/// `data_dir` it would sit in the directory every server sidecar mounts.
+/// Paths that must never hold the user auth token, since the agent and the
+/// server sidecars' repo code can reach them.
 fn exposed_user_token_paths(config: &Config) -> [std::path::PathBuf; 2] {
     [
         std::path::Path::new(&config.workspace_dir)
@@ -511,12 +490,8 @@ async fn write_codex_auth_file(codex_home_dir: &str, auth_json: &str) -> bool {
 /// Seed Claude's user config so the interactive TUI (tmux transport) skips
 /// first-run onboarding.
 ///
-/// Claude reads `$CLAUDE_CONFIG_DIR/.claude.json` — NOT `$HOME/.claude.json`.
-/// Writing the flag to `$HOME` (the prior behavior) had no effect, so the TUI
-/// blocked on the theme picker and `SessionStart` never fired (the subprocess
-/// `-p` transport is unaffected because `--print` skips onboarding entirely).
-/// We seed both `hasCompletedOnboarding` and a default `theme` so the picker is
-/// skipped on a cold config.
+/// Must write `$CLAUDE_CONFIG_DIR/.claude.json`, not `$HOME/.claude.json`.
+/// Seeds both `hasCompletedOnboarding` and a default `theme`.
 async fn write_onboarding_flag(claude_config_dir: &str) {
     let flag_path = format!("{claude_config_dir}/.claude.json");
     if fs::metadata(&flag_path).await.is_ok() {
@@ -553,7 +528,8 @@ mod tests {
     };
     use crate::config::{Config, test_support::minimal_config};
 
-    /// Write a persisted token where `Config::persisted_user_token_path` reads it.
+    /// Write a persisted token where `Config::persisted_user_token_path` reads
+    /// it.
     fn write_persisted_token(config: &Config, token: &str) {
         let path = config.persisted_user_token_path();
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -612,10 +588,11 @@ mod tests {
         ));
     }
 
-    /// The backend refuses a task the sandbox's own user cannot control with
-    /// `PermissionDenied`. That is a decision, not a blip: retrying burns the
-    /// startup-probe budget and a restart presents the same identity. Terminal
-    /// in either mode.
+    /// The backend refuses with `PermissionDenied` a task the sandbox's user
+    /// can't control.
+    ///
+    /// That's a decision, not a blip: retrying burns the startup-probe budget,
+    /// and a restart presents the same identity. Terminal in either mode.
     #[test]
     fn permission_denied_is_terminal_in_both_modes() {
         use tonic::Code;
@@ -629,11 +606,11 @@ mod tests {
         }
     }
 
-    /// The startup probe kills the container at
-    /// `K8S_POD_STARTUP_TIMEOUT_SECS / 5 + 6` failures x 5s — 150s at the
-    /// default. A retry loop that outlasts that is SIGKILLed mid-backoff and
-    /// the failure is never reported, which is exactly the "no recent error
-    /// events" symptom. Assert the whole schedule fits with room to spare.
+    /// The startup probe kills the container at `K8S_POD_STARTUP_TIMEOUT_SECS /
+    /// 5 + 6` failures × 5s — 150s at the default, ending a longer-lived retry
+    /// loop mid-backoff with no reported failure.
+    ///
+    /// Assert the whole schedule fits with room to spare.
     #[test]
     fn the_retry_schedule_finishes_before_the_startup_probe_gives_up() {
         const PROBE_PERIOD_SECS: u64 = 5;

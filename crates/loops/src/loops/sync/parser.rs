@@ -1,17 +1,17 @@
 //! `LOOP.md` frontmatter + body parser.
 //!
-//! Mirrors the workspace band's skill scanner but keeps the markdown body after the
-//! closing `---` as the loop's prompt. Individual parse failures are returned
-//! as an `Err` reason so one malformed file doesn't tank the whole sync — and
-//! so the author is told which field is wrong instead of "malformed".
+//! Mirrors the workspace band's skill scanner but keeps the markdown body after
+//! the closing `---` as the loop's prompt. Individual parse failures are
+//! returned as an `Err` reason so one malformed file doesn't tank the whole
+//! sync — and so the author is told which field is wrong instead of
+//! "malformed".
 
 use super::models::{LoopFrontmatter, ParsedLoop};
 
 /// Parse a `LOOP.md` body into a [`ParsedLoop`].
 ///
-/// Returns `Err(reason)` when the frontmatter is missing, malformed, or omits a
-/// required field (`on`, `name`). `dir_name` is the loop's stable sync key; the
-/// name it is displayed under comes from the frontmatter.
+/// Returns `Err(reason)` when frontmatter is missing, malformed, or omits
+/// `on`/`name`; `dir_name` is the stable sync key, not the displayed name.
 pub fn parse_loop(content: &str, dir_name: &str) -> Result<ParsedLoop, String> {
     let (yaml, body) = split_frontmatter(content)?;
 
@@ -234,9 +234,8 @@ mod tests {
     /// Every `LOOP.md` this repository commits, parsed by the code the backend
     /// runs on it.
     ///
-    /// A committed loop that does not parse is not an error anybody sees: sync
-    /// logs a warning and moves on, and the loop simply never fires. This is
-    /// where that shows up instead.
+    /// A committed loop that fails to parse is silent elsewhere — sync logs a
+    /// warning and the loop never fires — so this test is where that shows up.
     #[test]
     fn the_repositorys_own_loops_parse() {
         // CARGO_MANIFEST_DIR is this crate's dir, crates/loops; the committed loops

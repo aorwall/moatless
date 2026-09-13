@@ -41,8 +41,8 @@ use moatless_tasks::agent_event::{AgentEvent, EventKey};
 
 /// An Adapter's reaction to one task event.
 ///
-/// Implementations must be cheap and must not panic; see the module docs for
-/// what belongs here and what belongs in durable delivery.
+/// Must be cheap and must not panic; see the module docs for what belongs here
+/// vs. durable delivery.
 #[async_trait::async_trait]
 pub trait TaskEventSubscriber: Send + Sync {
     /// A name for logs — the provider this subscriber speaks for.
@@ -81,8 +81,8 @@ impl TaskEventSubscribers {
 
     /// Hand `event` to every subscriber registered for its key.
     ///
-    /// A key nobody subscribed to is a no-op. A subscriber that panics is
-    /// logged and skipped; the rest still run.
+    /// A key nobody subscribed to is a no-op; a subscriber that panics is
+    /// logged and skipped, and the rest still run.
     pub async fn dispatch(&self, event: &AgentEvent) {
         let Some(subscribers) = self.0.get(&event.event_key()) else {
             return;

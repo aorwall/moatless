@@ -11,8 +11,8 @@ pub const ADAPTER: &str = "slack";
 
 /// Routing one inbound Slack message.
 ///
-/// Namespaced under `slack.` so kinds stay owned by exactly one Adapter and
-/// two migrations never contend for the same name.
+/// Namespaced under `slack.` so kinds stay owned by one Adapter, and two
+/// migrations never contend for the same name.
 pub const INBOUND_MESSAGE: &str = "slack.inbound_message";
 
 #[cfg(test)]

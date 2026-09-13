@@ -6,32 +6,14 @@
               and in the shared `common` module compiled into this binary; both lints only \
               fire when the db-tests feature is enabled"
 )]
-//! What each Linear workflow does, and what it costs.
+//! What each Linear workflow does, and what it costs — characterization tests
+//! for `.plans/linear-adapter-breakup.md` stages 12-15 that must pass unchanged
+//! through the module split.
 //!
-//! Characterization for stages 12–15 of `.plans/linear-adapter-breakup.md`.
-//! Everything here passes before the move and must pass unchanged after it —
-//! these are not tests of the new modules, they are the definition of "nothing
-//! observable changed".
-//!
-//! # Why the call budgets
-//!
-//! Half of this file asserts *how many* Linear calls a workflow made, and in
-//! what order. The budgets are what catch a refactor that adds a round trip to
-//! an unchanged workflow — a heartbeat emitted twice, an issue fetched per rule
-//! instead of once.
-//!
-//! Every call goes to `POST /graphql`, so the budget is read off the GraphQL
-//! operation in each recorded body (`ProviderStub::graphql_operations`). A call
-//! that is not GraphQL — an OAuth token refresh, say — is reported by its path
-//! rather than hidden, because it is still a round trip.
-//!
-//! # A stub, not an unreachable address
-//!
-//! The neighbouring identity tests point Linear at a dead port, which proves
-//! the forwards survive an unreachable sender but cannot show what was
-//! *attempted*. Here the sender answers, so the attempts are observable and the
-//! success paths downstream of a call (the binding written after
-//! `agentSessionUpdate`, the comment id returned by `commentCreate`) run.
+//! Call budgets catch a refactor adding a round trip, read off the GraphQL
+//! operation name in each recorded body (`ProviderStub::graphql_operations`); a
+//! non-GraphQL call reports by path. Unlike the neighbouring identity tests,
+//! this stub answers, so success paths downstream of a call run too.
 
 use crate::common;
 use moatless_types::adapter::AdapterKind;
@@ -83,14 +65,9 @@ type HmacSha256 = Hmac<Sha256>;
 
 /// A Linear that answers every operation successfully.
 ///
-/// One union body serves every call, because a GraphQL response is keyed by
-/// field name: a request for `agentActivityCreate` reads
-/// `/data/agentActivityCreate` and ignores the rest. That keeps the stub from
-/// having to parse the request, and keeps this file's budget assertions about
-/// *what was called* rather than about what the stub knows.
-///
-/// The issue it returns carries no project and no labels, which is the shape
-/// the rule filters in this file expect.
+/// One union body serves every call, keyed by field name (e.g.
+/// `agentActivityCreate` reads `/data/agentActivityCreate`); the issue it
+/// returns carries no project and no labels.
 async fn linear_stub() -> ProviderStub {
     ProviderStub::start(|_path| {
         serde_json::json!({
@@ -120,14 +97,9 @@ async fn linear_stub() -> ProviderStub {
 
 /// A replica whose Linear clients all speak to `stub`.
 ///
-/// The base URL travels on `Config`, because a Linear client is built deep
-/// inside webhook and worker paths that hold only an `AppState` — there is no
-/// other seam through which a workflow's calls can be redirected, and a
-/// workflow that cannot be redirected cannot be budgeted.
-///
-/// The adapter carries the same ingress ports and `Config` the composition root
-/// gives it (`from_db` + `with_ingress_ports`), because the webhook route
-/// reads them off the adapter rather than an `AppState`.
+/// The base URL travels on `Config`, the only seam through which a workflow's
+/// calls can be redirected and budgeted from deep inside webhook/worker paths
+/// holding only an `AppState`.
 fn replica(pool: &PgPool, stub: &ProviderStub) -> AppState {
     let mut config = test_config();
     config.linear = linear_config(Some(SECRET), Some(stub.base_url()));
@@ -167,9 +139,8 @@ async fn drain(pool: &PgPool, stub: &ProviderStub) {
 
 /// [`drain`] against a worker replica whose event stream is a recorder.
 ///
-/// The worker builds its own replica, so a test that asserts on a published
-/// event has to hold the publisher *that* replica carries, not the one the
-/// ingress side used.
+/// The worker builds its own replica, so a test asserting a published event
+/// must hold that replica's publisher, not the ingress side's one.
 async fn drain_recording(pool: &PgPool, stub: &ProviderStub) -> Arc<RecordingPublisher> {
     let mut config = test_config();
     config.linear = linear_config(Some(SECRET), Some(stub.base_url()));
@@ -184,11 +155,9 @@ async fn drain_recording(pool: &PgPool, stub: &ProviderStub) -> Arc<RecordingPub
 
 /// The connection, plus the `adapter_apps` row its client is resolved from.
 ///
-/// Both are required before any Linear call leaves the process: the connection
-/// names the workspace, and the app row is where `api_for_connection` reads the
-/// `api_base_url` that points the client at `stub`. Without the app row the
-/// client cannot be built, every emitter skips its call best-effort, and each
-/// budget below reads as zero.
+/// Both are required before any Linear call leaves the process:
+/// `api_for_connection` reads `api_base_url` from the app row to find `stub`;
+/// without it every budget below silently reads as zero.
 async fn seed_connection(pool: &PgPool, stub: &ProviderStub) {
     sqlx::query(
         "INSERT INTO adapter_connections \
@@ -206,10 +175,9 @@ async fn seed_connection(pool: &PgPool, stub: &ProviderStub) {
 
 /// The workspace OAuth token every Linear call resolves before it reaches HTTP.
 ///
-/// Without it no request is ever made and every budget below reads as zero —
-/// a green test that proves nothing. Deliberately far from expiry so no call
-/// triggers the token-refresh round trip, which would show up in the budget as
-/// a `POST /oauth/token` it is not this file's job to assert.
+/// Without it every budget below silently reads as zero. Set deliberately far
+/// from expiry so no call triggers a token-refresh round trip that would show
+/// up as an extra `POST /oauth/token`.
 async fn seed_workspace_token(pool: &PgPool) {
     sqlx::query(
         "INSERT INTO provider_tokens \
@@ -226,9 +194,8 @@ async fn seed_workspace_token(pool: &PgPool) {
 
 /// A repository that needs no GitHub preflight, so task creation succeeds.
 ///
-/// `make_repository_row` produces a GitHub-backed repository, and creating a
-/// task against one with no token available fails preflight. That failure has
-/// its own budget row below; it must not be every test's silent default.
+/// `make_repository_row` defaults to a GitHub-backed repository, which fails
+/// preflight without a token; that failure has its own budget row below.
 async fn seed_local_repository(pool: &PgPool) {
     seed_team(pool, &format!("personal-{USER_1}")).await;
     let mut repo = make_repository_row("repo-1", USER_1);
@@ -357,7 +324,7 @@ async fn seed_binding(
 /// The Subscription and then a session bound under it.
 ///
 /// Order matters: a binding's `loop_id` references the Subscription, so the
-/// rule has to exist first.
+/// rule must exist first.
 async fn seed_rule_then_session(
     state: &AppState,
     pool: &PgPool,
@@ -540,10 +507,9 @@ async fn binding_status(pool: &PgPool) -> Vec<(String, Option<String>, Option<St
 
 /// Exactly one `agentActivityCreate` before the `200`, and nothing else.
 ///
-/// This is the one workflow that still calls Linear on the response path, and
-/// deliberately: the session panel goes dark after ten seconds. The budget is
-/// the guard on that exception — no issue fetch, no attachment, no session
-/// update. Those belong to the admitted record, which has not run yet.
+/// The one workflow that still calls Linear on the response path — the panel
+/// goes dark after ten seconds — everything else belongs to the admitted
+/// record.
 #[sqlx::test]
 async fn a_created_session_posts_one_heartbeat_and_admits_the_rest(pool: PgPool) {
     let stub = linear_stub().await;
@@ -573,13 +539,12 @@ async fn a_created_session_posts_one_heartbeat_and_admits_the_rest(pool: PgPool)
     );
 }
 
-/// No Subscription, no admission — and the session is closed rather than left
+/// No Subscription, no admission — and the session is closed, not left
 /// spinning.
 ///
-/// A session Linear opened must not sit `active` forever while nothing runs
-/// behind it. No provisioning is admitted, so nothing downstream will post a
-/// terminal activity; the drop itself closes the session with a terminal
-/// `error` so the panel reaches a resolved state.
+/// Nothing is admitted to post a terminal activity later, so the drop path
+/// itself closes the session with a terminal `error`, reaching a resolved
+/// state.
 #[sqlx::test]
 async fn a_created_session_with_no_rule_closes_the_session(pool: PgPool) {
     let stub = linear_stub().await;
@@ -613,10 +578,8 @@ async fn a_created_session_with_no_rule_closes_the_session(pool: PgPool) {
 
 /// The provisioning budget for an unscoped rule with no start state.
 ///
-/// No `issue` fetch, because no rule filters on a project or a label — the
-/// selector takes the cheap path. Then the two links, in order: the session's
-/// external URL first, the issue attachment second. No `issueUpdate`, because
-/// the rule configures no start state.
+/// No `issue` fetch (no rule filters on project or label), then the two links
+/// in order: the session's external URL, then the issue attachment.
 #[sqlx::test]
 async fn provisioning_an_unscoped_session_makes_two_calls_in_order(pool: PgPool) {
     let stub = linear_stub().await;
@@ -655,10 +618,8 @@ async fn provisioning_an_unscoped_session_makes_two_calls_in_order(pool: PgPool)
 
 /// A rule scoped to a project pays for one `issue` fetch, and only one.
 ///
-/// The fetch exists to learn the issue's project and labels, which the webhook
-/// payload does not carry. It is skipped entirely when no rule needs it (the
-/// test above) — that asymmetry is the budget row, and it is invisible without
-/// an observable sender.
+/// The fetch learns the project and labels the webhook payload omits, and is
+/// skipped entirely when no rule needs it.
 #[sqlx::test]
 async fn provisioning_a_project_scoped_session_fetches_the_issue_once(pool: PgPool) {
     let stub = linear_stub().await;
@@ -719,9 +680,8 @@ async fn provisioning_moves_the_issue_to_the_start_state_once(pool: PgPool) {
 
 /// A start state the issue is already in costs nothing.
 ///
-/// The guard matters beyond the round trip: a loop whose start state overlaps
-/// its trigger states would otherwise move the issue to where it already is,
-/// and every move is another `Issue.update` webhook.
+/// The guard matters beyond the round trip: without it, a loop whose start
+/// state overlaps its trigger states would re-move the issue on every event.
 #[sqlx::test]
 async fn provisioning_skips_the_board_move_when_the_issue_is_already_there(pool: PgPool) {
     let stub = linear_stub().await;
@@ -747,8 +707,8 @@ async fn provisioning_skips_the_board_move_when_the_issue_is_already_there(pool:
 
 /// A second execution of the same record provisions nothing a second time.
 ///
-/// The record is at-least-once — an attempt abandoned at its deadline is
-/// claimed again — so convergence is the binding guard, not admission.
+/// The record is at-least-once — an abandoned attempt is claimed again — so
+/// convergence is the binding guard, not admission.
 #[sqlx::test]
 async fn a_second_provisioning_attempt_creates_no_second_task(pool: PgPool) {
     let stub = linear_stub().await;
@@ -807,7 +767,7 @@ async fn a_prompt_heartbeats_once_and_forwards_under_the_activity_id(pool: PgPoo
 
 /// A closed task's binding is skipped: no heartbeat, no forward.
 ///
-/// A closed task is terminal. Reaching it with a follow-up prompt would
+/// A closed task is terminal; reaching it with a follow-up prompt would
 /// resurrect work someone deliberately ended.
 #[sqlx::test]
 async fn a_prompt_to_a_deactivated_binding_reaches_nothing(pool: PgPool) {
@@ -839,9 +799,8 @@ async fn a_prompt_to_a_deactivated_binding_reaches_nothing(pool: PgPool) {
 // =========================================================================
 
 /// An issue-level comment reaches the task that owns the ticket, not a session
-/// spawned into it: a session is thread-scoped and hears only its own thread.
-///
-/// The issue binding has no session panel, so no heartbeat is emitted either.
+/// spawned into it: a session is thread-scoped and hears only its own thread,
+/// and the issue binding has no panel, so no heartbeat either.
 #[sqlx::test]
 async fn an_issue_level_comment_reaches_the_issue_binding_not_the_session(pool: PgPool) {
     let stub = linear_stub().await;
@@ -986,9 +945,8 @@ async fn a_task_bound_twice_to_one_issue_receives_a_comment_once(pool: PgPool) {
 /// A comment carrying the `Moatless task:` footer of the task that wrote it is
 /// not forwarded back to that task.
 ///
-/// The echo filter is what stops an agent talking to itself. It works off the
-/// task id recovered from the footer link, so this pins the footer's role as
-/// provenance rather than decoration.
+/// The echo filter stops an agent talking to itself, keyed on the task id
+/// recovered from the footer link — provenance, not decoration.
 #[sqlx::test]
 async fn a_task_does_not_receive_back_its_own_comment(pool: PgPool) {
     let stub = linear_stub().await;
@@ -1024,9 +982,8 @@ async fn a_task_does_not_receive_back_its_own_comment(pool: PgPool) {
 
 /// An update that does not change the workflow state does nothing at all.
 ///
-/// Linear sends `Issue.update` for a title edit, a label change, an assignee —
-/// this Adapter acts on state transitions only. The guard is first, before the
-/// status write, so a non-transition costs neither a call nor a row.
+/// Linear sends `Issue.update` for title edits and label changes too; the
+/// transition guard runs first, so a non-transition costs no call.
 #[sqlx::test]
 async fn an_issue_update_with_no_transition_does_nothing(pool: PgPool) {
     let stub = linear_stub().await;
@@ -1052,11 +1009,9 @@ async fn an_issue_update_with_no_transition_does_nothing(pool: PgPool) {
     );
 }
 
-/// A real transition persists the new state onto every binding for the issue
-/// and forwards a notification, and fetches nothing.
-///
-/// Zero `issue` fetches is the budget row: no candidate rule filters on labels
-/// and the payload carries the project, so there is nothing to look up.
+/// A real transition persists the new state onto every binding for the issue,
+/// forwards a notification, and fetches nothing: the payload already carries
+/// the project, and no rule filters on labels here.
 #[sqlx::test]
 async fn an_issue_transition_persists_status_and_forwards_without_fetching(pool: PgPool) {
     let stub = linear_stub().await;
@@ -1093,9 +1048,8 @@ async fn an_issue_transition_persists_status_and_forwards_without_fetching(pool:
 
 /// Forwarding a state change also wakes the task that has to act on it.
 ///
-/// The message alone is not enough: a pending user message nobody was notified
-/// about never opens a turn, so the Task keeps reading as working — its newest
-/// user message stays newer than its last turn — while no agent ever runs.
+/// A message alone is not enough: an un-notified pending message never opens a
+/// turn, so the task reads as working while no agent runs.
 #[sqlx::test]
 async fn an_issue_transition_wakes_the_task_it_forwards_to(pool: PgPool) {
     let stub = linear_stub().await;
@@ -1143,11 +1097,8 @@ async fn a_terminal_transition_closes_the_task_and_posts_one_response(pool: PgPo
 }
 
 /// The `Closed` event a terminal transition publishes carries the Linear close
-/// reason and the issue that caused it.
-///
-/// The payload is the contract with everything downstream of the event stream —
-/// the UI renders `reason` as the event's message text — so it is asserted
-/// field by field, not merely counted.
+/// reason and the issue that caused it — the contract with the UI, which
+/// renders `reason` as the event's message text.
 #[sqlx::test]
 async fn a_terminal_transition_publishes_an_enriched_closed_event(pool: PgPool) {
     let stub = linear_stub().await;
@@ -1403,11 +1354,8 @@ async fn a_status_entry_creates_a_task_and_links_it_back(pool: PgPool) {
 }
 
 /// A preflight failure posts exactly one `commentCreate` and creates no
-/// binding.
-///
-/// The status-entry path has no agent session to write an error activity into,
-/// so the reason reaches the person as an issue comment. It is the only path
-/// that posts one, which is why it is a budget row of its own.
+/// binding: the status-entry path has no agent session to write an error
+/// activity into, so the reason reaches the person as an issue comment.
 #[sqlx::test]
 async fn a_status_entry_preflight_failure_posts_one_comment_and_stops(pool: PgPool) {
     let stub = linear_stub().await;
@@ -1511,9 +1459,8 @@ async fn a_status_entry_with_unmet_labels_creates_nothing(pool: PgPool) {
 
 /// The inbox-stream close path reaches the same close as `Issue.update`.
 ///
-/// Used by workspaces that subscribe to `AppUserNotification` and not to
-/// `Issue`. It acts on the current state alone — the notification carries no
-/// diff — so there is no no-transition guard here to assert.
+/// Used by workspaces subscribed to `AppUserNotification` instead of `Issue`;
+/// it acts on current state alone, so no no-transition guard here.
 #[sqlx::test]
 async fn a_status_notification_closes_the_task_the_same_way(pool: PgPool) {
     let stub = linear_stub().await;

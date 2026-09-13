@@ -15,25 +15,28 @@ use moatless_sandbox_runtime::status_reader::SandboxStatusReader;
 pub struct SandboxApiState {
     pub observer: Arc<dyn SandboxStatusReader>,
     pub connector: Arc<dyn SandboxConnector>,
-    /// Shared durable lifecycle handle — the sole writer of Sandbox intent. The
-    /// lifecycle HTTP handlers (`provision`/`stop`/`restart`/`redeploy`/`cleanup`)
-    /// drive transitions through it. `None` only in the no-database mode, where
-    /// those handlers return a clean "unavailable" error.
+    /// Shared durable lifecycle handle — the sole writer of Sandbox intent.
+    ///
+    /// `provision`/`stop`/`restart`/`redeploy`/`cleanup` drive transitions
+    /// through it; `None` only in no-database mode, where those return a clean
+    /// "unavailable" error.
     pub lifecycle: Option<Arc<Lifecycle>>,
-    /// The Task band's half of the running rule. `live_status` folds it into
-    /// the runtime's answer so this surface and the T3 conversation list decide
-    /// "is the agent working" from the same rule. `None` in the no-database
-    /// mode, where there are no turn rows to read and the raw heartbeat is all
-    /// there is.
+    /// The Task band's half of the running rule, folded into `live_status` so
+    /// this surface and the T3 conversation list agree.
+    ///
+    /// `None` in no-database mode, where there are no turn rows and the raw
+    /// heartbeat is all there is.
     pub turns: Option<Arc<dyn TurnStateReader>>,
     /// The workspace as S3 last stored it, for reading a Task's files while no
-    /// sandbox is running. `None` when the deployment stores no snapshots (no S3
-    /// bucket configured), in which case a stopped Task answers as before —
-    /// sandbox not ready.
+    /// sandbox is running.
+    ///
+    /// `None` when the deployment stores no snapshots (no S3 bucket
+    /// configured); a stopped Task then answers as before — sandbox not ready.
     pub snapshots: Option<Arc<dyn WorkspaceSnapshotSource>>,
     /// Mints direct access to a task's workspace repository, for an
-    /// administrator opening it with the `restic` CLI. `None` unless the
-    /// deployment configures the repository role, the master secret and a
-    /// bucket.
+    /// administrator opening it with the `restic` CLI.
+    ///
+    /// `None` unless the deployment configures the repository role, the master
+    /// secret, and a bucket.
     pub workspace_repository: Option<Arc<WorkspaceRepositoryAccess>>,
 }

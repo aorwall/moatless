@@ -22,9 +22,9 @@ pub struct StubProviderTokens {
     pub user_row: Option<ProviderToken>,
     /// When set, the canned user row exists only at this exact user scope.
     pub user_id: Option<String>,
-    /// The singleton global github row.
-    /// An org-wide row no lookup consults. Set it to assert that a caller
-    /// reaches nothing when they hold no row of their own.
+    /// The singleton global github row. An org-wide row no lookup consults. Set
+    /// it to assert that a caller reaches nothing when they hold no row of
+    /// their own.
     pub global_row: Option<ProviderToken>,
     /// Number of persistence mutations attempted through this stub.
     pub writes: AtomicUsize,

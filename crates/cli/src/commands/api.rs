@@ -1,12 +1,9 @@
 //! `moat api` — make a request and report how the API answered.
 //!
-//! Every other command hides the transport, which is what you want when the
-//! answer is the data. This one exposes it, for the two cases where the status
-//! *is* the answer: a script branching on a rejection, and an E2E assertion
-//! about how the API refuses something.
-//!
-//! It never fails the process on a 4xx or 5xx — a rejection is a result here,
-//! not an error. A request that could not be made at all still fails.
+//! Every other command hides the transport; this one exposes it, for the two
+//! cases where the status *is* the answer: a script branching on a rejection,
+//! and an E2E assertion about how the API refuses something. It never fails the
+//! process on a 4xx or 5xx — only a request that could not be made at all does.
 
 use std::io::Read;
 

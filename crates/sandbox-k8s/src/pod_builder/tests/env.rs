@@ -101,8 +101,8 @@ fn pod_spec_redacts_clone_url_and_omits_user_token() {
     assert!(env.iter().all(|e| e.name != "SANDBOX_BOOTSTRAP_TOKEN"));
 }
 
-/// A multi-repo workspace reaches the pod as the `WORKSPACE_REPOS` list,
-/// while `GIT_CLONE_URL` still names the primary so a sandbox image predating
+/// A multi-repo workspace reaches the pod as the `WORKSPACE_REPOS` list, while
+/// `GIT_CLONE_URL` still names the primary so a sandbox image predating
 /// multi-repo support keeps working.
 #[test]
 fn pod_spec_carries_every_workspace_repo() {
@@ -264,9 +264,11 @@ fn pod_spec_emits_bootstrap_and_optional_legacy_token() {
 }
 
 /// The Task's fixed Agent-harness selection reaches the sandbox container as
-/// the `AGENT_TYPE` env at construction (the fixed-harness decision), so the sandbox resolves
-/// its harness once instead of switching per Message. `auto_provision` stamps
-/// this into `plan.env_vars`; here we prove the builder delivers it verbatim.
+/// `AGENT_TYPE` at construction, so the sandbox resolves its harness once
+/// instead of switching per Message.
+///
+/// `auto_provision` stamps this into `plan.env_vars`; here we prove the builder
+/// delivers it verbatim.
 #[test]
 fn agent_type_env_reaches_the_sandbox_container() {
     let config = test_config();
@@ -285,8 +287,7 @@ fn agent_type_env_reaches_the_sandbox_container() {
     );
 }
 
-/// The toolchain-persistence flag is off by default — no cargo subPath
-/// mounts.
+/// The toolchain-persistence flag is off by default — no cargo subPath mounts.
 #[test]
 fn toolchain_persistence_flags_default_off() {
     let config = test_config();
@@ -302,8 +303,8 @@ fn toolchain_persistence_flags_default_off() {
     );
 }
 
-/// With the flag on: cargo registry/git ride `workspace-data` subPaths —
-/// never all of /opt/cargo, which would shadow the baked toolchain.
+/// With the flag on: cargo registry/git ride `workspace-data` subPaths — never
+/// all of /opt/cargo, which would shadow the baked toolchain.
 #[test]
 fn toolchain_persistence_flags_enabled() {
     let mut config = test_config();

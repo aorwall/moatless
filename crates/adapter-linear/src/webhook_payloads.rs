@@ -1,23 +1,13 @@
-//! Deserialization structs for Linear webhooks.
+//! Deserialization structs for Linear webhooks (`AgentSessionEvent`, `Issue`,
+//! `Comment`, `AppUserNotification`). Reference:
+//! <https://linear.app/developers/agents>.
 //!
-//! Covers two payload kinds:
-//! - `AgentSessionEvent`: emitted on `@mention` of the agent or on assignment
-//!   to the agent (sub-actions `created` / `prompted`). Carries
-//!   `agentSession` (with optional `comment` for mentions) and `agentActivity`
-//!   (the prompt body).
-//! - `Issue`: classic Linear issue events (action `create` / `update`). We
-//!   only care about `update` events to wake parked sessions on state change
-//!   and to close active tasks on terminal state entry.
-//!
-//! Reference: <https://linear.app/developers/agents>
-//!
-//! The payload types below also `Serialize`, and that is load-bearing rather
-//! than incidental: every kind is admitted into [`super::delivery`] before Linear
-//! is answered, and the durable record carries the sender's own event data
-//! verbatim because it cannot be re-fetched once the request body is gone. The
-//! `rename` attributes therefore have to hold in both directions — a field that
-//! serialises under a different name than it parses would come back empty in
-//! the worker.
+//! These types also `Serialize`, and that's load-bearing: every kind is
+//! admitted into [`super::delivery`] before Linear is answered, and the durable
+//! record carries the sender's event data verbatim since it can't be re-fetched
+//! once the body is gone. `rename` attributes must therefore hold in both
+//! directions — a field serialising under a different name than it parses comes
+//! back empty in the worker.
 
 use serde::{Deserialize, Serialize};
 
@@ -25,14 +15,13 @@ use serde::{Deserialize, Serialize};
 // Envelope
 // =============================================================================
 
-/// Top-level Linear webhook envelope. Many fields are common across payload
-/// types; only the most-relevant pieces are parsed eagerly here. Payload-
-/// specific fields are deserialised on demand from `data` / `agentSession` /
-/// `agentActivity`.
+/// Top-level Linear webhook envelope. Only the most-relevant common fields are
+/// parsed eagerly; payload-specific fields are deserialised on demand from
+/// `data` / `agentSession` / `agentActivity`.
 #[derive(Debug, Clone, Deserialize)]
 pub struct LinearWebhookEnvelope {
-    /// `"create"` | `"update"` | `"remove"` for Issue payloads.
-    /// `"created"` | `"prompted"` for `AgentSessionEvent` payloads.
+    /// `"create"` | `"update"` | `"remove"` for Issue payloads. `"created"` |
+    /// `"prompted"` for `AgentSessionEvent` payloads.
     #[serde(default)]
     pub action: String,
 
@@ -45,10 +34,9 @@ pub struct LinearWebhookEnvelope {
     #[serde(default, rename = "organizationId")]
     pub organization_id: Option<String>,
 
-    /// Webhook-configuration id. NOTE: this is the *stable* id of the webhook
-    /// config in Linear — it is identical on every delivery, not unique per
-    /// event — so it must NOT be used alone as a dedup key. See
-    /// `handlers::dedup_key`.
+    /// Webhook-configuration id: the *stable* id of the webhook config in
+    /// Linear, identical on every delivery, not unique per event — must NOT be
+    /// used alone as a dedup key. See `handlers::dedup_key`.
     #[serde(default, rename = "webhookId")]
     pub webhook_id: Option<String>,
 
@@ -182,10 +170,9 @@ pub struct AgentActivityPayload {
     pub id: String,
     /// `prompt` | `response` | `thought` | `elicitation` | `action` | `error`.
     ///
-    /// Deserialized but never read: the `prompted` action is what routes the
-    /// delivery, not the activity's own type. Surfaced by narrowing `mod.rs` in
-    /// stage 15 of the Linear breakup; kept because dropping a field changes
-    /// what the payload records.
+    /// Deserialized but never read: the `prompted` action routes the delivery,
+    /// not this type; kept since dropping the field changes what the payload
+    /// records.
     #[allow(dead_code, reason = "see the doc comment")]
     #[serde(default, rename = "type")]
     pub kind: String,
@@ -286,10 +273,10 @@ impl IssuePayload {
         self.state.as_ref().map_or("", |s| s.name.as_str())
     }
 
-    /// Resolve the state type — Linear's stable enum
-    /// (`"backlog" | "unstarted" | "started" | "completed" | "canceled" | "triage"`).
-    /// Empty string when missing. Prefer this over `state_name` for matching,
-    /// since names are user-editable per workspace.
+    /// Resolve the state type — Linear's stable enum (`"backlog" | "unstarted"
+    /// | "started" | "completed" | "canceled" | "triage"`), empty when missing.
+    /// Prefer over `state_name` for matching: names are user-editable per
+    /// workspace.
     pub fn state_kind(&self) -> &str {
         self.state.as_ref().map_or("", |s| s.kind.as_str())
     }
@@ -328,8 +315,8 @@ impl AppUserNotificationData {
 
 /// The name Linear knows an actor by, for the messages they write.
 ///
-/// Linear's webhook payloads default every actor field, so an event that names
-/// nobody arrives with an empty name rather than no actor at all.
+/// Linear defaults every actor field, so an unnamed event's actor arrives as an
+/// empty name, not `None`.
 pub(crate) fn actor_handle(actor: Option<&LinearActor>) -> Option<String> {
     actor.and_then(|actor| moatless_types::adapter::author_handle(&actor.name))
 }

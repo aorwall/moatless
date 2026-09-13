@@ -28,11 +28,11 @@ use crate::runtime;
 
 /// Handle to a running Codex query.
 ///
-/// Provides the message stream and control methods (interrupt, steer).
-/// This is the Codex equivalent of the Claude SDK's `QueryHandle`.
+/// Provides the message stream and control methods (interrupt, steer). This is
+/// the Codex equivalent of the Claude SDK's `QueryHandle`.
 pub struct QueryHandle {
-    /// Stream of messages from the agent. Receives `Ok(CodexMessage)` for
-    /// each event, or `Err(SdkError)` on failure.
+    /// Stream of messages from the agent. Receives `Ok(CodexMessage)` for each
+    /// event, or `Err(SdkError)` on failure.
     pub messages: mpsc::Receiver<Result<CodexMessage>>,
 
     thread_id: String,
@@ -66,7 +66,8 @@ impl QueryHandle {
         Ok(())
     }
 
-    /// Inject additional context into the currently running turn (Codex-specific).
+    /// Inject additional context into the currently running turn
+    /// (Codex-specific).
     pub async fn steer(&self, input: &str) -> Result<()> {
         let id = self.next_request_id();
         let _ = self
@@ -90,8 +91,8 @@ impl QueryHandle {
         Ok(())
     }
 
-    /// Start a new turn with the given prompt text.
-    /// Used in multi-turn mode (`query_streaming`).
+    /// Start a new turn with the given prompt text. Used in multi-turn mode
+    /// (`query_streaming`).
     pub async fn send(&self, prompt: &str) -> Result<()> {
         self.turns
             .submit(async {
@@ -121,8 +122,6 @@ impl QueryHandle {
         self.cancellation_token.cancel();
     }
 
-    /// Cancel and wait for the orchestrator and runtime to fully shut down.
-    ///
     /// This ensures all resources (including the in-process app-server) are
     /// released before returning. Use this instead of `cancel()` when you need
     /// to guarantee cleanup (e.g. before starting a new session in the same
@@ -160,8 +159,8 @@ impl TurnAdmission {
     }
 }
 
-/// Run a one-shot query: send a single prompt and stream all messages
-/// until the turn completes.
+/// Run a one-shot query: send a single prompt and stream all messages until the
+/// turn completes.
 ///
 /// This is the Codex equivalent of the Claude SDK's `query()`.
 pub async fn query(prompt: &str, options: CodexOptions) -> Result<QueryHandle> {
@@ -173,8 +172,8 @@ pub async fn query(prompt: &str, options: CodexOptions) -> Result<QueryHandle> {
     Ok(handle)
 }
 
-/// Create a multi-turn streaming session. No initial prompt is sent;
-/// use `QueryHandle::send()` to start turns.
+/// Create a multi-turn streaming session. No initial prompt is sent; use
+/// `QueryHandle::send()` to start turns.
 ///
 /// This is the Codex equivalent of the Claude SDK's `query_streaming()`.
 pub async fn query_streaming(options: CodexOptions) -> Result<QueryHandle> {

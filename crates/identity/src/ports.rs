@@ -29,10 +29,9 @@ use crate::secret::service::SecretService;
 
 /// The `users` table, narrowed to the four identity ports peers read.
 ///
-/// It also holds the token store, because one of those ports —
-/// `ProviderIdentityLink` — answers "who is behind this provider account" from
-/// two places: the directory link a person establishes, and the account behind a
-/// stored credential.
+/// Also holds the token store: `ProviderIdentityLink` answers "who is behind
+/// this provider account" from two places — the directory link a person
+/// establishes, and the account behind a stored credential.
 pub struct UserDirectory {
     users: Arc<dyn UserDao>,
     tokens: Arc<dyn ProviderTokenDao>,
@@ -106,8 +105,8 @@ impl UserDirectory {
     }
 }
 
-/// A [`UserDirectory`] that answers [`UserDirectory::bot_users_by_app_key`] with
-/// `bot_users` and reaches no database, for a consumer's tests.
+/// A [`UserDirectory`] that answers [`UserDirectory::bot_users_by_app_key`]
+/// with `bot_users` and reaches no database, for a consumer's tests.
 #[cfg(any(test, feature = "test-support"))]
 pub fn user_directory_over_bot_users(bot_users: HashMap<String, String>) -> Arc<UserDirectory> {
     let mut users = crate::auth::users_dao::MockUserDao::new();

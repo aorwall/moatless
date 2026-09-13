@@ -1,15 +1,11 @@
 //! Opening one port on an already-running sandbox.
 //!
-//! Provisioning publishes the ports a workspace *declares* — its preview
-//! servers — as one atomic pass over Service, `IngressRoutes` and the preview
-//! `NetworkPolicy`. A Script's port is not declared: it is asked for as the
-//! script starts, against a sandbox that is already up. This module is that
-//! second entry point, and it writes the same three objects one port at a time.
-//!
-//! Each write is individually idempotent, and none is compensated on failure:
-//! an orphaned Service port or route reaches nothing and is collected with the
-//! Deployment. What survives a failure is a port that is published but unused,
-//! never a port that is reachable but unadmitted.
+//! Provisioning publishes a workspace's *declared* preview-server ports as one
+//! atomic pass over Service, `IngressRoutes` and the preview `NetworkPolicy`. A
+//! Script's port is not declared — asked for as the script starts, against a
+//! sandbox already up — so this module writes the same three objects one port
+//! at a time, each write idempotent and none compensated on failure: what
+//! survives is a port published but unused, never one reachable but unadmitted.
 
 use std::collections::BTreeSet;
 
@@ -29,25 +25,22 @@ use moatless_types::sandbox::SANDBOX_PREVIEW_PROXY_PORT;
 
 /// The Service port name for a dynamically published port.
 ///
-/// A Service port name is a DNS-1123 label capped at **15 characters**, and the
-/// declared-server path gets away with using the server name verbatim only
-/// because those names are short and hand-written. A Script name is neither, so
-/// its port carries a derived name instead — `scr-65535` is 9 characters at the
-/// widest, and the port is already unique within the Service.
+/// Capped at 15 characters (DNS-1123), so a Script uses a derived name —
+/// `scr-65535`, 9 characters at widest — instead of its own.
 pub fn script_port_name(port: u16) -> String {
     format!("scr-{port}")
 }
 
 /// The key a script's `IngressRoute` is named from.
 ///
-/// Prefixed so a Script and a preview server that happen to share a name get
-/// distinct routes rather than one silently reusing the other's.
+/// Prefixed so a Script and a preview server sharing a name get distinct routes
+/// rather than one silently reusing the other's.
 fn script_route_key(name: &str) -> String {
     format!("script-{name}")
 }
 
-/// A kube API handle for Traefik `IngressRoute` CRDs. Mirrors `ingress.rs`'s own
-/// private helper; both exist because the CRD has no generated type.
+/// A kube API handle for Traefik `IngressRoute` CRDs. Mirrors `ingress.rs`'s
+/// own private helper; both exist because the CRD has no generated type.
 fn ingress_api(k8s: &K8sClient) -> Api<DynamicObject> {
     let ar = ApiResource {
         group: "traefik.io".to_string(),
@@ -61,13 +54,10 @@ fn ingress_api(k8s: &K8sClient) -> Api<DynamicObject> {
 
 /// Every port the task's `IngressRoutes` currently point at.
 ///
-/// The routes are the record of what has been published: they are separate
-/// objects that outlive a missing Service, and nothing else persists a Script's
-/// port. The network heal reads this so rebuilding the Service from the
-/// declared plan does not silently drop a port a Script opened.
-///
-/// Best-effort, like the rest of the orphan-discovery reads — an unavailable or
-/// uninstalled CRD yields an empty set rather than an error.
+/// Routes outlive a missing Service and are the only record of a Script's port,
+/// so the network heal reads this to avoid dropping one when rebuilding from
+/// the declared plan. Best-effort: an unavailable/uninstalled CRD yields an
+/// empty set.
 pub async fn published_task_ports(k8s: &K8sClient, task_id: &str) -> BTreeSet<u16> {
     let api = ingress_api(k8s);
     let lp = ListParams::default().labels(&format!("moatless.io/task-id={task_id}"));
@@ -100,16 +90,12 @@ pub async fn published_task_ports(k8s: &K8sClient, task_id: &str) -> BTreeSet<u1
     ports
 }
 
-/// Add `port` to the task's Service, and return the Service's ownerReferences
-/// so the route can be owned by the same Deployment without a second read.
+/// Add `port` to the task's Service; returns its ownerReferences so the route
+/// can be owned by the same Deployment without a second read.
 ///
-/// The port is added with a **strategic** merge patch carrying only that one
-/// entry. `ServiceSpec::ports` declares `port` as its patch merge key, so
-/// Kubernetes merges the entry into the live list server-side rather than
-/// replacing it. That is what makes two concurrent `scripts.run` calls safe:
-/// building the whole array from a read and sending it wholesale would let the
-/// later write drop whichever port won the earlier race, leaving that script's
-/// `IngressRoute` pointing at a Service port that no longer exists.
+/// Patched with a strategic merge naming only that entry — `ServiceSpec::ports`
+/// keys on `port`, so a wholesale rebuilt array would let a concurrent
+/// `scripts.run` drop whichever port lost the race.
 async fn patch_service_port(
     k8s: &K8sClient,
     task_id: &str,
@@ -144,19 +130,10 @@ async fn patch_service_port(
 
 /// Whether `port` still needs the patch that routes it to the preview proxy.
 ///
-/// Scoped to the entries this module writes, which is what `script_port_name`
-/// identifies. The strategic merge keys on `port` and so updates whatever
-/// element already holds that number: a guard that asked only whether the entry
-/// was proxied would rewrite a *declared* server's entry — renaming it and
-/// retargeting it at the proxy — whenever a Script named the same port. The
-/// next `heal_network_resources` rebuilds that entry as a declared server
-/// again, so the two writers would disagree about one entry with nothing
-/// reconciling them.
-///
-/// An entry this module does write is re-patched unless it already targets the
-/// proxy: a port published before the proxy existed carries
-/// `targetPort == port`, and leaving it would keep a `127.0.0.1`-bound server
-/// unreachable for the life of the Service.
+/// Scoped to entries `script_port_name` marks as this module's own, since the
+/// merge keys on `port` alone and a name-blind guard would rewrite a declared
+/// server's entry too; a pre-proxy entry (`targetPort == port`) is re-patched
+/// or stays unreachable.
 fn needs_proxy_patch(ports: &[ServicePort], port: u16) -> bool {
     let Some(existing) = ports.iter().find(|p| p.port == i32::from(port)) else {
         return true;
@@ -171,11 +148,9 @@ fn needs_proxy_patch(ports: &[ServicePort], port: u16) -> bool {
 
 /// The one-entry `spec.ports` strategic merge patch that publishes `port`.
 ///
-/// `targetPort` is [`SANDBOX_PREVIEW_PROXY_PORT`], not `port`: a script's server
-/// runs inside the sandbox container, and the sandbox's preview proxy answers on
-/// its behalf so the server sees a loopback `Host` and may bind `127.0.0.1`. The
-/// Service port stays `port` because the proxy reads the upstream port back out
-/// of the request's `Host`.
+/// `targetPort` is [`SANDBOX_PREVIEW_PROXY_PORT`], not `port`: the sandbox's
+/// preview proxy answers on the script's behalf, so its server sees a loopback
+/// `Host` and may bind `127.0.0.1`.
 fn script_service_port_patch(port: u16) -> serde_json::Value {
     serde_json::json!({
         "spec": {
@@ -191,17 +166,10 @@ fn script_service_port_patch(port: u16) -> serde_json::Value {
 
 /// Make `port` reachable at the task's preview hostname, returning the URL.
 ///
-/// Three writes, in the order that keeps the failure modes benign:
-///
-/// 1. The Service port. Fails the call — without it the later writes describe a
-///    route to nothing, and the caller has not started anything yet.
-/// 2. The `IngressRoute`. A failure here costs only the URL.
-/// 3. The preview `NetworkPolicy` allowance. A failure here — typically a missing
-///    RBAC grant — costs only reachability, the same degradation declared
-///    preview servers already have.
-///
-/// Returns `Ok(None)` when the deployment has no proxy domain: the port is
-/// still on the Service, there is simply no external name for it.
+/// Three writes in order of failure cost: Service port failure fails the call;
+/// `IngressRoute` failure costs only the URL; `NetworkPolicy` failure costs
+/// only reachability. `Ok(None)` means no proxy domain is configured — the port
+/// is still on the Service.
 pub async fn publish_task_port(
     k8s: &K8sClient,
     task_id: &str,
@@ -272,8 +240,8 @@ mod tests {
     }
 
     /// The patch carries only the port being published. Sending a rebuilt copy
-    /// of the whole list is what let a concurrent publish be dropped, so a patch
-    /// that names other ports at all is the regression.
+    /// of the whole list is what let a concurrent publish be dropped, so a
+    /// patch that names other ports at all is the regression.
     #[test]
     fn the_service_patch_names_only_the_port_it_publishes() {
         let patch = script_service_port_patch(3000);
@@ -286,8 +254,8 @@ mod tests {
     }
 
     /// The Service port is what the route names; the target is the sandbox's
-    /// preview proxy, which reads the real port back out of the `Host`. Sending
-    /// the traffic straight at `port` is what forced a script's server to bind
+    /// preview proxy, which reads the real port back out of the `Host` —
+    /// sending traffic straight at `port` forced a script's server to bind
     /// `0.0.0.0` and see an external `Host`.
     #[test]
     fn the_patch_targets_the_preview_proxy_rather_than_the_published_port() {
@@ -333,10 +301,8 @@ mod tests {
     }
 
     /// `web: 3000` declared plus a Script started on 3000 is an ordinary
-    /// collision. The strategic merge keys on `port`, so patching here would
-    /// rename the declared server's entry and retarget it at the proxy — and
-    /// the next heal would rebuild it as a declared server, leaving the two
-    /// writers in disagreement about one entry.
+    /// collision. Patching here would rename the declared server's entry and
+    /// retarget it at the proxy, leaving the two writers in disagreement.
     #[test]
     fn a_declared_servers_entry_is_never_rewritten_by_a_script_naming_its_port() {
         let ports = [entry("web", 3000, 3000)];

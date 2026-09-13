@@ -1,12 +1,9 @@
 //! Slack mrkdwn → readable markdown converter.
 //!
-//! Converts Slack-specific markup elements to plain text or standard markdown:
-//! - `<@U123>` → `@user`
-//! - `<#C123|channel-name>` → `#channel-name`
-//! - `<https://url|display text>` → `[display text](url)`
-//! - `<https://url>` → `url`
-//! - `<!here>` → `@here`, `<!channel>` → `@channel`
-//! - `<!subteam^S123|@team>` → `@team`
+//! Converts Slack-specific markup to plain text or standard markdown: `<@U123>`
+//! to `@user`, `<#C123|name>` to `#name`, `<https://url|text>` to
+//! `[text](url)`, bare URLs unwrapped, `<!here>`/`<!channel>` to `@here`/
+//! `@channel`, and `<!subteam^S123|@team>` to `@team`.
 
 use regex::Regex;
 use std::sync::LazyLock;
@@ -32,9 +29,8 @@ static SUBTEAM_MENTION: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"<!subteam\^[A-Z0-9]+(?:\|@?([^>]+))?>").expect("valid regex"));
 
 /// A Slack user id left standing by [`format_slack_text`], which renders
-/// `<@U123>` as `@U123` whenever Slack sends no `|name` half — which is almost
-/// always. The id shape is distinctive enough that ordinary prose does not
-/// match it.
+/// `<@U123>` as `@U123` when Slack sends no `|name` half (almost always). The
+/// id shape is distinctive enough that ordinary prose does not match it.
 #[allow(clippy::expect_used)]
 static BARE_USER_ID: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"@([UW][A-Z0-9]{6,})\b").expect("valid regex"));
@@ -55,9 +51,8 @@ pub fn mentioned_user_ids(text: &str) -> Vec<String> {
 
 /// Replace each `@U123` with the name `names` gives for it.
 ///
-/// An id with no entry is left as it is: an unresolvable mention still tells
-/// the agent that *someone* was named, and inventing a name would be worse than
-/// showing the id.
+/// An id with no entry is left as-is: it still tells the agent *someone* was
+/// named, which beats inventing a name.
 pub fn name_mentions(text: &str, names: &std::collections::HashMap<String, String>) -> String {
     BARE_USER_ID
         .replace_all(text, |caps: &regex::Captures| {
@@ -69,19 +64,12 @@ pub fn name_mentions(text: &str, names: &std::collections::HashMap<String, Strin
         .into_owned()
 }
 
-/// Extract readable text from Slack Block Kit `blocks` array.
+/// Extract readable text from Slack Block Kit `blocks` (`section`, `header`,
+/// `rich_text`, `context`); skips non-text blocks like `actions` and `divider`.
 ///
-/// Walks the block structure and pulls text from:
-/// - `section` / `header` → `text.text`, plus each entry of `fields[].text`
-/// - `rich_text` → recursively from `elements[].elements[].text`
-/// - `context` → `elements[].text`
-///
-/// The `section` `fields[]` array is where AWS Chatbot renders a CloudWatch
-/// alarm's detail rows (reason, metric, threshold, timestamp) — without it only
-/// the one-line header `text` survives and every detail is silently dropped.
-///
-/// Skips `actions`, `divider`, `image`, and other non-text blocks.
-/// The returned string has mrkdwn references already converted via [`format_slack_text`].
+/// `section.fields[]` carries multi-field detail rows (e.g. AWS Chatbot's
+/// CloudWatch alarm reason/metric/threshold) that the header text alone would
+/// drop.
 pub fn extract_text_from_blocks(blocks: &[serde_json::Value]) -> String {
     let mut parts: Vec<String> = Vec::new();
 
@@ -174,8 +162,9 @@ pub fn extract_text_from_blocks(blocks: &[serde_json::Value]) -> String {
     format_slack_text(&raw)
 }
 
-/// Recursively extract text from a `rich_text` element (e.g. `rich_text_section`,
-/// `rich_text_list`, `rich_text_preformatted`, `rich_text_quote`).
+/// Recursively extract text from a `rich_text` element (e.g.
+/// `rich_text_section`, `rich_text_list`, `rich_text_preformatted`,
+/// `rich_text_quote`).
 fn extract_rich_text_element(element: &serde_json::Value, parts: &mut Vec<String>) {
     if let Some(inner) = element.get("elements").and_then(|e| e.as_array()) {
         let mut line_parts: Vec<String> = Vec::new();
@@ -216,16 +205,10 @@ fn extract_rich_text_element(element: &serde_json::Value, parts: &mut Vec<String
     }
 }
 
-/// Extract readable text from Slack legacy `attachments` array.
+/// Extract readable text from Slack legacy `attachments`: `title`, `text`,
+/// `pretext`, `fields[]`, and `fallback`.
 ///
-/// Walks each attachment and pulls text from:
-/// - `title` — attachment title (often the alert name)
-/// - `text` — main body text
-/// - `pretext` — text shown above the attachment
-/// - `fields[]` — title/value pairs (e.g., severity: critical)
-/// - `fallback` — last resort plain-text summary
-///
-/// Used by Prometheus Alertmanager, Grafana, and other webhook-based integrations
+/// Used by Prometheus Alertmanager, Grafana, and similar webhook integrations
 /// that send structured content via attachments rather than Block Kit blocks.
 pub fn extract_text_from_attachments(attachments: &[serde_json::Value]) -> String {
     let mut parts: Vec<String> = Vec::new();
@@ -394,11 +377,9 @@ mod tests {
 
     // --- extract_text_from_blocks tests ---
 
-    /// We post `markdown` blocks ourselves, and both readers prefer blocks over
-    /// Verified against a real `chat.postMessage` round trip: Slack does not
-    /// store a posted `markdown` block, it expands it into native blocks — the
-    /// Markdown table becomes a `table` block. So a table reaches this function
-    /// two ways, and losing it loses the substance of a release summary.
+    /// Slack expands a posted `markdown` block into native blocks — a Markdown
+    /// table becomes a `table` block — so this verifies a table survives that
+    /// round trip.
     #[test]
     fn a_table_block_survives_a_re_read() {
         let blocks = serde_json::json!([

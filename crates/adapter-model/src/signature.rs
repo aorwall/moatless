@@ -1,9 +1,10 @@
 //! Shared HMAC-SHA256 webhook signature verification.
 //!
-//! Every adapter authenticates inbound webhooks with `HMAC-SHA256(secret, payload)`
-//! and differs only in how the expected digest is framed on the wire (a `v0=` or
-//! `sha256=` prefix, or bare hex). The constant-time core lives here; each adapter
-//! keeps a thin wrapper that strips its own framing before delegating.
+//! Every adapter authenticates inbound webhooks with `HMAC-SHA256(secret,
+//! payload)` and differs only in how the expected digest is framed on the wire
+//! (a `v0=` or `sha256=` prefix, or bare hex). The constant-time core lives
+//! here; each adapter keeps a thin wrapper that strips its own framing before
+//! delegating.
 
 use hmac::{Hmac, KeyInit, Mac};
 use sha2::Sha256;
@@ -14,9 +15,10 @@ type HmacSha256 = Hmac<Sha256>;
 
 /// Verify `expected_hex` is `HMAC-SHA256(secret, payload)`.
 ///
-/// `expected_hex` is the bare hex digest (no prefix). Comparison is constant-time
-/// via [`Mac::verify_slice`]; any decode or length mismatch is reported as
-/// [`SharedAdapterError::SignatureInvalid`] so callers never leak which check failed.
+/// `expected_hex` is the bare hex digest (no prefix); comparison is
+/// constant-time via [`Mac::verify_slice`], and any decode or length mismatch
+/// reports [`SharedAdapterError::SignatureInvalid`] so callers never learn
+/// which check failed.
 pub fn verify_hmac_sha256(
     secret: &str,
     payload: &[u8],

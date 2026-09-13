@@ -1,6 +1,8 @@
-//! `moat linear` — Linear issue/comment commands via the workspace OAuth
-//! token held by the backend. Wraps the typed `/api/v1/linear/*` endpoints
-//! and adds a `graphql` passthrough for anything not yet wrapped.
+//! `moat linear` — Linear issue/comment commands via the workspace OAuth token
+//! held by the backend.
+//!
+//! Wraps the typed `/api/v1/linear/*` endpoints and adds a `graphql`
+//! passthrough for anything not yet wrapped.
 
 use std::collections::HashMap;
 
@@ -31,10 +33,12 @@ pub enum LinearAction {
         /// Name to resolve (case-insensitive)
         name: String,
         /// Team key (SP), name, or UUID. A state, label or project name is only
-        /// unique within a team; without this you get whichever team matches first
+        /// unique within a team; without this you get whichever team matches
+        /// first
         #[arg(long)]
         team: Option<String>,
-        /// Optional Linear connection ID (required only when more than one is accessible)
+        /// Optional Linear connection ID (required only when more than one is
+        /// accessible)
         #[arg(long)]
         connection: Option<String>,
     },
@@ -42,8 +46,8 @@ pub enum LinearAction {
     Graphql {
         /// GraphQL query/mutation. Reads from stdin if omitted.
         query: Option<String>,
-        /// Variable in the form KEY=VALUE (repeatable). Values are parsed
-        /// as JSON when valid, otherwise treated as strings.
+        /// Variable in the form KEY=VALUE (repeatable). Values are parsed as
+        /// JSON when valid, otherwise treated as strings.
         #[arg(long = "var")]
         vars: Vec<String>,
         /// Optional Linear connection ID
@@ -78,8 +82,8 @@ pub enum IssueAction {
         /// Label name or UUID (repeatable)
         #[arg(long = "label")]
         labels: Vec<String>,
-        /// Moatless login, email, display name, `me`, or UUID. Defaults to
-        /// you when omitted.
+        /// Moatless login, email, display name, `me`, or UUID. Defaults to you
+        /// when omitted.
         #[arg(long)]
         assignee: Option<String>,
         /// Moatless login, email, display name, `me`, or UUID. Use this for an
@@ -170,8 +174,8 @@ pub enum IssueAction {
         /// already-bound issue refreshes its binding automatically.
         #[arg(long = "task")]
         task: Option<String>,
-        /// Force a reply binding even when the issue isn't already bound (for
-        /// a proactive comment on an issue you intend to keep following).
+        /// Force a reply binding even when the issue isn't already bound (for a
+        /// proactive comment on an issue you intend to keep following).
         #[arg(long)]
         bind: bool,
         #[arg(long)]
@@ -636,8 +640,8 @@ async fn run_graphql(
     Ok(())
 }
 
-/// Pretty-print an issue payload. JSON mode prints the raw value;
-/// human mode prints the key fields.
+/// Pretty-print an issue payload. JSON mode prints the raw value; human mode
+/// prints the key fields.
 fn print_issue(issue: &Value, json: bool) {
     if json {
         output::print_json_typed(&issue);

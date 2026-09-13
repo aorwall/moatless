@@ -20,7 +20,7 @@ use tracing::{debug, warn};
 
 /// Reconciles a repository's committed loop declarations into the loop tables.
 ///
-/// Holds the five ports the reconcile tree reads: adapter connections, the loop
+/// Holds the five ports the reconcile tree reads: adapter connections, loop
 /// store, tags, workspaces, and the git-host token seam.
 pub struct LoopSyncService {
     pub(super) fetcher: GitHubLoopFetcher,
@@ -34,9 +34,9 @@ pub struct LoopSyncService {
 impl LoopSyncService {
     /// Fetch, parse, and reconcile the loops declared in a repository.
     ///
-    /// GitHub-only for v1: non-GitHub repos return an empty summary with a warning.
-    /// Returns the reconciliation summary; the fetch step can still fail hard
-    /// (network / auth errors) which callers surface or swallow as appropriate.
+    /// GitHub-only for v1 (non-GitHub repos return an empty summary with a
+    /// warning); the fetch step can still fail hard, which callers surface or
+    /// swallow as appropriate.
     pub async fn sync_repo_loops_for(
         &self,
         repo: &Repository,
@@ -83,10 +83,10 @@ impl LoopSyncService {
 
     /// Reset one overridden or deleted Loop to its current Git declaration.
     ///
-    /// Unlike repository reconciliation this never considers sibling removals.
-    /// The existing row keeps its identity and becomes Git-owned again; its
-    /// execution approval is untouched, so a deleted Loop comes back awaiting
-    /// approval and an overridden one keeps the run-as user it was given.
+    /// Unlike repository reconciliation this never considers sibling removals:
+    /// the row keeps its identity and its execution approval untouched — so a
+    /// deleted Loop awaits approval and an overridden one keeps its run-as
+    /// user.
     pub async fn reset_repo_loop_for(
         &self,
         repo: &Repository,

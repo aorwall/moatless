@@ -5,7 +5,8 @@
 // does not cover the feature-gated build).
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
-//! Shared [`EventPublisher`] test double used across the workspace's test tiers.
+//! Shared [`EventPublisher`] test double used across the workspace's test
+//! tiers.
 //!
 //! Gated `#[cfg(any(test, feature = "test-support"))]`, so it is compiled for
 //! this crate's own test build and, off the `test-support` feature, for the
@@ -47,9 +48,9 @@ pub struct RawPublish {
 
 /// One `publish_task_event` call, captured in full.
 ///
-/// [`RecordedEvent::Task`] keeps only the subtype, which is all a "did it fire"
-/// assertion needs. A caller that shapes the event — the provider close paths
-/// carry their own actor and `reason` payload — asserts on this instead.
+/// [`RecordedEvent::Task`] keeps only the subtype, for a "did it fire"
+/// assertion; a caller asserting on the shaped event (actor, `reason` payload)
+/// uses this instead.
 #[derive(Debug, Clone)]
 pub struct TaskPublish {
     pub task_id: String,
@@ -61,10 +62,9 @@ pub struct TaskPublish {
 /// [`EventPublisher`] double that records what it was asked to publish, so
 /// tests can assert the events a code path emitted without Redis.
 ///
-/// The optional `order_log` also appends `"publish"` on each raw publish; the
-/// ingress ordering tests share it with a recording repository to assert the DB
-/// commit is logged before the publish. `failing` simulates a transport outage
-/// for a fixed number of raw publishes, so fail-then-recover paths are testable.
+/// The optional `order_log` appends `"publish"` on each raw publish, so
+/// ordering tests can assert a DB commit is logged first; `failing` simulates a
+/// transport outage for a fixed number of raw publishes.
 #[derive(Default)]
 pub struct RecordingPublisher {
     calls: Arc<Mutex<Vec<RecordedEvent>>>,

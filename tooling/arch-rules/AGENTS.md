@@ -64,6 +64,12 @@ reached zero.
   the entity from the wire shape. A rule that fights a convention is wrong about the
   convention until proven otherwise.
 
+## `comment-block-size` sits on the stated limit
+
+Its two constants are now the 5 and 8 root `AGENTS.md` asks for, so there is
+nothing left to ratchet. Do not raise one to absorb a long block: baseline that
+block instead, and name in the commit the kind that needs the length.
+
 ## Reading the workspace and recording an exception
 
 `Workspace` reads Cargo metadata and raw manifests. Its cached source index

@@ -4,19 +4,12 @@ use super::*;
 
 /// Container-level security context for the agent + server containers.
 ///
-/// Both modes drop ALL capabilities and add back only what the workload needs.
-///
-/// - Non-root (`K8S_SANDBOX_RUN_AS_NON_ROOT=true`): the pod-level securityContext
-///   (see [`pod_security_context`]) runs these containers as UID/GID 1000, and
-///   the image chowns every runtime path to that user (plus `fsGroup: 1000` for
-///   the mounted volumes). Ownership is therefore correct without `DAC_OVERRIDE`.
-/// - Root (default, flag off): the container runs as UID 0 while `/home/moatless`
-///   and friends are owned by UID 1000, so `DAC_OVERRIDE` is required for root to
-///   write there (gh CLI config, Claude onboarding flag) during init.
-///
-/// `NET_BIND_SERVICE` is kept in standard mode so servers can bind privileged
-/// ports if a repo configures one. Fargate accepts capability drops but not
-/// capability additions, so its preset runs without added capabilities.
+/// Both modes drop ALL capabilities and add back only what's needed:
+/// `DAC_OVERRIDE` is added only when running as root (UID 0), since
+/// `/home/moatless` is chowned to UID 1000 and root needs it to write there
+/// during init; non-root mode needs no such override since ownership already
+/// matches. Fargate accepts capability drops but not additions, so its preset
+/// adds none.
 pub(super) fn app_security_context(config: &Config) -> SecurityContext {
     if config.sandbox.compute_mode.is_fargate() {
         return SecurityContext {
@@ -44,15 +37,11 @@ pub(super) fn app_security_context(config: &Config) -> SecurityContext {
 /// Pod-level securityContext, populated only when `K8S_SANDBOX_RUN_AS_NON_ROOT`
 /// is enabled.
 ///
-/// Runs the pod's containers as the non-root `moatless` user (UID/GID 1000) with
-/// the `RuntimeDefault` seccomp profile, and sets `fsGroup: 1000` so mounted
-/// volumes (workspace PVC/emptyDir, shared-data) are group-writable
-/// by that user. The privileged `dind` sidecar and `nvme-setup` init container
-/// override this back to root at the container level (see
-/// [`privileged_security_context`]).
-///
-/// Returns `None` when the flag is off, leaving the pod at its previous behaviour
-/// (containers run as root).
+/// Runs containers as non-root `moatless` (UID/GID 1000) with `RuntimeDefault`
+/// seccomp and `fsGroup: 1000` for volume writability; the privileged `dind`
+/// and `nvme-setup` containers override back to root at the container level
+/// (see [`privileged_security_context`]). Returns `None` when the flag is off,
+/// leaving containers running as root.
 pub(super) fn pod_security_context(config: &Config) -> Option<PodSecurityContext> {
     config.sandbox.run_as_non_root.then(|| PodSecurityContext {
         run_as_user: Some(1000),
@@ -73,19 +62,13 @@ pub(super) fn pod_security_context(config: &Config) -> Option<PodSecurityContext
     })
 }
 
-/// Privileged security context for the `nvme-setup` init container and the `dind`
-/// sidecar.
+/// Privileged security context for the `nvme-setup` init container and the
+/// `dind` sidecar.
 ///
-/// Required to `mkfs.ext4` / `mount` the raw instance-store NVMe device (init) and
-/// to run `dockerd` (sidecar). Explicitly pins `runAsUser: 0` / `runAsNonRoot:
-/// false` so these containers keep running as root even when the pod-level
-/// securityContext enables `runAsNonRoot` — otherwise the kubelet would reject
-/// them. Used ONLY by these containers — never by the agent/server containers,
-/// which use [`app_security_context`].
-///
-/// These containers carry no `seLinuxOptions`. On an SELinux-enforcing node the
-/// CRI drops that field for any privileged container, so setting it changes
-/// nothing about the type the container actually gets.
+/// Pins `runAsUser: 0`/`runAsNonRoot: false` so these stay root (needed for
+/// `mkfs.ext4`/`mount` and `dockerd`) even when the pod-level context enables
+/// `runAsNonRoot`, or the kubelet would reject them; used only here, never by
+/// [`app_security_context`]'s containers.
 pub(super) fn privileged_security_context() -> SecurityContext {
     SecurityContext {
         privileged: Some(true),

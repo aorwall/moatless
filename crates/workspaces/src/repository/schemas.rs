@@ -6,8 +6,8 @@ pub use moatless_api_schemas::repository::*;
 
 use super::models::Repository;
 
-/// Both types are foreign to this crate, so this is a free function rather
-/// than a `From` impl.
+/// Both types are foreign to this crate, so this is a free function rather than
+/// a `From` impl.
 pub fn repository_response(r: Repository) -> RepositoryResponse {
     {
         RepositoryResponse {

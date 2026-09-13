@@ -1,7 +1,7 @@
 //! Secret storage settings.
 //!
-//! The redacting `Debug` impl is what keeps encryption material out of logs,
-//! so it travels with the struct.
+//! The redacting `Debug` impl is what keeps encryption material out of logs, so
+//! it travels with the struct.
 
 use std::fmt;
 
@@ -12,8 +12,8 @@ use std::fmt;
 pub struct SecretsConfig {
     /// Base64 or raw 32-byte key used by the local envelope cipher.
     ///
-    /// This is a bootstrap value: it stays outside the database and is only
-    /// used until the deployment is moved to an external KMS-backed cipher.
+    /// A bootstrap value: stays outside the database, used only until the
+    /// deployment moves to an external KMS-backed cipher.
     pub encryption_key: Option<String>,
     /// KMS key identifier or alias recorded on encrypted rows.
     pub kms_key_id: Option<String>,

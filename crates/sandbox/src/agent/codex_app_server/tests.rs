@@ -17,9 +17,8 @@ use super::*;
 
 /// Every fixture, as `(relative path, contents)`.
 ///
-/// `include_str!` rather than a directory walk: the fixtures are compiled in, so
-/// a file that stops parsing fails the build of the test, and the list of what
-/// exists is reviewable in one place.
+/// `include_str!` rather than a directory walk: the fixtures are compiled in,
+/// so a file that stops parsing fails the build of the test.
 macro_rules! fixtures {
     ($($group:literal / $name:literal),* $(,)?) => {
         &[$((
@@ -77,7 +76,8 @@ fn message(source: &str) -> IncomingMessage {
         .unwrap_or_else(|e| panic!("fixture is not a JSON-RPC message: {e}"))
 }
 
-/// The type a response fixture is decoded into, keyed by the request it answered.
+/// The type a response fixture is decoded into, keyed by the request it
+/// answered.
 fn decode_response(name: &str, result: serde_json::Value) {
     let outcome = match name {
         "observed/response_initialize" => {
@@ -122,10 +122,11 @@ fn every_fixture_deserializes_into_its_protocol_type() {
     }
 }
 
-/// `CodexProcess::absorb` tells this Turn's stream from a native sub-agent's by
-/// the thread each notification names, and fails open on one that names none. A
-/// CLI that stopped sending `threadId` would therefore restore the bug silently,
-/// so every observed notification is pinned to carrying a thread.
+/// `CodexProcess::absorb` distinguishes this Turn's stream from a sub-agent's
+/// by thread id, failing open when none is named.
+///
+/// A CLI that stops sending `threadId` would restore that bug silently; every
+/// observed notification is pinned to carrying one.
 #[test]
 fn every_observed_notification_names_its_thread() {
     for (name, source) in OBSERVED {
@@ -160,8 +161,8 @@ fn observed_and_schema_derived_fixtures_stay_separate() {
     }
 }
 
-/// The eighteen families the wire can deliver, each covered by exactly one
-/// item fixture. Ticket 02's mapping is written against this set.
+/// The eighteen families the wire can deliver, each covered by exactly one item
+/// fixture. Ticket 02's mapping is written against this set.
 #[test]
 fn every_item_family_has_a_fixture() {
     let mut families = HashSet::new();
@@ -349,8 +350,8 @@ fn the_running_plan_arrives_as_a_notification_not_an_item() {
     assert_eq!(plan.plan[1].status, TurnPlanStepStatus::Pending);
 }
 
-/// Every steer rejection uses `-32600` with a different sentence, so the code is
-/// all a caller may read.
+/// Every steer rejection uses `-32600` with a different sentence, so the code
+/// is all a caller may read.
 #[test]
 fn steer_rejections_are_all_the_same_code() {
     for source in [
@@ -415,8 +416,8 @@ fn codex_error_info_covers_string_and_object_variants() {
     );
 }
 
-/// A code this build has never seen must survive with its raw value intact so it
-/// can be logged, not collapse silently into the default class.
+/// A code this build has never seen must survive with its raw value intact so
+/// it can be logged, not collapse silently into the default class.
 #[test]
 fn unrecognized_codex_error_info_keeps_its_raw_value() {
     assert_eq!(

@@ -1,8 +1,8 @@
 //! Unified application state for API routes.
 //!
-//! All handler-facing database access goes through DAO trait objects,
-//! enabling full unit-test mocking without a real database. They are built by
-//! the composition root ([`crate::compose`]) and handed to [`AppState::new`].
+//! All handler-facing database access goes through DAO trait objects, enabling
+//! full unit-test mocking without a real database. They are built by the
+//! composition root ([`crate::compose`]) and handed to [`AppState::new`].
 
 use crate::access_settings::provider_apps::ProviderApps;
 use crate::adapter_installations::AdapterInstallations;
@@ -62,8 +62,8 @@ use std::sync::Arc;
 
 /// Shared application state for task/message/agent/file routes.
 ///
-/// All fields are cheap to clone (Arc-wrapped or internally Arc'd).
-/// DAO trait objects enable handler unit tests without Postgres.
+/// All fields are cheap to clone (Arc-wrapped or internally Arc'd); DAO trait
+/// objects enable handler unit tests without Postgres.
 #[derive(Clone)]
 pub struct AppState {
     /// PostgreSQL connection pool — kept for auth routes and infrastructure
@@ -72,48 +72,46 @@ pub struct AppState {
     /// Immutable configuration shared across handlers.
     pub config: Arc<Config>,
     /// Config sections handed to migrated handlers as `Arc<Section>` ports,
-    /// each built once here. Handing out `Arc<Section>` (not the section by
-    /// value) keeps a secret-bearing section — `AuthConfig`, `SecretsConfig` —
-    /// from being re-cloned on every request. One field per section a handler
-    /// names.
+    /// each built once here.
+    ///
+    /// `Arc<Section>`, not the section by value, keeps a secret-bearing section
+    /// (`AuthConfig`, `SecretsConfig`) from being re-cloned on every request.
     pub auth_config: Arc<AuthConfig>,
     pub codex_oauth_config: Arc<CodexOAuthConfig>,
     pub secrets_config: Arc<SecretsConfig>,
     pub s3_config: Arc<S3Config>,
     /// Verifies sandbox-issued `X-User-Token` JWTs. The auth extractors reach
-    /// this through [`moatless_core::http_auth::UserTokenVerifier`] rather than reading
-    /// the token secret off `config` directly.
+    /// this through [`moatless_core::http_auth::UserTokenVerifier`] rather than
+    /// reading the token secret off `config` directly.
     pub token_verifier: Arc<dyn moatless_core::http_auth::UserTokenVerifier>,
-    /// The one Sandbox value on `AppState`: the durable lifecycle handle. Callers
-    /// request transitions (`start`/`stop`/`restart`/`redeploy`/`remove`) and read
-    /// desired state through it rather than driving a provider directly.
+    /// The one Sandbox value on `AppState`: the durable lifecycle handle.
+    /// Callers request transitions
+    /// (`start`/`stop`/`restart`/`redeploy`/`remove`) and read desired state
+    /// through it rather than driving a provider directly.
     pub sandbox: Arc<Lifecycle>,
-    /// Consumer-owned wake port: ensure a task's sandbox is running and notify
-    /// it of new work. Declared in the tasks band
-    /// ([`moatless_ports::sandbox::SandboxWaker`]) and implemented in
-    /// sandbox-control ([`crate::sandbox::notify::SandboxWakeService`]), so the
-    /// message-delivery consumer wakes a sandbox through
-    /// [`moatless_ports::sandbox::wake_for_message`] without naming the sandbox
-    /// layer above it. Built in [`AppState::new`] from the connector-backed notify
-    /// port, which `AppState` takes as a constructor parameter but does not hold as
-    /// a field — nothing reads the raw notifier off state.
+    /// Consumer-owned [`moatless_ports::sandbox::SandboxWaker`].
+    ///
+    /// Lets the message-delivery consumer wake a sandbox without naming the
+    /// sandbox layer above it; built in [`AppState::new`] from a
+    /// connector-backed notify port that isn't itself held as a field.
     pub sandbox_waker: Arc<dyn moatless_ports::sandbox::SandboxWaker>,
     /// Optional event publisher for real-time event streaming (trait object).
     pub events: Option<Arc<dyn EventPublisher>>,
     /// Optional S3 handle for file uploads/downloads.
     pub s3: Option<moatless_s3::S3Storage>,
-    /// Optional capability registry derived from [`Self::adapter_installations`].
+    /// Optional capability registry derived from
+    /// [`Self::adapter_installations`].
     pub adapters: Option<Arc<Adapters>>,
     /// The process's one coherent installation of every external Adapter.
     /// Construction, capability registration, delivery wiring, and concrete
     /// handler access remain joined behind this value.
     pub adapter_installations: Option<Arc<AdapterInstallations>>,
-    /// Optional GitHub App service for installation tokens and user token refresh.
+    /// Optional GitHub App service for installation tokens and user token
+    /// refresh.
     ///
-    /// Convenience handle to the default (user-auth) App. Equivalent to
-    /// `github_apps.default_service()`. Kept for back-compat with existing
-    /// call sites; new code that needs to pick an App by key should go
-    /// through `github_apps` instead.
+    /// Convenience handle to the default App, equivalent to
+    /// `github_apps.default_service()`; kept for back-compat, new code should
+    /// use `github_apps` to pick an App by key.
     pub github_app_service: Option<Arc<GitHubAppService>>,
     /// Registry of all configured GitHub Apps (the default user-auth App plus
     /// any admin-registered bot Apps, read from storage). Bot users' provider
@@ -135,16 +133,16 @@ pub struct AppState {
     pub agent_harness_access: Arc<AgentHarnessAccess>,
     /// Installation-wide Adapter and GitHub App workflows.
     pub app_administration: Arc<AppAdministration>,
-    /// Short-lived in-memory cache of `(task_id, external_event_id)` we
-    /// just sent outbound — closes the race where the inbound webhook lands
-    /// before `set_external_event_id` commits. See [`RecentlySent`].
+    /// Short-lived in-memory cache of `(task_id, external_event_id)` we just
+    /// sent outbound — closes the race where the inbound webhook lands before
+    /// `set_external_event_id` commits. See [`RecentlySent`].
     pub recently_sent: Arc<RecentlySent>,
-    /// Maps `tool_use_id` → bucketed tool-type label, populated when an
-    /// assistant `tool_use` block is observed so the later (separate)
-    /// `tool_result` event can be labelled by tool type for the
-    /// `moatless_agent_tool_calls_total` metric without a DB round-trip.
-    /// Bounded LRU; a `messages.find_tool_call` lookup covers cross-process /
-    /// post-restart misses, falling back to `unknown`.
+    /// Maps `tool_use_id` → bucketed tool-type label, populated at the
+    /// assistant `tool_use` block so the later `tool_result` event can be
+    /// labelled without a DB round-trip.
+    ///
+    /// Bounded LRU; a `messages.find_tool_call` lookup covers
+    /// cross-process/post-restart misses, falling back to `unknown`.
     pub tool_call_names: Arc<moka::future::Cache<String, &'static str>>,
 
     // =========================================================================
@@ -185,12 +183,12 @@ pub struct AppState {
     /// The same rows as an Adapter routes against them: no viewer, because an
     /// inbound event and not a session says which tenant is meant.
     pub connection_routing: Arc<ConnectionRouting>,
-    /// The inbound-routing subgraph and the ten ports it reads — including the
-    /// durable adapter-event dedup (`adapter_event_receipts`), which nothing
-    /// outside routing reads, so it lives here rather than as its own field. The
-    /// durable inbound-delivery handler and the GitHub PR subject router route
-    /// through this handle instead of naming each port. See
-    /// [`moatless_loops::bindings::runtime::RoutingService`].
+    /// The inbound-routing subgraph and the ten ports it reads, including the
+    /// durable adapter-event dedup, which isn't its own field since nothing
+    /// outside routing reads it.
+    ///
+    /// The inbound-delivery handler and GitHub PR subject router route through
+    /// this instead of naming each port.
     pub routing: Arc<moatless_loops::bindings::runtime::RoutingService>,
     pub external_reply: Arc<moatless_loops::bindings::reply::ExternalReplyService>,
     pub adapter_commands: Arc<crate::adapters::operations::AdapterCommands>,
@@ -231,13 +229,15 @@ pub struct AppState {
     pub adapter_apps: Arc<dyn moatless_adapter_model::apps::AdapterAppReader>,
     pub secrets: Arc<SecretService>,
     pub task_events: Arc<TaskEvents>,
-    /// Durable admission for sandbox-published events. The event-handler
-    /// consumer reports delivery here once it has committed the message an
-    /// admitted record carries — the only confirmation of delivery in the
-    /// system — and the relay is spawned from it.
+    /// Durable admission for sandbox-published events.
+    ///
+    /// The event-handler consumer reports delivery here once it commits the
+    /// message an admitted record carries — the only delivery confirmation in
+    /// the system — and the relay is spawned from it.
     pub event_ingress: Arc<EventAdmission>,
     /// Authoritative per-turn lifecycle state (`task_turns`). Written
-    /// transactionally at the gRPC ingress; the reaper reads it as the backstop.
+    /// transactionally at the gRPC ingress; the reaper reads it as the
+    /// backstop.
     pub task_turns: Arc<TaskTurns>,
     /// The `task_turns` table behind the published `TurnCounter` seam.
     pub turn_counter: Arc<moatless_tasks::ports::TurnLedger>,
@@ -266,14 +266,14 @@ pub struct AppState {
     /// instead of eight DAOs.
     pub task_presenter: Arc<TaskPresenter>,
     pub task_closer: Arc<TaskCloser>,
-    /// Skill discovery service — reads `.claude/skills/` from workspace
-    /// and plugins, parses frontmatter, caches results.
+    /// Skill discovery service — reads `.claude/skills/` from workspace and
+    /// plugins, parses frontmatter, caches results.
     pub skills: Arc<SkillService>,
-    /// Durable admission for every inbound Adapter delivery, whose work cannot
-    /// finish on the HTTP response path. A webhook handler admits through this
-    /// before it acknowledges its sender; the supervised
-    /// `adapter-delivery-worker` owns what was admitted. See
-    /// [`crate::adapters::delivery`].
+    /// Durable admission for every inbound Adapter delivery, whose work can't
+    /// finish on the HTTP response path.
+    ///
+    /// A webhook handler admits through this before it acknowledges its sender;
+    /// the supervised `adapter-delivery-worker` owns what was admitted.
     pub adapter_delivery: Arc<dyn moatless_adapter_model::delivery::DeliveryAdmission>,
     /// The worker that owns what admission wrote. The host starts it last, once
     /// every delivery handler this build knows is registered.

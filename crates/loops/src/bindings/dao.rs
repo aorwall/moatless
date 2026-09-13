@@ -186,8 +186,8 @@ impl PgTaskBindingDao {
     }
 
     /// Whitelist of allowed `destination_config` keys for
-    /// [`Self::find_active_by_destination_field`]. The field name is
-    /// interpolated into the SQL, so untrusted values would be a SQL
+    /// [`Self::find_active_by_destination_field`], whose field name is
+    /// interpolated into the SQL — an untrusted value here would be a SQL
     /// injection vector.
     const ALLOWED_DESTINATION_FIELDS: &'static [&'static str] = &["issue_id"];
 
@@ -277,11 +277,11 @@ impl PgTaskBindingDao {
         Ok(TaskBinding::from(row))
     }
 
-    /// Set whether the Binding joining one Task to one subject routes, and
-    /// report whether the row changed.
+    /// Set whether the Binding joining one Task to one subject routes; reports
+    /// whether the row changed.
     ///
-    /// The `active <> $5` predicate is what makes this idempotent, so a second
-    /// unlink of the same pull request answers `false` rather than re-stamping
+    /// The `active <> $5` predicate makes this idempotent: a second unlink of
+    /// the same pull request answers `false` rather than re-stamping
     /// `deactivated_at`.
     pub(crate) async fn set_active_for_subject(
         &self,
@@ -341,8 +341,8 @@ impl PgTaskBindingDao {
 
     /// Record that this binding's thread has carried a task-provenance footer,
     /// so later replies in the same thread do not repeat it. Merges into
-    /// `metadata` rather than taking a column: the footer is presentation
-    /// state, not part of the binding's identity.
+    /// `metadata` rather than a column, since the footer is presentation state,
+    /// not part of the binding's identity.
     pub(crate) async fn mark_task_link_sent(&self, id: &str) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"UPDATE task_bindings
@@ -356,12 +356,9 @@ impl PgTaskBindingDao {
     }
 
     /// Fetch the most recent tasks created via the given Loop. Drives from
-    /// `tasks.loop_id` so all Loop kinds — including schedule loops
-    /// that never create a binding — are reachable. A LEFT JOIN LATERAL pulls
-    /// the earliest matching binding for adapter-event loops; schedule
-    /// loops yield NULL binding columns. Tasks scoped via `loop_id`
-    /// inherit the Loop's scope by construction, so no additional
-    /// task-level scope predicate is needed.
+    /// `tasks.loop_id` (not the binding table) so schedule loops, which never
+    /// create a binding, are still reachable via a LEFT JOIN LATERAL yielding
+    /// NULL binding columns for them.
     pub(crate) async fn find_recent_for_loop(
         &self,
         loop_id: &str,
@@ -415,8 +412,8 @@ impl PgTaskBindingDao {
     }
 
     /// Persist the external status of a binding's connected subject (GitHub PR
-    /// / Linear issue). Writes the dedicated `external_status*` columns and
-    /// stamps `external_status_updated_at = now()`. Leaves
+    /// / Linear issue): writes the dedicated `external_status*` columns and
+    /// stamps `external_status_updated_at = now()`, leaving
     /// `destination_config` untouched (which `upsert` would clobber).
     pub(crate) async fn update_external_status(
         &self,
@@ -442,8 +439,8 @@ impl PgTaskBindingDao {
         Ok(())
     }
 
-    /// Persist the PR's latest review decision (approved / `changes_requested` /
-    /// …) onto a binding. Leaves the `external_status*` columns untouched.
+    /// Persist the PR's latest review decision (approved / `changes_requested`
+    /// / …) onto a binding. Leaves the `external_status*` columns untouched.
     pub(crate) async fn update_review_decision(
         &self,
         id: &str,

@@ -172,12 +172,9 @@ pub(super) async fn projects_write_file(request: Request) -> Vec<Value> {
     }
 }
 
-/// A conversation's checkout exists inside its Sandbox and nowhere else, so an
-/// asset is minted as a route this backend serves the file on rather than as a
-/// path on this machine — see [`assets`]. `workspace-file` and `media-file` both
-/// name a file in that checkout. An attachment is an upload and is minted at the
-/// upload route. A project's favicon names no file here and keeps answering that
-/// there is none, which is what the client renders as a project without an icon.
+/// Mints an asset as a route this backend serves the file on, not a local path
+/// — a checkout lives only in its Sandbox; a favicon names no file and always
+/// answers none.
 pub(super) fn assets_create_url(request: Request) -> Vec<Value> {
     let Request { id, payload, .. } = request;
     // The error carries the resource back, and the client decodes it against the
@@ -198,10 +195,9 @@ pub(super) fn assets_create_url(request: Request) -> Vec<Value> {
     }
 }
 
-/// Where the composer sends a file before it sends the turn naming it. The URL
-/// carries its own credential and the route serves it — see [`attachments`] — so
-/// nothing about the upload reaches this socket except the id it will be known
-/// by.
+/// Mints the URL the composer uploads a file to before sending the turn that
+/// names it; the URL carries its own credential, so nothing about the upload
+/// reaches this socket except the id.
 pub(super) fn attachments_create_upload_url(request: Request) -> Vec<Value> {
     let Request {
         id,

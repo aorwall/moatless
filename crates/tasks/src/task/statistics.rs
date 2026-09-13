@@ -26,7 +26,6 @@ struct MessageUsage {
 }
 
 /// Sum the per-turn totals recorded from each run's terminal result message.
-///
 /// Returns `None` when no turn carries usage, so callers fall back to the
 /// per-message sum (the pre-column behaviour).
 fn totals_from_turn_metrics(turn_metrics: &[serde_json::Value]) -> Option<TaskTokenTotals> {
@@ -60,16 +59,9 @@ fn totals_from_turn_metrics(turn_metrics: &[serde_json::Value]) -> Option<TaskTo
     Some(totals)
 }
 
-/// Build all stats from the same rows already used by the conversation view.
-///
-/// `turn_metrics` carries each run's terminal totals and takes precedence over
-/// the per-message sum: on the subprocess/NDJSON stream `output_tokens` is
-/// sampled before the response finishes, so summing message rows understates
-/// output by an order of magnitude. Turn totals also cover sub-agent work,
-/// which the message sum deliberately excludes.
-///
-/// The per-message series is returned either way for the chart, where relative
-/// shape matters more than absolute accuracy.
+/// Build all stats from the rows the conversation view already uses.
+/// `turn_metrics` takes precedence over the per-message sum, which understates
+/// sampled `output_tokens` and excludes sub-agent work.
 pub fn build_task_statistics(
     task: &Task,
     messages: &[TaskMessage],

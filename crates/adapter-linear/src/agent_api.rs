@@ -1,16 +1,11 @@
 //! Linear Agents GraphQL client.
 //!
-//! Outbound surface for the Linear Agents flow:
-//! - `agent_activity_create`: emit `thought` / `response` / `elicitation` /
-//!   `error` activities on a session. Linear updates the session state from
-//!   these.
-//! - `agent_session_update`: set `externalUrls` so the Moatless task is
-//!   linked from the Linear Agent UI.
-//! - `viewer`: identify the authenticated agent (used at OAuth install time).
+//! Outbound surface: `agent_activity_create` (activities),
+//! `agent_session_update` (sets `externalUrls`), `viewer` (OAuth install-time
+//! identity).
 //!
-//! Auth: the workspace OAuth token is persisted as the single global
-//! `provider_tokens` row for the provider. Expired tokens are transparently refreshed
-//! against `https://api.linear.app/oauth/token` (form-encoded).
+//! Auth: workspace OAuth token lives in the global `provider_tokens` row;
+//! expired tokens refresh against `https://api.linear.app/oauth/token`.
 
 use std::time::Duration;
 
@@ -25,11 +20,8 @@ use std::sync::Arc;
 
 use moatless_ports::identity::{AppCredentials, AppToken};
 
-/// Linear's API host. Every endpoint this client speaks to hangs off it, so
-/// replacing this one value points the whole client — GraphQL and the OAuth
-/// token exchange alike — somewhere else. That is what
-/// [`LinearAgentApi::with_base_url`] exists for: without it no test can drive
-/// the real request path, and an API-call budget cannot be asserted at all.
+/// Linear's API host. Replace via [`LinearAgentApi::with_base_url`] so tests
+/// can drive the real request path against a stub instead of the network.
 const LINEAR_API_BASE: &str = "https://api.linear.app";
 const PROVIDER: &str = "linear";
 /// Refresh tokens whose expiry is within this window.
@@ -80,16 +72,14 @@ impl ActivityKind {
     }
 }
 
-/// GraphQL client for Linear Agents APIs.
-///
-/// Constructed per-org so the workspace token lookup is bound to a single
-/// connection. Cheap to clone — the underlying `reqwest::Client` and DB
-/// pool are both `Arc`-shared.
+/// GraphQL client for Linear Agents APIs, constructed per-org. Cheap to clone —
+/// `reqwest::Client` and the token store are `Arc`-shared.
 #[derive(Clone)]
 pub struct LinearAgentApi {
     http: Client,
-    /// The app-level OAuth row this Adapter authenticates with. `provider_tokens`
-    /// belongs to `identity`; this is the seam it publishes over it.
+    /// The app-level OAuth row this Adapter authenticates with.
+    /// `provider_tokens` belongs to `identity`; this is the seam it publishes
+    /// over it.
     tokens: Arc<dyn AppCredentials>,
     /// GraphQL endpoint. A field rather than a constant so tests can drive the
     /// real request path against a local address.
@@ -129,12 +119,9 @@ impl LinearAgentApi {
         )
     }
 
-    /// [`Self::new`] with Linear's host replaced, so the real request path can
-    /// be driven against a local address.
-    ///
-    /// Both endpoints are derived from `base_url` rather than only the GraphQL
-    /// one: a client pointed at a stub that then refreshed its token against
-    /// `api.linear.app` would be reaching the network from a test.
+    /// [`Self::new`] with Linear's host replaced, for driving requests against
+    /// a local stub. Both endpoints derive from `base_url` — deriving only the
+    /// GraphQL one would let token refresh still reach the real API.
     pub(crate) fn with_base_url(
         http: Client,
         tokens: Arc<dyn AppCredentials>,
@@ -157,11 +144,8 @@ impl LinearAgentApi {
 
     /// The one construction every caller in this Adapter goes through.
     ///
-    /// Callers hold their credentials in different shapes — an `AppState`, the
-    /// Adapter type, a route handler — but they all answer the same three
-    /// questions, and `base_url` is the one whose default must not be decided
-    /// per call site: a caller that forgot it would reach `api.linear.app`
-    /// from a test that believed it was pointed at a stub.
+    /// `base_url` defaults to [`LINEAR_API_BASE`] here, so a caller that forgot
+    /// it doesn't silently reach the real API from a test.
     pub(crate) fn for_org(
         tokens: Arc<dyn AppCredentials>,
         org_id: &str,
@@ -217,13 +201,10 @@ impl LinearAgentApi {
             .await
     }
 
-    /// Persist a freshly-refreshed token set: upsert the access/refresh token
-    /// and metadata, then update `expires_at`. Returns the new access token.
+    /// Persist a freshly-refreshed token set and return the new access token.
     ///
-    /// Shared by the proactive (`resolve_access_token`) and forced
-    /// (`force_refresh_access_token`) refresh paths. `prev_refresh` is the
-    /// refresh token that was used, kept as a fallback when Linear's response
-    /// rotates no new one.
+    /// `prev_refresh` is kept as a fallback when Linear's response rotates in
+    /// no new refresh token.
     async fn store_refreshed(
         &self,
         refreshed: TokenResponse,
@@ -267,14 +248,11 @@ impl LinearAgentApi {
         Ok(refreshed.access_token)
     }
 
-    /// Force a token refresh regardless of the recorded expiry, for the
-    /// reactive 401 path: Linear can invalidate a token server-side without
-    /// touching our `expires_at`, so `needs_refresh` never trips. Re-SELECT
-    /// the current refresh token + metadata and exchange it.
+    /// Force a token refresh regardless of recorded expiry.
     ///
-    /// Returns [`SharedAdapterError::Unauthorized`] when no refresh token is stored
-    /// — that case is unrecoverable and surfaces to the auth-failure alert,
-    /// prompting a re-install.
+    /// Linear can invalidate a token server-side without touching `expires_at`,
+    /// so `needs_refresh` never trips on its own; errors with
+    /// [`SharedAdapterError::Unauthorized`] when no refresh token is stored.
     async fn force_refresh_access_token(&self) -> Result<String, AdapterError> {
         let stored = self.tokens.app_token(PROVIDER).await?;
         let (refresh_token, metadata) =
@@ -360,11 +338,9 @@ impl LinearAgentApi {
         Ok(value)
     }
 
-    /// Send a GraphQL request and return the raw response value *without*
-    /// converting a non-empty `errors` array into `AdapterError`. Use this
-    /// when you need to inspect Linear's structured error codes (e.g. to
-    /// tolerate "already exists" on an upsert). Most callers should prefer
-    /// [`graphql`].
+    /// Send a GraphQL request without converting a non-empty `errors` array
+    /// into `AdapterError`. Use to inspect Linear's structured error codes;
+    /// most callers should prefer [`graphql`].
     async fn graphql_raw(
         &self,
         body: serde_json::Value,
@@ -435,13 +411,9 @@ impl LinearAgentApi {
         }
     }
 
-    /// Emit an activity on a session. Linear infers the session state from
-    /// emitted activity kinds (e.g. `response` → completed, `elicitation` →
-    /// awaiting input).
-    ///
-    /// Per the Linear Agent Interaction spec, only `thought` or `action`
-    /// activities can be marked `ephemeral`; ephemeral activities are
-    /// displayed temporarily and replaced when the next activity arrives.
+    /// Emit an activity on a session. Linear infers session state from the
+    /// activity kind (`response` → completed, `elicitation` → awaiting input).
+    /// Only `thought` or `action` activities may be marked `ephemeral`.
     pub async fn agent_activity_create(
         &self,
         session_id: &str,
@@ -485,11 +457,9 @@ impl LinearAgentApi {
         Ok(id.to_string())
     }
 
-    /// Emit an `action` activity. Spec shape:
-    /// `{ "type": "action", "action": "...", "parameter": "...", "result": "..." }`.
-    /// `result` is omitted when `None`. The canonical pattern is to emit an
-    /// ephemeral start (`result=None`) and then a non-ephemeral completion
-    /// with the same verb (past tense) and `result=Some(...)`.
+    /// Emit an `action` activity. `result` is omitted when `None`; the pattern
+    /// is an ephemeral start (`result=None`) then a non-ephemeral completion
+    /// with the same verb and `result=Some(...)`.
     pub async fn agent_activity_create_action(
         &self,
         session_id: &str,
@@ -543,8 +513,8 @@ impl LinearAgentApi {
         Ok(id.to_string())
     }
 
-    /// Update the session's `externalUrls` so the moatless task is linked
-    /// from the Linear Agent UI.
+    /// Update the session's `externalUrls` so the moatless task is linked from
+    /// the Linear Agent UI.
     pub async fn agent_session_update_external_urls(
         &self,
         session_id: &str,
@@ -578,8 +548,8 @@ impl LinearAgentApi {
         Ok(())
     }
 
-    /// Fetch the authenticated viewer (used at OAuth install time to record
-    /// the agent's identity).
+    /// Fetch the authenticated viewer (used at OAuth install time to record the
+    /// agent's identity).
     #[allow(
         dead_code,
         reason = "reachable only while `agent_api` was `pub`; narrowing `mod.rs` in stage \
@@ -640,8 +610,8 @@ impl LinearAgentApi {
         })
     }
 
-    /// Run `issueCreate` and return the created issue. Caller is
-    /// responsible for resolving names to UUIDs in `input`.
+    /// Run `issueCreate` and return the created issue. Caller is responsible
+    /// for resolving names to UUIDs in `input`.
     pub async fn create_issue(
         &self,
         input: serde_json::Value,
@@ -690,8 +660,8 @@ impl LinearAgentApi {
             })
     }
 
-    /// Post a comment on an issue. Returns the created comment subobject
-    /// (`id`, `url`, `body`).
+    /// Post a comment on an issue. Returns the created comment subobject (`id`,
+    /// `url`, `body`).
     pub async fn create_comment(
         &self,
         issue_id: &str,
@@ -717,16 +687,11 @@ impl LinearAgentApi {
             })
     }
 
-    /// Attach an external URL to a Linear issue as a "source" pill. Used
-    /// to link a moatless task to the Linear ticket it works on (visible
-    /// directly under the issue, not just inside the agent panel).
+    /// Attach an external URL to a Linear issue as a "source" pill.
     ///
-    /// Linear enforces URL-uniqueness across the entire workspace, so this
-    /// is idempotent on `(issueId, url)` but *not* across issues. If the
-    /// URL is already linked to a different issue (e.g. an earlier Linear
-    /// binding for the same Moatless task), Linear returns an
-    /// `INPUT_ERROR`. We treat that as success — the link is still visible
-    /// on the original issue, which is what the caller wanted.
+    /// Linear enforces URL-uniqueness workspace-wide, so this is idempotent on
+    /// `(issueId, url)` but not across issues; an already-linked-elsewhere
+    /// `INPUT_ERROR` is treated as success.
     pub async fn attachment_link_url(
         &self,
         issue_id: &str,
@@ -792,9 +757,10 @@ impl LinearAgentApi {
         require_mutation_success(&value, "/data/issueRemoveLabel", "issueRemoveLabel")
     }
 
-    /// Run `issueRelationCreate` and return the created relation. Both ids must
-    /// be UUIDs — Linear's `IssueRelationCreateInput` rejects `SP-123` keys, so
-    /// the caller resolves them first. `relation` is Linear's
+    /// Run `issueRelationCreate` and return the created relation.
+    ///
+    /// Both ids must be UUIDs — Linear's `IssueRelationCreateInput` rejects
+    /// `SP-123` keys, so the caller resolves them first; `relation` is Linear's
     /// `IssueRelationType` wire value.
     pub async fn issue_relate(
         &self,
@@ -859,12 +825,9 @@ impl LinearAgentApi {
             .unwrap_or_default())
     }
 
-    /// Resolve a human name to a Linear entity UUID. Returns the first
-    /// match (case-insensitive); `None` if nothing matches.
-    ///
-    /// Pass `team_id` whenever one is in hand. `None` searches the whole
-    /// workspace, which is right for a user or a team and a guess everywhere
-    /// else; [`LookupKind::team_scope`] states what an unscoped match costs.
+    /// Resolve a human name to a Linear entity UUID (first case-insensitive
+    /// match, `None` if nothing matches). Pass `team_id` when in hand; unscoped
+    /// search is a guess for anything but a user or team.
     pub async fn lookup(
         &self,
         kind: LookupKind,
@@ -934,17 +897,12 @@ pub enum LookupKind {
 }
 
 impl LookupKind {
-    /// The filter field restricting this kind to `team_id`, and the clause to
-    /// put under it. A state, label or project name is unique only within a
-    /// team, so an unscoped match can return another team's entity, and
-    /// `issueUpdate` rejects that with "Discrepancy between issue team and
-    /// state, cycle or project".
+    /// Filter field + clause restricting this kind to `team_id`.
     ///
-    /// Each collection states the relation differently: a project is shared
-    /// through `accessibleTeams` rather than owned by one team, and a label may
-    /// be a workspace label with no team at all, which stays usable on every
-    /// issue and so has to survive the filter. `users` and `teams` are
-    /// workspace-global and scope to nothing.
+    /// Names are unique only within a team, so an unscoped match can return
+    /// another team's entity, which `issueUpdate` rejects; the relation field
+    /// differs per collection (`accessibleTeams` for projects, none for
+    /// `users`/`teams`).
     fn team_scope(self, team_id: &str) -> Option<(&'static str, serde_json::Value)> {
         let team_is = serde_json::json!({ "id": { "eq": team_id } });
         match self {
@@ -998,9 +956,9 @@ team { id key name } \
 createdAt updatedAt";
 
 /// Convert a non-empty top-level `errors` array into `AdapterError`.
-/// Shared by [`LinearAgentApi::graphql`] and callers (like
-/// `attachment_link_url`) that need to peek at errors first before
-/// surfacing the standard adapter error.
+///
+/// Shared by [`LinearAgentApi::graphql`] and callers like `attachment_link_url`
+/// that need to peek at errors before surfacing the standard adapter error.
 fn check_graphql_errors(value: &serde_json::Value) -> Result<(), AdapterError> {
     let Some(errors) = value.get("errors").and_then(serde_json::Value::as_array) else {
         return Ok(());
@@ -1069,9 +1027,11 @@ fn parse_viewer(value: &serde_json::Value) -> Result<ViewerInfo, AdapterError> {
 }
 
 /// Decide whether a force-refresh can proceed from the stored token row.
+///
 /// Returns the refresh token + metadata to exchange, or
-/// [`SharedAdapterError::Unauthorized`] when the row is missing or has no refresh
-/// token — the unrecoverable case that must surface to the auth-failure alert.
+/// [`SharedAdapterError::Unauthorized`] when the row is missing or has no
+/// refresh token — the unrecoverable case that surfaces to the auth-failure
+/// alert.
 type TokenRow = Option<(Option<String>, Option<serde_json::Value>)>;
 
 fn refresh_token_from_row(
@@ -1131,10 +1091,11 @@ pub struct TokenResponse {
 mod tests {
     use super::*;
 
-    /// Linear moves an app-agent assignment to `delegate` and leaves
-    /// `assignee` null. Without this field every read-back of a delegated
-    /// issue reports it as unassigned, and callers re-claim work already
-    /// claimed.
+    /// Linear moves an app-agent assignment to `delegate` and leaves `assignee`
+    /// null.
+    ///
+    /// Without this field, a read-back of a delegated issue reports it as
+    /// unassigned and callers re-claim already-claimed work.
     #[test]
     fn issue_fields_select_delegate() {
         assert!(ISSUE_FIELDS.contains("delegate {"));
@@ -1309,8 +1270,8 @@ mod lookup_scope_tests {
         );
     }
 
-    /// A project is shared with teams rather than owned by one, so `ProjectFilter`
-    /// carries no `team` field to filter on.
+    /// A project is shared with teams rather than owned by one, so
+    /// `ProjectFilter` carries no `team` field to filter on.
     #[tokio::test]
     async fn a_project_lookup_narrows_through_accessible_teams() {
         let (query, filter) = request_for(LookupKind::Project, Some(TEAM)).await;
@@ -1351,10 +1312,11 @@ mod error_source_tests {
     use moatless_adapter_model::error::ProviderDecodeError;
     use moatless_adapter_model::test_support::{UNREACHABLE_BASE, stub_provider};
 
-    /// A pool that is never connected — `graphql_with_token` takes the token as
-    /// an argument, so it never touches the database.
-    /// An app-credential port nothing stands behind: these cases assert the
-    /// request path, not the credential read.
+    /// An app-credential port nothing stands behind.
+    ///
+    /// These tests assert the request path, not the credential read;
+    /// `graphql_with_token` takes the token as an argument, so it never touches
+    /// the database.
     struct NoAppToken;
 
     #[async_trait::async_trait]

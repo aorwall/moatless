@@ -7,8 +7,8 @@ use super::models::{Feedback, FeedbackFilter, FeedbackWithTask, LatestActivity};
 
 /// The `feedback` table, as the backend and this crate's own handlers reach it.
 ///
-/// A host holds this to route; the validation and the activity selection stay
-/// in [`crate::feedback::service`].
+/// A host holds this to route; validation and activity selection stay in
+/// [`crate::feedback::service`].
 pub struct FeedbackNotes {
     store: Arc<dyn FeedbackDao>,
 }

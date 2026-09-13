@@ -1,15 +1,9 @@
 //! Native Codex thread item → canonical `SourceEvent` normalization.
 //!
 //! One `SourceEvent` per native item, in native order, so every item family
-//! keeps its observable meaning without the harness re-deriving native payloads.
-//! This is the only place that maps Codex-native items; the shared
+//! keeps its observable meaning without the harness re-deriving native
+//! payloads. This is the only place that maps Codex-native items; the shared
 //! harness/driver never sees a [`ThreadItem`].
-//!
-//! A per-spawn nonce is mixed into each `source_id`. It was introduced because
-//! `codex exec --resume` restarted item ids at `item_0`; app-server ids look
-//! globally unique, but that was not established for every family and the
-//! `{session}_{nonce}_{item}` scheme is what persisted reads line up against, so
-//! it stays.
 
 use crate::agent::harness::content::CanonicalContentBlock;
 
@@ -57,19 +51,16 @@ impl Normalizer {
     }
 
     /// Qualify a native id with the Session and per-spawn nonce so it survives
-    /// Codex's per-resume `item_0` restart without colliding. The
-    /// `{session}_{nonce}_{item}` shape keeps persisted reads stable.
+    /// Codex's per-resume `item_0` restart without colliding. App-server ids
+    /// look globally unique, but that isn't established for every item
+    /// family, so the `{session}_{nonce}_{item}` shape is what persisted
+    /// reads line up against.
     fn qualify(&self, session: &SessionId, native: &str) -> String {
         format!("{}_{}_{native}", session.0, self.nonce)
     }
 
-    /// Canonical source events for one native Codex item, in native order. Each
-    /// native family is mapped to the `text` / `tool_use` / `tool_result` blocks
-    /// the backend assembler and UI understand (a tool item expands to a
-    /// `tool_use` plus a paired `tool_result` in its own user Message). An unknown
-    /// family is forwarded as its raw native block with bounded diagnostics so an
-    /// upstream CLI addition is never silently discarded; a family that is known
-    /// and deliberately renders nothing yields no events at all.
+    /// Canonical source events for one native Codex item, in native order (see
+    /// [`blocks::item_blocks`] for the unknown/dropped-family cases).
     pub(super) fn item_sources(&self, item: &ThreadItem) -> Vec<SourceEvent> {
         let session = self.session_or(item.id());
         let qualified = self.qualify(&session, item.id());
@@ -109,9 +100,10 @@ impl Normalizer {
     }
 
     /// Canonical source events for the running plan tracker, which arrives as a
-    /// notification and so has no item id of its own. One stable id per spawn
-    /// keeps every update upserting the same live card, as the `todo_list`
-    /// item's re-used id did.
+    /// notification and so has no item id of its own.
+    ///
+    /// One stable id per spawn keeps every update upserting the same live card,
+    /// as the `todo_list` item's re-used id did.
     pub(super) fn plan_sources(&self, plan: &[TurnPlanStep]) -> Vec<SourceEvent> {
         let session = self.session_or("");
         let qualified = self.qualify(&session, "plan");
@@ -150,9 +142,9 @@ impl Normalizer {
             .collect()
     }
 
-    /// Canonical source event for a completed turn, carrying the turn-level usage
-    /// so it is retained through the seam rather than dropped at the terminal,
-    /// which has no usage carrier.
+    /// Canonical source event for a completed turn, carrying the turn-level
+    /// usage so it is retained through the seam rather than dropped at the
+    /// terminal, which has no usage carrier.
     pub(super) fn turn_result_source(&self, usage: &TurnUsage) -> SourceEvent {
         let session = self.session_or("");
         let id = format!("{}_{}_result", session.0, self.nonce);
@@ -177,11 +169,10 @@ impl Normalizer {
 
     /// The run totals for a completed Codex Turn.
     ///
-    /// `input_tokens` is normalized to the non-cached input so the backend prices
-    /// every harness the same way: the Codex breakdown's `input_tokens` is gross
-    /// and includes the cached prefix that `cached_input_tokens` also counts.
-    /// `total_cost_usd` is `None` — Codex reports no cost, so the backend prices
-    /// the run from `model` and the tokens.
+    /// `input_tokens` is normalized to non-cached input (the Codex breakdown's
+    /// `input_tokens` is gross and double-counts the `cached_input_tokens`
+    /// prefix) so the backend prices every harness the same way;
+    /// `total_cost_usd` is always `None` since Codex reports no cost.
     pub(super) fn run_totals(&self, usage: &TurnUsage) -> RunTotals {
         RunTotals {
             input_tokens: (usage.input_tokens - usage.cached_input_tokens).max(0),
@@ -202,13 +193,9 @@ impl Normalizer {
 /// What one Turn spent, in the four fields the turn-result block publishes.
 ///
 /// Assembled from `thread/tokenUsage/updated`, which reports two running
-/// figures and neither of them is a Turn: `last` is the most recent *model
-/// request* and `total` is everything the Session has spent, carried across
-/// `thread/resume`. Measured against codex-cli 0.145.0 — a three-request Turn
-/// reported `last` totals of 15842/15918/15969 against `total` 15842/31760/47729,
-/// and `codex exec --json` billed the same work as one `usage` of 47902 input
-/// tokens. So the Turn's spend is the *growth* of `total` while it ran, which is
-/// what [`TurnUsage::between`] computes.
+/// figures, neither of which is a Turn: `last` is the most recent model
+/// request, `total` is everything the Session has spent, carried across
+/// `thread/resume` (see [`TurnUsage::between`]).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 #[expect(
     clippy::struct_field_names,
@@ -269,11 +256,12 @@ mod tests {
         }
     }
 
-    /// A Turn's spend is the *growth* of the cumulative `total` while it ran, not
-    /// the cumulative figure itself. This is the guard against the bug that
-    /// leaked session-cumulative counts in as per-turn usage: were `between` to
-    /// return the latest reading, a second Turn would report the whole session's
-    /// tokens and cost every time.
+    /// A Turn's spend is the *growth* of the cumulative `total` while it ran,
+    /// not the cumulative figure itself.
+    ///
+    /// Guards against the bug that leaked session-cumulative counts as per-turn
+    /// usage: were `between` to return the latest reading, a second Turn would
+    /// report the whole session's tokens and cost every time.
     #[test]
     fn between_is_the_growth_of_the_cumulative_total_not_its_absolute() {
         // codex-cli 0.145.0: a three-request Turn whose cumulative `total` ran

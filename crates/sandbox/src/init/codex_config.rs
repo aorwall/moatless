@@ -1,15 +1,11 @@
 //! Default `config.toml` for the Codex CLI.
 //!
-//! Disables the auto-injected `codex_apps` MCP server (an OpenAI-hosted
-//! backend whose `github_*` tools authenticate via ChatGPT OAuth and return
-//! 404 against our repos). The agent uses the already-authenticated `gh`
-//! CLI for GitHub operations instead — see `agent::options::GITHUB_CLI_HINT`.
-//!
-//! `project_doc_max_bytes = 0` turns off Codex's automatic `AGENTS.md`
-//! discovery: each repo's root instructions are embedded in the developer
-//! instructions instead (see `agent::options::build_repo_instructions_section`),
-//! so letting Codex load them again from the working directory would duplicate
-//! them.
+//! Disables the auto-injected `codex_apps` MCP server (OpenAI-hosted;
+//! `github_*` tools 404 against our repos). The agent uses the already-
+//! authenticated `gh` CLI instead — see `agent::options::GITHUB_CLI_HINT`.
+//! `project_doc_max_bytes = 0` turns off Codex's `AGENTS.md` discovery, since
+//! `agent::options::build_repo_instructions_section` already embeds each repo's
+//! root instructions in the developer instructions.
 
 use tokio::fs;
 use tracing::{info, warn};
@@ -21,24 +17,17 @@ const CONFIG_TOML: &str = "project_doc_max_bytes = 0\n\n[features]\napps = false
 
 /// Provider id for the proxy hub.
 ///
-/// Must not be a built-in id: Codex rejects reserved ids outright, and merges
-/// `[model_providers.*]` with `or_insert`, so a `[model_providers.openai]`
-/// block is silently ignored rather than overriding the built-in provider.
+/// Must not be a built-in id: Codex rejects reserved ids, and merges
+/// `[model_providers.*]` with `or_insert`, so a built-in name would be silently
+/// ignored rather than overridden.
 const HUB_PROVIDER_ID: &str = "cliproxy";
 
-/// Render `config.toml`, routing the model provider at `base_url` when one is
-/// configured.
+/// Render `config.toml`, routing the model provider at `base_url` when set.
 ///
-/// Codex has no environment-variable equivalent of `ANTHROPIC_BASE_URL`, so a
-/// custom provider is the only way to point it at a proxy.
-///
-/// `env_key` keeps the credential out of this file — Codex reads it from the
-/// named variable, which the credential channel supplies.
-/// `requires_openai_auth = false` bypasses `auth.json`, so the hub key never
-/// reaches the file that [`super::codex_watcher`] mirrors back to the backend.
-///
-/// Public because `tests/agent_transport_e2e.rs` drives `spawn_agent` without
-/// running init, and has to stage the same file itself.
+/// Codex has no env-var equivalent of `ANTHROPIC_BASE_URL`; a custom provider
+/// points it at a proxy, and `requires_openai_auth = false` keeps the hub key
+/// out of `auth.json` (see [`super::codex_watcher`]). `pub` for
+/// `agent_transport_e2e.rs`.
 pub fn render_config_toml(base_url: Option<&str>) -> String {
     let Some(base_url) = base_url else {
         return CONFIG_TOML.to_string();
@@ -62,9 +51,9 @@ pub fn render_config_toml(base_url: Option<&str>) -> String {
 
 /// Write the Codex `config.toml` into `codex_home_dir`.
 ///
-/// Always overwrites — the values are ones we own. Failure is logged but never
-/// fatal: Codex still runs without this file, it just re-enables the broken
-/// `codex_apps` server.
+/// Always overwrites the values we own. Failure is logged but non-fatal: Codex
+/// still runs without this file, just with the broken `codex_apps` server
+/// re-enabled.
 pub(super) async fn write_codex_config(codex_home_dir: &str, base_url: Option<&str>) {
     if let Err(e) = fs::create_dir_all(codex_home_dir).await {
         warn!(error = %e, dir = %codex_home_dir, "Failed to create Codex home dir for config.toml");

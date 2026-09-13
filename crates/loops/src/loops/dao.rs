@@ -1,12 +1,10 @@
-//! `LoopDao` — the single home for every read and write of the four tables
-//! that persist a Loop: `loops`, `loop_configs`,
-//! `subscriptions`, and `schedules`.
+//! `LoopDao` — the single home for every read and write of the four tables that
+//! persist a Loop: `loops`, `loop_configs`, `subscriptions`, and `schedules`.
 //!
 //! A Loop is the standing definition of recurring agent work; see `CONTEXT.md`
 //! for terminology. This module owns loop persistence behind one plain struct
-//! holding a `DbPool`; do not add a single-impl trait.
-//!
-//! Keep loop SQL here so reads, writes, and transactions share one home.
+//! holding a `DbPool`, with no single-impl trait, so reads, writes, and
+//! transactions share one home.
 
 use std::collections::HashSet;
 
@@ -304,8 +302,8 @@ impl LoopDao {
         tx.commit().await
     }
 
-    /// Update a Loop's row, and optionally its config and/or source.
-    /// Returns `false` when the id is not found or the caller lacks control.
+    /// Update a Loop's row, and optionally its config and/or source. Returns
+    /// `false` when the id is not found or the caller lacks control.
     pub async fn update(
         &self,
         id: &str,
@@ -651,8 +649,8 @@ impl LoopDao {
         Ok(row.map(SubscriptionMatch::from))
     }
 
-    /// Return all subscriptions for a given (adapter, `source_matcher`) — used by
-    /// Linear, where multiple listeners can share a team UUID.
+    /// Return all subscriptions for a given (adapter, `source_matcher`) — used
+    /// by Linear, where multiple listeners can share a team UUID.
     pub async fn list_subscriptions_by_source_matcher(
         &self,
         provider: &str,
@@ -683,9 +681,10 @@ impl LoopDao {
 
     /// Write a Subscription Loop and its config in one transaction.
     ///
-    /// Reached only through [`crate::loops::test_support::upsert_subscription`]:
-    /// a host creates a Subscription through `Loops`, and a DB-backed test seeds
-    /// one it did not author.
+    /// Reached only through
+    /// [`crate::loops::test_support::upsert_subscription`]: a host creates a
+    /// Subscription through `Loops`, and a DB-backed test seeds one it did not
+    /// author.
     #[cfg(any(test, feature = "test-support"))]
     pub async fn upsert_subscription(
         &self,
@@ -806,7 +805,8 @@ impl LoopDao {
 
     /// Read the `adapter_config` JSON for an adapter-event subscription.
     /// Returns `Ok(None)` when the Loop has no adapter-event source row (the
-    /// outer `Option` is the `adapter_config` column, which is itself nullable).
+    /// outer `Option` is the `adapter_config` column, which is itself
+    /// nullable).
     pub async fn get_adapter_config(
         &self,
         loop_id: &str,
@@ -845,15 +845,10 @@ impl LoopDao {
 
     /// Reconcile one complete repository snapshot in one transaction.
     ///
-    /// `present_keys` includes malformed and unresolved Loop directories. That
-    /// distinction prevents a bad `LOOP.md` from being interpreted as removal.
-    /// Manual overrides and deletion tombstones retain their Git provenance and
-    /// are skipped until an administrator explicitly resets them.
-    ///
-    /// Configuration is the only thing Git owns: `active` and
-    /// `loop_configs.run_as_user_id` carry across a re-sync untouched, so a Loop
-    /// an administrator activated keeps running as its approved user while its
-    /// declaration keeps flowing from the repository.
+    /// `present_keys` must include malformed/unresolved directories, or a bad
+    /// `LOOP.md` reads as removal; manual overrides and tombstones keep their
+    /// Git provenance until an admin resets them, and `active`/`run_as_user_id`
+    /// always carry across a re-sync untouched.
     pub async fn reconcile_managed_loops(
         &self,
         source_repository_id: &str,
@@ -972,12 +967,12 @@ impl LoopDao {
         Ok(summary)
     }
 
-    /// Force one override or tombstone back to its Git declaration. The caller
+    /// Force one override or tombstone back to its Git declaration; the caller
     /// must have fetched and resolved that exact source first.
     ///
-    /// Only configuration is reclaimed. An override that was running keeps its
-    /// activation and run-as user; a tombstone was stripped of both when it was
-    /// deleted, so restoring one lands on awaiting-approval.
+    /// Only configuration is reclaimed: a running override keeps its activation
+    /// and run-as user, while a tombstone (stripped of both on deletion) lands
+    /// back on awaiting-approval.
     pub async fn reset_managed_loop(&self, input: &ManagedLoopUpsert) -> Result<bool, sqlx::Error> {
         let mut tx = self.db.begin().await?;
         sqlx::query("SELECT pg_advisory_xact_lock(hashtext($1))")
@@ -1021,8 +1016,8 @@ impl LoopDao {
     // ---------------------------------------------------------------------
 
     /// Select due, unlocked schedules and lock each one for `worker_id`.
-    /// Returns the schedules that were successfully locked. System-level query —
-    /// no scope filter applied (the schedule runner acts across all owners).
+    /// Returns the schedules that were successfully locked. System-level query
+    /// — no scope filter applied (the schedule runner acts across all owners).
     pub async fn claim_due_schedules(
         &self,
         worker_id: &str,
@@ -1229,7 +1224,8 @@ const SUBSCRIPTION_MATCH_SELECT: &str = r#"
 // Private insert helpers shared by create.
 // =============================================================================
 
-/// Serialize every mutation of a Git-origin Loop with repository reconciliation.
+/// Serialize every mutation of a Git-origin Loop with repository
+/// reconciliation.
 ///
 /// Provenance survives override and deletion, so the same lock also orders
 /// local edits, tombstones, resets, and lifecycle changes against Git sync.

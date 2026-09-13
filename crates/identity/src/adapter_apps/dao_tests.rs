@@ -1,15 +1,11 @@
-//! GitHub App registration against Postgres.
+//! GitHub App registration tests against Postgres.
 //!
-//! Two things are proved here that a unit test cannot: that a registration
-//! made through one registry instance is visible to another sharing the same
-//! database — the two-replica case, without two processes — and that the
-//! one-time carry-over of `GITHUB_APPS_JSON` converges to a single record when
-//! several backends run it at once.
-//!
-//! GitHub itself is stubbed through `GITHUB_API_BASE_URL`, which
-//! `moatless_core::github` reads on every client build. That variable is
-//! process-global, so [`stub_github`] takes a lock for as long as the stub must
-//! answer.
+//! Proves what a unit test cannot: a registration made through one registry
+//! instance is visible to another sharing the database (the two-replica case),
+//! and the one-time carry-over of `GITHUB_APPS_JSON` converges to a single
+//! record when several backends run it at once. GitHub is stubbed through
+//! `GITHUB_API_BASE_URL`; since that variable is process-global,
+//! [`stub_github`] holds a lock while the stub answers.
 
 use std::net::SocketAddr;
 use std::sync::{Arc, OnceLock};
@@ -31,17 +27,9 @@ const TEST_PEM: &str = include_str!("../auth/github/testdata/github_app_test_key
 
 static STUB: OnceLock<SocketAddr> = OnceLock::new();
 
-/// Exclusive, restoring ownership of `GITHUB_API_BASE_URL`, pointed at a stub
-/// standing in for GitHub's `GET /app`. The proof call is the whole of what
-/// these tests need from GitHub.
-///
-/// The address behind it is cached for the whole process, so the server has to
-/// outlive the test that happened to start it. It therefore gets a thread and a
-/// runtime of its own rather than a `tokio::spawn` onto the caller's: under a
-/// runner that gives each test its own runtime and drops it at the end (plain
-/// `cargo test`, one process, thread-per-test), spawning here would leave every
-/// later test holding the address of a listener that died with the first test's
-/// runtime.
+/// Takes exclusive, restoring ownership of `GITHUB_API_BASE_URL`, pointed at a
+/// stub for GitHub's `GET /app`, on its own thread and runtime so the address
+/// outlives the test that started it.
 async fn stub_github() -> GithubApiBaseGuard {
     static LOCK: std::sync::LazyLock<tokio::sync::Mutex<()>> =
         std::sync::LazyLock::new(|| tokio::sync::Mutex::new(()));

@@ -3,8 +3,8 @@
 use super::fixtures::*;
 use super::*;
 
-/// The chain has to end in an answer, because the contract refuses an empty
-/// one and supplies no default of its own.
+/// The chain has to end in an answer, because the contract refuses an empty one
+/// and supplies no default of its own.
 #[test]
 fn the_model_chain_ends_in_an_answer() {
     let defaults = AgentModelDefaults {

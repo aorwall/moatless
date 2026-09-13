@@ -1,19 +1,12 @@
 //! Creating a task, as a call rather than as a route.
 //!
-//! Everything a task creation *means* lives here: which repository the task runs
-//! against, whether the caller may use it, what scope the task is owned under,
-//! and the credential check that would otherwise surface minutes later as a
-//! sandbox dying on sign-in.
+//! Everything a task creation *means* lives here: which repository it runs
+//! against, whether the caller may use it, what scope it's owned under, and the
+//! credential check that would otherwise surface later as a sandbox dying on
+//! sign-in.
 //!
 //! [`TaskCreationService::create`](super::creation::TaskCreationService::create)
-//! below this is the mechanics — short id, preflight, insert, relations,
-//! provision, first message, event. It takes an already-normalised request and
-//! resolves nothing.
-//!
-//! This split exists because the T3 compatibility surface creates tasks from a
-//! WebSocket frame, where there is no HTTP body to parse and no HTTP response to
-//! shape, and duplicating the policy above into that surface would have meant
-//! two places to keep a credential check and an access check correct.
+//! is the mechanics below this — short id, preflight, insert, provision, event.
 
 use std::future::Future;
 use std::sync::Arc;
@@ -43,8 +36,7 @@ use moatless_types::task::Visibility;
 /// A create request plus the two things only an internal caller supplies.
 pub struct CreateTaskIntent {
     pub request: CreateTaskRequest,
-    /// The task's id when the caller owns it — see
-    /// [`NewTaskRequest::task_id`].
+    /// The task's id when the caller owns it — see [`NewTaskRequest::task_id`].
     pub task_id: Option<String>,
     /// Whether to start a sandbox as part of creation.
     pub provision: bool,
@@ -65,18 +57,9 @@ impl CreateTaskIntent {
     }
 }
 
-/// Create a task from an already-[`normalize`]d request.
-///
-/// [`normalize`] resolves the repository, access and scope; this runs the
-/// creation and delivers the first message. The two are split so each names
-/// only the ports it reads — `normalize` the four resolution DAOs, this the
-/// `task_creation` service and `message_send` — and every caller runs them in
-/// order.
-///
-/// `build_event_payload` is the caller's, because what belongs in a task event
-/// differs by caller and the HTTP path enriches the row for it. The first
-/// message, when there is one, is always delivered the same way and is this
-/// function's own.
+/// Create a task from an already-[`normalize`]d request. [`normalize`] resolves
+/// repository, access and scope; this runs creation and delivers the first
+/// message via `build_event_payload`.
 pub async fn create_task<EvFut>(
     task_creation: &TaskCreationService,
     message_send: Arc<MessageSendService>,
@@ -113,13 +96,9 @@ where
     Ok(outcome)
 }
 
-/// Stop whatever a task's agent is doing.
-///
-/// Lifecycle owns the `Stopped` intent, stops compute and issues the graceful
-/// `StopAgent`. The event that follows is what flips task status back to open
-/// and fans the stop out; its idempotency guard dedupes this against the
-/// `agent.stopped` the sandbox publishes in response, so the stop still lands
-/// cleanly when the sandbox is already gone.
+/// Stop whatever a task's agent is doing. Lifecycle stops compute and issues
+/// the graceful `StopAgent`; the following event flips status back to open and
+/// dedupes against the sandbox's own `agent.stopped`.
 pub async fn stop_task(
     tasks: &TaskCommands,
     sandbox: &dyn SandboxLifecycle,
@@ -139,13 +118,9 @@ pub async fn stop_task(
     Ok(())
 }
 
-/// Stop the agent mid-turn, leaving the task's sandbox running.
-///
-/// The narrower half of [`stop_task`]: the same graceful `StopAgent` and the
-/// same terminal event, without the `Stopped` intent — so the sandbox, its
-/// working copy and its preview servers stay up and the next turn runs in
-/// place. The stop lands through the event either way, so a sandbox that
-/// cannot be reached still closes the turn.
+/// Stop the agent mid-turn, leaving the sandbox running. The narrower half of
+/// [`stop_task`]: same `StopAgent` and terminal event, without the `Stopped`
+/// intent, so preview servers stay up.
 pub async fn stop_agent(
     tasks: &TaskCommands,
     sandbox: &dyn SandboxLifecycle,
@@ -203,10 +178,8 @@ async fn publish_user_stop(events: Option<&dyn EventPublisher>, task_id: &str) {
     }
 }
 
-/// What [`normalize`] resolves a create request against.
-///
-/// Grouped because every caller supplies all six together and none of them
-/// varies independently of the rest.
+/// What [`normalize`] resolves a create request against. Grouped because every
+/// caller supplies all six together and none varies independently of the rest.
 pub struct CreateTaskPorts<'a> {
     pub workspaces: &'a dyn WorkspaceResolver,
     pub repositories: &'a dyn RepositoryReader,
@@ -232,11 +205,8 @@ pub(crate) async fn primary_repository_id(
 }
 
 /// Turn a create request into the normalised form the creation service takes.
-///
-/// The repository, access and scope resolution lives here, apart from
-/// [`create_task`], so each caller runs it as the first of the two create
-/// calls and hands the [`NewTaskRequest`] on. A caller that needs the resolved
-/// request without creating anything stops here.
+/// Repository, access and scope resolution lives here, apart from
+/// [`create_task`]; a caller needing only that stops here.
 pub async fn normalize(
     ports: CreateTaskPorts<'_>,
     scope_ctx: &ScopeContext,
@@ -383,11 +353,8 @@ pub async fn normalize(
 }
 
 /// The Workspace a create request runs in: the one it names, else its parent
-/// Task's.
-///
-/// A request carrying only a repository is refused. A repository places any
-/// number of Workspaces and picking one for the caller would run the work under
-/// a configuration — image, env, service account — nobody chose.
+/// Task's. A repository-only request is refused — a repository places many
+/// Workspaces, and picking one nobody chose is wrong.
 async fn resolve_workspace_id(
     tasks: &TaskCommands,
     scope_ctx: &ScopeContext,
@@ -415,12 +382,9 @@ async fn resolve_workspace_id(
     })
 }
 
-/// Resolve and authorize an explicit run-as target.
-///
-/// `None` in, `None` out: the task then runs as its Workspace's account or its
-/// owner, unchanged. A reference that names nobody is a bad request rather than
-/// a silent fallback, because falling back would run the work as the caller
-/// under a name they did not ask for.
+/// Resolve and authorize an explicit run-as target. `None` in, `None` out — the
+/// task runs as its Workspace's account or owner. A reference naming nobody is
+/// a bad request, not a silent fallback.
 async fn resolve_run_as(
     users: &dyn UserResolver,
     scope_ctx: &ScopeContext,

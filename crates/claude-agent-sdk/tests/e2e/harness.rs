@@ -22,8 +22,8 @@ pub(crate) const TEST_TIMEOUT: Duration = Duration::from_secs(60);
 /// Longer timeout for multi-turn / session-resume / subagent flows.
 pub(crate) const LONG_TEST_TIMEOUT: Duration = Duration::from_secs(90);
 
-/// Even longer timeout for tmux subagent tests — spawning a sub-claude inside
-/// a TUI adds noticeable latency.
+/// Even longer timeout for tmux subagent tests — spawning a sub-claude inside a
+/// TUI adds noticeable latency.
 pub(crate) const TMUX_LONG_TEST_TIMEOUT: Duration = Duration::from_secs(120);
 
 /// Cheapest, fastest model for E2E tests.
@@ -71,7 +71,8 @@ impl Backend {
         }
     }
 
-    /// `Result.total_cost_usd` is real for subprocess, synthesized 0.0 for tmux.
+    /// `Result.total_cost_usd` is real for subprocess, synthesized 0.0 for
+    /// tmux.
     pub(crate) fn has_cost_data(self) -> bool {
         matches!(self, Self::Subprocess)
     }
@@ -84,8 +85,8 @@ impl Backend {
         matches!(self, Self::Subprocess)
     }
 
-    /// Whether the message channel stays open after `SdkMessage::Result`.
-    /// Tmux yes (TUI keeps running), subprocess no (CLI exits in --print mode).
+    /// Whether the message channel stays open after `SdkMessage::Result`. Tmux
+    /// yes (TUI keeps running), subprocess no (CLI exits in --print mode).
     pub(crate) fn channel_stays_open_after_result(self) -> bool {
         matches!(self, Self::Tmux)
     }
@@ -140,13 +141,11 @@ pub(crate) fn e2e_options_with_cwd(cwd: Option<&Path>) -> ClaudeOptions {
     }
 }
 
-/// Allocate a fresh, empty directory for use as the test's `cwd`. Each call
-/// returns a unique path under `std::env::temp_dir()`.
+/// Allocates a fresh, unique directory under `std::env::temp_dir()` for a
+/// test's `cwd`.
 ///
-/// The tmux backend handles unfamiliar cwds: a watcher dismisses the
-/// workspace-trust dialog and the Stop hook reports the actual transcript
-/// path (snapshot-diff is a fallback). No need for a stable
-/// `$CARGO_TARGET_DIR/e2e-cwd/` layout.
+/// The tmux backend's watcher dismisses the workspace-trust dialog for an
+/// unfamiliar cwd, and the Stop hook still reports the real transcript path.
 pub(crate) fn fresh_test_cwd(name: &str) -> PathBuf {
     let root = std::env::temp_dir().join("claude-sdk-e2e");
     std::fs::create_dir_all(&root).expect("create e2e root");

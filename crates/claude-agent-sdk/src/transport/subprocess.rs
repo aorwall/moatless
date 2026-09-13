@@ -16,7 +16,8 @@ use crate::api::messages::{ResultMessage, SdkMessage};
 use crate::api::options::{ClaudeOptions, OutputFormat, SystemPrompt};
 use crate::error::{Result, SdkError};
 
-/// Manages the Claude CLI subprocess: spawning, reading NDJSON, writing, and cleanup.
+/// Manages the Claude CLI subprocess: spawning, reading NDJSON, writing, and
+/// cleanup.
 pub(crate) struct SubprocessTransport {
     child: Child,
     pub(crate) stdin: Arc<Mutex<ChildStdin>>,
@@ -154,12 +155,9 @@ impl SubprocessTransport {
         Ok(())
     }
 
-    /// Close the subprocess gracefully:
-    /// 1. Close stdin (EOF) — let the CLI finish naturally
-    /// 2. Wait briefly for natural exit
-    /// 3. SIGTERM if still running (polite shutdown request)
-    /// 4. Wait for SIGTERM to take effect
-    /// 5. SIGKILL as last resort
+    /// Close the subprocess gracefully: close stdin (EOF) to let the CLI finish
+    /// naturally, then escalate — brief wait, SIGTERM, wait, SIGKILL as the
+    /// last resort.
     pub(crate) async fn close(&mut self) {
         // Step 1: Close stdin to send EOF
         // Must call shutdown() — dropping an Arc clone doesn't close the pipe
@@ -551,7 +549,8 @@ fn log_exit_status(status: std::process::ExitStatus, stderr_lines: &[String]) {
 // Pretty-print logging helpers
 // ---------------------------------------------------------------------------
 
-/// Log a parsed stdout message at the appropriate level with human-readable formatting.
+/// Log a parsed stdout message at the appropriate level with human-readable
+/// formatting.
 fn log_stdout_message(msg: &RawStdoutMessage) {
     match msg {
         RawStdoutMessage::Sdk(sdk_msg) => log_sdk_message(sdk_msg.as_ref()),
@@ -670,7 +669,8 @@ fn log_content_message(kind: &str, uuid: Option<&str>, content: &[ContentBlock])
 }
 
 /// Log the terminal result. The summary is INFO, and an empty run is WARN: it
-/// ends a turn having answered nothing, and the result is the only record of why.
+/// ends a turn having answered nothing, and the result is the only record of
+/// why.
 fn log_result_message(result: &ResultMessage) {
     match result {
         ResultMessage::Success(r) => {
@@ -829,7 +829,8 @@ fn format_content_blocks(blocks: &[ContentBlock]) -> String {
     out
 }
 
-/// Format tool input for `CanUseTool` control requests, showing key fields for well-known tools.
+/// Format tool input for `CanUseTool` control requests, showing key fields for
+/// well-known tools.
 fn format_tool_input(tool_name: &str, input: &Map<String, Value>) -> String {
     let key_fields: &[&str] = match tool_name {
         "Bash" => &["command", "description"],

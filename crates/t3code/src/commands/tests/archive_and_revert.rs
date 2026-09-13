@@ -4,9 +4,9 @@
 use super::fixtures::*;
 use super::*;
 
-/// Archiving is closing and unarchiving is reopening, so both reach the
-/// sink rather than a refusal. This is the pair a person uses to put a
-/// finished conversation away and to pull it back out.
+/// Archiving is closing and unarchiving is reopening, so both reach the sink
+/// rather than a refusal. This is the pair a person uses to put a finished
+/// conversation away and to pull it back out.
 #[tokio::test]
 async fn archive_and_unarchive_reach_the_sink() {
     for (tag, expected) in [
@@ -47,8 +47,8 @@ async fn archiving_without_a_thread_id_writes_nothing() {
 }
 
 /// `turnCount` is the cut itself and reaches the sink unchanged: it is the
-/// `checkpointTurnCount` this server reported, which is a `task_turns`
-/// number, so a translation on either side would move the cut.
+/// `checkpointTurnCount` this server reported, which is a `task_turns` number,
+/// so a translation on either side would move the cut.
 #[tokio::test]
 async fn a_conversation_revert_carries_its_turn_count_through() {
     let (result, calls) = run(json!({

@@ -4,8 +4,8 @@
 use super::fixtures::*;
 use super::*;
 
-/// `ChatImageAttachment` field for field: the id the upload is fetched
-/// back by, and the three things the bubble shows beside it.
+/// `ChatImageAttachment` field for field: the id the upload is fetched back by,
+/// and the three things the bubble shows beside it.
 #[test]
 fn an_uploaded_image_becomes_a_chat_attachment() {
     let message = with_files(
@@ -30,9 +30,9 @@ fn an_uploaded_image_becomes_a_chat_attachment() {
     );
 }
 
-/// `ChatFileAttachment` field for field. An upload that is not an image is
-/// not dropped: it is the other member of the union, and the bubble shows
-/// it as a file the person can download.
+/// `ChatFileAttachment` field for field. An upload that is not an image is not
+/// dropped: it is the other member of the union, and the bubble shows it as a
+/// file the person can download.
 #[test]
 fn an_uploaded_file_becomes_a_file_attachment() {
     let message = with_files(
@@ -57,11 +57,8 @@ fn an_uploaded_file_becomes_a_file_attachment() {
     );
 }
 
-/// The image member is four mime types, not a prefix. An SVG is a valid
-/// file attachment — the mint takes any type under that member — and
-/// sending it back as a `ChatImageAttachment` would hand the client an
-/// image it has no shape for. It decodes the snapshot in one piece, so that
-/// costs the reader the conversation rather than the attachment.
+/// The image member is four mime types, not a prefix; an SVG comes back as a
+/// file rather than a `ChatImageAttachment` it has no shape for.
 ///
 /// The inline data-URL path accepts any `image/*` too, so this is not only
 /// about what the file member lets through.
@@ -89,11 +86,10 @@ fn an_image_type_the_member_does_not_name_comes_back_as_a_file() {
     }
 }
 
-/// An image type is not by itself the image member. The mint lets a `file`
-/// carry any type up to 50 MiB, so a large PNG sent as a file is something
-/// the contract allows — and reading the member off the mime type alone
-/// dropped it, after it had been stored and read by the agent. It comes back
-/// out as the member it fits.
+/// An image type is not by itself the image member.
+///
+/// The file member allows any type up to 50 MiB, so a large PNG comes back out
+/// as the member it fits, not the one its mime type suggests.
 #[test]
 fn a_large_image_type_comes_back_as_the_file_member() {
     let message = with_files(
@@ -144,10 +140,10 @@ fn an_image_becomes_a_file_at_the_byte_it_outgrows_the_image_member() {
     assert_eq!(projected(ATTACHMENT_MAX_FILE_BYTES + 1), None);
 }
 
-/// The client decodes the whole snapshot against its schema, so an upload
-/// it would refuse costs the reader the conversation rather than the
-/// attachment. Each of these is therefore left out, and the ones beside it
-/// are not — an upload past both members has no shape left to send it in.
+/// The client decodes the whole snapshot against its schema, so an upload it
+/// would refuse costs the reader the conversation, not just the attachment.
+///
+/// Each of these is left out; the ones beside it are not.
 #[test]
 fn an_upload_the_contract_has_no_shape_for_is_left_out() {
     let message = with_files(
@@ -176,9 +172,9 @@ fn an_upload_the_contract_has_no_shape_for_is_left_out() {
     assert_eq!(attachments[0]["name"], "kept.png");
 }
 
-/// An image of no bytes is still a `ChatImageAttachment`: only the file
-/// member sets a minimum, and reading one member's rule onto the other
-/// would drop something the client would have rendered.
+/// An image of no bytes is still a `ChatImageAttachment`: only the file member
+/// sets a minimum, and reading one member's rule onto the other would drop
+/// something the client would have rendered.
 #[test]
 fn an_empty_image_is_still_an_image_attachment() {
     let message = with_files(
@@ -209,9 +205,9 @@ fn an_overlong_name_is_cut_to_what_the_contract_takes() {
     assert!(long.starts_with(name));
 }
 
-/// A Message with no uploads is byte-identical to one projected before
-/// this surface read them — `attachments` is an optional key, and an empty
-/// array is not the same as its absence.
+/// A Message with no uploads is byte-identical to one projected before this
+/// surface read them — `attachments` is an optional key, and an empty array is
+/// not the same as its absence.
 #[test]
 fn a_message_without_uploads_carries_no_attachments_key() {
     let thread = detail(&transcript(
@@ -224,8 +220,8 @@ fn a_message_without_uploads_carries_no_attachments_key() {
     assert!(bubble.get("attachments").is_none());
 }
 
-/// Only the person attaches things. An assistant row carrying uploads
-/// would be the agent claiming the person sent them.
+/// Only the person attaches things. An assistant row carrying uploads would be
+/// the agent claiming the person sent them.
 #[test]
 fn only_a_user_bubble_carries_attachments() {
     let thread = detail(&transcript(

@@ -76,9 +76,8 @@ impl SecretAudit {
 
     /// Record a reach for a credential pinned to a workspace.
     ///
-    /// Best-effort: a failed write must not fail the operation it describes,
-    /// because that operation has already committed, so the error is logged and
-    /// dropped.
+    /// Best-effort: the described operation already committed, so a failed
+    /// write is logged and dropped rather than propagated.
     pub async fn record_workspace_credential(
         &self,
         actor_id: &str,

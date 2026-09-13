@@ -11,9 +11,7 @@ use super::subject::GithubRepository;
 
 /// Map a user-supplied emoji name to GitHub's reaction content enum.
 ///
-/// GitHub accepts only these eight values:
-/// `+1`, `-1`, `laugh`, `confused`, `heart`, `hooray`, `rocket`, `eyes`.
-/// We accept the canonical names plus a few common aliases.
+/// Accepts GitHub's canonical values plus a few common aliases.
 fn to_github_content(emoji: &str) -> Result<&'static str, AdapterError> {
     let normalized = emoji.trim().trim_matches(':').to_ascii_lowercase();
     let mapped = match normalized.as_str() {

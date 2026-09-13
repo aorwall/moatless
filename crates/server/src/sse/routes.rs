@@ -1,8 +1,8 @@
 //! SSE routing tables.
 //!
 //! Assembles the live firehose (`GET /api/v1/events/stream`) and the historical
-//! task-events (`GET /api/v1/tasks/{task_id}/events`) routers. The handlers they
-//! mount live in [`super::handlers`].
+//! task-events (`GET /api/v1/tasks/{task_id}/events`) routers. The handlers
+//! they mount live in [`super::handlers`].
 
 use axum::Router;
 use axum::routing::get;

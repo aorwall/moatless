@@ -3,14 +3,13 @@
 //! Axum plumbing over two consumer-declared ports, so a crate that mounts
 //! routes gets the extractors without naming the identity band.
 //!
-//! Two auth paths (tried in order):
-//! 1. **`AuthIdentity` extension**: set by auth middleware after validating a
-//!    session cookie or API key.
-//! 2. **X-User-Token header** (sandbox→backend): JWT-based, for requests that
-//!    bypass the auth middleware.
+//! Two auth paths, tried in order: the `AuthIdentity` extension set by auth
+//! middleware after validating a session cookie or API key, then the
+//! `X-User-Token` header (sandbox→backend, JWT-based) for requests that bypass
+//! the middleware. Anything else is a 401.
 //!
-//! Anything else is a 401. `X-User-*` headers are never trusted — the auth
-//! middleware strips them before validation.
+//! `X-User-*` headers are never trusted — the auth middleware strips them
+//! before validation.
 
 use std::sync::Arc;
 
@@ -27,11 +26,11 @@ use moatless_types::user::UserRole;
 
 /// Verifies a sandbox-issued `X-User-Token` JWT.
 ///
-/// Declared consumer-side so the extractors state which one value they need of
-/// the process — token verification — rather than reaching through the whole
-/// `AppState`. The implementation (and its dependency on `sandbox::jwt` and the
-/// token secret) lives behind this port, which is why generifying the auth
-/// extractors over any router state `S` costs no `sandbox` import here.
+/// Declared consumer-side so the extractors name only this one value from the
+/// process rather than the whole `AppState`; the implementation (with its
+/// `sandbox::jwt` and token-secret dependency) lives behind this port, so
+/// generifying the extractors over any router state `S` costs no `sandbox`
+/// import here.
 pub trait UserTokenVerifier: Send + Sync {
     /// Verify a long-lived user auth token, returning the identity it carries.
     fn verify_user_token(&self, token: &str) -> Result<VerifiedUserToken, TokenVerifyError>;
@@ -58,8 +57,8 @@ pub enum TokenVerifyError {
 /// authorization bit the `ForwardAuth` session gate needs.
 ///
 /// Declared here beside the extractors so the `ForwardAuth` handler holds this
-/// bool port rather than a `TaskDao`: the implementation over `TaskDao` lives in
-/// the tasks band, behind this port.
+/// bool port rather than a `TaskDao`: the implementation over `TaskDao` lives
+/// in the tasks band, behind this port.
 #[async_trait]
 pub trait TaskAccess: Send + Sync {
     /// True iff the task exists and `ctx` is allowed to see it. Fail-closed: an
@@ -67,7 +66,8 @@ pub trait TaskAccess: Send + Sync {
     async fn may_access_task(&self, task_id: &str, ctx: &ScopeContext) -> bool;
 }
 
-/// Authenticated user extracted from request extensions, user token, or dev-mode headers.
+/// Authenticated user extracted from request extensions, user token, or
+/// dev-mode headers.
 #[derive(Debug, Clone)]
 pub struct AuthUser {
     pub user_id: Uuid,
@@ -78,8 +78,8 @@ pub struct AuthUser {
     pub group_id: Option<String>,
     pub task_id: Option<String>,
     /// True when this request was authenticated via the sandbox-issued
-    /// `X-User-Token` JWT (i.e. came from inside a sandbox pod, on behalf
-    /// of the agent's CLI). Used to mark feedback rows as `source = 'agent'`.
+    /// `X-User-Token` JWT (i.e. came from inside a sandbox pod, on behalf of
+    /// the agent's CLI). Used to mark feedback rows as `source = 'agent'`.
     pub is_agent_context: bool,
 }
 
@@ -175,8 +175,8 @@ where
 
 /// Optional auth extractor for endpoints that tolerate anonymous callers.
 ///
-/// Returns `None` instead of 401 when the request did not authenticate.
-/// Callers must treat `None` as a denial, never as an unscoped admin.
+/// Returns `None` instead of 401 when the request did not authenticate; callers
+/// must treat `None` as a denial, never as an unscoped admin.
 #[derive(Debug, Clone)]
 pub struct MaybeAuthUser(pub Option<AuthUser>);
 
@@ -198,13 +198,10 @@ where
 /// State-agnostic optional-scope extractor for routers whose state is **not**
 /// `AppState` (e.g. the sandbox router's `SandboxApiState`).
 ///
-/// Reads the canonical [`AuthIdentity`] that `auth_middleware` injects after
-/// validating a session cookie or API key. Because it only trusts the
-/// middleware-set extension (never raw `X-User-*` headers), it is safe on any
-/// router state.
-///
-/// `None` means no identity was attached — the request did not authenticate.
-/// Callers must treat it as a denial, never as an unscoped admin.
+/// Reads the canonical [`AuthIdentity`] that `auth_middleware` injects,
+/// trusting only that middleware-set extension (never raw `X-User-*` headers);
+/// `None` means no identity was attached, and callers must treat it as a
+/// denial, never an unscoped admin.
 #[derive(Debug, Clone)]
 pub struct OptionalScope(pub Option<ScopeContext>);
 
@@ -228,9 +225,10 @@ mod tests {
     use super::*;
     use axum::http::Request;
 
-    /// Configurable [`UserTokenVerifier`] for exercising the `X-User-Token` path
-    /// of the auth extractor without minting real JWTs — the second implementor
-    /// of the port. `verify_user_auth_token` itself is covered in `sandbox::jwt`.
+    /// Configurable [`UserTokenVerifier`] for exercising the `X-User-Token`
+    /// path of the auth extractor without minting real JWTs — the second
+    /// implementor of the port. `verify_user_auth_token` itself is covered in
+    /// `sandbox::jwt`.
     enum StubOutcome {
         Ok { user_id: String, login: String },
         NotConfigured,

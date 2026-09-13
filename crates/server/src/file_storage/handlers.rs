@@ -120,13 +120,9 @@ pub async fn download_file(
 
 /// `Content-Disposition` for a download, as RFC 6266 wants it.
 ///
-/// A filename is whatever the person called their file, and header values are
-/// bytes: a quote or a backslash in one ends the quoted string early, and a
-/// newline splits the response. So the `filename` parameter carries a sanitized
-/// ASCII fallback — every byte outside a conservative allowlist replaced with
-/// `_` — and the real name is carried beside it in the RFC 5987 `filename*`
-/// form, which every current browser prefers and which is percent-encoded and
-/// therefore cannot carry a delimiter at all.
+/// Carries a sanitized ASCII fallback filename plus the real name
+/// percent-encoded in the RFC 5987 `filename*` form, since a raw quote,
+/// backslash, or newline could break or split the header.
 fn content_disposition(filename: &str) -> String {
     use std::fmt::Write;
 

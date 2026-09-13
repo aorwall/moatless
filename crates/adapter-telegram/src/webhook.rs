@@ -1,12 +1,11 @@
 //! Raw Telegram update normalization.
 //!
 //! This module decides what one update means and returns it. Resolving the
-//! sender to a system user is the only I/O it performs: there is no Bot API
-//! call on any path and nothing is written, so every ignore reason below is
-//! provable without a client and most of them without a database.
+//! sender to a system user is the only I/O it performs — nothing else is
+//! written, so most ignore reasons are provable without a client or database.
 //!
-//! What the update *causes* — the `/start` and `/help` answers, the pairing
-//! request — comes back as [`Effect`] values for the caller to apply.
+//! What the update causes (`/start`/`/help` replies, pairing requests) comes
+//! back as [`Effect`] values for the caller to apply.
 
 use tracing::{debug, info};
 
@@ -35,8 +34,8 @@ pub(super) enum Normalization {
         effects: Vec<Effect>,
     },
     Ignored {
-        /// Why, for the log. The webhook metric keeps its single
-        /// `not_routable` reason (spec Decision 9).
+        /// Why, for the log. The webhook metric keeps its single `not_routable`
+        /// reason (spec Decision 9).
         reason: &'static str,
         effects: Vec<Effect>,
     },
@@ -58,17 +57,8 @@ pub(super) enum Effect {
 
 /// Turn a raw Telegram Bot API Update into an [`InboundMessage`].
 ///
-/// Handles: message extraction (message or `channel_post`), reply threading,
-/// user identity resolution, and bot mention stripping. Deduplication is
-/// not done here — it happens durably when the caller admits the parsed
-/// message, keyed on the same `update_id`.
-///
-/// A re-delivered update is therefore normalized again, and its effects are
-/// applied again with it.
-///
-/// The update arrives already decoded: ingress needs the envelope to route on
-/// before it gets here, and decoding the same bytes twice was one of the things
-/// the split was supposed to end.
+/// Deduplication is not done here; a re-delivered update is normalized again
+/// and its effects re-applied, with dedup keyed on `update_id` at admission.
 pub(super) async fn normalize(
     payload: &serde_json::Value,
     ctx: &NormalizeContext<'_>,
@@ -318,7 +308,8 @@ fn answered(reason: &'static str, chat_id: &str, text: &str) -> Normalization {
     }
 }
 
-/// Strip bot mention from message text (e.g., "@mybot fix the bug" → "fix the bug").
+/// Strip bot mention from message text (e.g., "@mybot fix the bug" → "fix the
+/// bug").
 fn strip_bot_mention(text: &str, bot_username: Option<&str>) -> String {
     let Some(username) = bot_username else {
         return text.to_string();

@@ -42,7 +42,8 @@ pub struct AdapterConnectionResponse {
     pub updated_at: String,
 }
 
-/// Request body for `POST /api/v1/adapters/send` — generic adapter pass-through send.
+/// Request body for `POST /api/v1/adapters/send` — generic adapter pass-through
+/// send.
 #[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
@@ -50,25 +51,25 @@ pub struct AdapterSendRequest {
     /// Which adapter to dispatch through.
     pub adapter: AdapterKind,
     /// Optional connection ID. When omitted, the backend picks the single
-    /// accessible connection of `adapter` kind, or returns an error if zero
-    /// or more than one match.
+    /// accessible connection of `adapter` kind, or returns an error if zero or
+    /// more than one match.
     pub connection_id: Option<String>,
-    /// Adapter-specific destination string. Each adapter defines its own
-    /// format (e.g. Slack: `channel:C123` / `dm:D123` / `thread:C/ts`;
-    /// Linear: `issue:LIN-123`).
+    /// Adapter-specific destination string. Each adapter defines its own format
+    /// (e.g. Slack: `channel:C123` / `dm:D123` / `thread:C/ts`; Linear:
+    /// `issue:LIN-123`).
     pub destination: String,
     /// Message text.
     pub text: String,
     /// File IDs (uploaded via `POST /api/v1/uploads`) to attach.
     #[serde(default)]
     pub file_ids: Vec<String>,
-    /// Adapter-native rich rendering of the message body. The payload names
-    /// the adapter it addresses; one whose kind does not match the resolved
+    /// Adapter-native rich rendering of the message body. The payload names the
+    /// adapter it addresses; one whose kind does not match the resolved
     /// destination is rejected rather than dropped.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub presentation: Option<moatless_types::adapter::OutboundPresentation>,
-    /// Optional task to bind this send to. When set, a `task_bindings` row
-    /// is created so future `moat reply` calls thread under this destination.
+    /// Optional task to bind this send to. When set, a `task_bindings` row is
+    /// created so future `moat reply` calls thread under this destination.
     pub task_id: Option<String>,
 }
 
@@ -77,7 +78,8 @@ pub struct AdapterSendRequest {
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct AdapterSendResponse {
-    /// Adapter-specific external message ID (e.g. Slack `ts`, Linear comment ID).
+    /// Adapter-specific external message ID (e.g. Slack `ts`, Linear comment
+    /// ID).
     pub external_id: String,
     /// Binding `subject_kind` produced by the adapter (e.g. `slack_thread`,
     /// `linear_comment`). Surfaced so callers can correlate with bindings.

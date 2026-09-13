@@ -5,14 +5,14 @@
     clippy::print_stdout,
     clippy::print_stderr
 )]
-//! Integration tests for "Closed is terminal against automated re-open" (Fix A).
+//! Integration tests for "Closed is terminal against automated re-open" (Fix
+//! A).
 //!
 //! Covers:
 //! - `TaskDao::update_status_if_not_closed` — race-safe conditional flip.
-//! - The three agent terminal handlers (`completed` / `stopped` / `error`) no
-//!   longer resurrect a `Closed` task to `Open`.
-//! - Regression: a synthetic `agent.error` (as the orphaned-turn reaper emits)
-//!   keeps a closed task closed while still appending its error message row.
+//! - The three agent terminal handlers (`completed` / `stopped` / `error`) do
+//!   not resurrect a `Closed` task to `Open`.
+//! - Regression: see `reconcile_error_keeps_closed_and_says_nothing`.
 
 use crate::common;
 

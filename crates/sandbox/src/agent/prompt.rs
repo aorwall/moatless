@@ -1,9 +1,9 @@
 //! Interactive prompt handling via oneshot channels.
 //!
-//! When the agent encounters an `AskUserQuestion` or `ExitPlanMode` tool,
-//! it creates a oneshot channel and stores the sender in `AgentState`.
-//! The message consumer (or an HTTP endpoint) resolves the prompt by
-//! sending the response on the channel.
+//! When the agent encounters an `AskUserQuestion` or `ExitPlanMode` tool, it
+//! creates a oneshot channel and stores the sender in `AgentState`. The message
+//! consumer (or an HTTP endpoint) resolves the prompt by sending the response
+//! on the channel.
 
 use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
@@ -46,16 +46,16 @@ pub struct PendingPrompt {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum PromptResponse {
-    /// Answer to `AskUserQuestion`, one per question. Keyed on the question's own
-    /// full text: that is the key the CLI looks an answer up by, and a question
-    /// it finds no answer for is dropped from what the model is told.
+    /// Answer to `AskUserQuestion`, one per question. Keyed on the question's
+    /// own full text: that is the key the CLI looks an answer up by, and a
+    /// question it finds no answer for is dropped from what the model is told.
     #[serde(rename = "askUserAnswer")]
     AskUserAnswer { answers: serde_json::Value },
-    /// Freeform text answering `AskUserQuestion`, from someone who wrote instead
-    /// of choosing. The CLI carries it in its own field beside `answers` and
-    /// tells the model "The user responded: …", so it needs no question to
-    /// belong to — which is what makes it the shape for an answer that arrives
-    /// as one message against however many questions were asked.
+    /// Freeform text answering `AskUserQuestion`, from someone who wrote
+    /// instead of choosing.
+    ///
+    /// Needs no question to belong to, since the CLI tells the model "The user
+    /// responded: …" instead of matching per question.
     #[serde(rename = "askUserResponse")]
     AskUserResponse { response: String },
     /// Plan approved (`ExitPlanMode`).

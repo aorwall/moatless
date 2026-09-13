@@ -25,8 +25,8 @@ use moatless_types::feedback::{FeedbackCategory, FeedbackSource, FeedbackStatus,
 const DEFAULT_LIMIT: i64 = 50;
 const MAX_LIMIT: i64 = 200;
 
-/// Create a new feedback row scoped to a task (and optionally a message
-/// or tool call within that task).
+/// Create a new feedback row scoped to a task (and optionally a message or tool
+/// call within that task).
 #[utoipa::path(
     post,
     path = "/api/v1/feedback",
@@ -128,10 +128,11 @@ pub async fn list_task_feedback(
     Ok(Json(ListFeedbackResponse { items }))
 }
 
-/// List feedback across every task the caller may read, newest first. The
-/// per-task endpoint answers "does this message have feedback"; this one
-/// answers "what has the fleet been told", which is why it filters by
-/// workspace, repository, source, surface, category, submitter, and age.
+/// List feedback across every task the caller may read, newest first.
+///
+/// The per-task endpoint answers "does this message have feedback"; this one
+/// answers "what has the fleet been told" — filterable by workspace,
+/// repository, source, surface, category, submitter, and age.
 #[utoipa::path(
     get,
     path = "/api/v1/feedback",

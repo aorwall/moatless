@@ -3,8 +3,8 @@
 
 use super::DbPool;
 
-/// Run pending SQL migrations from `./migrations/`.
-/// Uses PostgreSQL advisory locks — safe for concurrent replicas.
+/// Run pending SQL migrations from `./migrations/`. Uses PostgreSQL advisory
+/// locks — safe for concurrent replicas.
 pub async fn run_migrations(pool: &DbPool) -> Result<(), sqlx::migrate::MigrateError> {
     sqlx::migrate!("./migrations").run(pool).await
 }
@@ -13,7 +13,8 @@ pub async fn run_migrations(pool: &DbPool) -> Result<(), sqlx::migrate::MigrateE
 mod tests {
     /// Two files sharing a version is not a conflict git can see: both merge,
     /// and the loser is silently skipped against a database that recorded the
-    /// winner, leaving its schema change unapplied and startup refusing to boot.
+    /// winner, leaving its schema change unapplied and startup refusing to
+    /// boot.
     #[test]
     fn every_migration_has_its_own_version() {
         let migrations = sqlx::migrate!();

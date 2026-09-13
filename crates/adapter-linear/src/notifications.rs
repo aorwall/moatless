@@ -1,17 +1,12 @@
 //! `AppUserNotification` — Linear telling the agent, as a user, that something
 //! happened on an issue it is subscribed to.
 //!
-//! It carries no state transition of its own, so there is nothing here to
-//! forward to a Task: everything a notification can say about a state change,
-//! the `Issue.update` webhook says first and more precisely. What it is good
-//! for is the case where `Issue.update` never arrives — a workspace whose
-//! webhook is scoped to notifications only — so this path re-derives the one
-//! decision that must not be missed, whether the issue reached a terminal state
-//! and its Tasks should close.
+//! It carries no state transition, so nothing here forwards to a Task; its only
+//! job is re-deriving whether the issue reached a terminal state when
+//! `Issue.update` never arrives (a webhook scoped to notifications only).
 //!
-//! Its own delivery kind because a notification and an issue update are two
-//! Sender deliveries; folding them together would let one's permanent failure
-//! spend the other's retry budget.
+//! Its own delivery kind, so folding it into `Issue.update` can't let one's
+//! permanent failure spend the other's retry budget.
 
 use tracing::debug;
 
@@ -31,11 +26,12 @@ use super::subscription_rules::resolve_rules_for_team;
 use super::webhook_payloads::AppUserNotificationData;
 
 /// Close active bindings when an `AppUserNotification.issueStatusChanged`
-/// arrives for a terminal state. Inbox-stream analog of `handle_issue_update`'s
-/// close path — used when the workspace only subscribes to `AppUserNotification`
-/// (not Issue) webhooks. Acts on the current state alone (the notification
-/// carries no diff). `close_active_bindings_for_issue` is idempotent, so
-/// double delivery from the Issue path is safe.
+/// arrives for a terminal state — the inbox-stream analog of
+/// `handle_issue_update`'s close path, used when the workspace only subscribes
+/// to `AppUserNotification` webhooks.
+///
+/// Acts on the current state alone (no diff); idempotent, so double delivery
+/// from the Issue path is safe.
 #[expect(
     clippy::too_many_arguments,
     reason = "this forward-only path threads the union its two callees need — the \

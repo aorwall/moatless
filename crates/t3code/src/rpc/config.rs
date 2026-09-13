@@ -134,8 +134,8 @@ pub(crate) fn auth_descriptor(state: &UiRpcState) -> Value {
 /// What a client is told about the session it is already holding.
 ///
 /// `sessionMethod` reports the credential this request actually arrived with,
-/// rather than the one the browser would have used, because a paired device
-/// asking what it is holding should not be told it is holding a cookie.
+/// not the one the browser would have used, so a paired device asking what it's
+/// holding isn't told it's holding a cookie.
 pub(crate) fn session_state(state: &UiRpcState, method: Option<UiRpcAuthMethod>) -> Value {
     json!({
         "authenticated": true,

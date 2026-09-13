@@ -86,7 +86,8 @@ pub(super) async fn insert_local(db: &DbPool, account: LocalAccount<'_>) -> Resu
     Ok(())
 }
 
-/// Atomically refresh the bot account, provider identity and installation-token row.
+/// Atomically refresh the bot account, provider identity and installation-token
+/// row.
 pub(super) async fn upsert_bot(
     db: &DbPool,
     app_key: &str,

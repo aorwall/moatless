@@ -15,8 +15,8 @@ fn activity_change(position: i64, activity_id: &str) -> ConversationChange {
     }
 }
 
-/// The rows a rewind dropped are gone, so the change that carries it names
-/// none of them and this is read off the change itself.
+/// The rows a rewind dropped are gone, so the change that carries it names none
+/// of them and this is read off the change itself.
 #[test]
 fn a_rewind_emits_the_cut_it_made() {
     let cut = ConversationChange {
@@ -51,10 +51,9 @@ fn a_rewind_to_nothing_says_zero() {
 /// A call and the panel row derived from it are two rows in one change, and
 /// each needs a sequence of its own.
 ///
-/// The feed delivers an item only when its sequence is past the last it
-/// delivered, so two rows sharing one costs the second row entirely — and
-/// the panel row is always the second, because it sorts after the call it is
-/// derived from. That is the panel's every appearance and every closure.
+/// The feed delivers an item only when its sequence is past the last delivered,
+/// so two rows sharing one costs the second — always the panel, since it sorts
+/// after its call.
 #[test]
 fn a_panel_row_and_its_call_do_not_share_one_sequence() {
     let mut call = activity("msg-2", 2, 0, ActivityKind::ToolCall, "AskUserQuestion");
@@ -89,13 +88,12 @@ fn a_panel_row_and_its_call_do_not_share_one_sequence() {
     );
 }
 
-/// A panel row reaches the client resolved even when the call it names is
-/// not among the rows being projected.
+/// A panel row reaches the client resolved even when the call it names is not
+/// among the rows being projected.
 ///
-/// A resuming session re-presents the call under a new Message. The call is
-/// stored once — `(task_id, tool_use_id)` is unique — but the panel row beside
-/// it carries no `tool_use_id` and is written again, so from then on the two
-/// live on different Messages.
+/// A resuming session re-presents the call under a new Message; the call is
+/// stored once (`tool_use_id` is unique) but the panel row carries none and is
+/// written again, so the two end up on different Messages.
 #[test]
 fn a_panel_row_is_resolved_by_a_call_outside_the_rows_being_read() {
     let mut panel = activity("msg-9", 9, 0, ActivityKind::UserInputRequested, "Question");
@@ -127,12 +125,12 @@ fn a_panel_row_is_resolved_by_a_call_outside_the_rows_being_read() {
     );
 }
 
-/// A change's items climb, so a reader that delivers each sequence once
-/// keeps all of them.
+/// A change's items climb, so a reader that delivers each sequence once keeps
+/// all of them.
 ///
-/// A derived row's slot sits above the blocks, so in row order it lands
-/// between two of them — and a reader comparing against the last sequence it
-/// delivered would drop every block after it, which is the rest of the turn.
+/// A derived row's slot sits above the blocks, landing between two in row
+/// order; comparing against the last delivered sequence would otherwise drop
+/// every block after it.
 #[test]
 fn a_changes_items_climb_so_a_later_block_survives_a_derived_row() {
     let mut call = activity("msg-2", 2, 0, ActivityKind::ToolCall, "AskUserQuestion");
@@ -205,11 +203,11 @@ fn a_change_to_a_tool_calling_message_carries_only_its_work_log_rows() {
     assert_eq!(sent[0]["payload"]["threadId"], "task-a");
 }
 
-/// A change that names an activity rather than a Message — a Sandbox
-/// lifecycle row, a context-window reading — carries that one work-log row
-/// and nothing else: no bubble, and no `thread.session-set`, because nothing
-/// about the conversation's own session moved. The row is numbered
-/// `ordinal + 1`, the same value its snapshot row carries.
+/// A change naming an activity rather than a Message — a Sandbox lifecycle row,
+/// a context-window reading — carries that one work-log row alone: no bubble,
+/// no `thread.session-set`.
+///
+/// Numbered `ordinal + 1`, the same value its snapshot row carries.
 #[test]
 fn a_change_naming_an_activity_carries_that_row_and_no_session() {
     let mut ready = activity("", 6, 0, ActivityKind::SandboxStatus, "Ready");
@@ -232,10 +230,11 @@ fn a_change_naming_an_activity_not_in_the_window_says_nothing() {
     assert!(events(&activity_change(6, "evt-gone"), &a_conversation()).is_empty());
 }
 
-/// A tool result settles the row its call already wrote, and the change it
-/// records names the *calling* Message. So the outcome reaches the client
-/// as that same row re-sent under the same id, which the client upserts —
-/// no separate result row, and no run of earlier Messages to search.
+/// A tool result settles the row its call already wrote; the change records the
+/// *calling* Message.
+///
+/// The outcome reaches the client as that same row re-sent under the same id,
+/// which the client upserts — no separate result row to search for.
 #[test]
 fn a_settled_call_is_re_sent_under_the_id_the_snapshot_gave_it() {
     let window = a_conversation();
@@ -279,9 +278,9 @@ fn every_event_of_a_change_has_its_own_ascending_sequence() {
     );
 }
 
-/// The invariant the whole numbering exists for: a row a client received as
-/// an event and the same row read out of a snapshot have to carry one
-/// number, or sorting one against the other means nothing.
+/// The invariant the whole numbering exists for: a row a client received as an
+/// event and the same row read out of a snapshot have to carry one number, or
+/// sorting one against the other means nothing.
 #[test]
 fn an_activitys_event_is_numbered_the_same_as_its_snapshot_row() {
     let window = a_conversation();
@@ -313,8 +312,8 @@ fn an_activitys_event_is_numbered_the_same_as_its_snapshot_row() {
 }
 
 /// Slot 0 belongs to the bubble whether or not the Message wrote one, so a
-/// turn's first activity is numbered the same in a change that carries a
-/// bubble and one that does not.
+/// turn's first activity is numbered the same in a change that carries a bubble
+/// and one that does not.
 #[test]
 fn the_bubbles_slot_is_reserved_even_when_no_bubble_is_sent() {
     let window = a_conversation();
@@ -330,8 +329,8 @@ fn the_bubbles_slot_is_reserved_even_when_no_bubble_is_sent() {
 }
 
 /// A turn of ten or more blocks: the client falls back to comparing ids as
-/// strings, where `…:10` sorts before `…:2`. The number is what keeps the
-/// tenth block after the second.
+/// strings, where `…:10` sorts before `…:2`. The number is what keeps the tenth
+/// block after the second.
 #[test]
 fn a_turn_of_ten_blocks_is_numbered_in_block_order() {
     let activities: Vec<Activity> = (0..12)
@@ -361,15 +360,15 @@ fn a_turn_of_ten_blocks_is_numbered_in_block_order() {
 }
 
 /// A change naming a uuid the window holds nothing for — no Message and no
-/// activity, so deleted, or one of the subagent rows no transcript reads —
-/// is a complete answer of nothing.
+/// activity, so deleted, or one of the subagent rows no transcript reads — is a
+/// complete answer of nothing.
 #[test]
 fn a_change_naming_a_row_that_is_not_there_says_nothing() {
     assert!(events(&change(4, Some("msg-404")), &a_conversation()).is_empty());
 }
 
-/// A change naming no Message is the conversation's own, and the client
-/// derives the turn it renders from the session it is sent.
+/// A change naming no Message is the conversation's own, and the client derives
+/// the turn it renders from the session it is sent.
 #[test]
 fn a_change_to_the_conversation_itself_carries_its_session() {
     let sent = events(&change(4, None), &transcript(Vec::new(), Vec::new()));
@@ -380,9 +379,8 @@ fn a_change_to_the_conversation_itself_carries_its_session() {
     assert_eq!(sent[0]["payload"]["session"]["activeTurnId"], "task-a:3");
 }
 
-/// The contract's session payload has no empty value, so a conversation
-/// that has never had a Sandbox has nothing to say rather than a null to
-/// send.
+/// The contract's session payload has no empty value, so a conversation that
+/// has never had a Sandbox has nothing to say rather than a null to send.
 #[test]
 fn a_conversation_with_no_sandbox_sends_no_session_event() {
     let without = Conversation {
@@ -422,8 +420,8 @@ fn a_message_event_and_a_snapshot_bubble_agree() {
 }
 
 /// An activity event carries the activity a snapshot would have carried,
-/// unchanged — including the number it sorts by, which is what lets it
-/// arrive long after the snapshot it has to sort into.
+/// unchanged — including the number it sorts by, which is what lets it arrive
+/// long after the snapshot it has to sort into.
 #[test]
 fn an_activity_event_and_a_snapshot_activity_agree() {
     let window = a_conversation();

@@ -19,9 +19,9 @@ use super::transcripts::fork_source_task_id;
 
 /// How "this task holds a workspace in this format" is asked of S3.
 ///
-/// The two variants cost the same one request. They differ because a `restic`
-/// snapshot's id is its content hash, so no key that proves one exists can be
-/// built from a task id.
+/// Both variants cost one request; they differ because a `restic` snapshot's id
+/// is its content hash, so no key proving one exists can be built from a task
+/// id.
 #[derive(Clone, Copy)]
 enum WorkspaceProbe {
     /// One object at a known key: `sandbox_key` for the tar.
@@ -33,7 +33,8 @@ enum WorkspaceProbe {
 
 impl WorkspaceProbe {
     /// Whether `task_id` holds this format. `Err` when S3 could not answer,
-    /// which every caller reads as "restore the task's own" rather than as `false`.
+    /// which every caller reads as "restore the task's own" rather than as
+    /// `false`.
     async fn hit(
         self,
         s3_client: &moatless_s3::S3Storage,
@@ -70,16 +71,11 @@ const WORKSPACE_PRESIGN_TTL: std::time::Duration = std::time::Duration::from_min
 impl BackendSandboxServiceImpl {
     /// The key a workspace restore should read for `task_id`.
     ///
-    /// A fork that has not yet synced has no archive of its own, and the working
-    /// tree its first turn expects is the parent's. Serving the parent's is also
-    /// what keeps an isolated fork off the clone path: `restore_on_start` runs
-    /// before `clone_repositories`, which skips a repo whose directory already
-    /// exists, so a fork whose parent worked on an unpushed branch restores that
-    /// branch instead of failing to clone it.
-    ///
-    /// Falls back only on a definitive "not there". `head_object_modified_at`
-    /// reports "cannot tell" as `Err`, and reading that as absence would hand a
-    /// fork that has already synced the parent's older tree.
+    /// A fork with no archive of its own falls back to its parent's (also
+    /// keeping it off the clone path for an unpushed branch), but only on a
+    /// definitive "not there" — `head_object_modified_at`'s "cannot tell" is
+    /// `Err`, not absence, since that would hand an already-synced fork its
+    /// parent's stale tree.
     async fn workspace_restore_key(
         &self,
         s3_client: &moatless_s3::S3Storage,
@@ -101,15 +97,13 @@ impl BackendSandboxServiceImpl {
         }
     }
 
-    /// The task whose prefix a restore should read, or `None` for the task's own.
+    /// The task whose prefix a restore should read, or `None` for the task's
+    /// own.
     ///
-    /// `probe` decides it against the artifact the caller actually restores
-    /// from, so the tar and the repository resolve independently: a fork whose
-    /// parent wrote a repository but no tar must not be sent to the parent for a
-    /// tar that is not there.
-    ///
-    /// One level only. `find_parent` is the fork's immediate parent, so a fork of
-    /// a fork whose parent holds nothing in this format restores its own.
+    /// `probe` decides against the actual artifact restored, so the tar and
+    /// repository resolve independently; one level only (`find_parent` is the
+    /// immediate parent), so a fork-of-a-fork whose parent holds nothing here
+    /// restores its own.
     async fn workspace_restore_task_id(
         &self,
         s3_client: &moatless_s3::S3Storage,
@@ -167,10 +161,9 @@ impl BackendSandboxServiceImpl {
 
 /// Mint presigned PUT + GET URLs for the task's workspace archive.
 ///
-/// The workspace tar can be hundreds of MB, so the `s3` backend transfers it
-/// directly rather than streaming it through the backend as the transcript
-/// proxy does. Each URL is scoped to `<prefix>/<task_id>/workspace.tar` and
-/// expires, so it is the only capability the sandbox holds.
+/// The tar can be hundreds of MB, so the `s3` backend transfers directly rather
+/// than streaming through the backend as the transcript proxy does; each URL is
+/// scoped and expires, the only capability the sandbox holds.
 pub(super) async fn get_workspace_sync_urls(
     service: &BackendSandboxServiceImpl,
     request: Request<GetWorkspaceSyncUrlsRequest>,
@@ -216,17 +209,15 @@ pub(super) async fn get_workspace_sync_urls(
     }))
 }
 
-/// Hand the sandbox direct S3 access to its own workspace `restic`
-/// repository, plus the password that opens it.
+/// Hand the sandbox direct S3 access to its own workspace `restic` repository,
+/// plus the password that opens it.
 ///
-/// Two things a presigned URL cannot carry: `rustic_core` lists the repository
-/// by prefix on every open and a signature covers one key, and the repository
-/// is encrypted, so access without the password reads nothing. Only this task's
-/// prefix is writable, and the password is derived from the task id.
-///
-/// A fork that holds no repository of its own is granted its source's prefix
-/// read-only, the same fallback
-/// [`BackendSandboxServiceImpl::workspace_restore_task_id`] resolves for the tar.
+/// A presigned URL can't carry this: `rustic_core` lists the repository by
+/// prefix on every open, and the repository is encrypted, so only this task's
+/// prefix is writable with a task-id-derived password; a fork with no
+/// repository of its own gets its source's prefix read-only, via the same
+/// fallback [`BackendSandboxServiceImpl::workspace_restore_task_id`] resolves
+/// for the tar.
 pub(super) async fn get_workspace_repository_access(
     service: &BackendSandboxServiceImpl,
     request: Request<GetWorkspaceRepositoryAccessRequest>,
@@ -288,10 +279,10 @@ pub(super) async fn get_workspace_repository_access(
 }
 
 /// Record a workspace-sync outcome reported by the sandbox as Prometheus
-/// metrics. The `s3` backend transfers directly to S3, so the backend never
-/// sees the bytes and must be told the size/duration/outcome to build the
-/// EBS-vs-S3 comparison. Best-effort: it only touches metrics, never fails
-/// the sandbox's sync.
+/// metrics.
+///
+/// The backend never sees the bytes and must be told size/duration/outcome for
+/// the EBS-vs-S3 comparison; it only touches metrics and never fails the sync.
 pub(super) async fn report_workspace_sync(
     service: &BackendSandboxServiceImpl,
     request: Request<ReportWorkspaceSyncRequest>,
@@ -383,11 +374,11 @@ mod tests {
         })
     }
 
-    /// An unconfigured deployment answers `FailedPrecondition` and not
-    /// `Internal`: the sandbox retries an internal error and gives up on this
-    /// one, which is the right behaviour for a deployment that simply has no
-    /// repository role. Which pieces are missing is
-    /// `WorkspaceRepositoryAccess::new`'s question, tested where it lives.
+    /// An unconfigured deployment answers `FailedPrecondition`, not `Internal`:
+    /// the sandbox retries an internal error and gives up on this one.
+    ///
+    /// Which pieces are missing is `WorkspaceRepositoryAccess::new`'s question,
+    /// tested where it lives.
     #[tokio::test]
     async fn a_deployment_without_a_repository_refuses_the_grant() {
         let svc = service_with(

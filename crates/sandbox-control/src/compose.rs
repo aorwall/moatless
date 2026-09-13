@@ -1,10 +1,10 @@
 //! The sandbox band's construction root.
 //!
-//! [`sandbox_graph`] owns the lifecycle store this crate keeps private and hands
-//! out only the capabilities built over it: the provisioning knowledge the
-//! provider adapters read, the gRPC-service seam onto the `sandboxes` row, the
-//! [`Lifecycle`] handle every intent write goes through, and the reconciler a
-//! host supervises.
+//! [`sandbox_graph`] owns the lifecycle store this crate keeps private and
+//! hands out only the capabilities built over it: the provisioning knowledge
+//! the provider adapters read, the gRPC-service seam onto the `sandboxes` row,
+//! the [`Lifecycle`] handle every intent write goes through, and the reconciler
+//! a host supervises.
 
 use std::sync::Arc;
 
@@ -36,12 +36,9 @@ const LIFECYCLE_LOCK_ATTEMPTS: u32 = 3;
 
 /// The lifecycle store, built once over one pool.
 ///
-/// The store stays private: a host takes the capabilities below, and every
-/// intent write reaches the `sandboxes` row through the [`Lifecycle`] this
-/// graph assembles.
-///
-/// Cloning shares the store, so a host that keeps the graph beside the
-/// capabilities it already took assembles over the same instance.
+/// Stays private: a host takes the capabilities below, each built over it.
+/// Cloning shares the store, so a host keeping the graph beside its
+/// capabilities assembles over the same instance.
 #[derive(Clone)]
 pub struct SandboxGraph {
     store: Arc<dyn LifecycleDao>,

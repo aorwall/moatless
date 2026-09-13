@@ -1,17 +1,11 @@
 //! The conversation half of the shell listing's data access.
 //!
-//! One read, one row type. Everything a sidebar row needs that is not on
-//! `tasks` — the newest turn, the Sandbox's lifecycle intent, when a person
-//! last wrote, which model the newest turn is running, and whether the agent is
-//! waiting on an answer — is derived here so the projection above never issues
-//! a query per conversation.
+//! One read, one row type: everything a sidebar row needs that is not on
+//! `tasks` is derived here, so the projection above never issues a query per
+//! conversation — including, once a conversation is open, its transcript and
+//! the changes recorded against it.
 //!
-//! Opening a conversation reads its transcript through the same module: what
-//! was said, what happened on the way, and — once it is open — the changes
-//! recorded against it and the rows those changes name.
-//!
-//! No T3 vocabulary appears in this file. The names are Moatless's; the
-//! translation belongs one module up.
+//! No T3 vocabulary appears in this file; the names are Moatless's.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -66,7 +60,8 @@ pub struct Conversation {
     pub visibility: Visibility,
     /// The owner's display name, `None` when the viewer owns the Task or the
     /// owner resolves to no user — a per-viewer value, like the follower state
-    /// below. Owner is the access rule's own `COALESCE(owner_user_id, created_by)`.
+    /// below. Owner is the access rule's own `COALESCE(owner_user_id,
+    /// created_by)`.
     pub owner_name: Option<String>,
 
     /// The newest Turn, by turn number. `None` when the Task has never run.
@@ -75,8 +70,9 @@ pub struct Conversation {
     pub turn_started_at: Option<DateTime<Utc>>,
     pub turn_ended_at: Option<DateTime<Utc>>,
 
-    /// Durable Sandbox lifecycle intent. All four are `None` together when no
+    /// Durable Sandbox lifecycle intent; all four are `None` together when no
     /// Sandbox was ever requested — the lazy-absence model of `sandboxes`.
+    ///
     /// Persisted column; read the typed value through
     /// [`Conversation::sandbox_desired_state`].
     pub sandbox_desired_state_raw: Option<String>,
@@ -89,12 +85,12 @@ pub struct Conversation {
     /// `0` for a Task with no Sandbox row, which can be running nothing.
     pub running_commands: i32,
 
-    /// When a person last wrote. Counts only `message_type = 'user'` rows,
-    /// which is this backend's own predicate for a person's message: the
-    /// agent's own `user`-role rows (tool results streamed back by the SDK) are
-    /// persisted as `system`. `tasks.last_message_at` is the nearest stored
-    /// value and is the wrong one — it also advances when the agent finishes,
-    /// stops or errors.
+    /// When a person last wrote. Counts only `message_type = 'user'` rows —
+    /// this backend's predicate for a person's message, since the agent's own
+    /// `user`-role tool results are persisted as `system`.
+    ///
+    /// `tasks.last_message_at` is the wrong stored value to use instead: it
+    /// also advances when the agent finishes, stops, or errors.
     pub latest_user_message_at: Option<DateTime<Utc>>,
 
     /// The model the newest Turn's agent replies reported they were produced
@@ -116,21 +112,19 @@ pub struct Conversation {
 
     /// Every GitHub pull request this Task is bound to, primary first.
     ///
-    /// A Task with no active PR binding reports an empty list rather than
-    /// `None`; `None` is only the absence of the column, which no listing
-    /// produces. The order is the one [`crate::ports::primary_pull_request`]
-    /// makes for the status surface — restated in the query's `ORDER BY`, since
-    /// the two read the bindings through different paths and must not disagree
-    /// about which is primary.
+    /// Empty rather than `None` when there's no active binding — `None` is only
+    /// the absent column, which no listing produces. The order matches
+    /// [`crate::ports::primary_pull_request`], restated in the query's `ORDER
+    /// BY` since the two read different paths and must not disagree on which is
+    /// primary.
     pub pull_requests: Option<Json<Vec<ConversationPullRequest>>>,
 }
 
 /// One GitHub pull request bound to a Task, as the listing query aggregates it.
 ///
-/// `subject_key` alone makes a row reportable, so a binding links from the
-/// moment it is written. `title`, `base_ref` and `head_ref` come out of the
-/// status blob a refresh fills in, and one refresh writes all three, so they
-/// are `None` together until then.
+/// `subject_key` alone makes a row reportable, linking from the moment it's
+/// written; `title`, `base_ref` and `head_ref` come from a refresh's status
+/// blob and are `None` together until one runs.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConversationPullRequest {
     pub repository: String,
@@ -144,9 +138,10 @@ pub struct ConversationPullRequest {
     /// adapter has classified one. Read by `t3_pr_state` in [`crate::ports`].
     pub state_kind: Option<String>,
     /// When this deployment last read the pull request's state from GitHub,
-    /// falling back to the binding's `NOT NULL` `last_event_at`, so it resolves
-    /// for an unrefreshed binding too. The columns
-    /// [`crate::ports::BoundPullRequest::status_read_at`] reports.
+    /// falling back to the binding's `NOT NULL` `last_event_at` so it resolves
+    /// for an unrefreshed binding too.
+    ///
+    /// The column [`crate::ports::BoundPullRequest::status_read_at`] reports.
     pub status_read_at: DateTime<Utc>,
     /// When the binding was written. T3's `linkedAt`, and what orders links of
     /// equal standing there.
@@ -217,11 +212,10 @@ pub struct InteractiveCall {
 
 /// What narrows a browse of conversations the viewer does **not** follow.
 ///
-/// At least one of `owner_user_id` and `tag` is always set, which is why the
-/// only constructor is [`ConversationBrowse::new`]: the read behind this is
-/// [`Reach::Readable`], and unfiltered that is every Task an administrator may
-/// read — the whole deployment. A browse that narrows nothing is refused
-/// rather than served.
+/// At least one of `owner_user_id` and `tag` is always set — enforced by the
+/// only constructor, [`ConversationBrowse::new`] — since the read behind this
+/// is [`Reach::Readable`] and unfiltered would be every Task an administrator
+/// may read: the whole deployment.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConversationBrowse {
     /// Whose Tasks, as `COALESCE(owner_user_id, created_by)` — the same
@@ -239,10 +233,10 @@ pub struct ConversationBrowse {
 impl ConversationBrowse {
     /// `None` where neither filter is set — see the type's own doc.
     ///
-    /// A value is trimmed before it is judged empty, as `snapshots::workspace_cwd`
-    /// trims the same kind of client-typed field: whitespace around a tag is a
-    /// filter that matches nothing, and the refusal says what happened where an
-    /// empty listing does not.
+    /// A value is trimmed before being judged empty, as
+    /// `snapshots::workspace_cwd` does for the same kind of client-typed field:
+    /// whitespace around a tag matches nothing, and the refusal says so where
+    /// an empty listing would not.
     pub fn new(
         owner_user_id: Option<String>,
         tag: Option<String>,
@@ -276,41 +270,32 @@ impl ConversationBrowse {
 /// Read the conversations one viewer's sidebar is built from, and the position
 /// a client watching it resumes from.
 ///
-/// The whole of this module's internal interface: read the conversations this
-/// viewer follows, re-read the ones a change names, and read the position.
-///
-/// A trait because the module's transport tests stub it; the only production
-/// implementation is [`PgConversationDao`].
+/// The whole of this module's internal interface: read what this viewer
+/// follows, re-read what a change names, and read the position. A trait because
+/// the module's transport tests stub it; the only production implementation is
+/// [`PgConversationDao`].
 #[cfg_attr(test, mockall::automock)]
 #[async_trait]
 pub trait ConversationDao: Send + Sync {
     /// Every **open** Task the viewer follows **and** may still read, newest
     /// first.
     ///
-    /// The three rules are deliberately different and all are load-bearing.
-    /// Following is what makes this a sidebar rather than a deployment listing
-    /// — an administrator's list is what they follow, like everyone else's.
-    /// The read rule underneath is what stops a follow, which is durable, from
-    /// outliving the access that produced it. The status rule is what stops a
-    /// follow from outliving the *work*: closing a Task is Moatless's own way of
-    /// saying it is done, following survives it, and a sidebar that kept the row
-    /// would grow without bound and never shrink.
-    ///
-    /// `error` is left out with `closed`, and that is the narrow reading of
-    /// "open": it is the status the Moatless sidebar itself filters on by
-    /// default (`sidebar-task-filter-values.ts`), and a Task returns to `open`
-    /// the moment its agent produces anything
-    /// (`TaskDao::update_status_if_not_closed`), so nothing that is running is
-    /// hidden by it.
+    /// Three independently load-bearing rules: following makes this a sidebar
+    /// rather than a deployment listing; the read rule stops a durable follow
+    /// from outliving the access that produced it; the status rule stops it
+    /// from outliving the *work* — closing is done, and a sidebar that kept
+    /// closed rows would never shrink. `error` counts as not-open too, matching
+    /// the Moatless sidebar's own filter; a Task returns to `open` the instant
+    /// its agent produces anything, so nothing running is hidden.
     async fn list_followed(&self, viewer: &ScopeContext) -> Result<Vec<Conversation>, sqlx::Error>;
 
     /// The other half: every **closed** Task the viewer follows and may still
     /// read, newest first.
     ///
-    /// Closing is what T3 calls archiving, so this is the archived listing. The
-    /// follow rule and the read rule are the same two; only the status rule is
-    /// inverted, which is what makes the two listings a partition of what a
-    /// person follows rather than two independent queries.
+    /// Closing is what T3 calls archiving. The follow and read rules are
+    /// unchanged from [`Self::list_followed`]; only the status rule inverts,
+    /// making the two listings a partition of what a person follows rather than
+    /// two independent queries.
     async fn list_followed_closed(
         &self,
         viewer: &ScopeContext,
@@ -319,20 +304,13 @@ pub trait ConversationDao: Send + Sync {
     /// Every Task the viewer may **read** that `filter` names, newest first,
     /// whether or not they follow it.
     ///
-    /// At most [`BROWSE_LIMIT`] rows plus one: the extra row says the filter
-    /// matched more than the cap, and a caller that shows these drops it.
-    ///
-    /// The listings above answer "what am I involved in"; this answers "what is
-    /// there", which is a different question and so drops the only rule that
-    /// made the others a sidebar. The read rule is untouched: this is
-    /// [`Reach::Readable`], the same widening [`Self::readable_by_id`] applies,
-    /// so a viewer who is not an administrator browses their own Tasks and the
-    /// public ones and learns of nothing else. The status rule moves into
-    /// [`ConversationBrowse::include_closed`].
-    ///
-    /// Follower state (`settled_*`, `snoozed_*`) is absent on a row the viewer
-    /// does not follow, and so are the writes that would set it — following is
-    /// what a client offers on a browsed row instead.
+    /// At most [`BROWSE_LIMIT`] rows plus one — the extra signals a filter that
+    /// matched more than the cap, and a caller must drop it. Drops the follow
+    /// rule entirely (this answers "what is there", not "what am I involved
+    /// in"); the read rule stays [`Reach::Readable`], same as
+    /// [`Self::readable_by_id`]; the status rule moves into
+    /// [`ConversationBrowse::include_closed`]. Follower state is absent on an
+    /// unfollowed row, since following is what a client offers there instead.
     async fn list_browsable(
         &self,
         viewer: &ScopeContext,
@@ -341,57 +319,40 @@ pub trait ConversationDao: Send + Sync {
 
     /// Both halves at once, narrowed to Tasks a change has named.
     ///
-    /// The follow rule and the read rule still apply, and that is the point of
-    /// re-reading through this rather than projecting the change record itself:
-    /// a change is a deployment-wide fact, and what a viewer may be shown of it
-    /// is not. A Task the viewer does not follow or may no longer read comes
-    /// back absent — and absent is what the feed above turns into the removal
-    /// that takes the row off the screen.
-    ///
-    /// The status rule is the one that widens. A Task that was closed is still
-    /// followed and still readable, so it comes back present, carrying the
-    /// `archivedAt` that tells the client which half it now belongs to. Absence
-    /// is reserved for a Task that left the viewer's world entirely, because the
-    /// feed may only take back an id it can prove it sent: a client that
-    /// resumed from a cursor is holding a listing this server never built, so
-    /// there is nothing to prove it with and a removal is dropped. An upsert
-    /// carries no such condition, which is what makes archiving reach a resumed
-    /// sidebar.
-    ///
-    /// `error` stays out with the statuses neither half claims: it is not open
-    /// work and it was not put away, and a row upserted under it would return to
-    /// the sidebar rather than leave it.
+    /// The follow and read rules still apply — a change is deployment-wide but
+    /// visibility isn't — so an unfollowed or unreadable Task comes back
+    /// absent, which the feed turns into a removal. The status rule widens: a
+    /// closed Task that is still followed and readable comes back present with
+    /// `archivedAt`, not absent, since the feed may only retract an id it can
+    /// prove it sent (a resumed cursor can't), so only an upsert reaches a
+    /// resumed sidebar. `error` stays out of both halves — upserting it would
+    /// return the row to the sidebar instead of leaving it.
     async fn list_followed_by_ids(
         &self,
         viewer: &ScopeContext,
         task_ids: &[String],
     ) -> Result<Vec<Conversation>, sqlx::Error>;
 
-    /// One conversation this viewer may **read**, whether or not they follow it.
+    /// One conversation this viewer may **read**, whether or not they follow
+    /// it.
     ///
-    /// This is what a link resolves through. The listings above are about
-    /// involvement and stay narrowed to Follows; a URL is about access, so a
-    /// person handed one for a Task they may read opens it rather than being
-    /// told it does not exist. Following is how it reaches their sidebar, and
-    /// writing is what acquires the Follow — so a conversation opened this way
-    /// joins the sidebar at the moment the reader takes part, and not before.
-    ///
-    /// The read rule and the status rule are unchanged, and absence still means
-    /// the one thing it always meant: gone, unreadable, or at a status neither
-    /// listing claims.
+    /// What a link resolves through: a URL is about access, not involvement, so
+    /// a readable Task opens even when unfollowed — writing to it is what
+    /// acquires the Follow, joining the sidebar only once the reader takes
+    /// part. The read and status rules are unchanged; absence still means gone,
+    /// unreadable, or at a status neither listing claims.
     async fn readable_by_id(
         &self,
         viewer: &ScopeContext,
         task_id: &str,
     ) -> Result<Option<Conversation>, sqlx::Error>;
 
-    /// The same read over a set of Tasks, in one query.
+    /// The same read over a set of Tasks, in one query — what the subtask
+    /// listing needs for the children a relation named.
     ///
-    /// What a caller holding a list of ids needs — the subtask listing holds
-    /// the children a relation named — and it is [`Self::readable_by_id`]'s
-    /// rules unchanged, so an id the viewer may not read comes back absent
-    /// rather than as a row with the fields blanked. Order is not specified;
-    /// the caller sorts.
+    /// [`Self::readable_by_id`]'s rules unchanged: an unreadable id comes back
+    /// absent, not as a row with fields blanked. Order is not specified; the
+    /// caller sorts.
     async fn readable_by_ids(
         &self,
         viewer: &ScopeContext,
@@ -401,12 +362,11 @@ pub trait ConversationDao: Send + Sync {
     /// Whether this viewer may *operate* the named Task — the `control_filter`
     /// rule: the write rule, widened by `visibility = 'public'`.
     ///
-    /// This is the gate on every T3 path that runs something rather than
-    /// changes something: opening a terminal, running a script, starting or
-    /// stopping the Sandbox, starting a turn. It is asked directly and not
-    /// after a Follow, because a Follow is acquired by posting one message —
-    /// which a public Task accepts from anyone — so it neither adds a
-    /// restriction nor is one a controller should have to acquire.
+    /// The gate on every path that runs rather than changes something
+    /// (terminal, script, Sandbox, turn). Asked directly rather than after a
+    /// Follow, since a Follow is acquired by posting one message — which a
+    /// public Task accepts from anyone — so it is not a restriction a
+    /// controller should have to acquire.
     async fn controls_conversation(
         &self,
         viewer: &ScopeContext,
@@ -416,16 +376,11 @@ pub trait ConversationDao: Send + Sync {
     /// Conversations whose name or Message text contains `query`, at most one
     /// match each, best first.
     ///
-    /// **Filtered by follow, access and open status — the same three rules
-    /// [`ConversationDao::list_followed`] applies, and reusing the same
-    /// fragments rather than restating them.** A search that returned a Task
-    /// the sidebar would not is a disclosure, and the fact that someone can
-    /// guess at a word in a Task is not authorization to be told it exists.
-    ///
-    /// One row per Task, because the contract's result is a list of
-    /// conversations and not a list of Messages. A Message match beats a name
-    /// match on the same Task, and a person's Message beats the agent's — the
-    /// reference server ranks the same way
+    /// Filtered by the same follow, access and open-status rules as
+    /// [`ConversationDao::list_followed`] (reused fragments, not restated) — a
+    /// search result the sidebar wouldn't show is a disclosure. One row per
+    /// Task; a Message match beats a name match, and a person's beats the
+    /// agent's, matching the reference server's ranking
     /// (`ProjectionSnapshotQuery.ts:725`).
     async fn search_conversations(
         &self,
@@ -436,21 +391,18 @@ pub trait ConversationDao: Send + Sync {
 
     /// One Task's transcript, oldest first, capped at `TRANSCRIPT_LIMIT`.
     ///
-    /// Unscoped, and deliberately: every caller reaches this having already
-    /// resolved the same Task through [`ConversationDao::list_followed_by_ids`],
-    /// which is where the follow rule and the read rule live. Repeating them
-    /// here would be a second copy of the access filter to keep in step with
-    /// the first, which is the drift the narrowed listing query exists to
-    /// avoid.
+    /// Unscoped, deliberately: every caller has already resolved the same Task
+    /// through [`ConversationDao::list_followed_by_ids`], where the follow and
+    /// read rules live — repeating them here would be a second access filter to
+    /// keep in step with the first.
     async fn transcript(&self, task_id: &str) -> Result<Transcript, sqlx::Error>;
 
     /// The names of the Tasks a transcript's Messages came from, by task id.
     ///
-    /// Scoped, unlike [`ConversationDao::transcript`], and for the reason that
-    /// one is not: these are *other* Tasks, which the caller has resolved
-    /// nothing about. A Task this viewer cannot read yields no entry, and the
-    /// origin built from it then names no Task and links nowhere — the same
-    /// answer as one that has been deleted.
+    /// Scoped, unlike [`ConversationDao::transcript`]: these are *other* Tasks
+    /// the caller has resolved nothing about. An unreadable Task yields no
+    /// entry, so the origin built from it names no Task and links nowhere — the
+    /// same answer as a deleted one.
     async fn source_task_names(
         &self,
         viewer: &ScopeContext,
@@ -458,13 +410,12 @@ pub trait ConversationDao: Send + Sync {
     ) -> Result<HashMap<String, String>, sqlx::Error>;
 
     /// The interactive call an answer names, by the id it was made under.
-    ///
-    /// What an answer is depends on which tool asked — an `AskUserQuestion`
-    /// takes answers per question, an `ExitPlanMode` takes a yes or a no — so
-    /// the command reads the name off the stored call rather than assuming one.
     /// `None` where no call by that id was ever stored.
     ///
-    /// Unscoped for the reason [`ConversationDao::transcript`] is.
+    /// An answer's shape depends on which tool asked — a question takes answers
+    /// per question, a plan takes a yes or no — so the command reads the name
+    /// off the stored call rather than assuming one. Unscoped for the reason
+    /// [`ConversationDao::transcript`] is.
     async fn interactive_call(
         &self,
         task_id: &str,
@@ -484,24 +435,16 @@ pub trait ConversationDao: Send + Sync {
         limit: i64,
     ) -> Result<Vec<ConversationChange>, sqlx::Error>;
 
-    /// The rows a batch of changes names — the Messages, the activities under
-    /// those uuids, and the activities named directly by their own id — oldest
-    /// first.
+    /// The rows a batch of changes names — Messages, activities under those
+    /// uuids, and activities named by their own id — oldest first.
     ///
-    /// A change names either a Message uuid or an activity id, never both: an
-    /// activity that happened on a Message rides that Message's uuid, and one
-    /// that happened on none — a Sandbox lifecycle change, a context-window
-    /// reading — is named by its own id. Both sets of activities land in the same
-    /// [`Transcript::activities`].
-    ///
-    /// A [`Transcript`] rather than a type of its own, because it is one: the
-    /// projection that turns a transcript into messages and activities is the
-    /// same projection that turns this into the events for them, and two shapes
-    /// would be two of it. Nothing is elided from a read this narrow, so
-    /// [`Transcript::omitted`] is always zero.
-    ///
-    /// Unscoped for the reason [`ConversationDao::transcript`] is: the caller
-    /// has already resolved this Task through the narrowed listing.
+    /// A change names a Message uuid or an activity id, never both — an
+    /// activity on a Message rides its uuid, one on none (a Sandbox lifecycle
+    /// change, a context-window reading) is named by its own id; both land in
+    /// [`Transcript::activities`]. Returns a [`Transcript`] rather than a type
+    /// of its own since the same projection renders both, and nothing is elided
+    /// here, so [`Transcript::omitted`] is always zero. Unscoped for the reason
+    /// [`ConversationDao::transcript`] is.
     async fn changed_messages(
         &self,
         task_id: &str,
@@ -522,10 +465,12 @@ pub trait ConversationDao: Send + Sync {
 }
 
 /// A full shell snapshot is a deployment-sized read with no pagination in T3's
-/// contract, and the archived listing is the same read at the other status. One
-/// of either may run per backend replica; live change re-reads are narrowed by
-/// task id and do not take this permit. This reserves the rest of the main pool
-/// for task control, ingress, and reconciliation under shell overload.
+/// contract, and the archived listing is the same read at the other status.
+///
+/// One of either may run per backend replica — live change re-reads are
+/// narrowed by task id and don't take this permit — reserving the rest of the
+/// main pool for task control, ingress, and reconciliation under shell
+/// overload.
 #[derive(Clone)]
 pub struct PgConversationDao {
     pool: UiRpcDbPool,
@@ -545,17 +490,12 @@ pub(crate) fn store_read(error: moatless_types::store::StoreError) -> sqlx::Erro
 const FULL_LISTING_CONCURRENCY: usize = 1;
 const FULL_LISTING_STATEMENT_TIMEOUT: &str = "5s";
 
-/// How many rows a browse returns.
+/// How many rows a browse returns: the newest, since unlike the follow-bounded
+/// listings a browse is bounded only by the filter and has no natural ceiling.
 ///
-/// The listings are bounded by what one person follows; a browse is bounded by
-/// nothing but the filter, and "every open Task of the busiest person here" has
-/// no ceiling. The rows are the newest, so the cap truncates the far end of a
-/// list nobody scrolls to rather than hiding recent work.
-///
-/// The query asks for one row past this, which is how
-/// `snapshots::browse_snapshot` tells a cut list from one that ends exactly on
-/// the cap. Counting at the cap instead would call a complete list of 200
-/// truncated.
+/// The query asks for one extra row past this so `snapshots::browse_snapshot`
+/// can tell a cut list from one that ends exactly on the cap, rather than
+/// calling a complete 200-row list truncated.
 pub(crate) const BROWSE_LIMIT: i64 = 200;
 
 /// The statuses a conversation can be listed under: the sidebar and the archive
@@ -563,30 +503,25 @@ pub(crate) const BROWSE_LIMIT: i64 = 200;
 /// from a re-read the same way one the viewer no longer follows does.
 const LISTED_STATUSES: &[TaskStatus] = &[TaskStatus::Open, TaskStatus::Closed];
 
-/// How wide a conversation read reaches.
-///
-/// The listings are [`Reach::Followed`]: a sidebar is about involvement, so it
-/// shows what this viewer follows and nothing else. Opening one conversation by
-/// id is [`Reach::Readable`] — a link to a Task a person may read resolves
-/// whether or not it is on their sidebar, and writing to it is what puts it
-/// there (`message::service` auto-follows the sender).
-///
-/// The read rule is the same in both: `Readable` widens past the follow join
-/// only, never past access. Follower state (`settled_*`, `snoozed_*`) is absent
-/// for a viewer who does not follow, which is what the outer join expresses.
+/// How wide a conversation read reaches: both variants share the same read rule
+/// — `Readable` widens past the follow join only, never past access — so
+/// follower state (`settled_*`, `snoozed_*`) stays absent for a viewer who does
+/// not follow, which is what the outer join expresses.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Reach {
+    /// The sidebar listings: involvement only.
     Followed,
+    /// Opening one by id: a link resolves whether or not it's followed;
+    /// writing to it is what follows it, via `message::service`.
     Readable,
 }
 
 /// A search term as a `LIKE` operand rather than a `LIKE` pattern.
 ///
-/// `%` and `_` are ordinary characters to the person typing them — someone
-/// searching for `100%` means a percent sign, not "anything at all" — so both
-/// are escaped, along with the escape character itself. The escape character is
-/// `\` and every query using this declares it as such, because Postgres's
-/// default `ESCAPE` depends on `standard_conforming_strings`.
+/// `%`, `_`, and the escape character itself (`\`) are escaped, since they're
+/// ordinary characters to the person typing them; every query using this must
+/// declare `ESCAPE '\'` explicitly, since Postgres's default depends on
+/// `standard_conforming_strings`.
 fn escape_like(query: &str) -> String {
     let mut escaped = String::with_capacity(query.len());
     for character in query.chars() {
@@ -617,21 +552,15 @@ impl PgConversationDao {
         }
     }
 
-    /// The one listing query, at a set of statuses, optionally narrowed to a set
-    /// of Tasks.
+    /// The one listing query, at a set of statuses, optionally narrowed to a
+    /// set of Tasks.
     ///
-    /// Narrowing is a `WHERE` clause on the same query rather than a second one
-    /// because the filters underneath it — the read rule and the follow rule —
-    /// are the part that must not drift. A live re-read that admitted a row the
-    /// snapshot would not have is the same disclosure bug in slow motion. The
-    /// archived listing is the same query at `closed` for the same reason: it
-    /// shows a person the conversations they follow, and only those.
-    ///
-    /// `statuses` is a set because the two listings are one partition and the
-    /// re-read behind the feed spans both of them.
-    ///
-    /// `browse` is the third narrowing, and unlike `task_ids` it caps the rows:
-    /// see [`ConversationDao::list_browsable`].
+    /// Narrowing is a `WHERE` clause on the same query, not a second one, since
+    /// the read and follow rules underneath must not drift — a live re-read
+    /// admitting a row the snapshot wouldn't is the same disclosure bug in slow
+    /// motion. `statuses` is a set because the two listings partition and the
+    /// feed's re-read spans both; `browse` is the third narrowing and, unlike
+    /// `task_ids`, caps the rows (see [`ConversationDao::list_browsable`]).
     async fn list(
         &self,
         viewer: &ScopeContext,
@@ -1136,13 +1065,13 @@ impl T3TaskDao for PgConversationDao {
 }
 
 impl PgConversationDao {
-    /// One Task's [`TaskView`] under whichever grant the caller's filter states.
-    /// The three `T3TaskDao` reads differ only in that filter.
+    /// One Task's [`TaskView`] under whichever grant the caller's filter states
+    /// — the three `T3TaskDao` reads differ only in that filter.
     ///
-    /// `grant` must have been built with `start = 2`: `task_id` takes `$1` and
-    /// the two parameters every filter binds follow it. A filter built at any
-    /// other start reads the wrong bind positions and the query returns rows
-    /// for the wrong viewer.
+    /// `grant` must be built with `start = 2`: `task_id` takes `$1` and the
+    /// filter's own two parameters follow it. Built at any other start, the
+    /// query reads the wrong bind positions and returns rows for the wrong
+    /// viewer.
     async fn task_view(
         &self,
         task_id: &str,
@@ -1435,7 +1364,8 @@ impl ConversationDao for PgConversationDao {
         crate::listing::changes_after(&self.pool, after, limit).await
     }
 }
-/// Creator identity for a Task whose readability the caller has already checked.
+/// Creator identity for a Task whose readability the caller has already
+/// checked.
 pub async fn task_creator(
     pool: &sqlx::PgPool,
     task_id: &str,

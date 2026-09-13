@@ -50,18 +50,11 @@ fn task_turn_event(sub_type: &str) -> PublishEventRequest {
     }
 }
 
-/// Controllable backend.
+/// Controllable backend for outbox tests.
 ///
-/// * `fail_first` — fail that many leading attempts with `UNAVAILABLE`.
-/// * `stalled` — while set, every attempt fails with `UNAVAILABLE`; this is the
-///   "backend is down" seam the bounds tests need.
-/// * `reject` — sub-types answered with a terminal status, keyed by the code
-///   the backend would return (`INVALID_ARGUMENT` for a wire-contract
-///   violation, `OUT_OF_RANGE` for an over-limit payload).
-///
-/// `attempts` records *every* request it saw, failed ones included, so a test
-/// can assert what a retry actually put on the wire; `received` records only the
-/// accepted ones, in order.
+/// `fail_first`/`stalled` fail attempts with `UNAVAILABLE`; `reject` answers a
+/// sub-type with a terminal status. `attempts` records every request seen,
+/// failed included; `received` records only the accepted ones, in order.
 struct MockBackend {
     fail_first: Mutex<u32>,
     stalled: AtomicBool,
@@ -616,12 +609,10 @@ async fn a_terminal_rejection_is_dropped_and_the_stream_continues() {
     cancel.cancel();
 }
 
-/// An over-limit payload is the other rejection that can never succeed on a
-/// resend, and it is the reachable one: neither end of the publish path sets a
-/// gRPC size limit, so the backend decodes at tonic's 4 MiB default and an
-/// `agent.message` carrying a large tool result can cross it. Treating it as
-/// retryable wedged the head — and unlike a malformed event, this one is
-/// produced by ordinary agent output rather than a wire-contract bug.
+/// An over-limit payload can never succeed on resend.
+///
+/// Reachable in practice: neither end of the publish path caps gRPC size, so
+/// the backend's tonic 4 MiB default can be crossed by a large `agent.message`.
 #[tokio::test(start_paused = true)]
 async fn an_over_limit_payload_is_dropped_rather_than_retried_forever() {
     let (backend, received) = MockBackend::new(0);
@@ -679,11 +670,10 @@ async fn resource_exhausted_is_retried_not_dropped() {
     cancel.cancel();
 }
 
-/// The production failure mode: the backend accepts the gRPC request but cannot
-/// commit the full `agent.message` payload to its durable ingress path, so it
-/// returns the redacted durable-admission `UNAVAILABLE` status. Retrying briefly
-/// is correct for a transient database blip; retrying forever wedges every later
-/// event behind one poisoned message.
+/// The production failure mode: the backend accepts but cannot commit to its
+/// durable ingress path, returning `UNAVAILABLE`.
+///
+/// A bounded retry tolerates a transient blip without wedging later events.
 #[tokio::test(start_paused = true)]
 async fn repeated_durable_admission_failures_are_dropped_rather_than_wedging_the_stream() {
     let (backend, received) = MockBackend::new(0);
@@ -789,8 +779,9 @@ async fn lifecycle_saturation_emits_its_own_marker() {
     cancel.cancel();
 }
 
-/// The producer-side drop class: an event whose type cannot go on the wire never
-/// enters the buffer, but it is still a gap and is measured and announced.
+/// The producer-side drop class: an event whose type cannot go on the wire
+/// never enters the buffer, but it is still a gap and is measured and
+/// announced.
 #[tokio::test(start_paused = true)]
 async fn an_unrepresentable_event_is_counted_and_announced() {
     let (backend, received) = MockBackend::new(0);
@@ -955,15 +946,11 @@ async fn cancellation_during_retry_stops_the_drainer_and_keeps_the_event() {
     assert_eq!(metrics.dropped_terminal, 0);
 }
 
-/// Producers submitting *while* the drainer terminates must leave every event in
-/// exactly one bucket, and admission must be closed once the drainer is gone —
-/// not merely usually closed.
+/// Producers submitting while the drainer terminates must land in exactly one
+/// bucket.
 ///
-/// This pins the contract and the counter arithmetic. It cannot *prove* the
-/// admit/terminate interleaving is safe: an event wrongly buffered in that
-/// window still reports as undrained, which is indistinguishable from one
-/// legitimately left behind. What rules that out is structural — admission and
-/// the stopped flag live under one lock — not this test.
+/// Pins the counter arithmetic; admission closes only once the drainer is gone,
+/// and a raced buffer just reports undrained rather than failing the test.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn admission_racing_drainer_termination_accounts_for_every_event() {
     const PRODUCERS: usize = 4;

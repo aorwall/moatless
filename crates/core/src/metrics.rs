@@ -19,16 +19,14 @@ struct MetricsState {
     handle: Arc<PrometheusHandle>,
 }
 
-/// The exporter as this process configures it, before a recorder is built
-/// from it.
+/// The exporter as this process configures it, before a recorder is built from
+/// it.
 ///
-/// Duration histograms are given explicit buckets. Without them this exporter
-/// renders every `metrics::histogram!` as a Prometheus *summary*: quantiles
-/// computed inside one process over a rolling window. Those cannot be
-/// aggregated, so `histogram_quantile` has nothing to read and a deployment
-/// running more than one replica has no fleet-wide p95 at all. Matching by
-/// suffix leaves the histograms that do not measure time — `..._usd`,
-/// `..._bytes`, `..._turns` — as summaries, which is what suits them.
+/// Duration histograms get explicit buckets; without them this exporter renders
+/// every `metrics::histogram!` as a per-process Prometheus *summary*, which
+/// cannot be aggregated across replicas for `histogram_quantile`. The
+/// `_seconds` suffix match leaves non-time histograms (`..._usd`, `..._bytes`,
+/// `..._turns`) as summaries, which suits them.
 #[allow(clippy::expect_used)] // fail-fast: metrics is a startup prerequisite
 fn builder() -> PrometheusBuilder {
     PrometheusBuilder::new()
@@ -67,9 +65,9 @@ async fn metrics_handler(State(state): State<MetricsState>) -> impl IntoResponse
 mod tests {
     use super::*;
 
-    /// A duration histogram has to reach Prometheus as a histogram. Rendered
-    /// as a summary its quantiles are per-process, so they cannot be summed
-    /// across replicas and `histogram_quantile` has nothing to read.
+    /// A duration histogram has to reach Prometheus as a histogram. Rendered as
+    /// a summary its quantiles are per-process, so they cannot be summed across
+    /// replicas and `histogram_quantile` has nothing to read.
     #[test]
     fn a_duration_histogram_is_bucketed_and_a_non_duration_one_is_not() {
         let recorder = builder().build_recorder();

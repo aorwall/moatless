@@ -6,10 +6,10 @@ use moatless_api_schemas::sandbox::{
 };
 
 /// A sandbox file-tree node carried a `FileNodeType` integer the wire contract
-/// does not define, so the node cannot be classified as a file or a directory.
+/// does not define, so it cannot be classified as a file or a directory.
 ///
-/// Carries the offending value and the node's path: the tree arrives recursively,
-/// so the failing node is not necessarily the one the caller converted.
+/// Carries the offending value and path: the tree arrives recursively, so the
+/// failing node need not be the one the caller converted.
 #[derive(Debug, thiserror::Error)]
 #[error("unknown FileNodeType {node_type} for file tree node '{path}'")]
 pub struct UnknownFileNodeType {

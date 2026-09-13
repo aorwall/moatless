@@ -1,20 +1,11 @@
 //! The Moatless agent catalog, as T3's provider list.
 //!
 //! Two instances, not five: `instanceId` is a routing key the thread projection
-//! derives from a Task's agent kind (`projection::provider_instance`), so one
-//! instance per catalog agent would rewrite it on every thread on screen. The
-//! transport is chosen at Task creation and immutable, which is why a model
-//! belonging to the other instance cannot be honoured on an existing thread.
+//! derives from a Task's agent kind, immutable once the Task exists, so one
+//! instance per catalog agent would rewrite it mid-thread.
 //!
-//! Publish T3's canonical slugs and display names, not ours, and translate back
-//! on the way in: T3 seeds its own defaults (`claude-sonnet-5`,
-//! `claude-haiku-4-5`) and its alias table maps only towards the canonical
-//! slugs, so a selection stored under a Moatless id would silently fall back to
-//! the instance default. Codex ids need no translation.
-//!
-//! The catalogue's `default` sentinel names no model and is not published;
-//! `isDefault` moves onto the model `AgentModelDefaults` falls back to, which is
-//! what makes the picker and the thread agree.
+//! Publishes T3's canonical slugs and names (its alias table maps only towards
+//! them); the `default` sentinel, naming no model, is never published.
 
 use serde_json::{Value, json};
 
@@ -36,11 +27,9 @@ pub fn instance_for(kind: UiRpcAgentKind) -> &'static str {
 
 /// The option-descriptor id an instance publishes its effort choice under.
 ///
-/// The ids are T3's own, for the same reason the model slugs are: a selection
-/// carried over from a standalone T3 is stored against `effort` for Claude and
-/// `reasoningEffort` for Codex (`apps/server/src/provider/Layers/`), and one
-/// published under any other id would leave that selection unread and silently
-/// run the default.
+/// T3's own ids — `effort` for Claude, `reasoningEffort` for Codex — publishing
+/// under any other id leaves a carried-over selection unread and silently runs
+/// the default.
 pub fn effort_option_id(instance: &str) -> &'static str {
     if instance == CODEX_INSTANCE {
         "reasoningEffort"
@@ -53,13 +42,10 @@ pub fn effort_option_id(instance: &str) -> &'static str {
 /// warns-and-ignores anything else, and does not vary them per model.
 const CLAUDE_EFFORT_LEVELS: &[&str] = &["low", "medium", "high", "xhigh", "max"];
 
-/// The effort levels a Codex model accepts beyond the base set, weakest first,
-/// as that model's own `model/list` entry reports them.
+/// The effort levels a Codex model accepts beyond the base set, weakest first.
 ///
-/// Codex validates the level against the model and fails the whole turn on one
-/// it does not know — `'minimal' is not supported with the 'gpt-5.6-sol' model`
-/// — rather than falling back, so a row publishing a level its model rejects
-/// hands out a choice that cannot run.
+/// Codex fails the whole turn on an unknown level rather than falling back, so
+/// a row must not publish one its model rejects.
 const CODEX_EFFORT_LEVELS: &[(&str, &[&str])] = &[
     (
         "gpt-6-astra",
@@ -98,9 +84,8 @@ fn effort_levels(instance: &str, catalog_model: &str) -> &'static [&'static str]
 
 /// Whether a published model row offers `level`.
 ///
-/// See [`CODEX_EFFORT_LEVELS`]: a level the model rejects fails the turn rather
-/// than falling back, so a stored default naming one is dropped rather than
-/// handed to the client as a choice.
+/// See [`CODEX_EFFORT_LEVELS`]: a rejected level fails the turn rather than
+/// falling back, so a stored default naming one is dropped, not offered.
 pub fn publishes_effort(instance: &str, catalog_model: &str, level: &str) -> bool {
     effort_levels(instance, catalog_model).contains(&level)
 }
@@ -119,9 +104,7 @@ fn effort_label(level: &str) -> &str {
 
 /// The model capabilities a row publishes — today, the effort picker.
 ///
-/// T3 reads the descriptor off the selected model's `capabilities` and sends
-/// the chosen value back on `modelSelection.options`, where
-/// `commands::selected_effort` reads it.
+/// T3 sends the chosen value back on `modelSelection.options`.
 fn capabilities(instance: &str, catalog_model: &str) -> Value {
     let options: Vec<Value> = effort_levels(instance, catalog_model)
         .iter()
@@ -146,9 +129,8 @@ fn capabilities(instance: &str, catalog_model: &str) -> Value {
 
 /// `(catalog id, published slug, published name)` for the Claude instance.
 ///
-/// The slugs and names are both T3's, copied from its own Claude driver
-/// (`apps/server/src/provider/Layers/ClaudeProvider.ts`), so a model reads the
-/// same here as it does in a standalone T3.
+/// Slugs and names are both T3's own, copied from its Claude driver, so a model
+/// reads the same here as in a standalone T3.
 const CLAUDE_MODELS: &[(&str, &str, &str)] = &[
     ("opus", "claude-opus-5", "Claude Opus 5"),
     ("sonnet", "claude-sonnet-5", "Claude Sonnet 5"),
@@ -168,9 +150,8 @@ fn published_slug(instance: &str, catalog_model: &str) -> String {
 
 /// The display name we publish for a catalog model id.
 ///
-/// T3 renders this verbatim — it has no name table to fall back on — and also
-/// matches a stored selection against it, so it is part of the contract rather
-/// than decoration.
+/// T3 renders this verbatim and matches a stored selection against it —
+/// contract, not decoration.
 fn published_name(instance: &str, catalog_model: &str, catalog_label: &str) -> String {
     if instance == CLAUDE_INSTANCE {
         if let Some((_, _, name)) = CLAUDE_MODELS.iter().find(|(id, _, _)| *id == catalog_model) {
@@ -183,9 +164,8 @@ fn published_name(instance: &str, catalog_model: &str, catalog_label: &str) -> S
 /// The catalog model id behind a slug T3 sent back, or `None` when we never
 /// published it.
 ///
-/// `None` is a refusal, not a cue to fall back to the default: substituting a
-/// model the person did not choose is the failure this whole translation exists
-/// to avoid.
+/// `None` is a refusal, not a fallback cue — substituting an unchosen model is
+/// exactly the failure this translation exists to avoid.
 pub fn catalog_model_for(agents: &[AgentDescriptor], instance: &str, slug: &str) -> Option<String> {
     models_for(agents, instance)
         .into_iter()
@@ -196,10 +176,9 @@ pub fn catalog_model_for(agents: &[AgentDescriptor], instance: &str, slug: &str)
 /// `(instance id, published slug)` for a catalog model id, or `None` when no
 /// instance publishes one.
 ///
-/// Resolves against the static catalog rather than a runtime `AgentDescriptor`
-/// list, because the project projection runs without one. A model missing a
-/// credential is still published here: the instance owns installability, and
-/// this answers which instance and slug name the model.
+/// Resolves against the static catalog, not a runtime `AgentDescriptor` list,
+/// since the project projection runs without one; a model missing a credential
+/// is still published here.
 pub fn publish_model(catalog_model: &str) -> Option<(&'static str, String)> {
     if catalog_model == UNRESOLVED_MODEL_CHOICE {
         return None;
@@ -216,8 +195,7 @@ pub fn publish_model(catalog_model: &str) -> Option<(&'static str, String)> {
 /// Every `(catalog id, label)` an instance offers, deduplicated across the
 /// catalog agents that share its kind, in catalog order.
 ///
-/// The `default` sentinel is left out: it names no model, and publishing it
-/// puts a row in the picker that cannot answer "what will run?".
+/// The `default` sentinel is left out: it names no model.
 fn models_for(agents: &[AgentDescriptor], instance: &str) -> Vec<(String, String)> {
     let mut models: Vec<(String, String)> = Vec::new();
     for agent in agents.iter().filter(|a| kind_of(a) == instance) {
@@ -240,16 +218,9 @@ fn kind_of(agent: &AgentDescriptor) -> &'static str {
 
 /// The catalog id of the model to mark `isDefault` for an instance.
 ///
-/// The deployment's configured fallback decides it, because that is the value
-/// the thread projection reports for a conversation nobody chose a model for —
-/// so this is what keeps the picker and the thread saying the same thing. It is
-/// matched in both vocabularies: the setting is free text consumed by the
-/// Sandbox, and both `opus` and `claude-opus-5` are things an operator writes.
-///
-/// A deployment that configures nothing, or configures a model this catalog
-/// cannot run, falls back to the first publishable model — T3 does the same
-/// when no row is flagged, and doing it here at least keeps the flag truthful
-/// about which row that is.
+/// The deployment's configured fallback decides it, matched against both `opus`
+/// and `claude-opus-5` since the setting is free text; configuring nothing, or
+/// an unrunnable model, falls back to the first publishable one.
 fn default_model_for(
     agents: &[AgentDescriptor],
     instance: &str,
@@ -285,17 +256,9 @@ fn missing_hint(agents: &[AgentDescriptor], instance: &str) -> Option<String> {
 
 /// The provider list, in the shape `ServerProvider` decodes from.
 ///
-/// `requiresNewThreadForModelChange` is deliberately left unset. T3 has that
-/// flag for exactly the case where a thread cannot change providers, but it is
-/// all-or-nothing per provider: setting it blocks *every* model change on a
-/// started thread (`apps/web/src/components/ChatView.logic.ts:
-/// getStartedThreadModelChangeBlockReason`), which would take per-turn model
-/// choice with it. A cross-instance selection is refused at dispatch instead.
-///
-/// `workspace_snapshots` are the per-`cwd` skill listings this connection has
-/// resolved so far, published on every instance: a Moatless skill is a file in
-/// a repository and reaches whichever agent the Task runs, so narrowing them to
-/// the instance that asked would hide them from the other one.
+/// `requiresNewThreadForModelChange` stays unset — a cross-instance selection
+/// is refused at dispatch instead; `workspace_snapshots` publish on every
+/// instance, since a skill reaches whichever agent runs.
 pub fn providers(
     agents: &[AgentDescriptor],
     defaults: &AgentModelDefaults,

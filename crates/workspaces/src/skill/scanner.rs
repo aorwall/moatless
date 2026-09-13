@@ -1,9 +1,9 @@
 //! SKILL.md frontmatter parser.
 //!
-//! Given the raw body of a `SKILL.md` file and the directory name it came
-//! from, returns a parsed [`Skill`] with the appropriate source metadata.
-//! Individual parse failures are logged and returned as `None` so one
-//! malformed file doesn't tank the whole list.
+//! Given the raw body of a `SKILL.md` file and the directory name it came from,
+//! returns a parsed [`Skill`] with the appropriate source metadata. Individual
+//! parse failures are logged and returned as `None` so one malformed file
+//! doesn't tank the whole list.
 
 use serde::Deserialize;
 use tracing::warn;
@@ -21,8 +21,8 @@ struct SkillFrontmatter {
 /// Parse a SKILL.md body into a [`Skill`].
 ///
 /// Returns `None` (after logging a warning) when the frontmatter is missing,
-/// malformed, or has no `description:` field. `plugin_id` and
-/// `plugin_name` are recorded verbatim on the returned skill.
+/// malformed, or has no `description:` field. `plugin_id`/`plugin_name` are
+/// recorded verbatim.
 pub fn parse_skill(
     content: &str,
     dir_name: &str,

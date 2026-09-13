@@ -24,10 +24,8 @@ pub struct TaskEventApiDoc;
 
 /// Build the task event router with OpenAPI metadata.
 ///
-/// Generic over the router state `S` so this module names no root type: the
-/// composition root supplies the concrete state at the call site, and each
-/// handler reaches its ports — `Arc<TaskCommands>`, `Arc<TaskEvents>`, and
-/// the `UserTokenVerifier` behind `AuthUser` — through `FromRef<S>`.
+/// Generic over `S` so this module names no root type; each handler reaches its
+/// ports via `FromRef<S>`.
 pub fn task_event_router<S>(state: S) -> (axum::Router, utoipa::openapi::OpenApi)
 where
     S: Clone + Send + Sync + 'static,

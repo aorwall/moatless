@@ -1,9 +1,9 @@
-//! The access-control vocabulary a provider consults before it processes an
-//! inbound message: whether a source is allowed to reach the agent at all, when
-//! an allowed source triggers a run, and what a single check decided.
+//! Access-control vocabulary a provider consults before processing an inbound
+//! message.
 //!
-//! Used by the chat providers (Telegram, Slack, and future ones) that gate
-//! inbound traffic per source.
+//! States whether a source may reach the agent, when an allowed source triggers
+//! a run, and what a single check decided. Used by the chat providers
+//! (Telegram, Slack, and future ones) that gate inbound traffic per source.
 
 use crate::error::AdapterError;
 use moatless_types::access_control::{

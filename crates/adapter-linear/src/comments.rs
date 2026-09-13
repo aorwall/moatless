@@ -1,21 +1,13 @@
 //! Comment routing: who on our side hears a comment written on a Linear issue.
 //!
-//! Recipients follow the binding's shape ([`recipients_for_comment`]):
-//! - A `linear_issue` binding is the task that filed or owns the ticket; it
-//!   hears every comment on the issue.
-//! - A `linear_agent_session` binding is a task a mention or assignment spawned
-//!   into the ticket; it is thread-scoped. It hears a comment only when the
-//!   comment replies to a comment it authored or to the comment the session was
-//!   created from. It never hears an issue-level comment or another session's
-//!   thread — so two sessions on one issue cannot ferry their own `response`
-//!   comments back and forth forever.
+//! A `linear_issue` binding hears every comment; a `linear_agent_session`
+//! binding hears only a reply to a comment it authored or was created from,
+//! never another session's thread, so two sessions cannot ferry replies
+//! forever.
 //!
-//! The delivery a comment produces is the same one a person typing in the app
-//! produces, so the two must not be told apart downstream: a comment the agent
-//! itself posted arrives back through this path, and the thing that stops it
-//! becoming a message the agent answers is the footer naming the authoring task
-//! (dropped here) plus the external id matching what `send_reply_for_binding`
-//! recorded.
+//! The agent's own posted comments arrive back through this same webhook path;
+//! the footer naming the authoring task keeps them from being replayed as new
+//! messages.
 
 use tracing::{debug, info, warn};
 
@@ -36,25 +28,12 @@ use super::webhook_payloads::CommentPayloadData;
 
 const ADAPTER_LABEL: &str = "linear";
 
-/// Route a `Comment.create` payload to tasks listening to the comment's issue.
-/// This includes both `linear_agent_session` bindings created when Linear
-/// started an agent session and `linear_issue` bindings created by direct issue
-/// sends/status-entry tasks. No recipient → no-op.
+/// Route a `Comment.create` payload to the bound tasks listening on its issue.
+/// No recipient → no-op.
 ///
-/// Which of those bindings receive the comment is not decided here: this
-/// classifies the comment's [`Audience`] — a threaded reply names the comment it
-/// replies to, anything else is for everyone on the issue — and
-/// [`resolve_recipients`] turns that into recipients. The self-echo exclusion,
-/// the thread scoping and the producer's standing to hear replies on its own
-/// issue all come from there, so Linear and GitHub PR cannot drift apart on them
-/// again.
-///
-/// The agent's own outbound replies are filtered twice over: the footer below
-/// names the authoring task, and every reply posted via
-/// `LinearAdapter::send_reply_for_binding` is recorded in
-/// `AppState::recently_sent` and persisted to `task_messages.external_event_id`
-/// under the key `linear:comment:<uuid>`. The inbound forward below builds the
-/// same key, so `send_message_flow` also recognises the echo by comment id.
+/// Own outbound replies are excluded twice: the footer names the authoring
+/// task, and `send_reply_for_binding` persists each reply's id as
+/// `task_messages.external_event_id`, the same key the forward below builds.
 #[expect(
     clippy::too_many_arguments,
     reason = "the six downward ports this comment router reads (config, routing, \
@@ -188,21 +167,10 @@ pub(super) async fn handle_comment_created(
 
 /// The bound tasks a `Comment.create` is delivered to, scoped by binding shape.
 ///
-/// A `linear_issue` binding — the task that filed or owns the ticket — hears
-/// every comment on the issue. A `linear_agent_session` binding — a task a
-/// mention or assignment spawned into the ticket — is thread-scoped: it hears a
-/// comment only when the comment replies to a comment the task authored
-/// (`parent_author_task_id`) or to the comment the session was created from
-/// (`origin_comment_id`, recorded on the binding at provisioning). It never
-/// hears an issue-level comment or another session's thread, which is what keeps
-/// two sessions on one issue from ferrying their own `response` comments to each
-/// other forever.
-///
-/// A task never receives back a comment it authored: `author_task_id` is
-/// recovered from the footer and excluded first. At most one Binding per task is
-/// returned; `bindings` arrives session-first, so a task whose session matched
-/// is reached through it (and its panel heartbeats), while a task reached only
-/// through its issue Binding keeps that one.
+/// A `linear_issue` binding hears every comment; a `linear_agent_session`
+/// binding hears only a reply to `parent_author_task_id` or its
+/// `origin_comment_id`. `author_task_id` is excluded first, so a task never
+/// hears back what it authored.
 fn recipients_for_comment<'b>(
     bindings: &'b [TaskBinding],
     comment_parent_id: Option<&str>,
@@ -234,14 +202,9 @@ fn recipients_for_comment<'b>(
         .collect()
 }
 
-/// Who a `Comment.create` is for.
-///
-/// Linear makes exactly one distinction that this classifies: a comment that
-/// carries a `parentId` is a reply inside a thread, and belongs to whoever wrote
-/// the comment it replies to. The resulting [`Audience::ParentAuthor`] is what
-/// [`RoutingService::parent_author_task_id`] resolves the reply's parent author
-/// from; the binding-shape scoping that turns that into recipients lives in
-/// [`recipients_for_comment`].
+/// Who a `Comment.create` is for: a comment with a `parentId` is a threaded
+/// reply and belongs to whoever wrote the comment it replies to; otherwise it's
+/// for everyone on the issue.
 fn comment_audience(comment: &CommentPayloadData) -> Audience {
     match comment.parent_id.as_deref() {
         Some(parent_id) => Audience::ParentAuthor {

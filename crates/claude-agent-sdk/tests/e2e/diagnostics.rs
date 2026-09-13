@@ -13,16 +13,10 @@ use claude_agent_sdk::api::messages::ResultMessage;
 use claude_agent_sdk::query;
 use tokio::time::timeout;
 
-/// Reproduces the bug observed in production: an assistant message that
-/// contains BOTH text and a `tool_use`, where the agent has nothing more to
-/// say after the tool returns. We want to know what the CLI sends in the
-/// final `result` message — is `result.result` populated with the assistant's
-/// text, or is it empty?
+/// Reproduces a production bug in the CLI's final `result` message.
 ///
-/// This test does NOT assert that the result is empty (the CLI may change).
-/// It prints everything so we can see the real behavior, plus asserts a
-/// MINIMAL invariant: a Result message arrives. Look at the eprintln! output
-/// (`-- --nocapture`) for the actual values.
+/// Does it reflect trailing `tool_use` text, or come back empty? Only asserts a
+/// Result arrives — see `-- --nocapture`.
 async fn run_diagnose_empty_result_after_trailing_tool_use(backend: Backend) {
     let tmp = fresh_test_cwd("empty-result");
 
@@ -204,8 +198,8 @@ async fn test_diagnose_empty_result_after_trailing_tool_use_tmux() {
     .expect("Test timed out");
 }
 
-/// Diagnostic test to troubleshoot missing cost data.
-/// Prints detailed cost/usage information from the CLI result message.
+/// Diagnostic test to troubleshoot missing cost data. Prints detailed
+/// cost/usage information from the CLI result message.
 #[tokio::test]
 #[ignore]
 async fn test_diagnose_cost_fields() {

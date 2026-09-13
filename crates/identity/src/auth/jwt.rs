@@ -1,7 +1,7 @@
 //! Session JWT generation and verification.
 //!
-//! Distinct from `sandbox/jwt.rs` which handles sandbox task tokens.
-//! Uses HS256 signing — same algorithm, separate claims structure.
+//! Distinct from `sandbox/jwt.rs` which handles sandbox task tokens. Uses HS256
+//! signing — same algorithm, separate claims structure.
 
 use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, decode, encode};
 use serde::{Deserialize, Serialize};
@@ -12,25 +12,23 @@ use moatless_core::config::Config;
 use moatless_types::auth::AuthIdentity;
 use moatless_types::user::UserRole;
 
-/// Issuer stamped on session JWTs. Bumped at the internal-uuid cutover so cookies
-/// minted before it (provider-id `sub`, `personal-<provider-id>` teams) fail
-/// verification and force a fresh login.
+/// Issuer stamped on session JWTs. Bumped at the internal-uuid cutover so
+/// cookies minted before it (provider-id `sub`, `personal-<provider-id>` teams)
+/// fail verification and force a fresh login.
 const SESSION_JWT_ISSUER: &str = "moatless-vibe-backend/v2";
 
 /// Issuer stamped on WebSocket tickets.
 ///
-/// Different from [`SESSION_JWT_ISSUER`] and checked on both sides, so the two
-/// cannot stand in for one another: a ticket is not a session cookie, and a
-/// session cookie copied into a query string is not a ticket.
+/// Different from [`SESSION_JWT_ISSUER`] and checked on both sides, so a ticket
+/// can't stand in for a session cookie, or vice versa, even if one lands in the
+/// other's slot.
 const WS_TICKET_JWT_ISSUER: &str = "moatless-vibe-backend/ws-ticket";
 
 /// How long a WebSocket ticket can be presented for.
 ///
-/// A ticket travels in a query string, which is the part of a URL that ends up
-/// in access logs and proxy traces. It is therefore issued to be spent
-/// immediately — the client asks for one and connects with it in the same
-/// breath — and this is the width of the window in which a copy of one taken
-/// out of a log is still worth anything.
+/// A ticket travels in a query string, which ends up in access logs and proxy
+/// traces; issued to be spent immediately, this is the window in which a copy
+/// taken from a log is still worth anything.
 pub const WS_TICKET_TTL_SECS: u64 = 60;
 
 /// JWT claims embedded in the session cookie.
@@ -44,9 +42,9 @@ pub struct SessionClaims {
     /// Auth provider: "github", "auth0", or "api-key".
     pub provider: String,
     /// Legacy grouping id, threaded through `AuthIdentity` into
-    /// [`crate::extractors::AuthUser`] and `t3code::auth::AuthContext`. No
-    /// code branches on its value; kept only so already-issued session
-    /// cookies keep deserializing.
+    /// [`crate::extractors::AuthUser`] and `t3code::auth::AuthContext`. No code
+    /// branches on its value; kept only so already-issued session cookies
+    /// deserialize.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub group_id: Option<String>,
     /// Issued at, Unix seconds.
@@ -116,15 +114,12 @@ pub fn verify_session_jwt(
     Ok(data.claims)
 }
 
-/// Mint a WebSocket ticket for an already-authenticated identity.
+/// Mints a WebSocket ticket for an already-authenticated identity.
 ///
-/// A WebSocket upgrade is opened by the browser `WebSocket` constructor, which
-/// takes a URL and nothing else — no headers, so neither an `Authorization`
-/// header nor anything else a client would normally authenticate with can be
-/// attached to it. A client that has no cookie (a native app, say) therefore
-/// has one way left to say who it is, and it is the URL. This is the credential
-/// that goes there: minted from a request that *did* carry a real credential,
-/// good for [`WS_TICKET_TTL_SECS`], and good for nothing but the upgrade.
+/// A `WebSocket` upgrade carries no headers, only a URL, so a client with no
+/// cookie has only the URL left to say who it is; this ticket is what goes
+/// there — minted from a request with a real credential, good for
+/// [`WS_TICKET_TTL_SECS`], and good for nothing but the upgrade.
 pub fn generate_ws_ticket_jwt(
     identity: &AuthIdentity,
     secret: &str,
@@ -169,9 +164,9 @@ pub fn verify_ws_ticket_jwt(
     Ok(data.claims)
 }
 
-/// Resolve the JWT secret from config.
+/// Resolves the JWT secret from config.
 ///
-/// Prefers `SESSION_JWT_SECRET`, falling back to `TASK_TOKEN_SECRET` for the
+/// Prefers `SESSION_JWT_SECRET`, falling back to `TASK_TOKEN_SECRET` for
 /// short-lived JWTs still used outside browser-session authentication.
 pub fn get_jwt_secret(config: &Config) -> Option<&str> {
     config
@@ -181,8 +176,8 @@ pub fn get_jwt_secret(config: &Config) -> Option<&str> {
         .or(config.sandbox.task_token_secret.as_deref())
 }
 
-/// Warn once at startup when session cookies are signed with the sandbox
-/// secret because `SESSION_JWT_SECRET` is unset.
+/// Warn once at startup when session cookies are signed with the sandbox secret
+/// because `SESSION_JWT_SECRET` is unset.
 pub fn warn_on_jwt_secret_fallback(config: &Config) {
     if config.auth.session_jwt_secret.is_none() && config.sandbox.task_token_secret.is_some() {
         tracing::warn!(

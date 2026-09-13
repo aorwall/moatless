@@ -3,8 +3,8 @@
 //! The [`LoopReader`] trait is published by the Adapter kernel
 //! (`moatless_adapter_model::loops`); this file is the other end of it. An
 //! Adapter reads Subscriptions to decide whether an inbound event is work it
-//! should do — the five reads below — and never writes one, reads a Schedule,
-//! a receipt, or a Loop's config rows, so the Loop store stays private to this
+//! should do — the five reads below — and never writes one, reads a Schedule, a
+//! receipt, or a Loop's config rows, so the Loop store stays private to this
 //! crate.
 
 use async_trait::async_trait;
@@ -14,10 +14,11 @@ use crate::loops::dao::LoopDao;
 use moatless_adapter_model::loops::LoopReader;
 use moatless_types::loops::SubscriptionMatch;
 
-/// The Loop tables answer the Subscription reads directly: `LoopDao` is the
-/// only store over them, so a wrapper here would be a second surface over one
-/// table. Same shape as [`crate::bindings::ports::BindingDirectory`]'s
-/// `BindingProbe` implementation.
+/// The Loop tables answer the Subscription reads directly, since `LoopDao` is
+/// the only store over them and a wrapper would be a second surface.
+///
+/// Same shape as [`crate::bindings::ports::BindingDirectory`]'s `BindingProbe`
+/// implementation.
 #[async_trait]
 impl LoopReader for LoopDao {
     async fn subscription(&self, loop_id: &str) -> Result<Option<SubscriptionMatch>, StoreError> {

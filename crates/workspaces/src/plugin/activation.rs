@@ -15,10 +15,8 @@ pub enum Reach {
     Everyone,
     /// One person, overriding whatever the default says.
     Personal,
-    /// One Workspace, overriding both. A Workspace states what the work done
-    /// in it needs, so it outranks a preference somebody carries between
-    /// workspaces — the same order run configuration and credentials resolve
-    /// in, `workspace > user > global`.
+    /// One Workspace, overriding both — the same `workspace > user > global`
+    /// order credentials and run configuration resolve in.
     Workspace,
 }
 
@@ -30,8 +28,8 @@ pub struct Activation {
     pub skill_name: Option<String>,
     pub reach: Reach,
     pub enabled: bool,
-    /// Lift this record above every record that is not `always`, whatever
-    /// reach either of them carries. See [`precedence`].
+    /// Lift this record above every record that is not `always`, whatever reach
+    /// either of them carries. See [`precedence`].
     pub always: bool,
     /// Frontload the skill's body rather than leaving it to be picked for a
     /// turn. Read off whichever record decides the skill, so the record that
@@ -66,17 +64,12 @@ pub struct ResolvedPlugin {
     pub skills: PickedSkills,
 }
 
-/// Precedence, most specific first. A personal record beats a global one at
-/// every level, so somebody can turn off what was turned on for everyone; a
-/// Workspace record beats both, so what a Workspace excludes stays excluded
-/// for whoever works in it. Within one reach a skill record beats the plugin
-/// record, so "the whole plugin except this one skill" is expressible.
+/// Precedence, most specific first: `workspace > personal > everyone`, skill
+/// over plugin.
 ///
 /// `always` sits outside that order rather than inside it: a record carrying it
-/// outranks every record that does not, whatever reach either of them has, so a
-/// skill turned on for everyone or for one person keeps arriving in a Workspace
-/// that says nothing about it and in one whose own record turns it off. Among
-/// records that all carry it, the scope order decides as usual.
+/// outranks any record lacking it regardless of reach; scope order decides
+/// among records that both carry it.
 fn precedence(reach: Reach, skill_specific: bool, always: bool) -> u8 {
     let by_scope = match (reach, skill_specific) {
         (Reach::Workspace, true) => 6,
@@ -98,9 +91,9 @@ struct Decision {
 
 /// Resolve what one person gets in one Workspace.
 ///
-/// `activations` must already be narrowed to the global records plus that one
-/// person's own plus that one Workspace's; this function does not know who
-/// anybody is or where they are working.
+/// `activations` must already be narrowed to the global, personal, and
+/// Workspace records for that person — this function does not know who anybody
+/// is.
 pub fn resolve(plugins: &[PluginSkills], activations: &[Activation]) -> Vec<ResolvedPlugin> {
     let mut resolved = Vec::new();
 
@@ -212,9 +205,11 @@ pub fn resolve_rows(
     resolve(&plugin_skills, &activations)
 }
 
-/// Which reach a stored row speaks with. A row carries at most one subject —
-/// the `plugin_activations_one_subject` constraint is what makes that true —
-/// so reading it is a matter of which column is filled in.
+/// Which reach a stored row speaks with.
+///
+/// A row carries at most one subject (enforced by the
+/// `plugin_activations_one_subject` constraint), so reach follows from which
+/// column is filled in.
 pub fn reach_of(row: &crate::plugin::models::ActivationRow) -> Reach {
     if row.workspace_id.is_some() {
         Reach::Workspace
@@ -226,17 +221,11 @@ pub fn reach_of(row: &crate::plugin::models::ActivationRow) -> Reach {
 }
 
 /// Read what one person gets in one Workspace, straight out of the database.
-/// `user_id: None` is nobody in particular — the global defaults and nothing
-/// personal; `workspace_id: None` is no Workspace in particular.
 ///
-/// The single place this read happens. The effective-plugins endpoint, the
-/// repository skill list and task provisioning all go through it, so what
-/// somebody is shown and what arrives in their sandbox cannot drift apart.
-///
-/// Deliberately does not sync: the sandbox clones each plugin at its source's
-/// current state, so what arrives is never stale. Only the stored skill *names*
-/// used to decide could be, and a plugin-level record already covers skills
-/// added since it was written.
+/// The single place this read happens — the effective-plugins endpoint,
+/// repository skill list, and task provisioning all go through it, so display
+/// and sandbox cannot drift. Does not sync: the sandbox clones each plugin
+/// fresh, but the stored skill *names* used here can be stale.
 pub async fn resolve_for(
     plugins: &crate::plugin::Plugins,
     user_id: Option<uuid::Uuid>,

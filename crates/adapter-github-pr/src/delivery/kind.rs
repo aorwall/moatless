@@ -1,5 +1,5 @@
-/// Route a parsed inbound PR event to its bound tasks, creating the review
-/// task when the PR was just opened.
+/// Route a parsed inbound PR event to its bound tasks, creating the review task
+/// when the PR was just opened.
 pub const PR_MESSAGE: &str = "github.pr_message";
 /// Auto-close the tasks a closed/merged PR's trigger created.
 pub const CLOSE: &str = "github.close";

@@ -40,15 +40,10 @@ pub(super) async fn await_readiness(
 /// Upper bound on pane output included in startup-failure logs.
 const PANE_CAPTURE_MAX_BYTES: usize = 2048;
 
-/// Capture the tmux pane at startup-failure time, for both the log line and
-/// embedding in the returned error (see [`SdkError::with_pane_tail`]).
-///
-/// Tries a live capture first — that works for [`SdkError::SessionStartTimeout`],
-/// where the session is still alive but stuck. For [`SdkError::TmuxSessionDied`]
-/// the session is already gone, so this falls back to the last snapshot taken
-/// by [`startup_dialog_watcher`]'s 250ms capture loop. Returns the lossy tail
-/// (capped at [`PANE_CAPTURE_MAX_BYTES`]), or `None` when only whitespace (or
-/// nothing) was captured.
+/// Tries a live capture first (for a still-alive
+/// [`SdkError::SessionStartTimeout`]), falling back to
+/// [`startup_dialog_watcher`]'s last snapshot when the session already died;
+/// returns `None` when only whitespace was captured.
 async fn capture_startup_pane(
     session: &TmuxSession,
     last_pane: &watch::Receiver<Vec<u8>>,
@@ -68,10 +63,10 @@ async fn capture_startup_pane(
 }
 
 /// Log the captured tmux pane contents when the session fails to reach
-/// `SessionStart`, so the reason claude exited (e.g. "No conversation found
-/// with session ID …") lands in the logs instead of being lost with the pane.
-/// The same `pane` is attached to the returned error so it also survives in the
-/// task's error event.
+/// `SessionStart`, so the exit reason isn't lost with the pane.
+///
+/// The same `pane` is attached to the returned error, so it also survives in
+/// the task's error event.
 fn log_startup_failure(session: &TmuxSession, pane: &Option<String>, error: &SdkError) {
     if let Some(tail) = pane {
         warn!(
@@ -89,8 +84,8 @@ fn log_startup_failure(session: &TmuxSession, pane: &Option<String>, error: &Sdk
     }
 }
 
-/// Render the tail of captured pane bytes as lossy UTF-8, capped at
-/// `max_bytes` (the most recent output is the most useful part).
+/// Render the tail of captured pane bytes as lossy UTF-8, capped at `max_bytes`
+/// (the most recent output is the most useful part).
 fn pane_tail_lossy(bytes: &[u8], max_bytes: usize) -> String {
     let start = bytes.len().saturating_sub(max_bytes);
     let text = String::from_utf8_lossy(&bytes[start..]);
@@ -106,15 +101,10 @@ fn pane_tail_lossy(bytes: &[u8], max_bytes: usize) -> String {
 /// liveness while waiting for the `SessionStart` hook.
 const LIVENESS_POLL_INTERVAL: Duration = Duration::from_millis(250);
 
-/// Wait until [`HookState::SessionStarted`] is observed on the watch channel,
-/// or until `timeout` elapses.
-///
-/// While waiting, the tmux session's liveness is polled every
-/// [`LIVENESS_POLL_INTERVAL`]. If the session dies before `SessionStart` fires
-/// — e.g. `claude --continue` prints "No conversation found to continue" and
-/// exits immediately — this returns [`SdkError::TmuxSessionDied`] within one
-/// poll interval instead of blocking for the full `timeout`. Callers (and the
-/// sandbox's fresh-session fallback) can then retry quickly.
+/// Liveness is polled every [`LIVENESS_POLL_INTERVAL`]; if the session dies
+/// first (e.g. `claude --continue` finding nothing to continue), returns
+/// [`SdkError::TmuxSessionDied`] within one poll interval instead of blocking
+/// for the full timeout, so callers can retry quickly.
 async fn wait_for_session_start(
     mut state_rx: watch::Receiver<HookState>,
     session: &TmuxSession,
@@ -153,13 +143,13 @@ async fn wait_for_session_start(
     }
 }
 
-/// Poll `tmux capture-pane -p` every [`TRUST_POLL_INTERVAL`] looking for the
-/// workspace-trust dialog. When detected, send Enter (the default selection
-/// is "Yes, I trust this folder") and exit.
+/// Poll `tmux capture-pane -p` every [`TRUST_POLL_INTERVAL`] for the
+/// workspace-trust dialog; send Enter (default "Yes, I trust this folder") and
+/// exit when found.
 ///
-/// Cancels itself when `cancellation_token` fires — the caller cancels right
-/// after `SessionStart` fires, so this task is only active during the brief
-/// pre-SessionStart window.
+/// Cancels itself on `cancellation_token`, which the caller fires right after
+/// `SessionStart`, keeping this active only for the brief pre-SessionStart
+/// window.
 async fn startup_dialog_watcher(
     session: Arc<TmuxSession>,
     writer: Arc<TmuxPasteWriter>,

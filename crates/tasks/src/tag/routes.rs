@@ -22,11 +22,10 @@ pub struct TagApiDoc;
 
 /// Build the tag router with OpenAPI metadata.
 ///
-/// Generic over the router state `S` so this tasks-band module names no root
-/// type: the composition root supplies the concrete state at the call site, and
-/// the one handler reaches its one port through `Arc<Tags>: FromRef<S>`.
-/// `with_state` erases `S` before `split_for_parts`, so the bound stays local to
-/// this function and never appears in the returned router.
+/// Generic over `S` so this tasks-band module names no root type — the one
+/// handler reaches its port through `Arc<Tags>: FromRef<S>`, and `with_state`
+/// erases `S` before `split_for_parts` so the bound never escapes this
+/// function.
 pub fn tag_router<S>(state: S) -> (axum::Router, utoipa::openapi::OpenApi)
 where
     S: Clone + Send + Sync + 'static,

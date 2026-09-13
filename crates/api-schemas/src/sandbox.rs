@@ -34,12 +34,12 @@ pub struct ServerSnapshot {
     pub pid: Option<u32>,
 }
 
-/// Direct access to one task's workspace `restic` repository, for opening it
-/// with the `restic` CLI.
+/// Direct access to one task's workspace `restic` repository, for the `restic`
+/// CLI.
 ///
-/// Every field is a credential. The session reaches this task's prefix and
-/// nothing else in the bucket, and the password opens this task's repository
-/// and no other, but both are live until `expires_at`.
+/// Every field is a credential: the session reaches only this task's prefix,
+/// the password opens only this task's repository, and both are live until
+/// `expires_at`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
@@ -78,13 +78,14 @@ pub struct ResourceMetrics {
 
 /// A provider-agnostic runtime event associated with a sandbox.
 ///
-/// In K8s mode, these are sourced from K8s Event objects (`FailedScheduling`,
-/// `BackOff`, Pulling, etc.). Docker mode can populate from `docker events`.
+/// K8s mode sources these from K8s Event objects (`FailedScheduling`,
+/// `BackOff`, Pulling); Docker mode populates from `docker events`.
 #[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeEvent {
-    /// Event reason (e.g. "`BackOff`", "`FailedScheduling`", "Pulling", "`OOMKilled`")
+    /// Event reason (e.g. "`BackOff`", "`FailedScheduling`", "Pulling",
+    /// "`OOMKilled`")
     pub reason: String,
     /// Human-readable message
     pub message: String,
@@ -167,8 +168,8 @@ pub struct ScheduledJobInfo {
 }
 
 /// One long-running command the agent registered through `moat cmd`. The
-/// sandbox owns the process, so it is the only work that defers the idle
-/// reaper — a process forked any other way never appears here.
+/// sandbox owns the process, so it is the only work that defers the idle reaper
+/// — a process forked any other way never appears here.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
@@ -203,7 +204,8 @@ impl ManagedCommand {
     }
 }
 
-/// Full sandbox status response to frontend (matches TS `SandboxStatusFullResponse`)
+/// Full sandbox status response to frontend (matches TS
+/// `SandboxStatusFullResponse`)
 #[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
@@ -235,10 +237,11 @@ pub struct SandboxStatusFullResponse {
     /// the live Deployment/container. `None` when no sandbox exists yet.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub current_sandbox_image: Option<String>,
-    /// Image a fresh (re)deploy would use for the sandbox container: the
-    /// per-repo `docker_image` override when set, otherwise the configured
-    /// default. Compare against `current_sandbox_image` to know whether a
-    /// redeploy would change the image.
+    /// Image a fresh (re)deploy would use: the per-repo `docker_image` override
+    /// when set, otherwise the configured default.
+    ///
+    /// Compare against `current_sandbox_image` to know whether a redeploy would
+    /// change the image.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub latest_sandbox_image: Option<String>,
     /// `true` when `current_sandbox_image` matches `latest_sandbox_image`.
@@ -259,9 +262,9 @@ pub use moatless_types::workspace::ServerOverride;
 
 /// Update one preview server's live config.
 ///
-/// Only fields that a sidecar can pick up on an in-place restart are accepted.
-/// `port` and `dockerImage` are declared so a caller that sends them gets an
-/// explicit "redeploy required" instead of a silent no-op.
+/// Only fields a sidecar can pick up on an in-place restart are accepted;
+/// `port` and `dockerImage` are declared so sending them errors "redeploy
+/// required" instead of silently no-op.
 #[derive(Debug, Default, Deserialize, Serialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
@@ -315,8 +318,8 @@ pub struct ServerOverrideEntry {
 
 /// Every override in effect on a task. Servers with no override are omitted.
 ///
-/// Read from the sandbox's workspace volume, which is the only place an
-/// override exists — a stopped sandbox cannot answer this.
+/// Read from the sandbox's workspace volume, the only place an override exists
+/// — a stopped sandbox cannot answer this.
 #[derive(Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
@@ -481,9 +484,9 @@ pub enum MoatlessToolName {
 
 /// Which copy of the workspace answered a file read.
 ///
-/// A stopped sandbox is still readable, out of the stored workspace
-/// (`sandbox-control::workspace_snapshot`), so a caller has to be able to tell
-/// live content from content that stopped changing when the pod did.
+/// A stopped sandbox is still readable from the stored workspace snapshot, so a
+/// caller must be able to tell live content from content frozen when the pod
+/// stopped.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]

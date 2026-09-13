@@ -122,10 +122,8 @@ pub async fn delete_object(
 
 /// Walk every page of a prefix listing, handing each page's objects to `page`.
 ///
-/// The loop keys on `NextContinuationToken` alone. S3 sets it only on a
-/// truncated response, and a listing that stops one page early is silent: the
-/// caller reads it as "those objects do not exist".
-/// `page` returns a per-page count, and the total is returned to the caller.
+/// Keys on `NextContinuationToken` alone: S3 sets it only when truncated, so
+/// trusting anything else would silently stop the walk early.
 async fn for_each_page<F, Fut>(
     client: &aws_sdk_s3::Client,
     bucket: &str,
@@ -233,9 +231,9 @@ async fn delete_keys(
 
 /// Download `length` bytes of `key` starting at `offset`.
 ///
-/// The range is inclusive on the wire (`bytes=<first>-<last>`), so a zero
-/// `length` has no valid encoding and is rejected rather than turned into a
-/// whole-object GET.
+/// The range is inclusive on the wire (`bytes=<first>-<last>`); a zero `length`
+/// has no valid encoding and is rejected instead of becoming a whole-object
+/// GET.
 pub async fn get_object_range(
     client: &aws_sdk_s3::Client,
     bucket: &str,
@@ -270,9 +268,8 @@ pub async fn get_object_range(
 
 /// The size of `key` in bytes, or `Ok(None)` when it does not exist.
 ///
-/// Existence is answered from the response status alone. Unlike
-/// [`head_object_modified_at`] this needs no `Last-Modified` header, so a store
-/// that omits one still answers "the object is there".
+/// Existence comes from the response status alone, needing no `Last-Modified`
+/// header unlike [`head_object_modified_at`].
 pub async fn head_object_size(
     client: &aws_sdk_s3::Client,
     bucket: &str,
@@ -289,9 +286,8 @@ pub async fn head_object_size(
 
 /// Whether `bucket` holds any object under `prefix`.
 ///
-/// Asks for one key, so the cost does not grow with what the prefix holds. Use
-/// it where the question is existence and the keys are not knowable in advance;
-/// [`head_object_modified_at`] answers the same question for one known key.
+/// Asks for one key, so cost does not grow with the prefix; use
+/// [`head_object_modified_at`] instead when the key is already known.
 pub async fn prefix_has_any_object(
     client: &aws_sdk_s3::Client,
     bucket: &str,

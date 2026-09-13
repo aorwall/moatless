@@ -7,7 +7,8 @@ use moatless_ports::sandbox::SandboxLifecycle;
 use moatless_types::access_control::ScopeContext;
 use moatless_types::sandbox::ArchiveRetention;
 
-/// Close membership, remove resources, and delete the row only after removal succeeds.
+/// Close membership, remove resources, and delete the row only after removal
+/// succeeds.
 pub async fn delete_task(
     sandbox: &dyn SandboxLifecycle,
     task_bindings: &dyn TaskBindings,

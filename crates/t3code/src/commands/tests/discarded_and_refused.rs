@@ -1,11 +1,11 @@
-//! The commands that reach no sink: the two discarded on purpose, and every
-//! one refused because it cannot be honoured.
+//! The commands that reach no sink: the two discarded on purpose, and every one
+//! refused because it cannot be honoured.
 
 use super::fixtures::*;
 use super::*;
 
-/// Both controls exist on screen and neither has a Moatless meaning.
-/// Refusing would put an error behind a control that does nothing.
+/// Both controls exist on screen and neither has a Moatless meaning. Refusing
+/// would put an error behind a control that does nothing.
 #[tokio::test]
 async fn the_two_mode_commands_are_accepted_and_do_nothing() {
     for command in [

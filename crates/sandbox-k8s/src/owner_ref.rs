@@ -1,24 +1,22 @@
 //! Owner-reference construction for cascading K8s garbage collection.
 //!
 //! A sandbox's Service and Traefik `IngressRoutes` are made children of the
-//! task's Deployment via `metadata.ownerReferences`. When the Deployment is
-//! deleted, K8s garbage collection cascades the deletion to every dependent —
-//! so a transient failure mid-`cleanup()` can no longer orphan a Service or an
-//! `IngressRoute`. K8s GC is resource-agnostic, so it works for the Traefik CRD
-//! just as it does for the built-in Service.
+//! task's Deployment via `metadata.ownerReferences`; when the Deployment is
+//! deleted, K8s GC cascades to every dependent, so a transient failure
+//! mid-`cleanup()` cannot orphan a Service or `IngressRoute` — GC works
+//! for the Traefik CRD as it does built-ins.
 //!
 //! The PVC is deliberately NOT owner-referenced: it must survive a
-//! stop/redeploy (which deletes the Deployment but intentionally keeps the
-//! workspace data), so its lifecycle is managed explicitly instead.
+//! stop/redeploy (which deletes the Deployment but keeps workspace data), so
+//! its lifecycle is managed explicitly.
 
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::OwnerReference;
 
-/// Build an `OwnerReference` pointing a dependent resource at its owning
-/// Deployment for cascading garbage collection.
+/// Build an `OwnerReference` pointing a dependent at its owning Deployment.
 ///
-/// `controller` is `false` (these dependents have no controller managing them)
-/// and `block_owner_deletion` is left unset — we want the Deployment delete to
-/// return promptly and let GC clean up the dependents asynchronously.
+/// `controller` is `false` (no controller manages these dependents) and
+/// `block_owner_deletion` is unset, so the Deployment delete returns promptly
+/// and GC cleans up dependents asynchronously.
 pub fn deployment_owner_reference(deployment_name: &str, deployment_uid: &str) -> OwnerReference {
     OwnerReference {
         api_version: "apps/v1".to_string(),

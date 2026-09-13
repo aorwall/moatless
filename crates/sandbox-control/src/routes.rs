@@ -3,10 +3,10 @@
 //! Single unified router served on port 8080.
 //!
 //! These endpoints run behind the app-level `auth_middleware` (session cookie
-//! or API key), which injects an `AuthIdentity` extension. Each handler then
-//! authorizes the caller against the target Sandbox via the `OptionalScope`
-//! extractor and the `access` operations, so
-//! a caller can only read or operate a sandbox they may access.
+//! or API key), which injects an `AuthIdentity` extension; each handler then
+//! authorizes the caller against the target Sandbox via `OptionalScope` and the
+//! `access` operations, so a caller can only read or operate a sandbox they may
+//! access.
 
 use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};

@@ -11,7 +11,8 @@ use super::remediation::{
 use super::watch::WatcherDeps;
 use super::*;
 
-/// Exit code used by the sandbox to signal a permanent init failure (sysexits `EX_CONFIG`).
+/// Exit code used by the sandbox to signal a permanent init failure (sysexits
+/// `EX_CONFIG`).
 pub(super) const PERMANENT_FAILURE_EXIT_CODE: i32 = 78;
 
 /// Return sibling pod states for a given `task_id`, excluding a specific pod.

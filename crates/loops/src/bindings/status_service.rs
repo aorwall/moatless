@@ -1,11 +1,11 @@
 //! Live external status for task bindings.
 //!
 //! Everything adapter-specific — which subject a binding points at, how to
-//! reach it, how to normalize what comes back — lives behind the status capability
-//! trait. What is left here is what is genuinely shared: a process-wide cache
-//! keyed by external subject, the write-through that keeps the persisted value
-//! on the binding warm, and the decision of whether a binding is worth polling
-//! at all.
+//! reach it, how to normalize what comes back — lives behind the status
+//! capability trait. What is left here is what is genuinely shared: a
+//! process-wide cache keyed by external subject, the write-through that keeps
+//! the persisted value on the binding warm, and the decision of whether a
+//! binding is worth polling at all.
 
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
@@ -19,29 +19,13 @@ use moatless_adapter_model::registry::Adapters;
 use moatless_types::adapter::ExternalStatus;
 use moatless_types::adapter::TaskBinding;
 
-/// Whether a binding's live external status is worth fetching again.
+/// Whether a binding's live external status is worth fetching again: pure, with
+/// no I/O.
 ///
-/// Pure: an adapter, a binding and a staleness cutoff in, a decision out — no
-/// database, no HTTP, no application state. A binding is refreshed when all
-/// three hold:
-///
-/// - the adapter can name the external subject the binding points at (adapters
-///   without live status, and bindings the adapter cannot resolve, say `None`);
-/// - the persisted state kind is not terminal — a merged pull request or a
-///   completed issue can no longer change on its own, so its persisted status
-///   stands and is never polled again;
-/// - the persisted status is older than `cutoff`, or was never fetched.
-///
-/// The terminal rule yields to one exception: a binding whose adapter reports
-/// its persisted blob incomplete — written before the adapter carried a field
-/// it now needs — is refreshed once regardless of terminal state, so the fetch
-/// fills the missing field in.
-///
-/// The terminal rule is a *polling* rule only. Webhook persistence stays
-/// unconditional, so a reopened pull request or a reactivated issue overwrites
-/// a terminal status and becomes refreshable again. If that webhook is missed
-/// nothing re-polls (the GitHub PR status/reaction design — a backstop poll was considered and
-/// rejected).
+/// A binding whose persisted blob predates a field the adapter now needs is
+/// refreshed once even when terminal; otherwise a terminal binding never
+/// re-polls except via unconditional webhook persistence, so a missed webhook
+/// leaves it stale forever (no backstop poll).
 pub fn should_refresh(
     status: &dyn AdapterBindingStatus,
     binding: &TaskBinding,
@@ -68,8 +52,9 @@ pub fn should_refresh(
 }
 
 /// Process-global cache keyed by the external subject a binding points at (see
-/// [`moatless_adapter_model::capabilities::AdapterBindingStatus::binding_status_key`]),
-/// so several tasks bound to the same subject share one entry and one API call.
+/// [`AdapterBindingStatus::binding_status_key`]), so bindings sharing a subject
+/// share one entry and API call.
+///
 /// A short TTL keeps the live fetch cheap under fan-out without holding stale
 /// status for long.
 fn cache() -> &'static Cache<String, ExternalStatus> {
@@ -82,13 +67,13 @@ fn cache() -> &'static Cache<String, ExternalStatus> {
     })
 }
 
-/// Fetch the live external status for a binding, caching the result and writing
-/// it through to the binding's persisted columns. Returns `None` when no live
-/// status can be obtained: adapter without live status, no adapter configured,
-/// no token, API error.
+/// Fetch the live external status for a binding, caching it and writing it
+/// through to the binding's persisted columns.
 ///
-/// `created_by` is the owning task's creator, used by adapters that resolve a
-/// per-user token.
+/// `None` when no live status can be obtained (no live-status adapter, no
+/// config, no token, API error) — callers fall back to whatever is already
+/// persisted; `created_by` resolves a per-user token where the adapter needs
+/// one.
 pub async fn get_or_fetch(
     adapters: Option<&Arc<Adapters>>,
     task_bindings: &Bindings,
@@ -137,10 +122,11 @@ mod tests {
 
     use super::*;
 
-    /// Stand-in adapter: answers the three interface questions the refresh
-    /// decision asks, and nothing else. `keyed` mirrors a real adapter failing
-    /// to name a binding's subject (no live status, or a binding it cannot
-    /// resolve).
+    /// Stand-in adapter answering only the three questions `should_refresh`
+    /// asks.
+    ///
+    /// `keyed` mirrors a real adapter failing to name a binding's subject (no
+    /// live status, or a binding it cannot resolve).
     struct StubAdapter {
         keyed: bool,
     }
@@ -155,8 +141,9 @@ mod tests {
             state_kind == "done"
         }
 
-        /// Mirrors a real adapter whose blob grew a field: a persisted blob that
-        /// does not carry `headRef` predates the growth and reads incomplete.
+        /// Mirrors a real adapter whose blob grew a field: a persisted blob
+        /// that does not carry `headRef` predates the growth and reads
+        /// incomplete.
         fn persisted_status_is_complete(&self, binding: &TaskBinding) -> bool {
             binding
                 .external_status_raw

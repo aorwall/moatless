@@ -1,17 +1,11 @@
 //! Completion watcher for commands registered through `moat cmd`.
 //!
-//! In subprocess mode each agent turn is a one-shot Claude CLI process that
-//! exits when the turn's `result` arrives, so nothing re-triggers the agent when
-//! work it left running finishes. This job fills that gap: armed at a clean turn
-//! end over the commands still running, it polls the registry and injects a
-//! synthetic user message as soon as one of them reaches a terminal state (the
-//! same re-trigger path `ScheduleWakeup` uses).
-//!
-//! It wakes on the *first* command to finish rather than the last, so a build
-//! running alongside a long-lived server still reports the moment it is done,
-//! and it covers commands that died before the turn ended as well as those
-//! still running — a command that fails in under a second is exactly the case
-//! the agent has no other way to hear about.
+//! In subprocess mode each agent turn is a one-shot CLI process that exits when
+//! the turn's `result` arrives, so nothing re-triggers the agent when
+//! backgrounded work finishes. Armed at a clean turn end over the commands
+//! still owed a report, this job polls the registry and injects a synthetic
+//! user message on the first one to reach a terminal state — including a
+//! command that died before the watch armed, not just those still running.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -48,13 +42,11 @@ pub struct BackgroundWatchJob {
 
 impl BackgroundWatchJob {
     /// Arm a watch over every command that still owes the agent an outcome.
-    /// `None` when none does, so a turn that left no work behind registers
-    /// nothing.
+    /// `None` when none does.
     ///
-    /// The list is the registry's unreported set, not its running set: a
-    /// command that already finished has to be watched (it wakes on the first
-    /// poll tick, which `tokio::time::interval` fires at once), and one the
-    /// agent killed must not be, even while its process is still winding down.
+    /// Watches the registry's unreported set, not its running set: an
+    /// already-finished command still needs a wake, while one the agent killed
+    /// must not, even while its process is still winding down.
     pub async fn arm(registry: Arc<CommandRegistry>) -> Option<Self> {
         let owed: Vec<CommandRecord> = registry.unreported().await;
         if owed.is_empty() {
@@ -80,10 +72,11 @@ impl BackgroundWatchJob {
         self
     }
 
-    /// Message injected once a watched command finishes. A command that did not
-    /// succeed carries the end of its log: the failure is the reason the agent
-    /// is being woken, so making it read the log itself wastes the turn the
-    /// wake just bought.
+    /// Message injected once a watched command finishes.
+    ///
+    /// A command that failed carries the end of its log, since the failure is
+    /// why the agent is being woken and re-reading it would waste the turn the
+    /// wake bought.
     fn wake_prompt(finished: &[CommandRecord]) -> String {
         let lines: Vec<String> = finished
             .iter()
@@ -296,10 +289,11 @@ mod tests {
         assert_eq!(job.command_count(), 1);
     }
 
-    /// The stranding bug: a command with a bad path dies in under a second, so
-    /// it is already terminal when the turn ends and the watch arms. Watching
-    /// only what still runs armed nothing, and the agent that ended its turn
-    /// expecting a wake was never re-triggered — the sandbox just idled out.
+    /// The stranding bug: a command with a bad path dies in under a second and
+    /// is already terminal when the turn ends and the watch arms.
+    ///
+    /// Watching only what still runs would arm nothing, leaving the agent's
+    /// expected wake never triggered — the sandbox just idled out.
     #[tokio::test]
     async fn wakes_for_a_command_that_died_before_the_watch_armed() {
         let reg = registry();
@@ -320,9 +314,10 @@ mod tests {
     }
 
     /// `kill` marks the command reported while the process is still winding
-    /// down, so it is still `Running` when the turn ends. Keying the watch off
-    /// state rather than `reported` would pick it back up and wake the agent
-    /// about the death it had just ordered.
+    /// down, so it is still `Running` when the turn ends.
+    ///
+    /// Keying the watch off state rather than `reported` would pick it back up
+    /// and wake the agent about the death it just ordered.
     #[tokio::test]
     async fn does_not_watch_a_killed_command_still_winding_down() {
         let reg = registry();
@@ -340,9 +335,10 @@ mod tests {
     }
 
     /// A `Send` does not cancel an armed watch, so a later turn can kill a
-    /// command this watch is still polling. The command is reported at the kill
-    /// request; the watch has to notice that rather than waking when the
-    /// supervisor later records `Killed`.
+    /// command this watch is still polling.
+    ///
+    /// The command is reported at the kill request; the watch must notice that
+    /// rather than waking only when the supervisor later records `Killed`.
     #[tokio::test]
     async fn a_kill_after_the_watch_armed_does_not_wake() {
         let reg = registry();

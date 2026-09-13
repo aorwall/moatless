@@ -17,10 +17,11 @@ pub(super) struct ResolvedAttachments {
     /// Every id the Message will name, in the order they were attached.
     pub(super) file_ids: Vec<String>,
     /// The subset stored here from inline bytes, and so the only ids a failed
-    /// command may take back. An `Uploaded` id was put there by the client
-    /// through `attachments.createUploadUrl`; the client still holds it and
-    /// re-sends it on a retry, so deleting it would break the retry it exists
-    /// for.
+    /// command may take back.
+    ///
+    /// An `Uploaded` id came from the client via `attachments.createUploadUrl`;
+    /// the client still holds it and re-sends it on retry, so deleting it would
+    /// break that retry.
     pub(super) stored_here: Vec<String>,
 }
 
@@ -28,16 +29,10 @@ impl AppStateCommands {
     /// The upload ids a turn's attachments name, storing the ones that arrived
     /// as bytes.
     ///
-    /// Both forms end at the same place: a Moatless upload id on the Message,
-    /// which is what the Sandbox pre-fetch, the prompt block naming each file,
-    /// the Moatless UI and `GET /api/v1/uploads/{file_id}` all already read. An
-    /// inline image is stored here because this is where its bytes enter; an
-    /// uploaded attachment is only checked, because storing it again would put
-    /// a second copy of the same file under a second id.
-    ///
-    /// A failure refuses the whole turn — a partial resolution would leave a
-    /// message naming only some of what was attached — and takes back the
-    /// inline bytes it had already stored.
+    /// Both forms end as a Moatless upload id on the Message; an inline image
+    /// is stored here (where its bytes enter), an uploaded attachment is only
+    /// checked (storing it again would duplicate the file). A failure refuses
+    /// the whole turn and takes back any inline bytes already stored.
     pub(super) async fn resolve_attachments(
         &self,
         viewer: &ScopeContext,
@@ -94,11 +89,9 @@ impl AppStateCommands {
 
     /// The upload an attachment id names, if this viewer may read it.
     ///
-    /// Checked rather than trusted: the id reaches this server on a turn, and
-    /// nothing about a turn proves the person sending it minted that id. An id
-    /// that names nothing is the same answer as one that names somebody else's
-    /// upload — a turn that could confirm the difference would be a way to ask
-    /// whether an upload exists.
+    /// Checked rather than trusted: nothing about a turn proves its sender
+    /// minted this id, so a nonexistent id and someone else's upload get the
+    /// same answer — otherwise a turn could probe whether an upload exists.
     async fn uploaded_attachment(
         &self,
         viewer: &ScopeContext,
@@ -152,22 +145,11 @@ impl AppStateCommands {
 
     /// Take back inline uploads a command that failed left behind.
     ///
-    /// Only ever passed [`ResolvedAttachments::stored_here`]: the bytes reach
-    /// S3 before the Message that would name them exists, so a command that is
-    /// refused afterwards leaves objects nothing references and no route
-    /// reaches.
-    ///
-    /// That is also why this needs no
-    /// [`AppStateAttachments::is_on_a_message`] check, which
-    /// `attachments.delete` and a re-`POST` both make. Those act on an id the
-    /// client chose, at a time when a turn may already have been sent under it.
-    /// These ids were minted inside the command that is now failing, and the
-    /// command failing is precisely what means no Message was written — so no
-    /// `task_message_contexts` row can name one.
-    ///
-    /// Best-effort by design: the caller is already returning a refusal, and a
-    /// store that cannot be undone is a leak to notice in the logs rather than
-    /// a second failure to put in front of the person retrying.
+    /// Only ever passed [`ResolvedAttachments::stored_here`], minted inside the
+    /// now-failing command — since no Message was ever written, no
+    /// [`AppStateAttachments::is_on_a_message`] check applies, unlike
+    /// `attachments.delete`. Best-effort: the caller already returns a refusal,
+    /// so an unremovable store is logged, not raised as a second failure.
     pub(super) async fn discard_attachments(&self, viewer: &ScopeContext, file_ids: &[String]) {
         for file_id in file_ids {
             if let Err(error) = self.0.files.delete(viewer, file_id).await {
@@ -184,10 +166,9 @@ pub struct AppStateAttachments(pub AppState, pub moatless_t3code::T3Reads);
 impl AppStateAttachments {
     /// Whether a sent message already carries this upload.
     ///
-    /// The check lives here rather than in `Files::delete`: that operation is
-    /// generic file storage and knows nothing about messages, while
-    /// the rule — an attachment stops being the composer's draft the moment a
-    /// turn names it — is this surface's.
+    /// Lives here rather than in `Files::delete`, which is generic storage with
+    /// no notion of messages: the rule that an attachment stops being a draft
+    /// once a turn names it belongs to this surface.
     async fn is_on_a_message(&self, attachment_id: &str) -> Result<bool, AttachmentStoreError> {
         self.1.attachment_is_on_message(attachment_id)
         .await

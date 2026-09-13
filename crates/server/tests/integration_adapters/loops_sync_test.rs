@@ -600,10 +600,8 @@ async fn resync_preserves_ongoing_task_id(pool: PgPool) {
     );
 }
 
-/// Git owns configuration; Moatless owns execution. A re-sync that rewrites the
-/// declaration must therefore leave `active` and the run-as user alone, so a
-/// repository can keep its Loops current without an administrator re-approving
-/// each edit.
+/// Git owns configuration, Moatless owns execution: a re-sync that rewrites the
+/// declaration must leave `active` and the run-as user untouched.
 #[sqlx::test]
 async fn resync_preserves_activation_across_a_changed_declaration(pool: PgPool) {
     const EDITED_GITHUB_LOOP: &str = "---\non: github_pr\nname: Java Review v2\nagentType: codex\ntags: [review, backend]\n---\n\nReview this PR against the backend guidelines.\n";
@@ -745,7 +743,8 @@ async fn reset_to_git_keeps_the_execution_approval(pool: PgPool) {
 }
 
 /// The `SCHEDULE_LOOP` declaration as the reconciler's input shape, for the
-/// reset path — which takes an already-fetched Git snapshot rather than parsing.
+/// reset path — which takes an already-fetched Git snapshot rather than
+/// parsing.
 fn schedule_upsert(repo: &Repository) -> ManagedLoopUpsert {
     ManagedLoopUpsert {
         source_repository_id: repo.id.clone(),

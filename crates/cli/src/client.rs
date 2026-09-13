@@ -18,12 +18,12 @@ pub enum ClientError {
     Unauthorized,
     #[error("Not logged in — run `moat login` to authenticate")]
     NotLoggedIn,
-    /// The request succeeded and the body would not decode into the type this
-    /// CLI expects. Almost always version skew — a sandbox carries the `moat`
-    /// baked into its image, so a long-lived sandbox reads a backend that has
-    /// moved on. Named separately from [`ClientError::Api`] because reporting it
-    /// as a server status sends the reader after a backend fault that never
-    /// happened.
+    /// The request succeeded but the body didn't decode — almost always version
+    /// skew, since a long-lived sandbox's baked-in `moat` reads a backend that
+    /// has moved on.
+    ///
+    /// Kept separate from [`ClientError::Api`] so the reader isn't sent chasing
+    /// a server fault that never happened.
     #[error(
         "Could not read the response: {0}\n\
          The server answered, so this is most likely a `moat` older than the backend — \
@@ -166,9 +166,9 @@ impl MoatClient {
 
     /// Wait longer than the default for every request this client makes.
     ///
-    /// Some endpoints do real work before they answer — closing a task removes
-    /// its sandbox, and sending a message to a stopped one provisions the
-    /// replacement — and against a remote cluster that outruns the default.
+    /// Some endpoints do real work before answering — closing a task removes
+    /// its sandbox, messaging a stopped one provisions a replacement — and can
+    /// outrun the default against a remote cluster.
     pub fn set_http_timeout(&mut self, timeout: std::time::Duration) {
         self.http_timeout = timeout;
         let http = Self::build_http_client(&self.auth_mode, timeout);
@@ -255,7 +255,8 @@ impl MoatClient {
     }
 
     /// GET an arbitrary URL (not relative to base) with the same auth headers.
-    /// Returns the response body as text. Only fails on auth errors, not app-level errors.
+    /// Returns the response body as text. Only fails on auth errors, not
+    /// app-level errors.
     pub async fn raw_get_url(&self, url: &str) -> Result<String, ClientError> {
         if self.verbose {
             eprintln!("GET {url}");
@@ -334,10 +335,9 @@ impl MoatClient {
     /// Make an arbitrary request and report the status alongside the body,
     /// without treating a rejection as an error.
     ///
-    /// Every other raw helper collapses a 4xx into `ClientError`, which is right
-    /// for a person at a terminal and wrong for a caller whose question *is*
-    /// "how was this rejected" — an E2E assertion, or a script branching on the
-    /// status. Nothing here is retried and nothing is interpreted.
+    /// Every other raw helper collapses a 4xx into `ClientError` — right for a
+    /// terminal user, wrong when the caller's question *is* "how was this
+    /// rejected". Nothing here is retried or interpreted.
     pub async fn raw_request(
         &self,
         method: &str,
@@ -407,7 +407,8 @@ impl MoatClient {
         })
     }
 
-    /// Start a streaming GET request (no timeout, returns raw response for SSE/NDJSON).
+    /// Start a streaming GET request (no timeout, returns raw response for
+    /// SSE/NDJSON).
     pub async fn raw_get_stream(&self, path: &str) -> Result<reqwest::Response, ClientError> {
         let url = format!("{}{path}", self.base_url);
         if self.verbose {
@@ -471,10 +472,9 @@ impl MoatClient {
 mod tests {
     use super::*;
 
-    /// A body that will not decode is the CLI's problem, not the server's. It
-    /// used to surface as `API error (500)`, which reads as a backend fault and
-    /// sends the reader to the wrong logs — the request had in fact returned
-    /// 200.
+    /// A body that fails to decode is the CLI's problem, not the server's —
+    /// reporting it as `API error (500)` would misdirect the reader to backend
+    /// logs when the request actually returned 200.
     #[test]
     fn an_undecodable_body_is_not_reported_as_a_server_status() {
         let err = ClientError::from(ApiError::InvalidJson(

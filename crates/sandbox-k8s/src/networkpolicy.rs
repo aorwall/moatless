@@ -1,15 +1,14 @@
 //! Per-sandbox Traefik preview `NetworkPolicy` lifecycle.
 //!
 //! Each running sandbox that exposes preview servers gets a `NetworkPolicy`
-//! admitting the cluster's Traefik ingress pods to exactly that sandbox's
-//! declared preview ports. It is the ingress counterpart to the `IngressRoutes`:
-//! a route makes a port addressable, this policy makes the pod reachable on it.
+//! admitting the cluster's Traefik ingress pods to its declared preview ports —
+//! the ingress counterpart to `IngressRoutes`: a route makes a port
+//! addressable, this policy makes the pod reachable on it.
 //!
-//! Deriving the allowed ports from the same server map the routes use is the
-//! point — a static, hand-maintained port allowlist drifts out of sync with the
-//! ports sandboxes actually serve, and once ingress `NetworkPolicies` are enforced
-//! every un-listed preview port silently times out (auth succeeds at the edge
-//! first, so it reads as an application fault rather than a network one).
+//! Deriving ports from the same server map the routes use avoids drift from a
+//! hand-maintained allowlist; once enforced, an un-listed port times out
+//! silently (auth succeeds at the edge, so it reads as an app fault, not a
+//! network one).
 
 use k8s_openapi::api::networking::v1::NetworkPolicy;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::OwnerReference;
@@ -27,16 +26,13 @@ use moatless_core::config::Config;
 const TRAEFIK_POD_LABEL: &str = "app.kubernetes.io/name";
 const TRAEFIK_POD_LABEL_VALUE: &str = "traefik";
 
-/// A 403 on the `NetworkPolicy` API means the backend `ServiceAccount` holds no
-/// `networking.k8s.io/networkpolicies` grant — the chart's pod-manager Role
-/// carries it, so a cluster running an older release lands here.
+/// A 403 on the `NetworkPolicy` API means the backend `ServiceAccount` lacks
+/// the `networking.k8s.io/networkpolicies` grant (an older chart release).
 ///
-/// Preview policies are optional ingress hardening, so that cluster degrades to
-/// "feature off" rather than wedging: creation is already best-effort, and a
-/// hard-failing delete makes every remove and redeploy retry a permission error
-/// no retry can fix. Nothing leaks either — a `ServiceAccount` that cannot delete
-/// policies could not create them, and policies created while the grant existed
-/// carry the task Deployment's ownerReference, so K8s GC still collects them.
+/// Preview policies then degrade to "feature off" rather than wedging: creation
+/// is best-effort and delete no longer hard-fails, yet nothing leaks — any
+/// policy created while the grant existed still carries the Deployment's
+/// ownerReference for K8s GC.
 fn is_forbidden(error: &kube::Error) -> bool {
     matches!(error, kube::Error::Api(response) if response.code == 403)
 }
@@ -46,13 +42,11 @@ const MISSING_RBAC_HINT: &str =
     "backend ServiceAccount lacks networking.k8s.io/networkpolicies — upgrade the chart \
      (pod-manager Role) to enable preview NetworkPolicies";
 
-/// Build the per-task preview `NetworkPolicy` object. Pure — no cluster I/O — so
-/// the selector/port/peer shape is unit-testable.
+/// Pure — no cluster I/O — so the selector/port/peer shape is unit-testable.
 ///
-/// Each Traefik namespace becomes its own `from` peer so the peers OR: traffic
-/// from a Traefik pod in *any* listed namespace is admitted. The
-/// namespaceSelector and podSelector share one peer element, which ANDs them —
-/// the intent being "Traefik pods that live in this namespace".
+/// Each Traefik namespace becomes its own `from` peer, and inside a peer the
+/// `namespaceSelector` and `podSelector` must both match — "Traefik pods in
+/// this namespace".
 fn build_preview_network_policy(
     namespace: &str,
     task_id: &str,
@@ -118,11 +112,10 @@ fn build_preview_network_policy(
 /// Create the per-task preview `NetworkPolicy` admitting Traefik to `ports`.
 /// Idempotent — handles `AlreadyExists` (409) gracefully.
 ///
-/// `owner`, when present, is set as the policy's `ownerReference` (the task's
-/// Deployment) so K8s garbage collection cascades its deletion. Called with an
-/// empty `ports` set it is a no-op: an ingress rule with an empty ports list
-/// matches *all* ports in the `NetworkPolicy` API, which would admit Traefik to
-/// the reserved infrastructure ports — the opposite of the intent.
+/// A no-op on an empty `ports` set: an empty ports list matches *all* ports in
+/// the `NetworkPolicy` API, which would admit Traefik to reserved
+/// infrastructure ports — the opposite of the intent. `owner`, when present,
+/// sets the policy's `ownerReference` for cascading K8s GC.
 pub async fn create_task_preview_network_policy(
     k8s: &K8sClient,
     task_id: &str,
@@ -169,26 +162,19 @@ pub async fn create_task_preview_network_policy(
 }
 
 /// How many times [`admit_preview_port`] re-reads and retries when a concurrent
-/// writer changes the policy under it. Each loss is one other `scripts.run`
-/// widening the same policy; more than a few at once on one task is not a real
-/// workload, so a small bound is enough to converge without spinning.
+/// writer changes the policy under it; more than a few concurrent `scripts.run`
+/// on one task is not a real workload, so a small bound converges without
+/// spinning.
 const MAX_WIDEN_ATTEMPTS: usize = 5;
 
-/// Widen the per-task preview `NetworkPolicy` to admit one more port.
+/// Widen the per-task preview `NetworkPolicy` to admit one more port, unlike
+/// [`create_task_preview_network_policy`]'s create-only reuse of what's already
+/// declared at provisioning time.
 ///
-/// [`create_task_preview_network_policy`] is create-only — a 409 reuses whatever
-/// is already there — because the declared ports are known in full at
-/// provisioning time. A Script's port is not: it is asked for while the sandbox
-/// runs, so the existing policy has to grow rather than be reused as-is.
-///
-/// The allowance is a single list that this read-modify-writes, and a
-/// `NetworkPolicy`'s ingress rules are atomic — there is no per-port merge key, so
-/// a merge patch would replace the whole list and two concurrent widens would
-/// each drop the other's port. So the write is guarded instead: it carries the
-/// `resourceVersion` it read, and a concurrent change 409s rather than
-/// overwrites. On a 409 it re-reads — now seeing the other writer's port — and
-/// adds on top, up to [`MAX_WIDEN_ATTEMPTS`]. A no-op when the port is already
-/// admitted, so a script re-run costs one read.
+/// A `NetworkPolicy`'s ingress port list has no per-port merge key, so this
+/// read-modify-writes it guarded by `resourceVersion`: a concurrent widen 409s
+/// and retries (re-reading, adding on top) up to [`MAX_WIDEN_ATTEMPTS`]. A
+/// no-op if the port is already admitted.
 pub async fn admit_preview_port(
     k8s: &K8sClient,
     task_id: &str,
@@ -334,10 +320,11 @@ pub async fn delete_task_preview_network_policy(
     }
 }
 
-/// Await observed absence of the task's preview `NetworkPolicy`. Without the
-/// `NetworkPolicy` grant (403) absence is unobservable and there is nothing to
-/// observe — see [`is_forbidden`] — so the wait resolves immediately rather than
-/// burning its full timeout and reporting the resource as lingering.
+/// Await observed absence of the task's preview `NetworkPolicy`.
+///
+/// Without the `NetworkPolicy` grant (403, see [`is_forbidden`]) absence is
+/// unobservable, so the wait resolves immediately rather than burning its full
+/// timeout and reporting the resource as lingering.
 pub async fn wait_for_task_preview_network_policy_deleted(
     k8s: &K8sClient,
     task_id: &str,

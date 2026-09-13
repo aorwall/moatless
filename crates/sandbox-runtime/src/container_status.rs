@@ -11,8 +11,8 @@ use serde::{Deserialize, Serialize};
 use moatless_types::sandbox::{SandboxStatus, ServerCapabilities, ServerStatus};
 
 /// Waiting reasons that map a *server* container to `"failed"` status, read by
-/// [`ContainerObservedStatus::to_server_status`]. Both the k8s and docker status
-/// resolvers reach it here.
+/// [`ContainerObservedStatus::to_server_status`]. Both the k8s and docker
+/// status resolvers reach it here.
 pub const SERVER_FAILURE_REASONS: &[&str] = &[
     "ErrImagePull",
     "ImagePullBackOff",
@@ -53,7 +53,8 @@ impl PodPhase {
         }
     }
 
-    /// Project this K8s runtime phase into the public Sandbox display/API state.
+    /// Project this K8s runtime phase into the public Sandbox display/API
+    /// state.
     pub fn sandbox_status(self) -> SandboxStatus {
         match self {
             PodPhase::Pending => SandboxStatus::Initializing,
@@ -101,7 +102,8 @@ pub struct ContainerObservedStatus {
     pub state: ContainerState,
     pub restart_count: i32,
     pub waiting_reason: Option<String>,
-    /// Reason from `state.terminated` (e.g. "`OOMKilled`", "Error", "Completed").
+    /// Reason from `state.terminated` (e.g. "`OOMKilled`", "Error",
+    /// "Completed").
     pub terminated_reason: Option<String>,
     /// Exit code from `state.terminated`.
     pub exit_code: Option<i32>,
@@ -150,8 +152,8 @@ impl ContainerObservedStatus {
         }
     }
 
-    /// Like `to_server_status()` but with a configurable readiness timeout.
-    /// If the container has been running for longer than `timeout_secs` without
+    /// Like `to_server_status()` but with a configurable readiness timeout. If
+    /// the container has been running for longer than `timeout_secs` without
     /// becoming ready, returns `Failed` instead of `Starting`.
     pub fn to_server_status_with_timeout(&self, timeout_secs: u32) -> ServerStatus {
         let base = self.to_server_status();
@@ -166,7 +168,8 @@ impl ContainerObservedStatus {
         base
     }
 
-    /// Return the error reason — terminated reasons take priority, then waiting reasons.
+    /// Return the error reason — terminated reasons take priority, then waiting
+    /// reasons.
     pub fn error_reason(&self) -> Option<String> {
         // Terminated reason (e.g. OOMKilled, Error)
         if let Some(reason) = &self.terminated_reason {
@@ -207,7 +210,8 @@ impl ContainerObservedStatus {
         None
     }
 
-    /// Return the waiting reason only if it is a non-error detail (e.g. `ContainerCreating`).
+    /// Return the waiting reason only if it is a non-error detail (e.g.
+    /// `ContainerCreating`).
     pub fn detail_reason(&self) -> Option<String> {
         self.waiting_reason.as_deref().and_then(|r| {
             if SERVER_FAILURE_REASONS.contains(&r) {

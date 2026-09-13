@@ -22,11 +22,10 @@ const SSH_DIR_MODE: u32 = 0o700;
 const KEY_FILE_MODE: u32 = 0o600;
 
 /// Write each SSH private key to `~/.ssh` and generate an `~/.ssh/config` that
-/// makes them the identities for all hosts (trust-on-first-use host checking,
-/// since SSH remotes can be arbitrary).
+/// makes them the identities for all hosts (trust-on-first-use, since SSH
+/// remotes can be arbitrary).
 ///
-/// No-op when `ssh_keys` is empty. Idempotent: safe to call again on the
-/// periodic credential refresh.
+/// No-op when `ssh_keys` is empty. Idempotent: safe to call again on refresh.
 pub async fn materialize_ssh_keys(config: &Config, ssh_keys: &HashMap<String, String>) {
     if ssh_keys.is_empty() {
         return;
@@ -152,12 +151,11 @@ fn key_file_name(secret_name: &str) -> String {
     format!("moatless_{sanitized}")
 }
 
-/// Render an `~/.ssh/config` that applies the given identities to all hosts.
+/// `IdentitiesOnly yes` prevents ssh from offering unrelated keys (avoids "Too
+/// many authentication failures").
 ///
-/// `IdentitiesOnly yes` prevents ssh from offering unrelated keys (avoids
-/// "Too many authentication failures"). `StrictHostKeyChecking accept-new`
-/// trusts a host key on first use — appropriate for the ephemeral sandbox
-/// talking to arbitrary SSH remotes.
+/// `StrictHostKeyChecking accept-new` trusts a host key on first use,
+/// appropriate for an ephemeral sandbox talking to arbitrary SSH remotes.
 fn render_ssh_config(identity_files: &[String], known_hosts: &str) -> String {
     let mut out = String::from("Host *\n");
     out.push_str("    StrictHostKeyChecking accept-new\n");

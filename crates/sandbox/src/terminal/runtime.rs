@@ -3,8 +3,8 @@
 //! The T3 compatibility surface addresses terminals by `thread_id` and
 //! `terminal_id`, but the process has to live here: this process owns the real
 //! workspace directory, credentials, and PTY handles. The manager keeps session
-//! metadata and capped history in memory, and fans PTY output/exit events to any
-//! attached gRPC streams.
+//! metadata and capped history in memory, and fans PTY output/exit events to
+//! any attached gRPC streams.
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
@@ -51,12 +51,12 @@ pub enum TerminalError {
 pub struct TerminalManager {
     inner: Arc<Mutex<Inner>>,
     /// The containment boundary: a resolved cwd outside this is refused, which
-    /// is what keeps a sibling repo reachable but the rest of the container not.
+    /// is what keeps a sibling repo reachable but the rest of the container
+    /// not.
     workspace_dir: Arc<PathBuf>,
-    /// Where a nominal task path lands — the primary repo's checkout. The same
-    /// directory git status/diff, the file API, setup commands and the dev
-    /// servers all target, so a terminal opens where the code is rather than one
-    /// level above it, at a workspace root holding no package manifest.
+    /// Where a nominal task path lands: the primary checkout that git
+    /// status/diff, the file API, setup commands and dev servers all target, so
+    /// a terminal opens where the code is.
     repo_dir: Arc<PathBuf>,
 }
 
@@ -108,11 +108,10 @@ pub struct AttachedTerminal {
 }
 
 impl TerminalManager {
-    /// A manager whose nominal paths land at the workspace root.
+    /// A manager whose nominal paths land at the workspace root, for a sandbox
+    /// with no repo to clone.
     ///
-    /// For a sandbox with no repo to clone, where `repo_dir` falls back to the
-    /// workspace dir anyway; [`Self::with_repo_dir`] is what a cloned sandbox
-    /// uses.
+    /// [`Self::with_repo_dir`] is what a cloned sandbox uses.
     pub fn new(workspace_dir: impl Into<PathBuf>) -> Self {
         let workspace_dir = workspace_dir.into();
         Self::with_repo_dir(workspace_dir.clone(), workspace_dir)

@@ -9,15 +9,15 @@ use sandbox_proto::{
     PendingAgentDelivery, PublishEventRequest,
 };
 
-/// Counts the only call an upload makes before it touches the network, and
-/// then declines — so a test can tell "attempted an upload" from "skipped"
-/// without standing up an S3 endpoint.
+/// Counts the only call an upload makes before it touches the network, and then
+/// declines — so a test can tell "attempted an upload" from "skipped" without
+/// standing up an S3 endpoint.
 #[derive(Default)]
 struct CountingBackend {
     url_requests: AtomicUsize,
     gate: Option<UploadGate>,
-    /// Mint URLs pointing at a closed port instead of declining, so a
-    /// transfer is reached and then fails.
+    /// Mint URLs pointing at a closed port instead of declining, so a transfer
+    /// is reached and then fails.
     mint_urls: bool,
     /// What `get_workspace_sync_urls` fails with, when it should fail with
     /// something other than the default "no S3 here".
@@ -31,8 +31,8 @@ struct CountingBackend {
 }
 
 /// Turns the URL mint into a valve: it announces each entry on `started` and
-/// then parks until the test hands out a permit, so an upload can be held
-/// in flight while the test drives more turns at the tracker.
+/// then parks until the test hands out a permit, so an upload can be held in
+/// flight while the test drives more turns at the tracker.
 struct UploadGate {
     started: tokio::sync::mpsc::UnboundedSender<()>,
     release: tokio::sync::Semaphore,
@@ -43,10 +43,11 @@ impl CountingBackend {
         self.url_requests.load(Ordering::SeqCst)
     }
 
-    /// A backend that blocks inside every upload and then fails the
-    /// transfer, plus the receiver that reports each one starting. It mints
-    /// so that a released upload answers `NotStored::Failed` and the
-    /// baseline stays where a queued upload still reaches the gate.
+    /// A backend that blocks inside every upload and then fails the transfer,
+    /// plus the receiver that reports each one starting.
+    ///
+    /// Mints so a released upload answers `NotStored::Failed` and the baseline
+    /// stays where a queued upload still reaches the gate.
     fn gated() -> (Arc<Self>, tokio::sync::mpsc::UnboundedReceiver<()>) {
         let (started, rx) = tokio::sync::mpsc::unbounded_channel();
         let backend = Arc::new(Self {
@@ -271,10 +272,10 @@ async fn an_empty_or_broken_repo_is_not_usable() {
 }
 
 /// The overlay is owed only when nothing authoritative is already in place.
+///
 /// A durable volume we chose to keep must suppress it exactly like a
-/// freshly-extracted snapshot — otherwise `download_on_start` extracts the
-/// older archive over the live PVC and reverts work that never reached a
-/// snapshot.
+/// freshly-extracted snapshot, or `download_on_start` reverts work that never
+/// reached a snapshot.
 #[test]
 fn only_a_bare_decision_still_owes_the_overlay() {
     assert!(RestoreDecision::RestoredSnapshot.skips_overlay());
@@ -294,11 +295,6 @@ fn only_a_bare_decision_still_owes_the_overlay() {
 
 /// The walk itself: a repository that cannot read what it stores neither
 /// descends to the tar nor lets the overlay descend for it.
-///
-/// This is the assertion the staging loss needed. Before the fix the same
-/// backend produced `Nothing`, which sends `init` on to
-/// [`download_on_start`] — and that extracts the rescue tar over the clone,
-/// which is how the task came up three days stale.
 #[tokio::test(start_paused = true)]
 async fn a_repository_that_cannot_be_read_neither_descends_nor_overlays() {
     let tmp = tempfile::tempdir().unwrap();
@@ -342,10 +338,8 @@ async fn a_repository_that_cannot_be_read_neither_descends_nor_overlays() {
     );
 }
 
-/// A restore that failed against a snapshot that exists leaves this pod
-/// holding a tree that never held the work. Uploading it replaces the only
-/// copy, which is what made the staging loss unrecoverable without S3
-/// versioning.
+/// A restore that failed against a snapshot that exists leaves this pod holding
+/// a tree that never held the work; uploading it would replace the only copy.
 #[tokio::test]
 async fn a_held_upload_never_overwrites_the_snapshot() {
     let tmp = tempfile::tempdir().unwrap();
@@ -411,9 +405,9 @@ async fn an_unchanged_workspace_is_not_re_uploaded() {
     );
 }
 
-/// The gate covers the repository too. A `restic` snapshot of an unchanged
-/// tree walks the workspace, reads the index and commits a snapshot object
-/// for no data: on 2026-09-08 that was 1114 of 3095 snapshots.
+/// The gate covers the repository too. A `restic` snapshot of an unchanged tree
+/// walks the workspace, reads the index and commits a snapshot object for no
+/// data: on 2026-09-08 that was 1114 of 3095 snapshots.
 #[tokio::test]
 async fn an_unchanged_workspace_costs_no_snapshot() {
     let tmp = tempfile::tempdir().unwrap();
@@ -446,11 +440,8 @@ async fn an_unchanged_workspace_costs_no_snapshot() {
     );
 }
 
-/// The gate makes one tick's failure permanent, so a repository that stored
-/// nothing holds the baseline back even when the tar behind it took the
-/// tree. [`restore_on_start`] reads the repository first and never compares
-/// generations, so a repository that missed a tick is what the next restart
-/// gets, with a current tar sitting beside it.
+/// Verifies [`WorkspaceSyncTracker::store_current`]'s gate: a repository
+/// failure holds the baseline back even when the tar succeeded.
 #[tokio::test]
 async fn a_repository_that_stored_nothing_holds_the_baseline_back() {
     let tmp = tempfile::tempdir().unwrap();
@@ -479,9 +470,9 @@ async fn a_repository_that_stored_nothing_holds_the_baseline_back() {
     );
 }
 
-/// A backend that serves no repository at all owes this tree no snapshot,
-/// so it must not read as a repository that missed one — that would hold the
-/// baseline back for the task's whole life and cost a tar every tick.
+/// A backend that serves no repository at all owes this tree no snapshot, so it
+/// must not read as a repository that missed one — that would hold the baseline
+/// back for the task's whole life and cost a tar every tick.
 #[tokio::test]
 async fn a_backend_serving_no_repository_leaves_the_gate_working() {
     let tmp = tempfile::tempdir().unwrap();
@@ -509,9 +500,8 @@ async fn a_backend_serving_no_repository_leaves_the_gate_working() {
 }
 
 /// A mint that fails transiently stored nothing, so it must not read as a
-/// stored tar. With one gate in front of both writers, a baseline moved on
-/// that answer leaves the tree stored nowhere until something edits it —
-/// and the pre-stop sync is gated out too.
+/// stored tar: a baseline moved on that answer leaves the tree stored nowhere
+/// until something edits it.
 #[tokio::test]
 async fn a_failed_mint_does_not_count_as_a_stored_tar() {
     let tmp = tempfile::tempdir().unwrap();
@@ -538,9 +528,9 @@ async fn a_failed_mint_does_not_count_as_a_stored_tar() {
     );
 }
 
-/// A grant costs a backend round trip plus an STS mint and lasts an hour,
-/// so a sync interval short enough to bound a reclaim's loss must not spend
-/// one per tick.
+/// A grant costs a backend round trip plus an STS mint and lasts an hour, so a
+/// sync interval short enough to bound a reclaim's loss must not spend one per
+/// tick.
 #[tokio::test]
 async fn a_repository_grant_is_held_until_it_nears_expiry() {
     let backend = CountingBackend::granting_repository_access(chrono::TimeDelta::hours(1));
@@ -577,11 +567,8 @@ async fn a_repository_grant_is_held_until_it_nears_expiry() {
     );
 }
 
-/// A repository that fails still owes the task a durable copy. Task
-/// `5f0f1eaf` ran a whole session against a mirror failing every object
-/// with `411 Length Required`; because a failed transfer returned success,
-/// no tar was written either, and each restart found no copy at all and
-/// cloned over the work.
+/// A repository that fails still owes the task a durable copy: the tar behind
+/// it must still run so a restart finds some copy of the work.
 #[tokio::test]
 async fn a_failed_repository_falls_back_to_the_tar() {
     let tmp = tempfile::tempdir().unwrap();
@@ -633,13 +620,8 @@ async fn a_sandbox_without_the_s3_switch_never_uploads() {
     assert_eq!(backend.attempts(), 0);
 }
 
-/// The turn-boundary upload must not hold up the loop that spawned it, and
-/// the turns that arrive while it runs must not each get their own transfer.
-///
-/// Both halves are the same incident: an upload that failed on zero-byte
-/// files burned its full retry budget, and because the coordinator awaited
-/// it, an already-queued wake sat unread for four minutes (task
-/// `5f0f1eaf`).
+/// The turn-boundary upload must not hold up the loop that spawned it, and the
+/// turns that arrive while it runs must not each get their own transfer.
 #[tokio::test]
 async fn turn_uploads_run_off_the_caller_and_coalesce() {
     let tmp = tempfile::tempdir().unwrap();
@@ -1024,8 +1006,8 @@ async fn snapshot_captures_all_data_and_honors_repo_gitignore() {
 }
 
 /// A repo commits its own agent-config symlinks (`CLAUDE.md -> AGENTS.md`,
-/// `.claude/skills -> ../.agents/skills`). Restoring without them leaves a
-/// tree where git reports them deleted, and the deletion gets committed.
+/// `.claude/skills -> ../.agents/skills`). Restoring without them leaves a tree
+/// where git reports them deleted, and the deletion gets committed.
 #[tokio::test]
 async fn a_committed_symlink_survives_a_snapshot_round_trip() {
     let tmp = tempfile::TempDir::new().unwrap();

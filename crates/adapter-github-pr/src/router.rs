@@ -1,20 +1,14 @@
 //! The GitHub PR inbound-routing service.
 //!
-//! Everything a GitHub PR webhook does after admission — routing a message to
-//! its bound tasks, spawning a review task, auto-closing on PR close, and the
-//! post-merge / merge-conflict notices — reads a wide set of task, routing,
-//! message, and binding ports that are NOT adapter infrastructure and so do not
-//! belong on [`GithubPrAdapter`]. They also do not belong threaded one by one
-//! through the delivery closures. This is the constructed-once provider-band
-//! service that holds them: built at compose from the composition root's ports,
-//! captured by [`super::delivery::register`], and driving the four delivery
-//! handlers as methods — [`route_event`](Self::route_event) /
-//! [`close_subject`](Self::close_subject) in [`super::routing`],
-//! [`run_post_merge`](Self::run_post_merge) in [`super::post_merge`], and
-//! [`run_merge_conflict`](Self::run_merge_conflict) in [`super::merge_conflict`].
+//! Everything a GitHub PR webhook does after admission reads a wide set of
+//! task, routing, message, and binding ports that are NOT adapter
+//! infrastructure, so they don't belong on [`GithubPrAdapter`] or threaded one
+//! by one through the delivery closures.
 //!
-//! Every port it holds sits below the adapter band, so naming them here is a set
-//! of downward edges, not the upward reach into `AppState` this replaced.
+//! Built once at compose from the composition root's ports and captured by
+//! [`super::delivery::register`]; every port it holds sits below the adapter
+//! band, so naming them here is a set of downward edges, not the upward reach
+//! into `AppState`.
 
 use std::sync::Arc;
 
@@ -31,8 +25,8 @@ use moatless_ports::task::{TaskReader, TranscriptAppend};
 
 use super::adapter::GithubPrAdapter;
 
-/// Constructed-once inbound-routing service for the GitHub PR adapter. Holds the
-/// downward ports the four delivery handlers read; see the module doc.
+/// Constructed-once inbound-routing service for the GitHub PR adapter. Holds
+/// the downward ports the four delivery handlers read; see the module doc.
 pub struct GithubPrInboundRouter {
     /// Per-provider connection records — resolves a delivery to its connection.
     pub(super) adapter_connections: Arc<dyn ConnectionLookup>,
@@ -55,11 +49,12 @@ pub struct GithubPrInboundRouter {
     /// Delivers the PR-close notice into a bound task's chat.
     pub(super) message_send: Arc<dyn MessageAcceptor>,
     /// Terminal close (update Closed → remove sandbox → deactivate → publish),
-    /// which [`close_subject`](Self::close_subject) delegates to with an enriched
-    /// close event.
+    /// which [`close_subject`](Self::close_subject) delegates to with an
+    /// enriched close event.
     pub(super) task_closer: Arc<dyn TaskFinisher>,
-    /// The concrete adapter — `Some` when GitHub PR is configured. Source of the
-    /// self-resolved reply instructions and the merge / post-merge credential.
+    /// The concrete adapter — `Some` when GitHub PR is configured. Source of
+    /// the self-resolved reply instructions and the merge / post-merge
+    /// credential.
     pub(super) adapter: Option<Arc<GithubPrAdapter>>,
 }
 

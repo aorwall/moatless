@@ -42,9 +42,9 @@ async fn upload_files(api: &SlackApi, channel: &str, thread_ts: &str, message: &
 /// The text to post: the reply, its provenance footer, and every `<@…>`
 /// resolved to something Slack can address.
 ///
-/// A Moatless login linked to a Slack account becomes that account's mention; a
-/// Slack id is left alone, so anyone in the workspace is reachable whether or
-/// not Moatless knows them; anything else stays plain text and pings nobody.
+/// A linked login becomes that account's mention; a bare Slack id is left alone
+/// (reachable even if unknown to Moatless); anything else stays plain text and
+/// pings nobody.
 async fn outbound_text(
     adapter: &SlackAdapter,
     message: &OutboundReply,
@@ -66,9 +66,8 @@ async fn outbound_text(
 
 /// The provenance to render, honouring the Loop's `task_link` setting.
 ///
-/// The loops band assembles provenance for every Slack reply; whether it is
-/// shown is this adapter's call, because the setting lives in this adapter's
-/// config.
+/// The loops band assembles provenance for every reply; whether it's shown is
+/// this adapter's call, since the setting lives in its own config.
 fn wanted_provenance<'a>(
     message: &'a OutboundReply,
     config: &LoopContext,
@@ -82,8 +81,8 @@ fn wanted_provenance<'a>(
 /// The blocks to post for this reply, or `None` when it carries no Slack
 /// presentation and the text path applies unchanged.
 ///
-/// `provenance` is taken as an argument rather than read off `message` so the
-/// decision sits where [`text::with_task_link`] already makes it.
+/// `provenance` is an argument, not read off `message`, so the decision sits
+/// where [`text::with_task_link`] already makes it.
 fn reply_blocks(
     message: &OutboundReply,
     provenance: Option<&TaskProvenance>,
@@ -398,8 +397,8 @@ mod tests {
         serde_json::from_str(&request.body).expect("stub recorded a JSON body")
     }
 
-    /// The budget: one `chat.postMessage`, nothing else. The reply threads under
-    /// the binding's anchor and carries the task link.
+    /// The budget: one `chat.postMessage`, nothing else. The reply threads
+    /// under the binding's anchor and carries the task link.
     #[tokio::test]
     async fn a_thread_reply_costs_one_post_and_renders_the_task_link() {
         let stub = slack_stub().await;

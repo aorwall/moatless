@@ -4,11 +4,9 @@ use std::sync::Arc;
 
 /// Register a task as a member of this sandbox process.
 ///
-/// Idempotent per task: replaying `JoinTask` after a mid-join failure
-/// returns the existing context and does not spawn another agent loop.
-///
-/// `agent_type` overrides the harness on this Member's `Config` clone; `None`
-/// leaves the pod's `AGENT_TYPE`. See `JoinTaskRequest`.
+/// Idempotent per task: replaying `JoinTask` after a mid-join failure returns
+/// the existing context. `agent_type` overrides the harness on this Member's
+/// `Config` clone; `None` leaves the pod's `AGENT_TYPE`.
 pub(crate) async fn register(
     state: &SandboxState,
     task_id: String,
@@ -73,19 +71,11 @@ pub(crate) async fn register(
     Ok(context)
 }
 
-/// Replay the interrupted Run a pod replacement cut off for a Member that joins
-/// afterwards.
+/// Replay a Member's interrupted Run after a pod replacement, once it joins
+/// post-Ready.
 ///
-/// `open_for_work` covers only the Members registered when init reached Ready,
-/// and the reconciler re-issues `JoinTask` for the rest. Without this, a Member
-/// whose turn the replacement interrupted sits idle until the backend's reaper
-/// closes that turn as `reconciled_orphaned_turn`, and a person has to prod it.
-///
-/// Awaited rather than detached, and under the registration lock the caller
-/// already holds: `open_for_work` takes the same lock across its own recovery
-/// pass and the Ready flip, so each Member is recovered by exactly one of the
-/// two. Before Ready the just-inserted context is what that pass will iterate,
-/// so recovering here as well would replay the Run twice.
+/// Awaited under the caller's registration lock, which `open_for_work` shares
+/// across its own recovery pass, so each Member is recovered exactly once.
 async fn recover_interrupted_run(state: &SandboxState, context: &TaskContext) {
     if !state.is_ready().await {
         return;
@@ -94,10 +84,10 @@ async fn recover_interrupted_run(state: &SandboxState, context: &TaskContext) {
     crate::agent::restart::recover_interrupted_run_unless_pending(state, context, origin).await;
 }
 
-/// Wake a joining Member about the commands a pod replacement destroyed.
+/// Wake a joining Member about commands a pod replacement destroyed.
 ///
-/// Detached: `JoinTask` is the reconciler's own call, so a slow backend must not
-/// hold the RPC open behind it.
+/// Detached: `JoinTask` is the reconciler's own call, so a slow backend must
+/// not hold the RPC open behind it.
 fn report_lost_commands(
     state: &SandboxState,
     task_id: String,

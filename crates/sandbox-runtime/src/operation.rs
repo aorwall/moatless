@@ -14,11 +14,9 @@ use moatless_types::sandbox::SandboxStatus;
 
 /// The five caller-facing lifecycle operations.
 ///
-/// `is_edge` distinguishes the caller-owned edges (restart/redeploy) from the
-/// level operations (start/stop/remove) that the reconciler recovers. The
-/// spec keys several rules on this split — edge markers clear only when the
-/// *replacement* generation is observed Ready, whereas level markers clear on
-/// observed convergence plus a durable completion fact.
+/// `is_edge` splits caller-owned edges (restart/redeploy) from level operations
+/// (start/stop/remove) the reconciler recovers; see [`crate::marker`] for how
+/// each clears its persisted marker.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum OperationKind {
     Start,
@@ -74,9 +72,9 @@ impl fmt::Display for OperationKind {
 
 /// Did the intent write actually change persisted state?
 ///
-/// `Changed` covers **any** real intent change — the desired-state enum, the
-/// stop reason, or the archive retention — not only desired-state transitions.
-/// A stop that only rewrites the reason is still `Changed`.
+/// `Changed` covers any real change — desired-state, stop reason, or archive
+/// retention — not only desired-state transitions; a stop that only rewrites
+/// the reason is still `Changed`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IntentEffect {
     Changed,
@@ -91,9 +89,9 @@ impl IntentEffect {
 
 /// Did the runtime adapter actually do infrastructure work?
 ///
-/// The effect **must** come from the adapter's [`RuntimeOutcome`]. On retries
-/// intent is already persisted, so lifecycle cannot derive "did anything
-/// change" from intent, and it must not infer it through an extra status read.
+/// Must come from the adapter's [`RuntimeOutcome`]: on retries intent is
+/// already persisted, so lifecycle cannot derive it from intent or an extra
+/// status read.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeEffect {
     Applied,
@@ -108,11 +106,10 @@ impl RuntimeEffect {
 
 /// The status an operation reports as its immediate outcome.
 ///
-/// Distinct from [`crate::convergence::SandboxObservedStatus`]:
-/// this is the small "what did this call end at" projection returned to the
-/// caller. Adapters legitimately differ — Docker completes transitions
-/// synchronously and reports `Ready`; Kubernetes returns `Starting` and
-/// readiness arrives later through watcher observation.
+/// Distinct from [`crate::convergence::SandboxObservedStatus`] — this is the
+/// "what did this call end at" projection returned to the caller; Docker
+/// reports `Ready` synchronously, Kubernetes returns `Starting` with readiness
+/// arriving later via watcher observation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ObservedStatus {
     Ready,
@@ -148,20 +145,14 @@ impl fmt::Display for ObservedStatus {
     }
 }
 
-/// Monotonic, comparable operation identity.
+/// Monotonic, comparable operation identity, stamped on the resources an
+/// operation creates and carried on every watcher event as the *observed*
+/// generation.
 ///
-/// Stamped onto the runtime resources an operation creates (K8s pod-template
-/// label, Docker container label) and carried on every watcher event as the
-/// *observed* generation. Ordering is load-bearing: an observed generation
-/// **less than** the marker generation proves the event belongs to a
-/// superseded operation (an old pod's deliberate death during restart), which
-/// the watcher suppresses.
-///
-/// A newly requested operation allocates the next generation; recovery of an
-/// incomplete operation **reuses** its marker generation rather than minting a
-/// new one, so attempt accounting and event identity stay stable across
-/// retries. "generation" is qualified as *operation* generation throughout to
-/// avoid colliding with Kubernetes resource generations.
+/// Ordering is load-bearing: observed < marker proves a superseded operation
+/// (suppressed). Recovery reuses the marker's generation rather than minting a
+/// new one, keeping attempt accounting and event identity stable across
+/// retries.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct OperationGeneration(pub i64);
 
@@ -170,8 +161,9 @@ impl OperationGeneration {
         self.0
     }
 
-    /// The next generation after this one. Production allocates from a persisted
-    /// per-Task counter; only the in-memory test counter advances this way.
+    /// The next generation after this one. Production allocates from a
+    /// persisted per-Task counter; only the in-memory test counter advances
+    /// this way.
     #[cfg(test)]
     pub fn next(self) -> Self {
         Self(self.0 + 1)
@@ -186,10 +178,10 @@ impl fmt::Display for OperationGeneration {
 
 /// The correlation marker persisted atomically alongside intent.
 ///
-/// The marker outlives the adapter call — Kubernetes returns `Starting` before
-/// readiness and Docker events arrive asynchronously, so clearing on return
-/// would misclassify late events. Acknowledgement is the reconciler's job and
-/// is per operation class (see [`crate::marker`]).
+/// Outlives the adapter call — Kubernetes returns `Starting` before readiness
+/// and Docker events arrive async, so clearing on return would misclassify late
+/// events. Acknowledgement is the reconciler's job, per operation class (see
+/// [`crate::marker`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CorrelationMarker {
     pub kind: OperationKind,

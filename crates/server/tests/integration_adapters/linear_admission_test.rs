@@ -6,17 +6,16 @@
               and in the shared `common` module compiled into this binary; both lints only \
               fire when the db-tests feature is enabled"
 )]
-//! What the Linear route promises the sender, at the two edges of it.
+//! What the Linear route promises the sender, at the two edges of it: a `200`
+//! means a durable record exists, and where one cannot exist it is withheld.
 //!
-//! The identity tests next door assert that the right work reaches the Agent.
-//! These assert the property underneath: a `200` means a durable record exists,
-//! and where one cannot exist the `200` is withheld. Both are observed at the
-//! real inbound route, because both live between the signature check and the
-//! response — the one place a unit test cannot stand.
+//! The identity tests next door assert the right work reaches the Agent; these
+//! assert the property underneath, observed at the real inbound route because
+//! both live between the signature check and the response — a seam a unit test
+//! can't stand in.
 //!
-//! Neither case below needs a task, a binding, or a rule. That is deliberate:
-//! whether a delivery is *recorded* must not depend on whether anything is
-//! listening to it.
+//! Neither case below needs a task, a binding, or a rule: whether a delivery is
+//! *recorded* must not depend on whether anything is listening to it.
 
 use crate::common;
 
@@ -53,9 +52,8 @@ fn replica(pool: &PgPool) -> AppState {
     test_app_state_with_linear(pool.clone(), config)
 }
 
-/// Deliver a signed envelope the way Linear does, and return whatever the
-/// route answered — including a refusal, which is what half of this file is
-/// about.
+/// Deliver a signed envelope the way Linear does, and return whatever the route
+/// answered — including a refusal, which is what half of this file is about.
 async fn deliver(
     state: &AppState,
     envelope: &serde_json::Value,
@@ -143,13 +141,10 @@ fn notification(action: &str, kind: &str, id: &str) -> serde_json::Value {
     })
 }
 
-/// An `AppUserNotification` action this adapter does not act on is still a
-/// delivery that arrived, so it still gets a record.
+/// An unhandled `AppUserNotification` action still gets a delivery record.
 ///
-/// The action filter must not sit at the route: filtering there would
-/// acknowledge a whole class of Linear delivery with nothing durable behind
-/// it, leaving an operator no way to answer "did it arrive?". The decision
-/// belongs behind admission, and the no-op belongs in the worker.
+/// The filter belongs behind admission and as a worker no-op, not the route, so
+/// a whole class of delivery isn't acknowledged with nothing durable behind it.
 #[sqlx::test]
 async fn an_unhandled_notification_action_is_still_recorded_and_no_ops(pool: PgPool) {
     let state = replica(&pool);
@@ -215,14 +210,11 @@ async fn a_handled_notification_action_admits_under_the_same_kind(pool: PgPool) 
     );
 }
 
-/// An issue update Linear delivered without a `webhookTimestamp` has nothing
-/// that could tell it apart from the next update to the same issue.
+/// An issue update with no `webhookTimestamp` is indistinguishable from the
+/// next update to the same issue.
 ///
-/// Admitting it would not lose this delivery — it would lose the *next* one,
-/// silently and for the whole retention period, because the durable unique
-/// index would recognise a genuinely different state change as a duplicate of
-/// this one. So the route refuses instead, and withholds the acknowledgment
-/// rather than dropping the delivery quietly behind a `200`.
+/// Admitting it would silently collapse that next update as a duplicate, so the
+/// route refuses instead of acknowledging it.
 #[sqlx::test]
 async fn an_issue_update_without_a_delivery_timestamp_is_refused_rather_than_collapsed(
     pool: PgPool,
@@ -324,18 +316,8 @@ async fn an_issue_update_with_a_delivery_timestamp_is_admitted(pool: PgPool) {
     );
 }
 
-/// When the durable write itself fails, the sender is asked to send the
-/// delivery again — and nothing on this replica stands in the way of the
-/// redelivery.
-///
-/// This is the property the deleted in-process cache put at risk. It was
-/// marked *before* the dispatch ran, so every failed admission needed a
-/// compensating eviction, or the same replica would have dismissed Linear's
-/// next attempt as a duplicate and answered `200` — losing the delivery behind
-/// the acknowledgment the failure had just refused to give. With the cache
-/// gone there is nothing left to compensate for, and this asserts the outcome
-/// rather than the correction: same replica, same delivery, admitted the
-/// moment the store is back.
+/// When the durable write fails, the sender is asked to redeliver, and nothing
+/// on this replica stands in the way of admitting it once the store is back.
 #[sqlx::test]
 async fn a_delivery_whose_admission_failed_is_admitted_when_it_is_sent_again(pool: PgPool) {
     let state = replica(&pool);

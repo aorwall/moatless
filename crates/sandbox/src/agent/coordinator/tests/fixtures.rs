@@ -161,7 +161,8 @@ pub(super) fn sub_types(received: &Arc<Mutex<Vec<PublishEventRequest>>>) -> Vec<
         .collect()
 }
 
-/// The single delivered event with the given sub-type (panics if not exactly one).
+/// The single delivered event with the given sub-type (panics if not exactly
+/// one).
 pub(super) fn only(
     received: &Arc<Mutex<Vec<PublishEventRequest>>>,
     sub_type: &str,

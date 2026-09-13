@@ -12,25 +12,14 @@ use crate::auth::github::service::GitHubAppService;
 use crate::auth::provider_token_auth_dao::ProviderTokenAuthDao;
 use crate::auth::provider_token_dao::ProviderTokenDao;
 
-/// Ensure the GitHub token for a user is fresh.
+/// Ensures the GitHub token for a user is fresh, refreshing an expired,
+/// soon-to-expire, or undated `github_app` token and persisting new
+/// credentials; other token kinds, and a `github_app` row with no refresh
+/// token, return as-is.
 ///
-/// If the token was obtained via GitHub App (`auth_method = "github_app"`) and
-/// is expired, about to expire, or carries no expiry at all, refreshes it using
-/// the stored refresh token and persists the new credentials. A row with no
-/// expiry is undated rather than perpetual — every App user token expires — so
-/// one refresh both renews it and gives it a date.
-///
-/// For OAuth or PAT tokens, returns the token as-is. So does a `github_app` row
-/// holding no refresh token: there is nothing to renew it with, and the caller's
-/// 401 is what reports that.
-///
-/// # Concurrency
-///
-/// This function does NOT serialize concurrent callers — two parallel
-/// invocations for the same user would both attempt to refresh, and the loser
-/// would get `bad_refresh_token` because GitHub invalidates the prior refresh
-/// token on every successful exchange. Nothing serializes the GitHub token
-/// path; the Codex path keeps its own per-scope serialization in
+/// Not concurrency-safe: parallel calls for the same user race, and the loser
+/// gets `bad_refresh_token` since GitHub invalidates the prior refresh token on
+/// every exchange — the Codex path serializes separately in
 /// `credentials::codex`.
 pub async fn ensure_fresh_token(
     token_dao: &dyn ProviderTokenDao,

@@ -90,11 +90,11 @@ async fn two_ticks_of_one_prompt_each_open_a_turn() {
     assert_eq!(backend.queued().await.len(), 2);
 }
 
-/// A watch armed in an earlier turn keeps polling through the next one, so a
-/// `moat cmd` command can finish while the agent is parked on `ExitPlanMode`.
-/// The dispatcher answers a parked call with the first pending message, and the
-/// job's row must not be it: that would reject a plan nobody read and consume
-/// the wake in the same move.
+/// A `moat cmd` finishing while the agent is parked on `ExitPlanMode` must not
+/// answer that parked call.
+///
+/// The dispatcher answers a parked call with the first pending message;
+/// treating the wake as that answer would reject an unread plan.
 #[tokio::test]
 async fn a_job_prompt_does_not_answer_a_parked_prompt() {
     let backend = ReplayBackend::new(Ok(vec![]), None);
@@ -128,11 +128,11 @@ async fn a_job_prompt_does_not_answer_a_parked_prompt() {
     assert_eq!(backend.pending().await.len(), 1);
 }
 
-/// The step the test above stops at: the person answers, and the backend
-/// coalesces their row and the waiting wake into one delivery. The answer has to
-/// reach the parked call, and the wake must survive it — acknowledging the
-/// delivery whole would settle the wake as part of the answer and lose it, which
-/// is the loss this whole change exists to stop.
+/// The backend coalesces the person's answer and a waiting wake into one
+/// delivery; acking it whole wrongly settles the wake as the answer.
+///
+/// The answer must still reach the parked call, and the wake must survive to
+/// open its own turn afterward.
 #[tokio::test]
 async fn a_withheld_wake_survives_the_answer_and_opens_its_own_turn() {
     let backend = ReplayBackend::new(Ok(vec![]), None);
@@ -176,10 +176,11 @@ async fn a_withheld_wake_survives_the_answer_and_opens_its_own_turn() {
     assert!(backend.pending().await.is_empty());
 }
 
-/// The dispatch the agent never accepted: its ack channel is dropped, so the row
-/// is still pending and still this pod's own wake. The mark has to outlive the
-/// failed dispatch — the redispatch comes back `REDISPATCH_BACKOFF` later, and a
-/// run can have parked a prompt in between.
+/// A dispatch the agent never accepted (its ack channel dropped) leaves the row
+/// pending and still marked as this pod's own wake.
+///
+/// The mark must outlive that failed dispatch through the `REDISPATCH_BACKOFF`
+/// retry, even if a run parks a prompt in between.
 #[tokio::test]
 async fn a_wake_the_agent_never_accepted_keeps_its_mark() {
     let backend = ReplayBackend::new(Ok(vec![]), None);

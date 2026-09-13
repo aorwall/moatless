@@ -2,14 +2,12 @@
 //!
 //! This is the whole policy of a user-initiated send: prove the sender can
 //! reach the task, follow it on their behalf, persist the message, and wake the
-//! sandbox. It lived inside the HTTP handler until the T3 compatibility surface
-//! needed the same behaviour from a WebSocket frame, where there is no request
-//! body to parse and no response to build.
+//! sandbox — extracted so the T3 WebSocket path gets the same behavior the HTTP
+//! handler had, with no request body or response to build.
 //!
-//! [`send_message_flow`](super::send::MessageSendService::send_message_flow) below this is the
-//! persistence step alone; it neither checks access nor wakes anything, which is
-//! why the adapters and loops call it directly and callers acting for a
-//! person call this instead.
+//! [`send_message_flow`](super::send::MessageSendService::send_message_flow) is
+//! persistence alone — no access check, no wake — so adapters and loops call it
+//! directly while callers acting for a person call this instead.
 
 use crate::task::operations::TaskCommands;
 use crate::task::schemas::MessageContextInput;
@@ -39,9 +37,9 @@ pub struct UserMessage {
     /// The message's uuid when the caller owns it. See
     /// [`super::send::MessageSendService::send_message_flow`].
     pub message_uuid: Option<String>,
-    /// An answer to a question the agent asked, rather than a new message.
-    /// Both halves are required; one alone is treated as a plain message,
-    /// matching what the HTTP path did before this was extracted.
+    /// An answer to a question the agent asked, rather than a new message. Both
+    /// halves are required; one alone is treated as a plain message, matching
+    /// what the HTTP path did before this was extracted.
     pub tool_response: Option<ToolResponse>,
 }
 
@@ -64,13 +62,10 @@ pub struct Sender<'a> {
 
 /// Send `message` to `task_id` on `sender`'s behalf.
 ///
-/// Returns the persisted user message's uuid so a client can reconcile its own
-/// optimistic copy against the later `message.upsert`. A tool response produces
-/// no single user message and therefore returns `None`.
-///
-/// Waking the sandbox is best-effort and deliberately not fatal: the message is
-/// already persisted, and a failure to start is written into the conversation
-/// where the person reading the task will see it.
+/// Returns the persisted user message's uuid so a client can reconcile its
+/// optimistic copy against the later `message.upsert`; a tool response returns
+/// `None`. Waking the sandbox is best-effort, since the message is already
+/// persisted and a start failure is written into the conversation instead.
 pub async fn send_user_message(
     tasks: &TaskCommands,
     message_send: &MessageSendService,

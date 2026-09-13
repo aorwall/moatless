@@ -8,11 +8,9 @@
 use moatless_core::db::DbPool;
 use moatless_ports::task::EventSubject;
 
-/// Stamp a Message with the external event it arrived as, and return whether a
-/// row took it.
-///
-/// A Message that already names an event keeps it: the first claim is the
-/// arrival, and a later write would be a redelivery renaming history.
+/// Stamp a Message with the external event it arrived as; returns whether it
+/// took. A Message that already names an event keeps it — the first claim wins;
+/// a later write would rename history.
 pub(crate) async fn set_source_metadata(
     pool: &DbPool,
     message_uuid: &str,

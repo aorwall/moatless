@@ -27,11 +27,11 @@ use moatless_types::workspace::{RepoCheckout, derive_mount_name, sanitize_mount_
 // workspace (`build_repo_config_from_workspace` and friends); the repository row
 // carries no run-config, it is only a git connection.
 
-/// Build a `RepoConfig` from a workspace row — the runtime config source once a
-/// task references a workspace. Reads the workspace's JSONB run-config columns
-/// (`resources`, `network_profile`, `servers`, …). The workspace has no
-/// flattened preview columns, so `preview_config` is `None`; server entries come
-/// from the workspace's `servers` JSONB (data-driven).
+/// Builds a `RepoConfig` from a workspace row.
+///
+/// Reads the workspace's JSONB run-config columns (`resources`,
+/// `network_profile`, `servers`, …); the workspace has no flattened preview
+/// columns, so `preview_config` is always `None`.
 pub fn build_repo_config_from_workspace(ws: &ResolvedWorkspace) -> RepoConfig {
     let servers = build_server_configs_from_workspace(ws);
     let resources: Option<ResourceConfig> = ws.resources.clone();
@@ -75,14 +75,8 @@ pub fn build_server_configs_from_workspace(ws: &ResolvedWorkspace) -> Vec<Server
 /// The environment variables a workspace declares, less the keys the platform
 /// owns.
 ///
-/// The plan's `env_vars` are appended to the container env *after* the
-/// platform's own — `TASK_ID`, the auth tokens, `BACKEND_GRPC_URL` — in both
-/// runtime builders, and a later entry of the same name wins. So this is a
-/// channel a workspace could redefine the pod's identity or its git credential
-/// through, and it filters with the same [`is_platform_owned_key`] the
-/// credential channel does. Neither channel may be the only one that filters:
-/// a pod env is just the process's starting environment and the credential map
-/// overlays it, so each has to hold on its own.
+/// Appended into the container env after the platform's own, where a later
+/// entry of the same name wins.
 pub fn parse_env_vars_from_workspace(ws: &ResolvedWorkspace) -> Option<HashMap<String, String>> {
     let mut env_vars = ws.env_vars.clone()?;
     env_vars.retain(|key, _| !is_platform_owned_key(key));
@@ -133,19 +127,11 @@ fn assign_missing_ports(servers: &mut [ServerConfig]) {
     }
 }
 
-/// Build a `ProvisionRequest` from database state.
+/// Build a `ProvisionRequest` from database state. Every path to a pod (first
+/// start, wake, restart, reconciler retry, scale-up) builds its plan here.
 ///
-/// Provider-agnostic, and every path to a pod builds its plan here — first
-/// start, wake, restart, reconciler retry, scale-up of a reaped sandbox. That is
-/// why the control check rejects as [`SandboxError::Forbidden`], which lifecycle
-/// classifies as permanent: a sandbox whose pod would be refused its credentials
-/// must not be re-provisioned indefinitely.
-///
-/// Two checks deliberately do not run here. The Closed guard is per-Task, so
-/// `Lifecycle::guard_toward_running` applies it to the Task driving the
-/// operation. The GitHub probe stays on creation and task-start, because this
-/// also runs on every message wake and would put delivery behind GitHub's
-/// availability.
+/// Rejects [`SandboxError::Forbidden`] so a refused pod isn't retried forever;
+/// the Closed guard and GitHub probe skip this path — both apply elsewhere.
 pub(crate) async fn build_provision_request(
     sandboxes: &dyn LifecycleDao,
     workspaces: &dyn WorkspaceResolver,
@@ -325,8 +311,8 @@ pub(crate) async fn build_provision_request(
 /// A workspace repository placement with the git-pointer fields of its
 /// repository row already resolved.
 ///
-/// Plain owned data so checkout assembly ([`build_repo_checkouts`]) stays a pure,
-/// unit-testable function instead of needing DB fakes.
+/// Plain owned data, so checkout assembly ([`build_repo_checkouts`]) stays a
+/// pure, unit-testable function without DB fakes.
 #[derive(Debug, Clone)]
 struct ResolvedPlacement {
     repository_id: String,
@@ -343,10 +329,8 @@ struct ResolvedPlacement {
 /// Narrow the workspace's placements to the ones a sandbox can actually check
 /// out.
 ///
-/// A placement whose repository row is missing or has no remote URL is dropped
-/// with a warning rather than failing the whole provision: the workspace still
-/// has a usable primary, and a dangling placement is a config problem, not a
-/// runtime one.
+/// A placement with a missing repository row or no remote URL is dropped with
+/// a warning rather than failing the whole provision.
 fn resolve_placements(
     placements: &[RepoPlacement],
     sandbox_id: &str,
@@ -392,11 +376,8 @@ fn resolve_placements(
 /// Assemble the ordered checkout list the sandbox clones: the primary first,
 /// then the remaining placements by `position`.
 ///
-/// The primary's URL/branch/provider come from the caller with the task's branch
-/// override already applied. The primary mount name stays stable because an
-/// existing sandbox's persistent volume already holds the checkout there. Mount
-/// names are sanitized to one path segment and de-duplicated, with the primary
-/// claiming its name first so its directory never moves.
+/// The primary claims its mount name first, sanitized and de-duplicated, so
+/// an existing sandbox volume's checkout directory never moves.
 fn build_repo_checkouts(
     placements: &[ResolvedPlacement],
     primary_repository_id: &str,
@@ -463,9 +444,9 @@ fn build_repo_checkouts(
 
 /// Suffix a mount name until it no longer collides with an already-claimed one.
 ///
-/// Two placements can derive the same name (two repos both called `api`, or the
-/// same repo placed twice on different branches) — the DB's uniqueness index
-/// only covers explicitly-set names.
+/// Two placements can derive the same name (two repos both called `api`, or one
+/// repo placed twice on different branches); the DB's uniqueness index only
+/// covers explicitly-set names.
 fn unique_mount_name(requested: String, used: &HashSet<String>) -> String {
     if !used.contains(&requested) {
         return requested;
@@ -513,9 +494,9 @@ pub async fn get_server_configs_for_workspace(
 
 /// Resolve server configs from a workspace's `servers` JSONB.
 ///
-/// Returns `Err` on DB failures so callers can log. A workspace that no longer
-/// exists reads as no servers rather than a failure to report on every status
-/// pass — the same answer as a workspace that declares none.
+/// Returns `Err` only on DB failure; a workspace that no longer exists reads as
+/// no servers, same as one that declares none, rather than a failure reported
+/// on every status pass.
 async fn resolve_server_configs(
     workspaces: &dyn WorkspaceResolver,
     workspace_id: &str,
@@ -752,8 +733,8 @@ mod tests {
         assert_eq!(checkouts[1].branch.as_deref(), Some("release"));
     }
 
-    /// No placements readable (no workspace, or a DB error) still provisions the
-    /// primary repo.
+    /// No placements readable (no workspace, or a DB error) still provisions
+    /// the primary repo.
     #[test]
     fn no_placements_still_yields_the_primary_checkout() {
         let checkouts = build_repo_checkouts(

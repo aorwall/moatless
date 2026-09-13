@@ -1,14 +1,11 @@
-//! The event envelope: the top-level event type, the wire shape streamed to
-//! the frontend, and the sub-type union that carries each domain's own
+//! The event envelope: the top-level event type, the wire shape streamed to the
+//! frontend, and the sub-type union that carries each domain's own
 //! discriminator.
 //!
-//! The envelope crosses two boundaries:
-//! - Sandbox → Backend (via gRPC / sandbox-proto)
-//! - Backend → Redis → Frontend (via SSE / NDJSON)
-//!
-//! Each domain owns its own sub-types and payloads — see `sandbox`, `agent`,
-//! `task`, and `message`. All of them serialize to the exact strings the
-//! frontend expects.
+//! Crosses two boundaries: Sandbox → Backend (gRPC / sandbox-proto) and Backend
+//! → Redis → Frontend (SSE / NDJSON). Each domain owns its own sub-types and
+//! payloads — see `sandbox`, `agent`, `task`, `message` — and all serialize to
+//! the exact strings the frontend expects.
 
 // reason: test code may unwrap freely; production code keeps the workspace `deny`.
 #![cfg_attr(test, allow(clippy::unwrap_used))]
@@ -23,7 +20,6 @@ use crate::task::{TaskSubType, TaskTurnSubType};
 /// Top-level event types.
 ///
 /// Serializes to the exact strings the frontend `EventTypeSchema` expects.
-/// Renamed: "environment" → "sandbox" to avoid confusion with K8s environments.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
@@ -78,8 +74,8 @@ impl TryFrom<&str> for EventType {
 
 /// SSE event envelope — the shape of events streamed to the frontend.
 ///
-/// This is the canonical wire format for all SSE events. The frontend
-/// receives this shape and dispatches on `event_type` + `sub_type`.
+/// The canonical wire format for all SSE events; the frontend dispatches on
+/// `event_type` + `sub_type`.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
@@ -97,8 +93,8 @@ pub struct StreamEvent {
     pub turn_number: Option<i32>,
     /// What this event says about whether the agent is working, if anything.
     ///
-    /// Absent means *this event does not say*, so the client leaves whatever it
-    /// last knew alone. It never means "not working". See [`agent_working`].
+    /// Absent means *this event does not say* (client keeps its last known
+    /// value), never "not working". See [`agent_working`].
     #[serde(skip_serializing_if = "Option::is_none")]
     pub agent_working: Option<bool>,
     pub payload: serde_json::Value,
@@ -106,10 +102,10 @@ pub struct StreamEvent {
 
 /// What one event says about whether the agent is working.
 ///
-/// An event knows only the turn half of the question, so this is
-/// `moatless_types::running::derive_running` reduced to what a turn
-/// state alone implies. `agent.started`/`message`/`activity` move no turn row, but a
-/// run that is emitting is a run that is working.
+/// An event knows only the turn half of the question:
+/// `moatless_types::running::derive_running` reduced to what a turn state alone
+/// implies, plus `agent.started`/`message`/`activity`, which move no turn row
+/// but do mean the run is working.
 pub fn agent_working(event_type: &str, sub_type: &str) -> Option<bool> {
     if let Some(status) = crate::task::TurnStatus::from_event(event_type, sub_type) {
         return Some(status.is_open());

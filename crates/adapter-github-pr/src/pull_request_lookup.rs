@@ -15,9 +15,11 @@ pub struct DialogPullRequest {
     pub state: String,
 }
 
-/// Resolve an attach-PR reference against the cwd's `repo_owner/repo_name`,
-/// following an `owner/repo#N` or PR-URL reference to the repository it names.
-/// `Ok(None)` when the reference is not one this resolver understands.
+/// Resolve an attach-PR reference to the pull request it names.
+///
+/// Follows an `owner/repo#N` or PR-URL reference against the cwd's
+/// `repo_owner/repo_name`; `Ok(None)` when the reference is not one this
+/// resolver understands.
 pub async fn resolve_reference_for_dialog(
     adapter: &GithubPrAdapter,
     user_id: &str,
@@ -36,8 +38,8 @@ pub async fn resolve_reference_for_dialog(
     Ok(Some(to_dialog_pull_request(&pr, &owner, &repo)))
 }
 
-/// The open pull request whose head branch is `head`, for binding a Task created
-/// on a PR's head branch.
+/// The open pull request whose head branch is `head`, for binding a Task
+/// created on a PR's head branch.
 pub async fn find_open_pull_request_for_head(
     adapter: &GithubPrAdapter,
     user_id: &str,

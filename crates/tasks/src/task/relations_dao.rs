@@ -21,15 +21,13 @@ pub(crate) trait TaskRelationDao: Send + Sync {
         kind: Option<TaskRelationType>,
     ) -> Result<Vec<TaskRelation>, sqlx::Error>;
 
-    /// The single parent of `from_task_id`, if any — the `created_by` task
-    /// that spawned it or the `forked_from` task it was branched off. The
-    /// returned row's `relation_type` says which, because the two read the same
-    /// in a listing and differently in a prompt.
+    /// The single parent of `from_task_id`, if any — the `created_by` task that
+    /// spawned it or the `forked_from` task it was branched off. The returned
+    /// row's `relation_type` says which.
     async fn find_parent(&self, from_task_id: &str) -> Result<Option<TaskRelation>, sqlx::Error>;
 }
 
 /// The two relation types that make `from_task_id` a child of `to_task_id`.
-///
 /// Bound as a `text[]` rather than interpolated: these are data values, and the
 /// SQL that reads them must stay parameterised.
 const PARENT_RELATION_TYPES: [&str; 2] = ["created_by", "forked_from"];

@@ -16,8 +16,8 @@ use super::subject::GithubPrSubject;
 
 /// Parsed fields of a base-branch `workflow_run.completed` event.
 ///
-/// Serializable because it is carried as the payload of a `github.post_merge`
-/// Adapter delivery record (see [`super::delivery`]).
+/// Serializable: carried as the payload of a `github.post_merge` Adapter
+/// delivery record (see [`super::delivery`]).
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub(super) struct PostMergeRun {
     pub(super) run_id: u64,
@@ -138,15 +138,9 @@ impl GithubPrInboundRouter {
     /// resolve the merged PR from the commit sha and notify every task still
     /// connected to that PR.
     ///
-    /// Runs as a `github.post_merge` Adapter delivery, so it is off GitHub's
-    /// response deadline *and* survives a restart between acknowledgment and
-    /// execution. Skips entirely when the run isn't on the repo's default branch,
-    /// when no merged PR produced the commit, or when no active task is bound to
-    /// the PR.
-    ///
-    /// A skip is `Ok(())`; a failure that stopped the notice from being decided at
-    /// all is an error, so the work is retried rather than silently dropped the way
-    /// the spawned version dropped it.
+    /// Skips (returning `Ok(())`) when the run isn't on the default branch, no
+    /// merged PR produced the commit, or no active task is bound to it; any
+    /// other failure is retried rather than dropped.
     pub(super) async fn run_post_merge(
         &self,
         connection: &AdapterConnection,

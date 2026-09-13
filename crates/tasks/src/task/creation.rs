@@ -1,27 +1,11 @@
 //! Task creation service — the single owner of the create-then-provision
-//! sequence.
+//! sequence: short id, preflight, insert, tags, relations, optional first
+//! message, provisioning, and the task event.
 //!
-//! Creating a task means: generate a unique short id, run the GitHub-token
-//! preflight, insert the task row, assign tags, record relations, send an
-//! optional first message, provision the sandbox, and publish a task event.
-//! [`TaskCreationService`] is the one entry point for that sequence — the HTTP
-//! handler and the loop/adapter paths all go through it — so a provisioning fix
-//! lands once.
-//!
-//! Callers normalise their domain input (HTTP payload, webhook, loop config)
-//! into a [`NewTaskRequest`] and hand the service the two `AppState`-coupled
-//! steps as callbacks (first-message delivery and success-event enrichment).
-//! The service owns *when* each step runs and, crucially, the two consistency
-//! guarantees the consolidation exists for:
-//!
-//! * **preflight everywhere** — a failed preflight records the task as `Error`
-//!   and publishes a `SandboxStatus::Error` event (mirroring `start_task`)
-//!   rather than letting a doomed task proceed to a dead sandbox;
-//! * **provision-failure events** — a failed `sandbox.start` publishes a
-//!   `SandboxStatus::Error` event so the task shows as errored instead of
-//!   silently sitting dead, while creation itself still succeeds;
-//! * **one scope rule** — every task persists as `Scope::User` owned by
-//!   `created_by`, derived here rather than accepted from the caller.
+//! [`TaskCreationService::create`] is every caller's one entry point. It
+//! guarantees a failed preflight or provisioning step still records the task as
+//! `Error` with a `SandboxStatus::Error` event, and that every task persists as
+//! `Scope::User` owned by `created_by` regardless of caller input.
 
 use std::future::Future;
 use std::sync::Arc;
@@ -48,13 +32,9 @@ use moatless_types::task::RelatedTask;
 use moatless_types::task::Visibility;
 use moatless_workspaces::repository::models::Repository;
 
-/// Normalised task-creation input. Every call path (HTTP handler, loops,
-/// adapters) translates its domain input into this; the service never inspects
-/// HTTP payloads, webhooks, or loop configs.
-///
-/// Scope and ownership are deliberately absent: the service derives them from
-/// `created_by` (see [`TaskCreationService::create`]), so no caller can mint a
-/// task its own sandbox cannot control.
+/// Normalised task-creation input; every call path translates its domain input
+/// into this. Scope/ownership are absent — derived from `created_by` in
+/// [`TaskCreationService::create`], not from the caller.
 pub struct NewTaskRequest {
     pub repository_id: String,
     pub agent_type: AgentType,
@@ -80,41 +60,38 @@ pub struct NewTaskRequest {
     pub append_system_prompt: Option<String>,
     pub ttl_minutes: i32,
     pub inactive_ttl_days: i32,
-    /// Pre-resolved tag ids to attach (adapters pass their Loop's tag ids;
-    /// the HTTP path passes none).
+    /// Pre-resolved tag ids to attach (adapters pass their Loop's tag ids; the
+    /// HTTP path passes none).
     pub tag_ids: Vec<String>,
     /// Skills every fresh agent session on the task activates — a Loop's
     /// `skills`, or those chosen when the task was created.
     pub skills: Vec<String>,
     /// Optional `created_by` parent relation to record after insert.
     pub parent: Option<CreatedByParent>,
-    /// Set when this Task is a fork. Records the `forked_from` relation and,
-    /// when the parent's agent had a session to branch, the `task_forks` row —
-    /// both after the insert the two reference, and both before the first
-    /// message, which is what the pod reads them for.
+    /// Set when this Task is a fork. Records the `forked_from` relation, and
+    /// the `task_forks` row when the parent had a session to branch — both
+    /// written after insert, before the first message reads them.
     pub forked_from: Option<ForkedFrom>,
     /// Optional `related_to` peer relation to record after insert.
     pub related_to: Option<RelatedTask>,
     /// Optional first message; when present the service invokes the caller's
     /// send callback after provisioning.
     pub first_message: Option<FirstMessage>,
-    /// The task's id, when the caller owns it. The T3 compatibility surface
-    /// navigates to a thread id it minted before the create reaches us, so a
-    /// server-minted id would strand the client on a thread that never
-    /// appears. Every other caller passes `None` and gets a fresh uuid; a
-    /// collision fails the insert rather than silently reminting.
+    /// The task's id, when the caller owns it.
+    ///
+    /// T3 pre-mints it before create; others pass `None`, get a fresh uuid, and
+    /// a collision fails the insert.
     pub task_id: Option<String>,
-    /// Whether to start a sandbox as part of creation. `false` only from the
-    /// T3 compatibility surface, whose client can create a thread before
-    /// anyone has typed into it.
+    /// Whether to start a sandbox as part of creation. `false` only from the T3
+    /// compatibility surface, whose client can create a thread before anyone
+    /// has typed into it.
     pub provision: bool,
     /// Task-event subtype to publish — `Created` on the HTTP path, `Open` on
     /// loop/adapter paths. Kept per-caller by design.
     pub event_subtype: TaskSubType,
-    /// Optionally pre-fetched repository. When `Some`, the service uses it and
-    /// skips its own lookup (the HTTP path already fetched the repo for access
-    /// control); when `None`, the service fetches it and surfaces
-    /// [`TaskCreationError::RepoNotFound`] for an unknown id.
+    /// Optionally pre-fetched repository. `Some` skips the service's own lookup
+    /// (already done for access control); `None` fetches it, surfacing
+    /// [`TaskCreationError::RepoNotFound`] if unknown.
     pub repository: Option<Repository>,
 }
 
@@ -124,7 +101,8 @@ pub struct ForkedFrom {
     pub source_task_id: String,
     pub at_turn: Option<i32>,
     /// `None` when the parent's agent never ran at or before the cut. The fork
-    /// still carries the conversation; its first turn starts on a fresh session.
+    /// still carries the conversation; its first turn starts on a fresh
+    /// session.
     pub session: Option<ForkSession>,
 }
 
@@ -153,20 +131,15 @@ pub struct FirstMessage {
 pub enum ProvisionOutcome {
     Started,
     Failed,
-    /// No sandbox was asked for, because the task was created with nothing to
-    /// run. Only the T3 compatibility surface reaches this: its client can
-    /// create a thread before anyone has typed into it. A task in this state is
-    /// an ordinary open task with no messages — the absence of a sandbox
-    /// lifecycle record already means "none was ever requested", which is why
-    /// this needs no new task status.
+    /// No sandbox was asked for — only the T3 compatibility surface reaches
+    /// this, whose client creates a thread before typing. The task is ordinary
+    /// and open, needing no new status.
     Skipped,
 }
 
 /// Result of a successful creation: the inserted row plus the provision result.
-///
-/// `task` is the in-memory row as inserted; DB-populated columns
-/// (`created_at_db`, `updated_at`) are `None` because the row is not re-read
-/// after insert. Callers needing those must re-fetch the task by id.
+/// `task` is as inserted — DB-populated columns like `updated_at` are `None`;
+/// re-fetch by id if needed.
 #[derive(Debug)]
 pub struct TaskCreationOutcome {
     pub task: Task,
@@ -265,14 +238,9 @@ impl TaskCreationService {
         }
     }
 
-    /// Run the full creation sequence: short-id → preflight → insert → tags →
-    /// relations → optional first message → provision → task event.
-    ///
-    /// `build_event_payload` produces the success-event payload from the
-    /// inserted row (the HTTP path enriches it into `{ "task": … }`);
-    /// `send_first_message` delivers `req.first_message` when present. Both run
-    /// through the full `AppState` at the call site, which the service cannot
-    /// hold.
+    /// Runs the create-then-provision sequence documented on the module.
+    /// `build_event_payload` and `send_first_message` are callbacks closing
+    /// over the caller's `AppState`, which the service cannot hold.
     pub async fn create<EvFut, MsgFut>(
         &self,
         mut req: NewTaskRequest,
@@ -778,10 +746,9 @@ mod tests {
         assert_eq!(outcome.task.workspace_id.as_deref(), Some(WORKSPACE));
     }
 
-    /// A global-scoped loop fires as its bot user. The task it spawns must
-    /// still be `Scope::User` owned by that bot: the pod authenticates as
-    /// `created_by`, and the gRPC control gate refuses a global or ownerless
-    /// row, so anything else is a sandbox that can never fetch credentials.
+    /// A global-scoped loop fires as its bot user; the spawned task must still
+    /// be `Scope::User` owned by that bot — the pod authenticates as
+    /// `created_by`, and the gate refuses a global or ownerless row.
     #[tokio::test]
     async fn a_task_is_always_user_scoped_and_owned_by_its_creator() {
         let mut tasks = MockTaskDao::new();

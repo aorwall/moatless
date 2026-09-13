@@ -38,10 +38,12 @@ fn what_was_said_becomes_messages_and_what_was_done_becomes_activities() {
     );
 }
 
-/// The client sorts a work log by `sequence` and falls back to comparing
-/// `createdAt` as strings. Every activity of one Message shares that
-/// Message's single timestamp, so without a sequence a turn's tool calls
-/// would arrive in an order the transcript never had.
+/// The client sorts a work log by `sequence`, falling back to `createdAt` as
+/// strings.
+///
+/// Every activity of one Message shares that Message's single timestamp, so
+/// without a sequence a turn's tool calls would arrive in an order the
+/// transcript never had.
 #[test]
 fn activities_are_numbered_in_transcript_order() {
     let thread = detail(&a_conversation());
@@ -57,9 +59,9 @@ fn activities_are_numbered_in_transcript_order() {
     );
 }
 
-/// An activity delivered on its own has to sort into a work log built
-/// without it, which is only true while the number is the one the row was
-/// written with rather than a count taken while walking the transcript.
+/// An activity delivered on its own has to sort into a work log built without
+/// it, which is only true while the number is the one the row was written with
+/// rather than a count taken while walking the transcript.
 #[test]
 fn an_activitys_number_does_not_depend_on_the_transcript_it_was_read_with() {
     let whole = detail(&a_conversation());
@@ -115,10 +117,9 @@ fn a_tool_call_carries_its_outcome() {
 
 /// A subagent reaches the client as one task it watches run.
 ///
-/// The subagent's own work is not in the Task's stream, so this row is the
-/// whole of what is seen of it: it is reported as a running task while the
-/// call is open, and the completion lands on the same row — same id, so the
-/// client replaces it rather than adding a second row.
+/// The subagent's own work is not in the Task's stream; reported as a running
+/// task while the call is open, with the completion landing on the same id so
+/// the client replaces rather than adds a row.
 #[test]
 fn a_subagent_reaches_the_client_as_one_task_it_watches_run() {
     let mut conversation = a_conversation();
@@ -172,9 +173,9 @@ fn a_subagent_reaches_the_client_as_one_task_it_watches_run() {
     );
 }
 
-/// What a subagent has spent is not on the row that names it: the numbers
-/// are summed across Messages the transcript excludes and reach the row on
-/// the transcript that read them, keyed by the call's own id.
+/// What a subagent has spent is not on the row that names it: the numbers are
+/// summed across Messages the transcript excludes and reach the row on the
+/// transcript that read them, keyed by the call's own id.
 #[test]
 fn a_subagent_row_carries_what_its_agent_has_spent() {
     let mut conversation = a_conversation();
@@ -231,10 +232,11 @@ fn a_codex_shell_call_reaches_the_client_as_t3s_ran_command_row() {
     assert!(ran["payload"].get("title").is_none());
 }
 
-/// A call still running is reported as an update, not a completion: the
-/// client collapses an update into the completion that follows it, so a
-/// call reported complete before it is keeps the wrong row and drops the
-/// real outcome when it arrives.
+/// A call still running is reported as an update, not a completion.
+///
+/// The client collapses an update into the completion that follows it, so
+/// reporting complete too early keeps the wrong row and drops the real outcome
+/// when it arrives.
 #[test]
 fn a_tool_call_with_no_result_yet_is_still_in_progress() {
     let mut waiting = a_conversation();
@@ -266,8 +268,8 @@ fn a_stored_result_preview_does_not_replace_the_tool_request() {
     );
 }
 
-/// The result is stored whole beside its preview, so the raw values never
-/// reach this contract — which re-sends its whole snapshot every time the
+/// The result is stored whole beside its preview, so the raw values never reach
+/// this contract — which re-sends its whole snapshot every time the
 /// conversation moves.
 #[test]
 fn an_activity_carries_no_raw_call_or_result_payload() {
@@ -280,8 +282,8 @@ fn an_activity_carries_no_raw_call_or_result_payload() {
     }
 }
 
-/// A capped read that simply began in the middle would look like a
-/// conversation that began there.
+/// A capped read that simply began in the middle would look like a conversation
+/// that began there.
 #[test]
 fn a_capped_transcript_says_what_it_left_out() {
     let mut conversation = a_conversation();

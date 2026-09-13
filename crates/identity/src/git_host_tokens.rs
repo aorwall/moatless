@@ -293,11 +293,10 @@ impl GitHostTokens {
     ///
     /// `key` names the secret because one identity holds one `secret_ref` row
     /// per host, each pointing at its own — `GITHUB_TOKEN` for GitHub, and a
-    /// [`forgejo_token_key`] per Forgejo instance.
-    ///
-    /// Every failure mode is an error rather than an absent credential: a
-    /// reference row with no resolvable secret means the identity *is*
-    /// connected but the credential is unreachable.
+    /// [`forgejo_token_key`] per Forgejo instance. Every failure mode is an
+    /// error rather than an absent credential: a reference row with no
+    /// resolvable secret means the identity *is* connected but the credential
+    /// is unreachable.
     async fn read_secret_ref_token(&self, actor: &Actor, key: &str) -> Result<String, AuthError> {
         self.secrets
             .resolve_scope_secret(
@@ -353,8 +352,6 @@ impl GitHostTokens {
     /// A Forgejo OAuth row refreshes near expiry. Every failure falls back to
     /// the stored access token, which may still be valid; the host's own
     /// rejection is what reports it when it is not.
-    ///
-    /// # Concurrency
     ///
     /// Unserialized, on the terms
     /// [`crate::auth::token_refresh::ensure_fresh_token`] states.

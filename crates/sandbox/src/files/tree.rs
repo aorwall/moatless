@@ -1,7 +1,7 @@
 //! File tree building with optional git change overlay.
 //!
-//! Ports the TypeScript `file-tree-builder.ts` and `FileService.listFiles()`
-//! / `FileService._computeTree()` logic.
+//! Ports the TypeScript `file-tree-builder.ts` and `FileService.listFiles()` /
+//! `FileService._computeTree()` logic.
 
 use std::collections::HashMap;
 
@@ -10,13 +10,11 @@ use tokio::fs;
 use super::git::{self, GitFileInfo};
 use super::{FileError, validate_path};
 
-/// Resolve a caller-supplied root into a path inside the workspace.
+/// `.`/empty mean the workspace root; anything else goes through
+/// [`validate_path`].
 ///
-/// `.` and the empty string mean the workspace root. Everything else goes
-/// through [`validate_path`], which refuses absolute paths and `..` segments.
-/// Joining is not enough on its own: `Path::join` *replaces* the base when its
-/// argument is absolute, so `path=/etc` would otherwise walk the container
-/// filesystem instead of the workspace.
+/// Plain `Path::join` isn't enough: it *replaces* the base on an absolute
+/// argument, so `path=/etc` would otherwise walk the container filesystem.
 fn resolve_root(workspace_dir: &str, relative_path: &str) -> Result<std::path::PathBuf, FileError> {
     if relative_path == "." || relative_path.is_empty() {
         return Ok(std::path::PathBuf::from(workspace_dir));
@@ -62,18 +60,11 @@ pub struct GitSummary {
 /// Skip these directories when walking the file tree.
 const SKIP_DIRS: &[&str] = &[".git", "node_modules"];
 
-/// List files in a directory, relative to workspace root.
+/// `recursive` walks subdirectories (dirs get a trailing `/`,
+/// `.git`/`node_modules` skipped).
 ///
-/// When `recursive` is true, walks subdirectories. Directories are
-/// suffixed with `/` in the output. Skips `.git` and `node_modules`.
-///
-/// `respect_gitignore` additionally drops whatever the repositories in the walk
-/// ignore. Off by default, and deliberately: a caller reading the workspace to
-/// find a build artifact needs to see one. It is on for callers presenting the
-/// workspace as a *repository* to a person, where a recursive walk otherwise
-/// returns mostly `target/`, `dist/` and `.venv` — tens of thousands of paths
-/// that bury the source they are derived from. Ignore rules only apply inside a
-/// git repository, so a workspace that is not one is walked whole either way.
+/// `respect_gitignore` additionally drops what repos ignore — off by default so
+/// builds stay visible, on to present the workspace as a repo.
 pub async fn list_files(
     workspace_dir: &str,
     relative_path: &str,
@@ -109,12 +100,11 @@ pub async fn list_files(
     Ok(files)
 }
 
-/// The same listing as [`walk_dir`], with each repository's ignore rules applied.
+/// The same listing as [`walk_dir`], with each repository's ignore rules
+/// applied.
 ///
-/// The two produce the same strings for a path both of them yield: a directory
-/// with a trailing slash, a file without, relative to the walk's root and
-/// prefixed by it. That is the whole of the contract between them, and it is
-/// what lets one flag choose between them.
+/// Both yield the same strings for a shared path — a directory with a trailing
+/// slash, a file without, relative to and prefixed by the walk's root.
 fn walk_respecting_ignores(
     root: &std::path::Path,
     base_prefix: &str,
@@ -200,8 +190,8 @@ fn walk_dir<'a>(
 
 /// Build a hierarchical tree from a flat list of file paths.
 ///
-/// Paths ending in `/` are treated as directories.
-/// `git_file_map` provides optional git change overlay.
+/// Paths ending in `/` are treated as directories; `git_file_map` provides
+/// optional git change overlay.
 pub fn build_file_tree(
     file_paths: &[String],
     git_file_map: &HashMap<String, GitFileInfo>,
@@ -353,14 +343,11 @@ fn sort_nodes(nodes: &mut [FileTreeNode]) {
 
 // ─── Orchestration ──────────────────────────────────────────────
 
-/// Get the file tree with git change overlay.
+/// Returns `(tree, git_summary)`; without git, annotations are dropped and the
+/// summary is empty.
 ///
-/// Returns `(tree, git_summary)`. If git is unavailable, the tree is
-/// returned without change annotations and the summary is empty.
-///
-/// When `recursive` is false, the tree contains only the direct children
-/// of `root_path`. Directory `is_changed` flags are computed from the git
-/// diff so collapsed folders still show change badges.
+/// When `recursive` is false, only `root_path`'s direct children are held, but
+/// `is_changed` still reflects the full diff, so folders show change badges.
 pub async fn get_file_tree_with_changes(
     workspace_dir: &str,
     root_path: &str,
@@ -459,8 +446,8 @@ mod tests {
 
     /// An absolute root must not escape the workspace. `Path::join` replaces
     /// the base when its argument is absolute, so this listed the container
-    /// filesystem — `path=/etc` enumerated `/etc`, and `/home/<user>` exposed
-    /// the names under `.ssh`.
+    /// filesystem — `path=/etc` enumerated `/etc`, exposing names under `.ssh`
+    /// via `/home/<user>`.
     #[tokio::test]
     async fn listing_refuses_an_absolute_root() {
         let tmp = tempfile::TempDir::new().unwrap();
@@ -648,9 +635,9 @@ mod tests {
 
     /// The listing a person is shown of a checkout that has been built in.
     ///
-    /// The flag is what keeps the build tree out. Without it the walk returns
-    /// the artifacts too — which is right for a caller looking for one, and is
-    /// why this is a flag rather than the walk's new behaviour.
+    /// The flag is what keeps the build tree out; without it the walk returns
+    /// the artifacts too, which is right for a caller looking for one — hence a
+    /// flag, not the walk's default behavior.
     #[tokio::test]
     async fn list_files_respecting_gitignore_drops_what_the_repository_ignores() {
         let tmp = tempfile::TempDir::new().unwrap();

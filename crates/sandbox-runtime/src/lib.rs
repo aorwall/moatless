@@ -4,18 +4,14 @@
 
 //! What a sandbox runtime implements, and the machinery every runtime reuses.
 //!
-//! Two things live here. The **contract** is what a container runtime must
-//! satisfy: [`runtime::SandboxRuntime`] for mutation, [`fleet::FleetObserver`]
-//! for observation, and the values both sides speak in — a
-//! [`runtime::RuntimeOutcome`], an [`operation::OperationGeneration`], a
-//! [`convergence::SandboxObservedStatus`], a [`provisioning::ProvisionRequest`]. The
-//! **machinery** is everything a runtime needs to answer with: the gRPC client
-//! and its error classification, the status reads, the storage plan, the
-//! response schemas, and the ingress counters.
+//! The **contract** is [`runtime::SandboxRuntime`] (mutation) and
+//! [`fleet::FleetObserver`] (observation) plus shared values like
+//! [`runtime::RuntimeOutcome`] and [`convergence::SandboxObservedStatus`]; the
+//! **machinery** is the gRPC client, status reads, storage plan, response
+//! schemas, and ingress counters.
 //!
-//! The orchestrator that drives a runtime — `Lifecycle`, the reconciler, the
-//! watcher, and the durable intent behind them — lives in
-//! `moatless-sandbox-control`, a band above. Nothing here may reach it.
+//! The orchestrator (`Lifecycle`, the reconciler, the watcher) lives a band
+//! above in `moatless-sandbox-control` and never reaches down into this crate.
 
 pub mod access;
 pub mod classify;

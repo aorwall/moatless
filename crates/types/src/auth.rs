@@ -1,8 +1,8 @@
-//! Authentication settings: which provider signs a user in, and the
-//! credentials each one needs.
+//! Authentication settings: which provider signs a user in, and the credentials
+//! each one needs.
 //!
-//! The redacting `Debug` impls are what keeps secrets out of logs, so every
-//! one of them travels with its struct.
+//! The redacting `Debug` impls are what keeps secrets out of logs, so every one
+//! of them travels with its struct.
 
 use std::fmt;
 use std::str::FromStr;
@@ -14,9 +14,9 @@ use crate::user::UserRole;
 
 /// Supported auth providers.
 ///
-/// `Local` is the default: email/password against the `user_credentials`
-/// table, with a bootstrap admin seeded at startup. OIDC deployments may keep
-/// a separately enabled break-glass administrator credential.
+/// `Local` is the default: email/password against `user_credentials`, with a
+/// bootstrap admin seeded at startup; OIDC deployments may keep a separately
+/// enabled break-glass administrator credential.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum AuthProvider {
     #[default]
@@ -67,7 +67,8 @@ pub struct AuthConfig {
     /// Active auth provider. Defaults to [`AuthProvider::Local`]
     /// (email/password against `user_credentials`).
     pub provider: AuthProvider,
-    /// Required GitHub organization login. When set, only members of this org can log in.
+    /// Required GitHub organization login. When set, only members of this org
+    /// can log in.
     pub github_required_org: Option<String>,
     /// Auth0 domain (e.g., "myapp.us.auth0.com")
     pub auth0_domain: Option<String>,
@@ -91,18 +92,18 @@ pub struct AuthConfig {
     /// Frontend URL for redirects (default: "<http://localhost:3000>")
     pub frontend_url: String,
     /// Browser origins trusted for the double-submit CSRF check beyond
-    /// [`Self::frontend_url`]. A first-party client served from another host —
-    /// the T3 web client — reaches `/api` on its own origin through the same
-    /// Traefik route, so its `Origin` never equals `frontend_url`. Env:
-    /// `CSRF_TRUSTED_ORIGINS`. Name a first-party UI origin exactly; a wildcard
-    /// here trusts every host under it with the session cookie
-    /// (`moatless_core::config::csrf_trusted_origins_from_env`).
+    /// [`Self::frontend_url`] (env: `CSRF_TRUSTED_ORIGINS`).
+    ///
+    /// The T3 web client reaches `/api` via Traefik on its own origin, so it
+    /// needs an explicit entry; a wildcard host trusts every subdomain with the
+    /// session cookie.
     pub csrf_trusted_origins: Vec<AllowedOrigin>,
     /// Cookie domain (e.g., ".moatless.xyz"). None for localhost.
     pub cookie_domain: Option<String>,
     /// Session cookie name (default: "`moatless_session`")
     pub session_cookie_name: String,
-    /// Whether the app is running in production mode (affects cookie Secure flag)
+    /// Whether the app is running in production mode (affects cookie Secure
+    /// flag)
     pub is_production: bool,
     /// Login of the bootstrap admin seeded at startup under
     /// [`AuthProvider::Local`] (env: `ADMIN_USERNAME`, default `"admin"`).
@@ -116,14 +117,15 @@ pub struct AuthConfig {
     pub break_glass_enabled: bool,
     /// Auth cache TTL in seconds (default: 30).
     pub cache_ttl_secs: u64,
-    /// Secret for signing session JWTs (env: `SESSION_JWT_SECRET`).
-    /// Falls back to `sandbox.task_token_secret` when not set.
+    /// Secret for signing session JWTs (env: `SESSION_JWT_SECRET`). Falls back
+    /// to `sandbox.task_token_secret` when not set.
     pub session_jwt_secret: Option<String>,
     /// Raw `mvk_`-prefixed API key for a test user auto-created on startup.
     /// When set, upserts a dedicated `test-api-user` and inserts the API key.
     /// No OAuth login required.
     pub test_api_key: Option<String>,
-    /// Default team slug. On login, if a user has no teams and a default team exists, they are added to it.
+    /// Default team slug. On login, if a user has no teams and a default team
+    /// exists, they are added to it.
     pub default_team_slug: Option<String>,
 
     // --- GitHub App (user authorization flow) ---
@@ -143,13 +145,12 @@ pub struct AuthConfig {
     pub github_app_default_installation_id: Option<u64>,
 
     /// Additional GitHub Apps registered as bot identities (e.g. `dev-bot`,
-    /// `review-bot`). Loaded from the `GITHUB_APPS_JSON` env var, which is now
-    /// a one-time upgrade path only: the first start after upgrading copies
-    /// each entry into `github_apps` and the variable is ignored from then on
-    /// (see `GitHubAppRegistry::carry_over_env_apps`). It holds a
-    /// JSON array of [`GitHubAppConfig`] entries. A bot user's
-    /// `provider_tokens` row stores the matching `key` in `provider_user_id`,
-    /// so credential resolution picks the right App.
+    /// `review-bot`).
+    ///
+    /// `GITHUB_APPS_JSON` is a one-time upgrade path: the first start after
+    /// upgrading copies each entry into this field and ignores the env var from
+    /// then on (see `GitHubAppRegistry::carry_over_env_apps`). A bot user's
+    /// `provider_tokens.provider_user_id` stores the matching `key`.
     pub github_apps: Vec<GitHubAppConfig>,
 }
 
@@ -157,10 +158,9 @@ impl AuthConfig {
     /// The credentials the GitHub App user-authorization flow needs, present
     /// only when all three are configured.
     ///
-    /// The one authority on whether that flow can run at all. Both GitHub App
-    /// *login* and *connect* go through it, so a deployment that signs people
-    /// in some other way still answers `Some` here and can still offer GitHub
-    /// access without a Personal Access Token.
+    /// The one authority on whether that flow can run at all — both GitHub App
+    /// *login* and *connect* go through it, so a deployment using another
+    /// sign-in method can still offer GitHub access without a PAT.
     pub fn github_app_oauth(&self) -> Option<(&str, &str, &str)> {
         Some((
             self.github_app_client_id.as_deref()?,
@@ -240,18 +240,11 @@ impl fmt::Debug for GitHubAppConfig {
 
 /// One entry of a browser origin allow-list.
 ///
-/// Each list says what its own origins may do and is configured separately —
-/// [`AuthConfig::csrf_trusted_origins`] admits a cookie-authenticated write,
-/// where the T3 WebSocket list admits a socket. The grants are not
-/// interchangeable, so an entry earns its place on one list at a time.
-///
-/// An entry whose host is `*.<domain>` admits any host under that domain on the
-/// same scheme. Sandbox previews are reached at a per-workspace hostname that
-/// only exists once the workspace does, so naming each one is not something a
-/// deployment can do in advance.
-///
-/// The wildcard is a host suffix and nothing more: it never spans a scheme, and
-/// a port makes the origin a different one it does not cover.
+/// Grants are list-specific, not interchangeable —
+/// [`AuthConfig::csrf_trusted_origins`] admits a cookie write, the T3 WebSocket
+/// list a socket. A `*.<domain>` entry admits any same-scheme host under it,
+/// for sandbox previews whose per-workspace hostname isn't known in advance;
+/// the wildcard never spans scheme or port.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AllowedOrigin {
     Exact(String),
@@ -288,7 +281,8 @@ impl AllowedOrigin {
 }
 
 /// Parse a comma-separated origin allow-list, as `T3_UI_RPC_ALLOWED_ORIGINS`
-/// carries it. Blank entries are dropped, so an unset variable yields no origins.
+/// carries it. Blank entries are dropped, so an unset variable yields no
+/// origins.
 pub fn parse_allowed_origins(value: &str) -> Vec<AllowedOrigin> {
     value
         .split(',')
@@ -463,7 +457,7 @@ mod tests {
 }
 
 /// The authenticated user identity, set by the auth middleware on every
-/// successfully-validated request.  Downstream extractors read this from
+/// successfully-validated request. Downstream extractors read this from
 /// `request.extensions()` instead of headers.
 #[derive(Debug, Clone)]
 pub struct AuthIdentity {
@@ -478,9 +472,8 @@ pub struct AuthIdentity {
 /// alongside [`AuthIdentity`].
 ///
 /// Read by handlers whose defences depend on *how* the caller proved who they
-/// are rather than on who they are — the WebSocket origin check being the one
-/// that exists: a cookie is attached by the browser to any request anybody can
-/// cause it to make, and the other two are attached only by a client that holds
+/// are, not who they are — a cookie is attached by the browser to any request
+/// anybody can cause it to make, while the other two require a client holding
 /// them deliberately.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AuthMethod {
@@ -490,8 +483,10 @@ pub enum AuthMethod {
     /// upgrade.
     WebSocketTicket,
     /// A sandbox-issued `X-User-Token` JWT, carried by the agent's CLI from
-    /// inside a sandbox pod. A deliberately-held bearer credential, so like an
-    /// API key it is exempt from CSRF; it also marks the request as agent
-    /// context for `source`-tagging downstream.
+    /// inside a sandbox pod.
+    ///
+    /// A deliberately-held bearer credential, so like an API key it's exempt
+    /// from CSRF; also marks the request as agent context for `source`-tagging
+    /// downstream.
     UserToken,
 }

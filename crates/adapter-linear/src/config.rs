@@ -1,44 +1,47 @@
 //! Typed view of Linear subscription-loop fields used by the webhook parser.
 //!
-//! Each `SubscriptionMatch` is a "listener" with its own filter. Several subscriptions can
-//! share a single Linear team UUID (multi-listener support is what migration
-//! `0036` enables) — each one is evaluated independently.
+//! Each `SubscriptionMatch` is a "listener" with its own filter. Several
+//! subscriptions can share a single Linear team UUID (multi-listener support is
+//! what migration `0036` enables) — each one is evaluated independently.
 
 use moatless_types::loops::SubscriptionMatch;
 
 /// Default workflow state names whose ENTRY fires task creation.
 const DEFAULT_TRIGGER_STATES: &[&str] = &["Todo", "In Progress"];
 
-/// Default workflow state TYPES whose ENTRY closes associated tasks
-/// (when `close_task_on_close` is set on the subscription). These are matched against
-/// Linear's stable `state.type` enum, not the user-facing state name — so a
-/// workspace that renames "Done" to "Shipped" still closes correctly.
+/// Default workflow state TYPES whose ENTRY closes associated tasks (gated by
+/// `close_task_on_close`).
+///
+/// Matched against Linear's stable `state.type` enum, not the display name, so
+/// a workspace that renames "Done" to "Shipped" still closes correctly.
 const DEFAULT_TERMINAL_STATES: &[&str] = &["completed", "canceled"];
 
 /// Extracted Linear-specific knobs from a `SubscriptionMatch`.
 #[derive(Debug, Clone)]
 pub struct LinearRuleConfig {
-    /// Required labels — issue must carry every label here to trigger.
-    /// Empty = no label filter.
+    /// Required labels — issue must carry every label here to trigger. Empty =
+    /// no label filter.
     pub require_labels: Vec<String>,
     /// States whose ENTRY fires task creation FOR THIS LISTENER. Per-listener:
-    /// each subscription can configure different trigger states (e.g. one listener
-    /// fires on "Todo", another on "In Progress").
+    /// each subscription can configure different trigger states (e.g. one
+    /// listener fires on "Todo", another on "In Progress").
     pub trigger_states: Vec<String>,
     /// State TYPES (Linear's `state.type` enum, e.g. `"completed"`,
-    /// `"canceled"`) whose ENTRY closes tasks owned by this listener
-    /// (gated by `close_task_on_close`). Matched against `state.type` rather
-    /// than `state.name` so renamed workspace states still trigger close.
+    /// `"canceled"`) whose ENTRY closes tasks owned by this listener, gated by
+    /// `close_task_on_close`.
+    ///
+    /// Matched against `state.type` rather than `state.name`, so renamed
+    /// workspace states still trigger close.
     pub terminal_states: Vec<String>,
     /// Mirror of the subscription's scalar `close_task_on_close` column.
     pub close_task_on_close: bool,
-    /// Opt-in: when `true`, an `Issue.update` that moves the issue INTO one of
-    /// `trigger_states` (and satisfies `require_labels` / `project_ids`) spawns
-    /// a brand-new Moatless task for the issue. Defaults to `false` so the
-    /// pre-existing mention/assignment-only Linear subscriptions are unaffected — they
-    /// carry the legacy non-empty `trigger_states` default but must NOT start
-    /// auto-creating tasks on every status change. `on: linear` loops set this
-    /// to `true` explicitly.
+    /// Opt-in: when `true`, an `Issue.update` moving the issue into a
+    /// `trigger_states` entry (satisfying `require_labels`/`project_ids`)
+    /// spawns a new Moatless task.
+    ///
+    /// Defaults to `false` so pre-existing mention/assignment-only
+    /// subscriptions, which carry the legacy non-empty `trigger_states`, don't
+    /// start auto-creating tasks; `on: linear` loops opt in explicitly.
     pub create_on_status_entry: bool,
     /// Project allowlist — issue must belong to one of these Linear project
     /// UUIDs to fire status-entry creation. Empty = any project.
@@ -50,11 +53,12 @@ pub struct LinearRuleConfig {
 }
 
 impl LinearRuleConfig {
-    /// Parse from an `SubscriptionMatch`'s `adapter_config` JSONB column plus
-    /// the scalar `close_task_on_close` column. We use `adapter_config` (not
-    /// `event_filter`) because Linear's filter is an OBJECT — `event_filter`
-    /// is typed as `Vec<String>` in the public request DTO, suitable for
-    /// GitHub's webhook-event-type list but not for Linear's nested knobs.
+    /// Parse from a `SubscriptionMatch`'s `adapter_config` JSONB column plus
+    /// the scalar `close_task_on_close` column.
+    ///
+    /// Uses `adapter_config`, not `event_filter`, because Linear's filter is an
+    /// OBJECT while `event_filter` is typed `Vec<String>` for GitHub's
+    /// webhook-event-type list.
     pub fn from_rule(rule: &SubscriptionMatch) -> Self {
         // `adapter_config` may be null when no Linear-specific config was
         // supplied — fall back to an empty object so default state lists kick
@@ -105,9 +109,11 @@ impl LinearRuleConfig {
     }
 
     /// Whether this listener should spawn a task when the issue enters
-    /// `state_name`. Requires the opt-in flag AND a non-empty `trigger_states`
-    /// containing the new state. An explicit empty `trigger_states` therefore
-    /// disables status-entry creation even when the flag is set.
+    /// `state_name`.
+    ///
+    /// Requires the opt-in flag and a non-empty `trigger_states` containing the
+    /// state; an explicit empty `trigger_states` disables creation even when
+    /// the flag is set.
     pub fn creates_on_status(&self, state_name: &str) -> bool {
         self.create_on_status_entry && self.trigger_states.iter().any(|s| s == state_name)
     }
@@ -144,26 +150,12 @@ fn string_list(value: &serde_json::Value, key: &str) -> Option<Vec<String>> {
     })
 }
 
-/// Pick the subscription that should spawn a task for a mention/assignment, given the
-/// issue's `project_id` and `labels`. Several Linear listeners can share one team
-/// (e.g. an unscoped `soap-specs` listener plus a project-scoped
-/// `vulnerability-fix` listener); team alone can't disambiguate, so we route by
-/// project + labels:
+/// Pick the subscription that should spawn a task for a mention/assignment.
 ///
-/// - **Tier 1 — scoped match:** the first listener that is project-scoped
-///   (`project_ids` non-empty) AND whose project allowlist admits `project_id`
-///   AND whose `require_labels` are all present. A mention on a project that a
-///   scoped listener targets routes to that listener.
-/// - **Tier 2 — fallback:** the first listener with an EMPTY `project_ids` — the
-///   unscoped catch-all. Labels are intentionally NOT consulted here: the
-///   catch-all is the default lane for everything not claimed by a scoped listener.
-/// - **Tier 3 — legacy:** no scoped match and no unscoped listener → `rules.first()`,
-///   preserving the previous "oldest listener wins" behavior for teams that predate
-///   project scoping.
-///
-/// Returns `None` only when `rules` is empty. A failed issue fetch is modeled by
-/// the caller as `(None, &[])`, which naturally degrades through Tier 2/3 — no
-/// special-casing needed here.
+/// Several listeners can share one team, so this routes by project + labels:
+/// the first project-scoped listener admitting `project_id` and `labels` wins;
+/// else the first unscoped catch-all (labels not consulted); else
+/// `rules.first()` for pre-scoping teams. `None` only when `rules` is empty.
 pub fn select_spawn_rule<'a>(
     rules: &'a [SubscriptionMatch],
     project_id: Option<&str>,
@@ -190,11 +182,12 @@ pub fn select_spawn_rule<'a>(
     rules.first()
 }
 
-/// Whether selecting a spawn listener requires fetching the full issue (to learn its
-/// project + labels). True iff any listener is project-scoped (`project_ids`
-/// non-empty). When every listener is unscoped, [`select_spawn_rule`] can't be
-/// influenced by the project/labels, so the caller skips the extra API round-trip
-/// entirely — all-unscoped teams pay nothing, preserving the pre-scoping path.
+/// Whether selecting a spawn listener requires fetching the full issue (project
+/// + labels).
+///
+/// True iff any listener is project-scoped; when every listener is unscoped,
+/// [`select_spawn_rule`] can't be influenced by project/labels, so the caller
+/// skips the extra API round-trip entirely.
 pub fn rules_need_issue_fetch(rules: &[SubscriptionMatch]) -> bool {
     rules
         .iter()
@@ -417,9 +410,10 @@ mod tests {
         rule_with(serde_json::json!({}), false)
     }
 
-    /// Parsed `project_ids` of the picked listener — used to assert which listener the
-    /// selector returned (the `rule_with` helper gives every listener the same id,
-    /// so we distinguish by parsed config rather than identity).
+    /// Parsed `project_ids` of the picked listener — used to assert which
+    /// listener the selector returned (the `rule_with` helper gives every
+    /// listener the same id, so we distinguish by parsed config rather than
+    /// identity).
     fn picked_projects(rule: &SubscriptionMatch) -> Vec<String> {
         LinearRuleConfig::from_rule(rule).project_ids
     }

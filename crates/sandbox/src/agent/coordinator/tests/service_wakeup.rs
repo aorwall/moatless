@@ -4,9 +4,9 @@ use super::fixtures::*;
 use super::service_fixtures::*;
 use super::*;
 
-/// A `ScheduleWakeup` `tool_use` in a completed Turn's Source blocks arms a wakeup
-/// job on the `AGENT_TYPE` path; once its (zero) delay elapses the job injects the
-/// scheduled prompt back into the service.
+/// A `ScheduleWakeup` `tool_use` in a completed Turn's Source blocks arms a
+/// wakeup job on the `AGENT_TYPE` path; once its (zero) delay elapses the job
+/// injects the scheduled prompt back into the service.
 #[tokio::test]
 async fn coordinator_service_arms_and_fires_scheduled_wakeup() {
     let cancel = CancellationToken::new();

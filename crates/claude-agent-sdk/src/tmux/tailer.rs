@@ -1,8 +1,8 @@
 //! Background task that poll-tails the JSONL transcript file and forwards
 //! translated `SdkMessage`s to the consumer channel.
 //!
-//! Companion task: a liveness monitor that runs `tmux has-session` every 5s
-//! and signals if the tmux session disappears.
+//! Companion task: a liveness monitor that runs `tmux has-session` every 5s and
+//! signals if the tmux session disappears.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -40,8 +40,8 @@ const STOP_FALLBACK_RETRIES: u32 = 40;
 const STOP_FALLBACK_POLL: Duration = Duration::from_millis(50);
 
 /// State the hook listener publishes via [`tokio::sync::watch`]. Consumers
-/// (mod.rs wait-for-SessionStart; transcript discovery race) clone the
-/// receiver and await updates.
+/// (mod.rs wait-for-SessionStart; transcript discovery race) clone the receiver
+/// and await updates.
 //
 // reason: the `session_id` payload on `SessionStarted` and the
 // `last_assistant_message` field on `TurnEnded` are consumed in step 7
@@ -65,27 +65,20 @@ pub(crate) enum HookState {
 
 /// Inputs needed to start tailing once we know the JSONL path + session id.
 pub(crate) struct TailTarget {
+    /// The already-discovered JSONL transcript file to tail.
     pub(crate) path: PathBuf,
     pub(crate) session_id: String,
     pub(crate) start_at_end: bool,
 }
 
 /// Race the hook-driven `Stop.transcript_path` against snapshot-diff against
-/// `before`. Returns the first of:
+/// `before`, returning whichever resolves first (else
+/// [`SdkError::JsonlNotFound`] on timeout).
 ///
-/// - The most recent `transcript_path` reported by a `Stop` hook (newer
-///   Claude versions);
-/// - `resume_target`, once it exists on disk (resume to a known session id);
-/// - A newly-appeared `*.jsonl` in `project_dir` (legacy fallback);
-/// - Timeout → [`SdkError::JsonlNotFound`].
-///
-/// Stop is preferred (it's authoritative; works under `--continue` where
-/// claude appends to an existing transcript file and snapshot-diff sees no
-/// new file). `resume_target` covers `claude --resume <id>`, where claude
-/// appends to the existing `<id>.jsonl` already present in the pre-spawn
-/// snapshot — so snapshot-diff never sees a new file. Snapshot-diff stays as a
-/// defensive fallback for older Claude versions whose Stop payload doesn't
-/// carry `transcript_path` and for fresh sessions.
+/// Stop is authoritative and covers `--continue`/`--resume`, where claude
+/// appends to an existing file and snapshot-diff sees nothing new;
+/// snapshot-diff is a defensive fallback for older Claude versions and fresh
+/// sessions.
 pub(crate) async fn discover_transcript_path(
     mut state_rx: watch::Receiver<HookState>,
     project_dir: PathBuf,
@@ -171,13 +164,11 @@ async fn snapshot_diff_for_new(
     Ok(best.map(|(p, _)| p))
 }
 
-/// Spawn the hook listener task. The listener drains parsed hook lines from
-/// `hook_rx` and republishes higher-level [`HookState`] via the returned
-/// `watch::Receiver`. Exits on cancellation or when the FIFO reader closes.
+/// Exits on cancellation or when the FIFO reader closes.
 ///
 /// Lives outside [`run_supervisor`] so [`super::query_tmux`] can await
-/// `SessionStart` before pasting the first prompt (mod.rs needs the receiver
-/// before the supervisor's `TailTarget` is known).
+/// `SessionStart` before pasting the first prompt, before the supervisor's
+/// `TailTarget` is known.
 pub(crate) fn spawn_hook_listener(
     hook_rx: mpsc::UnboundedReceiver<HookLine>,
     cancellation_token: CancellationToken,
@@ -192,12 +183,8 @@ pub(crate) fn spawn_hook_listener(
 /// Spawn the supervisor task that owns the tmux session, runs the tailer and
 /// liveness monitor, and kills the session on cancellation.
 ///
-/// `target` is the already-discovered JSONL file (one-shot path: paste prompt,
-/// wait for file to appear, then spawn this).
-///
-/// `state_rx` is the watch receiver returned by [`spawn_hook_listener`]; the
-/// supervisor reads ongoing `Stop` events from it (consumer wires in at
-/// step 6 — Stop's `transcript_path` overrides snapshot-diff discovery).
+/// `state_rx`, from [`spawn_hook_listener`], lets the supervisor read ongoing
+/// `Stop` events, whose `transcript_path` overrides snapshot-diff discovery.
 pub(crate) fn spawn_supervisor(
     session: Arc<TmuxSession>,
     target: TailTarget,
@@ -211,9 +198,10 @@ pub(crate) fn spawn_supervisor(
 }
 
 /// Lazy variant — used by `query_tmux_streaming` where we don't yet know the
-/// session id (no prompt has been pasted yet). The supervisor waits for the
-/// first `Stop` hook to report `transcript_path` (or falls back to
-/// snapshot-diff against `before`).
+/// session id (no prompt has been pasted yet).
+///
+/// The supervisor waits for the first `Stop` hook to report `transcript_path`,
+/// falling back to snapshot-diff against `before`.
 pub(crate) fn spawn_lazy_supervisor(
     session: Arc<TmuxSession>,
     project_dir: PathBuf,
@@ -396,9 +384,10 @@ async fn run_supervisor(
 }
 
 /// On each `Stop` hook event, wait up to ~2s for the tail loop to emit a
-/// `Result` for that turn. If the budget elapses without one, synthesize a
-/// `Result` from the Stop payload's `last_assistant_message` and forward it
-/// through `tx`. Cost is `0.0` (already a documented tmux limitation).
+/// `Result` for that turn.
+///
+/// If the budget elapses without one, synthesize a `Result` from the Stop
+/// payload's `last_assistant_message` (cost `0.0`) and forward it through `tx`.
 async fn stop_fallback_loop(
     mut state_rx: watch::Receiver<HookState>,
     results_emitted: Arc<AtomicU32>,
@@ -478,8 +467,8 @@ async fn stop_fallback_loop(
 }
 
 /// Drain hook lines from the FIFO reader, parse payloads, and update the
-/// `watch::Sender<HookState>` so consumers can react. Exits on cancellation
-/// or when the upstream sender (the FIFO reader thread) closes.
+/// `watch::Sender<HookState>` so consumers can react. Exits on cancellation or
+/// when the upstream sender (the FIFO reader thread) closes.
 async fn hook_listener(
     mut hook_rx: mpsc::UnboundedReceiver<HookLine>,
     state_tx: watch::Sender<HookState>,
@@ -746,12 +735,11 @@ mod tests {
     }
 
     /// Regression for the cold-config-dir bug: when the transcript lands in a
-    /// DIFFERENT directory than the one discovery polls — exactly what happened
-    /// in the cluster, where `resolve_project_dir` returned `$HOME/.claude`
-    /// (`/home/moatless/.claude`) while claude wrote under `CLAUDE_CONFIG_DIR`
-    /// (`/opt/moatless/.claude`) — discovery never sees it and fails with
-    /// `JsonlNotFound`. The fix is in `resolve_project_dir`; this asserts the
-    /// failure mode it prevents.
+    /// DIFFERENT directory than the one discovery polls, discovery never sees
+    /// it and fails with `JsonlNotFound`.
+    ///
+    /// The fix is in `resolve_project_dir`; this asserts the failure mode it
+    /// prevents.
     #[tokio::test]
     async fn snapshot_diff_times_out_when_transcript_is_elsewhere() {
         let base = std::env::temp_dir().join("tmux-discover-test-elsewhere");
@@ -780,10 +768,11 @@ mod tests {
     }
 
     /// The resume case: `claude --resume <id>` appends to the existing
-    /// `<id>.jsonl` — already present in the pre-spawn snapshot (`before`) — so
-    /// snapshot-diff never sees a new file and the Stop hook may not fire within
-    /// the window. Targeting the known transcript directly must discover it
-    /// quickly even though no new file is ever written.
+    /// `<id>.jsonl`, already in the pre-spawn snapshot, so snapshot-diff sees
+    /// no new file and Stop may not fire in time.
+    ///
+    /// Targeting the known transcript directly must discover it quickly
+    /// regardless.
     #[tokio::test]
     async fn discover_returns_existing_resume_target() {
         let base = std::env::temp_dir().join("tmux-discover-test-resume-target");
@@ -816,9 +805,10 @@ mod tests {
         let _ = std::fs::remove_dir_all(&base);
     }
 
-    /// If the resume target never appears (wrong id / config dir didn't persist)
-    /// and no new file shows up either, discovery must still time out with
-    /// `JsonlNotFound` rather than hang — the `WithId` no-fallback contract.
+    /// If the resume target never appears (wrong id / config dir didn't
+    /// persist) and no new file shows up either, discovery must still time out
+    /// with `JsonlNotFound` rather than hang — the `WithId` no-fallback
+    /// contract.
     #[tokio::test]
     async fn resume_target_missing_falls_through_to_timeout() {
         let base = std::env::temp_dir().join("tmux-discover-test-resume-missing");

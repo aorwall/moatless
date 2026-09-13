@@ -2,35 +2,35 @@
 
 use moatless_types::loops::SubscriptionMatch;
 
-/// Senders ignored by default when `adapter_config.ignored_senders` is not
-/// set. `linear-code[bot]` is Linear's GitHub App: their servers post
-/// `<!-- linear-linkback -->` metadata comments on any PR referencing a
-/// Linear issue — pure noise that no bound task ever wants delivered.
+/// Senders ignored by default when `adapter_config.ignored_senders` is not set.
+///
+/// `linear-code[bot]` posts `<!-- linear-linkback -->` metadata comments that
+/// no bound task wants delivered.
 const DEFAULT_IGNORED_SENDERS: &[&str] = &["linear-code[bot]"];
 
-/// A conflict with the base branch surfaces only as a change in the PR's
-/// mergeable state, so this adapter derives it from any PR-bearing event rather
-/// than receiving it as a webhook event type. It is named here so a loop can
-/// include or ignore it like any other event.
+/// Derived event name for a base-branch conflict, so a loop can include or
+/// ignore it like any other event.
+///
+/// GitHub has no such webhook event; this adapter derives it from a change in
+/// the PR's mergeable state on any PR-bearing event.
 pub(super) const MERGE_CONFLICT: &str = "merge_conflict";
 
 /// A base-branch CI run carries no PR reference, so the post-merge notification
 /// is likewise derived rather than received. Named for the same reason.
 pub(super) const POST_MERGE: &str = "post_merge";
 
+/// Derived event name for a merged PR, so a loop can include or ignore it like
+/// any other event.
+///
 /// GitHub has no `merged` action: a merge arrives as `pull_request` `closed`
-/// carrying `merged: true`. The notification a task receives when its pull
-/// request lands is therefore derived from that event rather than received as
-/// one, and is named here so a loop can include or ignore it like any other
-/// event.
+/// carrying `merged: true`.
 pub(super) const PR_MERGED: &str = "pr_merged";
 
 /// Every event name a loop's include/ignore list can name: the GitHub webhook
 /// event types this adapter handles, plus the three derived signals above.
 ///
 /// `workflow_run` produces no message of its own — it is only ever the carrier
-/// for [`POST_MERGE`] — but it is a real event type this endpoint receives, so
-/// naming it is not a typo.
+/// for [`POST_MERGE`] — but naming it here is not a typo.
 pub(super) const KNOWN_EVENTS: &[&str] = &[
     "pull_request",
     "issue_comment",
@@ -58,20 +58,17 @@ pub(super) struct GithubPrRuleConfig {
     /// Emit an inbound message when a `check_suite` completes successfully.
     /// Failures are always reported via `check_run` regardless of this flag.
     pub notify_on_success: bool,
-    /// Sender logins whose webhook events are dropped entirely (compared
-    /// case-insensitively against `sender.login`). Applies to ALL event
-    /// types — including `pull_request` opened/closed, so an ignored sender
-    /// can neither create nor close tasks.
+    /// Sender logins whose webhook events are dropped entirely
+    /// (case-insensitive against `sender.login`).
     ///
-    /// Defaults to `DEFAULT_IGNORED_SENDERS` when the key is absent from
-    /// `adapter_config`. An explicit array replaces the default verbatim:
-    /// opt out with `{"ignored_senders": []}`, extend by listing the full
-    /// set, e.g. `["linear-code[bot]", "dependabot[bot]"]`.
+    /// Applies to ALL event types, including `pull_request` opened/closed, so
+    /// an ignored sender can neither create nor close tasks.
     pub ignored_senders: Vec<String>,
-    /// Regex patterns matched case-insensitively against the PR title. A PR
-    /// whose title matches any pattern never creates a review task (applies to
-    /// `pull_request` opened/reopened only). Empty/absent = no title filtering,
-    /// e.g. `["^chore\\(deps", "^deps[:(]", "^build\\(deps"]`.
+    /// Regex patterns matched case-insensitively against the PR title.
+    ///
+    /// A PR whose title matches any pattern never creates a review task
+    /// (applies to `pull_request` opened/reopened only). Empty/absent = no
+    /// filtering.
     pub ignored_title_patterns: Vec<String>,
 }
 
@@ -115,8 +112,8 @@ impl GithubPrRuleConfig {
     }
 
     /// True when `event` is in `ignored_events`, or when `events_filter` is set
-    /// and does not name it. An empty `events_filter` means "all events".
-    /// Both lists are compared case-insensitively.
+    /// and does not name it. An empty `events_filter` means "all events". Both
+    /// lists are compared case-insensitively.
     pub(super) fn event_filtered_out(&self, event: &str) -> bool {
         if self
             .ignored_events
@@ -143,13 +140,12 @@ impl GithubPrRuleConfig {
     }
 }
 
-/// Parse `ignored_senders` from a `adapter_config` JSONB value. Key absent,
-/// null config, or non-array value → `DEFAULT_IGNORED_SENDERS`; an explicit
-/// array replaces the default verbatim (`[]` opts out).
+/// Parse `ignored_senders` from a `adapter_config` JSONB value: absent key,
+/// null config, or non-array value fall back to `DEFAULT_IGNORED_SENDERS`; an
+/// explicit array replaces the default verbatim (`[]` opts out).
 ///
-/// Shared by webhook ingress (`GithubPrRuleConfig::from_rule`) and the
-/// `fetch_context` comment backfill, which has a `LoopContext` rather than
-/// a full `SubscriptionMatch`.
+/// Shared by webhook ingress and the `fetch_context` comment backfill, which
+/// has only a `LoopContext`, not a full `SubscriptionMatch`.
 pub(super) fn ignored_senders(adapter_config: Option<&serde_json::Value>) -> Vec<String> {
     adapter_config
         .and_then(|pc| pc.get("ignored_senders"))
@@ -184,10 +180,10 @@ fn string_array(adapter_config: Option<&serde_json::Value>, key: &str) -> Vec<St
         .unwrap_or_default()
 }
 
-/// Parse `ignored_title_patterns` from a `adapter_config` JSONB value. Unlike
-/// `ignored_senders`, title filtering is opt-in: an absent key, null config, or
-/// non-array value all yield an empty list (no filtering). An explicit array of
-/// strings is used verbatim as case-insensitive regexes.
+/// Parse `ignored_title_patterns` from a `adapter_config` JSONB value.
+///
+/// Unlike `ignored_senders`, this is opt-in: absent key, null config, or
+/// non-array value all yield an empty list (no filtering).
 pub(super) fn ignored_title_patterns(adapter_config: Option<&serde_json::Value>) -> Vec<String> {
     string_array(adapter_config, "ignored_title_patterns")
 }

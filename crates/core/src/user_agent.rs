@@ -2,7 +2,7 @@
 
 /// The `User-Agent` this deployment sends to a git host.
 ///
-/// `reqwest` sends no `User-Agent` unless the client is built with one, and a
-/// self-hosted instance behind a proxy that filters on the header answers 403
-/// to every request that carries none.
+/// `reqwest` sends none unless the client is built with one, and a self-hosted
+/// instance behind a proxy that filters on the header answers 403 to every
+/// request that carries none.
 pub const USER_AGENT: &str = "moatless-vibe-backend";

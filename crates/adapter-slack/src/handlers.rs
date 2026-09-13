@@ -121,13 +121,9 @@ mod tests {
     use moatless_adapter_model::test_support::response_snapshot;
     use moatless_types::store::StoreError;
 
-    /// The acknowledgment class of each failure the Slack webhook path raises.
-    /// An ingress rejection and an admission failure both leave the request
-    /// unacknowledged — Slack re-delivers, and nothing durable was lost.
-    ///
-    /// Every row is reachable: `receive` admits through `admit_delivery`, which
-    /// hands back `AdmitError` unflattened, so both `NotAdmitted` rows are
-    /// states a real at-capacity or failed write produces.
+    /// The acknowledgment class of each failure the Slack webhook path raises:
+    /// an ingress rejection and an admission failure both leave the request
+    /// unacknowledged, so Slack re-delivers and nothing durable was lost.
     #[tokio::test]
     async fn no_failure_on_the_slack_webhook_path_is_acknowledged() {
         for (error, expected) in [

@@ -3,8 +3,7 @@ use moatless_types::store::StoreError;
 
 /// Why a provider closed a Task, and what its `Closed` event carries.
 ///
-/// The task band does not read `payload`: the provider owns its shape and the
-/// event stream forwards it verbatim.
+/// The task band does not read `payload`: the provider owns its shape.
 #[derive(Debug, Clone)]
 pub struct CloseReason {
     pub actor: String,

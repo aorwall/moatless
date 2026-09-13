@@ -10,8 +10,8 @@ use moatless_types::task::TaskStatus;
 pub struct TaskView {
     #[sqlx(try_from = "String")]
     pub status: TaskStatus,
-    /// How long the Task's Sandbox may sit idle before the reaper stops it.
-    /// `0` disables the idle stop; `moatless_tasks::task::models` owns the rule.
+    /// How long the Task's Sandbox may sit idle before the reaper stops it. `0`
+    /// disables the idle stop; `moatless_tasks::task::models` owns the rule.
     pub ttl_minutes: i32,
 }
 
@@ -24,10 +24,11 @@ pub trait T3TaskDao: Send + Sync {
         ctx: &ScopeContext,
     ) -> Result<Option<TaskView>, sqlx::Error>;
 
-    /// The same read, narrowed to Tasks this viewer may **operate**: the write
-    /// rule widened by `visibility = 'public'`. `None` when the Task is gone,
-    /// unreadable, or readable but not the viewer's to run — one answer,
-    /// because telling the last case apart on the wire would say who owns it.
+    /// The same read, narrowed to Tasks this viewer may **operate** (the write
+    /// rule widened by `visibility = 'public'`).
+    ///
+    /// `None` collapses gone, unreadable, and not-runnable into one answer —
+    /// distinguishing them would say who owns it.
     async fn controlled_by_id(
         &self,
         task_id: &str,

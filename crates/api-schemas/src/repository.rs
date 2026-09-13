@@ -40,10 +40,11 @@ pub struct CreateRepositoryRequest {
 #[serde(rename_all = "camelCase")]
 pub struct UpdateRepositoryRequest {
     pub name: Option<String>,
-    /// Change the repository's access scope (`global` or `user`).
-    /// Re-submitting `user` preserves the repository's existing immutable owner.
-    /// An ownerless repository cannot move to `user`.
-    /// Requesting `global` requires admin.
+    /// Change the repository's access scope (`global` or `user`); requires
+    /// admin for `global`.
+    ///
+    /// Re-submitting `user` preserves the existing immutable owner; an
+    /// ownerless repository cannot move to `user`.
     pub scope: Option<Scope>,
     pub remote_url: Option<String>,
     pub default_branch: Option<String>,

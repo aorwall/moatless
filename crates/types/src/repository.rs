@@ -49,11 +49,12 @@ pub struct Repository {
 /// The one host GitHub serves, which no other provider here is fixed to.
 pub const GITHUB_HOST: &str = "github.com";
 
-/// Normalize a remote URL for identity matching without changing persisted spelling.
+/// Normalize a remote URL for identity matching without changing persisted
+/// spelling.
 ///
-/// Two repositories are the same connection when this agrees on them, so the
-/// uniqueness check, the git-sync cache key and any caller deciding whether a
-/// host's repository is already registered must all go through this.
+/// Two repositories are the same connection when this agrees on them; the
+/// uniqueness check, the git-sync cache key, and any registration check must
+/// all go through this.
 pub fn normalize_remote_url(remote_url: &str) -> String {
     remote_url
         .trim()
@@ -66,9 +67,9 @@ pub fn normalize_remote_url(remote_url: &str) -> String {
 /// A repository named on a git host: which host, whose account, and what it is
 /// called.
 ///
-/// Parsed once from a remote URL so no call site re-derives an owner and a name
-/// from a string. The provider travels with them, so a consumer that resolves
-/// access does not have to ask which host the repository lives on.
+/// Parsed once from a remote URL so no call site re-derives an owner and name
+/// from a string; the provider travels with them so an access-resolving
+/// consumer needn't ask which host it's on.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GitHostRepo {
     provider: RepositoryProvider,
@@ -80,9 +81,9 @@ pub struct GitHostRepo {
 impl GitHostRepo {
     /// Parse a supported remote URL for `provider`.
     ///
-    /// Both HTTPS/HTTP and the common SCP-style SSH form are accepted. GitHub
-    /// has exactly one host, so a URL on any other host is rejected. GitLab,
-    /// Gitness and Forgejo are self-hostable, so any host is accepted.
+    /// Accepts both HTTPS/HTTP and SCP-style SSH. GitHub has exactly one host
+    /// and rejects any other; GitLab, Gitness and Forgejo are self-hostable, so
+    /// any host is accepted.
     pub fn parse(provider: RepositoryProvider, remote_url: &str) -> Option<Self> {
         match provider {
             RepositoryProvider::Github => Self::parse_github(remote_url),
@@ -189,8 +190,8 @@ impl GitHostRepo {
 
 /// Whether a clone URL uses SSH transport.
 ///
-/// Matches both `ssh://…` URLs and scp-like `[user@]host:path` syntax
-/// (e.g. `git@github.com:owner/repo.git`), while excluding HTTP(S) URLs.
+/// Matches `ssh://…` URLs and scp-like `[user@]host:path` syntax (e.g.
+/// `git@github.com:owner/repo.git`), excluding HTTP(S) URLs.
 pub fn is_ssh_url(url: &str) -> bool {
     if url.starts_with("ssh://") || url.starts_with("git+ssh://") {
         return true;

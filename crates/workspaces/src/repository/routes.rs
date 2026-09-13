@@ -32,13 +32,10 @@ pub struct RepositoryApiDoc;
 
 /// Build the repository router with OpenAPI metadata.
 ///
-/// Generic over the router state `S` so this module names no root type: the
-/// composition root supplies the concrete state at the call site, and each
-/// handler reaches its ports — `Arc<Repositories>`, `Arc<Workspaces>`,
-/// `Arc<GitSyncService>`, `Arc<RepositoryBranchService>`, the `DbPool`, and
-/// the `UserTokenVerifier` behind `AuthUser` — through `FromRef<S>`. The
-/// `sync_config` endpoint lives in `repository_sync` (server band), which is
-/// what frees this bound from being upward.
+/// Generic over `S` so this module names no root type; handlers reach their
+/// ports through `FromRef<S>`. The `sync_config` endpoint lives in
+/// `repository_sync` (server band) instead, keeping this bound from pointing
+/// upward.
 pub fn repository_router<S>(state: S) -> (axum::Router, utoipa::openapi::OpenApi)
 where
     S: Clone + Send + Sync + 'static,

@@ -1,15 +1,13 @@
 //! The seam the Loop domain publishes to the Adapters.
 //!
-//! An Adapter reads Subscriptions to decide whether an inbound event is work
-//! it should do. It never writes one, and it never reads a Schedule, a receipt,
-//! or a Loop's config rows — so what crosses is the five reads below, not the
-//! Loop store and its twenty-six functions.
+//! An Adapter reads Subscriptions to decide whether an inbound event is work it
+//! should do — never writing one, and never reading a Schedule, a receipt, or a
+//! Loop's config rows. What crosses is the five reads below, not the Loop store
+//! and its twenty-six functions.
 //!
-//! Declared in the Adapter kernel: every consumer already names this crate for
-//! the Adapter contract. [`SubscriptionMatch`], the value every read returns,
-//! lives in `moatless_types::loops`, so this seam publishes only the reader and
-//! the projection helper. The Loop store implements the reader in the
-//! `moatless-loops` crate, beside the tables it reads.
+//! [`SubscriptionMatch`], the value every read returns, lives in
+//! `moatless_types::loops`; the Loop store implements the reader in
+//! `moatless-loops`, beside the tables it reads.
 //!
 //! [`subscription_context`] projects a Subscription into the config-shaped
 //! [`LoopContext`] the older adapter trait methods still accept.
@@ -23,8 +21,8 @@ use moatless_types::store::StoreError;
 #[async_trait]
 pub trait LoopReader: Send + Sync {
     /// The Subscription with this id, whatever its state. A Binding whose
-    /// Subscription was deleted keeps working, so `None` means "no
-    /// Subscription context", never "stop".
+    /// Subscription was deleted keeps working, so `None` means "no Subscription
+    /// context", never "stop".
     async fn subscription(&self, loop_id: &str) -> Result<Option<SubscriptionMatch>, StoreError>;
 
     /// The same Subscription, but only when it is active, undeleted, and names
@@ -56,8 +54,8 @@ pub trait LoopReader: Send + Sync {
     ) -> Result<Option<SubscriptionMatch>, StoreError>;
 }
 
-/// Build a synthetic `LoopContext` from a subscription view for adapter
-/// trait methods that still accept a config-shaped value.
+/// Build a synthetic `LoopContext` from a subscription view for adapter trait
+/// methods that still accept a config-shaped value.
 pub fn subscription_context(subscription: &SubscriptionMatch) -> LoopContext {
     LoopContext {
         id: subscription.id.clone(),

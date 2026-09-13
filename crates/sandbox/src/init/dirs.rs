@@ -11,8 +11,8 @@ use tracing::{info, warn};
 
 use crate::config::Config;
 
-/// Recursively copy directory contents from `src` to `dst`.
-/// Returns the number of files copied.
+/// Recursively copy directory contents from `src` to `dst`. Returns the number
+/// of files copied.
 pub(super) fn copy_dir_contents(src: &Path, dst: &Path) -> std::io::Result<usize> {
     let mut count = 0;
     for entry in std::fs::read_dir(src)? {
@@ -33,12 +33,9 @@ pub(super) fn copy_dir_contents(src: &Path, dst: &Path) -> std::io::Result<usize
 
 /// Wipe leftover entries under `/tmp` and re-apply 1777 permissions.
 ///
-/// `/tmp` is backed by a subPath on the workspace PVC, so anything written there
-/// survives pod restarts. That's the wrong semantics for `/tmp` — it should be
-/// clean on every boot — so we remove top-level entries here. We also re-chmod
-/// to 1777, since K8s creates the subPath directory with 0755 on first use and
-/// tools that drop privileges (playwright/chromium, bun cache) need a sticky,
-/// world-writable `/tmp`.
+/// `/tmp` is a workspace-PVC subPath, so it survives restarts unlike real
+/// `/tmp`; K8s recreates it at 0755, breaking tools that drop privileges
+/// (playwright/chromium, bun cache) and need it sticky and world-writable.
 fn reset_tmp() {
     let tmp = Path::new("/tmp");
     match std::fs::read_dir(tmp) {

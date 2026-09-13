@@ -18,10 +18,9 @@ pub const RULE: &str = "duplicate-type-name";
 
 /// The crates whose types are shared vocabulary.
 ///
-/// Two providers may both define `Config` without confusing anyone, because
-/// neither name escapes its crate. These seven are named by others, so a
-/// collision here is a collision in somebody's import list. Extend this list
-/// as a crate becomes shared; do not extend it to silence a violation.
+/// A collision here is a collision in somebody's import list, since these are
+/// named by others; extend the list as a crate becomes shared, never to silence
+/// a violation.
 const SHARED: &[&str] = &[
     "moatless-types",
     "moatless-api-schemas",
@@ -142,8 +141,8 @@ mod tests {
         assert_eq!(found[0].locations.len(), 2);
     }
 
-    /// The finding this key shape exists for: a third crate joining an
-    /// accepted collision must not land in the accepted slot.
+    /// The finding this key shape exists for: a third crate joining an accepted
+    /// collision must not land in the accepted slot.
     #[test]
     fn a_new_participant_changes_the_key() {
         let two = crates(&[

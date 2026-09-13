@@ -51,8 +51,9 @@ pub struct CreateTaskRequest {
     pub agent_mode: Option<AgentMode>,
     /// Reasoning effort for the first turn, in the agent's own vocabulary
     /// (`low`/`medium`/`high`/`xhigh`/`max` for Claude,
-    /// `minimal`/`low`/`medium`/`high` for Codex). Omit to leave the agent on
-    /// its own default.
+    /// `minimal`/`low`/`medium`/`high` for Codex).
+    ///
+    /// Omit to leave the agent on its own default.
     pub effort: Option<String>,
     #[serde(default)]
     pub contexts: Vec<MessageContextInput>,
@@ -66,16 +67,17 @@ pub struct CreateTaskRequest {
     #[serde(default)]
     pub headless: Option<bool>,
     /// Skills to activate for the first turn. Names only — the sandbox resolves
-    /// each one's `SKILL.md` on disk and frontloads its body ahead of the message.
+    /// each one's `SKILL.md` on disk and frontloads its body ahead of the
+    /// message.
     #[serde(default)]
     pub skills: Vec<String>,
 }
 
 /// Branch a Task off another Task at one of its completed turns.
 ///
-/// Everything the fork runs against — repository, workspace, branch, agent,
-/// model — comes from the Task being forked; only what the fork is *for* is
-/// stated here.
+/// Everything the fork runs against (repository, workspace, branch, agent,
+/// model) comes from the Task being forked; only what the fork is for is stated
+/// here.
 #[derive(Debug, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
@@ -120,8 +122,8 @@ pub struct PreviewUrlContextData {
     pub url: Option<String>,
 }
 
-/// Data for a file attachment context. Filled in by the backend at read
-/// time from `file_metadata`; senders supply only `reference_id`.
+/// Data for a file attachment context. Filled in by the backend at read time
+/// from `file_metadata`; senders supply only `reference_id`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
@@ -276,9 +278,10 @@ pub struct TaskResponse {
     pub scope: Scope,
     pub owner_user_id: Option<String>,
     /// Derived from whichever parent relation in `relations` makes this task a
-    /// child — `created_by` or `forked_from`. Kept for backward compatibility
-    /// with clients that pre-date the relations field. Read `forked_from` to
-    /// tell the two apart.
+    /// child (`created_by` or `forked_from`).
+    ///
+    /// Kept for backward compatibility with clients that pre-date `relations`;
+    /// read `forked_from` to tell the two apart.
     pub parent_task_id: Option<String>,
     /// Set when this task was branched off another one. `parent_task_id` names
     /// the same task; this field says the edge is a fork and where it was cut.
@@ -384,13 +387,9 @@ pub struct TaskStatisticsResponse {
     pub skills: Vec<TaskSkillUsage>,
     /// Whether this Task has a tool-call record at all.
     ///
-    /// A Task that ran before tool calls were stored as their own rows has none,
-    /// and an empty `tool_calls` from that Task means "not recorded", not "made
-    /// no calls". The client has to be able to tell those apart — reporting zero
-    /// is a wrong answer, not a missing one.
-    ///
-    /// Defaults to `true` so a client reading an older response, or a response
-    /// from a deployment that predates the field, is not told every Task is
+    /// An empty `tool_calls` from a Task older than this storage means "not
+    /// recorded", not "made no calls" — the client must tell those apart.
+    /// Defaults to `true` so older or pre-field responses aren't read as
     /// unrecorded.
     #[serde(default = "default_true")]
     pub tool_calls_available: bool,

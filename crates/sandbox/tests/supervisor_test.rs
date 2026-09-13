@@ -1,12 +1,10 @@
 //! Root-supervision behaviour for the sandbox runtime.
 //!
-//! Two groups:
-//!
-//! 1. [`Supervisor`] policy — what a task's declared [`Criticality`] does when
-//!    it terminates, and that the shutdown join is bounded.
-//! 2. The shutdown *ordering* the supervisor must not disturb: the event outbox
-//!    is flushed while its drainer is still alive, and only then is the
-//!    lifecycle token cancelled.
+//! Two groups: [`Supervisor`] policy — what a task's declared [`Criticality`]
+//! does when it terminates, and that the shutdown join is bounded — and the
+//! shutdown ordering the supervisor must not disturb: the event outbox is
+//! flushed while its drainer is alive, and only then is the lifecycle token
+//! cancelled.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -316,16 +314,11 @@ async fn livez_reports_not_live_after_a_supervised_task_dies() {
 // Shutdown ordering: flush while the drainer is alive, cancel afterwards
 // =============================================================================
 
-/// The whole point of the outbox flush on shutdown: an event still owed to the
-/// backend when SIGTERM lands is delivered, and it is delivered *before* the
-/// lifecycle token is cancelled.
+/// The outbox flush on shutdown delivers an event still owed to the backend at
+/// SIGTERM before the lifecycle token is cancelled.
 ///
-/// This pins the position of `shutdown::perform_shutdown`'s flush, not its
-/// duration. `EventOutbox::flush` early-returns as soon as the drainer has
-/// stopped, so any change that cancels the lifecycle token before or alongside
-/// the flush makes the flush an instant no-op that reports success while
-/// dropping the pod's terminal lifecycle events. Without this test that
-/// regression is invisible: nothing errors and nothing else goes red.
+/// Pins ordering: cancelling the token first lets `EventOutbox::flush` early-
+/// return once the drainer stops, silently dropping terminal events.
 #[tokio::test]
 async fn shutdown_flushes_the_outbox_before_cancelling() {
     let dir = tempfile::TempDir::new().unwrap();
@@ -373,10 +366,9 @@ async fn shutdown_flushes_the_outbox_before_cancelling() {
     );
 }
 
-/// The same invariant on the *fatal* path, where no SIGTERM arrives and the
-/// supervisor itself initiates shutdown. See [`Supervisor::run`] for the
-/// teardown-before-cancel ordering this guards. Same fixture as above, one
-/// different trigger.
+/// The same invariant on the fatal path, where the supervisor itself initiates
+/// shutdown with no SIGTERM (see [`Supervisor::run`]). Same fixture as above,
+/// one different trigger.
 #[tokio::test]
 async fn fatal_exit_flushes_the_outbox_before_cancelling() {
     let dir = tempfile::TempDir::new().unwrap();
@@ -428,7 +420,8 @@ async fn fatal_exit_flushes_the_outbox_before_cancelling() {
 }
 
 /// Poll a condition to a bounded limit. Cheaper and more deterministic than a
-/// fixed sleep: the assertions above fail with a real message if it never holds.
+/// fixed sleep: the assertions above fail with a real message if it never
+/// holds.
 async fn wait_until(mut condition: impl FnMut() -> bool) {
     for _ in 0..200 {
         if condition() {
@@ -559,10 +552,11 @@ impl BackendClient for RecordingBackend {
     }
 }
 
-/// Every directory points into `dir`, which the caller keeps empty: `build_tar`
-/// then finds no session state, so `transcript_sync::flush_on_shutdown` returns
-/// immediately instead of spending its 12s budget. `workspace_sync_enabled` is
-/// false for the same reason.
+/// Every directory points into `dir`, which the caller keeps empty, so
+/// `build_tar` finds no session state.
+///
+/// `transcript_sync::flush_on_shutdown` returns immediately instead of spending
+/// its 12s budget; `workspace_sync_enabled` is false for the same reason.
 fn test_config(dir: &std::path::Path) -> Config {
     let path = |name: &str| dir.join(name).to_string_lossy().into_owned();
     Config {

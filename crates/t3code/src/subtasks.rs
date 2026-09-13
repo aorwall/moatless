@@ -1,12 +1,9 @@
 //! The Tasks a Task spawned, as the agents panel's second fleet.
 //!
-//! T3's own agents surface is folded out of a thread's activities: a subagent
-//! is something that happened *inside* one conversation. Moatless has a second
-//! kind of child that surface has no vocabulary for — a Task created by another
-//! Task — and it is not a subagent by any reading. It has its own sandbox, its
-//! own transcript, its own status, and a route of its own to open. So it is
-//! listed by its own method rather than disguised as an activity, and the panel
-//! renders the two side by side.
+//! T3's agents surface folds out of a thread's activities: a subagent is
+//! something that happened *inside* one conversation. A Task spawned by another
+//! Task is not a subagent — it has its own sandbox, transcript, and status — so
+//! it is listed by its own method and the panel renders the two side by side.
 //!
 //! Everything here is a read.
 
@@ -47,9 +44,8 @@ pub enum SubtasksError {
 
 /// The two relation types that make the `from` Task a child of the `to` Task.
 ///
-/// `related_to` is a link between peers and is deliberately not here: a Task
-/// somebody cross-referenced is not work this Task spawned, and listing it as a
-/// subtask would say it was.
+/// `related_to` is deliberately excluded: a cross-referenced Task is not work
+/// this Task spawned.
 fn is_parent_edge(relation: TaskRelationType) -> bool {
     matches!(
         relation,
@@ -57,18 +53,13 @@ fn is_parent_edge(relation: TaskRelationType) -> bool {
     )
 }
 
-/// Every child Task of `task_id` this viewer may read, in spawn order.
+/// Every child Task of `task_id` this viewer may read, in spawn order (creation
+/// time ascending, stable — rows update in place and never re-sort).
 ///
-/// Two reads rather than a join, and the split is the access rule: the relation
-/// read answers with every edge, and the conversation read applies the same rule
-/// a link resolves through — so a child the viewer may not read is absent
-/// rather than present with its fields blanked. A parent the viewer cannot read
-/// is [`SubtasksError::NotFound`] before either read runs, so the edges of a
-/// Task somebody cannot see are never enumerated for them.
-///
-/// Order is creation time ascending. The panel's rule is that spawn order is
-/// stable and rows update in place, so the list may not re-sort itself when a
-/// child starts working or finishes.
+/// Two reads, not a join: the relation read answers every edge, the
+/// conversation read applies the same access rule a link resolves through, so
+/// an unreadable child is absent, not blanked. An unreadable parent is
+/// [`SubtasksError::NotFound`] before either read runs.
 pub async fn list(
     state: &SubtasksState,
     viewer: &ScopeContext,

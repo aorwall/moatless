@@ -1,21 +1,9 @@
 /// Why the backend refused to admit an event — and, decisively, whether the
-/// sandbox should send it again.
-///
-/// # Retry contract
-///
-/// This type is the **only** place `publish_event` builds a gRPC status, so the
-/// sandbox's retry policy can be stated in one table:
-///
-/// | gRPC status | meaning | sandbox action |
-/// |---|---|---|
-/// | `OK` | the complete payload is durably admitted | drop the event; never resend |
-/// | `UNAVAILABLE` | nothing was admitted | resend with the **same** `event_id` and `sequence` |
-/// | `INVALID_ARGUMENT` | the request violates the wire contract | terminal; resending cannot succeed |
+/// sandbox should resend it.
 ///
 /// Every variant except [`AdmissionError::Invalid`] is retryable, so a new
-/// failure mode is retryable unless it is deliberately made terminal. Callers
-/// classify with [`AdmissionError::is_retryable`] rather than by matching
-/// variants.
+/// failure mode is retryable by default unless deliberately made terminal;
+/// classify via [`AdmissionError::is_retryable`], not by matching variants.
 #[derive(Debug, thiserror::Error)]
 pub enum AdmissionError {
     /// Terminal: the request cannot be admitted as sent, no matter how often it

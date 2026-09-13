@@ -3,8 +3,8 @@
 //!
 //! `AgentStatus` lives here, not in `agent`, because it belongs to the
 //! live-status cluster: [`LiveStatus`] names it alongside [`SandboxStatus`],
-//! and its consumers are the sandbox band and the HTTP schema chain —
-//! disjoint from those of `agent::AgentSubType`.
+//! and its consumers are the sandbox band and the HTTP schema chain — disjoint
+//! from those of `agent::AgentSubType`.
 
 // reason: test code may unwrap freely; production code keeps the workspace `deny`.
 #![cfg_attr(test, allow(clippy::unwrap_used))]
@@ -50,19 +50,17 @@ impl FromStr for SandboxProviderType {
 }
 
 /// Typed policy for task archive retention.
-/// Runtime resources (Deployment, Service, `IngressRoutes`, **and the PVC**) are
-/// always removed regardless of this policy; it governs S3 archives and
-/// managed provider-local disk archives (opt-in Kubernetes node hostPaths and
-/// Docker task directories).
 ///
-/// Persisted alongside `Removed` intent in the same atomic write so a crashed
-/// remove can be retried with the *original* policy.
+/// Runtime resources (Deployment, Service, `IngressRoutes`, **and the PVC**)
+/// are always removed regardless; this governs only S3 archives and
+/// provider-local disk archives, and is persisted alongside `Removed` intent
+/// atomically so a crashed remove retries with the original policy.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ArchiveRetention {
     /// Soft removal: keep archives so the task can be revived (reopen).
     RetainArchives,
-    /// Permanent deletion: remove all archives too. Never superseded by a
-    /// later message-wake — deletion wins.
+    /// Permanent deletion: remove all archives too. Never superseded by a later
+    /// message-wake — deletion wins.
     DeleteArchives,
 }
 
@@ -89,7 +87,8 @@ impl ArchiveRetention {
         }
     }
 
-    /// Parse the persisted slug back into a policy. `None` for an unknown value.
+    /// Parse the persisted slug back into a policy. `None` for an unknown
+    /// value.
     pub fn from_db_str(s: &str) -> Option<Self> {
         match s {
             "retain_archives" => Some(Self::RetainArchives),
@@ -153,7 +152,8 @@ impl TryFrom<&str> for SandboxStatus {
     }
 }
 
-/// Matches TS `ServerStatusEnumSchema`: 'stopped' | 'installing' | 'starting' | 'started' | 'failed'
+/// Matches TS `ServerStatusEnumSchema`: 'stopped' | 'installing' | 'starting' |
+/// 'started' | 'failed'
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "lowercase")]
@@ -291,17 +291,12 @@ impl ManagedCommandState {
 }
 
 /// A registered command, narrowed to what a status reader needs to say one is
-/// still running and name it.
+/// still running and name it (the full shape is
+/// `moatless_api_schemas::sandbox::ManagedCommand`).
 ///
-/// The full shape is `moatless_api_schemas::sandbox::ManagedCommand`, which the
-/// status-read response carries. This is the half of it that belongs on a
-/// status polled every couple of seconds: `pid`, the whole command line, and
-/// the log path answer questions a status indicator does not ask.
-///
-/// Every time here is an instant, never an elapsed duration. A reader computes
-/// "12m in" from `started_at_unix_ms` itself, because a duration recomputed on
-/// the producing side changes on every read, and a push that only sends changes
-/// would then send one every poll forever.
+/// Every time here is an instant, never an elapsed duration — a reader computes
+/// "12m in" from `started_at_unix_ms` itself, since a duration recomputed
+/// producer-side would change (and re-push) on every poll.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
@@ -331,10 +326,9 @@ pub struct LiveStatus {
     pub sandbox_error: Option<String>,
     /// Commands registered through `moat cmd`, running and recently finished.
     ///
-    /// The agent reports `idle` while one of these runs — its turn ended and
-    /// the sandbox is carrying the work — so a reader with the agent status
-    /// alone cannot tell a finished Task from one that is mid-build. Empty
-    /// whenever the sandbox is not `Ready`, or when nothing is registered.
+    /// The agent reports `idle` while one runs (turn ended, sandbox carrying
+    /// the work), so agent status alone can't tell finished from mid-build.
+    /// Empty unless the sandbox is `Ready` with something registered.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub commands: Vec<CommandSummary>,
 }
@@ -343,8 +337,8 @@ impl LiveStatus {
     /// Attach the registered commands read from the same agent-status call.
     ///
     /// Separate from construction because `derive_live_status` owns the rules
-    /// that turn raw signals into display status, and these are carried
-    /// through rather than derived from anything.
+    /// turning raw signals into display status; these are carried through, not
+    /// derived.
     #[must_use]
     pub fn with_commands(mut self, commands: Vec<CommandSummary>) -> Self {
         self.commands = commands;
@@ -354,7 +348,8 @@ impl LiveStatus {
 
 /// Server sub-types — server container lifecycle.
 ///
-/// `Failed` covers all error conditions (was: Failed, Error, Timeout — consolidated).
+/// `Failed` covers all error conditions (was: Failed, Error, Timeout —
+/// consolidated).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
@@ -405,16 +400,17 @@ impl TryFrom<&str> for ServerSubType {
 pub struct ServerEventPayload {
     pub server_name: String,
     pub status: ServerSubType,
-    /// Human-readable contextual detail (e.g. "`ContainerCreating`", "`CrashLoopBackOff`").
-    /// Always set by the publisher. `#[serde(default)]` handles old events without this field.
+    /// Human-readable contextual detail (e.g. "`ContainerCreating`",
+    /// "`CrashLoopBackOff`"). Always set by the publisher. `#[serde(default)]`
+    /// handles old events without this field.
     #[serde(default)]
     pub message: String,
 }
 
 /// Sandbox event payload — typed payload for sandbox lifecycle events.
 ///
-/// Used by the pod watcher and provider to publish structured events
-/// instead of raw `serde_json::Value`.
+/// Used by the pod watcher and provider to publish structured events instead of
+/// raw `serde_json::Value`.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
@@ -431,7 +427,7 @@ pub struct SandboxEventPayload {
     /// Exit code of the terminated sandbox container, when known.
     ///
     /// Lets consumers distinguish OOM (137) from an application crash (1) or a
-    /// graceful SIGTERM (143). `#[serde(default)]` keeps old events readable.
+    /// graceful SIGTERM (143); `#[serde(default)]` keeps old events readable.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub exit_code: Option<i32>,
     /// K8s termination reason of the sandbox container (e.g. "`OOMKilled`",
@@ -443,9 +439,8 @@ pub struct SandboxEventPayload {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub node_name: Option<String>,
     /// Why the pod was disrupted, from
-    /// `pod.status.conditions[DisruptionTarget].reason` (`PreemptionByScheduler` |
-    /// `DeletionByTaintManager` | `TerminationByKubelet` | `EvictionByEvictionAPI` |
-    /// `DeletionByPodGC`), falling back to `pod.status.reason`.
+    /// `pod.status.conditions[DisruptionTarget].reason`, falling back to
+    /// `pod.status.reason`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub disruption_reason: Option<String>,
     /// Who caused an intentional stop: "reaper" | "user" | "close" | "restart"
@@ -453,7 +448,8 @@ pub struct SandboxEventPayload {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub initiator: Option<String>,
     /// Seconds the pod spent `Pending` before it was scheduled onto a node.
-    /// Attached to `pod_scheduled` events so slow scheduling is readable directly.
+    /// Attached to `pod_scheduled` events so slow scheduling is readable
+    /// directly.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pending_seconds: Option<i64>,
 }
@@ -469,9 +465,9 @@ pub struct ResourcesEventPayload {
 
 /// Which container runtime a sandbox is running on.
 ///
-/// The contract classifies a provider failure by runtime instead of naming the
-/// runtime's own error type, so a caller can depend on this contract without
-/// compiling `kube` or `bollard`.
+/// Classifies a provider failure by runtime instead of naming the runtime's own
+/// error type, so a caller can depend on this without compiling `kube` or
+/// `bollard`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProviderKind {
     Kubernetes,
@@ -490,9 +486,8 @@ impl fmt::Display for ProviderKind {
 /// A sandbox operation failure, in the vocabulary every band shares.
 ///
 /// The two transport variants box their source so this crate names no gRPC
-/// type: a caller either matches the variant or moves `source` into its own
-/// error's `#[source]`, and the underlying status still reaches a log through
-/// the rendered source chain.
+/// type; a caller matches the variant or moves `source` into its own error's
+/// `#[source]`, and the status still reaches a log via the source chain.
 #[derive(Debug, thiserror::Error)]
 pub enum SandboxError {
     #[error("sandbox not ready: {0}")]
@@ -513,10 +508,10 @@ pub enum SandboxError {
     },
     #[error("sandbox client error: {0}")]
     GrpcClient(String),
-    /// The container runtime under a sandbox failed. `kind` says which runtime,
-    /// and `message` is the description that runtime's boundary already
-    /// rendered — it carries no credential or wire detail, because the boundary
-    /// is the only place that sees them.
+    /// The container runtime under a sandbox failed: `kind` says which runtime.
+    ///
+    /// `message` is that runtime's boundary's own rendered description — never
+    /// a credential or wire detail, which only the boundary sees.
     #[error("{message}")]
     Provider { kind: ProviderKind, message: String },
     #[error("{0}")]
@@ -770,10 +765,9 @@ mod wire_contract {
 
 /// Whether failing to reach a sandbox means there is no sandbox to reach.
 ///
-/// This is the gate on every snapshot fallback: only a task with nothing
-/// running may be answered from a stored copy. A sandbox that *is* up and
-/// refused the request has current files, and serving it an older tree would
-/// present a stale answer as the live one.
+/// The gate on every snapshot fallback: only a task with nothing running may be
+/// answered from a stored copy — a sandbox that *is* up but refused the request
+/// has current files, and an older tree would be stale.
 pub fn no_live_sandbox(error: &SandboxError) -> bool {
     matches!(error, SandboxError::NotReady(_) | SandboxError::NotFound(_))
 }
@@ -785,26 +779,20 @@ pub const SANDBOX_DIND_PORT: u16 = 2375;
 /// The pod port a published preview reaches, where the sandbox's preview proxy
 /// answers on behalf of every published port.
 ///
-/// A constant rather than configuration: the Service's `targetPort` and the
-/// proxy's listener are the two ends of one wire, and they are set by different
-/// processes — `sandbox-k8s`'s `edge::publish_task_port` and the sandbox binary
-/// — so a per-sandbox value would let them drift with nothing to detect it.
+/// A constant, not configuration: the Service's `targetPort` and the proxy's
+/// listener are two ends of one wire set by different processes
+/// (`sandbox-k8s`'s `edge::publish_task_port` and the sandbox binary), so a
+/// per-sandbox value could drift undetected.
 pub const SANDBOX_PREVIEW_PROXY_PORT: u16 = 8003;
 
 /// Whether `port` belongs to the sandbox's own control plane rather than to
 /// anything a workspace may expose.
 ///
-/// The rule lives beside `SandboxPortPublisher` because it is part of that
-/// trait's contract rather than any one runtime's: routing the authenticated
-/// preview edge onto the control port, the agent gRPC channel or the Docker
-/// socket would be a sandbox escape, and that is true of every runtime — the
-/// one that publishes nothing externally included, where the collision instead
-/// shadows the sandbox's own listener inside the container. Takes the gRPC port
-/// rather than a `Config` so the rule sits in the same band as the trait.
-///
-/// The preview proxy's own port is reserved for the second reason rather than
-/// the first: a server that bound it would shadow the listener every other
-/// preview is routed through.
+/// Lives beside `SandboxPortPublisher` as part of that trait's contract:
+/// routing the preview edge onto the control port, gRPC channel, or Docker
+/// socket is a sandbox escape on every runtime, and binding the preview proxy's
+/// own port would shadow the listener every other preview routes through. Takes
+/// the gRPC port, not a `Config`, to stay in the trait's band.
 #[must_use]
 pub fn is_reserved_sandbox_port(port: u16, grpc_port: u16) -> bool {
     port == SANDBOX_HTTP_PORT

@@ -1,16 +1,11 @@
 //! Unified task reaper.
 //!
-//! Background job that periodically:
-//! 1. Stops idle sandbox Deployments (short TTL — `ttl_minutes`).
-//! 2. Auto-closes inactive Open tasks (long TTL — `inactive_ttl_days`).
-//! 3. Reclaims the Deployment and volume of a sandbox that has been stopped
-//!    long enough (`cold_after_hours`), leaving the S3 snapshot as the only
-//!    copy. The task stays Open and its sandbox stays Stopped — a later start
-//!    provisions a fresh volume and restores into it.
-//!
-//! Runs on the elected leader only (through a `LeaderGuard` port) so a single
-//! replica drives the cycle. One cycle, one lease (`moatless-task-reaper`),
-//! and one activity overlay cover both the idle-stop and inactive-close paths.
+//! Background job that periodically stops idle sandbox Deployments (short TTL
+//! `ttl_minutes`), auto-closes inactive Open tasks (long TTL
+//! `inactive_ttl_days`), and reclaims the Deployment/volume of a long-stopped
+//! sandbox (`cold_after_hours`), leaving the S3 snapshot as the only copy; the
+//! task stays Open and a later start restores a fresh volume. Runs on the
+//! elected leader only (one lease, `moatless-task-reaper`).
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -48,9 +43,8 @@ use sandbox_proto::client::SandboxConnector;
 
 /// Minimum age of a stuck `active` turn before the reaper reconciles it.
 ///
-/// Sits comfortably above normal turn latency so a slow-but-live turn is never
-/// force-closed; only a turn whose terminal event was genuinely lost (e.g.
-/// dropped during a Redis outage) survives past this floor.
+/// Set above normal turn latency, so only a turn whose terminal event was
+/// genuinely lost (e.g. dropped during a Redis outage) gets force-closed.
 const RECONCILE_STUCK_TURN_THRESHOLD_SECS: i64 = 5 * 60;
 
 /// The deployment-wide knobs one cycle runs against. Grouped because they are
@@ -74,11 +68,11 @@ enum ReaperError {
     Db(#[from] sqlx::Error),
 }
 
-/// The unified task reaper's ports — one background job reads all of them, so
-/// the struct is the explicit manifest of what a reap cycle touches.
-/// `agent_error` is held for one thing only: delivering the synthetic
-/// `agent.error` that closes an orphaned turn through the same handler a real
-/// one takes.
+/// The unified task reaper's ports — the explicit manifest of what a reap cycle
+/// touches.
+///
+/// `agent_error` delivers the synthetic `agent.error` that closes an orphaned
+/// turn through the same handler a real one takes.
 pub struct TaskReaper {
     connector: Arc<dyn SandboxConnector>,
     leader: Arc<dyn LeaderGuard>,
@@ -131,8 +125,8 @@ impl TaskReaper {
         }
     }
 
-    /// Orphan-GC pass: LIST labeled sandbox resources, then delete only the ones
-    /// whose Task row no longer exists. Fully best-effort.
+    /// Orphan-GC pass: LIST labeled sandbox resources, then delete only the
+    /// ones whose Task row no longer exists. Fully best-effort.
     async fn gc_orphaned_resources(&self) {
         let task_ids =
             moatless_sandbox_k8s::sandbox_resources::collect_labeled_task_ids(&self.k8s).await;
@@ -177,11 +171,9 @@ impl TaskReaper {
 
     /// Spawn the unified task reaper as a background tokio task.
     ///
-    /// The reaper runs in a loop:
-    /// 1. Try to acquire leadership through the `LeaderGuard` port.
-    /// 2. If leader, run a reap cycle (inactive-task close, idle-sandbox stop,
-    ///    cold-storage reclaim).
-    /// 3. Sleep for `config.sandbox.idle_check_interval_secs` before the next cycle.
+    /// Loops: try to acquire leadership via `LeaderGuard`, run a reap cycle if
+    /// leader, then sleep `config.sandbox.idle_check_interval_secs` before
+    /// repeating.
     pub fn spawn(self, cancel: CancellationToken) -> JoinHandle<()> {
         metrics::describe_counter!(
             "task_turns_reconciled_total",
@@ -320,9 +312,9 @@ impl TaskReaper {
 /// A running Sandbox and the Tasks attached to it.
 struct RunningSandbox {
     sandbox_id: String,
-    /// Every active Member, including the Task whose id names the Sandbox. Never
-    /// empty: a Sandbox with no fork and no open owner row still lists its own
-    /// id, which is what the idle-stop branch decides on.
+    /// Every active Member, including the Task whose id names the Sandbox.
+    /// Never empty: a Sandbox with no fork and no open owner row still lists
+    /// its own id, which is what the idle-stop branch decides on.
     members: Vec<String>,
 }
 
@@ -789,8 +781,8 @@ impl TaskReaper {
 /// Whether a live agent status is one the sandbox must be kept alive for.
 ///
 /// `waiting` is not: the run is parked on a person and doing no work, so the
-/// ordinary idle TTL decides. The question it is parked on is stored, and
-/// answering it after the reclaim starts a fresh turn carrying it.
+/// ordinary idle TTL decides; answering it after a reclaim starts a fresh turn
+/// carrying the stored question.
 fn agent_holds_the_sandbox(status: &str) -> bool {
     !matches!(status, "idle" | "stopped" | "waiting")
 }
@@ -810,15 +802,9 @@ fn log_reaper_stats(stats: ReaperStats) {
 
 /// Reconcile turns stuck open because their terminal event was lost.
 ///
-/// Reads the authoritative `task_turns` table (turns still `active` or
-/// `interrupted` past the age floor) rather than deriving openness from the
-/// event log — turn state is committed transactionally at ingress, so this
-/// is a pure backstop for the rare lost-terminal case.
-///
-/// A turn is closed only once confirmed genuinely orphaned: either the task is
-/// running in no pod (not in `live_task_ids`) or its agent reports
-/// `idle`/`stopped`. A turn whose agent is still `running`, or whose status
-/// can't be determined, is left alone so a slow-but-live turn is never killed.
+/// A pure backstop: reads `task_turns` directly rather than the event log, and
+/// closes a turn only when confirmed orphaned (task in no pod, or agent
+/// `idle`/`stopped`) — a still-`running` or undetermined agent is left alone.
 impl TaskReaper {
     async fn reconcile_orphaned_turns(&self, live_task_ids: &[String], stuck: &[UnclosedTurn]) {
         if stuck.is_empty() {
@@ -858,12 +844,9 @@ impl TaskReaper {
 
     /// Reconcile turns closed while their run kept going.
     ///
-    /// The converse of [`Self::reconcile_orphaned_turns`]. The heartbeat's
-    /// `run_id` decides the case: a run newer than the closed row means that
-    /// row's open event was lost, so the turn is allocated through the sole
-    /// allocator. The same run the row already closed is a contradiction, and
-    /// an absent `run_id` is unattributable; both are counted and neither is
-    /// written, so the defect stays visible.
+    /// The converse of [`Self::reconcile_orphaned_turns`]:
+    /// [`classify_live_run`] decides what the heartbeat means; a
+    /// [`LiveRunVerdict::Contradiction`] is counted but never written.
     async fn reconcile_live_runs(&self, live_task_ids: &[String], settled: &[SettledTurn]) {
         if settled.is_empty() {
             return;
@@ -911,12 +894,8 @@ impl TaskReaper {
         }
     }
 
-    /// Allocate the turn a live run is working under.
-    ///
-    /// [`TaskTurns::resolve_turn_for_run`] is the sole allocator, so a
-    /// reaper-allocated turn is indistinguishable from one the run opened
-    /// itself — including when the run's own `taskTurn.active` lands first,
-    /// which resolves to the same turn rather than a second one.
+    /// Allocate the turn a live run is working under; see
+    /// [`TaskTurns::resolve_turn_for_run`], the sole allocator.
     async fn open_turn_for_live_run(&self, turn: &SettledTurn, run_id: &str) {
         match self
             .task_turns
@@ -957,12 +936,10 @@ impl TaskReaper {
     /// Settle turns a later turn already superseded.
     ///
     /// Unlike [`Self::reconcile_orphaned_turns`], no sandbox is consulted: a
-    /// higher-numbered turn is proof the agent moved on, so the row is settled
-    /// straight to a terminal status. The task itself is left alone — its
-    /// status follows its newest turn, which these are not — so no reopen and
-    /// no `taskTurn` event is published. The status is honest about how the
-    /// turn ended: `completed` when its final reply is on record and only the
-    /// terminal event was lost, `stopped` when it was genuinely cut off.
+    /// higher-numbered turn proves the agent moved on, so the row settles
+    /// straight to a terminal status without touching the task or publishing a
+    /// `taskTurn` event — `completed` if its final reply is on record, else
+    /// `stopped`.
     async fn reconcile_superseded_turns(&self, superseded: &[UnclosedTurn]) {
         for turn in superseded {
             let Some(turn_number) = turn.turn_number else {
@@ -1030,9 +1007,8 @@ enum LiveRunVerdict<'a> {
 
 /// Decide what a heartbeat means against the run its turn row recorded.
 ///
-/// Split out from the reconcile loop because it is the whole of the decision:
-/// everything around it is a lookup, and this is what a reader has to be able
-/// to check.
+/// This is the whole of the decision; everything around it in the reconcile
+/// loop is a lookup.
 fn classify_live_run<'a>(
     agent_status: &str,
     live_run_id: Option<&'a str>,
@@ -1054,8 +1030,9 @@ fn classify_live_run<'a>(
 }
 
 /// Returns `Some(true)` if the sandbox agent is `idle`/`stopped`, `Some(false)`
-/// if it's still `running`, and `None` when the status can't be read (no client,
-/// gRPC error) — the caller treats `None` conservatively as "possibly live".
+/// if it's still `running`, and `None` when the status can't be read (no
+/// client, gRPC error) — the caller treats `None` conservatively as "possibly
+/// live".
 async fn agent_is_terminal(connector: &dyn SandboxConnector, task_id: &str) -> Option<bool> {
     agent_status_snapshot(connector, task_id)
         .await
@@ -1064,15 +1041,15 @@ async fn agent_is_terminal(connector: &dyn SandboxConnector, task_id: &str) -> O
 
 /// Whether a live agent status means the turn it was running has ended.
 ///
-/// `waiting` does not: the run is parked mid-turn and continues where it left
-/// off the moment the answer lands. That the sandbox under it may be reclaimed
-/// in the meantime is a separate question — see [`agent_holds_the_sandbox`].
+/// `waiting` does not: the run is parked mid-turn and resumes when the answer
+/// lands. The sandbox under it may still be reclaimed — see
+/// [`agent_holds_the_sandbox`].
 fn agent_turn_is_over(status: &str) -> bool {
     matches!(status, "idle" | "stopped")
 }
 
-/// Live agent status straight from the sandbox, `None` when unreachable
-/// (no client, gRPC error).
+/// Live agent status straight from the sandbox, `None` when unreachable (no
+/// client, gRPC error).
 async fn agent_status_snapshot(
     connector: &dyn SandboxConnector,
     task_id: &str,
@@ -1144,15 +1121,11 @@ impl TaskReaper {
         close_orphaned_turn_as_error(&self.agent_error, turn).await;
     }
 
-    /// Close a stuck turn whose agent had already delivered its final reply — its
-    /// terminal event was lost, not its result. Projects the turn to `completed`,
-    /// returns the task to Open, and emits `taskTurn/completed` so the UI unblocks,
-    /// all without appending a spurious error message.
+    /// Close a stuck turn whose agent already replied: project to `completed`,
+    /// reopen the task, and emit `taskTurn/completed`.
     ///
-    /// The turn is projected directly (rather than relying solely on the published
-    /// event round-tripping) because a lost terminal event is the very failure this
-    /// path guards against — if the reconcile event were also lost the turn would
-    /// otherwise stay `active` and be reconciled again on the next cycle.
+    /// Projected directly, since a lost terminal event is exactly the failure
+    /// this path guards against.
     async fn close_orphaned_turn_as_completed(&self, turn: &UnclosedTurn) {
         if let Some(turn_number) = turn.turn_number {
             if let Err(e) = self
@@ -1212,18 +1185,12 @@ impl TaskReaper {
     }
 }
 
-/// Force a stuck turn to `error` by delivering a synthetic `agent.error` through
-/// the sink — the same close path a real `agent.error` takes: appends an error
-/// result message, flips the task back to Open, and publishes `taskTurn/error`
-/// so the UI unblocks.
+/// Force a stuck turn to `error` via a synthetic `agent.error` through the same
+/// sink a real one takes: appends an error message, reopens the task, and
+/// publishes `taskTurn/error`.
 ///
-/// The synthetic event id is deterministic per `(task, turn)` so repeated
-/// reconcile cycles (e.g. while Redis is still down and the terminal event
-/// hasn't yet round-tripped into `task_events`) upsert the same message row
-/// instead of stacking duplicates.
-///
-/// Free so the reconcile delivery is testable without constructing a full
-/// reaper.
+/// Free-standing so the reconcile delivery is testable without constructing a
+/// full reaper.
 async fn close_orphaned_turn_as_error(ports: &AgentErrorPorts, turn: &UnclosedTurn) {
     let event = reconcile_error_event(turn);
     crate::event_handler::agent_handlers::handle_agent_error(ports, &event).await;
@@ -1237,8 +1204,8 @@ async fn close_orphaned_turn_as_error(ports: &AgentErrorPorts, turn: &UnclosedTu
 
 /// The synthetic `agent.error` that closes an orphaned turn.
 ///
-/// The event id is deterministic per `(task, turn)` so repeated reconcile cycles
-/// upsert the same message row instead of stacking duplicates.
+/// The event id is deterministic per `(task, turn)`, so repeated reconcile
+/// cycles upsert the same row instead of stacking duplicates.
 fn reconcile_error_event(turn: &UnclosedTurn) -> AgentEvent {
     let turn_label = turn
         .turn_number
@@ -1266,29 +1233,25 @@ enum ReapDecision {
     Stop,
     /// Sandbox is still within its TTL — leave it running.
     Keep,
-    /// Cannot decide (no activity timestamp, or TTL disabled). Reason is for logs.
+    /// Cannot decide (no activity timestamp, or TTL disabled). Reason is for
+    /// logs.
     Skip(&'static str),
 }
 
 /// Whether an `agent` lifecycle `sub_type` marks the agent's run as ended.
 ///
-/// `started` is the only non-terminal run-state marker; `completed`,
-/// `stopped`, and `error` all mean the agent stopped. The DAO query already
-/// restricts to these four sub-types, so anything that isn't terminal here is
+/// The DAO query restricts to four sub-types, so anything not terminal here is
 /// `started` (a running agent).
 fn is_terminal_agent_sub_type(sub_type: &str) -> bool {
     matches!(sub_type, "completed" | "stopped" | "error")
 }
 
 /// Compute the idle-stop floor for a sandbox task, folding the latest agent
-/// run-state (`(sub_type, stopped_at)`) into the raw activity floor.
+/// run-state into the raw activity floor.
 ///
-/// - running agent (`started`, non-terminal) ⇒ `now` ⇒ `decide_reap` returns
-///   `Keep`; a running agent is never reaped.
-/// - stopped agent (terminal) ⇒ `max(activity_floor, stop_time)` so the TTL
-///   counts from when the agent stopped, not from the last user message.
-/// - no agent event ⇒ the `activity_floor` unchanged (message → sandbox-start →
-///   created fallback).
+/// A running agent floors to `now` (never reaped); a stopped agent floors to
+/// `max(activity_floor, stop_time)` so the TTL counts from when it stopped, not
+/// the last message; no agent event leaves `activity_floor` unchanged.
 fn compute_reap_floor(
     agent_event: Option<&(String, DateTime<Utc>)>,
     activity_floor: Option<DateTime<Utc>>,
@@ -1304,11 +1267,11 @@ fn compute_reap_floor(
     }
 }
 
-/// The idle-stop floor for a whole Sandbox: the newest
-/// [`compute_reap_floor`] across its Members.
+/// The idle-stop floor for a whole Sandbox: the newest [`compute_reap_floor`]
+/// across its Members.
 ///
-/// A Member whose agent is running contributes `now`, so one working Member
-/// keeps the pod for every other Member on it.
+/// A running Member contributes `now`, keeping the pod alive for every other
+/// Member on it.
 fn fold_reap_floor(
     members: &[String],
     agent_lifecycle: &HashMap<String, (String, DateTime<Utc>)>,
@@ -1343,9 +1306,7 @@ fn fold_latest_activity(
 /// when any Member is pinned.
 ///
 /// `decide_reap` reads `0` as indefinite, so a pinned Member pins the pod it
-/// shares. This matches the teardown guard in
-/// `sandbox_control::lifecycle::orchestrator::run_remove`, which keeps a
-/// Sandbox while an active peer is attached.
+/// shares — matching the teardown guard in `run_remove`.
 fn fold_ttl_minutes(
     members: &[String],
     ttl_map: &HashMap<String, i32>,
@@ -1368,10 +1329,9 @@ fn fold_ttl_minutes(
 
 /// Pure decision function: decide whether to reap a single sandbox.
 ///
-/// `ttl_minutes == 0` means the task is pinned indefinitely — never reap.
-/// A missing `latest_at` means we have no activity floor (no messages, no
-/// sandbox-started timestamp, no creation time) and skip rather than risk
-/// killing a brand-new sandbox.
+/// `ttl_minutes == 0` means pinned indefinitely — never reap; a missing
+/// `latest_at` (no message, sandbox-start, or creation timestamp) skips rather
+/// than risking a brand-new sandbox.
 fn decide_reap(
     ttl_minutes: i32,
     latest_at: Option<DateTime<Utc>>,
@@ -1425,24 +1385,22 @@ fn decide_close(
 /// Pure decision function: whether a stopped sandbox has been stopped long
 /// enough for its storage to be reclaimed.
 ///
-/// `cold_after_hours <= 0` disables the branch, matching how `ttl_minutes` and
-/// `inactive_ttl_days` read `0` as "indefinite". `stopped_at` is when intent
-/// moved to Stopped, which is also the instant the pre-stop archive push was
-/// taken against — so the same timestamp decides the clock here and the
-/// freshness proof downstream.
+/// `cold_after_hours <= 0` disables the branch (`0` reads as indefinite, like
+/// the other TTLs); `stopped_at` is also the instant the pre-stop archive push
+/// was taken against, so it decides both this clock and the freshness proof
+/// downstream.
 fn decide_cold(cold_after_hours: i32, stopped_at: DateTime<Utc>, now: DateTime<Utc>) -> bool {
     cold_after_hours > 0 && now - stopped_at >= chrono::Duration::hours(i64::from(cold_after_hours))
 }
 
 impl TaskReaper {
-    /// Mirror of [`moatless_tasks::task::handlers::close_task`] for unattended use.
-    ///
-    /// Best-effort: every step is logged on failure but never propagates — the
+    /// Mirror of [`moatless_tasks::task::handlers::close_task`] for unattended
+    /// use. Best-effort: every step logs on failure but never propagates — the
     /// reaper loop must never panic.
     ///
-    /// Not [`moatless_tasks::task::closer::TaskCloser::close_single`]: that path carries an
-    /// already-Closed idempotence guard this one does not, so they are not yet
-    /// interchangeable.
+    /// Not interchangeable with
+    /// [`moatless_tasks::task::closer::TaskCloser::close_single`], which
+    /// carries an already-Closed idempotence guard this one lacks.
     async fn auto_close_task(&self, task_id: &str) {
         // reason: reaper acts across all task owners; system ctx bypasses per-user scope.
         #[allow(clippy::disallowed_methods)]

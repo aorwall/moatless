@@ -1,7 +1,7 @@
 //! Append-system-prompt assembly for agent runs.
 //!
-//! The backend builds the entire `append` system prompt sent to the agent.
-//! The sandbox fetches it separately and appends the backend-supplied string
+//! The backend builds the entire `append` system prompt sent to the agent. The
+//! sandbox fetches it separately and appends the backend-supplied string
 //! verbatim.
 
 use std::sync::Arc;
@@ -24,8 +24,8 @@ use moatless_types::task::TaskRelationType;
 pub enum ParentTask<'a> {
     /// Spawned by that Task, which is waiting to be told how it went.
     CreatedBy(&'a str),
-    /// Branched off that Task at one of its turns, carrying its conversation
-    /// up to that point. `at_turn` is `None` when the cut was at head.
+    /// Branched off that Task at one of its turns, carrying its conversation up
+    /// to that point. `at_turn` is `None` when the cut was at head.
     ForkedFrom {
         task_id: &'a str,
         at_turn: Option<i32>,
@@ -49,10 +49,11 @@ pub struct PromptInputs<'a> {
     pub proxy_protocol: &'a str,
 }
 
-/// Steers the agent toward `moat gh` (the backend-proxied GitHub wrapper) and
-/// away from the (broken) hosted GitHub MCP tools. `moat gh`
-/// proxies the mutations that need backend side effects, records what a raw
-/// `gh api` POST creates, and passes everything else through to the
+/// Steers the agent toward `moat gh` and away from the (broken) hosted GitHub
+/// MCP tools.
+///
+/// `moat gh` proxies mutations that need backend side effects, records what a
+/// raw `gh api` POST creates, and passes everything else through to the
 /// authenticated `gh` CLI.
 const GITHUB_CLI_HINT: &str = "\
 # GitHub Access
@@ -179,9 +180,8 @@ fine result.";
 
 /// Build the append-system-prompt for a task.
 ///
-/// Loads the task's workspace (for `system_prompt` + `servers`) and reads URL
-/// settings off `Config`, then delegates to [`build_append_system_prompt`].
-/// Falls back to a minimal prompt (no workspace or server data) if the
+/// Loads the task's workspace and URL settings, then delegates to
+/// [`build_append_system_prompt`]; falls back to a minimal prompt if the
 /// workspace lookup fails or workspaces aren't wired.
 pub async fn build_for_task(
     task_id: &str,
@@ -294,8 +294,8 @@ pub fn build_append_system_prompt(inputs: &PromptInputs<'_>) -> String {
     sections.join("\n\n")
 }
 
-/// Either the "# Task Name" rename hint (when the task already has a name)
-/// or the "# Required First Actions" directive (when it doesn't).
+/// Either the "# Task Name" rename hint (when the task already has a name) or
+/// the "# Required First Actions" directive (when it doesn't).
 fn build_task_identity_section(task_name: Option<&str>) -> String {
     let trimmed = task_name.map(str::trim).filter(|s| !s.is_empty());
     if let Some(name) = trimmed {
@@ -312,7 +312,8 @@ fn build_task_identity_section(task_name: Option<&str>) -> String {
     }
 }
 
-/// Build the "# Preview Servers" section. Returns `None` when `servers` is empty.
+/// Build the "# Preview Servers" section. Returns `None` when `servers` is
+/// empty.
 fn build_server_section(
     servers: &[ServerConfig],
     task_id: &str,
@@ -616,10 +617,9 @@ mod tests {
         assert!(!prompt.contains("moat send --task source-abc"));
     }
 
-    /// The fork section restating the naming rule is what stopped forks from
-    /// getting named: it read "once you know what you are doing here", which
-    /// licenses deferring the `MUST` that `# Required First Actions` states
-    /// above it, and pointed at a `set-name` that cannot set a description.
+    /// Do not let the fork section restate the naming rule permissively: that
+    /// licenses deferring the `MUST` in `# Required First Actions` above it,
+    /// and a `set-name` pointer here cannot set a description either.
     #[test]
     fn the_fork_section_leaves_naming_to_the_required_first_actions() {
         let section = build_parent_task_section(ParentTask::ForkedFrom {

@@ -1,8 +1,8 @@
 //! Contract tests for the harness command/signal seam.
 //!
-//! These drive the external [`Harness`] interface with the scripted mock process
-//! — the same interface the coordinator uses — and assert the ordering and
-//! terminal invariants every harness must satisfy.
+//! These drive the external [`Harness`] interface with the scripted mock
+//! process — the same interface the coordinator uses — and assert the ordering
+//! and terminal invariants every harness must satisfy.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -311,11 +311,12 @@ async fn cancellation_during_startup_rejects_input() {
 }
 
 /// A Stop must land while the process is still *opening*, not only once it is
-/// waiting for the Agent's first event. Codex awaits `initialize`,
-/// `thread/start` and `turn/start` inside `submit`, and a server that stops
-/// answering parks that future indefinitely — so if the driver read `cancel_rx`
-/// only after `submit` returned, Stop would be unreachable exactly when it is
-/// needed.
+/// waiting for the Agent's first event.
+///
+/// Codex awaits `initialize`, `thread/start` and `turn/start` inside `submit`,
+/// and a server that stops answering parks that future indefinitely — so a
+/// driver that read `cancel_rx` only after `submit` returned would make Stop
+/// unreachable exactly when it's needed.
 #[tokio::test]
 async fn cancellation_during_a_blocking_open_rejects_the_input() {
     let recorder: scripted::InputRecorder = Arc::new(tokio::sync::Mutex::new(Vec::new()));

@@ -130,10 +130,11 @@ fn every_named_turn_error_maps_to_its_class_and_impact() {
     }
 }
 
-/// The same three causes carry an optional status code, and it is the only
-/// thing saying whether a server answered. With none, nothing reached the
-/// provider and the pod's egress is the suspect, so the class says connectivity
-/// rather than blaming the provider's capacity.
+/// The same three causes carry an optional status code — the only signal for
+/// whether a server answered.
+///
+/// With none, nothing reached the provider and the pod's egress is the suspect,
+/// so the class says connectivity rather than blaming the provider's capacity.
 #[test]
 fn a_connection_failure_without_a_status_code_is_connectivity() {
     for name in [

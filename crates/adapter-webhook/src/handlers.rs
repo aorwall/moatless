@@ -13,16 +13,11 @@ use moatless_api_schemas::webhook::WebhookAccepted;
 
 /// Take durable ownership of one inbound webhook delivery.
 ///
-/// Everything the caller is answered with is decided before any routing runs:
-/// the delivery is verified, parsed, and written to the Adapter delivery seam,
-/// and only then acknowledged. A 200 therefore means the backend owns the delivery,
-/// not that a Task exists — the Task is created later, by the worker, out of the
-/// record this wrote. Anything that failed to record reaches the caller as a
-/// failure so its own retry is the recovery path.
-///
-/// Deactivated loops are rejected before admission. A Loop can also be
-/// paused or resynced after admission; the worker rechecks runnable state and
-/// then terminates the durable delivery without creating a Task.
+/// A 200 means the backend owns the delivery, not that a Task exists yet;
+/// anything that failed to record reaches the caller as a failure so its retry
+/// is the recovery path. Deactivated loops are rejected before admission; a
+/// loop paused or resynced after admission is handled by the worker without
+/// creating a Task.
 #[utoipa::path(
     post,
     path = "/api/v1/adapters/webhook/{loop_id}",
@@ -74,8 +69,8 @@ mod tests {
     use moatless_types::loops::SubscriptionMatch;
     use moatless_types::store::StoreError;
 
-    /// A runnable webhook Subscription, the one shape every test here drives the
-    /// handler with. No `webhook_secret`, so admission is reached without a
+    /// A runnable webhook Subscription, the one shape every test here drives
+    /// the handler with. No `webhook_secret`, so admission is reached without a
     /// signature.
     fn webhook_rule() -> SubscriptionMatch {
         let now = chrono::Utc::now();
@@ -226,7 +221,8 @@ mod tests {
         assert_eq!(seen[0].kind, INBOUND_MESSAGE);
     }
 
-    /// The redaction boundary: the cause is kept as a source, never in the body.
+    /// The redaction boundary: the cause is kept as a source, never in the
+    /// body.
     #[tokio::test]
     async fn a_failed_write_is_a_redacted_500() {
         let admission: Arc<dyn DeliveryAdmission> =

@@ -1,22 +1,11 @@
-//! Root supervision for the sandbox's long-lived tasks.
+//! Root supervision for the sandbox's long-lived tasks: every server,
+//! durability loop and lifecycle task registers here under a declared
+//! [`Criticality`].
 //!
-//! Every server, durability loop and lifecycle task registers with the single
-//! [`Supervisor`] built in `main` under a declared [`Criticality`]. The
-//! supervisor owns the [`JoinHandle`]s, so an early return or a panic becomes a
-//! [`TaskExit`] rather than vanishing:
-//!
-//! - [`Criticality::Fatal`] — cancel everything and fail the process; one pod
-//!   runs one agent, so exiting hands it back to the kubelet.
-//! - [`Criticality::Liveness`] — finish the turn, report not-live on `/livez`.
-//!   That is the only post-startup probe (`/health` is a startup probe), and it
-//!   is opt-in via `K8S_SANDBOX_LIVENESS_ENABLED` — where a restart must happen
-//!   regardless, declare [`Criticality::Fatal`].
-//! - [`Criticality::Optional`] — log and carry on.
-//!
-//! Termination after root cancellation is normal shutdown, never a failure.
-//! [`Supervisor::run`] joins the rest within [`SHUTDOWN_JOIN_DEADLINE`] and
-//! names the stragglers. Registration is a cloneable [`Registrar`] handle
-//! because the durability loops are spawned from inside a supervised task.
+//! `Fatal` cancels everything and fails the process, handing the pod back to
+//! the kubelet; `Liveness` finishes the turn and reports not-live on `/livez`
+//! (opt-in via `K8S_SANDBOX_LIVENESS_ENABLED`); `Optional` logs and carries on.
+//! [`Registrar`] is cloneable: durability loops spawn from a supervised task.
 
 use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -29,38 +18,23 @@ use tracing::{error, info, warn};
 
 /// Bounded time budget for joining every supervised task on shutdown.
 ///
-/// This is the *only* shutdown join in the process and the last bounded step of
-/// a teardown budget accounted against the pod's ~30s grace period; see the table on
-/// `crate::shutdown::OUTBOX_FLUSH_TIMEOUT` before changing it.
-///
-/// Two seconds is enough: every task registered here either selects over the
-/// lifecycle token or is already finished by the time shutdown runs, so the only
-/// thing this waits out is an in-flight request or gRPC call. Stragglers are
-/// reported by name, not waited for.
+/// The last bounded step of the pod's ~30s teardown grace period — see
+/// `crate::shutdown::OUTBOX_FLUSH_TIMEOUT` before changing it; stragglers past
+/// the deadline are reported by name, not waited for.
 pub const SHUTDOWN_JOIN_DEADLINE: Duration = Duration::from_secs(2);
 
 /// What the root supervisor does when a supervised task terminates before
-/// shutdown was requested.
-///
-/// Declared at registration so a task's exit policy is visible in the
-/// composition root rather than inferred from a dropped handle.
+/// shutdown was requested. Declared at registration, not inferred from a
+/// dropped handle.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Criticality {
     /// The pod cannot do its job without this task. Its early termination
     /// cancels every other supervised task and fails `main`, so the container
     /// exits non-zero and the kubelet restarts it.
-    ///
-    /// Chosen over [`Liveness`](Self::Liveness) whenever the loss makes the pod
-    /// unreachable or unable to make progress at all, because `/livez` probing
-    /// is opt-in and a `Liveness` policy is inert when it is off.
     Fatal,
     /// The pod can still finish the turn it is running, but it is no longer
     /// healthy: `/livez` reports unavailable so Kubernetes restarts it (when
     /// sandbox liveness probing is enabled).
-    ///
-    /// Chosen over [`Fatal`](Self::Fatal) when an immediate process exit would
-    /// destroy an in-flight agent turn to fix something the *next* turn needs —
-    /// a restart under SIGTERM runs the graceful teardown, an exit does not.
     Liveness,
     /// Losing this task degrades one non-essential capability. Nothing else
     /// changes.
@@ -68,11 +42,8 @@ pub enum Criticality {
 }
 
 /// Whether a supervised task is expected to return on its own before shutdown.
-///
-/// Split from [`Criticality`] because the two are orthogonal: initialization is
-/// fatal *when it panics* and entirely normal when it returns, and folding that
-/// into the criticality would mean either treating a completed init as a crash
-/// or treating a crashed server as routine.
+/// Orthogonal to [`Criticality`]: initialization is fatal only when it panics,
+/// while a long-running server treats even a clean return as failure.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Completion {
     /// The task runs until cancellation. Any termination before shutdown —
@@ -120,14 +91,9 @@ pub struct TaskExit {
 
 /// Liveness view of supervised work, read by the `/livez` probe.
 ///
-/// Records every non-[`Optional`](Criticality::Optional) task that terminated
-/// early. The set only grows: nothing here is restartable, so a pod that has
-/// lost one of these stays degraded until it is replaced.
-///
-/// [`Criticality::Fatal`] exits are recorded too, even though the process is
-/// already on its way out. During the bounded shutdown join the HTTP server is
-/// still answering probes, and answering them with 200 would claim a liveness
-/// the process no longer has.
+/// The set only grows: nothing here is restartable, so a pod that lost one
+/// stays degraded until replaced; [`Criticality::Fatal`] exits are recorded
+/// too, since `/livez` is still served during the bounded shutdown join.
 #[derive(Debug, Default)]
 pub struct SupervisorHealth {
     failed: Mutex<BTreeSet<&'static str>>,
@@ -161,9 +127,8 @@ struct Supervised {
 
 /// Cloneable registration handle for the root supervisor.
 ///
-/// Held by `main` and by anything that spawns supervised work after `main` has
-/// handed control to [`Supervisor::run`] — in practice `init::run_init`, which
-/// starts the durability loops only once the workspace exists.
+/// Held by `main`, and by `init::run_init`, which starts the durability loops
+/// once the workspace exists — after `main` hands off to [`Supervisor::run`].
 #[derive(Clone)]
 pub struct Registrar {
     tx: mpsc::UnboundedSender<Supervised>,
@@ -174,7 +139,8 @@ impl Registrar {
     /// Take ownership of an already-spawned task that runs until cancellation.
     ///
     /// `name` identifies the task in logs, in the `/livez` view, and in the
-    /// straggler report, so it should match how the task is known operationally.
+    /// straggler report, so it should match how the task is known
+    /// operationally.
     pub fn supervise(&self, name: &'static str, criticality: Criticality, handle: JoinHandle<()>) {
         self.register(name, criticality, Completion::RunsUntilShutdown, handle);
     }
@@ -224,8 +190,8 @@ impl Registrar {
     }
 }
 
-/// The root supervisor: owns every long-lived task's join handle and applies its
-/// declared [`Criticality`] when it terminates.
+/// The root supervisor: owns every long-lived task's join handle and applies
+/// its declared [`Criticality`] when it terminates.
 pub struct Supervisor {
     cancel: CancellationToken,
     registrar: Registrar,
@@ -249,7 +215,8 @@ impl Supervisor {
         }
     }
 
-    /// A registration handle. Clone it into anything that spawns supervised work.
+    /// A registration handle. Clone it into anything that spawns supervised
+    /// work.
     pub fn registrar(&self) -> Registrar {
         self.registrar.clone()
     }
@@ -259,34 +226,11 @@ impl Supervisor {
         self.registrar.health()
     }
 
-    /// Watch the supervised tasks until one [`Criticality::Fatal`] task
-    /// terminates early or the root token is cancelled, then cancel and join the
-    /// rest within `join_deadline`.
+    /// Watch every task until a [`Criticality::Fatal`] exit or cancellation,
+    /// join the rest within `join_deadline`, and return any fatal exit.
     ///
-    /// Returns the fatal exit that ended the process, if there was one. Tasks
-    /// that outlive the deadline are reported by name and left running — the
-    /// process exits rather than hanging on them, which is the whole point of
-    /// bounding the join.
-    ///
-    /// # `teardown`
-    ///
-    /// The graceful teardown to run when *this supervisor* initiates shutdown —
-    /// i.e. on a fatal exit, where no signal handler has run and nothing else
-    /// will flush anything. It is awaited **before** the root token is
-    /// cancelled, and it is expected to cancel the token itself (in the sandbox
-    /// it is [`crate::shutdown::perform_shutdown`], whose last statement does).
-    ///
-    /// The ordering is not incidental. Teardown flushes the event outbox, and
-    /// `EventOutbox::flush` early-returns the moment its drainer has stopped, so
-    /// cancelling first would make the flush an instant no-op that drops the
-    /// pod's terminal events while looking entirely correct. That is the same
-    /// inversion the signal path is careful to avoid, so the two paths run in
-    /// the same order: teardown, then cancel, then join.
-    ///
-    /// It is *not* run when the loop ended because the token was already
-    /// cancelled: that is the signal path, and teardown has already happened.
-    /// The future is only polled when needed, so passing one that borrows state
-    /// costs nothing on the common path.
+    /// `teardown` runs once, before cancelling, only on a fatal exit — running
+    /// it after would let `EventOutbox::flush` no-op and drop terminal events.
     pub async fn run(
         self,
         join_deadline: Duration,

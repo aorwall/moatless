@@ -1,8 +1,8 @@
 //! Agent process and session lifetime, input delivery, and normalized signals.
 //!
 //! A [`Harness`] controls at most one active process while its session survives
-//! process replacement. The coordinator owns Run/Turn identity, acknowledgement,
-//! retry policy, credentials, and backend publishing.
+//! process replacement. The coordinator owns Run/Turn identity,
+//! acknowledgement, retry policy, credentials, and backend publishing.
 
 pub mod content;
 pub mod error;

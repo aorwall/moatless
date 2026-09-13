@@ -13,9 +13,11 @@ pub struct ReplyTargetDescriptor {
     pub kind: String,
     /// Stable target identifier, usually `task_bindings.id`.
     pub id: String,
-    /// Human-readable label such as `"slack source:C123"` or `"github pr:owner/repo#42"`.
+    /// Human-readable label such as `"slack source:C123"` or `"github
+    /// pr:owner/repo#42"`.
     pub label: String,
-    /// CLI flag the caller should add to disambiguate, e.g. `"--binding bind_xyz"`.
+    /// CLI flag the caller should add to disambiguate, e.g. `"--binding
+    /// bind_xyz"`.
     pub flag_hint: String,
 }
 
@@ -82,7 +84,8 @@ pub struct TaskBindingSummary {
     pub thread_id: Option<i32>,
     /// Adapter thread identifier such as GitHub PR number or Slack thread ts.
     pub external_thread_id: Option<String>,
-    /// Adapter-specific subject key such as `owner/repo#123` for GitHub PR bindings.
+    /// Adapter-specific subject key such as `owner/repo#123` for GitHub PR
+    /// bindings.
     pub subject_key: Option<String>,
     /// Canonical `task_bindings.id` when available.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -103,8 +106,8 @@ pub struct SendTaskReplyRequest {
     #[serde(default)]
     pub file_ids: Vec<String>,
     pub binding_id: Option<String>,
-    /// Adapter-native rich rendering of the message body. The payload names
-    /// the adapter it addresses; one whose kind does not match the resolved
+    /// Adapter-native rich rendering of the message body. The payload names the
+    /// adapter it addresses; one whose kind does not match the resolved
     /// destination is rejected rather than dropped.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub presentation: Option<moatless_types::adapter::OutboundPresentation>,

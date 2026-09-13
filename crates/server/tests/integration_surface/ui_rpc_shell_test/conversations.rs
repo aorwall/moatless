@@ -23,13 +23,12 @@ use std::time::Instant;
 // Which conversations a viewer sees
 // =========================================================================
 
-/// The listing's query, put in front of a real Postgres with nothing seeded.
+/// The listing's query, run against a real Postgres with nothing seeded.
 ///
-/// Deliberately the first thing asserted about conversations. `sqlx::query_as`
-/// without the macro is checked by nothing until a connection sees it, so a
-/// wrong column name, a mis-numbered bind or a LATERAL that will not plan
-/// reaches this file as a runtime error. Failing here says *the statement is
-/// wrong*; failing in a seeded test with an empty result says nothing.
+/// `sqlx::query_as` without the macro is unchecked until a connection sees it,
+/// so a bad column, bind, or unplannable LATERAL surfaces here as a runtime
+/// error — failing here means the statement is wrong, not that the result was
+/// merely empty.
 #[sqlx::test]
 async fn postgres_accepts_the_conversation_query(pool: PgPool) {
     let repository = reads(&pool);
@@ -44,15 +43,11 @@ async fn postgres_accepts_the_conversation_query(pool: PgPool) {
     }
 }
 
-/// The production incident's exact failure shape, against a real Postgres:
-/// one shell query blocked in the database, then another snapshot arriving at
-/// the same backend replica.
+/// The production incident's failure shape, replayed against a real Postgres.
 ///
-/// The second request must be rejected before it acquires a pool connection,
-/// and PostgreSQL itself must cancel the first query after five seconds. Before
-/// the execution guard this test's second read waited for the pool timeout;
-/// before the statement timeout the first read stayed blocked until the test's
-/// outer deadline.
+/// One shell query blocks in the database while another snapshot request hits
+/// the same backend replica; the second must be rejected before it acquires a
+/// pool connection, and Postgres must cancel the first after five seconds.
 #[sqlx::test]
 async fn a_blocked_full_listing_cannot_monopolize_the_pool(pool: PgPool) {
     let mut blocker = pool.begin().await.unwrap();
@@ -199,8 +194,8 @@ async fn an_administrator_sees_only_the_conversations_they_follow(pool: PgPool) 
     );
 }
 
-/// Following is durable; access is not. The follow row outlives the access
-/// that produced it, and the listing has to notice.
+/// Following is durable; access is not. The follow row outlives the access that
+/// produced it, and the listing has to notice.
 #[sqlx::test]
 async fn a_followed_conversation_the_viewer_may_no_longer_read_drops_out(pool: PgPool) {
     compose::workspaces(pool.clone())
@@ -287,16 +282,11 @@ async fn a_followed_conversation_in_an_unreadable_project_still_lists_under_it(p
     assert_eq!(threads[0]["projectId"], "ws-theirs");
 }
 
-/// The widening is justified by names, and must not carry more than names.
+/// The widening that admits an unreadable Workspace is justified by names only.
 ///
-/// Decision 5 admits a Workspace the viewer may **not** read into their listing
-/// so that a conversation they follow has a group to hang under, and it prices
-/// that as "the small disclosure": *"seeing the names gives a person the shape
-/// of the deployment they work in"*. A server's start command is not part of
-/// that shape — it carries paths, flags and whatever else was put in a server
-/// config — so it stops at the read rule.
-///
-/// Referenced projects disclose Scripts only when the viewer can read the Workspace.
+/// A server's start command carries paths and config, not a name, so it stays
+/// behind the read rule; referenced projects disclose Scripts only when the
+/// viewer can read the Workspace.
 #[sqlx::test]
 async fn a_project_the_viewer_may_not_read_discloses_no_script_commands(pool: PgPool) {
     let repo = compose::workspaces(pool.clone());
@@ -401,14 +391,12 @@ async fn a_conversation_with_no_project_is_left_out_of_the_listing(pool: PgPool)
     );
 }
 
-/// The third filter, and the one no access rule expresses: a sidebar is about
-/// unfinished work, and a follow is durable, so without this every conversation
-/// a person ever took part in stays on their screen for good.
+/// The listing filters to unfinished work; without it a person's every
+/// conversation would stay forever, since a follow is durable.
 ///
-/// `error` is left out with `closed` — the narrow reading of "open", and the
-/// same one the Moatless sidebar applies by default. Nothing that is *running*
-/// is hidden by it: a Task returns to `open` the moment its agent produces
-/// anything.
+/// `error` is excluded along with `closed`, the narrow "open" the sidebar
+/// applies by default; nothing still running is hidden, since a Task returns to
+/// `open` the moment its agent produces anything.
 #[sqlx::test]
 async fn only_open_conversations_are_listed(pool: PgPool) {
     seed_live_project(&pool).await;
@@ -448,15 +436,11 @@ async fn only_open_conversations_are_listed(pool: PgPool) {
     );
 }
 
-/// A row by id is not a listing of one: it answers about the conversation, not
-/// about this viewer's involvement in it. So it reaches everything the two
-/// listings between them leave out — closed work, and work followed by someone
-/// else — which is what lets a client name a conversation it opened from a
-/// link or a task tree.
+/// A row by id answers about the conversation, not this viewer's involvement.
 ///
-/// It is not wider than *access*, and that is the line: the same read a link
-/// resolves through, so a viewer is told about a conversation here exactly when
-/// they could have opened it.
+/// It reaches closed work and work someone else follows — enough to name a
+/// conversation opened from a link or task tree — but never wider than access:
+/// the same read a link resolves through.
 #[sqlx::test]
 async fn a_listing_row_by_id_reaches_what_neither_listing_carries(pool: PgPool) {
     seed_live_project(&pool).await;

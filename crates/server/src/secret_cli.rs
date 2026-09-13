@@ -1,9 +1,9 @@
 //! `moatless-backend secrets …` CLI entry.
 //!
-//! The CLI reuses the same binary and the same `SecretService`/`LocalEnvelopeSecretCipher`
-//! the HTTP server uses. Its `ScopeContext` comes from [`scope_context`]: admin
-//! when no owner is named, and the named owner otherwise. The audit actor is
-//! `cli` either way.
+//! The CLI reuses the same binary and the same
+//! `SecretService`/`LocalEnvelopeSecretCipher` the HTTP server uses. Its
+//! `ScopeContext` comes from [`scope_context`]: admin when no owner is named,
+//! and the named owner otherwise. The audit actor is `cli` either way.
 
 // reason: CLI subcommand writes results to stdout by design.
 #![allow(clippy::print_stdout)]
@@ -118,7 +118,8 @@ pub struct MigrateArgs {
     /// Print the plan without writing anything.
     #[arg(long)]
     pub dry_run: bool,
-    /// Keys whose identical value appears in at least N repos are promoted to global.
+    /// Keys whose identical value appears in at least N repos are promoted to
+    /// global.
     #[arg(long, default_value_t = 3)]
     pub global_threshold: usize,
 }
@@ -160,11 +161,8 @@ pub async fn run(cli: SecretsCli) -> Result<(), Box<dyn std::error::Error>> {
 
 /// The context a subcommand acts under.
 ///
-/// `resolve_scope_for_create` takes a new row's `owner_user_id` from
-/// `ctx.user_id`, so targeting another user means running *as* them rather
-/// than passing their id alongside an admin context. `is_admin` is therefore
-/// false whenever an owner is named: it scopes reads and deletes to that
-/// user's rows plus the global ones, so `--owner-user-id` cannot reach a
+/// Naming an owner runs *as* them (`is_admin: false`), scoping reads/deletes to
+/// that user's rows plus the global ones, so `--owner-user-id` can't reach a
 /// third user's secret. The audit actor stays [`CLI_ACTOR`], passed separately.
 fn scope_context(owner_user_id: Option<&str>) -> ScopeContext {
     ScopeContext {
@@ -174,9 +172,10 @@ fn scope_context(owner_user_id: Option<&str>) -> ScopeContext {
 }
 
 /// A user-scoped row is owned by exactly one user and a global row by nobody,
-/// so the flag is required for one scope and rejected for the other. Without
-/// this a `--scope user` put silently wrote `owner_user_id = 'cli'`, which no
-/// user's secret resolution ever matches.
+/// so the flag is required for one scope and rejected for the other.
+///
+/// Without this, `--scope user` silently wrote `owner_user_id = 'cli'`, which
+/// no user's secret resolution ever matches.
 fn owner_for(
     scope: Scope,
     owner_user_id: Option<String>,

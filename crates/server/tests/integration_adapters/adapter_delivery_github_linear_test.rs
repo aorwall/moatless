@@ -8,16 +8,12 @@
 //! Integration tests for ING-3: GitHub and Linear webhook work crossing the
 //! durable adapter-delivery handoff before the provider is acknowledged.
 //!
-//! These exercise the real registered handlers against a real pool, because the
-//! properties under test are exactly the ones a unit test cannot see: that a
-//! record admitted by a process which then disappears is executed by the next
-//! one, that a redelivery produces no second unit of work, and that a failure
-//! no retry can fix stops in a state an operator can find.
+//! These run real registered handlers against a real pool to cover what a unit
+//! test can't: admitted work survives a crashed process, redelivery adds no
+//! second unit of work, and an unfixable failure stops visibly.
 //!
-//! Payloads are written as literal JSON rather than through the (crate-private)
-//! payload structs on purpose: that is the shape a record left behind by an
-//! earlier build actually has, and it is what a handler must still be able to
-//! read.
+//! Payloads are literal JSON, not the crate-private structs, since that's the
+//! shape a record left by an earlier build actually has.
 
 use crate::common;
 
@@ -37,12 +33,8 @@ use common::{seed_linear_app, test_app_state_with_adapters, test_config};
 
 /// Where a Linear API client would point if one of these handlers made a call.
 ///
-/// Every Linear handler resolves its client from the `adapter_apps` row before
-/// it looks for work, so the row has to exist or the record retries forever on
-/// "linear app 'default' not configured". None of the records here has a
-/// binding to deliver to, so the client is built and never used — and this
-/// address, where nothing listens, is what makes that a fast failure rather
-/// than a hang if that ever stops being true.
+/// Handlers resolve their client from `adapter_apps` before looking for work;
+/// nothing listens here, so an unexpected call fails fast instead of hanging.
 const UNREACHABLE_LINEAR_API: &str = "http://127.0.0.1:1";
 
 const CONNECTION_ID: &str = "conn-github-1";
@@ -312,9 +304,8 @@ async fn status_of(
 
 /// Every record that has not reached a terminal state, with why it is stuck.
 ///
-/// The "did they all finish?" assertions are a wait loop over several kinds, so
-/// a bare `false` names none of them. This turns the failure into the list of
-/// kinds still in flight and the last error each one recorded.
+/// Turns a wait-loop timeout's bare `false` into the list of kinds still in
+/// flight and each one's last error.
 async fn stuck(pool: &PgPool, kinds: &[(&'static str, String)]) -> String {
     let mut lines = Vec::new();
     for (kind, event_id) in kinds {
@@ -332,16 +323,9 @@ async fn stuck(pool: &PgPool, kinds: &[(&'static str, String)]) -> String {
 
 /// Serve every GitHub read as a repo whose default branch is `default_branch`.
 ///
-/// `github.post_merge` is the one kind here that cannot decide anything
-/// locally: its work is keyed by a commit sha, and only GitHub can say which PR
-/// that sha merged, so it authenticates and reads the repo before any skip is
-/// available to it. With no credential and nowhere to send the read it fails
-/// *retryably* — a record that never settles, which in a test about reaching
-/// terminal states is a 30-second timeout.
-///
-/// The branch reported here is deliberately not the run's `head_branch`, which
-/// is the handler's documented "this run is not a merge result" skip: the read
-/// happens, the delivery succeeds on its first attempt, and nothing is posted.
+/// `github.post_merge` must read the repo before it can skip, so without this
+/// stub it fails retryably and stalls; the branch is deliberately not the run's
+/// `head_branch`, so the handler's "not a merge result" skip never triggers.
 async fn default_branch_stub(default_branch: &'static str) -> (String, AbortOnDrop) {
     let app = axum::Router::new().fallback(axum::routing::any(move || async move {
         axum::Json(serde_json::json!({ "default_branch": default_branch }))
@@ -375,10 +359,9 @@ async fn count_records(pool: &PgPool, kind: &str, event_id: &str) -> i64 {
 
 /// Verification: crash/restart recovery for every admitted work kind.
 ///
-/// The admitting state is dropped without ever running a worker — from the
-/// queue's side that is indistinguishable from a process killed after it
-/// acknowledged the provider. A different process then has to finish every one
-/// of them.
+/// The admitting state is dropped without running a worker — indistinguishable
+/// from a process killed right after acknowledging the provider — and a
+/// different process must finish every one of them.
 #[sqlx::test]
 async fn every_admitted_kind_is_executed_by_the_process_that_comes_after_the_crash(pool: PgPool) {
     let (base_url, _stub) = default_branch_stub("trunk").await;
@@ -446,9 +429,9 @@ async fn every_admitted_kind_is_executed_by_the_process_that_comes_after_the_cra
 
 /// Verification: duplicate GitHub delivery.
 ///
-/// A redelivery reuses `X-GitHub-Delivery`, so it must not become a second unit
-/// of work — while a *different* kind from the same delivery must still be its
-/// own record, or one permanent failure would poison the others' retries.
+/// A redelivery reuses `X-GitHub-Delivery` and must not become a second unit of
+/// work, while a different kind from the same delivery stays its own record so
+/// one permanent failure can't poison the others' retries.
 #[sqlx::test]
 async fn a_redelivered_github_webhook_produces_no_second_unit_of_work(pool: PgPool) {
     seed_connection(&pool, CONNECTION_ID, "github", "acme").await;
@@ -548,9 +531,9 @@ async fn a_redelivered_github_webhook_produces_no_second_unit_of_work(pool: PgPo
 
 /// Verification: duplicate Linear delivery.
 ///
-/// The key is the dispatcher's existing dedup identity, so two distinct
-/// sessions sharing Linear's stable `webhookId` stay distinct while a genuine
-/// retry of one session collapses.
+/// Keyed on the dispatcher's existing dedup identity, so two sessions sharing
+/// Linear's stable `webhookId` stay distinct while a genuine retry of one
+/// session collapses.
 #[sqlx::test]
 async fn a_redelivered_linear_session_produces_no_second_unit_of_work(pool: PgPool) {
     seed_connection(&pool, LINEAR_CONNECTION_ID, "linear", "org-1").await;
@@ -609,10 +592,9 @@ async fn a_redelivered_linear_session_produces_no_second_unit_of_work(pool: PgPo
 
 /// Verification: each Linear kind retries on its own budget.
 ///
-/// The kinds are separate records rather than one shared `linear.webhook`
-/// precisely so that a delivery whose work can never succeed cannot spend the
-/// attempts of the work admitted beside it. Both records here carry the same
-/// delivery identity, so the only thing keeping them apart is the kind.
+/// Kinds are separate records rather than one shared `linear.webhook` so a
+/// delivery that can never succeed can't spend a sibling's attempts; both
+/// records here share a delivery identity, so only the kind keeps them apart.
 #[sqlx::test]
 async fn a_permanently_failing_linear_kind_leaves_its_siblings_budget_alone(pool: PgPool) {
     seed_connection(&pool, LINEAR_CONNECTION_ID, "linear", "org-1").await;
@@ -688,11 +670,9 @@ async fn a_permanently_failing_linear_kind_leaves_its_siblings_budget_alone(pool
 
 /// Verification: a Linear delivery interrupted mid-execution is retried.
 ///
-/// Crash recovery above covers a process that died *before* executing. This is
-/// the other half: the record was claimed, the handler was running, and the
-/// replica disappeared. Nothing acknowledges it back to Linear, so the only
-/// thing that can rescue it is the claim lease — and the record has to complete
-/// under the next worker rather than sit `claimed` forever.
+/// Complements crash recovery (death before executing): here the record was
+/// claimed and running when the replica disappeared, so only claim-lease expiry
+/// can rescue it from sitting `claimed` forever.
 #[sqlx::test]
 async fn a_linear_delivery_interrupted_mid_execution_is_retried(pool: PgPool) {
     seed_connection(&pool, LINEAR_CONNECTION_ID, "linear", "org-1").await;
@@ -751,10 +731,9 @@ async fn a_linear_delivery_interrupted_mid_execution_is_retried(pool: PgPool) {
 
 /// Verification: terminal handling of a permanent failure.
 ///
-/// A record whose tenant no longer exists can never succeed. It must stop
-/// immediately — not burn eight attempts — and it must say why, because an
-/// abandoned webhook that looks like one that never arrived is the failure this
-/// whole seam exists to make visible.
+/// A record whose tenant no longer exists must stop immediately, not burn eight
+/// attempts, and must say why — an abandoned webhook indistinguishable from one
+/// that never arrived is the failure this seam exists to surface.
 #[sqlx::test]
 async fn work_that_can_never_succeed_stops_at_a_terminal_state(pool: PgPool) {
     // Deliberately no connection row: the tenant was deleted between the

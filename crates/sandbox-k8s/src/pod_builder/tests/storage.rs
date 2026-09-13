@@ -142,9 +142,11 @@ fn storage_switches_pick_volume_and_sync_env() {
 
 /// A pvc+s3 plan that ends up on an emptyDir — PVC creation degraded, or the
 /// attach-failure fallback rebuilt without one — must behave like the
-/// emptyDir+S3 tier. Claiming durability on an ephemeral volume would drop
-/// the periodic upload backstop and skip the boot restore, which is exactly
-/// backwards for the pod that needs both most.
+/// emptyDir+S3 tier.
+///
+/// Claiming durability on an ephemeral volume would drop the periodic upload
+/// backstop and skip the boot restore — exactly backwards for the pod that
+/// needs both most.
 #[test]
 fn a_pvc_plan_without_a_pvc_is_not_treated_as_durable() {
     use moatless_types::workspace::ResourceConfig;
@@ -200,9 +202,9 @@ fn pvc_less_workspace_size_falls_back_to_global_default() {
     );
 }
 
-/// Two cache entries → ONE shared `pkg-cache` hostPath volume + the
-/// `host-mnt` parent volume + a privileged `nvme-setup` init container + a
-/// per-entry subPath mount and per-entry env on the sandbox container.
+/// Two cache entries → ONE shared `pkg-cache` hostPath volume + the `host-mnt`
+/// parent volume + a privileged `nvme-setup` init container + a per-entry
+/// subPath mount and per-entry env on the sandbox container.
 #[test]
 fn cache_volumes_wire_volume_mounts_env_and_init() {
     use moatless_core::config::SandboxCacheVolume;

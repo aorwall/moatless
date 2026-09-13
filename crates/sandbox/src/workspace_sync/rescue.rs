@@ -19,8 +19,8 @@ mod oneshot_tests {
     use super::*;
 
     /// The rescue pod never sets `BACKEND_GRPC_URL` (`rescue_pod.rs` carries no
-    /// backend client), so `rescue_from_env` must fail on something specific to the
-    /// sync itself, not on a missing backend URL it never needed.
+    /// backend client), so `rescue_from_env` must fail on something specific to
+    /// the sync itself, not on a missing backend URL it never needed.
     #[tokio::test]
     async fn oneshot_sync_does_not_require_backend_grpc_url() {
         let tmp = tempfile::TempDir::new().unwrap();

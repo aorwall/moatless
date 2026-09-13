@@ -1,22 +1,12 @@
-//! Chat attachment uploads: minting a URL for one, taking its bytes, and
-//! removing one that was abandoned.
-//!
-//! `attachments.createUploadUrl` hands back an id and a URL; the client `POST`s
-//! the raw file there and names the id on the turn. It is the only way a
-//! non-image reaches a thread, and once
-//! [`capabilities.attachmentUploads`](crate::rpc::config::descriptor) is reported, how images
-//! arrive too.
+//! Chat attachment uploads: minting a URL, taking its bytes, and removing one
+//! that was abandoned.
 //!
 //! The credential is in the URL — a short-lived JWT naming the viewer and the
-//! one attachment it may write — rather than in a cookie, because a raw
-//! `xhr.send(file)` sends no `X-CSRF-Token` and an ambient cookie on a `POST` is
-//! exactly CSRF. That is the only reason this route is exempt from the cookie
-//! machinery, and it also lets an API-key client upload. [`crate::assets`]
-//! differs because a bare asset address is earned by a same-site navigation.
+//! one attachment it may write — not a cookie, since a raw `xhr.send(file)`
+//! sends no CSRF token; that also lets an API-key client upload.
 //!
-//! Name, mime type and size are validated against the contract's union at mint
-//! time and signed into the token, so the route ignores the request's own
-//! headers. A mint that is never uploaded costs nothing: no row is reserved.
+//! Name, mime type and size are validated and signed into the token at mint
+//! time, so the route trusts the token, never the request's own headers.
 
 use axum::body::Body;
 use axum::extract::{Path, State};
@@ -34,7 +24,7 @@ use crate::UiRpcState;
 use crate::ports::{AttachmentStore, AttachmentStoreError, DeclaredAttachment};
 
 /// Where [`create_upload_url`]'s answers point, and what [`receive`] is mounted
-/// at. The rest of the path is the signed token.
+/// at; the rest of the path is the signed token.
 ///
 /// Exempt from the auth middleware's cookie handling in
 /// `moatless_identity::auth::middleware`, which knows this prefix by name.
@@ -63,17 +53,16 @@ const MIME_MAX_CHARS: usize = 100;
 
 /// `ATTACHMENT_UPLOAD_URL_TTL_MS` (`contracts/src/assets.ts:50`).
 ///
-/// Unlike the interval [`crate::assets`] reports, this one is enforced: it is
-/// the token's `exp`, so a URL really does stop working when it says it does.
+/// Unlike the interval [`crate::assets`] reports, this one is enforced as the
+/// token's `exp`, so the URL really does stop working.
 const UPLOAD_TTL_SECS: i64 = 10 * 60;
 
 const UPLOAD_TOKEN_ISSUER: &str = "moatless-vibe-backend/attachment-upload";
 
 /// How much of a declared size is allocated before any of it arrives.
 ///
-/// A mint is cheap and a declaration is only a claim, so a client could mint a
-/// 50 MiB upload and send nothing. The buffer grows into the rest as bytes
-/// actually turn up.
+/// A declaration is only a claim — a client could mint a 50 MiB upload and send
+/// nothing — so the buffer grows into the rest as bytes actually arrive.
 const UPLOAD_PREALLOCATE_MAX: i64 = 1024 * 1024;
 
 /// What a minted URL authorizes: one viewer, one attachment, one name, one
@@ -117,11 +106,9 @@ struct Declared {
 
 /// Answer `attachments.createUploadUrl`.
 ///
-/// The id is a fresh uuid, which is what the upload is stored under and
-/// therefore what `assets.createUrl` later resolves to
-/// `/api/v1/uploads/{id}` — an attachment id and a Moatless upload id are the
-/// same string, and that is what keeps the download, the prompt block and the
-/// Sandbox pre-fetch working with nothing added to them.
+/// The id is a fresh uuid stored as the upload id, so an attachment id and a
+/// Moatless upload id are the same string — which is what keeps the download,
+/// the prompt block and the Sandbox pre-fetch working unchanged.
 pub(crate) fn create_upload_url(
     identity: &UiRpcAuthIdentity,
     signing_key: Option<&str>,
@@ -164,10 +151,9 @@ pub(crate) fn create_upload_url(
 
 /// The payload read against `AttachmentCreateUploadUrlInput`.
 ///
-/// The union has two members and they differ in more than their tag: an `image`
-/// is restricted to four mime types and 10 MiB, a `file` takes any type up to
-/// 50 MiB. `type` is optional on the image member, so a payload without one is
-/// an image — that is how a client written before files existed sends.
+/// An `image` is restricted to four mime types and 10 MiB, a `file` takes any
+/// type up to 50 MiB. `type` is optional on the image member, so a payload
+/// without one is an image, as a pre-files client sends.
 fn declared(payload: &Value) -> Result<Declared, MintError> {
     let kind = match payload.get("type") {
         None | Some(Value::Null) => "image",
@@ -227,10 +213,9 @@ fn declared(payload: &Value) -> Result<Declared, MintError> {
 
 /// Answer `attachments.delete`.
 ///
-/// Deleting an attachment that was minted and never uploaded, or one that was
-/// already deleted, succeeds. The composer calls this whenever it abandons a
-/// file — a cancel, a retry, a discarded draft — and it has no way to know
-/// which of those states the server is in.
+/// Deleting an attachment never uploaded, or already deleted, succeeds: the
+/// composer calls this on any abandoned file (cancel, retry, discarded draft)
+/// with no way to know which state the server is in.
 pub(crate) async fn delete(
     store: &dyn AttachmentStore,
     viewer: &ScopeContext,
@@ -259,11 +244,10 @@ pub(crate) async fn delete(
 
 /// Take the bytes for one minted attachment.
 ///
-/// The body is read as it arrives and against the size the token declares, so a
-/// client that sends more than it said is refused at the byte it goes over
-/// rather than after fifty megabytes have been held in memory. A body that ends
-/// short of the declaration is refused too: a truncated upload that was stored
-/// anyway would reach the agent as a corrupt file.
+/// Read against the size the token declares: a client sending more is refused
+/// at the byte it goes over, not after 50 MiB is held in memory, and a body
+/// ending short is refused too — a truncated upload stored anyway would reach
+/// the agent as a corrupt file.
 pub(crate) async fn receive(
     State(state): State<UiRpcState>,
     Path(token): Path<String>,
@@ -374,9 +358,8 @@ fn verify(token: &str, signing_key: &str) -> Result<UploadClaims, jsonwebtoken::
 }
 
 /// `ChatAttachmentId`'s alphabet and length
-/// (`contracts/src/orchestration.ts:180-183`). An id this server minted is a
-/// uuid and always passes; this is what keeps a hand-written one from reaching
-/// the store as a path or a wildcard.
+/// (`contracts/src/orchestration.ts:180-183`); keeps a hand-written id from
+/// reaching the store as a path or a wildcard.
 fn is_attachment_id(id: &str) -> bool {
     !id.is_empty()
         && id.len() <= 128
@@ -423,10 +406,9 @@ mod tests {
         }
     }
 
-    /// The three things the result carries, and the one relation the rest of
-    /// the surface rests on: the id in the answer is the id the upload lands
-    /// under, so `assets.createUrl` resolves it to a download with nothing
-    /// added.
+    /// The one relation the rest of the surface rests on: the id in the answer
+    /// is the id the upload lands under, so `assets.createUrl` resolves it to a
+    /// download with nothing added.
     #[test]
     fn a_minted_url_names_the_attachment_it_may_write() {
         let minted = minted(json!({

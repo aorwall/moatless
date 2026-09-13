@@ -8,19 +8,14 @@ use crate::workspace::UiRpcListedWorkspace;
 #[async_trait]
 pub trait T3WorkspaceDao: Send + Sync {
     /// Every live Workspace the viewer may read, plus every Workspace in
-    /// `also_include` whether or not they may read it and whether or not it is
-    /// deleted, ordered by name.
+    /// `also_include` whether or not they may read it or it is deleted, ordered
+    /// by name.
     ///
-    /// The widening exists for the listings that group Tasks by Workspace: a
-    /// Task the viewer may read can name someone else's private Workspace, or
-    /// one a git sync has tombstoned, and a grouping that omits the Workspace
-    /// omits the Task with it — the sidebar loses the row and the link is
-    /// refused, which is what `snapshots::readable_under_a_project` decides.
-    ///
-    /// Each row says which half it came from — see
-    /// [`UiRpcListedWorkspace::readable`]. A caller that projects the two halves
-    /// the same way hands the widened half's configuration to someone the read
-    /// rule refused, so the distinction is returned rather than re-derived.
+    /// The widening covers listings that group Tasks by Workspace: a readable
+    /// Task can name an unreadable or tombstoned Workspace, and omitting it
+    /// would drop the Task's row too. Each returned row says which half it came
+    /// from ([`UiRpcListedWorkspace::readable`]) so a caller cannot hand the
+    /// widened half's configuration to someone the read rule refused.
     async fn list_readable_including(
         &self,
         ctx: &ScopeContext,
@@ -29,8 +24,10 @@ pub trait T3WorkspaceDao: Send + Sync {
 
     /// The repository a Workspace's branch picker lists, or `None` when the
     /// viewer cannot be shown the Workspace, it is gone, or it declares no
-    /// repository. One answer rather than an existence check and a read: the
-    /// three cases are one answer to the caller — there is no list to show.
+    /// repository.
+    ///
+    /// One answer rather than an existence check and a read: all three cases
+    /// are one answer to the caller — there is no list to show.
     async fn primary_repository(
         &self,
         ctx: &ScopeContext,
@@ -38,9 +35,11 @@ pub trait T3WorkspaceDao: Send + Sync {
     ) -> Result<Option<String>, sqlx::Error>;
 
     /// The Scripts declared by the Workspace a Task runs against, scoped to the
-    /// viewer. `None` when the Task is not readable or does not exist — the same
-    /// answer as everywhere else a scoped read finds nothing; `Some(vec)` (which
-    /// may be empty) when it is readable.
+    /// viewer.
+    ///
+    /// `None` when the Task is not readable or does not exist — the same answer
+    /// as everywhere else a scoped read finds nothing; `Some(vec)` (maybe
+    /// empty) when it is readable.
     async fn scripts_for_task(
         &self,
         ctx: &ScopeContext,

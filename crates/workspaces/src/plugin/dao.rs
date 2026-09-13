@@ -31,11 +31,11 @@ pub(crate) trait PluginDao: Send + Sync {
     /// out per plugin.
     async fn list_all_skills(&self) -> Result<Vec<PluginSkill>, sqlx::Error>;
 
-    /// The records resolution needs for one person in one Workspace: every
-    /// global record, plus that person's own, plus that Workspace's, and
-    /// nobody else's. `None` for either asks for the records that do not
-    /// depend on it — `(None, None)` is the global records alone, what a task
-    /// with no identifiable owner resolves against.
+    /// The records resolution needs for one person in one Workspace.
+    ///
+    /// Every global record, plus that person's own, plus that Workspace's —
+    /// nobody else's. `None` for either omits its records; `(None, None)` is
+    /// the global set alone.
     async fn list_activations_for(
         &self,
         user_id: Option<Uuid>,

@@ -1,30 +1,19 @@
 //! Outbound Linear activity: what the running Agent tells the session panel.
 //!
 //! Every Linear agent session has a panel in the issue view, and this module is
-//! the only thing that writes to it after provisioning. The four `notify_*`
-//! entry points are called from the event pipeline
-//! (`event_handler/consumer.rs`, `event_handler/agent_handlers.rs`) as an Agent
-//! produces status, actions, assistant blocks and tool results.
+//! the only thing that writes to it after provisioning, via the four `notify_*`
+//! entry points the event pipeline calls.
 //!
-//! # This module imports nothing above it
+//! Imports nothing above it in the Adapter except [`auth`](super::auth),
+//! [`subject`](super::subject) and [`agent_api`](super::agent_api) — never
+//! `ingress`, `webhook`, `delivery`, or a workflow module — since the event
+//! pipeline depends on this module and any other edge would pull them into
+//! every compile of the pipeline.
 //!
-//! It may reach [`auth`](super::auth), [`subject`](super::subject) and
-//! [`agent_api`](super::agent_api), and nothing else in the Adapter — not
-//! `ingress`, not `webhook`, not `delivery`, and not one of the five workflow
-//! modules. The event pipeline depends on this module, so any other edge would
-//! pull session provisioning, the issue workflows and the close path into every
-//! compile of the pipeline.
-//!
-//! [`ActivityKind`] is re-exported for the same reason: naming `agent_api` to
-//! say which kind of activity is wanted would be a second import.
-//!
-//! # Everything here is best-effort
-//!
-//! These run on the event-consumer hot path, downstream of work that has
-//! already happened. A failure to tell Linear about it — no binding, a missing
-//! connection, a network error, a GraphQL rejection — is logged and swallowed:
-//! there is no caller that could act on it, and an error bubbling out of here
-//! would stall a pipeline whose real work already succeeded.
+//! Everything here is best-effort: a failure to tell Linear (no binding,
+//! missing connection, network error, GraphQL rejection) is logged and
+//! swallowed, since it runs downstream of work that already succeeded and no
+//! caller could act on it.
 
 use std::sync::Arc;
 
@@ -42,8 +31,6 @@ use super::agent_api::LinearAgentApi;
 pub use super::agent_api::ActivityKind;
 
 /// Resolve every active Linear `(api, session_id)` pair bound to `task_id`.
-/// Internal helper used by every fire-and-forget activity emitter — keeps the
-/// task-binding + workspace-OAuth lookup in one place.
 ///
 /// Returns an empty vec on any DB error (logged) so callers can skip emission
 /// silently without bubbling errors into the event-handler hot path.
@@ -90,10 +77,10 @@ async fn resolve_linear_sessions_for_task(
     sessions
 }
 
-/// Best-effort emit a Linear activity on every active Linear session bound to
-/// `task_id`. Fire-and-forget: any failure (no binding, missing connection,
-/// network error, GraphQL rejection) is logged and swallowed — callers in the
-/// event-consumer hot path must not be affected.
+/// Emit a Linear activity on every active Linear session bound to `task_id`.
+///
+/// Fire-and-forget: any failure is logged and swallowed so callers in the
+/// event-consumer hot path are unaffected.
 #[expect(
     clippy::too_many_arguments,
     reason = "four owned downward ports (app_tokens, task_bindings, adapter_connections, adapter apps) \
@@ -134,9 +121,9 @@ pub async fn notify_linear_status(
 }
 
 /// Sibling of [`notify_linear_status`] that emits an `action` activity (with
-/// optional `result`) on every active Linear session bound to `task_id`.
-/// Same best-effort semantics: failures are logged and swallowed so callers
-/// in the event-consumer hot path are unaffected.
+/// optional `result`) instead of a status.
+///
+/// Same best-effort semantics: failures are logged and swallowed.
 #[expect(
     clippy::too_many_arguments,
     reason = "four owned downward ports (app_tokens, task_bindings, adapter_connections, adapter apps) \
@@ -183,17 +170,13 @@ pub async fn notify_linear_action(
     }
 }
 
-/// Best-effort: walk an assistant message's `content` block array and emit one
-/// Linear activity per block — `text` blocks become ephemeral `thought`s, and
-/// `tool_use` blocks become ephemeral `action`s with a one-line parameter
-/// summary derived from `tool_input`.
+/// Emit one Linear activity per block in an assistant message: `text` →
+/// ephemeral `thought`, `tool_use` → ephemeral `action` with a summarized
+/// parameter.
 ///
-/// Caller is responsible for guarding on `payload.type == "assistant"`; this
-/// function will silently no-op on non-assistant content shapes.
-///
-/// Skips:
-/// - `tool_result` blocks (system/user role messages).
-/// - `text` blocks shorter than 4 chars after trim (Claude connector tokens).
+/// Caller must guard on `payload.type == "assistant"`; skips `tool_result`
+/// blocks (handled by [`notify_linear_tool_results`]) and `text` blocks under 4
+/// chars after trim (Claude connector tokens).
 pub async fn notify_linear_message_activities(
     app_tokens: Arc<dyn AppCredentials>,
     task_bindings: Arc<Bindings>,
@@ -282,12 +265,11 @@ pub async fn notify_linear_message_activities(
     }
 }
 
-/// Walk a user-role agent message and, for every `tool_result` block, emit a
-/// non-ephemeral `action` activity carrying the tool's result. Pairs with the
-/// ephemeral pending `action` emitted at `tool_use` time so a Linear viewer
-/// sees both the call and its outcome.
+/// Emit a non-ephemeral `action` activity for every `tool_result` block in a
+/// user-role agent message.
 ///
-/// Fire-and-forget: any DB or GraphQL failure is logged and swallowed.
+/// Pairs with the ephemeral pending `action` emitted at `tool_use` time so a
+/// Linear viewer sees both the call and its outcome.
 pub async fn notify_linear_tool_results(
     app_tokens: Arc<dyn AppCredentials>,
     task_bindings: Arc<Bindings>,
@@ -392,9 +374,9 @@ pub async fn notify_linear_tool_results(
 /// truncated visually anyway.
 const PARAMETER_MAX_LEN: usize = 200;
 
-/// Maximum length of the `result` field in a Linear `action` activity.
-/// Tool results (file contents, command output) are often multi-KB; cap to
-/// keep Linear's UI legible.
+/// Maximum length of the `result` field in a Linear `action` activity. Tool
+/// results (file contents, command output) are often multi-KB; cap to keep
+/// Linear's UI legible.
 const RESULT_MAX_LEN: usize = 500;
 
 /// One-line summary of a Claude tool-use input suitable for Linear's
@@ -446,10 +428,11 @@ fn truncate_chars(s: &str, max_chars: usize) -> String {
     out
 }
 
-/// Build the `result` field for a completed Linear `action` activity from a
-/// raw tool result string. Truncates to [`RESULT_MAX_LEN`] Unicode scalars
-/// and prefixes `"❌ "` when the tool reported an error so the failure is
-/// obvious at a glance in Linear's UI.
+/// Build the `result` field for a completed Linear `action` activity from a raw
+/// tool result string.
+///
+/// Truncates to [`RESULT_MAX_LEN`] Unicode scalars and prefixes `"❌ "` when the
+/// tool reported an error so the failure is obvious at a glance.
 fn truncate_result_for_linear(text: &str, is_error: bool) -> String {
     let trimmed = text.trim();
     let body = truncate_chars(trimmed, RESULT_MAX_LEN);

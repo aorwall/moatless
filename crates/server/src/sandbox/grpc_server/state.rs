@@ -22,10 +22,11 @@ use moatless_tasks::task_turn::operations::TaskTurns;
 
 use super::authorize::SandboxAuthorizer;
 
-/// Database-backed ports the request handlers read — the databaseless gate's set
-/// minus the durable-admission writers ([`IngressPorts`]). Present-together as
-/// one value because the single `ports` gate (a database connection) builds them
-/// all at once; `None` as a whole when the backend runs databaseless.
+/// Database-backed ports the request handlers read — the databaseless gate's
+/// set minus the durable-admission writers ([`IngressPorts`]).
+///
+/// Present together because the single `ports` gate (a DB connection) builds
+/// them all at once; `None` as a whole when the backend runs databaseless.
 pub struct HandlerDbPorts {
     pub messages: Arc<Messages>,
     /// The append seam the git-push claim writes its Message through.
@@ -49,7 +50,8 @@ pub struct HandlerDbPorts {
     pub workspace_credentials: Arc<dyn moatless_ports::workspace::WorkspaceCredentialReader>,
     /// The one way to a git-host token, for the identity the task acts as.
     pub git_host_tokens: Arc<dyn GitHostTokenIssuer>,
-    /// File metadata repository, for `download_upload`'s filename and mime type.
+    /// File metadata repository, for `download_upload`'s filename and mime
+    /// type.
     pub files: Arc<Files>,
     /// The moatless login behind an inbound writer, for the `<from>` header on
     /// a pending message.
@@ -63,11 +65,11 @@ pub struct HandlerDbPorts {
     pub harness_credentials: Arc<dyn moatless_ports::identity::HarnessCredentials>,
 }
 
-/// Durable-admission writers (commit-before-fan-out): the turn/event/outbox rows
-/// the ingress path commits to Postgres before publishing to Redis. Present-
-/// together off the same `ports` gate as [`HandlerDbPorts`], but a distinct value
-/// because the ingress test harness ([`BackendSandboxServiceImpl::for_ingress_tests`])
-/// wires exactly these three without the handler set.
+/// Durable-admission writers.
+///
+/// Off the same `ports` gate as [`HandlerDbPorts`] but a distinct value, since
+/// [`BackendSandboxServiceImpl::for_ingress_tests`] wires exactly these three
+/// without the handler set.
 pub struct IngressPorts {
     /// The one durable write every inbound event goes through. Its turn,
     /// task-status and event rows commit before the Redis publish.
@@ -79,7 +81,8 @@ pub struct IngressPorts {
     pub task_events: Arc<TaskEvents>,
 }
 
-/// What every RPC on this surface reads its ports and its verification layer from.
+/// What every RPC on this surface reads its ports and its verification layer
+/// from.
 pub struct BackendSandboxServiceImpl {
     pub events: Option<Arc<dyn EventPublisher>>,
     /// Database-backed ports the request handlers read; `None` databaseless.
@@ -112,11 +115,13 @@ pub struct BackendSandboxServiceImpl {
     pub s3_bucket: Option<String>,
     /// S3 key prefix for uploaded files (`config.s3.key_prefix`).
     pub s3_key_prefix: String,
-    /// S3 key prefix for sandbox Claude transcripts (`config.s3.transcript_prefix`).
-    /// Objects land at `<prefix>/<task_id>/transcripts.tar` in the same bucket.
+    /// S3 key prefix for sandbox Claude transcripts
+    /// (`config.s3.transcript_prefix`). Objects land at
+    /// `<prefix>/<task_id>/transcripts.tar` in the same bucket.
     pub transcript_s3_prefix: String,
-    /// S3 key prefix for `s3`-backend workspace archives (`config.s3.workspace_prefix`).
-    /// Objects land at `<prefix>/<task_id>/workspace.tar` in the same bucket.
+    /// S3 key prefix for `s3`-backend workspace archives
+    /// (`config.s3.workspace_prefix`). Objects land at
+    /// `<prefix>/<task_id>/workspace.tar` in the same bucket.
     pub workspace_s3_prefix: String,
     /// The sandbox outbox delivers at-least-once, reusing the `event_id` on a
     /// retry. This drops the duplicate before it reaches Redis.
@@ -132,7 +137,8 @@ pub struct BackendSandboxServiceImpl {
 impl BackendSandboxServiceImpl {
     /// Ingress wired to real Postgres DAOs with token verification off.
     /// Everything admission does not touch is `None`, so a test that reaches
-    /// past durable admission fails rather than exercising a half-wired service.
+    /// past durable admission fails rather than exercising a half-wired
+    /// service.
     pub fn for_ingress_tests(
         events: Option<Arc<dyn EventPublisher>>,
         ingress: IngressPorts,

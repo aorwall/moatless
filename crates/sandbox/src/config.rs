@@ -1,7 +1,7 @@
 //! Configuration loaded from environment variables.
 //!
-//! The sandbox runs inside a sandbox pod and receives its configuration
-//! via environment variables set by the orchestrator.
+//! The sandbox runs inside a sandbox pod and receives its configuration via
+//! environment variables set by the orchestrator.
 
 use std::env;
 
@@ -14,14 +14,9 @@ use serde::Deserialize;
 
 /// Sandbox-private runtime directory.
 ///
-/// Its volume is mounted into the sandbox container alone — not into the server
-/// sidecars, which run repo code — and it sits outside `workspace_dir`, so
-/// nothing here reaches the workspace snapshot. Credential material that must
-/// not travel lives here: the credential broker socket and the persisted user
-/// auth token.
-///
-/// Fixed rather than configurable because `docker/moatless-git-cred.sh`
-/// hardcodes the broker socket beneath it.
+/// Outside `workspace_dir`: holds the credential broker socket and the
+/// persisted user auth token, neither of which may reach the workspace snapshot
+/// or server sidecars.
 pub const RUNTIME_DIR: &str = "/run/moatless";
 
 /// Deadline a `moat cmd` command takes when it declares none.
@@ -41,21 +36,11 @@ pub struct AgentConfig {
 }
 
 impl AgentConfig {
-    /// Whether to inline repo root instruction files into the system prompt
-    /// rather than only listing their paths.
+    /// Whether to inline repo root instruction files into the system prompt;
+    /// defaults to on when unset.
     ///
-    /// Defaults to on when unset: a path the agent is told to read is not a
-    /// guarantee it reads one, so the conventions start in context. A repo that
-    /// would rather spend those tokens elsewhere — a large instruction file, or
-    /// one whose rules only matter for a slice of the tree — turns it off and
-    /// gets the path listing back.
-    ///
-    /// Resolved from, in order: the `SANDBOX_FRONTLOAD_REPO_INSTRUCTIONS` env
-    /// var, then `REPO_CONFIG` (`frontloadInstructions`, top level or nested under
-    /// `agentConfig`), then this default. The env var is the one a repo can set
-    /// per-repo today, via `envVars` in its run-config: those reach this
-    /// container verbatim, whereas `REPO_CONFIG` is rebuilt upstream from typed
-    /// fields that do not yet carry this flag.
+    /// Resolved in order: `SANDBOX_FRONTLOAD_REPO_INSTRUCTIONS`, then
+    /// `REPO_CONFIG`'s `frontloadInstructions`, then this default.
     pub fn frontload_instructions_enabled(&self) -> bool {
         self.frontload_instructions.unwrap_or(true)
     }
@@ -91,10 +76,9 @@ pub struct ServerInfo {
 struct RepoConfigFile {
     #[serde(default)]
     agent_config: Option<RepoAgentConfig>,
-    /// `frontloadInstructions` at the top level — the shape the provisioning
-    /// path emits, which rebuilds this JSON from typed fields and writes flat
-    /// keys (as it does for `systemPrompt`) rather than an `agentConfig` object.
-    /// Takes precedence over the nested spelling.
+    /// `frontloadInstructions` at the top level, the shape provisioning emits
+    /// (flat keys, like `systemPrompt`, not nested under `agentConfig`). Takes
+    /// precedence over the nested spelling.
     #[serde(default)]
     frontload_instructions: Option<bool>,
     #[serde(default)]
@@ -136,45 +120,31 @@ pub struct Config {
     pub port: u16,
     /// gRPC port for sandbox service (default: 50052)
     pub grpc_port: u16,
-    /// Sandbox ID (required for new pods; falls back to `TASK_ID` for older local fixtures).
+    /// Sandbox ID (required for new pods; falls back to `TASK_ID` for older
+    /// local fixtures).
     pub sandbox_id: String,
     /// Initial member Task ID.
     pub task_id: String,
-    /// The Task's selected Agent harness, fixed for the Member's lifetime (the
-    /// fixed-harness decision). The `AGENT_TYPE` env delivers the boot Member's
-    /// at construction; `task_context::register` writes each joining Member's
-    /// onto that Member's own `Config` clone, so the pod env is only the default
-    /// a join without one inherits. `None` means the pod has no valid harness
-    /// selection and is surfaced as an invalid configuration by the agent
-    /// lifecycle owner. When set it is validated — at load for the pod env, at
-    /// the join for a Member — so an unsupported value fails instead of silently
-    /// running Claude.
+    /// The Task's selected Agent harness, fixed for the Member's lifetime.
+    /// `None` means no valid selection, surfaced as invalid config by the agent
+    /// lifecycle owner rather than defaulting silently to Claude.
     pub agent_type: Option<String>,
     /// Workspace directory — the persisted *container* dir (e.g.
-    /// `/opt/moatless/workspace`). This is the agent's cwd and the root of the
-    /// S3 workspace snapshot: **every git repo under this dir** is snapshotted
-    /// (the primary repo in [`Self::repo_dir`] *and* any sibling repos the agent
-    /// cloned alongside it), keyed by workspace-relative path.
+    /// `/opt/moatless/workspace`), the agent's cwd. **Every git repo under this
+    /// dir** is snapshotted to S3, keyed by workspace-relative path.
     pub workspace_dir: String,
-    /// Repository directory — where the primary repo is cloned: the
-    /// [`Self::workspace_dir`] subdirectory named by its placement's mount name,
-    /// which defaults to the repo name (e.g.
-    /// `/opt/moatless/workspace/<repo-name>`). All repo-scoped operations (git
-    /// status/diff, the file API, setup commands, dev servers) target this;
-    /// secondary repos in [`Self::repos`] sit beside it. Falls back to
-    /// `workspace_dir` when there is no repo to clone.
+    /// Repository directory — the [`Self::workspace_dir`] subdirectory where
+    /// the primary repo is cloned. All repo-scoped operations target this;
+    /// falls back to `workspace_dir` when there is no repo to clone.
     pub repo_dir: String,
     /// Data directory for server artifacts
     pub data_dir: String,
     /// Sandbox-private runtime directory ([`RUNTIME_DIR`]), for credential
     /// material that must not reach repo code or the workspace snapshot.
     pub runtime_dir: String,
-    /// Where a message's attached uploads are written before the agent runs
-    /// (env `UPLOAD_DIR`, set by the backend from its `file_mount_path` so the
-    /// prompt's "Saved to:" line and this agree). Defaults under
-    /// [`Self::workspace_dir`], which is what makes an upload survive a restart:
-    /// the workspace snapshot covers loose directories, so a restored pod finds
-    /// the bytes already on disk and skips the re-fetch.
+    /// Where a message's attached uploads are written (env `UPLOAD_DIR`,
+    /// matching the backend prompt's "Saved to:" line). Defaults under
+    /// [`Self::workspace_dir`], surviving a restart via the snapshot.
     pub upload_dir: String,
     /// Log level
     pub log_level: String,
@@ -182,9 +152,9 @@ pub struct Config {
     pub backend_grpc_url: String,
     /// Backend API URL for HTTP fallback calls.
     pub backend_api_url: Option<String>,
-    /// Long-lived user auth token from `USER_AUTH_TOKEN`, when present. K8s pods
-    /// normally receive the long-lived token over `GetCredentials`; Docker and
-    /// compatibility paths may still provide this env.
+    /// Long-lived user auth token from `USER_AUTH_TOKEN`, when present. K8s
+    /// pods normally receive the long-lived token over `GetCredentials`; Docker
+    /// and compatibility paths may still provide this env.
     pub user_auth_token: Option<String>,
     /// Short-lived bootstrap token (env `SANDBOX_BOOTSTRAP_TOKEN`) used to
     /// authenticate only the initial `GetCredentials` call, after which the
@@ -200,59 +170,41 @@ pub struct Config {
     pub servers: Vec<ServerInfo>,
     /// Frontend URL for constructing task URLs (e.g., "<https://moatless.io>")
     pub frontend_url: Option<String>,
-    /// Global default Claude model (env: `DEFAULT_CLAUDE_CODE_MODEL`), used when neither request nor repo config set one
+    /// Global default Claude model (env: `DEFAULT_CLAUDE_CODE_MODEL`), used
+    /// when neither request nor repo config set one
     pub default_model: Option<String>,
-    /// Global default Codex model (env: `DEFAULT_CODEX_MODEL`), used when neither request nor repo config set one.
-    /// Falls through to [`crate::agent::codex_app_server::resolve_codex_model`] at call time if unset.
+    /// Global default Codex model (env: `DEFAULT_CODEX_MODEL`); falls through
+    /// to [`crate::agent::codex_app_server::resolve_codex_model`] at call time
+    /// when unset.
     pub default_codex_model: Option<String>,
     /// Base URL of an OpenAI-compatible proxy to route Codex through (env:
     /// `OPENAI_BASE_URL`), including the `/v1` suffix.
     ///
-    /// Codex honours no base-URL environment variable of its own, so this is
-    /// rendered into `config.toml` as a custom model provider by
-    /// [`crate::init::codex_config`]. Setting it also suppresses the
-    /// `auth.json` write and its watcher: the proxy key is delivered by
-    /// `env_key` instead, and mirroring it back would overwrite the user's
-    /// stored Codex OAuth credential.
+    /// Also suppresses the `auth.json` write, which would overwrite the user's
+    /// Codex OAuth credential.
     pub openai_base_url: Option<String>,
-    /// Use the tmux-based Claude Code SDK transport instead of subprocess/NDJSON (env: `SANDBOX_USE_TMUX`).
+    /// Use the tmux-based Claude Code SDK transport instead of
+    /// subprocess/NDJSON (env: `SANDBOX_USE_TMUX`).
     pub use_tmux: bool,
     /// Deadline applied to a `moat cmd` command that declares none (env:
-    /// `SANDBOX_COMMAND_DEFAULT_TIMEOUT_SECS`, default 4h). A command's own
-    /// value overrides it in either direction, including past this default.
+    /// `SANDBOX_COMMAND_DEFAULT_TIMEOUT_SECS`, default 4h); a command's own
+    /// value overrides it either direction, past this default too.
     pub command_default_timeout_secs: u64,
-    /// Permission mode for the Claude CLI in normal (non-plan) mode (env:
-    /// `SANDBOX_PERMISSION_MODE`). Defaults to `bypassPermissions` so network
-    /// tools like WebSearch/WebFetch aren't denied (they are not auto-approved
-    /// by `acceptEdits` and the CLI never routes them through the stdio
-    /// permission handler). Plan-mode requests always override this with
-    /// `plan`. Ignored in tmux mode, which always uses
-    /// `--dangerously-skip-permissions`. Accepts the CLI spellings: `default`,
-    /// `acceptEdits`, `bypassPermissions`, `plan`, `delegate`, `dontAsk`.
+    /// Permission mode for the Claude CLI outside plan mode (env:
+    /// `SANDBOX_PERMISSION_MODE`); defaults to `bypassPermissions` so network
+    /// tools aren't denied, `plan` in plan mode; unused in tmux mode.
     pub permission_mode: PermissionMode,
     /// Whether this sandbox snapshots its workspace to S3 (env:
-    /// `WORKSPACE_SYNC_ENABLED`). Set by the backend when the repo's `s3`
-    /// storage switch is on; when true, the sandbox restores the workspace from
-    /// S3 on boot and syncs it back via backend-minted presigned URLs.
+    /// `WORKSPACE_SYNC_ENABLED`); when true, restores from S3 on boot and syncs
+    /// back via backend-minted presigned URLs.
     pub workspace_sync_enabled: bool,
     /// Whether the volume under `WORKSPACE_DIR` is durable (env:
-    /// `WORKSPACE_RESTORE_IF_EMPTY`). Set by the backend when *both* storage
-    /// switches are on, i.e. a PVC holds the live copy and S3 only holds a
-    /// fallback snapshot.
-    ///
-    /// It makes the restore conditional: the snapshot is read only into a volume
-    /// that holds nothing usable — freshly created, recreated after a close, or
-    /// swapped for an emptyDir because the PVC would not attach. Overwriting a
-    /// populated PVC with an older snapshot would lose work. It also turns off
-    /// the periodic upload loop, whose whole purpose is to bound the loss when
-    /// the only copy is one an involuntary kill destroys.
+    /// `WORKSPACE_RESTORE_IF_EMPTY`). When true, restore only applies to an
+    /// empty volume, and the periodic upload loop is disabled.
     pub workspace_restore_if_empty: bool,
-    /// Whether the task runs headless (env: `SANDBOX_HEADLESS`), i.e. nobody is
-    /// expected to be watching it. Set by the backend for tasks created without
-    /// a browser (CLI, loops). Preview servers are already stripped from the
-    /// provision plan for these; here it also removes the tools that would park
-    /// the turn on an answer nobody is there to give (`AskUserQuestion`,
-    /// `EnterPlanMode`, `ExitPlanMode`).
+    /// Whether the task runs headless (env: `SANDBOX_HEADLESS`), i.e.
+    /// unwatched. Removes tools that would park the turn on an answer nobody
+    /// can give (`AskUserQuestion`, `EnterPlanMode`, `ExitPlanMode`).
     pub headless: bool,
 
     // ── Init-related fields ────────────────────────────────────────
@@ -269,13 +221,9 @@ pub struct Config {
     /// Primary repo's git provider (github, gitlab, gitness)
     pub git_provider: String,
     /// Every repository the task's workspace places in this sandbox, primary
-    /// first (env `WORKSPACE_REPOS`). Each is cloned into
-    /// `{workspace_dir}/{mount_name}`; the primary's directory is
-    /// [`Self::repo_dir`].
-    ///
-    /// A pod provisioned before multi-repo support carries no `WORKSPACE_REPOS`,
-    /// so this holds the single checkout reconstructed from the `GIT_*` trio —
-    /// or nothing at all, for a sandbox with no repo to clone.
+    /// first (env `WORKSPACE_REPOS`), each cloned into
+    /// `{workspace_dir}/{mount_name}`; falls back to the `GIT_*` trio when
+    /// absent.
     pub repos: Vec<RepoCheckout>,
     /// Raw `REPO_CONFIG` JSON (for entrypoint compat)
     pub repo_config_raw: Option<String>,
@@ -288,14 +236,8 @@ pub struct Config {
 
 /// Read the workspace's repository checkouts from `WORKSPACE_REPOS`.
 ///
-/// Falls back to the single checkout described by the
-/// `GIT_CLONE_URL`/`GIT_BRANCH`/`GIT_PROVIDER` trio when the env is absent or
-/// unparseable — cloning the primary repo is strictly better than cloning
-/// nothing. Returns an empty list when there is no repo to clone at all.
-///
-/// A mount name that is not a single safe path segment is rejected rather than
-/// repaired: it is joined onto `workspace_dir`, and the backend already
-/// sanitizes, so anything else means a payload we should not act on.
+/// Falls back to the `GIT_CLONE_URL`/`GIT_BRANCH`/`GIT_PROVIDER` trio when
+/// absent or unparseable; an unsafe mount name is rejected, not repaired.
 fn load_repo_checkouts(
     git_clone_url: Option<&str>,
     git_branch: Option<&str>,
@@ -378,11 +320,8 @@ fn scheme_and_authority(url: &str) -> Option<(&str, &str)> {
 /// The backend-proxied remote to clone this checkout from, or `None` when it
 /// clones from its own host.
 ///
-/// Returns `None` for a proxied provider the pod cannot address the backend for
-/// — no `BACKEND_API_URL`, or a checkout naming no repository — leaving the
-/// upstream URL in place. That clone then fails on a credential the pod does not
-/// hold, which reports the misconfiguration rather than hiding it behind a
-/// request the proxy could not resolve either.
+/// Also `None` with no `BACKEND_API_URL` or repository id, leaving the upstream
+/// URL to fail on the missing credential.
 fn proxied_clone_url(repo: &RepoCheckout, backend_api_url: Option<&str>) -> Option<String> {
     if repo.provider != PROXIED_PROVIDER || repo.repository_id.is_empty() {
         return None;
@@ -394,13 +333,13 @@ fn proxied_clone_url(repo: &RepoCheckout, backend_api_url: Option<&str>) -> Opti
 /// The primary checkout in a list, or `None` when there is nothing to clone.
 ///
 /// Falls back to the first entry if nothing is flagged, so a malformed list
-/// still yields a `repo_dir` rather than collapsing onto the workspace root.
+/// still yields a `repo_dir`.
 pub(crate) fn primary_checkout(repos: &[RepoCheckout]) -> Option<&RepoCheckout> {
     repos.iter().find(|repo| repo.is_primary).or(repos.first())
 }
 
-/// Whether a mount name is a single path segment safe to join onto the workspace
-/// directory.
+/// Whether a mount name is a single path segment safe to join onto the
+/// workspace directory.
 fn is_safe_mount_name(name: &str) -> bool {
     !name.is_empty()
         && name != "."
@@ -412,10 +351,8 @@ fn is_safe_mount_name(name: &str) -> bool {
 
 /// Parse the `SANDBOX_PERMISSION_MODE` env value into a [`PermissionMode`].
 ///
-/// Accepts the CLI's camelCase spellings case-insensitively (`default`,
-/// `acceptEdits`, `bypassPermissions`, `plan`, `delegate`, `dontAsk`) plus a
-/// couple of `snake_case` aliases. Returns `None` for empty or unrecognised
-/// values so the caller falls back to the default.
+/// Accepts the CLI's camelCase spellings case-insensitively, plus a few
+/// `snake_case` aliases; `None` for empty or unrecognised values.
 fn parse_permission_mode(raw: &str) -> Option<PermissionMode> {
     match raw.trim().to_ascii_lowercase().as_str() {
         "" => None,
@@ -435,17 +372,10 @@ fn parse_permission_mode(raw: &str) -> Option<PermissionMode> {
     }
 }
 
-/// Read the Task's fixed Agent-harness selection from `AGENT_TYPE`.
-///
-/// Returns `None` when the env is absent or empty. Any non-empty value is
-/// preserved verbatim — including an unsupported one. Validation is not done
-/// here: an unsupported harness must surface as a classified
+/// `None` when absent or empty; an unsupported value is preserved verbatim,
+/// surfacing as
 /// [`HarnessError::InvalidConfiguration`](crate::agent::harness::HarnessError)
-/// at the construction seam (`build_harness`, driven from `spawn_agent`), not as
-/// a config-load `panic!` that aborts the pod before the Sandbox can publish the
-/// failure. Preserving the raw string keeps Claude transport/model variants
-/// flowing through the same normalization path and lets the seam reject a truly
-/// unsupported selection with a diagnostic.
+/// rather than a config-load panic.
 fn resolve_agent_type_env() -> Option<String> {
     let raw = env::var("AGENT_TYPE").ok()?;
     let raw = raw.trim();
@@ -457,11 +387,8 @@ fn resolve_agent_type_env() -> Option<String> {
 
 /// Where uploads go when the backend supplied no `UPLOAD_DIR`.
 ///
-/// Always inside the workspace: `workspace_sync` archives loose directories
-/// alongside the repos, so an upload written here is restored with the rest of
-/// the workspace instead of being re-fetched — and a path outside it would not
-/// be. Kept a sibling of the repo checkouts, never inside one, so uploads stay
-/// out of the user's `git status`.
+/// Inside the workspace (so `workspace_sync` restores it) but a sibling of the
+/// repo checkouts, so it stays out of `git status`.
 fn default_upload_dir(workspace_dir: &str) -> String {
     format!("{}/uploads", workspace_dir.trim_end_matches('/'))
 }
@@ -477,9 +404,7 @@ fn env_flag_enabled(name: &str) -> bool {
 /// Read a boolean env var as a tri-state override: `None` when unset or empty,
 /// otherwise whether the value is truthy per [`env_flag_value_enabled`].
 ///
-/// Distinct from [`env_flag_enabled`], which folds "unset" into `false`. A
-/// setting whose default is *on* needs that distinction: unset has to fall
-/// through to the next source rather than silently turn the feature off.
+/// Distinct from [`env_flag_enabled`], which folds "unset" into `false`.
 fn env_flag_override(name: &str) -> Option<bool> {
     match env::var(name) {
         Ok(value) if !value.is_empty() => Some(env_flag_value_enabled(&value)),
@@ -489,9 +414,8 @@ fn env_flag_override(name: &str) -> Option<bool> {
 
 impl Config {
     /// Absolute checkout directory of every repository placed in this sandbox,
-    /// primary first. A legacy single-repo pod (no `WORKSPACE_REPOS`) falls back
-    /// to [`Self::repo_dir`]. Empty entries are dropped so callers never build a
-    /// path against a sandbox with nothing checked out.
+    /// primary first; a legacy pod (no `WORKSPACE_REPOS`) falls back to
+    /// [`Self::repo_dir`]. Empty entries are dropped.
     pub fn repo_dirs(&self) -> Vec<String> {
         if self.repos.is_empty() {
             if self.repo_dir.is_empty() {
@@ -508,10 +432,8 @@ impl Config {
     }
 
     /// The origin a proxied checkout clones from — `{scheme}://{host}[:{port}]`
-    /// of [`Self::backend_api_url`], with any path dropped.
-    ///
-    /// This is the URL git matches a `credential.<url>.helper` entry against, so
-    /// it must carry the scheme.
+    /// of [`Self::backend_api_url`], path dropped. Git matches
+    /// `credential.<url>.helper` against this, so it must carry the scheme.
     pub fn backend_api_origin(&self) -> Option<String> {
         let (scheme, authority) = scheme_and_authority(self.backend_api_url.as_deref()?)?;
         Some(format!("{scheme}://{authority}"))
@@ -652,32 +574,20 @@ impl Config {
         }
     }
 
-    /// Filesystem path where the long-lived user auth token is persisted after it
-    /// is fetched over `GetCredentials`.
+    /// Filesystem path where the long-lived user auth token is persisted after
+    /// `GetCredentials` fetches it.
     ///
-    /// Lives in [`RUNTIME_DIR`], the one directory that is neither archived into
-    /// the workspace snapshot nor mounted into the server sidecars. Off the
-    /// `workspace_dir` tree a token cannot outlive the pod it was minted for by
-    /// riding the snapshot into a replacement; out of `data_dir` it is not
-    /// readable by the repo code those sidecars run.
-    ///
-    /// How long the file survives is the runtime's business — the volume is
-    /// pod-scoped under K8s and container-scoped under Docker — which is why it
-    /// is one candidate in [`Self::initial_auth_token_candidates`] rather than
-    /// the answer.
+    /// Lives in [`RUNTIME_DIR`], neither archived into the workspace snapshot
+    /// nor mounted into the server sidecars.
     pub fn persisted_user_token_path(&self) -> std::path::PathBuf {
         std::path::Path::new(&self.runtime_dir).join(".user_auth_token")
     }
 
-    /// Every token the sandbox can present on its first gRPC calls, in the order
-    /// init should try them, without repeats.
+    /// Every token the sandbox can present on its first gRPC calls, in the
+    /// order init should try them, without repeats.
     ///
-    /// No single one of these is reliably the freshest. The persisted file is
-    /// rewritten on every credential refresh but survives only as long as
-    /// [`RUNTIME_DIR`] does; `USER_AUTH_TOKEN` and the bootstrap token are minted
-    /// when the pod or container was created and then fixed. Init therefore
-    /// works down this list on an `Unauthenticated` rejection instead of betting
-    /// on one store.
+    /// No single store is reliably the freshest, so init works down this list
+    /// on an `Unauthenticated` rejection.
     pub fn initial_auth_token_candidates(&self) -> Vec<String> {
         let persisted = std::fs::read_to_string(self.persisted_user_token_path())
             .ok()
@@ -758,14 +668,11 @@ pub(crate) mod test_support {
     }
 }
 
-/// Parse `REPO_CONFIG` JSON env var into server configs, agent config, and setup commands.
-/// Fold the two spellings of `REPO_CONFIG`'s agent settings into one [`AgentConfig`].
+/// Parses `REPO_CONFIG` into server, agent, and setup-command settings, folding
+/// the two `frontloadInstructions` spellings into one [`AgentConfig`].
 ///
-/// `frontloadInstructions` is read from the top level, where the provisioning
-/// path writes it, and falls back to the nested `agentConfig` spelling used by
-/// the entrypoint-compat shape that supplies `REPO_CONFIG` verbatim. Unset at both
-/// levels leaves `None`, which
-/// [`AgentConfig::frontload_instructions_enabled`] reads as enabled.
+/// The top-level spelling wins over the nested `agentConfig` one; `None` when
+/// both are unset.
 fn resolve_agent_config(
     agent_config: Option<RepoAgentConfig>,
     frontload_instructions: Option<bool>,
@@ -871,8 +778,8 @@ mod tests {
         resolve_agent_config(parsed.agent_config, parsed.frontload_instructions)
     }
 
-    /// A `REPO_CONFIG` that says nothing about frontloading leaves it enabled, so
-    /// a repo gets its instructions in context without opting in.
+    /// A `REPO_CONFIG` that says nothing about frontloading leaves it enabled,
+    /// so a repo gets its instructions in context without opting in.
     #[test]
     fn frontloading_is_enabled_when_repo_config_is_silent() {
         assert!(agent_config_from_json("{}").frontload_instructions_enabled());
@@ -1124,8 +1031,9 @@ mod tests {
         assert_eq!(parse_permission_mode("nonsense"), None);
     }
 
-    /// A pod provisioned before multi-repo support carries no `WORKSPACE_REPOS`;
-    /// it still derives a concrete primary checkout directory from the clone URL.
+    /// A pod provisioned before multi-repo support carries no
+    /// `WORKSPACE_REPOS`; it still derives a concrete primary checkout
+    /// directory from the clone URL.
     #[test]
     fn absent_workspace_repos_falls_back_to_a_derived_single_checkout() {
         let repos = parse_repo_checkouts(
@@ -1177,8 +1085,8 @@ mod tests {
         assert!(!repos[1].is_primary);
     }
 
-    /// Mount names are joined onto the workspace dir, so an entry that escapes it
-    /// is dropped rather than repaired — the backend already sanitizes.
+    /// Mount names are joined onto the workspace dir, so an entry that escapes
+    /// it is dropped rather than repaired — the backend already sanitizes.
     #[test]
     fn checkouts_with_unusable_mount_names_are_dropped() {
         let raw = r#"[
@@ -1224,8 +1132,9 @@ mod tests {
         assert_eq!(repos[1].clone_url, "https://github.com/acme/web.git");
     }
 
-    /// With nothing to address the backend by, the upstream URL stays: the clone
-    /// then fails on the credential the pod does not hold, which is a report.
+    /// With nothing to address the backend by, the upstream URL stays: the
+    /// clone then fails on the credential the pod does not hold, which is a
+    /// report.
     #[test]
     fn a_forgejo_checkout_the_proxy_cannot_be_addressed_for_keeps_its_remote() {
         let raw = r#"[{"cloneUrl":"https://forge.example/acme/api.git","repositoryId":"repo_1","provider":"forgejo","mountName":"api","isPrimary":true}]"#;

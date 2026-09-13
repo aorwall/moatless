@@ -5,14 +5,17 @@
 //! `arch-baseline.json`, or on any of them under `ARCH_STRICT=1`.
 
 pub mod adapter_boundaries;
+pub mod agents_md_budget;
 pub mod agents_symlink;
 pub mod annotations;
 pub mod band_order;
 pub mod base_surface;
 pub mod baseline;
 pub mod closed_dependency_list;
+pub mod comment_block_size;
 pub mod composition_root;
 pub mod declaration_only_roots;
+pub mod duplicate_comment_prose;
 pub mod route_registration;
 pub mod transport_direction;
 pub mod persistence_export;

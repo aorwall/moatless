@@ -11,16 +11,17 @@ use moatless_types::agent::CodexScope;
 
 /// DAO trait for provider token credential resolution.
 ///
-/// Note: `automock` is intentionally omitted — mockall cannot synthesise
-/// correct lifetimes for `Option<&str>` / `Option<&Value>` in async-trait
-/// methods.  Tests use `PgProviderTokenDao` via `#[sqlx::test]`.
+/// `automock` is intentionally omitted: mockall can't synthesize correct
+/// lifetimes for `Option<&str>` / `Option<&Value>` in async-trait methods.
+/// Tests use `PgProviderTokenDao` via `#[sqlx::test]`.
 // reason: provider-token upserts already pass 7+ atomic columns; wrapping
 // into a struct would require touching every call-site and impl for no real
 // readability gain.
 #[allow(clippy::too_many_arguments)]
 #[async_trait]
 pub trait ProviderTokenDao: Send + Sync {
-    /// Find a provider token (`access_token` only) by `user_id` and provider name.
+    /// Find a provider token (`access_token` only) by `user_id` and provider
+    /// name.
     async fn find_provider_token(
         &self,
         user_id: &str,
@@ -34,11 +35,9 @@ pub trait ProviderTokenDao: Send + Sync {
         provider: &str,
     ) -> Result<Option<ProviderToken>, sqlx::Error>;
 
-    /// Upsert a provider token (insert or update on conflict). Inserts with
-    /// `auth_method = 'manual'` and leaves an existing row's `auth_method`
-    /// untouched — use [`upsert_token_with_auth_method`] to set it explicitly.
-    ///
-    /// [`upsert_token_with_auth_method`]: ProviderTokenDao::upsert_token_with_auth_method
+    /// Upserts a provider token, inserting with `auth_method = 'manual'` and
+    /// leaving an existing row's `auth_method` untouched — see
+    /// [`Self::upsert_token_with_auth_method`] to set it explicitly.
     async fn upsert_token(
         &self,
         user_id: &str,
@@ -49,13 +48,13 @@ pub trait ProviderTokenDao: Send + Sync {
         metadata: Option<&serde_json::Value>,
     ) -> Result<(), sqlx::Error>;
 
-    /// Upsert a provider token, setting `auth_method` on both insert and
-    /// update. Used for reference rows (`secret_ref`) whose resolution branch
-    /// must switch even when a row already exists.
+    /// Upserts a provider token, setting `auth_method` on both insert and
+    /// update — for reference rows (`secret_ref`) whose resolution branch must
+    /// switch even when a row already exists.
     ///
     /// `refresh_token` and `expires_at` are written as given, `None` included:
-    /// they describe the credential this call installs, and a leftover expiry
-    /// from the one it replaces dates the wrong token.
+    /// a leftover expiry from the credential this replaces would date the wrong
+    /// token.
     async fn upsert_token_with_auth_method(
         &self,
         user_id: &str,
@@ -104,8 +103,8 @@ pub trait ProviderTokenDao: Send + Sync {
     // ---- Scope-aware codex methods ----
 
     /// Find the codex `provider_tokens` row addressed by `scope`. Returns the
-    /// full row (including `metadata`) so callers can build a
-    /// the Agent-harness credential status response without a follow-up read.
+    /// full row (including `metadata`) so callers can build a the Agent-harness
+    /// credential status response without a follow-up read.
     async fn find_codex_blob(
         &self,
         scope: &CodexScope,
@@ -131,14 +130,13 @@ pub trait ProviderTokenDao: Send + Sync {
     /// (migration `0059`) backs the predicate, so this stays O(touched rows).
     async fn healthy_codex_scopes(&self) -> Result<Vec<CodexScope>, sqlx::Error>;
 
-    /// Bring the codex row at `scope` up to date, asking `refresher` what to
+    /// Brings the codex row at `scope` up to date, asking `refresher` what to
     /// write.
     ///
-    /// One transaction: take a Postgres advisory lock keyed on the scope, read
-    /// the row `FOR UPDATE`, hand the blob to `refresher`, then compare-and-swap
-    /// the answer back. A lock another replica already holds, and a
-    /// compare-and-swap another writer won, both report the value that writer
-    /// left. `None` when no row addresses `scope`.
+    /// One transaction: advisory-locks the scope, reads the row `FOR UPDATE`,
+    /// hands the blob to `refresher`, then compare-and-swaps the answer back —
+    /// a lock or CAS another replica already won reports that writer's value.
+    /// `None` when no row addresses `scope`.
     async fn refresh_codex_blob(
         &self,
         scope: &CodexScope,
@@ -599,9 +597,9 @@ impl ProviderTokenDao for PgProviderTokenDao {
     }
 }
 
-/// Bind value for the `WHERE` fragment's single `$N` placeholder.
-/// User scope carries the `user_id`; Global uses an empty string sentinel
-/// (the clause itself uses IS NULL checks, not a bound value).
+/// Bind value for the `WHERE` fragment's single `$N` placeholder. User scope
+/// carries the `user_id`; Global uses an empty string sentinel (the clause
+/// itself uses IS NULL checks, not a bound value).
 fn codex_bind_value(scope: &CodexScope) -> &str {
     match scope {
         CodexScope::User(id) => id.as_str(),
@@ -609,14 +607,14 @@ fn codex_bind_value(scope: &CodexScope) -> &str {
     }
 }
 
-/// Build the `WHERE` clause fragment that addresses this scope's row in
-/// `provider_tokens`, using `placeholder` for the dynamic identifier.
-/// Callers paste the result into the larger SQL string and bind
-/// [`codex_bind_value`] at the same positional parameter index.
+/// Builds the `WHERE` clause fragment addressing this scope's row in
+/// `provider_tokens`, using `placeholder` for the dynamic identifier; callers
+/// paste it into the larger SQL string and bind [`codex_bind_value`] at the
+/// same positional index.
 ///
-/// Note: Global scope uses `IS NULL` checks so the bind value is unused
-/// for that variant; callers should still bind it (empty string) to keep
-/// positional parameter counts consistent.
+/// Global scope uses `IS NULL` checks so its bind value is unused, but callers
+/// must still bind it (empty string) to keep positional parameter counts
+/// consistent.
 fn codex_where_clause(scope: &CodexScope, placeholder: &str) -> String {
     match scope {
         CodexScope::User(_) => {

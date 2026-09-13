@@ -1,16 +1,11 @@
 //! Persistent Claude (tmux) adapter for the Agent harness.
 //!
 //! One long-lived TUI session hosts many Turns behind the private
-//! [`AgentProcess`] port. A compatible Input is pasted into the live session
-//! (injected into an active Turn, or opening a fresh one while idle); an
-//! incompatible model / mode / Session / fresh-start replaces the process,
-//! resuming the intended Session on a new TUI. Turns the CLI starts on its own
-//! (an internal `ScheduleWakeup` firing or a `Monitor` event) surface as
-//! harness-internal executions.
+//! [`AgentProcess`] port. Compatible Inputs paste into the live session;
+//! incompatible ones (model/mode/Session/fresh-start) kill and respawn it.
 //!
 //! All native-payload mapping is delegated to the shared [`Normalizer`]; this
-//! file owns only the persistent process lifecycle and Turn-boundary state, so
-//! neither the coordinator nor the driver learns anything tmux-specific.
+//! file owns only the persistent process lifecycle and Turn-boundary state.
 
 use std::collections::VecDeque;
 use std::sync::Arc;
@@ -32,11 +27,12 @@ use super::ClaudeConfig;
 use super::classify::{classify_result, classify_startup_error, classify_stream_error};
 use super::normalize::Normalizer;
 
-/// The per-Input configuration the live session was opened with. A new Input
-/// compatible with this pastes into the live TUI; an incompatible one forces a
-/// replacement (kill + respawn with `--resume`). Agent type and system prompt
-/// are fixed for the Sandbox lifetime (the fixed-harness decision), so only model, mode, effort,
-/// and the resumed Session id can diverge between Inputs.
+/// The per-Input configuration the live session was opened with.
+///
+/// A new Input compatible with this pastes into the live TUI; an incompatible
+/// one forces a replacement (kill + respawn with `--resume`). Agent type and
+/// system prompt are fixed for the Sandbox lifetime, so only model, mode,
+/// effort, and the resumed Session id can diverge.
 struct Fingerprint {
     model: Option<String>,
     mode: Option<String>,
@@ -138,8 +134,8 @@ impl ClaudePersistentProcess {
         }
     }
 
-    /// Spawn a fresh TUI and paste the opening prompt. On any failure the partial
-    /// session is torn down and a classified startup error is returned.
+    /// Spawn a fresh TUI and paste the opening prompt. On any failure the
+    /// partial session is torn down and a classified startup error is returned.
     async fn spawn(&mut self, input: &Input, replacing: Option<&str>) -> Result<(), HarnessError> {
         let resume = self.spawn_resume(input, replacing).await;
         let resuming = resume.is_some();
@@ -202,8 +198,8 @@ impl ClaudePersistentProcess {
             .map_err(|error| classify_stream_error(&error))
     }
 
-    /// Fully terminate the live TUI before starting a replacement, preserving the
-    /// at-most-one-process invariant.
+    /// Fully terminate the live TUI before starting a replacement, preserving
+    /// the at-most-one-process invariant.
     async fn teardown(&mut self) {
         if let Some(handle) = self.handle.take() {
             if let Err(error) = handle.interrupt().await {
@@ -464,8 +460,8 @@ mod tests {
         }
     }
 
-    /// `--effort` is a launch flag, so the live TUI cannot change it: a Turn that
-    /// asks for a different one has to be run on a replacement process.
+    /// `--effort` is a launch flag, so the live TUI cannot change it: a Turn
+    /// that asks for a different one has to be run on a replacement process.
     #[test]
     fn a_changed_effort_forces_a_replacement() {
         assert!(needs_restart(

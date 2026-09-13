@@ -1,14 +1,13 @@
 //! Attaching a GitHub App credential to a session that already exists.
 //!
-//! GitHub App *login* signs a person in as their GitHub identity. Connect runs
-//! the same authorization flow and writes the same credential row, but issues
-//! no session and revokes none: a deployment that signs people in with OIDC can
-//! still give them GitHub access without a Personal Access Token.
+//! GitHub App *login* signs a person in as their GitHub identity; connect runs
+//! the same flow and writes the same credential row, but issues no session and
+//! revokes none, so a deployment signing people in with OIDC can still give
+//! them GitHub access without a Personal Access Token.
 //!
-//! Both flows come back to the one callback URL registered on the App, so
-//! whether a callback is a login or a connect is encoded in the CSRF state —
-//! which means an attacker cannot flip one into the other without also
-//! breaking the state/cookie match.
+//! Both flows share one callback URL, so login vs. connect is encoded in the
+//! CSRF state — an attacker can't flip one into the other without also breaking
+//! the state/cookie match.
 
 use axum::response::Response;
 use tracing::warn;
@@ -32,8 +31,7 @@ const OUTCOME_PARAM: &str = "githubConnect";
 /// What a connect callback carries back from the request that started it.
 pub(super) struct ConnectState<'a> {
     /// Who asked for the credential. Compared against the session holding the
-    /// callback, because the two need not be the same person — see
-    /// [`finish`].
+    /// callback, because the two need not be the same person — see [`finish`].
     pub user_id: Uuid,
     pub return_url: &'a str,
 }
@@ -79,7 +77,7 @@ pub(super) fn start(
     ))
 }
 
-/// Store the authorization `connect` asked for as its initiator's credential.
+/// Stores the authorization `connect` asked for as its initiator's credential.
 ///
 /// `viewer` is whoever holds the callback request, which is not necessarily who
 /// started the flow: `oauth_state` outlives both a logout and the session

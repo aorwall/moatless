@@ -13,24 +13,22 @@ use super::{AdapterDelivery, AdapterDeliveryFailure};
 
 /// Executes one kind of admitted Adapter delivery.
 ///
-/// Implementations **must be idempotent**. Execution is at-least-once: a
+/// Implementations **must be idempotent**: execution is at-least-once, so a
 /// process can die after the work completed but before the record was marked
-/// succeeded, and the record then runs again.
+/// succeeded, and the record runs again.
 #[async_trait::async_trait]
 pub trait AdapterDeliveryHandler: Send + Sync {
     /// Perform the work this delivery describes, from `delivery.payload`.
     ///
-    /// Return [`AdapterDeliveryFailure::Retryable`] for anything a later attempt
-    /// could survive, and [`AdapterDeliveryFailure::Permanent`] when no retry can
-    /// help — a malformed payload, a deleted task, a revoked connection.
+    /// Return [`AdapterDeliveryFailure::Retryable`] when a later attempt could
+    /// succeed, [`AdapterDeliveryFailure::Permanent`] when nothing can help.
     async fn execute(&self, delivery: &AdapterDelivery) -> Result<(), AdapterDeliveryFailure>;
 }
 
 /// The handlers this process can execute, by delivery kind.
 ///
-/// The worker claims only these kinds, so a replica running an older build
-/// leaves newer deliveries for one that understands them instead of failing
-/// them.
+/// The worker claims only these kinds, so an older-build replica leaves newer
+/// deliveries for one that understands them, instead of failing them.
 #[derive(Default)]
 pub struct AdapterDeliveryHandlers(HashMap<&'static str, Arc<dyn AdapterDeliveryHandler>>);
 

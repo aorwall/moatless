@@ -10,10 +10,8 @@ use crate::ports::{is_draft, t3_pr_state};
 /// Every pull request a Task is bound to, as T3's `ThreadPullRequestLink`,
 /// primary first — see [`Conversation::pull_requests`] for that order.
 ///
-/// Empty where the Task has no reportable GitHub PR binding. The client reads
-/// this whenever the descriptor carries `threadPullRequests`, and derives its
-/// own current pull request from it; `linkedPullRequest` beside it is the legacy
-/// single reference, and stays the first element of this list.
+/// `linkedPullRequest` beside it is the legacy single reference, and stays the
+/// first element of this list.
 pub(super) fn thread_pull_requests(conversation: &Conversation) -> Vec<Value> {
     let Some(bound) = conversation.pull_requests.as_deref() else {
         return Vec::new();
@@ -44,10 +42,9 @@ pub(super) fn thread_pull_requests(conversation: &Conversation) -> Vec<Value> {
 
 /// The legacy single reference for the primary of [`thread_pull_requests`].
 ///
-/// A T3 project is a Moatless Workspace, so the reference is placed against the
-/// same `projectId` the row carries. `ThreadPullRequestKey` is host-level and
-/// carries no project, which is why this is built here rather than sliced off
-/// the link.
+/// Placed against the same `projectId` the row carries; `ThreadPullRequestKey`
+/// is host-level and carries no project, which is why this is built here rather
+/// than sliced off the link.
 pub(super) fn legacy_linked_pull_request(link: Option<&Value>, project_id: &str) -> Value {
     let Some(link) = link else {
         return Value::Null;
@@ -63,8 +60,8 @@ pub(super) fn legacy_linked_pull_request(link: Option<&Value>, project_id: &str)
 /// The git host a pull request URL names, or `github.com` where it names none.
 ///
 /// T3 keys a link by host so the same pull request reached through two projects
-/// compares equal. Every binding this projection reports comes from the GitHub
-/// adapter, so the default is the host that adapter talks to.
+/// compares equal; every binding here comes from the GitHub adapter, hence that
+/// default.
 fn pull_request_host(url: &str) -> String {
     url.split_once("://")
         .map_or(url, |(_, rest)| rest)
@@ -77,9 +74,8 @@ fn pull_request_host(url: &str) -> String {
 /// Who linked a pull request, as T3 names it.
 ///
 /// Moatless records the direction a Task and a subject met, not who acted, so
-/// only the CLI-filed binding maps onto one of T3's authors. Everything else
-/// reports `manual`, which the client uses only to hide a `stack-dismissed`
-/// tombstone that no Moatless binding is.
+/// only the CLI-filed binding maps onto one of T3's authors; everything else
+/// reports `manual`.
 fn thread_pull_request_source(origin: &str) -> &'static str {
     match origin {
         // `moatless_adapter_model::binding::TASK_OWNED_BINDING_ORIGIN`, spelled
@@ -90,12 +86,11 @@ fn thread_pull_request_source(origin: &str) -> &'static str {
 }
 
 /// The host state a fetched binding carries, or `Null` while its blob is still
-/// NULL: the client paints a title and a state off a link that has one, and
-/// leaves the badge pending for one that does not.
+/// NULL, leaving the badge pending until then.
 ///
-/// Gate and stand-ins are `bound_pull_request_from_binding`'s
-/// (`crates/server/src/t3code/backend.rs`), which answers `pullRequests.summary`
-/// off the same blob, so the two readers must not disagree about what it holds.
+/// Gate and stand-ins match `bound_pull_request_from_binding`
+/// (`crates/server/src/t3code/backend.rs`), which answers
+/// `pullRequests.summary` off the same blob; the two readers must not disagree.
 fn pull_request_snapshot(pr: &ConversationPullRequest, repository: &str) -> Value {
     // Only a refresh writes the branches, which is what makes them the gate.
     let Some(head_branch) = pr.head_ref.as_deref().and_then(non_empty) else {

@@ -109,8 +109,8 @@ pub async fn write_file(workspace_dir: &str, path: &str, content: &str) -> Resul
 
 /// Read a file and include its git change information.
 ///
-/// If git is unavailable or the file has no changes, the change fields
-/// are `None` / zero. Binary files skip git change detection.
+/// If git is unavailable or the file has no changes, the change fields are
+/// `None` / zero. Binary files skip git change detection.
 pub async fn read_file_with_changes(
     workspace_dir: &str,
     path: &str,

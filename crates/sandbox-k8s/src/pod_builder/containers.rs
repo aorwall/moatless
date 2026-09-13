@@ -8,20 +8,10 @@ use super::*;
 
 /// Build the privileged `nvme-setup` init container.
 ///
-/// Formats (idempotently — only when unformatted) and mounts the node-local
-/// instance-store NVMe (`/dev/nvme1n1`) under the package-cache root, then
-/// ensures a world-writable subdir exists for each configured cache. Mirrors the
-/// GitHub Actions runner pattern (soap-platform-gitops `java-build-runner-set`):
-/// mount via bidirectional propagation so the host — and thus the sibling
-/// `pkg-cache` hostPath mounts in the app containers — see the NVMe-backed dirs.
-///
-/// On a node without the NVMe device the format/mount is skipped and the caches
-/// fall back to the node root disk (still node-local) — the feature degrades
-/// gracefully rather than failing the pod.
-///
-/// Deliberately does NOT use `app_security_context`: `mkfs.ext4` / `mount`
-/// of the raw block device require full privileges. Scoped to this short-lived
-/// init container; the app containers stay hardened.
+/// Formats (if unformatted) and mounts the node-local NVMe under the
+/// package-cache root via bidirectional propagation, so the host's sibling
+/// `pkg-cache` hostPath mounts see the NVMe-backed dirs; falls back gracefully
+/// to the node root disk when no NVMe device exists.
 pub(super) fn build_nvme_setup_container(config: &Config) -> Container {
     // Inside the container the parent is bind-mounted at `/host-mnt`, so the
     // NVMe mount target is `/host-mnt/<basename-of-cache-root>`.
@@ -93,24 +83,20 @@ pub(super) fn build_nvme_setup_container(config: &Config) -> Container {
 /// Whether this repo opted into Docker access (privileged dind sidecar).
 ///
 /// Reuses the existing `RepoConfig.docker_access` flag (already honoured by the
-/// Docker provider via a socket mount); in K8s mode "docker access" means a
-/// privileged `dind` sidecar rather than a host socket. Defaults to `false`, so
-/// sandboxes stay hardened unless a repo explicitly opts in.
+/// Docker provider via a socket mount); in K8s mode it means a privileged
+/// `dind` sidecar instead. Defaults to `false`, so sandboxes stay hardened
+/// unless a repo opts in.
 pub(super) fn docker_access_enabled(plan: &ProvisionPlan) -> bool {
     plan.repo_config.docker_access.unwrap_or(false)
 }
 
 /// Build the privileged `dind` (docker-in-docker) sidecar container.
 ///
-/// Runs `dockerd` without TLS on `tcp://0.0.0.0:2375` (reachable only from
-/// within the pod's network namespace, i.e. by the sandbox container via
-/// `localhost`) plus the default unix socket. Image/container layers live on the
-/// `docker-storage` volume mounted at `/var/lib/docker`. Mirrors the CI runner
-/// dind topology (soap-platform-gitops `java-build-runner-set`).
-///
-/// Deliberately privileged — dockerd needs it to manage cgroups, overlay mounts,
-/// and iptables. Scoped to this sidecar and only attached when a repo opts into
-/// `dockerAccess`; the agent/server containers keep `app_security_context`.
+/// Runs `dockerd` without TLS on `tcp://0.0.0.0:2375`, reachable only inside
+/// the pod's network namespace (i.e. via `localhost`), plus the default socket;
+/// layers persist on the `docker-storage` volume. Only attached when a repo
+/// opts into `dockerAccess`; the agent/server containers keep
+/// `app_security_context`.
 pub(super) fn build_dind_container(config: &Config) -> Container {
     let resources = ResourceRequirements {
         limits: Some(BTreeMap::from([
@@ -175,10 +161,10 @@ pub(super) fn build_dind_container(config: &Config) -> Container {
 /// Overlay a per-repo resource override onto the configured defaults, field by
 /// field.
 ///
-/// An override replaces only the `cpu`/`memory` values it names; the other keeps
-/// its default. `ResourceConfig` also carries the storage fields (`storage`,
-/// `pvcEnabled`, ...), so a repo that configures only storage — or only memory —
-/// still gets a fully bounded container instead of a `BestEffort` one.
+/// An override replaces only the `cpu`/`memory` values it names, the rest keep
+/// their default; since `ResourceConfig` also carries storage fields, a repo
+/// configuring only storage or only memory still gets a fully bounded container
+/// instead of `BestEffort`.
 pub(super) fn merge_resources(
     override_cfg: Option<&ResourceConfig>,
     default_cpu_request: &str,
@@ -631,9 +617,9 @@ pub(super) fn build_sandbox_container(
 
 /// Build server containers from repo config.
 ///
-/// Each server container's image is resolved from `server.docker_image`,
-/// falling back to `config.sandbox.image`. Start commands come from
-/// `server.start_commands`; if absent the image's default CMD is used.
+/// Each container's image resolves from `server.docker_image`, falling back to
+/// `config.sandbox.image`; start commands come from `server.start_commands`, or
+/// the image's default CMD if absent.
 #[allow(clippy::unnecessary_wraps)] // Result for consistency with build_sandbox_container
 pub(super) fn build_server_containers(
     config: &Config,
@@ -773,9 +759,8 @@ pub(super) fn build_server_containers(
 /// Serialize the plan's repository checkouts for the `WORKSPACE_REPOS` env.
 ///
 /// Clone URLs are redacted exactly like `GIT_CLONE_URL`, so no credential
-/// reaches the pod spec — the sandbox authenticates each clone through the
-/// credential channel using the checkout's provider. `None` when the plan
-/// carries no checkouts.
+/// reaches the pod spec — the sandbox authenticates each clone via the
+/// credential channel instead; `None` when the plan carries no checkouts.
 pub(super) fn build_workspace_repos_json(plan: &ProvisionPlan) -> Option<String> {
     if plan.repos.is_empty() {
         return None;

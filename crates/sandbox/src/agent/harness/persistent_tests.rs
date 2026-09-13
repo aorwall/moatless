@@ -4,8 +4,8 @@
 //! process — one long-lived process hosting many executions — and assert the
 //! behaviors ticket 06 requires: mid-execution injection, fingerprint
 //! replacement, harness-internal executions, cancellation, EOF, and queued
-//! input. The coordinator sees only the same [`Signal`] contract as the one-shot
-//! path; nothing here is tmux-specific.
+//! input. The coordinator sees only the same [`Signal`] contract as the
+//! one-shot path; nothing here is tmux-specific.
 
 use crate::agent::harness::content::CanonicalContentBlock;
 

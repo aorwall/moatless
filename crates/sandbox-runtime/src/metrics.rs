@@ -1,30 +1,25 @@
 //! Prometheus metrics for sandbox storage backends.
 //!
-//! These exist to compare the storage combinations (see
-//! [`crate::storage::StorageBackend`]) head-to-head — the PVC path vs. the
-//! node-local `emptyDir` path, each with and without the S3 snapshot — so a
-//! default change can be made on evidence rather than intuition.
+//! Exists to compare the storage combinations
+//! ([`crate::storage::StorageBackend`]) head-to-head — PVC vs. node-local
+//! `emptyDir`, each with/without the S3 snapshot.
 //!
-//! ## Cardinality
-//! - `storage_backend` ∈ {`pvc+s3`, `pvc`, `s3`, `none`} — one per switch combination.
-//! - `outcome` ∈ {`ok`, `error`} for provision; the sync counter's `outcome`
-//!   is the same two values.
-//! - `direction` ∈ {`upload`, `download`, `other`}.
-//! - `format` ∈ {`tar`, `restic`, `other`} — the workspace-snapshot
-//!   format the sandbox wrote or read.
+//! Labels: `outcome` ∈ {`ok`, `error`}; `direction` ∈ {`upload`, `download`,
+//! `other`}; `format` ∈ {`tar`, `restic`, `other`}.
 //!
-//! Provision / restart durations are timed by the backend directly (synchronous
-//! K8s calls). Workspace-sync duration/bytes come from the sandbox via
-//! `ReportWorkspaceSync` — the transfer is sandbox→S3 directly, so the backend
-//! isn't in the data path and must be told.
+//! Provision/restart durations are timed by the backend (synchronous K8s
+//! calls); workspace-sync duration/bytes come from the sandbox via
+//! `ReportWorkspaceSync`, since the transfer is sandbox→S3 and the backend must
+//! be told.
 
 use std::time::Duration;
 
 use super::storage::StorageBackend;
 
 /// Wall-clock duration of a `provision` call by `storage_backend` and `outcome`
-/// (histogram). Captures the cost of standing up sandbox resources — with the
-/// PVC switch on this includes creating/attaching it; without it the emptyDir
+/// (histogram).
+///
+/// With the PVC switch on this includes creating/attaching it; the emptyDir
 /// path skips that entirely.
 pub(crate) const SANDBOX_PROVISION_DURATION_SECONDS: &str =
     "moatless_sandbox_provision_duration_seconds";
@@ -48,11 +43,9 @@ pub(crate) const WORKSPACE_SYNC_BYTES: &str = "moatless_workspace_sync_bytes";
 /// (counter). Reported by the sandbox whenever the S3 switch is on.
 pub(crate) const WORKSPACE_SYNC_TOTAL: &str = "moatless_workspace_sync_total";
 
-/// Cold-transition outcomes by `outcome` (counter). This is where the cost of
-/// the pvc+s3 default is actually paid back, so the four outcomes are kept
-/// apart: `reclaimed` (claim gone), `rescued` (claim gone, but only after the
-/// volume was uploaded), `blocked` (claim kept — the archive could not be
-/// proven current and the rescue did not land), `skipped` (nothing to do).
+/// Cold-transition outcomes by `outcome` (counter): `reclaimed` (claim gone),
+/// `rescued` (claim gone after upload), `blocked` (claim kept — archive
+/// unproven or rescue failed), `skipped` (nothing to do).
 pub(crate) const STORAGE_RECLAIM_TOTAL: &str = "moatless_sandbox_storage_reclaim_total";
 
 /// Register sandbox storage metric descriptions with the Prometheus recorder.
@@ -110,10 +103,9 @@ pub fn record_restart(backend: StorageBackend, elapsed: Duration) {
 
 /// Record one workspace-sync report from the sandbox.
 ///
-/// `direction` is validated to `"upload"` / `"download"` and `format` to
-/// `"tar"` / `"restic"` (anything else → `"other"`) to keep both labels bounded.
-/// A sandbox old enough to send no format is recorded as `"tar"`, which is what
-/// it wrote.
+/// `direction`/`format` are validated to their known values (else `"other"`) to
+/// keep labels bounded; a sandbox old enough to send no format is recorded as
+/// `"tar"`, which is what it wrote.
 pub fn record_workspace_sync(
     direction: &str,
     format: &str,

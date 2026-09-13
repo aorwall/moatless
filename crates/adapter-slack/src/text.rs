@@ -1,8 +1,8 @@
 //! The strings the Slack Adapter renders.
 //!
 //! Kept apart from the code that sends them so the wording is reviewable on its
-//! own: the agent's system-prompt instructions, and the task link appended to an
-//! outbound reply.
+//! own: the agent's system-prompt instructions, and the task link appended to
+//! an outbound reply.
 
 use std::fmt::Write as _;
 
@@ -91,7 +91,7 @@ people often mention the bot in passing (\"look at what @you said\", \"ask @you 
 /// Append the provenance footer an outbound reply carries, when it carries one.
 ///
 /// mrkdwn, not Markdown: Slack has no `[text](url)`, so the link is
-/// `<url|text>` and the trailing segments are joined with a middle dot.
+/// `<url|text>`, with trailing segments joined by a middle dot.
 pub(super) fn with_task_link(text: &str, provenance: Option<&TaskProvenance>) -> String {
     let mut rendered = text.to_string();
     if let Some(p) = provenance {
@@ -108,13 +108,9 @@ mod tests {
     use super::{reply_instructions, with_task_link};
     use moatless_adapter_model::outbound::{TaskOrigin, TaskProvenance};
 
-    /// The instructions offer a raw Slack id as the way to mention someone
-    /// Moatless does not know. That only works if the id the agent is shown
-    /// passes the check the outbound path applies, so the example is held to
-    /// the same rule the code uses rather than merely looking id-shaped.
-    ///
-    /// `<@login>` is excluded: it is the placeholder for the canonical form,
-    /// which is resolved by lookup and is not meant to be an id.
+    /// The instructions' raw Slack id example must pass the same check the
+    /// outbound path applies, not just look id-shaped. `<@login>` is excluded:
+    /// it's the placeholder for the canonical form, not an id.
     #[test]
     fn every_literal_id_in_the_instructions_is_one_the_outbound_path_accepts() {
         let s = reply_instructions(None);

@@ -41,8 +41,8 @@ pub enum AuthError {
     #[error("Bad request: {0}")]
     BadRequest(String),
 
-    /// Verifying a submitted password against its stored PHC string failed
-    /// (the hashing task itself failed, not a wrong password).
+    /// Verifying a submitted password against its stored PHC string failed (the
+    /// hashing task itself failed, not a wrong password).
     #[error("Password verification failed")]
     PasswordVerification(#[source] crate::auth::password::hash::PasswordHashError),
 
@@ -50,8 +50,8 @@ pub enum AuthError {
     #[error("Password hashing failed")]
     PasswordHashing(#[source] crate::auth::password::hash::PasswordHashError),
 
-    /// Resolving a GitHub App's bot identity failed. Boxed because the cause
-    /// is itself an [`AuthError`] raised by the GitHub App service.
+    /// Resolving a GitHub App's bot identity failed. Boxed because the cause is
+    /// itself an [`AuthError`] raised by the GitHub App service.
     #[error("Bot identity resolution failed")]
     BotIdentity(#[source] Box<AuthError>),
 

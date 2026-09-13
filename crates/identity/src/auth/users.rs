@@ -23,7 +23,7 @@ pub struct User {
     pub last_login_at: DateTime<Utc>,
     pub settings: serde_json::Value,
     /// `true` when this user row represents a GitHub App bot identity
-    /// (`{slug}[bot]`). The App key + token-source is stored in the user's
+    /// (`{slug}[bot]`); the App key and token-source live in the user's
     /// `provider_tokens` row (`auth_method = 'github_app_installation'`,
     /// `provider_user_id = <app_key>`).
     pub is_bot: bool,

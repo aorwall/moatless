@@ -15,13 +15,10 @@ use moatless_types::adapter::AdapterKind;
 /// Registry of external adapters keyed by `AdapterKind`.
 ///
 /// The trait-object map is the whole registry: cross-provider code dispatches
-/// through it, and each provider's concrete handle lives on the composition root
-/// (`ProviderHandles`), not here.
-///
-/// Each provider registers into it through its own `register_into` method,
-/// called once at the composition root: construction lives there, and the
-/// provider owns the mapping from itself to the capability surfaces it
-/// implements.
+/// through it, while each provider's concrete handle lives on the composition
+/// root (`ProviderHandles`), not here. Each provider registers via its own
+/// `register_into`, called once at the composition root, so the provider owns
+/// the mapping from itself to the capability surfaces it implements.
 #[derive(Clone)]
 pub struct Adapters {
     providers: HashMap<AdapterKind, Arc<dyn Adapter>>,
@@ -60,8 +57,8 @@ impl Adapters {
     ///
     /// `pub(crate)` so each provider's `register_into` can fan its one concrete
     /// handle across the capability maps without the registry naming the
-    /// provider type. Every adapter kind that has a typed handle must go through
-    /// its own `register_into`, or the map and the handle could disagree.
+    /// provider type. Every kind with a typed handle must go through its own
+    /// `register_into`, or the map and handle could disagree.
     pub fn register_trait_object(&mut self, provider: Arc<dyn Adapter>) {
         self.providers.insert(provider.adapter_kind(), provider);
     }

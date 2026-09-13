@@ -33,9 +33,10 @@ impl From<SandboxObservedStatus> for RuntimeObservation {
     }
 }
 
-/// A runtime-status read failed. The reconciler logs and skips the Task this
-/// tick rather than acting on missing observation. Keeps the underlying source
-/// (a K8s/Docker observation error) so fleet-LIST debugging retains the chain.
+/// A runtime-status read failed.
+///
+/// The reconciler logs and skips the Task this tick rather than act on a
+/// missing observation; keeps the source (K8s/Docker) for fleet-LIST debugging.
 #[derive(Debug, thiserror::Error)]
 #[error("{context}")]
 pub struct ObserveError {
@@ -73,9 +74,10 @@ pub trait FleetObserver: Send + Sync {
     /// treated as [`SandboxObservedStatus::Absent`].
     async fn observe_fleet(&self) -> Result<HashMap<String, RuntimeObservation>, ObserveError>;
 
-    /// Authoritative per-Task status, read to confirm a divergence before acting
-    /// so the reconciler never drives an operation off stale coarse data. The
-    /// intent fields are the ones the observer's live-status projection needs.
+    /// Authoritative per-Task status, read to confirm a divergence before
+    /// acting so the reconciler never drives an operation off stale coarse
+    /// data. The intent fields are the ones the observer's live-status
+    /// projection needs.
     async fn observe(
         &self,
         task_id: &str,

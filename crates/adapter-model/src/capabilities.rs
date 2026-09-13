@@ -1,14 +1,13 @@
 //! Adapter capability interfaces and shared capability value types.
 //!
 //! What an Adapter *offers* — reply to a binding, reply to one message, post to
-//! a raw destination, react, enrich inbound context, report external status.
-//! Each is a separate trait so a provider implements only what it can do and
-//! the registry can ask for one capability without naming a concrete adapter.
+//! a raw destination, react, enrich inbound context, report external status —
+//! each a separate trait, so a provider implements only what it can do and the
+//! registry can ask for one capability without naming a concrete adapter.
 //!
-//! These traits are the Adapter contract, so they live in the kernel with the
-//! vocabulary they speak and the error they return. Nothing here names a store,
-//! a runtime, or a band above this crate: a provider crate implements them
-//! without depending on whatever is orchestrating it.
+//! These traits are the Adapter contract: nothing here names a store, a
+//! runtime, or a band above this crate, so a provider implements them without
+//! depending on whatever orchestrates it.
 
 use crate::binding::binding_context;
 use crate::binding::{BindingContext, BindingDestination};
@@ -25,7 +24,8 @@ use moatless_types::loops::{LoopContext, SubscriptionMatch};
 pub struct NewThreadInfo {
     /// Adapter-specific thread/message ID (e.g., Slack message `ts`).
     pub external_thread_id: String,
-    /// Adapter-specific properties for the thread (e.g., `channel`, `thread_ts`).
+    /// Adapter-specific properties for the thread (e.g., `channel`,
+    /// `thread_ts`).
     pub properties: serde_json::Value,
 }
 
@@ -42,9 +42,9 @@ pub trait Adapter: Send + Sync {
 
     /// Adapter key used by Adapter connections and Subscription sources.
     ///
-    /// Most adapters store the same key everywhere. GitHub PR uses the
-    /// user-facing Adapter key (`github`) for Adapter connections and Subscriptions while
-    /// task bindings and message metadata use the adapter target key (`github_pr`).
+    /// Most adapters use the same key everywhere; GitHub PR is the exception —
+    /// `github` for connections/Subscriptions, `github_pr` for task bindings
+    /// and message metadata.
     fn connection_provider_key(&self) -> &'static str {
         self.provider_key()
     }
@@ -61,7 +61,8 @@ pub trait AdapterDestinationBuilder: Adapter {
         Ok("default".to_string())
     }
 
-    /// Whether Adapter connection lookup should fall back to the `"default"` scope.
+    /// Whether Adapter connection lookup should fall back to the `"default"`
+    /// scope.
     fn allow_default_connection_fallback(&self) -> bool {
         true
     }
@@ -75,7 +76,8 @@ pub trait AdapterDestinationBuilder: Adapter {
         Ok(source_id.to_string())
     }
 
-    /// Whether Subscription lookup should fall back to a wildcard source matcher.
+    /// Whether Subscription lookup should fall back to a wildcard source
+    /// matcher.
     fn allow_wildcard_trigger_fallback(&self) -> bool {
         true
     }
@@ -249,9 +251,9 @@ pub trait AdapterBindingStatus: Send + Sync {
     }
 
     /// Whether the binding's persisted status blob carries every field this
-    /// adapter now writes. An adapter whose blob shape grew answers `false` for
-    /// a binding written before the growth, so a terminal binding is refreshed
-    /// once to fill the missing fields; the default is that nothing is missing.
+    /// adapter now writes; `false` for a binding written before the blob shape
+    /// grew, so a terminal binding is refreshed once to fill the missing
+    /// fields.
     fn persisted_status_is_complete(&self, _binding: &TaskBinding) -> bool {
         true
     }

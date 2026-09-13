@@ -2,9 +2,9 @@
 //! decision (was it approved?) and its mergeable state (does it conflict?).
 //!
 //! Both are stored as canonical lowercase strings in dedicated columns (see
-//! migration `0076`). These enums give the write/derive sites a typed, spelling-
-//! safe view; the DB model keeps the raw `Option<String>` to match the existing
-//! `external_status` column pattern.
+//! migration `0076`). These enums give the write/derive sites a typed,
+//! spelling- safe view; the DB model keeps the raw `Option<String>` to match
+//! the existing `external_status` column pattern.
 
 /// GitHub's coarse mergeability state for a PR (`pull_request.mergeable_state`
 /// / the single-PR API's `mergeable_state`). GitHub computes this
@@ -94,7 +94,8 @@ pub(super) enum ReviewDecision {
 
 impl ReviewDecision {
     /// Map the `review.state` of a `pull_request_review` webhook to a decision.
-    /// Returns `None` for states we don't persist as a verdict (e.g. `pending`).
+    /// Returns `None` for states we don't persist as a verdict (e.g.
+    /// `pending`).
     pub(super) fn from_review_state(state: &str) -> Option<Self> {
         match state {
             "approved" => Some(Self::Approved),

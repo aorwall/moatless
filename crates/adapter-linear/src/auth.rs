@@ -1,20 +1,12 @@
 //! Who a Linear call is made as, and which workspace it reaches.
 //!
 //! Linear's tokens are per *workspace*, not per user: one OAuth install grants
-//! one organization, and every call the Adapter makes on that organization's
-//! behalf uses it. So credential selection here is really workspace selection —
-//! "which org is this?" — and the answer arrives in a different shape at each
-//! call site: an `AppState` in the webhook and worker paths, the Adapter type
-//! in the capability impls, a Binding in the activity emitters, and nothing at
-//! all in `post_to_destination`.
+//! one organization, and every call the Adapter makes on its behalf uses it.
+//! Credential selection here is really workspace selection, arriving in a
+//! different shape at each call site — hence one module.
 //!
-//! Every one of those shapes resolves to the same three inputs, which is why
-//! they belong in one module.
-//!
-//! The [`AppCredentials`] a client is built with is not incidental:
-//! [`LinearAgentApi`] reads the workspace token through it on every call and
-//! refreshes it in place when it is near expiry, so it is part of the
-//! credential, not a convenience.
+//! The [`AppCredentials`] a client is built with matters: [`LinearAgentApi`]
+//! refreshes the workspace token through it on every call.
 
 use moatless_adapter_model::apps::{AdapterAppReader, AdapterAppSecrets};
 use moatless_adapter_model::connections::ConnectionLookup;
@@ -33,10 +25,9 @@ use super::agent_api::LinearAgentApi;
 
 /// What building a Linear client needs, beyond the organization and the pool.
 ///
-/// A copy of the three `LinearConfig` fields that decide *how* the client
-/// authenticates and *where* it points. The Adapter carries one and `AppState`
-/// carries the config it came from, so both sides are provably the same
-/// credentials rather than two independently-assembled sets.
+/// A copy of the three `LinearConfig` fields deciding how the client
+/// authenticates and where it points; the Adapter and `AppState` each carry
+/// one, so both sides are provably the same credentials.
 #[derive(Clone, Debug)]
 pub(super) struct LinearCredentials {
     oauth_client_id: Option<String>,
@@ -103,10 +94,10 @@ pub(super) async fn api_for_connection(
 
 /// A client for the workspace a Binding belongs to.
 ///
-/// Returns `None` — rather than an error — when the Binding's Adapter
-/// connection has been deleted or cannot be read. Every caller is a
-/// best-effort emitter on the event-consumer hot path, where the alternative to
-/// skipping is bubbling a database error into event handling.
+/// Returns `None` rather than an error when the Binding's connection has been
+/// deleted or cannot be read — every caller is a best-effort emitter on the
+/// event-consumer hot path, where the alternative is bubbling a database error
+/// into event handling.
 pub(super) async fn api_for_binding(
     adapter_connections: &dyn ConnectionLookup,
     tokens: Arc<dyn AppCredentials>,
@@ -144,13 +135,10 @@ pub(super) async fn api_for_binding(
 
 /// A client for the single installed Linear workspace.
 ///
-/// Takes the Adapter rather than an `AppState` because its one caller —
-/// [`AdapterDirectDestination::post_to_destination`] — has neither an
-/// `AppState` nor a connection parameter; the destination string names an
-/// issue and nothing else. Refusing when more than one workspace is installed
-/// is the point: guessing would post a comment into the wrong company's Linear.
-///
-/// [`AdapterDirectDestination::post_to_destination`]: moatless_adapter_model::capabilities::AdapterDirectDestination::post_to_destination
+/// Takes the Adapter rather than an `AppState` since its one caller has neither
+/// an `AppState` nor a connection parameter; refusing when more than one
+/// workspace is installed is the point — guessing would post to the wrong
+/// company's Linear.
 pub(super) async fn api_for_single_workspace(
     adapter: &LinearAdapter,
 ) -> Result<LinearAgentApi, AdapterError> {
@@ -186,14 +174,13 @@ pub(super) fn require_linear(
     linear.ok_or_else(|| SharedAdapterError::AdapterNotConfigured("linear".into()).into())
 }
 
-/// Resolve the caller's Linear connection (defaulting to the single
-/// accessible one) and build a [`LinearAgentApi`] for that workspace.
+/// Resolve the caller's Linear connection (defaulting to the single accessible
+/// one) and build a [`LinearAgentApi`] for that workspace.
 ///
-/// The adapter is handed in by the handler rather than looked up through
-/// `state.provider_handles.linear`: this file *is* the Linear provider, so
-/// reaching itself through the registry was self-resolution, and it dissolves
-/// once the route extracts `State<Option<Arc<LinearAdapter>>>`. The connection
-/// store rides on the adapter (its ingress ports), so no `AppState` is needed.
+/// The adapter is handed in directly rather than looked up through
+/// `state.provider_handles.linear`, since this file *is* the Linear provider
+/// and self-resolution through the registry dissolves once the route extracts
+/// `State<Option<Arc<LinearAdapter>>>`.
 pub(super) async fn resolve_linear_api(
     adapter: &LinearAdapter,
     ctx: &ScopeContext,

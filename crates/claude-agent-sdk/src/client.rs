@@ -7,26 +7,24 @@ use crate::api::options::ClaudeOptions;
 
 /// A multi-turn Claude client that manages a persistent session.
 ///
-/// Unlike `query()` which is a one-shot function, `ClaudeClient` maintains
-/// a subprocess and allows sending multiple messages over time. Callers are
-/// responsible for extracting `session_id` from `SdkMessage::System` init
-/// messages and passing it explicitly to `send()`.
+/// Unlike one-shot `query()`, it keeps a subprocess open for multiple messages;
+/// callers must extract `session_id` from the `SdkMessage::System` init message
+/// and pass it to `send()`.
 pub struct ClaudeClient {
     handle: QueryHandle,
 }
 
 impl ClaudeClient {
-    /// Create a new client with the given options.
-    /// This spawns the Claude CLI subprocess and initializes the session.
+    /// Create a new client with the given options. This spawns the Claude CLI
+    /// subprocess and initializes the session.
     pub async fn new(options: ClaudeOptions) -> Result<Self> {
         let handle = query_streaming(options).await?;
         Ok(Self { handle })
     }
 
-    /// Create a new client backed by an interactive `claude` TUI running in
-    /// a detached tmux session. See [`crate::tmux`] for caveats — most
-    /// importantly, `options.can_use_tool` is ignored and permissions are
-    /// always bypassed.
+    /// Create a new client backed by an interactive `claude` TUI in a detached
+    /// tmux session. Most notably, `options.can_use_tool` is ignored and
+    /// permissions are always bypassed — see [`crate::tmux`] for other caveats.
     pub async fn new_tmux(options: ClaudeOptions) -> Result<Self> {
         let handle = query_tmux_streaming(options).await?;
         Ok(Self { handle })
@@ -34,9 +32,9 @@ impl ClaudeClient {
 
     /// Send a text message to the Claude CLI.
     ///
-    /// The `session_id` should be extracted from the `SdkMessage::System` init
-    /// message received during the first turn. For the initial `send()` before
-    /// any messages have been received, pass an empty string.
+    /// `session_id` comes from the `SdkMessage::System` init message from the
+    /// first turn; pass an empty string for the initial call before any message
+    /// is received.
     pub async fn send(&self, message: &str, session_id: &str) -> Result<()> {
         self.send_with_priority(message, session_id, MessagePriority::Next)
             .await
@@ -44,10 +42,7 @@ impl ClaudeClient {
 
     /// Send a text message with an explicit priority.
     ///
-    /// Priority controls when the CLI processes the message:
-    /// - `Now` — immediately, interrupting current tool execution
-    /// - `Next` — between the current tool result and the next inference call (default)
-    /// - `Later` — after the current turn completes
+    /// See [`MessagePriority`] for when each variant is processed by the CLI.
     pub async fn send_with_priority(
         &self,
         message: &str,

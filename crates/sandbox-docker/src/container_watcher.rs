@@ -24,11 +24,10 @@ use moatless_sandbox_runtime::classify::ObservedTransition;
 use moatless_sandbox_runtime::observation_events::publish_sandbox_observation;
 use moatless_sandbox_runtime::runtime::{OPERATION_GENERATION_LABEL, generation_from_label};
 
-/// Spawn a background task that watches Docker container events and publishes
-/// lifecycle events to the event system.
+/// Spawns a background task publishing Docker container lifecycle events.
 ///
-/// Subordinate server-container events are excluded by the service-label
-/// filter and a defensive handler check, so they never enter classification.
+/// Server-container events are excluded by the service-label filter and a
+/// defensive handler check, so they never reach classification.
 pub fn spawn_container_lifecycle_watcher(
     client: DockerClient,
     event_publisher: Arc<dyn EventPublisher>,

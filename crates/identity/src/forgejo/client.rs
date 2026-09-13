@@ -2,8 +2,8 @@
 
 /// An HTTP client for a Forgejo host's own endpoints.
 ///
-/// Carries [`moatless_core::USER_AGENT`], which a host behind a filtering proxy
-/// requires of token validation and the OAuth exchange alike.
+/// Carries [`moatless_core::USER_AGENT`], required by a host behind a filtering
+/// proxy for token validation and the OAuth exchange alike.
 pub(crate) fn http_client() -> reqwest::Client {
     reqwest::Client::builder()
         .user_agent(moatless_core::USER_AGENT)

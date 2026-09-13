@@ -1,21 +1,13 @@
 //! Linear webhook request policy and durable admission.
 //!
 //! The HTTP handler passes only transport facts; this module owns signature
-//! policy, connection resolution, the delivery identity, and admission. All five
-//! event kinds are admitted before the response, so nothing on the response path
-//! but the signature, the envelope and
-//! [`webhook::normalize`](crate::webhook::normalize)'s shape guards — pure reads
-//! of the body. Keep it that way: nothing here may hold state between
-//! deliveries, or a refused delivery could dismiss the sender's next attempt as
-//! a duplicate.
+//! policy, connection resolution, the delivery identity, and admission. Nothing
+//! here may hold state between deliveries, or a refused delivery could dismiss
+//! the sender's next attempt as a duplicate.
 //!
-//! [`Effect::SessionHeartbeat`](crate::webhook::Effect) is the one effect before
-//! the `200`, so a new session's panel is alive inside Linear's 10-second
-//! window. Best-effort; its failure is logged, and the work behind it is
-//! admitted like everything else.
-//!
-//! [`receive`] takes its downward ports directly, so every decision below the
-//! route is drivable without building a `Request`.
+//! [`Effect::SessionHeartbeat`](crate::webhook::Effect) keeps a new session's
+//! panel alive inside Linear's 10s window before the `200`; best-effort, so
+//! failure is only logged.
 
 use super::reason;
 use tracing::{info, warn};
@@ -57,36 +49,22 @@ pub enum Outcome {
 
 /// Why a Linear webhook did not reach a normal outcome.
 ///
-/// The variants get different transport treatment, which is the whole reason
-/// they are distinguished. [`Self::NotAdmitted`] and [`Self::Unidentifiable`]
-/// both mean nothing was written, so Linear must not be told the delivery is
-/// ours; [`Self::Ingress`] keeps the long-standing behaviour of a logged,
-/// metered `200`.
-///
-/// This is Linear's copy of the three-way vocabulary `github_pr`, Slack and
-/// Telegram each also declare. The hoist to one shared `adapters::ingress`
-/// definition (spec Decision 2) has not landed — `adapters/ingress.rs` holds
-/// only `admit_delivery` and `log_admission` — so the copy stays local, written
-/// to match its siblings variant for variant so the hoist is a deletion rather
-/// than a redesign.
+/// [`Self::NotAdmitted`]/[`Self::Unidentifiable`] mean nothing was written, so
+/// Linear must not be told the delivery is ours; [`Self::Ingress`] still
+/// returns a logged, metered `200`.
 #[derive(Debug, thiserror::Error)]
 pub enum IngressError {
     /// Durable admission did not commit.
     ///
-    /// Takes `#[from] AdmitError` and nothing else: a blanket
-    /// `From<AdapterError>` here would let any read failure masquerade as an
-    /// un-acknowledgeable one.
+    /// Takes `#[from] AdmitError` only — a blanket `From<AdapterError>` would
+    /// let any read failure masquerade as un-acknowledgeable.
     #[error("Linear webhook work was not admitted")]
     NotAdmitted(#[from] moatless_adapter_model::delivery::AdmitError),
-    /// The delivery carries work, but not the field that would tell that work
-    /// apart from the next delivery like it.
+    /// The delivery carries work but not the field that identifies it.
     ///
-    /// Admitting anyway is the one outcome that is worse than refusing.
-    /// A colliding identity does not lose *this* delivery, it loses the *next*
-    /// one — silently, cluster-wide, and for the whole retention period,
-    /// because the durable unique index would recognise a genuinely different
-    /// event as a duplicate of this one. Refusing keeps the loss where an
-    /// operator can see it.
+    /// Admitting anyway is worse than refusing: a colliding identity silently
+    /// loses the *next* delivery once the unique index treats a different event
+    /// as this one's duplicate.
     #[error("Linear delivery is missing {0}, so its work cannot be told apart from the next")]
     Unidentifiable(&'static str),
     /// Everything the ingress path itself rejected or failed on: an unparseable
@@ -103,11 +81,8 @@ impl From<SharedAdapterError> for IngressError {
 
 /// A rejected delivery, and the event type its metric row is labelled with.
 ///
-/// The label is carried here rather than on each variant so [`IngressError`]
-/// keeps `?` ergonomics all the way down and stays variant-for-variant
-/// identical to its siblings. The envelope is parsed before anything below it
-/// can fail, so the type is always in hand except when the body is not JSON
-/// at all.
+/// Carried here rather than on each variant, so [`IngressError`] keeps `?`
+/// ergonomics; always in hand except when the body is not JSON.
 #[derive(Debug)]
 pub struct Rejection {
     pub error: IngressError,
@@ -294,10 +269,8 @@ async fn dispatch(
 
 /// A dropped delivery, logged once with the reason that labels its metric row.
 ///
-/// One line for every drop, carrying what the flat dispatcher only logged on
-/// the unsupported-event branch — the actor and the payload's keys are what an
-/// operator needs to tell "Linear sent us something new" from "our guard is
-/// wrong", and that question is asked of every reason, not just one.
+/// Logs actor and payload keys for every reason — what tells "Linear sent
+/// something new" from "our guard is wrong".
 fn ignored(envelope: &LinearWebhookEnvelope, reason: &'static str) -> Outcome {
     let data_keys: Vec<&str> = envelope
         .data
@@ -346,9 +319,8 @@ async fn requirement_met(
 
 /// Apply the effects a plan asked for, before the acknowledgment.
 ///
-/// Best-effort by construction: an effect is a notice about work that is about
-/// to be admitted, so a failure to post it is logged and the delivery carries
-/// on. Nothing here decides anything.
+/// Best-effort: a failure to post an effect is logged and the delivery carries
+/// on.
 async fn apply(
     app_tokens: &Arc<dyn AppCredentials>,
     apps: &dyn AdapterAppReader,
@@ -378,12 +350,8 @@ async fn apply(
 
 /// Close every session a refused plan opened, with a terminal `error` activity.
 ///
-/// The counterpart to [`apply`] for the one admission that is dropped after its
-/// panel is already open: a created session whose team has no active
-/// Subscription. Linear infers session state from the last activity, so without
-/// a terminal one the panel stays `active` indefinitely — this posts the `error`
-/// that closes it. Best-effort, exactly like [`apply`]: a resolve or post
-/// failure is logged and the drop carries on.
+/// Linear infers session state from the last activity, so without one the panel
+/// stays `active` indefinitely. Best-effort, like [`apply`].
 async fn decline_sessions(
     app_tokens: &Arc<dyn AppCredentials>,
     apps: &dyn AdapterAppReader,
@@ -409,11 +377,9 @@ async fn decline_sessions(
 
 /// Commit one delivery's work durably and log where it landed.
 ///
-/// Every admission site funnels through here, so the property the acceptance
-/// rests on — the response is written after the record is, or not at all — is
-/// stated once. An [`AdmitError`](moatless_adapter_model::delivery::AdmitError) becomes
-/// [`IngressError::NotAdmitted`], which is the one failure the route refuses to
-/// answer with a `200`.
+/// Every admission site funnels through here: the response is written after the
+/// record is, or not at all. An `AdmitError` becomes
+/// [`IngressError::NotAdmitted`], refusing the `200`.
 async fn admit(
     adapter_delivery: &dyn DeliveryAdmission,
     request: AdapterDeliveryRequest,
@@ -426,33 +392,12 @@ async fn admit(
     Ok(())
 }
 
-/// Derive a stable dedup identity for a Linear webhook delivery: the `event_id`
-/// of every record admitted below, formatted `"{event_type}:{action}:{id}"`.
+/// Derive a stable dedup identity: `"{event_type}:{action}:{resource_id}"`.
 ///
-/// A genuine retry must carry the same key and two separately performed events
-/// must never share one. A resource id alone holds both only where the resource
-/// can be acted on once, so a session that can be re-prompted and an issue that
-/// can be moved again key on something the sender varies per event.
-///
-/// Do not key on Linear's `webhookId`: it is the webhook-*configuration* id,
-/// identical on every delivery, so distinct events would collapse into one and
-/// be dropped for the whole retention period.
-///
-/// Resource id by event type:
-/// - `AgentSessionEvent.prompted` → `agentActivity.id`, the activity carrying
-///   the prompt. Keying on `agentSession.id` collapses a second message to one
-///   session into the first — the delivery a person is actively waiting on.
-/// - `AgentSessionEvent` (other actions) → `agentSession.id`
-/// - `Issue` → `data.id:updatedFrom.stateId:data.state.id:data.updatedAt`.
-///   Every update to one issue repeats that issue's id, so the id alone cannot
-///   tell two state changes apart. Linear can emit duplicate deliveries for one
-///   issue mutation with different webhook timestamps, so the issue's own
-///   updatedAt is preferred; webhookTimestamp is only the fallback when
-///   updatedAt is absent.
-/// - `Comment` → `data.id` (a comment id names one comment)
-/// - `AppUserNotification` → `notification.id`
-/// - fallback (unknown / missing) → `webhook_id:webhook_timestamp`
-///   (Linear resends the same `webhookTimestamp` on genuine retries).
+/// Not keyed on Linear's `webhookId`, identical on every delivery; where a
+/// resource id alone repeats per event (a re-prompted session, a moved issue),
+/// it's combined with what varies: the activity id, or the issue's state
+/// transition.
 fn dedup_key(envelope: &LinearWebhookEnvelope) -> String {
     let resource_id = match envelope.event_type.as_str() {
         "AgentSessionEvent" if envelope.action == "prompted" => envelope
@@ -496,9 +441,8 @@ fn issue_transition_resource_id(envelope: &LinearWebhookEnvelope) -> Option<Stri
 
 /// The state the issue left.
 ///
-/// `updatedFrom` is Linear's diff of the fields that changed, so `stateId` is
-/// present only when the issue moved. Every other `Issue`/`update` — a title, a
-/// description, a label, an assignee — leaves it absent.
+/// `updatedFrom` is Linear's diff of changed fields, so `stateId` is present
+/// only when the issue actually moved.
 pub(crate) fn previous_state_id(envelope: &LinearWebhookEnvelope) -> Option<&str> {
     envelope
         .updated_from
@@ -508,8 +452,8 @@ pub(crate) fn previous_state_id(envelope: &LinearWebhookEnvelope) -> Option<&str
 }
 
 /// The state the issue entered. Absent on an `Issue` payload that carries no
-/// `state` at all, which [`IssuePayload`](crate::webhook_payloads::IssuePayload)
-/// permits.
+/// `state` at all, which
+/// [`IssuePayload`](crate::webhook_payloads::IssuePayload) permits.
 pub(crate) fn new_state_id(envelope: &LinearWebhookEnvelope) -> Option<&str> {
     envelope
         .data
@@ -599,9 +543,8 @@ mod tests {
     }
 
     /// Regression: two messages sent to one Linear agent session are two
-    /// deliveries. Keying them on the session made the second indistinguishable
-    /// from a retry of the first, so a person following up within the cache TTL
-    /// had their message discarded.
+    /// deliveries. Keying on the session made the second indistinguishable from
+    /// a retry, discarding a person's follow-up within the cache TTL.
     #[test]
     fn two_prompts_on_one_session_get_distinct_keys() {
         let first = envelope(serde_json::json!({

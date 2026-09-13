@@ -1,4 +1,5 @@
-//! Task event handler — background worker that processes agent lifecycle events.
+//! Task event handler — background worker that processes agent lifecycle
+//! events.
 //!
 //! Subscribes to Redis streams and handles agent.completed, agent.stopped,
 //! agent.error, agent.message (auto-tagging), and task.metadata.updated events.

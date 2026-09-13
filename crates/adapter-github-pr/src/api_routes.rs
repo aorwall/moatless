@@ -194,10 +194,9 @@ pub use super::pull_request_lookup::{
 )]
 /// Record a GitHub event the caller produced outside the typed routes above.
 ///
-/// `moat gh api` reaches GitHub directly, because the endpoint surface of `gh
-/// api` is too wide to type, so the side effect the typed routes perform inline
-/// has to be requested separately. The command that made the change is the one
-/// that calls this, with the response in hand.
+/// `moat gh api` reaches GitHub directly (its endpoint surface is too wide to
+/// type), so the caller must self-report the resulting event here instead of it
+/// being recorded inline.
 pub async fn record_external_event(
     State(tasks): State<Arc<dyn TaskReader>>,
     State(recently_sent): State<Arc<RecentlySent>>,

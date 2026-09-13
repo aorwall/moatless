@@ -1,10 +1,10 @@
 //! A deterministic scripted Agent process for lifecycle tests.
 //!
 //! This is the mock adapter role for the private [`AgentProcess`] port. It lets
-//! contract tests drive Session starts, source blocks, failures, EOF,
-//! and cancellation through the real [`super::Harness`] interface without a CLI.
-//! The interface under test is the external command/signal seam, not this type —
-//! tests construct a [`Script`] and pass it to [`super::Harness::scripted`].
+//! contract tests drive Session starts, source blocks, failures, EOF, and
+//! cancellation through the real [`super::Harness`] interface without a CLI.
+//! The interface under test is the external command/signal seam, not this type
+//! — tests construct a [`Script`] and pass it to [`super::Harness::scripted`].
 
 use std::collections::VecDeque;
 use std::sync::Arc;
@@ -33,8 +33,8 @@ pub enum Step {
     /// Report acceptance of a unit of input.
     InputAccepted(InputId),
     /// Report acceptance of the oldest submitted-but-unaccepted input. Lets a
-    /// persistent script accept whichever input the driver delivered without the
-    /// script naming its id.
+    /// persistent script accept whichever input the driver delivered without
+    /// the script naming its id.
     AcceptInput,
     /// Block until another input is submitted, then continue. Models a
     /// persistent process idling between executions or mid-Turn injection.
@@ -48,13 +48,15 @@ pub enum Step {
     /// End the current execution while the process persists (persistent
     /// transports only) — a Turn boundary, not process death.
     ExecutionEnded,
-    /// Close the process stream with no self-reported terminal (unexpected EOF).
+    /// Close the process stream with no self-reported terminal (unexpected
+    /// EOF).
     Eof,
     /// Block until the driver requests cancellation, then terminate. Models a
     /// long-running Turn interrupted by a cancel.
     WaitForCancel,
-    /// Block until the driver requests cancellation, then end the execution while
-    /// the process persists (the persistent counterpart of [`Step::WaitForCancel`]).
+    /// Block until the driver requests cancellation, then end the execution
+    /// while the process persists (the persistent counterpart of
+    /// [`Step::WaitForCancel`]).
     WaitForCancelThenEnd,
 }
 
@@ -70,9 +72,11 @@ pub struct Script {
     /// queueing that input for a later execution.
     pub injects: bool,
     /// When set, [`AgentProcess::submit`] parks until the cancel handle fires
-    /// and then reports a failure, and no steps run. Models a transport whose
-    /// opening handshake waits on the Agent — Codex awaits `initialize`,
-    /// `thread/start` and `turn/start` — so a Stop has to reach it there.
+    /// and then reports a failure, and no steps run.
+    ///
+    /// Models a transport whose opening handshake waits on the Agent (Codex
+    /// awaits `initialize`, `thread/start` and `turn/start`), so a Stop has to
+    /// reach it there.
     pub open_blocks: bool,
     pub steps: Vec<Step>,
 }
@@ -119,8 +123,8 @@ impl Script {
 }
 
 /// A shared sink of the full `Input`s a scripted process accepted, in submit
-/// order. Lets a lifecycle test assert exactly which `Input` (text + resume) the
-/// harness received — proving harness acceptance, not just enqueue shape.
+/// order. Lets a lifecycle test assert exactly which `Input` (text + resume)
+/// the harness received — proving harness acceptance, not just enqueue shape.
 #[cfg(test)]
 pub(crate) type InputRecorder = Arc<Mutex<Vec<Input>>>;
 

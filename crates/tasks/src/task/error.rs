@@ -36,11 +36,9 @@ pub enum TaskError {
 }
 
 impl From<moatless_ports::sandbox::SandboxOpError> for TaskError {
-    /// The tasks-band lifecycle port error, mapped the rest of the way to an HTTP
-    /// outcome. The sandbox-band implementation already classified the underlying
-    /// `LifecycleError`; this preserves the three client-visible codes — a closed
-    /// task is a 400, lock contention a 409, a missing task a 404 — and renders
-    /// everything else as a 500.
+    /// The tasks-band lifecycle port error, mapped to an HTTP outcome: a closed
+    /// task is 400, lock contention 409, a missing task 404, and everything
+    /// else the sandbox band classified renders 500.
     fn from(value: moatless_ports::sandbox::SandboxOpError) -> Self {
         use moatless_ports::sandbox::SandboxOpError as Op;
         match value {

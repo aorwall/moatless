@@ -1,15 +1,11 @@
 //! Durable storage for Adapter app registrations, GitHub Apps included.
 //!
-//! A registration is an administered record: an admin creates it, rotates its
-//! secrets, and removes it, and every backend serving the installation sees the
-//! result from its next use onwards. The App used for GitHub sign-in is not
-//! stored here — it stays deployment-configured, so nothing done through the UI
-//! can make the UI unreachable.
-//!
-//! The signing key is envelope-encrypted on the record itself, under the
-//! record's id, using the same cipher the `secrets` table uses. It is never
-//! returned by a read path; what callers get instead is a fingerprint, which is
-//! enough to tell two keys apart and reveals neither.
+//! A registration is admin-managed: created, rotated, and removed, with every
+//! backend seeing the result from its next use. The App used for GitHub sign-in
+//! is not stored here — it stays deployment-configured, so nothing done through
+//! the UI can make the UI unreachable. The signing key is envelope-encrypted
+//! under the record's id, with the same cipher the `secrets` table uses; a read
+//! path never returns it, only a fingerprint.
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -39,8 +35,8 @@ pub(crate) struct GitHubAppRecord {
     pub name: String,
     pub slug: String,
     pub bot_login: String,
-    /// Non-reversing digest of the signing key, for telling two keys apart in
-    /// a surface that must never show either.
+    /// Non-reversing digest of the signing key, for telling two keys apart in a
+    /// surface that must never show either.
     pub key_fingerprint: String,
     pub default_installation_id: Option<u64>,
     /// Bumped on every write. Obtained GitHub tokens are held against this, so
@@ -82,11 +78,10 @@ pub(crate) struct NewGitHubApp {
 }
 
 impl GitHubAppRecord {
-    /// Encrypt a proved App into a storable record.
+    /// Encrypts a proved App into a storable record.
     ///
-    /// The record id is generated here because it is the additional
-    /// authenticated data for the key ciphertext — a key encrypted for one
-    /// record cannot be replayed onto another.
+    /// Generates the record id here: it is the AAD for the key ciphertext, so a
+    /// key encrypted for one record can't be replayed onto another.
     pub(crate) fn seal(
         app: NewGitHubApp,
         cipher: &dyn SecretCipher,
@@ -166,8 +161,8 @@ pub(crate) trait AdapterAppDao: Send + Sync {
     ) -> Result<Option<GitHubAppRecord>, AuthError>;
 
     /// Store a newly proved App. A key already in use is a conflict, never an
-    /// overwrite — overwriting would silently repoint every bot user that
-    /// names the key.
+    /// overwrite — overwriting would silently repoint every bot user that names
+    /// the key.
     async fn insert_github_app(
         &self,
         record: &GitHubAppRecord,
@@ -185,19 +180,12 @@ pub(crate) trait AdapterAppDao: Send + Sync {
     /// Remove an App. `false` when no App holds that key.
     async fn delete_github_app(&self, app_key: &str) -> Result<bool, AuthError>;
 
-    /// Store carried-over Apps and record the carry-over as done, together.
+    /// Stores carried-over Apps and marks the carry-over done, atomically — a
+    /// crash between the two can't leave the marker claimed with the Apps
+    /// unwritten.
     ///
-    /// `Ok(None)` means another backend already did it, so several backends
-    /// starting together produce one outcome.
-    ///
-    /// Both parts commit or neither does. Recording completion first would let
-    /// a crash, a cancellation or a transient database failure partway through
-    /// leave the marker claimed and the Apps unwritten — the environment
-    /// variable still set, and nothing that would ever retry it.
-    ///
-    /// `Ok(Some(keys))` names the Apps that were *not* written because that key
-    /// was already registered. They are skipped rather than overwritten, and
-    /// named rather than dropped in silence.
+    /// `Ok(None)` means another backend already did it; `Ok(Some(keys))` names
+    /// Apps skipped, not overwritten, because that key was already registered.
     async fn carry_over_github_apps(
         &self,
         marker: &str,

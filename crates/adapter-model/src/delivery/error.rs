@@ -6,29 +6,22 @@ use moatless_types::store::StoreError;
 /// Admission failed, so the sender must not be told the delivery was accepted.
 #[derive(Debug, thiserror::Error)]
 pub enum AdmitError {
-    /// The unfinished backlog has reached its configured ceiling. Refusing here
-    /// is what keeps ingress bounded: the sender retries the delivery later
-    /// instead of the backend accepting one it cannot promise to execute.
+    /// The unfinished backlog is at its configured ceiling; refusing keeps
+    /// ingress bounded.
     ///
-    /// `limit` is the configured capacity, which is what an operator recognises
-    /// — not the observed count, which may sit a few records above it while
-    /// concurrent admissions commit. `AdapterDeliveryPolicy::backlog_capacity`
-    /// in `moatless-loops` states the arithmetic.
+    /// `limit` is the configured capacity, not the observed count.
     #[error("Adapter delivery backlog is at capacity ({limit} unfinished records)")]
     AtCapacity { limit: i64 },
-    /// The durable write itself failed. [`StoreError`] names the operation and
-    /// carries the driver error as its source, so this variant — which four
-    /// provider crates match on and two construct in their own tests — names no
-    /// database driver. The cause is retained as the source and redacted at the
-    /// transport boundary.
+    /// The durable write itself failed. [`StoreError`] carries the driver error
+    /// as its source, so this variant names no database driver itself. The
+    /// cause is redacted at the transport boundary.
     #[error(transparent)]
     Store(#[from] StoreError),
 }
 
 /// Why a handler could not complete an Adapter delivery.
 ///
-/// The distinction is the whole of the retry policy at the handler's end:
-/// `Retryable` spends one attempt, `Permanent` ends the record immediately.
+/// `Retryable` spends one attempt; `Permanent` ends the record immediately.
 /// Both keep the causing error as their source.
 #[derive(Debug, thiserror::Error)]
 pub enum AdapterDeliveryFailure {
@@ -58,17 +51,8 @@ impl AdapterDeliveryFailure {
         matches!(self, Self::Permanent(_))
     }
 }
-/// Admission failures reach the sender as "not accepted, send it again".
-///
-/// Both variants are the backend's problem, not the request's: nothing about
-/// the delivery was wrong, so a 4xx would tell the sender to stop retrying
-/// work that is still safe to retry. Capacity maps to `503` because the
-/// condition is explicitly transient; a failed durable write maps to the
-/// existing `500` path, which logs the cause once and returns no detail.
-///
-/// The store failure is carried across, not rebuilt: [`AdmitError::Store`]
-/// already holds the store error the raise site named, so this arm hands the
-/// same value to the same variant it always landed in.
+/// Admission failures reach the sender as "not accepted, send it again", never
+/// a 4xx: a `503` for capacity (transient), `500` for a failed durable write.
 impl From<AdmitError> for AdapterError {
     fn from(error: AdmitError) -> Self {
         match error {
@@ -80,21 +64,9 @@ impl From<AdmitError> for AdapterError {
 
 /// Classify an adapter failure into the seam's retry policy.
 ///
-/// Every sender handler ends up calling adapter runtime code that reports
-/// [`AdapterError`], so the retryable/permanent split is decided once here
-/// rather than once per sender. The question each arm answers is "could a
-/// later attempt see a different answer?".
-///
-/// The split is deliberately asymmetric. Calling a transient failure permanent
-/// abandons work the backend has already told a sender it owns; calling a
-/// permanent failure transient only delays the same terminal record by the
-/// attempt budget, and it still lands in `failed` with its cause. So anything
-/// that is not clearly a rejected or missing input is retried — including
-/// [`SharedAdapterError::Internal`], which the adapter runtimes still use for any
-/// state they could not classify.
-///
-/// The causing error is kept as the source either way, so a terminal record's
-/// `last_error` still names what actually failed.
+/// Deliberately asymmetric: calling a transient failure permanent abandons work
+/// the backend already told the sender it owns, so anything not clearly a
+/// rejected or missing input is retried.
 impl From<AdapterError> for AdapterDeliveryFailure {
     fn from(error: AdapterError) -> Self {
         match error {
@@ -161,12 +133,9 @@ mod tests {
         ))
     }
 
-    /// Every variant's retry class is pinned, exhaustively, so a variant that
-    /// later moves or is added cannot silently change whether delivery gives up.
-    /// Wrongly-permanent is the expensive mistake — it abandons work the sender
-    /// was told we owned — so a record ends early only when its input, or the
-    /// thing it names, is wrong, or when redoing the identical work is provably
-    /// futile.
+    /// Every variant's retry class is pinned, so a later change cannot silently
+    /// flip whether delivery gives up. Wrongly-permanent is the expensive
+    /// mistake: it abandons work the sender was told it owns.
     #[tokio::test]
     async fn every_adapter_error_pins_its_retry_class() {
         let retryable: Vec<AdapterError> = vec![

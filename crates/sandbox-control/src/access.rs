@@ -9,10 +9,8 @@ use moatless_types::{access_control::ScopeContext, task::Visibility};
 
 /// Load the Task's Sandbox membership and require *read* access to it.
 ///
-/// Returns `NotFound` when the caller may not read it, so the existence of
-/// another tenant's Sandbox never leaks. The returned [`TaskIntent`] is the one
-/// read every handler works from: it carries the Task's status and the
-/// Sandbox's desired state alongside the access-control pair.
+/// Returns `NotFound` on denial, so another tenant's Sandbox never leaks its
+/// existence.
 pub(super) async fn authorize_task_read(
     state: &SandboxApiState,
     scope: &Option<ScopeContext>,
@@ -23,10 +21,11 @@ pub(super) async fn authorize_task_read(
     Ok(intent)
 }
 
-/// Like [`authorize_task_read`], but additionally requires *write* access: the
-/// owner of the Sandbox or a platform admin, and never a public reader. Guards
-/// the two actions that outlive the pod they were made on — removing the
-/// Sandbox, and changing a server's configuration.
+/// Like [`authorize_task_read`], but additionally requires *write* access:
+/// owner or platform admin, never a public reader.
+///
+/// Guards actions that outlive the pod — removing the Sandbox and changing
+/// server config.
 pub(super) async fn authorize_task_write(
     state: &SandboxApiState,
     scope: &Option<ScopeContext>,
@@ -38,9 +37,10 @@ pub(super) async fn authorize_task_write(
 }
 
 /// Like [`authorize_task_read`], but additionally requires *control* access:
-/// write, or the public visibility the Task grants. Guards every action that
-/// operates the Sandbox — provision, stop, restart, redeploy, restarting a
-/// server, and writing a file.
+/// write, or the public visibility the Task grants.
+///
+/// Guards every action that operates the Sandbox: provision, stop, restart,
+/// redeploy, restart a server, write a file.
 pub(super) async fn authorize_task_control(
     state: &SandboxApiState,
     scope: &Option<ScopeContext>,
@@ -52,12 +52,10 @@ pub(super) async fn authorize_task_control(
 }
 
 /// Read access to a Sandbox: its own scope/owner pair, or the public visibility
-/// its Task grants — a public Task is collaborative, and its Sandbox view is
-/// part of what it shares.
+/// its Task grants.
 ///
-/// Refuses as `NotFound` so a caller cannot distinguish "not yours" from "does
-/// not exist". A missing identity means the request never passed
-/// `auth_middleware`, which fails closed as `Forbidden`.
+/// Refuses as `NotFound`, never `Forbidden`, so a caller can't tell "not yours"
+/// from "does not exist"; a missing identity fails closed as `Forbidden`.
 fn ensure_can_read(
     scope: &Option<ScopeContext>,
     intent: &TaskIntent,
@@ -75,13 +73,8 @@ fn ensure_can_read(
 /// Control access to a Sandbox: write, or the public visibility its Task
 /// grants.
 ///
-/// A public Task is collaborative, and a Sandbox only its owner can operate is
-/// what makes that collaboration unusable — a reader can see the Task, but
-/// every file read fails against a Sandbox that is not running and nobody but
-/// the owner can wake it. Control includes an interactive shell, so it also
-/// covers everything a shell reaches: writing a file, restarting a server,
-/// pushing a commit. Refusing those while granting `terminal.open` is a rule
-/// one command undoes.
+/// Includes an interactive shell: gating actions separately while granting
+/// `terminal.open` is a rule one shell command undoes.
 fn ensure_can_control(
     scope: &Option<ScopeContext>,
     intent: &TaskIntent,
@@ -119,8 +112,8 @@ fn ensure_can_write(
 // Private helpers
 // =============================================================================
 
-/// The shared lifecycle handle, or a clean "unavailable" error in the no-database
-/// mode where the lifecycle handlers cannot operate.
+/// The shared lifecycle handle, or a clean "unavailable" error in the
+/// no-database mode where the lifecycle handlers cannot operate.
 pub(super) fn require_lifecycle(state: &SandboxApiState) -> Result<&Lifecycle, SandboxError> {
     state
         .lifecycle

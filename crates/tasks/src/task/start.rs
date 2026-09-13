@@ -19,7 +19,8 @@ pub struct StartTaskPorts<'a> {
     pub git_sync: &'a GitSyncService,
 }
 
-/// Validate task access and preflight before synchronizing config and starting resources.
+/// Validate task access and preflight before synchronizing config and starting
+/// resources.
 pub async fn start_task(
     ports: StartTaskPorts<'_>,
     scope_ctx: &ScopeContext,

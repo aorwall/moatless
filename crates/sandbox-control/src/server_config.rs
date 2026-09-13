@@ -161,7 +161,8 @@ async fn read_override(
         .unwrap_or_default())
 }
 
-/// Push one server's complete override to the sandbox, optionally restarting it.
+/// Push one server's complete override to the sandbox, optionally restarting
+/// it.
 async fn apply_override(
     client: &moatless_sandbox_runtime::client::SandboxClient,
     task_id: &str,

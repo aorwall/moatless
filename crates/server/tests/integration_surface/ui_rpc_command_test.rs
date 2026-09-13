@@ -5,17 +5,13 @@
     clippy::print_stdout,
     clippy::print_stderr
 )]
-//! What a T3 command actually writes.
+//! Database-facing effects of T3 commands that `t3code::commands`'s
+//! recording-sink unit tests can't see.
 //!
-//! `t3code::commands` is unit-tested against a recording sink, so the dispatch
-//! table — which commands are accepted, which are refused, how a model slug is
-//! translated — is covered without a database. What that cannot see is the far
-//! side of the port: whether the client's message id survives into
-//! `task_messages`, whether the unique index turns a replayed frame into one
-//! row, whether a closed Task refuses, and whether a Thread created with
-//! nothing in it stays without a Sandbox. All four are database facts, so they
-//! are asserted here, through `AppStateCommands` — the same implementation
-//! `main` wires into the socket.
+//! Asserted here through `AppStateCommands` — the same implementation `main`
+//! wires into the socket: message id survival into `task_messages`, replay
+//! dedup via the unique index, a closed Task's refusal, and a Sandbox-less
+//! Thread staying that way.
 
 use crate::common;
 
@@ -215,10 +211,9 @@ fn turn(task_id: &str, uuid: &str, text: &str) -> ThreadTurn {
 
 /// The uuids of the messages a person wrote in a Task, oldest first.
 ///
-/// Only `user` rows: the test runtime cannot start a Sandbox, so every send
-/// also persists the error result that failure produces. That row is a
-/// deliberate part of the send path — asserted in `message::send`'s own tests —
-/// and counting it here would only measure the test runtime.
+/// Only `user` rows; the test runtime can't start a Sandbox, so every send also
+/// persists an error row, and counting it here would only measure the test
+/// runtime.
 async fn message_uuids(pool: &PgPool, task_id: &str) -> Vec<String> {
     sqlx::query_scalar(
         "SELECT uuid FROM task_messages
@@ -353,13 +348,11 @@ async fn the_same_frame_twice_is_one_message_and_two_successes(pool: PgPool) {
     );
 }
 
-/// A turn's images become uploads, and a deployment that cannot store an
-/// upload cannot carry the turn either — this harness configures no S3, which
-/// is the same condition as a deployment with `S3_BUCKET_NAME` unset.
+/// A deployment that cannot store an upload (no S3 configured, as here) refuses
+/// the whole turn.
 ///
-/// The assertion that matters is the second one. Refusing is a message the
-/// composer shows; sending the text without the image is a turn the person
-/// believes carried their screenshot and an agent that never saw one.
+/// The write-nothing assertion is what matters: sending the text without the
+/// image would leave a turn the person believes carried their screenshot.
 #[sqlx::test]
 async fn a_turn_whose_attachments_cannot_be_stored_is_refused_and_writes_nothing(pool: PgPool) {
     seed_project(&pool, USER_1).await;
@@ -383,10 +376,10 @@ async fn a_turn_whose_attachments_cannot_be_stored_is_refused_and_writes_nothing
     assert!(message_uuids(&pool, "t-attach").await.is_empty());
 }
 
-/// An attachment the client uploaded before it sent the turn arrives as an id.
-/// It is already stored, so the send resolves it to the upload it names — no
-/// second copy under a second id — and the Message ends up carrying exactly the
-/// file the person attached.
+/// An attachment already uploaded before the turn arrives as an id; send
+/// resolves it to that upload instead of storing a second copy under a new id.
+///
+/// The Message ends up carrying exactly the file the person attached.
 #[sqlx::test]
 async fn an_uploaded_attachment_is_resolved_rather_than_stored_again(pool: PgPool) {
     seed_project(&pool, USER_1).await;
@@ -414,10 +407,11 @@ async fn an_uploaded_attachment_is_resolved_rather_than_stored_again(pool: PgPoo
     );
 }
 
-/// The id reaches this server on a turn, and nothing about a turn proves the
-/// person sending it minted that id. An upload somebody else owns, and an id
-/// that names nothing, are the same refusal — a turn that could tell them apart
-/// would be a way to ask whether an upload exists.
+/// Nothing about a turn proves its sender minted the attachment id it names.
+///
+/// An upload someone else owns and an id naming nothing get the identical
+/// refusal — telling them apart would let a turn probe whether an upload
+/// exists.
 #[sqlx::test]
 async fn a_turn_naming_an_attachment_its_sender_cannot_read_is_refused(pool: PgPool) {
     seed_project(&pool, USER_1).await;
@@ -447,13 +441,12 @@ async fn a_turn_naming_an_attachment_its_sender_cannot_read_is_refused(pool: PgP
     assert!(message_uuids(&pool, "t-not-mine").await.is_empty());
 }
 
-/// An id on a turn is not proof it came from `attachments.createUploadUrl`.
-/// Moatless's own multipart route stores files this viewer can read and knows
-/// nothing about T3's union, so an upload past the member's ceiling — or under
-/// the wrong member entirely — is refused rather than resolved. Otherwise the
-/// caps would bind only the clients that already respect them, and the turn
-/// would disagree with the projection, which drops the same attachment on the
-/// way back out.
+/// An id on a turn is not proof it came from `attachments.createUploadUrl`;
+/// Moatless's multipart route stores files with no knowledge of T3's caps.
+///
+/// An upload past the member's ceiling, or under the wrong member, is refused
+/// rather than resolved — otherwise the turn would disagree with the projection
+/// that drops it on the way back out.
 #[sqlx::test]
 async fn a_turn_naming_an_upload_outside_its_member_is_refused(pool: PgPool) {
     seed_project(&pool, USER_1).await;
@@ -498,12 +491,13 @@ async fn a_turn_naming_an_upload_outside_its_member_is_refused(pool: PgPool) {
     assert!(message_uuids(&pool, "t-oversize").await.is_empty());
 }
 
-/// `attachments.delete` means "I abandoned this upload". Once a turn carries
-/// the id, the upload is what the transcript, the download route and the
-/// Sandbox pre-fetch all point at, so collecting it as an orphan would strip an
-/// attachment off a message that was already sent and read. The composer
-/// deletes whenever it clears a draft and cannot know which state the server is
-/// in, so this is reported as success and the bytes are kept.
+/// `attachments.delete` means "I abandoned this upload" — but once a turn
+/// carries the id, the transcript, download route, and Sandbox pre-fetch all
+/// point at it.
+///
+/// Deleting a sent attachment reports success and keeps the bytes; the composer
+/// can't know server state when it clears a draft, and collecting it as an
+/// orphan would strip a message already sent and read.
 #[sqlx::test]
 async fn an_attachment_a_message_carries_is_kept_when_the_composer_deletes_it(pool: PgPool) {
     seed_project(&pool, USER_1).await;
@@ -541,11 +535,12 @@ async fn an_attachment_a_message_carries_is_kept_when_the_composer_deletes_it(po
     );
 }
 
-/// The other half of the same rule: a re-`POST` of a still-valid upload URL
-/// replaces the bytes, and a mint is good for ten minutes. Doing that after the
-/// turn has been sent would change an attachment the agent has already read,
-/// leaving the transcript describing bytes nobody can see. A genuine retry
-/// cannot reach this — sending the turn required the first upload to finish.
+/// A re-`POST` of a still-valid upload URL (minted for ten minutes) replaces
+/// the bytes — but not once the turn is sent, since that would change an
+/// attachment the agent already read.
+///
+/// A genuine retry can't hit this: sending the turn required the first upload
+/// to finish.
 #[sqlx::test]
 async fn an_attachment_a_message_carries_cannot_be_replaced(pool: PgPool) {
     seed_project(&pool, USER_1).await;
@@ -591,12 +586,12 @@ async fn an_attachment_a_message_carries_cannot_be_replaced(pool: PgPool) {
     assert!(upload_exists(&pool, &attachment_id).await);
 }
 
-/// A message id arrives from the client, so it names a row the sender may have
-/// no business touching. The id is unique across the whole table, not per Task,
-/// and the write path it feeds upserts on that column — so a turn carrying
-/// another conversation's message id must be refused before it reaches the
-/// insert, or it rewrites that conversation's history from a Task the sender
-/// does own.
+/// A client-supplied message id may name a row the sender has no business
+/// touching.
+///
+/// The id is unique across the whole table, not per Task, and the write path
+/// upserts on it — so reusing another conversation's id must be refused before
+/// the insert, or it rewrites that conversation's history.
 #[sqlx::test]
 async fn a_turn_reusing_another_conversations_message_id_is_refused(pool: PgPool) {
     seed_project(&pool, USER_1).await;

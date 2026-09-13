@@ -25,9 +25,10 @@ impl Default for LogOptions {
 }
 
 /// The narrowed sandbox status the T3 contract observer returns: the two fields
-/// the T3 surface was designed for. Deliberately distinct from the wire response
-/// body `moatless_api_schemas::sandbox::SandboxStatusFullResponse`; the backend
-/// projects the wider response down to this. See `t3code::projection`.
+/// the T3 surface was designed for.
+///
+/// Distinct from the wire response body `SandboxStatusFullResponse`, which the
+/// backend projects down to this. See `t3code::projection`.
 #[derive(Debug, Clone)]
 pub struct ContractSandboxStatus {
     pub sandbox_status: SandboxStatus,
@@ -37,21 +38,22 @@ pub struct ContractSandboxStatus {
 /// A Task's sandbox beyond its lifecycle state: what the T3 sandbox panel shows
 /// under Image, Containers and Runtime events.
 ///
-/// A second narrowing of the same backend response [`ContractSandboxStatus`]
-/// narrows, and a wider one, because the panel asks a different question from
-/// the status indicator. Kept apart from `ContractSandboxStatus` so the
-/// indicator's two-field shape stays what it is; see `t3code::projection`.
+/// A second, wider narrowing of the same backend response
+/// [`ContractSandboxStatus`] narrows; kept separate so that type's two-field
+/// shape stays fixed. See `t3code::projection`.
 #[derive(Debug, Clone)]
 pub struct SandboxDetail {
     /// The image the sandbox is running. `None` where no sandbox is
-    /// provisioned. The image a redeploy *would* install is not here: no status
-    /// reader can see it, and [`super::SandboxOperator::expected_image`] is
-    /// what answers it.
+    /// provisioned.
+    ///
+    /// The image a redeploy *would* install is not here — no status reader can
+    /// see it; [`super::SandboxOperator::expected_image`] answers that instead.
     pub current_image: Option<String>,
-    /// Per-container CPU and memory come with each entry. There is no aggregate
-    /// beside them: `moatless_api_schemas::sandbox::ResourceMetrics` is written
-    /// by no adapter, so the panel sums these instead. See
-    /// `docs/deferred-changes.md`.
+    /// Per-container CPU and memory come with each entry; there is no
+    /// aggregate.
+    ///
+    /// `ResourceMetrics` is written by no adapter, so the panel sums these
+    /// instead. See `docs/deferred-changes.md`.
     pub containers: Vec<SandboxContainer>,
     pub runtime_events: Vec<SandboxRuntimeEvent>,
 }
@@ -69,8 +71,8 @@ pub struct SandboxContainer {
     pub last_terminated_reason: Option<String>,
     pub waiting_reason: Option<String>,
     /// `None` where the runtime publishes no metrics — a docker-compose
-    /// deployment serves none, and a Kubernetes one without metrics-server
-    /// does not either — so a panel hides the number rather than showing zero.
+    /// deployment serves none, and a Kubernetes one without metrics-server does
+    /// not either — so a panel hides the number rather than showing zero.
     pub cpu_millicores: Option<u64>,
     pub memory_mb: Option<u64>,
 }

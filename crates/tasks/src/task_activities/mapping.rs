@@ -1,9 +1,7 @@
 //! What one arriving content block becomes.
 //!
-//! A pure function from a block plus the context it arrived in to the row it
-//! changes. It is the seam this whole change is tested at: the live writer and
-//! the migration both go through it, so the two cannot drift into two different
-//! answers for the same block.
+//! A pure function from a block and its context to the row it changes. Both the
+//! live writer and the migration go through it, so they cannot diverge.
 
 pub use moatless_types::activity::{
     ActivityKind, ActivityStatus, PLAN_APPROVE, PLAN_QUESTION, PLAN_REJECT, PLAN_TOOL,
@@ -36,11 +34,9 @@ pub struct BlockContext<'a> {
 pub enum BlockRow {
     /// The block's text, spliced into the Message at `block_index`.
     Text(TextPart),
-    /// The rows one block writes: a tool call or a stretch of thinking, and —
-    /// for the calls a client renders as a panel rather than a work-log card —
-    /// the named row joined to it. A joined row is not a second block; it is the
-    /// same block said in the vocabulary the panel is derived from, which is why
-    /// it shares the block's ordinal and suffixes its id.
+    /// The rows one block writes: a tool call or thinking, plus — for calls a
+    /// client renders as a panel — the joined row, sharing the block's ordinal
+    /// and suffixing its id.
     Activities(Vec<ActivityRow>),
     /// A tool result, which updates the call's row rather than writing one.
     ToolOutcome(ToolOutcome),
@@ -59,31 +55,26 @@ pub struct TextPart {
 pub struct ActivityRow {
     pub activity_id: String,
     pub task_id: String,
-    /// Where this row sits inside its change: the source block's index, or 0 for
-    /// a row that has no block and is alone in its change. Read off the block
-    /// rather than counted while mapping, so it is the same value on every pass
-    /// — which is what makes it stable for exactly as long as `activity_id` is.
+    /// The source block's index, or 0 for a row with no block. Read off the
+    /// block rather than counted while mapping, so it stays stable for exactly
+    /// as long as `activity_id` does.
     pub ordinal: i32,
     pub message_uuid: Option<String>,
     pub parent_uuid: Option<String>,
     pub kind: ActivityKind,
     pub status: ActivityStatus,
-    /// The call a later result settles by, set on the call and on nothing else.
-    /// `(task_id, tool_use_id)` is unique in the table, so a second row naming
-    /// the same call is rejected — a derived row joins through `requestId` in
-    /// its payload instead.
+    /// The call a later result settles by; set only on the call, since
+    /// `(task_id, tool_use_id)` is unique — a derived row joins through
+    /// `requestId` in its payload instead.
     pub tool_use_id: Option<String>,
     pub summary: String,
     pub payload: Value,
     pub is_error: bool,
 }
 
-/// The update a `tool_result` block makes to the call it answers.
-///
-/// It carries no `message_uuid` on purpose: a result arrives on a *later*
-/// Message than its call, so it cannot derive the call's
-/// `{message_uuid}:{block_index}` key and finds the row by
-/// `(task_id, tool_use_id)` instead.
+/// The update a `tool_result` block makes to the call it answers. Carries no
+/// `message_uuid`: it arrives on a later Message than its call, so it is found
+/// by `(task_id, tool_use_id)` instead.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ToolOutcome {
     pub task_id: String,
@@ -92,11 +83,9 @@ pub struct ToolOutcome {
     /// The result whole. What the Moatless frontend renders, and what
     /// [`detail`] is cut from.
     pub result: Value,
-    /// The transport's own structured view of the same outcome — the SDK's
-    /// `toolUseResult`, which is what the codex typed schemas validate against.
-    /// It is not the block's to carry: it is a field of the Message the block
-    /// arrived on, so the caller attaches it after mapping. `None` where the
-    /// transport reported none.
+    /// The transport's structured view of the outcome (the SDK's
+    /// `toolUseResult`). Attached by the caller after mapping, since it belongs
+    /// to the Message, not the block; `None` when the transport reported none.
     pub typed_result: Option<Value>,
     pub is_error: bool,
 }
@@ -111,12 +100,9 @@ pub struct ConversationWrite {
     pub usage: Option<AdmittedUsage>,
 }
 
-/// A Message's per-tier token usage, admitted once against its uuid.
-///
-/// `input_tokens` is the non-cached input; the cached-prefix reads and
-/// cache-creation writes are their own tiers so cost stays derivable per
-/// Message. Codex's cache-read is the largest tier and was silently dropped
-/// while this carried only `(input, output)`.
+/// A Message's per-tier token usage, admitted once against its uuid. The
+/// cached-prefix reads and cache-creation writes are separate tiers from
+/// `input_tokens`, so cost stays derivable per Message.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct AdmittedUsage {
     pub input_tokens: i32,
@@ -136,10 +122,7 @@ impl ConversationWrite {
 
 /// Map a content array, each block at its own index.
 ///
-/// `context.block_index` is the index of the array's *first* block: 0 for a
-/// whole assembled array, and the event's own `blockIndex` for the one-element
-/// array a per-block source event carries. That is what keeps a block's identity
-/// — and therefore its activity's id — the same whichever shape it arrived in.
+/// `context.block_index` is the first block's index, keeping identity stable.
 pub fn map_content(context: BlockContext<'_>, content: &Value) -> ConversationWrite {
     let mut write = ConversationWrite::default();
     let Some(blocks) = content.as_array() else {
@@ -184,12 +167,9 @@ pub fn map_block(context: BlockContext<'_>, block: &Value) -> BlockRow {
     }
 }
 
-/// A block's text, but only where what was said is a Message.
-///
-/// The narrowing to `user` and `assistant` is not a new rule. It is the rule
-/// both readers already apply on every read: a `system` row is dropped outright,
-/// and `result` and `error` become the run's own closing line rather than
-/// something somebody said.
+/// A block's text, but only where what was said is a Message: narrowed to
+/// `user` and `assistant`. `system` is dropped, and `result`/`error` become the
+/// run's closing line, not something somebody said.
 fn text_part(context: BlockContext<'_>, block: &Value) -> BlockRow {
     if !is_conversation(context.message_type) {
         return BlockRow::None;
@@ -266,12 +246,9 @@ fn tool_call(context: BlockContext<'_>, block: &Value) -> BlockRow {
     BlockRow::Activities(rows)
 }
 
-/// The named row a call is *also* stored as, where a client derives a panel from
-/// it rather than a work-log card.
-///
-/// Four calls have one. The call itself is stored unchanged either way — every
-/// Moatless tool renderer still finds the tool call with its input where it has
-/// always been — so this adds a row rather than replacing one.
+/// The named row a call is *also* stored as, where a client derives a panel
+/// from it rather than a work-log card. Four calls have one; the call itself is
+/// still stored unchanged, so this adds a row rather than replacing one.
 fn joined_row(
     context: BlockContext<'_>,
     name: &str,
@@ -337,19 +314,15 @@ fn joined_row(
     })
 }
 
-/// The plan trackers. `TodoWrite` is the Claude CLI's; `codex.todo_list` is what
-/// the Codex transport's `turn/plan/updated` notification is normalised into.
+/// The plan trackers. `TodoWrite` is the Claude CLI's; `codex.todo_list` is
+/// what the Codex transport's `turn/plan/updated` notification is normalised
+/// into.
 const TODO_TOOL: &str = "TodoWrite";
 const CODEX_TODO_TOOL: &str = "codex.todo_list";
 
-/// The questions an `AskUserQuestion` call asked, in the shape the panel parses.
-///
-/// Every question gets a `header` and an `id`, and every option a `description`,
-/// filled from the question's own text where the call carried none: the client's
-/// parser drops a question missing any of the three, while the API shape leaves
-/// `header` and `description` optional and has no id at all. The id **is** the
-/// question text, because that is the key the CLI looks an answer up by — a
-/// synthetic index answers nothing, silently.
+/// The questions an `AskUserQuestion` call asked, filled to the shape the panel
+/// parses. The id **is** the question text the CLI answers by — a synthetic
+/// index would answer nothing.
 fn asked_questions(input: &Value) -> Vec<Value> {
     input
         .get("questions")
@@ -419,13 +392,9 @@ fn plan_question() -> Value {
     })
 }
 
-/// One plan tracker's steps, each with its own state.
-///
-/// Two wires, one shape. `TodoWrite` states a three-value `status` per todo;
-/// `codex.todo_list` carries the same three states through
-/// [`moatless_api_schemas::codex::CodexTodoItem`]. Neither is flattened to
-/// done/not-done, because *in progress* is the state a plan panel exists to
-/// show.
+/// One plan tracker's steps, each with its own three-value status —
+/// `TodoWrite`'s and `codex.todo_list`'s alike — kept unflattened because *in
+/// progress* is the state a plan panel exists to show.
 fn plan_steps(tool: &str, input: &Value) -> Vec<Value> {
     let entries = if tool == TODO_TOOL {
         input.get("todos")
@@ -450,11 +419,9 @@ fn plan_steps(tool: &str, input: &Value) -> Vec<Value> {
         .unwrap_or_default()
 }
 
-/// A step's state in the client's vocabulary.
-///
-/// `status` is read first and is the only thing either wire says about a step in
-/// flight. An entry carrying no status falls back to its boolean — completed or
-/// not, which is all such an entry says.
+/// A step's state in the client's vocabulary. `status` is read first, since it
+/// is the only signal of a step in flight; an entry with no status falls back
+/// to its completed boolean.
 fn step_status(entry: &Value) -> &'static str {
     match entry.get("status").and_then(Value::as_str) {
         Some("completed") => return "completed",
@@ -501,12 +468,8 @@ fn tool_outcome(context: BlockContext<'_>, block: &Value) -> BlockRow {
 /// The label the work log shows for a stretch of thinking.
 pub const THINKING_SUMMARY: &str = "Thinking";
 
-/// Thinking keeps only its label.
-///
-/// Nothing renders the thought: the Moatless frontend has no thinking branch,
-/// and the T3 surface deliberately carries only the word. Storing the label is
-/// what keeps `task.progress` reaching that client; storing the text would be
-/// 301 MB nothing reads.
+/// Thinking keeps only its label: nothing renders the thought. Storing the full
+/// text was 301 MB nothing read; the label alone keeps `task.progress` usable.
 fn thinking(context: BlockContext<'_>) -> BlockRow {
     BlockRow::Activities(vec![ActivityRow {
         activity_id: activity_id(context),
@@ -525,9 +488,8 @@ fn thinking(context: BlockContext<'_>) -> BlockRow {
 
 /// The three severities a Sandbox lifecycle event carries into the work log.
 ///
-/// The row's kind, status and `is_error` all derive from this, and on the T3
-/// side it is the kind — not the tone — that colours a heading: `Warning` amber,
-/// `Error` red, `Status` a plain running-agent row.
+/// Row `kind`, `status`, and `is_error` derive from this; on T3 it colours a
+/// heading: `Warning` amber, `Error` red, `Status` plain.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Severity {
     Status,
@@ -535,15 +497,10 @@ pub enum Severity {
     Error,
 }
 
-/// The label and severity a Sandbox `lifecycleEvent` renders as, or `None` for a
-/// slug this build does not know.
+/// The label and severity a Sandbox `lifecycleEvent` renders as.
 ///
-/// Ported from `DESCRIPTORS` in
-/// `apps/frontend/src/features/preview/utils/event-messages.ts`, keeping the
-/// label and severity halves; the frontend keeps the icon and chip halves,
-/// which do not belong in a backend that composes its detail as text. A slug the
-/// table does not name falls back to the humanized slug at the call site, so a
-/// new watcher event renders as something readable rather than being dropped.
+/// `None` for an unknown slug; the call site falls back to the humanized slug
+/// so a new event still renders readable.
 pub fn lifecycle_descriptor(lifecycle_event: &str) -> Option<(&'static str, Severity)> {
     use Severity::{Error, Status, Warning};
     Some(match lifecycle_event {
@@ -576,17 +533,9 @@ pub fn lifecycle_descriptor(lifecycle_event: &str) -> Option<(&'static str, Seve
 
 /// The label and severity for one Sandbox event.
 ///
-/// The rich vocabulary is keyed on `lifecycleEvent`; an unknown slug renders as
-/// itself. An event carrying no `lifecycleEvent` is labelled by its own message,
-/// because that is what such an event is: the Sandbox's init publishes its
-/// thirteen steps — credentials fetched, repository cloned, setup run — under
-/// one sub-type, and the message is the only thing telling them apart. Labelling
-/// them by the sub-type instead gives thirteen rows reading `Initializing`, of
-/// which the collapse then keeps one. The coarse status is the label only when
-/// there is no message either.
-///
-/// Severity comes from the vocabulary where it names one, and otherwise from the
-/// event's sub-type: `Error` when it is the error sub-type, `Status` otherwise.
+/// With no `lifecycleEvent`, the label is the event's own message — init steps
+/// share one sub-type, so labelling by it would collapse them — and severity
+/// falls back to the sub-type's error-ness.
 fn describe(
     coarse_status: &str,
     coarse_is_error: bool,
@@ -651,15 +600,9 @@ fn format_duration_seconds(total_seconds: i64) -> String {
 
 /// A Sandbox lifecycle change, which happened on no Message.
 ///
-/// Its identity is the event's own id rather than a block position, so the same
-/// event redelivered writes nothing. `coarse_status` and `coarse_is_error` are
-/// the event's sub-type word and whether it is the error sub-type, used only
-/// when the payload carries no `lifecycleEvent` to key the rich vocabulary on.
-///
-/// The detail is the event's message, then one line per present field in the
-/// order `buildChips` lists them — `node`, `cause`, `by`, `exit`, `reason`,
-/// `pending` — so `pending` renders in the same compact duration format. A
-/// message the row is already labelled with is not repeated under it.
+/// Identity is the event's own id, so redelivery is a no-op;
+/// `coarse_status`/`coarse_is_error` apply only with no `lifecycleEvent`, and
+/// detail lines follow `buildChips` order.
 pub fn sandbox_activity(
     event_id: &str,
     task_id: &str,
@@ -723,11 +666,9 @@ pub fn sandbox_activity(
     }
 }
 
-/// What a person's answer becomes.
-///
-/// Written on the carrier row that relays the answer to the agent, so it lands
-/// in a change of its own: the call it answers was written on an earlier
-/// Message, and by now that Message's slots are taken.
+/// What a person's answer becomes, written on the carrier row that relays it to
+/// the agent — its own change, since the call it answers was written on an
+/// earlier Message whose slots are already taken.
 pub fn user_input_resolved(
     task_id: &str,
     message_uuid: &str,
@@ -756,10 +697,9 @@ pub fn user_input_resolved(
 
 /// What the harness said about its own context window.
 ///
-/// `max_tokens` is absent where the harness reported none, and the meter shows a
-/// count with no percentage rather than a percentage of a guess. Identified by
-/// the event that carried it, so redelivery writes nothing — the same rule a
-/// Sandbox activity's identity follows, and for the same reason.
+/// `max_tokens` is absent when unreported, so the meter shows a count with no
+/// percentage rather than a guess; identified by the event that carried it, so
+/// redelivery writes nothing.
 pub fn context_window_updated(
     event_id: &str,
     task_id: &str,
@@ -792,28 +732,21 @@ fn activity_id(context: BlockContext<'_>) -> String {
     format!("{}:{}", context.message_uuid, context.block_index)
 }
 
-/// The block's index, as the column stores it.
-///
-/// Saturating rather than wrapping: a Message with more blocks than an `i32`
-/// holds is impossible, and the projection truncates a change long before this
-/// at [`EVENTS_PER_CHANGE`](super::models::EVENTS_PER_CHANGE) anyway.
+/// The block's index, as the column stores it. Saturates rather than wraps: a
+/// Message with more blocks than an `i32` holds is impossible in practice.
 fn ordinal(context: BlockContext<'_>) -> i32 {
     i32::try_from(context.block_index).unwrap_or(i32::MAX)
 }
 
-/// Tool output long enough to be a file rather than a preview.
-///
-/// The work log shows a few lines and expands to the rest, but on the T3 surface
-/// the rest still crosses the socket, and that surface re-sends its whole log
-/// every time the conversation moves. A single `Read` of a large file would put
-/// the file in every one of those sends.
+/// Tool output long enough to be a file rather than a preview. The T3 surface
+/// re-sends its whole log on every conversation move, so an uncapped `Read` of
+/// a large file would repeat it in every send.
 pub const DETAIL_LIMIT: usize = 2_000;
 
 /// What a settled call shows before it is expanded, cut to [`DETAIL_LIMIT`].
 ///
-/// `None` where the result has no visible output to preview. The cut is marked
-/// rather than silent, and lands on a character boundary — the text is a `str`,
-/// and slicing mid-codepoint panics.
+/// `None` with no visible output; the cut is marked, not silent, and lands on a
+/// character boundary to avoid panicking mid-codepoint.
 pub fn detail(result: &Value) -> Option<String> {
     let text = result_text(result)?;
     if text.len() <= DETAIL_LIMIT {
@@ -971,7 +904,8 @@ mod tests {
         );
     }
 
-    /// The outcome carries the result whole; the cut copy is `detail`, beside it.
+    /// The outcome carries the result whole; the cut copy is `detail`, beside
+    /// it.
     #[test]
     fn a_long_result_is_kept_uncapped() {
         let long = "x".repeat(10_000);
@@ -1216,8 +1150,8 @@ mod tests {
         assert_eq!(options[1]["label"], PLAN_REJECT);
     }
 
-    /// Both plan trackers carry a three-state status per step, and *in progress*
-    /// is the state a plan panel exists to show.
+    /// Both plan trackers carry a three-state status per step, and *in
+    /// progress* is the state a plan panel exists to show.
     #[test]
     fn a_plan_tracker_keeps_each_steps_own_state() {
         let claude = rows(map_block(
@@ -1282,10 +1216,9 @@ mod tests {
         assert_eq!(written.len(), 1);
     }
 
-    /// `(task_id, tool_use_id)` is unique in the table, and every row of one
-    /// Message is written in one transaction — so a Message whose rows named a
-    /// call twice would persist none of itself, taking the prose and the calls
-    /// down with the panel.
+    /// `(task_id, tool_use_id)` is unique, and one Message's rows write in one
+    /// transaction — so naming a call twice would persist none of the Message,
+    /// taking the prose and calls down with the panel.
     #[test]
     fn one_message_names_each_call_at_most_once() {
         let write = map_content(
@@ -1323,11 +1256,9 @@ mod tests {
         assert_eq!(written.len(), 1);
     }
 
-    /// What a person's answer becomes, on the row that carries it to the agent.
-    /// `requestId` is the tool-use id on both rows, which is the whole join: the
-    /// client closes the panel this names. The column stays empty for the
-    /// reason a joined row's does — it names the row a result settles, and the
-    /// answer settles the call through the outcome written beside this row.
+    /// `requestId` joins both rows; the `tool_use_id` column stays empty, same
+    /// as a joined row's, since the answer settles the call via the outcome
+    /// beside it.
     #[test]
     fn an_answer_is_stored_against_the_call_it_answers() {
         let resolved = user_input_resolved(
@@ -1433,8 +1364,8 @@ mod tests {
         );
     }
 
-    /// A `pod_scheduled` reading composes its node and its pending duration into
-    /// the detail, the compact duration format and all.
+    /// A `pod_scheduled` reading composes its node and its pending duration
+    /// into the detail, the compact duration format and all.
     #[test]
     fn a_scheduled_reading_composes_node_and_pending_into_its_detail() {
         let mut payload = sandbox_payload(Some("pod_scheduled"));
@@ -1489,10 +1420,9 @@ mod tests {
         assert_eq!(unknown.kind, ActivityKind::SandboxStatus);
     }
 
-    /// The Sandbox's own init publishes its steps under one sub-type and tells
-    /// them apart by message alone. Each is its own row, labelled by what it
-    /// says — labelling them by the sub-type gave one `Initializing` after
-    /// another, and the collapse kept the first and dropped the rest.
+    /// The Sandbox's init publishes its steps under one sub-type, told apart
+    /// only by message. Labelling by sub-type collapsed them into one
+    /// `Initializing` after another, dropping the rest.
     #[test]
     fn each_init_step_is_its_own_row_labelled_by_what_it_says() {
         let step = |message: &str| {

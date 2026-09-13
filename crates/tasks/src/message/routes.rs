@@ -31,10 +31,10 @@ pub struct MessageApiDoc;
 
 /// Build the message router with OpenAPI metadata.
 ///
-/// Generic over the router state `S`: each handler extracts its ports through
-/// `FromRef<S>`, so this router names those ports (tasks-band DAOs plus the
-/// message-send service and sandbox waker) rather than the whole `AppState`.
-/// The composition root passes `AppState` as `S`.
+/// Generic over the router state `S`: each handler extracts its ports via
+/// `FromRef<S>`, so this names those ports (tasks-band DAOs, message-send
+/// service, sandbox waker) rather than the whole `AppState`, which the
+/// composition root passes as `S`.
 pub fn message_router<S>(state: S) -> (axum::Router, utoipa::openapi::OpenApi)
 where
     S: Clone + Send + Sync + 'static,

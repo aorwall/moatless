@@ -2,8 +2,8 @@
 
 use crate::git_provider::GitProviderError;
 
-/// Validate a GitHub token by calling the user endpoint.
-/// Returns the login (username) on success.
+/// Validate a GitHub token by calling the user endpoint. Returns the login
+/// (username) on success.
 pub async fn validate_github_token(token: &str) -> Result<String, GitProviderError> {
     let client = reqwest::Client::new();
     let resp = client
@@ -44,8 +44,8 @@ pub async fn validate_github_token(token: &str) -> Result<String, GitProviderErr
         })
 }
 
-/// Check whether a GitHub token has access to a specific repository.
-/// Returns `Ok(())` if accessible, `Err` with a classified failure otherwise.
+/// Check whether a GitHub token has access to a specific repository. Returns
+/// `Ok(())` if accessible, `Err` with a classified failure otherwise.
 pub async fn check_github_repo_access(
     token: &str,
     owner: &str,

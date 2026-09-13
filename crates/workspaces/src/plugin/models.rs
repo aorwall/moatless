@@ -29,10 +29,9 @@ pub struct PluginSkill {
 
 /// Row from the `plugin_activations` table.
 ///
-/// A row names at most one subject: `user_id` is one person's record,
-/// `workspace_id` is one Workspace's, and neither is the deployment-wide
-/// default. `skill_name: None` means the whole plugin. See
-/// [`crate::plugin::activation`] for how the two axes combine.
+/// Names at most one subject — `user_id`, `workspace_id`, or neither (the
+/// deployment default). `skill_name: None` means the whole plugin; see
+/// [`crate::plugin::activation`] for how the axes combine.
 #[derive(sqlx::FromRow, Debug, Clone, PartialEq, Eq)]
 pub struct ActivationRow {
     pub plugin_id: String,
@@ -50,10 +49,9 @@ pub struct ActivationRow {
 
 /// A write to one activation record.
 ///
-/// The decision is stated outright; the two flags are `None` when the caller
-/// did not mention them, which leaves whatever is stored alone. That is what
-/// lets a control that knows only about on and off toggle a record without
-/// clearing flags it cannot see.
+/// The decision is stated outright; the two flags are `None` when unmentioned,
+/// leaving whatever is stored alone — so a control that knows only on/off can
+/// toggle a record without clearing flags it cannot see.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ActivationWrite {
     pub plugin_id: String,

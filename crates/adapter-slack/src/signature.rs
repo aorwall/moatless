@@ -5,9 +5,8 @@ use moatless_adapter_model::signature::verify_hmac_sha256;
 
 /// Verify the Slack request signature.
 ///
-/// Slack signs every request with `v0=HMAC-SHA256(signing_secret, "v0:{timestamp}:{body}")`.
-/// The signature is in the `X-Slack-Signature` header and the timestamp in
-/// `X-Slack-Request-Timestamp`.
+/// Slack signs with `v0=HMAC-SHA256(signing_secret, "v0:{timestamp}:{body}")`,
+/// sent as `X-Slack-Signature` with `X-Slack-Request-Timestamp`.
 pub fn verify_signature(
     signing_secret: &str,
     timestamp: &str,

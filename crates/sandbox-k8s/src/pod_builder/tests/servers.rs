@@ -27,10 +27,11 @@ fn admitted_server_ports_drops_reserved_infra_ports() {
 }
 
 /// Every container in the pod shares one network namespace, so a declared
-/// server admitted on the proxy's port would lose the bind to the proxy and
-/// die with `EADDRINUSE` — while its route reached the proxy, which refuses
-/// its own port. The filter and the proxy must read one rule, not two
-/// lists.
+/// server admitted on the proxy's port would lose the bind and die with
+/// `EADDRINUSE`, while its route still reaches the proxy — which refuses its
+/// own port.
+///
+/// The filter and the proxy must read one rule, not two lists.
 #[test]
 fn a_declared_server_on_the_preview_proxy_port_is_refused() {
     let config = test_config();

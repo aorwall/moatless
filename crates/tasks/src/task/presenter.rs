@@ -2,11 +2,9 @@
 //!
 //! A `Task` row carries foreign keys, not the labels a client shows: a
 //! repository id but not its name, a creator id but not a display name, no
-//! tags, bindings, relations or live sandbox intent at all. Assembling the
-//! response means eight independent lookups against eight ports, and both the
-//! single-task path (`enrich_task`) and the list path (the batch resolvers)
-//! draw on the same set. They share those ports, so they share one struct
-//! rather than threading eight handles through every presenting handler.
+//! tags, bindings, relations or live sandbox intent. Assembling the response
+//! means eight independent lookups against eight ports, shared by both the
+//! single-task path (`enrich_task`) and the list path's batch resolvers.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -25,10 +23,9 @@ use moatless_api_schemas::bindings::TaskBindingSummary;
 use moatless_ports::identity::UserDisplay;
 use moatless_ports::workspace::{RepositoryReader, WorkspaceResolver};
 
-/// The eight ports a task response is assembled from, held together because a
-/// `TaskResponse` has eight independent sources and `enrich_task` reads all of
-/// them for one row while the batch resolvers read subsets for a page of rows.
-/// Assembled once at the composition root; all fields are cheap `Arc` clones.
+/// The eight ports a task response is assembled from. `enrich_task` reads all
+/// for one row; batch resolvers read subsets for a page. Assembled once at the
+/// root; fields are cheap `Arc` clones.
 pub struct TaskPresenter {
     pub(crate) tags: Arc<dyn TagDao>,
     pub(crate) repositories: Arc<dyn RepositoryReader>,
@@ -216,7 +213,8 @@ impl TaskPresenter {
         }
     }
 
-    /// Resolve workspace names for multiple workspace IDs in a single batch query.
+    /// Resolve workspace names for multiple workspace IDs in a single batch
+    /// query.
     pub async fn resolve_workspace_names_batch(
         &self,
         workspace_ids: &[String],
@@ -287,11 +285,9 @@ pub(crate) struct ResolvedNames {
     pub(crate) workspace: Option<String>,
 }
 
-/// Build a `TaskResponse` from a row plus pre-resolved tags, names, bindings,
-/// and outgoing relations. `parent_task_id` is derived from the first parent
-/// relation — `CreatedBy` or `ForkedFrom` — for backward compatibility with
-/// clients that pre-date the relations field; `forked_from` says which of the
-/// two it was.
+/// Build a `TaskResponse` from a row plus pre-resolved tags, names, bindings
+/// and relations. `parent_task_id` is the first parent relation, for
+/// pre-relations-field clients; `forked_from` says which.
 pub(crate) fn build_task_response(
     row: &Task,
     sandbox: &SandboxIntentView,

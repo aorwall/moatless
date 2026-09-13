@@ -55,13 +55,9 @@ fn thread_initial_values_put_synchronization_after_initial_projection() {
     );
 }
 
-/// A client that resumes is not sent the listing again, and the completion
-/// marker still arrives — so it stops rendering itself as synchronizing.
-///
-/// The stub's position is 0 and its change feed is empty, which is a client
-/// that is up to date: the correct answer is the marker and nothing else.
-/// Before this ticket every subscription began with a snapshot, so the
-/// first assertion is what changed.
+/// A resuming client is not sent the listing again; the completion marker alone
+/// arrives, so it stops showing as synchronizing. The stub's position 0 and
+/// empty feed model a client up to date.
 #[tokio::test]
 async fn a_resuming_subscription_chunks_no_snapshot() {
     let mut session = session();
@@ -86,10 +82,9 @@ async fn a_resuming_subscription_chunks_no_snapshot() {
     assert_eq!(values[0]["kind"], "synchronized");
 }
 
-/// `afterSequence` is a `NonNegativeInt` in the contract, so nothing a
-/// conforming client sends can be a negative number or a string. Reading
-/// one as absent rebuilds, which is a listing; reading it as a position
-/// would resume from a number nothing allocated.
+/// `afterSequence` is `NonNegativeInt`, so no conforming client sends a
+/// negative or string value. Absent, it rebuilds via listing; as a position, it
+/// would resume from nothing allocated.
 #[test]
 fn an_after_sequence_the_contract_refuses_is_read_as_absent() {
     assert_eq!(after_sequence(&json!({ "afterSequence": 7 })), Some(7));
@@ -102,12 +97,8 @@ fn an_after_sequence_the_contract_refuses_is_read_as_absent() {
 }
 
 /// A conversation this viewer cannot see ends the subscription rather than
-/// opening one that will never produce a frame.
-///
-/// The client renders a conversation as still loading until a snapshot
-/// arrives, and a stream that opens and stays silent is indistinguishable
-/// from one that is slow — which is exactly what an unimplemented
-/// `subscribeThread` looked like from the browser.
+/// opening one that never produces a frame — a silent, open stream is
+/// indistinguishable from a merely slow one.
 #[tokio::test]
 async fn a_thread_subscription_that_cannot_be_opened_fails_rather_than_hangs() {
     let mut session = session();
@@ -141,8 +132,8 @@ async fn a_thread_subscription_without_a_thread_is_refused() {
     assert_eq!(output.frames[0]["exit"]["_tag"], "Failure");
 }
 
-/// The stream's own ending, for a thread that stopped being readable while
-/// it was open — the same refusal as the opening request's.
+/// The stream's own ending, for a thread that stopped being readable while it
+/// was open — the same refusal as the opening request's.
 #[test]
 fn a_subscription_ends_with_the_refusal_its_request_would_have_answered() {
     assert_eq!(
@@ -156,9 +147,9 @@ fn a_subscription_ends_with_the_refusal_its_request_would_have_answered() {
     );
 }
 
-/// Terminal metadata is a served stream. It starts with an explicit
-/// empty snapshot so the client can distinguish "no terminals yet" from a
-/// connection that never produced a value.
+/// Terminal metadata is a served stream. It starts with an explicit empty
+/// snapshot so the client can distinguish "no terminals yet" from a connection
+/// that never produced a value.
 #[tokio::test]
 async fn a_terminal_metadata_subscription_starts_with_a_snapshot() {
     let mut session = session();

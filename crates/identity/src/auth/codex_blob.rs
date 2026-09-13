@@ -30,7 +30,8 @@ pub trait CodexBlobRefresher: Send + Sync {
     async fn refresh(&self, blob: &str) -> CodexBlobRefresh;
 }
 
-/// What a [`crate::auth::provider_token_dao::ProviderTokenDao::refresh_codex_blob`]
+/// What a
+/// [`crate::auth::provider_token_dao::ProviderTokenDao::refresh_codex_blob`]
 /// left on the row.
 pub enum CodexBlobOutcome {
     /// The stored blob, unchanged — already fresh, a transient failure, or

@@ -7,8 +7,7 @@ use moatless_adapter_model::signature::verify_hmac_sha256;
 
 /// Verify the webhook request signature.
 ///
-/// Expected signature format: `sha256=<hex-encoded HMAC>`.
-/// The HMAC is computed as `HMAC-SHA256(secret, body)`.
+/// Expected format: `sha256=<hex-encoded HMAC-SHA256(secret, body)>`.
 pub fn verify_signature(
     secret: &str,
     body: &[u8],

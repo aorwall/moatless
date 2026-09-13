@@ -3,8 +3,8 @@
 //! [`compose`] answers "given process configuration, what ports exist", and is
 //! where the ports a process holds are constructed. A caller that receives
 //! [`Ports`] takes the ports it needs rather than a pool and a `Pg*Dao`
-//! constructor. Holding a [`DbPool`] is a separate question — raw-pool
-//! services keep their own and are unaffected.
+//! constructor. Holding a [`DbPool`] is a separate question — raw-pool services
+//! keep their own and are unaffected.
 
 use std::sync::Arc;
 
@@ -41,13 +41,11 @@ use moatless_workspaces::repository::Repositories;
 use moatless_workspaces::workspace::Workspaces;
 use moatless_workspaces::workspace::credentials::service::WorkspaceCredentialService;
 
-/// The ports one process has, plus the pool they were built from. Cheap to
-/// clone — every field is `Arc`-wrapped or internally `Arc`'d, so each clone
-/// shares the same instance and the same caches.
+/// The ports one process has, plus the pool they were built from.
 ///
-/// Configuration is the input to [`compose`], not part of its answer: a
-/// consumer that needs a config value takes that value, so holding ports does
-/// not widen what it can read.
+/// Cheap to clone (every field is `Arc`-wrapped); config is the input to
+/// [`compose`], not part of its answer, so holding ports doesn't widen what a
+/// consumer can read.
 #[derive(Clone)]
 pub struct Ports {
     /// The main connection pool. Raw-pool services take it from here rather
@@ -56,7 +54,8 @@ pub struct Ports {
 
     pub tasks: Arc<TaskCommands>,
     /// E-(b) session-gate port: the one `may_access_task` bool the auth
-    /// `ForwardAuth` gate needs, over `TaskDao`, so identity holds no `task` import.
+    /// `ForwardAuth` gate needs, over `TaskDao`, so identity holds no `task`
+    /// import.
     pub task_access: Arc<dyn moatless_core::http_auth::TaskAccess>,
     pub task_relations: Arc<TaskRelations>,
     /// Where a fork's first turn branches from. Read by the creation service
@@ -118,7 +117,8 @@ pub struct Ports {
     /// resolves its provider credentials through.
     pub adapter_apps: Arc<dyn moatless_adapter_model::apps::AdapterAppReader>,
     /// The one way to read, persist and refresh a provider-token credential.
-    /// One per process: the lock that serializes a concurrent store lives in it.
+    /// One per process: the lock that serializes a concurrent store lives in
+    /// it.
     pub credentials: Arc<CredentialService>,
     /// Shared HTTP client for the Codex refresh path, kept warm across calls.
     pub codex_http: Arc<reqwest::Client>,
@@ -139,12 +139,12 @@ pub struct Ports {
     /// Convenience handle to the default (user-auth) App — equivalent to
     /// `github_apps.default_service()`.
     pub github_app_service: Option<Arc<GitHubAppService>>,
-    /// The one way to a git-host token: a named identity and a repository,
-    /// with no scope walk. Built here so the five credential ports it reads are
+    /// The one way to a git-host token: a named identity and a repository, with
+    /// no scope walk. Built here so the five credential ports it reads are
     /// supplied in one place.
     pub git_host_tokens: Arc<GitHostTokens>,
-    /// The OAuth2 application registered for each Forgejo instance. One instance
-    /// per process, shared by the connect flow and by token renewal.
+    /// The OAuth2 application registered for each Forgejo instance. One
+    /// instance per process, shared by the connect flow and by token renewal.
     pub forgejo_instances: Arc<ForgejoInstances>,
     /// One person's Forgejo credential, per instance. Built here because the
     /// auth capsule's connect flow and the settings routes write the same rows.

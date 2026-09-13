@@ -15,11 +15,9 @@ use moatless_types::access_control::{Scope, ScopeContext, resolve_scope_for_crea
 /// Whether this Workspace takes a write at all.
 ///
 /// The subject is the Workspace's provenance, not the field: a git-synced one
-/// refuses the whole `PATCH`, including the fields `DesiredWorkspace` never
-/// declares and `GitSyncService` therefore never reconciles — `run_as_user_id`,
-/// `icon`, `default_model`, `default_effort`. Editing one of those is
-/// `override_workspace`, which is the write that makes the Workspace stop being
-/// git's and says so.
+/// refuses the whole `PATCH`, even fields `GitSyncService` never reconciles
+/// (`run_as_user_id`, `icon`, `default_model`, `default_effort`) — editing
+/// those is `override_workspace`, the write that stops it being git's.
 fn ensure_workspace_mutable(ws: &Workspace) -> Result<(), WorkspaceError> {
     if ws.deleted {
         return Err(WorkspaceError::Conflict(
@@ -37,7 +35,8 @@ fn ensure_workspace_mutable(ws: &Workspace) -> Result<(), WorkspaceError> {
 /// A repository the scope cascade could not promote fails the Workspace's move.
 ///
 /// The caller acts on the repository, so its own message travels: a remote URL
-/// already registered globally is a 409 they can resolve, not an internal error.
+/// already registered globally is a 409 they can resolve, not an internal
+/// error.
 fn scope_cascade_error(error: RepositoryError) -> WorkspaceError {
     match error {
         RepositoryError::Db(error) => WorkspaceError::Db(error),
@@ -803,9 +802,11 @@ mod tests {
     }
 
     /// A repository whose remote URL is already registered globally blocks the
-    /// move, and nothing is written: not the Workspace, whose `expect_update` is
-    /// never set, and not the repository checked before the colliding one, whose
-    /// promotion would drop an owner no later failure can hand back.
+    /// move, and nothing is written.
+    ///
+    /// Not the Workspace (`expect_update` never set), and not the repository
+    /// checked before the colliding one, whose promotion would drop an owner no
+    /// later failure can hand back.
     #[tokio::test]
     async fn a_colliding_repository_blocks_the_global_move() {
         let mut workspaces = MockWorkspaceDao::new();
@@ -842,10 +843,11 @@ mod tests {
         assert!(matches!(err, WorkspaceError::Conflict(_)));
     }
 
-    /// One repository placed twice is one row to promote. `workspace_repos` has
-    /// no unique `(workspace_id, repository_id)`, so a Workspace may place the
-    /// same repository at two branches, and the move must not read its second
-    /// placement as a second claim on its URL.
+    /// One repository placed twice is one row to promote.
+    ///
+    /// `workspace_repos` has no unique `(workspace_id, repository_id)`, so a
+    /// Workspace may place the same repository at two branches, and the move
+    /// must not read the second placement as a second claim on its URL.
     #[tokio::test]
     async fn a_repository_placed_twice_is_promoted_once() {
         let mut workspaces = manual_workspace_dao();
@@ -878,10 +880,11 @@ mod tests {
         .unwrap();
     }
 
-    /// Two rows for one upstream URL are legal while each has its own owner, and
-    /// illegal once the promotion has dropped both. No global row holds the URL
-    /// here, so only the batch's own claims catch it — before either write, as
-    /// `expect_update().never()` asserts.
+    /// Two rows for one upstream URL are legal while each has its own owner,
+    /// and illegal once the promotion has dropped both.
+    ///
+    /// No global row holds the URL here, so only the batch's own claims catch
+    /// it — before either write, as `expect_update().never()` asserts.
     #[tokio::test]
     async fn two_placements_of_one_url_block_the_global_move() {
         let mut workspaces = MockWorkspaceDao::new();

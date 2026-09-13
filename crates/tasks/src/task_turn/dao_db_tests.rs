@@ -666,7 +666,8 @@ async fn latest_closed_turn_status_tracks_the_newest_closed_turn(pool: PgPool) {
 
 // ── the running rule's two reads ────────────────────────────────────────────
 
-/// Seed a closed turn directly, with the `ended_at` the candidate query compares.
+/// Seed a closed turn directly, with the `ended_at` the candidate query
+/// compares.
 async fn seed_closed_turn(
     pool: &PgPool,
     task_id: &str,
@@ -688,8 +689,9 @@ async fn seed_closed_turn(
     .unwrap();
 }
 
-/// Seed one event dated by `created_at`, which is the column the candidate query
-/// reads. `timestamp` is deliberately left free-form: nothing may parse it.
+/// Seed one event dated by `created_at`, which is the column the candidate
+/// query reads. `timestamp` is deliberately left free-form: nothing may parse
+/// it.
 async fn seed_event(pool: &PgPool, task_id: &str, sub_type: &str, minutes_ago: i64) {
     sqlx::query(
         r#"INSERT INTO task_events
@@ -818,9 +820,8 @@ async fn latest_running_signals_reads_the_newest_turn_and_the_newest_person(pool
     );
 }
 /// A turn left `interrupted` behind later completed turns is a lost terminal
-/// event, not work in flight. Task 062dc4f6 sat like this: turn 1 interrupted,
-/// turns 2 through 8 completed, sandbox stopped. Reading the lowest open turn
-/// reported turn 1 as in flight, which nothing could ever clear.
+/// event, not work in flight — the lowest open turn would report it in flight
+/// forever, which nothing could ever clear.
 #[sqlx::test]
 async fn a_stale_open_turn_behind_a_finished_one_does_not_block_a_fork(pool: PgPool) {
     seed_task(&pool, "task-a").await;
@@ -898,10 +899,8 @@ async fn a_running_newest_turn_still_blocks_a_fork(pool: PgPool) {
     assert_eq!(point.open_turn, Some(2));
 }
 
-/// The reaper's second turn pass. `list_unclosed_active_turns` returns only a
-/// task's newest open turn, so a turn a later turn ran past is invisible to it;
-/// this query is what finds those, keyed on being open and below the task's
-/// high-water mark.
+/// The reaper's second pass: `list_unclosed_active_turns` misses a turn a later
+/// one ran past; this finds those, keyed on open and below the high-water mark.
 #[sqlx::test]
 async fn list_superseded_open_turns_returns_only_turns_a_later_turn_ran_past(pool: PgPool) {
     let old = Utc::now() - Duration::hours(1);

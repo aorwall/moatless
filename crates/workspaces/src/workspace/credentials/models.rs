@@ -58,8 +58,8 @@ impl WorkspaceCredential {
 /// An upsert payload: the ciphertext plus who wrote it.
 ///
 /// `id` is the additional authenticated data the value was encrypted under, so
-/// it travels with the ciphertext and is only allocated for a genuinely new
-/// row — an update keeps the existing id and re-encrypts under it.
+/// it travels with the ciphertext; only a genuinely new row allocates one — an
+/// update keeps the existing id and re-encrypts under it.
 #[derive(Debug, Clone)]
 pub struct WorkspaceCredentialWrite {
     pub id: String,

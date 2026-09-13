@@ -1,21 +1,11 @@
-//! Session-state archive restore on startup (`transcript_sync::download_on_start`),
-//! and the restore-then-replay lifecycle that observes restoration completing
-//! before the harness accepts the resumed turn.
+//! Session-state archive restore on startup; restore-then-replay observes
+//! restoration complete before the harness accepts the resumed turn.
 //!
-//! Scope note on `SessionImpact::Lost`: the missing/corrupt-archive recovery is
-//! proven as a chain of three deterministic links, each tested where it lives:
-//!   1. restore leaves no session on disk, non-fatally — the tests below;
-//!   2. a resume whose transcript is absent classifies as
-//!      `(UnavailableSession, Lost)` — `claude::tests::resume_startup_failure_is_
-//!      unavailable_session_and_lost` (and the Codex equivalent in `codex::classify`);
-//!   3. a `Lost` verdict drives one fresh same-family turn and keeps the ack —
-//!      `coordinator::tests::context_recovery::lost_resume_recovers_with_a_
-//!      fresh_turn_and_keeps_the_ack`.
-//!
-//! Link 2 is deterministic: the Claude Session module checks the restored
-//! transcript before spawning the CLI, while the native `TransportClosed` resume
-//! path is classified separately. Real CLI launch compatibility remains in the
-//! small transport smoke suite; it is not needed to prove missing-file policy.
+//! `SessionImpact::Lost` recovery is proven as three links, each tested where
+//! it lives: restore leaves no session on disk non-fatally (here); an
+//! absent-transcript resume classifies `(UnavailableSession, Lost)`
+//! (`claude`/`codex` classify tests); and a `Lost` verdict drives one fresh
+//! turn, keeping the ack (`coordinator` tests).
 
 use std::sync::Arc;
 

@@ -22,7 +22,8 @@ pub struct LoopSpawnConfig {
     pub skills: Vec<String>,
     pub run_as_user_id: Option<String>,
     pub agent_type: AgentType,
-    /// Per-Loop model override. See [`moatless_types::loops::LoopContext::model`].
+    /// Per-Loop model override. See
+    /// [`moatless_types::loops::LoopContext::model`].
     pub model: Option<String>,
     pub inactive_ttl_days: Option<i32>,
     pub scope: Scope,
@@ -234,8 +235,8 @@ pub struct AdapterSourceUpdate {
 /// keyed by `(source_repository_id, source_key)`.
 pub struct ManagedLoopUpsert {
     pub source_repository_id: String,
-    /// The Workspace the `workspace:` frontmatter names, resolved to an id.
-    /// See [`moatless_types::loops::LoopContext::workspace_id`].
+    /// The Workspace the `workspace:` frontmatter names, resolved to an id. See
+    /// [`moatless_types::loops::LoopContext::workspace_id`].
     pub workspace_id: String,
     pub source_key: String,
     pub source_config_path: String,

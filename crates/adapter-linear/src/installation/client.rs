@@ -16,25 +16,14 @@ const LINEAR_GRAPHQL_URL: &str = "https://api.linear.app/graphql";
 
 /// Scopes requested for the workspace install.
 ///
-/// `app:assignable` + `app:mentionable` enable the Agents UX. `read` /
-/// `write` give the agent permission to read/write workspace content,
-/// documents included — Linear has no separate document scope.
-///
-/// `initiative:*` and `customer:*` are carved out of `read`/`write` rather
-/// than covered by them: without the carve-out every query against those
-/// entities fails `FORBIDDEN`. Both halves of the initiative pair are named
-/// because Linear documents `:write` as implying `:read`, and this does not
-/// rely on that.
-///
-/// `admin` is unavailable here: Linear refuses it for an `actor=app` install.
-///
-/// A token carries the scopes it was minted with, so adding one here only
-/// takes effect for an install that re-runs `/api/v1/auth/linear/install`.
-/// The scope must also be enabled on the Linear app's own settings page.
-///
-/// `concat!` rather than a `\` line continuation: a continuation that lost its
-/// backslash would put a newline and the source indent inside the `scope`
-/// query parameter.
+/// `app:assignable`/`app:mentionable` enable the Agents UX;
+/// `initiative:*`/`customer:*` are carved out of `read`/`write` (each named
+/// explicitly since omitting either fails `FORBIDDEN`), and `admin` is refused
+/// for an `actor=app` install. A token keeps the scopes it was minted with, so
+/// adding one here only takes effect on the next `/api/v1/auth/linear/install`
+/// and once enabled on the Linear app's settings page. Built via `concat!` — a
+/// lost `\` continuation would inject the source indent into the `scope` query
+/// parameter.
 const LINEAR_OAUTH_SCOPE: &str = concat!(
     "read,write,app:assignable,app:mentionable,",
     "initiative:read,initiative:write,customer:read"
@@ -125,8 +114,8 @@ pub struct LinearInstallIdentity {
 }
 
 impl LinearOAuthProvider {
-    /// Fetch `viewer` and `organization` in one round-trip to record both
-    /// the agent identity and the workspace this token belongs to.
+    /// Fetch `viewer` and `organization` in one round-trip to record both the
+    /// agent identity and the workspace this token belongs to.
     pub async fn fetch_install_identity(
         &self,
         access_token: &str,

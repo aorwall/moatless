@@ -34,7 +34,8 @@ pub enum WorkspaceAction {
         sandbox_service_account: Option<String>,
         #[arg(long)]
         system_prompt: Option<String>,
-        /// Setup commands as a JSON array, e.g. `["npm install","npm run build"]`
+        /// Setup commands as a JSON array, e.g. `["npm install","npm run
+        /// build"]`
         #[arg(long)]
         setup_commands_json: Option<String>,
         /// Environment variables as a JSON object, e.g. `{"FOO":"bar"}`
@@ -43,7 +44,8 @@ pub enum WorkspaceAction {
         /// Server configs as a JSON array
         #[arg(long)]
         servers_json: Option<String>,
-        /// Script configs as a JSON array, e.g. `[{"name":"test","command":"bun test"}]`
+        /// Script configs as a JSON array, e.g. `[{"name":"test","command":"bun
+        /// test"}]`
         #[arg(long)]
         scripts_json: Option<String>,
         /// Resources config as a JSON object
@@ -51,15 +53,16 @@ pub enum WorkspaceAction {
         resources_json: Option<String>,
         #[arg(long)]
         network_profile: Option<String>,
-        /// Identity every task on this workspace acts as on a git host.
-        /// Admin only. Pass an empty string to clear it.
+        /// Identity every task on this workspace acts as on a git host. Admin
+        /// only. Pass an empty string to clear it.
         #[arg(long)]
         run_as_user_id: Option<String>,
         /// Repository placements as a JSON array of {repositoryId,...} objects
         #[arg(long)]
         repos_json: Option<String>,
     },
-    /// Update a workspace (manual workspaces only; use `override` for git-synced)
+    /// Update a workspace (manual workspaces only; use `override` for
+    /// git-synced)
     Update {
         workspace_id: String,
         #[arg(long)]
@@ -89,14 +92,14 @@ pub enum WorkspaceAction {
         resources_json: Option<String>,
         #[arg(long)]
         network_profile: Option<String>,
-        /// Identity every task on this workspace acts as on a git host.
-        /// Admin only. Pass an empty string to clear it.
+        /// Identity every task on this workspace acts as on a git host. Admin
+        /// only. Pass an empty string to clear it.
         #[arg(long)]
         run_as_user_id: Option<String>,
     },
-    /// Override a git-synced workspace. Sets source=manual so git sync skips
-    /// it going forward. Provenance fields are kept so the origin is visible.
-    /// Use `reset-git` to re-enable git sync.
+    /// Override a git-synced workspace. Sets source=manual so git sync skips it
+    /// going forward. Provenance fields are kept so the origin is visible. Use
+    /// `reset-git` to re-enable git sync.
     Override {
         workspace_id: String,
         #[arg(long)]
@@ -123,14 +126,14 @@ pub enum WorkspaceAction {
         resources_json: Option<String>,
         #[arg(long)]
         network_profile: Option<String>,
-        /// Identity every task on this workspace acts as on a git host.
-        /// Admin only. Pass an empty string to clear it.
+        /// Identity every task on this workspace acts as on a git host. Admin
+        /// only. Pass an empty string to clear it.
         #[arg(long)]
         run_as_user_id: Option<String>,
     },
     /// Reset an overridden workspace back to git-managed. Re-syncs immediately
-    /// from the repository — warning: local changes to this workspace, including
-    /// its repo placements, are replaced by the committed config.
+    /// from the repository — warning: local changes to this workspace,
+    /// including its repo placements, are replaced by the committed config.
     #[command(name = "reset-git")]
     ResetGit { workspace_id: String },
     /// Delete a workspace (soft-delete; manual workspaces only)
@@ -140,24 +143,23 @@ pub enum WorkspaceAction {
         #[arg(long)]
         yes: bool,
     },
-    /// Manage provider credentials pinned to a workspace. A workspace
-    /// credential (a GitHub PAT, say) overrides the run-as user's own, so every
-    /// task on the workspace authenticates with it — the sandbox cloning and
-    /// pushing, and the backend opening pull requests and reading repository
-    /// access. Use it to reach repositories the run-as user's own token cannot,
-    /// such as a repository outside the organisation that token is scoped to.
+    /// Manage provider credentials pinned to a workspace.
+    ///
+    /// A workspace credential (e.g. a GitHub PAT) overrides the run-as user's
+    /// own for every task on it — sandbox clone/push and backend PR/repo-access
+    /// calls alike — reaching repos that user's own token cannot (e.g. outside
+    /// its org).
     Credentials {
         #[command(subcommand)]
         action: CredentialAction,
     },
-    /// Declare a workspace's scripts. Each one becomes a Run button in the
-    /// chat header's Project actions group — click it, or run `moat tasks
-    /// scripts run`, and the environment execs the command in a terminal tab
-    /// that opens and attaches automatically so its output is visible live. A
-    /// script with a `--port` also opens a preview tab pointing at it, the
-    /// same live preview a declared server gets. This only edits the
-    /// declaration; nothing runs until `moat tasks scripts run` addresses it
-    /// against a task's sandbox.
+    /// Declare a workspace's scripts; each becomes a Run button in the chat
+    /// header's Project actions group, or is runnable via `moat tasks scripts
+    /// run`.
+    ///
+    /// This only edits the declaration — nothing runs until `moat tasks scripts
+    /// run` addresses it against a task's sandbox. A script with `--port` also
+    /// gets a live preview tab, like a declared server.
     Scripts {
         #[command(subcommand)]
         action: WorkspaceScriptAction,
@@ -174,18 +176,20 @@ pub enum WorkspaceScriptAction {
         /// Script id — what `moat tasks scripts run` and the wire address it
         /// by. Must be unique on the workspace
         name: String,
-        /// The script's shell command. Pass "-" to write a multi-line script
-        /// on stdin instead of the command line — anything that would need
+        /// The script's shell command. Pass "-" to write a multi-line script on
+        /// stdin instead of the command line — anything that would need
         /// escaping as a single argument (quotes, &&, a heredoc) belongs there
         #[arg(long)]
         command: String,
         /// Display label, if it should read differently from the id
         #[arg(long)]
         label: Option<String>,
-        /// Port the script serves on, 1-65535. Setting this is what makes it
-        /// previewable: as soon as the script starts, the UI publishes the
-        /// port and opens a live preview tab pointing at it automatically —
-        /// no separate server declaration needed
+        /// Port the script serves on, 1-65535 — setting this makes it
+        /// previewable.
+        ///
+        /// As soon as the script starts, the UI publishes the port and opens a
+        /// live preview tab automatically; no separate server declaration
+        /// needed
         #[arg(long)]
         port: Option<u16>,
         /// Icon shown next to the script in the Run menu
@@ -197,7 +201,8 @@ pub enum WorkspaceScriptAction {
         #[arg(long)]
         run_on_start: bool,
     },
-    /// Change an existing script's command, port, label, icon, or start behavior
+    /// Change an existing script's command, port, label, icon, or start
+    /// behavior
     Update {
         workspace_id: String,
         name: String,
@@ -209,8 +214,8 @@ pub enum WorkspaceScriptAction {
         #[arg(long)]
         label: Option<String>,
         /// A port from 1-65535. Pass -1 to stop serving a preview and clear a
-        /// previously set port. Use `--port=-1` (with the `=`) — `--port -1`
-        /// is parsed as two separate flags
+        /// previously set port. Use `--port=-1` (with the `=`) — `--port -1` is
+        /// parsed as two separate flags
         #[arg(long, allow_hyphen_values = true)]
         port: Option<i32>,
         /// Pass an empty string to clear a previously set icon
@@ -607,8 +612,8 @@ fn not_declared(workspace_id: &str, name: &str) -> ClientError {
 }
 
 /// A port in the 1-65535 range `scripts::replace`'s own editor enforces — kept
-/// in sync here so a script declared through this read-modify-write path
-/// cannot store a `0` the T3 UI's editor would refuse.
+/// in sync here so a script declared through this read-modify-write path cannot
+/// store a `0` the T3 UI's editor would refuse.
 fn validate_port(port: i32) -> Result<u16, ClientError> {
     u16::try_from(port)
         .ok()
@@ -620,10 +625,11 @@ fn validate_port(port: i32) -> Result<u16, ClientError> {
         })
 }
 
-/// Replace a workspace's whole Scripts list. `UpdateWorkspaceRequest` patches
-/// only the fields set — every other field stays `None`, so this touches
-/// nothing else about the workspace. A concurrent editor's write in between
-/// the read and this one is lost, same as any other `moat workspaces update`.
+/// Replace a workspace's whole Scripts list.
+///
+/// `UpdateWorkspaceRequest` patches only the fields set, so this touches
+/// nothing else; a concurrent editor's write between the read and this one is
+/// lost, same as any other `moat workspaces update`.
 async fn replace_scripts(
     client: &MoatClient,
     workspace_id: &str,
@@ -646,9 +652,10 @@ fn print_scripts_result(updated: &WorkspaceResponse, json: bool) {
 }
 
 /// One line per script; a multi-line command is folded onto one line for the
-/// table (the stored command is untouched — this is display only). Shared
-/// with `moat tasks scripts list`, which renders the same declarations from
-/// the task-scoped read.
+/// table (display only — the stored command is untouched).
+///
+/// Shared with `moat tasks scripts list`, which renders the same declarations
+/// from the task-scoped read.
 pub(crate) fn format_scripts_list(scripts: &[ScriptConfig]) {
     let rows: Vec<Vec<String>> = scripts
         .iter()

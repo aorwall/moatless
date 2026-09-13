@@ -26,8 +26,9 @@ pub(crate) struct ProviderToken {
 pub(crate) trait ProviderTokenAuthDao: Send + Sync {
     async fn upsert_provider_token(&self, token: &ProviderToken) -> Result<(), sqlx::Error>;
 
-    /// Look up the `token_type` for a user+provider row (e.g. "pat" or "bearer").
-    /// Used to detect PAT overrides before blindly overwriting during OAuth re-login.
+    /// Look up the `token_type` for a user+provider row (e.g. "pat" or
+    /// "bearer"). Used to detect PAT overrides before blindly overwriting
+    /// during OAuth re-login.
     async fn find_token_type(
         &self,
         user_id: &str,

@@ -17,11 +17,9 @@ use moatless_types::access_control::ScopeContext;
 
 /// The Workspace a T3 `cwd` names, whichever of the two forms it takes.
 ///
-/// A composer on a draft thread addresses its project root and a composer on a
-/// started thread addresses that thread's worktree; both are nominal paths this
-/// surface issued ([`nominal_path::nominal_worktree`]). Answers `None` for a path
-/// this module never issued, a Task this viewer cannot be shown, and a Task
-/// that belongs to no Workspace.
+/// A draft thread's composer addresses its project root; a started one
+/// addresses the thread's worktree. `None` for a path this module never issued
+/// or a Task this viewer cannot see.
 pub(crate) async fn workspace_of(
     conversations: &dyn ConversationDao,
     viewer: &ScopeContext,
@@ -43,9 +41,8 @@ pub(crate) async fn workspace_of(
 /// One `cwd`'s skills, in the shape `ServerProviderWorkspaceSnapshot` decodes
 /// from.
 ///
-/// `slashCommands` is empty and stays empty: Moatless has no per-repository
-/// command surface, and a skill is offered under `/` in its own right
-/// (`client-runtime/providerSkills.ts: getProviderSkillsForSlashMenu`).
+/// `slashCommands` stays empty: Moatless has no per-repository command surface,
+/// and a skill is offered under `/` in its own right.
 pub(crate) fn snapshot(cwd: &str, checked_at: &str, skills: &[WorkspaceSkill]) -> Value {
     json!({
         "cwd": cwd,
@@ -57,11 +54,9 @@ pub(crate) fn snapshot(cwd: &str, checked_at: &str, skills: &[WorkspaceSkill]) -
 
 /// One skill in the shape `ServerProviderSkill` decodes from.
 ///
-/// `path` is nominal, and it is the only field T3 classifies a skill by
-/// (`client-runtime/providerSkills.ts: resolveProviderSkillSourceKind`): a
-/// plugin path earns the "App" badge, and `scope` decides the rest. Moatless
-/// resolves a skill's body by name inside the Sandbox, so no reader here needs
-/// the real file.
+/// `path` is nominal and the only field T3 classifies a skill by: a plugin path
+/// earns the "App" badge, `scope` decides the rest. Moatless resolves the body
+/// by name inside the Sandbox, so no reader needs the real file.
 fn published(skill: &WorkspaceSkill) -> Value {
     let mut published = match &skill.plugin_name {
         Some(plugin) => json!({
@@ -88,13 +83,9 @@ fn published(skill: &WorkspaceSkill) -> Value {
 
 /// The skills a turn activates, in the order they appear in its text.
 ///
-/// The composer writes a pick as a `$name` mention and leaves it in the prompt,
-/// where the timeline renders it back as a chip. Moatless activates a skill by
-/// name on the message instead, so the mentions are read out here and the text
-/// goes on unchanged.
-///
-/// Only a mention naming a skill in `known` counts, which is what keeps a
-/// `$HOME` in prose from activating anything. Duplicates collapse to the first.
+/// The composer leaves a `$name` mention in the prompt text unchanged; only a
+/// mention naming a skill in `known` counts, keeping a `$HOME` in prose from
+/// activating anything. Duplicates collapse to the first.
 pub(crate) fn activated(text: &str, known: &HashSet<&str>) -> Vec<String> {
     let mut activated: Vec<String> = Vec::new();
     for mention in mentions(text) {
@@ -107,19 +98,17 @@ pub(crate) fn activated(text: &str, known: &HashSet<&str>) -> Vec<String> {
 
 /// Whether `text` carries any `$name` token at all.
 ///
-/// The cheap half of [`activated`], so a turn that picked no skill — nearly all
-/// of them — never reads the Workspace's skill listing.
+/// The cheap half of [`activated`], so a turn that picked no skill never reads
+/// the Workspace's skill listing.
 pub(crate) fn mentions_a_skill(text: &str) -> bool {
     mentions(text).next().is_some()
 }
 
 /// Every `$name` token in `text`, in order.
 ///
-/// The same shape the composer and the timeline chips recognize
-/// (`t3code/packages/shared/src/composerInlineTokens.ts`), so what was rendered
-/// as a chip and what is activated are one set: a `$` that opens a token,
-/// preceded by whitespace or nothing and followed by whitespace or nothing, and
-/// a name that starts with a letter.
+/// Matches the composer/timeline chip token shape exactly, so what renders as a
+/// chip and what activates are one set: whitespace-bounded `$`, name starting
+/// with a letter.
 fn mentions(text: &str) -> impl Iterator<Item = &str> {
     text.split_whitespace()
         .filter_map(|token| token.strip_prefix('$'))

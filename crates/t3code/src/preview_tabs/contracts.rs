@@ -6,26 +6,24 @@ use tokio::sync::broadcast;
 /// Events buffered per connected subscriber before the slowest one starts
 /// losing them.
 ///
-/// Overflow is survivable and needs no handling: a subscriber that lagged
-/// receives `RecvError::Lagged`, and the tab list it is holding is reconciled
-/// against `preview.list` on the next mutation it does see. Deep enough that a
-/// burst of opens on one Task cannot cause that in practice.
+/// A lagged subscriber gets `RecvError::Lagged` and reconciles via
+/// `preview.list` on the next mutation; deep enough that a burst of opens on
+/// one Task cannot trigger it in practice.
 pub(super) const EVENT_BUFFER: usize = 256;
 
 /// How long a Task's tabs outlive their last mutation.
 ///
-/// Passed in rather than chosen here so it can track the sandbox idle TTL — a
-/// tab should not outlive the servers it points at. Refreshed on every write.
+/// Passed in so it can track the sandbox idle TTL — a tab should not outlive
+/// the servers it points at. Refreshed on every write.
 #[derive(Debug, Clone, Copy)]
 pub struct PreviewTabTtl(pub Duration);
 
 /// One browser tab, in the shape `PreviewSessionSnapshot` has on the wire
 /// (`packages/contracts/src/preview.ts`).
 ///
-/// `nav_status` and `viewport` are carried as JSON rather than re-modelled:
-/// both are tagged unions this backend never inspects, only stores and returns.
-/// Transcribing them into Rust enums would add a second place for the contract
-/// to drift without giving any code here a decision to make.
+/// `nav_status` and `viewport` stay as JSON: both are tagged unions this
+/// backend never inspects, only stores and returns, so a Rust enum would just
+/// be a second place for the contract to drift.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PreviewTab {
@@ -69,10 +67,11 @@ pub enum PreviewTabError {
 /// when one changes.
 #[async_trait]
 pub trait PreviewTabDao: Send + Sync {
-    /// Identifies the store's *contents*, not the process reading them. A
-    /// client compares it to decide whether the revisions it holds are
-    /// comparable at all, so it must survive a restart of this handle and must
-    /// change when the store is emptied.
+    /// Identifies the store's *contents*, not the process reading them.
+    ///
+    /// A client compares it to decide whether held revisions are comparable at
+    /// all, so it must survive a restart of this handle and change when the
+    /// store is emptied.
     fn epoch(&self) -> &str;
 
     async fn list(&self, task_id: &str) -> Result<PreviewTabListing, PreviewTabError>;

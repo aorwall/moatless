@@ -1,6 +1,8 @@
-//! The production `JobInjector`: a scheduled job's prompt is queued with the
-//! backend and then dispatched, so the turn it opens owns a recoverable `user`
-//! row. See `crates/sandbox/AGENTS.md` "Surviving a pod replacement".
+//! The production `JobInjector`.
+//!
+//! A scheduled job's prompt is queued with the backend and then dispatched, so
+//! the turn it opens owns a recoverable `user` row. See
+//! `crates/sandbox/AGENTS.md` "Surviving a pod replacement".
 
 use crate::agent::dispatcher::queue_and_dispatch;
 use crate::agent::scheduled_job::JobInjector;

@@ -15,7 +15,8 @@ pub(super) fn reset_source(ws: &Workspace) -> Result<(&str, &str), WorkspaceErro
     }
 }
 
-/// Reclaim the selected workspace from its Git provenance after checking control.
+/// Reclaim the selected workspace from its Git provenance after checking
+/// control.
 pub async fn reset_git_workspace(
     workspaces: &dyn WorkspaceDao,
     repositories: &dyn RepositoryDao,

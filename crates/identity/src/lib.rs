@@ -6,7 +6,7 @@
 //! membership, adapter-app registry, secret storage, and first-run setup.
 //!
 //! The request extractors are axum plumbing over two ports, not identity, and
-//! live in `moatless_core::http_auth`. This crate implements
+//! live in `moatless_core::http_auth`; this crate implements
 //! `UserTokenVerifier`'s caller side of the middleware and nothing more.
 //!
 //! The backend composes this crate through permanent facade modules

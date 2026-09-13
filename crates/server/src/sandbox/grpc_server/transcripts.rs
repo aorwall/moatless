@@ -20,19 +20,19 @@ pub(super) type TranscriptChunkStream =
 
 /// The Task whose archives a fork falls back to, read off its parent edge.
 ///
-/// Keyed on the `forked_from` relation rather than `task_forks`, which is
-/// written only when the fork has session anchors. A workspace needs none, so a
-/// fork whose parent never ran an agent still resolves here. `None` for a Task
-/// with no parent, and for a `created_by` parent: a subtask must not restore
-/// the tree of the Task that spawned it.
+/// Keyed on `forked_from`, not `task_forks` (written only with session
+/// anchors), so a fork whose parent never ran an agent still resolves; `None`
+/// for no parent or a `created_by` parent, since a subtask must not restore its
+/// spawner's tree.
 pub(super) fn fork_source_task_id(parent: Option<&TaskRelation>) -> Option<&str> {
     let row = parent?;
     (row.relation_type == TaskRelationType::ForkedFrom).then_some(row.to_task_id.as_str())
 }
 
 /// Build the S3 key for a task's transcript archive:
-/// `<prefix>/<task_id>/transcripts.tar`. The `<prefix>/<task_id>/` portion is the
-/// same one the Kubernetes runtime removes, so uploads and cleanup stay aligned.
+/// `<prefix>/<task_id>/transcripts.tar`. The `<prefix>/<task_id>/` portion is
+/// the same one the Kubernetes runtime removes, so uploads and cleanup stay
+/// aligned.
 fn transcript_key(prefix: &str, task_id: &str) -> String {
     format!(
         "{}/{}/transcripts.tar",
@@ -44,10 +44,9 @@ fn transcript_key(prefix: &str, task_id: &str) -> String {
 impl BackendSandboxServiceImpl {
     /// The transcript archive of the Task a fork branched from.
     ///
-    /// Empty when the Task is not a fork, the source archive is missing, or the
-    /// lookup fails: the pod then starts on a fresh session, which is what it
-    /// would have had anyway. The caller reaches here only when the Task has no
-    /// archive of its own, so this cannot displace a fork's own transcript.
+    /// Empty when not a fork, the source archive is missing, or the lookup
+    /// fails — the pod then starts fresh. Called only when the Task has no
+    /// archive of its own, so it never displaces a fork's own transcript.
     async fn source_transcript(
         &self,
         s3_client: &moatless_s3::S3Storage,
@@ -95,9 +94,8 @@ impl BackendSandboxServiceImpl {
 ///
 /// The sandbox is AWS-credential-less, so it proxies all transcript I/O through
 /// here. Client-streaming, so a transcript bigger than tonic's unary cap still
-/// round-trips; the chunks are reassembled in memory and `put_object`ed to
-/// `<bucket>/<prefix>/<task_id>/transcripts.tar`. The `task_id` is taken from
-/// the first chunk.
+/// round-trips; chunks are reassembled in memory and `put_object`ed, with
+/// `task_id` taken from the first chunk.
 pub(super) async fn upload_transcript(
     service: &BackendSandboxServiceImpl,
     request: Request<Streaming<TranscriptChunk>>,
@@ -146,10 +144,10 @@ pub(super) async fn upload_transcript(
 
 /// Stream the task's stored transcript tar back to the sandbox.
 ///
-/// Returns an empty stream when no transcript has been stored yet, which the
-/// sandbox reads as "nothing to restore". A fork with no archive of its own
-/// falls back to the archive of the Task it branched from: that is the only
-/// way the session its first turn resumes reaches an isolated fork's fresh pod.
+/// An empty stream means nothing stored yet (the sandbox reads it as "nothing
+/// to restore"); a fork with no archive of its own falls back to its branch
+/// parent's, the only way a resumed session reaches an isolated fork's fresh
+/// pod.
 pub(super) async fn download_transcript(
     service: &BackendSandboxServiceImpl,
     request: Request<DownloadTranscriptRequest>,

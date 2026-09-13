@@ -13,8 +13,8 @@
 //!    never sees EOF when the relay disconnects between events. It forwards
 //!    each parsed line over an unbounded mpsc.
 //! 4. `spawn_hook_listener` drains that channel and republishes a
-//!    higher-level `HookState` on a `watch`: Pending, SessionStarted or
-//!    TurnEnded.
+//!    higher-level `HookState` on a `watch`: `Pending`, `SessionStarted` or
+//!    `TurnEnded`.
 //! 5. `startup::` awaits `SessionStarted` before `query::` pastes the prompt,
 //!    under `init_timeout` (60s by default). No step sleeps for a fixed time.
 //!    `startup_dialog_watcher` runs in parallel: it polls `tmux capture-pane`,

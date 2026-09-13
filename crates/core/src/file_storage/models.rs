@@ -34,11 +34,11 @@ pub struct NewUpload {
     pub filename: String,
     pub mime_type: String,
     pub data: Vec<u8>,
-    /// The id to store under, when the caller already handed one out. The T3
-    /// attachment flow mints the id before the bytes move — the client holds it
-    /// while the upload is in flight and names it on the turn afterwards — so
-    /// that id has to be the one the row is written under. `None` mints a fresh
-    /// uuid here, which is what both of the other two surfaces want.
+    /// The id to store under, when the caller already handed one out.
+    ///
+    /// The T3 attachment flow mints the id before the bytes move, so the row
+    /// must be written under that same id; `None` mints a fresh uuid here,
+    /// which the other two surfaces want.
     pub file_id: Option<String>,
 }
 

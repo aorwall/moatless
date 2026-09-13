@@ -136,6 +136,10 @@ expect_used = "warn"
 # Server code should use `tracing`, not stdout/stderr
 print_stdout = "deny"
 print_stderr = "deny"
+# A doc opens with a one-line summary, so `cargo doc` and a reader scanning a
+# module both get the item's purpose without reading the body. Nursery lint,
+# enabled on its own. Generated protobuf opts out at its `include_proto!` site.
+too_long_first_doc_paragraph = "deny"
 
 # --- Pedantic lints that are too noisy / don't add value for this codebase ---
 module_name_repetitions = "allow"

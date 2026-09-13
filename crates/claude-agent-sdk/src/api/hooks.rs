@@ -46,33 +46,28 @@ impl std::fmt::Display for HookEvent {
 
 /// Handler trait for hook callbacks from the CLI.
 ///
-/// Implement this trait to receive hook callbacks during tool execution.
-/// The CLI sends `HookCallback` control requests for registered hook events,
-/// and the SDK invokes this handler to determine the response.
+/// The CLI sends `HookCallback` control requests for registered hook events;
+/// the SDK invokes this to determine the response.
 #[async_trait]
 pub trait HookHandler: Send + Sync {
-    /// Called when a hook callback is received from the CLI.
-    ///
-    /// - `input`: The hook callback input from the CLI, containing event-specific data
-    ///   (e.g., `hookEventName`, `toolName`, `toolInput` for `PreToolUse` events).
-    /// - `tool_use_id`: The tool use ID if this hook is associated with a tool invocation.
-    ///
-    /// Return a `HookOutput` to control behavior (continue/stop, approve/deny, inject messages).
+    /// `input` carries event-specific data (`hookEventName`, `toolName`,
+    /// `toolInput`); `tool_use_id` is set when the hook is tied to a tool
+    /// invocation. Returns a `HookOutput` controlling continue/stop,
+    /// approve/deny, and injected messages.
     async fn on_hook(&self, input: &Value, tool_use_id: Option<&str>) -> HookOutput;
 }
 
 /// A hook definition that tells the CLI which events to send as callbacks.
 ///
-/// These definitions are serialized and sent in the Initialize control request.
-/// When the CLI encounters a matching event, it sends a `HookCallback` control
-/// request back to the SDK.
+/// Serialized into the Initialize control request; a matching event triggers a
+/// `HookCallback` control request back to the SDK.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HookDefinition {
     /// The hook event type to listen for.
     #[serde(rename = "type")]
     pub event: HookEvent,
-    /// Optional regex pattern to match against tool names (for PreToolUse/PostToolUse).
-    /// If `None`, matches all tools.
+    /// Optional regex pattern to match against tool names (for
+    /// PreToolUse/PostToolUse). If `None`, matches all tools.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub matcher: Option<String>,
     /// Timeout in seconds for the hook callback. If the handler doesn't respond

@@ -7,9 +7,9 @@ use tracing::{info, warn};
 
 /// Dispatcher mapping credential keys to their sinks.
 ///
-/// Construct at sandbox init, register sinks with [`Dispatcher::register`],
-/// hand the dispatcher to the gRPC server. The gRPC handler calls
-/// [`Dispatcher::dispatch`] on every `RefreshCredential` push.
+/// Construct at sandbox init, register sinks via [`Dispatcher::register`]; the
+/// gRPC handler calls [`Dispatcher::dispatch`] on every `RefreshCredential`
+/// push.
 pub struct Dispatcher {
     sinks: HashMap<String, Arc<dyn CredentialSink>>,
 }

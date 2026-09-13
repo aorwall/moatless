@@ -5,10 +5,9 @@ use serde_json::Value;
 
 /// The closed set. A value outside it is a bug, not an extension point.
 ///
-/// It grows by a code change that fails to compile, never by a migration —
-/// which is also why every read narrows to the known kinds in SQL (see
-/// `dao::known_kinds`): a row written by a newer backend is skipped rather than
-/// failing the decode of the whole conversation around it.
+/// Grows only by a code change that fails to compile, which is why every read
+/// narrows to known kinds in SQL (`dao::known_kinds`): a newer row is skipped,
+/// not a decode failure.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ActivityKind {
     ToolCall,
@@ -19,8 +18,9 @@ pub enum ActivityKind {
     /// fatal error, and the one the T3 work log colours amber.
     SandboxWarning,
     SandboxError,
-    /// The agent handed the conversation back to a person: an `AskUserQuestion`,
-    /// or the synthetic approve/reject question in front of a proposed plan.
+    /// The agent handed the conversation back to a person: an
+    /// `AskUserQuestion`, or the synthetic approve/reject question in front of
+    /// a proposed plan.
     UserInputRequested,
     /// That question answered — the row that closes the panel the one above
     /// opened.
@@ -80,7 +80,8 @@ impl std::str::FromStr for ActivityKind {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-/// arch-allow(floor-type-admission): Status is part of the shared `Activity` and `ActivityView` contract.
+/// arch-allow(floor-type-admission): Status is part of the shared `Activity`
+/// and `ActivityView` contract.
 pub enum ActivityStatus {
     InProgress,
     Completed,
@@ -155,27 +156,25 @@ impl Activity {
     }
 }
 
-/// The tool calls that hand the conversation back to a person. Keep in sync with
-/// `message::dao::INTERACTIVE_TOOLS`, which is the same pair asked about from
-/// the write side.
+/// The tool calls that hand the conversation back to a person. Keep in sync
+/// with `message::dao::INTERACTIVE_TOOLS`, which is the same pair asked about
+/// from the write side.
 pub const QUESTION_TOOL: &str = "AskUserQuestion";
 pub const PLAN_TOOL: &str = "ExitPlanMode";
 
 /// The question in front of a proposed plan.
 ///
-/// A plan proposal parks the run on a call only an answer releases, and the
-/// answer panel is the one surface that can send one. So the plan is *asked*
-/// rather than merely shown: the card renders the plan, this renders the two
-/// things a person can do about it.
+/// A plan parks the run on a call only an answer releases, so it is *asked*
+/// rather than shown: the card renders the plan, this renders the two things a
+/// person can do.
 pub const PLAN_QUESTION: &str = "Approve this plan?";
 pub const PLAN_APPROVE: &str = "Approve";
 pub const PLAN_REJECT: &str = "Reject";
 
 /// Which of the contract's closed set of tool shapes a Moatless tool call is.
 ///
-/// The set names how the client *renders* a call, so only the two shapes with a
-/// dedicated renderer are worth claiming. Guessing from a free-text tool name is
-/// how a search tool ends up rendered as a file diff.
+/// Names how the client *renders* a call; guessing from a free-text tool name
+/// is how a search tool ends up rendered as a file diff.
 pub fn item_type(tool_name: &str) -> &'static str {
     match tool_name {
         "Bash" | "BashOutput" => "command_execution",
@@ -186,9 +185,8 @@ pub fn item_type(tool_name: &str) -> &'static str {
 
 /// A tool result's visible output.
 ///
-/// The block's `content` is a string for most tools and a list of content blocks
-/// for the ones that return structured output; only the first text block of the
-/// latter is shown, which is what the work log has room for.
+/// `content` is a string for most tools, or a block list for structured output
+/// — only the first text block of the latter is shown.
 pub fn result_text(result: &Value) -> Option<&str> {
     if let Some(text) = result.as_str() {
         return Some(text);

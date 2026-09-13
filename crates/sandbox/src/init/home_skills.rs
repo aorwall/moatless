@@ -1,24 +1,11 @@
 //! Install the repo's skills into the home-level skill dirs for both agents.
 //!
-//! The agent's cwd is `workspace_dir`, but the task repo is cloned one level
-//! down at `repo_dir`. Skills are discovered relative to cwd, so a repo that
-//! ships `.claude/skills/` (or `.agents/skills/`) at its root would be invisible
-//! with cwd one level up.
-//!
-//! Rather than recreate the repo's config surface at the workspace root (which
-//! pollutes cwd and pulls `CLAUDE.md`/`AGENTS.md` into the agent's project
-//! context), we **copy** the repo's skills into the user-level skill directories
-//! each agent already reads:
-//!   - `<claude_config_dir>/skills/<name>`  (Claude)
-//!   - `<codex_home_dir>/skills/<name>`     (Codex, `$CODEX_HOME/skills`)
-//!
-//! This mirrors how staged image skills are installed in [`super::dirs`]. Repo
-//! skills join the staged skills already living in those dirs; an existing entry
-//! of the same name (e.g. a staged skill) is left untouched, never overwritten.
-//!
-//! Only skills are copied — `CLAUDE.md`/`AGENTS.md` are intentionally left out.
-//! The copies live in the home dir, outside `workspace_dir`/`repo_dir`, so the
-//! workspace snapshot never sees them; they're regenerated on every init.
+//! The agent's cwd is `workspace_dir`; the repo is cloned under `repo_dir`, so
+//! cwd-relative discovery misses a repo's `.claude/skills/` or
+//! `.agents/skills/`. We copy its skills into `<claude_config_dir>/skills` and
+//! `<codex_home_dir>/skills`, alongside the staged skills [`super::dirs`]
+//! installs, without overwriting existing entries of the same name. The copies
+//! live outside `workspace_dir`/`repo_dir` and regenerate every init.
 
 use std::path::Path;
 
@@ -26,16 +13,15 @@ use tracing::{debug, warn};
 
 use super::dirs::copy_dir_contents;
 
-/// Repo-relative skill roots, in precedence order. Both are scanned and merged
-/// so a repo that authors its skills under `.agents/skills` is picked up whether
-/// or not it also exposes them via `.claude/skills` symlinks. Mirrors
-/// `WORKSPACE_SKILL_PREFIXES` in the backend's skill fetcher.
+/// Repo-relative skill roots, in precedence order; both are scanned and merged.
+///
+/// `.agents/skills` is found whether or not `.claude/skills` symlinks exist;
+/// mirrors `WORKSPACE_SKILL_PREFIXES` in the backend's skill fetcher.
 pub(crate) const REPO_SKILL_ROOTS: [&str; 2] = [".claude/skills", ".agents/skills"];
 
-/// Copy the repo's `<root>/<name>` skill subdirs — for each root in
-/// [`REPO_SKILL_ROOTS`] — into the home-level skill directories for Claude
-/// (`<claude_config_dir>/skills`) and Codex (`<codex_home_dir>/skills`).
-/// Returns the number of skills copied across both.
+/// Copy the repo's `<root>/<name>` skill subdirs, for each root in
+/// [`REPO_SKILL_ROOTS`], into the home-level skill directories for Claude and
+/// Codex. Returns the number of skills copied across both.
 pub(crate) fn install_repo_skills_to_home(
     repo_dir: &Path,
     claude_config_dir: &Path,

@@ -8,15 +8,10 @@ const OPERATION: &str = "Forgejo API";
 
 /// Check that `token` still authenticates against `host`.
 ///
-/// Probes `GET /api/v1/repos/search`, deliberately rather than
-/// `GET /api/v1/user`: a Forgejo personal access token must name its scopes,
-/// and the narrowest one worth storing here — `read:repository` — cannot reach
-/// the `user` endpoint. Validating there would reject every correctly scoped
-/// token and accept only over-scoped ones. The cost is that the check learns
-/// no login, so a screen names the instance instead of an account.
-///
-/// The endpoint answers 200 unauthenticated, so only an outright rejection
-/// counts: a token Forgejo ignores is a token Forgejo would ignore on a clone.
+/// Probes `GET /api/v1/repos/search`, not `/api/v1/user`: a `read:repository`
+/// token can't reach `user`, so that check would reject every correctly-scoped
+/// token. The endpoint answers 200 unauthenticated, so only an outright
+/// rejection counts.
 pub async fn validate_token(
     client: &reqwest::Client,
     host: &str,

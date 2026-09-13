@@ -20,11 +20,12 @@ pub enum EventFact {
     Initializing,
     /// Failure fact for an attempt.
     Error,
-    /// Terminal fact: the reconciler's attempt cap for this generation is spent
-    /// and it will not retry until a new caller operation or a wake. Distinct
-    /// from [`Error`](Self::Error) because it needs its own deterministic id —
-    /// sharing the `Error` id would dedup it away against the failure that
-    /// caused it.
+    /// Terminal fact: the reconciler's attempt cap for this generation is
+    /// spent; it will not retry until a new caller operation or a wake.
+    ///
+    /// Distinct from [`Error`](Self::Error) with its own deterministic id —
+    /// sharing `Error`'s id would dedup it away against the failure that caused
+    /// it.
     RecoveryExhausted,
 }
 

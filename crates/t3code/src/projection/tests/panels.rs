@@ -58,8 +58,8 @@ fn an_answered_plan_is_still_a_proposed_plan_and_reports_when_it_was_answered() 
     assert_eq!(plans[0]["updatedAt"], instant(at(103)));
 }
 
-/// The window holds a fixed span, so it can reach the call without the row
-/// that answered it. A settled call reports an answer time either way.
+/// The window holds a fixed span, so it can reach the call without the row that
+/// answered it. A settled call reports an answer time either way.
 #[test]
 fn an_answered_plan_whose_answer_is_out_of_window_falls_back_to_its_own_instant() {
     let mut answered = call(
@@ -134,9 +134,9 @@ fn a_snapshot_carries_one_context_window_reading_per_turn() {
     assert_eq!(work.len(), 2, "everything else is untouched");
 }
 
-/// One case per kind the client derives a panel from, pinned against what
-/// that client's own parser requires. A payload it cannot read is not a
-/// degraded panel — it is no panel at all, silently.
+/// One case per kind the client derives a panel from, pinned against what that
+/// client's own parser requires. A payload it cannot read is not a degraded
+/// panel — it is no panel at all, silently.
 #[test]
 fn each_panel_reaches_the_client_in_the_shape_its_parser_requires() {
     let mut asked = activity("msg-2", 2, 0, ActivityKind::UserInputRequested, "Question");
@@ -211,12 +211,11 @@ fn each_panel_reaches_the_client_in_the_shape_its_parser_requires() {
     assert_eq!(meter["payload"]["maxTokens"], 200_000);
 }
 
-/// A question the run has stopped waiting on reaches the client resolved,
-/// with no resolution row of its own.
+/// A question the run has stopped waiting on reaches the client resolved, with
+/// no resolution row of its own.
 ///
-/// The call's own status is the fact, and it is settled whoever settled it:
-/// this covers a question answered from another surface and one a resuming
-/// session dropped, neither of which writes a resolution.
+/// The call's own status is the fact, settled whoever settled it — covers an
+/// answer from another surface, and one a resuming session dropped.
 #[test]
 fn a_question_whose_call_came_back_is_projected_resolved() {
     let mut asked = activity("msg-2", 2, 0, ActivityKind::UserInputRequested, "Question");
@@ -256,8 +255,8 @@ fn a_question_whose_call_came_back_is_projected_resolved() {
     assert_eq!(kind_of(vec![asked, call]), "user-input.resolved");
 }
 
-/// A Sandbox activity belongs to no Message and no turn, and its kind ends
-/// in neither `.started` nor `.completed`, so it claims no position in the
+/// A Sandbox activity belongs to no Message and no turn, and its kind ends in
+/// neither `.started` nor `.completed`, so it claims no position in the
 /// client's own lifecycle sort.
 #[test]
 fn a_sandbox_activity_claims_no_lifecycle_position() {
@@ -277,9 +276,9 @@ fn a_sandbox_activity_claims_no_lifecycle_position() {
     assert_eq!(work[1]["tone"], "error");
 }
 
-/// The transcript is ordered by `timestamp` and the client compares these
-/// as strings, so a row in another format would sort away from its
-/// neighbours. A row whose timestamp will not parse still needs one.
+/// The transcript is ordered by `timestamp` and the client compares these as
+/// strings, so a row in another format would sort away from its neighbours. A
+/// row whose timestamp will not parse still needs one.
 #[test]
 fn every_message_reports_a_comparable_instant() {
     let mut conversation = a_conversation();
@@ -298,8 +297,8 @@ fn every_message_reports_a_comparable_instant() {
     }
 }
 
-/// Nothing here is answered from a Turn that is not this Message's own.
-/// An activity whose turn wrote no Message borrows the one before it.
+/// Nothing here is answered from a Turn that is not this Message's own. An
+/// activity whose turn wrote no Message borrows the one before it.
 #[test]
 fn a_message_outside_any_turn_reports_no_turn() {
     let mut conversation = a_conversation();
@@ -311,8 +310,8 @@ fn a_message_outside_any_turn_reports_no_turn() {
 }
 
 /// An assistant turn that only called tools contributes activities and no
-/// bubble — an empty one would render as a blank reply, and the writer
-/// stores no Message row for it at all.
+/// bubble — an empty one would render as a blank reply, and the writer stores
+/// no Message row for it at all.
 #[test]
 fn a_turn_that_only_called_tools_says_nothing() {
     let conversation = transcript(

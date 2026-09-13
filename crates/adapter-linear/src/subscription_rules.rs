@@ -4,13 +4,12 @@ use moatless_adapter_model::loops::LoopReader;
 use moatless_types::adapter::AdapterConnection;
 use moatless_types::loops::SubscriptionMatch;
 
-/// Resolve every active subscription bound to a given Linear team. Returns
-/// every subscription attached to the team — multi-listener support is preserved.
+/// Resolve every active subscription bound to a Linear team (multi-listener:
+/// all matches, not just the first).
 ///
-/// Also the worker's: `delivery.rs`'s `session_provision` and `notification`
-/// executors re-resolve through here rather than snapshotting the subscriptions the
-/// webhook saw, so an operator disabling a loop between admission and
-/// execution stops the work.
+/// `delivery.rs`'s `session_provision`/`notification` executors re-resolve
+/// through here rather than snapshotting the webhook's view, so disabling a
+/// loop between admission and execution still stops the work.
 pub(super) async fn resolve_rules_for_team(
     loops: &dyn LoopReader,
     connection: &AdapterConnection,

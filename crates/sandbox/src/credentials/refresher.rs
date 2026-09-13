@@ -1,16 +1,11 @@
 //! Periodic credential refresher.
 //!
 //! Background tokio task that re-runs `fetch_and_apply_credentials` every
-//! `CREDENTIAL_REFRESH_INTERVAL_SECS` seconds (default 900 = 15 min). Keeps
-//! rotated GitHub App tokens (1h TTL) and GitHub user access tokens (8h TTL)
-//! fresh without requiring a task restart.
-//!
-//! Each cycle:
-//! - Updates sandbox process env vars (future-spawned subprocesses pick up the
-//!   refreshed token).
-//! - Refreshes `state.credentials` (next agent run gets fresh values).
-//! - Rewrites credential files (`.credentials`, `auth.json`, `server.env`,
-//!   `~/.config/gh/hosts.yml`).
+//! `CREDENTIAL_REFRESH_INTERVAL_SECS` seconds (default 900 = 15 min), keeping
+//! rotated GitHub App tokens (1h TTL) and user access tokens (8h TTL) fresh
+//! without a task restart. Each cycle updates the process env, refreshes
+//! `state.credentials`, and rewrites the credential files (`.credentials`,
+//! `auth.json`, `server.env`, `~/.config/gh/hosts.yml`).
 
 use std::time::Duration;
 
@@ -23,7 +18,8 @@ use crate::state::SandboxState;
 /// Default refresh interval when the env var isn't set.
 const DEFAULT_INTERVAL_SECS: u64 = 900;
 
-/// Read the refresh interval from `CREDENTIAL_REFRESH_INTERVAL_SECS` (default 900s).
+/// Read the refresh interval from `CREDENTIAL_REFRESH_INTERVAL_SECS` (default
+/// 900s).
 pub fn read_interval_from_env() -> Duration {
     let secs = std::env::var("CREDENTIAL_REFRESH_INTERVAL_SECS")
         .ok()

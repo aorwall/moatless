@@ -1,4 +1,5 @@
-//! `moat k8s secrets ...` — manage the cluster Secret that holds app credentials.
+//! `moat k8s secrets ...` — manage the cluster Secret that holds app
+//! credentials.
 //!
 //! Collection priority: existing cluster Secret → discovered `.env` files →
 //! interactive masked prompts. Process environment is **not** scanned.
@@ -623,7 +624,8 @@ fn discover_env(specs: &[&KeySpec]) -> Result<BTreeMap<String, String>, ClientEr
     Ok(found)
 }
 
-/// Minimal `.env` parser: `KEY=VALUE` per line, `#` comments, optional surrounding quotes.
+/// Minimal `.env` parser: `KEY=VALUE` per line, `#` comments, optional
+/// surrounding quotes.
 fn read_env_file(path: &Path) -> Result<BTreeMap<String, String>, ClientError> {
     let content = std::fs::read_to_string(path)
         .map_err(|e| ClientError::Other(format!("Failed to read {}: {e}", path.display())))?;

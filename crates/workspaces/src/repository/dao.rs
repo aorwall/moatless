@@ -27,10 +27,10 @@ pub(crate) trait RepositoryDao: Send + Sync {
         ctx: &ScopeContext,
     ) -> Result<bool, sqlx::Error>;
     async fn soft_delete(&self, id: &str, ctx: &ScopeContext) -> Result<bool, sqlx::Error>;
-    /// Find a non-deleted repository whose `remote_url` normalizes to `url_key`
-    /// (trimmed, trailing `/`/`.git` stripped, lowercased), scoped to the given
-    /// scope+owner so resolution never crosses tenants. `url_key` must be
-    /// pre-normalized by [`moatless_types::repository::normalize_remote_url`].
+    /// Find a non-deleted repository whose `remote_url` normalizes to
+    /// `url_key`, scoped to the given scope+owner so resolution never crosses
+    /// tenants. `url_key` must be pre-normalized by
+    /// [`moatless_types::repository::normalize_remote_url`].
     async fn find_by_normalized_remote_url(
         &self,
         url_key: &str,
@@ -39,7 +39,8 @@ pub(crate) trait RepositoryDao: Send + Sync {
     ) -> Result<Option<Repository>, sqlx::Error>;
     async fn find_names_by_ids(&self, ids: &[String])
     -> Result<Vec<(String, String)>, sqlx::Error>;
-    /// Check for a canonical URL within an access owner, including soft-deleted rows.
+    /// Check for a canonical URL within an access owner, including soft-deleted
+    /// rows.
     async fn exists_by_normalized_remote_url_including_deleted(
         &self,
         url_key: &str,

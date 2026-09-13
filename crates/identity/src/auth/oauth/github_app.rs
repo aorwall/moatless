@@ -1,8 +1,8 @@
 //! GitHub App OAuth provider implementation.
 //!
 //! Uses the GitHub App user authorization flow. Unlike the standard OAuth App,
-//! permissions are configured on the App itself (not via scopes), and the
-//! token response includes refresh tokens.
+//! permissions are configured on the App itself (not via scopes), and the token
+//! response includes refresh tokens.
 
 use std::time::Duration;
 

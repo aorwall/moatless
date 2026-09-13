@@ -1,9 +1,10 @@
 //! Loop API schemas.
 //!
-//! A Loop is a standing definition of recurring agent work (CONTEXT.md,
-//! the Loop model decision) that fires on a Schedule or a Subscription and drives one or more
-//! Tasks. These types are the `/api/v1/loops` request/response DTOs plus the
-//! repo-sync outcome types for `.moatless/loops/<name>/LOOP.md` reconciliation.
+//! A Loop is a standing definition of recurring agent work (CONTEXT.md, the
+//! Loop model decision) that fires on a Schedule or a Subscription and drives
+//! one or more Tasks. These types are the `/api/v1/loops` request/response DTOs
+//! plus the repo-sync outcome types for `.moatless/loops/<name>/LOOP.md`
+//! reconciliation.
 
 use serde::{Deserialize, Serialize};
 
@@ -38,17 +39,19 @@ pub struct LoopConfig {
     pub task_name: Option<String>,
     pub prompt: Option<String>,
     pub tag_ids: Vec<String>,
-    /// Skills every task this Loop spawns activates on each fresh agent session.
+    /// Skills every task this Loop spawns activates on each fresh agent
+    /// session.
     pub skills: Vec<String>,
     pub run_as_user_id: Option<String>,
     pub agent_type: String,
     /// Model the spawned Tasks run on, from the `agent_type` entry's catalog
     /// models. `None` means "inherit the platform default the sandbox resolves
-    /// for `agent_type`". Flows into `tasks.model` when this Loop spawns a task.
+    /// for `agent_type`". Flows into `tasks.model` when this Loop spawns a
+    /// task.
     pub model: Option<String>,
     /// Per-Loop inactivity TTL in days. `None` means "inherit the global
-    /// default" (`TASK_INACTIVE_TIMEOUT_DAYS`). Flows into `tasks.inactive_ttl_days`
-    /// when this Loop spawns a task.
+    /// default" (`TASK_INACTIVE_TIMEOUT_DAYS`). Flows into
+    /// `tasks.inactive_ttl_days` when this Loop spawns a task.
     pub inactive_ttl_days: Option<i32>,
 }
 
@@ -252,7 +255,8 @@ pub struct CreateLoopRequest {
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateLoopRequest {
-    /// Rename the Loop. Omit to keep the current name; a name cannot be cleared.
+    /// Rename the Loop. Omit to keep the current name; a name cannot be
+    /// cleared.
     pub name: Option<String>,
     pub scope: Option<Scope>,
     pub config: Option<UpdateLoopConfig>,
@@ -299,8 +303,8 @@ pub struct LoopRecentTaskItem {
 
 // ---- Repo loop sync (`.moatless/loops/<name>/LOOP.md`) ----
 
-/// One loop that was skipped during a sync, with a human-readable reason
-/// (e.g. "no github connection for org acme").
+/// One loop that was skipped during a sync, with a human-readable reason (e.g.
+/// "no github connection for org acme").
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
@@ -331,7 +335,8 @@ pub struct LoopSyncSummary {
     pub updated: u32,
     /// Loops removed because their directory is gone.
     pub removed: u32,
-    /// Manual overrides or deletion tombstones preserved during repository sync.
+    /// Manual overrides or deletion tombstones preserved during repository
+    /// sync.
     pub overrides_skipped: u32,
     /// Loops that were present but not synced, with reasons.
     pub skipped: Vec<LoopSyncSkip>,
@@ -341,9 +346,8 @@ pub struct LoopSyncSummary {
 
 /// Response for `POST /api/v1/repositories/{id}/sync-config`.
 ///
-/// Wraps the updated repository plus the loop and workspace reconciliation
-/// summaries. This endpoint is the explicit, user-initiated sync, so it also
-/// reclaims workspaces that were manually overridden — see
+/// Wraps the updated repository plus reconciliation summaries; this explicit
+/// sync also reclaims manually overridden workspaces — see
 /// [`WorkspaceSyncSummary::reclaimed`].
 #[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]

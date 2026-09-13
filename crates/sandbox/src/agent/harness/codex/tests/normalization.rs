@@ -5,9 +5,11 @@ use super::fixtures::*;
 use super::*;
 
 /// The whole mapping table in one place: every family the wire can deliver,
-/// against the canonical blocks it produces. A family that renders nothing
-/// produces none — deliberately, and distinctly from an unknown family, which
-/// is forwarded raw (see `unknown_item_family_is_forwarded_with_diagnostics`).
+/// against the canonical blocks it produces.
+///
+/// A family that renders nothing produces none deliberately, distinct from an
+/// unknown family, which is forwarded raw (see
+/// `unknown_item_family_is_forwarded_with_diagnostics`).
 #[test]
 fn every_item_family_maps_to_its_canonical_blocks() {
     let expected: &[(&str, &[(&str, &str)])] = &[

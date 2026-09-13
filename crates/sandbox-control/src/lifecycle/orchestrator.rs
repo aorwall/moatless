@@ -1,24 +1,12 @@
 //! The `Lifecycle` orchestrator and its ports.
 //!
-//! Callers identify a Task and request a transition. The orchestrator resolves
-//! intent, enforces the Closed guard, allocates (or, on recovery, reuses) an
-//! operation generation, persists intent before the runtime effect, issues a
-//! best-effort graceful `StopAgent` before the runtime effect on stop/remove,
-//! invokes the runtime seam, and finalizes through one operation-aware
-//! completion path: completion facts are persisted and the marker cleared in a
-//! single transaction before the event is published; a pure no-op against an
-//! already-converged target clears its marker synchronously.
+//! Resolves intent, enforces the Closed guard, allocates or reuses an operation
+//! generation, and finalizes through one completion path: facts persist and the
+//! marker clears in one transaction before the event publishes.
 //!
-//! Multi-step transitions run **detached** from the caller future (spawned and
-//! awaited through a join handle), so a caller disconnect cannot cancel a
-//! half-applied transition. The span is detached with it — see
+//! Multi-step transitions run detached from the caller future, so a caller
+//! disconnect cannot cancel a half-applied transition — see
 //! [`Lifecycle::detached_span`].
-//!
-//! Serialization, durable generation allocation, and intent persistence are
-//! expressed as ports so the ordering and decision logic here is exercised
-//! against in-memory doubles; the Postgres implementations
-//! (`pg_try_advisory_lock` on a dedicated pool, the single-statement intent
-//! write, the commit-before-publication completion commit) satisfy the same ports.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -51,11 +39,9 @@ use moatless_types::sandbox::ArchiveRetention;
 
 /// Persisted lifecycle intent for one Task's Sandbox membership.
 ///
-/// One read serves the three questions every sandbox request asks: who may
-/// reach this Sandbox, what its Task's status permits, and what state it
-/// desires. `scope` and `owner_user_id` are the Sandbox's own access-control
-/// pair; `visibility` is the Task's, because a public Task grants read on the
-/// Sandbox that serves it.
+/// Answers who may reach it, what the Task's status permits, and what state it
+/// desires; `scope`/`owner_user_id` are the Sandbox's own, `visibility` is the
+/// Task's.
 #[derive(Debug, Clone)]
 pub struct TaskIntent {
     pub status: TaskStatus,
@@ -82,10 +68,8 @@ impl TaskIntent {
 
 /// One `moat cmd` command a pod says still owes its agent an outcome.
 ///
-/// Metadata only, and none of it is read here: the fields exist so the
-/// replacement pod can name what died. `state` is the sandbox's own
-/// `CommandState` serialization, kept a string because this band stores and
-/// returns it without ever branching on it.
+/// Metadata only, unread here — kept so a replacement pod can name what died;
+/// `state` stays a string since this band never branches on it.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OutstandingCommand {
@@ -118,32 +102,28 @@ pub trait AgentStopPort: Send + Sync {
     async fn stop_agent(&self, task_id: &str, reason: SandboxStopReason);
 }
 
-/// The narrow internal workspace-sync port. The sandbox is the only party that
-/// can read its own volume, and on `stop`/`remove` that volume is about to
-/// become unreachable (scaled to zero) or deleted — so lifecycle asks for a push
-/// to S3 **before** the runtime effect, for the same reason and at the same
-/// point it asks for a graceful agent stop. Failures never block the transition:
-/// the volume still holds the work for a same-volume restart, and the
-/// alternative — refusing to stop a sandbox that cannot upload — is worse.
+/// The narrow internal workspace-sync port.
+///
+/// Lifecycle asks for a push to S3 before the runtime effect on
+/// `stop`/`remove`, since the sandbox alone can read its volume before it's
+/// unreachable or deleted; failures never block the transition.
 #[async_trait]
 pub trait WorkspaceSyncPort: Send + Sync {
     async fn sync_workspace(&self, task_id: &str);
 }
 
-/// The narrow internal workspace-archive port — what lifecycle needs to know
-/// about the durable copy before it deletes the live one.
+/// The narrow internal workspace-archive port.
 ///
-/// The cold transition trades a volume for a snapshot, so it may only run when
-/// the snapshot is real and current. That is two different questions and both
-/// are answered here: when the archive was last written, and how to hand a
-/// detached volume a way to write a new one.
+/// The cold transition trades a volume for a snapshot, so it may run only when
+/// the snapshot is real and current: this port answers when the archive was
+/// last written, and how to hand a detached volume a way to write a new one.
 #[async_trait]
 pub trait WorkspaceArchivePort: Send + Sync {
     /// When the task's workspace archive was last written.
     ///
-    /// `Ok(None)` means there is no archive. `Err` means the question could not
-    /// be answered — and a caller about to delete the only other copy must
-    /// treat that as "not proven", never as "no archive".
+    /// `Ok(None)` means no archive; `Err` means unanswered — a caller about to
+    /// delete the only other copy must treat that as "not proven", never "no
+    /// archive".
     async fn archived_at(&self, task_id: &str) -> Result<Option<DateTime<Utc>>, String>;
 
     /// A short-lived presigned URL that accepts one `PUT` of the task's
@@ -170,10 +150,9 @@ pub(crate) trait LockGuard: Send {}
 
 /// Per-Task serialization across backend replicas.
 ///
-/// Every operation takes the lock — there is no lock-free fast path. The
-/// Postgres implementation is `pg_try_advisory_lock` on a dedicated lock-only
-/// connection pool with bounded retry; on exhaustion the orchestrator surfaces
-/// `OperationInProgress { kind }` carrying the holder's kind.
+/// No lock-free fast path: Postgres uses `pg_try_advisory_lock` on a dedicated
+/// pool with bounded retry, and on exhaustion the orchestrator surfaces
+/// `OperationInProgress { kind }` naming the holder.
 #[async_trait]
 pub(crate) trait LifecycleLock: Send + Sync {
     /// Try to acquire the Task's lock for `kind`. On contention, returns the
@@ -254,9 +233,10 @@ impl Lifecycle {
     }
 
     /// Attach the archive reader the cold transition proves itself against.
-    /// Optional for the same reason as the sync: with no S3 there is no
-    /// snapshot, so leaving it unset disables the transition rather than
-    /// letting it delete a volume with nowhere to fall back to.
+    ///
+    /// Optional, like the sync port: with no S3 there is no snapshot, so
+    /// leaving it unset disables the transition rather than deleting a volume
+    /// with nowhere to fall back to.
     pub(crate) fn with_workspace_archive(mut self, archive: Arc<dyn WorkspaceArchivePort>) -> Self {
         self.workspace_archive = Some(archive);
         self
@@ -339,17 +319,14 @@ impl Lifecycle {
 
     // ---- Public operations (detached from the caller future) ----
 
-    /// The span a detached operation runs under: a root of its own, linked
-    /// back to whoever asked for it.
+    /// The span a detached operation runs under: a root of its own, linked back
+    /// to whoever asked for it.
     ///
-    /// The spawned task outlives the caller's future by design, so it must not
-    /// carry the caller's span. `tracing-opentelemetry` restamps a span's end
-    /// time on every exit and a spawned task enters its own span on every
-    /// poll, so a caller's span adopted here reports that caller as having
-    /// taken as long as the whole operation. Measured on staging before this:
-    /// `ui_rpc.request` spans of 30s, 53min and 11.5h against requests the
-    /// browser saw answered in under two seconds. The link keeps the two
-    /// findable from each other and leaves each one's duration its own.
+    /// The spawned task outlives the caller's future, so it must not carry the
+    /// caller's span — `tracing-opentelemetry` restamps a span's end time on
+    /// every exit and a spawned task re-enters its span on every poll, so an
+    /// adopted span reports the caller as having taken as long as the whole
+    /// operation.
     fn detached_span(op: &'static str, task_id: &str) -> tracing::Span {
         let span =
             tracing::info_span!(parent: None, "sandbox.lifecycle", op = %op, task_id = %task_id);
@@ -424,15 +401,9 @@ impl Lifecycle {
         .await
     }
 
-    /// Reclaim a long-stopped Sandbox's compute objects and volume, leaving the
-    /// S3 snapshot as the only copy. The Task stays Open and its desired state
-    /// stays `Stopped` — a cold Sandbox is a stopped one whose volume is gone,
-    /// not a fourth state — so a later start converges it the ordinary way and
-    /// restores from the snapshot.
-    ///
-    /// The volume is only deleted once the archive is proven newer than the
-    /// stop, or once the runtime has uploaded it. Anything that leaves neither
-    /// true keeps the volume and returns an error for the next cycle to retry.
+    /// Reclaims a long-stopped Sandbox's volume into its S3 snapshot; desired
+    /// state stays `Stopped`, since cold is not a fourth state. See
+    /// `op_archive_storage` for the deletion proof it requires.
     pub async fn archive_storage(&self, task_id: &str) -> Result<LifecycleOutcome, LifecycleError> {
         let me = self.clone();
         let id = task_id.to_string();
@@ -447,9 +418,8 @@ impl Lifecycle {
     /// Which of `task_ids` are stopped and still own storage, and when each
     /// stopped.
     ///
-    /// A read, so no lock and no detachment. Lifecycle answers only the half of
-    /// the cold question it owns — what storage exists — and leaves the clock to
-    /// the caller, which is where the per-Task override lives.
+    /// A read, so no lock and no detachment; answers only what storage exists
+    /// and leaves the retention clock to the caller.
     pub async fn stopped_with_storage(
         &self,
         task_ids: &[String],
@@ -466,10 +436,10 @@ impl Lifecycle {
             })
     }
 
-    /// The persisted desired state for the Task's Sandbox — the status
-    /// projections' and reaper's intent input, read from the Sandbox row through
-    /// the store. Absence of a row reads as `Stopped` (never requested =
-    /// converged Stopped); a missing Task is `TaskNotFound`.
+    /// The persisted desired state for the Task's Sandbox.
+    ///
+    /// Absence of a row reads as `Stopped` (never requested = converged
+    /// Stopped); a missing Task is `TaskNotFound`.
     pub async fn desired_state(
         &self,
         task_id: &str,
@@ -553,13 +523,13 @@ impl Lifecycle {
         self.run_remove(&task_id, &intent, retention).await
     }
 
-    /// The cold transition. Unlike every other operation here it writes no
-    /// intent and publishes no events: the Sandbox is already `Stopped` and
-    /// stays `Stopped`, so there is no target to move toward and no
-    /// acceptance/completion pair to derive. What this owns instead is the
-    /// proof — the volume is deleted only once the archive is known to be at
-    /// least as new as the stop that produced it, or once the runtime has been
-    /// given a way to write one.
+    /// The cold transition.
+    ///
+    /// Unlike every other operation here it writes no intent and publishes no
+    /// events, since the Sandbox is already `Stopped` and stays so; what it
+    /// owns instead is proof — the volume is deleted only once the archive is
+    /// known at least as new as the stop, or once the runtime has been given a
+    /// way to write one.
     #[tracing::instrument(skip_all, fields(task_id = %task_id, op = "archive_storage"))]
     async fn op_archive_storage(self, task_id: String) -> Result<LifecycleOutcome, LifecycleError> {
         // Held under `Stop`: this is a continuation of the stop that preceded
@@ -730,12 +700,11 @@ impl Lifecycle {
         Ok(())
     }
 
-    /// Resolve the generation for an operation. A **recovery** — a level op
-    /// whose target already matches persisted intent and whose marker is for
-    /// the same kind — reuses the persisted generation so attempt identity and
-    /// deterministic event ids stay stable across retries; the boolean marks
-    /// that an incomplete marker preceded this attempt. Edges always allocate a
-    /// fresh generation (they deliberately supersede).
+    /// A recovery — a level op whose target matches persisted intent and whose
+    /// marker is the same kind — reuses the persisted generation so attempt
+    /// identity and event ids stay stable across retries; the returned bool
+    /// marks whether an incomplete marker preceded this attempt. Edges always
+    /// allocate fresh (they deliberately supersede).
     async fn resolve_generation(
         &self,
         task_id: &str,
@@ -981,16 +950,12 @@ impl Lifecycle {
         .await
     }
 
-    /// The one operation-aware completion path.
-    ///
-    /// On runtime failure: publish the deterministic `Error` fact and return
-    /// the typed error (intent and marker survive). On success: derive the
-    /// operation's events; a completion fact (`Stopped`/`Removed`) is persisted
-    /// and the marker cleared in one transaction **before** the event is
-    /// published, so a commit failure propagates and nothing is published. If
-    /// no completion fact is owed and the operation is a pure no-op against its
-    /// already-converged target, clear the marker synchronously; otherwise the
-    /// marker is left for the reconciler to acknowledge.
+    /// On failure, publishes the deterministic `Error` fact and returns the
+    /// error (intent/marker survive); on success, persists the completion fact
+    /// and clears the marker in one transaction before publishing so a commit
+    /// failure blocks publication — a pure no-op against an already-converged
+    /// target clears its marker synchronously instead, otherwise the marker is
+    /// left for the reconciler.
     async fn finalize(
         &self,
         task_id: &str,
@@ -1102,11 +1067,9 @@ impl Lifecycle {
     /// Publish the deterministic `Error` fact for a failure that already owns a
     /// generation, then hand the error back for propagation.
     ///
-    /// Failures *before* generation resolution (intent load, generation
-    /// allocation, lock contention, the Closed guard) have no stable event
-    /// identity, so they would either need a random id — which defeats the
-    /// dedup that keeps a retry loop from spamming the feed — or a shared one
-    /// that collides across operations. They stay caller- and log-only.
+    /// Failures before generation resolution have no stable event identity — a
+    /// random id defeats dedup, a shared one collides — so they stay caller-
+    /// and log-only instead.
     async fn publish_failure(
         &self,
         task_id: &str,
@@ -1153,11 +1116,11 @@ impl Lifecycle {
         }
     }
 
-    /// Durably abandon a stale caller-owned edge. The deterministic `Error`
-    /// fact and marker clear commit atomically, then the fact is published.
+    /// Durably abandon a stale caller-owned edge: the deterministic `Error`
+    /// fact and marker clear commit atomically, then the fact publishes.
     ///
-    /// `kind` is the abandoned edge's own operation, so the published fact names
-    /// that operation rather than using a generic runtime-failure label.
+    /// `kind` is the abandoned edge's own operation, so the published fact
+    /// names it rather than a generic runtime-failure label.
     pub(crate) async fn abandon_edge(
         &self,
         task_id: &str,
@@ -1257,13 +1220,13 @@ impl core_sandbox::SandboxOperator for Lifecycle {
     }
 }
 
-/// Classify a `LifecycleError` for the tasks-band lifecycle port: the
-/// `LifecycleError -> TaskError` mapping, so the tasks band names no lifecycle
-/// error. The three client-visible outcomes (404 / 400 / 409) keep their shape
-/// and everything else is an internal failure with its rendered chain intact.
-/// Unlike the T3
-/// contract's `SandboxError`, `SandboxOpError` has an `InProgress` variant, so
-/// lock contention stays a 409 rather than flattening to a 500.
+/// Classify a `LifecycleError` for the tasks-band lifecycle port, so the tasks
+/// band names no lifecycle error.
+///
+/// The three client-visible outcomes (404/400/409) keep their shape and
+/// everything else becomes an internal failure with its chain intact; unlike
+/// the T3 contract's `SandboxError`, `SandboxOpError` has an `InProgress`
+/// variant so lock contention stays a 409 rather than flattening to 500.
 fn op_error(e: LifecycleError) -> SandboxOpError {
     use LifecycleError as LE;
     match &e {
@@ -1274,9 +1237,9 @@ fn op_error(e: LifecycleError) -> SandboxOpError {
     }
 }
 
-/// The tasks-band lifecycle port. The closer, reaper, HTTP handlers, and service
-/// drive a Task's sandbox through this without naming a `sandbox` type; these
-/// methods are the whole tasks-band cross-boundary surface.
+/// The tasks-band lifecycle port. The closer, reaper, HTTP handlers, and
+/// service drive a Task's sandbox through this without naming a `sandbox` type;
+/// these methods are the whole tasks-band cross-boundary surface.
 #[async_trait]
 impl SandboxLifecycle for Lifecycle {
     async fn start(&self, task_id: &str) -> Result<(), SandboxOpError> {

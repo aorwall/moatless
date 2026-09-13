@@ -3,28 +3,21 @@
 //! connections and sessions to task bindings.
 //!
 //! The backend remains the composition root and reaches this crate through a
-//! permanent facade module (`crate::adapters::providers::linear`), so the server
-//! band keeps naming its existing paths unchanged.
+//! permanent facade module (`crate::adapters::providers::linear`), so the
+//! server band keeps naming its existing paths unchanged.
 
 // Allow unwrap/expect in test code. Production code still enforces the deny.
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 //!
-//! Four modules face outward, and each has a caller that names it:
+//! Four modules face outward, each with a caller that names it: [`adapter`]
+//! (the registry), [`delivery`] (the worker and `backend/tests/`), [`handlers`]
+//! (the webhook route), and [`activity`] (the event pipeline, per Decision 6).
+//! [`ingress`] is a fifth, exported only because `receive` is the seam
+//! `backend/tests/` drives to build an `AppState`.
 //!
-//! - [`adapter`] — the type the registry holds.
-//! - [`delivery`] — the five kinds and their registration, named by the
-//!   delivery worker and by `backend/tests/`.
-//! - [`handlers`] — the webhook route.
-//! - [`activity`] — the only module the event pipeline imports (Decision 6).
-//!
-//! [`ingress`] is the fifth, and it is exported for one reason: `receive` is
-//! the seam this Adapter's ingress tests drive, and `backend/tests/` is a
-//! separate crate — the only tier that can build an `AppState`.
-//!
-//! Everything else is an internal of this crate. [`active_turns`] and
-//! [`api_routes`] are public because `state.rs` and `adapters/routes.rs` name
-//! them through the backend facade; the rest is reachable only from inside
-//! Linear.
+//! Everything else is internal; [`active_turns`] and [`api_routes`] are public
+//! only because `state.rs` and `adapters/routes.rs` name them through the
+//! backend facade.
 
 pub mod active_turns;
 pub mod activity;

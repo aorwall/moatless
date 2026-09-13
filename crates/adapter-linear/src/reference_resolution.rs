@@ -14,9 +14,9 @@ pub(super) fn looks_like_uuid(s: &str) -> bool {
     uuid::Uuid::parse_str(s).is_ok()
 }
 
-/// Resolve a value that may be either a UUID (passthrough) or a name
-/// (lookup). Returns `Ok(None)` for `None` input. `team_id` scopes the lookup —
-/// see [`LinearAgentApi::lookup`] for what passing `None` costs.
+/// Resolve a value that may be either a UUID (passthrough) or a name (lookup).
+/// Returns `Ok(None)` for `None` input. `team_id` scopes the lookup — see
+/// [`LinearAgentApi::lookup`] for what passing `None` costs.
 pub(super) async fn resolve_optional(
     api: &LinearAgentApi,
     kind: LookupKind,
@@ -68,8 +68,8 @@ pub(super) fn team_id_of(issue: &Value) -> Result<String, AdapterError> {
         })
 }
 
-/// Resolve a team value (key like `SP`, or UUID). Lookup uses the team's
-/// `name` field, so a team key like `SP` is checked via a key filter first.
+/// Resolve a team value (key like `SP`, or UUID). Lookup uses the team's `name`
+/// field, so a team key like `SP` is checked via a key filter first.
 pub(super) async fn resolve_team_id(
     api: &LinearAgentApi,
     value: &str,
@@ -97,9 +97,9 @@ pub(super) async fn resolve_team_id(
     Ok(lookup.id)
 }
 
-/// Return the default team id when the caller didn't specify one. If
-/// exactly one team is accessible we use it; otherwise surface the list
-/// and require a `--team` flag.
+/// Return the default team id when the caller didn't specify one. If exactly
+/// one team is accessible we use it; otherwise surface the list and require a
+/// `--team` flag.
 pub(super) async fn default_team_id(api: &LinearAgentApi) -> Result<String, AdapterError> {
     let value = api
         .graphql(json!({
@@ -154,10 +154,11 @@ pub(super) fn user_from_node(node: &Value) -> Option<ResolvedUser> {
     Some(ResolvedUser { id, url })
 }
 
-/// The Linear user id stored against a Moatless `login`, or `None` when the
-/// login has no `linear` mapping. A store error is a miss, not a failure: this
-/// is one branch of [`resolve_user_opt`], and the branches after it can still
-/// match.
+/// The Linear user id stored against a Moatless `login`, or `None` when there's
+/// no `linear` mapping.
+///
+/// A store error is treated as a miss, not a failure — one branch of
+/// [`resolve_user_opt`], and the branches after it can still match.
 pub(super) async fn linear_id_for_login(
     identity: &dyn ProviderIdentityLink,
     login: &str,
@@ -171,15 +172,13 @@ pub(super) async fn linear_id_for_login(
     }
 }
 
-/// Resolve a user reference to a Linear user, trying in order: `me` → viewer;
-/// UUID → passthrough; Moatless login → its stored `linear` provider id; email;
+/// Resolve a user reference to a Linear user: `me` → viewer; UUID →
+/// passthrough; Moatless login → its stored `linear` id; else email; else
 /// display name.
 ///
-/// The login step precedes email so an id someone set deliberately outranks a
-/// coincidental email or display-name match. Returns `Ok(None)` when no step
-/// matches — callers decide whether a miss is fatal (explicit
-/// `--assignee`/`--delegate`/`--reporter`) or skippable (the best-effort
-/// assignee default).
+/// The login step precedes email so a deliberately-set id outranks a
+/// coincidental match; `Ok(None)` on no match lets callers decide whether a
+/// miss is fatal or skippable.
 pub(super) async fn resolve_user_opt(
     api: &LinearAgentApi,
     identity: &dyn ProviderIdentityLink,
@@ -210,7 +209,9 @@ pub(super) async fn resolve_user_opt(
 }
 
 /// Match `value` against Linear's own directory: email first, then display
-/// name. The half of [`resolve_user_opt`] that consults no Moatless mapping —
+/// name.
+///
+/// The half of [`resolve_user_opt`] that consults no Moatless mapping —
 /// [`default_assignee_from_caller`] enters here directly, having already tried
 /// the caller's login.
 async fn user_by_email_or_name(
@@ -288,13 +289,13 @@ pub(super) async fn resolve_delegate(
     }
 }
 
-/// Best-effort assignee default: the Linear user the caller is, from their
-/// stored `linear` provider id, falling back to matching their moat email
-/// against Linear's members.
+/// Best-effort assignee default: the caller's Linear user, from their stored
+/// `linear` provider id, falling back to matching their moat email against
+/// Linear's members.
 ///
-/// The provider id is the reliable half — an email only matches when the two
-/// directories happen to agree on the address. Returns `None` (and warns) when
-/// neither resolves; never fails issue creation.
+/// The provider id is the reliable half; an email only matches when both
+/// directories agree. Returns `None` (and warns) when neither resolves — never
+/// fails issue creation.
 pub(super) async fn default_assignee_from_caller(
     users: &dyn UserDisplay,
     identity: &dyn ProviderIdentityLink,
@@ -349,8 +350,8 @@ pub(super) async fn default_assignee_from_caller(
     }
 }
 
-/// Resolve a parent value: UUID → as-is; identifier (SP-123) → fetch the
-/// issue and return its UUID.
+/// Resolve a parent value: UUID → as-is; identifier (SP-123) → fetch the issue
+/// and return its UUID.
 pub(super) async fn resolve_optional_issue(
     api: &LinearAgentApi,
     value: Option<&str>,
@@ -366,11 +367,11 @@ pub(super) async fn resolve_optional_issue(
     Ok(Some(id.to_string()))
 }
 
-/// Resolve a cycle value: UUID → as-is; "active" → the team's active
-/// cycle; numeric string → cycle number on the team.
+/// Resolve a cycle value: UUID → as-is; `"active"` → the team's active cycle;
+/// numeric string → cycle number on the team.
 ///
-/// Only a name reads `team_id`, so a caller that fetches the team lazily passes
-/// `None` for a UUID. `None` for a name is a caller bug and fails here.
+/// Only a name reads `team_id`, so a caller fetching the team lazily may pass
+/// `None` for a UUID; `None` for a name is a caller bug and fails here.
 pub(super) async fn resolve_cycle_id(
     api: &LinearAgentApi,
     team_id: Option<&str>,
@@ -460,7 +461,8 @@ mod tests {
     }
 
     /// A Linear that answers every user query at once: `user(id:)` with
-    /// [`MAPPED_ID`] and `users(filter: { email: })` with [`DIRECTORY_ID`].
+    /// [`MAPPED_ID`], `users(filter: { email: })` with [`DIRECTORY_ID`].
+    ///
     /// Both branches can succeed, so the id that comes back names the branch
     /// that ran.
     async fn stub_answering_every_user_query() -> ProviderStub {

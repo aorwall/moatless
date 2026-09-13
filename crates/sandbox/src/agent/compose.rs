@@ -26,20 +26,17 @@ const AGENT_TYPE_CLAUDE_CODE_TUI: &str = "claude-code-tui";
 /// variant). Treated as the claude-code family for everything except the
 /// transport selection inside the Claude harness.
 const AGENT_TYPE_CLAUDE_CODE_CLI: &str = "claude-code-cli";
-/// Claude Code pinned to the `fable` model. Same executor family as claude-code;
-/// the model is forced backend-side when the message carries none.
+/// Claude Code pinned to the `fable` model. Same executor family as
+/// claude-code; the model is forced backend-side when the message carries none.
 const AGENT_TYPE_CLAUDE_CODE_FABLE: &str = "claude-code-fable";
 pub(crate) const AGENT_TYPE_CODEX: &str = "codex";
 
 /// Resolve a raw agent-type string into the canonical harness identifier,
 /// rejecting values this Sandbox has no harness for.
 ///
-/// Used to validate the Task's fixed selection when its Member's agent loop is
-/// composed (the fixed-harness decision): an unsupported harness is an
-/// invalid-configuration failure surfaced at startup rather than a silent
-/// fall-through to Claude. The Claude transport, model, and mode variants all
-/// resolve to the one Claude harness — they are configuration of that harness,
-/// not separate harnesses.
+/// An unsupported harness fails at startup rather than silently falling through
+/// to Claude; the Claude transport, model, and mode variants all resolve to the
+/// one Claude harness.
 pub(crate) fn resolve_agent_harness(raw: &str) -> Result<&'static str, String> {
     match raw {
         AGENT_TYPE_CODEX => Ok(AGENT_TYPE_CODEX),
@@ -55,19 +52,12 @@ pub(crate) fn resolve_agent_harness(raw: &str) -> Result<&'static str, String> {
     }
 }
 
-/// Construct the single Agent harness fixed for one Member (the fixed-harness
-/// decision), selected by the resolved agent type: Codex, or Claude over the
-/// persistent (tmux) or one-shot (subprocess) transport per `config.use_tmux`. An
-/// unsupported type is an invalid-configuration failure surfaced at startup,
-/// never a silent default.
+/// Constructs the single Agent harness fixed for one Member (the fixed-harness
+/// decision).
 ///
-/// A shared Sandbox runs one of these per Member, each over that Member's own
-/// `Config` — see [`Config::agent_type`](crate::config::Config::agent_type) for
-/// which writer sets it.
-///
-/// All per-Turn configuration — including the coordinator-resolved `env` and
-/// `system_prompt` — rides on the submitted `Input`, so the harness itself
-/// stays fixed for the Member's lifetime.
+/// Selects Codex or Claude (over the tmux or subprocess transport per
+/// `config.use_tmux`); per-Turn configuration rides on the submitted `Input`
+/// instead, so the harness itself stays fixed for the Member's lifetime.
 pub fn build_harness(
     config: &Arc<Config>,
     agent_state: &Arc<AgentState>,
@@ -273,7 +263,8 @@ mod tests {
 
     /// `spawn_agent` with an unsupported `agent_type` must return an
     /// `AgentHandle` whose channel closes promptly (the poison task drops
-    /// `command_rx` so `is_closed()` becomes true and `/livez` restarts the pod).
+    /// `command_rx` so `is_closed()` becomes true and `/livez` restarts the
+    /// pod).
     #[tokio::test]
     async fn spawn_agent_with_invalid_agent_type_closes_channel_promptly() {
         let cancel = CancellationToken::new();

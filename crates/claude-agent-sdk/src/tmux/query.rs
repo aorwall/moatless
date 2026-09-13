@@ -157,10 +157,11 @@ pub async fn query_tmux(prompt: &str, mut options: ClaudeOptions) -> Result<Quer
     ))
 }
 
-/// Multi-turn tmux client. Spawns the TUI and returns immediately — caller
-/// drives the conversation via [`QueryHandle::send_user_message`]. The
-/// supervisor task discovers the JSONL transcript lazily after the caller's
-/// first message creates it.
+/// Starts a multi-turn tmux client, spawning the TUI and returning immediately.
+///
+/// The caller drives the conversation via [`QueryHandle::send_user_message`];
+/// the supervisor discovers the JSONL transcript lazily, after the first
+/// message creates it.
 pub async fn query_tmux_streaming(mut options: ClaudeOptions) -> Result<QueryHandle> {
     warn_on_ignored_options(&options);
 
@@ -239,9 +240,9 @@ fn warn_on_ignored_options(options: &ClaudeOptions) {
     }
 }
 
-/// Inject `CLAUDE_P_FIFO=<path>` into `options.env` so the relay script (run
-/// by claude when a hook fires) can locate the FIFO. The env map is created
-/// on demand.
+/// Inject `CLAUDE_P_FIFO=<path>` into `options.env` so the relay script (run by
+/// claude when a hook fires) can locate the FIFO. The env map is created on
+/// demand.
 fn inject_fifo_env(options: &mut ClaudeOptions, harness: &HookHarness) {
     let env = options
         .env
@@ -252,10 +253,11 @@ fn inject_fifo_env(options: &mut ClaudeOptions, harness: &HookHarness) {
     );
 }
 
-/// Detach a no-op task that keeps `harness` alive until the cancellation
-/// token fires. This guarantees the FIFO and relay script remain on disk
-/// while the supervisor + hook listener are still using them — `Drop` only
-/// runs when the last `Arc` reference is dropped.
+/// Detach a no-op task that keeps `harness` alive until the cancellation token
+/// fires.
+///
+/// Guarantees the FIFO and relay script stay on disk while the supervisor and
+/// hook listener use them — `Drop` runs only on the last `Arc`.
 fn anchor_harness(harness: Arc<HookHarness>, cancellation_token: CancellationToken) {
     tokio::spawn(async move {
         cancellation_token.cancelled().await;

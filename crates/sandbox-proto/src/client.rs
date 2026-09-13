@@ -1,10 +1,10 @@
 //! gRPC client wrapper for calling sandbox pods.
 //!
 //! Replaces all HTTP calls to sandbox pods (health, status, execute-agent,
-//! stop-agent, notify-messages, search-files) with gRPC.
-//! Preview servers run as separate K8s/Docker containers, but their live
-//! start-command / env overrides are pushed through the sandbox
-//! (`apply_server_config`), which owns the control files the sidecars read.
+//! stop-agent, notify-messages, search-files) with gRPC. Preview servers run as
+//! separate K8s/Docker containers, but their live start-command / env overrides
+//! are pushed through the sandbox (`apply_server_config`), which owns the
+//! control files the sidecars read.
 
 use std::collections::BTreeMap;
 use std::time::Duration;
@@ -30,7 +30,8 @@ use tracing::debug;
 
 pub use moatless_types::workspace::ServerOverride;
 
-/// Raise from tonic's 4 MB default so binary files (audio, images) can round-trip.
+/// Raise from tonic's 4 MB default so binary files (audio, images) can
+/// round-trip.
 const MAX_GRPC_MESSAGE_SIZE: usize = 32 * 1024 * 1024;
 const SHORT_RPC_TIMEOUT: Duration = Duration::from_secs(10);
 const JOIN_TASK_TIMEOUT: Duration = Duration::from_mins(5);
@@ -92,8 +93,8 @@ impl SandboxClient {
 
     /// Register a task as a member of an already-running warm sandbox.
     ///
-    /// See `JoinTaskRequest` for what `agent_type` selects and what its absence
-    /// falls back to.
+    /// See `JoinTaskRequest` for what `agent_type` selects and its fallback
+    /// when absent.
     pub async fn join_task(
         &self,
         task_id: &str,
@@ -232,7 +233,8 @@ impl SandboxClient {
         }
     }
 
-    /// See `sandbox::files::tree::get_file_tree_with_changes` for the file-tree contract.
+    /// See `sandbox::files::tree::get_file_tree_with_changes` for the file-tree
+    /// contract.
     pub async fn get_file_tree(
         &self,
         root_path: &str,
@@ -379,8 +381,8 @@ impl SandboxClient {
 
     /// Push a freshly stored credential to the sandbox.
     ///
-    /// Used by `CredentialService::broadcast` after a credential is rotated
-    /// (sandbox-side or via the UI) to keep every running pod's view fresh.
+    /// Used by `CredentialService::broadcast` after a rotation to keep every
+    /// running pod's view fresh.
     pub async fn refresh_credential(
         &self,
         task_id: &str,
@@ -411,10 +413,9 @@ impl SandboxClient {
     /// Push a preview server's override into the sandbox and optionally restart
     /// it in place.
     ///
-    /// The override is sent whole rather than as a delta, so the sandbox never
-    /// merges. Callers that need a partial update read the current state with
-    /// [`Self::get_server_config`] first. Returns the sidecar generation after
-    /// the call.
+    /// Sent whole, never merged as a delta — callers needing a partial update
+    /// read current state via [`Self::get_server_config`] first. Returns the
+    /// sidecar generation after the call.
     pub async fn apply_server_config(
         &self,
         task_id: &str,
@@ -445,12 +446,11 @@ impl SandboxClient {
         }
     }
 
-    /// Read every preview-server override currently on the workspace volume,
-    /// keyed by server name, as `(override, generation)`.
+    /// Read every preview-server override on the workspace volume, keyed by
+    /// server name, as `(override, generation)`.
     ///
-    /// The control files are the only record of an override — nothing is
-    /// persisted backend-side — so this is the authoritative read and it needs a
-    /// running sandbox. Servers with no override are absent from the map.
+    /// The control files are the only record, so this needs a running sandbox;
+    /// servers with no override are absent from the map.
     pub async fn get_server_config(
         &self,
         task_id: &str,
@@ -659,9 +659,8 @@ impl SandboxClient {
 
     /// Both review diff scopes of the sandbox workspace.
     ///
-    /// Given a longer deadline than the other file calls: a patch is the whole
-    /// working tree of every repository in the workspace, and the sandbox reads
-    /// it with `git` rather than from an index.
+    /// Given a longer deadline than other file calls: a patch is the whole
+    /// working tree of every repo, read with `git` rather than an index.
     pub async fn get_git_diff_preview(
         &self,
         base_ref: Option<String>,
@@ -757,9 +756,9 @@ impl SandboxClient {
 
 /// Hands out a gRPC client for a task's sandbox.
 ///
-/// The seam sits here, beside [`SandboxClient`], because the client is the
-/// thing it returns: a consumer that names this trait already compiles the
-/// generated protocol, and a consumer that does not stays off it.
+/// Sits beside [`SandboxClient`] since that's what it returns: naming this
+/// trait pulls in the generated protocol, not naming it keeps a consumer off
+/// it.
 #[async_trait]
 pub trait SandboxConnector: Send + Sync {
     async fn sandbox_client(&self, task_id: &str) -> Result<SandboxClient, SandboxError>;

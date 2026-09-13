@@ -1,20 +1,11 @@
 //! JSONL transcript record → `SdkMessage` translation.
 //!
 //! The interactive Claude TUI writes a structured JSONL transcript to
-//! `~/.claude/projects/<dashed-cwd>/<session-id>.jsonl`. This module maps each
-//! line into the SDK's `SdkMessage` shape so consumers cannot tell which
-//! backend produced the events.
-//!
-//! Differences from the `--print` stream-json output:
-//! - JSONL uses camelCase at the top level (`sessionId`, `requestId`,
-//!   `parentUuid`); we patch `sessionId` → `session_id` before deserializing.
-//! - There is no `Result` record. `turn_duration` system records mark the end
-//!   of an assistant turn; we synthesize a `Result::Success` from the
-//!   accumulated assistant usage.
-//! - There is no `System(init)` record either; the tailer synthesizes one on
-//!   startup from the JSONL filename + first assistant model.
-//! - MCP tool results carry `content` as an array of text blocks. We normalize
-//!   that to a single string for parity with the subprocess path.
+//! `~/.claude/projects/<dashed-cwd>/<session-id>.jsonl`; this module maps each
+//! line into the SDK's `SdkMessage` shape. Unlike `--print` stream-json: JSONL
+//! is camelCase (`sessionId` is patched to `session_id`); there is no `Result`
+//! or `System(init)` record, so both are synthesized here from
+//! `turn_duration`/the filename; and MCP `content` arrays become one string.
 
 use std::collections::HashSet;
 
@@ -37,10 +28,9 @@ pub(crate) struct TurnAccumulator {
     pub(crate) last_text: String,
     pub(crate) last_assistant_uuid: Option<String>,
     pub(crate) accumulated_usage: Usage,
-    /// Anthropic `message.id`s whose usage is already in `accumulated_usage`.
-    /// The CLI writes one record per content block, each repeating the same id
-    /// and the same usage, so counting every record multiplies the turn total
-    /// by the block count.
+    /// Anthropic `message.id`s already folded into `accumulated_usage`. The CLI
+    /// repeats the same id/usage per content block, so counting every record
+    /// would multiply the turn total by the block count.
     usage_seen: HashSet<String>,
     /// Set when the turn contained an API-error assistant record (e.g. a 404
     /// `model_not_found`). Makes the synthesized `Result` a loud failure
@@ -130,16 +120,10 @@ impl TurnAccumulator {
         self.last_assistant_uuid = Some(assistant_uuid);
     }
 
-    /// Fold a completed sub-agent's totals into the turn.
-    ///
-    /// Sub-agent records live in their own transcript files, so their usage
-    /// never reaches [`accumulate`]. The spawning `Task` `tool_result` carries
-    /// the finished totals on the main stream — in order, exactly once, before
-    /// the turn ends — which is what makes this safe to add here.
-    ///
-    /// Deliberately leaves `last_text`/`last_assistant_uuid` alone: the
-    /// synthesized `Result` must report the main agent's reply, not a
-    /// sub-agent's.
+    /// Safe here because the spawning `Task` `tool_result` carries them exactly
+    /// once before the turn ends; deliberately leaves
+    /// `last_text`/`last_assistant_uuid` alone so the `Result` still reports
+    /// the main agent's reply.
     pub(crate) fn accumulate_subagent_usage(&mut self, usage: &Usage) {
         self.accumulated_usage.input_tokens += usage.input_tokens;
         self.accumulated_usage.output_tokens += usage.output_tokens;
@@ -173,22 +157,17 @@ pub(crate) enum Translated {
     One(Box<SdkMessage>),
 }
 
-/// Translate a parsed JSONL value into zero, one, or two `SdkMessage`s.
-/// A finished sub-agent, as reported by the spawning `Task` `tool_result`.
+/// Translate a parsed JSONL value into zero, one, or two `SdkMessage`s. A
+/// finished sub-agent, as reported by the spawning `Task` `tool_result`.
 pub(crate) struct SubagentCompletion {
     pub(crate) agent_id: String,
     pub(crate) tool_use_id: String,
 }
 
-/// Pull the sub-agent link out of a main-transcript `Task` `tool_result`.
-///
-/// The record carries `toolUseResult.agentId` alongside a `tool_result` block
-/// whose `tool_use_id` is the call that spawned it — the only place the two
-/// ids appear together, and what lets sub-agent transcripts be threaded back
-/// onto the tool call in the UI.
-///
-/// Its `usage`/`totalTokens` are deliberately ignored: they cover only the
-/// sub-agent's final API call. Totals come from the transcript instead.
+/// Ties `toolUseResult.agentId` to the `tool_result`'s `tool_use_id` — the only
+/// place the two ids appear together. Its `usage`/`totalTokens` are ignored;
+/// they cover only the sub-agent's final call, so totals come from the
+/// transcript instead.
 pub(crate) fn extract_subagent_completion(value: &Value) -> Option<SubagentCompletion> {
     let result = value.get("toolUseResult")?;
     let agent_id = result.get("agentId")?.as_str()?.to_string();
@@ -412,14 +391,10 @@ fn translate_compact_boundary(value: Value) -> Translated {
 }
 
 /// Synthesize a [`SdkMessage::Result`] from a `Stop` hook payload when the
-/// JSONL transcript hasn't yielded a `turn_duration` system record within
-/// the supervisor's retry budget.
+/// JSONL transcript hasn't yielded a `turn_duration` record in time.
 ///
-/// Returns `None` if the payload has no usable `last_assistant_message`.
-///
-/// `total_cost_usd` is `0.0` (already a documented tmux limitation). The
-/// usage block is zeroed since we can't recover token counts from the
-/// hook payload.
+/// Returns `None` without a usable `last_assistant_message`; `total_cost_usd`
+/// and the usage block are zeroed since the hook payload carries neither.
 pub(crate) fn translate_stop_payload_fallback(
     payload_json: &str,
     fallback_session_id: &str,

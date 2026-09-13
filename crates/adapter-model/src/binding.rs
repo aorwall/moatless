@@ -1,17 +1,13 @@
 //! The Binding domain the Adapter kernel publishes: the read seam, the origin
 //! taxonomy, and the vocabulary a provider builds from an inbound event.
 //!
-//! An Adapter that only *asks about* Bindings reads [`BindingProbe`]. It is
-//! declared in the Adapter kernel, which every consumer already names for the
-//! Adapter contract; the Binding store implements it in the `moatless-loops`
-//! crate, beside the table it reads. An Adapter that *drives* the Binding
-//! lifecycle names that store directly — a narrow read port beside a store a
-//! crate already holds is a second surface, not a seam.
+//! An Adapter that only *asks about* Bindings reads [`BindingProbe`],
+//! implemented by the Binding store in `moatless-loops` beside its table; one
+//! that *drives* the Binding lifecycle names that store directly.
 //!
-//! The origin constants are the declared `task_bindings.origin` values adapter
-//! routing uses; the column is an open string and other writers use values
-//! outside this set. [`binding_context`] projects a stored Binding into the
-//! shape a provider replies against.
+//! Origin constants are the declared `task_bindings.origin` values adapter
+//! routing uses — the column is an open string, and other writers use values
+//! outside this set.
 
 use async_trait::async_trait;
 
@@ -32,23 +28,20 @@ pub trait BindingProbe: Send + Sync {
     ) -> Result<bool, StoreError>;
 }
 
-/// The declared `task_bindings.origin` values adapter routing uses, and the
-/// role taxonomy: the direction in which the task and the external subject met.
+/// The `task_bindings.origin` role taxonomy: the direction the task and
+/// external subject met.
 ///
-/// [`ADAPTER_EVENT_BINDING_ORIGIN`] is the responder direction — the subject
-/// existed first and a loop spawned a task from it, so it is the one origin the
-/// router writes from an inbound event. Every other origin is a producer: the
-/// task existed first and reached out.
-///
-/// The string values are fixed; existing database rows and the API depend on
-/// them.
+/// This is the responder direction — the router writes it from an inbound
+/// event; every other origin is a producer where the task existed first. Values
+/// are fixed: existing rows and the API depend on them.
 pub const ADAPTER_EVENT_BINDING_ORIGIN: &str = "ingress";
 /// Producer: the task replied into a subject, or was connected to one.
 pub const CONNECTED_THREAD_BINDING_ORIGIN: &str = "connected_thread";
 /// Producer: a CLI-driven endpoint filed the subject on the task's behalf.
 pub const TASK_OWNED_BINDING_ORIGIN: &str = "task_owned";
 
-/// Build a provider binding context from a task binding. Never persist this row.
+/// Build a provider binding context from a task binding. Never persist this
+/// row.
 pub fn binding_context(binding: &TaskBinding) -> BindingContext {
     let mut destination_config = binding.destination_config.clone();
     if let Some(obj) = destination_config.as_object_mut() {
@@ -76,8 +69,8 @@ pub fn binding_context(binding: &TaskBinding) -> BindingContext {
 
 /// Adapter-facing subject context.
 ///
-/// This is synthesized from a task binding before invoking Adapter-specific
-/// outbound and context-fetching code.
+/// Synthesized from a task binding before invoking Adapter-specific outbound
+/// and context-fetching code.
 #[derive(Debug, Clone)]
 pub struct BindingContext {
     pub binding_id: String,
@@ -101,7 +94,8 @@ pub struct BindingDestination {
     pub subject_key: String,
     /// Provider-defined JSON needed to send future replies.
     pub destination_config: serde_json::Value,
-    /// Optional cursor seeded when the binding is created from an outbound send.
+    /// Optional cursor seeded when the binding is created from an outbound
+    /// send.
     pub last_external_event_id: Option<String>,
 }
 

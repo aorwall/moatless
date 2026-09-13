@@ -31,8 +31,8 @@ impl GitService {
 
 /// The service `name` asks for, or `None` for one this proxy does not forward.
 ///
-/// Anything else is a path git never asks for, and forwarding it would make the
-/// proxy a general-purpose fetcher for whatever the credential can reach.
+/// Forwarding anything else would make the proxy a general-purpose fetcher for
+/// whatever the credential can reach.
 fn service_named(name: &str) -> Option<GitService> {
     match name {
         "git-upload-pack" => Some(GitService::UploadPack),
@@ -43,11 +43,8 @@ fn service_named(name: &str) -> Option<GitService> {
 
 /// Headers copied from git's request onto the upstream one.
 ///
-/// `Content-Encoding` is not optional: git gzips an `upload-pack` request once
-/// it is large enough, and a host that is not told so reads the compressed
-/// bytes as pkt-line and answers a bare `0002`, which git reports as
-/// `fatal: expected 'packfile'`. A small `ls-refs` request is not gzipped, so a
-/// clone gets as far as the ref list before it fails.
+/// `Content-Encoding` is required: an unlabeled gzipped `upload-pack` request
+/// reads as pkt-line upstream, and git fails with `fatal: expected 'packfile'`.
 const FORWARDED_REQUEST_HEADERS: [HeaderName; 4] = [
     header::CONTENT_TYPE,
     header::CONTENT_ENCODING,
@@ -55,10 +52,11 @@ const FORWARDED_REQUEST_HEADERS: [HeaderName; 4] = [
     header::USER_AGENT,
 ];
 
-/// Headers copied from the upstream response. `Content-Length` and
-/// `Transfer-Encoding` are hop-by-hop and stay out rather than being overlooked:
-/// `reqwest` has already dechunked the body this hop re-frames, so either one
-/// forwarded describes an encoding the bytes beneath it no longer carry.
+/// Headers copied from the upstream response.
+///
+/// `Content-Length` and `Transfer-Encoding` stay out: `reqwest` already
+/// dechunked the body, so forwarding either would describe an encoding the
+/// bytes no longer carry.
 const FORWARDED_RESPONSE_HEADERS: [HeaderName; 2] = [header::CONTENT_TYPE, header::CACHE_CONTROL];
 
 #[derive(Deserialize)]

@@ -1,8 +1,8 @@
 //! Kubernetes Lease-based leader election.
 //!
 //! Uses the `coordination.k8s.io/v1` Lease API for leader election among
-//! multiple replicas. Only the leader runs the pod lifecycle watcher to
-//! avoid duplicate event processing.
+//! multiple replicas. Only the leader runs the pod lifecycle watcher to avoid
+//! duplicate event processing.
 
 use k8s_openapi::api::coordination::v1::Lease;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::MicroTime;
@@ -44,9 +44,9 @@ impl LeaderElection {
 
     /// Set a custom lease duration (in seconds).
     ///
-    /// The lease duration must be **longer** than the interval between
-    /// `try_acquire_or_renew` calls, otherwise the lease will always
-    /// appear expired and leadership will be re-acquired every cycle.
+    /// Must be longer than the interval between `try_acquire_or_renew` calls,
+    /// or the lease always appears expired and leadership is re-acquired every
+    /// cycle.
     pub fn with_lease_duration(mut self, secs: i32) -> Self {
         self.lease_duration_secs = secs;
         self
@@ -55,12 +55,6 @@ impl LeaderElection {
     /// Try to acquire or renew the lease.
     ///
     /// Returns `true` if this instance is the leader after the call.
-    ///
-    /// Algorithm:
-    /// 1. GET the Lease. If 404, CREATE it (we become leader).
-    /// 2. If we hold it, UPDATE renewTime.
-    /// 3. If someone else holds it and it's expired, take over.
-    /// 4. Otherwise, we're not the leader.
     pub async fn try_acquire_or_renew(&self) -> Result<bool, kube::Error> {
         let now = jiff::Timestamp::now();
 
@@ -154,9 +148,9 @@ impl LeaderElection {
 
     /// Update an existing Lease (renew or take over).
     ///
-    /// Uses `replace` (PUT) with the existing `resourceVersion` for
-    /// optimistic concurrency. This is more reliable than merge-patch
-    /// because the full object is written back atomically.
+    /// Uses `replace` (PUT) with the existing `resourceVersion` for optimistic
+    /// concurrency — more reliable than merge-patch since the full object is
+    /// written back atomically.
     async fn update_lease(&self, existing: &Lease) -> Result<(), kube::Error> {
         let now = jiff::Timestamp::now();
         let mut lease = existing.clone();
@@ -173,9 +167,11 @@ impl LeaderElection {
     }
 }
 
-/// K8s Lease-based [`LeaderGuard`] wrapping a [`LeaderElection`]. Lives here,
-/// beside the K8s client, so the dependency-free `LeaderGuard` trait stays free
-/// of K8s and its consumers (cron scheduler, codex refresher) depend only on it.
+/// K8s Lease-based [`LeaderGuard`] wrapping a [`LeaderElection`].
+///
+/// Lives here, beside the K8s client, so the dependency-free `LeaderGuard`
+/// trait stays free of K8s and its consumers (cron scheduler, codex refresher)
+/// depend only on it.
 pub struct K8sLeaderGuard(pub LeaderElection);
 
 #[async_trait::async_trait]

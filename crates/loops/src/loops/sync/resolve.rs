@@ -58,7 +58,8 @@ pub(super) fn declared_agent_type(fm: &LoopFrontmatter) -> String {
 }
 
 impl LoopSyncService {
-    /// Resolve a parsed loop into concrete persistence values, or a skip reason.
+    /// Resolve a parsed loop into concrete persistence values, or a skip
+    /// reason.
     ///
     /// Hard errors (DB lookups) propagate; logical problems (no connection,
     /// invalid cron, unknown `on`) become a `Skipped` outcome.
@@ -409,17 +410,17 @@ impl LoopSyncService {
 // Pure helpers (unit-tested below)
 // =========================================================================
 
-/// Default kickoff message for a schedule loop with no explicit `schedule.message`.
+/// Default kickoff message for a schedule loop with no explicit
+/// `schedule.message`.
 pub(crate) fn default_schedule_message(loop_name: &str) -> String {
     format!("Run the `{loop_name}` loop.")
 }
 
-/// Build the `adapter_config` (stored as `adapter_config`) for an `on: linear`
-/// loop: start from any user-provided `adapterConfig` object, layer the loop's
-/// first-class status/project/label knobs on top, and default
-/// `create_on_status_entry` on unless the user set it — the original Linear loop
-/// use case is spawning tasks on status entry. A loop can opt out
-/// (`createOnStatusEntry: false`) to run mention-mode only.
+/// Build `adapter_config` for an `on: linear` loop.
+///
+/// Merges the user's `adapterConfig` object with the loop's first-class
+/// status/project/label knobs, defaulting `create_on_status_entry` on unless
+/// set (opt out via `createOnStatusEntry: false` for mention-mode only).
 pub(crate) fn build_linear_adapter_config(fm: &LoopFrontmatter) -> serde_json::Value {
     let mut obj = match fm.adapter_config.clone() {
         Some(serde_json::Value::Object(m)) => m,

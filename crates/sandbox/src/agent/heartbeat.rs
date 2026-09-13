@@ -1,15 +1,12 @@
 //! Liveness heartbeat for the agent lifecycle task.
 //!
-//! The coordinator service is the single task that drives every agent turn. If that
-//! task wedges (a processor `await` that never returns, a deadlock on a shared
-//! lock) the pod keeps passing its `/health` readiness gate — `InitPhase::Ready`
-//! stays set — yet no turn can ever make progress. K8s never restarts it.
+//! If the coordinator service wedges (a deadlock, an `await` that never
+//! returns), the pod keeps passing `/health` and K8s never restarts it, yet no
+//! turn can progress.
 //!
-//! The heartbeat closes that gap: the lifecycle task stamps [`Heartbeat::beat`] on every
-//! loop iteration and on a periodic tick, and the `/livez` handler checks the
-//! stamp for staleness. Liveness depends ONLY on the lifecycle task being alive — never
-//! on backend reachability, credentials, or disk — so a transient backend
-//! outage can never trigger a restart that kills an in-flight turn.
+//! The lifecycle task stamps [`Heartbeat::beat`] each loop iteration and on a
+//! tick; `/livez` checks staleness ONLY against that stamp, never against
+//! backend reachability, credentials, or disk.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -20,17 +17,18 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 /// briefly busy loop never trips it.
 pub const HEARTBEAT_STALE_THRESHOLD_MS: u64 = 60_000;
 
-/// Cadence at which the lifecycle task bumps the heartbeat even when it is otherwise
-/// blocked waiting for runtime messages. Keeps the stamp fresh while the model
-/// is thinking (a long tool call emits no messages), so `Running` staleness only
-/// ever means the lifecycle task itself is stuck — not that a turn is slow.
+/// Cadence at which the lifecycle task bumps the heartbeat even while blocked
+/// waiting for runtime messages.
+///
+/// Keeps the stamp fresh while the model is thinking, so `Running` staleness
+/// means the lifecycle task itself is stuck, never that a turn is slow.
 pub const HEARTBEAT_TICK_INTERVAL: Duration = Duration::from_secs(5);
 
 /// Current wall-clock time as milliseconds since the Unix epoch.
 ///
-/// Falls back to `0` if the system clock is somehow before the epoch; that only
-/// makes the heartbeat look maximally stale, which fails safe (the handler still
-/// checks the command channel before declaring the lifecycle task dead).
+/// Falls back to `0` before the epoch, which only makes the heartbeat look
+/// maximally stale — fails safe, since the handler still checks the command
+/// channel first.
 pub fn now_millis() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -71,12 +69,9 @@ impl Heartbeat {
 
 /// Pure liveness decision for the agent lifecycle task.
 ///
-/// - A closed command channel means the lifecycle task has exited entirely — no turn
-///   can ever run again, so the sandbox is unhealthy regardless of turn state.
-/// - While a turn is `Running` the lifecycle task must keep beating; a stale stamp
-///   means the loop is wedged mid-turn.
-/// - When idle the loop legitimately blocks on the command channel, so an open
-///   channel is a sufficient liveness signal on its own.
+/// A closed command channel is always dead; an open one is alive unless a
+/// `Running` turn's heartbeat has gone stale, meaning the loop is wedged
+/// mid-turn.
 pub fn actor_is_alive(
     now_ms: u64,
     last_beat_ms: u64,

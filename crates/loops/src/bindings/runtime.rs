@@ -34,15 +34,12 @@ use moatless_types::task::TaskStatus;
 pub use moatless_adapter_model::binding::ADAPTER_EVENT_BINDING_ORIGIN as ORIGIN_ADAPTER_EVENT;
 pub use moatless_adapter_model::binding::CONNECTED_THREAD_BINDING_ORIGIN as ORIGIN_CONNECTED_THREAD;
 
-/// The inbound-routing subgraph, owning the ports it reads so the routing logic
-/// names none of them through `AppState`.
+/// The inbound-routing subgraph, owning the ports it reads so the routing
+/// logic names none of them through `AppState`.
 ///
-/// Held on `AppState` as `state.routing` and built once at the composition root.
-/// The durable inbound-delivery handler holds a single `Arc<RoutingService>`
-/// rather than a field per port, and `subject_events` routes through it too. A
-/// provider that drives the Binding lifecycle itself holds
-/// [`crate::bindings::operations::Bindings`] instead, so this module names no
-/// `AppState`. See `docs/deferred-changes.md`.
+/// Held on `AppState` as `state.routing`; the durable inbound-delivery handler
+/// and `subject_events` both route through one shared `Arc<RoutingService>`
+/// instead of a field per port.
 pub struct RoutingService {
     adapter_connections: Arc<ConnectionRouting>,
     loops: Arc<LoopDao>,
@@ -58,8 +55,8 @@ pub struct RoutingService {
 
 /// The connection or Loop a record was admitted against is gone.
 ///
-/// A synthesized condition, not a wrapped failure: there is no underlying
-/// error to retain, and no retry can bring the row back.
+/// A synthesized condition, not a wrapped failure: there is no underlying error
+/// to retain, and no retry can bring the row back.
 #[derive(Debug, thiserror::Error)]
 #[error("the {what} (`{id}`) this delivery was admitted for is no longer available")]
 struct Vanished {
@@ -104,9 +101,9 @@ impl RoutingService {
     /// Re-read the connection and Loop a durable inbound delivery was admitted
     /// against.
     ///
-    /// Read at execution time rather than captured at admission so the work runs
-    /// against the current configuration, and so a deleted Loop ends the record
-    /// instead of routing through a stale copy of itself.
+    /// Read at execution time rather than captured at admission so the work
+    /// runs against the current configuration, and a deleted Loop ends the
+    /// record instead of routing through a stale copy of itself.
     pub async fn resolve_connection_and_subscription(
         &self,
         connection_id: &str,
@@ -421,14 +418,11 @@ impl RoutingService {
 
     /// Deliver one event to the bindings on its subject that should receive it.
     ///
-    /// The single place the delivery decision is made, for every adapter. It
-    /// resolves the audience through [`resolve_recipients`], records why each
-    /// binding it passes over was passed over, checks the redelivery receipt, and
-    /// fails loudly when a subject that had bindings ends up with no recipient at
-    /// all.
-    ///
-    /// Returns the last task delivered to — or accounted for, where a skip means
-    /// the task already holds the event.
+    /// The single delivery decision point for every adapter: resolves the
+    /// audience via [`resolve_recipients`], checks the redelivery receipt,
+    /// fails loudly when a subject with bindings ends up with no recipient, and
+    /// returns the last task delivered to (or accounted for, where a skip means
+    /// it already holds the event).
     pub(crate) async fn fan_out(
         &self,
         connection: &AdapterConnection,
@@ -628,17 +622,14 @@ impl RoutingService {
         .into())
     }
 
-    /// The task that authored the parent event an [`Audience::ParentAuthor`] names,
-    /// or `None` for every other audience and for a parent no task authored.
+    /// The task that authored the parent event an [`Audience::ParentAuthor`]
+    /// names, or `None` for every other audience and for a parent no task
+    /// authored.
     ///
-    /// This lookup sits above [`resolve_recipients`] because the resolver performs
-    /// no input or output of its own — see [`crate::bindings::recipients`]. An
-    /// audience that names no parent asks nothing of the database.
-    ///
-    /// It asks across every subject, which the parent id being a comment id
-    /// makes correct: `github:rc:<id>` and `linear:comment:<uuid>` are
-    /// allocated once by the provider, so the id names the comment without
-    /// help. Only an audience whose parent is a comment reaches here.
+    /// Sits above [`resolve_recipients`], which performs no I/O of its own;
+    /// asks across every subject rather than just this one, since the parent id
+    /// — `github:rc:<id>`, `linear:comment:<uuid>` — is allocated once by the
+    /// provider and names the comment without help.
     pub async fn parent_author_task_id(
         &self,
         adapter_label: &str,
@@ -808,11 +799,10 @@ impl RoutingService {
 /// One event, the bindings on its subject, and what routing already knows about
 /// who wrote it.
 ///
-/// Assembling the set is the caller's job because it is the one part of routing
-/// that is not shared: a chat adapter spawns a task for a subject nothing is
-/// bound to, the GitHub PR adapter spawns one only when a pull request opens.
-/// Deciding who among them receives the event is not — that is
-/// [`RoutingService::fan_out`].
+/// Assembling the set is the caller's job, since spawning varies per adapter (a
+/// chat adapter spawns for any unbound subject, GitHub PR only when a pull
+/// request opens); deciding who among them receives the event does not, and
+/// lives in [`RoutingService::fan_out`].
 pub struct Fanout<'a> {
     /// The adapter label the event is delivered and metered under: the value
     /// `task_messages.external_adapter` carries, and the key the adapter
@@ -890,8 +880,8 @@ mod tests {
         );
     }
 
-    /// A `Vanished` names the row that is gone so an abandoned delivery says why,
-    /// not just that it failed.
+    /// A `Vanished` names the row that is gone so an abandoned delivery says
+    /// why, not just that it failed.
     #[test]
     fn a_vanished_row_names_what_is_missing() {
         let failure = super::AdapterDeliveryFailure::permanent(super::Vanished {

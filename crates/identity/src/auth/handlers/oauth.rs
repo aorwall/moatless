@@ -47,9 +47,9 @@ pub(super) async fn initiate_oauth(
         .into_response())
 }
 
-/// Handle OAuth callback for a given provider.
-/// `code` is absent when the person declined on the provider's consent screen,
-/// which is a normal outcome rather than a malformed request.
+/// Handle OAuth callback for a given provider. `code` is absent when the person
+/// declined on the provider's consent screen, which is a normal outcome rather
+/// than a malformed request.
 pub(super) async fn handle_oauth_callback(
     state: &AuthState,
     provider_id: AuthProvider,

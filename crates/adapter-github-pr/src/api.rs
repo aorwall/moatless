@@ -39,16 +39,16 @@ pub(super) struct PrInfo {
     /// Whether the PR is a draft.
     #[serde(default)]
     pub(super) draft: Option<bool>,
-    /// Whether GitHub currently considers the PR mergeable. `None` until the
-    /// background mergeability job finishes — GitHub computes this lazily and
-    /// the first `GET` on the PR is what kicks the computation off, so a fresh
-    /// read is often `null`.
+    /// Whether GitHub currently considers the PR mergeable.
+    ///
+    /// `None` until GitHub's background mergeability job finishes; the first
+    /// `GET` on the PR is what triggers that job, so a fresh read is often
+    /// `null`.
     #[serde(default)]
     pub(super) mergeable: Option<bool>,
-    /// Coarse merge state: `clean`, `dirty` (has conflicts), `blocked`,
-    /// `behind`, `unstable`, `has_hooks`, `draft`, or `unknown` (not yet
-    /// computed). Only present on the single-PR endpoint, never on list/webhook
-    /// payloads.
+    /// Coarse merge state (`clean`, `dirty`, `blocked`, `unknown`, …).
+    ///
+    /// Only present on the single-PR endpoint, never on list/webhook payloads.
     #[serde(default)]
     pub(super) mergeable_state: Option<String>,
     /// PR web URL (`html_url`).
@@ -194,8 +194,8 @@ impl GithubPrApi {
         Ok(comment_id)
     }
 
-    /// Create a pull request. Returns the raw GitHub PR payload so callers
-    /// can extract the fields they need (`number`, `html_url`, ...).
+    /// Create a pull request. Returns the raw GitHub PR payload so callers can
+    /// extract the fields they need (`number`, `html_url`, ...).
     #[allow(clippy::too_many_arguments)] // reason: mirrors the GitHub create-PR parameter set
     pub(super) async fn create_pr(
         &self,
@@ -275,10 +275,8 @@ impl GithubPrApi {
 
     /// List pull requests associated with a commit sha.
     ///
-    /// Calls `GET /repos/{owner}/{repo}/commits/{sha}/pulls`. Used to map a
-    /// main-branch CI run (which carries no PR reference in its webhook) back
-    /// to the PR whose merge produced the commit — GitHub associates the merge
-    /// (or squash) commit with the merged PR.
+    /// Used to map a main-branch CI run (no PR reference in its webhook) back
+    /// to the PR whose merge produced the commit.
     pub(super) async fn get_pulls_for_commit(
         &self,
         owner: &str,
@@ -311,12 +309,9 @@ impl GithubPrApi {
 
     /// The open pull request whose head branch is `head`, if any.
     ///
-    /// `GET /repos/{owner}/{repo}/pulls?head={owner}:{head}&state=open`. GitHub
-    /// filters `head` as `{owner}:{branch}`, so a fork's like-named branch is
-    /// not mistaken for this repository's. A head branch has at most one open
-    /// pull request, so the first match is the answer. Serves three callers: the
-    /// stacked action's `opened_existing` path, the create-PR endpoint's 422
-    /// recovery, and binding a Task prepared from a pull-request reference.
+    /// GitHub filters `head` as `{owner}:{branch}`, so a fork's like-named
+    /// branch is never mistaken for this repo's; a head branch has at most one
+    /// open PR, so the first match is the answer.
     pub(super) async fn find_open_pr_for_head(
         &self,
         owner: &str,
@@ -356,8 +351,7 @@ impl GithubPrApi {
 
     /// Reply to a PR review comment (threaded review reply).
     ///
-    /// Calls `POST /repos/{owner}/{repo}/pulls/{pr}/comments/{cid}/replies` and
-    /// returns the new review comment id.
+    /// Returns the new review comment id.
     pub(super) async fn reply_to_review_comment(
         &self,
         owner: &str,
@@ -437,16 +431,12 @@ impl GithubPrApi {
             .map_err(|e| SharedAdapterError::provider_response_invalid("GitHub get_pr", e).into())
     }
 
-    /// Fetch PR metadata, polling until GitHub has computed the mergeable
-    /// state (or a small retry budget is exhausted).
+    /// Fetch PR metadata, polling until GitHub has computed the mergeable state
+    /// (or a small retry budget is exhausted).
     ///
-    /// GitHub computes mergeability asynchronously: a PR read right after a push
-    /// returns `mergeable: null` / `mergeable_state: "unknown"`, and the read
-    /// itself is what loops the background job. We retry a few times with a
-    /// short backoff so callers get a settled `clean`/`dirty`/… value. If it
-    /// never settles within the budget, the last (possibly `unknown`) `PrInfo`
-    /// is returned rather than erroring — callers treat `unknown` as
-    /// "inconclusive" and simply don't notify.
+    /// Never errors on timeout: if mergeability never settles, the last
+    /// (possibly `unknown`) `PrInfo` is returned and callers treat `unknown` as
+    /// inconclusive.
     pub(super) async fn get_pr_mergeable(
         &self,
         owner: &str,

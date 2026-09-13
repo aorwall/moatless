@@ -1,17 +1,11 @@
 //! Shared ingress vocabulary for provider dispatchers.
 //!
 //! Providers keep transport verification, parsing, and provider-specific
-//! decisions — every Adapter writes its own `receive`, because every step
-//! inside one is Adapter policy. What they share is the one step in the middle
-//! and how a delivery *ends*: [`admit_delivery`] hands work over through the
-//! [`DeliveryAdmission`] port, and [`Outcome`] and [`IngressError`] name the
-//! transport treatments while [`log_admission`] gives admission one operator
-//! trace instead of five.
-//!
-//! Four Adapters invented these two enums independently — GitHub PR and Linear
-//! first, then Slack and Telegram in #174, deliberately written to be identical
-//! so this hoist would be a deletion. See Decision 2 of
-//! `.plans/remaining-adapter-breakup.md`.
+//! decisions — every Adapter writes its own `receive`, since every step inside
+//! one is Adapter policy. What they share is the middle step and how a delivery
+//! *ends*: [`admit_delivery`] hands work over through the [`DeliveryAdmission`]
+//! port, [`Outcome`]/[`IngressError`] name the transport treatments, and
+//! [`log_admission`] gives one operator trace.
 
 use tracing::{debug, warn};
 
@@ -20,11 +14,9 @@ use crate::error::AdapterError;
 
 /// Commit one provider work item to the durable adapter delivery queue.
 ///
-/// The failure is handed back as [`AdmitError`], not flattened into an
-/// [`AdapterError`]: a `receive` that `?`s it lands on
-/// [`IngressError::NotAdmitted`], the one class that must never be
-/// acknowledged. Keeping it unflattened is what preserves that distinction to
-/// the caller.
+/// Returns [`AdmitError`] unflattened rather than [`AdapterError`]: a `receive`
+/// that `?`s it lands on [`IngressError::NotAdmitted`], the one class that must
+/// never be acknowledged.
 pub async fn admit_delivery(
     admission: &dyn DeliveryAdmission,
     request: AdapterDeliveryRequest,
@@ -35,15 +27,11 @@ pub async fn admit_delivery(
 /// What one Adapter's `receive` made of a delivery it is prepared to
 /// acknowledge.
 ///
-/// Both variants are answered `2xx`. What they differ in is what the handler
-/// records: a delivery whose work is now durably owned is metered by the
-/// delivery worker when that work runs, and an ignored one is metered here,
-/// under labels the outcome has to carry because ingress is the last place that
-/// knows them.
-///
-/// The four fields on [`Self::Ignored`] are `record_webhook`'s label set minus
-/// the outcome itself. Adapters that never labelled a dimension leave it empty,
-/// which is what they passed before this type existed — see [`Self::ignored`].
+/// Both variants answer `2xx`: durably-owned work is metered by the delivery
+/// worker when it runs, while an ignored delivery is metered here, carrying its
+/// own labels since ingress is the last place that knows them.
+/// [`Self::Ignored`]'s fields an Adapter never labels are left empty — see
+/// [`Self::ignored`].
 #[derive(Debug)]
 pub enum Outcome {
     /// The delivery's work is durably owned: admitted by this delivery, or
@@ -53,8 +41,8 @@ pub enum Outcome {
         /// their webhook metric.
         event_type: String,
     },
-    /// The delivery carried nothing to route, and there is no work left to
-    /// lose by acknowledging it.
+    /// The delivery carried nothing to route, and there is no work left to lose
+    /// by acknowledging it.
     Ignored {
         event_type: String,
         /// A fixed-vocabulary metric label, not a message.
@@ -81,17 +69,15 @@ impl Outcome {
 
 /// Why a delivery did not reach an [`Outcome`].
 ///
-/// The three variants exist because they get three different transport
-/// treatments, and getting the class wrong is how a delivery is lost. Each
-/// Adapter keeps its own match on them: the *type* is shared, the handler
-/// policy is not — Slack answers [`Self::Ingress`] with the failure's own
-/// status while GitHub PR meters it and returns `200`, and both did so before
-/// this type existed.
+/// The three variants get three different transport treatments, and getting the
+/// class wrong is how a delivery is lost. Each Adapter keeps its own match: the
+/// *type* is shared, the handler policy is not — e.g. Slack answers
+/// [`Self::Ingress`] with the failure's own status while GitHub PR meters it
+/// and returns `200`.
 #[derive(Debug, thiserror::Error)]
 pub enum IngressError {
     /// Durable admission did not commit, so the backend owns nothing and a
-    /// `200` would be a lie. Every Adapter reaches this by admitting through
-    /// the seam's admission call, which hands back [`AdmitError`] unflattened.
+    /// `200` would be a lie.
     ///
     /// `#[from]` is safe here and only here: [`AdmitError`] has one class, so
     /// there is no decision for a `?` to make on the caller's behalf.
@@ -105,17 +91,11 @@ pub enum IngressError {
     /// Everything the ingress path itself rejected or failed on: a missing
     /// header, an unparseable body, a refused signature, a database read.
     ///
-    /// Deliberately **not** `#[from]`. This is the class Telegram's poller
-    /// holds its offset back for, so a `?` that reached it by inference —
-    /// rather than because someone decided this failure is worth another
-    /// delivery — wedges the poller on one update and blocks every update
-    /// queued behind it. That shipped once already, on a permanently malformed
-    /// envelope normalization raises as `BadRequest`. Every construction is
-    /// written out, and every new step in a `receive` has to write one too;
-    /// where a provider-raised error is classified, that belongs at the raise
-    /// site (`telegram::ingress::classify_normalization` is the shape), not in
-    /// the poller's rule, which stays a match on these three variants and
-    /// nothing else.
+    /// Deliberately **not** `#[from]`: Telegram's poller holds its offset back
+    /// for this class, so a `?` reaching it by inference (rather than a
+    /// deliberate decision) wedges the poller on one update and blocks
+    /// everything queued behind it. Every construction is written out; a
+    /// provider-raised error is classified at its raise site instead.
     #[error(transparent)]
     Ingress(AdapterError),
 }

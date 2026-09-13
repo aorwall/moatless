@@ -17,24 +17,11 @@ use crate::transcript_dao::Transcript;
 use moatless_core::change_feed::conversation::ConversationChange;
 use moatless_types::activity::Activity;
 
-/// Everything one recorded change tells a client that already holds this
-/// conversation, as stream items, in the order the client applies them.
+/// Turns one recorded change into stream items, in the order a client applies
+/// them.
 ///
-/// Each item's sequence comes from the change's position and its own index
-/// within the change — see [`ConversationChange::sequence`]. That is also the
-/// ceiling on how much one change may say: past [`EVENTS_PER_CHANGE`] the next
-/// position begins, and this stops rather than colliding with it.
-///
-/// `window` is the changed Message and the short run before it
-/// (`ConversationDao::changed_messages`). A change naming a Message the window
-/// does not hold says nothing, which is a complete answer.
-///
-/// A change to one Message emits its bubble (`thread.message-sent`) and its
-/// work-log rows (`thread.activity-appended`), both upserts keyed on their own
-/// ids. A change naming a uuid with no Message row emits the activities alone,
-/// and one naming an activity emits that row alone and no `session_set`. A
-/// rewind names neither: it carries
-/// [`ConversationChange::reverted_to_turn`] and emits `thread.reverted`.
+/// Sequences are capped at [`EVENTS_PER_CHANGE`] per change; a Message outside
+/// `window` says nothing.
 pub(crate) fn change_events(
     conversation: &Conversation,
     change: &ConversationChange,
@@ -116,11 +103,8 @@ pub(crate) fn change_events(
 
 /// The one work-log row a change names by activity id, as its event.
 ///
-/// A Sandbox lifecycle change and a context-window reading happen on no Message,
-/// so the change names the activity itself: no bubble, and no `session_set`.
-/// The row is numbered `ordinal + 1` like a Message's activities, so a client
-/// sees the same sequence whether the row arrived in a snapshot (via
-/// [`activity_sequence`]) or here.
+/// Numbered `ordinal + 1`, matching [`activity_sequence`], so a client sees the
+/// same sequence whether the row arrived in a snapshot or here.
 fn activity_change_events(
     conversation: &Conversation,
     change: &ConversationChange,
@@ -148,11 +132,9 @@ fn activity_change_events(
 
 /// The conversation's session as an event, or nothing when it has none.
 ///
-/// A change that names no Message is a change to the conversation itself — its
-/// Turn or its Sandbox — and the contract carries both inside the session: the
-/// client derives `latestTurn` from the session it is sent. A conversation with
-/// no Sandbox row has no session at all, and the contract's payload has no
-/// empty value for one, so there is nothing to say until it does.
+/// A change naming no Message is a change to the Turn or Sandbox; the contract
+/// carries both inside the session, and a conversation with no Sandbox row has
+/// no session to send.
 fn session_set(conversation: &Conversation, change: &ConversationChange) -> Option<Value> {
     let session = session(conversation);
     if session.is_null() {
@@ -175,13 +157,9 @@ fn session_set(conversation: &Conversation, change: &ConversationChange) -> Opti
 
 /// The cut a rewind made, as the event that applies it to a client's copy.
 ///
-/// `turnCount` is the highest `task_turns.turn_number` the conversation kept, and
-/// the client drops every checkpoint above it along with that turn's messages,
-/// activities and plans — the same number a [`checkpoints`] entry reports, so the
-/// comparison it makes is against values this projection also produced.
-///
-/// Slot 0, like [`session_set`]: a rewind names no row, so nothing else shares
-/// its position.
+/// `turnCount` is the highest `task_turns.turn_number` kept; the client drops
+/// every checkpoint, message, activity and plan above it. Slot 0, since a
+/// rewind names no row to share it with.
 fn revert_event(
     conversation: &Conversation,
     change: &ConversationChange,
@@ -215,10 +193,9 @@ fn activity_appended_payload(task_id: &str, activity: Value) -> (&'static str, V
 
 /// A message bubble as the event carrying it.
 ///
-/// The contract spells one message two ways — a member of a snapshot's
-/// `messages`, and this payload — with the same values under different keys.
-/// Rewriting rather than re-deriving keeps the two from drifting: whatever a
-/// snapshot would have shown is what an event says.
+/// The contract spells one message two ways — a snapshot's `messages` member
+/// and this payload; rewriting rather than re-deriving keeps the two from
+/// drifting.
 pub(super) fn message_sent_payload(task_id: &str, bubble: &Value) -> Value {
     let mut payload = json!({
         "threadId": task_id,
@@ -242,13 +219,8 @@ pub(super) fn message_sent_payload(task_id: &str, bubble: &Value) -> Value {
 
 /// One event, in the envelope every event on this contract carries.
 ///
-/// Five of the envelope's fields are null or empty and stay that way. Moatless
-/// has no command bus, so `commandId`, `correlationId` and `causationEventId`
-/// name nothing, and `metadata` is provider bookkeeping this projection does
-/// not read.
-///
-/// `eventId` is the conversation and the sequence: the same change re-read
-/// produces the same ids, so a client that sees one twice sees the same event.
+/// `eventId` is `task_id:sequence`, so the same change re-read produces the
+/// same id, and a client that sees one twice sees the same event.
 pub(super) fn event(
     conversation: &Conversation,
     sequence: i64,

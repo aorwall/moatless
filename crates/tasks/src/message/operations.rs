@@ -16,7 +16,7 @@ use crate::task_activities::mapping::{ActivityRow, ConversationWrite};
 /// crate's own handlers reach them.
 ///
 /// The published seams are narrower: [`crate::ports::Transcript`] appends,
-/// [`crate::ports::PendingWork`] answers the wake predicate and
+/// [`crate::ports::PendingWork`] answers the wake predicate, and
 /// [`crate::ports::Activities`] serves the read model.
 pub struct Messages {
     store: Arc<dyn MessageDao>,

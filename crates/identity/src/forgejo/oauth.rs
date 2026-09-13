@@ -19,8 +19,7 @@ const PROBE_CODE: &str = "moatless-credential-probe";
 /// The `error_description` fragments Forgejo answers `unauthorized_client` with
 /// when the client credentials themselves are wrong, lowercased for comparison.
 ///
-/// From `handleAuthorizationCode` (`routers/web/auth/oauth.go`): "invalid client
-/// secret", "invalid empty client secret" and "unexpected redirect URI".
+/// From `handleAuthorizationCode` (`routers/web/auth/oauth.go`).
 const CLIENT_REJECTIONS: [&str; 2] = ["client secret", "unexpected redirect uri"];
 
 /// A credential Forgejo issued, and when it stops working.
@@ -47,8 +46,8 @@ impl Default for ForgejoOAuth {
 impl ForgejoOAuth {
     /// Where to send somebody to authorize `app`.
     ///
-    /// No `scope` parameter: Forgejo's OAuth2 has none, and sending one is not
-    /// a narrower grant but a rejected request.
+    /// No `scope` parameter: Forgejo's OAuth2 has none, and sending one is a
+    /// rejected request, not a narrower grant.
     pub fn authorize_url(app: &ForgejoOAuthApp, redirect_uri: &str, state: &str) -> String {
         let base = base_url(&app.host);
         let client_id = urlencoding::encode(&app.client_id);
@@ -86,12 +85,9 @@ impl ForgejoOAuth {
     /// Check `app`'s client id, client secret and `redirect_uri` against its
     /// instance, with nobody authorizing anything.
     ///
-    /// Forgejo validates all three before it looks an authorization code up, so
-    /// a code it is bound to reject still says which of them is wrong. Returns
-    /// that rejection unchanged.
-    ///
-    /// A public client proves only its id: Forgejo checks a secret only when
-    /// the application sets `ConfidentialClient`.
+    /// Forgejo validates all three before looking up the code, so a rejection
+    /// still says which is wrong; a public client proves only its id, since
+    /// Forgejo checks a secret only when the app sets `ConfidentialClient`.
     pub async fn verify_client_credentials(
         &self,
         app: &ForgejoOAuthApp,
@@ -180,12 +176,11 @@ impl ForgejoOAuth {
 }
 
 /// Whether `error` is Forgejo rejecting [`PROBE_CODE`] alone, having accepted
-/// the client id, the client secret and the redirect URI before it reached the
-/// code.
+/// the client id, secret and redirect URI first.
 ///
-/// Wording under `unauthorized_client` that matches no [`CLIENT_REJECTIONS`]
-/// entry counts as the code: a description a later Forgejo release rewords then
-/// still registers, rather than locking every admin out.
+/// Wording under `unauthorized_client` matching no [`CLIENT_REJECTIONS`] entry
+/// counts as the code, so a reworded description in a later Forgejo release
+/// still registers rather than locking every admin out.
 fn only_the_code_was_rejected(error: &GitProviderError) -> bool {
     let GitProviderError::OAuthRejected {
         code, description, ..

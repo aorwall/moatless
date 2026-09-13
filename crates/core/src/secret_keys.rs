@@ -44,8 +44,9 @@ pub fn forgejo_oauth_stash_key(host: &str) -> String {
 ///
 /// [`is_valid_secret_key`] rejects the dot and the dash a hostname carries. The
 /// escape is fixed-width and a host holds no `_` of its own, so two hosts never
-/// share a key: mapping every separator to `_` instead merged `git.acme.dev`
-/// with `git-acme.dev`, and one host's token then overwrote the other's.
+/// share a key — mapping every separator to plain `_` instead merged
+/// `git.acme.dev` with `git-acme.dev`, and one host's token then overwrote the
+/// other's.
 fn host_key_segment(host: &str) -> String {
     const HEX: [u8; 16] = *b"0123456789ABCDEF";
 
@@ -62,12 +63,9 @@ fn host_key_segment(host: &str) -> String {
     segment
 }
 
-/// Whether `key` names a Forgejo credential, on any of the three shapes this
-/// module builds: the Workspace pin [`FORGEJO_TOKEN`], a per-host
-/// [`forgejo_token_key`], and a per-host [`forgejo_oauth_stash_key`].
-///
-/// A caller that must keep Forgejo credentials off a channel screens with this
-/// rather than enumerating the hosts a deployment registered.
+/// Whether `key` names a Forgejo credential: the Workspace pin
+/// [`FORGEJO_TOKEN`], a per-host [`forgejo_token_key`], or a per-host
+/// [`forgejo_oauth_stash_key`].
 pub fn is_forgejo_credential_key(key: &str) -> bool {
     key == FORGEJO_TOKEN
         || key.starts_with("FORGEJO_TOKEN_")

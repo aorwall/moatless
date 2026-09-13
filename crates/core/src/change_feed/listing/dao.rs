@@ -3,22 +3,13 @@
 use super::position::{EnvironmentIdentity, ListingChange, ListingHead, RETAINED_CHANGES};
 use sqlx::{PgConnection, PgPool};
 
-/// Record that `task_id`'s listing-visible state changed, returning the position
-/// allocated for it. `tx` is the connection a transaction is running on — `&mut
-/// *tx`, never a pool, which would commit immediately and make the record
-/// visible before the mutation it describes.
+/// Record that `task_id`'s listing-visible state changed, returning the
+/// allocated position.
 ///
-/// # Call this last
-///
-/// **Take every other lock this transaction needs before calling this, and take
-/// none afterwards.** The counter is one row for the whole deployment: taking it
-/// *before* a `tasks` row puts this transaction on the opposite side of a lock
-/// order from every writer that takes it after, and the pair deadlocks under
-/// concurrent load. Last makes the counter the innermost lock of everything that
-/// touches it — a total order by construction, needing no agreement between
-/// callers — and it shortens the hold on the row the whole deployment serializes
-/// on: `the_counter_is_measured_under_concurrent_mutation` prices the same
-/// transaction both ways, and last runs about half again as fast.
+/// `tx` must be `&mut *tx`, never a pool, which would commit immediately and
+/// expose the record early. Take every other lock this transaction needs before
+/// calling this, none after — the counter is one row for the whole deployment,
+/// so calling it out of order deadlocks under load.
 pub async fn record_change(tx: &mut PgConnection, task_id: &str) -> Result<i64, sqlx::Error> {
     let (position,): (i64,) = sqlx::query_as(
         r#"WITH allocated AS (
@@ -37,16 +28,13 @@ pub async fn record_change(tx: &mut PgConnection, task_id: &str) -> Result<i64, 
     Ok(position)
 }
 
-/// The highest position this deployment has reached — 0 before the first change
-/// — together with the identity of the database it reached it in, from **one**
-/// statement, which is why this returns a pair. See [`ListingHead`].
+/// The highest position this deployment has reached, and the database identity
+/// it reached it in.
 ///
-/// The counter is the authority here and everywhere below it, never
-/// `MAX(task_listing_changes.position)`: [`prune_changes`] keeps the records for
-/// a bounded window, so on a deployment older than that window a `MAX` drops
-/// back to a position long since passed and hands clients a stale place to
-/// resume from, silently. Neither lookup touches a heap, which matters because
-/// the subscription poll makes this call every interval.
+/// 0 before the first change; both values come from **one** statement (see
+/// [`ListingHead`]). The counter is the authority, never
+/// `MAX(task_listing_changes.position)`: [`prune_changes`] bounds that window,
+/// so `MAX` can silently go stale on a deployment older than it.
 pub async fn current_head(pool: &PgPool) -> Result<ListingHead, sqlx::Error> {
     // `pg_control_system()` carries no ACL, so an ordinary application role can
     // call it. Verified rather than assumed — `router_from_env` fails startup
@@ -74,9 +62,10 @@ pub async fn current_position(pool: &PgPool) -> Result<i64, sqlx::Error> {
     Ok(current_head(pool).await?.position)
 }
 
-/// Every change recorded after `after`, oldest first, capped at `limit`. Safe as
-/// a polling cursor only because commits happen in position order, so nothing
-/// can appear below a position this has already returned.
+/// Every change recorded after `after`, oldest first, capped at `limit`.
+///
+/// Safe as a polling cursor only because commits happen in position order, so
+/// nothing can appear below a position already returned.
 pub async fn changes_after(
     pool: &PgPool,
     after: i64,
@@ -95,10 +84,12 @@ pub async fn changes_after(
     .await
 }
 
-/// Delete the changes that have fallen out of the retention window, returning
-/// how many went. The cut comes from the counter, per [`current_head`]. Safe
-/// from every replica — one bounded `DELETE` over durable state, so two racing
-/// delete the same rows and the second finds nothing. No lease, no leader.
+/// Delete the changes that have fallen out of the retention window; returns how
+/// many went.
+///
+/// Safe from every replica: one bounded `DELETE` over durable state, so two
+/// racing prunes target the same rows and the second finds nothing. No lease,
+/// no leader.
 pub async fn prune_changes(pool: &PgPool) -> Result<u64, sqlx::Error> {
     let deleted = sqlx::query(
         r#"DELETE FROM task_listing_changes

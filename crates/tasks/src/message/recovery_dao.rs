@@ -97,8 +97,8 @@ pub(crate) async fn last_message_is_completed_reply(
     Ok(has_user && !has_substantive_non_user && latest_later_completed)
 }
 
-/// One user row of an interrupted turn: `id`, `agent_session_id`, `turn_number`,
-/// `message_text`, `agent_mode`, `effort`.
+/// One user row of an interrupted turn: `id`, `agent_session_id`,
+/// `turn_number`, `message_text`, `agent_mode`, `effort`.
 type InterruptedTurnRow = (
     i32,
     Option<String>,

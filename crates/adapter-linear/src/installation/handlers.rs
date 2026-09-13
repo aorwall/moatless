@@ -10,9 +10,9 @@ use tracing::warn;
 
 /// Initiate the Linear workspace install flow.
 ///
-/// Returns 302 to Linear's authorization URL with `actor=app` and the
-/// workspace agent scopes. Sets an `oauth_state` cookie for CSRF.
-/// Returns 503 when Linear OAuth credentials aren't configured.
+/// Returns 302 to Linear's authorization URL with `actor=app` and workspace
+/// agent scopes, and sets an `oauth_state` cookie for CSRF; returns 503 if
+/// Linear OAuth credentials aren't configured.
 pub(super) async fn install(
     State(state): State<Option<Arc<Installation>>>,
 ) -> Result<Response, AuthError> {
@@ -47,13 +47,11 @@ pub(super) async fn install(
 
 /// Handle the Linear workspace install callback.
 ///
-/// 1. CSRF check via cookie.
-/// 2. Exchange code → workspace token (form-encoded).
-/// 3. Fetch viewer + organization to identify the agent + workspace.
-/// 4. Upsert `adapter_connections(adapter_kind="linear", external_account_id=org_id)`.
-/// 5. Upsert the global `provider_tokens(provider="linear")` row (workspace
-///    OAuth tokens are stored globally — the Linear org UUID lives in
-///    `adapter_connections.external_account_id` and `provider_tokens.metadata`).
+/// CSRF-checks the cookie, exchanges the code for a workspace token, then
+/// upserts `adapter_connections` and the global
+/// `provider_tokens(provider="linear")` row — workspace OAuth tokens are stored
+/// globally, keyed by the org id in `adapter_connections.external_account_id`
+/// and `provider_tokens.metadata`.
 pub(super) async fn callback(
     State(state): State<Option<Arc<Installation>>>,
     headers: HeaderMap,

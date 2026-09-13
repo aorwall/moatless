@@ -9,8 +9,9 @@ pub struct SseState {
     pub broadcast: broadcast::Sender<String>,
     pub cancel: CancellationToken,
     /// Task access resolver, used to filter the firehose per tenant so a
-    /// non-admin client only receives events for tasks it can read. `None`
-    /// when the DB is unconfigured (no filtering possible → firehose disabled
-    /// for scoped users; see `sse_handler`).
+    /// non-admin client only receives events for tasks it can read.
+    ///
+    /// `None` when the DB is unconfigured, disabling the firehose for scoped
+    /// users (see `sse_handler`).
     pub tasks: Option<Arc<dyn TaskReader>>,
 }

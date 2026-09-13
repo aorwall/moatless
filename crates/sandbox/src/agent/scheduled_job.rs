@@ -1,15 +1,9 @@
 //! Unified registry for sandbox-local "deferred work" jobs.
 //!
-//! Today only `WakeupJob` (the one-shot timer driving the `ScheduleWakeup`
-//! tool) uses this surface. Monitor crons are not registered here: the Claude
-//! CLI handles `Monitor` client-side and our per-turn subprocess model means
-//! events from the CLI's watcher never reach the agent — so Monitor is
-//! disallowed at the CLI flag level instead.
-//!
-//! Each job runs in its own tokio task and injects a synthetic user message
-//! back into the running Claude session through `JobContext::inject`. The
-//! registry owns cancellation tokens, deduplicates by job id, and exposes a
-//! single status snapshot for the gRPC `GetAgentStatus` endpoint.
+//! Today only `WakeupJob` (the one-shot timer driving `ScheduleWakeup`) uses
+//! this. Monitor crons are not registered here: the Claude CLI handles
+//! `Monitor` client-side, and our per-turn subprocess model means its watcher
+//! events never reach the agent — disallowed at the CLI flag level instead.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -21,16 +15,19 @@ use tracing::{info, warn};
 
 use crate::agent::handle::AgentHandle;
 
-/// Trait that lets the registry hand a synthetic user message back to the
-/// running agent. Implemented in production by `QueuedInjector`, which queues
-/// the message with the backend so the turn it opens is recoverable; tests
-/// provide the `AgentHandle` impl or a capturing double.
+/// Lets the registry hand a synthetic user message back to the running agent.
+///
+/// Implemented in production by `QueuedInjector`, which queues the message so
+/// the turn it opens is recoverable; tests provide the `AgentHandle` impl or a
+/// capturing double.
 #[async_trait::async_trait]
 pub trait JobInjector: Send + Sync + 'static {
-    /// Hand `text` to the agent. `idempotency_key` is what a resend of this
-    /// message dedups on, for an implementation that queues rather than sends
-    /// straight at the agent: two jobs carrying identical text are distinct
-    /// injections, and each must open its own turn.
+    /// Hand `text` to the agent. `idempotency_key` is what a resend dedups on,
+    /// for an implementation that queues rather than sends straight at the
+    /// agent.
+    ///
+    /// Two jobs carrying identical text are distinct injections; each must open
+    /// its own turn.
     async fn inject(&self, idempotency_key: &str, text: String);
 }
 
@@ -46,11 +43,12 @@ impl JobInjector for AgentHandle {
     }
 }
 
-/// Late-init injector — needed to break the circular dependency between
-/// `ScheduledJobRegistry` (which the lifecycle task needs at construction) and
-/// `AgentHandle` (which the registry needs to inject messages). Construct
-/// the wrapper, build the registry around it, spawn the lifecycle task, then call
-/// `set` with the resulting `AgentHandle`.
+/// Late-init injector, breaking the circular dependency between
+/// `ScheduledJobRegistry` (needed at construction) and `AgentHandle` (needed to
+/// inject messages).
+///
+/// Construct the wrapper, build the registry around it, spawn the lifecycle
+/// task, then call `set` with the resulting `AgentHandle`.
 pub struct LateInjector {
     inner: std::sync::OnceLock<Box<dyn JobInjector>>,
 }
@@ -89,8 +87,8 @@ impl JobInjector for LateInjector {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum JobKind {
     Wakeup,
-    /// Watches `run_in_background` jobs that outlived a turn and re-triggers the
-    /// agent once they finish (subprocess mode only).
+    /// Watches `run_in_background` jobs that outlived a turn and re-triggers
+    /// the agent once they finish (subprocess mode only).
     BackgroundWatch,
 }
 
@@ -109,7 +107,8 @@ pub struct WakeupSnapshot {
 pub struct BackgroundWatchSnapshot {
     pub id: String,
     pub registered_at_unix_ms: i64,
-    /// Number of background processes being watched when the snapshot was taken.
+    /// Number of background processes being watched when the snapshot was
+    /// taken.
     pub command_count: u32,
     /// Best-effort command lines of the watched processes (for status display).
     pub commands: Vec<String>,
@@ -157,7 +156,8 @@ impl JobContext {
 /// A unit of deferred work owned by the `ScheduledJobRegistry`.
 #[async_trait::async_trait]
 pub trait ScheduledJob: Send + Sync + 'static {
-    /// Stable key. Monitor: `tool_use_id`. Wakeup: `ScheduleWakeup` `tool_use_id`.
+    /// Stable key. Monitor: `tool_use_id`. Wakeup: `ScheduleWakeup`
+    /// `tool_use_id`.
     fn id(&self) -> &str;
     fn kind(&self) -> JobKind;
     fn snapshot(&self) -> JobSnapshot;
@@ -172,7 +172,9 @@ struct JobEntry {
     _join: JoinHandle<()>,
 }
 
-/// Registry of in-flight scheduled jobs. Keyed by `ScheduledJob::id`.
+/// Registry of in-flight scheduled jobs, one tokio task per job. Keyed by
+/// `ScheduledJob::id`; owns each job's cancellation token and exposes a status
+/// snapshot for `GetAgentStatus`.
 pub struct ScheduledJobRegistry {
     injector: Arc<dyn JobInjector>,
     jobs: Arc<RwLock<HashMap<String, JobEntry>>>,
@@ -256,8 +258,8 @@ impl ScheduledJobRegistry {
         }
     }
 
-    /// Cancel only the jobs of a given kind. Used for latest-wins
-    /// replacement (e.g. a new `ScheduleWakeup` supersedes the previous one).
+    /// Cancel only the jobs of a given kind. Used for latest-wins replacement
+    /// (e.g. a new `ScheduleWakeup` supersedes the previous one).
     pub async fn cancel_by_kind(&self, kind: JobKind) {
         let jobs = self.jobs.read().await;
         for entry in jobs.values() {

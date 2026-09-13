@@ -17,7 +17,8 @@ pub struct ClaudeOptions {
     pub model: Option<String>,
     pub fallback_model: Option<String>,
     /// Reasoning effort for the session (`--effort`). The CLI accepts `low`,
-    /// `medium`, `high`, `xhigh` and `max`, and warns-and-ignores anything else.
+    /// `medium`, `high`, `xhigh` and `max`, and warns-and-ignores anything
+    /// else.
     pub effort: Option<String>,
 
     // -- System prompt --
@@ -55,9 +56,9 @@ pub struct ClaudeOptions {
 
     // -- MCP & Plugins --
     pub mcp_servers: Option<HashMap<String, McpServerConfig>>,
-    /// In-process SDK MCP servers. These are handled locally by the SDK
-    /// without spawning separate processes. Keys are server names used
-    /// in tool naming: `mcp__<server_name>__<tool_name>`.
+    /// In-process SDK MCP servers. These are handled locally by the SDK without
+    /// spawning separate processes. Keys are server names used in tool naming:
+    /// `mcp__<server_name>__<tool_name>`.
     pub sdk_mcp_servers: Option<HashMap<String, SdkMcpServer>>,
     pub plugins: Option<Vec<PluginConfig>>,
     pub strict_mcp_config: Option<bool>,
@@ -94,9 +95,9 @@ pub struct ClaudeOptions {
     pub stderr_callback: Option<Box<dyn Fn(String) + Send + Sync>>,
     pub can_use_tool: Option<Arc<dyn PermissionHandler>>,
     /// Handler for hook callbacks from the CLI.
-    /// When the CLI sends a `HookCallback` control request, this handler is invoked
-    /// to determine the response. If `None`, hook callbacks are auto-responded
-    /// with an empty success (default behavior — continue with no modifications).
+    ///
+    /// If `None`, hook callbacks auto-respond with an empty success (continue,
+    /// no modifications) instead of invoking a handler.
     pub hook_handler: Option<Arc<dyn HookHandler>>,
     pub cancellation_token: Option<CancellationToken>,
 }

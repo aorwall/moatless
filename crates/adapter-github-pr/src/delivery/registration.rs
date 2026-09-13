@@ -1,23 +1,14 @@
 //! Durable admission for the GitHub PR work that must not be lost.
 //!
-//! One webhook can loop several units of work — routing an inbound PR message,
-//! closing the tasks a merged PR created, notifying the ones that outlive it,
-//! the post-merge CI notice, the merge-conflict check — each admitted into
-//! [`moatless_loops::adapters::delivery`] inside the request handler under its
-//! own kind, so they retry and fail independently.
+//! One webhook loops several units of work — routing, closing tasks a merged PR
+//! created, notifying survivors, the post-merge CI notice, the conflict check —
+//! each admitted separately so they retry and fail independently.
 //!
-//! The durable unique index is the only dedup mechanism, and it is authoritative
-//! for effects. It does not cover ingress's read-only work, nor the two
-//! best-effort status projections ingress schedules (both overwrite a value
-//! derived from the payload, so a redelivery lands on what is already there).
-//! GitHub's 30-day manual redelivery window outlives `succeeded_retention`, so a
-//! hand-replayed delivery runs again; every effect downstream is separately
-//! idempotent, and a late redelivery can overwrite newer PR state.
-//!
-//! [`kind::PR_MESSAGE`] is the one kind that can reach the 2-minute execution
-//! timeout, because routing `pull_request.opened` creates a task and starts its
-//! sandbox. A retry converges except when the timeout lands between task
-//! creation and the binding write, which creates a second task.
+//! The durable unique index dedups only these effects, not ingress's read-only
+//! work or its best-effort status projections; a late GitHub redelivery (up to
+//! 30 days, past `succeeded_retention`) can overwrite newer PR state, and
+//! [`kind::PR_MESSAGE`] can duplicate a task if its 2-minute timeout lands
+//! between task creation and the binding write.
 
 use super::kind;
 use std::sync::Arc;
@@ -36,15 +27,14 @@ use moatless_types::loops::SubscriptionMatch;
 use crate::router::GithubPrInboundRouter;
 use crate::webhook::PrCloseInfo;
 
-/// Adapter name on every record this module admits. Matches the value used
-/// for GitHub Adapter connections, trigger sources, and bindings.
+/// Adapter name on every record this module admits. Matches the value used for
+/// GitHub Adapter connections, trigger sources, and bindings.
 pub(crate) const ADAPTER: &str = "github";
 
 /// Register every GitHub delivery handler on the process-wide registry.
 ///
-/// One call from the composition root; the worker then claims exactly these
-/// kinds. A build without this call leaves GitHub records for a replica that
-/// has it, rather than failing them.
+/// One call from the composition root; a build without this call leaves GitHub
+/// records for a replica that has it, rather than failing them.
 pub fn register(handlers: &mut AdapterDeliveryHandlers, router: Arc<GithubPrInboundRouter>) {
     register_typed_delivery::<PrMessageDelivery, _, _>(handlers, kind::PR_MESSAGE, {
         let router = router.clone();
@@ -75,17 +65,14 @@ pub fn register(handlers: &mut AdapterDeliveryHandlers, router: Arc<GithubPrInbo
 /// The part of every payload that says *which* connection and trigger the work
 /// belongs to.
 ///
-/// Ids, not snapshots. Re-resolving keeps webhook secrets and OAuth references
-/// out of a table retained for weeks, and it means a record executed minutes
-/// later sees the trigger as it is rather than as it was. A trigger deleted in
-/// between resolves to `None`, which is exactly what a delivery for a repo with
-/// no trigger has always meant: deliver to existing bindings, create nothing.
+/// Ids, not snapshots: re-resolving keeps secrets out of a table retained for
+/// weeks, and a trigger deleted in between resolves to `None`.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub(crate) struct DeliveryContext {
     pub(crate) connection_id: String,
     pub(crate) loop_id: Option<String>,
-    /// `owner/repo`, used to synthesize the delivery-only loop config when
-    /// the repo has no subscription of its own.
+    /// `owner/repo`, used to synthesize the delivery-only loop config when the
+    /// repo has no subscription of its own.
     pub(crate) repo_full_name: String,
 }
 
@@ -134,9 +121,8 @@ impl DeliveryContext {
 
 /// Route one parsed inbound PR event.
 ///
-/// The parsed [`InboundMessage`] is carried rather than re-derived: parsing
-/// happened on the request path (it is cheap and needs the raw body), and a
-/// payload that could not reproduce it would not be self-contained.
+/// The parsed [`InboundMessage`] is carried rather than re-derived, since
+/// parsing needs the raw body from the request path.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub(crate) struct PrMessageDelivery {
     #[serde(flatten)]
@@ -189,9 +175,8 @@ enum GithubDeliveryError {
 
 /// Build the admission request for one GitHub delivery.
 ///
-/// Fails only if the payload cannot be serialized, which for these types means
-/// a `serde_json::Value` containing a non-string map key — impossible for
-/// values parsed from a webhook body, but not worth an `unwrap`.
+/// Fails only on a non-string JSON map key, impossible for values parsed from a
+/// webhook body but not worth an `unwrap`.
 pub(crate) fn request(
     kind: &'static str,
     event_id: String,
@@ -363,11 +348,12 @@ mod tests {
         );
     }
 
-    /// `CloseDelivery` and `PostMergeDelivery` wrap types owned by `adapter.rs`, whose
-    /// fields this module cannot name. Pinning them as literal JSON is the only
-    /// way to assert the stored shape from here — and it is the shape the
-    /// crash-recovery test hardcodes, so a rename or a lost `flatten` has to
-    /// fail here rather than in a test that needs a database to run.
+    /// `CloseDelivery` and `PostMergeDelivery` wrap types owned by
+    /// `adapter.rs`, whose fields this module cannot name.
+    ///
+    /// Pinning them as literal JSON is the only way to assert the stored shape
+    /// here, so a rename or lost `flatten` fails in this test rather than one
+    /// that needs a database.
     #[test]
     fn the_close_payload_is_stored_flat_with_a_nested_close() {
         let stored = serde_json::json!({

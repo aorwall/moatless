@@ -1,8 +1,9 @@
 //! Stable harness error facts.
 //!
-//! The external seam classifies failures with a stable [`ErrorClass`] and states
-//! [`SessionImpact`] separately from the class. It never exposes a `retryable`
-//! policy boolean — the coordinator maps these facts to retry policy (the harness-outcome boundary).
+//! The external seam classifies failures with a stable [`ErrorClass`] and
+//! states [`SessionImpact`] separately from the class. It never exposes a
+//! `retryable` policy boolean — the coordinator maps these facts to retry
+//! policy (the harness-outcome boundary).
 
 use std::fmt;
 
@@ -21,20 +22,21 @@ pub enum FailureStage {
 
 /// Stable, provider-independent failure classification.
 ///
-/// These are the provider-independent classes exposed at the external seam, so
-/// the coordinator's retry policy never branches on Claude- or Codex-specific
-/// errors.
+/// Exposed at the external seam so the coordinator's retry policy never
+/// branches on Claude- or Codex-specific errors.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ErrorClass {
     /// Credentials were rejected or could not be refreshed.
     Authentication,
     /// The provider rate-limited the request.
     RateLimit,
-    /// The provider could not be reached at all: DNS resolution, TCP connect, or
-    /// TLS failed before any request was served. Distinct from [`Self::RateLimit`]
-    /// (the provider answered) and from [`Self::InvalidInput`] (the request was
-    /// understood and rejected), because the sandbox's own egress is the suspect
-    /// and the condition is usually transient.
+    /// The provider could not be reached at all: DNS resolution, TCP connect,
+    /// or TLS failed before any request was served.
+    ///
+    /// Distinct from [`Self::RateLimit`] (the provider answered) and
+    /// [`Self::InvalidInput`] (the request was understood and rejected): the
+    /// sandbox's own egress is the suspect, and the condition is usually
+    /// transient.
     Connectivity,
     /// A requested Session could not be resumed or was not found.
     UnavailableSession,
@@ -44,8 +46,8 @@ pub enum ErrorClass {
     InvalidInput,
     /// Native protocol output could not be parsed.
     NativeProtocol,
-    /// The Agent process ended the run without producing it: an unexpected exit,
-    /// an unexpected EOF, or a terminal result that reports no turns.
+    /// The Agent process ended the run without producing it: an unexpected
+    /// exit, an unexpected EOF, or a terminal result that reports no turns.
     ProcessExit,
     /// The Agent process stopped responding.
     UnresponsiveProcess,

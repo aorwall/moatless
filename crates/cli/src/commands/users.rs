@@ -35,12 +35,10 @@ pub enum UserAction {
         user: String,
     },
     /// Disable an account — a departed person, or a superseded duplicate
-    /// (admin-only)
+    /// (admin-only). Login is refused, sessions and API keys stop working, and
+    /// the directory hides it.
     ///
-    /// Every login path refuses a disabled account, its sessions and API keys
-    /// stop working, and the directory hides it.
-    ///
-    /// A login shared by two accounts always names the older one. Pass the id
+    /// A login shared by two accounts always names the older one; pass the id
     /// to disable the newer.
     Deactivate {
         /// Moatless username (login), or the user id as `user list` reports it

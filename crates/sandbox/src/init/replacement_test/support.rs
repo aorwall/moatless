@@ -88,10 +88,11 @@ fn publisher_for(config: &Config, backend: Arc<dyn BackendClient>) -> GrpcEventP
     GrpcEventPublisher::new(outbox)
 }
 
-/// Spawn a real `CoordinatorService` over a recording scripted harness, consuming
-/// the command channel behind `agent_handle`. Every input the lifecycle path
-/// drives — `Send` or `Recover` — flows through the production coordinator into
-/// the harness and is recorded, so a test reads back what the harness accepted.
+/// Spawn a real `CoordinatorService` over a recording scripted harness,
+/// consuming the command channel behind `agent_handle`.
+///
+/// Every `Send` or `Recover` flows through the production coordinator into the
+/// harness and is recorded, so a test reads back what was accepted.
 fn spawn_recording_agent(
     config: &Arc<Config>,
     backend: Arc<dyn BackendClient>,
@@ -167,8 +168,9 @@ pub(super) fn recording_state_with_config(
 }
 
 /// A `SandboxState` over an explicit `config` with a bare (undriven) agent
-/// channel — for a restore test that calls `download_on_start` and never touches
-/// the agent, and for a dispatch test that needs the send's ack dropped.
+/// channel — for a restore test that calls `download_on_start` and never
+/// touches the agent, and for a dispatch test that needs the send's ack
+/// dropped.
 pub(super) fn restore_state(
     config: Arc<Config>,
     phase: InitPhase,
@@ -206,8 +208,9 @@ pub(super) fn interrupted_turn(
     }
 }
 
-/// A config whose Claude/Codex/workspace dirs live under an isolated tmp dir, so
-/// restore lands in a place the test can inspect without touching shared paths.
+/// A config whose Claude/Codex/workspace dirs live under an isolated tmp dir,
+/// so restore lands in a place the test can inspect without touching shared
+/// paths.
 pub(super) fn tmp_config(agent_type: &str, tmp: &tempfile::TempDir) -> Config {
     let mut config = minimal_config();
     config.agent_type = Some(agent_type.to_string());
@@ -269,8 +272,8 @@ pub(super) async fn recorded_inputs(recorder: &InputRecorder, n: usize) -> Vec<I
     }
 }
 
-/// Give the runtime a beat for any in-flight command to settle, then snapshot the
-/// recorder — used to assert that *nothing* was accepted.
+/// Give the runtime a beat for any in-flight command to settle, then snapshot
+/// the recorder — used to assert that *nothing* was accepted.
 pub(super) async fn settled_inputs(recorder: &InputRecorder) -> Vec<Input> {
     for _ in 0..10 {
         tokio::task::yield_now().await;
@@ -280,8 +283,8 @@ pub(super) async fn settled_inputs(recorder: &InputRecorder) -> Vec<Input> {
 }
 
 /// Park an `ExitPlanMode` on `context`, under the run identity
-/// `resolve_pending_prompt` needs to answer one. Returns the receiver the parked
-/// call waits on, so a test reads back whether it was answered.
+/// `resolve_pending_prompt` needs to answer one. Returns the receiver the
+/// parked call waits on, so a test reads back whether it was answered.
 pub(super) async fn park_plan_prompt(
     context: &TaskContext,
     tool_use_id: &str,

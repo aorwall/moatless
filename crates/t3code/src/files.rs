@@ -1,27 +1,11 @@
 //! The workspace-files half of the T3 compatibility module.
 //!
-//! Moatless has no directory to point at. A conversation's checkout lives
-//! inside its Sandbox, reachable only over that Sandbox's gRPC connection, and
-//! the path it sits at is the same string for every conversation. So the `cwd`
-//! this module answers is the nominal one it issued as the thread's
-//! `worktreePath`, [`workspace::addressed_conversation`] reads the conversation
-//! back out of it, and the files come from that conversation's Sandbox.
+//! Moatless has no directory to point at: the nominal `cwd` this module answers
+//! is the thread's `worktreePath`, from which
+//! [`workspace::addressed_conversation`] resolves the conversation.
 //!
-//! **The listing is whatever the Sandbox walks**, and this is the one caller
-//! that asks it to honour the repositories' ignore rules. Presenting a checkout
-//! to a person is not the same as reading it: a plain recursive walk of a
-//! workspace that has been built in is mostly `target/` and `dist/`, and at
-//! this scale that is not clutter but loss — the whole tree arrives in one
-//! call, so build output past the cap displaces source that never gets shown.
-//! A Sandbox from before that flag existed ignores it and answers as it always
-//! did.
-//!
-//! **A read is addressed from the workspace root, and a mention is not.** The
-//! root holds a checkout per repository, so a path an agent writes into a
-//! transcript is one directory short of a file here — or, when the agent wrote
-//! the path it used inside the Sandbox, a whole disk long. Reading resolves both
-//! ([`crate::checkout::nested_match`], [`crate::checkout::rooted_match`]);
-//! writing deliberately does not.
+//! **A read is addressed from the workspace root, and a mention is not** — see
+//! [`crate::checkout::nested_match`] and [`crate::checkout::rooted_match`].
 
 use serde_json::{Value, json};
 use tracing::warn;
@@ -33,20 +17,17 @@ use moatless_ports::sandbox::SandboxError;
 use moatless_types::access_control::ScopeContext;
 use sandbox_proto::client::{SandboxConnector, classify_grpc_error};
 
-/// The most entries one listing carries.
+/// The most entries one listing carries, matching the reference server's own
+/// index cap.
 ///
-/// Matches the reference server's own index cap, which is where the client's
-/// expectations about this call were formed. A Sandbox walk has no equivalent
-/// bound of its own — it returns the whole tree, including build output — so
-/// without this a repository with a populated `target/` or `.venv` would put
-/// several megabytes of paths into a single frame.
+/// A Sandbox walk has no bound of its own — a populated `target/` or `.venv`
+/// could put megabytes of paths into one frame.
 const MAX_ENTRIES: usize = 25_000;
 
 /// The most file content one read carries, matching the reference server's cap.
 ///
-/// A file past it comes back cut short with `truncated` set, which is what the
-/// client renders as a partially shown file. `byteLength` still reports the
-/// whole file, because it is the file's size and not the excerpt's.
+/// A file past it comes back with `truncated` set; `byteLength` still reports
+/// the whole file's size.
 const MAX_FILE_BYTES: usize = 1024 * 1024;
 
 /// One conversation's whole file tree, in the shape the contract's
@@ -82,17 +63,8 @@ pub async fn list_entries(
 
 /// The listing cut to `cap`, with each top-level entry holding its own share.
 ///
-/// A dot entry is served in the second round, out of what the first leaves. A
-/// checkout is always `{workspace_dir}/{mount_name}` (`SandboxConfig::repos`),
-/// so a dot entry at the root is what a tool wrote and never a checkout's own
-/// `.github/`. Cloning a repo at the root would take that away.
-///
-/// Smallest group first inside a round, so a share a small entry leaves over
-/// goes to the groups still being cut and none of the cap is left unspent.
-///
-/// A cut group keeps its shallowest paths, ties broken by name, so the client
-/// gets the top of that tree and not one deep branch of it. A path's ancestors
-/// are shallower than it is, so they reach the listing beside it.
+/// Dot entries are served in a second round; smallest group first, and each
+/// group keeps its shallowest paths so ancestors stay kept.
 fn share_cap(files: &[String], cap: usize) -> Vec<&str> {
     let mut paths: Vec<&str> = files.iter().map(String::as_str).collect();
     // Sorted here rather than relied on: the live walk sorts, the snapshot
@@ -171,10 +143,8 @@ fn top_level(path: &str) -> &str {
 
 /// One entry of a Sandbox listing, in the contract's shape.
 ///
-/// The Sandbox marks a directory by a trailing slash and a file by its absence,
-/// which is the whole of the distinction the contract wants. A path that is
-/// nothing but that slash is dropped: the contract refuses a blank one, and a
-/// listing that fails to decode costs the whole tree rather than the one row.
+/// A trailing slash marks a directory, its absence a file; a bare slash is
+/// dropped since the contract refuses a blank path.
 fn entry(path: &str) -> Option<Value> {
     let (path, kind) = match path.strip_suffix('/') {
         Some(directory) => (directory, "directory"),
@@ -183,25 +153,10 @@ fn entry(path: &str) -> Option<Value> {
     (!path.is_empty()).then(|| json!({ "path": path, "kind": kind }))
 }
 
-/// Which files here are called something like this, in the shape the
-/// contract's `projects.searchEntries` returns.
+/// Which files here are called something like this (`projects.searchEntries`).
 ///
-/// Two paths, because the Sandbox answers only one of the two questions this
-/// method is asked. A query goes to its name search. **An empty query is a
-/// bounded browse** — the contract says so out loud
-/// (`packages/contracts/src/project.ts:19`), it is what the file picker opens
-/// with, and the Sandbox's walker returns nothing for it
-/// (`crates/sandbox/src/files/search.rs:49`) — so that case is answered from the same
-/// listing [`list_entries`] reads, shared across the root's entries by
-/// [`share_cap`].
-///
-/// The reference server orders that browse by frecency. Moatless records no
-/// per-file access history and a picker's first paint does not justify a table
-/// to hold one, so the order is the sorted listing's. A *bounded browse* is all
-/// the contract asks for.
-///
-/// Case-insensitive always: the input carries no case flag, and what reaches
-/// here is a person typing a fragment of a name.
+/// An empty query is a bounded browse, not a search, answered from the same
+/// listing [`list_entries`] reads.
 pub async fn search_entries(
     reads: &T3Reads,
     sources: Sources<'_>,
@@ -243,23 +198,11 @@ pub async fn search_entries(
     Ok(json!({ "entries": entries, "truncated": truncated }))
 }
 
-/// A file written into the conversation's own worktree, in the shape the
-/// contract's `projects.writeFile` returns.
+/// A file written into the conversation's worktree (`projects.writeFile`).
 ///
-/// The one write this surface makes outside its own database.
-///
-/// No conflict detection: the contract's input carries no expected version or
-/// hash, so a person and a running agent editing one file race and the last
-/// writer wins.
-///
-/// Path containment is the Sandbox's, as for [`read_file`]. The gate is
-/// [`workspace::controlled_conversation`] — `controlled_`, not `addressed_`,
-/// because a write puts bytes on someone else's disk, and reading a public
-/// conversation's checkout is part of what it shares while editing it is not.
-///
-/// Do not resolve the path the way [`read_file`] does. A write creates what is
-/// missing, so the same rule would turn saving a new root `docs/notes.md` into
-/// overwriting a checkout's existing one.
+/// Gated by [`workspace::controlled_conversation`], not `addressed_`; never
+/// resolved like [`read_file`], or mention resolution would overwrite instead
+/// of creating.
 pub async fn write_file(
     reads: &T3Reads,
     sandboxes: &dyn SandboxConnector,
@@ -285,14 +228,10 @@ pub async fn write_file(
     Ok(json!({ "relativePath": relative_path }))
 }
 
-/// One file's contents, in the shape the contract's `projects.readFile`
-/// returns.
+/// One file's contents (`projects.readFile`).
 ///
-/// **The path that comes back is the path that was read**, which is not always
-/// the path that was asked for — see [`crate::checkout::nested_match`] and
-/// [`crate::checkout::rooted_match`]. The contract carries `relativePath` in the
-/// result for exactly this reason, and a client that keeps addressing the file
-/// it opened by the path it typed will write its edits somewhere else.
+/// The returned path is the one actually read, not necessarily the one asked
+/// for ([`crate::checkout::nested_match`], [`crate::checkout::rooted_match`]).
 pub async fn read_file(
     reads: &T3Reads,
     sources: Sources<'_>,
@@ -329,9 +268,8 @@ pub async fn read_file(
 
 /// The longest prefix of `contents` within `max_bytes` that is still text.
 ///
-/// Cutting a UTF-8 string at a byte offset can land inside a character, and the
-/// result would be neither valid JSON string content nor anything the client
-/// could render, so the cut moves back to the nearest boundary.
+/// A byte-offset cut can land inside a UTF-8 character, so it moves back to the
+/// nearest boundary.
 fn truncate_on_char_boundary(contents: &str, max_bytes: usize) -> &str {
     if contents.len() <= max_bytes {
         return contents;
@@ -504,12 +442,8 @@ mod tests {
         assert_eq!(truncate_on_char_boundary(contents, 99), contents);
     }
 
-    /// One Sandbox, reached at a URL instead of by service name.
-    ///
-    /// Addressing is the k8s and Docker adapters' own, and neither can be
-    /// reached from a test. What is under test here is everything after it:
-    /// what a real Sandbox actually returns, and whether this module's
-    /// projection of it decodes as the contract's own shapes.
+    /// One Sandbox, reached at a URL instead of by service name — the
+    /// k8s/Docker adapters' own addressing can't be reached from a test.
     #[cfg(feature = "live-sandbox-tests")]
     struct SandboxAt(String);
 
@@ -561,22 +495,13 @@ mod tests {
         }
     }
 
-    /// The whole projection, against a Sandbox that really exists.
-    ///
-    /// Ignored, because it needs one: only a running deployment has a Sandbox,
-    /// and no adapter's addressing is reachable from a test. Point
-    /// `T3_UI_RPC_TEST_SANDBOX_GRPC` at one — from inside a sandbox, its own
-    /// server is at `http://127.0.0.1:50052` — and run:
-    ///
+    /// The whole projection, against a real Sandbox — ignored; point
+    /// `T3_UI_RPC_TEST_SANDBOX_GRPC` at one (e.g. `http://127.0.0.1:50052`) and
+    /// run:
     /// ```text
     /// T3_UI_RPC_TEST_SANDBOX_GRPC=http://127.0.0.1:50052 \
     ///   cargo test -p moatless-t3code --features live-sandbox-tests files -- --ignored --nocapture
     /// ```
-    ///
-    /// It asserts the two properties a Sandbox's answer has to have to be a
-    /// listing at all — every entry carries a relative path the contract
-    /// accepts, and the directories a file hangs under are in the listing
-    /// beside it — plus that a file named by that listing reads back.
     #[cfg(feature = "live-sandbox-tests")]
     #[tokio::test]
     #[ignore = "needs a Sandbox at T3_UI_RPC_TEST_SANDBOX_GRPC"]
@@ -643,11 +568,10 @@ mod tests {
         println!("read {path}: {} bytes", file["byteLength"]);
     }
 
-    /// The mention case, against a real workspace: a path relative to a
-    /// checkout, which the workspace root has no file at, opens the file inside
-    /// the checkout and answers with where it was found.
+    /// The mention case: a path relative to a checkout, with no file at that
+    /// path in the workspace root, opens the file inside the checkout.
     ///
-    /// Ignored for the same reason as the test above, and run the same way.
+    /// Ignored for the same reason as the test above, run the same way.
     #[cfg(feature = "live-sandbox-tests")]
     #[tokio::test]
     #[ignore = "needs a Sandbox at T3_UI_RPC_TEST_SANDBOX_GRPC"]

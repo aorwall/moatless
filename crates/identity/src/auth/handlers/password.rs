@@ -73,8 +73,8 @@ pub(in crate::auth) async fn change_password_handler(
     }))
 }
 
-/// Reset another user's password. Admin only — no current password required,
-/// so a forgotten password has a recovery path that isn't env surgery.
+/// Reset another user's password. Admin only — no current password required, so
+/// a forgotten password has a recovery path that isn't env surgery.
 #[utoipa::path(
     put,
     path = "/api/v1/users/{login}/password",

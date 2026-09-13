@@ -18,8 +18,8 @@ use crate::api::permissions::{PermissionContext, PermissionHandler, PermissionRe
 
 use super::request_tracker::{ControlErrorInfo, RequestTracker};
 
-/// Spawns a background task that reads from the subprocess transport,
-/// routes messages to the consumer channel, and dispatches control requests.
+/// Spawns a background task that reads from the subprocess transport, routes
+/// messages to the consumer channel, and dispatches control requests.
 pub(crate) struct Orchestrator;
 
 impl Orchestrator {
@@ -205,8 +205,8 @@ impl Orchestrator {
 
     /// Put one `can_use_tool` request to the handler and write its answer.
     ///
-    /// Runs off the read loop (see the call site): the handler is allowed to
-    /// take arbitrarily long, including waiting on a person.
+    /// Runs off the read loop: the handler may take arbitrarily long, including
+    /// waiting on a person.
     async fn answer_can_use_tool(
         request_id: String,
         tool_name: &str,

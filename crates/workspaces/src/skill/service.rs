@@ -1,14 +1,12 @@
 //! Orchestrator for discovering skills in the workspace repository and its
 //! linked plugins.
 //!
-//! Workspace skills are read from git on request and cached in memory with a
-//! TTL, keyed `workspace:{repository_id}` — they belong to a repository the
-//! caller already has access to, and there is nothing durable to attach them
-//! to. Plugin skills are stored records; see [`crate::plugin::sync`].
+//! Workspace skills are read from git and cached in memory with a TTL, keyed
+//! `workspace:{repository_id}`; plugin skills are stored records (see
+//! [`crate::plugin::sync`]).
 //!
-//! Two senses of "workspace" meet here. [`SkillSource::Workspace`] is a skill
-//! committed in the repository's own tree; a `workspace_id` is the Workspace
-//! entity a task runs in, and narrows only the plugin half.
+//! Two senses of "workspace" collide: [`SkillSource::Workspace`] isn't a
+//! `workspace_id`, the Workspace a task runs in — narrows only the plugin half.
 
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -71,22 +69,13 @@ impl SkillService {
     }
 
     /// Return the merged, deduplicated skill list a caller gets in a
-    /// repository: the repository's own skills plus the plugin skills their
-    /// activation records resolve to.
+    /// repository.
     ///
-    /// Workspace skills shadow plugin skills with the same name; among
-    /// plugins, the first occurrence in DAO order wins.
-    ///
-    /// The plugin half is per-caller, not per-repository — two people looking
-    /// at the same repository can legitimately see different skills, because
-    /// that is what will arrive in their respective sandboxes. `workspace_id`
-    /// narrows it the same way the sandbox will: pass the Workspace the task
-    /// runs in and the list matches what the agent gets, omit it and the list
-    /// is what that person gets anywhere.
-    ///
-    /// `caller` is the same person `ctx` scopes the read to; both are needed
-    /// because plugin activation records are keyed by user id while every
-    /// table read is scoped.
+    /// Repository skills plus plugin activations, workspace shadowing plugin on
+    /// a name clash (first plugin wins among plugins); the plugin half is
+    /// per-caller like the sandbox, and `workspace_id` narrows it the same way
+    /// — `caller`/`ctx` are both needed since activations key by user id while
+    /// reads are scoped.
     pub async fn list_for_repository(
         &self,
         repository_id: &str,
@@ -221,14 +210,10 @@ impl SkillService {
 /// Merge the workspace's own skills with the plugin skills a caller picked,
 /// name-deduplicated and sorted.
 ///
-/// `plugins` is one entry per plugin, in DAO order: everything the plugin
-/// stores, paired with the names that plugin's activation records resolved to.
-/// A stored skill the caller did not pick is dropped here — this is the same
-/// filter the sandbox applies when it prunes the cloned plugin directory, so
-/// what this endpoint lists is what the agent will actually have.
-///
-/// Workspace skills shadow plugin skills with the same name; among plugins the
-/// first occurrence wins, which makes DAO order the tie-break.
+/// A stored skill the caller did not pick is dropped — the same filter the
+/// sandbox applies pruning the cloned plugin directory, so this matches what
+/// the agent has. Workspace shadows plugin on a name clash; among plugins, DAO
+/// order (`plugins` is one entry per plugin) breaks the tie.
 fn merge_skills(workspace: Vec<Skill>, plugins: Vec<(Vec<Skill>, Vec<String>)>) -> Vec<Skill> {
     let mut merged: Vec<Skill> = Vec::new();
     let mut seen: HashSet<String> = HashSet::new();

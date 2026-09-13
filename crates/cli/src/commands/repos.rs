@@ -19,14 +19,15 @@ use crate::output;
 pub enum RepoAction {
     /// List repositories
     List {
-        /// Keep only repositories hosted by this provider (github, gitlab, gitness, forgejo)
+        /// Keep only repositories hosted by this provider (github, gitlab,
+        /// gitness, forgejo)
         #[arg(long)]
         provider: Option<String>,
         /// Keep only repositories at this scope: global or user
         #[arg(long)]
         scope: Option<String>,
-        /// Keep only repositories whose name, description or remote URL contains
-        /// this text, matched case-insensitively
+        /// Keep only repositories whose name, description or remote URL
+        /// contains this text, matched case-insensitively
         #[arg(long)]
         search: Option<String>,
     },
@@ -49,17 +50,17 @@ pub enum RepoAction {
     Create {
         #[arg(long)]
         name: String,
-        /// Clone URL. HTTPS (<https://github.com/org/repo>) or SSH
-        /// (git@host:org/repo.git or ssh://…). SSH remotes authenticate with an
-        /// `ssh_key` secret materialized into the sandbox ~/.ssh — no provider token.
-        /// Optional — a repository need not have a remote to clone (a template
-        /// starter has none); the backend imposes no per-kind requirement.
+        /// Clone URL. HTTPS or SSH (`ssh_key` secret materialized into the
+        /// sandbox ~/.ssh, no provider token). Optional — a repository need not
+        /// have a remote (a template starter has none); the backend imposes no
+        /// per-kind requirement.
         #[arg(long)]
         git_url: Option<String>,
         #[arg(long, default_value = "main")]
         branch: String,
-        /// Hosting provider (github, gitlab, gitness, forgejo). Ignored for SSH clone URLs,
-        /// which authenticate via an `ssh_key` secret rather than a provider token.
+        /// Hosting provider (github, gitlab, gitness, forgejo). Ignored for SSH
+        /// clone URLs, which authenticate via an `ssh_key` secret rather than a
+        /// provider token.
         #[arg(long, default_value = "github")]
         provider: String,
         /// Repository kind: remote, template, or git
@@ -318,10 +319,10 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
 
 /// Resolve a repository from an id or a name.
 ///
-/// Anything that parses as a UUID is an id and goes straight to the backend;
-/// everything else is matched against the registry by name, case-insensitively.
-/// A name two repositories share is refused rather than picked between, because
-/// checking out the wrong one stays silent until the build fails.
+/// A UUID-shaped value goes straight to the backend as an id; anything else
+/// matches the registry by name, case-insensitively. A name shared by two
+/// repositories is refused rather than picked between, since checking out the
+/// wrong one stays silent until the build fails.
 async fn resolve_repo(
     client: &MoatClient,
     id_or_name: &str,
@@ -357,14 +358,11 @@ async fn resolve_repo(
 
 /// The remote `git clone` is pointed at.
 ///
-/// Every repository whose row names a provider clones through the backend git
-/// proxy, which resolves the credential from the Workspace's run-as identity: no
-/// provider token has to reach the pod at all, and a Forgejo one never does. The
-/// task token travels as the HTTP Basic password, supplied by the pod's
-/// `credential.<backend>.helper`, so this command runs inside a sandbox.
-///
-/// An SSH remote clones from its own host instead. It authenticates with the
-/// pod's `ssh_key` secret, and the proxy has only a token to present.
+/// A repository with a provider clones through the backend git proxy, whose
+/// credential comes from the Workspace's run-as identity — no provider token
+/// reaches the pod, and the task token travels as the HTTP Basic password via
+/// the pod's `credential.<backend>.helper`. An SSH remote clones from its own
+/// host instead, authenticating with the pod's `ssh_key` secret.
 fn clone_url(base_url: &str, repo: &RepositoryResponse) -> Result<String, ClientError> {
     let remote_url = repo.remote_url.clone().ok_or_else(|| {
         ClientError::Other(format!(
@@ -380,8 +378,8 @@ fn clone_url(base_url: &str, repo: &RepositoryResponse) -> Result<String, Client
 
 /// The directory a clone lands in.
 ///
-/// Derived from the remote and not from the URL git is given: a proxied URL
-/// ends in the repository id, so git would name the checkout after a UUID.
+/// Derived from the remote, not the URL git is given — a proxied URL ends in
+/// the repository id, so git would otherwise name the checkout after a UUID.
 fn checkout_dir(repo: &RepositoryResponse) -> String {
     match repo.remote_url.as_deref() {
         Some(remote_url) => derive_mount_name(remote_url),
@@ -482,10 +480,10 @@ const GH_LIST_LIMIT: usize = 500;
 
 /// Key a repository by the identity no transport spelling changes.
 ///
-/// `normalize_remote_url` only trims and lowercases, so `git@github.com:o/r.git`
-/// and `https://github.com/o/r` key apart under it and the import re-creates a
-/// repository the registry already holds. The fallback keeps a URL
-/// `parse_github` rejects — `ssh://git@github.com/o/r` — matching as it did.
+/// `normalize_remote_url` only trims/lowercases, so `git@github.com:o/r.git`
+/// and `https://github.com/o/r` key apart under it and the import re-creates an
+/// existing repository; the fallback keeps a URL `parse_github` rejects
+/// (`ssh://git@github.com/o/r`) matching as it did.
 fn github_key(remote_url: &str) -> String {
     GitHostRepo::parse(RepositoryProvider::Github, remote_url).map_or_else(
         || normalize_remote_url(remote_url),

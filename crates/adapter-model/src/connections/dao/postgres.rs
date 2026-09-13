@@ -55,7 +55,8 @@ impl PgAdapterConnectionDao {
     }
 
     /// Look up a connection by Adapter + external account. Used for webhook
-    /// routing (identifies tenant from inbound event) — no scope filter applied.
+    /// routing (identifies tenant from inbound event) — no scope filter
+    /// applied.
     pub(crate) async fn find_by_external_account(
         &self,
         adapter_kind: &str,
@@ -155,9 +156,10 @@ impl PgAdapterConnectionDao {
         Ok(rows.into_iter().map(AdapterConnection::from).collect())
     }
 
-    /// Upsert an adapter connection. On conflict (`adapter_kind`, `external_account_id`),
-    /// the DO UPDATE arm includes a `write_filter` guard so cross-user updates
-    /// affect 0 rows, which surfaces as `RowNotFound`.
+    /// Upsert an adapter connection. On conflict (`adapter_kind`,
+    /// `external_account_id`), the DO UPDATE arm includes a `write_filter`
+    /// guard so cross-user updates affect 0 rows, which surfaces as
+    /// `RowNotFound`.
     pub(crate) async fn upsert(
         &self,
         row: &AdapterConnection,

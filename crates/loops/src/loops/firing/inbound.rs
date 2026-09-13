@@ -7,22 +7,12 @@ use moatless_types::task::Visibility;
 
 use moatless_types::adapter::InboundMessage;
 
-/// Assemble a task's firing-time `append_system_prompt` from the three sources
-/// every Subscription firing path draws on, joined with `"\n\n"` in a fixed
-/// order:
+/// Join `origin_prelude`, `prompt_template`, and `reply_instructions` with
+/// `"\n\n"`, in that order, into the firing-time `append_system_prompt`.
 ///
-/// 1. `origin_prelude` — an optional origin-context line prepended ahead of
-///    everything else.
-/// 2. `prompt_template` — the loop/subscription's own prompt template.
-/// 3. `reply_instructions` — the adapter-specific reply guidance (e.g. mention
-///    syntax) the caller resolves from its own adapter. The universal
-///    `moat messages reply --message <id>` guidance lives in the base
-///    sandbox-tools prompt — no per-adapter copy needed.
-///
-/// Returns `None` when every source is absent, so a task with no configured
-/// prompt keeps a `None` append (rather than an empty string). This is the one
-/// firing-time prompt-assembly function shared by every Subscription firing
-/// path; a path opts into a prelude purely via the `origin_prelude` argument.
+/// `None` when all three are absent, so an unconfigured task keeps a `None`
+/// append rather than an empty string; shared by every Subscription firing
+/// path.
 pub(crate) fn assemble_firing_prompt(
     reply_instructions: Option<&str>,
     prompt_template: Option<&str>,
@@ -46,8 +36,9 @@ pub(crate) fn assemble_firing_prompt(
 }
 
 /// Per-path inputs to [`create_task_from_loop`] — the fields that genuinely
-/// differ between the chat, GitHub PR, and Linear firing paths. Everything else
-/// on the resulting [`NewTask`] is derived uniformly from the
+/// differ between the chat, GitHub PR, and Linear firing paths.
+///
+/// Everything else on the resulting [`NewTask`] is derived uniformly from the
 /// [`LoopContext`].
 pub struct CreateTaskParams<'a> {
     /// Task name (chat/GitHub/Linear each compute their own, e.g. Linear falls
@@ -59,9 +50,9 @@ pub struct CreateTaskParams<'a> {
     pub visibility: Visibility,
     /// Optional origin-context prelude for the system prompt.
     pub origin_prelude: Option<&'a str>,
-    /// Adapter-specific reply instructions appended to the firing system
-    /// prompt (e.g. mention syntax). The caller resolves these from its own
-    /// adapter and passes the value; `None` for adapters that supply none.
+    /// Adapter-specific reply instructions appended to the firing system prompt
+    /// (e.g. mention syntax). The caller resolves these from its own adapter
+    /// and passes the value; `None` for adapters that supply none.
     pub reply_instructions: Option<String>,
     /// Optional peer relation recorded by the creation service.
     pub related_to: Option<RelatedTask>,
@@ -71,17 +62,10 @@ pub struct CreateTaskParams<'a> {
 
 /// Single task-creation entry point for every Subscription firing path.
 ///
-/// Translates a [`LoopContext`] plus the per-path [`CreateTaskParams`] into a
-/// [`NewTask`] and hands the whole create-then-provision sequence (short id,
-/// preflight, insert, tags, relations, provision, task event) to the task band.
-/// No first turn is passed — every adapter delivers its inbound prompt
-/// separately through the binding.
-///
-/// A Loop is shared and may be global-scoped; the task it fires is not. The
-/// task band owns that rule and derives scope from `created_by`.
-///
-/// Surfaces the port's typed [`TaskOpenError`] verbatim so callers can tell a
-/// permanent [`TaskOpenError::Refused`] apart from a transient store failure.
+/// Hands create-then-provision to the task band with no first turn (every
+/// adapter delivers its inbound prompt via the binding instead); a shared,
+/// possibly global-scoped Loop always fires a scoped task, and callers see
+/// [`TaskOpenError`] verbatim, including [`TaskOpenError::Refused`].
 pub async fn create_task_from_loop(
     task_creation: &dyn TaskOpener,
     config: &LoopContext,
@@ -118,11 +102,13 @@ pub async fn create_task_from_loop(
     Ok(outcome)
 }
 
-/// Create a new task from a chat message (Slack / Telegram / Webhook) or a
-/// schedule firing. Thin wrapper over [`create_task_from_loop`] that fills in
-/// the shape both share: private visibility, the Loop's task name, a truncated
-/// message preview, and `{adapter, source_id}` event metadata. `related_to`
-/// carries the optional peer relation the bindings path computes.
+/// Create a task from a chat message (Slack/Telegram/Webhook) or schedule
+/// firing.
+///
+/// Thin wrapper over [`create_task_from_loop`]: private visibility, the Loop's
+/// task name, a truncated message preview, `{adapter, source_id}` event
+/// metadata, and `related_to` carrying the bindings path's optional peer
+/// relation.
 pub(crate) async fn create_task_for_external_message(
     task_creation: &dyn TaskOpener,
     config: &LoopContext,

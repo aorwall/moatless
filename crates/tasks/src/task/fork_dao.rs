@@ -17,14 +17,9 @@ pub(crate) trait TaskForkDao: Send + Sync {
     async fn find(&self, task_id: &str) -> Result<Option<TaskFork>, sqlx::Error>;
 }
 
-/// Write the anchors a rewind leaves behind, replacing whatever was there.
-///
-/// Not [`TaskForkDao::insert`], and not a pool: a rewind's row must land in the
-/// same transaction as the deletes it describes — a Task truncated without it
-/// resumes its *untruncated* session id and the agent writes on past the cut as
-/// if nothing happened. `DO UPDATE` rather than `DO NOTHING` because a Task
-/// already carrying a row, from a fork or an earlier rewind, is the ordinary
-/// case here.
+/// Write the anchors a rewind leaves behind, replacing whatever was there. Not
+/// a pool: the row must land in the same transaction as its deletes, or a Task
+/// resumes its untruncated session past the cut.
 pub(crate) async fn record_rewind_anchor(
     tx: &mut PgConnection,
     row: &TaskFork,
@@ -52,11 +47,9 @@ pub(crate) async fn record_rewind_anchor(
     Ok(())
 }
 
-/// Drop a Task's anchors, for a rewind that left no session to branch from.
-///
-/// Same transaction rule as [`record_rewind_anchor`]: a stale row surviving the
-/// deletes would hand the next turn a cut into a transcript this Task no longer
-/// has.
+/// Drop a Task's anchors, for a rewind leaving no session to branch from. Same
+/// transaction rule as [`record_rewind_anchor`]: a stale row would cut the next
+/// turn into a transcript this Task lacks.
 pub(crate) async fn clear_anchors(
     tx: &mut PgConnection,
     task_id: &str,

@@ -1,8 +1,8 @@
 //! Redis stream consumer for SSE event fan-out.
 //!
-//! Scans for `task-events:*` streams, creates consumer groups, and reads
-//! events via `XREADGROUP`. Each event's `payload` field (raw JSON) is
-//! broadcast to all connected SSE clients via the shared SSE event bus.
+//! Scans for `task-events:*` streams, creates consumer groups, and reads events
+//! via `XREADGROUP`. Each event's `payload` field (raw JSON) is broadcast to
+//! all connected SSE clients via the shared SSE event bus.
 
 use redis::aio::ConnectionManager;
 use redis::Value;
@@ -22,11 +22,10 @@ const GROUP_ORPHAN_IDLE_MS: i64 = 60 * 60 * 1000;
 
 /// Interval between orphan sweeps.
 ///
-/// Per-pod groups are created on *every* stream, so each pod that dies without
-/// a clean shutdown (OOM kill, eviction, `SIGKILL`) strands one group per
-/// stream. Nothing else removes them, and Redis charges memory per group and
-/// per PEL entry, so without this sweep they accumulate for as long as the
-/// streams live.
+/// Per-pod groups are created on *every* stream, so a pod that dies without a
+/// clean shutdown strands one group per stream; nothing else removes them, and
+/// Redis charges memory per group and PEL entry, so they'd accumulate forever
+/// without this sweep.
 const GROUP_REAP_INTERVAL: std::time::Duration = std::time::Duration::from_mins(30);
 
 /// Redis stream consumer that fans out events to SSE clients.
@@ -114,8 +113,8 @@ impl RedisStreamConsumer {
         info!("SSE Redis consumer stopped");
     }
 
-    /// One consume cycle: discover streams, ensure groups, re-broadcast pending,
-    /// then read + broadcast + ACK new entries.
+    /// One consume cycle: discover streams, ensure groups, re-broadcast
+    /// pending, then read + broadcast + ACK new entries.
     async fn consume_cycle(&mut self) -> Result<(), redis::RedisError> {
         // Discover all task-events:* streams
         let streams = self.scan_streams().await?;
@@ -154,9 +153,11 @@ impl RedisStreamConsumer {
     }
 
     /// Drain this consumer's Pending Entries List across all streams,
-    /// re-broadcasting and ACKing until empty. Reading with id `0` returns the
-    /// PEL from the start; each pass ACKs what it broadcasts, so successive
-    /// reads shrink to nothing. Capped to bound the loop.
+    /// re-broadcasting and ACKing until empty.
+    ///
+    /// Reading with id `0` returns the PEL from the start; each pass ACKs what
+    /// it broadcasts, so successive reads shrink to nothing. Capped to bound
+    /// the loop.
     async fn recover_pending_entries(
         &mut self,
         streams: &[String],
@@ -237,9 +238,8 @@ impl RedisStreamConsumer {
 
     /// Destroy this pod's own groups across all streams.
     ///
-    /// The clean-shutdown counterpart to [`Self::ensure_group`] — without it a
-    /// restarting pod strands one group per stream behind it. Best-effort: a
-    /// pod killed outright never runs this, which is what the orphan sweep in
+    /// The clean-shutdown counterpart to [`Self::ensure_group`]; a pod killed
+    /// outright never runs this, which is what the orphan sweep in
     /// [`Self::reap_orphaned_groups`] is for.
     async fn destroy_own_groups(&mut self) {
         let streams = match self.scan_streams().await {
@@ -276,10 +276,9 @@ impl RedisStreamConsumer {
     /// Destroy `sse-*` groups whose consumers have all gone idle past
     /// [`GROUP_ORPHAN_IDLE_MS`] — pods that died without a clean shutdown.
     ///
-    /// Never touches this pod's own group, nor the `event-handler` group (which
-    /// owns persistence to Postgres). Idleness is the safety signal: a live
-    /// pod's group is re-read every couple of seconds, so it can't be mistaken
-    /// for an orphan.
+    /// Never touches this pod's own group, nor `event-handler` (which owns
+    /// persistence to Postgres); a live pod's group is re-read every couple of
+    /// seconds, so it can't be mistaken for an orphan.
     async fn reap_orphaned_groups(&mut self, streams: &[String]) {
         let mut destroyed = 0usize;
 
@@ -493,8 +492,8 @@ pub(super) fn extract_field(fields: &[Value], name: &str) -> Option<String> {
     None
 }
 
-/// Extract a named integer field from a flat [key, val, ...] array.
-/// `XINFO` returns numbers as `Value::Int`, which [`extract_string`] can't read.
+/// Extract a named integer field from a flat [key, val, ...] array. `XINFO`
+/// returns numbers as `Value::Int`, which [`extract_string`] can't read.
 fn extract_i64(fields: &[Value], name: &str) -> Option<i64> {
     let mut iter = fields.iter();
     while let Some(key) = iter.next() {

@@ -1,8 +1,8 @@
 //! Prometheus counters for Loop schedule firings.
 //!
-//! `loop_id` is emitted as a label so the admin UI can render per-Loop
-//! counts. Global tick / leader-election failures pass `""` because they
-//! aren't tied to a specific Loop.
+//! `loop_id` is emitted as a label so the admin UI can render per-Loop counts.
+//! Global tick / leader-election failures pass `""` because they aren't tied to
+//! a specific Loop.
 
 pub(crate) const LOOP_SCHEDULE_FIRING_TOTAL: &str = "moatless_loop_schedule_firing_total";
 
@@ -18,10 +18,8 @@ pub fn describe_loop_firing_metrics() {
 
 /// Record one schedule-firing outcome.
 ///
-/// `outcome` must be one of `"success"`, `"ignored"`, `"error"`.
-/// `reason` is a fixed-vocabulary label (e.g. `"not_leader"`, `"no_lock"`,
-/// `"execution_failed"`); pass `""` when not applicable.
-/// `loop_id` is the schedule's Loop ID, or `""` for global failures.
+/// `outcome` is `"success"`, `"ignored"`, or `"error"`; `reason` is a fixed
+/// label (e.g. `"not_leader"`) or `""`; `loop_id` is `""` for global failures.
 pub(crate) fn record_schedule_firing(outcome: &'static str, reason: &'static str, loop_id: &str) {
     metrics::counter!(
         LOOP_SCHEDULE_FIRING_TOTAL,

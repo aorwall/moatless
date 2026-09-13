@@ -1,15 +1,12 @@
-//! What a batch of conversation changes is read as: a change names the row it is
-//! about, and reading exactly the named rows is complete.
+//! What a batch of conversation changes is read as: a change names the row it
+//! is about, and reading exactly the named rows is complete.
 //!
-//! The shape that makes this worth holding is the `tool_result`. It arrives on
-//! its own Message, but what it changes is the *call*, on an earlier row. A
-//! result settles the activity that call already wrote, and the change is
-//! recorded against the calling Message — so no reader has to widen its window
-//! to a run of Messages before each result and hope the run starts early enough.
+//! The `tool_result` case: it arrives on its own Message but settles the
+//! *call*'s activity on an earlier row, and the change is recorded against the
+//! calling Message — so no reader needs a run of Messages before it.
 //!
-//! This file holds that property against a real database, because it is a
-//! property of two SQL statements: what `append_activities` records, and what
-//! `changed_messages` reads back.
+//! Held against a real database: a property of `append_activities` and
+//! `changed_messages` together.
 
 use crate::dao::{ConversationBrowse, ConversationDao, PgConversationDao};
 use moatless_api_schemas::task::{FileContextData, MessageContextInput, PreviewUrlContextData};
@@ -90,10 +87,8 @@ fn tool_result(id: &str) -> serde_json::Value {
 
 /// A result reaches the reader as a change to the row it answers.
 ///
-/// The result carries no text, so it is no Message of its own. It settles the
-/// call's activity and records a change naming the *calling* Message — which is
-/// why the reader needs no run before it, and why the rows the batch happens to
-/// name alongside it no longer matter.
+/// No text of its own; it settles the call's activity and names the *calling*
+/// Message, so no run before it is needed.
 #[sqlx::test]
 async fn a_result_is_read_as_a_change_to_the_call_it_answers(pool: PgPool) {
     seed_task(&pool).await;
@@ -148,8 +143,8 @@ async fn a_result_is_read_as_a_change_to_the_call_it_answers(pool: PgPool) {
 
 /// Only the rows a batch names are read.
 ///
-/// Every change describes the row it names, so a batch is read as exactly
-/// those rows — no lookback, and no row dragged along for context.
+/// Every change describes the row it names — no lookback, no row dragged along
+/// for context.
 #[sqlx::test]
 async fn a_batch_is_read_as_the_rows_it_names(pool: PgPool) {
     seed_task(&pool).await;
@@ -186,14 +181,11 @@ async fn a_batch_is_read_as_the_rows_it_names(pool: PgPool) {
     );
 }
 
-/// A question is stored twice: as the call it is, and as the question the panel
-/// is derived from. Both rows sit in the same change, at the same block, so they
-/// carry one position and one ordinal — which is what the numbering the client
-/// sorts by is built from.
+/// A question is stored twice: as the call, and as the question the panel is
+/// derived from.
 ///
-/// Held against a real database because it is a property of the column, the
-/// upsert and the read together: the ordinal has to survive a redelivery of the
-/// same block, and the read has to hand both rows back in written order.
+/// Both share one change, block and ordinal; the ordinal must survive a
+/// redelivery, and the read must return both in written order.
 #[sqlx::test]
 async fn a_question_is_stored_as_a_call_and_as_the_question_it_asked(pool: PgPool) {
     seed_task(&pool).await;
@@ -277,14 +269,9 @@ async fn a_question_is_stored_as_a_call_and_as_the_question_it_asked(pool: PgPoo
 /// A question re-presented on a later Message is read as settled, though that
 /// Message holds no call.
 ///
-/// A resuming session re-presents the call it was parked on. The call is stored
-/// once — `(task_id, tool_use_id)` is unique, so the second arrival is dropped —
-/// but the joined panel row carries no `tool_use_id` and is written again, on the
-/// new Message. From then on the two sit on different Messages, so a read
-/// narrowed to the panel's holds no call to read the answer off. The client keeps
-/// a panel open until something says the request resolved and refuses to answer a
-/// call that has come back, so a panel left `requested` here is one nobody can
-/// get rid of.
+/// The call is stored once (unique on `(task_id, tool_use_id)`); the panel row
+/// is rewritten on the new Message, so a client waiting on settlement needs
+/// this read to find it.
 #[sqlx::test]
 async fn a_re_presented_question_is_read_as_settled_without_its_call(pool: PgPool) {
     seed_task(&pool).await;
@@ -344,12 +331,11 @@ async fn a_re_presented_question_is_read_as_settled_without_its_call(pool: PgPoo
     );
 }
 
-/// An activity that happened on no Message is named by the change, and read back
-/// by that name.
+/// An activity that happened on no Message is named by the change, and read
+/// back by that name.
 ///
-/// A context-window reading is the live case that already ships: it is written
-/// through the standalone path. The change carries the activity id, and
-/// `changed_messages` reads the row by it.
+/// A context-window reading is the live case: written through the standalone
+/// path, read back by activity id.
 #[sqlx::test]
 async fn a_standalone_activity_change_names_the_activity_and_reads_back(pool: PgPool) {
     seed_task(&pool).await;
@@ -384,9 +370,9 @@ async fn a_standalone_activity_change_names_the_activity_and_reads_back(pool: Pg
     assert_eq!(window.activities[0].payload["usedTokens"], 1_000);
 }
 
-/// A Sandbox status that restates the one before it writes nothing and spends no
-/// position: the collapse check runs before the allocation, so a restated status
-/// records no change for a subscriber to be woken by.
+/// A Sandbox status that restates the one before it writes nothing and spends
+/// no position: the collapse check runs before the allocation, so a restated
+/// status records no change for a subscriber to be woken by.
 #[sqlx::test]
 async fn a_restated_sandbox_status_records_no_change_and_spends_no_position(pool: PgPool) {
     seed_task(&pool).await;
@@ -432,9 +418,8 @@ async fn a_restated_sandbox_status_records_no_change_and_spends_no_position(pool
 
 /// A Message's uploads reach the reader on the Message itself.
 ///
-/// The transcript joins them out of the `file` context rows the send path
-/// writes, so this is a property of that SQL: only `file` rows, only this
-/// Message's, and each carrying the metadata a rendered attachment needs.
+/// Joined from `file` context rows only, scoped to this Message, each carrying
+/// the metadata a rendered attachment needs.
 #[sqlx::test]
 async fn a_message_carries_the_uploads_attached_to_it(pool: PgPool) {
     seed_task(&pool).await;
@@ -523,9 +508,8 @@ async fn tag_with(pool: &PgPool, task_id: &str, tags: &[&str]) {
 /// A browse reaches the Tasks of somebody the viewer is not, and each filter
 /// narrows it.
 ///
-/// The property this holds is that the browse drops the *follow* rule and
-/// nothing else: none of these Tasks is followed, the viewer owns none of them,
-/// and only the ones the filter names come back.
+/// The browse drops only the *follow* rule — none of these Tasks is followed or
+/// owned by the viewer.
 #[sqlx::test]
 async fn a_browse_reaches_tasks_the_viewer_neither_follows_nor_owns(pool: PgPool) {
     let repo = make_repository_row("repo-1", USER_1);
@@ -589,9 +573,8 @@ async fn a_browse_reaches_tasks_the_viewer_neither_follows_nor_owns(pool: PgPool
 
 /// Closed Tasks come back only when the browse asks for them.
 ///
-/// Closing is what T3 calls archiving, and the archived listing is a separate
-/// read for a viewer's own Follows. A browse folds both halves into one read, so
-/// this is the flag that decides which it is.
+/// Closing is T3's archiving; a browse folds both halves into one read, and
+/// this flag picks which.
 #[sqlx::test]
 async fn a_browse_leaves_closed_tasks_out_until_it_is_asked_for_them(pool: PgPool) {
     let repo = make_repository_row("repo-1", USER_1);

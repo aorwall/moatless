@@ -4,11 +4,10 @@ use super::event::process_watcher_event;
 use super::sweep::{gc_failed_pods, retry_pending_auto_stops, sweep_pending_pods};
 use super::*;
 
-/// Dependencies the watcher needs to remediate a crash-looping sandbox. The
-/// lifecycle owns plan construction and intent, so the watcher only carries the
-/// handle. All are optional because the watcher also runs in setups without a
-/// database (where remediation degrades to publishing a `Failed` event / raw
-/// scale-to-0).
+/// Dependencies the watcher needs to remediate a crash-looping sandbox.
+///
+/// All are optional: without a database, remediation degrades to publishing a
+/// `Failed` event or a raw scale-to-0.
 #[derive(Clone)]
 pub(super) struct WatcherDeps {
     /// Enables ConfigMap-backed node archive tracking for node-local workspace
@@ -18,20 +17,16 @@ pub(super) struct WatcherDeps {
     /// watcher drives crash auto-stop (`stop`) through it. `None` in DB-less
     /// setups, where crash mitigation degrades to a raw scale-to-0.
     pub(super) lifecycle: Option<Arc<Lifecycle>>,
-    /// Attach-failure remediation. When a pvc+s3 pod stalls Pending on a volume
-    /// attach failure, the watcher asks the runtime to rebuild it on an emptyDir
-    /// that restores from S3. `None` disables the fallback (the pod keeps
-    /// surfacing the environment error).
+    /// Attach-failure remediation: rebuilds a stalled pvc+s3 pod on an emptyDir
+    /// restoring from S3. `None` disables the fallback, leaving the pod to keep
+    /// surfacing the environment error.
     pub(super) storage_fallback: Option<Arc<dyn StorageFallback>>,
 }
 
 /// Spawn the pod lifecycle watcher as a background tokio task.
 ///
-/// The watcher runs in a loop:
-/// 1. Try to acquire leadership via K8s Lease.
-/// 2. If leader, start watching pods.
-/// 3. If not leader, sleep and retry.
-/// 4. On watch stream error, re-enter the leadership loop.
+/// Loops leadership acquisition (K8s Lease) and pod watching; re-enters the
+/// loop on watch-stream error or lost leadership.
 // reason: the watcher wires seven collaborators (client, publisher, cancel, the
 // crash threshold, archive feature gate, the lifecycle handle, and the storage
 // fallback) into one spawned task.

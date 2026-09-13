@@ -1,5 +1,5 @@
-//! Reconciler tests against Postgres: candidate enumeration and marker
-//! recovery as the real DAO answers them.
+//! Reconciler tests against Postgres: candidate enumeration and marker recovery
+//! as the real DAO answers them.
 
 use super::*;
 
@@ -156,12 +156,9 @@ impl NotifyPort for RecordingNotify {
 
 /// The production `PendingWorkReader` predicate, run against the test pool.
 ///
-/// A stub returning a fixed list would not exercise what the fan-out is
-/// for, which is resolving the members of a shared Sandbox from the rows a
-/// test actually seeded. The statement matches
-/// `moatless_tasks::ports::PendingWork`; that crate is
-/// not a dependency here, and this is test code, so it is restated rather
-/// than shared.
+/// A stub returning a fixed list wouldn't exercise resolving a shared Sandbox's
+/// members from seeded rows; matches `moatless_tasks::ports::PendingWork`,
+/// restated here since that crate isn't a dependency.
 struct PoolPendingWork(PgPool);
 #[async_trait]
 impl PendingWorkReader for PoolPendingWork {
@@ -297,8 +294,9 @@ fn build_with(
     (reconciler, sink)
 }
 
-/// A pending user Message, plus the Sandbox wake signal its send path
-/// writes. The two are one transaction in production
+/// A pending user Message, plus the Sandbox wake signal its send path writes.
+///
+/// The two are one transaction in production
 /// (`moatless_tasks::message::operations::Messages::append`); the fixture
 /// records both so the reconciler sees the shape it reads.
 async fn seed_pending_user_message(pool: &PgPool, task_id: &str, created_at: DateTime<Utc>) {

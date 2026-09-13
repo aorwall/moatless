@@ -22,17 +22,16 @@ pub trait SandboxStopper: Send + Sync {
     async fn stop(&self, task_id: &str, reason: SandboxStopReason) -> Result<(), SandboxError>;
 }
 
-/// The lifecycle surface the T3 sandbox panel drives beside start and stop:
-/// three transitions, plus the one read that decides whether to offer one of
-/// them.
+/// The lifecycle surface the T3 sandbox panel drives: three transitions plus
+/// the read that decides whether to offer one.
 ///
-/// Deliberately not part of [`SandboxLifecycle`], which is sized to the tasks
-/// band and preserves its 409 through [`SandboxOpError`]. These flatten through
-/// [`SandboxError`] like [`SandboxStarter`] and [`SandboxStopper`] beside them,
-/// because the T3 surface renders one refusal for every lifecycle failure.
+/// Deliberately not [`SandboxLifecycle`]: these flatten through
+/// [`SandboxError`], like [`SandboxStarter`]/[`SandboxStopper`], because the T3
+/// panel renders one refusal for every failure.
 #[async_trait]
 pub trait SandboxOperator: Send + Sync {
-    /// Replace the Task's sandbox pod, keeping its deployment and its workspace.
+    /// Replace the Task's sandbox pod, keeping its deployment and its
+    /// workspace.
     async fn restart(&self, task_id: &str) -> Result<(), SandboxError>;
 
     /// Rebuild the Task's sandbox deployment from current repository config,
@@ -41,24 +40,24 @@ pub trait SandboxOperator: Send + Sync {
 
     /// Remove the Task's sandbox and delete its archives, leaving the Task.
     ///
-    /// The retention is fixed rather than passed in: [`ArchiveRetention::DeleteArchives`]
-    /// is what the REST cleanup route applies, and the panel offers no other.
+    /// Retention is fixed to [`ArchiveRetention::DeleteArchives`], the only
+    /// option the REST cleanup route applies.
     async fn cleanup(&self, task_id: &str) -> Result<(), SandboxError>;
 
     /// The image a fresh deploy would install: the per-repo `docker_image`
     /// override, else the configured default.
     ///
-    /// A read, on a port of transitions, because it is [`Self::redeploy`]'s
-    /// decision input and nothing else asks it — the panel compares it against
-    /// the running image to decide whether a redeploy would move anything. The
-    /// status readers cannot answer it: they see the pod, not the deployment
-    /// config, so every one of them reports `latest_sandbox_image: None`.
+    /// [`Self::redeploy`]'s decision input — the panel compares it against the
+    /// running image. Status readers can't answer this: they see the pod, not
+    /// the deployment config.
     async fn expected_image(&self, task_id: &str) -> Result<String, SandboxError>;
 }
 
 /// A lifecycle operation failure, band-clean and reduced to what the task API
-/// surfaces. The sandbox-band implementation pre-classifies each variant from
-/// the rich `LifecycleError` so the tasks band names no `sandbox` error type.
+/// surfaces.
+///
+/// Pre-classified from the rich `LifecycleError` so the tasks band names no
+/// `sandbox` error type.
 #[derive(Debug, thiserror::Error)]
 pub enum SandboxOpError {
     /// The Task has no row — maps to a 404.
@@ -76,28 +75,16 @@ pub enum SandboxOpError {
     Internal(String),
 }
 
-/// The durable sandbox-lifecycle contract the tasks band drives.
+/// The durable sandbox-lifecycle contract the tasks band drives, inverting the
+/// edge so consumers hold `Arc<dyn SandboxLifecycle>` and name no `sandbox`
+/// type.
 ///
-/// The task closer, reaper, HTTP handlers, and service drive a Task's sandbox —
-/// start it, stop it, remove it, read its desired state — but they are a band
-/// below the `Lifecycle` orchestrator that owns those transitions. This port
-/// inverts that edge: the consumers hold `Arc<dyn SandboxLifecycle>` and name no
-/// `sandbox` type, and `Lifecycle` implements it at the composition root.
-///
-/// It is deliberately **not** [`SandboxStarter`]/[`SandboxStopper`]
-/// /[`SandboxIntentReader`]: those flatten a lifecycle failure through
-/// [`SandboxError`], which has no `Conflict` variant, so lock contention
-/// (`OperationInProgress`) that the task API answers **409** would arrive as an
-/// internal **500**. The tasks band needs that 409, so this contract's error
-/// preserves the three client-visible outcomes. The
-/// `LifecycleError -> SandboxOpError` mapping lives in the sandbox-band
-/// implementation; `moatless_tasks::task::error::TaskError` maps
-/// `SandboxOpError` the rest of the way (404 / 400 / 409 / 500).
-///
-/// Sized to the tasks-band cross-boundary surface: the concrete `Lifecycle` also
-/// serves `restart`/`redeploy`/`expected_sandbox_image`, but those have no
-/// tasks-band caller (only the sandbox HTTP handlers, on the legal side of the
-/// boundary), so they stay off the port.
+/// Deliberately not
+/// [`SandboxStarter`]/[`SandboxStopper`]/[`SandboxIntentReader`]: those flatten
+/// through [`SandboxError`], which has no `Conflict` variant, so a 409
+/// (`OperationInProgress`) would arrive as a 500. Excludes
+/// `restart`/`redeploy`/`expected_sandbox_image`, which only sandbox HTTP
+/// handlers call.
 #[async_trait]
 pub trait SandboxLifecycle: Send + Sync {
     /// Provision and start the Task's sandbox.
@@ -106,14 +93,13 @@ pub trait SandboxLifecycle: Send + Sync {
     /// Stop the Task's sandbox, recording why.
     async fn stop(&self, task_id: &str, reason: SandboxStopReason) -> Result<(), SandboxOpError>;
 
-    /// Stop the agent running inside the Task's sandbox, leaving the sandbox
-    /// up. Not a lifecycle transition: nothing is recorded and the desired
-    /// state is untouched, so the next turn runs in the same sandbox.
+    /// Stop the agent inside the Task's sandbox, leaving the sandbox up. Not a
+    /// lifecycle transition: nothing is recorded, so the next turn runs in the
+    /// same sandbox.
     ///
-    /// Best-effort, like the graceful stop [`Self::stop`] issues before it
-    /// tears compute down: a sandbox that cannot be reached is one whose agent
-    /// is not running anyway. The terminal `agent.stopped` the caller publishes
-    /// is what closes the turn.
+    /// Best-effort, like the graceful stop [`Self::stop`] issues: an
+    /// unreachable sandbox has no agent running anyway. The caller's terminal
+    /// `agent.stopped` closes the turn.
     async fn stop_agent(&self, task_id: &str, reason: SandboxStopReason);
 
     /// Remove the Task's sandbox, applying the archive-retention policy. The
@@ -125,18 +111,19 @@ pub trait SandboxLifecycle: Send + Sync {
     ) -> Result<(), SandboxOpError>;
 
     /// Reclaim the storage of a Task whose sandbox has been stopped long
-    /// enough, leaving the durable archive as the only copy. The Task stays
-    /// Open and its sandbox stays `Stopped` — a later start restores from the
-    /// archive — so this is a cost transition, not a state one, and the reaper
-    /// is its only caller.
+    /// enough, leaving the durable archive as the only copy.
     ///
-    /// Idempotent: a Task whose storage is already reclaimed is not an error.
+    /// The Task stays Open and `Stopped` — a later start restores from the
+    /// archive — so this is a cost transition, not a state one. Idempotent; the
+    /// reaper is its only caller.
     async fn archive_storage(&self, task_id: &str) -> Result<(), SandboxOpError>;
 
     /// Which of `task_ids` have a stopped sandbox that still owns storage, and
-    /// when each stopped. The candidate set for [`Self::archive_storage`]: the
-    /// caller applies its own per-Task clock on top, because the threshold is a
-    /// Task property and the storage is a sandbox one.
+    /// when each stopped.
+    ///
+    /// The candidate set for [`Self::archive_storage`]; the caller applies its
+    /// own per-Task clock since the threshold is a Task property, not a sandbox
+    /// one.
     async fn stopped_with_storage(
         &self,
         task_ids: &[String],

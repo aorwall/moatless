@@ -14,11 +14,10 @@ pub(super) fn env_var(name: &str, value: &str) -> EnvVar {
 
 /// Strip any embedded userinfo (credentials) from an HTTP(S) URL.
 ///
-/// `https://user:pat@host/owner/repo.git` → `https://host/owner/repo.git`. Keeps
-/// non-HTTP(S) forms unchanged: an scp-like SSH URL's `git@host:path` user is not
-/// a secret, and there is nothing to strip. Used so a clone URL that embeds a
-/// PAT/password never reaches the pod spec (annotation + `GIT_CLONE_URL` env),
-/// and thus never lands in etcd.
+/// `https://user:pat@host/owner/repo.git` → `https://host/owner/repo.git`;
+/// non-HTTP(S) forms (e.g. scp-like SSH `git@host:path`) are unchanged since
+/// their user isn't a secret. Keeps a PAT/password out of the pod spec
+/// (annotation + `GIT_CLONE_URL`) and thus out of etcd.
 pub(super) fn redact_url_userinfo(url: &str) -> String {
     for scheme in ["https://", "http://"] {
         if let Some(rest) = url.strip_prefix(scheme) {

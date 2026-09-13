@@ -1,19 +1,9 @@
 //! The canonical, fully-typed content block.
 //!
 //! Both agent harnesses (Claude Code and Codex) normalize their native output
-//! into this one type before it crosses the sandbox → backend → UI seam, so the
-//! application has a single type-checked representation of a content block rather
-//! than parallel hand-rolled JSON per provider.
-//!
-//! The variants and their `type` tags mirror the Anthropic content-block wire
-//! format, because that is the shape the backend assembler and the frontend
-//! already consume — serializing a [`CanonicalContentBlock`] produces exactly
-//! that JSON, so adopting this type is wire-compatible downstream.
-//!
-//! Two variants carry no Anthropic analog: [`CanonicalContentBlock::TurnResult`]
-//! is Codex's per-turn usage marker, and [`CanonicalContentBlock::Unknown`]
-//! preserves a native block whose kind the harness does not yet map, so an
-//! upstream CLI addition is never silently dropped.
+//! into this one type, matching the Anthropic content-block wire format the
+//! backend assembler and frontend already consume — so serializing a
+//! [`CanonicalContentBlock`] is wire-compatible downstream.
 
 use claude_agent_sdk::api::content::ImageSource;
 use serde::{Deserialize, Serialize};
@@ -35,7 +25,8 @@ pub enum CanonicalContentBlock {
         input: Value,
     },
 
-    /// The result of a tool invocation, linked to its `ToolUse` by `tool_use_id`.
+    /// The result of a tool invocation, linked to its `ToolUse` by
+    /// `tool_use_id`.
     ToolResult {
         tool_use_id: String,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -67,13 +58,13 @@ pub enum CanonicalContentBlock {
     /// Reasoning the provider redacted; only its opaque payload survives.
     RedactedThinking { data: String },
 
-    /// Codex's per-turn marker: the turn finished. Carries no content of its own;
-    /// its enclosing source event carries the turn-level usage.
+    /// Codex's per-turn marker: the turn finished. Carries no content of its
+    /// own; its enclosing source event carries the turn-level usage.
     TurnResult,
 
-    /// A native block whose kind the harness does not map. `raw` is the original
-    /// native JSON, preserved verbatim so an upstream CLI addition is surfaced
-    /// rather than silently discarded.
+    /// A native block whose kind the harness does not map. `raw` is the
+    /// original native JSON, preserved verbatim so an upstream CLI addition is
+    /// surfaced rather than silently discarded.
     Unknown { raw: Value },
 }
 

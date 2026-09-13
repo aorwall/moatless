@@ -26,15 +26,43 @@ const DRAWER: &[&str] = &["utils", "util", "helpers", "helper", "common", "misc"
 pub fn check(ws: &Workspace) -> Result<Vec<Violation>> {
     let mut paths = Vec::new();
     for member in ws.members() {
-        paths.extend(ws.sources(member)?.into_iter().map(|(path, _)| path));
+        let root = ws.relative(&member.dir);
+        paths.extend(
+            ws.sources(member)?
+                .into_iter()
+                .map(|(path, _)| (root.clone(), path)),
+        );
     }
     Ok(check_paths(&paths))
 }
 
-fn check_paths(paths: &[String]) -> Vec<Violation> {
+/// Directories whose layout cargo owns, not the crate's own vocabulary.
+///
+/// `tests/common` is cargo's place for a shared test helper; renaming it to a
+/// domain hides it from every test that needs it.
+const FOREIGN_LAYOUT: &[&str] = &["tests", "benches", "examples"];
+
+/// Whether cargo owns this path's layout, which it does only for a directory
+/// sitting directly under the member root.
+///
+/// Matching the name at any depth would exempt a hand-written
+/// `src/<domain>/tests/` and the `common` drawer beneath it, which is what
+/// [`DRAWER`] exists to catch.
+fn cargo_owns_layout(member_root: &str, path: &str) -> bool {
+    Path::new(path)
+        .strip_prefix(member_root)
+        .ok()
+        .and_then(|rest| rest.components().next())
+        .is_some_and(|c| FOREIGN_LAYOUT.contains(&c.as_os_str().to_string_lossy().as_ref()))
+}
+
+fn check_paths(paths: &[(String, String)]) -> Vec<Violation> {
     let mut found = Vec::new();
-    for path in paths {
+    for (member_root, path) in paths {
         let file = Path::new(path);
+        if cargo_owns_layout(member_root, path) {
+            continue;
+        }
         let Some((module, parent)) = declaration(file) else {
             continue;
         };
@@ -68,10 +96,9 @@ fn check_paths(paths: &[String]) -> Vec<Violation> {
 
 /// The module a source file declares, and the directory that declares it.
 ///
-/// `src/types.rs` and `src/types/mod.rs` both declare `types` in `src`, so the
-/// rule must see them alike — the name is the module's, and a directory module
-/// takes its name from the directory rather than from `mod`. A parent of `src`
-/// means nothing above the module supplies a domain.
+/// `src/types.rs` and `src/types/mod.rs` both declare `types` in `src` — a
+/// directory module takes its name from the directory, not from `mod`, and a
+/// parent of `src` means nothing above supplies a domain.
 fn declaration(file: &Path) -> Option<(String, &Path)> {
     let parent = file.parent()?;
     if file.file_name().is_some_and(|name| name == "mod.rs") {
@@ -87,11 +114,24 @@ fn declaration(file: &Path) -> Option<(String, &Path)> {
 mod tests {
     use super::*;
 
+    /// Member root is the first two components, matching `crates/<name>`.
     fn keys(paths: &[&str]) -> Vec<String> {
-        check_paths(&paths.iter().map(|p| (*p).to_string()).collect::<Vec<_>>())
-            .into_iter()
-            .map(|v| v.key)
-            .collect()
+        let pairs: Vec<(String, String)> = paths
+            .iter()
+            .map(|p| {
+                let root = p.split('/').take(2).collect::<Vec<_>>().join("/");
+                (root, (*p).to_string())
+            })
+            .collect();
+        check_paths(&pairs).into_iter().map(|v| v.key).collect()
+    }
+
+    #[test]
+    fn a_hand_written_tests_module_inside_src_is_still_checked() {
+        assert_eq!(
+            keys(&["crates/x/src/agent/harness/tests/common.rs"]),
+            vec!["crates/x/src/agent/harness/tests/common"]
+        );
     }
 
     #[test]
@@ -121,6 +161,15 @@ mod tests {
             keys(&["crates/x/src/a/b/common.rs", "crates/x/src/a/b/common/mod.rs"]),
             vec!["crates/x/src/a/b/common", "crates/x/src/a/b/common"]
         );
+    }
+
+    #[test]
+    fn a_shared_integration_test_helper_is_not_flagged() {
+        assert!(keys(&[
+            "crates/x/tests/common/mod.rs",
+            "crates/x/benches/shared/mod.rs",
+        ])
+        .is_empty());
     }
 
     #[test]

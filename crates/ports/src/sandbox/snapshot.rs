@@ -43,12 +43,9 @@ pub struct SnapshotListing {
 
 /// The workspace as S3 last stored it, for a task whose sandbox is not running.
 ///
-/// The three reads a stopped sandbox can still answer. There is no write: a
-/// snapshot is what the workspace was, and changing it would put the store and
-/// the next pod's restore at odds.
-///
-/// **Every method is scoped to one task**, so a caller that has already decided
-/// the viewer may read that task has decided the whole access question.
+/// No write: changing a snapshot would put the store and the next pod's restore
+/// at odds. **Every method is scoped to one task**, so deciding a viewer may
+/// read that task decides the whole access question.
 #[cfg_attr(feature = "test-support", mockall::automock)]
 #[async_trait]
 pub trait WorkspaceSnapshotSource: Send + Sync {

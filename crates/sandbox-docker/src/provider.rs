@@ -1,8 +1,8 @@
 //! Docker Sandbox runtime, observer, and connector adapter.
 //!
-//! Manages sandbox lifecycle through Docker containers running as siblings
-//! on a shared Docker network. Communication with sandbox containers uses
-//! gRPC, resolved by container name as hostname on the Docker network.
+//! Manages sandbox lifecycle through Docker containers running as siblings on a
+//! shared Docker network. Communication with sandbox containers uses gRPC,
+//! resolved by container name as hostname on the Docker network.
 
 use async_trait::async_trait;
 use bollard::models::{
@@ -76,7 +76,8 @@ async fn apply_disk_archive_retention(
 }
 
 impl DockerSandboxAdapter {
-    /// Construct the Docker adapter over the deployment's clients and plan resolver.
+    /// Construct the Docker adapter over the deployment's clients and plan
+    /// resolver.
     pub fn new(
         config: Arc<Config>,
         client: DockerClient,
@@ -712,16 +713,11 @@ impl DockerSandboxAdapter {
     }
 }
 
-/// Docker mode cannot publish a port after the fact: the agent container fixes
-/// its published ports at creation (`container_builder.rs`) and publishes only
-/// the sandbox HTTP and gRPC ports, so a port a process binds later has no way
-/// out. `None` rather than an error — a Script still runs, it just gets no URL.
+/// Docker mode cannot publish a port after creation — ports are fixed at
+/// container build (`container_builder.rs`), so a late bind returns `None`, not
+/// an error.
 ///
-/// A reserved port is still refused, exactly as Kubernetes refuses it. Nothing
-/// is externally routable here, so this is not the escape the Kubernetes check
-/// prevents; it is the same rule giving the same answer in both runtimes, and a
-/// script binding the control port would collide with the sandbox's own
-/// listener inside the container regardless.
+/// A reserved port is still refused, though nothing is externally routable.
 #[async_trait]
 impl core_sandbox::SandboxPortPublisher for DockerSandboxAdapter {
     async fn publish_port(
@@ -773,8 +769,8 @@ enum ExistingContainerResult {
 }
 
 /// Reconstruct the create request for a Docker restart from the current
-/// container's effective configuration, replacing only runtime-assigned
-/// network details and lifecycle's immutable generation label.
+/// container's effective configuration, replacing only runtime-assigned network
+/// details and lifecycle's immutable generation label.
 fn recreate_config(
     inspected: ContainerInspectResponse,
     ctx: RuntimeOperationContext,

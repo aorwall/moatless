@@ -7,8 +7,8 @@ use super::dao::PluginDao;
 /// The plugin, skill and activation tables, as a host and this crate's own
 /// routes reach them.
 ///
-/// The store behind it stays private to this crate. A peer band that resolves
-/// what a Sandbox delivers takes
+/// The store stays private to this crate; a peer band resolving what a Sandbox
+/// delivers takes
 /// [`moatless_ports::workspace::WorkspaceResolver::plugin_deliveries`] instead.
 pub struct Plugins {
     store: Arc<dyn PluginDao>,

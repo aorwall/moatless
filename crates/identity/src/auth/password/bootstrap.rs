@@ -28,8 +28,8 @@ pub enum BootstrapError {
 
 /// Ensure the local admin account exists and can log in.
 ///
-/// An existing credential is never changed at startup. For a first-time seed,
-/// `ADMIN_PASSWORD` is used when present; otherwise a random password is logged
+/// An existing credential is never changed at startup; for a first-time seed,
+/// `ADMIN_PASSWORD` is used when present, otherwise a random password is logged
 /// once and marked for change.
 pub(crate) async fn ensure_local_admin(
     users: &dyn UserDao,

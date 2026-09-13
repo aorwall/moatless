@@ -34,12 +34,10 @@ impl CredentialSync {
 
     /// Just-in-time Codex auth.json refresh, addressed by `scope`.
     ///
-    /// 1. If another *open* codex task within this scope (other than
-    ///    `except_task_id`) is in flight, return the stored blob unchanged —
-    ///    the sandbox watcher will rotate it. Avoids racing the CLI for the
-    ///    single-use `refresh_token`.
-    /// 2. Otherwise refresh via [`CredentialService::refresh_codex_locked`] and,
-    ///    on [`CodexRefreshOutcome::Rotated`], fan the new blob out.
+    /// If another open codex task in this scope is already in flight, returns
+    /// the stored blob unchanged rather than racing it for the single-use
+    /// `refresh_token`; otherwise refreshes via
+    /// [`CredentialService::refresh_codex_locked`] and fans out a rotated blob.
     pub async fn ensure_fresh_codex(
         &self,
         scope: CodexScope,
@@ -70,17 +68,10 @@ impl CredentialSync {
 
     /// Resolve `CODEX_AUTH_JSON` with `user > global` precedence in one call.
     ///
-    /// Single entry point for callers that don't want to think about scopes:
-    /// the resolver in `sandbox::secrets`, the gRPC `GetCredentials` handler,
-    /// and the background refresher all see one method. The walk lives here so
-    /// the "most-specific wins" rule is enforced centrally — callers can't
-    /// accidentally invert the precedence by reordering their calls.
-    ///
-    /// Each scope's blob is refreshed in place via [`Self::ensure_fresh_codex`].
-    /// The first scope that yields a usable blob wins; scopes with no row or a
-    /// permanent refresh failure (`CredentialError::NotFound`) silently fall
-    /// through. Transient errors are logged and the walk continues so a single
-    /// scope's upstream outage can't block the others.
+    /// The walk lives here so "most-specific wins" is enforced centrally, not
+    /// by caller ordering; a `NotFound` scope falls through silently, but a
+    /// transient error is logged and the walk continues rather than failing on
+    /// one scope's outage.
     pub async fn ensure_fresh_codex_for(
         &self,
         user_id: &str,
@@ -110,18 +101,13 @@ impl CredentialSync {
         }))
     }
 
-    /// Persist a credential and, when a new value actually landed and the key
-    /// is one sandboxes can't pull on demand, fan it out to running sandboxes.
+    /// Persist a credential and, when a new value landed on a key sandboxes
+    /// can't pull on demand, fan it out to running sandboxes.
     ///
-    /// Takes `source` (not just a bool) because the broadcast-exclusion is
-    /// derived from it: a `SandboxRotation { task_id }` excludes the
-    /// originating sandbox so a rotated value doesn't echo back as a fresh
-    /// push; every other source excludes nothing.
-    ///
-    /// The dedup-before-broadcast order is preserved: [`CredentialService::store`]
-    /// short-circuits an unchanged value to [`StoreOutcome::Unchanged`] and a
-    /// GitHub token to [`StoreOutcome::SecretRef`], both *before* returning, so
-    /// only [`StoreOutcome::Persisted`] can reach the fan-out below.
+    /// `source` drives the broadcast exclusion: `SandboxRotation { task_id }`
+    /// excludes the originating sandbox so a rotated value doesn't echo back;
+    /// only a `StoreOutcome::Persisted` value (never `Unchanged`/`SecretRef`)
+    /// reaches the fan-out.
     pub async fn store(
         &self,
         user_id: &str,
@@ -156,22 +142,20 @@ impl CredentialSync {
         Ok(())
     }
 
-    /// Public-facing entry point for callers that have already persisted a
-    /// codex blob via the DAO and want to fan the rotation out to live
-    /// sandboxes — team / global saves from HTTP handlers, and user-scope
-    /// saves that wrote the row themselves. Those user-scope callers must come
-    /// here rather than [`Self::store`]: `store`'s dedup reads the just-written
-    /// value back, sees no change, and would suppress the broadcast. Call
-    /// `store` instead only when the write has not happened yet and you want
-    /// its dedup + persistence path to run.
+    /// Fans a rotation out to live sandboxes for a codex blob already persisted
+    /// via the DAO.
+    ///
+    /// Callers that wrote the row themselves must come here, not
+    /// [`Self::store`]: its dedup would read the just-written value back, see
+    /// no change, and suppress the broadcast.
     pub async fn broadcast_codex_rotation(&self, scope: &CodexScope, value: &str) {
         self.broadcast_to_scope(scope, None, "CODEX_AUTH_JSON", value)
             .await;
     }
 
     /// Returns true when any *other* codex-typed task within this scope is
-    /// currently `Open`. Best-effort: any DB error is logged and treated as
-    /// "no other tasks" so a transient failure can't block every refresh.
+    /// currently `Open`. Best-effort: any DB error is logged and treated as "no
+    /// other tasks" so a transient failure can't block every refresh.
     async fn any_other_open_codex_task(
         &self,
         scope: &CodexScope,
@@ -201,13 +185,12 @@ impl CredentialSync {
     }
 
     /// Push a freshly stored credential to every running sandbox whose
-    /// effective user resolves through `scope`. Fire-and-forget per sandbox
-    /// — failures are logged.
+    /// effective user resolves through `scope`. Fire-and-forget per sandbox;
+    /// failures are logged.
     ///
-    /// v1 fan-out is coarse: for team / global scopes we push to every open
-    /// codex task within the scope, including users who have their own row
-    /// and don't need the push. Harmless because the sandbox watcher applies
-    /// the value only when it differs from the in-memory blob.
+    /// Coarse fan-out: team/global scopes push to every open codex task in
+    /// scope, even users with their own row — harmless since the sandbox
+    /// watcher applies a value only when it differs.
     async fn broadcast_to_scope(
         &self,
         scope: &CodexScope,
@@ -260,10 +243,9 @@ mod tests {
     use moatless_identity::credentials::test_support::{InMemoryTokens, credentials_over};
     use moatless_ports::sandbox::{CredentialBroadcast, SandboxError};
 
-    /// A `CredentialBroadcast` that must never be reached. Every test below
-    /// either keeps `list_open_codex_tasks_for_scope` returning empty (nothing
-    /// to fan out to) or never enters the broadcast path, so a delivery is a
-    /// bug — fail loudly rather than making a network call.
+    /// A `CredentialBroadcast` that must never be reached: every test below
+    /// keeps the task list empty or avoids the broadcast path, so a delivery
+    /// here is a bug — fail loudly rather than making a network call.
     struct NeverBroadcast;
 
     #[async_trait]

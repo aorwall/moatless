@@ -1,19 +1,11 @@
 //! Pre-provision validation of a task's sandbox credentials.
 //!
-//! Runs synchronously before provisioning, so a task whose pod could never
-//! authenticate fails fast — no Deployment, PVC or pod — as one `sandbox.error`
-//! event rather than a permanent init failure in the pod watcher's log.
-//!
-//! Two checks, in order. **Task write** evaluates `ScopeContext::can_write` on
-//! the task row up front, the same predicate the gRPC write gate applies to the
-//! pod authenticating as `created_by`, so the two cannot drift. **GitHub
-//! credentials** probes `GET /repos/{owner}/{repo}` — installation tokens are
-//! repository credentials and cannot use the user-only `/user` endpoint — and
-//! only when the repo URL parses as a `github.com` URL.
-//!
-//! Token resolution mirrors `resolve_task_credentials`: the persisted repository
-//! scope selects exactly one credential row, and a scoped `GITHUB_TOKEN` secret
-//! is never a fallback.
+//! Runs before provisioning, so a pod that could never authenticate fails fast
+//! as one `sandbox.error`, not buried in the pod watcher's log. Checks task
+//! write access, then probes `GET /repos/{owner}/{repo}` for GitHub credentials
+//! when the repo is `github.com`. Token resolution mirrors
+//! `resolve_task_credentials`: a persisted repository scope selects one
+//! credential row; a scoped `GITHUB_TOKEN` is never a fallback.
 
 use std::sync::Arc;
 
@@ -34,10 +26,10 @@ use moatless_types::repository::{RepositoryKind, RepositoryProvider};
 use moatless_types::task::Task;
 
 /// The exact set of credential-resolution dependencies the preflight consumes.
-/// Assembled once at the composition root and consumed by `RealPreflight`,
-/// which is held on `AppState` as `preflight` and shared by
-/// `TaskCreationService` and the task-start handler. All fields are cheap
-/// `Arc` clones.
+///
+/// Assembled once at the composition root; held on `AppState` as `preflight`
+/// and shared by `TaskCreationService` and the task-start handler. All fields
+/// are cheap `Arc` clones.
 #[derive(Clone)]
 pub struct PreflightCredentials {
     /// The one way to a git-host token.
@@ -91,9 +83,9 @@ pub enum PreflightError {
 }
 
 impl PreflightError {
-    /// Short user-facing message safe to surface in events and 4xx
-    /// responses. Keep distinct per variant so the operator can tell
-    /// "token expired" from "token can't see this repo" at a glance.
+    /// Short user-facing message safe to surface in events and 4xx responses.
+    /// Keep distinct per variant so the operator can tell "token expired" from
+    /// "token can't see this repo" at a glance.
     pub fn user_message(&self) -> String {
         match self {
             Self::NoTaskControl { user_id, scope, .. } => format!(
@@ -120,8 +112,8 @@ impl PreflightError {
     }
 }
 
-/// Abstraction over the two `api.github.com` calls the preflight makes,
-/// so unit tests can exercise the logic without hitting the network.
+/// Abstraction over the two `api.github.com` calls the preflight makes, so unit
+/// tests can exercise the logic without hitting the network.
 #[async_trait]
 pub trait GithubValidator: Send + Sync {
     /// `GET /repos/{owner}/{repo}` — returns `Ok(())` on 2xx.
@@ -140,13 +132,11 @@ impl GithubValidator for RealGithubValidator {
     }
 }
 
-/// Production preflight — holds exactly the credential handles
-/// `preflight_validate_git_credential` consumes plus the network validator seam.
+/// Holds the credential handles and network validator seam
+/// `preflight_validate_git_credential` needs.
 ///
-/// Lives here (sandbox-control) rather than the tasks band so the tasks-band
-/// [`PreflightPort`] names no credential or validator type. It maps the rich
-/// [`PreflightError`] down to the band-clean [`PreflightRejection`] at the seam,
-/// pre-computing the user-facing message and detail the caller needs.
+/// So [`PreflightPort`] names no credential/validator; maps [`PreflightError`]
+/// to [`PreflightRejection`], message and detail precomputed.
 pub struct RealPreflight {
     creds: PreflightCredentials,
     validator: Arc<dyn GithubValidator>,
@@ -178,12 +168,9 @@ impl PreflightPort for RealPreflight {
 
 /// Verify the sandbox's own identity can control the task before provisioning.
 ///
-/// The pod authenticates back as the task's owner, and every sandbox gRPC call
-/// — `GetCredentials` first among them — is gated on
-/// [`ScopeContext::can_write`]. A task that fails this check yields a pod
-/// that is refused its credentials, never completes init, fails its startup
-/// probe, and crash-loops. Evaluating the identical predicate here turns that
-/// into one error before any infrastructure exists.
+/// The pod authenticates back as the task's owner; every sandbox gRPC call is
+/// gated on [`ScopeContext::can_write`], so failing here is what stands between
+/// that and a pod that crash-loops forever refused its credentials.
 pub async fn preflight_validate_task_control(
     users: &dyn CommitIdentity,
     task: &Task,
@@ -228,21 +215,21 @@ async fn validate_control(
     })
 }
 
-/// Platform-admin lookup, mirroring the gRPC control gate: an id that names no
-/// user (the `system` sentinel, a `bot:` value) or a failed read is "not
-/// admin". The port keeps those two apart; the control gate deliberately does
-/// not, because neither grants admin.
+/// Platform-admin lookup, mirroring the gRPC control gate: no user (`system`,
+/// `bot:`) or a failed read is "not admin".
+///
+/// The port keeps those two cases apart; the control gate deliberately does
+/// not, since neither grants admin either way.
 async fn is_platform_admin(users: &dyn CommitIdentity, user_id: &str) -> bool {
     users.is_platform_admin(user_id).await.unwrap_or(false)
 }
 
 /// Verify the git credential, and for `github.com` the repo access, before
-/// provisioning a sandbox.
+/// provisioning.
 ///
-/// `Ok(())` for a repository whose provider issues no credential through this
-/// seam and for one with no remote URL. The repo-access half runs for
-/// `github.com` only; elsewhere the credential's own resolution is the check,
-/// and the in-pod clone failure path reports the rest.
+/// `Ok(())` for no credential on this provider, or no remote URL; only
+/// `github.com` gets the repo-access check, elsewhere resolution alone is the
+/// check, and in-pod clone failure reports the rest.
 pub async fn preflight_validate_git_credential(
     creds: &PreflightCredentials,
     task: &Task,
@@ -329,13 +316,11 @@ pub async fn preflight_validate_git_credential(
     Ok(())
 }
 
-/// The provider whose credential a repo's sandbox must hold to start, if it
-/// must hold one.
+/// The provider whose credential a repo's sandbox must hold to start, if any.
 ///
-/// GitLab and Gitness are absent: neither has a validated preflight path, and
-/// a check that cannot fail is worse than none. Templates are public starter
-/// repos the sandbox clones anonymously, so they are exempt even though they
-/// carry `provider: Github`.
+/// GitLab and Gitness are absent — a check that cannot fail is worse than none;
+/// templates are exempt despite `provider: Github` since the sandbox clones
+/// them anonymously.
 fn requires_credential_preflight(repo: &Repository) -> Option<RepositoryProvider> {
     if repo.kind == RepositoryKind::Template {
         return None;
@@ -369,8 +354,8 @@ mod tests {
 
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    /// Mock validator with configurable responses + call counters so tests
-    /// can assert which branch was taken.
+    /// Mock validator with configurable responses + call counters so tests can
+    /// assert which branch was taken.
     struct MockValidator {
         repo_result: std::sync::Mutex<Result<(), String>>,
         repo_calls: AtomicUsize,
@@ -471,9 +456,10 @@ mod tests {
     }
 
     /// The bug this gate exists for: a global loop firing as a bot yielded a
-    /// global, ownerless task. Its pod authenticates as the bot, and the gRPC
-    /// gate grants control only to a user-scoped row's owner — so `GetCredentials`
-    /// is refused and the pod crash-loops. Reject before any pod exists.
+    /// global, ownerless task, whose pod then authenticates as the bot.
+    ///
+    /// The gRPC gate grants control only to a user-scoped owner; refused
+    /// `GetCredentials` crash-loops the pod, so reject before one exists.
     #[tokio::test]
     async fn a_global_task_cannot_be_controlled_by_the_user_its_sandbox_runs_as() {
         let users = users_with_role(UserRole::User);

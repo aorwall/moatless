@@ -13,8 +13,8 @@ fn matched(workspace_id: Option<&str>, from_user: bool, text: &str) -> Conversat
     }
 }
 
-/// The client routes on `projectId`. A match without one is a row that
-/// cannot be opened, so it is left out rather than shown and then failing.
+/// The client routes on `projectId`. A match without one is a row that cannot
+/// be opened, so it is left out rather than shown and then failing.
 #[test]
 fn a_match_on_a_conversation_with_no_workspace_is_not_reported() {
     let reported = thread_matches(
@@ -63,8 +63,8 @@ fn a_long_match_is_windowed_around_the_match_and_fits_the_contracts_cap() {
 }
 
 /// The window is measured in characters because the cap is on the decoded
-/// string, and a byte cut lands inside a character the moment anything is
-/// not ASCII.
+/// string, and a byte cut lands inside a character the moment anything is not
+/// ASCII.
 #[test]
 fn a_window_never_cuts_a_character_in_half() {
     let text = format!("{} nål {}", "ä ".repeat(400), "ö ".repeat(400));

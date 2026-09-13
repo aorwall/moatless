@@ -6,15 +6,14 @@
               and in the shared `common` module compiled into this binary; both lints only \
               fire when the db-tests feature is enabled"
 )]
-//! Everything below calls [`ingress::receive`] directly, with a signature and
-//! a body. There is no `Request`, no router, no axum extractor, so a decision
-//! can be named without also exercising the transport around it.
+//! Everything below calls [`ingress::receive`] directly with a signature and a
+//! body, not a `Request`, so a decision can be named without exercising the
+//! transport around it.
 //!
-//! What `receive` returns is the vocabulary the route maps to a status and a
-//! metric row, and `linear_webhook_metrics_test.rs` asserts that mapping. This
-//! file asserts the layer under it: which outcome each delivery reaches, which
-//! reason labels it, what the admission committed, and which `IngressError`
-//! variant a refusal raises.
+//! `receive`'s return value is the vocabulary the route maps to a status and a
+//! metric row, which `linear_webhook_metrics_test.rs` asserts; this file
+//! asserts the layer under it — which outcome, which reason, what admission
+//! committed, and which `IngressError` variant a refusal raises.
 
 use crate::common;
 use moatless_types::adapter::AdapterKind;
@@ -112,10 +111,9 @@ async fn deliver_signed_bytes(
 
 /// The connection, plus the `adapter_apps` row its client is resolved from.
 ///
-/// The app row is where `api_for_connection` reads the `api_base_url` that
-/// points the resolved client at `stub`. Without it the client cannot be built,
-/// every Linear emitter skips its call best-effort, and a test asserting what
-/// reached Linear sees nothing at all.
+/// Without that row `api_for_connection` can't build the client, so every
+/// Linear emitter skips its call best-effort and a test sees nothing reach
+/// Linear.
 async fn seed_connection(pool: &PgPool, stub: &ProviderStub) {
     sqlx::query(
         "INSERT INTO adapter_connections \
@@ -282,8 +280,8 @@ fn reason_of(outcome: Result<Outcome, Rejection>) -> &'static str {
 }
 
 /// The `agentActivityCreate` `input` of the one call the stub recorded — the
-/// assertion hook for which activity the response path posted (its `content.type`
-/// and whether it was `ephemeral`).
+/// assertion hook for which activity the response path posted (its
+/// `content.type` and whether it was `ephemeral`).
 #[track_caller]
 fn sole_activity_input(stub: &ProviderStub) -> serde_json::Value {
     let requests = stub.requests();
@@ -500,11 +498,11 @@ async fn an_absent_or_unparseable_inner_payload_is_malformed_payload(pool: PgPoo
     }
 }
 
-/// A created session on a team with no active Subscription is dropped as
-/// `NO_SUBSCRIPTION` — and the session is closed with a terminal `error`
-/// activity rather than left spinning. No provisioning is admitted, so nothing
-/// downstream would ever post a terminal activity; without one Linear leaves the
-/// panel `active` forever.
+/// A created session on a team with no active Subscription is refused as
+/// `NO_SUBSCRIPTION` and closed here with a terminal `error` activity.
+///
+/// No provisioning is admitted, so nothing downstream would ever post a
+/// terminal activity, leaving the panel `active` forever otherwise.
 #[sqlx::test]
 async fn a_created_session_with_no_active_rule_closes_the_session(pool: PgPool) {
     let stub = linear_stub().await;

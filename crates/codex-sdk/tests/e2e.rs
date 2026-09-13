@@ -1,15 +1,14 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::print_stdout, clippy::print_stderr)]
 //! End-to-end integration tests for codex-sdk.
 //!
-//! These tests boot the real in-process Codex runtime and make actual API calls.
-//! They are gated behind the `CODEX_SDK_E2E=1` environment variable and
+//! These tests boot the real in-process Codex runtime and make actual API
+//! calls. They are gated behind the `CODEX_SDK_E2E=1` environment variable and
 //! use `#[ignore]` so `cargo test` skips them by default.
 //!
-//! Run all E2E tests:
-//!   CODEX_SDK_E2E=1 cargo test --ignored -- --nocapture
+//! Run all E2E tests: CODEX_SDK_E2E=1 cargo test --ignored -- --nocapture
 //!
-//! Run a single test:
-//!   CODEX_SDK_E2E=1 cargo test --ignored test_simple_query -- --nocapture
+//! Run a single test: CODEX_SDK_E2E=1 cargo test --ignored test_simple_query --
+//! --nocapture
 //!
 //! Requirements:
 //! - Valid OPENAI_API_KEY (or codex login credentials) in environment
@@ -44,8 +43,8 @@ const TEST_TIMEOUT: Duration = Duration::from_secs(90);
 /// Default model for E2E tests.
 const TEST_MODEL: &str = "gpt-5.6-sol";
 
-/// Model for E2E tests. Uses CODEX_TEST_MODEL env var if set,
-/// otherwise falls back to TEST_MODEL.
+/// Model for E2E tests. Uses CODEX_TEST_MODEL env var if set, otherwise falls
+/// back to TEST_MODEL.
 fn test_model() -> Option<String> {
     Some(
         std::env::var("CODEX_TEST_MODEL")
@@ -74,7 +73,8 @@ fn init_tracing() {
         .try_init();
 }
 
-/// Default options for E2E tests: gpt-5.6-sol with high reasoning, ephemeral, auto-approve.
+/// Default options for E2E tests: gpt-5.6-sol with high reasoning, ephemeral,
+/// auto-approve.
 fn e2e_options() -> CodexOptions {
     CodexOptions {
         model: test_model(),
@@ -88,7 +88,8 @@ fn e2e_options() -> CodexOptions {
     }
 }
 
-/// Collect all messages from a query handle until TurnCompleted or channel close.
+/// Collect all messages from a query handle until TurnCompleted or channel
+/// close.
 async fn collect_messages(
     rx: &mut tokio::sync::mpsc::Receiver<codex_sdk::Result<CodexMessage>>,
 ) -> Vec<CodexMessage> {
@@ -331,7 +332,8 @@ async fn test_multi_turn_via_codex_client() {
 // Test 5: Approval handler is invoked (capturing, allow-all)
 // ===========================================================================
 
-/// An approval handler that approves all requests and records command invocations.
+/// An approval handler that approves all requests and records command
+/// invocations.
 struct CapturingApprovalHandler {
     command_invocations: Arc<Mutex<Vec<Option<String>>>>,
     file_invocations: Arc<Mutex<Vec<String>>>,
@@ -633,9 +635,10 @@ async fn test_ephemeral_thread() {
 // Test 9: Resume a session — start, capture thread_id, resume with context
 // ===========================================================================
 
-/// Resume: start a session, shut it down, then resume the same thread in a new session.
-/// Uses a custom runtime with 8MB worker stacks because the codex in-process
-/// app-server has deep call chains that overflow the default 2MB stack in debug builds.
+/// Resume: start a session, shut it down, then resume the same thread in a new
+/// session. Uses a custom runtime with 8MB worker stacks because the codex
+/// in-process app-server has deep call chains that overflow the default 2MB
+/// stack in debug builds.
 #[test]
 #[ignore]
 fn test_resume_session() {

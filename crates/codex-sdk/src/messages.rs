@@ -22,9 +22,9 @@ use codex_app_server_protocol::TurnStartedNotification;
 
 /// Messages streamed from the Codex agent.
 ///
-/// This is the Codex equivalent of the Claude SDK's `SdkMessage`.
-/// Each variant wraps the underlying protocol notification type directly,
-/// avoiding unnecessary copies or projections.
+/// This is the Codex equivalent of the Claude SDK's `SdkMessage`. Each variant
+/// wraps the underlying protocol notification type directly, avoiding
+/// unnecessary copies or projections.
 #[derive(Debug, Clone)]
 pub enum CodexMessage {
     // Thread lifecycle

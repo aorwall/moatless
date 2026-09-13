@@ -1,5 +1,6 @@
 //! The webhook route. Transport only: read the request, hand the body and the
-//! secret header to [`super::ingress::receive`], turn the outcome into a status.
+//! secret header to [`super::ingress::receive`], turn the outcome into a
+//! status.
 
 use std::sync::Arc;
 
@@ -88,9 +89,8 @@ mod tests {
 
     /// The acknowledgment class of each failure this route raises.
     ///
-    /// The two `NotAdmitted` rows pin that a refused admission stays refused
-    /// rather than acknowledged, with the statuses
-    /// `moatless_adapter_model::ingress::admit_delivery` produces.
+    /// The two `NotAdmitted` rows pin that a refused admission stays refused,
+    /// not acknowledged.
     #[tokio::test]
     async fn no_failure_on_the_telegram_webhook_path_is_acknowledged() {
         for (error, expected) in [

@@ -1,5 +1,5 @@
-//! Unit tests for the pure translations: a binding's pull request, a
-//! refusal's shape, and which agent a thread created from T3 runs.
+//! Unit tests for the pure translations: a binding's pull request, a refusal's
+//! shape, and which agent a thread created from T3 runs.
 
 use super::commands::{create_refusal, default_agent_for, free_thread_id};
 use super::pull_requests::pull_request_error;
@@ -12,8 +12,8 @@ use moatless_types::access_control::ScopeContext;
 use std::sync::Arc;
 
 /// The instance a person picks in T3 is what decides which agent runs the
-/// thread. Getting this backwards creates a Claude Task for somebody who
-/// asked for Codex, and the harness cannot be changed afterwards.
+/// thread. Getting this backwards creates a Claude Task for somebody who asked
+/// for Codex, and the harness cannot be changed afterwards.
 #[test]
 fn each_instance_maps_to_the_first_catalog_agent_of_its_kind() {
     assert_eq!(
@@ -27,8 +27,8 @@ fn each_instance_maps_to_the_first_catalog_agent_of_its_kind() {
 }
 
 /// An instance this server never published cannot arrive from a client that
-/// read our provider list, so it is a bug rather than a choice. Claude is
-/// the safe floor: it is the deployment's default harness.
+/// read our provider list, so it is a bug rather than a choice. Claude is the
+/// safe floor: it is the deployment's default harness.
 #[test]
 fn an_unknown_instance_falls_back_to_claude() {
     assert_eq!(
@@ -37,10 +37,10 @@ fn an_unknown_instance_falls_back_to_claude() {
     );
 }
 
-/// The attach-PR dialog reads two `AdapterError` arms by name; the rest fall
-/// through a wildcard. Pin those two so a later rename or descent of the
-/// adapter error surface cannot silently reclassify a recognised failure as
-/// this deployment's own bug.
+/// Pins the two `AdapterError` arms the attach-PR dialog matches by name.
+///
+/// A later rename can't silently reclassify them as this deployment's own bug;
+/// the rest fall through a wildcard.
 #[test]
 fn the_two_recognised_adapter_errors_stay_actionable() {
     use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
@@ -63,9 +63,9 @@ fn the_two_recognised_adapter_errors_stay_actionable() {
     ));
 }
 
-/// A conflict is the one refusal a person can clear themselves, so it is
-/// the one whose wording has to survive the trip. `Rejected` rather than
-/// `Failed` because nothing failed: the request was understood and answered.
+/// A conflict is the one refusal a person can clear themselves, so it is the
+/// one whose wording has to survive the trip. `Rejected` rather than `Failed`
+/// because nothing failed: the request was understood and answered.
 #[test]
 fn a_conflict_keeps_the_message_that_says_how_to_clear_it() {
     let refusal = create_refusal(
@@ -84,9 +84,9 @@ fn a_conflict_keeps_the_message_that_says_how_to_clear_it() {
     ));
 }
 
-/// The wildcard is what keeps a database or store failure from describing
-/// this deployment's insides to a client, so pin it: a new `TaskError`
-/// variant is only safe to name above once somebody has read its message.
+/// The wildcard is what keeps a database or store failure from describing this
+/// deployment's insides to a client, so pin it: a new `TaskError` variant is
+/// only safe to name above once somebody has read its message.
 #[test]
 fn an_unclassified_failure_says_nothing_about_itself() {
     let refusal = create_refusal(
@@ -163,8 +163,8 @@ mod thread_ids {
             .commands()
     }
 
-    /// The ordinary create: nothing holds the id, so nothing is deleted on
-    /// the way to it.
+    /// The ordinary create: nothing holds the id, so nothing is deleted on the
+    /// way to it.
     #[tokio::test]
     async fn an_unused_id_is_taken_without_a_delete() {
         let (tasks, calls) = holding(None, false);
@@ -174,10 +174,11 @@ mod thread_ids {
         assert!(calls.delete_errored_empty_task().is_empty());
     }
 
-    /// The bug this exists for: the first send failed at preflight, which
-    /// left the row as `Error`, and the client re-sends the same draft id.
-    /// Refusing that retry leaves the draft dead for good, because nothing
-    /// on the client rotates the id.
+    /// Regression: a preflight failure leaves the row `Error`, and the client
+    /// retries with the same draft id.
+    ///
+    /// Refusing that retry would leave the draft dead forever, since nothing
+    /// rotates the id.
     #[tokio::test]
     async fn a_failed_bootstrap_can_be_retried_under_the_same_id() {
         let (tasks, calls) = holding(Some(thread_of("u-1", TaskStatus::Error)), true);
@@ -190,9 +191,9 @@ mod thread_ids {
         assert_eq!(deletes[0].1.user_id, "u-1");
     }
 
-    /// A thread that exists and works is not something a create may take
-    /// over. The store answers `false` for it — the row is not `Error`, or
-    /// it has messages — and that is a refusal, not a second incarnation.
+    /// A thread that exists and works is not something a create may take over.
+    /// The store answers `false` for it — the row is not `Error`, or it has
+    /// messages — and that is a refusal, not a second incarnation.
     #[tokio::test]
     async fn a_live_thread_still_refuses_a_second_create() {
         let (tasks, calls) = holding(Some(thread_of("u-1", TaskStatus::Open)), false);
@@ -205,9 +206,9 @@ mod thread_ids {
         assert_eq!(calls.delete_errored_empty_task().len(), 1);
     }
 
-    /// Somebody else's errored thread is readable when it is public, and it
-    /// is still not this viewer's id to reuse. The refusal is the one that
-    /// says nothing about what is there, and no delete is attempted.
+    /// Somebody else's errored thread is readable when it is public, and it is
+    /// still not this viewer's id to reuse. The refusal is the one that says
+    /// nothing about what is there, and no delete is attempted.
     #[tokio::test]
     async fn another_users_errored_thread_is_not_reusable() {
         let (tasks, calls) = holding(Some(thread_of("u-2", TaskStatus::Error)), true);

@@ -30,9 +30,10 @@ pub struct AdmissionRequest {
     pub state: Option<TurnStateEvent>,
 }
 
-/// The durability paths available to admission. Each is optional because the
-/// backend runs without a database or without Redis in some deployments; a
-/// missing path an event *needs* is a retryable failure, never a silent ack.
+/// The durability paths available to admission.
+///
+/// Each is optional (some deployments run without a database or Redis); a
+/// missing path an event needs is a retryable failure, never a silent ack.
 pub struct EventAdmission {
     task_turns: Option<Arc<dyn TaskTurnDao>>,
     task_events: Option<Arc<dyn TaskEventDao>>,
@@ -56,9 +57,10 @@ impl EventAdmission {
     }
 
     /// Drop the outbox record for `event_id` now that its content is committed
-    /// to `task_messages` — see [`IngressOutbox::delete_delivered`], the only
-    /// delete in the path. `Ok(false)` when no record was present, and when this
-    /// process runs without an outbox.
+    /// to `task_messages` — the only delete in this path.
+    ///
+    /// `Ok(false)` when no record was present, or this process runs without an
+    /// outbox.
     pub async fn delivered(&self, event_id: &str) -> Result<bool, sqlx::Error> {
         match self.ingress_outbox.as_ref() {
             Some(outbox) => outbox.delete_delivered(event_id).await,
@@ -78,10 +80,9 @@ impl EventAdmission {
 
     /// Durably admit `request`, then fan it out.
     ///
-    /// Returns `Ok` only once the complete payload is recoverable without the
-    /// live transport. Fan-out failures after that point are logged, not
-    /// propagated: re-delivering an admitted event would duplicate it, and the
-    /// relay already owns re-publication of the one payload kind that needs it.
+    /// Returns `Ok` only once the payload is recoverable without the live
+    /// transport; fan-out failures after that are logged, not propagated, since
+    /// re-delivering an admitted event would duplicate it.
     pub async fn admit(&self, request: AdmissionRequest) -> Result<(), AdmissionError> {
         let needs_consumer = is_agent_message(request.event_type, &request.sub_type);
 
@@ -139,11 +140,10 @@ impl EventAdmission {
 
     /// Perform the durable write this event kind requires.
     ///
-    /// Returns whether the *published* payload is recoverable from durable
-    /// storage by the consumer — the signal that lets the publisher swap an
-    /// oversized payload for a truncated stub. `agent.message` is durable in the
-    /// outbox but the consumer rebuilds `task_messages` from the published
-    /// payload, so its wire copy must stay whole.
+    /// Returns whether the published payload is recoverable from durable
+    /// storage — the signal letting the publisher swap an oversized payload for
+    /// a stub. `agent.message`'s wire copy must stay whole: the consumer
+    /// rebuilds `task_messages` from it.
     async fn commit(
         &self,
         request: &AdmissionRequest,

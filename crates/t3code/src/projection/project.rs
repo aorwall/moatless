@@ -10,9 +10,11 @@ use crate::nominal_path;
 use crate::workspace::{UiRpcListedWorkspace, WorkspaceView as Workspace};
 
 /// The fields a script is read out of, narrowed from the workspace's stored
-/// script config. Every field the canonical `ScriptConfig` defaults is optional
-/// here too — one required field that is merely usually present costs the whole
-/// workspace its scripts.
+/// config.
+///
+/// Every field the canonical `ScriptConfig` defaults is optional here too,
+/// since one required field merely usually present costs the whole workspace
+/// its scripts.
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct UiRpcScriptConfig {
@@ -31,9 +33,9 @@ struct UiRpcScriptConfig {
 
 /// The icons the contract accepts, and the one anything else becomes.
 ///
-/// The contract's icon is a closed set and an unknown value fails the whole
-/// listing to decode, while a workspace is free to store any string. An
-/// unrecognized icon is reported as the default rather than refusing the script.
+/// The contract's icon is a closed set that fails the whole listing to decode
+/// on an unknown value, so an unrecognized icon is reported as the default
+/// instead.
 pub(super) const SCRIPT_ICONS: [&str; 6] = ["play", "test", "lint", "configure", "build", "debug"];
 
 const DEFAULT_SCRIPT_ICON: &str = "play";
@@ -41,29 +43,19 @@ const DEFAULT_SCRIPT_ICON: &str = "play";
 /// Whether the contract would accept this icon.
 ///
 /// The read path tolerates anything and reports the default; the write path
-/// ([`scripts::replace`](crate::scripts::replace)) has to decide whether to
-/// *store* what it was handed, and stores nothing it could not read back.
+/// ([`scripts::replace`](crate::scripts::replace)) stores nothing it could not
+/// read back.
 #[must_use]
 pub(crate) fn is_script_icon(icon: &str) -> bool {
     SCRIPT_ICONS.contains(&icon)
 }
 
-/// One project, in the shape the shell listing carries.
+/// One project, in the shape the shell listing carries; the contract's *shell*
+/// project, with no deletion timestamp.
 ///
-/// This is the contract's *shell* project: it has no deletion timestamp.
-///
-/// # Two halves of a union, projected differently
-///
-/// The listing's projects are a union: the Workspaces this viewer may read,
-/// plus the Workspaces a listed conversation references whether or not they may
-/// read them. The widening is load-bearing — a conversation whose project is
-/// absent is dropped by the client in silence.
-///
-/// The widened half is projected down to what the contract needs to render a
-/// group and no more: the id, the name, the root synthesized from the id, and
-/// the two timestamps the contract requires and supplies no empty value for.
-/// [`UiRpcListedWorkspace`](crate::workspace::UiRpcListedWorkspace) carries
-/// which half a row came from.
+/// The listing unions readable Workspaces with ones only referenced by a
+/// conversation; the widening is load-bearing, since a conversation whose
+/// project is absent is dropped by the client in silence.
 pub(super) fn project(listed: &UiRpcListedWorkspace) -> Value {
     let workspace = &listed.workspace;
     json!({
@@ -107,10 +99,10 @@ pub(super) fn project(listed: &UiRpcListedWorkspace) -> Value {
 }
 
 /// The colours a `ProjectIconOverride` may name, from `ProjectIconColor` in the
-/// client's `packages/contracts/src/orchestration.ts`, which is the authority.
+/// client's `packages/contracts/src/orchestration.ts`, the authority.
 ///
 /// A colour added there and not copied here draws the project's automatic glyph
-/// until it is, which is the failure worth having: see [`project_icon`].
+/// until it is — the failure worth having.
 const PROJECT_ICON_COLORS: &[&str] = &[
     "gray", "red", "orange", "amber", "yellow", "lime", "green", "emerald", "teal", "cyan", "sky",
     "blue", "indigo", "violet", "purple", "fuchsia", "pink", "rose",
@@ -119,11 +111,10 @@ const PROJECT_ICON_COLORS: &[&str] = &[
 /// The Workspace's icon as a `ProjectIconOverride`, or `Null` when the stored
 /// value is not one.
 ///
-/// `workspaces.icon` is open jsonb any `PATCH` may write, and the client decodes
-/// a project strictly — an icon its schema rejects fails the whole
-/// `OrchestrationProject`, which takes the project and its conversations off the
-/// client. So the shape is checked here rather than trusted, against the same
-/// bounds the client's schema states.
+/// `workspaces.icon` is open jsonb any `PATCH` may write, but the client
+/// decodes a project strictly: an icon its schema rejects takes the project and
+/// its conversations off the client, so the shape is checked here against the
+/// same bounds.
 fn project_icon(icon: Option<&Value>) -> Value {
     let icon = icon.unwrap_or(&Value::Null);
     let field = |name: &str| {
@@ -169,18 +160,18 @@ fn is_lucide_icon_name(name: &str) -> bool {
 
 /// Whether git owns this Workspace's run config.
 ///
-/// The same string the REST surface's `ensure_workspace_mutable` tests, and the
-/// same rule: a git-synced Workspace is read-only everywhere, because the file
-/// it is reconciled from is the thing to edit.
+/// The same rule the REST surface's `ensure_workspace_mutable` tests: a
+/// git-synced Workspace is read-only everywhere, since the file it reconciles
+/// from is the thing to edit.
 fn is_git_synced(workspace: &Workspace) -> bool {
     workspace.source == "git"
 }
 
 /// The workspace's declared Scripts.
 ///
-/// Only Scripts. A *server* is not one: the Sandbox already runs it as a
-/// container, so a runnable entry for it would start a second process on a
-/// bound port. Setup commands are provisioning and are likewise not scripts.
+/// Not a *server*: the Sandbox already runs it as a container, so a runnable
+/// entry for it would start a second process on a bound port. Setup commands
+/// are provisioning, not scripts either.
 pub(super) fn scripts(workspace: &Workspace) -> Vec<Value> {
     let Some(scripts) = workspace.scripts.as_ref() else {
         return Vec::new();

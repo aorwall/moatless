@@ -4,23 +4,13 @@
     clippy::expect_used,
     reason = "test assertions; the lints only fire when the db-tests feature is enabled"
 )]
-//! What the Telegram webhook route does with one update, at the edge a
-//! re-delivery actually lands on.
+//! Tests for the Telegram webhook route: which Subscription a delivery routes
+//! under, whose `secret_token` is checked, and whether the response
+//! acknowledges work nothing durable was written for.
 //!
-//! The route is the seam the staged breakup moves everything *under*, so these
-//! assertions survive the moves that follow them. They cover the three things
-//! that decide whether an update is lost: which Subscription the delivery
-//! routes under, whose `secret_token` was checked against the header, and
-//! whether the response acknowledges work nothing durable was written for.
-//!
-//! Two of them guard against resolving the connection and Subscription
-//! *twice*, under different keys: that would increment the ignore counter
-//! twice per ignored update, and could route a private chat under one
-//! Subscription while checking a different one's secret. Both tests assert
-//! the single resolution.
-//!
-//! No stub Bot API here: every update below is either ignored before
-//! normalization or routes without a command, so nothing on these paths calls
+//! Connection and Subscription must resolve once, not twice under different
+//! keys, else an ignored update's metric double-counts or one Subscription's
+//! secret is checked against a different one's route; no update here reaches
 //! api.telegram.org.
 
 use crate::common;
@@ -50,17 +40,11 @@ const CHAT: &str = "-100123";
 const SECRET: &str = "telegram-secret";
 const WEBHOOK_PATH: &str = "/api/v1/adapters/telegram/webhook";
 
-/// A backend replica with the Telegram Adapter installed, built the way startup
-/// builds it. The bot token is never *called*: no update below reaches a Bot
-/// API call, and the config leaves Slack's token unset so registry construction
-/// makes no network call either.
+/// A backend replica with the Telegram Adapter installed, as startup builds it.
 ///
-/// It still has to exist in `adapter_apps`, though. Telegram credentials are
-/// DB-authoritative, and the ingress path resolves its client before it
-/// normalizes an update — so an update that routes is a `400` without the row,
-/// rather than the ignored-or-admitted outcome these tests are about. Startup
-/// writes that row by carrying `config.telegram.bot_token` over into the DB;
-/// seeding it here is what stands in for that step.
+/// Must seed the `adapter_apps` row: ingress resolves the DB-authoritative
+/// client before normalizing, so a missing row yields `400` instead of the
+/// ignored/admitted outcome under test.
 async fn replica(pool: &PgPool) -> AppState {
     let mut config = test_config();
     config.telegram.bot_token = Some("fake-token".to_string());
@@ -212,11 +196,11 @@ struct Sample {
     count: u64,
 }
 
-/// Run `f` against a recorder installed for this thread only, and return every
-/// increment of `metric` it produced.
+/// Runs `f` under a thread-local recorder and returns every increment of
+/// `metric` it produced.
 ///
-/// `sqlx::test` drives the test body on a current-thread runtime, so awaiting
-/// inside the guard stays on the thread the recorder is installed for.
+/// Relies on `sqlx::test` using a current-thread runtime, so awaits inside `f`
+/// stay on the recorder's thread.
 async fn captured<F, T>(metric: &str, f: F) -> (T, Vec<Sample>)
 where
     F: std::future::Future<Output = T>,
@@ -254,9 +238,9 @@ const WEBHOOK_TOTAL: &str = "moatless_adapter_webhook_total";
 // One resolution (Decision 5)
 // =========================================================================
 
-/// An update with no Telegram connection at all resolves once, so it is
-/// metered once: a second resolution to find a secret would meter its own
-/// miss too, double-counting one ignored update.
+/// An update with no Telegram connection at all resolves once, so it is metered
+/// once: a second resolution to find a secret would meter its own miss too,
+/// double-counting one ignored update.
 #[sqlx::test]
 async fn an_ignored_update_is_metered_once(pool: PgPool) {
     let state = replica(&pool).await;
@@ -278,11 +262,12 @@ async fn an_ignored_update_is_metered_once(pool: PgPool) {
     assert!(admitted(&pool).await.is_empty());
 }
 
-/// The secret checked is the one on the Subscription the delivery routes
-/// under. Resolving a private chat twice — once under `"*"` for the secret,
-/// once under the chat id for the route — checks a chat-keyed Subscription's
-/// `secret_token` against a different Subscription's route, so any header
-/// would pass.
+/// The secret checked must belong to the Subscription the delivery routes
+/// under.
+///
+/// A second resolution under `"*"` for the secret would check a chat-keyed
+/// Subscription's `secret_token` against a different Subscription's route,
+/// letting any header pass.
 #[sqlx::test]
 async fn a_private_update_is_verified_against_the_subscription_it_routes_under(pool: PgPool) {
     let state = replica(&pool).await;

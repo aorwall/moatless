@@ -8,17 +8,12 @@
 )]
 //! Where Slack's signature check sits relative to routing resolution.
 //!
-//! A Slack event naming a channel no Subscription matches is dropped as
-//! `no_trigger` and acknowledged, and it always has been — including when the
-//! signature is junk, because the drop happens before the signature is
-//! consulted. That ordering is the whole of the behaviour: an endpoint that
-//! answered `401` here would stop attributing unrouted traffic to a channel and
-//! would ask Slack to re-sign events nobody is listening for.
+//! An event naming a channel no Subscription matches is dropped as `no_trigger`
+//! and acknowledged before its signature is checked — hoisting that check above
+//! the drop would turn it into a `401`.
 //!
-//! It is asserted at the real route because that is the only place it exists.
-//! `ingress::receive` needs an `AppState` to resolve anything, so the unit
-//! characterization next to it can only reach the halves either side of the
-//! resolution; this file covers the seam between them.
+//! Asserted here because `ingress::receive` needs a real `AppState`; the unit
+//! test beside it only reaches the seam's two halves.
 
 use crate::common;
 
@@ -39,10 +34,11 @@ const UNROUTED_CHANNEL: &str = "C-NOBODY-LISTENS";
 
 type HmacSha256 = Hmac<Sha256>;
 
-/// A backend with the Slack adapter installed, built through the composition
-/// root so the registration is the one `main` performs. `bot_user_id` is set
-/// because an absent one sends `resolve_bot_user_id` to `auth.test`, and a test
-/// does not call slack.com.
+/// A backend with the Slack adapter installed via the composition root `main`
+/// uses.
+///
+/// `bot_user_id` is set so `resolve_bot_user_id` doesn't call `auth.test` on
+/// slack.com.
 async fn replica(pool: &PgPool) -> AppState {
     let mut config = test_config();
     config.slack.bot_token = Some("xoxb-test".to_string());
@@ -107,11 +103,8 @@ async fn admitted(pool: &PgPool) -> i64 {
         .expect("count admissions")
 }
 
-/// The regression this pins: resolution runs first, so an unrouted event is
-/// acknowledged whether or not the signature holds. Hoisting the signature
-/// check above the `no_trigger` return turns the first case into a `401` with
-/// no `ignored`/`no_trigger` metric behind it — which is exactly the change
-/// this asserts against.
+/// Pins the ordering: resolution runs before the signature check, so an
+/// unrouted event is acknowledged whether or not its signature holds.
 #[sqlx::test]
 async fn an_unrouted_event_is_acknowledged_whatever_its_signature_says(pool: PgPool) {
     let state = replica(&pool).await;

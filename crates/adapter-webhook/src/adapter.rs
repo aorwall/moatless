@@ -30,12 +30,10 @@ pub use moatless_api_schemas::webhook::{WebhookAccepted, WebhookAdmission, Webho
 pub struct WebhookAdapter;
 
 impl WebhookAdapter {
-    /// Register `WebhookAdapter`'s capabilities into `adapters`. See
-    /// [`moatless_adapter_model::registry::Adapters`].
+    /// Register `WebhookAdapter`'s capabilities into `adapters`.
     ///
-    /// The Webhook adapter has no concrete-only methods, so no handler needs a
-    /// concrete handle to it: it has no `ProviderHandles` entry and lives only
-    /// as a trait object.
+    /// It has no concrete-only methods, so it has no `ProviderHandles` entry
+    /// and lives only as a trait object.
     pub fn register_into(self: Arc<Self>, adapters: &mut Adapters) {
         adapters.register_trait_object(self.clone());
         adapters.register_binding_reply(self.clone());

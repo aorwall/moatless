@@ -40,8 +40,8 @@ async fn seed_task(pool: &PgPool, task_id: &str, user_id: &str) {
         .expect("seed task row");
 }
 
-/// Write an `adapter_connections` row through the injected port and return
-/// its id. `task_bindings.connection_id` has an FK onto this table.
+/// Write an `adapter_connections` row through the injected port and return its
+/// id. `task_bindings.connection_id` has an FK onto this table.
 async fn seed_connection(state: &AppState, id: &str, user_id: &str) -> String {
     let now = Utc::now();
     let row = AdapterConnection {

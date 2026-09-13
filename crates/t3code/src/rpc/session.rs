@@ -24,9 +24,8 @@ pub(crate) const MAX_ACTIVE_STREAMS: usize = 64;
 /// How many entries a workspace search answers with when the client asks for no
 /// particular number.
 ///
-/// The picker renders a scrolling list and the person picks from the top of it;
-/// a hundred is past what anyone reads and well inside what one gRPC round trip
-/// returns.
+/// The picker renders a scrolling list; a hundred is past what anyone reads and
+/// well inside what one gRPC round trip returns.
 pub(crate) const SEARCH_ENTRIES_LIMIT: usize = 100;
 
 /// The most entries one search may ask for, whatever the client requests.
@@ -45,29 +44,30 @@ pub(crate) const SEARCH_THREADS_LIMIT: i64 = 50;
 /// The shortest query worth running against every Message body.
 ///
 /// A one-character search matches most of the corpus and tells the person
-/// nothing, and it costs a full scan to say so. Below this the answer is empty
+/// nothing, costing a full scan to say so; below this the answer is empty
 /// without a query.
 pub(crate) const SEARCH_THREADS_MIN_QUERY: usize = 2;
 
 /// The most `cwd`s one connection keeps skill listings for.
 ///
-/// A person browsing threads all afternoon addresses a new `cwd` each time, and
-/// every one of them is republished on every provider refresh. Past this the
-/// oldest is dropped; the composer asks for it again if they go back.
+/// Every `cwd` addressed is republished on every provider refresh; past this
+/// the oldest is dropped, and the composer asks for it again if the person goes
+/// back.
 pub(crate) const MAX_WORKSPACE_SNAPSHOTS: usize = 32;
 
 /// The most requests one connection answers off its frame loop at once.
 ///
-/// Past this a request is answered on the loop, which is where every request
-/// was answered before any of them detached: the cap bounds how much work one
-/// socket can have in flight, and reaching it costs latency rather than an
-/// answer.
+/// Past this a request is answered on the loop instead (where every request was
+/// answered before any detached); the cap bounds work in flight, and reaching
+/// it costs latency, not an answer.
 pub(crate) const MAX_DETACHED_REQUESTS: usize = 32;
 
 /// The `subscribeServerConfig` request this connection has open, when it has
-/// one. A refreshed provider list reaches the client's state through that
-/// stream and nowhere else — the reply to `server.refreshProviders` only tells
-/// the composer whether to ask again.
+/// one.
+///
+/// A refreshed provider list reaches the client's state through that stream and
+/// nowhere else — the reply to `server.refreshProviders` only tells the
+/// composer whether to ask again.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct ConfigStream(Arc<Mutex<Option<RequestId>>>);
 
@@ -96,9 +96,9 @@ impl ConfigStream {
 /// The per-`cwd` skill listings this connection has resolved, oldest first, in
 /// the shape `ServerProviderWorkspaceSnapshot` decodes from.
 ///
-/// Kept because a `providerStatuses` event replaces the whole provider list:
-/// publishing only the `cwd` that was just asked for would empty the composer
-/// of every thread the person had already opened.
+/// Kept because a `providerStatuses` event replaces the whole provider list;
+/// publishing only the just-asked `cwd` would empty the composer of every
+/// thread already opened.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct WorkspaceSnapshots(Arc<Mutex<Vec<(String, Value)>>>);
 
@@ -125,11 +125,9 @@ impl WorkspaceSnapshots {
 
 /// The session state a request may reach without holding the connection.
 ///
-/// Both halves are behind a lock so that `server.refreshProviders` — the one
-/// method that needs any of this — is answered off the frame loop like the
-/// reads it sits beside. A guard is held for a single read or write and never
-/// across an await; poisoning is recovered rather than propagated, because a
-/// panic under one of these guards leaves no half-written value behind.
+/// Both halves are behind a lock so `server.refreshProviders` can be answered
+/// off the frame loop; a guard is held for a single read or write, never across
+/// an await, and poisoning is recovered rather than propagated.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct SharedSession {
     pub(crate) config_stream: ConfigStream,
@@ -271,9 +269,9 @@ impl ProtocolSession {
 /// Read the skills of the Workspace a `cwd` names and record them for this
 /// connection.
 ///
-/// A `cwd` this surface never issued, or one whose Workspace this viewer cannot
-/// be shown, records nothing: the composer then falls back to the provider's own
-/// (empty) skill list rather than being told the Workspace exists.
+/// A `cwd` this surface never issued, or one whose Workspace this viewer can't
+/// be shown, records nothing — the composer falls back to the provider's own
+/// empty skill list.
 pub(crate) async fn resolve_workspace_skills(
     state: &UiRpcState,
     identity: &UiRpcAuthIdentity,

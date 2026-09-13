@@ -12,9 +12,9 @@ use super::models::{Workspace, WorkspacePatch};
 /// The `workspaces` and `workspace_repos` tables, as a host and this crate's
 /// own routes reach them.
 ///
-/// The store behind it stays private to this crate. A peer band that resolves a
-/// workspace to run a Sandbox takes
-/// [`moatless_ports::workspace::WorkspaceResolver`] instead.
+/// The store stays private to this crate; a peer band that resolves a workspace
+/// to run a Sandbox takes [`moatless_ports::workspace::WorkspaceResolver`]
+/// instead.
 pub struct Workspaces {
     store: Arc<dyn WorkspaceDao>,
 }

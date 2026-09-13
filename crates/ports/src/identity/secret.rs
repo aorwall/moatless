@@ -5,10 +5,9 @@ use std::collections::HashMap;
 
 /// The secrets one identity's runtime materializes.
 ///
-/// Two channels, because they are delivered differently: env-style values
-/// reach the agent as environment variables, ssh keys are written to `~/.ssh`
-/// and never exposed as env. Each read walks `user > global` and marks the
-/// records it used, so the audit trail is part of the read.
+/// Env-style values reach the agent as environment variables; ssh keys are
+/// written to `~/.ssh` and never exposed as env. Each read walks `user >
+/// global`, marking records used so the audit trail is part of the read.
 #[cfg_attr(feature = "test-support", mockall::automock)]
 #[async_trait]
 pub trait SecretResolver: Send + Sync {
@@ -21,8 +20,8 @@ pub trait SecretResolver: Send + Sync {
 
 /// Which secrets exist for a caller, by name alone.
 ///
-/// Metadata only: no value is decrypted and none is returned. A caller that
-/// needs a value reads it through [`SecretResolver`].
+/// Metadata only: no value is decrypted or returned; a caller that needs a
+/// value reads it through [`SecretResolver`].
 #[cfg_attr(feature = "test-support", mockall::automock)]
 #[async_trait]
 pub trait SecretCatalog: Send + Sync {

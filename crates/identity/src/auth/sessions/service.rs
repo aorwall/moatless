@@ -32,8 +32,8 @@ pub(in crate::auth) fn hash_token(token: &str) -> Vec<u8> {
 
 /// Refuse a `Disabled` account before it gets a session.
 ///
-/// Every session issuance runs this. [`validate_session`] re-reads the column
-/// on each request, so a disable also ends the sessions already out.
+/// [`validate_session`] re-reads the column on each request, so a disable also
+/// ends sessions already out.
 fn reject_disabled(user: &User) -> Result<(), crate::auth::error::AuthError> {
     if user.status == UserStatus::Disabled {
         warn!(user_id = %user.id, login = %user.login, "Refused a login for a disabled account");
@@ -74,8 +74,8 @@ async fn issue_auth_session(
 
 /// Create a new session after OAuth login.
 ///
-/// Upserts the user, creates a session row (audit trail + provider token persistence),
-/// and returns an opaque token for the auth-session cookie.
+/// Upserts the user, creates a session row (audit trail + provider token
+/// persistence), and returns an opaque token for the auth-session cookie.
 #[allow(clippy::too_many_arguments)]
 pub(in crate::auth) async fn create_session(
     users: &dyn UserDao,
@@ -200,9 +200,9 @@ pub(in crate::auth) async fn create_session(
 
 /// Create a new session from a user row (for API key → session exchange).
 ///
-/// Unlike `create_session`, this doesn't require OAuth tokens — it creates
-/// a session with `provider = "api-key"` and no token fields.
-/// Returns an opaque token for the auth-session cookie.
+/// Unlike `create_session`, this doesn't require OAuth tokens: it creates a
+/// session with `provider = "api-key"` and no token fields, returning an opaque
+/// token for the cookie.
 pub(in crate::auth) async fn create_session_from_user(
     sessions: &dyn SessionDao,
     user: &User,

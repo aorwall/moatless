@@ -13,10 +13,11 @@ fn skip_unless_e2e() -> bool {
     true
 }
 
-/// Config for a real-CLI E2E run: a throwaway workspace named `workspace_name`,
-/// with the CLI path, credentials home and model taken from the environment so
-/// the subprocess authenticates instead of hanging on an interactive login
-/// against the throwaway test home.
+/// Config for a real-CLI E2E run: a throwaway workspace named `workspace_name`.
+///
+/// CLI path, credentials home, and model come from the environment, so the
+/// subprocess authenticates instead of hanging on an interactive login against
+/// the throwaway test home.
 fn e2e_config(workspace_name: &str) -> CodexConfig {
     let mut config = crate::config::test_support::minimal_config();
     let workspace = std::env::temp_dir().join(workspace_name);
@@ -42,10 +43,12 @@ fn e2e_config(workspace_name: &str) -> CodexConfig {
     }
 }
 
-/// Focused real-CLI E2E: launch the actual `codex app-server` subprocess through
-/// the production [`Harness::codex`] seam and assert the external signal
-/// ordering for a trivial Turn. Gated behind `CODEX_SDK_E2E=1` and `#[ignore]` —
-/// the full E2E matrix runs at ticket 10, per the guide.
+/// Focused real-CLI E2E: launches the actual `codex app-server` subprocess
+/// through the production [`Harness::codex`] seam and asserts external signal
+/// ordering for a trivial Turn.
+///
+/// Gated behind `CODEX_SDK_E2E=1` and `#[ignore]`; the full E2E matrix runs at
+/// ticket 10.
 #[tokio::test]
 #[ignore = "requires the real codex CLI and credentials (CODEX_SDK_E2E=1)"]
 async fn e2e_codex_turn_through_the_harness() {
@@ -131,7 +134,8 @@ async fn e2e_codex_turn_through_the_harness() {
 struct TurnLog {
     /// Thread id announced by `ExecutionStarted`.
     session: Option<String>,
-    /// The input named as the execution's cause (`None` for a harness-internal one).
+    /// The input named as the execution's cause (`None` for a harness-internal
+    /// one).
     cause: Option<InputId>,
     /// Every input accepted while this execution was open, in order. More than
     /// one would mean an input joined the running Turn.
@@ -149,12 +153,10 @@ struct TurnLog {
 /// Drain signals until the open execution reports its terminal, folding them
 /// into a [`TurnLog`].
 ///
-/// When `mid_turn` is `Some((id, text))`, that input is submitted the moment the
-/// execution commits its first `tool_use` block — demonstrably while the Turn is
-/// running and doing work, with its terminal still to come. It resumes the
-/// thread the running Turn announced, which is what
-/// `CoordinatorService::build_input` does for a follow-up Turn (the pod's last
-/// known Session id wins).
+/// When `mid_turn` is `Some((id, text))`, it submits that input the moment the
+/// execution commits its first `tool_use` block, resuming the thread the
+/// running Turn announced — what `CoordinatorService::build_input` does for a
+/// follow-up Turn.
 async fn collect_turn(harness: &mut Harness, mid_turn: Option<(&str, &str)>) -> TurnLog {
     let mut log = TurnLog::default();
     let mut mid_turn = mid_turn;
@@ -215,12 +217,11 @@ async fn collect_turn(harness: &mut Harness, mid_turn: Option<(&str, &str)>) -> 
 }
 
 /// Real-CLI E2E: a message sent while a Codex Turn is running is answered *in
-/// that Turn*. This is the behaviour the whole change exists for.
+/// that Turn*.
 ///
-/// The message is submitted the moment the Turn commits a `tool_use` block, so
-/// it demonstrably lands while the Turn is working and its terminal is still to
-/// come. `turn/steer` folds it in: one execution, two acceptances against it, no
-/// second Turn, and the Turn's own answer reflects the message.
+/// Submitted the moment the Turn commits a `tool_use` block, so it demonstrably
+/// lands mid-work; `turn/steer` folds it in — one execution, two acceptances,
+/// no second Turn, and the answer reflects the message.
 #[tokio::test]
 #[ignore = "requires the real codex CLI and credentials (CODEX_SDK_E2E=1)"]
 async fn e2e_message_sent_mid_turn_is_answered_inside_the_running_codex_turn() {
@@ -294,8 +295,9 @@ async fn e2e_message_sent_mid_turn_is_answered_inside_the_running_codex_turn() {
 }
 
 /// Real-CLI E2E: the other half of the contract. A message sent when no Turn is
-/// running still opens a Turn of its own, on the Session the previous one used —
-/// steering changed what happens *inside* a Turn, not what happens between them.
+/// running still opens a Turn of its own, on the Session the previous one used
+/// — steering changed what happens *inside* a Turn, not what happens between
+/// them.
 #[tokio::test]
 #[ignore = "requires the real codex CLI and credentials (CODEX_SDK_E2E=1)"]
 async fn e2e_message_sent_between_turns_opens_a_second_codex_turn() {

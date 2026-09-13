@@ -39,8 +39,8 @@ fn a_message_from_another_task_names_and_links_that_task() {
     assert_eq!(origin["user"], Value::Null);
 }
 
-/// A Task the reader cannot see resolves to no name, and a link they could
-/// not follow is worse than none.
+/// A Task the reader cannot see resolves to no name, and a link they could not
+/// follow is worse than none.
 #[test]
 fn a_task_origin_the_reader_cannot_see_has_neither_name_nor_link() {
     let mut msg = message(1, MessageType::User, "Handoff");
@@ -104,9 +104,8 @@ fn a_github_pr_message_derives_its_url_and_shows_the_external_author() {
     assert_eq!(origin["user"], "octocat");
 }
 
-/// Any other adapter takes its label and URL from the Binding this Task
-/// holds, and falls back to the Moatless user when no external handle was
-/// captured.
+/// Any other adapter takes its label and URL from the Binding this Task holds,
+/// and falls back to the Moatless user when no external handle was captured.
 #[test]
 fn an_external_message_without_a_captured_handle_falls_back_to_the_moatless_user() {
     let mut msg = message(1, MessageType::User, "Filed from Linear");
@@ -173,8 +172,8 @@ fn a_github_pr_url_is_built_from_the_subject_key_and_event_id() {
     );
 }
 
-/// A subject key that is not `owner/repo#N` yields no URL rather than a
-/// wrong one.
+/// A subject key that is not `owner/repo#N` yields no URL rather than a wrong
+/// one.
 #[test]
 fn a_subject_key_that_is_not_owner_repo_number_yields_no_url() {
     assert_eq!(github_pr_url(Some("not-a-key"), None), None);
@@ -185,8 +184,8 @@ fn a_subject_key_that_is_not_owner_repo_number_yields_no_url() {
     assert_eq!(github_pr_url(None, None), None);
 }
 
-/// The `message-sent` event carries the same origin as the snapshot bubble,
-/// so a delta and a rebuild render one message the same way.
+/// The `message-sent` event carries the same origin as the snapshot bubble, so
+/// a delta and a rebuild render one message the same way.
 #[test]
 fn the_message_sent_event_carries_the_same_origin_as_the_snapshot_bubble() {
     let mut msg = message(1, MessageType::User, "From Slack");

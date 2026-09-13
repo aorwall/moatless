@@ -20,11 +20,9 @@ pub(super) fn turn_reference(conversation: &Conversation, message: &TranscriptMe
 
 /// The conversation's newest turn, or null when it has never run.
 ///
-/// A Moatless turn comes into existence already running, so there is no
-/// requested-but-not-started instant distinct from the start: both report the
-/// turn's `started_at`.
-///
-/// `assistantMessageId` is null because the shell listing carries no messages.
+/// A Moatless turn comes into existence already running, so `requestedAt` and
+/// `startedAt` both report `turn_started_at`; `assistantMessageId` is null
+/// since the shell listing carries no messages.
 pub(super) fn latest_turn(conversation: &Conversation) -> Value {
     let (Some(turn_number), Some(status)) = (
         conversation.turn_number,
@@ -52,14 +50,10 @@ pub(super) fn latest_turn(conversation: &Conversation) -> Value {
 
 /// Moatless turn state in T3's four-value vocabulary.
 ///
-/// Five states map onto four, and two pairings are not the name match.
-/// *stopped* is a person cutting a turn short, which is what T3 calls
-/// *interrupted*. Moatless's own *interrupted* means the Sandbox went away
-/// mid-turn, which leaves the turn **open**: it resumes on reschedule, and
-/// reporting it as T3's *interrupted* would stop the sidebar showing live work.
-///
-/// `None` for a status this build does not know — a row written by a newer
-/// backend, which has no honest counterpart.
+/// Two pairings are not the name match: Moatless's *stopped* (a person cutting
+/// it short) is T3's *interrupted*, while Moatless's own *interrupted* (Sandbox
+/// went away mid-turn) stays **open**/running, since it resumes on reschedule.
+/// `None` for a status this build does not know.
 pub(super) fn turn_state(status: &str) -> Option<&'static str> {
     Some(match TurnStatus::parse(status)? {
         TurnStatus::Active | TurnStatus::Interrupted => "running",
@@ -69,9 +63,9 @@ pub(super) fn turn_state(status: &str) -> Option<&'static str> {
     })
 }
 
-/// Whether the newest turn is still open. Both Moatless states that mean
-/// *not finished* count, which is the same grouping the rest of this backend
-/// uses when it asks which turns are still running.
+/// Whether the newest turn is still open. Both Moatless states that mean *not
+/// finished* count, which is the same grouping the rest of this backend uses
+/// when it asks which turns are still running.
 pub(super) fn turn_is_open(conversation: &Conversation) -> bool {
     conversation
         .turn_status
@@ -82,10 +76,9 @@ pub(super) fn turn_is_open(conversation: &Conversation) -> bool {
 
 /// The signals the running rule reads, as this projection can see them.
 ///
-/// A listing reads rows and never the runtime, so `agent` is `None` — the
-/// heartbeat reaches these rows through the reaper rather than through a
-/// per-conversation call this poll could not afford. `sandbox_up` is read from
-/// `sandbox_started_at` for the same reason: no observed pod state is at hand.
+/// A listing reads rows, never the runtime: `agent` is `None` since the
+/// heartbeat reaches these rows through the reaper, and `sandbox_up` is read
+/// from `sandbox_started_at` for the same reason.
 pub(super) fn running_inputs(
     conversation: &Conversation,
     desired_state: SandboxDesiredState,
@@ -106,9 +99,9 @@ pub(super) fn running_inputs(
 
 /// A turn's identity on the wire.
 ///
-/// Moatless identifies a turn by (task, turn number) and has no single-column
-/// id, so the pair is joined into one. Stable across reads and unique across
-/// the deployment, which is what the contract's identity needs.
+/// Moatless identifies a turn by (task, turn number) with no single-column id,
+/// so the pair is joined into one — stable and unique across the deployment, as
+/// the contract's identity requires.
 pub(super) fn turn_id(task_id: &str, turn_number: i32) -> String {
     format!("{task_id}:{turn_number}")
 }

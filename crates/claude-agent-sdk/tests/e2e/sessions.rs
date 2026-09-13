@@ -1,5 +1,4 @@
-//! Continuing a past conversation, through `--resume` and through
-//! `--continue`.
+//! Continuing a past conversation, through `--resume` and through `--continue`.
 
 use crate::harness::{
     Backend, LONG_TEST_TIMEOUT, TEST_MODEL, auth_env, collect_messages, extract_result_text,

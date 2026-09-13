@@ -13,11 +13,9 @@ async fn text(response: Response) -> String {
     String::from_utf8(body.to_vec()).unwrap()
 }
 
-/// A minted URL is an address and not a capability, so the Task behind
-/// it is re-read through the same follow-and-access filter on every
-/// fetch. The stub listing holds no conversations, so this viewer
-/// follows none — and is told what someone asking for a Task that does
-/// not exist is told.
+/// A minted URL is an address, not a capability: the Task behind it is re-read
+/// through the follow-and-access filter each fetch, so an unfollowed viewer is
+/// told it does not exist.
 #[tokio::test]
 async fn a_conversation_this_viewer_does_not_follow_serves_no_file() {
     let mut request = Request::builder()

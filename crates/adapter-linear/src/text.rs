@@ -1,16 +1,13 @@
 //! Everything the Adapter renders for a person to read.
 //!
-//! Two audiences, and they pull in opposite directions. The inbound prompt is
-//! read by the agent, and is deliberately *minimal*: the issue description,
-//! its comments and Linear's pre-built `promptContext` are not inlined,
-//! because a snapshot goes stale as the ticket evolves and the agent can read
-//! the live ticket through the `moat` CLI. The attachment title is read by a
-//! person on the Linear side, and names the Moatless task the pill points at.
+//! The inbound prompt (read by the agent) stays deliberately *minimal* — the
+//! issue body, comments, and Linear's `promptContext` are omitted since the
+//! agent reads the live ticket via the `moat` CLI instead of a stale snapshot.
+//! The attachment title (read by a Linear-side person) names the Moatless task
+//! the pill points at.
 //!
-//! Kept together because both are pure formatting with no policy in them, and
-//! because the two inbound prompts — one for a mention, one for an issue
-//! entering a trigger state — must not drift apart. They share
-//! [`issue_read_block`] for exactly that reason.
+//! Kept together as pure formatting with no policy; the two inbound prompts
+//! share [`issue_read_block`] so they can't drift apart.
 
 use std::fmt::Write as _;
 
@@ -69,7 +66,8 @@ fn issue_read_block(identifier: &str, title: &str, url: Option<&str>) -> String 
 pub(super) const ATTACHMENT_TITLE_CHILD: &str = "Moatless task";
 
 /// Label prefix for the Linear ↔ Moatless link when the Moatless side is the
-/// parent (Linear issue created by the CLI or `adapter_send` on behalf of a task).
+/// parent (Linear issue created by the CLI or `adapter_send` on behalf of a
+/// task).
 pub(super) const ATTACHMENT_TITLE_PARENT: &str = "Moatless parent task";
 
 pub(super) fn format_attachment_title(prefix: &str, name: Option<&str>) -> String {

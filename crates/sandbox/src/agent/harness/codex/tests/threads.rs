@@ -36,10 +36,11 @@ fn the_session_is_announced_exactly_once() {
 
 // ── Native sub-agents: one connection, several threads ───────────
 
-/// The regression this whole filter exists for. A native sub-agent runs on its
-/// own thread over the same connection, and its `turn/completed` used to be
-/// taken as this Turn's terminal — ending the run while the Turn was still
-/// working, and reporting the sub-agent's last message as the answer.
+/// A native sub-agent runs on its own thread over the same connection.
+///
+/// Its `turn/completed` must never be taken as this Turn's terminal — that
+/// would end the run mid-work and report the sub-agent's last message as the
+/// answer.
 #[test]
 fn a_sub_agents_turn_completion_does_not_end_this_turn() {
     let mut p = open_process();
@@ -120,8 +121,8 @@ fn a_sub_agents_turn_does_not_replace_the_id_this_turn_is_steered_by() {
 }
 
 /// A server that attributes a notification to no thread gets the benefit of the
-/// doubt. Dropping an unattributed `turn/completed` would leave the Turn with no
-/// terminal at all, which costs more than the mis-attribution it prevents.
+/// doubt. Dropping an unattributed `turn/completed` would leave the Turn with
+/// no terminal at all, which costs more than the mis-attribution it prevents.
 #[test]
 fn a_notification_naming_no_thread_is_taken_as_this_turns() {
     let mut p = open_process();

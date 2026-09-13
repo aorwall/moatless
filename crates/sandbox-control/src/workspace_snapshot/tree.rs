@@ -11,10 +11,9 @@ use moatless_ports::sandbox::SnapshotEntry;
 
 /// Hops a symlink chain is followed before giving up.
 ///
-/// A checkout commits symlinks (`CLAUDE.md` -> `AGENTS.md` throughout this
-/// repository), and neither backing stores content for a link, so a read that
-/// did not follow would answer nothing for a file the person can plainly see.
-/// The cap is what stops a cycle.
+/// A checkout commits symlinks, and neither backing stores content for a link,
+/// so a read that did not follow would answer nothing for a file the person can
+/// plainly see; the cap stops a cycle.
 const SYMLINK_HOPS: usize = 8;
 
 /// One stored file, reduced to what path handling needs.
@@ -28,7 +27,8 @@ pub(super) struct SnapshotNode {
 }
 
 /// The path a read should actually fetch, following symlinks recorded in the
-/// node set. `None` when the path names nothing, or a chain that does not settle.
+/// node set. `None` when the path names nothing, or a chain that does not
+/// settle.
 pub(super) fn resolve<'n>(nodes: &'n [SnapshotNode], path: &str) -> Option<&'n str> {
     let mut current = path.to_string();
     for _ in 0..SYMLINK_HOPS {
@@ -71,9 +71,9 @@ fn normalize(parent: &str, target: &str) -> Option<String> {
     Some(parts.join("/"))
 }
 
-/// The prefix `path` names, as it appears in node paths. The root is the
-/// empty string; everything else gains a trailing `/` so a match is on whole
-/// segments and `src` does not select `src-gen/`.
+/// The prefix `path` names, as it appears in node paths. The root is the empty
+/// string; everything else gains a trailing `/` so a match is on whole segments
+/// and `src` does not select `src-gen/`.
 pub(super) fn dir_prefix(path: &str) -> String {
     let trimmed = path.trim_matches('/');
     if trimmed.is_empty() || trimmed == "." {
@@ -83,10 +83,10 @@ pub(super) fn dir_prefix(path: &str) -> String {
     }
 }
 
-/// Directories a live walk does not enter — `SKIP_DIRS` in
-/// `crates/sandbox/src/files/tree.rs`. Both backings store each repo's whole
-/// `.git` so a restore can skip the clone, so a listing that did not apply this
-/// would be mostly loose objects and would push the real tree past every
+/// `SKIP_DIRS` in `crates/sandbox/src/files/tree.rs`: directories a live walk
+/// skips. Both back a repo's whole `.git`, so restore skips the clone.
+///
+/// Unfiltered, a listing would be mostly loose objects, pushing past every
 /// caller's cap. A read is not filtered: only browsing has a cap to blow.
 const UNBROWSABLE: &[&str] = &[".git", "node_modules"];
 
@@ -96,13 +96,11 @@ pub(super) fn browsable(path: &str) -> bool {
         .any(|segment| UNBROWSABLE.contains(&segment))
 }
 
-/// Entries under `prefix`, sorted by path. Non-recursive collapses each subtree
-/// into the one directory that heads it, which is what a file tree renders;
-/// recursive names every directory on the way down as a row of its own.
+/// Entries under `prefix`, sorted by path: non-recursive collapses each subtree
+/// into one heading row; recursive lists every directory down.
 ///
-/// Directories are synthesised from the file paths even when the backing stores
-/// real directory nodes. Feeding this only files is what keeps the two formats'
-/// listings identical.
+/// Directories are synthesised from file paths even when the backing stores
+/// real nodes, keeping formats' listings identical.
 pub(super) fn listing_under(
     nodes: &[SnapshotNode],
     prefix: &str,

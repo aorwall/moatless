@@ -3,10 +3,9 @@ const INTERACTIVE_TOOL_NAMES: &[&str] = &["ExitPlanMode", "AskUserQuestion"];
 
 /// Strip heavy fields from a message for summary/CLI consumption.
 ///
-/// Keeps a small preview of `tool_input` so the collapsed UI row can render the
-/// same compact "(arg)" suffix it does today, but without shipping full
-/// `Edit`/`Write` payloads or full `Bash` results across the wire on every
-/// list/SSE refresh.
+/// Keeps a small `tool_input` preview so the collapsed UI row renders its usual
+/// "(arg)" suffix, without shipping full `Edit`/`Write`/`Bash` payloads on
+/// every list/SSE refresh.
 pub(crate) fn strip_heavy_fields(mut msg: UiMessage) -> UiMessage {
     for block in &mut msg.content {
         if let Some(input) = block.tool_input.take() {
@@ -35,10 +34,10 @@ pub(crate) fn strip_heavy_fields(mut msg: UiMessage) -> UiMessage {
     msg
 }
 
-/// Build a compact preview from a `tool_input` JSON value: take the first
-/// (key, value) entry, stringify non-string values, and truncate strings to
-/// 100 chars (char-boundary safe). Returns the original value if it is not
-/// an object, or an empty object if it is empty.
+/// Build a compact preview from a `tool_input` JSON value: first (key, value)
+/// entry, non-strings stringified, strings truncated to 100 chars (char-
+/// boundary safe). Returns the original value if it's not an object, or an
+/// empty object if it is.
 fn tool_input_preview(value: &serde_json::Value) -> serde_json::Value {
     let Some(obj) = value.as_object() else {
         return value.clone();

@@ -1,8 +1,8 @@
 //! Auto-create a test user and API key on startup.
 //!
 //! When `TEST_API_KEY` is set, upserts a dedicated test user with a fixed
-//! identity and inserts the API key (if not already present). No OAuth
-//! login required — the test user exists only for programmatic access.
+//! identity and inserts the API key (if not already present). No OAuth login
+//! required — the test user exists only for programmatic access.
 
 use chrono::Utc;
 use tracing::{info, warn};
@@ -19,10 +19,10 @@ const TEST_USER_LOGIN: &str = "test-api-user";
 const TEST_USER_PROVIDER: &str = "api-key";
 const TEST_KEY_NAME: &str = "test-api-key";
 
-/// Ensure a test user and API key exist for the given raw `mvk_` key.
+/// Ensures a test user and API key exist for the given raw `mvk_` key.
 ///
-/// Idempotent: the user is upserted and the key is skipped if the hash
-/// already exists.
+/// Idempotent: the user is upserted and the key is skipped if the hash already
+/// exists.
 pub(crate) async fn ensure_test_user(users: &dyn UserDao, api_keys: &dyn ApiKeyDao, raw_key: &str) {
     // Validate key format (already validated by Config, but belt-and-suspenders)
     if !raw_key.starts_with("mvk_") || raw_key.len() < 36 {

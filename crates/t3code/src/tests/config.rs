@@ -71,8 +71,8 @@ async fn get_config_returns_minimal_decodable_wire_shape() {
 }
 
 /// The composer is disabled while the provider list is empty
-/// (`ChatView.logic.ts` has nothing to resolve a model against), so this is
-/// the frame that decides whether anybody can type at all.
+/// (`ChatView.logic.ts` has nothing to resolve a model against), so this is the
+/// frame that decides whether anybody can type at all.
 #[tokio::test]
 async fn get_config_publishes_one_provider_per_agent_kind() {
     let mut connection = connection();
@@ -103,9 +103,9 @@ async fn get_config_publishes_one_provider_per_agent_kind() {
     }
 }
 
-/// T3 calls `refreshProviders` when a person opens the picker, and merges
-/// the answer into the same state the config populated. Two lists that
-/// disagree would move a thread's provider under it.
+/// T3 calls `refreshProviders` when a person opens the picker, and merges the
+/// answer into the same state the config populated. Two lists that disagree
+/// would move a thread's provider under it.
 #[tokio::test]
 async fn refreshing_providers_returns_what_the_config_already_published() {
     let mut connection = connection();

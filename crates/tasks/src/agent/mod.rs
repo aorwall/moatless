@@ -1,4 +1,5 @@
-//! Agent catalog module — static list of supported agents + credential availability.
+//! Agent catalog module — static list of supported agents + credential
+//! availability.
 
 pub mod catalog;
 pub mod error;

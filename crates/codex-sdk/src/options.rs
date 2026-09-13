@@ -55,17 +55,18 @@ pub struct CodexOptions {
     pub config_overrides: Vec<(String, TomlValue)>,
 
     // -- Runtime callbacks --
-    /// Handler for approval requests (command execution, file changes, permissions).
-    /// If `None`, all approval requests are auto-approved.
+    /// Handler for approval requests (command execution, file changes,
+    /// permissions). If `None`, all approval requests are auto-approved.
     pub approval_handler: Option<Arc<dyn ApprovalHandler>>,
-    /// Read-only observer for hook events. If `None`, hooks are silently ignored.
+    /// Read-only observer for hook events. If `None`, hooks are silently
+    /// ignored.
     pub hook_observer: Option<Arc<dyn HookObserver>>,
     /// Cancellation token for cooperative shutdown.
     pub cancellation_token: Option<CancellationToken>,
 
     // -- Timeouts --
-    /// Timeout for runtime initialization (default: 60s).
-    /// Timeout errors wait for runtime cleanup, bounded to five additional seconds.
+    /// Timeout for runtime initialization (default: 60s). Timeout errors wait
+    /// for runtime cleanup, bounded to five additional seconds.
     pub init_timeout: Option<Duration>,
 }
 

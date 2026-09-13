@@ -15,8 +15,8 @@ use super::*;
 
 /// Build a complete Pod spec from config + plan (no template).
 ///
-/// Generates the sandbox container, dynamic server containers, volumes,
-/// probes, and security contexts entirely in code.
+/// Generates the sandbox container, dynamic server containers, volumes, probes,
+/// and security contexts entirely in code.
 pub fn build_pod(
     config: &Config,
     task_id: &str,
@@ -293,13 +293,11 @@ const PER_BUILD_ENV: [&str; 2] = ["SANDBOX_BOOTSTRAP_TOKEN", "USER_AUTH_TOKEN"];
 
 /// Hash the part of a pod spec that comes from the config and the plan.
 ///
-/// [`build_pod`] stamps the result under [`POD_SPEC_HASH_ANNOTATION`], and the
-/// start path compares it against the value a stopped Deployment carries.
-/// Excluded: the minted auth tokens, the env order, which follows the `HashMap`
-/// iteration in `ProvisionPlan::env_vars`, and the annotations, one of which
-/// holds the build time. The filter matches by name, so the presence of
-/// `USER_AUTH_TOKEN` goes with it: a change to `emit_legacy_user_token_env`
-/// alone rebuilds no template.
+/// [`build_pod`] stamps this under [`POD_SPEC_HASH_ANNOTATION`], and the start
+/// path compares it against a stopped Deployment's value; excludes minted auth
+/// tokens, `HashMap`-ordered env, and annotations (incl. build time) — the
+/// token filter matches by name, so `emit_legacy_user_token_env` alone never
+/// rebuilds a template.
 pub fn pod_spec_fingerprint(pod: &Pod) -> String {
     let mut spec = pod.spec.clone().unwrap_or_default();
     for container in &mut spec.containers {

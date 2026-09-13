@@ -14,8 +14,8 @@ use moatless_types::auth::AuthProvider;
 
 /// Report how this deployment authenticates users.
 ///
-/// Public by design: the login page is anonymous, so this cannot live on
-/// `/auth/me` (which 401s without a session).
+/// Public by design: the login page is anonymous, so this can't live on
+/// `/auth/me`, which 401s without a session.
 #[utoipa::path(
     get,
     path = "/api/v1/auth/mode",
@@ -90,8 +90,8 @@ pub(in crate::auth) async fn login_handler(
 
 /// CLI login: initiate OAuth flow with state encoding the CLI callback port.
 ///
-/// The CSRF state is encoded as `{random}:cli:{port}` so that `handle_oauth_callback`
-/// can detect the CLI flow and redirect to `http://localhost:{port}/callback`.
+/// State is `{random}:cli:{port}`, so `handle_oauth_callback` can detect the
+/// CLI flow and redirect to `http://localhost:{port}/callback`.
 pub(in crate::auth) async fn cli_login_handler(
     State(state): State<AuthState>,
     axum::extract::Query(query): axum::extract::Query<CliLoginQuery>,

@@ -29,9 +29,10 @@ mod waker_tests {
         }
     }
 
-    /// The load-bearing assertion: the *task* id — not a message id or a turn id
-    /// threaded nearby on the send path — is what reaches the port. That is the
-    /// bug class this seam exists to catch; the success/None result is secondary.
+    /// The load-bearing assertion: the *task* id — not a message id or a turn
+    /// id threaded nearby on the send path — is what reaches the port. That is
+    /// the bug class this seam exists to catch; the success/None result is
+    /// secondary.
     #[tokio::test]
     async fn wake_for_message_wakes_the_task_it_was_given() {
         let waker = RecordingSandboxWaker {
@@ -49,8 +50,8 @@ mod waker_tests {
     }
 
     /// Thinner — this is `Result::err` plumbing, kept for intent, not the
-    /// assertion doing the work: a wake failure is handed back for the caller to
-    /// persist rather than dropped.
+    /// assertion doing the work: a wake failure is handed back for the caller
+    /// to persist rather than dropped.
     #[tokio::test]
     async fn wake_for_message_surfaces_the_failure_text() {
         let waker = RecordingSandboxWaker {

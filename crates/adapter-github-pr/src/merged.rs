@@ -1,18 +1,15 @@
-//! Merged-pull-request notification: candidate derivation and durable execution.
+//! Merged-pull-request notification: candidate derivation and durable
+//! execution.
 //!
 //! Tells the tasks still working a pull request that it landed. GitHub has no
 //! `merged` action, so the signal is derived from `pull_request` `closed`
-//! carrying `merged: true`, and it is gated by its own name
-//! ([`super::config::PR_MERGED`]) rather than by the carrier's.
+//! carrying `merged: true`, gated by its own name
+//! ([`super::config::PR_MERGED`]) rather than the carrier's.
 //!
-//! Its recipients are the active Bindings on the pull request that the
-//! trigger's auto-close does not own. Auto-close winds its own tasks down and
-//! appends its own notice as it goes ([`super::routing`]); this notifies
-//! everyone else — the Task that opened the pull request from a `moat gh pr
-//! create`, and every Task bound to it under a trigger that leaves tasks open.
-//! Splitting the audience that way is what keeps the two durable kinds
-//! independent of the order they execute in: neither can deliver to a Task the
-//! other is addressing.
+//! Recipients are the active Bindings the trigger's auto-close does not own:
+//! auto-close winds its own tasks down and appends its own notice
+//! ([`super::routing`]); this notifies everyone else, so the two durable kinds
+//! never both deliver to the same Task regardless of execution order.
 
 use std::fmt::Write;
 
@@ -33,8 +30,8 @@ use super::subject::GithubPrSubject;
 
 /// The merged pull request, as parsed from the webhook that announced it.
 ///
-/// Serializable because it is carried as the payload of a `github.pr_merged`
-/// Adapter delivery record (see [`super::delivery`]).
+/// Serializable: carried as the payload of a `github.pr_merged` Adapter
+/// delivery record (see [`super::delivery`]).
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub(super) struct MergedPr {
     pub(super) pr_number: u64,
@@ -132,8 +129,8 @@ pub(super) fn merged_text(merged: &MergedPr, owner: &str, repo: &str) -> String 
 /// True when the trigger's auto-close owns this Binding's Task.
 ///
 /// Auto-close reaches exactly the Tasks its own trigger created
-/// ([`GithubPrInboundRouter::close_subject`]), and delivers its close notice to
-/// each of them itself.
+/// ([`GithubPrInboundRouter::close_subject`]) and delivers its close notice to
+/// each itself.
 fn auto_close_owns(rule: &SubscriptionMatch, binding: &TaskBinding) -> bool {
     rule.close_task_on_close
         && binding.origin == ADAPTER_EVENT_BINDING_ORIGIN
@@ -143,16 +140,10 @@ fn auto_close_owns(rule: &SubscriptionMatch, binding: &TaskBinding) -> bool {
 impl GithubPrInboundRouter {
     /// Execute one durable merged-PR notification.
     ///
-    /// Runs as a `github.pr_merged` Adapter delivery, so it survives a restart
-    /// between GitHub's acknowledgment and the notice reaching a Task. It needs
-    /// no GitHub credential: everything it says is already in the webhook that
-    /// admitted it.
-    ///
-    /// A pull request with no Task left to tell is a skip, not a failure. A
-    /// failure that stopped the notice from being delivered is returned, so the
-    /// worker retries it; the per-Binding event receipt keyed on
-    /// [`super::external_id::pr_merged`] keeps the retry from repeating a
-    /// delivery that already landed.
+    /// Needs no GitHub credential (everything is already in the admitting
+    /// webhook). A pull request with no Task left to tell is a skip, not a
+    /// failure; a failed delivery retries, deduped by the per-Binding receipt
+    /// keyed on [`super::external_id::pr_merged`].
     pub(super) async fn run_pr_merged(
         &self,
         connection: &AdapterConnection,

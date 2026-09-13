@@ -17,10 +17,9 @@ const HARD_MAX_RESULTS: usize = 500;
 
 /// Search for files by substring match on the file name or path.
 ///
-/// Uses the `ignore` crate walker (respects `.gitignore`, skips hidden dirs).
-/// The walk runs on a blocking thread pool so the async runtime isn't
-/// blocked. Results are ranked by filename hit quality (exact > prefix >
-/// contains > path-contains) and capped at `max_results`.
+/// Walks with the `ignore` crate (respects `.gitignore`, skips hidden dirs) on
+/// a blocking thread pool, ranks hits (exact > prefix > contains >
+/// path-contains), and caps at `max_results`.
 pub async fn search_files_by_name(
     workspace_dir: &str,
     query: &str,

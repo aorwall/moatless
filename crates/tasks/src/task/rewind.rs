@@ -1,16 +1,12 @@
 //! Rewinding a Task: dropping its turns above a cut, in place.
 //!
 //! A fork branches a cut onto a new Task and leaves the parent whole
-//! (`task/fork.rs`). A rewind is the same cut applied to the Task itself: the
-//! turns above it are deleted, and the next turn resumes the agent session
-//! branched at the cut — through the same `task_forks` anchors and the same
-//! delivery-path fork intent a fork uses, because that is already exactly "start
-//! from this session, cut here".
+//! (`task/fork.rs`); a rewind applies the same cut in place, and the next turn
+//! resumes the agent session branched at the cut via the same `task_forks`
+//! anchors a fork uses.
 //!
-//! The Sandbox's working copy is untouched. A rewind moves what was *said*, and
-//! the files the agent wrote stay written; T3 calls this half
-//! `thread.conversation.revert`, and the file-restoring half is refused for want
-//! of the worktree snapshots this backend never took.
+//! The Sandbox's working copy is untouched — a rewind moves what was *said*,
+//! not the files the agent wrote.
 
 use std::sync::Arc;
 
@@ -97,11 +93,8 @@ impl TaskRewindService {
     }
 
     /// The `task_forks` row the next turn branches from, or `None` when the cut
-    /// leaves no agent session behind — an emptied Task, or one whose agent
-    /// never ran at or below the cut.
-    ///
-    /// Which anchor the row carries follows the agent, exactly as it does for a
-    /// fork: Codex names the cut by turn id and Claude by Message uuid.
+    /// leaves no agent session. Which anchor it carries follows the agent:
+    /// Codex by turn id, Claude by Message uuid.
     async fn anchor(
         &self,
         task: &super::models::Task,
@@ -145,14 +138,9 @@ impl TaskRewindService {
     }
 }
 
-/// Why `keep_through` cannot be cut to, or `None` when it can.
-///
-/// An open turn refuses the rewind whatever the cut is, unlike `fork.rs`'s
-/// `blocking_open_turn`, which allows a cut below it: a fork copies the rows
-/// below the cut and leaves the open turn writing, while this deletes rows
-/// instead. `interrupted` counts as open along with `active`, and not
-/// because a pod is still writing — `task_turn::recovery` resumes an
-/// interrupted turn on the next reschedule, from the rows this would delete.
+/// Why `keep_through` cannot be cut to, or `None` when it can. Unlike
+/// `fork.rs`'s `blocking_open_turn`, an open turn refuses any cut here since
+/// this deletes rows; `interrupted` counts as open too.
 fn blocking(task_id: &str, keep_through: i32, point: &ForkPoint) -> Option<TaskError> {
     if keep_through < 0 {
         return Some(TaskError::BadRequest(format!(

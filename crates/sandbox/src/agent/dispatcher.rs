@@ -1,18 +1,8 @@
 //! Message dispatcher — routes incoming message notifications.
 //!
-//! Invoked from:
-//! - `grpc_server::execute_agent()` when backend requests execution
-//! - `grpc_server::notify_messages()` when backend signals new messages
-//! - `init::run_init()` after `InitPhase::Ready` is set
-//!
-//! The dispatcher fetches pending messages from the backend, sends text to
-//! the agent lifecycle task via `agent_handle.send()`, and acknowledges the
-//! messages. The coordinator handles whether to start a new session or inject
-//! mid-turn.
-//!
-//! It self-gates on [`SandboxState::is_ready`]: the two gRPC entry points fire
-//! from the moment the pod starts, so a call that races `run_init` is dropped
-//! (the messages stay pending and `run_init` dispatches them after restoration).
+//! Invoked from `grpc_server::execute_agent()`,
+//! `grpc_server::notify_messages()`, and `init::run_init()` after
+//! `InitPhase::Ready`.
 
 use std::time::Duration;
 
@@ -24,22 +14,12 @@ use crate::state::{SandboxState, TaskContext};
 use super::prompt::{PromptResponse, PromptToolName};
 use super::types::AgentStatus;
 
-/// Spawn a detached dispatcher task whose termination is never silent (Sandbox
-/// spawned-task rule). The task itself logs every ordinary terminal branch; this
-/// watcher additionally surfaces an abnormal end (a panic) at `error` with the
-/// task's name, which a bare `tokio::spawn` would swallow.
+/// Spawn a detached task whose panic is logged rather than swallowed by a bare
+/// `tokio::spawn`.
 ///
-/// # Why these tasks are not registered with the root supervisor
-///
-/// Dispatch work is per-request and unbounded in count, so handing every one to
-/// [`crate::supervisor::Supervisor`] would grow its owned set for the life of
-/// the pod. More importantly, dispatch owns *pending-message durability*: a
-/// dispatcher holds the single-flight guard from before the fetch until
-/// [`acknowledge_until_settled`] lands the ack, and that retry loop deliberately
-/// keeps going for as long as the pod is up. The root supervisor's job is to
-/// bound teardown; a task whose correct behaviour is to outlast every other one
-/// must not be inside that bound. Each dispatcher already races every await
-/// against `lifecycle_cancel`, which is what actually stops it.
+/// Not registered with the root supervisor: a dispatcher must outlive normal
+/// teardown, holding the single-flight guard until the ack lands, and stops
+/// only via `lifecycle_cancel`.
 pub(crate) fn spawn_supervised(
     what: &'static str,
     fut: impl std::future::Future<Output = ()> + Send + 'static,
@@ -54,8 +34,9 @@ pub(crate) fn spawn_supervised(
 
 /// Dispatch pending messages to the agent.
 ///
-/// If the agent is waiting for user input (AskUserQuestion/ExitPlanMode),
-/// resolves the pending prompt. Otherwise sends text to the agent lifecycle task.
+/// Resolves the pending prompt if the agent is waiting for user input
+/// (AskUserQuestion/ExitPlanMode); otherwise sends text to the agent lifecycle
+/// task.
 pub async fn dispatch_pending_messages(state: SandboxState) {
     let Some(context) = context_for(&state, None).await else {
         return;
@@ -85,17 +66,12 @@ async fn context_for(
     }
 }
 
-/// Queue `text` as this pod's own message for `task_id` and open the turn it
-/// asks for. Every in-pod caller that opens a turn goes through here: a
-/// scheduled job's prompt, and the wake a pod replacement owes.
+/// Queue `text` as this pod's own message for `task_id`, then open the turn.
 ///
-/// The queued row is what `find_interrupted_turn` selects on, so a pod that dies
-/// inside this turn is recoverable. A backend that cannot be reached falls back
-/// to the direct send, whose turn is not.
-///
-/// `idempotency_key` is what a resend dedups on. `None` keys on the text, which
-/// a caller sending one distinct wake wants; a caller that can send the same
-/// text twice passes a key, or the second send is swallowed.
+/// The queued row is what `find_interrupted_turn` selects on, so a pod dying
+/// mid-turn is recoverable; a direct-send fallback is not. Pass
+/// `idempotency_key` when a caller can resend the same text, or the second send
+/// is swallowed.
 pub(crate) async fn queue_and_dispatch(
     state: &SandboxState,
     task_id: &str,
@@ -140,15 +116,12 @@ async fn send_directly(state: &SandboxState, task_id: &str, text: String) {
     );
 }
 
-/// Dispatch a row this pod queued for itself. `uuid` is the row
-/// `BackendClient::enqueue_sandbox_message` just wrote.
+/// Dispatch a row this pod queued for itself (`uuid` from
+/// `enqueue_sandbox_message`).
 ///
-/// The uuid is recorded through [`TaskContext::mark_self_queued`] before the
-/// dispatch, so a run parked on an `AskUserQuestion` or an `ExitPlanMode` never
-/// takes it as the person's answer: the parked call waits on a person, and a wake
-/// acknowledged as their answer would reject a plan nobody read and be consumed
-/// doing it. `resolve_pending_prompt` leaves the row pending instead, and it opens
-/// its own turn once the real answer arrives.
+/// Recorded via [`TaskContext::mark_self_queued`] before dispatch, so a parked
+/// `AskUserQuestion`/`ExitPlanMode` never consumes it as the person's answer;
+/// `resolve_pending_prompt` leaves it pending and opens its own turn instead.
 pub(crate) async fn dispatch_self_queued(state: SandboxState, task_id: String, uuid: String) {
     let Some(context) = context_for(&state, Some(&task_id)).await else {
         return;
@@ -388,19 +361,15 @@ async fn dispatch_pending_messages_for_context(
 /// definitively, without hammering `GetPendingMessages` in a tight loop.
 const REDISPATCH_BACKOFF: Duration = Duration::from_secs(15);
 
-/// Post-acceptance acknowledgement retry backoff: exponential from the base,
-/// capped at the ceiling, plus per-attempt jitter seeded by `task_id` so a
-/// fleet of pods riding out the same backend/ack outage does not retry in
-/// lockstep. The harness has already accepted the Input (or the prompt has been
-/// answered), so the batch is never resubmitted — only the ack is re-attempted,
-/// retried until it lands or the pod stops (a failed ack is never treated as
-/// success), so a waiter can never re-run the accepted Message during an outage.
+/// Post-acceptance ack retry backoff: exponential from the base, capped at the
+/// ceiling, with jitter seeded by `task_id` so a fleet doesn't retry in
+/// lockstep during a shared outage.
 const ACK_RETRY_BASE_BACKOFF: Duration = Duration::from_secs(2);
 const ACK_RETRY_MAX_BACKOFF: Duration = Duration::from_mins(1);
 
-/// Compute the capped exponential backoff for a 1-based retry `attempt`, plus up
-/// to 25% jitter derived from `task_id` + `attempt` (no `rand` dependency; the
-/// `task_id` seed decorrelates retries across the fleet).
+/// Compute the capped exponential backoff for a 1-based retry `attempt`, plus
+/// up to 25% jitter derived from `task_id` + `attempt` (no `rand` dependency;
+/// the `task_id` seed decorrelates retries across the fleet).
 fn ack_retry_delay(task_id: &str, attempt: u32) -> Duration {
     use std::hash::{Hash, Hasher};
     // Cap the exponent so the shift can't overflow; 2^5 * base already saturates
@@ -424,27 +393,19 @@ fn ack_retry_delay(task_id: &str, attempt: u32) -> Duration {
 const ACK_RETRY_WARN_EVERY: u32 = 10;
 
 /// Skip re-dispatch once the agent has accumulated this many consecutive
-/// errors — mirrors the coordinator service's `MAX_CONSECUTIVE_ERRORS` circuit
-/// breaker so a persistently failing agent can't loop dispatch → drop →
-/// re-dispatch forever.
+/// errors.
+///
+/// Mirrors the coordinator service's `MAX_CONSECUTIVE_ERRORS` circuit breaker,
+/// so a persistently failing agent can't loop dispatch -> drop -> re-dispatch
+/// forever.
 const MAX_REDISPATCH_CONSECUTIVE_ERRORS: u32 = 3;
 
-/// Re-fetch and re-dispatch pending messages after the agent dropped an ack.
+/// Re-fetch and re-dispatch messages after the agent drops an ack — it died
+/// before `SessionInit`, so the backend never acknowledged them.
 ///
-/// A dropped ack means the agent died before `SessionInit`, so the messages
-/// were never acknowledged (`agent_session_id` stays NULL on the backend).
-/// Without this, nothing re-delivers them until the next sandbox startup —
-/// in production that meant a ~10 minute gap. Bounded: each re-dispatch only
-/// schedules another retry if its own ack drops again, and the consecutive-
-/// error gate stops the cycle once the agent is persistently failing.
-///
-/// Safe against double-delivery: the backend only returns messages that are
-/// still unacknowledged, so if a later attempt acked them this fetch is empty.
-///
-/// Not an `async fn`: the recursion (`dispatch_pending_messages` → ack task →
-/// here → `dispatch_pending_messages`) must go through a type-erased boxed
-/// future, otherwise the compiler cannot resolve the futures' `Send` bounds
-/// through the cycle.
+/// Retries only if the new ack also drops, and stops once the consecutive-error
+/// gate trips; boxed, not `async fn`, since the recursion needs type erasure
+/// for `Send`.
 fn schedule_redispatch(
     state: SandboxState,
     context: std::sync::Arc<TaskContext>,
@@ -589,20 +550,9 @@ async fn resolve_pending_prompt(state: &SandboxState, context: &std::sync::Arc<T
 
 /// What the parked call is told.
 ///
-/// A delivery that carries a structured answer is one, and the answer is used as
-/// it stands: an answer per question, an approval, or a rejection with its
-/// feedback. Nothing is inferred from the words.
-///
-/// A delivery that carries none is an ordinary message that arrived while the
-/// prompt was parked. A question takes it as text, which is how someone
-/// answering in the chat box answers, and it travels as the freeform response
-/// rather than as an answer to any one question: the CLI keys answers on each
-/// question's own text and drops a question it finds none for, so text under
-/// any other key would leave the model told that nobody answered. A proposed
-/// plan does **not**: an approval is a specific thing to say, and reading a
-/// passing remark as one would let the agent act on a plan nobody approved. It
-/// is delivered as a rejection carrying what was said, which is the same thing
-/// the agent would have been told had the person typed it into the reject box.
+/// A structured answer (from the panel) is used as-is; plain text answers a
+/// question as its freeform response, but for a plan it is never read as
+/// approval — a passing remark becomes a rejection carrying what was said.
 fn prompt_response(
     tool_name: &PromptToolName,
     answer: Option<&sandbox_proto::PromptResponse>,
@@ -635,18 +585,10 @@ fn schedule_dispatch(
 }
 
 /// Acknowledge accepted messages, retrying until the RPC lands or the sandbox
-/// shuts down. The harness has already accepted the Input (ordinary message) or
-/// the prompt has already been answered, so the batch is never resubmitted —
-/// only the ack is re-attempted. The caller holds the dispatch guard across the
-/// whole retry, so a waiting dispatcher cannot re-fetch and re-run the accepted
-/// Message (or re-submit an answered prompt as ordinary input) during a
-/// transient ack outage; and because a failed ack is never treated as success,
-/// the row is never dropped back to "pending" for a later notification to re-run.
+/// shuts down; only the ack retries since the Input was already accepted.
 ///
-/// Each RPC and each backoff is raced against lifecycle cancellation. Returns
-/// `true` once the ack lands; `false` only when cancellation interrupted it —
-/// the pod is stopping, so the still-pending row is left for the replacement
-/// pod's post-restore dispatch (the existing cross-pod at-least-once path).
+/// Returns `true` once acked; `false` only on shutdown, leaving the row for the
+/// replacement pod's post-restore dispatch.
 async fn acknowledge_until_settled(
     state: &SandboxState,
     context: &TaskContext,
@@ -735,9 +677,11 @@ mod tests {
     }
 
     /// Someone answering in the chat box while a question is parked is
-    /// answering it — as the freeform response, which belongs to the call rather
-    /// than to any one question. An answer keyed on anything but a question's
-    /// own text reaches the model as no answer at all.
+    /// answering it — as the freeform response, which belongs to the call
+    /// rather than to any one question.
+    ///
+    /// An answer keyed on anything but a question's own text reaches the model
+    /// as no answer at all.
     #[test]
     fn text_answers_a_parked_question() {
         let response = prompt_response(

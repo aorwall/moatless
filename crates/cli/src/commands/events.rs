@@ -30,9 +30,6 @@ pub enum EventAction {
     ///
     /// Unlike `list --follow`, this prints no history and no decoration, so it
     /// can be piped into anything that reads NDJSON. Runs until interrupted.
-    ///
-    /// Example:
-    ///   moat events stream --task abc123 --types sandbox,agent
     Stream {
         /// Only events for this task. Omit for every task the caller can see.
         #[arg(long)]
@@ -40,7 +37,8 @@ pub enum EventAction {
         /// Comma-separated event type filter (e.g. sandbox,server,agent)
         #[arg(long)]
         types: Option<String>,
-        /// Include the stream's keep-alive pings, which are filtered by default.
+        /// Include the stream's keep-alive pings, which are filtered by
+        /// default.
         #[arg(long)]
         include_pings: bool,
     },
@@ -284,7 +282,7 @@ fn format_events(items: &[serde_json::Value]) {
 /// Truncate a payload string to ~80 chars for table display, appending `...`.
 ///
 /// Truncates on a UTF-8 char boundary — naive byte slicing panics when the cut
-/// index lands inside a multi-byte character (e.g. an em-dash straddling byte 77).
+/// lands inside a multi-byte character.
 fn truncate_payload(s: &str) -> String {
     if s.len() <= 80 {
         return s.to_string();

@@ -1,11 +1,11 @@
 //! Node-local archive location tracking and strict deletion.
 //!
-//! Node-backed Docker data outlives sandbox pods. A deterministic
-//! task `ConfigMap` records every node that has hosted such data and the newest
+//! Node-backed Docker data outlives sandbox pods. A deterministic task
+//! `ConfigMap` records every node that has hosted such data and the newest
 //! lifecycle generation seen there. Starts prefer the newest recorded node that
-//! still exists, and schedule anywhere once those nodes are gone — everything
-//! tracked here is a cache, so losing it costs a rebuild, never the work itself.
-//! Hard deletion runs one deterministic cleanup pod per surviving recorded node
+//! still exists, scheduling anywhere once those nodes are gone — everything
+//! tracked here is a cache, so losing it costs a rebuild, never the work
+//! itself. Hard deletion runs one cleanup pod per surviving recorded node
 //! before removing the `ConfigMap`.
 
 use std::collections::{BTreeMap, BTreeSet};

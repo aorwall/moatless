@@ -16,10 +16,10 @@ const SIGNAL_CAPACITY: usize = 64;
 pub struct HarnessClosed;
 
 /// Supervise a spawned driver task so its termination is never silent: an
-/// abnormal end (a panic in the ordering state machine) is logged at `error`
-/// with a diagnostic, a clean stop at `debug`. Without this a panicked driver
-/// would collapse the harness channels — every `submit`/`next_signal` failing —
-/// with no trace of why (Sandbox rule: handle spawned-task success and failure).
+/// abnormal end (a panic) is logged at `error`, a clean stop at `debug`.
+///
+/// Without this a panicked driver would collapse the harness channels — every
+/// `submit`/`next_signal` failing — with no trace of why.
 fn supervise(handle: tokio::task::JoinHandle<()>) {
     tokio::spawn(async move {
         match handle.await {
@@ -68,10 +68,12 @@ impl Harness {
         }
     }
 
-    /// Like [`Harness::scripted`] but every execution records the full `Input` it
-    /// accepts into the shared `recorder`, so a lifecycle test can prove which
-    /// input the harness received (text + resume), not merely that a command was
-    /// enqueued. The same `script` runs for each execution.
+    /// Like [`Harness::scripted`] but every execution records the full `Input`
+    /// it accepts into the shared `recorder`.
+    ///
+    /// Lets a lifecycle test prove which input the harness received (text +
+    /// resume), not merely that a command was enqueued; the same `script` runs
+    /// for each execution.
     #[cfg(test)]
     pub(crate) fn scripted_recording(script: Script, recorder: scripted::InputRecorder) -> Self {
         let (submit_tx, submit_rx) = mpsc::channel(SUBMIT_CAPACITY);
@@ -91,10 +93,12 @@ impl Harness {
         }
     }
 
-    /// Construct a one-shot harness whose executions run `scripts` in order — one
-    /// script per execution, so a test can model a first execution that rejects
-    /// (e.g. a failed resume) followed by a second that succeeds (the recovery
-    /// re-drive). Executions past the list end immediately at EOF.
+    /// Construct a one-shot harness whose executions run `scripts` in order —
+    /// one script per execution.
+    ///
+    /// Lets a test model a first execution that rejects (e.g. a failed resume)
+    /// followed by a second that succeeds (recovery re-drive); executions past
+    /// the list end immediately at EOF.
     #[cfg(test)]
     pub(crate) fn scripted_sequence(scripts: Vec<Script>) -> Self {
         let (submit_tx, submit_rx) = mpsc::channel(SUBMIT_CAPACITY);
@@ -115,9 +119,9 @@ impl Harness {
         }
     }
 
-    /// Construct a harness driven by a single scripted *persistent* process: one
-    /// long-lived process that hosts many executions, so the script can model
-    /// injection, harness-internal executions, and Turn boundaries.
+    /// Construct a harness driven by a single scripted *persistent* process:
+    /// one long-lived process that hosts many executions, so the script can
+    /// model injection, harness-internal executions, and Turn boundaries.
     #[cfg(test)]
     pub(crate) fn scripted_persistent(script: Script) -> Self {
         let (submit_tx, submit_rx) = mpsc::channel(SUBMIT_CAPACITY);
@@ -136,9 +140,10 @@ impl Harness {
         }
     }
 
-    /// Construct the production Claude subprocess harness. Each execution launches
-    /// a fresh one-shot CLI subprocess (the persistent tmux transport is a later
-    /// ticket); the Turn-independent `config` is cloned per execution.
+    /// Construct the production Claude subprocess harness. Each execution
+    /// launches a fresh one-shot CLI subprocess (the persistent tmux transport
+    /// is a later ticket); the Turn-independent `config` is cloned per
+    /// execution.
     pub fn claude(config: ClaudeConfig) -> Self {
         let (submit_tx, submit_rx) = mpsc::channel(SUBMIT_CAPACITY);
         let (cancel_tx, cancel_rx) = mpsc::channel(1);
@@ -156,11 +161,12 @@ impl Harness {
         }
     }
 
-    /// Construct the production Codex harness. Codex is one-process-per-Turn, so
-    /// each execution launches a fresh `codex app-server --stdio` subprocess
-    /// through the shared one-shot [`driver::run`]; a later Turn resumes the
-    /// known thread by replacing the process. The Turn-independent `config` is
-    /// cloned per execution.
+    /// Construct the production Codex harness.
+    ///
+    /// Codex is one-process-per-Turn: each execution launches a fresh `codex
+    /// app-server --stdio` subprocess through the shared one-shot
+    /// [`driver::run`], and a later Turn resumes the known thread by replacing
+    /// the process; the Turn-independent `config` is cloned per execution.
     pub fn codex(config: CodexConfig) -> Self {
         let (submit_tx, submit_rx) = mpsc::channel(SUBMIT_CAPACITY);
         let (cancel_tx, cancel_rx) = mpsc::channel(1);
@@ -178,11 +184,12 @@ impl Harness {
         }
     }
 
-    /// Construct the production persistent Claude harness. One long-lived tmux
-    /// TUI session hosts every Turn: compatible input is pasted into the live
-    /// session (injected into an active Turn or opening a fresh one), and an
-    /// incompatible model / mode / Session / fresh-start replaces the process
-    /// while resuming the intended Session.
+    /// Construct the production persistent Claude harness.
+    ///
+    /// One long-lived tmux TUI session hosts every Turn: compatible input
+    /// pastes into the live session (injecting into an active Turn or opening a
+    /// fresh one), and an incompatible model/mode/Session/fresh-start replaces
+    /// the process while resuming the intended Session.
     pub fn claude_persistent(config: ClaudeConfig) -> Self {
         let (submit_tx, submit_rx) = mpsc::channel(SUBMIT_CAPACITY);
         let (cancel_tx, cancel_rx) = mpsc::channel(1);
@@ -200,8 +207,8 @@ impl Harness {
         }
     }
 
-    /// Submit input. Awaits channel capacity (explicit backpressure); errors only
-    /// when the harness has stopped.
+    /// Submit input. Awaits channel capacity (explicit backpressure); errors
+    /// only when the harness has stopped.
     pub async fn submit(&self, input: Input) -> Result<(), HarnessClosed> {
         self.submit_tx.send(input).await.map_err(|_| HarnessClosed)
     }

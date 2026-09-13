@@ -2,16 +2,10 @@
 
 /// `webhook:delivery:<delivery_id>` — one inbound delivery.
 ///
-/// Admission stops a *second HTTP delivery* of the same identifier. It does not
-/// stop a second *execution* of one admitted record: the worker is
-/// at-least-once, so a handler that appended a message and then lost its process
-/// is re-run. This id is what makes that re-run converge — routing looks it up
-/// against the messages already delivered and skips a binding that has it,
-/// exactly as it does for Slack and Telegram.
-///
-/// Stable by construction, including for a delivery whose identifier the backend
-/// minted: the minting happens once, at parse time, and the result is written
-/// into the admitted payload rather than recomputed per attempt.
+/// Guards a second HTTP delivery, not a second execution: the worker is
+/// at-least-once, so routing looks this id up against messages already
+/// delivered to make a re-run converge. Minted once at parse time and stored,
+/// never recomputed per attempt.
 pub(crate) fn delivery(delivery_id: &str) -> String {
     format!("webhook:delivery:{delivery_id}")
 }

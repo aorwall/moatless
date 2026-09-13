@@ -1,4 +1,5 @@
-//! Conversions between API `MessageContextInput` and DB `TaskMessageContext` rows.
+//! Conversions between API `MessageContextInput` and DB `TaskMessageContext`
+//! rows.
 
 use super::models::TaskMessageContext;
 use crate::task::schemas::{
@@ -43,7 +44,7 @@ pub fn message_context_input_to_row(ctx: &MessageContextInput) -> TaskMessageCon
 
 /// Convert a DB row back into an API output variant.
 ///
-/// Returns `None` if the row's `type`/`data` shape is not recognised so the
+/// Returns `None` if the row's `type`/`data` shape is not recognised, so the
 /// transform layer can drop forward-incompatible rows without failing.
 pub fn task_message_context_to_input(row: &TaskMessageContext) -> Option<MessageContextInput> {
     match row.context_type.as_str() {

@@ -3,20 +3,16 @@
 
 use super::*;
 
-/// The stub's database. Every read in these tests reports it, so nothing
-/// here exercises the identity guard — that needs two real databases, and
-/// is in `backend/tests/integration_surface/ui_rpc_shell_test.rs`.
+/// The stub's database. Every read in these tests reports it, so nothing here
+/// exercises the identity guard — that needs two real databases, and is in
+/// `backend/tests/integration_surface/ui_rpc_shell_test.rs`.
 pub(super) fn stub_identity() -> UiRpcEnvironmentIdentity {
     UiRpcEnvironmentIdentity::new("7667539899605483559:16384")
 }
 
-/// A deployment whose Sandboxes are all unreachable.
-///
-/// Every file, server and log request these tests make is refused before it
-/// would reach a Sandbox — by the `cwd`, by a listing that contains no
-/// conversations, or by a scoped Task read that finds nothing — so these
-/// seams exist to be held, not called. What a reachable Sandbox answers is
-/// a gRPC or K8s round trip and belongs in an integration test.
+/// A deployment whose Sandboxes are all unreachable. Every request is refused
+/// before reaching one, so these seams are held, never called — a live
+/// Sandbox's answer belongs in an integration test.
 struct UnreachableSandboxes;
 
 fn unreachable(task_id: &str) -> SandboxError {
@@ -184,9 +180,9 @@ pub(super) fn pairing_code(code: &str) -> PairingCode {
     }
 }
 
-/// The full catalog with everything installed. The provider list's own
-/// shape is asserted in `providers.rs`; here it only has to be non-empty so
-/// the composer is not disabled.
+/// The full catalog with everything installed. The provider list's own shape is
+/// asserted in `providers.rs`; here it only has to be non-empty so the composer
+/// is not disabled.
 struct StubAgents;
 
 #[async_trait]
@@ -236,8 +232,8 @@ impl ports::SkillCatalog for StubSkills {
 }
 
 /// No test in this file dispatches a project-root `vcs.listRefs`, so the
-/// git-host branch listing is never reached here; it is asserted in
-/// `review.rs` against a mock workspace DAO and branch source.
+/// git-host branch listing is never reached here; it is asserted in `review.rs`
+/// against a mock workspace DAO and branch source.
 struct UnreachableBranches;
 
 #[async_trait]
@@ -360,9 +356,8 @@ impl ports::AttachmentStore for RecordingAttachments {
     }
 }
 
-/// Nothing in this file dispatches a command that reaches a write; the
-/// command table itself is asserted in `commands.rs` against a recording
-/// sink.
+/// Nothing in this file dispatches a command that reaches a write; the command
+/// table itself is asserted in `commands.rs` against a recording sink.
 struct UnreachableUsage;
 
 #[async_trait]
@@ -526,9 +521,9 @@ impl ports::ThreadCommandSink for UnreachableCommands {
     }
 }
 
-/// These tests are about the envelope encoding, so the listing behind it
-/// is a stub. What a viewer actually sees is asserted against a real
-/// database in `backend/tests/integration_surface/ui_rpc_shell_test.rs`.
+/// These tests are about the envelope encoding, so the listing behind it is a
+/// stub. What a viewer actually sees is asserted against a real database in
+/// `backend/tests/integration_surface/ui_rpc_shell_test.rs`.
 pub(super) fn state() -> UiRpcState {
     state_with_attachments(Arc::new(RecordingAttachments::default()))
 }
@@ -643,13 +638,9 @@ pub(super) fn state_with_attachments(attachments: Arc<dyn ports::AttachmentStore
     }
 }
 
-/// A session whose pushed frames go nowhere. These tests drive the request
-/// side; what a subscription's poller produces is asserted against a real
-/// database in `backend/tests/integration_surface/ui_rpc_shell_test.rs`.
-///
-/// A detached request answers on that channel rather than to its caller, so a
-/// test naming one of the tags `rpc::dispatch::routing::detach` matches uses
-/// [`connection`] instead.
+/// A session whose pushed frames go nowhere; these tests drive requests only. A
+/// detached request answers on this channel, not its caller — use
+/// [`connection`] for tests on a `detach`-routed tag.
 pub(super) fn session() -> ProtocolSession {
     ProtocolSession::new(mpsc::channel(OUTBOUND_FRAMES).0)
 }

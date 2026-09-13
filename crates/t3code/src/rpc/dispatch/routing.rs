@@ -38,9 +38,9 @@ use tracing::warn;
 
 /// One client request, owned by whatever answers it.
 ///
-/// Owned rather than borrowed because a detached request outlives the frame-loop
-/// call that routed it. Every field is an `Arc`, a short `String` or the `Value`
-/// the frame already parsed, so building one costs a set of refcount bumps.
+/// Owned, not borrowed, because a detached request outlives the frame-loop call
+/// that routed it; every field is an `Arc`, a short `String` or an
+/// already-parsed `Value`, so owning one costs only refcount bumps.
 pub(super) struct Request {
     pub(super) id: RequestId,
     /// The method name, kept because the failure frames echo it back.

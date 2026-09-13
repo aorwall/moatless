@@ -65,10 +65,9 @@ async fn append_and_get_all(pool: PgPool) {
     assert!(blocks.is_empty());
 }
 
-/// The full raw `assistant_usage` blob (including the ephemeral cache-write
-/// breakdown that the typed columns don't capture) round-trips through the
-/// `task_messages` column. This is the data cost is derived from when the
-/// transport reports no `total_cost_usd` (tmux).
+/// The raw `assistant_usage` blob, including the cache-write breakdown typed
+/// columns miss, round-trips through `task_messages` for deriving cost when the
+/// transport omits `total_cost_usd` (tmux).
 #[sqlx::test]
 async fn append_persists_assistant_usage(pool: PgPool) {
     seed_task(&pool, "task-1", "user-1").await;
@@ -117,11 +116,11 @@ async fn append_persists_assistant_usage(pool: PgPool) {
     );
 }
 
-/// Codex reports token usage only on the terminal result — its assistant
-/// message row is inserted with no usage. `backfill_last_assistant_usage` fills
-/// the most recent assistant row (guarded by `assistant_usage IS NULL`), so the
-/// turn's tokens + raw usage blob (incl. `reasoning_output_tokens`) land on the
-/// message. A second call is a no-op because the row now has usage.
+/// Codex reports usage only on the terminal result, leaving assistant rows with
+/// none.
+///
+/// `backfill_last_assistant_usage` fills the most recent row where
+/// `assistant_usage IS NULL`; repeat calls are no-ops.
 #[sqlx::test]
 async fn backfill_fills_last_assistant_usage_once(pool: PgPool) {
     use crate::message::models::MessageRole;
@@ -204,11 +203,11 @@ async fn backfill_fills_last_assistant_usage_once(pool: PgPool) {
     );
 }
 
-/// Claude reports usage inline, but one API response can span several rows when
-/// the CLI interleaves other traffic between its content-block lines — and the
-/// repeats deliberately carry none, so the tokens are counted once. The backfill
-/// must leave those alone: writing the run's cumulative total onto a repeat
-/// would count the same tokens a second time.
+/// Claude may split one response across several rows; repeat rows deliberately
+/// carry no usage so tokens count once.
+///
+/// The backfill must skip them — writing the cumulative total onto a repeat
+/// would double-count tokens.
 #[sqlx::test]
 async fn backfill_skips_tasks_that_already_report_usage(pool: PgPool) {
     use crate::message::models::MessageRole;
@@ -414,10 +413,11 @@ async fn set_session_id_also_sets_sent_at(pool: PgPool) {
     }
 }
 
-/// The fork copy inserts through `message_columns!()`, so a column absent from
-/// that list is dropped without failing to compile. `sent_at` absent left every
-/// copied Message claimed by `agent_session_id` and unsent by `sent_at`, which
-/// reads as queued forever while no dispatch will ever pick it up again.
+/// The fork copy inserts via `message_columns!()`; a column missing from that
+/// list is silently dropped, not a compile error.
+///
+/// Omitting `sent_at` left copies claimed but never marked sent — queued
+/// forever with no dispatcher to pick them up.
 #[sqlx::test]
 async fn a_copied_message_carries_the_sent_at_that_claimed_it(pool: PgPool) {
     seed_task(&pool, "task-1", "user-1").await;
@@ -643,17 +643,11 @@ async fn a_comment_id_names_its_author_across_every_subject(pool: PgPool) {
     assert_eq!(found.as_deref(), Some("task-1"));
 }
 
-/// Two repositories, one pull request number, two tasks — and one id string
-/// recorded against both.
+/// Rows written before PR-level ids named their repository share one id across
+/// every repo with a matching PR number.
 ///
-/// This is the shape of a row written before PR-level ids named their
-/// repository: `github:pr:opened:607` is a pull request in every repository
-/// that has a #607, so the task working `soaplabs/soap-specs#607` holds the
-/// very id that `soaplabs/moatless#607` would arrive under. Migration `0148`
-/// rewrites the rows it can place; this is what answers for the rest, and for
-/// any provider that numbers per subject. Asked on the subject, the lookup
-/// names the task actually on that pull request — the caller binds the answer,
-/// so naming the other one attaches a task to a pull request it never touched.
+/// Asked on a specific subject, the lookup must name only the task actually on
+/// that repository's PR — never a same-numbered PR elsewhere.
 #[sqlx::test]
 async fn a_pr_number_keyed_id_names_only_the_task_on_that_repositorys_pull_request(pool: PgPool) {
     seed_task(&pool, "task-specs", "user-1").await;
@@ -725,12 +719,12 @@ async fn a_pr_number_keyed_id_names_only_the_task_on_that_repositorys_pull_reque
     );
 }
 
-/// The same shape on the outbound side: a task that opened `#607` in one
-/// repository claimed an id every other repository's `#607` would arrive under.
+/// Symmetric to the inbound case: a task that opened `#607` in one repo claims
+/// an id every other repo's `#607` would also arrive under.
 ///
-/// `task_outbound_events` is keyed on the id alone, because a `moat` command
-/// holds nothing else, so `source_name` is the only column that tells such
-/// claims apart.
+/// `task_outbound_events` is keyed on the id alone (a `moat` command carries
+/// nothing else), so `source_name` is the only column that tells such claims
+/// apart.
 #[sqlx::test]
 async fn an_outbound_claim_names_its_task_only_at_the_source_that_made_it(pool: PgPool) {
     seed_task(&pool, "task-1", "user-1").await;
@@ -777,13 +771,12 @@ async fn an_outbound_claim_names_its_task_only_at_the_source_that_made_it(pool: 
     );
 }
 
-/// A row that records no subject cannot be shown to have happened here.
+/// A row that records no subject cannot be shown to have happened here — this
+/// covers rows predating the subject columns and the `unknown`-provider
+/// activity backfill.
 ///
-/// Rows predating the subject columns, and the `unknown` provider the
-/// activity backfill wrote, are the ones this covers. The answer binds a task
-/// to a subject, so an unplaceable row must yield nothing rather than a guess:
-/// the cost is a binding not auto-attached, against delivering a pull
-/// request's whole event stream into an unrelated task.
+/// An unplaceable row must yield nothing rather than guess: better a binding
+/// not auto-attached than a PR's event stream delivered into an unrelated task.
 #[sqlx::test]
 async fn an_event_that_records_no_subject_names_no_task(pool: PgPool) {
     seed_task(&pool, "task-1", "user-1").await;
@@ -821,11 +814,12 @@ async fn an_event_that_records_no_subject_names_no_task(pool: PgPool) {
     }
 }
 
-/// A claim recorded by the id alone answers both readers.
+/// A claim recorded by id alone answers both readers: dedup and provenance
+/// routing.
 ///
-/// This is the shape a `moat` command in a sandbox has: it knows the task and
-/// the id, and has no `tool_use_id` to hang an activity tag on. Without it the
-/// dedup gate would deliver the task its own comment back.
+/// This is the shape a `moat` command in a sandbox has — it knows the task and
+/// id but no `tool_use_id`; without this, the dedup gate would echo the task
+/// its own comment.
 #[sqlx::test]
 async fn an_outbound_event_by_id_alone_suppresses_the_echo_and_names_its_task(pool: PgPool) {
     seed_task(&pool, "task-1", "user-1").await;
@@ -865,8 +859,8 @@ async fn an_outbound_event_by_id_alone_suppresses_the_echo_and_names_its_task(po
 
 /// Re-claiming an id already held changes nothing.
 ///
-/// The claim path is at-least-once — a retried CLI call, a redelivered
-/// request — and an id names one event, so the first claimant keeps it.
+/// The claim path is at-least-once (retried calls, redelivered requests); an id
+/// names one event, so the first claimant keeps it.
 #[sqlx::test]
 async fn re_recording_an_id_leaves_the_first_row_standing(pool: PgPool) {
     seed_task(&pool, "task-1", "user-1").await;
@@ -951,10 +945,10 @@ async fn find_tool_call_returns_parent_message_uuid(pool: PgPool) {
     assert_eq!(found.result_content.as_deref(), Some("hi"));
 }
 
-/// Someone who writes in the chat box instead of using the panel answers the
-/// question too. Nothing on that message's way in settles the call, so the
-/// acknowledgement names it and the call comes back here — with the resolved row
-/// beside it that closes the panel.
+/// A plain chat message can also answer a pending question, not just the panel.
+///
+/// Nothing on the message's way in settles the call; the acknowledgement names
+/// it, so the call comes back with the resolved row that closes the panel.
 #[sqlx::test]
 async fn a_plain_message_settles_the_question_it_answered(pool: PgPool) {
     seed_task(&pool, "task-1", "user-1").await;
@@ -1015,13 +1009,11 @@ async fn a_plain_message_settles_the_question_it_answered(pool: PgPool) {
     assert_eq!(resolved.payload["answers"]["response"], "the first one");
 }
 
-/// Seam 2 (loader): a change names the row it is about, so the loader reads
-/// that row and the activities written on it — including the ones a later
-/// source event settled.
+/// Seam 2 (loader): a change names the row it's about, so the loader reads that
+/// row and every activity written on it, including ones a later event settled.
 ///
-/// The loader does not need to resolve a folded `tool_result` row back to the
-/// assistant Message it answered: the change already names the right row
-/// directly.
+/// It never resolves a folded `tool_result` row back to the assistant Message —
+/// the change already names the right row directly.
 #[sqlx::test]
 async fn get_message_for_assembly_loads_the_named_message_with_its_activities(pool: PgPool) {
     seed_task(&pool, "task-1", "user-1").await;
@@ -1169,12 +1161,12 @@ async fn find_interrupted_turn_suppresses_terminal_task_turn_event(pool: PgPool)
     );
 }
 
-/// `taskTurn.turn_interrupted` is the marker a pod leaves when it is torn down
-/// mid-turn — a node drain, spot reclaim, or eviction. It must NOT suppress
-/// recovery: it is precisely the signal that the replacement pod has a turn to
-/// resume. Adding it to the terminal list would put the sandbox back to
-/// publishing a turn nobody can resume, which is the bug this pair of behaviors
-/// exists to prevent.
+/// `taskTurn.turn_interrupted` marks a pod torn down mid-turn (node drain, spot
+/// reclaim, eviction).
+///
+/// It must never suppress recovery — it's precisely the signal a replacement
+/// pod has a turn to resume; treating it as terminal would strand that turn
+/// forever.
 #[sqlx::test]
 async fn find_interrupted_turn_survives_the_interrupted_marker(pool: PgPool) {
     seed_task(&pool, "task-1", "user-1").await;

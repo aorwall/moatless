@@ -1,4 +1,5 @@
-//! Authorize script replacement and preserve environment values hidden from clients.
+//! Authorize script replacement and preserve environment values hidden from
+//! clients.
 
 use moatless_types::access_control::ScopeContext;
 use moatless_types::workspace::ScriptConfig;

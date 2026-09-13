@@ -21,7 +21,7 @@ use crate::agent::codex_app_server::protocol::{
 ///
 /// A `Completed` status with a non-zero exit code is surfaced as `Failed` so
 /// the UI can flag it — codex itself only flips to `Failed` for catastrophic
-/// failures, not for commands that ran successfully but returned non-zero.
+/// failures, not commands that ran but returned non-zero.
 fn command_execution_to_tool_status(
     status: CommandExecutionStatus,
     exit_code: Option<i32>,
@@ -201,10 +201,11 @@ pub(crate) fn build_edit_tool_result(edit: &FileChangeItem) -> (serde_json::Valu
     (value, summary_text, is_error)
 }
 
-/// The running plan tracker. On this transport it arrives as the
-/// `turn/plan/updated` notification rather than a `todo_list` item. Each step
-/// keeps its own three-state status alongside the done/not-done boolean, because
-/// *in progress* is the state a plan panel exists to show.
+/// The running plan tracker: arrives as the `turn/plan/updated` notification on
+/// this transport rather than a `todo_list` item.
+///
+/// Each step keeps its own three-state status alongside the done/not-done
+/// boolean, because *in progress* is the state a plan panel exists to show.
 pub(crate) fn build_codex_todo_list_input(plan: &[TurnPlanStep]) -> CodexTodoListInput {
     CodexTodoListInput {
         items: plan
@@ -267,8 +268,10 @@ pub(crate) fn build_mcp_tool_result(item: &McpToolCallItem) -> (serde_json::Valu
 
 /// A dynamic tool call is a namespaced tool with JSON arguments and content
 /// items back — the same shape `codex.mcp_tool_call` already renders, so it
-/// reuses that tool rather than being invisible. The namespace stands in for the
-/// server; a call with none is reported under `dynamic`.
+/// reuses that tool rather than being invisible.
+///
+/// The namespace stands in for the server; a call with none is reported under
+/// `dynamic`.
 pub(crate) fn build_dynamic_tool_use(item: &DynamicToolCallItem) -> serde_json::Value {
     let input = CodexMcpInput {
         server: item

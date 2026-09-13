@@ -1,12 +1,8 @@
 //! What this module needs from the rest of the backend in order to write.
 //!
-//! Everything else here is a database read, which is why the module's other
-//! dependencies are DAOs. Sending a message is not: it persists a row, follows
-//! a Task on someone's behalf, and wakes a Sandbox. `SandboxConnector` is the
-//! same kind of narrow port for the one thing behind this boundary that is not a
-//! query, so the
-//! compatibility layer keeps translating rather than learning how Moatless
-//! works.
+//! Everything else here is a database read, so the module's other dependencies
+//! are DAOs. `SandboxConnector` is the same kind of narrow port for the one
+//! write that is not a query.
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -19,7 +15,8 @@ use uuid::Uuid;
 
 use moatless_types::agent::AgentMode;
 
-/// Workspace-owned replacement of declared scripts, retaining hidden configuration.
+/// Workspace-owned replacement of declared scripts, retaining hidden
+/// configuration.
 #[cfg_attr(test, mockall::automock)]
 #[async_trait]
 pub trait WorkspaceScriptCommands: Send + Sync {
@@ -31,12 +28,8 @@ pub trait WorkspaceScriptCommands: Send + Sync {
     ) -> Result<(), crate::scripts::ScriptsWriteError>;
 }
 
-/// Why a command was not carried out.
-///
-/// Every variant is an *anticipated* outcome and reaches the client as a typed
-/// failure it can render. A defect is reserved for what it means — a bug in this
-/// server — so a person is never told the server is broken because they clicked
-/// a control it does not implement.
+/// Why a command was not carried out — an *anticipated* outcome the client can
+/// render as a typed failure. A defect means a bug in this server, not this.
 #[derive(Debug, Clone)]
 pub enum CommandRefusal {
     /// The command exists in T3's contract and this surface does not implement
@@ -67,21 +60,16 @@ impl CommandRefusal {
     }
 }
 
-/// One attachment the client sent with a turn, in whichever of the two forms
-/// the contract lets it take.
+/// One attachment the client sent with a turn, in either form the contract
+/// allows.
 ///
 /// Which form arrives is decided by the `attachmentUploads` capability
-/// [`descriptor`](crate::rpc::config::descriptor) reports. A composer that has read it
-/// uploads the bytes first and names the id on the turn; one that has not — an
-/// older client, or one whose environment config has not loaded yet — puts the
-/// bytes in the command as a base64 data URL. Both keep working, so this is a
-/// union rather than a replacement.
+/// [`descriptor`](crate::rpc::config::descriptor) reports; both keep working as
+/// a union, not a replacement.
 pub enum TurnAttachment {
-    /// Bytes that came in the command itself. This is the decoded result —
-    /// [`commands`](super::commands) has already checked that the payload
-    /// parses, is an image, and is within the contract's limits, and the mime
-    /// type and size are what the bytes actually are rather than what the
-    /// client declared them to be.
+    /// Bytes sent inline in the command. [`commands`](super::commands) has
+    /// already validated the payload; `mime_type` and the byte length are what
+    /// the bytes actually are, not what the client declared.
     Inline {
         /// The name the person's file had, for the transcript and the download.
         filename: String,
@@ -89,14 +77,10 @@ pub enum TurnAttachment {
         bytes: Vec<u8>,
     },
     /// An upload that already exists, named by the id
-    /// `attachments.createUploadUrl` minted for it. Carries no bytes: what the
-    /// person attached is in storage, and the name, type and size on the wire
-    /// beside this id are the client's copy of what the row already records.
+    /// `attachments.createUploadUrl` minted for it. Carries no bytes.
     ///
-    /// An id on a turn is only an id. Nothing about it proves it came from a
-    /// mint, so `kind` is the member the client claims it under and the
-    /// resolver checks the stored row against it — see
-    /// [`AttachmentKind::accepts`].
+    /// An id proves nothing alone; `kind` is checked against the stored row —
+    /// see [`AttachmentKind::accepts`].
     Uploaded {
         attachment_id: String,
         kind: AttachmentKind,
@@ -105,8 +89,8 @@ pub enum TurnAttachment {
 
 /// Which member of the attachment union a turn claims an upload under.
 ///
-/// The two differ in what they accept, so which one is claimed decides which
-/// limits the stored file has to satisfy.
+/// The two differ in what they accept, so the claim decides which limits the
+/// stored file must satisfy.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AttachmentKind {
     Image,
@@ -116,13 +100,9 @@ pub enum AttachmentKind {
 impl AttachmentKind {
     /// Whether a stored upload could have been minted under this member.
     ///
-    /// A turn names an upload by id, and an id is not a provenance: the same
-    /// viewer can put a file in storage through Moatless's own multipart route,
-    /// which has no notion of T3's union, and then name it here. Resolving it
-    /// on read access alone would let that file reach the agent one byte or one
-    /// mime type past what `attachments.createUploadUrl` would ever have signed
-    /// for. So the row is measured against the member it is claimed under, with
-    /// the same numbers the mint uses.
+    /// An id alone is not provenance: a file stored via Moatless's own
+    /// multipart route could otherwise be claimed past what
+    /// `attachments.createUploadUrl` would have signed for.
     #[must_use]
     pub fn accepts(self, mime_type: &str, size_bytes: i64) -> bool {
         let mime_type = mime_type.trim().to_ascii_lowercase();
@@ -174,10 +154,10 @@ pub struct NewThread {
     pub branch: Option<String>,
     /// The first message, when the command carried one.
     pub first_message: Option<ThreadTurn>,
-    /// Whether to start the Sandbox for a Task created with no first message.
-    /// A create carrying one always provisions; this is what a client asks for
-    /// when it wants the Sandbox for something other than an agent turn, such
-    /// as running a Script straight out of a draft.
+    /// Whether to start the Sandbox for a Task created with no first message (a
+    /// create carrying one always provisions) — for wanting the Sandbox for
+    /// something other than an agent turn, such as running a Script from a
+    /// draft.
     pub provision: bool,
 }
 
@@ -192,10 +172,8 @@ pub struct ThreadMeta {
 /// The pull request a link or an unlink command named, as this surface
 /// understood it.
 ///
-/// T3's `source` is not carried: Moatless decides a Binding's origin from the
-/// path that wrote it, and the projection reads that back
-/// (`projection::thread_pull_request_source`). Nor is `url`, which the host,
-/// repository and number already determine.
+/// `source` and `url` are not carried: Moatless derives both from the path that
+/// wrote the Binding and from host/repository/number.
 pub struct ThreadPullRequestRef {
     pub task_id: String,
     /// The git host T3 keys the link by. Only `github.com` can be bound.
@@ -207,8 +185,8 @@ pub struct ThreadPullRequestRef {
 
 /// A fork, as this surface understood it.
 pub struct ForkThread {
-    /// The id the client minted for the fork and has already navigated to —
-    /// the same convention [`NewThread::task_id`] follows.
+    /// The id the client minted for the fork and has already navigated to — the
+    /// same convention [`NewThread::task_id`] follows.
     pub new_task_id: String,
     pub source_task_id: String,
     /// The source Task's turn the copy stops after. `None` cuts after its
@@ -222,8 +200,8 @@ pub struct ForkThread {
     /// A catalog model id, already translated out of T3's published slug.
     pub model: Option<String>,
     pub agent_mode: Option<AgentMode>,
-    /// The reasoning effort for the first turn, in the agent's own
-    /// vocabulary. `None` leaves the agent on its own default.
+    /// The reasoning effort for the first turn, in the agent's own vocabulary.
+    /// `None` leaves the agent on its own default.
     pub effort: Option<String>,
 }
 
@@ -243,8 +221,8 @@ pub trait AgentCatalogSource: Send + Sync {
 
 /// One Task that names another as its parent.
 ///
-/// Carries no access decision: a relation says the edge exists, and whether the
-/// child may be shown is settled afterwards by re-reading it through
+/// Carries no access decision: whether the child may be shown is settled by
+/// re-reading it through
 /// [`ConversationDao::readable_by_ids`](crate::dao::ConversationDao::readable_by_ids).
 pub struct ChildTask {
     pub task_id: String,
@@ -255,10 +233,9 @@ pub struct ChildTask {
 
 /// The Tasks that name a Task as their parent.
 ///
-/// A port rather than a query here because relations are the Task band's
-/// vocabulary and it already publishes the read (`TaskRelationDao`). Access is
-/// deliberately not this port's business — it answers with every edge, and the
-/// caller narrows to what the viewer may read.
+/// A port, not a query: relations are the Task band's vocabulary. Access is not
+/// this port's business — it answers with every edge and the caller narrows to
+/// what the viewer may read.
 #[async_trait]
 pub trait TaskRelationSource: Send + Sync {
     async fn children(&self, parent_task_id: &str) -> Result<Vec<ChildTask>, StoreError>;
@@ -276,21 +253,17 @@ pub struct WorkspaceSkill {
 
 /// The skills a Workspace's agent would load, in the order they are offered.
 ///
-/// A port rather than a query because skill discovery is the Workspace band's
-/// and reaches a git host: the repository's own `.claude/skills` are fetched
-/// from its remote, and the plugin half resolves this viewer's activation
-/// records. The list is per-viewer for that reason — it is what *their* sandbox
-/// gets, which is what makes offering it in the composer honest.
+/// A port because it reaches a git host: `.claude/skills` is fetched live, and
+/// the plugin half resolves this viewer's own activation records — the list is
+/// per-viewer, not per-workspace.
 #[async_trait]
 pub trait SkillCatalog: Send + Sync {
-    /// `caller` is the same person `viewer` scopes the read to, as the id
-    /// plugin activation records are keyed by. Both, because
-    /// [`ScopeContext::user_id`] is a string that is not always a `Uuid`.
+    /// `caller` and `viewer` name the same person; both are needed because
+    /// [`ScopeContext::user_id`] is not always a `Uuid`.
     ///
-    /// Answers with an empty list for a Workspace this viewer cannot be shown,
-    /// one that declares no repository, and any failure to reach the git host.
-    /// A skill menu is not worth failing a provider refresh over; the cause is
-    /// logged where it happens.
+    /// Returns an empty list, not an error, for an unreadable/repository-less
+    /// Workspace or any git-host failure — the cause is logged where it
+    /// happens.
     async fn list_for_workspace(
         &self,
         viewer: &ScopeContext,
@@ -301,8 +274,8 @@ pub trait SkillCatalog: Send + Sync {
 
 /// Why a repository's branches could not be listed.
 ///
-/// Split by what the branch picker is told: [`Self::None`] is answered with an
-/// empty list, the other two are surfaced or logged where the frame is built.
+/// [`Self::None`] answers the picker with an empty list; the other two are
+/// surfaced or logged where the frame is built.
 #[derive(Debug)]
 pub enum BranchListError {
     /// Nothing to list: the repository is gone, or it is not one this viewer
@@ -319,13 +292,9 @@ pub enum BranchListError {
 
 /// A repository's branches, read from its git host.
 ///
-/// The one read here that is not a database query: a draft thread's branch
-/// picker lists the primary repository's branches before any Sandbox exists,
-/// the same list the Moatless UI shows, which means calling out to the git host
-/// through the same path Moatless's own `GET /branches` uses.
-///
-/// `workspace_id` names the workspace the picker was opened in, so a repository
-/// only that workspace's pinned credential can reach still lists.
+/// The one read here that isn't a database query — needed before any Sandbox
+/// exists. `workspace_id` names where the picker opened, so a repository only
+/// that workspace's pinned credential can reach still lists.
 #[async_trait]
 pub trait RepositoryBranchSource: Send + Sync {
     async fn list_branches(
@@ -336,12 +305,11 @@ pub trait RepositoryBranchSource: Send + Sync {
     ) -> Result<BranchListResponse, BranchListError>;
 }
 
-/// The pull request a Task is bound to, in the shape the status surface reports.
+/// The pull request a Task is bound to, in the shape the status surface
+/// reports.
 ///
-/// Base and head are non-optional because T3's `pr` field requires both: a
-/// binding whose persisted blob predates them yields no `BoundPullRequest` at
-/// all, so the toolbar shows no pull request rather than one with blank
-/// branches.
+/// Base and head are non-optional: a binding predating them yields no
+/// `BoundPullRequest` at all, rather than one with blank branches.
 #[derive(Clone)]
 pub struct BoundPullRequest {
     pub number: u64,
@@ -357,19 +325,16 @@ pub struct BoundPullRequest {
     pub state_kind: String,
     /// When this deployment last read the pull request's state from GitHub —
     /// not when GitHub last changed it, which no binding records. The client
-    /// orders two observations of one pull request by it, so it only has to
-    /// advance when the status does.
+    /// orders observations of one pull request by it, advancing only when the
+    /// status does.
     pub status_read_at: DateTime<Utc>,
 }
 
 /// The one of a Task's bound pull requests the singular surfaces report.
 ///
-/// T3's `pr` field and `linkedPullRequest` each hold one reference while a Task
-/// may be bound to several, so the choice is made here rather than by whichever
-/// binding a query returned first: a live pull request outranks a settled one,
-/// and the newest number breaks the tie. Ordering on the number rather than on
-/// the binding's timestamps keeps the same answer across the status stream and
-/// the thread projection, which read the bindings through different queries.
+/// A live pull request outranks a settled one, and the newest number breaks the
+/// tie — ordering on the number, not a timestamp, keeps every reader's answer
+/// the same.
 pub fn primary_pull_request(bound: &[BoundPullRequest]) -> Option<&BoundPullRequest> {
     bound
         .iter()
@@ -413,11 +378,9 @@ pub struct ResolvedPullRequest {
 
 /// Why a pull-request reference could not be resolved.
 ///
-/// Split by what the attach-PR dialog is told: [`Self::NotFound`] is a reference
-/// that names no pull request the viewer can reach, [`Self::Unavailable`] is a
-/// reachable repository whose host refused or has no GitHub credential — both
-/// surfaced verbatim — and [`Self::Failed`] is this deployment's own failure,
-/// logged rather than sent.
+/// [`Self::NotFound`] and [`Self::Unavailable`] are surfaced to the dialog
+/// verbatim; [`Self::Failed`] is this deployment's own failure, logged rather
+/// than sent.
 #[derive(Debug)]
 pub enum PullRequestError {
     NotFound,
@@ -428,34 +391,22 @@ pub enum PullRequestError {
 /// The pull request a Task is bound to, and resolution of references against a
 /// repository's git host.
 ///
-/// A database read like the DAOs for the bound case, but one that has to reach
-/// into an adapter's persisted status blob — and the reference-resolution and
-/// head-lookup calls reach the git host — so it is a port rather than a bare
-/// DAO: `crates/t3code` stays free of any GitHub knowledge, and how a pull
-/// request is recovered or resolved lives on the backend side of this boundary.
+/// A port, not a DAO: resolving a reference reaches the git host, and
+/// `crates/t3code` stays free of any GitHub knowledge.
 #[async_trait]
 pub trait BoundPullRequestSource: Send + Sync {
-    /// Every pull request `task_id` is bound to, empty when it has none the
-    /// surface can report yet. Access to the Task is checked before this is
-    /// called, so it takes no viewer.
+    /// Every pull request `task_id` is bound to. Access is checked before this
+    /// is called, so it takes no viewer.
     ///
-    /// A Task may be bound to several — nothing retires a binding when the
-    /// agent opens a second pull request — and the order is not significant;
-    /// callers that report one pick it with [`primary_pull_request`].
+    /// May be several, in no significant order; callers reporting one pick it
+    /// with [`primary_pull_request`].
     async fn bound_pull_requests(&self, task_id: &str) -> Vec<BoundPullRequest>;
 
-    /// The Tasks bound to `repository#number`, for the linked-thread summary
-    /// the sidebar reads.
+    /// The Tasks bound to `repository#number`, for the linked-thread summary.
     ///
-    /// Ids only, and no side effect: access is the caller's to settle — this
-    /// surface shows a pull request to a viewer who can read a Task bound to
-    /// it, and only [`ConversationDao`] knows which those are — so this must
-    /// not resolve or refresh a binding before the caller has authorized the
-    /// viewer against these Tasks. The caller narrows to a readable Task and
-    /// recovers the pull request through [`Self::bound_pull_requests`], whose
-    /// refresh then runs only for a Task the viewer may read.
-    ///
-    /// [`ConversationDao`]: crate::dao::ConversationDao
+    /// Ids only, no side effect: must not resolve or refresh a binding before
+    /// the viewer is authorized against these Tasks — narrow first, then
+    /// recover via [`Self::bound_pull_requests`].
     async fn tasks_bound_to(&self, repository: &str, number: u64) -> Vec<String>;
 
     /// Resolve a pull-request reference against a repository, for the attach-PR
@@ -469,9 +420,8 @@ pub trait BoundPullRequestSource: Send + Sync {
     ) -> Result<ResolvedPullRequest, PullRequestError>;
 
     /// The open pull request whose head branch is `head`, if any — the signal a
-    /// Task created on a PR's head branch is bound to it. `None` on any failure,
-    /// so a creation that cannot reach the host is created unbound rather than
-    /// refused.
+    /// Task created on a PR's head branch is bound to it. `None` on any
+    /// failure, so an unreachable host creates it unbound rather than refused.
     async fn open_pull_request_for_head(
         &self,
         viewer: &ScopeContext,
@@ -490,8 +440,8 @@ pub struct GithubIdentity {
 /// provider-token row rather than from how this session authenticated.
 ///
 /// A port because `crates/t3code` stays free of credential storage: which rows
-/// count as a usable GitHub connection, and how a stale one is told apart, live
-/// on the backend side of this boundary.
+/// count and how a stale one is told apart live on the backend side of this
+/// boundary.
 #[async_trait]
 pub trait SourceControlAuthSource: Send + Sync {
     /// The viewer's connected GitHub identity, or `None` when they have no
@@ -502,9 +452,8 @@ pub trait SourceControlAuthSource: Send + Sync {
 /// What `attachments.createUploadUrl` was told the file is, carried through the
 /// minted URL and re-stated here when the bytes arrive.
 ///
-/// Not what the client said on the upload request — that request carries no
-/// name at all, and its `Content-Type` is whatever it chose to send. These are
-/// the values this server validated at mint time and signed into the URL.
+/// Not what the client said on the upload request itself — these are the values
+/// this server validated at mint time and signed into the URL.
 pub struct DeclaredAttachment {
     pub filename: String,
     pub mime_type: String,
@@ -523,9 +472,9 @@ pub enum AttachmentStoreError {
 /// Where a chat attachment's bytes live.
 ///
 /// The id is minted before the bytes move — [`attachments`](crate::attachments)
-/// hands the client a URL naming it — so storing is `store` under an id this
-/// side chose rather than a create that returns one. `crates/t3code` stays free
-/// of S3 and of the upload metadata table; both are behind this boundary.
+/// hands the client a URL naming it — so this is `store` under a chosen id, not
+/// a create that returns one; S3 and the metadata table stay behind this
+/// boundary.
 #[async_trait]
 pub trait AttachmentStore: Send + Sync {
     /// Store `bytes` under `attachment_id`. The length has already been checked
@@ -564,17 +513,16 @@ pub trait ThreadCommandSink: Send + Sync {
     ) -> Result<(), CommandRefusal>;
 
     /// Branch a new Thread off an existing one at one of its completed turns.
-    /// Reported the same way `create_thread` is: the client already minted
-    /// and navigated to `fork.new_task_id`, so there is nothing to hand back.
+    /// Reported the same way `create_thread` is: the client already minted and
+    /// navigated to `fork.new_task_id`, so there is nothing to hand back.
     async fn fork(&self, viewer: &ScopeContext, fork: ForkThread) -> Result<(), CommandRefusal>;
 
-    /// Drop every turn of this Thread above `keep_through`, which `0` empties.
-    /// The same cut [`fork`](Self::fork) resolves, applied in place instead of
-    /// copied onto a new Thread.
+    /// Drop every turn of this Thread above `keep_through` (`0` empties it) —
+    /// the same cut [`fork`](Self::fork) resolves, applied in place.
     ///
-    /// Only the conversation moves. The Sandbox's working copy is left exactly
-    /// as the deleted turns wrote it, which is why this serves T3's
-    /// `thread.conversation.revert` and not `thread.checkpoint.revert`.
+    /// Only the conversation moves; the Sandbox's working copy is left as the
+    /// deleted turns wrote it — this serves `thread.conversation.revert`, not
+    /// `thread.checkpoint.revert`.
     async fn revert(
         &self,
         viewer: &ScopeContext,
@@ -608,11 +556,10 @@ pub trait ThreadCommandSink: Send + Sync {
     ) -> Result<(), CommandRefusal>;
 
     /// Set who may reach this thread. `Public` grants every signed-in viewer
-    /// read *and* control — turns, terminal, scripts, sandbox start and stop —
-    /// see [`moatless_types::access_control::ScopeContext::can_control`].
-    /// `Private` returns it to the grants its scope and owner already carry.
-    /// Changing the level is itself a write, so this refuses `NotWritable` for
-    /// everyone but the owner.
+    /// read *and* control (see
+    /// [`moatless_types::access_control::ScopeContext::can_control`]);
+    /// `Private` returns it to its scope and owner's own grants. Refuses
+    /// `NotWritable` for anyone but the owner.
     async fn set_visibility(
         &self,
         viewer: &ScopeContext,
@@ -623,17 +570,17 @@ pub trait ThreadCommandSink: Send + Sync {
     /// Archive a thread, which in Moatless is closing the Task: the row leaves
     /// the sidebar, the Sandbox is removed, and inbound comments stop waking
     /// it. Children are left open — the cascade is a choice the Moatless UI
-    /// asks about, and there is nothing here to ask with.
+    /// asks about.
     async fn archive(&self, viewer: &ScopeContext, task_id: &str) -> Result<(), CommandRefusal>;
 
     /// Unarchive a thread, which is reopening the Task. No Sandbox is started;
     /// the next message does that.
     async fn unarchive(&self, viewer: &ScopeContext, task_id: &str) -> Result<(), CommandRefusal>;
 
-    /// Put this thread in the viewer's own listing, which in Moatless is
-    /// following the Task. Any Task a viewer may read may be followed, and a
-    /// re-follow writes nothing. Grants nothing: the follow decides which
-    /// listing a Task appears in and never what a viewer may do with it.
+    /// Put this thread in the viewer's own listing (following the Task in
+    /// Moatless). Any readable Task may be followed; a re-follow writes
+    /// nothing. Grants nothing: decides which listing a Task appears in, never
+    /// what a viewer may do with it.
     async fn follow(&self, viewer: &ScopeContext, task_id: &str) -> Result<(), CommandRefusal>;
 
     /// Take this thread out of the viewer's own listing. Touches that viewer's
@@ -683,8 +630,8 @@ pub trait ThreadCommandSink: Send + Sync {
 /// One `(day, provider, model)` cell of usage, already aggregated.
 ///
 /// Token fields are disjoint: `uncached_input_tokens`, `cached_input_tokens`
-/// and `cache_creation_tokens` sum to the total input. `reasoning_tokens` is a
-/// subset of `output_tokens` and is never added on top.
+/// and `cache_creation_tokens` sum to the total input; `reasoning_tokens` is a
+/// subset of `output_tokens`, never added on top.
 #[derive(Debug, Clone, PartialEq)]
 pub struct UsageBucketRow {
     /// `YYYY-MM-DD` in the time zone the caller asked for.
@@ -724,10 +671,10 @@ pub struct UsageWindow {
 
 /// Per-model token and cost totals, read from the turns a viewer may see.
 ///
-/// T3's own servers scan the provider CLIs' on-disk transcripts. This
-/// deployment has no such directory: the agent runs in a Sandbox pod that is
-/// deleted, so the totals the run reported are the only lasting record and they
-/// are already in `task_turns.metrics`.
+/// T3's own servers scan the provider CLIs' on-disk transcripts; this
+/// deployment has none — its agent runs in a Sandbox pod that gets deleted, so
+/// the totals it reported, already in `task_turns.metrics`, are the only
+/// lasting record.
 #[async_trait]
 pub trait UsageReporter: Send + Sync {
     async fn buckets(
@@ -779,11 +726,10 @@ mod tests {
     }
 
     /// The mint lets the file member carry any type up to 50 MiB, image types
-    /// included, so a large PNG sent as a file is something the contract allows
-    /// and this side accepts. `projection::message_attachments` picks the member
-    /// an attachment fits for the same reason — if it read the member off the
-    /// mime type instead, this upload would be stored and read by the agent and
-    /// then missing from the thread.
+    /// included, so a large PNG sent as a file is allowed and accepted here.
+    /// `projection::message_attachments` picks the member an attachment fits
+    /// for the same reason — reading the mime type instead would silently drop
+    /// it from the thread.
     #[test]
     fn the_file_member_takes_an_image_too_large_to_be_one() {
         assert!(AttachmentKind::File.accepts("image/png", MAX_IMAGE_BYTES + 1));

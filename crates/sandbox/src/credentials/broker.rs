@@ -1,17 +1,10 @@
 //! Unix-socket HTTP broker for sandbox-side credential pulls.
 //!
-//! Wired into git via the `/usr/local/bin/moatless-git-cred` helper script
-//! (see `docker/moatless-git-cred.sh`) which `init/git.rs` registers as
-//! `credential.https://github.com.helper`. The broker pulls the freshest value
-//! from the backend on every request — no caching — so a backend-side rotation
-//! is visible to the next `git push` without waiting for the 15-min hosts.yml
-//! refresher cycle.
-//!
-//! # Endpoints
-//!
-//! - `GET /credential?key=GITHUB_TOKEN` → plain `value\n`
-//! - `GET /git-credential?host=<host>` → git's credential-helper format
-//!   (`username=oauth2\npassword=<token>\n`)
+//! Wired into git via `docker/moatless-git-cred.sh`; pulls the freshest value
+//! from the backend on every request (no caching), so a rotation is visible to
+//! the next `git push` without waiting for the hosts.yml refresher cycle. `GET
+//! /credential?key=K` returns `value\n`; `GET /git-credential?host=H` returns
+//! git's credential-helper format.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -74,9 +67,8 @@ pub struct GitCredentialQuery {
 
 /// Answer git's credential-helper protocol for one host.
 ///
-/// A request naming the backend is a proxied checkout: the pod presents its own
-/// task token and the backend attaches the upstream credential, so the git
-/// host's token is never delivered here. Every other host gets `GITHUB_TOKEN`.
+/// A request naming the backend is a proxied checkout, answered with the pod's
+/// own task token instead of `GITHUB_TOKEN`.
 async fn get_git_credential(
     State(state): State<BrokerState>,
     Query(q): Query<GitCredentialQuery>,
@@ -120,10 +112,8 @@ pub fn router(state: BrokerState) -> Router {
 
 /// Spawn the broker bound to a Unix domain socket at `socket_path`.
 ///
-/// Sets the socket mode to `0o666` so credential helpers running as a non-root
-/// user (when the sandbox image is hardened to drop root) can still connect.
-/// This is acceptable because the socket lives in the per-pod filesystem
-/// namespace — there are no other users with shell access to the pod.
+/// Sets the socket mode to `0o666` so a non-root credential helper can connect
+/// — safe because the socket lives in the per-pod filesystem namespace.
 #[cfg(unix)]
 pub fn spawn(
     state: BrokerState,
@@ -331,10 +321,9 @@ mod tests {
         let _ = router(make_state(HashMap::new()));
     }
 
-    /// End-to-end: spawn the broker on a real unix socket, do the minimal
-    /// HTTP/1.1 GET that mirrors what the `moatless-git-cred` helper sends
-    /// (via `curl --unix-socket`), and assert the response body matches the
-    /// git credential-helper protocol shape.
+    /// End-to-end: spawn the broker on a real unix socket, send the same
+    /// HTTP/1.1 GET `curl --unix-socket` sends, and assert the response matches
+    /// the git credential-helper protocol.
     #[cfg(unix)]
     #[tokio::test]
     async fn spawn_serves_git_credential_over_socket() {

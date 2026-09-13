@@ -1,13 +1,11 @@
-//! Postgres [`LifecycleLock`] — per-Sandbox serialization via **session** advisory
-//! locks on a dedicated lock-only pool.
+//! Postgres [`LifecycleLock`] — per-Sandbox serialization via **session**
+//! advisory locks on a dedicated lock-only pool.
 //!
-//! Every operation takes `pg_try_advisory_lock` keyed on the Sandbox. The two-int
-//! lock space is used deliberately: it never collides with the one-int
-//! `pg_advisory_*` locks elsewhere (codex refresh, task turns). The holder keeps
-//! its lock connection for the operation's whole duration; on drop the connection
-//! is detached from the pool and unlocked, and because a detached connection
-//! closes its session on drop, the lock dies with it even if the unlock never
-//! runs — it can never return to the pool still held.
+//! Every operation takes `pg_try_advisory_lock` keyed on the Sandbox, using the
+//! two-int lock space so it never collides with the one-int `pg_advisory_*`
+//! locks elsewhere (codex refresh, task turns). The holder keeps its lock
+//! connection for the operation's duration; a detached connection closes its
+//! session on drop, so the lock dies with it even if the unlock never runs.
 
 use async_trait::async_trait;
 use sqlx::pool::PoolConnection;

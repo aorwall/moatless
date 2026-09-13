@@ -37,9 +37,9 @@ use crate::workspace_sync::{self, WorkspaceSyncTracker};
 
 /// Drives a [`Coordinator`] from an [`AgentCommand`] channel.
 ///
-/// Owns the [`Coordinator`], shared services, and the service-lifetime cancel
-/// token. The command channel carries [`AgentCommand`]s directly (same type as
-/// `AgentHandle` sends) so `AgentHandle`'s public API is unchanged.
+/// Owns the coordinator, shared services, and the service-lifetime cancel
+/// token; the channel carries the same type `AgentHandle` sends, so its public
+/// API is unchanged.
 pub(crate) struct CoordinatorService {
     coordinator: Coordinator,
     agent_state: Arc<AgentState>,
@@ -59,16 +59,18 @@ pub(crate) struct CoordinatorService {
     last_model: Option<String>,
     /// The agent mode submitted with the most recent `AgentCommand::Send`.
     last_agent_mode: Option<String>,
-    /// The reasoning effort submitted with the most recent `AgentCommand::Send`.
+    /// The reasoning effort submitted with the most recent
+    /// `AgentCommand::Send`.
     last_effort: Option<String>,
-    /// The resume session id submitted with the most recent `AgentCommand::Send`.
+    /// The resume session id submitted with the most recent
+    /// `AgentCommand::Send`.
     last_resume_session_id: Option<String>,
     /// The `start_fresh` flag from the most recent `AgentCommand::Send`.
     last_start_fresh: bool,
-    /// The fork anchors from the most recent `AgentCommand::Send`. Kept for the
-    /// same reason as the fields above: a retry re-drives the same Turn, and a
-    /// fork's first turn that is retried must branch from the same cut rather
-    /// than fall back to an empty session.
+    /// The fork anchors from the most recent `AgentCommand::Send`.
+    ///
+    /// Kept so a retried first turn of a fork branches from the same cut,
+    /// rather than falling back to an empty session.
     last_fork: Option<ForkSource>,
     /// Number of the pending retry attempt (0-indexed; 0 = no retry pending).
     retry_attempt: u32,
@@ -81,27 +83,28 @@ pub(crate) struct CoordinatorService {
     consecutive_errors: u32,
 
     // ── Credential recovery ──────────────────────────────────────────────────
-    /// Shared detector the harness flips when a Turn fails on a stale credential
-    /// (e.g. Codex's `refresh_token_reused`). The service polls it at each
-    /// terminal failure to decide whether to pull fresh credentials and re-drive.
+    /// Shared detector the harness flips when a Turn fails on a stale
+    /// credential (e.g. Codex's `refresh_token_reused`). The service polls it
+    /// at each terminal failure to decide whether to pull fresh credentials and
+    /// re-drive.
     credential_failures: CredentialFailureDetector,
     /// Applies recovered credential values to their sinks (files, env).
     credential_dispatcher: Arc<Dispatcher>,
-    /// Credential-recovery re-drives spent on the in-flight prompt. Reset on each
-    /// new `Send`/`Recover`; caps at [`MAX_CREDENTIAL_RECOVERY_RETRIES`] so a
-    /// permanently invalid credential can't loop forever.
+    /// Credential-recovery re-drives spent on the in-flight prompt. Reset on
+    /// each new `Send`/`Recover`; caps at [`MAX_CREDENTIAL_RECOVERY_RETRIES`]
+    /// so a permanently invalid credential can't loop forever.
     credential_recovery_attempts: u32,
 
     // ── Scheduled jobs ───────────────────────────────────────────────────────
-    /// Registry the self-scheduling jobs (`ScheduleWakeup`, background-completion
-    /// watch) register into. Their injector re-enters this service's command
-    /// channel via the pod's `AgentHandle`.
+    /// Registry the self-scheduling jobs (`ScheduleWakeup`,
+    /// background-completion watch) register into. Their injector re-enters
+    /// this service's command channel via the pod's `AgentHandle`.
     scheduled_jobs: Arc<ScheduledJobRegistry>,
     /// Commands this task started through `moat cmd`. The turn-end watch arms
     /// over whichever are still running.
     commands: Arc<CommandRegistry>,
-    /// The latest `ScheduleWakeup` `tool_use` seen in the in-flight Turn's Source
-    /// blocks, armed at turn end (latest-wins). Subprocess mode only.
+    /// The latest `ScheduleWakeup` `tool_use` seen in the in-flight Turn's
+    /// Source blocks, armed at turn end (latest-wins). Subprocess mode only.
     pending_wakeup: Option<WakeupJob>,
 
     // ── Stop ─────────────────────────────────────────────────────────────────
@@ -112,19 +115,20 @@ pub(crate) struct CoordinatorService {
     /// terminal event. `None` when the stop carried no ack (shutdown path).
     pending_stop_ack: Option<oneshot::Sender<()>>,
     /// Who initiated the in-flight stop, echoed on the terminal `Stopped`
-    /// event. `None` when no `AgentCommand::Stop` set one — a shutdown-initiated
-    /// self-cancel, which closes the Turn as `turn_interrupted` (resumable)
-    /// rather than `stopped` (terminal). `AgentCommand::Stop` is the only writer,
-    /// so `None` at a `Cancelled` outcome *is* the shutdown signature.
+    /// event.
+    ///
+    /// `None` means no `AgentCommand::Stop` set one — a shutdown self-cancel,
+    /// closing the Turn as `turn_interrupted` rather than `stopped`. It is the
+    /// only writer, so `None` at a `Cancelled` outcome is the shutdown
+    /// signature.
     pending_stop_source: Option<StopSource>,
     // ── Workspace sync ───────────────────────────────────────────────────────
-    /// The pod-wide upload baseline. Turn boundaries are the primary durability
-    /// point on the PVC tier (where the periodic loop is off), and sharing this
-    /// keeps a turn that changed nothing from shipping a duplicate tar.
+    /// The pod-wide upload baseline: turn boundaries are the primary durability
+    /// point on the PVC tier, and sharing this keeps a turn that changed
+    /// nothing from shipping a duplicate tar.
     ///
-    /// Cloned into a background task at each boundary rather than awaited here:
-    /// this loop also drains user messages, stop requests and background-command
-    /// wakes, so an upload that awaits holds all of them up
+    /// Cloned into a background task at each boundary rather than awaited: this
+    /// loop also drains messages, stops, and command wakes
     /// ([`workspace_sync::spawn_after_turn`]).
     workspace_sync: WorkspaceSyncTracker,
 }
@@ -646,10 +650,11 @@ impl CoordinatorService {
     }
 
     /// Arm the self-scheduled jobs a just-completed Turn requested: a buffered
-    /// `ScheduleWakeup` (latest-wins) and a background-completion watch when
-    /// long-running processes outlived the Turn. Both register against
-    /// `run_cancel`, so a `Stop` cancels them. Background watches are only armed
-    /// in subprocess mode.
+    /// `ScheduleWakeup` (latest-wins) and a background-completion watch for
+    /// processes that outlived the Turn.
+    ///
+    /// Both register against `run_cancel`, so a `Stop` cancels them; background
+    /// watches are subprocess-mode only.
     async fn arm_scheduled_jobs(&mut self, task_id: &str) {
         let run_id = self.coordinator.current_run_id().to_string();
 
@@ -773,15 +778,12 @@ impl CoordinatorService {
     }
 
     /// Drive credential recovery after a Turn failed with the detector flagged.
-    /// Pull fresh values for `flagged`; if any is genuinely fresher than what the
-    /// failed Turn used, schedule the same prompt on the same Run for retry (the
-    /// caller has already suppressed the coordinator's terminal error, so the
-    /// user sees only `retrying`). Otherwise — nothing fresher, no prompt to
-    /// retry, or the per-prompt cap exhausted — publish exactly one user-facing
-    /// reconnect error and count one consecutive failure. No futile retry.
     ///
-    /// The coordinator suppresses the original terminal event, so recovery owns
-    /// the single user-facing terminal event.
+    /// Pulls fresh values for `flagged`; if any is genuinely fresher, retries
+    /// the same prompt on the same Run (user sees `retrying`). Otherwise — or
+    /// past the per-prompt cap — publishes exactly one reconnect error, since
+    /// the coordinator suppressed the original terminal event and recovery owns
+    /// the single user-facing one.
     async fn try_credential_recovery(
         &mut self,
         flagged: Vec<String>,
@@ -958,9 +960,9 @@ impl CoordinatorService {
     }
 }
 
-/// Fetch the assembled append-system-prompt from the backend. On failure,
-/// fall back to whatever was last cached in this pod. Cache is purely a
-/// resilience layer: every successful fetch refreshes it.
+/// Fetch the assembled append-system-prompt from the backend. On failure, fall
+/// back to whatever was last cached in this pod. Cache is purely a resilience
+/// layer: every successful fetch refreshes it.
 async fn fetch_system_prompt(
     backend_client: &dyn BackendClient,
     task_id: &str,
@@ -983,10 +985,12 @@ async fn fetch_system_prompt(
     }
 }
 
-/// Resolve the `ResumeSession` for a new harness `Input`. Mirrors
-/// `session::resolve_resume_session`: the pod's last known Session id wins, then
-/// the backend-provided id, then a `--continue` (`ResumeSession::Last`) for the
-/// Claude family (Codex has no `--continue`, so it starts fresh).
+/// Resolve the `ResumeSession` for a new harness `Input`, mirroring
+/// `session::resolve_resume_session`.
+///
+/// Precedence: the pod's last known Session id, then the backend-provided id,
+/// then `--continue` for the Claude family (Codex has none, so it starts
+/// fresh).
 pub(super) fn build_resume(
     previous_session_id: &str,
     resume_session_id: Option<&str>,

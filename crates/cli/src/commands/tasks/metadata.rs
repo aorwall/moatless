@@ -1,5 +1,5 @@
-//! `moat set-name` and `moat set-tags`: a task renaming and tagging
-//! itself from inside its own sandbox.
+//! `moat set-name` and `moat set-tags`: a task renaming and tagging itself from
+//! inside its own sandbox.
 
 use crate::client::MoatClient;
 use crate::config::Config;

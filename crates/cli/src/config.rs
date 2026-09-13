@@ -1,14 +1,10 @@
 //! Configuration from environment variables.
 //!
-//! Auth mode resolution (first match wins):
-//! 1. **Sandbox**: a sandbox user token is present — either the refreshed copy
-//!    the sandbox persists on disk (preferred) or the `USER_AUTH_TOKEN` env baked
-//!    into the pod at creation. Exchanges the token for a session cookie.
-//! 2. **Standalone with env API key**: `MOATLESS_API_KEY` set — used directly
-//!    as `Authorization: Bearer <key>`. Intended for non-interactive contexts
-//!    (CI, cron, scripts) where the credentials file isn't available.
-//! 3. **Standalone with credentials file**: API key from
-//!    `~/.config/moatless/credentials.json` (set by `moat login`).
+//! Auth mode resolution, first match wins: a sandbox user token (refreshed copy
+//! on disk, else the `USER_AUTH_TOKEN` baked into the pod at creation) is
+//! exchanged for a session cookie; else `MOATLESS_API_KEY` is used directly as
+//! `Authorization: Bearer <key>` for non-interactive contexts; else the API key
+//! comes from `~/.config/moatless/credentials.json` (set by `moat login`).
 
 /// Authentication mode.
 #[derive(Debug, Clone)]
@@ -24,7 +20,8 @@ pub enum AuthMode {
 
 #[derive(Debug, Clone)]
 pub struct Config {
-    /// API URL. Resolution: `MOATLESS_API_URL` → `BACKEND_API_URL` → "<https://moatless.dev>"
+    /// API URL. Resolution: `MOATLESS_API_URL` → `BACKEND_API_URL` →
+    /// "<https://moatless.dev>"
     pub api_url: String,
     /// Authentication mode (sandbox vs standalone).
     pub auth_mode: AuthMode,
@@ -105,23 +102,17 @@ impl Config {
     }
 }
 
-/// Where the sandbox persists the long-lived user auth token. The credential
-/// refresher rewrites this file every ~15 min, so it stays current for the life
-/// of the task; the `USER_AUTH_TOKEN` env is fixed at pod creation and goes
-/// stale. Mirrors the sandbox's `RUNTIME_DIR` constant (`/run/moatless`).
+/// Where the sandbox persists the refreshed user auth token (~15 min cycle),
+/// which outlives the pod's fixed, staling `USER_AUTH_TOKEN` env. Mirrors the
+/// sandbox's `RUNTIME_DIR`.
 const PERSISTED_USER_TOKEN_PATH: &str = "/run/moatless/.user_auth_token";
 
 /// The sandbox token, when one is actually present.
 ///
-/// Prefers the token the sandbox keeps fresh on disk over the fixed copy baked
-/// into the pod env at creation: a task running longer than the token's TTL
-/// would otherwise keep presenting an expired `X-User-Token` and fall back to a
-/// session cookie, and never recover.
-///
-/// An env var set to the empty string is not a credential — it is how a caller
-/// says "make this request without one", which the E2E suite relies on to
-/// assert that a route rejects anonymous callers; that override wins over any
-/// on-disk token.
+/// Prefers the on-disk refreshed copy over the pod's fixed env copy, which goes
+/// stale past the token's TTL and never recovers; an env var explicitly set to
+/// empty means "no credential" (relied on by the E2E suite for anonymous-reject
+/// checks) and overrides any on-disk token.
 pub fn sandbox_token() -> Option<String> {
     if matches!(std::env::var("USER_AUTH_TOKEN"), Ok(token) if token.trim().is_empty()) {
         return None;
@@ -134,8 +125,8 @@ pub fn sandbox_token() -> Option<String> {
     })
 }
 
-/// Read the refreshed user token the sandbox persisted to disk, if any.
-/// Honors a `RUNTIME_DIR` override for tests; defaults to the sandbox path.
+/// Read the refreshed user token the sandbox persisted to disk, if any. Honors
+/// a `RUNTIME_DIR` override for tests; defaults to the sandbox path.
 fn persisted_sandbox_token() -> Option<String> {
     read_persisted_token(std::env::var("RUNTIME_DIR").ok().as_deref())
 }

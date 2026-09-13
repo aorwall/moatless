@@ -57,13 +57,11 @@ async fn check_provider_connections(state: &AuthState, user_id: &str) -> Vec<Pro
     out
 }
 
-/// Report the user's personal Codex credential in the `/me` providers array.
+/// Reports the user's personal Codex credential in the `/me` providers array.
 ///
-/// Returns `None` when the user has no codex row at all — most users never
-/// connect Codex, and an absent entry keeps the frontend's `?? true` default
-/// from showing a reconnect banner to them. When a row exists, `connected`
-/// is false iff the refresher stamped `metadata.refresh_failure` (permanent
-/// refresh failure — the user must sign in again).
+/// `None` means no codex row (keeps the frontend's `?? true` default from not
+/// showing a reconnect banner); `connected` is false iff
+/// `metadata.refresh_failure` is stamped, meaning the user must sign in again.
 async fn check_codex_connection(state: &AuthState, user_id: &str) -> Option<ProviderConnection> {
     let token = match state
         .provider_tokens_dao
@@ -95,10 +93,9 @@ async fn check_codex_connection(state: &AuthState, user_id: &str) -> Option<Prov
     })
 }
 
-/// Returns `None` when the user has no GitHub token row at all — a user who
-/// never connected GitHub is not "disconnected", and reporting them as such
-/// pins a reconnect banner in the UI forever. Mirrors
-/// [`check_codex_connection`].
+/// Returns `None` when there's no GitHub token row: a never-connected user
+/// isn't "disconnected", and reporting them as such pins a reconnect banner
+/// forever. Mirrors [`check_codex_connection`].
 async fn check_github_connection(state: &AuthState, user_id: &str) -> Option<ProviderConnection> {
     let disconnected = |login: Option<String>| {
         Some(ProviderConnection {

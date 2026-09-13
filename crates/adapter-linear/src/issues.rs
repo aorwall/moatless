@@ -1,20 +1,13 @@
 //! What an issue changing state does.
 //!
-//! Three separate things, and they are independent of each other: every bound
-//! Task is told the issue moved; an issue entering a configured state may spawn
-//! a Task that has no Linear session behind it; and an issue entering a
-//! terminal state may close the Tasks it produced (that last one lives in
-//! [`close`](super::close), because a notification can trigger it too).
+//! Three independent things: every bound Task hears the issue moved; a
+//! configured state may spawn a Task with no Linear session behind it; and a
+//! terminal state may close the Tasks it produced (see
+//! [`close`](super::close)).
 //!
-//! The identity of a state change is the issue plus Linear's own delivery
-//! timestamp, not the state it moved into: an issue that leaves a state and
-//! comes back produces two changes a person made separately, and naming them
-//! after the state would silently drop the second as a duplicate.
-//!
-//! A status-entry Task is bound with `linear_issue`, not
-//! `linear_agent_session`. There is no panel to write activities into, which is
-//! why this workflow links the Task back with an attachment instead, and why a
-//! preflight failure has to be reported as an ordinary issue comment.
+//! A state change's identity is the issue plus Linear's delivery timestamp, not
+//! the state — leaving and re-entering a state produces two separate changes,
+//! so naming by state would drop the second as a duplicate.
 
 use std::fmt::Write as _;
 
@@ -45,14 +38,11 @@ const ADAPTER_LABEL: &str = "linear";
 
 /// Handle an `Issue.update` payload.
 ///
-/// On any real state transition we forward a notification message to every
-/// bound task so the agent learns the issue changed status. When the new
-/// state is in the rule's `terminal_states` and `close_task_on_close` is set,
-/// the existing close path also runs and terminates the task.
-///
-/// `transition_id` is the semantic state transition carried through durable
-/// delivery. `delivered_at` remains as a fallback for older admitted records
-/// written before that field existed.
+/// On any real state transition, forwards a notification to every bound task;
+/// when the new state is in the rule's `terminal_states` and
+/// `close_task_on_close` is set, the close path also runs. `transition_id` is
+/// the semantic transition from durable delivery, with `delivered_at` as a
+/// fallback for older records.
 #[expect(
     clippy::too_many_arguments,
     reason = "a fan-out root dispatching to persist/notify/close/status-entry, \
@@ -147,13 +137,11 @@ pub(super) async fn handle_issue_update(
 }
 
 /// Spawn new tasks for rules opted into `create_on_status_entry` whose
-/// `trigger_states` include the issue's new workflow state. Applies each rule's
-/// project + label filters and is idempotent per `(issue, trigger)`.
+/// `trigger_states` include the issue's new state, applying project/label
+/// filters; idempotent per `(issue, trigger)`.
 ///
-/// Project + label filtering needs data the `Issue.update` webhook may omit, so
-/// when a matching rule filters on them we fetch the full issue once via
-/// `get_issue` (skipped when the webhook already carries the project id and no
-/// rule filters on labels). A fetch failure logs and falls back to the
+/// Fetches the full issue via `get_issue` once when a matching rule filters on
+/// project/labels the webhook may omit; a fetch failure falls back to the
 /// webhook-carried project id with empty labels.
 #[expect(
     clippy::too_many_arguments,
@@ -271,12 +259,12 @@ async fn create_tasks_for_status_entry(
 }
 
 /// Create + provision a task for an `Issue.update` status-entry match, bind it
-/// to the issue via `linear_issue`, link it back on the Linear issue, and
-/// forward the inbound "read the ticket" prompt.
+/// to the issue via `linear_issue`, link it back on the issue, and forward the
+/// inbound "read the ticket" prompt.
 ///
-/// Idempotent per `(issue, trigger)`: if an active `linear_issue` binding for
-/// this issue already exists for this trigger+connection, returns early so a
-/// re-entry into the same state doesn't double-create.
+/// Idempotent per `(issue, trigger)`: an existing active binding for this
+/// trigger+connection returns early, so re-entering the same state doesn't
+/// double-create.
 #[expect(
     clippy::too_many_arguments,
     reason = "the six downward ports one status-entry provisioning reads \
@@ -428,13 +416,12 @@ async fn provision_issue_task(
 }
 
 /// Best-effort: resolve `start_state` to a team-scoped workflow-state id and
-/// move the issue into it via `issueUpdate`. Primitive-arg form shared by the
-/// status-entry path (`IssuePayload`) and the mention/assignment pickup path
-/// (`AgentSessionIssue`) — the two carry different issue payload types, so the
-/// shared move logic takes plain ids. Failures (missing team, unresolved state
-/// name, API error) are logged and swallowed — the task is already created, so
-/// a missed board transition must not fail the pickup. Callers guard against
-/// no-op transitions (issue already in the target state) before invoking.
+/// move the issue into it via `issueUpdate`.
+///
+/// Shared by the status-entry and mention/assignment pickup paths, which carry
+/// different issue payload types, so this takes plain ids; failures are logged
+/// and swallowed since a missed board transition must not fail the pickup.
+/// Callers guard against no-op transitions first.
 pub(super) async fn transition_issue_state(
     api: &LinearAgentApi,
     team_id: &str,
@@ -542,14 +529,11 @@ async fn persist_issue_status(
 }
 
 /// Post a state-change message to every active agent-session binding for the
-/// issue, then wake that task's sandbox so the message is actually run.
+/// issue, then wake that task's sandbox so the message actually runs.
 ///
-/// The wake is what every other inbound path does after persisting a user
-/// message: a pending row with nobody notified leaves the turn unopened, and a
-/// Task whose newest user message is newer than its last turn reads as still
-/// working until something delivers it.
-///
-/// Best-effort: failures are logged so the close path still runs.
+/// The wake matches every other inbound path: an unwoken pending message leaves
+/// the turn unopened and the task reads as still working. Best-effort —
+/// failures are logged so the close path still runs.
 async fn notify_bindings_of_state_change(
     task_bindings: &Bindings,
     message_send: &dyn MessageAcceptor,
@@ -630,8 +614,10 @@ async fn notify_bindings_of_state_change(
 
 /// Build + insert the Task row shared by the session- and issue-initiated
 /// Linear creation paths, assign the trigger's tags, and publish the `Open`
-/// event. Returns the new task id. Callers own subsequent provisioning,
-/// binding, and inbound-message delivery.
+/// event.
+///
+/// Returns the new task id; callers own subsequent provisioning, binding, and
+/// inbound-message delivery.
 pub(super) async fn insert_event_task(
     task_creation: &dyn TaskOpener,
     rule: &SubscriptionMatch,

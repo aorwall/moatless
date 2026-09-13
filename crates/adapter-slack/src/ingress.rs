@@ -34,12 +34,8 @@ pub(super) struct WebhookRequest<'a> {
 /// What [`receive`] made of one request: the shared [`Outcome`], or the one
 /// thing Slack answers that no other Adapter has.
 ///
-/// Slack's endpoint check is answered with the challenge string in the response
-/// body, which is a *third* transport treatment for a `2xx` and belongs to
-/// exactly one Adapter. Putting it in the shared enum would put an arm no
-/// GitHub, Linear, or Telegram delivery can ever reach into all three of their
-/// handlers — the shape #174 deleted from this file. It stays here, one level
-/// out, so the shared vocabulary keeps describing what every Adapter has.
+/// Kept out of the shared enum: putting Slack's endpoint-check challenge there
+/// would add an arm no GitHub, Linear, or Telegram delivery can ever reach.
 pub(super) enum Received {
     /// Slack's endpoint check: answer with the challenge string it sent.
     Challenge(String),
@@ -80,9 +76,8 @@ struct Routed {
 
 /// Read the request body, which every step below works from.
 ///
-/// Slack signs the bytes rather than the fields, so parsing before verifying
-/// costs the signature check nothing — and a body that is not JSON is named as
-/// such whether or not it was signed, which is what the flat handler did.
+/// Slack signs the bytes, not the fields, so parsing before verifying costs the
+/// signature check nothing.
 fn parse_body(body: &[u8]) -> Result<serde_json::Value, IngressError> {
     serde_json::from_slice(body)
         .map_err(|e| IngressError::Unidentifiable(format!("Invalid JSON: {e}")))
@@ -99,11 +94,8 @@ fn challenge(payload: &serde_json::Value) -> String {
 
 /// Everything decided from the payload's own fields and the routing tables.
 ///
-/// This runs *before* verification, which is the order the flat handler ran and
-/// the order `github_pr` still runs: the two drops below are attributed to a
-/// channel rather than to a signature, so they are reached without one. The
-/// reads are the routing tables and the Binding index — no write, and nothing
-/// that outlives a rejected signature.
+/// Runs *before* verification: the drops below are attributed to a channel, not
+/// a signature, and touch only reads — nothing outlives a rejected signature.
 async fn resolve(
     adapter_connections: &dyn ConnectionLookup,
     loops: &dyn LoopReader,
@@ -207,8 +199,7 @@ async fn resolve(
 /// The single signature-verification call site.
 ///
 /// Slack signs the endpoint check exactly as it signs an event, so both reach
-/// this one call — which is what removes the second body parse the handler used
-/// to do.
+/// this one call.
 fn verify(app: &ResolvedSlackApp, request: &WebhookRequest<'_>) -> Result<(), AdapterError> {
     signature::verify_signature(
         &app.signing_secret,
@@ -219,9 +210,8 @@ fn verify(app: &ResolvedSlackApp, request: &WebhookRequest<'_>) -> Result<(), Ad
 }
 
 /// Normalize one payload and apply what it decided, in that order — the
-/// sequence [`receive`] runs, kept in one function so it can be exercised
-/// with an app, a config, and an identity port alone — no ingress ports behind
-/// it.
+/// sequence [`receive`] runs. Kept in one function so it can be exercised with
+/// an app, a config, and an identity port alone, no ingress ports behind it.
 async fn normalize_and_apply(
     app: &ResolvedSlackApp,
     config: &LoopContext,
@@ -252,12 +242,9 @@ async fn normalize_and_apply(
 
 /// The idempotency key for one Slack delivery.
 ///
-/// Slack repeats the envelope `event_id` on every retry of the same event,
-/// which is exactly what the durable dedup index on
-/// `(adapter, kind, event_id)` needs. The fallback covers the envelope that
-/// carries no `event_id` at all — the channel plus the message's own external
-/// id names the same message just as stably, and is strictly better than the
-/// old in-memory cache, which skipped deduplication entirely for those.
+/// Slack's envelope `event_id`, matched against the dedup index on `(adapter,
+/// kind, event_id)`; when absent, falls back to the channel plus the message's
+/// own external id.
 fn admission_event_id(payload: &serde_json::Value, msg: &InboundMessage) -> String {
     payload
         .get("event_id")
@@ -388,10 +375,8 @@ pub(super) async fn receive(
 /// Characterization of Slack ingress, pinned before the module split and
 /// carried through it unchanged.
 ///
-/// Every assertion is made against the value ingress returns and the requests a
-/// loopback Slack stub saw. No test reaches slack.com and none sets a
-/// process-global; the API client is injected through
-/// [`SlackAdapter::with_api`].
+/// Assertions run against ingress's return value and the requests a loopback
+/// Slack stub saw; no test reaches slack.com, via [`SlackAdapter::with_api`].
 #[cfg(test)]
 mod characterization {
     use axum::http::HeaderMap;
@@ -570,12 +555,10 @@ mod characterization {
         }
     }
 
-    /// The one seam the stages moved: the body read, verified, and normalized
-    /// with its effects applied. [`super::receive`] resolves the routing
-    /// between the read and the verification, which needs the adapter-connection,
-    /// loop and task-binding ports no test here builds; either side of that gap
-    /// this is the sequence it runs. Everything below calls it through here, so
-    /// the stage that relocated it changed this function and not the assertions.
+    /// The body read, verified, and normalized with its effects applied —
+    /// everything [`super::receive`] runs except the routing step in between,
+    /// which needs adapter-connection, loop, and task-binding ports no test
+    /// here builds.
     pub(super) async fn parse(
         adapter: &SlackAdapter,
         body: &str,
@@ -1124,8 +1107,8 @@ mod characterization_db {
         slack_stub, trigger,
     };
 
-    /// The identity seam over a real pool — what the composition root hands
-    /// the ingress.
+    /// The identity seam over a real pool — what the composition root hands the
+    /// ingress.
     fn users(pool: &PgPool) -> Arc<UserDirectory> {
         moatless_identity::compose::user_directory(pool.clone())
     }

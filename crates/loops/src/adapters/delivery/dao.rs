@@ -28,20 +28,11 @@ pub(crate) struct Backlog {
     pub(crate) oldest_pending_secs: i64,
 }
 
-/// The durable Adapter delivery store.
-///
 /// Most webhook handlers reach this through `AppState::adapter_delivery` and
-/// only ever call [`DeliveryAdmission::admit`]; the remaining operations belong
-/// to the worker that owns admitted records.
-///
-/// INVARIANT — must stay a stateless wrapper over the pool. A provider adapter
-/// (Telegram today, see `TelegramAdapter::with_ingress_ports`) may construct
-/// its own instance at the composition root rather than share the one on
-/// `AppState`, which is sound only because every instance is `pool` + a fixed
-/// `policy` and admission's capacity guard rides the DB (`SELECT COUNT(*)`), so
-/// two instances never diverge. Any in-memory state added here — a dedup cache,
-/// a counter, a notify channel — breaks that: it would have to be built once
-/// and shared, not rebuilt per provider.
+/// call only [`DeliveryAdmission::admit`]; the rest belongs to the worker that
+/// owns admitted records. INVARIANT: must stay a stateless wrapper over the
+/// pool: any in-memory state (a dedup cache, a counter, a notify channel) would
+/// have to be built once and shared, not rebuilt per provider.
 pub(crate) struct AdapterDeliveryStore {
     pool: DbPool,
     policy: AdapterDeliveryPolicy,
@@ -55,10 +46,11 @@ impl AdapterDeliveryStore {
         }
     }
 
-    /// Build a store with a non-default policy, so the DB tests can collapse
-    /// the retry, lease, and capacity numbers instead of waiting ten minutes
-    /// for the real ones. The running system always uses
-    /// [`AdapterDeliveryPolicy::default`] — the policy is a decision, not a knob.
+    /// Build a store with a non-default policy, so DB tests can collapse the
+    /// retry, lease, and capacity numbers instead of waiting ten minutes.
+    ///
+    /// The running system always uses [`AdapterDeliveryPolicy::default`] — the
+    /// policy is a decision, not a knob.
     #[cfg(all(test, feature = "db-tests"))]
     pub(crate) fn with_policy(pool: DbPool, policy: AdapterDeliveryPolicy) -> Self {
         Self { pool, policy }
@@ -127,10 +119,10 @@ impl AdapterDeliveryStore {
 
     /// Claim up to `batch_size` due records for `owner`, counting the attempt.
     ///
-    /// Only records whose `kind` has a handler in this process are claimed. A
-    /// replica running an older build therefore leaves deliveries it cannot execute
-    /// for one that can, instead of burning its attempt budget during a rolling
-    /// deploy. `SKIP LOCKED` keeps concurrent replicas off each other's rows.
+    /// Only records whose `kind` has a handler here are claimed, so an
+    /// older-build replica leaves them for one that can run them rather than
+    /// burning its attempt budget; `SKIP LOCKED` keeps concurrent replicas off
+    /// each other's rows.
     pub(crate) async fn claim_due(
         &self,
         owner: &str,
@@ -183,12 +175,10 @@ impl AdapterDeliveryStore {
         Ok(())
     }
 
-    /// Record a failed attempt.
-    ///
-    /// `terminal` ends the record now — the handler called the failure
-    /// permanent, or this attempt spent the last of the budget. Otherwise the
-    /// record returns to `pending` behind its backoff. Either way `last_error`
-    /// is retained: a terminal record has to say why it was abandoned.
+    /// `terminal` ends the record now (permanent failure or budget spent);
+    /// otherwise it returns to `pending` behind its backoff. Either way
+    /// `last_error` is retained, so a terminal record says why it was
+    /// abandoned.
     pub(crate) async fn mark_attempt_failed(
         &self,
         id: &str,
@@ -220,14 +210,10 @@ impl AdapterDeliveryStore {
 
     /// Return this owner's claims to `pending` immediately.
     ///
-    /// Called once at worker startup. A process that was killed mid-execution
-    /// left claims behind under the same stable owner id, so its work resumes
-    /// on restart without waiting out the lease.
-    ///
-    /// The attempt the claim already counted is deliberately not refunded: a
-    /// record whose execution kills the process still spends its budget, so a
-    /// payload that crash-loops the backend goes terminal instead of restarting
-    /// the process forever.
+    /// Called once at worker startup, so a process killed mid-execution resumes
+    /// its stable-owner-id work on restart without waiting out the lease. The
+    /// already-counted attempt is deliberately not refunded, so a payload that
+    /// crash-loops the backend goes terminal instead of restarting forever.
     pub(crate) async fn release_claims_by_owner(&self, owner: &str) -> Result<u64, sqlx::Error> {
         let result = sqlx::query(
             r#"UPDATE adapter_delivery SET
@@ -245,8 +231,8 @@ impl AdapterDeliveryStore {
 
     /// Return claims whose lease has expired to `pending`.
     ///
-    /// Covers the owner that never comes back — a pod replaced under a new
-    /// name, or a worker wedged past its lease.
+    /// Covers the owner that never comes back: a pod replaced under a new name,
+    /// or a worker wedged past its lease.
     pub(crate) async fn release_expired_claims(&self) -> Result<u64, sqlx::Error> {
         let deadline = Utc::now()
             - chrono::Duration::from_std(self.policy.claim_lease)
@@ -267,7 +253,7 @@ impl AdapterDeliveryStore {
 
     /// Delete finished records past their retention window.
     ///
-    /// Bounded per call so a large backlog is drained over several maintenance
+    /// Bounded per call so a large backlog drains over several maintenance
     /// ticks instead of one long-running delete.
     pub(crate) async fn prune_finished(&self) -> Result<u64, sqlx::Error> {
         let succeeded_before = Utc::now()
@@ -345,23 +331,11 @@ impl AdapterDeliveryStore {
 
 #[async_trait::async_trait]
 impl DeliveryAdmission for AdapterDeliveryStore {
-    /// Take durable ownership of one inbound Adapter delivery.
-    ///
-    /// Returns once the record is committed, which is the point the caller may
-    /// acknowledge its sender. A repeat delivery of the same
-    /// `(sender, kind, event_id)` returns [`Admission::Duplicate`] without
-    /// writing anything, so acknowledging a duplicate costs one insert attempt
-    /// and produces no second effect.
-    ///
-    /// Refuses with [`AdmitError::AtCapacity`] once the unfinished backlog
-    /// reaches `AdapterDeliveryPolicy::backlog_capacity`. The capacity test rides
-    /// along inside the insert, so admission stays a single round trip on the
-    /// sender's response deadline. See that field for the exact bound this
-    /// enforces — it is a ceiling, not an exact cutoff.
-    ///
-    /// `DeliveryAdmission` is the store's public admission surface; the
-    /// worker-only operations stay inherent on the concrete
-    /// [`AdapterDeliveryStore`].
+    /// Returns once the record is committed, so the caller may then acknowledge
+    /// its sender; a repeat `(sender, kind, event_id)` returns
+    /// [`Admission::Duplicate`] with no write. Refuses with
+    /// [`AdmitError::AtCapacity`] once the backlog reaches
+    /// `AdapterDeliveryPolicy::backlog_capacity`.
     async fn admit(&self, request: AdapterDeliveryRequest) -> Result<Admission, AdmitError> {
         let (adapter, kind) = (request.adapter, request.kind);
         let result = self.insert(request).await;
@@ -377,10 +351,9 @@ impl DeliveryAdmission for AdapterDeliveryStore {
 
 /// Wrap a failed statement on the admission path.
 ///
-/// Named once so both statements — the insert and the duplicate check behind it
-/// — report the same operation, and applied here rather than at the transport
-/// boundary so `AdmitError` never carries a `sqlx::Error` of its own. The driver
-/// error survives as the [`StoreError`]'s source.
+/// Named once so the insert and its duplicate-check both report the same
+/// operation; applied here (not at the transport boundary) so `AdmitError`
+/// never carries a raw `sqlx::Error`.
 fn admission_failed(source: sqlx::Error) -> AdmitError {
     AdmitError::Store(StoreError::with_source(
         "persist the Adapter delivery record",

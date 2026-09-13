@@ -74,7 +74,7 @@ impl Bindings {
     /// Active Bindings whose `destination_config` names `field_value` under
     /// `field_name`. Routes an inbound event that carries a destination-scoped
     /// identifier (e.g. Linear `issue_id`) rather than the Binding's
-    /// `subject_key`. `field_name` is whitelisted, so an unknown one errors.
+    /// `subject_key`; `field_name` is whitelisted, so an unknown one errors.
     pub async fn active_by_destination_field(
         &self,
         adapter_kind: &str,
@@ -224,8 +224,8 @@ impl Bindings {
         self.store.mark_task_link_sent(id).await
     }
 
-    /// Set whether the Binding joining this Task to this subject routes, and
-    /// report whether the row changed.
+    /// Set whether the Binding joining this Task to this subject routes;
+    /// reports whether the row changed.
     ///
     /// One subject, unlike [`Bindings::deactivate_for_task`]: this is how a
     /// person releases a single pull request from a Thread that is still open.

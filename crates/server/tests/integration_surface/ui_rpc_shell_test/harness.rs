@@ -44,8 +44,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 /// Map one Message's content the way the write path does: text onto the row,
-/// each call and each outcome onto the conversation. Tests go through this
-/// same seam, rather than handing `append` a block list directly.
+/// each call and each outcome onto the conversation. Tests go through this same
+/// seam, rather than handing `append` a block list directly.
 pub(super) fn conversation_write(
     task_id: &str,
     uuid: &str,
@@ -66,10 +66,9 @@ pub(super) fn conversation_write(
 
 /// [`authed_request`] plus the identity the T3 handlers read.
 ///
-/// The auth middleware inserts two extensions, not one: `AuthIdentity` for the
-/// Moatless handlers and `UiRpcAuthIdentity` for the T3 ones. This request
-/// bypasses that middleware, so a T3 route reached with only the first is a
-/// `500` on a missing extension rather than the response under test.
+/// The auth middleware inserts `AuthIdentity` and `UiRpcAuthIdentity`
+/// separately; bypassing it here means a T3 route given only the first 500s on
+/// a missing extension instead of returning the response under test.
 pub(super) fn ui_rpc_authed_request(
     method: &str,
     uri: &str,
@@ -109,9 +108,8 @@ pub(super) fn defaults() -> AgentModelDefaults {
 
 /// A deployment with no Sandboxes running.
 ///
-/// The routes this suite drives — the shell listing and the public descriptor —
-/// never reach a Sandbox. What one answers is a gRPC round trip against a pod
-/// or the K8s API, and no test here has either.
+/// The routes this suite drives never reach one: what a Sandbox answers is a
+/// gRPC round trip against a pod or the K8s API, and no test here has either.
 pub(super) struct NoSandboxes;
 
 #[async_trait::async_trait]
@@ -300,11 +298,11 @@ pub(super) fn reads(pool: &PgPool) -> T3Reads {
         .clone()
 }
 
-/// Every assertion below goes through here, so a query that Postgres refuses
-/// fails with the database's own error text rather than as an empty listing.
-/// The SQL in `crates/t3code/src/dao.rs` is not compile-checked — `sqlx::query_as` without
-/// the macro is a string until a connection sees it — so this is the only place
-/// a broken join, decode or parameter can announce itself.
+/// Every assertion below goes through here, so a query Postgres refuses fails
+/// with the database's own error text, not as an empty listing.
+///
+/// The SQL in `dao.rs` is unchecked until a connection sees it, so this is the
+/// only place a broken join, decode, or parameter can announce itself.
 pub(super) async fn snapshot(pool: &PgPool, viewer: &ScopeContext) -> Value {
     match shell_snapshot(&reads(pool), &defaults(), viewer).await {
         Ok(snapshot) => snapshot.value,

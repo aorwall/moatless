@@ -39,10 +39,9 @@ pub struct SecretApiDoc;
 
 /// Build the secret router with OpenAPI metadata.
 ///
-/// Generic over the router state `S` so this module names no root type: the
-/// composition root supplies the concrete state at the call site, and each
-/// handler reaches its ports — `Arc<SecretService>` and the `UserTokenVerifier`
-/// behind `AuthUser` — through `FromRef<S>`.
+/// Generic over `S` so this module names no root type: the composition root
+/// supplies concrete state, and each handler reaches `Arc<SecretService>` and
+/// `UserTokenVerifier` through `FromRef<S>`.
 pub fn secret_router<S>(state: S) -> (axum::Router, utoipa::openapi::OpenApi)
 where
     S: Clone + Send + Sync + 'static,

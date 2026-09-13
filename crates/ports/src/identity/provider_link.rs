@@ -11,9 +11,9 @@ pub struct LinkedUser {
 
 /// A user's identity at an external provider, and the link back to it.
 ///
-/// An Adapter sees a sender by the provider's own id. The first sighting has no
-/// link, so it falls back to the address the provider reports and records the
-/// link it found; every later sighting resolves by id alone.
+/// An Adapter sees a sender by the provider's own id; a first sighting has no
+/// link, so it falls back to the reported address and records what it finds,
+/// and every later sighting resolves by id alone.
 #[cfg_attr(feature = "test-support", mockall::automock)]
 #[async_trait]
 pub trait ProviderIdentityLink: Send + Sync {
@@ -28,9 +28,10 @@ pub trait ProviderIdentityLink: Send + Sync {
     async fn user_by_email(&self, email: &str) -> Result<Option<LinkedUser>, StoreError>;
 
     /// The id a Moatless `login` is known by at `provider` — the reverse of
-    /// [`Self::user_at`], reading the same link. What an outbound mention
-    /// needs: the agent names a person in Moatless terms, and the Adapter can
-    /// only address them by the provider's own id.
+    /// [`Self::user_at`].
+    ///
+    /// What an outbound mention needs: the agent names a person in Moatless
+    /// terms, and the Adapter can only address them by the provider's own id.
     async fn provider_id_for_login(
         &self,
         provider: &str,
@@ -38,9 +39,10 @@ pub trait ProviderIdentityLink: Send + Sync {
     ) -> Result<Option<String>, StoreError>;
 
     /// The user who connected `provider_user_id` at `provider` by authorizing
-    /// an Adapter's app. Distinct from [`Self::user_at`]: that reads the
-    /// directory link a person establishes, this reads the account behind a
-    /// stored credential.
+    /// an Adapter's app.
+    ///
+    /// Distinct from [`Self::user_at`]: that reads the directory link a person
+    /// establishes, this reads the account behind a stored credential.
     async fn user_who_connected(
         &self,
         provider: &str,

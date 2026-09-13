@@ -1,4 +1,5 @@
-//! `moat docker init` — resolve work dir, seed compose assets, bootstrap `.env`.
+//! `moat docker init` — resolve work dir, seed compose assets, bootstrap
+//! `.env`.
 
 use std::fs;
 
@@ -220,16 +221,11 @@ mod tests {
     use super::super::docker_compose::{COMPOSE_FILE, NGINX_CONF_FILE};
     use super::run;
 
-    /// Repairing one wrong-type asset must NOT clobber the user's hand-edited
-    /// copies of the OTHER assets. `docker compose` can auto-create a bind-mount
-    /// source (`nginx.conf`) as an empty directory; init repairs that by
-    /// removing it and re-seeding. Because the repaired entry no longer exists,
-    /// seeding writes it with overwrite=false — so a healthy, locally-modified
-    /// `docker-compose.yml` in the same dir must survive untouched. In the
-    /// untracked cache dir those edits are unrecoverable, so a bare `init` that
-    /// silently reverts them would be worse than the break the embed fixes.
+    /// Repairing one wrong-type asset must not clobber the user's hand-edited
+    /// copies of the others.
     ///
-    /// Fails against a repair branch that flips overwrite on for every entry.
+    /// Fails against a repair branch that flips `overwrite` on for every entry
+    /// instead of just the repaired one.
     #[tokio::test]
     async fn init_repairs_stale_dir_without_clobbering_user_edits() {
         let tmp = tempfile::tempdir().unwrap();

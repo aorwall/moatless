@@ -35,11 +35,9 @@ pub trait SecretCipher: Send + Sync {
 
     /// Decrypt an envelope-encrypted value that is not a `secrets` row.
     ///
-    /// `aad` is the additional authenticated data the value was encrypted
-    /// under — the owning record's id, so ciphertext cannot be moved between
-    /// records. A GitHub App's signing key uses this: it lives on the App
-    /// record rather than in `secrets`, but must not invent a second
-    /// encryption scheme to do so.
+    /// `aad` is the owning record's id, encrypted as additional authenticated
+    /// data so ciphertext cannot move between records — e.g. a GitHub App's
+    /// signing key, stored on the App record but sharing this scheme.
     fn decrypt_value(&self, aad: &str, value: &EncryptedSecretValue)
     -> Result<String, SecretError>;
 
@@ -48,9 +46,9 @@ pub trait SecretCipher: Send + Sync {
 
 /// Local envelope cipher backed by a bootstrap master key.
 ///
-/// The data key is generated per secret and encrypted by the master key. This
-/// keeps the database ciphertext-only while leaving room to replace this with
-/// AWS KMS without changing the DAO/API shape.
+/// A data key is generated per secret and encrypted by the master key, keeping
+/// the database ciphertext-only while leaving room to swap in AWS KMS without
+/// changing the DAO/API shape.
 pub struct LocalEnvelopeSecretCipher {
     master_key: [u8; DATA_KEY_LEN],
     kms_key_id: String,
@@ -451,14 +449,10 @@ impl SecretService {
     /// workflow.
     ///
     /// Unlike [`resolve_plaintext_scope`](Self::resolve_plaintext_scope) this
-    /// reads one row and writes no audit event, so it is cheap enough for the
-    /// settings and sandbox-preflight paths. `kind` filters on the record's
-    /// kind — callers that require a validated value pass
-    /// `Some(SecretKind::ProviderToken)` so a plain `env` secret under the same
-    /// key doesn't satisfy them.
-    ///
-    /// Returns `Ok(None)` when the secret is absent, disabled, or of another
-    /// kind.
+    /// writes no audit event, so it's cheap for settings and sandbox-preflight
+    /// paths; `kind` filters the record (e.g. `Some(SecretKind::ProviderToken)`
+    /// excludes a same-key `env` secret), and this returns `Ok(None)` when
+    /// absent, disabled, or of another kind.
     pub async fn resolve_user_secret(
         &self,
         actor_id: &str,
@@ -472,9 +466,9 @@ impl SecretService {
     /// Read one secret at an explicit scope. Backs [`resolve_user_secret`] and
     /// the global reads behind an org-wide provider token.
     ///
-    /// Access is not re-checked here: callers reach this only after resolving
-    /// which scope owns the credential, and the scope walk itself is the
-    /// authorization. Use [`Self::get_metadata`] for actor-driven reads.
+    /// Access is not re-checked: callers reach this only after the scope walk
+    /// itself authorized them. Use [`Self::get_metadata`] for actor-driven
+    /// reads.
     pub async fn resolve_scope_secret(
         &self,
         scope: Scope,
@@ -504,9 +498,9 @@ impl SecretService {
 
     /// Existence + kind probe with no decrypt and no `mark_used` write.
     ///
-    /// `/me` runs on every page load and only needs to know whether a
-    /// `secret_ref` row's target is still there — decrypting and stamping
-    /// `last_used_at` for that would be an AES round and a write per request.
+    /// `/me` runs on every page load and only needs to know a `secret_ref`
+    /// row's target still exists; decrypting and stamping `last_used_at` there
+    /// would cost an AES round and a write per request.
     pub async fn secret_exists(
         &self,
         scope: Scope,
@@ -525,9 +519,10 @@ impl SecretService {
     }
 
     /// Delete a user-scoped secret by key for an already-authorized internal
-    /// workflow. `kind` guards the delete so a caller cleaning up its own
-    /// bookkeeping can't remove a user-managed secret that happens to share the
-    /// key. Returns whether a row was removed.
+    /// workflow.
+    ///
+    /// `kind` guards against removing a user-managed secret that shares this
+    /// key with different bookkeeping. Returns whether a row was removed.
     pub async fn delete_user_secret(
         &self,
         actor_id: &str,
@@ -637,10 +632,10 @@ impl SecretService {
     /// Resolve accessible secrets into an env-var map with `user > global`
     /// precedence.
     ///
-    /// `ssh_key`-kind secrets are intentionally excluded — they are delivered
-    /// through a separate channel and materialized into `~/.ssh` rather than
-    /// being exposed as environment variables. Use
-    /// [`resolve_accessible_ssh_keys`](Self::resolve_accessible_ssh_keys) for those.
+    /// `ssh_key`-kind secrets are excluded (delivered separately into
+    /// `~/.ssh`); use
+    /// [`resolve_accessible_ssh_keys`](Self::resolve_accessible_ssh_keys) for
+    /// those.
     pub async fn resolve_accessible_plaintext(
         &self,
         actor_id: &str,
@@ -649,8 +644,8 @@ impl SecretService {
     }
 
     /// Resolve accessible `ssh_key`-kind secrets into a name → private-key map
-    /// with `user > global` precedence. Delivered to the sandbox
-    /// separately from env credentials and written to `~/.ssh`.
+    /// with `user > global` precedence. Delivered to the sandbox separately
+    /// from env credentials and written to `~/.ssh`.
     pub async fn resolve_accessible_ssh_keys(
         &self,
         actor_id: &str,
@@ -658,9 +653,9 @@ impl SecretService {
         self.resolve_accessible_by_kind(actor_id, true).await
     }
 
-    /// Shared implementation for the two accessible-secret resolvers.
-    /// When `ssh_keys_only` is true, only `ssh_key`-kind secrets are kept;
-    /// otherwise `ssh_key`-kind secrets are skipped.
+    /// Shared implementation for the two accessible-secret resolvers. When
+    /// `ssh_keys_only` is true, only `ssh_key`-kind secrets are kept; otherwise
+    /// `ssh_key`-kind secrets are skipped.
     async fn resolve_accessible_by_kind(
         &self,
         actor_id: &str,

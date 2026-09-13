@@ -21,56 +21,28 @@ use tracing::info;
 
 /// How often a shell subscription asks what has changed.
 ///
-/// This interval is also the coalescing window: everything recorded for one
-/// conversation inside it collapses into a single re-read of that row. Short
-/// enough that a turn starting looks immediate, long enough that an agent
-/// working flat out cannot turn the sidebar into a delivery loop.
+/// Also the coalescing window: everything recorded for one conversation in it
+/// collapses into a single re-read of that row.
 pub(crate) const SHELL_POLL_INTERVAL: Duration = Duration::from_millis(250);
 
 /// How often an open conversation asks whether it has moved.
 ///
-/// Longer than the shell's because what it delivers is larger: the shell sends
-/// one changed row, a conversation sends itself whole (see [`ThreadFeed`]). The
-/// question asked each interval is cheap either way — a fingerprint, not a
-/// transcript — so this is the coalescing window for the *answer*, and a second
-/// is the shortest one at which an agent writing continuously does not turn a
-/// transcript into a delivery loop.
+/// Longer than the shell's: the question is cheap (a fingerprint), but a hit
+/// delivers the whole conversation.
 pub(crate) const THREAD_POLL_INTERVAL: Duration = Duration::from_secs(1);
 
 /// How often an open conversation asks its Sandbox about its branch state.
 ///
-/// Each pass is a gRPC round trip to a pod that runs `git` for it, so this is
-/// far longer than the two above: nothing on the screen is refreshed by it that
-/// the client is not already refetching on its own, and the panel that reads it
-/// most only needs it once, to pick which scope it opens on.
+/// Each pass is a gRPC round trip running `git` in the pod, so this is far
+/// longer than the two above; the panel that reads it most only needs it once.
 pub(crate) const VCS_STATUS_POLL_INTERVAL: Duration = Duration::from_secs(15);
 
 /// Open a subscription to one conversation: either replay what a returning
 /// client missed, or hand it the conversation built afresh.
 ///
-/// `after` is the sequence the client says it already holds — the
-/// `snapshotSequence` of the bootstrap it fetched over HTTP moments earlier
-/// (`state/threads.ts`), which is why the two have to be numbers in the same
-/// namespace. [`resume`] is what decides between them, on the
-/// same two grounds the shell's does: a sequence this conversation never
-/// reached, and one further behind than the records kept.
-///
-/// The client separates the outcomes by decoding rather than by inference — a
-/// rebuild is a `snapshot` item, which it applies by replacing what it holds,
-/// and a replay is `event` items, which it folds in one at a time. So an
-/// un-replayable gap is never silence.
-///
-/// # Why the catch-up is one ordinary poll
-///
-/// Replay reads through [`ThreadFeed::poll`], the same call the live
-/// subscription makes every interval, so a resuming client is told exactly what
-/// a client that never disconnected would have been told and there is no second
-/// delivery path to drift from the first. The poll's own cap bounds the
-/// catch-up, and the feed's cursor advances only over records it read, so
-/// anything left over arrives on the next poll.
-///
-/// `Ok(None)` when the conversation is not visible to this viewer; the caller
-/// answers the request rather than opening a stream that can only end.
+/// `after` is the client's last known sequence; [`resume`] decides which path.
+/// Replay emits `event` items to fold in; rebuild emits one `snapshot` that
+/// replaces what it holds. `Ok(None)` when not visible to this viewer.
 pub async fn thread_subscription(
     reads: &T3Reads,
     deployment: &Deployment<'_>,
@@ -166,35 +138,8 @@ pub struct ShellSubscription {
 /// Open a subscription: either replay what a returning client missed, or hand
 /// it a listing built afresh.
 ///
-/// `after` is the position the client says it already holds — T3's
-/// `afterSequence`, absent for a client that holds nothing. `environment` is
-/// the database this process started against; a database that no longer matches
-/// it is [`listing::resume`]'s third reason to rebuild, and the only one
-/// that catches a position handed out a second time to a different change.
-///
-/// # How the client tells a rebuild from silence
-///
-/// The two outcomes are different members of the contract's own
-/// `OrchestrationShellStreamItem` union, so the client separates them by
-/// decoding rather than by inference:
-///
-/// - **Replay** emits `thread-upserted` items, or none at all. The client folds
-///   each into the snapshot it already holds (`shellReducer.ts`), keeping the
-///   list it had. No items means nothing changed.
-/// - **Rebuild** emits one `snapshot` item. The client *replaces* its snapshot
-///   with it outright (`shell.ts:150-152`), which is what "freshly built
-///   listing" means on that side.
-///
-/// So an un-replayable gap is never an empty answer — it is the same frame a
-/// client with no snapshot at all receives (`apps/server/src/ws.ts:1297-1305`).
-///
-/// # The catch-up is one ordinary poll
-///
-/// Replay reads through [`ShellFeed::poll`], the same call the live
-/// subscription makes every interval, so there is no second delivery path to
-/// drift from the first. The poll's cap bounds the catch-up, and nothing can be
-/// lost between the two: the feed's cursor advances only over records it read
-/// and the same feed continues live, so anything left over arrives next poll.
+/// `environment` mismatching the head is [`listing::resume`]'s third rebuild
+/// reason, catching a position handed out to a different database.
 pub async fn shell_subscription(
     reads: &T3Reads,
     model_defaults: &AgentModelDefaults,
@@ -257,32 +202,8 @@ pub async fn shell_subscription(
 
 /// The projects a resuming client can be assumed to have a group for.
 ///
-/// **Not the set of ids it may be sent a removal for**, which is a different
-/// question with a different answer — see [`ShellFeed`]. This one only decides
-/// whether a changed conversation can go out as a row or has to go out inside a
-/// fresh listing, and getting it wrong costs a snapshot in one direction and a
-/// row the client renders nowhere in the other.
-///
-/// A resuming client re-fetches the whole shell snapshot over HTTP and applies
-/// it *before* it subscribes, sending that snapshot's own sequence as
-/// `afterSequence` (`client-runtime/src/state/shell.ts:204-212`). So its
-/// projects are the ones [`shell_snapshot`] returned, which is **every
-/// workspace the viewer may read**, plus the ones a listed conversation
-/// references.
-///
-/// This reads back the first half and not the second, and the asymmetry is the
-/// point:
-///
-/// - A project the viewer may read now was in that snapshot unless it became
-///   readable in between, and `ShellFeed::resynchronize` sends the whole
-///   listing for a changed conversation entering it.
-/// - A project held only because a conversation *references* it is left out.
-///   That is the case where a conversation can arrive under a project the
-///   client has never been sent, which `resynchronize` answers the same way.
-///
-/// Not covered: the viewer's own scope widening between their snapshot request
-/// and their subscribe. The window is one round trip and the cost is one row
-/// not rendered until the next rebuild, not a disclosure.
+/// **Not the set of ids it may be sent a removal for** — see [`ShellFeed`]. A
+/// project held only because a listed conversation references it is left out.
 pub(crate) async fn resume_grouping(
     workspaces: &dyn T3WorkspaceDao,
     viewer: &ScopeContext,

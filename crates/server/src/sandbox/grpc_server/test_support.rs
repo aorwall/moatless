@@ -17,14 +17,14 @@ use moatless_ports::identity::MockCommitIdentity;
 use moatless_tasks::task::models::Task;
 use moatless_tasks::task::test_support::ScriptedTasks;
 
-/// Deterministic uuid for a readable test name: distinct names map to
-/// distinct ids, equal names to equal ids.
+/// Deterministic uuid for a readable test name: distinct names map to distinct
+/// ids, equal names to equal ids.
 pub(super) fn uid(name: &str) -> uuid::Uuid {
     uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_OID, name.as_bytes())
 }
 
-/// A `Task` fixture with the given scope/owner; all other columns are
-/// inert defaults irrelevant to the access check.
+/// A `Task` fixture with the given scope/owner; all other columns are inert
+/// defaults irrelevant to the access check.
 pub(super) fn task_fixture(scope: Scope, owner_user_id: Option<&str>) -> Task {
     Task {
         task_id: "task-1".to_string(),
@@ -75,8 +75,8 @@ pub(super) fn claims_for(user_id: &str) -> jwt::UserTokenClaims {
     }
 }
 
-/// Build a service whose authorizer has only the repositories the control
-/// gate consults wired; everything else is `None`/default.
+/// Build a service whose authorizer has only the repositories the control gate
+/// consults wired; everything else is `None`/default.
 pub(super) fn service_with(
     tasks: Arc<TaskCommands>,
     users: MockCommitIdentity,
@@ -101,9 +101,9 @@ pub(super) fn service_with(
     }
 }
 
-/// A task handle whose scoped `find_by_id` returns `task` for any caller —
-/// i.e. "the scope filter let the read through". Pass `None` to model a
-/// task that is missing or invisible to the caller.
+/// A task handle whose scoped `find_by_id` returns `task` for any caller — i.e.
+/// "the scope filter let the read through". Pass `None` to model a task that is
+/// missing or invisible to the caller.
 pub(super) fn tasks_returning(task: Option<Task>) -> Arc<TaskCommands> {
     ScriptedTasks::new().holding(task).commands().0
 }

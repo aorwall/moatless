@@ -1,13 +1,12 @@
 //! The `git.*` write methods: `git.runStackedAction` and the pull-request
-//! dialog. This module composes nothing and sequences nothing — it turns one
-//! `cwd` into one Task, refuses what the viewer may not reach, and, for a
-//! stacked action, hands the work to the Task's own agent.
+//! dialog.
 //!
-//! Committing, pushing and opening a pull request are not done here or in the
-//! Sandbox: pressing one of the toolbar's git actions sends the agent a message
-//! asking it to do the work, so it runs the same review, hooks and push the
-//! agent would run for any other request. This surface only turns the button
-//! press into that message and answers the client that it was sent.
+//! This module composes and sequences nothing: it turns a `cwd` into a Task,
+//! refuses what the viewer may not reach, and hands the work to its agent.
+//!
+//! Pushing, committing and opening a PR happen through the agent, not here or
+//! in the Sandbox — a toolbar press sends it the same kind of message any other
+//! request would.
 
 use moatless_types::access_control::ScopeContext;
 use serde_json::{Value, json};
@@ -29,11 +28,10 @@ pub struct AskedAgent {
     pub action: String,
 }
 
-/// Why a stacked action could not be handed to the agent. A malformed request is
-/// the viewer's fault (`Rejected`); a Task that is unreachable or not the
-/// viewer's to operate is a refusal the read path also gives (`Access`); a
-/// message that could not be recorded is the write failing after it was
-/// accepted (`Send`).
+/// Why a stacked action could not be handed to the agent.
+///
+/// `Rejected` is a malformed request; `Access` is unreachable or not
+/// controllable; `Send` is a write that failed after being accepted.
 #[derive(Debug)]
 pub enum ActionError {
     Access(WorkspaceAccessError),
@@ -41,10 +39,11 @@ pub enum ActionError {
     Send(crate::ports::CommandRefusal),
 }
 
-/// Resolve the `cwd`, refuse what the viewer cannot reach, and send the Task's
-/// agent a message asking it to run the action. Nothing touches the checkout
-/// here: the commit, push and pull request are the agent's work, and this only
-/// starts the turn that asks for it.
+/// Resolve the `cwd`, refuse what the viewer cannot reach, and ask the Task's
+/// agent to run the action.
+///
+/// Nothing touches the checkout here — commit, push and PR are the agent's
+/// work; this only starts that turn.
 pub async fn run_stacked_action(
     conversations: &dyn ConversationDao,
     sink: &dyn ThreadCommandSink,
@@ -184,11 +183,10 @@ fn compose_message(
     message
 }
 
-/// The single `action_finished` event the client is answered with. The action
-/// did not run on the checkout, so every step is `skipped_not_requested`; the
-/// toast tells the person the agent was asked instead. The `actionId` and `cwd`
-/// are the ones the button carried, so the client pairs the answer with the
-/// press.
+/// The single `action_finished` event the client is answered with.
+///
+/// Every step is `skipped_not_requested` since nothing ran on the checkout;
+/// `actionId`/`cwd` echo the button press so the client pairs them.
 pub fn asked_agent_event(sent: &AskedAgent) -> Value {
     json!({
         "actionId": sent.action_id,
@@ -220,15 +218,15 @@ fn asked_agent_toast_title(action: &str) -> &'static str {
     }
 }
 
-/// The outcome of preparing a PR-thread: either the local-mode result the client
-/// creates the draft thread from, or a refusal of worktree mode by name.
+/// The outcome of preparing a PR-thread: either the local-mode result the
+/// client creates the draft thread from, or a refusal of worktree mode by name.
 pub enum PreparedThread {
     Local(Value),
     WorktreeUnsupported,
 }
 
-/// Resolve a pull-request reference for the attach-PR dialog, against the primary
-/// repository of the Workspace the `cwd` names. Answers T3's
+/// Resolve a pull-request reference for the attach-PR dialog, against the
+/// primary repository of the Workspace the `cwd` names. Answers T3's
 /// `GitResolvePullRequestResult` (`{pullRequest}`).
 pub async fn resolve_pull_request(
     workspaces: &dyn T3WorkspaceDao,
@@ -250,10 +248,11 @@ pub async fn resolve_pull_request(
     Ok(json!({ "pullRequest": resolved_pull_request_value(&pr) }))
 }
 
-/// Prepare a PR-thread. Local mode resolves the reference and answers the head
-/// branch the client creates the draft thread on, with no worktree. Worktree
-/// mode is refused by name — this surface materializes nothing on disk here — so
-/// each mode is answered explicitly rather than one falling through the other.
+/// Prepare a PR-thread: local mode resolves the reference and answers the head
+/// branch to create the draft thread on, no worktree.
+///
+/// Worktree mode is refused by name, since this surface materializes nothing on
+/// disk; each mode is answered explicitly.
 pub async fn prepare_pull_request_thread(
     workspaces: &dyn T3WorkspaceDao,
     conversations: &dyn ConversationDao,
@@ -311,8 +310,8 @@ fn pull_request_ref_input(payload: &Value) -> Result<(String, String), PullReque
     Ok((cwd, normalize_reference(reference)))
 }
 
-/// `#123` names pull request 123; every other reference is passed through for the
-/// backend to resolve as a bare number or an `owner/repo#N`.
+/// `#123` names pull request 123; every other reference is passed through for
+/// the backend to resolve as a bare number or an `owner/repo#N`.
 fn normalize_reference(reference: &str) -> String {
     reference
         .strip_prefix('#')
@@ -375,13 +374,10 @@ fn resolved_pull_request_value(pr: &ResolvedPullRequest) -> Value {
 }
 
 /// What this deployment can do and who the viewer is signed in as, for
-/// `server.discoverSourceControl`. Environment-scoped and per viewer: git is
-/// always present in a Sandbox, GitHub is the one provider wired, and the
-/// viewer's GitHub auth is their connected credential — `Some` when they hold a
-/// usable one, `None` when they do not — read from their provider-token row, not
-/// from how this session authenticated. `Option` fields carry the Effect wire
-/// form (`{_tag: "None"}` / `{_tag: "Some", value}`) the contract's
-/// `Schema.Option` decodes.
+/// `server.discoverSourceControl`.
+///
+/// GitHub auth reflects the viewer's provider-token row, not session auth;
+/// `Option` fields use the Effect wire form `Schema.Option` decodes.
 pub fn discovery(github: Option<&crate::ports::GithubIdentity>) -> Value {
     json!({
         "versionControlSystems": [{
@@ -440,8 +436,8 @@ mod tests {
     use super::*;
     use std::sync::Mutex;
 
-    /// A conversation with a running Sandbox; only its id and Sandbox intent are
-    /// read on the way to the control gate.
+    /// A conversation with a running Sandbox; only its id and Sandbox intent
+    /// are read on the way to the control gate.
     fn running(task_id: &str) -> crate::dao::Conversation {
         crate::dao::Conversation {
             task_id: task_id.to_string(),
@@ -483,8 +479,8 @@ mod tests {
         }
     }
 
-    /// A sink that records the turns sent to it, so a test can assert both that a
-    /// turn was sent and what the agent was asked. Every other command is a
+    /// A sink that records the turns sent to it, so a test can assert both that
+    /// a turn was sent and what the agent was asked. Every other command is a
     /// test-only `unreachable!` — none of them are on the git action's path.
     #[derive(Default)]
     struct RecordingSink {

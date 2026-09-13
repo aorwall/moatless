@@ -1,6 +1,6 @@
-//! Unit tests for one reconciler tick: which candidates it enumerates, what
-//! it confirms against an authoritative read, and how the attempt budget
-//! bounds a retry.
+//! Unit tests for one reconciler tick: which candidates it enumerates, what it
+//! confirms against an authoritative read, and how the attempt budget bounds a
+//! retry.
 
 use super::*;
 

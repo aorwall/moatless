@@ -12,16 +12,17 @@ pub struct TelegramAdapterConfig {
     pub secret_token: Option<String>,
     /// DM access policy. Default: Open (backward compat).
     ///
-    /// Accepts both the legacy field name `dm_policy` and the shared enum values.
+    /// Accepts both the legacy field name `dm_policy` and the shared enum
+    /// values.
     #[serde(default, alias = "dm_policy")]
     pub dm_access_policy: SourceAccessPolicy,
     /// Telegram user IDs (numeric strings) allowed to DM.
     #[serde(default)]
     pub dm_allowlist: Vec<String>,
-    /// Group access policy. Default: Open.
+    /// Group access policy. Default: `Open`; accepts legacy field
+    /// `group_policy`.
     ///
-    /// Accepts both the legacy field name `group_policy` and the shared enum values.
-    /// Note: `Pairing` is not valid for groups; it is treated as `Allowlist`.
+    /// `Pairing` is not valid for groups and is treated as `Allowlist`.
     #[serde(default, alias = "group_policy")]
     pub group_access_policy: SourceAccessPolicy,
     /// Chat IDs allowed for group messages.
@@ -33,8 +34,8 @@ pub struct TelegramAdapterConfig {
 }
 
 impl TelegramAdapterConfig {
-    /// Parse from a `LoopContext`'s `adapter_config` field.
-    /// Returns default config if field is absent or unparseable.
+    /// Parse from a `LoopContext`'s `adapter_config` field. Returns default
+    /// config if field is absent or unparseable.
     pub fn from_config(config: &LoopContext) -> Self {
         config
             .adapter_config

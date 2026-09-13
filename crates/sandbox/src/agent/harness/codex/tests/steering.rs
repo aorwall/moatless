@@ -49,8 +49,8 @@ async fn a_message_sent_while_the_turn_runs_is_steered_into_it() {
 }
 
 /// The gate: a message that arrives before `turn/started` is not sent
-/// optimistically — steering that early is rejected with `-32600 "no active turn
-/// to steer"` — so it waits, and goes the moment the notification lands.
+/// optimistically — steering that early is rejected with `-32600 "no active
+/// turn to steer"` — so it waits, and goes the moment the notification lands.
 #[tokio::test]
 async fn a_message_that_arrives_before_the_gate_opens_is_held_until_it_does() {
     let (tx, mut server, session) = AppServerSession::scripted();
@@ -83,11 +83,12 @@ async fn a_message_that_arrives_before_the_gate_opens_is_held_until_it_does() {
     );
 }
 
-/// A Stop must not wait out the gate. `cancel` is unreachable while this
-/// `submit` borrows the process, so the handle is what ends the wait — and the
-/// message is handed back for the next Turn rather than dying with this one.
-/// What fires that handle in production is the driver, which races it against
-/// this call: `a_stop_reaches_the_driver_while_a_message_waits_on_the_gate`.
+/// A Stop must not wait out the gate: `cancel` is unreachable while this
+/// `submit` borrows the process, so the handle is what ends the wait.
+///
+/// The message is handed back for the next Turn rather than dying with this
+/// one; in production the driver fires that handle, racing it against this call
+/// (`a_stop_reaches_the_driver_while_a_message_waits_on_the_gate`).
 #[tokio::test]
 async fn a_cancel_while_a_message_is_held_hands_it_back_at_once() {
     let (_tx, _server, session) = AppServerSession::scripted();
@@ -114,14 +115,12 @@ async fn a_cancel_while_a_message_is_held_hands_it_back_at_once() {
     assert!(p.held.is_none(), "nothing may stay held after a failure");
 }
 
-/// The bound on the wait. `turn/started` follows `turn/start` immediately in a
-/// healthy Turn, so this only fires when the server has gone quiet — and then the
-/// message becomes the next Turn rather than waiting on a notification that is
-/// never coming.
+/// The bound on the wait: `turn/started` follows `turn/start` immediately in a
+/// healthy Turn, so this only fires once the server has gone quiet.
 ///
-/// What makes the timeout safe is that it can only fire *before* anything was
-/// sent, which is why this asserts the wire stayed empty: a message the server
-/// might have taken cannot also be handed back, or it is answered twice.
+/// Safe only because it can fire *before* anything was sent — this asserts the
+/// wire stayed empty, since a message the server took cannot also be handed
+/// back without being answered twice.
 #[tokio::test(start_paused = true)]
 async fn a_gate_that_never_opens_hands_the_message_back_having_sent_nothing() {
     // `_tx` stays alive: dropping it would end the stream, which is a different
@@ -143,11 +142,12 @@ async fn a_gate_that_never_opens_hands_the_message_back_having_sent_nothing() {
     );
 }
 
-/// The timeout bounds the gate, not the request. Once `turn/steer` is on the
-/// wire the server may accept it at any moment, so abandoning it would hand the
-/// driver a message the Turn had in fact taken — and it would be acted on twice,
-/// once inside this Turn and once as the next one. A steer waits as long as the
-/// Turn does; the stream ending is what releases it.
+/// The timeout bounds the gate, not the request: once `turn/steer` is on the
+/// wire the server may accept it at any moment.
+///
+/// Abandoning it would hand the driver a message the Turn had already taken,
+/// acting on it twice; a steer instead waits as long as the Turn does, released
+/// only when the stream ends.
 #[tokio::test(start_paused = true)]
 async fn a_steer_already_on_the_wire_is_never_abandoned_for_the_timeout() {
     let (_tx, mut server, session) = AppServerSession::scripted();
@@ -176,9 +176,10 @@ async fn a_steer_already_on_the_wire_is_never_abandoned_for_the_timeout() {
     );
 }
 
-/// Usage is the growth of the Session's cumulative total while the Turn ran, so a
-/// Turn that a message was steered into bills the model requests the steer caused
-/// as well as its own. The baseline is the reading replayed before `turn/started`.
+/// Usage is the growth of the Session's cumulative total while the Turn ran, so
+/// a Turn that a message was steered into bills the model requests the steer
+/// caused as well as its own. The baseline is the reading replayed before
+/// `turn/started`.
 #[tokio::test]
 async fn a_steered_turn_bills_every_model_request_it_made() {
     let (_tx, mut server, session) = AppServerSession::scripted();

@@ -14,10 +14,9 @@ use uuid::Uuid;
 
 /// The single-process store, for a deployment that configures no Redis.
 ///
-/// It agrees with the Redis one about everything a caller can observe, which
-/// is what lets the same test body run against both. What it cannot do is
-/// agree with a *second* process, which is why it is not the production
-/// implementation.
+/// Agrees with the Redis one about everything a caller can observe — enough to
+/// run the same test body against both — but cannot agree with a *second*
+/// process, so it is not the production implementation.
 pub struct InMemoryPreviewTabDao {
     epoch: String,
     state: Mutex<HashMap<String, TaskTabs>>,
@@ -45,11 +44,12 @@ impl InMemoryPreviewTabDao {
 }
 
 impl InMemoryPreviewTabDao {
-    /// The guard never crosses an `.await`, so the only way this lock is
-    /// poisoned is a panic inside one of the short critical sections below.
-    /// The map is still coherent after one — every mutation is a single
-    /// insert, remove or drain — so recovering beats propagating the panic to
-    /// every later caller.
+    /// The guard never crosses an `.await`, so a poison only comes from a panic
+    /// in one of the short critical sections below.
+    ///
+    /// The map stays coherent after one — every mutation is a single insert,
+    /// remove or drain — so recovering beats propagating the panic to every
+    /// later caller.
     fn locked(&self) -> std::sync::MutexGuard<'_, HashMap<String, TaskTabs>> {
         self.state.lock().unwrap_or_else(|poisoned| {
             warn!("The in-process preview tab lock was poisoned; continuing");

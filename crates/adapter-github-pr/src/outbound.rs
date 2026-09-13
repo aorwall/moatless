@@ -16,8 +16,8 @@ use super::subject::GithubPrSubject;
 
 #[async_trait::async_trait]
 impl AdapterBindingReply for GithubPrAdapter {
-    /// Legacy thread-based outbound is not supported for GitHub. Outbound
-    /// goes through `send_reply_for_binding` instead.
+    /// Legacy thread-based outbound is not supported for GitHub. Outbound goes
+    /// through `send_reply_for_binding` instead.
     async fn send_reply(
         &self,
         _thread: &BindingContext,

@@ -1,37 +1,11 @@
-//! E2E test of the production agent path (`spawn_agent`) over BOTH SDK transports.
+//! E2E test of the production agent path (`spawn_agent`) over both transports.
 //!
-//! The live agent runtime is the coordinator service spawned by
-//! `moatless_sandbox::agent::handle::spawn_agent`. The transport switch lives in
-//! the Claude harness, driven by `Config.use_tmux`:
-//! `use_tmux = false` → `claude_agent_sdk::query()` (subprocess / NDJSON `-p`,
-//! one process per turn); `use_tmux = true` → `claude_agent_sdk::query_tmux_streaming()`
-//! (tmux / TUI, persistent session — the TUI survives turn ends and follow-up
-//! sends are pasted into the live session). Both branches share the same
-//! `build_options()`.
-//!
-//! These tests drive the coordinator end-to-end with a no-op `BackendClient` and a
-//! real `claude` CLI, asserting the agent reaches `Idle` with no error.
-//!
-//! Gating (mirrors `crates/claude-agent-sdk/tests/e2e/`): the subprocess test
-//! runs under `CLAUDE_SDK_E2E=1`, the tmux test under `CLAUDE_TMUX_E2E=1` (and
-//! requires `tmux` on PATH). Both are `#[ignore]`, so run with `-- --ignored`.
-//!
-//! Run (a pod's own `ANTHROPIC_*` and `OPENAI_*` variables already route both
-//! CLIs through the proxy, so export no further credential):
-//! `CLAUDE_SDK_E2E=1 cargo test -p moatless-sandbox --test agent_transport_e2e
-//! -- --ignored --nocapture` (use `CLAUDE_TMUX_E2E=1` for the tmux variant).
-//!
-//! The agent binaries are resolved from `CLAUDE_CLI_PATH` and `CODEX_CLI_PATH`
-//! (defaults `/usr/local/bin/claude` and `/usr/local/bin/codex`), and
-//! `auth_credentials` reads `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY` —
-//! set so the tests can run hermetically inside the sandbox image (which ships
-//! both CLIs and `tmux`). Point the two path vars at a candidate build to check
-//! a CLI upgrade before its pin lands in `docker/cli-versions.env`.
-//!
-//! The harness routes Codex the way a pod does: it renders the same
-//! `config.toml` that `init::codex_config` writes from `OPENAI_BASE_URL`, and
-//! Codex takes the key from `OPENAI_API_KEY`. With no base URL it falls back to
-//! `CODEX_AUTH_JSON` against `api.openai.com`.
+//! `Config.use_tmux` switches between `claude_agent_sdk::query()` (subprocess,
+//! one process per turn) and `query_tmux_streaming()` (persistent tmux/TUI
+//! session); both share `build_options()`. Tests drive the coordinator with a
+//! no-op `BackendClient` and a real `claude` CLI, asserting `Idle` with no
+//! error. Gated behind `CLAUDE_SDK_E2E=1` / `CLAUDE_TMUX_E2E=1` and
+//! `#[ignore]`; binaries resolve from `CLAUDE_CLI_PATH` / `CODEX_CLI_PATH`.
 
 #![allow(
     clippy::unwrap_used,
@@ -73,24 +47,25 @@ fn claude_test_model() -> String {
     std::env::var("CLAUDE_TEST_MODEL").unwrap_or_else(|_| DEFAULT_CLAUDE_TEST_MODEL.to_string())
 }
 
-/// A no-tool prompt. `build_options` installs an interactive permission handler
-/// (NOT `--dangerously-skip-permissions`), and the tmux transport IGNORES the
-/// permission handler entirely — so a tool-using prompt would stall on a
-/// permission gate. A pure arithmetic reply needs no tools.
+/// A no-tool prompt.
+///
+/// `build_options` installs an interactive permission handler (not
+/// `--dangerously-skip-permissions`), and the tmux transport ignores it
+/// entirely, so a tool-using prompt would stall on a permission gate.
 const TEST_PROMPT: &str = "What is 2+2? Reply with only the number.";
 
-/// Codex model under test. `None` lets `codex_app_server::resolve_codex_model` fall
-/// through to `DEFAULT_CODEX_MODEL`; override with `CODEX_TEST_MODEL` to pin a
-/// cheaper model.
+/// Codex model under test. `None` lets `codex_app_server::resolve_codex_model`
+/// fall through to `DEFAULT_CODEX_MODEL`; override with `CODEX_TEST_MODEL` to
+/// pin a cheaper model.
 fn codex_test_model() -> Option<String> {
     std::env::var("CODEX_TEST_MODEL").ok()
 }
 
 /// The proxy Codex routes through, read the way `Config::from_env` reads it.
 ///
-/// `Some` puts the CLI on `OPENAI_API_KEY` against the proxy, which is what a
-/// pod does. `None` sends it to `api.openai.com` on the ChatGPT tokens in
-/// `auth.json` — a path no deployment runs, so a pod's key fails there.
+/// `Some` puts the CLI on `OPENAI_API_KEY` against the proxy, like a pod;
+/// `None` falls back to `api.openai.com` on `auth.json`'s ChatGPT tokens — a
+/// path no deployment runs.
 fn codex_base_url() -> Option<String> {
     std::env::var("OPENAI_BASE_URL")
         .ok()
@@ -99,14 +74,11 @@ fn codex_base_url() -> Option<String> {
 
 // ── Auth token from the host environment ────────────────────────────────────
 
-/// Auth credentials forwarded to the agent subprocess. The coordinator's input
-/// build calls `BackendClient::get_credentials` and OVERWRITES the
-/// in-pod credentials map with the result, so the token must be returned here
-/// (preloading the `credentials` `RwLock` alone would be clobbered).
-/// `filter_agent_credentials` retains both Claude auth keys and the Codex keys
-/// (`OPENAI_API_KEY` / `CODEX_AUTH_JSON`); each executor uses only what it
-/// needs, so returning the superset is harmless for both the Claude and Codex
-/// paths.
+/// Auth credentials forwarded to the agent subprocess.
+///
+/// The coordinator's input build calls `get_credentials` and overwrites the in-
+/// pod credentials map, so preloading the `credentials` `RwLock` alone would be
+/// clobbered; the token must come from here.
 fn auth_credentials() -> HashMap<String, String> {
     let mut creds = HashMap::new();
     if let Ok(token) = std::env::var("CLAUDE_CODE_OAUTH_TOKEN") {
@@ -129,11 +101,10 @@ fn auth_credentials() -> HashMap<String, String> {
 // ── No-op backend ───────────────────────────────────────────────────────────
 
 /// Minimal `BackendClient` for driving the coordinator without a real backend.
-/// `get_credentials` returns the host auth token so it reaches the agent env.
-/// Published events are recorded as `"<event_type>/<sub_type>"` strings so
-/// tests can assert on the emitted event sequence (poll-based status checks
-/// can miss sub-millisecond Running windows when the tmux tailer delivers a
-/// whole turn in one batch).
+///
+/// `get_credentials` returns the host auth token; events are recorded as
+/// `"<event_type>/<sub_type>"` strings, since polling can miss sub-millisecond
+/// Running windows when the tmux tailer delivers a whole turn in one batch.
 struct NoopBackend {
     credentials: HashMap<String, String>,
     events: Arc<std::sync::Mutex<Vec<String>>>,
@@ -282,9 +253,9 @@ fn test_config(tmp: &TempDir, use_tmux: bool, agent_type: &str) -> Config {
 /// Event log recorded by the no-op backend: `"<EVENT_TYPE>/<sub_type>"`.
 type EventLog = Arc<std::sync::Mutex<Vec<String>>>;
 
-/// Spawn the production agent lifecycle task wired with a no-op backend. Returns the
-/// handle, the shared agent state, the published-event log, and the `TempDir`
-/// (kept alive by the caller).
+/// Spawn the production agent lifecycle task wired with a no-op backend.
+/// Returns the handle, the shared agent state, the published-event log, and the
+/// `TempDir` (kept alive by the caller).
 fn spawn_test_agent(
     use_tmux: bool,
     agent_type: &str,
@@ -398,10 +369,9 @@ fn init_tracing() {
         .try_init();
 }
 
-/// Poll until the agent leaves `Running` (turn finished). Completion is
-/// observed via state polling — `AgentHandle` has no completion oneshot. The
-/// actor sets Idle (success) or `Idle+last_error` (failure) after the SDK
-/// `Result` message.
+/// Poll until the agent leaves `Running` (turn finished): `AgentHandle` has no
+/// completion oneshot. The actor sets Idle (success) or `Idle+last_error`
+/// (failure) after the SDK `Result` message.
 async fn wait_until_not_running(agent_state: &AgentState, timeout: Duration, what: &str) {
     let deadline = tokio::time::Instant::now() + timeout;
     loop {
@@ -456,12 +426,11 @@ async fn run_agent_roundtrip(use_tmux: bool) {
     handle.stop(StopSource::User);
 }
 
-/// Codex roundtrip body: drives the production `spawn_agent` path with
-/// `agent_type = "codex"`, which routes through `codex_app_server::start` — the
-/// real `codex app-server --stdio` subprocess used in the cluster (NOT the
-/// standalone in-process `codex-sdk` crate). Codex ignores `use_tmux` and always
-/// runs one process per turn, so this mirrors `run_agent_roundtrip` without the
-/// tmux/`session_context_lost` assertions (both are Claude-specific).
+/// Drives `spawn_agent` with `agent_type = "codex"`, routing through the real
+/// `codex app-server --stdio` subprocess, not the standalone `codex-sdk` crate.
+///
+/// Codex ignores `use_tmux`; mirrors `run_agent_roundtrip` minus the
+/// Claude-specific tmux/`session_context_lost` assertions.
 async fn run_codex_roundtrip() {
     init_tracing();
     let (handle, agent_state, _events, _tmp) = spawn_test_agent(false, "codex");
@@ -499,13 +468,11 @@ async fn run_codex_roundtrip() {
     handle.stop(StopSource::User);
 }
 
-/// Restart-resume body: turn 1 runs on actor A, then A is stopped (killing the
-/// CLI session — the pod-restart analogue) and turn 2 runs on a FRESH actor B
-/// with `resume_session_id`. This exercises the tmux JSONL-discovery resume
-/// path — on `claude --resume <id>` claude appends to the existing
-/// `<id>.jsonl` (no new file), so discovery must target the known transcript
-/// directly instead of waiting for a new file (which times out with
-/// `JsonlNotFound`).
+/// Restart-resume body: turn 1 runs on actor A, A is stopped (pod-restart
+/// analogue), and turn 2 resumes via `resume_session_id` on a fresh actor B.
+///
+/// `claude --resume <id>` appends to the existing `<id>.jsonl`, so discovery
+/// must target it directly or it times out with `JsonlNotFound`.
 async fn run_agent_resume(use_tmux: bool) {
     init_tracing();
     let (handle, agent_state, _events, tmp) = spawn_test_agent(use_tmux, "claude-code");
@@ -569,10 +536,11 @@ async fn run_agent_resume(use_tmux: bool) {
     handle.stop(StopSource::User);
 }
 
-/// Multi-turn persistent-session body (tmux): one lifecycle task, two sends. Turn 1
-/// spawns the persistent TUI; turn 2 must be pasted into the SAME live session
-/// (same `session_id`, no respawn) — the coordinator keeps the handle alive across
-/// the turn boundary.
+/// Multi-turn persistent-session body (tmux): one lifecycle task, two sends.
+///
+/// Turn 1 spawns the persistent TUI; turn 2 must be pasted into the same live
+/// session (same `session_id`, no respawn) — the coordinator keeps the handle
+/// alive across the turn boundary.
 async fn run_agent_multi_turn(use_tmux: bool) {
     init_tracing();
     let (handle, agent_state, _events, _tmp) = spawn_test_agent(use_tmux, "claude-code");
@@ -628,15 +596,11 @@ async fn run_agent_multi_turn(use_tmux: bool) {
     handle.stop(StopSource::User);
 }
 
-/// CLI-internal wakeup body (tmux): the agent is told to call `ScheduleWakeup`
-/// with a short delay. In tmux mode the sandbox does NOT arm its own wakeup
-/// job — the CLI's internal timer fires inside the persistent TUI and starts
-/// a turn on its own. The actor must detect that turn and publish a full
-/// turn cycle (`agent/started` + `taskTurn/active` + `agent/completed`).
+/// CLI-internal wakeup body (tmux): the actor must detect and publish a turn
+/// the CLI starts on its own, with no sandbox-initiated send.
 ///
-/// Completion is asserted on the published-event log rather than status
-/// polling: the tmux tailer can deliver the whole internal turn in one batch,
-/// making the `Running` window sub-millisecond and unpollable.
+/// Completion is asserted on the published-event log, not status polling (see
+/// [`NoopBackend`]).
 async fn run_agent_internal_wakeup(use_tmux: bool) {
     init_tracing();
     let (handle, agent_state, events, _tmp) = spawn_test_agent(use_tmux, "claude-code");
@@ -744,12 +708,10 @@ async fn test_spawn_agent_subprocess() {
     run_agent_roundtrip(false).await;
 }
 
-/// The causal CLI-spawn join for the missing/corrupt-restore → `Lost` chain
-/// (Sandbox-recovery testing decision, restore.rs link 1→2): a restore that
-/// leaves no session on disk, then a real `--resume` against that now-absent
-/// transcript, must have the *production* Claude harness classify the CLI's
-/// startup failure as `(UnavailableSession, Lost)` — not merely start a fresh
-/// session. The classification is unit-tested in `claude::classify`; this drives
+/// A restore with no session on disk, then a real `--resume`, must classify as
+/// `(UnavailableSession, Lost)`, not start a fresh session.
+///
+/// The classification itself is unit-tested in `claude::classify`; this drives
 /// the real binary so the spawn→classify join is exercised end to end.
 async fn run_missing_session_resume_is_lost() {
     let tmp = TempDir::new().expect("create tempdir");
@@ -836,16 +798,16 @@ async fn run_missing_session_resume_is_lost() {
 }
 
 /// Missing-restore → `Lost` through the production harness. The harness rejects
-/// the absent restored transcript before spawning the CLI, so this regression is
-/// deterministic and needs neither credentials nor an installed executable.
+/// the absent restored transcript before spawning the CLI, so this regression
+/// is deterministic and needs neither credentials nor an installed executable.
 #[tokio::test]
 async fn test_missing_session_resume_classifies_lost() {
     run_missing_session_resume_is_lost().await;
 }
 
-/// Codex CLI transport (`codex app-server --stdio` subprocess). Gated on `CODEX_E2E=1`.
-/// Needs the `codex` CLI on PATH (baked into the sandbox base image) and
-/// `OPENAI_API_KEY` (or `CODEX_AUTH_JSON`).
+/// Codex CLI transport (`codex app-server --stdio` subprocess). Gated on
+/// `CODEX_E2E=1`. Needs the `codex` CLI on PATH (baked into the sandbox base
+/// image) and `OPENAI_API_KEY` (or `CODEX_AUTH_JSON`).
 #[tokio::test]
 #[ignore]
 async fn test_spawn_agent_codex() {
@@ -866,9 +828,9 @@ async fn test_spawn_agent_tmux() {
     run_agent_roundtrip(true).await;
 }
 
-/// Tmux restart-resume. Turn 1 on actor A; A is stopped (pod-restart
-/// analogue); turn 2 on a fresh actor B resumes by `session_id`, guarding
-/// against the `JsonlNotFound` resume-discovery regression.
+/// Tmux restart-resume. Turn 1 on actor A; A is stopped (pod-restart analogue);
+/// turn 2 on a fresh actor B resumes by `session_id`, guarding against the
+/// `JsonlNotFound` resume-discovery regression.
 #[tokio::test]
 #[ignore]
 async fn test_resume_agent_tmux() {
@@ -878,8 +840,8 @@ async fn test_resume_agent_tmux() {
     run_agent_resume(true).await;
 }
 
-/// Tmux persistent multi-turn: two sends on one actor must share the same
-/// live session (turn 2 is pasted into the running TUI, not respawned).
+/// Tmux persistent multi-turn: two sends on one actor must share the same live
+/// session (turn 2 is pasted into the running TUI, not respawned).
 #[tokio::test]
 #[ignore]
 async fn test_multi_turn_agent_tmux() {
@@ -890,8 +852,8 @@ async fn test_multi_turn_agent_tmux() {
 }
 
 /// Tmux CLI-internal wakeup: the CLI's own `ScheduleWakeup` timer fires inside
-/// the persistent TUI and starts a turn with no sandbox send; the coordinator must
-/// surface and complete it.
+/// the persistent TUI and starts a turn with no sandbox send; the coordinator
+/// must surface and complete it.
 #[tokio::test]
 #[ignore]
 async fn test_internal_wakeup_agent_tmux() {

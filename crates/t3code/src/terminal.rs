@@ -216,17 +216,14 @@ pub async fn open(
         .map(|(snapshot, _)| snapshot)
 }
 
-/// `open`, plus whether this call is what started the session's current process.
+/// `open`, plus whether this call is what started the session's current
+/// process.
 ///
-/// `terminal.open` starts a shell or reuses the one already under that id, and
-/// a running snapshot looks the same either way. A caller that opens a terminal
-/// in order to *put a command in it* needs the difference: writing into a
-/// reused session types into whatever is already running there. `scripts.run`
-/// is that caller.
-///
-/// The answer comes from the sandbox, which owns the session and so can tell a
-/// fresh spawn from a reuse no matter which backend replica asks. Only a sandbox
-/// too old to report it falls back to the replica-local pid heuristic.
+/// A running snapshot looks the same for a fresh shell and a reused one;
+/// `scripts.run` needs the difference, since writing into a reused session
+/// types into whatever is already running. The sandbox itself answers, so any
+/// replica gets the same result; an old sandbox falls back to a replica-local
+/// pid heuristic.
 pub async fn open_reporting_new_process(
     conversations: &dyn ConversationDao,
     sandboxes: &dyn SandboxConnector,
@@ -517,9 +514,9 @@ impl From<sqlx::Error> for TerminalError {
 
 /// Whether the failure means there was no Sandbox to run in.
 ///
-/// [`typed_error`] answers these with `TerminalNotRunningError`, and
-/// `scripts.run` answers them with the `SandboxNotRunningError` its own contract
-/// declares. Both read this rather than the tag, so the two cannot drift.
+/// [`typed_error`] and `scripts.run` each map this to their own contract's
+/// not-running error; both read this rather than the tag, so the two cannot
+/// drift.
 pub fn means_not_running(error: &TerminalError) -> bool {
     match error {
         TerminalError::Workspace(WorkspaceAccessError::NotRunning(_))
@@ -610,10 +607,9 @@ fn cwd_error(payload: &Value, detail: &str) -> Value {
     })
 }
 
-/// The same gate [`workspace::controlled_conversation`] applies, for the calls
-/// that name a thread directly rather than through a `cwd`: readable first, so
-/// a thread this viewer cannot be shown stays unaddressable, then control,
-/// which is what typing into someone's shell is.
+/// The same gate [`workspace::controlled_conversation`] applies, for calls that
+/// name a thread directly rather than through a `cwd`: readable first, then
+/// control — typing into someone's shell requires control.
 async fn controlled_thread(
     conversations: &dyn ConversationDao,
     viewer: &ScopeContext,
@@ -709,7 +705,8 @@ fn optional_env(payload: &Value) -> Result<HashMap<String, String>, TerminalErro
 
 /// Export the Task this terminal was authorized against as `TASK_ID`.
 ///
-/// Stamped per Member; see `crates/sandbox/AGENTS.md` "Spawning a child process".
+/// Stamped per Member; see `crates/sandbox/AGENTS.md` "Spawning a child
+/// process".
 fn stamp_task_id(env: &mut HashMap<String, String>, task_id: &str) {
     env.insert("TASK_ID".to_string(), task_id.to_string());
 }

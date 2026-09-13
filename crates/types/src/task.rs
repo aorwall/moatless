@@ -1,5 +1,5 @@
-//! Task vocabulary: the Task itself, the provenance a Message carries into
-//! one, and what a Task's and a Turn's events say.
+//! Task vocabulary: the Task itself, the provenance a Message carries into one,
+//! and what a Task's and a Turn's events say.
 
 // reason: test code may unwrap freely; production code keeps the workspace `deny`.
 #![cfg_attr(test, allow(clippy::unwrap_used))]
@@ -10,10 +10,10 @@ use serde::{Deserialize, Serialize};
 use crate::access_control::{Scope, ScopedResource};
 use crate::agent::AgentType;
 
-/// The provenance that says a Message reached this Task from outside it,
-/// carried as one value rather than as six positional arguments. An internal
-/// send — a person in the composer, task creation — passes
-/// [`ExternalOrigin::none`].
+/// The provenance that says a Message reached this Task from outside it.
+///
+/// Carried as one value rather than six positional arguments; an internal send
+/// (a person in the composer, task creation) passes [`ExternalOrigin::none`].
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ExternalOrigin<'a> {
     pub event_id: Option<&'a str>,
@@ -23,9 +23,9 @@ pub struct ExternalOrigin<'a> {
     /// The handle the external system knows the writer by, recorded verbatim
     /// and never resolved to a Moatless identity.
     pub author: Option<&'a str>,
-    /// The writer's own id in the external system — a Slack `U0000000001`.
-    /// What the sender label resolves through, since the Moatless user id on
-    /// the send is the subscription's owner when the writer is unmapped.
+    /// The writer's own id in the external system — a Slack `U0000000001`. What
+    /// the sender label resolves through, since the Moatless user id on the
+    /// send is the subscription's owner when the writer is unmapped.
     pub sender_id: Option<&'a str>,
     pub source_task_id: Option<&'a str>,
 }
@@ -46,9 +46,11 @@ impl ExternalOrigin<'_> {
 }
 
 /// Directive carried from a task-creation site to record a `related_to`
-/// relation immediately after the new task is inserted. Use this when a
-/// webhook spawned the new task and we discovered a peer task that shares the
-/// same external artifact (binding `subject_key`) — the peer is not a parent.
+/// relation immediately after the new task is inserted.
+///
+/// Use when a webhook spawned the new task and discovered a peer task sharing
+/// the same external artifact (binding `subject_key`) — the peer is not a
+/// parent.
 #[derive(Debug, Clone)]
 pub struct RelatedTask {
     pub related_task_id: String,
@@ -110,14 +112,12 @@ pub enum TaskTurnSubType {
     Error,
     Stopped,
     /// The turn's sandbox pod terminated involuntarily (eviction, node loss)
-    /// while the turn was active. Emitted immediately by the pod watcher so the
-    /// interruption is visible without waiting for the delayed orphaned-turn
-    /// reconciliation. The turn resumes once the pod reschedules — not a
-    /// terminal error, so `is_error` stays false.
+    /// while the turn was active, emitted immediately by the pod watcher, not
+    /// waiting for orphaned-turn reconciliation.
     ///
-    /// Renamed explicitly: `rename_all = "snake_case"` would yield
-    /// `"interrupted"`, but the wire value (and `as_str`/`TryFrom`/frontend) is
-    /// `"turn_interrupted"` — pin it so the serde-derived OpenAPI schema agrees.
+    /// The turn resumes once the pod reschedules — not terminal, so `is_error`
+    /// stays false. Wire value is pinned to `"turn_interrupted"` (not the
+    /// derived `"interrupted"`) so the OpenAPI schema agrees.
     #[serde(rename = "turn_interrupted")]
     Interrupted,
 }
@@ -247,8 +247,8 @@ crate::string_enum!(
 crate::string_enum!(
     /// Lifecycle status of a single task turn — the `task_turns.status` column.
     ///
-    /// A *turn* is one user-message-and-agent-response cycle. This state is
-    /// written transactionally at the gRPC event ingress, so it is authoritative
+    /// A *turn* is one user-message-and-agent-response cycle; this state is
+    /// written transactionally at the gRPC event ingress, so it's authoritative
     /// rather than derived from the event log.
     TurnStatus {
         /// The agent is processing the turn.
@@ -276,8 +276,8 @@ impl TurnStatus {
     /// Whether a turn in this state is still running.
     ///
     /// `Interrupted` counts: the pod went away mid-turn and the run resumes on
-    /// the same row. Reading it as ended would show a turn that is about to
-    /// carry on as a turn that finished.
+    /// the same row; reading it as ended would show a turn about to carry on as
+    /// one that finished.
     pub fn is_open(self) -> bool {
         matches!(self, Self::Active | Self::Interrupted)
     }
@@ -285,10 +285,10 @@ impl TurnStatus {
     /// The turn state an event's `(type, sub_type)` reports, or `None` for an
     /// event that does not bear turn state.
     ///
-    /// The single table for that mapping. `moatless_tasks` reads it to decide
-    /// what an inbound event writes to `task_turns`; the event publisher reads
-    /// it to stamp what the event says about a working agent. Two readers of
-    /// one table, rather than two tables that have to be kept in step.
+    /// The single table for that mapping: `moatless_tasks` reads it to decide
+    /// what an inbound event writes to `task_turns`, and the event publisher
+    /// reads it to stamp what the event says about a working agent — two
+    /// readers of one table, not two tables kept in step.
     pub fn from_event(event_type: &str, sub_type: &str) -> Option<Self> {
         match (event_type, sub_type) {
             ("taskTurn", "active") => Some(Self::Active),
@@ -309,14 +309,13 @@ impl TurnStatus {
 }
 
 crate::string_enum!(
-    /// Type of a directional link between two tasks. The `from` task points at the
-    /// `to` task via this relation (e.g. a child `created_by` its parent).
+    /// Type of a directional link between two tasks: the `from` task points at
+    /// the `to` task via this relation (e.g. a child `created_by` its parent).
     ///
-    /// `CreatedBy` and `ForkedFrom` are both parent edges and both surface the
-    /// `from` task as a child. They differ in what else follows: only
-    /// `CreatedBy` closes with its parent and reports its agent errors into the
-    /// parent's conversation, because a fork is often the work that continued
-    /// and nobody is waiting on its result.
+    /// `CreatedBy` and `ForkedFrom` are both parent edges surfacing `from` as a
+    /// child, but only `CreatedBy` closes with its parent and reports agent
+    /// errors into the parent's conversation — a fork is often work that
+    /// continued with nobody waiting on it.
     TaskRelationType {
         CreatedBy => "created_by",
         RelatedTo => "related_to",
@@ -435,10 +434,9 @@ mod wire_contract {
 
 /// A unit of agent work.
 ///
-/// The persisted row is wider than this: `tasks.created_at` is a text column,
-/// `created_at_db` is a second timestamp the domain has no use for, and the
-/// enum columns are text. Reading those back is `moatless_tasks`' job — see
-/// `task::models::TaskRow`.
+/// The persisted row is wider than this: `created_at` is text, `created_at_db`
+/// is a second timestamp the domain doesn't use, and enum columns are text.
+/// Reading those back is `moatless_tasks`' job — see `task::models::TaskRow`.
 #[derive(Debug, Clone)]
 pub struct Task {
     pub task_id: String,
@@ -448,9 +446,10 @@ pub struct Task {
     pub agent_type: AgentType,
     pub repository_id: String,
     /// Workspace this task runs against, which provisioning resolves the
-    /// repository composition through. Every created task names one; the column
-    /// stays nullable for rows written before Workspaces existed, which fall
-    /// back to `repository_id`.
+    /// repository composition through.
+    ///
+    /// Every created task names one; nullable only for rows written before
+    /// Workspaces existed, which fall back to `repository_id`.
     pub workspace_id: Option<String>,
     /// Sandbox this task belongs to. A task with no id here has never been
     /// started; the ordinary first start mints a sandbox whose id equals the
@@ -476,10 +475,11 @@ pub struct Task {
     pub visibility: Visibility,
     pub scope: Scope,
     pub owner_user_id: Option<String>,
-    /// The identity this task's Sandbox acts as outward — git-host credentials
-    /// and delivered plugins — when the task names one itself. `None` leaves
-    /// the Workspace's account in charge, falling back to the owner, per
-    /// [`crate::access_control::Actor::run_as`].
+    /// The identity this task's Sandbox acts as outward (git-host credentials,
+    /// delivered plugins), when the task names one itself.
+    ///
+    /// `None` leaves the Workspace's account in charge, falling back to the
+    /// owner, per [`crate::access_control::Actor::run_as`].
     pub run_as_user_id: Option<String>,
     pub updated_at: Option<DateTime<Utc>>,
     pub append_system_prompt: Option<String>,
@@ -501,9 +501,10 @@ pub struct Task {
 
 impl Task {
     /// The task as a [`ScopedResource`] for access-control checks
-    /// (`ScopeContext::can_read` / `can_write`). Ownership falls back to
-    /// `created_by` for rows predating the `owner_user_id` column, matching the
-    /// `COALESCE` in the DAO's scope filter.
+    /// (`ScopeContext::can_read` / `can_write`).
+    ///
+    /// Ownership falls back to `created_by` for rows predating `owner_user_id`,
+    /// matching the `COALESCE` in the DAO's scope filter.
     pub fn scoped_resource(&self) -> ScopedResource {
         ScopedResource::borrowed(
             self.scope,

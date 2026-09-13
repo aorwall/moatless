@@ -71,17 +71,11 @@ async fn following_a_conversation_makes_it_appear_and_unfollowing_removes_it(poo
     assert!(held.threads.is_empty(), "unfollowing takes it off again");
 }
 
-/// The disclosure rule, asserted rather than described.
+/// A removal must name only a conversation this client was actually sent.
 ///
-/// A conversation leaves someone's listing, and every other watching client
-/// re-reads it and finds nothing — indistinguishable, from the re-read alone,
-/// from a conversation they never had. T3's own server emits `thread-removed`
-/// on that empty re-read (`apps/server/src/ws.ts`), which on a shared
-/// deployment hands every connected client the id of every conversation that
-/// was unfollowed, made private or deleted anywhere.
-///
-/// The watcher here holds a conversation of their own, so an implementation
-/// that emitted removals only when it held *nothing* would still fail this.
+/// It must never leak the id of another viewer's unfollowed, private, or
+/// deleted conversation; the watcher here holds one of its own, so an
+/// implementation that only emits removals when idle would still fail.
 #[sqlx::test]
 async fn a_removal_names_only_a_conversation_this_client_was_sent(pool: PgPool) {
     seed_live_project(&pool).await;
@@ -147,19 +141,11 @@ async fn deleting_a_conversation_removes_it_from_a_watching_client(pool: PgPool)
     assert!(held.threads.is_empty());
 }
 
-/// Closing is the way a row leaves that a person performs on purpose, and the
-/// one that comes back: the conversation is not deleted and the follow survives
-/// it, so reopening puts the row on the screen again.
+/// Closing must tell a watching client via the updated row, not a removal.
 ///
-/// A watching client is told, rather than left holding a conversation the next
-/// full listing would not contain — the drift that shows as a sidebar row that
-/// only disappears on reload.
-///
-/// It is told with the row rather than with a removal, because the conversation
-/// has not left the viewer's world: they still follow it and may still read it,
-/// and `archivedAt` is what puts it under the archive instead of the sidebar. A
-/// removal would say something stronger and, on a resumed feed, would not be
-/// sent at all.
+/// The conversation hasn't left the viewer's world — it's still followed and
+/// readable — so a removal would overstate it and wouldn't survive a resumed
+/// feed the way the row does.
 #[sqlx::test]
 async fn closing_a_conversation_removes_it_from_a_watching_client(pool: PgPool) {
     seed_live_project(&pool).await;
@@ -207,9 +193,9 @@ async fn closing_a_conversation_removes_it_from_a_watching_client(pool: PgPool) 
     assert_eq!(held.threads, ["t-live"]);
 }
 
-/// Losing read access is the fourth way a row leaves, and the one no mutation of
-/// the conversation's own row expresses: the follow survives, the conversation
-/// survives, and it still has to go.
+/// Losing read access is the fourth way a row leaves, and the one no mutation
+/// of the conversation's own row expresses: the follow survives, the
+/// conversation survives, and it still has to go.
 #[sqlx::test]
 async fn a_conversation_that_stops_being_readable_is_removed(pool: PgPool) {
     seed_live_project(&pool).await;
@@ -429,12 +415,11 @@ async fn every_remaining_change_kind_moves_the_row(pool: PgPool) {
     }
 }
 
-/// The acceptance criterion the message-send path exists to satisfy, in the
-/// order `message::handlers` performs it: follow first, write second.
+/// Message-send follows `message::handlers`' order: follow first, write second.
 ///
-/// The two changes land between the same pair of polls and coalesce into one
-/// re-read, so what the client gets is the row *and* the message, never the
-/// message against a row it does not hold.
+/// The two changes land between the same poll pair and coalesce into one
+/// re-read, so the client gets the row and the message together, never the
+/// message against a row it doesn't hold.
 #[sqlx::test]
 async fn writing_to_a_conversation_the_author_did_not_follow_adds_the_row(pool: PgPool) {
     // Deployment-scoped, so `user-2` may read the project as well as the
@@ -477,20 +462,11 @@ async fn writing_to_a_conversation_the_author_did_not_follow_adds_the_row(pool: 
     );
 }
 
-/// The same criterion where a delta cannot express it: the conversation is
-/// readable and its project is not, so the client has never been sent the
-/// project the row needs to hang under.
+/// A conversation entering a project the client has never held can't be a
+/// delta.
 ///
-/// Two events at one position deliver one — the client advances its position on
-/// the first and discards the second (`shellReducer.ts:15`) — and there is no
-/// position below the conversation's to put the project at, because the
-/// conversation's change may sit immediately after the last one delivered. So
-/// the feed sends the listing whole instead, which the contract declares as a
-/// stream item and the client applies unconditionally.
-///
-/// Against the obvious implementation — emit the `thread-upserted` alone — this
-/// test fails on the project assertion, and a real client would drop the row
-/// with nothing logged.
+/// Two events at one position collapse into one, so the feed sends the listing
+/// whole instead of a bare `thread-upserted` a real client would silently drop.
 #[sqlx::test]
 async fn a_conversation_entering_a_project_the_client_lacks_arrives_as_a_listing(pool: PgPool) {
     seed_workspaces(&pool).await;
@@ -649,17 +625,11 @@ async fn creating_and_deleting_a_project_waits_for_the_next_snapshot(pool: PgPoo
     assert_eq!(Held::opening(&pool, &viewer).await.projects, ["ws-live"]);
 }
 
-/// The second way a project leaves the listing, which recorded nothing.
+/// Tombstoning a git-declared workspace sets `deleted` and flips `source` to
+/// `manual`, but the row survives.
 ///
-/// Overriding a git-declared workspace tombstones it: the row survives so a
-/// later sync will not recreate it, `source` flips to `manual`, and `deleted`
-/// goes true. `WorkspaceDao::list` still returns it — that is what a
-/// tombstone is for — but the shell listing is built from
-/// `list_readable_including`, whose readable half excludes it and whose
-/// widened half nothing here references. So the group comes off the screen
-/// exactly as an ordinary delete takes it off, and until this recorded, it came
-/// off with nobody told: the client kept rendering the group until something
-/// unrelated moved its listing.
+/// The shell listing excludes it via `list_readable_including`, so this records
+/// nothing; a client only drops it on the next unrelated snapshot.
 #[sqlx::test]
 async fn tombstoning_a_git_declared_project_waits_for_the_next_snapshot(pool: PgPool) {
     let repo = compose::workspaces(pool.clone());
@@ -688,13 +658,11 @@ async fn tombstoning_a_git_declared_project_waits_for_the_next_snapshot(pool: Pg
     assert!(Held::opening(&pool, &viewer).await.projects.is_empty());
 }
 
-/// The same tombstone, with open work still in it.
+/// Tombstoning a Workspace leaves any Task running in it untouched.
 ///
-/// A sync tombstones the Workspace a Task is running in — the Task is
-/// untouched, and it is what the person is in the middle of. Both listings are
-/// built by grouping a conversation under a project the client already holds,
-/// so a tombstone that took the group with it took the row out of the sidebar
-/// and refused the link to it, with nothing on screen to say why.
+/// Both listings group a conversation under a project the client already holds,
+/// so if the tombstone took the group with it, the row would vanish from the
+/// sidebar and refuse its link with no explanation.
 #[sqlx::test]
 async fn a_tombstoned_project_keeps_the_conversations_still_running_in_it(pool: PgPool) {
     let repo = compose::workspaces(pool.clone());
@@ -728,14 +696,11 @@ async fn a_tombstoned_project_keeps_the_conversations_still_running_in_it(pool: 
     );
 }
 
-/// Deleting a repository bulk-deletes every workspace its git tree declared,
-/// because once the source repo is gone no future sync will prune them. The
-/// mutation is Workspace-only, so live clients retain their current groups
-/// until a later snapshot replaces the listing.
+/// Deleting a repository bulk-deletes every workspace its git tree declared;
+/// Task listing is untouched until the next snapshot.
 ///
-/// Driven through the mounted HTTP route rather than the query underneath it:
-/// the statement lives in a handler, and a test that called the handler's
-/// helper directly would pass against a route that never reaches it.
+/// Driven through the mounted HTTP route, not the query underneath, since the
+/// delete statement lives in the handler and a direct call would miss it.
 #[sqlx::test]
 async fn deleting_a_repository_does_not_advance_the_task_listing(pool: PgPool) {
     seed_team(&pool, &format!("personal-{USER_1}")).await;

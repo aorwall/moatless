@@ -65,7 +65,8 @@ impl ToolResult {
     }
 }
 
-/// An SDK MCP tool definition with name, description, input schema, and handler.
+/// An SDK MCP tool definition with name, description, input schema, and
+/// handler.
 pub struct SdkMcpTool {
     pub(crate) name: String,
     pub(crate) description: String,
@@ -95,8 +96,8 @@ impl SdkMcpTool {
 
     /// Set the handler function for this tool.
     ///
-    /// The handler receives the tool arguments as a JSON value and must return
-    /// a `ToolResult`. Use `Box::pin(async move { ... })` to create the future.
+    /// Receives the tool arguments as a JSON value and must return a
+    /// `ToolResult`; wrap the body in `Box::pin(async move { ... })`.
     pub fn handler<F>(mut self, f: F) -> Self
     where
         F: Fn(Value) -> Pin<Box<dyn Future<Output = ToolResult> + Send>> + Send + Sync + 'static,

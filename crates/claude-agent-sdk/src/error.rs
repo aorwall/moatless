@@ -72,10 +72,9 @@ pub enum SdkError {
 
 impl SdkError {
     /// Attach a captured tmux pane tail to the startup-failure variants
-    /// ([`SdkError::TmuxSessionDied`] / [`SdkError::SessionStartTimeout`]) so the
-    /// reason claude exited flows into the surfaced error (and from there into
-    /// the task's error event via `Display`). Returns `self` unchanged for every
-    /// other variant.
+    /// ([`SdkError::TmuxSessionDied`] / [`SdkError::SessionStartTimeout`]) so
+    /// the exit reason flows into `Display` and the task's error event; other
+    /// variants pass through unchanged.
     pub fn with_pane_tail(self, pane: Option<String>) -> Self {
         match self {
             SdkError::TmuxSessionDied { .. } => SdkError::TmuxSessionDied { pane_tail: pane },
@@ -90,8 +89,8 @@ impl SdkError {
 
 /// Max bytes of a captured pane tail embedded in an error's `Display`. Kept
 /// small so the error — surfaced verbatim in the task's error event — stays
-/// readable; `log_startup_failure` still logs the full `PANE_CAPTURE_MAX_BYTES`
-/// (2048) tail to the pod's stdout.
+/// readable; the full `PANE_CAPTURE_MAX_BYTES` (2048) tail still reaches the
+/// pod's stdout via `log_startup_failure`.
 const ERROR_PANE_TAIL_MAX_BYTES: usize = 800;
 
 /// Render a captured tmux pane tail as a trailing clause for an error's

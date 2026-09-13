@@ -3,9 +3,9 @@
 use super::fixtures::*;
 use super::*;
 
-/// The Stop button under a running turn sends the interrupt, and it must
-/// reach the agent-only stop: a person ending a turn keeps their Sandbox.
-/// A session stop is the one that releases it.
+/// The Stop button under a running turn sends the interrupt, and it must reach
+/// the agent-only stop: a person ending a turn keeps their Sandbox. A session
+/// stop is the one that releases it.
 #[tokio::test]
 async fn interrupt_stops_the_agent_and_session_stop_stops_the_sandbox() {
     for (tag, expected) in [

@@ -93,8 +93,9 @@ pub(super) fn classify_stream_error(error: &SdkError) -> HarnessError {
     )
 }
 
-/// Classify a terminal `ResultMessage`: a clean success completes the execution,
-/// any error result becomes a classified failure the coordinator maps to policy.
+/// Classify a terminal `ResultMessage`: a clean success completes the
+/// execution, any error result becomes a classified failure the coordinator
+/// maps to policy.
 pub(super) fn classify_result(result: &ResultMessage) -> ProcessTermination {
     match result {
         // A success carrying no turns is the CLI ending the run without ever

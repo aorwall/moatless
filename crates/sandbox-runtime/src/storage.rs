@@ -1,28 +1,14 @@
 //! Storage backend selection for sandbox workspaces.
 //!
-//! A sandbox workspace (`/opt/moatless`) is persisted by two **independent**
-//! switches, each resolved from `resources.pvc_enabled` / `resources.s3_enabled`
-//! with a per-deployment default when the repo leaves one unset:
+//! A sandbox workspace (`/opt/moatless`) is persisted by two independent
+//! switches, resolved from `resources.pvc_enabled` / `resources.s3_enabled`
+//! with a per-deployment default when unset.
 //!
-//! - **PVC** ([`StorageBackend::pvc`]) — the live copy: a per-task
-//!   `ReadWriteOnce` PVC that survives pod restarts, forces `strategy: Recreate`
-//!   plus a drain wait, and is deleted with the sandbox. Without it the
-//!   workspace is a node-local `emptyDir` that dies with the pod.
-//! - **S3** ([`StorageBackend::s3`]) — the copy that outlives the Deployment;
-//!   `crates/sandbox/src/workspace_sync/` owns the file set.
+//! **PVC** ([`StorageBackend::pvc`]) and **S3** ([`StorageBackend::s3`]) are
+//! documented on those fields.
 //!
-//! The pair decides how a start treats the volume it finds:
-//!
-//! | pvc | s3 | Volume | On start |
-//! |---|---|---|---|
-//! | on | on | PVC | trust the volume; pull from S3 only when it holds nothing usable |
-//! | on | off | PVC | trust the volume; clone when empty |
-//! | off | on | emptyDir | always pull from S3, then clone what the snapshot lacked |
-//! | off | off | emptyDir | always clone |
-//!
-//! [`StorageBackend::restore_if_empty`] is that distinction: with a durable
-//! volume the snapshot is a fallback; without one it is the only persistence
-//! there is.
+//! See [`StorageBackend::restore_if_empty`] for how the pair decides whether a
+//! start trusts the volume or always pulls from S3.
 
 use crate::provisioning::ProvisionPlan;
 
@@ -30,19 +16,21 @@ use crate::provisioning::ProvisionPlan;
 /// choice between tiers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct StorageBackend {
-    /// A per-task PVC backs `/opt/moatless`. When `false`, a node-local
-    /// `emptyDir` does.
+    /// A per-task, `ReadWriteOnce` PVC backs `/opt/moatless` and survives pod
+    /// restarts (forcing `strategy: Recreate` plus a drain wait); when `false`,
+    /// a node-local `emptyDir` backs it instead and dies with the pod.
     pub pvc: bool,
-    /// The sandbox snapshots `WORKSPACE_DIR` to S3.
+    /// The sandbox snapshots `WORKSPACE_DIR` to S3, a copy that outlives the
+    /// Deployment, owned by `crates/sandbox/src/workspace_sync/`.
     pub s3: bool,
 }
 
 impl StorageBackend {
     /// Resolve both switches for a provisioning plan.
     ///
-    /// Each switch is resolved **independently**: a repo that sets only one gets
-    /// the deployment default for the other, so a storage-only override cannot
-    /// silently turn the other switch off.
+    /// Resolved independently: a repo that sets only one switch gets the
+    /// deployment default for the other, so a storage-only override cannot
+    /// silently turn the other off.
     pub fn from_plan(plan: &ProvisionPlan, default_pvc: bool, default_s3: bool) -> Self {
         let resources = plan.repo_config.resources.as_ref();
         Self {
@@ -56,25 +44,24 @@ impl StorageBackend {
         self.pvc
     }
 
-    /// Whether the sandbox is handed `WORKSPACE_SYNC_ENABLED=true` and takes part
-    /// in the pre-stop workspace push.
+    /// Whether the sandbox is handed `WORKSPACE_SYNC_ENABLED=true` and takes
+    /// part in the pre-stop workspace push.
     pub fn syncs_sandbox(self) -> bool {
         self.s3
     }
 
-    /// Whether the sandbox restores from S3 **only** into a volume holding
-    /// nothing usable, rather than on every start.
+    /// Whether the sandbox restores from S3 only into a volume holding nothing
+    /// usable, rather than on every start.
     ///
-    /// True exactly when both switches are on: the PVC is then the live copy and
-    /// overwriting it with an older snapshot would lose work. With no PVC the
-    /// `emptyDir` starts empty every time, so the restore is unconditional and
-    /// this stays false.
+    /// True exactly when both switches are on: the PVC is the live copy and an
+    /// older snapshot would overwrite work. With no PVC the `emptyDir` starts
+    /// empty every time, so the restore is unconditional and this stays false.
     pub fn restore_if_empty(self) -> bool {
         self.pvc && self.s3
     }
 
-    /// Stable label value for metrics (`storage_backend` dimension). Four values,
-    /// one per combination, so cardinality is unchanged.
+    /// Stable label value for metrics (`storage_backend` dimension). Four
+    /// values, one per combination, so cardinality is unchanged.
     pub fn as_metric_label(self) -> &'static str {
         match (self.pvc, self.s3) {
             (true, true) => "pvc+s3",
@@ -85,9 +72,11 @@ impl StorageBackend {
     }
 }
 
-/// Build the S3 key for a task's workspace archive:
-/// `<prefix>/<task_id>/workspace.tar`. The `<prefix>/<task_id>/` portion is the
-/// same one the Kubernetes runtime removes, so uploads and cleanup stay aligned.
+/// Builds the S3 key for a task's workspace archive:
+/// `<prefix>/<task_id>/workspace.tar`.
+///
+/// The `<prefix>/<task_id>/` portion is the same one the Kubernetes runtime
+/// removes, so uploads and cleanup stay aligned.
 pub fn sandbox_key(prefix: &str, task_id: &str) -> String {
     format!("{}/{}/workspace.tar", prefix.trim_end_matches('/'), task_id)
 }
@@ -96,8 +85,7 @@ pub fn sandbox_key(prefix: &str, task_id: &str) -> String {
 /// `<prefix>/<task_id>/repo`.
 ///
 /// Its own segment, so restic's `config`, `keys/`, `snapshots/`, `index/` and
-/// `data/` cannot collide with the tar that sits beside it under the task
-/// prefix.
+/// `data/` cannot collide with the tar sitting beside it under the task prefix.
 pub fn workspace_repository_prefix(prefix: &str, task_id: &str) -> String {
     format!("{}/{}/repo", prefix.trim_end_matches('/'), task_id)
 }
@@ -105,11 +93,10 @@ pub fn workspace_repository_prefix(prefix: &str, task_id: &str) -> String {
 /// Build the S3 prefix a `restic` repository's snapshots sit under:
 /// `<prefix>/<task_id>/repo/snapshots/`.
 ///
-/// Any object here is what tells a restore the task has something to restore. It
-/// takes a listing rather than a `head_object` because a snapshot's id is its content hash, and the
-/// sibling `repo/config` answers the wrong question: `restic::prune` opens the
-/// repository, which creates it, so a task stopped before its first successful
-/// snapshot holds a config and nothing behind it.
+/// Any object here means the task has something to restore; a listing is used
+/// (not `head_object` on `repo/config`) because a snapshot's id is its content
+/// hash, and `restic::prune` creates `config` merely by opening the repo — a
+/// task stopped before its first snapshot has a config and nothing behind it.
 pub fn workspace_repository_snapshots_prefix(prefix: &str, task_id: &str) -> String {
     format!(
         "{}/snapshots/",
@@ -117,8 +104,8 @@ pub fn workspace_repository_snapshots_prefix(prefix: &str, task_id: &str) -> Str
     )
 }
 
-/// The root every snapshot records under, owned by the wire contract the sandbox
-/// and the backend speak — see [`sandbox_proto::SNAPSHOT_ROOT`].
+/// The root every snapshot records under, owned by the wire contract the
+/// sandbox and the backend speak — see [`sandbox_proto::SNAPSHOT_ROOT`].
 pub use sandbox_proto::SNAPSHOT_ROOT;
 
 #[cfg(test)]

@@ -1,29 +1,11 @@
 //! Live control channel for preview-server sidecars.
 //!
 //! A sidecar's start command and env are baked into its container spec, so the
-//! sandbox writes an override into the workspace volume every sidecar mounts and
-//! the sidecar's supervisor re-reads it when the generation counter changes.
-//!
-//! **These files are the record** — there is no database copy to replay from, so
-//! an override lives and dies with the workspace tier. They sit in a
-//! dot-directory at the workspace root, a sibling of the repo checkouts, so they
-//! are never mistaken for repo content.
-//!
-//! Layout under `<workspace_dir>/.moatless/servers/<name>/`:
-//!
-//! | File | Meaning | Read by |
-//! |---|---|---|
-//! | `override.json` | the authored override, verbatim | this module |
-//! | `command` | start-command override; absent = use the baked command | sidecar |
-//! | `env` | shell fragment sourced after `server.env`; absent = no override | sidecar |
-//! | `generation` | monotonic counter — a bump means "restart the child" | sidecar + this module |
-//!
-//! `command` and `env` are derived from `override.json` for a sidecar supervisor
-//! that is bash in an arbitrary image and may have no JSON parser. [`read_all`]
-//! reads `override.json` back — the rendered shell fragment does not round-trip.
-//!
-//! The override is whole-state, not a delta: callers send the complete set, so
-//! this module never merges.
+//! sandbox writes an override into [`CONTROL_SUBDIR`], which its supervisor re-
+//! reads on a generation bump. These files are the record: no database copy
+//! exists, so an override lives and dies with the workspace tier. `command` and
+//! `env` are shell fragments; [`read_all`] reads back `override.json` instead.
+//! The override is whole-state: this module never merges deltas.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -124,11 +106,9 @@ pub async fn apply(
 
 /// Read back every override currently on disk, keyed by server name.
 ///
-/// Servers with no override are absent from the map rather than present with an
-/// empty value, so the caller can tell "never set" from "set to nothing".
-/// A directory that is unreadable or holds malformed JSON is skipped with a
-/// warning: this backs a status read, and a corrupt file for one server must not
-/// blank out the others.
+/// Servers with no override are absent, so the caller can tell "never set" from
+/// "set to nothing"; an unreadable or malformed directory is skipped with a
+/// warning rather than blanking out the others.
 pub async fn read_all(workspace_dir: &str) -> BTreeMap<String, LiveOverride> {
     let root = Path::new(workspace_dir).join(CONTROL_SUBDIR);
     let mut out = BTreeMap::new();
@@ -192,10 +172,11 @@ async fn write_atomic(path: &Path, contents: &str) -> std::io::Result<()> {
     fs::rename(&tmp, path).await
 }
 
-/// Override values are configuration rather than secrets, but they can carry a
-/// token a user pasted in, so they get the same `0600` treatment as
-/// `server.env`. That matters here: this file rides the workspace, which the
-/// `s3` tier tars and uploads.
+/// Override values are config, not secrets, but can carry a token a user pasted
+/// in, so they get the same `0600` treatment as `server.env`.
+///
+/// That matters here: this file rides the workspace, which the `s3` tier tars
+/// and uploads.
 async fn set_owner_only_perms(path: &Path) {
     #[cfg(unix)]
     {

@@ -126,22 +126,18 @@ impl<'a> SlackEvent<'a> {
 
     /// The writer's own Slack id, where the event names one.
     ///
-    /// A bot post carries its identity in `bot_id` and leaves `user` absent,
-    /// which `from_payload` reads as `""`. Persisting that would label the
-    /// writer `slack: ` and name nobody, so it resolves to no id at all and the
-    /// header falls back to the handle or is omitted.
+    /// A bot post leaves `user` absent (read as `""` by `from_payload`);
+    /// persisting that would label the writer `slack: ` and name nobody, so
+    /// this resolves to no id at all.
     fn sender_external_id(&self) -> Option<String> {
         (!self.user.is_empty()).then(|| self.user.to_string())
     }
 
-    /// Resolve the message text. The top-level `text` is empty for app/bot
-    /// posts that carry their content in Block Kit `blocks` or legacy
-    /// `attachments` (e.g. CI notifiers posting via incoming webhooks).
-    /// Mirror the thread-history precedence (blocks → attachments → text) so
-    /// such messages aren't dropped as empty. The block/attachment helpers
-    /// already run `format_slack_text` internally; the plain-text branch
-    /// formats explicitly. We deliberately do NOT strip the bot's own
-    /// `<@bot_id>` mention — the agent's system prompt explains that token.
+    /// Resolve the message text: Block Kit `blocks`, then legacy `attachments`,
+    /// then top-level `text` — mirroring thread-history precedence.
+    ///
+    /// Deliberately keeps the bot's own `<@bot_id>` mention; its system prompt
+    /// explains that token.
     fn clean_text(&self) -> String {
         self.body
             .get("blocks")
@@ -159,17 +155,12 @@ impl<'a> SlackEvent<'a> {
     }
 }
 
-/// Slack `message` events carry a `subtype` for system notifications — channel
-/// join/leave, topic/purpose/name changes, archives, pins, edits, deletes, … —
-/// rather than genuine user input. These must never be treated as task loops:
-/// in `all_messages` mode an unfiltered `channel_join` ("X has joined the
-/// channel") otherwise spawns a task for every new member.
+/// Slack `message` events carry a `subtype` for system notifications
+/// (join/leave, topic changes, edits, pins, …), not genuine user input;
+/// `all_messages` mode would spawn a task per notification.
 ///
-/// Deliberately absent:
-/// - `bot_message` — foreign-bot posts are real content, gated separately by
-///   `allow_bot_messages` (and the `bot_id` field), so they flow through here.
-/// - `file_share`, `thread_broadcast`, `me_message` — these subtypes DO carry
-///   user input and must continue to be processed.
+/// `bot_message`, `file_share`, `thread_broadcast`, and `me_message` are
+/// deliberately absent — they carry real content and must still be processed.
 fn is_ignored_message_subtype(subtype: &str) -> bool {
     matches!(
         subtype,
@@ -206,8 +197,8 @@ fn is_ignored_message_subtype(subtype: &str) -> bool {
 
 /// Every drop decided from the payload alone, before a single Slack call.
 ///
-/// `Ok(is_bot_message)` when the event survives — true when the `bot_id` field
-/// marked it as a foreign bot post that `allow_bot_messages` let through.
+/// `Ok(is_bot_message)` when the event survives — true when `bot_id` marked a
+/// foreign bot post that `allow_bot_messages` let through.
 fn screen(
     event: &SlackEvent<'_>,
     slack_config: &SlackAdapterConfig,
@@ -314,10 +305,9 @@ fn screen(
 
 /// Put a name to every Slack id the message text still mentions.
 ///
-/// Each id resolves to the Moatless login it is linked to, else to the handle
-/// Slack knows it by, else stays an id. The bot's own id is deliberately left
-/// alone: its system prompt tells it that `<@its_id>` is how it is addressed,
-/// and renaming it there would break that.
+/// Resolves to the linked Moatless login, else the Slack handle, else stays an
+/// id. The bot's own id is left alone: its system prompt explains `<@its_id>`
+/// as its address.
 async fn name_mentioned_users(text: &str, ctx: &NormalizeContext<'_>) -> String {
     let ids = super::format::mentioned_user_ids(text);
     if ids.is_empty() {
@@ -362,14 +352,9 @@ fn unmapped_sender_notice(email: Option<&str>) -> String {
 
 /// Normalize one Slack Events API payload.
 ///
-/// Deduplication is not done here — it happens durably when the caller admits
-/// the message, keyed on the envelope's `event_id`. Re-normalizing a
-/// re-delivery is the price, and it is paid twice over: a repeat `users.info`
-/// call, and a repeat notice if the sender is unmapped. It is still the right
-/// trade — normalization is what decides whether there is any work to admit, so
-/// declining to repeat it means acknowledging a delivery whose admission was
-/// never attempted, which is how a webhook gets lost outright rather than
-/// duplicated.
+/// Deduplication happens durably at admission, keyed on `event_id`, not here:
+/// normalization decides whether there's work to admit, so skipping it on a
+/// re-delivery would lose the webhook outright rather than dedup it.
 pub(super) async fn normalize(
     payload: &serde_json::Value,
     ctx: &NormalizeContext<'_>,

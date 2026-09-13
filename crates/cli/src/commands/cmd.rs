@@ -14,7 +14,8 @@ use sandbox_proto::{
     KillCommandRequest, ListCommandsRequest, ManagedCommand, ManagedCommandState, RunCommandRequest,
 };
 
-/// Lines of the log tail printed by `status` and `logs` when no `--lines` is given.
+/// Lines of the log tail printed by `status` and `logs` when no `--lines` is
+/// given.
 const DEFAULT_LOG_LINES: usize = 50;
 
 /// How long `run` waits before checking that the command is still alive, so an
@@ -32,9 +33,9 @@ pub enum CmdAction {
         /// meant typed here.
         #[arg(long, short = 'C')]
         cwd: Option<String>,
-        /// Seconds before the sandbox kills it and marks it timed out.
-        /// Defaults to 4h. Raise it for a longer build; lower it so a hung
-        /// command cannot hold the sandbox open for hours.
+        /// Seconds before the sandbox kills it and marks it timed out. Defaults
+        /// to 4h. Raise it for a longer build; lower it so a hung command
+        /// cannot hold the sandbox open for hours.
         #[arg(long, short = 't')]
         timeout: Option<u64>,
         /// Human label for status output. Defaults to the command itself.
@@ -254,10 +255,9 @@ fn print_json(commands: &[&ManagedCommand]) {
 
 /// Resolve `--cwd` against `base`, the directory this CLI was run from.
 ///
-/// The sandbox spawns the command from its own process, so a relative path sent
-/// over the wire would resolve against *that* directory rather than the
-/// caller's. Absolute values pass through; an absent one means the caller's
-/// directory, so a command means what it would have meant typed here.
+/// The sandbox spawns the command from its own process, so a relative path
+/// would otherwise resolve against *that* directory instead of the caller's.
+/// Absolute values pass through; an absent one means the caller's directory.
 fn resolve_cwd(cwd: Option<String>, base: Option<PathBuf>) -> Option<String> {
     match cwd {
         None => base.map(|p| p.display().to_string()),

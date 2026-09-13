@@ -14,7 +14,8 @@ pub struct SyncResult {
     pub workspaces: WorkspaceSyncSummary,
 }
 
-/// Synchronize Loop approval/configuration before best-effort workspace refresh.
+/// Synchronize Loop approval/configuration before best-effort workspace
+/// refresh.
 pub async fn sync_config(
     repositories: &Repositories,
     loop_sync: &LoopSyncService,

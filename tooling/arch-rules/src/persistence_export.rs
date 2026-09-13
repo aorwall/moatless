@@ -1,12 +1,11 @@
 //! Domain persistence stays inside the crate that owns its tables.
 //!
-//! The check reads the module tree rather than the filesystem, in the default
-//! build and in a `test-support` build, so an alias, a glob, a re-export chain,
-//! a public signature or a feature gate cannot carry a store out of its crate.
+//! The check reads the module tree rather than the filesystem in both the
+//! default and `test-support` builds, so no alias, glob, re-export, signature,
+//! or feature gate can carry a store out of its crate.
 //!
-//! [`CONCERNS`] is the migration inventory that `.plans/completed/dao-persistence-migration.md`
-//! works through. The rule reconciles it against the workspace and against
-//! [`TABLES`], so a persistence root or a table that is added, moved or deleted
+//! [`CONCERNS`] is the migration inventory the rule reconciles against the
+//! workspace and against [`TABLES`]; an added, moved, or deleted root or table
 //! fails here until the inventory records it.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -21,8 +20,8 @@ use crate::workspace::Workspace;
 
 pub const RULE: &str = "persistence-export";
 
-/// One persistence concern: where its stores sit, which tables it owns, and
-/// the migration slice that makes it private.
+/// One persistence concern: where its stores sit, which tables it owns, and the
+/// migration slice that makes it private.
 pub struct Concern {
     /// The concern's name in `.plans/completed/dao-persistence-migration.md`.
     pub name: &'static str,
@@ -35,15 +34,15 @@ pub struct Concern {
     /// exactly one concern, which is not the same as being read by one: a
     /// reader of somebody else's table is a `table-ownership` question.
     pub tables: &'static [&'static str],
-    /// The slice in `.plans/completed/dao-persistence-migration.md` that privatizes it.
+    /// The slice in `.plans/completed/dao-persistence-migration.md` that
+    /// privatizes it.
     pub slice: u8,
 }
 
 /// Every persistence root in the workspace, at `fbac88ec6362`.
 ///
-/// A root is a module the DAO layout claims — `dao.rs`, `*_dao.rs`, or a `dao/`
-/// directory — or a store that sits outside that layout and is listed here so
-/// the reconciliation still finds it.
+/// A root is a module the DAO layout claims (`dao.rs`, `*_dao.rs`, `dao/`), or
+/// a store outside that layout listed here so reconciliation still finds it.
 pub const CONCERNS: &[Concern] = &[
     Concern {
         name: "file metadata",
@@ -392,19 +391,13 @@ pub const CONCERNS: &[Concern] = &[
 ];
 
 /// Database infrastructure every band may name: the pool, the migrations and
-/// the access predicates.
-///
-/// Widening this list is a scope change, not a fix.
+/// the access predicates. Widening this list is a scope change, not a fix.
 const INFRASTRUCTURE: &[(&str, &str)] = &[("moatless-core", "crates/core/src/db")];
 
-/// The change-feed transaction interface, enumerated.
+/// The change-feed transaction interface, enumerated path by path.
 ///
-/// Every mutation that a reader must learn about allocates its position in the
-/// mutation's own transaction, so these operations take the caller's connection
-/// and cross a band. Each one has a caller outside `moatless-core`; the feed's
-/// own helpers and its row decoders do not, and stay behind the rule. Written
-/// path by written path rather than by module, so a new export from either feed
-/// store fails here until this list records it.
+/// Each entry has a caller outside `moatless-core`, so a new export from either
+/// feed store fails here until this list records it.
 const FEED_OPERATIONS: &[(&str, &str)] = &[
     (
         "moatless-core",
@@ -497,9 +490,8 @@ fn dao_layout(file: &str) -> bool {
 
 /// Whether a name is a store's, whatever module it sits in.
 ///
-/// Two shapes, both drawn from the workspace's own naming: the `Dao` suffix on
-/// a store, and the `Pg` prefix on a PostgreSQL implementation. A domain value
-/// is never classified from its suffix.
+/// Matches the `Dao` suffix or the `Pg` prefix; a domain value is never
+/// classified from its suffix alone.
 fn store_name(name: &str) -> bool {
     name.ends_with("Dao") || name.strip_prefix("Pg").is_some_and(|rest| !rest.is_empty())
 }
@@ -544,8 +536,8 @@ fn paths<'a>(entries: impl Iterator<Item = (&'a str, &'a str)>, package: &str) -
         .collect()
 }
 
-/// What one crate keeps private, what it may publish, and where its
-/// persistence sits.
+/// What one crate keeps private, what it may publish, and where its persistence
+/// sits.
 fn layout_of<'a>(
     package: &str,
     sources: &BTreeMap<String, String>,
@@ -674,8 +666,8 @@ fn table_drift() -> Vec<Violation> {
 
 /// Render the inventory `.plans/dao-persistence-migration-inventory.md` holds.
 ///
-/// The caller matrix each slice needs is here rather than in [`CONCERNS`]: it
-/// is a snapshot of one commit, and the rule asserts nothing about it.
+/// The caller matrix each slice needs lives here rather than in [`CONCERNS`],
+/// as a snapshot the rule asserts nothing about.
 pub fn inventory(ws: &Workspace) -> Result<String> {
     let mut concerns = Vec::new();
     let mut unrooted = Vec::new();
@@ -785,9 +777,8 @@ fn constructors(sources: &BTreeMap<String, String>, roots: &[&str]) -> Result<Ve
 
 /// Every `use` in the workspace, resolved to the canonical path it names.
 ///
-/// Resolution follows re-export chains, so a consumer that imports a store
-/// through another crate's facade is counted against the crate that declares
-/// the store.
+/// Resolution follows re-export chains, so a consumer importing a store through
+/// another crate's facade is counted against the crate that declares it.
 fn resolved_imports(ws: &Workspace) -> Result<Vec<Consumer>> {
     let index = ws.index()?;
     Ok(index
@@ -1132,8 +1123,8 @@ mod tests {
         );
     }
 
-    /// A public constructor that accepts a private store hands the store out
-    /// in its signature, tuple fields and free functions included.
+    /// A public constructor that accepts a private store hands the store out in
+    /// its signature, tuple fields and free functions included.
     #[test]
     fn a_public_signature_that_names_private_persistence_fails() {
         let found = findings(
@@ -1263,10 +1254,9 @@ mod tests {
 
     /// The checkout the two exception-list drift tests below read.
     ///
-    /// [`CONCERNS`] drifts against [`root_drift`] and the baseline against
-    /// `the_baseline_holds_no_fixed_violations`. [`INFRASTRUCTURE`] and
-    /// [`FEED_OPERATIONS`] are the remaining lists, and an entry in either one
-    /// has to name something that is still there.
+    /// [`CONCERNS`] drifts against [`root_drift`]; [`INFRASTRUCTURE`] and
+    /// [`FEED_OPERATIONS`] drift when an entry stops naming something still
+    /// there.
     fn workspace() -> Workspace {
         Workspace::load(crate::workspace::workspace_root()).unwrap()
     }

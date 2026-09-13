@@ -1,18 +1,14 @@
 //! The desired-state reconciler — the single async recovery owner for level
 //! states.
 //!
-//! One tick: enumerate DB candidates (desired-Running participants + incomplete
-//! markers) ∪ pending-message wakes ∪ Tasks the fleet observation shows as live,
-//! observe the fleet once, and for each candidate compare intent against
-//! observed via [`reconcile::decide`](super::reconcile::decide). A divergence is
-//! confirmed with an authoritative per-Task read, then driven through a lifecycle
-//! operation — never a direct runtime mutation. Retries are bounded by a
-//! leader-local [`AttemptBudget`] with exponential backoff; permanent failures
-//! and Closed are never retried.
+//! Each tick compares intent against fleet-observed status via
+//! [`reconcile::decide`](super::reconcile::decide); a divergence is confirmed
+//! with an authoritative per-Task read before it drives a lifecycle operation
+//! (never a direct mutation), retried via a leader-local [`AttemptBudget`]
+//! until permanent failure or Closed.
 //!
-//! The reconciler holds no lease logic itself: the loop that drives
-//! [`Reconciler::reconcile_once`] is lease-elected on Kubernetes and lease-free
-//! single-replica on Docker.
+//! Holds no lease logic itself: [`Reconciler::reconcile_once`] is lease-elected
+//! on Kubernetes, lease-free single-replica on Docker.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
@@ -52,10 +48,9 @@ pub struct SandboxMember {
 
 /// Delivers a pending-message wake to an already-Ready sandbox over gRPC.
 ///
-/// A wake whose gRPC notification is lost while the sandbox is already Ready is
-/// not rescued by a start (the sandbox never restarts), so the reconciler
-/// re-notifies a woken Ready Task until its pending rows are acknowledged.
-/// Idempotent and fire-and-forget.
+/// A lost notification isn't rescued by a start (an already-Ready sandbox never
+/// restarts), so the reconciler re-notifies until pending rows are
+/// acknowledged; idempotent and fire-and-forget.
 #[async_trait]
 pub trait NotifyPort: Send + Sync {
     async fn notify(&self, task_id: &str);
@@ -63,9 +58,9 @@ pub trait NotifyPort: Send + Sync {
 
 /// Registers durable Sandbox members into a running sandbox process.
 ///
-/// Replaying a registered member must be harmless: the sandbox-side
-/// `JoinTask` handler is idempotent, and the reconciler uses that property to
-/// repair pod restarts without relying on process memory.
+/// Replaying a member must be harmless — the sandbox-side `JoinTask` handler is
+/// idempotent — so the reconciler uses it to repair pod restarts without
+/// relying on process memory.
 #[async_trait]
 pub trait MemberRegistryPort: Send + Sync {
     async fn ensure_registered(&self, member: &SandboxMember) -> Result<(), MemberRegistryError>;
@@ -100,10 +95,11 @@ impl MemberRegistryError {
     }
 }
 
-/// How long an identical member-registration failure stays suppressed before it
-/// is re-logged at `warn!`. The reconciler re-attempts every member on every
-/// tick (~30s); without this, one permanently-failing member floods the log
-/// with an identical line every tick forever.
+/// How long an identical member-registration failure stays suppressed before
+/// it's re-logged at `warn!`.
+///
+/// Without this, a permanently-failing member (retried every ~30s tick) floods
+/// the log with an identical line forever.
 const MEMBER_REG_RELOG_INTERVAL: Duration = Duration::from_mins(10);
 
 /// Dedup key for a running member: `(sandbox_id, task_id)`.
@@ -127,8 +123,9 @@ enum MemberFailureLog {
     Suppress,
 }
 
-/// True once `relog_after` has elapsed since `last_warned_at`. An unrepresentable
-/// interval (absurd config) re-logs rather than suppressing forever.
+/// True once `relog_after` has elapsed since `last_warned_at`. An
+/// unrepresentable interval (absurd config) re-logs rather than suppressing
+/// forever.
 fn member_relog_due(
     last_warned_at: DateTime<Utc>,
     now: DateTime<Utc>,
@@ -140,8 +137,8 @@ fn member_relog_due(
     }
 }
 
-/// Record a member-registration failure and decide whether to warn. Warns on the
-/// first failure for a member, when the error text changes, or once
+/// Record a member-registration failure and decide whether to warn. Warns on
+/// the first failure for a member, when the error text changes, or once
 /// `relog_after` has elapsed since the last warn; otherwise suppresses.
 fn note_member_failure(
     failures: &mut HashMap<MemberKey, MemberFailure>,
@@ -179,10 +176,11 @@ fn note_member_failure(
     }
 }
 
-/// Flatten an error and its `source()` chain into one line. `MemberRegistryError`
-/// carries the underlying `tonic::Status` (via `classify_grpc_error`) only as a
-/// `#[source]`, which `Display` omits — so the gRPC code/message that actually
-/// explains the failure would otherwise never reach the log.
+/// Flatten an error and its `source()` chain into one line.
+///
+/// `MemberRegistryError` carries the underlying `tonic::Status` only as
+/// `#[source]`, which `Display` omits — without this, the gRPC code/message
+/// that explains the failure never reaches the log.
 fn format_error_chain(err: &dyn std::error::Error) -> String {
     let mut out = err.to_string();
     let mut source = err.source();
@@ -273,8 +271,8 @@ pub struct ReconcilerConfig {
     /// Attempts per operation generation before a transient failure gives up
     /// until a new caller operation or a wake.
     pub attempt_cap: u32,
-    /// Grace after an intent change before the reconciler acts, so a caller's own
-    /// in-flight operation converges without the reconciler racing it.
+    /// Grace after an intent change before the reconciler acts, so a caller's
+    /// own in-flight operation converges without the reconciler racing it.
     pub grace: Duration,
     /// Exponential-backoff base and ceiling between transient retries.
     pub backoff_base: Duration,
@@ -585,17 +583,12 @@ impl Reconciler {
     /// Re-notify a Ready sandbox of its pending wake, spaced by leader-local
     /// exponential backoff keyed by Task.
     ///
-    /// `task_id` is the Sandbox's candidate, which is a handle on the Sandbox
-    /// and not necessarily the Task the work is queued for: several Tasks can
-    /// share one Sandbox, and the candidate is the oldest of them. The pod
-    /// dispatches per Task, so the wake is delivered to each member holding an
-    /// unclaimed message. Notifying the candidate alone would leave a Task that
-    /// joined an existing Sandbox undispatched forever, since its message never
-    /// clears the wake and the wake never reaches it.
-    ///
-    /// The backoff stays keyed on the candidate: the wake is one per Sandbox,
-    /// so the whole fan-out shares its spacing, and `retries` keeps tracking the
-    /// candidate set that `reconcile_once` retains.
+    /// `task_id` is the Sandbox's candidate (its oldest Task), not necessarily
+    /// who queued the work — several Tasks can share a Sandbox, so this
+    /// notifies every member with an unclaimed message, not just the candidate,
+    /// or a Task that joined an existing Sandbox would never be dispatched;
+    /// backoff stays keyed on the candidate since the wake and its fan-out
+    /// share one spacing.
     async fn maybe_notify(&self, task_id: &str, now: DateTime<Utc>) {
         let due = {
             let mut guard = self
@@ -693,12 +686,10 @@ impl Reconciler {
         true
     }
 
-    /// Record one operation's result against the Task's budget.
-    ///
-    /// Returns what the give-up event needs when this call is the one that
-    /// **spends** the budget, so the caller publishes the terminal
-    /// `recovery_exhausted` fact exactly once per generation. Returns `None`
-    /// otherwise, including on a budget that was already spent.
+    /// Returns what the give-up event needs only when this call is the one that
+    /// spends the budget, so the caller publishes `recovery_exhausted` exactly
+    /// once per generation; `None` otherwise, including on an already-spent
+    /// budget.
     fn record_outcome(
         &self,
         task_id: &str,
@@ -759,13 +750,10 @@ impl Reconciler {
         }
     }
 
-    /// Publish the terminal give-up fact. Without it, a Task whose recovery is
-    /// spent shows one deduped `error` and then silence forever — the reader
-    /// cannot tell "still retrying" from "never coming back on its own".
-    ///
-    /// Scoped to the marker's generation, so it needs one: a first attempt that
-    /// spends the budget before any marker is persisted has nothing stable to
-    /// key on and is left to the logs.
+    /// Without it a spent Task shows one deduped `error` then silence forever —
+    /// unreadable as "still retrying" vs "never coming back". Scoped to the
+    /// marker's generation, so a first attempt that spends the budget before
+    /// any marker exists has nothing to key on and is left to the logs.
     async fn publish_recovery_exhausted(
         &self,
         task_id: &str,

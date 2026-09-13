@@ -8,17 +8,11 @@
 )]
 //! Smoke test for claude-agent-sdk.
 //!
-//! Verifies:
-//! 1. The `claude` CLI on PATH matches `CLAUDE_CLI_VERSION` in
-//!    `docker/Dockerfile.sandbox-base` — catches pin drift.
-//! 2. Single roundtrip System → Assistant → Result, with
-//!    `System.session_id == Result.session_id`.
-//! 3. Per-turn `--resume <session_id>` recalls context across two turns —
-//!    this is exactly how the sandbox dispatches multi-turn tasks
-//!    (`crates/sandbox/src/agent/options.rs:151-163`).
-//!
-//! Gated on `CLAUDE_SDK_E2E=1`. Run:
-//!   `CLAUDE_SDK_E2E=1` cargo test -p claude-agent-sdk --test smoke -- --ignored --nocapture
+//! Verifies the `claude` CLI on PATH matches `CLAUDE_CLI_VERSION` in
+//! `docker/Dockerfile.sandbox-base` (catches pin drift), a single roundtrip
+//! System → Assistant → Result with matching `session_id`s, and that per-turn
+//! `--resume <session_id>` recalls context across two turns — how the sandbox
+//! dispatches multi-turn tasks. Gated on `CLAUDE_SDK_E2E=1`.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

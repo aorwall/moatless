@@ -1,14 +1,10 @@
 //! Granting access to a task's workspace `restic` repository.
 //!
-//! Two things a presigned URL cannot carry. `rustic_core` lists the repository
-//! by prefix on every open, and a signature covers one key; and the repository
-//! is encrypted, so reaching the bytes without the password reads nothing.
-//!
-//! Both are scoped by task: the STS session policy names only the prefixes
-//! asked for, and each prefix's password is derived from the task id that owns
-//! it. A fork adds its source's prefix as a second, read-only one. The sandbox
-//! takes this over gRPC to run its own sync; an administrator takes it over
-//! HTTP to open the repository with the `restic` CLI.
+//! A presigned URL can't scope `rustic_core`'s prefix listing or carry the
+//! repository's password, so access is an STS session naming only the prefixes
+//! asked for, plus a derived per-task password; a fork's source prefix comes
+//! along read-only. The sandbox takes this over gRPC; an admin, over HTTP with
+//! the `restic` CLI.
 
 use moatless_core::workspace_repository::derive_repository_password;
 use moatless_sandbox_runtime::storage::workspace_repository_prefix;
@@ -32,9 +28,9 @@ pub struct RepositoryGrant {
 
 /// A fork source's repository: what the holder restores from and never writes.
 ///
-/// Separate from the fields above because the difference is the point — the
-/// session policy grants this prefix `s3:GetObject` and listing only, and it is
-/// encrypted under its own task's password rather than the holder's.
+/// Kept separate because the difference is the point: the session policy grants
+/// this prefix `s3:GetObject` and listing only, encrypted under its own task's
+/// password rather than the holder's.
 #[derive(Debug, Clone)]
 pub struct SourceRepository {
     /// Key prefix the source repository is rooted at, with no trailing slash.
@@ -54,10 +50,9 @@ impl RepositoryGrant {
 
 /// Why a grant could not be made.
 ///
-/// One case, because [`WorkspaceRepositoryAccess::new`] returns `None` on a
-/// deployment with no role, secret or bucket — so a value of that type is
-/// always fully configured and the "not configured" answer is the `Option`,
-/// upstream of every call to [`WorkspaceRepositoryAccess::grant`].
+/// One case: [`WorkspaceRepositoryAccess::new`] returns `None` without a role,
+/// secret or bucket, so "not configured" is answered before any call to
+/// [`WorkspaceRepositoryAccess::grant`].
 #[derive(Debug, thiserror::Error)]
 pub enum GrantError {
     #[error("assuming the workspace repository role failed")]
@@ -108,11 +103,8 @@ impl WorkspaceRepositoryAccess {
     /// Access to `task_id`'s repository, plus read-only access to
     /// `source_task_id`'s, and nothing else in the bucket.
     ///
-    /// Only the task's own prefix is writable, whatever the source is. A
-    /// repository is written as well as read, so a fork that could write its
-    /// source's prefix would snapshot over the tree the source restores from.
-    /// The caller decides whether there is a source at all; a fork that already
-    /// holds a repository of its own passes `None` and reads nothing else.
+    /// Only the task's prefix is writable — a fork could otherwise overwrite
+    /// what its source restores from; without one, `None` reads nothing else.
     pub async fn grant(
         &self,
         task_id: &str,

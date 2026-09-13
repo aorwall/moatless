@@ -31,15 +31,8 @@ pub(crate) const CONNECTION_DEFECTS: &str = "moatless_ui_rpc_connection_defects_
 /// Seconds one connection spent answering a frame and so unable to read its
 /// socket.
 ///
-/// Measures the frame loop, which every frame crosses: what a detached request
-/// contributes is the dispatch that spawned it, because the loop reads its next
-/// frame while the handler runs. What a queued frame waited for is not
-/// observable here — a frame is
-/// already read by the time `incoming.next()` yields it. Unlabeled
-/// deliberately: which method is slow is [`REQUEST_DURATION`]'s question, and
-/// this one is how long a single frame holds a loop. Saturation is a further
-/// step: it needs a count of open connections to divide by, which this crate
-/// does not export.
+/// Unlabeled deliberately — this is how long a single frame holds the loop,
+/// not which method is slow.
 pub(crate) const CONNECTION_BLOCKED: &str = "moatless_ui_rpc_connection_blocked_seconds";
 
 /// Register the descriptions during compatibility router assembly.
@@ -61,10 +54,9 @@ pub(crate) fn describe() {
 
 /// What one request told the client, read off the frames it answered with.
 ///
-/// The names are the client's vocabulary, not this crate's: `Fail` and `Die`
-/// are the two `Cause` tags T3 decodes differently — a `Fail` is an outcome the
-/// method's contract declares and the UI renders in its own words, a `Die` is a
-/// defect the UI can only render as this server being broken.
+/// The names are the client's vocabulary: `Fail` is an outcome the method's
+/// contract declares and the UI renders in its own words; `Die` is a defect the
+/// UI can only render as this server being broken.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Outcome {
     /// `Exit` carrying `Success`.
@@ -78,8 +70,8 @@ pub(crate) enum Outcome {
     /// `Fail` carrying `UnsupportedMethodError`. Reachable for any tag at all,
     /// so its `tag` is not used as a label either.
     Unsupported,
-    /// `Fail` carrying `EnvironmentAuthorizationError`: this deployment does not
-    /// grant the scope the method needs.
+    /// `Fail` carrying `EnvironmentAuthorizationError`: this deployment does
+    /// not grant the scope the method needs.
     Unauthorized,
     /// Any other `Fail`.
     Fail,
@@ -107,9 +99,8 @@ impl Outcome {
     /// The `tag` label for a request that ended this way.
     ///
     /// [`Self::Rejected`] and [`Self::Unsupported`] are the two outcomes a tag
-    /// no arm matched can reach, so they collapse to a constant. Every other
-    /// outcome is produced by a matched arm, which makes the raw tag one of the
-    /// enumerated method names and safe to label with.
+    /// no arm matched can reach, so they collapse to a constant; every other
+    /// outcome comes from a matched arm, so the raw tag is safe to label with.
     pub(crate) fn tag_label(self, tag: &str) -> &str {
         match self {
             Self::Rejected => "rejected",
@@ -131,7 +122,7 @@ impl Outcome {
 
 /// Read the outcome off the frames one request answered with.
 ///
-/// A `Defect` frame outranks an `Exit` because it is what the pre-dispatch
+/// A `Defect` frame outranks an `Exit` because it's what the pre-dispatch
 /// checks emit, and those run before the tag is looked at.
 pub(crate) fn classify(frames: &[Value]) -> Outcome {
     if frames.iter().any(|frame| frame["_tag"] == "Defect") {
@@ -160,11 +151,10 @@ pub(crate) fn classify(frames: &[Value]) -> Outcome {
 
 /// The contract error tag a typed failure carried, for the span.
 ///
-/// Bounded without having to be trusted: every `_tag` this crate puts inside a
-/// `Fail` is a literal or a `&'static str` from one of its own error enums, so
-/// nothing the client sent reaches this. It is recorded on the span and not
-/// used as a metric label all the same — one method can fail several ways, and
-/// the counter is already split by `tag` and `outcome`.
+/// Bounded without trust: every `_tag` this crate puts inside a `Fail` is a
+/// literal or `&'static str` from its own error enums, so nothing the client
+/// sent reaches this — but it's not a metric label, since the counter is
+/// already split by `tag`/`outcome`.
 pub(crate) fn fail_tag(frames: &[Value]) -> Option<&str> {
     frames
         .iter()
@@ -180,10 +170,10 @@ pub(crate) fn defect(frames: &[Value]) -> Option<&str> {
     })
 }
 
-/// Root span for a single UI-RPC request. Honors a well-formed client trace
-/// context (W3C-style 32-hex trace id / 16-hex span id) as the parent, so the
-/// request's server-side spans land in the same trace as the client's. A
-/// missing or malformed context mints a fresh root instead of failing the
+/// Root span for a single UI-RPC request; honors a well-formed client trace
+/// context (W3C-style 32-hex trace id / 16-hex span id) as the parent.
+///
+/// A missing or malformed context mints a fresh root instead of failing the
 /// request, and records the raw client-supplied value for debugging.
 pub(crate) fn request_root_span(
     tag: &str,
@@ -222,13 +212,9 @@ pub(crate) fn request_root_span(
 
 /// Run one request inside its span, time it, and record what it answered with.
 ///
-/// The one seam this surface is measured at, and the reason a detached request
-/// is spawned already wrapped in it: `duration_ms` then measures the handler
-/// wherever it ran, rather than the moment the frame loop got to it.
-///
-/// A request that never answers is recorded too, as [`Outcome::Interrupted`]:
-/// `DetachedRequest` aborts its task on an `Interrupt` and on a dropped
-/// connection, and an aborted task's future is dropped where it was suspended.
+/// The one seam this surface is measured at: a detached request is spawned
+/// already wrapped in it. A request that never answers is recorded too, as
+/// [`Outcome::Interrupted`], when `DetachedRequest` aborts its task.
 pub(crate) async fn answered(
     span: &tracing::Span,
     tag: &str,
@@ -277,14 +263,9 @@ impl Drop for Abandoned<'_> {
 /// Count one answered request, mark its span with what the client was told, and
 /// log the failures nothing else logs.
 ///
-/// Called by [`answered`] alone. Each dispatch arm builds its own frames and
-/// returns them, so the frames are the only thing that states an outcome — and
-/// a `Die` built by [`failure_exit`] or [`unsupported_exit`] passes no other log
-/// or counter on its way out.
-///
-/// The per-domain failure builders (`file_failure_exit` and its siblings) log
-/// the sqlx or gRPC cause behind their failure, which this cannot see. A `Die`
-/// therefore logs twice on those paths: once here with the tag and the viewer,
+/// Called by [`answered`] alone. Per-domain failure builders
+/// (`file_failure_exit` and siblings) log their own sqlx/gRPC cause, which this
+/// can't see — so a `Die` on those paths logs twice: once here with the tag,
 /// once there with the cause.
 pub(crate) fn record_request(
     span: &tracing::Span,
@@ -350,9 +331,9 @@ fn record(
     }
 }
 
-/// Parses a client-supplied trace/span id pair into a remote OTel span
-/// context, or `None` if either is missing or malformed. Never fails the
-/// request — callers fall back to minting a fresh root span.
+/// Parses a client-supplied trace/span id pair into a remote OTel span context,
+/// or `None` if either is missing or malformed. Never fails the request —
+/// callers fall back to minting a fresh root span.
 pub(crate) fn remote_span_context(
     trace_id: Option<&str>,
     span_id: Option<&str>,

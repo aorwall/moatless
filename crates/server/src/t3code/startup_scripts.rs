@@ -1,4 +1,5 @@
-//! Starting a Workspace's `run_on_start` Scripts when the Sandbox reports Ready.
+//! Starting a Workspace's `run_on_start` Scripts when the Sandbox reports
+//! Ready.
 //!
 //! The trigger half of [`StartupScripts`]: the Sandbox becoming Ready is the
 //! event, and both runtimes publish it once per operation generation
@@ -33,9 +34,9 @@ impl StartupScriptSubscriber {
 
 /// Whether this Ready event is one to start Scripts for.
 ///
-/// A failed Script is reported as a Ready sandbox event — the Sandbox is ready,
-/// only the Script is not — and this subscriber is registered for Ready. Left
-/// unguarded, one Script that cannot start re-triggers itself forever.
+/// A failed Script also reports as Ready — the Sandbox is ready even if the
+/// Script is not — so left unguarded, a Script that cannot start re-triggers
+/// itself forever.
 fn is_own_failure_report(event: &AgentEvent) -> bool {
     event
         .payload

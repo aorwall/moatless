@@ -1,4 +1,7 @@
 //! Execute the core and workspace initialization phases.
+//!
+//! Reserve `publish_sandbox_event` for a step slow enough to wonder about or
+//! one that failed; log everything else with `info!`.
 
 use super::{
     InitError, InitPhase, claude_code_settings, codex_config, dirs, git, home_skills,
@@ -16,20 +19,9 @@ use tracing::{info, warn};
 
 /// Run one synchronous initialization step on the blocking pool.
 ///
-/// The filesystem helpers used by core init recurse over the plugin, skill and
-/// repo trees and delete directories; running them inline would park a Tokio
-/// worker for the whole traversal. They stay synchronous — and therefore
-/// directly unit-testable — and this is the single boundary that bridges them
-/// into async initialization.
-///
-/// A `JoinError` (the step panicked, or the runtime is shutting down) becomes an
-/// `InitError` naming the step instead of being logged and dropped. It is
-/// classified `Transient` — exit 1, so K8s retries — because nothing about a
-/// panicking filesystem step proves the pod configuration can never succeed;
-/// only a genuinely unrecoverable config error earns exit 78.
-///
-/// Steps are awaited one at a time, so initialization ordering is exactly the
-/// order the calls appear in [`run_core_init`].
+/// Filesystem helpers recurse and delete trees, which would block a worker if
+/// run inline; a `JoinError` becomes `InitError::Transient`, and steps run in
+/// the order [`run_core_init`] calls them.
 async fn run_init_blocking<T, F>(step: &'static str, work: F) -> Result<T, InitError>
 where
     F: FnOnce() -> T + Send + 'static,
@@ -42,16 +34,11 @@ where
     })
 }
 
-/// Publish a sandbox init event via gRPC.
+/// Publish a sandbox init event via gRPC — see module docs for when to use
+/// it over `info!`.
 ///
-/// These land beside the K8s watcher's events as rows a person reads while a
-/// thread starts, so a step earns one only when it either takes long enough to
-/// wonder about — the credential round-trip, the checkout — or went wrong.
-/// Everything else is an `info!`: a row that appears milliseconds after the one
-/// above it tells a reader nothing and buries the two that do.
-///
-/// Uses `EventType::Sandbox` with `SandboxStatus::Initializing` — the sandbox
-/// IS initializing while these events fire. Detailed info goes in the payload.
+/// Always `EventType::Sandbox`/`SandboxStatus::Initializing`, with detail in
+/// the payload.
 async fn publish_sandbox_event(
     state: &SandboxState,
     reason: &str,
@@ -145,21 +132,11 @@ fn describe_clone(config: &crate::config::Config, summary: &git::CloneSummary) -
     }
 }
 
-/// Phase 1: Core initialization.
+/// Phase 1: core init steps that must finish before the pod is marked healthy.
 ///
-/// Performs essential steps that must complete before the pod is marked healthy:
-/// 1. Ensure directories and symlinks
-/// 2. Write the default Claude Code settings file (non-fatal)
-/// 3. Fetch and apply credentials (fatal on failure)
-/// 4. Configure git authentication (non-fatal)
-/// 5. Clone repository (fatal on failure)
-/// 6. Sync plugins (non-fatal)
-///
-/// Runs Phase 1 core init. Returns how the workspace was reconstituted (see
-/// [`WorkspaceOrigin`]) so the caller can warn a resuming agent about exactly
-/// what pre-restart state was lost — a fresh clone loses everything ephemeral,
-/// an S3 snapshot restore loses only gitignored build artifacts, and a persisted
-/// volume loses nothing.
+/// Returns how the workspace was reconstituted (see [`WorkspaceOrigin`]): a
+/// fresh clone loses ephemeral state, an S3 restore loses only gitignored
+/// artifacts, and a persisted volume loses nothing.
 async fn run_core_init(state: &SandboxState) -> Result<WorkspaceOrigin, InitError> {
     // 1. Ensure directories exist. Wipes `/tmp` and recursively copies the
     //    image-staged skills, so it runs on the blocking pool.
@@ -372,13 +349,11 @@ async fn run_core_init(state: &SandboxState) -> Result<WorkspaceOrigin, InitErro
     Ok(origin)
 }
 
-/// Phase 2: Workspace setup — run the workspace's configured setup commands.
+/// Phase 2: run the workspace's configured setup commands.
 ///
-/// Runs after health is ready. Every command is non-fatal — a failure is logged
-/// and published as a warning event but doesn't affect pod health.
-///
-/// A workspace that configures no setup commands says nothing here: there is no
-/// setup for a completion to be the end of.
+/// Runs after health is ready; each command is non-fatal, only logged and
+/// published as a warning event on failure, and says nothing when there are
+/// none.
 async fn run_workspace_setup(state: &SandboxState) {
     if state.config.setup_commands.is_empty() {
         return;
@@ -412,9 +387,9 @@ async fn run_workspace_setup(state: &SandboxState) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    /// A blocking step that panics must fail initialization, not vanish into the
-    /// detached init task. The message has to name the step so the termination
-    /// log says which part of setup died.
+    /// A blocking step that panics must fail initialization, not vanish into
+    /// the detached init task. The message has to name the step so the
+    /// termination log says which part of setup died.
     #[tokio::test]
     async fn panicking_blocking_step_fails_initialization_with_context() {
         let previous_hook = std::panic::take_hook();
@@ -436,7 +411,8 @@ mod tests {
     }
 
     /// The happy path returns the step's value, so counts published as init
-    /// events (staged skills, installed repo skills, bridged config) are unchanged.
+    /// events (staged skills, installed repo skills, bridged config) are
+    /// unchanged.
     #[tokio::test]
     async fn successful_blocking_step_returns_its_value() {
         let staged = run_init_blocking("stage_plugin_skills_for_codex", || 3usize)

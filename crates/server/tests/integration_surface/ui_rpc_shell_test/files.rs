@@ -1,15 +1,11 @@
 //! Addressing a conversation's files.
 //!
-//! The client asks for files by the `cwd` it holds, and the only `cwd` it has
-//! for a conversation is the `worktreePath` this module put in the listing. So
-//! the two have to be each other's inverse, and the round trip is only real
-//! against a database: the reverse direction re-reads the conversation through
-//! the same follow and access filters the listing applies, which are SQL.
+//! The client asks by the `cwd` it holds, which is the `worktreePath` this
+//! module put in the listing — the round trip must be each other's inverse, and
+//! only a real database re-reads it through the same follow and access filters
+//! the listing applies.
 //!
-//! What a Sandbox answers is a gRPC round trip against a pod, which no test here
-//! has. These stop where that begins — at the point the request has been
-//! addressed and authorized and is about to leave for the Sandbox — because
-//! everything before it is this module's and everything after it is not.
+//! These tests stop where the gRPC round trip to a Sandbox begins.
 
 use super::harness::{NoSandboxes, reads, snapshot, thread, viewer};
 use super::seeding::{seed_sandbox, seed_task};

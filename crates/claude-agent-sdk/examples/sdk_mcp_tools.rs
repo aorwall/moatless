@@ -3,11 +3,9 @@
 
 //! Demonstrates in-process SDK MCP tools.
 //!
-//! This example registers custom tools that run in-process (no separate MCP
-//! server process needed). The CLI sends `McpMessage` control requests for
-//! these tools, and the SDK handles them directly.
+//! The CLI sends `McpMessage` control requests for these tools and the SDK
+//! handles them in-process, with no separate MCP server.
 //!
-//! # Usage
 //! ```bash
 //! cargo run -p claude-agent-sdk --example sdk_mcp_tools
 //! ```

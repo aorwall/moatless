@@ -1,14 +1,12 @@
 //! The lifecycle contract against local Postgres.
 //!
 //! Drives the `Lifecycle` orchestrator over the real `PgLifecycleDao` and
-//! `PgLifecycleLock` with a recording runtime, exercising the Postgres half of
-//! the contract: intent persistence, deterministic completion + marker
-//! acknowledgement, genuine per-Task serialization across distinct lock pools,
-//! bounded lock-retry exhaustion, the Error-resumable eligibility row, and the
-//! orchestrator's permanent-rejection (bad-plan) handling.
+//! `PgLifecycleLock` with a recording runtime: intent persistence, marker
+//! acknowledgement, per-Task serialization across lock pools, lock-retry
+//! exhaustion, the Error-resumable eligibility row, and bad-plan rejection.
 //!
-//! Gated on `db-tests`; run with
-//! `cargo test -p moatless-backend --features db-tests --lib`.
+//! Gated on `db-tests`; run with `cargo test -p moatless-backend --features
+//! db-tests --lib`.
 
 use std::sync::{Arc, Mutex};
 
@@ -50,8 +48,8 @@ async fn pools(opts: &PgPoolOptions, conn: &PgConnectOptions) -> (PgPool, PgPool
     (store, lock)
 }
 
-/// A dedicated lock-only pool on the isolated test database. A second one models
-/// a second backend replica for cross-pool serialization.
+/// A dedicated lock-only pool on the isolated test database. A second one
+/// models a second backend replica for cross-pool serialization.
 async fn lock_pool(opts: &PgPoolOptions, conn: &PgConnectOptions) -> PgPool {
     opts.clone()
         .max_connections(6)

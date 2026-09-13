@@ -7,12 +7,10 @@ use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use super::adapter::SlackAdapter;
 use super::subject;
 
-/// Strip leading/trailing `:` characters and validate that the result is a
-/// non-empty Slack-compatible bare reaction name.
+/// Strip leading/trailing `:` and validate the result is a non-empty,
+/// Slack-compatible bare reaction name (`thumbsup`, not `:thumbsup:`).
 ///
-/// Slack expects bare names (`thumbsup`), not `:thumbsup:`. Returns
-/// `BadRequest` for empty input so the caller surfaces a clear error before
-/// hitting the API.
+/// Returns `BadRequest` for empty input.
 fn normalize_emoji(emoji: &str) -> Result<&str, AdapterError> {
     let trimmed = emoji.trim().trim_matches(':');
     if trimmed.is_empty() {

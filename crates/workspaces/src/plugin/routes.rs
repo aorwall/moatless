@@ -47,11 +47,10 @@ pub struct PluginApiDoc;
 
 /// Build the plugin router with OpenAPI metadata.
 ///
-/// Generic over the router state `S` so this module names no root type: the
-/// composition root supplies the concrete state at the call site, and each
-/// handler reaches its ports — `Arc<Plugins>`, `Arc<PluginSyncService>`,
-/// `Arc<Workspaces>` (which Workspace a workspace-reach record may name),
-/// and the `UserTokenVerifier` behind `AuthUser` — through `FromRef<S>`.
+/// Generic over `S` so this module names no root type: the composition root
+/// supplies the concrete state, and each handler reaches its ports
+/// (`Arc<Plugins>`, `Arc<PluginSyncService>`, `Arc<Workspaces>`,
+/// `UserTokenVerifier`) through `FromRef<S>`.
 pub fn plugin_router<S>(state: S) -> (axum::Router, utoipa::openapi::OpenApi)
 where
     S: Clone + Send + Sync + 'static,

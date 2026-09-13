@@ -189,9 +189,8 @@ fn format_server_list(status: &ServerStatusResponse, overrides: Option<&ServerOv
 /// Stream server logs via SSE.
 ///
 /// With `follow` the stream stays open until Ctrl+C; without it the backend
-/// ends the response after the buffered lines and this returns normally, so a
-/// caller does not have to wrap the command in `timeout` and lose the tail of
-/// its output.
+/// ends the response after the buffered lines, so a caller need not wrap this
+/// in `timeout`.
 pub(super) async fn stream_logs(
     client: &MoatClient,
     task_id: &str,

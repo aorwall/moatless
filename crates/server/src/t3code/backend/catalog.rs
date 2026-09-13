@@ -1,5 +1,5 @@
-//! The read ports and the one-call write ports: an agent list, a skill list,
-//! a branch list, a workspace's scripts, a GitHub identity and a thread's
+//! The read ports and the one-call write ports: an agent list, a skill list, a
+//! branch list, a workspace's scripts, a GitHub identity and a thread's
 //! children. Each is one lookup `AppState` already answers for the Moatless UI.
 
 use crate::state::AppState;
@@ -78,10 +78,9 @@ impl RepositoryBranchSource for AppStateBranches {
 
 /// A repository read failure, as the branch picker is told it.
 ///
-/// A repository the viewer cannot read answers `NotFound`, the same as one that
-/// is gone — neither is a branch list to show. A missing token or a git host
-/// that refused is surfaced verbatim; a database failure is kept apart so it is
-/// logged rather than sent.
+/// A repository the viewer cannot read answers `NotFound`, same as one that's
+/// gone; a missing token or refusing git host is surfaced verbatim; a database
+/// failure is kept apart so it's logged rather than sent.
 fn branch_list_error(error: RepositoryError) -> BranchListError {
     match error {
         RepositoryError::NotFound(_) | RepositoryError::Forbidden(_) => BranchListError::None,

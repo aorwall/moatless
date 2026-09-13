@@ -3,8 +3,8 @@
 
 use super::*;
 
-/// Fetch the last N lines of the sandbox container's logs.
-/// Returns `None` if logs can't be fetched (best-effort, never fails).
+/// Fetch the last N lines of the sandbox container's logs. Returns `None` if
+/// logs can't be fetched (best-effort, never fails).
 pub(super) async fn fetch_sandbox_logs(
     k8s: &K8sClient,
     pod_name: &str,
@@ -26,14 +26,14 @@ pub(super) async fn fetch_sandbox_logs(
     }
 }
 
-/// Best-effort lookup of the most relevant K8s Event reason+message for a pod.
-/// Names the cause of a stuck-Pending / slow-start window (e.g.
-/// `FailedScheduling`, `FailedAttachVolume`, `Multi-Attach error for volume …`).
+/// Best-effort lookup of the most relevant K8s Event reason+message for a pod,
+/// naming the cause of a stuck-Pending/slow-start window (e.g.
+/// `FailedScheduling`, `FailedAttachVolume`).
 ///
-/// Lists core/v1 Events with a field selector on `involvedObject.name`, prefers
-/// the last `Warning`-type event, and falls back to the last event of any type.
-/// Returns `None` when nothing is found or the API call fails (e.g. missing RBAC
-/// for events) — the caller degrades to emitting the event without a cause chip.
+/// Lists core/v1 Events filtered on `involvedObject.name`, prefers the last
+/// `Warning`-type event, falling back to the last of any type; `None` when
+/// nothing is found or the API call fails (e.g. missing RBAC), and the caller
+/// degrades to emitting without a cause chip.
 pub(super) async fn fetch_pod_event_cause(k8s: &K8sClient, pod_name: &str) -> Option<String> {
     let events_api: Api<CoreEvent> = Api::namespaced(k8s.client.clone(), k8s.namespace());
     let lp = ListParams::default().fields(&format!("involvedObject.name={pod_name}"));

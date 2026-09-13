@@ -1,8 +1,8 @@
 //! The command/signal vocabulary at the external harness seam.
 //!
-//! The coordinator submits [`Input`], cancels the active execution, and consumes
-//! an ordered stream of [`Signal`]s. The normative ordering (from the design
-//! prototype) is:
+//! The coordinator submits [`Input`], cancels the active execution, and
+//! consumes an ordered stream of [`Signal`]s. The normative ordering (from the
+//! design prototype) is:
 //!
 //! ```text
 //! Input opening a new execution:
@@ -32,23 +32,23 @@ use super::error::HarnessError;
 use super::source::SourceEvent;
 
 /// Correlation identity for a submitted input (a pending-Message batch). The
-/// coordinator uses it to acknowledge the batch once it is accepted or rejected.
+/// coordinator uses it to acknowledge the batch once it is accepted or
+/// rejected.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct InputId(pub String);
 
-/// Resumable CLI conversation identity, owned by the harness and reported to the
-/// coordinator on [`Signal::ExecutionStarted`].
+/// Resumable CLI conversation identity, owned by the harness and reported to
+/// the coordinator on [`Signal::ExecutionStarted`].
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SessionId(pub String);
 
-/// Input submitted to the harness. Turn configuration (model, mode, resume,
-/// fresh start) rides along, but it configures the Turn — it never selects the
-/// harness implementation, which is fixed at construction (the fixed-harness decision).
+/// Input submitted to the harness for one Turn.
 ///
-/// Credential (`env`) and `system_prompt` resolution is the coordinator's job,
-/// and both can change between Turns (credential rotation, prompt refresh), so
-/// they ride on each Input rather than being baked into the construction-fixed
-/// harness config.
+/// Turn configuration (model, mode, resume, fresh start) never selects the
+/// harness implementation, which is fixed at construction; `env` and
+/// `system_prompt` are resolved by the coordinator and can change between
+/// Turns, so they ride on each Input rather than being baked into the harness
+/// config.
 #[derive(Debug, Clone)]
 pub struct Input {
     pub id: InputId,
@@ -64,13 +64,12 @@ pub struct Input {
     /// Branch the named Session at the named cut and run this Input on the
     /// branch. Set only on a fork's first turn, and on any retry of it.
     ///
-    /// A harness that understands this must test it *before* `start_fresh`,
-    /// which is set alongside it as the version-skew guard: an older pod
-    /// ignores the field and reads a plain fresh start rather than resuming the
-    /// parent's session into the parent's transcript.
+    /// A harness must test this *before* `start_fresh` (the version-skew
+    /// guard): an older pod ignores the field and takes a plain fresh start
+    /// instead of resuming into the parent's transcript.
     pub fork: Option<ForkSource>,
-    /// Resolved subprocess environment for this Turn (credentials the coordinator
-    /// refreshed before submit).
+    /// Resolved subprocess environment for this Turn (credentials the
+    /// coordinator refreshed before submit).
     pub env: Option<HashMap<String, String>>,
     /// Resolved append-system-prompt for this Turn.
     pub system_prompt: Option<String>,
@@ -107,10 +106,11 @@ pub enum Cause {
 /// The single terminal outcome of a started execution.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Outcome {
-    /// The execution completed normally. `totals` carries the run's authoritative
-    /// token/cost figures when the harness reported them on its terminal, and is
-    /// `None` for a completion that carried none (older runtimes, or a turn that
-    /// ended without a result message).
+    /// The execution completed normally.
+    ///
+    /// `totals` carries the run's authoritative token/cost figures when the
+    /// harness reported them on its terminal, and is `None` for a completion
+    /// that carried none (a turn that ended without a result message).
     Completed { totals: Option<RunTotals> },
     /// The execution was cancelled.
     Cancelled,
@@ -121,14 +121,12 @@ pub enum Outcome {
 /// A completed run's authoritative token and cost figures, as the harness
 /// reported them on its terminal result.
 ///
-/// These are per-run deltas, not session-cumulative: Claude's `ResultMessage`
-/// is per CLI invocation, and the Codex figures are [`crate::agent::harness`]'s
-/// `TurnUsage` growth across the turn. The backend sums them across a task's
-/// turns; it must never re-derive a cumulative total from them.
-///
-/// `total_cost_usd` is `Some` only where the runtime priced the run itself
-/// (Claude). Codex reports tokens with no cost, so it leaves this `None` and the
-/// backend prices the run from `model` and the token counts.
+/// These are per-run deltas, not session-cumulative (Claude's `ResultMessage`
+/// is per CLI invocation; Codex's is `TurnUsage` growth across the turn) — the
+/// backend sums them across a task's turns and must never re-derive a
+/// cumulative total from them; `total_cost_usd` is `Some` only when the runtime
+/// priced the run itself (Claude), so Codex leaves it `None` and the backend
+/// prices from `model` and the token counts.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RunTotals {
     pub input_tokens: i64,
@@ -149,8 +147,8 @@ pub struct RunTotals {
 
 impl RunTotals {
     /// The `agent.completed` payload the backend parses: the run's cost, the
-    /// four-plus-one token counts under `usage`, and the passthrough fields. Uses
-    /// `snake_case` keys, which the backend accepts alongside camelCase.
+    /// four-plus-one token counts under `usage`, and the passthrough fields.
+    /// Uses `snake_case` keys, which the backend accepts alongside camelCase.
     pub fn to_payload(&self) -> serde_json::Value {
         serde_json::json!({
             "total_cost_usd": self.total_cost_usd,
@@ -172,8 +170,9 @@ impl RunTotals {
 
 /// Why a submitted input never opened an execution.
 ///
-/// A pre-start rejection is coordinator-safe: because no [`Signal::ExecutionStarted`]
-/// was emitted, the coordinator never minted a Run, so there is no Run to close.
+/// A pre-start rejection is coordinator-safe: because no
+/// [`Signal::ExecutionStarted`] was emitted, the coordinator never minted a
+/// Run, so there is no Run to close.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Rejection {
     /// The input was cancelled before its execution started.
@@ -182,8 +181,8 @@ pub enum Rejection {
     Failed(HarnessError),
 }
 
-/// Liveness / tool-progress activity. Keeps an active Turn visibly alive without
-/// becoming Message content.
+/// Liveness / tool-progress activity. Keeps an active Turn visibly alive
+/// without becoming Message content.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Activity {
     pub session: SessionId,
@@ -192,11 +191,11 @@ pub struct Activity {
 
 /// What the harness reported about its own context window.
 ///
-/// Normalized here so neither the backend nor either client learns the
-/// difference between the two wires: Claude reports a per-model `contextWindow`
-/// on its terminal result, Codex a `modelContextWindow` on a token-usage
-/// notification. `max_tokens` is `None` where the harness reported none, and the
-/// meter then shows a count rather than a percentage of a guess.
+/// Normalized so neither the backend nor either client learns the wire
+/// difference (Claude's per-model `contextWindow` on its terminal result vs
+/// Codex's `modelContextWindow` on a token-usage notification); `max_tokens` is
+/// `None` where the harness reported none, and the meter then shows a count
+/// rather than a percentage of a guess.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ContextWindow {
     pub used_tokens: i64,
@@ -212,12 +211,13 @@ pub struct ContextWindow {
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq)]
 pub enum Signal {
-    /// An Agent process is ready and its Session identity is known. The
-    /// coordinator mints the Run when it receives this. Emitted at most once per
-    /// execution and never after a source event.
+    /// An Agent process is ready and its Session identity is known; the
+    /// coordinator mints the Run when it receives this.
     ///
-    /// `agent_turn_id` is the harness's native turn id when known at start (Codex
-    /// only); the coordinator relays it so a fork can cut the thread there.
+    /// Emitted at most once per execution and never after a source event;
+    /// `agent_turn_id` is the harness's native turn id when known at start
+    /// (Codex only), which the coordinator relays so a fork can cut the thread
+    /// there.
     ExecutionStarted {
         session: SessionId,
         agent_turn_id: Option<String>,

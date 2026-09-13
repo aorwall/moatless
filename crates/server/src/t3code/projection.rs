@@ -1,20 +1,11 @@
-//! Outbound projection from the backend's sandbox vocabulary to the T3 contract.
+//! Outbound projection from the backend's sandbox vocabulary to the T3
+//! contract.
 //!
-//! The backend's status vocabulary is deliberately wider than the T3 contract's:
-//! `crate::sandbox::schemas::SandboxStatusFullResponse` carries thirteen fields
-//! and the contract's carries two. These functions narrow the backend types to
-//! the contract's, so the T3 surface is only ever handed the smaller vocabulary
-//! it was designed for. Widening the contract by unifying the types would hand a
-//! client a surface nobody chose to give it, so the narrowing lives here as its
-//! own named projection rather than inside a port implementation.
-//!
-//! Two projections come off that one response, at two widths.
-//! [`sandbox_status`] is the status indicator's, and stays at two fields.
-//! [`sandbox_detail`] is the sandbox panel's, and carries the running image,
-//! the containers and their metrics, and the runtime events — everything that
-//! panel was built to show and this response can answer, and nothing the
-//! indicator asks for. Each is its own named function so widening one cannot
-//! widen the other.
+//! `SandboxStatusFullResponse` carries thirteen fields; the contract exposes
+//! only what each caller needs. [`sandbox_status`] narrows to the two-field
+//! status indicator shape, [`sandbox_detail`] to the wider sandbox-panel shape
+//! (image, containers, runtime events) — kept as separate named functions so
+//! widening one cannot widen the other.
 
 use std::sync::Arc;
 
@@ -28,15 +19,9 @@ use crate::sandbox::status_reader::SandboxStatusReader;
 
 /// The T3 contract observer, built from the backend's rich status read.
 ///
-/// The HTTP routes read the thirteen-field response directly through
-/// [`SandboxStatusReader`]; T3 only ever sees the two-field contract shape the
-/// functions below narrow to. This is the single seam where that narrowing
-/// happens, so the projection sits beside the contract rather than being
-/// repeated inside each provider's port implementation.
-/// `turns` is the Task band's half of the running rule. It is folded into
-/// `live_status` here, at the composition root, so T3's sandbox panel and the
-/// REST live-status endpoint answer "is the agent working" from the same rule
-/// — the runtime reader below can only see the pod and the heartbeat.
+/// `turns` folds into `live_status` here so T3's panel and the REST endpoint
+/// answer "is the agent working" from the same rule; the reader alone only sees
+/// the pod and heartbeat.
 pub fn contract_observer(
     reader: Arc<dyn SandboxStatusReader>,
     turns: Option<Arc<dyn moatless_ports::task::TurnStateReader>>,
@@ -263,10 +248,9 @@ mod tests {
     use moatless_types::sandbox::SandboxStatus;
     use moatless_types::sandbox::{ServerCapabilities, ServerStatus};
 
-    /// Every field of the rich response populated with a value distinguishable
-    /// from a default, written as an exhaustive struct literal: a field added to
-    /// the rich type stops this compiling until someone decides whether the T3
-    /// contract should see it.
+    /// Every field populated with a distinguishable value, as an exhaustive
+    /// struct literal: a new field on the rich type breaks this until someone
+    /// decides whether T3 sees it.
     fn fully_populated_rich_status() -> SandboxStatusFullResponse {
         SandboxStatusFullResponse {
             sandbox_status: SandboxStatus::Ready,
@@ -349,10 +333,11 @@ mod tests {
     }
 
     /// The T3 contract is deliberately narrower than the backend's status
-    /// vocabulary. Both halves of that narrowing are pinned structurally: the
-    /// exhaustive literal above fails to compile when the rich type gains a
-    /// field, and the exhaustive destructuring below fails to compile when the
-    /// contract type does — so neither side widens without a decision.
+    /// vocabulary.
+    ///
+    /// Both sides are pinned structurally: the literal above and the
+    /// destructuring below each fail to compile on a new field, so neither
+    /// widens silently.
     #[test]
     fn the_projected_status_carries_exactly_the_contract_field_set() {
         let rich = fully_populated_rich_status();

@@ -5,15 +5,12 @@
 )]
 //! Which events the installed Adapters actually subscribe to.
 //!
-//! The event-handler consumer names no provider: it hands every event
-//! to [`TaskEventSubscribers`], and what an Adapter reacts to is decided by its
-//! own registration. That makes the registration the contract, and a provider
-//! that silently stops subscribing is a live-progress outage no other test in
-//! this repository would notice — `dispatch_event` has never had one.
+//! The event-handler consumer names no provider: it hands every event to
+//! [`TaskEventSubscribers`], so an Adapter's registration is the contract — a
+//! silent unsubscribe is an outage no other test here would notice.
 //!
-//! The dispatch semantics themselves (overlapping subscribers, non-matching
-//! keys, fault isolation) are pinned where the seam lives, in
-//! `moatless-loops`'s own unit tests; they need no database and no `AppState`.
+//! Dispatch semantics (overlapping subscribers, fault isolation) are pinned in
+//! `moatless-loops`'s own unit tests, which need no `AppState`.
 
 use crate::common;
 
@@ -25,12 +22,9 @@ use moatless_types::sandbox::SandboxStatus;
 
 use common::{test_app_state_with_adapters, test_config};
 
-/// Every event a Linear session's live feed is built from has a subscriber, and
-/// so does the one the GitHub shell claim reads.
-///
-/// Listed key by key rather than counted: a dropped key is exactly the
-/// regression this exists to catch, and a count hides it behind any other
-/// addition.
+/// Every event Linear's live feed and the GitHub shell claim read has a
+/// subscriber, checked key by key so a single dropped key isn't hidden by a
+/// count.
 #[sqlx::test]
 async fn the_installed_adapters_subscribe_to_the_events_they_react_to(pool: PgPool) {
     let state = test_app_state_with_adapters(pool, test_config());
@@ -64,8 +58,7 @@ async fn the_installed_adapters_subscribe_to_the_events_they_react_to(pool: PgPo
 
 /// An event no Adapter asked for stays unsubscribed.
 ///
-/// The registry is keyed, not a broadcast: a subscriber that reacted to every
-/// event would make the keys above meaningless.
+/// The registry is keyed, not a broadcast.
 #[sqlx::test]
 async fn an_event_no_adapter_asked_for_has_no_subscriber(pool: PgPool) {
     let state = test_app_state_with_adapters(pool, test_config());

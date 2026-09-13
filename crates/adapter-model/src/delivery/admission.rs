@@ -12,8 +12,7 @@ use super::{AdapterDeliveryRequest, Admission, AdmitError};
 
 /// Take durable ownership of one inbound Adapter delivery.
 ///
-/// One method, because one is what every caller uses: no Adapter crate calls
-/// anything else on the store behind it.
+/// One method: no Adapter crate calls anything else on the store behind it.
 #[async_trait]
 pub trait DeliveryAdmission: Send + Sync {
     async fn admit(&self, request: AdapterDeliveryRequest) -> Result<Admission, AdmitError>;

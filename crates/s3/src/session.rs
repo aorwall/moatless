@@ -9,11 +9,9 @@ use crate::S3Error;
 
 /// The one hour AWS allows.
 ///
-/// A session minted from the backend's own role is role chaining, which caps at
-/// an hour whatever is asked for. It is also the floor a holder can work with:
-/// the sandbox's credential refresher runs on a 900 s period, the STS minimum,
-/// so a session that short would expire in step with the thing meant to renew
-/// it.
+/// Role chaining caps any session at an hour; the sandbox's credential
+/// refresher runs on the 900 s STS minimum, so a shorter session would expire
+/// in step with what is meant to renew it.
 const SESSION_SECONDS: i32 = 3600;
 
 /// Credentials that reach only one prefix, and when they stop working.
@@ -26,11 +24,11 @@ pub struct ScopedSession {
 }
 
 /// Assume `role_arn`, narrowed by a session policy to read, write, delete and
-/// list under `prefix` in `bucket`, plus read and list under `read_only_prefix`.
+/// list under `prefix` in `bucket`, plus read and list under
+/// `read_only_prefix`.
 ///
-/// The narrowing is the session policy, not the role: the role stays
-/// bucket-wide and every session is scoped, so adding a prefix needs no IAM
-/// change. A session policy can only subtract, so a bug here fails closed.
+/// The role itself stays bucket-wide; a session policy can only subtract, so a
+/// bug here fails closed.
 pub async fn assume_role_for_prefix(
     client: &aws_sdk_sts::Client,
     role_arn: &str,
@@ -68,14 +66,9 @@ pub async fn assume_role_for_prefix(
 
 /// The session policy granting one writable prefix and one readable one.
 ///
-/// `s3:ListBucket` is a bucket-level action, so it is granted on the bucket and
-/// then held to the prefixes by a condition on the `prefix` query parameter.
-/// Object-level permissions alone would let every read through and every
-/// listing fail.
-///
-/// `read_only_prefix` gets `s3:GetObject` and listing and no write of any kind.
-/// The caller pointing a session at a prefix it does not own is the whole reason
-/// the two are separate statements rather than two entries on one.
+/// `s3:ListBucket` is bucket-level, so it is granted on the bucket and held to
+/// the prefixes by a condition on the `prefix` query parameter;
+/// `read_only_prefix` gets `s3:GetObject` and listing but no write.
 fn prefix_policy(bucket: &str, prefix: &str, read_only_prefix: Option<&str>) -> String {
     // A leading or trailing slash would produce `//*`, which matches no key and
     // fails every listing.

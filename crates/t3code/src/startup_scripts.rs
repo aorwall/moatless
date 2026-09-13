@@ -1,19 +1,11 @@
 //! Starting the Scripts a Workspace declares `run_on_start`.
 //!
-//! A Sandbox that just became Ready has no dev server on it, no matter that the
-//! Workspace declares one: a Script is run by a person pressing something. This
-//! is the other trigger — the Sandbox becoming Ready — for the Scripts that
-//! asked for it. The Task band drives it; nothing here decides when.
+//! A Sandbox becoming Ready is the other trigger for these Scripts, besides a
+//! person pressing one; the Task band drives it, nothing here decides when.
 //!
 //! Every start goes through [`scripts::run`], not around it, so an automatic
-//! start and a pressed one are the same thing: the port is published, the
-//! command runs in the terminal `script-<name>`, the preview tab opens, and the
-//! setup gate holds it until the Workspace's setup commands have finished. It
-//! also means a restart that finds the Script already running attaches to it.
-//!
-//! This is backend work rather than sandbox work because publishing the port is
-//! [`SandboxPortPublisher`](moatless_ports::sandbox::SandboxPortPublisher) — a
-//! Service patch the sandbox cannot make for itself.
+//! start and a pressed one are identical, down to a restart attaching to an
+//! already-running Script rather than starting a second one.
 
 use std::sync::Arc;
 
@@ -27,10 +19,9 @@ use sandbox_proto::client::SandboxConnector;
 
 /// The handles a startup run needs, sharing the router's own.
 ///
-/// `TerminalHub` is in-process state, so this holds the *same* hub the RPC
-/// surface serves terminal reads from — a second one would host sessions
-/// nothing else can see. Built in [`compose`](crate::compose) alongside the
-/// router for that reason.
+/// `TerminalHub` is in-process state: this holds the *same* hub the RPC surface
+/// serves terminal reads from, or a second one would host sessions nothing else
+/// can see.
 #[derive(Clone)]
 pub struct StartupScripts {
     scripts: ScriptsState,
@@ -62,10 +53,9 @@ impl StartupScripts {
 
     /// Start every Script the Task's Workspace declares `run_on_start`.
     ///
-    /// The error is the Workspace read failing, which says nothing about any
-    /// one Script; the vector is the Scripts that would not start, in
-    /// declaration order. A Script that fails does not stop the next one — they
-    /// are separate processes, and the caller reports each failure on its own.
+    /// The `Result` error is the Workspace read failing; the vector is the
+    /// Scripts that would not start. A failed Script does not stop the next
+    /// one.
     pub async fn run_for_task(
         &self,
         viewer: &ScopeContext,

@@ -18,9 +18,9 @@ pub(crate) struct WebhookDelivery {
 
 /// Parse an inbound webhook request into a [`WebhookDelivery`].
 ///
-/// Verifies HMAC signature if `webhook_secret` is configured. The delivery
-/// identity is read from inside the verified body, so a caller that signs
-/// its request signs its identifier too.
+/// Verifies the HMAC signature if `webhook_secret` is configured; the delivery
+/// identity is read from inside the verified body, so a signed request signs
+/// its identifier too.
 pub(crate) fn parse_inbound(
     config: &LoopContext,
     body: &[u8],
@@ -297,9 +297,9 @@ mod tests {
     }
 
     /// The worker executes an admitted record at least once, so routing needs a
-    /// stable identity to recognise a re-execution by. It is derived from the
-    /// delivery identity rather than the message, so two deliveries carrying the
-    /// same text stay distinct.
+    /// stable identity to recognise a re-execution by, derived from the
+    /// delivery identity rather than the message — two deliveries with the same
+    /// text stay distinct.
     #[test]
     fn the_message_carries_a_stable_external_event_id() {
         let config = test_config(None);
@@ -335,7 +335,8 @@ mod tests {
     }
 
     /// An empty string is a caller that supplied nothing, spelled differently.
-    /// Admitting it verbatim would collapse every such delivery into one record.
+    /// Admitting it verbatim would collapse every such delivery into one
+    /// record.
     #[test]
     fn a_blank_delivery_id_is_treated_as_absent() {
         let config = test_config(None);

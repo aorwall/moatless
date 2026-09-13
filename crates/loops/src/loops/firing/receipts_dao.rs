@@ -11,9 +11,8 @@ impl EventReceipts {
 
     /// Insert an event receipt.
     ///
-    /// Returns `true` when this is the first time the event has been seen for
-    /// the task, `false` when a unique-key conflict proves it was delivered
-    /// already.
+    /// Returns `true` the first time the event is seen for the task, `false`
+    /// when a unique-key conflict proves it was already delivered.
     pub(crate) async fn record_once(
         &self,
         provider: &str,
@@ -41,12 +40,10 @@ impl EventReceipts {
 
     /// Claim the right to create the task for a subject.
     ///
-    /// [`Self::record_once`] keys on `task_id`, so it can only speak for a task
-    /// that already exists. Creation needs the opposite: a decision taken before
-    /// any task exists, and taken once across every replica. Returns `true` for
-    /// the one caller that lands the row. The insert *is* the decision — no read
-    /// precedes it, so two replicas racing cannot both come away believing they
-    /// should create.
+    /// Unlike [`Self::record_once`], which keys on an existing `task_id`, the
+    /// insert here *is* the decision — no read precedes it, so racing replicas
+    /// cannot both come away believing they should create; the winner gets
+    /// `true`.
     pub(crate) async fn claim_task_creation(
         &self,
         loop_id: &str,
@@ -95,8 +92,8 @@ impl EventReceipts {
 
     /// Release a claim whose task was never created.
     ///
-    /// Without this, a creation that fails after claiming would wedge the
-    /// subject: every later event would lose a claim held by nothing.
+    /// Without this, a failed creation would wedge the subject: every later
+    /// event would lose a claim held by nothing.
     pub(crate) async fn release_claim(
         &self,
         loop_id: &str,
@@ -130,11 +127,10 @@ mod tests {
         EventReceipts::new(pool)
     }
 
-    /// Verification: the incident this table exists for. One Slack message
-    /// reached the backend as two events ~300ms apart, on two replicas, and
-    /// both created a task because each had read an empty binding list first.
-    /// The claim removes the read: the insert is the decision, so concurrency
-    /// cannot produce two winners.
+    /// Verification: the incident this table exists for.
+    ///
+    /// Two replicas each read an empty binding list and both created a task;
+    /// the claim removes the read, so racing cannot produce two winners.
     #[sqlx::test]
     async fn only_one_of_two_racing_claims_wins(pool: PgPool) {
         let a = dao(pool.clone());

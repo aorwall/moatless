@@ -22,20 +22,20 @@ crate::string_enum!(
 );
 
 crate::string_enum!(
-    /// What the note is about — the axis a reader triages on, orthogonal to
-    /// [`FeedbackSurface`], which says only where it was submitted from. A
-    /// row predating the column, or one whose submitter named none, carries
-    /// no category.
+    /// What the note is about.
+    ///
+    /// Orthogonal to [`FeedbackSurface`] (where it was submitted from); a row
+    /// predating the column, or with no submitter-named category, carries none.
     FeedbackCategory {
-        /// The sandbox itself: a missing dependency or service, a command
-        /// that cannot run here.
+        /// The sandbox itself: a missing dependency or service, a command that
+        /// cannot run here.
         Environment => "environment",
-        /// The repository's own code or tooling — something in it that could
-        /// be fixed or improved so this kind of work goes better.
+        /// The repository's own code or tooling — something in it that could be
+        /// fixed or improved so this kind of work goes better.
         Codebase => "codebase",
         /// Instructions that are missing, wrong, or pointed the wrong way —
-        /// `AGENTS.md`, `CLAUDE.md`, or a skill, including a skill that
-        /// should exist and does not.
+        /// `AGENTS.md`, `CLAUDE.md`, or a skill, including a skill that should
+        /// exist and does not.
         Instruction => "instruction",
         /// Anything the other categories do not cover.
         Other => "other",
@@ -43,9 +43,11 @@ crate::string_enum!(
 );
 
 crate::string_enum!(
-    /// What a reader decided about a note, orthogonal to [`FeedbackCategory`],
-    /// which says what the note is about. A submitter never sets it: a row is
-    /// written `Open` and only a reader working the inbox moves it.
+    /// What a reader decided about a note.
+    ///
+    /// Orthogonal to [`FeedbackCategory`] (what the note is about). A submitter
+    /// never sets it: a row is written `Open` and only a reader working the
+    /// inbox moves it.
     FeedbackStatus {
         /// Nobody has triaged the note yet.
         Open => "open",

@@ -3,13 +3,8 @@
 
 //! Simple one-shot query using the Claude Agent SDK.
 //!
-//! This example sends a single prompt to the Claude CLI and prints the response.
+//! Needs the `claude` CLI on your PATH and an API key configured.
 //!
-//! # Requirements
-//! - The `claude` CLI must be installed and on your PATH
-//! - A valid API key must be configured
-//!
-//! # Usage
 //! ```bash
 //! cargo run -p claude-agent-sdk --example simple_query
 //! ```

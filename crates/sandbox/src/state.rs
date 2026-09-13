@@ -37,26 +37,23 @@ pub struct SandboxState {
     /// cannot race the same isolated checkout directory.
     pub task_context_registration: Arc<Mutex<()>>,
     /// Liveness heartbeat bumped by the agent lifecycle task. Read by the
-    /// `/livez` probe to detect a wedged service (see [`crate::agent::heartbeat`]).
+    /// `/livez` probe to detect a wedged service (see
+    /// [`crate::agent::heartbeat`]).
     pub heartbeat: Heartbeat,
     /// Backend client for gRPC communication (message polling, acknowledgment).
     pub backend_client: Arc<dyn BackendClient>,
-    /// Current initialization phase — tracked for health probes and consumer gating.
+    /// Current initialization phase — tracked for health probes and consumer
+    /// gating.
     pub init_phase: Arc<RwLock<InitPhase>>,
-    /// How this pod's workspace came to exist on this start.
+    /// Written once by `agent::restart::open_for_work` under
+    /// `task_context_registration`.
     ///
-    /// Written once by `agent::restart::open_for_work`, under
-    /// `task_context_registration`, so a Member joining after Ready prepends the
-    /// same `<sandbox-restart-note>` to its recovered run as the Member the pod
-    /// booted with. Every checkout shares the pod's workspace volume, so one
-    /// value describes them all.
+    /// A joining Member prepends the same `<sandbox-restart-note>` as the boot
+    /// Member — every checkout shares the pod's one volume.
     pub workspace_origin: Arc<RwLock<WorkspaceOrigin>>,
-    /// Credentials fetched during init, passed to agent subprocess via `ClaudeOptions.env`.
-    ///
-    /// Git-provider tokens (`GITHUB_TOKEN`, `GH_TOKEN`, `GIT_TOKEN`) are intentionally
-    /// stripped from this map before it reaches the agent subprocess — git/gh operations
-    /// inside the agent read tokens fresh from disk (`~/.config/gh/hosts.yml`) so inherited
-    /// env would only risk staleness across long-running turns.
+    /// Credentials fetched during init, passed to the agent subprocess via
+    /// `ClaudeOptions.env`, except keys in
+    /// [`crate::credentials::fetch::AGENT_EXCLUDED_KEYS`].
     pub credentials: Arc<RwLock<HashMap<String, String>>>,
     /// Cancellation token tied to the sandbox lifecycle.
     ///
@@ -65,8 +62,8 @@ pub struct SandboxState {
     pub lifecycle_cancel: CancellationToken,
     /// Generic dispatcher for backend-pushed credential refreshes.
     ///
-    /// The gRPC server hands the rotated value to this dispatcher, which
-    /// routes to the appropriate sink (file write, env var update, etc.).
+    /// The gRPC server hands the rotated value to this dispatcher, which routes
+    /// to the appropriate sink (file write, env var update, etc.).
     pub credential_dispatcher: Arc<Dispatcher>,
     /// Handle to the Codex auth watcher, used by [`crate::credentials::sinks`]
     /// to seed the watcher cache after a backend-driven write so the resulting
@@ -74,19 +71,17 @@ pub struct SandboxState {
     pub codex_watcher_handle: Arc<RwLock<Option<WatcherHandle>>>,
     /// Liveness view of the root supervisor's tasks, read by `/livez`.
     ///
-    /// Non-empty means a task declared [`Criticality::Fatal`] or
-    /// [`Criticality::Liveness`] terminated before shutdown; see
+    /// Non-empty means a task declared `Criticality::Fatal` or
+    /// `Criticality::Liveness` terminated before shutdown; see
     /// [`SandboxState::is_live`].
-    ///
-    /// [`Criticality::Fatal`]: crate::supervisor::Criticality::Fatal
-    /// [`Criticality::Liveness`]: crate::supervisor::Criticality::Liveness
     pub supervisor_health: Arc<SupervisorHealth>,
     /// Interactive PTY sessions exposed through the T3 compatibility surface.
     pub terminals: TerminalManager,
-    /// Fingerprint of the last workspace successfully uploaded to S3, shared by
-    /// every upload path (turn boundary, the backend's pre-stop `SyncWorkspace`,
-    /// the shutdown flush, the periodic loop) so none of them re-ships a tar
-    /// another already shipped.
+    /// Fingerprint of the last workspace successfully uploaded to S3.
+    ///
+    /// Shared by every upload path (turn boundary, the backend's pre-stop
+    /// `SyncWorkspace`, the shutdown flush, the periodic loop) so none re-ships
+    /// a tar another already shipped.
     pub workspace_sync: WorkspaceSyncTracker,
 }
 
@@ -122,7 +117,8 @@ impl SandboxState {
         self.task_contexts.read().await.values().cloned().collect()
     }
 
-    /// Register a task once, materializing its checkout before publishing membership.
+    /// Register a task once, materializing its checkout before publishing
+    /// membership.
     pub async fn register_task_context(
         &self,
         task_id: String,
@@ -132,20 +128,11 @@ impl SandboxState {
         crate::task_context::register(self, task_id, checkout_mode, agent_type).await
     }
 
-    /// The `/livez` decision: is this pod still able to make progress?
+    /// False when [`SandboxState::supervisor_health`] records a failure or
+    /// [`crate::agent::heartbeat::actor_is_alive`] fails.
     ///
-    /// Two independent ways to lose that, both of which want the same remedy —
-    /// replace the pod:
-    ///
-    /// 1. A supervised task the pod needs terminated early. The supervisor
-    ///    records it by name; nothing here is restartable in place.
-    /// 2. The agent lifecycle task wedged or exited — see
-    ///    [`crate::agent::heartbeat::actor_is_alive`].
-    ///
-    /// Deliberately still independent of backend reachability, credentials, and
-    /// disk: a supervised task's termination is *this process* being broken, not
-    /// a dependency being briefly unavailable, so a transient outage still
-    /// cannot trigger a restart that kills an in-flight turn.
+    /// Deliberately independent of backend reachability, credentials, and disk
+    /// — a transient outage there must not kill a turn in flight.
     pub async fn is_live(&self) -> bool {
         use crate::agent::heartbeat::{HEARTBEAT_STALE_THRESHOLD_MS, actor_is_alive, now_millis};
         use crate::agent::types::AgentStatus;
@@ -179,13 +166,11 @@ impl SandboxState {
         true
     }
 
-    /// Whether core init has finished (Session state restored, workspace cloned)
-    /// and the pod has reached [`InitPhase::Ready`].
+    /// True once session state is restored and the workspace is cloned.
     ///
-    /// The message dispatcher gates on this so a backend notification that races
-    /// init (the gRPC server accepts calls before `run_init` completes) can never
-    /// drive the harness before restoration — `run_init` performs the
-    /// authoritative pending dispatch itself once Ready.
+    /// The message dispatcher gates on this so a backend notification racing
+    /// init can never drive the harness before restoration; `run_init` performs
+    /// the authoritative pending dispatch itself once Ready.
     pub(crate) async fn is_ready(&self) -> bool {
         matches!(*self.init_phase.read().await, InitPhase::Ready)
     }
@@ -432,10 +417,10 @@ mod tests {
     }
 
     /// The regression this guards: the pod boots `claude-code`, a Codex Task
-    /// joins it, and the joined Member's harness must be Codex. Building it from
-    /// the pod's `AGENT_TYPE` instead hands that Member's Turns to the Claude
-    /// CLI, which rejects the model the delivery carries and kills the turn
-    /// half a second in, with nothing surfaced to the person who sent it.
+    /// joins it, and the joined Member's harness must be Codex.
+    ///
+    /// Building it from `AGENT_TYPE` instead sends those Turns to Claude CLI,
+    /// which kills the turn in half a second, surfacing nothing to the sender.
     #[tokio::test]
     async fn joined_member_harness_comes_from_the_join_not_the_pod() {
         let state = test_state();

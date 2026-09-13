@@ -19,8 +19,8 @@ use moatless_adapter_model::delivery::{AdapterDelivery, AdapterDeliveryFailure};
 
 /// The host's handle on the Adapter delivery worker.
 ///
-/// A host takes this from `crate::compose::LoopGraph` and starts the worker
-/// last, once every delivery handler this build knows is registered.
+/// Taken from `crate::compose::LoopGraph`; start it last, once every delivery
+/// handler this build knows is registered.
 #[derive(Clone)]
 pub struct AdapterDeliveryWorker {
     store: Arc<AdapterDeliveryStore>,
@@ -33,15 +33,8 @@ impl AdapterDeliveryWorker {
 
     /// Run the Adapter delivery worker until the root token is cancelled.
     ///
-    /// The join handle is returned for the root supervisor to own — see the
-    /// criticality declared at its registration in `main` — and is `#[must_use]`
-    /// because this task owns already-acknowledged sender work: detaching it
-    /// would silently strand records the backend has already promised to run.
-    ///
-    /// The handle is the raw [`tokio::task::JoinHandle`] rather than a wrapper
-    /// type, because `Supervisor::supervise` takes exactly that and is this
-    /// method's only production caller; there is no second consumer to poll or
-    /// to join it on its own deadline.
+    /// Returned as a raw [`tokio::task::JoinHandle`] because
+    /// `Supervisor::supervise` is its only caller and takes exactly that.
     #[must_use = "this handle owns admitted Adapter deliveries; dropping it detaches the worker"]
     pub fn spawn(
         &self,
@@ -60,19 +53,11 @@ impl AdapterDeliveryWorker {
 
 /// The claim identity written onto records this process holds.
 ///
-/// Deliberately the pod/container hostname rather than a per-process random id:
-/// a process that was killed mid-execution comes back under the same name, and
-/// `release_claims_by_owner` then recovers its interrupted work at startup
-/// instead of waiting out the claim lease. The lease still covers the owner
-/// that never returns.
-///
-/// The fallback is unique per process rather than a shared constant, which
-/// matters because a shared one would be actively harmful: every replica would
-/// claim under the same name, and a starting replica would hand back records a
-/// live replica is still executing. Uniqueness costs only immediate restart
-/// recovery — a process that cannot see `HOSTNAME` waits out the lease instead
-/// — which is what the lease is for. Delaying work that is already dead beats
-/// disturbing work that is still running.
+/// The pod/container hostname, not a per-process random id, so a process killed
+/// mid-execution returns under the same name and `release_claims_by_owner`
+/// recovers it immediately instead of waiting out the lease; the
+/// `HOSTNAME`-unset fallback stays unique per process, since a shared constant
+/// would let replicas steal each other's in-flight records.
 fn worker_owner_id() -> String {
     std::env::var("HOSTNAME").unwrap_or_else(|_| format!("unknown-host-{}", uuid::Uuid::new_v4()))
 }
@@ -442,14 +427,13 @@ mod db_tests {
 
     /// The claim identity a restart-recovery test pins its worker to.
     ///
-    /// Fixed rather than derived, because `worker_owner_id` falls back to a
-    /// fresh per-process id when `HOSTNAME` is unset. Deriving it would make
-    /// restart recovery — which is owner-matched — depend on the environment
-    /// the suite happens to run in.
+    /// Fixed rather than derived, since `worker_owner_id`'s HOSTNAME-unset
+    /// fallback is per-process random, which would make owner-matched recovery
+    /// depend on the environment the suite runs in.
     const TEST_OWNER: &str = "test-worker";
 
-    /// Drive the worker until `done` holds or `budget` elapses, then cancel
-    /// it — the same start/cancel path `main` uses.
+    /// Drive the worker until `done` holds or `budget` elapses, then cancel it
+    /// — the same start/cancel path `main` uses.
     async fn run_worker_until(
         store: &Arc<AdapterDeliveryStore>,
         handlers: Arc<AdapterDeliveryHandlers>,
@@ -464,11 +448,8 @@ mod db_tests {
     /// As [`run_worker_until`], but with the worker's claim identity pinned.
     ///
     /// Only for tests that seed a `claimed` row and expect the worker to
-    /// recognise it as its own. `worker_owner_id` derives a fresh per-process
-    /// id when `HOSTNAME` is unset, so deriving it separately for the seed and
-    /// for the worker would make owner-matched recovery depend on the
-    /// environment. `run` already takes the owner as a parameter; this passes
-    /// it rather than letting the worker compute a second one.
+    /// recognise it as its own; `run` takes the owner explicitly here so
+    /// recovery isn't left to depend on the environment's `HOSTNAME`.
     async fn run_worker_until_as(
         store: &Arc<AdapterDeliveryStore>,
         handlers: Arc<AdapterDeliveryHandlers>,
@@ -539,9 +520,8 @@ mod db_tests {
     }
 
     /// Verification: crash after HTTP acknowledgment. The admitting process
-    /// never runs a worker at all — the work is picked up by a different one,
-    /// which is exactly what a mid-request kill looks like from the queue's
-    /// side.
+    /// never runs a worker — the work is picked up by a different one, which is
+    /// exactly what a mid-request kill looks like from the queue's side.
     #[sqlx::test]
     async fn work_admitted_before_a_crash_is_executed_by_the_next_process(pool: PgPool) {
         let admitting = store(pool.clone());
@@ -751,11 +731,9 @@ mod db_tests {
     }
 
     /// Under concurrency the capacity check is a stable ceiling, not an exact
-    /// cutoff, and this pins both halves of that claim: a burst overshoots by
-    /// at most the number of admissions that can be in flight, and once the
-    /// committed backlog is at capacity nothing further gets in. Ratcheting —
-    /// the ceiling drifting upward burst after burst — is the failure that
-    /// would make ingress unbounded, and is what this rules out.
+    /// cutoff: a burst overshoots by at most the number of admissions that can
+    /// be in flight, but once the committed backlog is at capacity, nothing
+    /// further gets in and the ceiling never ratchets upward.
     #[sqlx::test]
     async fn concurrent_admission_overshoots_by_a_bounded_amount_and_never_ratchets(pool: PgPool) {
         const CAPACITY: i64 = 4;

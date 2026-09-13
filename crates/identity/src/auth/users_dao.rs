@@ -25,11 +25,11 @@ pub trait UserDao: Send + Sync {
     async fn get_user_by_login(&self, login: &str) -> Result<Option<User>, sqlx::Error>;
     async fn find_user_by_email(&self, email: &str) -> Result<Option<User>, sqlx::Error>;
     async fn get_users_by_ids(&self, user_ids: &[Uuid]) -> Result<Vec<User>, sqlx::Error>;
-    /// Insert the user, or refresh an existing row from a login.
+    /// Inserts the user, or refreshes an existing row from a login.
     ///
-    /// [`User::status`] applies to the insert only. Do not add
-    /// `status = EXCLUDED.status` to the `DO UPDATE SET`: a login would
-    /// re-enable a disabled account.
+    /// [`User::status`] applies to the insert only — never add `status =
+    /// EXCLUDED.status` to the `DO UPDATE SET`, or a login would re-enable a
+    /// disabled account.
     async fn upsert_user(&self, user: &User) -> Result<(), sqlx::Error>;
     /// List the directory, `Disabled` rows included only when asked.
     async fn list_users(&self, include_disabled: bool) -> Result<Vec<User>, sqlx::Error>;
@@ -42,9 +42,8 @@ pub trait UserDao: Send + Sync {
     ) -> Result<Option<User>, sqlx::Error>;
     /// `Option<Option<_>>` is the tri-state the PATCH body carries, not an
     /// accident: absent leaves the column alone, `null` clears it, a value sets
-    /// it. The impl below binds `is_some()` and `flatten()` separately for
-    /// exactly that reason. Collapsing it needs a patch type on the request
-    /// body, which is a different change from a lint sweep.
+    /// it — the impl binds `is_some()` and `flatten()` separately for exactly
+    /// that reason.
     async fn update_user_profile_and_role(
         &self,
         user_id: &Uuid,
@@ -62,8 +61,8 @@ pub trait UserDao: Send + Sync {
         provider_user_id: &str,
     ) -> Result<(), sqlx::Error>;
     /// Record `provider_user_id` only when the user holds no id at `provider`
-    /// yet. For a caller caching what it just resolved: a link already there was
-    /// established deliberately and outranks a fresh sighting.
+    /// yet. For a caller caching what it just resolved: a link already there
+    /// was established deliberately and outranks a fresh sighting.
     async fn insert_provider_id_if_absent(
         &self,
         user_id: &Uuid,
@@ -80,10 +79,10 @@ pub trait UserDao: Send + Sync {
         provider: &str,
         provider_user_id: &str,
     ) -> Result<Option<User>, sqlx::Error>;
-    /// Resolve a legacy provider id (the old `users.id`, preserved in
-    /// `user_provider_ids.provider_user_id`) to a user, regardless of provider.
-    /// Used to keep pre-migration references (e.g. committed `runAsUserId`
-    /// values) resolving to the new internal uuid.
+    /// Resolves a legacy provider id (the old `users.id`, preserved in
+    /// `user_provider_ids.provider_user_id`) to a user, regardless of provider
+    /// — keeps pre-migration references (e.g. committed `runAsUserId`)
+    /// resolving to the new internal uuid.
     async fn find_user_by_legacy_id(
         &self,
         provider_user_id: &str,

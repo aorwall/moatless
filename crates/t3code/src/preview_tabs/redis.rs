@@ -14,9 +14,9 @@ use tracing::{info, warn};
 use uuid::Uuid;
 /// Redis channel every replica publishes rendered `PreviewEvent`s to.
 ///
-/// Pub/sub rather than a stream, deliberately: a client that missed events
-/// recovers by re-reading `preview.list` under the epoch it holds, so there is
-/// nothing a replay would add and a retained backlog would only be read once.
+/// Pub/sub, not a stream: a client that missed events recovers by re-reading
+/// `preview.list` under its held epoch, so a replay would add nothing and a
+/// retained backlog would only be read once.
 const EVENT_CHANNEL: &str = "preview:events";
 
 /// The key holding this store's epoch, written once with `SET NX`.
@@ -32,9 +32,9 @@ fn revision_key(task_id: &str) -> String {
 
 /// Decode a hash of `tab_id -> JSON` into tabs, skipping what cannot be read.
 ///
-/// A single undecodable field is not a reason to fail the whole listing: the
-/// caller asked what tabs are open, and the honest answer is the ones that
-/// could be read. The skipped field is logged once.
+/// A single undecodable field does not fail the whole listing: the honest
+/// answer to "what tabs are open" is the ones that could be read. The skipped
+/// field is logged once.
 pub(super) fn decode_tabs(fields: HashMap<String, String>) -> Vec<PreviewTab> {
     let mut tabs: Vec<PreviewTab> = fields
         .into_iter()
@@ -66,10 +66,9 @@ pub struct RedisPreviewTabDao {
 impl RedisPreviewTabDao {
     /// Connect, settle the epoch, and start forwarding published events.
     ///
-    /// The returned handle is the subscriber task. It is the caller's to
-    /// supervise: while it is not running this replica still serves every read
-    /// and write, but its connected clients stop hearing about tabs opened on
-    /// the other replica.
+    /// The returned handle is the subscriber task, the caller's to supervise:
+    /// while it is not running this replica still serves every read and write,
+    /// but its clients stop hearing about tabs opened on the other replica.
     pub async fn connect(
         redis_url: &str,
         ttl: PreviewTabTtl,
@@ -109,15 +108,13 @@ fn redis_manager_config() -> redis::aio::ConnectionManagerConfig {
 
 /// Re-publish everything on the Redis channel onto the local broadcast.
 ///
-/// Runs until aborted. A dropped subscription is reconnected rather than
-/// surfaced, because the only thing a caller could do with the error is
-/// reconnect: the loop is the error handling. Each reconnect gap costs
-/// connected clients the events published during it, and they recover on the
-/// next mutation they do see.
+/// Runs until aborted. A dropped subscription reconnects rather than surfaces —
+/// the loop is the error handling — and connected clients recover any events
+/// lost during the gap on the next mutation they see.
 async fn forward_published_events(client: redis::Client, events: broadcast::Sender<Value>) {
-    /// Long enough that a Redis outage does not become a reconnect storm,
-    /// short enough that a tab opened on the other replica appears promptly
-    /// once it is back.
+    /// Long enough that a Redis outage does not become a reconnect storm, short
+    /// enough that a tab opened on the other replica appears promptly once it
+    /// is back.
     const RECONNECT_DELAY: Duration = Duration::from_secs(2);
 
     loop {

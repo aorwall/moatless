@@ -67,10 +67,9 @@ pub(crate) async fn shell_snapshot_http(
 
 /// The transcript bootstrap, fetched before the socket subscription opens.
 ///
-/// A 404 here is not an error the client reports: it defers to the socket
-/// subscription and logs at debug (`state/threadSnapshotHttp.ts:99-107`). So
-/// this status is also what a conversation the viewer may not see gets — the
-/// alternative, a 403, would confirm the id exists.
+/// A 404 here is not an error to the client — it defers to the socket
+/// subscription, and is also what an unreadable conversation gets, so a 403
+/// wouldn't leak existence.
 pub(crate) async fn thread_snapshot_http(
     State(state): State<UiRpcState>,
     Extension(identity): Extension<UiRpcAuthIdentity>,
@@ -124,9 +123,9 @@ pub(crate) async fn scripts_list_http(
     }
 }
 
-/// Start a Task's declared Script from outside the RPC/WS surface (`moat
-/// tasks scripts run`). Same effect as `scripts.run`: execs into a named
-/// terminal session, publishing the Script's port first if it declares one.
+/// Start a Task's declared Script from outside the RPC/WS surface (`moat tasks
+/// scripts run`). Same effect as `scripts.run`: execs into a named terminal
+/// session, publishing the Script's port first if it declares one.
 pub(crate) async fn scripts_run_http(
     State(state): State<UiRpcState>,
     Extension(identity): Extension<UiRpcAuthIdentity>,
@@ -177,21 +176,9 @@ pub(crate) async fn websocket_upgrade(
 
 /// Whether this upgrade's `Origin` has to be one we allow.
 ///
-/// The allow-list is a defence against one thing: a page the person did not
-/// write opening a socket that their cookie then authenticates. That is a
-/// property of the cookie, not of the socket — a browser attaches it to any
-/// request a page can cause, so the origin is the only thing left that says
-/// which page caused it.
-///
-/// A ticket is the opposite. It has to be fetched first, with a bearer token
-/// the page does not have and cannot read, so a request carrying one was made
-/// by something holding the credential deliberately. Requiring an origin of it
-/// would refuse every native client on principle: a React Native `WebSocket`
-/// sends no `Origin` at all on Android, and an app has no origin to send.
-///
-/// An unknown method is treated as the cookie case. The only way to get here
-/// without one is with the auth middleware unmounted, and that is not a
-/// configuration whose sockets should be easier to open.
+/// Only the cookie case needs it — a cookie is auto-attached by the browser,
+/// unlike a ticket's bearer token; an unknown method defaults to the safer
+/// cookie case.
 pub(crate) fn origin_checked(method: Option<Extension<UiRpcAuthMethod>>) -> bool {
     !matches!(method, Some(Extension(UiRpcAuthMethod::WebSocketTicket)))
 }
@@ -221,8 +208,8 @@ pub(crate) fn shell_failure_status(error: &sqlx::Error) -> StatusCode {
 }
 
 /// How a failed `scripts.run`/list reaches an HTTP caller (`moat tasks
-/// scripts`) — the same refusal vocabulary as [`scripts_failure_exit`], the
-/// WS twin, as status codes instead of RPC exit shapes.
+/// scripts`) — the same refusal vocabulary as [`scripts_failure_exit`], the WS
+/// twin, as status codes instead of RPC exit shapes.
 pub(crate) fn scripts_error_response(error: &ScriptsError) -> Response {
     match error {
         ScriptsError::NotFound => (

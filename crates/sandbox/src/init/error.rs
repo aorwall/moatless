@@ -1,6 +1,6 @@
-/// Init error with permanence classification.
-/// Permanent errors use exit code 78 so the pod watcher stops immediately.
-/// Transient errors use exit code 1 and let K8s retry.
+/// Init error with permanence classification. Permanent errors use exit code 78
+/// so the pod watcher stops immediately. Transient errors use exit code 1 and
+/// let K8s retry.
 #[derive(Debug)]
 pub enum InitError {
     /// Will never succeed on retry (repo not found, access denied).

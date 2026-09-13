@@ -3,20 +3,16 @@
 //! Mirrors `transport::subprocess::build_cli_args` but drops flags that only
 //! work with `--print` (`--output-format`, `--input-format`,
 //! `--fallback-model`, `--max-budget-usd`, etc.) and always adds
-//! `--dangerously-skip-permissions`. The `PermissionHandler` is ignored in
-//! tmux mode.
+//! `--dangerously-skip-permissions`. The `PermissionHandler` is ignored in tmux
+//! mode.
 
 use tracing::warn;
 
 use crate::api::options::{ClaudeOptions, SystemPrompt};
 
-/// Build CLI args appropriate for running `claude` inside a tmux session
-/// (interactive TUI, no stream-json plumbing).
-///
-/// `settings_json` is the inline JSON produced by [`crate::tmux::hooks::HookHarness`].
-/// When `Some`, an `--settings <json>` pair is added so claude registers the
-/// `SessionStart` + Stop hooks for the supervisor's FIFO. The JSON is harness-
-/// owned, not caller-supplied (no field on [`ClaudeOptions`] for it).
+/// `settings_json`, from [`crate::tmux::hooks::HookHarness`], adds `--settings
+/// <json>` registering `SessionStart`/Stop hooks for the supervisor's FIFO; it
+/// is harness-owned, with no [`ClaudeOptions`] field.
 pub(crate) fn build_tmux_cli_args(
     options: &ClaudeOptions,
     settings_json: Option<&str>,

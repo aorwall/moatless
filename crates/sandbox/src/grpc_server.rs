@@ -1,10 +1,10 @@
 //! gRPC server implementing `SandboxService`.
 //!
 //! Receives commands from the backend (execute agent, stop agent, notify
-//! messages, status checks, file search). Preview servers still run as
-//! separate containers owned by K8s/Docker — the sandbox does not supervise
-//! them — but it does own their live override files (`ApplyServerConfig`),
-//! which is what lets a server be reconfigured without rebuilding the pod.
+//! messages, status checks, file search). Preview servers still run as separate
+//! containers owned by K8s/Docker — the sandbox does not supervise them — but
+//! it does own their live override files (`ApplyServerConfig`), which is what
+//! lets a server be reconfigured without rebuilding the pod.
 
 use std::pin::Pin;
 use std::sync::Arc;
@@ -168,10 +168,9 @@ impl SandboxService for SandboxServiceImpl {
 
     /// Push the workspace to S3 before the backend destroys the live copy.
     ///
-    /// The sandbox is the only party that can read the volume, and on stop or
-    /// remove the volume is about to go. Never fails the call: a sandbox that
-    /// cannot upload must not block the transition, and the caller treats every
-    /// outcome as advisory.
+    /// Never fails the call: the sandbox is the only reader of the volume, but
+    /// a failed upload must not block the stop/remove transition, so the caller
+    /// treats every outcome as advisory.
     #[tracing::instrument(skip_all, fields(request_id = %uuid::Uuid::new_v4(), task_id = %self.state.config.task_id))]
     async fn sync_workspace(
         &self,
@@ -374,9 +373,9 @@ impl SandboxService for SandboxServiceImpl {
         Ok(Response::new(NotifyMessagesResponse {}))
     }
 
-    /// Apply a backend-pushed credential refresh. Routes the value through
-    /// the sandbox-wide [`Dispatcher`] which writes files / updates env / etc.
-    /// per the sink registered for the credential key.
+    /// Apply a backend-pushed credential refresh. Routes the value through the
+    /// sandbox-wide [`Dispatcher`] which writes files / updates env / etc. per
+    /// the sink registered for the credential key.
     #[tracing::instrument(skip_all, fields(request_id = %uuid::Uuid::new_v4(), task_id = %self.state.config.task_id))]
     async fn refresh_credential(
         &self,
@@ -400,13 +399,11 @@ impl SandboxService for SandboxServiceImpl {
         }
     }
 
-    /// Write a preview server's override into the workspace volume and
-    /// optionally bump its generation so the sidecar re-execs in place.
+    /// Write a preview server's override, optionally bumping its generation so
+    /// the sidecar re-execs in place.
     ///
-    /// The request carries the complete override state rather than a delta, so
-    /// this never merges. The control files it writes are the only record of an
-    /// override; a caller that needs a partial update reads the current state
-    /// with `GetServerConfig` first.
+    /// A partial update reads the current state with `GetServerConfig` first —
+    /// see [`crate::server_control`] for why overrides are whole-state.
     #[tracing::instrument(skip_all, fields(request_id = %uuid::Uuid::new_v4(), task_id = %self.state.config.task_id))]
     async fn apply_server_config(
         &self,
@@ -447,10 +444,9 @@ impl SandboxService for SandboxServiceImpl {
 
     /// Read back every override currently on the workspace volume.
     ///
-    /// The backend has no other source: it stopped persisting overrides once
-    /// they became workspace state, so this call is the only way to answer
-    /// "what is actually running". It therefore reports what is on disk, not
-    /// what anyone intended — a hand-edited control file shows up here.
+    /// The backend has no other source since it stopped persisting overrides;
+    /// this reports what is on disk, not what anyone intended, so a hand-edited
+    /// control file shows up here.
     #[tracing::instrument(skip_all, fields(request_id = %uuid::Uuid::new_v4(), task_id = %self.state.config.task_id))]
     async fn get_server_config(
         &self,
@@ -900,8 +896,8 @@ mod tests {
     use super::*;
 
     /// Both domain node types are representable on the wire, and the mapping is
-    /// what the backend decodes back into `"file"` / `"directory"`. Nested nodes
-    /// must carry their own discriminant, not the parent's.
+    /// what the backend decodes back into `"file"` / `"directory"`. Nested
+    /// nodes must carry their own discriminant, not the parent's.
     #[test]
     fn tree_node_types_map_onto_their_wire_discriminants() {
         fn node(

@@ -1,28 +1,15 @@
 //! The external event ids GitHub events are recorded under.
 //!
-//! # What a pull-request-level id has to carry
+//! GitHub numbers comment/review/check/run ids globally, but pull requests only
+//! per repository, so a PR-level id must carry the whole subject
+//! (`owner/repo#number`, via [`GithubPrSubject::key`]) rather than the bare
+//! number — an ambiguous id would collide across repositories in
+//! `task_messages` and `task_outbound_events`.
 //!
-//! GitHub allocates comment, review, check and run ids once across the whole
-//! host, so `github:ic:<id>` names an event by itself. It numbers pull
-//! requests per repository, so the number does not: `607` is a pull request in
-//! every repository that has one. An id built from the number alone is
-//! therefore one string for many events, and the tables it is written to —
-//! `task_messages`, `task_outbound_events` — hold every repository's rows
-//! together.
-//!
-//! So a PR-level id carries the whole subject, `owner/repo#number`, exactly as
-//! [`GithubPrSubject::key`] spells it. Taking the subject rather than the
-//! number is what makes an ambiguous id unwriteable rather than merely
-//! discouraged.
-//!
-//! # Reading rows written before that
-//!
-//! Rows recorded under the old `github:pr:<action>:<number>` shape are
-//! rewritten in place by migration `0148`, using the subject key each row
-//! already carries. A row that carries no subject keeps its old id, and
-//! nothing aliases the two shapes together: an alias would hand the ambiguous
-//! string back to every reader that matches on the id alone, which is the
-//! collision this format removes.
+//! Rows written under the old `github:pr:<action>:<number>` shape were
+//! rewritten in place by migration `0148`; the two shapes are never aliased
+//! together, since that would hand the ambiguous string back to readers
+//! matching on id alone.
 
 use super::subject::GithubPrSubject;
 
@@ -69,11 +56,9 @@ const SYNCHRONIZE_PREFIX: &str = "github:pr:synchronize:";
 
 /// `github:push:<owner>/<repo>:<sha>` - a sha the Task pushed.
 ///
-/// Carries no pull request number: the sandbox files the claim as the push
-/// completes, which is before the pull request the sha lands on exists on the
-/// first push. [`aliases`] reattaches it to the `synchronize` event, and
-/// `task_outbound_events` is keyed on `(external_event_id, provider,
-/// source_name)`, so the number is never needed to find it again.
+/// Carries no PR number, since the sandbox files the claim before the PR exists
+/// on the first push; [`aliases`] reattaches it to the `synchronize` event
+/// instead.
 pub(super) fn push(owner: &str, repo: &str, sha: &str) -> String {
     push_on(&format!("{owner}/{repo}"), sha)
 }
@@ -84,9 +69,8 @@ fn push_on(repo_full_name: &str, sha: &str) -> String {
 
 /// `github:pr:merged:<owner>/<repo>#<number>` - the merged-PR notification.
 ///
-/// A distinct namespace from `github:pr:closed:...`, which the auto-close
-/// notice owns: the two carry different text to different tasks, so sharing an
-/// id would let whichever ran first suppress the other's receipt.
+/// Distinct from `github:pr:closed:...` (the auto-close notice's namespace):
+/// sharing an id would let whichever ran first suppress the other's receipt.
 pub(super) fn pr_merged(subject: &GithubPrSubject) -> String {
     pr_event("merged", subject, None)
 }
@@ -110,9 +94,8 @@ pub(super) fn workflow_run(id: u64) -> String {
 /// `github:conflict:<owner>/<repo>#<number>:<sha>` - merge-conflict
 /// notification.
 ///
-/// Keyed by the PR head sha so a persisting conflict is announced once per
-/// pushed commit: re-checking the same head is deduped, but a new push (new
-/// sha) that is still conflicted re-notifies.
+/// Keyed by the PR head sha: re-checking the same head is deduped, but a new
+/// push that is still conflicted re-notifies.
 pub(super) fn merge_conflict(subject: &GithubPrSubject, sha: &str) -> String {
     let key = subject.key();
     if sha.is_empty() {
@@ -142,15 +125,9 @@ pub(super) fn comment_target_from_id(external_id: &str) -> Option<CommentTarget>
 
 /// The ids a stored row may carry for the same event.
 ///
-/// A `synchronize` id aliases onto the [`push`] claim for the same sha, which is
-/// what names the Task that produced the push. Both spell the repository, so the
-/// pair is as unambiguous as the id it came from.
-///
-/// Only the comment namespaces alias onto the bare integer written before the
-/// prefix scheme. A PR-level id never aliases onto its old number-only shape:
-/// that string is the ambiguous one, and handing it to a reader that matches on
-/// the id alone would put back the collision the format removes. Migration
-/// `0148` rewrites those rows instead.
+/// A `synchronize` id aliases onto the [`push`] claim for the same sha (naming
+/// the Task that pushed); a PR-level id never aliases its old ambiguous
+/// number-only shape — migration `0148` rewrote those rows instead.
 pub(super) fn aliases(external_id: &str) -> Vec<String> {
     // Ahead of the digit test below: a sha is hex, so a `synchronize` id would
     // fall out of it with no alias.
@@ -213,8 +190,8 @@ mod tests {
         );
     }
 
-    /// The collision the format exists to remove: one number, two
-    /// repositories, and the ids must not be equal.
+    /// The collision the format exists to remove: one number, two repositories,
+    /// and the ids must not be equal.
     #[test]
     fn the_same_number_in_two_repositories_gives_two_ids() {
         for id in [

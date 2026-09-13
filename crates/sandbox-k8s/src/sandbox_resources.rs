@@ -1,9 +1,10 @@
 //! The reaper's two k8s-native cycle operations.
 //!
-//! Both are pure k8s work — LIST managed Deployments to find the running-Sandbox
-//! set, and LIST labeled Deployments/Services/PVCs/IngressRoutes then delete one
-//! task's resources — so they live beside the k8s client. Whether a listed task
-//! is an orphan is a tasks-domain question the caller answers.
+//! Both are pure k8s work — LIST managed Deployments to find the
+//! running-Sandbox set, and LIST labeled
+//! Deployments/Services/PVCs/IngressRoutes then delete one task's resources —
+//! so they live beside the k8s client. Whether a listed task is an orphan is a
+//! tasks-domain question the caller answers.
 
 use std::collections::HashSet;
 
@@ -17,8 +18,8 @@ use super::client::K8sClient;
 
 /// Sandbox-ids whose Deployment is meant to be running.
 ///
-/// A Sandbox is named for the Task that created it, and other Tasks can be
-/// attached to it, so this is not the set of Tasks that are running.
+/// Not the set of running Tasks: a Sandbox is named for the Task that created
+/// it, but other Tasks can attach to it.
 pub async fn list_running_sandbox_ids(k8s: &K8sClient) -> Result<Vec<String>, kube::Error> {
     // The replica filter is k8s-spec semantics, so it lives here; the caller
     // sees only the running sandbox-ids it needs.
@@ -68,8 +69,8 @@ async fn list_sandbox_deployments(k8s: &K8sClient) -> Result<Vec<DeploymentInfo>
     Ok(infos)
 }
 
-/// Collect the `moatless.io/task-id` label from an iterator of resource metadata
-/// into `ids`.
+/// Collect the `moatless.io/task-id` label from an iterator of resource
+/// metadata into `ids`.
 fn collect_ids_from_meta<'a>(
     ids: &mut HashSet<String>,
     metas: impl Iterator<Item = &'a ObjectMeta>,
@@ -86,8 +87,8 @@ fn collect_ids_from_meta<'a>(
 }
 
 /// Discover every task-id that still has at least one labeled sandbox resource
-/// (Deployment, Service, PVC, or `IngressRoute`). Best-effort: a failure listing
-/// any one resource type is logged and skipped.
+/// (Deployment, Service, PVC, or `IngressRoute`). Best-effort: a failure
+/// listing any one resource type is logged and skipped.
 pub async fn collect_labeled_task_ids(k8s: &K8sClient) -> HashSet<String> {
     let ns = k8s.namespace();
     let lp = ListParams::default().labels("moatless.io/task-id");

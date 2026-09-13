@@ -117,58 +117,50 @@ no tests, so run the verification commands above yourself.
 
 ## Writing a comment
 
-A comment carries a fact the code cannot show. Four kinds qualify:
+A comment carries a fact the code cannot show. Work through this in order:
 
-- An invariant.
-- A "do not do X", with what breaks if you do.
-- A non-obvious mechanic.
-- A unit or an ordering the signature does not state.
+1. **Default to none — write only when the fact is** an invariant, a "do not do
+   X" with what breaks, a non-obvious mechanic, or a unit/ordering the
+   signature omits. A public item also gets a one-line doc saying what it is.
+2. **Stop at five lines for a comment, eight for a module doc; past that, name
+   the kind that needs the length, or cut back.** Unnamed excess gets deleted,
+   not argued for. Five is a summary and four lines of invariant; a line counts
+   as what it costs wrapped at 80 columns and a blank line counts as nothing, so
+   neither joining two lines into one long one nor deleting the paragraph break
+   buys anything.
+3. **Delete what no reader needs; do not relocate it.** Text moves to the
+   commit or the pull request only when a reviewer of that change needs it, and
+   never to an `AGENTS.md` to get a comment under its ceiling.
 
-Default to none. A public item gets a one-line doc that says what it is. Three
-lines for a comment and eight for a module doc is where the writing has gone
-wrong, not an allowance to spend. Past it, cut. Text moves to the commit or the
-pull request only when a reviewer of the change needs it. Text no reader needs
-is deleted, not relocated.
+`rust-dev-guidelines`/`frontend-dev-guidelines` hold per-language specifics.
 
-These rules apply to a doc comment and a line comment in every language. The
-`rust-dev-guidelines` skill holds the Rust specifics and
-`frontend-dev-guidelines` holds the TypeScript specifics.
+- **Past the one-line summary, do not restate the body; put a contract in a
+  structured slot, not prose.** A trait method's, an interface member's, or a
+  props field's doc is the whole contract, and stays.
+- **State a design fact once, on the symbol that owns it, never on a sibling**
+  — an enum its variants, a field its default and writers, the nearest
+  `AGENTS.md` a cross-cutting rule; elsewhere, link to the owner.
+- **End a rationale on what depends on it** — the caller or invariant that
+  breaks under the alternative — and delete a sentence defending it. Use
+  `deliberately`/`rather than` when naming it; a considered alternative goes in
+  the pull request, not a comment.
+- **Use the code's own names, in backticks** — `kyc_status`, `Pending` — and
+  name the wrong assumption a negative statement prevents: "No `Activated` row
+  here: `active` was already true" stays, "Not the same as `Pending`" goes.
+- **Put a trap in a line comment on the line it protects**: symptom, cause,
+  fix. A precondition binding every caller goes once, on the owning function's
+  doc; each call site links back in one line.
+- **Narrate no change.** Move a sentence about a state no live path reaches
+  ("previously", "used to", "no longer") to the commit or PR; a
+  `legacy`/`deprecated` status word is a design fact stated once.
 
-- **Past the one-line summary, do not restate the body.** When the reader can
-  check a sentence against the code below it, delete that sentence. The doc on a
-  trait method, an interface member, an abstract method, or a props field is the
-  whole contract, and it stays.
-- **State a design fact once, on the symbol that owns it.** An enum owns what its
-  variants mean. A field owns its default and its writers. A function owns its
-  transition and its side effects. A module doc owns the module invariant. The
-  nearest `AGENTS.md` owns a cross-cutting rule. Everywhere else, link to the
-  owner. Two copies diverge on the next change to one of them.
-- **Do not copy a doc between siblings.** Sibling types, sibling crates, and
-  sibling implementations of one trait share a trait, a base type, or a module.
-  Put the shared text there, and link to it.
-- **A rationale ends on what depends on it**: the caller, query, migration, test,
-  or invariant that breaks under the alternative. Use `deliberately` and
-  `rather than` when what follows names the alternative and what breaks. Cite the
-  PR when one produced the decision. An alternative you considered goes in the
-  pull request when a reviewer needs it, never in a comment or an `AGENTS.md`.
-- **Use the code's own names, in backticks**: `kyc_status` and `Pending`, never a
-  paraphrase of them.
-- **A negative statement names the wrong assumption it prevents.** "No `Activated`
-  row is written here: `active` was already true" stays. "Not the same as
-  `Pending`" goes.
-- **State, do not argue.** Delete a sentence whose only job is to defend the
-  sentence above it.
-- **Put a trap in a line comment on the line it protects**: symptom, cause, fix.
-  A precondition that binds every caller goes once in the owning function's doc,
-  and each call site links back in one line. A lint suppression reason states the
-  cause only, because the suppression is the fix.
-- **Put the contract in the language's structured slot, and do not repeat it in
-  prose.** The language skill defines the slot.
-- **Narrate no change.** A comment describes the current state. A sentence about
-  a state no live code path reaches ("previously", "used to", "no longer", "the
-  old X") goes in the commit or the PR. When an old form and a new form coexist,
-  the status word (`legacy`, `deprecated`) is a design fact. It goes once, on
-  the symbol that carries it. This rule covers Markdown too.
+**Enforcement.** `clippy::too_long_first_doc_paragraph` caps a public item's
+first paragraph at 200 characters, and reads no private item without
+`check-private-items`. Three `arch-rules` checks hold the rest:
+`comment-block-size`, `agents-md-budget`, and `duplicate-comment-prose`. The
+first fails above the five and eight stated above, measuring each line as what
+it costs wrapped at 80 columns and a blank line as nothing, on a baseline that
+only shrinks. Every other rule here is unchecked.
 
 ## Finding conventions
 

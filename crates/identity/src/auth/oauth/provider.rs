@@ -17,7 +17,8 @@ pub trait OAuthProvider: Send + Sync {
     async fn get_user_info(&self, tokens: &OAuthTokens) -> Result<ProviderUserInfo, AuthError>;
 
     /// Check whether the authenticated user belongs to the given organization.
-    /// Returns `true` by default (no restriction) for providers that don't support org checks.
+    /// Returns `true` by default (no restriction) for providers that don't
+    /// support org checks.
     async fn check_org_membership(
         &self,
         _access_token: &str,

@@ -19,23 +19,16 @@ use crate::events::GrpcEventPublisher;
 /// Tools that require plan approval before use.
 const WRITE_TOOLS: &[&str] = &["Write", "Edit", "MultiEdit", "NotebookEdit", "Bash"];
 
-/// Where the call that parked the run is announced, so a person can see the
-/// question they are being asked.
+/// Announces the call that parked the run, so a person sees the question.
 ///
-/// Nothing else guarantees it reaches them in time. The block that holds the
-/// call travels the harness stream on its own schedule — it may not have been
-/// written when permission is asked for, and the CLI is waiting on this answer
-/// before it writes anything more. Announcing from here puts the question in
-/// front of a person the moment it is asked, whatever the stream does.
+/// The block carrying it may lag the harness stream, and the CLI blocks on this
+/// answer before writing anything more.
 struct PromptSink {
     events: GrpcEventPublisher,
     task_id: String,
 }
 
 /// Permission handler that intercepts `AskUserQuestion` and `ExitPlanMode`.
-///
-/// When `plan_mode_active` is true, write tools are denied until the user
-/// approves the plan via `ExitPlanMode`.
 pub struct InteractivePermissionHandler {
     pub agent_state: Arc<AgentState>,
     /// When true, write tools are blocked pending `ExitPlanMode` approval.
@@ -55,7 +48,8 @@ impl InteractivePermissionHandler {
         }
     }
 
-    /// Create a handler without plan mode (all non-interactive tools auto-allowed).
+    /// Create a handler without plan mode (all non-interactive tools
+    /// auto-allowed).
     pub fn new(agent_state: Arc<AgentState>) -> Self {
         Self::with_plan_mode(agent_state, false)
     }
@@ -67,21 +61,12 @@ impl InteractivePermissionHandler {
         self
     }
 
-    /// Publish the parked call as the `tool_use` block it is.
+    /// Publishes the parked call as the `tool_use` block, shaped like the
+    /// coordinator's per-block `agent.message`.
     ///
-    /// Shaped exactly like the per-block `agent.message` the coordinator
-    /// publishes for an ordinary block, so the backend's existing mapping does
-    /// the rest: the call row the answer settles, and the joined
-    /// `user_input_requested` row the answer panel is derived from.
-    ///
-    /// The message uuid is derived from the tool-use id rather than allocated,
-    /// so a redelivery of the announcement itself updates the row rather than
-    /// adding a second. The *real* block carrying this call is a different
-    /// message and cannot be deduplicated that way; the two settle it with a
-    /// claim instead, and the one that gets there first publishes.
-    ///
-    /// Run-scoped through `current_run_id` so the call lands on the turn it
-    /// belongs to, the same attribution an ack of the answer already uses.
+    /// The uuid derives from the tool-use id so a redelivery updates the row
+    /// instead of duplicating it; run-scoped through `current_run_id` like an
+    /// answer's ack.
     async fn announce(&self, tool_name: &str, tool_use_id: &str, input: &serde_json::Value) {
         let Some(sink) = &self.prompt_sink else {
             return;
@@ -135,10 +120,9 @@ impl InteractivePermissionHandler {
 
 /// The `agent.message` payload announcing one parked interactive call.
 ///
-/// Byte-for-byte the shape `coordinator::seam::message_payload` publishes for an
-/// ordinary per-block source event, because it is read by the same handler:
-/// one `blockIndex`, one `content` block, the message's own uuid on the outside
-/// and the inside.
+/// Byte-for-byte the shape `coordinator::seam::message_payload` produces, so
+/// the same handler reads both: one `blockIndex`, one `content` block, uuid on
+/// both the outside and inside.
 fn prompt_message_payload(
     tool_name: &str,
     tool_use_id: &str,
@@ -532,12 +516,11 @@ mod tests {
         );
     }
 
-    /// The announcement carries the call itself, in the shape the backend's
-    /// per-block `agent.message` handler already reads — which is what makes
-    /// the existing mapping derive the answer panel from it without a second
-    /// code path. The uuid is the tool-use id's, so the row a redelivery (or
-    /// the real block, arriving late once the wait ends) lands on is the same
-    /// one.
+    /// The announcement carries the call in the shape the backend's per-block
+    /// `agent.message` handler already reads.
+    ///
+    /// The uuid is the tool-use id's, so a redelivery or the late-arriving real
+    /// block lands on the same row.
     #[test]
     fn a_parked_call_is_announced_as_the_block_it_is() {
         let input = serde_json::json!({ "plan": "do the thing" });
@@ -587,10 +570,11 @@ mod tests {
         handle.await.unwrap();
     }
 
-    /// Two interactive calls in one assistant message reach the handler
-    /// together, because permission decisions are made off the SDK's read loop.
-    /// The one already waiting on a person keeps its place — replacing it would
-    /// drop the sender its own run is waiting on, which reads as a cancellation.
+    /// Two interactive calls in one message reach the handler together;
+    /// permission decisions run off the SDK's read loop.
+    ///
+    /// The one already waiting on a person keeps its place — replacing it drops
+    /// the sender its own run awaits, reading as a cancellation.
     #[tokio::test]
     async fn a_second_question_is_refused_while_the_first_is_unanswered() {
         let state = Arc::new(AgentState::new());
@@ -630,10 +614,11 @@ mod tests {
         ));
     }
 
-    /// The claim says the call reached the backend by this route, and the block
-    /// carrying it stays quiet on the strength of that. So an announcement that
-    /// never went anywhere has to hand the claim back — otherwise the call is
-    /// suppressed on both routes and nobody is ever asked the question.
+    /// The claim says the call reached the backend by this route, so the block
+    /// carrying it stays quiet on the strength of it.
+    ///
+    /// An announcement that never went anywhere must hand the claim back, or
+    /// the call is suppressed on both routes and never asked.
     #[tokio::test]
     async fn a_refused_announcement_hands_the_claim_back() {
         let backend = Arc::new(crate::events::test_backend::CapturingBackend::default());

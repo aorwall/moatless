@@ -16,23 +16,11 @@ pub struct WebhookPayload {
     /// Arbitrary metadata stored in thread properties.
     #[cfg_attr(feature = "openapi", schema(value_type = Option<Object>))]
     pub metadata: Option<serde_json::Value>,
-    /// Caller-assigned identity for this delivery. Optional, and what it buys
-    /// differs sharply by whether it is supplied:
+    /// Caller-assigned identity for this delivery, used for deduplication.
     ///
-    /// - **Supplied.** Two requests carrying the same `deliveryId` are one
-    ///   delivery. The second is recognised as a duplicate and does no further
-    ///   work — on any replica, and after any restart.
-    /// - **Absent.** A fresh identity is minted per request, so sending the same
-    ///   body twice is two deliveries and the work is done twice.
-    ///
-    /// Either way the response means the backend owns the delivery. Only the
-    /// deduplication is at the caller's discretion.
-    ///
-    /// It is read from the request body rather than a header because the
-    /// signature covers the body only: an identifier carried outside the signed
-    /// content could be altered in transit without invalidating the signature,
-    /// which would either replay work as new or collapse two distinct
-    /// deliveries into one.
+    /// Supplied: repeated `deliveryId` values collapse into one delivery, done
+    /// once. Absent: each request is a new delivery. Read from the body, not a
+    /// header, since only the body is signed.
     pub delivery_id: Option<String>,
 }
 
@@ -49,8 +37,7 @@ pub enum WebhookAdmission {
 
 /// The answer to an accepted delivery.
 ///
-/// It names the delivery, not a Task: routing has not run when this is written,
-/// so no Task exists to name yet.
+/// Names the delivery, not a Task — routing hasn't run yet, so no Task exists.
 #[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]

@@ -204,10 +204,10 @@ impl Drop for DetachedRequest {
 
 /// Owns the requests one connection is answering off its frame loop.
 ///
-/// A detached request sends its frames on the same channel a subscription's
-/// producer sends on, so `serve_websocket` writes them without knowing which of
-/// the two produced them. Nothing here is ordered against anything else: a
-/// request that needs the client's ordering is answered on the loop instead.
+/// A detached request shares the frame channel a subscription's producer uses,
+/// so `serve_websocket` writes both without knowing which produced a frame.
+/// Nothing here is ordered; a request needing the client's ordering is answered
+/// on the loop instead.
 #[derive(Debug)]
 pub(crate) struct DetachedSet {
     running: HashMap<String, DetachedRequest>,
@@ -225,9 +225,9 @@ impl DetachedSet {
     /// Answer `request` off the frame loop, so this connection reads its next
     /// frame while it runs.
     ///
-    /// Hands the request back unspawned once the connection is at
-    /// [`MAX_DETACHED_REQUESTS`], for the caller to await inline — the
-    /// behaviour every request had before any of them detached.
+    /// Hands the request back unspawned at [`MAX_DETACHED_REQUESTS`], for the
+    /// caller to await inline — the behaviour every request had before any
+    /// detached.
     pub(crate) fn spawn<F>(&mut self, id: &RequestId, request: F) -> Option<F>
     where
         F: Future<Output = Vec<Value>> + Send + 'static,

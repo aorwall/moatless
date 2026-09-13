@@ -1,16 +1,11 @@
 //! Codex (OpenAI ChatGPT) OAuth 2.0 Device Code flow.
 //!
-//! Three round trips to `auth.openai.com`:
+//! Three round trips to `auth.openai.com`: issue a `device_auth_id` +
+//! `user_code`, poll until the user approves in-browser for an authorization
+//! code + PKCE verifier, then exchange that code for the final tokens.
 //!
-//! 1. `POST /api/accounts/deviceauth/usercode` — issue a `device_auth_id` + `user_code`
-//! 2. `POST /api/accounts/deviceauth/token`    — poll until the user has approved
-//!    in their browser; returns an authorization code + PKCE verifier
-//! 3. `POST /oauth/token` — exchange the authorization code for the final tokens
-//!
-//! On success we assemble Codex's `auth.json` shape so the existing sandbox
-//! credential plumbing (`secrets.rs` → `init/credentials.rs` → `codex_watcher`)
-//! works unchanged. `IdTokenClaims::parse` reads the (untrusted) JWT body so the
-//! UI can show the connected account's email + plan.
+//! On success the result is assembled into Codex's `auth.json` shape so the
+//! existing sandbox credential plumbing works unchanged.
 
 use base64::Engine;
 use chrono::{DateTime, Utc};
@@ -70,10 +65,8 @@ pub enum PollStatus {
 
 /// Subset of claims we care about from the OAuth `id_token` JWT.
 ///
-/// The JWT signature is NOT verified — we only read it for display. The
-/// trustworthy step is the server-side token exchange against `oauth/token`
-/// which runs over TLS to `auth.openai.com` and only accepts `code_verifier`
-/// pairs we received over that same path.
+/// The signature is NOT verified — only the server-side exchange against
+/// `oauth/token` (TLS, matched `code_verifier`) is trustworthy.
 #[derive(Debug, Clone, Default)]
 pub struct IdTokenClaims {
     pub email: Option<String>,
@@ -118,8 +111,8 @@ pub enum RefreshTokenError {
         reason: PermanentReason,
         body: String,
     },
-    /// Transient error — retry later. Caller can return the stale blob and
-    /// let the sandbox CLI take another shot.
+    /// Transient error — retry later. Caller can return the stale blob and let
+    /// the sandbox CLI take another shot.
     #[error("transient ({status}): {body}")]
     Transient { status: StatusCode, body: String },
     /// Network / connection failure.
@@ -147,11 +140,8 @@ fn refresh_endpoint() -> String {
 
 /// Extract a normalized lowercase OAuth error code from a response body.
 ///
-/// `auth.openai.com` returns the code in a few shapes — preference order
-/// matches upstream Codex CLI (`manager.rs:860-913`):
-///   1. `error.code` (object form)
-///   2. `error` (string form)
-///   3. top-level `code`
+/// Checks `error.code`, then `error`, then top-level `code`, matching upstream
+/// Codex CLI order (`manager.rs:860-913`).
 fn extract_refresh_token_error_code(body: &str) -> Option<String> {
     let parsed: serde_json::Value = serde_json::from_str(body).ok()?;
 
@@ -199,12 +189,12 @@ fn classify_refresh_error(status: StatusCode, body: String) -> RefreshTokenError
     RefreshTokenError::Transient { status, body }
 }
 
-/// POST `{client_id, grant_type:"refresh_token", refresh_token}` to OpenAI's
-/// OAuth token endpoint and return the (subset of) rotated tokens.
+/// POST a refresh-token grant to OpenAI's OAuth token endpoint and return the
+/// rotated tokens.
 ///
-/// **Important**: a successful refresh rotates the `refresh_token` server-side;
-/// the old token is dead after this call returns `Ok`. Callers must persist
-/// the new `refresh_token` (when present) before any other code can race them.
+/// A successful refresh rotates the `refresh_token` server-side and the old one
+/// is dead immediately, so callers must persist the new one before anything
+/// else can race them.
 pub async fn refresh_chatgpt_tokens(
     client: &reqwest::Client,
     refresh_token: &str,
@@ -328,8 +318,8 @@ pub async fn request_device_code(
     })
 }
 
-/// Step 2 + 3: one poll iteration. The frontend drives the cadence — we just
-/// do a single token poll, and on success immediately exchange for the final
+/// Step 2 + 3: one poll iteration. The frontend drives the cadence — we just do
+/// a single token poll, and on success immediately exchange for the final
 /// tokens and assemble the auth.json blob.
 pub async fn poll_once(
     client: &reqwest::Client,
@@ -440,15 +430,10 @@ async fn exchange_code_for_tokens(
 
 /// Mint an `OPENAI_API_KEY` (sk-...) via the OAuth token-exchange grant.
 ///
-/// Codex CLI does this immediately after the initial code exchange — without
-/// it, `auth.json` arrives with `OPENAI_API_KEY: null` and Codex falls back to
-/// a refresh-on-startup using the bearer tokens. Two parallel subprocesses
-/// then race to consume the (rotating) refresh token, and the loser gets
-/// `refresh_token_reused` and the session dies.
-///
-/// Does NOT consume the `refresh_token` — only `id_token` is sent as the
-/// `subject_token`. Failure here is non-fatal upstream; we mirror that and let
-/// the caller record `null` if this fails.
+/// Skipping this leaves `OPENAI_API_KEY: null`, forcing parallel subprocesses
+/// to race the rotating refresh token; does NOT consume `refresh_token` (only
+/// `id_token` is sent), and failure here is non-fatal — the caller records
+/// `null`.
 async fn obtain_api_key(
     client: &reqwest::Client,
     issuer: &str,

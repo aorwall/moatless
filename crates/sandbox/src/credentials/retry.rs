@@ -7,27 +7,18 @@ use crate::backend_client::BackendClient;
 use crate::config::Config;
 use crate::credentials::Dispatcher;
 
-/// Cap on how many times one prompt can be re-driven by a credential-recovery
-/// retry — distinct from `MAX_RETRIES` which covers transient API errors.
-/// Two retries is enough for the canonical race (winner + 1 loser per refresh
-/// cycle); more usually means the credential itself is invalid.
+/// Distinct from `MAX_RETRIES`, which counts transient API error retries.
 ///
-/// `pub(crate)` so the harness-path [`CoordinatorService`] shares the same cap.
+/// Two covers the canonical race (winner + 1 loser per refresh cycle); more
+/// usually means the credential itself is invalid. `pub(crate)` so the
+/// harness-path [`CoordinatorService`] shares the same cap.
 pub(crate) const MAX_CREDENTIAL_RECOVERY_RETRIES: u32 = 2;
 
-/// Pull fresh credentials from the backend and apply each flagged key through
-/// the dispatcher. Returns the list of keys that were successfully refreshed
-/// AND whose value differs from what's already on disk — pulling the same
-/// (broken) value back and retrying just produces the same failure.
+/// Returns only keys refreshed and now different from disk — retrying an
+/// unchanged value would just repeat the same failure.
 ///
-/// For `CODEX_AUTH_JSON` the on-disk file at `~/.codex/auth.json` is the
-/// authoritative pre-failure value (codex writes it in-place after every
-/// refresh). If the backend returns the same JSON, no other sandbox has
-/// pushed a rotation back yet — recovery is futile and we should surface
-/// the user-facing error instead of burning retries.
-///
-/// `pub(crate)` so the harness-path [`CoordinatorService`] reuses the same
-/// pull + disk-dedup + dispatch primitive without duplicating the policy.
+/// `pub(crate)` so the harness-path [`CoordinatorService`] reuses this pull +
+/// disk-dedup + dispatch primitive.
 pub(crate) async fn try_recover_credentials(
     backend_client: &dyn BackendClient,
     dispatcher: &Dispatcher,
@@ -76,13 +67,11 @@ pub(crate) async fn try_recover_credentials(
     recovered
 }
 
-/// Compare a backend-returned credential value against the sandbox's current
-/// on-disk / in-process value. Returns `true` only when the new value is
-/// genuinely fresher than what the failed turn was just using.
+/// `True` only when the backend value is genuinely fresher than what's on disk
+/// / in-process.
 ///
-/// Best-effort: when we can't determine the prior value (unknown key, file
-/// missing, parse error) we conservatively return `true` so the retry path
-/// still fires.
+/// Best-effort: when the prior value is unknown (bad key, missing file, parse
+/// error) this conservatively returns `true` so the retry fires.
 async fn value_actually_changed(key: &str, new_value: &str, config: &Config) -> bool {
     match key {
         "CODEX_AUTH_JSON" => {

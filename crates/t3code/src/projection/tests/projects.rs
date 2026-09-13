@@ -6,8 +6,8 @@ use super::fixtures::*;
 use super::*;
 
 /// The client groups by project and drops a conversation whose project it
-/// cannot find, in silence. Leaving it out here costs the same row and
-/// leaves something to diagnose it by.
+/// cannot find, in silence. Leaving it out here costs the same row and leaves
+/// something to diagnose it by.
 #[test]
 fn a_conversation_with_no_listable_project_is_left_out() {
     let mut orphan = conversation("task-orphan", "ws-a");
@@ -219,11 +219,9 @@ fn an_unknown_icon_falls_back_rather_than_failing_the_listing() {
 /// The widened half of the project union carries what renders a group and
 /// nothing else.
 ///
-/// Asserted against the *same row* projected both ways, so the difference
-/// cannot be a difference in the fixture: the only thing that changes is
-/// which half of Decision 5's union the row came from. A projection that
-/// treats the halves alike fails one of the two `scripts` assertions
-/// whichever way it treats them.
+/// Asserted against the *same row* projected both ways, so the only variable is
+/// which half of the union it came from; treating the halves alike fails one of
+/// the two `scripts` assertions.
 #[test]
 fn a_project_the_viewer_may_not_read_carries_no_scripts() {
     let scripts = json!([{

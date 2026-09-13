@@ -27,7 +27,8 @@ pub(super) enum WebhookStatusObservation {
     },
 }
 
-/// Apply a normalized webhook observation best-effort and off the response path.
+/// Apply a normalized webhook observation best-effort and off the response
+/// path.
 pub(super) fn apply_webhook_observation(
     repository: Arc<Bindings>,
     observation: WebhookStatusObservation,
@@ -87,9 +88,9 @@ const TERMINAL_STATE_KINDS: [&str; 2] = ["merged", "closed"];
 
 /// Derive the normalized status of a GitHub PR from its raw fields.
 ///
-/// GitHub reports both merged and abandoned PRs as `state = "closed"`, so the
-/// `merged` flag is needed to distinguish them. Draft is only meaningful while
-/// the PR is open.
+/// GitHub reports both merged and abandoned PRs as `state = "closed"`, so
+/// `merged` is needed to distinguish them; `draft` is only meaningful while the
+/// PR is open.
 pub(super) fn github_external_status(
     state: &str,
     merged: bool,
@@ -162,10 +163,9 @@ fn is_terminal_state_kind(state_kind: &str) -> bool {
 
 /// Human label and web URL for the pull request a binding points at.
 ///
-/// The label is the binding's `subject_key`, which is already `owner/repo#N`.
-/// The URL is built from the destination config, falling back to the `url` a
-/// previously persisted status recorded — bindings created before the config
-/// carried the PR coordinates still render a link.
+/// The label is the binding's `subject_key` (already `owner/repo#N`); the URL
+/// falls back to a previously persisted status's `url` so bindings created
+/// before the config carried PR coordinates still render a link.
 fn binding_label_and_url(binding: &TaskBinding) -> (String, Option<String>) {
     let url = pull_request_url(binding).or_else(|| status_raw_url(binding));
     (binding.subject_key.clone(), url)

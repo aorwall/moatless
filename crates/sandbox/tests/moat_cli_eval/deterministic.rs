@@ -1,5 +1,5 @@
-//! Scenario validation, invocation matching, report redaction, aggregation,
-//! and the shim's own delegate/reject behaviour.
+//! Scenario validation, invocation matching, report redaction, aggregation, and
+//! the shim's own delegate/reject behaviour.
 
 use super::*;
 

@@ -7,7 +7,7 @@ impl AdmissionError {
     ///
     /// Redaction happens here, at the transport boundary: retryable failures
     /// collapse to one stable message so no SQL, connection or credential
-    /// detail crosses the wire, while the full source chain is logged.
+    /// detail crosses the wire, while the full chain is logged.
     pub fn into_status(self, task_id: &str, event_id: &str) -> Status {
         match self {
             Self::Invalid(message) => Status::invalid_argument(message),

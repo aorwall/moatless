@@ -262,8 +262,8 @@ async fn remove_of_shared_member_keeps_runtime_while_active_peers_remain() {
     );
 }
 
-/// The push is advisory. A port that cannot deliver must leave the stop
-/// exactly as it would have been without one.
+/// The push is advisory. A port that cannot deliver must leave the stop exactly
+/// as it would have been without one.
 #[tokio::test]
 async fn a_failing_workspace_sync_does_not_block_the_stop() {
     let log: Log = Arc::new(Mutex::new(vec![]));

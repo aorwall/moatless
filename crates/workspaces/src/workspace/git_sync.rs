@@ -1,23 +1,11 @@
 //! Reconcile a repo's git-declared workspaces into `workspaces` rows.
 //!
-//! A repository declares its workspaces in `.moatless/workspaces.json`: a list
-//! of workspaces, each with its own run-config and explicit repository URL(s).
-//! They reconcile into `workspaces` rows flagged `source = 'git'`, keyed by
-//! `(source_repository_id, source_key)`, so reconciliation never touches
-//! manually-created workspaces. This mirrors `loops/sync.rs`.
+//! Rows from `.moatless/workspaces.json` are flagged `source = 'git'`, keyed by
+//! `(source_repository_id, source_key)` so reconciliation never touches manual
+//! workspaces, bypassing the write API's read-only guard via the DAO directly.
 //!
-//! Git-synced workspaces are read-only in the UI and write API — only a re-sync
-//! from git changes them. The sync writes through the DAO directly, bypassing
-//! the read-only guard by design. The `.moatless/` file schemas + provider
-//! fetchers live here too — the repository module owns only the git connection.
-//!
-//! A workspace can be taken out of git's hands from the UI/CLI: `override` flips
-//! it to `source = 'manual'` while keeping its provenance columns, so the
-//! automatic sync on task start leaves it alone. [`SyncForce`] decides whether a
-//! given sync respects that — only the explicit, user-initiated syncs
-//! (`sync-config`, per-workspace `reset-git`) reclaim an active override,
-//! replacing the local edits with the committed config. A deleted override is a
-//! tombstone and is only restored by resetting that specific workspace.
+//! `override` flips a workspace to `source = 'manual'` so auto-sync leaves it
+//! alone; [`SyncForce`] decides which syncs reclaim an active override.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -57,9 +45,9 @@ pub struct CodeExecution {
     pub setup_commands: Option<Vec<String>>,
 }
 
-/// Top-level `.moatless/workspaces.json` schema — the default (non-legacy) form,
-/// a list of workspaces the repo declares, each with its own run-config and
-/// explicit repository URL(s).
+/// Top-level `.moatless/workspaces.json` schema — the default (non-legacy)
+/// form, a list of workspaces the repo declares, each with its own run-config
+/// and explicit repository URL(s).
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MoatlessWorkspacesFile {
@@ -134,8 +122,8 @@ pub async fn fetch_moatless_workspaces(
 
 /// Whether a sync reclaims workspaces that were manually overridden.
 ///
-/// An override (`source = 'manual'`) exists to survive the automatic sync that
-/// runs on task start; only an explicit, user-initiated sync discards it.
+/// An override (`source = 'manual'`) exists to survive the automatic sync on
+/// task start; only an explicit, user-initiated sync discards it.
 pub enum SyncForce {
     /// Leave overridden workspaces alone (task-start auto-sync, repo create).
     RespectOverrides,
@@ -193,11 +181,9 @@ impl GitSyncService {
 
     /// Fetch, resolve, and reconcile the workspaces declared in a repository.
     ///
-    /// The entries of `.moatless/workspaces.json` are the desired set. A repo
-    /// that ships no such file reconciles nothing and, deliberately, deletes
-    /// nothing: an empty desired set would otherwise tombstone every workspace
-    /// the repo has, and every Task running in one. Best-effort/non-fatal:
-    /// callers log the outcome.
+    /// A repo with no `.moatless/workspaces.json` reconciles and deletes
+    /// nothing — an empty desired set would otherwise tombstone every workspace
+    /// and Task in it. Best-effort/non-fatal: callers log the outcome.
     pub async fn sync_repo_workspaces_for(
         &self,
         repo: &Repository,
@@ -284,10 +270,10 @@ impl GitSyncService {
     }
 
     /// Best-effort auto-sync of a repo's workspace config when a task starts.
-    /// Gated on the repo actually shipping a `.moatless/` directory so we don't
-    /// hit the provider API for repos that don't use it. Every failure is logged
-    /// and swallowed — this must never block or fail a task start. Loops are
-    /// never synchronized as a side effect of task start.
+    ///
+    /// Gated on the repo shipping a `.moatless/` directory. Every failure is
+    /// logged and swallowed — this must never block or fail a task start. Loops
+    /// are never synchronized as a side effect of task start.
     pub async fn sync_repo_config_on_start_for(&self, scope: &ScopeContext, repo: &Repository) {
         let Some(remote_url) = repo.remote_url.as_deref() else {
             return;
@@ -345,20 +331,12 @@ fn record_outcome(summary: &mut WorkspaceSyncSummary, outcome: UpsertOutcome, so
 
 /// Drop a privileged sandbox identity declared in repo config.
 ///
-/// `.moatless/workspaces.json` is writable by anyone with commit access to the
-/// synced repo — a strictly wider set than
-/// "moatless admin", and for a public repo an effectively unbounded one. Since
-/// `sandbox_service_account` and `network_profile` are what opt a sandbox into
-/// an elevated Kubernetes identity (see
-/// `handlers::ensure_privileged_sandbox_fields`), honouring them here would
-/// reopen through git exactly the escalation the API gate closes: a user could
-/// commit `sandboxServiceAccount: moatless-admin` and inherit read access to
-/// the app namespace's Secrets.
-///
-/// Dropped rather than rejected, so one stray field cannot fail a repo's whole
-/// sync. The warning names the file so an operator can see it happened. An
-/// admin can still elevate a git-synced workspace through the override
-/// endpoint, which carries the same gate.
+/// `sandbox_service_account`/`network_profile` opt a sandbox into an elevated
+/// Kubernetes identity; honouring values committed to
+/// `.moatless/workspaces.json` (writable by anyone with commit access) would
+/// let any committer escalate to admin-gated Secrets access. Dropped, not
+/// rejected, so one stray field can't fail the sync — an admin can still
+/// elevate via the override endpoint, which carries the same gate.
 fn strip_git_declared_identity(run: &mut RunConfig, repository_id: &str, source_config_path: &str) {
     if let Some(account) = run.sandbox_service_account.take() {
         warn!(
@@ -459,9 +437,10 @@ fn reclaim_override(
 }
 
 impl GitSyncService {
-    /// Insert or update the workspace row + placements for one desired workspace.
+    /// Insert or update the workspace row + placements for one desired
+    /// workspace.
     ///
-    /// Returns [`UpsertOutcome::Skipped`] when the workspace has been manually
+    /// Returns [`UpsertOutcome::Skipped`] when the workspace is manually
     /// overridden (`source = 'manual'`) and `force` does not reclaim it.
     async fn upsert_git_workspace(
         &self,
@@ -704,8 +683,9 @@ impl GitSyncService {
     }
 }
 
-/// Slugify a workspace name into a stable-ish `source_key` (used when no explicit
-/// `key` is set): lowercase, non-alphanumerics collapsed to single `-`.
+/// Slugify a workspace name into a stable-ish `source_key` (used when no
+/// explicit `key` is set): lowercase, non-alphanumerics collapsed to single
+/// `-`.
 fn slugify(name: &str) -> String {
     let mut out = String::with_capacity(name.len());
     let mut prev_dash = false;
@@ -726,7 +706,8 @@ fn slugify(name: &str) -> String {
     }
 }
 
-/// Last path segment of a repo URL (trailing `/` and `.git` stripped) as a name.
+/// Last path segment of a repo URL (trailing `/` and `.git` stripped) as a
+/// name.
 fn repo_name_from_url(url: &str) -> String {
     url.trim()
         .trim_end_matches('/')
@@ -936,7 +917,8 @@ mod tests {
     }
 
     /// The removed `storageMode` is an unknown field, not an error: a repo that
-    /// still carries one loads and simply falls back to the deployment defaults.
+    /// still carries one loads and simply falls back to the deployment
+    /// defaults.
     #[test]
     fn a_stale_storage_mode_is_ignored() {
         let entry = parse_entry(

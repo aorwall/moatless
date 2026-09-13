@@ -2,9 +2,10 @@
 //!
 //! One `SourceEvent` per native content block, in native order, with repeated
 //! usage forwarded verbatim (never coalesced). This is the only place that maps
-//! Claude-native payloads; the shared harness/driver never sees an `SdkMessage`.
-//! Both the one-shot subprocess adapter and the persistent tmux adapter share
-//! this normalizer, so neither owns a second copy of the native mapping.
+//! Claude-native payloads; the shared harness/driver never sees an
+//! `SdkMessage`. Both the one-shot subprocess adapter and the persistent tmux
+//! adapter share this normalizer, so neither owns a second copy of the native
+//! mapping.
 
 use crate::agent::harness::content::CanonicalContentBlock;
 use claude_agent_sdk::api::content::ContentBlock;
@@ -13,9 +14,9 @@ use claude_agent_sdk::api::messages::{AssistantMessage, ToolProgressMessage, Use
 use super::super::signal::{Activity, SessionId};
 use super::super::source::{NativeMessageId, Role, SourceEvent, SourceId};
 
-/// Map a native Claude `ContentBlock` into the shared [`CanonicalContentBlock`].
-/// The two enums share the Anthropic content-block shape variant-for-variant, so
-/// this is a total, lossless projection.
+/// Map a native Claude `ContentBlock` into the shared
+/// [`CanonicalContentBlock`]. The two enums share the Anthropic content-block
+/// shape variant-for-variant, so this is a total, lossless projection.
 fn canonical_from_claude(block: &ContentBlock) -> CanonicalContentBlock {
     match block {
         ContentBlock::Text { text } => CanonicalContentBlock::Text { text: text.clone() },
@@ -62,8 +63,8 @@ fn canonical_from_claude(block: &ContentBlock) -> CanonicalContentBlock {
 }
 
 /// The per-message metadata shared by every content block of one native
-/// `SdkMessage`, so a whole assistant/user envelope's blocks are normalized with
-/// one grouping id, parent, usage, and model.
+/// `SdkMessage`, so a whole assistant/user envelope's blocks are normalized
+/// with one grouping id, parent, usage, and model.
 struct BlockMeta {
     session: SessionId,
     message_id: Option<String>,
@@ -73,10 +74,11 @@ struct BlockMeta {
     model: Option<String>,
 }
 
-/// Collision-safe native-block normalizer. Holds the last-known Session and a
-/// monotonic block counter so every emitted `source_id` stays unique even when
-/// the CLI reuses a native `message.id` (or omits it) — across a whole process
-/// lifetime, including the many Turns of a persistent session.
+/// Collision-safe native-block normalizer.
+///
+/// Every emitted `source_id` stays unique across the whole process lifetime,
+/// including a persistent session's many Turns, even when the CLI reuses or
+/// omits a native `message.id` (see the fields for the mechanism).
 pub(super) struct Normalizer {
     /// The Session as currently known from the native stream.
     session: Option<SessionId>,
@@ -113,8 +115,8 @@ impl Normalizer {
             .unwrap_or_else(|| SessionId(native.to_string()))
     }
 
-    /// Build the canonical source event for one native content block, assigning a
-    /// collision-safe id and preserving native grouping/usage/model.
+    /// Build the canonical source event for one native content block, assigning
+    /// a collision-safe id and preserving native grouping/usage/model.
     fn make_source(&mut self, meta: &BlockMeta, block: &ContentBlock) -> SourceEvent {
         let seq = self.block_seq;
         self.block_seq += 1;
@@ -159,7 +161,8 @@ impl Normalizer {
             .collect()
     }
 
-    /// Canonical per-block source events for one user envelope, in native order.
+    /// Canonical per-block source events for one user envelope, in native
+    /// order.
     pub(super) fn user_blocks(&mut self, user: &UserMessage) -> Vec<SourceEvent> {
         let meta = BlockMeta {
             session: self.session_or(&user.session_id),

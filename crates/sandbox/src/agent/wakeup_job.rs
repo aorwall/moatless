@@ -1,11 +1,11 @@
 //! One-shot timer for the Claude Code `ScheduleWakeup` tool.
 //!
 //! When the agent calls `ScheduleWakeup`, the coordinator service parses the
-//! tool input into a `WakeupJob` and registers it against the shared `ScheduledJobRegistry`
-//! once the turn ends successfully (latest-wins replaces any prior wakeup).
-//! When the timer fires, the job hands the agent-supplied prompt back to the
-//! lifecycle owner via `ctx.inject(...)`. If `Stop` is in flight the synthetic
-//! send is dropped.
+//! tool input into a `WakeupJob` and registers it against the shared
+//! `ScheduledJobRegistry` once the turn ends successfully (latest-wins replaces
+//! any prior wakeup). When the timer fires, the job hands the agent-supplied
+//! prompt back to the lifecycle owner via `ctx.inject(...)`. If `Stop` is in
+//! flight the synthetic send is dropped.
 
 use std::time::Duration;
 

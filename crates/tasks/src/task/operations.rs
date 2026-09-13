@@ -10,11 +10,8 @@ use super::models::{SandboxIntentView, Task, TaskFilter, TaskPatch, TaskStatus};
 use moatless_types::access_control::ScopeContext;
 
 /// The `tasks`, `task_follows` and `task_read_receipts` tables, as the backend
-/// and this crate's own handlers reach them.
-///
-/// The published seams are narrower: [`crate::ports::TaskProjection`] serves the
-/// read model and `moatless_core::http_auth::TaskAccess` answers the session
-/// gate.
+/// and handlers reach them. Narrower published seams:
+/// [`crate::ports::TaskProjection`] for reads, `TaskAccess` for the gate.
 pub struct TaskCommands {
     store: Arc<dyn TaskDao>,
 }

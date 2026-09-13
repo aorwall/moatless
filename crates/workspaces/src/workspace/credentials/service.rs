@@ -19,10 +19,9 @@ use moatless_types::workspace::WorkspaceCredentialProvider;
 
 /// Reads, writes and resolves the provider credentials pinned to a Workspace.
 ///
-/// Writes are gated on control of the owning workspace — the same predicate
-/// that gates editing its run-config, because a credential *is* run-config with
-/// a stricter blast radius. [`Self::resolve_env`] is the sandbox path and takes
-/// no actor: by the time a task is being provisioned, the task's own
+/// Writes are gated on control of the owning workspace, same as its run-config
+/// — a credential *is* run-config with a stricter blast radius.
+/// [`Self::resolve_env`] is the sandbox path and takes no actor: the task's own
 /// authorization already decided the workspace may be run.
 pub struct WorkspaceCredentialService {
     credentials: Arc<dyn WorkspaceCredentialDao>,
@@ -170,12 +169,10 @@ impl WorkspaceCredentialService {
     /// The credentials a sandbox on this workspace runs with, as an
     /// environment-variable map.
     ///
-    /// Fails rather than returning a partial map. A workspace credential exists
-    /// to make a task run as a *specific* account, so degrading to "whatever
-    /// the run-as user holds" would hand the task a different identity than the
-    /// one it was configured with — the failure mode this feature is meant to
-    /// remove. Preflight turns the error into a refusal to start; the sandbox's
-    /// `GetCredentials` turns it into a failed fetch.
+    /// Fails rather than returning a partial map — degrading to "whatever the
+    /// run-as user holds" would hand the task a different identity than
+    /// configured. Preflight turns the error into a refusal to start; the
+    /// sandbox's `GetCredentials` turns it into a failed fetch.
     pub async fn resolve_env(
         &self,
         workspace_id: &str,

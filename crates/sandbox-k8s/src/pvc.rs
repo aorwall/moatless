@@ -32,7 +32,8 @@ pub async fn find_task_pvc(k8s: &K8sClient, task_id: &str) -> Option<String> {
     }
 }
 
-/// Resolve the PVC storage size: a per-repo override wins over the global default.
+/// Resolve the PVC storage size: a per-repo override wins over the global
+/// default.
 fn resolve_storage_size<'a>(override_size: Option<&'a str>, default: &'a str) -> &'a str {
     override_size
         .map(str::trim)
@@ -42,9 +43,9 @@ fn resolve_storage_size<'a>(override_size: Option<&'a str>, default: &'a str) ->
 
 /// Create a PVC for workspace persistence.
 ///
-/// `storage_size_override` is an optional per-repo size (e.g. from
-/// `RepoConfig.resources.storage`); when `None` the global
-/// `config.sandbox.storage_size` default applies.
+/// `storage_size_override` is an optional per-repo size
+/// (`RepoConfig.resources.storage`); `None` falls back to
+/// `config.sandbox.storage_size`.
 pub async fn create_task_pvc(
     k8s: &K8sClient,
     config: &Config,
@@ -118,12 +119,9 @@ pub async fn create_task_pvc(
 
 /// Whether the task's PVC has reached the `Bound` phase.
 ///
-/// The attach-failure fallback uses this to decide the orphaned claim's fate: a
-/// `Bound` PVC (the ordinary Multi-Attach case — the volume exists, it is just
-/// still attached to a terminating pod's node) is left in place so its data
-/// survives for the next clean start, while an unbound (`Pending`) claim has no
-/// backing volume and is a safe orphan to delete. On a read error the claim is
-/// treated as bound so uncertainty never destroys data.
+/// The attach-failure fallback keeps a `Bound` claim (data survives) but
+/// deletes an unbound orphan; a read error is treated as bound so uncertainty
+/// never destroys data.
 pub async fn task_pvc_is_bound(k8s: &K8sClient, task_id: &str) -> bool {
     let pvcs: Api<PersistentVolumeClaim> = Api::namespaced(k8s.client.clone(), k8s.namespace());
     let lp = ListParams::default().labels(&format!("moatless.io/task-id={task_id}"));
@@ -157,10 +155,9 @@ pub async fn delete_task_pvc(k8s: &K8sClient, task_id: &str) -> Result<(), kube:
 
 /// Await observed absence of every PVC for a task.
 ///
-/// Strict removal requires the PVC be *gone*, not merely accepted for deletion:
-/// a delete request returns immediately but reclaim can lag, and a lingering PVC
-/// bills indefinitely. A transient list error is retried within the window; a
-/// timeout surfaces so the caller withholds `Removed` and retries.
+/// A delete request returns immediately but reclaim can lag and bill
+/// indefinitely, so this polls until gone; a timeout surfaces so the caller
+/// withholds `Removed` and retries.
 pub async fn wait_for_pvc_deleted(k8s: &K8sClient, task_id: &str) -> Result<(), SandboxError> {
     let pvcs: Api<PersistentVolumeClaim> = Api::namespaced(k8s.client.clone(), k8s.namespace());
     let lp = ListParams::default().labels(&format!("moatless.io/task-id={task_id}"));

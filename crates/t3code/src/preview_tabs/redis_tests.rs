@@ -2,16 +2,15 @@
 //! The preview tab store, against the Redis it is written for.
 //!
 //! `InMemoryPreviewTabDao` satisfies the same conformance list in the unit
-//! tier, and passing it there says nothing about the implementation that runs
-//! in production: the Redis one keeps tabs in a hash, revisions in a separate
-//! counter, and fans events over pub/sub, so its atomicity, its ordering and
-//! its cross-process reach are all properties of Redis rather than of the code
-//! under test. This is the only tier with a Redis to point at.
+//! tier, but that says nothing about production: the Redis implementation keeps
+//! tabs in a hash, revisions in a separate counter, and fans events over
+//! pub/sub, so its atomicity, ordering and cross-process reach are properties
+//! of Redis, not of the code under test. This is the only tier with a Redis to
+//! point at.
 //!
-//! Two separately-connected handles stand in for two replicas. That is the
-//! reason the store exists — a client that reconnects to a different pod has to
-//! find its tabs, and a tab opened on one pod has to reach the browser
-//! subscribed on the other.
+//! Two separately-connected handles stand in for two replicas — the reason the
+//! store exists: a client reconnecting to a different pod must find its tabs,
+//! and a tab opened on one pod must reach a browser subscribed on the other.
 
 use std::time::Duration;
 
@@ -62,11 +61,10 @@ async fn connect(url: &str) -> (RedisPreviewTabDao, JoinHandle<()>) {
 
 /// Publish on one handle until the event lands on the other's subscriber.
 ///
-/// Two things make a single publish the wrong assertion. Redis pub/sub reaches
-/// whoever is subscribed at that instant and nobody else, and a handle's
-/// forwarder subscribes asynchronously after `connect` returns — so an early
-/// publish is simply dropped. And the database is shared with whatever else is
-/// pointed at it, so the next event to arrive is not necessarily this one.
+/// A single publish is the wrong assertion: Redis pub/sub reaches only who is
+/// subscribed at that instant, a forwarder subscribes asynchronously after
+/// `connect` returns, and the database is shared, so the next event to arrive
+/// need not be this one.
 async fn expect_delivery(
     from: &RedisPreviewTabDao,
     events: &mut tokio::sync::broadcast::Receiver<serde_json::Value>,
@@ -160,8 +158,8 @@ async fn two_replicas_share_one_set_of_tabs_and_one_stream_of_events() {
 
 /// A per-run suffix, so two runs against one Redis do not share a Task id.
 ///
-/// The tabs are keyed by Task and nothing here needs the value to be a real
-/// UUID — only that a concurrent run picked a different one.
+/// Tabs are keyed by Task; nothing here needs a real UUID, only that a
+/// concurrent run picked a different one.
 fn uuid_like() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
     let nanos = SystemTime::now()

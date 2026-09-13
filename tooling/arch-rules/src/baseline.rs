@@ -38,9 +38,9 @@ pub fn write(root: &Path, violations: &[Violation]) -> Result<()> {
     Ok(())
 }
 
-/// Violations that are not in the baseline, and baseline entries that no
-/// longer occur. The second half is what keeps the file shrinking: a fixed
-/// violation must be removed, or the next one reuses its slot.
+/// What a run found against the baseline; `stale` is what keeps the file
+/// shrinking — a fixed violation must be removed, or the next one reuses its
+/// slot.
 pub struct Diff {
     pub new: Vec<Violation>,
     pub stale: Vec<String>,

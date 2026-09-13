@@ -43,7 +43,7 @@ pub trait AppCredentials: Send + Sync {
 #[cfg_attr(feature = "test-support", mockall::automock)]
 #[async_trait]
 pub trait CodexScopeReader: Send + Sync {
-    /// Every scope holding a Codex credential with no permanent refresh
-    /// failure recorded against it.
+    /// Every scope holding a Codex credential with no permanent refresh failure
+    /// recorded against it.
     async fn healthy_scopes(&self) -> Result<Vec<CodexScope>, StoreError>;
 }

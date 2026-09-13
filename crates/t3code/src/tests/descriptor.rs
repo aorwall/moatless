@@ -4,9 +4,9 @@
 use super::fixtures::*;
 use super::*;
 
-/// The capability is how a client knows it may stop polling `sandbox.status`.
-/// A server that serves the subscription but stays quiet about it leaves
-/// every client on the poll.
+/// The capability is how a client knows it may stop polling `sandbox.status`. A
+/// server that serves the subscription but stays quiet about it leaves every
+/// client on the poll.
 #[tokio::test]
 async fn the_descriptor_advertises_the_sandbox_status_push() {
     let frame = request("1", "server.getConfig", json!({}));
@@ -19,10 +19,9 @@ async fn the_descriptor_advertises_the_sandbox_status_push() {
     );
 }
 
-/// `agentStatus` is `optionalKey` and absent whenever the sandbox is not
-/// up, so its absence from one answer says nothing about the server. The
-/// capability is the only thing that distinguishes a server that reports it
-/// from one that never will.
+/// `agentStatus` is `optionalKey`, absent whenever the sandbox is down. One
+/// absent answer says nothing; only the capability tells a server that reports
+/// it apart from one that never will.
 #[tokio::test]
 async fn the_descriptor_advertises_the_sandbox_agent_status() {
     let frame = request("1", "server.getConfig", json!({}));
@@ -35,9 +34,9 @@ async fn the_descriptor_advertises_the_sandbox_agent_status() {
     );
 }
 
-/// `commands` is omitted when none are registered, which is most of the
-/// time, so its absence from one answer says nothing about the server
-/// either. Same reasoning as `sandboxAgentStatus` above.
+/// `commands` is omitted when none are registered, which is most of the time,
+/// so its absence from one answer says nothing about the server either. Same
+/// reasoning as `sandboxAgentStatus` above.
 #[tokio::test]
 async fn the_descriptor_advertises_the_sandbox_commands() {
     let frame = request("1", "server.getConfig", json!({}));
@@ -80,10 +79,9 @@ async fn the_descriptor_advertises_thread_browse() {
     );
 }
 
-/// The two keys the composer reads before it decides how to send a file.
-/// Reporting `attachmentUploads` moves it off the inline data-URL path for
-/// images too, so a server that reports one without serving the other
-/// loses the person their attachment.
+/// The two keys the composer reads before choosing how to send a file.
+/// Reporting `attachmentUploads` also moves images off the inline data-URL
+/// path; report both or the attachment is lost.
 #[tokio::test]
 async fn the_descriptor_advertises_both_attachment_capabilities_together() {
     let frame = request("1", "server.getConfig", json!({}));
@@ -99,8 +97,8 @@ async fn the_descriptor_advertises_both_attachment_capabilities_together() {
 }
 
 /// Both keys are `optionalKey` in the contract, so a deployment that cannot
-/// sign an upload URL has to omit them rather than answer `false` or
-/// `null`: the client decodes the whole descriptor before it can connect.
+/// sign an upload URL has to omit them rather than answer `false` or `null`:
+/// the client decodes the whole descriptor before it can connect.
 #[test]
 fn a_deployment_that_cannot_sign_an_upload_url_omits_both_keys() {
     let config = UiRpcConfig {

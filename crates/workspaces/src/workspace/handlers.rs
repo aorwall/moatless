@@ -19,7 +19,8 @@ use super::schemas::{
     WorkspaceResponse, workspace_response,
 };
 
-/// Load a workspace (scoped) plus its placements into a response, or `NotFound`.
+/// Load a workspace (scoped) plus its placements into a response, or
+/// `NotFound`.
 async fn load_response(
     workspaces: &Workspaces,
     auth: &AuthUser,
@@ -181,8 +182,8 @@ pub async fn delete_workspace(
     )
 )]
 /// Override a git-synced workspace. Sets `source = "manual"` so that git sync
-/// skips this workspace going forward. Provenance fields are preserved.
-/// Use `POST /{id}/reset-git` to re-enable git sync.
+/// skips this workspace going forward. Provenance fields are preserved. Use
+/// `POST /{id}/reset-git` to re-enable git sync.
 pub async fn override_workspace(
     State(workspaces): State<Arc<Workspaces>>,
     State(users): State<Arc<dyn UserResolver>>,
@@ -216,10 +217,10 @@ pub async fn override_workspace(
 )]
 /// Discard a workspace's local override and take its run-config from git again.
 ///
-/// Implemented as a re-sync of just this workspace rather than a flag flip, so
+/// Implemented as a re-sync of just this workspace, not a flag flip, so
 /// `source` only returns to `"git"` when the repository still declares the
-/// entry — a workspace can never end up claiming git provenance while holding
-/// config git never produced.
+/// entry — never claiming git provenance while holding config git never
+/// produced.
 pub async fn reset_git_workspace(
     State(workspaces): State<Arc<Workspaces>>,
     State(repositories): State<Arc<Repositories>>,

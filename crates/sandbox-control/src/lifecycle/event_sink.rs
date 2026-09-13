@@ -20,8 +20,7 @@ use moatless_sandbox_runtime::outcome::Diagnostics;
 
 /// Publishes lifecycle events through the existing Redis publication path.
 ///
-/// The publisher is optional: with no event transport (Redis disabled) the sink
-/// no-ops, matching the rest of the system's Redis-down degradation. Completion
+/// The publisher is optional: with no transport the sink no-ops. Completion
 /// facts stay durable regardless — the store commits them to `task_events`
 /// before publication.
 pub struct OutboxEventSink {

@@ -1,17 +1,7 @@
 //! The database changing underneath a deployment.
 //!
-//! The spec's Decision 7 is two guards, and the whole of it is that neither is
-//! redundant. A position higher than any this deployment has reached is
-//! impossible; a database that is not the one this process started against makes
-//! every position it ever handed out mean something else. Each has a case the
-//! other cannot see, and the two tests below are those two cases — written so
-//! that deleting either guard turns exactly one of them red.
-//!
-//! Both are operational disasters, so both are built rather than described. The
-//! counter is really reset; the restored database is really a second database,
-//! created in the cluster and migrated, with positions really reissued to
-//! different changes. A test that claims to simulate a restore and does not is
-//! worse than no test, because it will be cited.
+//! See the comment below for Decision 7's two guards and why the two tests
+//! below build real operational disasters instead of simulating them.
 
 use super::contract::{DESCRIPTOR_REQUIRED, assert_decodable_snapshot_item, assert_keys};
 use super::feed::{delivered, one_row, other_peoples_work, reconnect_to, start_turn, watching};
@@ -45,24 +35,11 @@ use tower::ServiceExt;
 // different changes. A test that claims to simulate a restore and does not is
 // worse than no test, because it will be cited.
 
-/// A backup, restored into a new database beside the original.
+/// A backup restored into a new database beside the original, a byte-for-byte
+/// `CREATE DATABASE ... TEMPLATE` copy indistinguishable from inside the data.
 ///
-/// `CREATE DATABASE ... TEMPLATE` is a byte-for-byte copy, and that is what
-/// makes this a restore rather than a database that merely looks like one:
-/// **every row the origin holds at this moment is in the copy.** Anything a
-/// design were tempted to keep the environment's identity in — a UUID seeded by
-/// a migration, a row written at first boot — is copied along with the rest and
-/// reports the copy as the original. A restore is not distinguishable from
-/// inside the data, which is why [`UiRpcEnvironmentIdentity`] is not in it.
-///
-/// The copy is made **in the same cluster**, so the cluster's system identifier
-/// is equal on both sides too. Everything these tests catch is therefore caught
-/// by the database's OID alone, which is the half of the identity easiest to
-/// argue away as decoration.
-///
-/// Postgres refuses to copy a template anything else is connected to, so the
-/// deployment's own pool is closed for the moment the copy takes and reopened
-/// as [`RestoredDatabase::origin`]. That is also what a restore looks like.
+/// Made in the same cluster, so only the OID differs; the origin pool closes
+/// for the copy and reopens as [`RestoredDatabase::origin`].
 pub(super) struct RestoredDatabase {
     /// The database the deployment started against, reopened after the copy.
     pub(super) origin: PgPool,
@@ -132,8 +109,8 @@ pub(super) async fn back_up_and_restore(pool: PgPool) -> RestoredDatabase {
 }
 
 /// The cluster and the database a pool is connected to, read straight from
-/// Postgres rather than through [`UiRpcEnvironmentIdentity`], so a test can say which
-/// half of the identity it is exercising.
+/// Postgres rather than through [`UiRpcEnvironmentIdentity`], so a test can say
+/// which half of the identity it is exercising.
 async fn cluster_and_oid(pool: &PgPool) -> (String, i64) {
     sqlx::query_as(
         "SELECT (SELECT system_identifier::text FROM pg_control_system()),
@@ -144,24 +121,11 @@ async fn cluster_and_oid(pool: &PgPool) -> (String, i64) {
     .unwrap()
 }
 
-/// The identity is a property of the database and of nothing else: it does not
-/// move between reads or between connections, and a restored copy does not
-/// share it.
+/// The identity is a property of the database and of nothing else: stable
+/// across connections, and different for a restored copy.
 ///
-/// The first half is what stops the guard firing on its own deployment — an
-/// identity that varied by connection would rebuild every client every poll.
-/// The second half is the half the guard is for, and it is asserted against a
-/// copy that is **identical in every row** and sits in the **same cluster**, so
-/// neither the data nor the system identifier is carrying it. The database's
-/// OID is the only thing left, and it is enough.
-///
-/// # The privilege this needs, asserted rather than assumed
-///
-/// `the_identity_is_readable_by_a_least_privilege_application_role` below is the
-/// companion this one cannot be: every `#[sqlx::test]` connects as the role that
-/// created the database, which on any ordinary harness is a superuser. A
-/// statement that silently required superuser would pass every test in this file
-/// and fail at startup on a least-privilege deployment.
+/// The database's OID is the only signal, since a restored copy is identical in
+/// every row and shares the cluster's system identifier.
 #[sqlx::test]
 async fn the_environment_identity_is_stable_and_names_one_database(pool: PgPool) {
     // Something in the tables, so "identical in every row" is a claim with
@@ -232,30 +196,11 @@ async fn the_environment_identity_is_stable_and_names_one_database(pool: PgPool)
     restored.discard().await;
 }
 
-/// The identity statement runs as an ordinary application role.
+/// The identity statement must run as an ordinary application role, not just
+/// the superuser every `#[sqlx::test]` connects as.
 ///
-/// `current_head` reads the cluster's system identifier through
-/// `pg_control_system()`, and `router_from_env` returns `Err` rather than
-/// falling back to a constant when that read fails — deliberately, because a
-/// constant identity is an identity that never changes when the database does.
-/// The consequence is that a `pg_control_system()` an ordinary role could not
-/// execute would take the T3 UI RPC router down at startup on exactly the
-/// deployments that are configured correctly, and no other test in this suite
-/// could see it: `#[sqlx::test]` connects as the role that created the
-/// database, which is a superuser on every harness this runs on.
-///
-/// So a role is made here that has **one** privilege in this database — `SELECT`
-/// on the counter table — and the statement is run as it. Anything else the
-/// statement comes to need shows up here as a `permission denied`, naming the
-/// object.
-///
-/// The empirical answer, for the record: `pg_control_system()` is never
-/// `REVOKE`d at `initdb`. Its `pg_proc.proacl` is null on PostgreSQL 13, 16 and
-/// 17, which is the default — `EXECUTE` to `PUBLIC`. The functions that *are*
-/// restricted (`pg_ls_logdir`, `pg_read_file`, `pg_stat_file`, `pg_ls_dir`,
-/// `pg_switch_wal`) carry an explicit `{postgres=X/postgres}` and a matching
-/// `REVOKE EXECUTE ... FROM public` in the image's `system_functions.sql`;
-/// `pg_control_system` appears in neither file.
+/// A role with only `SELECT` on the counter table runs it here; anything else
+/// the statement needs shows up as `permission denied`, naming the object.
 #[sqlx::test]
 async fn the_identity_is_readable_by_a_least_privilege_application_role(pool: PgPool) {
     // Something for the counter to have counted, so the position read is not
@@ -322,18 +267,12 @@ async fn the_identity_is_readable_by_a_least_privilege_application_role(pool: Pg
     );
 }
 
-/// **Acceptance criterion 4, and the case only the position guard sees.**
+/// Acceptance criterion 4, the case only the position guard sees: the counter
+/// resets to zero on an otherwise untouched database.
 ///
-/// The counter is reset to zero on a database that is otherwise untouched. Its
-/// cluster identifier and its OID are exactly what they were — asserted below,
-/// because that assertion is the point: the identity guard's inputs are
-/// identical to a healthy deployment's, so it provably contributes nothing here
-/// and the position guard is carrying this alone.
-///
-/// Verified by deleting the `after > head` comparison from `task_listing::resume`
-/// and watching this fail: the client is admitted at the position it holds, the
-/// replay reads an emptied table, and it is handed `[]` — told it is up to date
-/// while the deployment it is watching has started counting again from one.
+/// The identity guard's inputs are unchanged, so it provably contributes
+/// nothing here; deleting `after > head` from `task_listing::resume` makes this
+/// fail.
 #[sqlx::test]
 async fn a_counter_reset_on_the_same_database_is_caught_by_the_position_guard(pool: PgPool) {
     seed_live_project(&pool).await;
@@ -386,30 +325,13 @@ async fn a_counter_reset_on_the_same_database_is_caught_by_the_position_guard(po
     assert_eq!(event["sequence"], 1);
 }
 
-/// **Acceptance criteria 2 and 3, and the case only the identity guard sees.**
+/// Acceptance criteria 2 and 3, the case only the identity guard sees: a
+/// restored backup reissues positions to entirely different changes than a
+/// stale cursor remembers.
 ///
-/// The sequence is the spec's own, built rather than described:
-///
-/// 1. The deployment runs, and a backup is taken at position 100.
-/// 2. It runs on to position 200. A client reads the listing there and holds
-///    200 — a listing that includes a conversation started after the backup.
-/// 3. The database is lost and the backup is restored beside it. The copy is
-///    back at 100, and it counts forward again: positions 101 through 200 are
-///    **handed out a second time, to entirely different changes**.
-/// 4. The client comes back holding 200.
-///
-/// Every number now looks right, which is the whole difficulty — the assertion
-/// below proves it by asking `resume` what it would say if the two identities
-/// matched, and it says replay. So without the identity guard the client is
-/// told what changed *after* 200 and folds it into the listing it already had:
-/// it keeps a conversation the restore has never heard of, and never hears
-/// about the hundred changes that were reissued underneath it. That is
-/// criterion 3's "silently skipping the changes in between", exactly.
-///
-/// Verified by deleting the identity comparison from `task_listing::resume` and
-/// watching this fail: `values` came back as one `thread-upserted` for
-/// `t-after-restore`, and `assert_decodable_snapshot_item` reported `kind` as
-/// `thread-upserted` where the contract's rebuild member was required.
+/// Without the identity guard, `resume` treats the matching positions as valid
+/// and replays instead of rebuilding, silently skipping every reissued change —
+/// criterion 3's failure exactly.
 #[sqlx::test]
 async fn a_restored_backup_reissuing_positions_is_caught_by_the_identity_guard(pool: PgPool) {
     let viewer = viewer("user-1");
@@ -498,20 +420,13 @@ async fn a_restored_backup_reissuing_positions_is_caught_by_the_identity_guard(p
     restored.discard().await;
 }
 
-/// **Acceptance criterion 2, for the client that never reconnects.**
+/// Acceptance criterion 2, for the client that never reconnects: a live
+/// subscription open when the database was replaced resumes nothing, so no
+/// resume guard covers it.
 ///
-/// A subscription that was open when the database was replaced is the one path
-/// no resume guard covers, because it does not resume: the socket is fine, the
-/// cursor is where it was, and every poll asks for everything past a position
-/// the restore has not reached yet. It is answered with silence, and then —
-/// once the restore counts past that position — with changes, having skipped
-/// everything in between.
-///
-/// Verified by deleting the identity check from `ShellFeed::poll` and watching
-/// this fail on the first assertion: the poll returned `[]`, which the
-/// subscription reads as "nothing changed" and sends nowhere. The sidebar is
-/// then frozen for as long as the connection lasts, while the client renders
-/// itself live — which is the sentence this ticket is named after.
+/// Every poll asks past a position the restore hasn't reached, so it is
+/// answered with silence and then, once the restore catches up, with changes —
+/// having silently skipped everything in between.
 #[sqlx::test]
 async fn a_connected_client_whose_database_is_replaced_rebuilds_rather_than_stalling(pool: PgPool) {
     let viewer = viewer("user-1");
@@ -593,12 +508,9 @@ async fn descriptor(pool: &PgPool) -> Value {
 
 /// The identity half of Decision 7, on the wire.
 ///
-/// T3 keys everything it caches for an environment on `environmentId`
-/// (`client-runtime/src/platform/persistence.ts:59-63`), so this string is what
-/// makes a client with a stale listing discard it without being told to. A
-/// deployment that reported a configured constant here would present a replaced
-/// database as the same environment, and the cached listing would survive the
-/// thing it describes.
+/// T3 keys its cache on `environmentId` (`persistence.ts:59-63`), so a
+/// configured constant here would present a replaced database as the same
+/// environment and let the stale cached listing survive it.
 #[sqlx::test]
 async fn the_environment_descriptor_reports_the_database_it_is_serving(pool: PgPool) {
     let published = descriptor(&pool).await;

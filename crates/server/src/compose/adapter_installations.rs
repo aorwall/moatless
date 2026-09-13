@@ -24,10 +24,9 @@ use moatless_loops::adapters::events::TaskEventSubscribers;
 
 /// The external Adapters installed in one backend process.
 ///
-/// Production installation is all-or-nothing: all five Adapters are installed
-/// unconditionally because their credentials and transport configuration are
-/// resolved per workspace. A process without database ports carries no
-/// `AdapterInstallations` at all.
+/// Production installs all five unconditionally, since credentials and
+/// transport are resolved per workspace; a process without database ports
+/// carries none.
 pub struct AdapterInstallations {
     adapters: Arc<Adapters>,
     slack: SlackInstallation,
@@ -64,10 +63,9 @@ impl AdapterInstallations {
 
     /// Build the complete durable-delivery handler set for this installation.
     ///
-    /// Delivery routers are assembled only after `AppState`, because GitHub PR
-    /// and Linear need routing services that themselves consume the capability
-    /// registry. Keeping those dependencies here avoids an Adapter retaining
-    /// the aggregate that contains it.
+    /// Assembled only after `AppState`, since GitHub PR and Linear need routing
+    /// services that consume the capability registry — this avoids an Adapter
+    /// retaining the aggregate that contains it.
     pub fn delivery_handlers(&self, state: &AppState) -> AdapterDeliveryHandlers {
         let mut handlers = AdapterDeliveryHandlers::new();
         SlackInstallation::register_delivery(&mut handlers, state);
@@ -81,9 +79,8 @@ impl AdapterInstallations {
     /// Build the set of Adapters that react to a task's own event stream.
     ///
     /// Assembled after `AppState` for the same reason as
-    /// [`delivery_handlers`](Self::delivery_handlers) — the reactions read
-    /// process ports the aggregate owns. An Adapter that reacts to no event
-    /// registers nothing and the event handler is unchanged by it.
+    /// [`delivery_handlers`](Self::delivery_handlers): the reactions read
+    /// process ports the aggregate owns.
     pub fn event_subscribers(&self, state: &AppState) -> TaskEventSubscribers {
         let mut subscribers = TaskEventSubscribers::new();
         self.linear.subscribe_events(&mut subscribers, state);

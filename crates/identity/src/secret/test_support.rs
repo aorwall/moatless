@@ -22,10 +22,9 @@ use moatless_types::access_control::ScopeContext;
 
 /// In-memory store, readable and writable.
 ///
-/// Writes are here so a test can exercise a flow that stores a secret and then
-/// reads it back — stashing a displaced GitHub token behind a PAT is the case
-/// that needs it. It enforces none of the real DAO's constraints, so a test
-/// about SQL behaviour still belongs on `#[sqlx::test]`.
+/// Supports store-then-read flows like stashing a displaced GitHub token behind
+/// a PAT; it enforces none of the real DAO's constraints, so SQL-behaviour
+/// tests still belong on `#[sqlx::test]`.
 pub(crate) struct InMemorySecretDao {
     pub(crate) records: std::sync::Mutex<Vec<SecretRecord>>,
 }

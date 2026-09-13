@@ -22,10 +22,10 @@
 use moatless_tasks::agent_event::is_agent_message;
 use serde_json::{Value, json};
 
-/// Project an `agent.message` **inner payload** (the `AgentEventPayload` body:
-/// `{ message: { role, content }, uuid, … }`) to its metadata skeleton.
-/// Non-object inputs and payloads without a `message` are returned as an empty
-/// skeleton so a malformed row never keeps its heavy content.
+/// Projects an `agent.message` **inner payload** to its metadata skeleton.
+///
+/// Non-object inputs or payloads without `message` return an empty skeleton,
+/// never the heavy content.
 pub fn agent_message_skeleton(payload: &Value) -> Value {
     let message = payload.get("message");
     let role = message
@@ -58,10 +58,10 @@ pub fn agent_message_skeleton(payload: &Value) -> Value {
     })
 }
 
-/// Slim a serialized `StreamEvent` envelope for **relay to clients**: when it is
-/// an `agent.message`, replace its inner `payload` with the skeleton and
-/// re-serialize; otherwise return `None` so the caller relays the raw string
-/// untouched (the common, allocation-free path).
+/// Slims a serialized `StreamEvent` envelope for **relay to clients**.
+///
+/// Replaces an `agent.message`'s payload with the skeleton and re-serializes;
+/// otherwise returns `None` so the raw string relays untouched.
 pub fn slim_relayed_event(raw: &str) -> Option<String> {
     let mut envelope: Value = serde_json::from_str(raw).ok()?;
     let obj = envelope.as_object_mut()?;

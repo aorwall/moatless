@@ -27,14 +27,15 @@ pub(in crate::auth) async fn github_app_init_handler(
 #[derive(serde::Deserialize)]
 pub(in crate::auth) struct GitHubConnectQuery {
     /// Where to send the browser once the App is authorized. Vetted against the
-    /// trusted origins — see [`crate::auth::connect_return::approved_return_url`].
+    /// trusted origins — see
+    /// [`crate::auth::connect_return::approved_return_url`].
     return_to: Option<String>,
 }
 
 /// Authorize the GitHub App for the caller's existing session.
 ///
-/// Requires a session because the credential is written against it: this
-/// establishes GitHub *access*, and leaves how the caller signed in alone.
+/// Requires a session because the credential is written against it — this
+/// establishes GitHub *access*, leaving how the caller signed in alone.
 pub(in crate::auth) async fn github_app_connect_handler(
     State(state): State<AuthState>,
     headers: HeaderMap,
@@ -92,8 +93,8 @@ pub(in crate::auth) struct ForgejoConnectQuery {
 
 /// Authorize a Forgejo instance for the caller's existing session.
 ///
-/// Requires a session because the credential is written against it: this
-/// establishes Forgejo *access*, and leaves how the caller signed in alone.
+/// Requires a session because the credential is written against it — this
+/// establishes Forgejo *access*, leaving how the caller signed in alone.
 pub(in crate::auth) async fn forgejo_connect_handler(
     State(state): State<AuthState>,
     headers: HeaderMap,

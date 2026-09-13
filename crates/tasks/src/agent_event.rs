@@ -12,7 +12,8 @@ use moatless_types::sandbox::{SandboxStatus, ServerSubType};
 use moatless_types::task::{TaskSubType, TaskTurnSubType};
 use serde::Deserialize;
 
-/// Typed event dispatch key — replaces string-concat `format!("{}.{}", type, sub)`.
+/// Typed event dispatch key — replaces string-concat `format!("{}.{}", type,
+/// sub)`.
 ///
 /// `Hash` so a subscriber registry can key on it.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -68,9 +69,10 @@ impl AgentEvent {
     }
 }
 
-/// Whether an event `(type, sub_type)` is an `agent.message` source event. The
-/// derived `message.upsert` / `subagentProgress` events (`type = "message"`) are
-/// the Chat's content delivery and are a different pair.
+/// Whether an event `(type, sub_type)` is an `agent.message` source event.
+///
+/// The derived `message.upsert` / `subagentProgress` events (`type =
+/// "message"`) are the Chat's content delivery and are a different pair.
 pub fn is_agent_message(event_type: &str, sub_type: &str) -> bool {
     event_type == "agent" && sub_type == "message"
 }

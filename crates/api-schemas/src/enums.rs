@@ -1,8 +1,8 @@
 //! Domain enums, re-exported from `moatless-types`.
 //!
-//! Every one of these is the domain enum itself. A DTO naming one names
-//! the same type the DAO reads and the service decides on, so there is no
-//! wire spelling to convert to.
+//! Every one of these is the domain enum itself. A DTO naming one names the
+//! same type the DAO reads and the service decides on, so there is no wire
+//! spelling to convert to.
 
 pub use moatless_types::adapter::AdapterKind;
 pub use moatless_types::adapter::OutboundPresentation;

@@ -1,4 +1,5 @@
-//! Plugin commands: list, create, delete, skills, enable, disable, clear, effective.
+//! Plugin commands: list, create, delete, skills, enable, disable, clear,
+//! effective.
 
 use clap::{Subcommand, ValueEnum};
 use moatless_api_schemas::plugin::{
@@ -64,8 +65,8 @@ pub enum PluginAction {
         /// waiting to be picked for a turn. Omit to leave the record as it is
         #[arg(long, num_args = 0..=1, require_equals = true, default_missing_value = "true")]
         frontload: Option<bool>,
-        /// Whose personal record, with `--reach personal`. Naming somebody
-        /// else is an administrator's call; omit for your own
+        /// Whose personal record, with `--reach personal`. Naming somebody else
+        /// is an administrator's call; omit for your own
         #[arg(long)]
         user: Option<uuid::Uuid>,
     },
@@ -87,8 +88,8 @@ pub enum PluginAction {
         /// Frontloading, for whenever the record is turned back on
         #[arg(long, num_args = 0..=1, require_equals = true, default_missing_value = "true")]
         frontload: Option<bool>,
-        /// Whose personal record, with `--reach personal`. Naming somebody
-        /// else is an administrator's call; omit for your own
+        /// Whose personal record, with `--reach personal`. Naming somebody else
+        /// is an administrator's call; omit for your own
         #[arg(long)]
         user: Option<uuid::Uuid>,
     },
@@ -103,8 +104,8 @@ pub enum PluginAction {
         /// Which workspace, with `--reach workspace`
         #[arg(long)]
         workspace: Option<String>,
-        /// Whose personal record, with `--reach personal`. Naming somebody
-        /// else is an administrator's call; omit for your own
+        /// Whose personal record, with `--reach personal`. Naming somebody else
+        /// is an administrator's call; omit for your own
         #[arg(long)]
         user: Option<uuid::Uuid>,
     },
@@ -250,8 +251,8 @@ struct Set {
     reach: Reach,
     skill: Option<String>,
     workspace: Option<String>,
-    /// Whose personal record. `None` is the caller's own, which is the only
-    /// one anybody but an administrator may write.
+    /// Whose personal record. `None` is the caller's own, which is the only one
+    /// anybody but an administrator may write.
     user: Option<uuid::Uuid>,
     always: Option<bool>,
     frontload: Option<bool>,

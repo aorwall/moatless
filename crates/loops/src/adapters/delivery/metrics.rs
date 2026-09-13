@@ -62,8 +62,8 @@ pub(crate) fn record_execution(adapter: &str, kind: &str, outcome: &'static str)
 
 /// Publish the backlog gauges.
 ///
-/// `oldest_pending_seconds` is the signal that says admitted deliveries have stopped
-/// moving — the readiness flip alone cannot say that, because a replica whose
+/// `oldest_pending_seconds` is the signal that admitted deliveries stopped
+/// moving; the readiness flip alone can't say that, since a replica whose
 /// worker died still reports the backlog another replica is draining.
 pub(crate) fn record_backlog(backlog: &Backlog) {
     metrics::gauge!(ADAPTER_DELIVERY_BACKLOG, "status" => "pending").set(backlog.pending as f64);

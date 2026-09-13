@@ -7,9 +7,7 @@ use moatless_api_schemas::sandbox::SandboxStatusFullResponse;
 /// True if `task_id` names the sandbox this command is running inside.
 ///
 /// Restarting or redeploying that one takes the process issuing the request
-/// down with it. Any other task is somebody else's sandbox and is fair game —
-/// a test suite running inside a sandbox drives other tasks through their whole
-/// lifecycle, restart included.
+/// down with it; any other task is fair game.
 fn is_own_sandbox(config: &Config, task_id: &str) -> bool {
     config.task_id() == Some(task_id)
 }
@@ -40,12 +38,11 @@ impl SandboxOperation {
     }
 }
 
-/// The wake note to record before `op` runs, or `None` when the caller is not
+/// The wake note to record before `op` runs, or `None` when the caller isn't
 /// operating on its own sandbox.
 ///
-/// Returns the warning as an error when the caller's own sandbox is the target
-/// and `yes` is false. The agent has to learn what this costs before it pays
-/// it: the pod dies, and the turn that ran the command dies with it.
+/// Errors when `yes` is false: the pod dies, and the turn that ran the command
+/// dies with it.
 pub(super) fn self_restart_note(
     config: &Config,
     task_id: &str,
@@ -79,8 +76,8 @@ pub(super) fn self_restart_note(
 /// Leave `text` with the sandbox, for the agent to be given after the pod comes
 /// back.
 ///
-/// This runs before the operation, because the operation never returns: the pod
-/// dies while the request is in flight, and it takes this process with it.
+/// Runs before the operation, because the operation never returns — the pod
+/// dies while the request is in flight, taking this process with it.
 pub(super) async fn record_wake_note(task_id: &str, text: Option<&str>) -> Result<(), ClientError> {
     let Some(text) = text else {
         return Ok(());
@@ -105,13 +102,9 @@ pub(super) async fn record_wake_note(task_id: &str, text: Option<&str>) -> Resul
 /// Take the note back after a failed operation, so no later pod replacement
 /// delivers it.
 ///
-/// Only a refusal the backend spoke cancels: `Api`, plus the two `From<ApiError>`
-/// maps a refusal also arrives as. `Unauthorized` is 401, and `NotLoggedIn` is
-/// raised before the request goes out, so neither pod is going down.
-///
-/// A transport error keeps the note deliberately. It cannot tell a backend that
-/// refused the request from a pod that is already going down, and a note nobody
-/// needed costs one message where a cancelled one strands the agent.
+/// Only a backend refusal (`Api`, `Unauthorized`, `NotLoggedIn`) cancels it; a
+/// transport error keeps it, since it can't be told apart from a pod already
+/// going down.
 pub(super) async fn cancel_wake_note(task_id: &str, recorded: bool, error: &ClientError) {
     let refused = matches!(
         error,
@@ -222,7 +215,8 @@ fn format_container_diagnostics_json(diagnostics: Option<&Vec<serde_json::Value>
     }
 }
 
-/// Diagnose sandbox issues: aggregates status + container diagnostics + recent errors.
+/// Diagnose sandbox issues: aggregates status + container diagnostics + recent
+/// errors.
 pub(super) async fn run_diagnose(
     client: &MoatClient,
     task_id: &str,

@@ -93,12 +93,13 @@ const MAX_MESSAGE_LIMIT: i32 = 200;
 /// Query parameters for GET /messages.
 #[derive(Debug, Deserialize)]
 pub struct GetMessagesQuery {
-    /// When true, strip heavy fields (`tool_input`, `typed_result`, `sdk_metadata`)
-    /// and truncate tool result content. Useful for CLI/summary views.
+    /// When true, strip heavy fields (`tool_input`, `typed_result`,
+    /// `sdk_metadata`) and truncate tool result content. Useful for CLI/summary
+    /// views.
     #[serde(default)]
     pub summary: bool,
-    /// Cursor: return only rows strictly older than this message id.
-    /// Omit for the most recent page.
+    /// Cursor: return only rows strictly older than this message id. Omit for
+    /// the most recent page.
     #[serde(default)]
     pub before_id: Option<i32>,
     /// Page size. Defaults to 50, clamped to 1..=200.
@@ -108,8 +109,8 @@ pub struct GetMessagesQuery {
 
 /// Get a chronological page of messages for a task.
 ///
-/// Without query params returns the most recent `DEFAULT_MESSAGE_LIMIT` rows.
-/// Pass `before_id=<oldest_in_previous_page>` to fetch older pages.
+/// Without query params returns the most recent `DEFAULT_MESSAGE_LIMIT` rows;
+/// pass `before_id=<oldest_in_previous_page>` for older pages.
 #[utoipa::path(
     get,
     path = "/api/v1/tasks/{task_id}/messages",
@@ -246,9 +247,9 @@ pub async fn get_tool_call_detail(
 
 /// Get the assembled subagent transcript for a single `Agent` tool call.
 ///
-/// Runs the fold-resolving row-transform over the rows whose `parent_uuid`
-/// equals `tool_use_id`. Returned whole (no pagination) — bounded per call and
-/// fetched on demand when the collapsed `Agent` card is expanded.
+/// Runs the fold-resolving row-transform over rows whose `parent_uuid` equals
+/// `tool_use_id`; returned whole, since it's bounded per call and fetched on
+/// demand when the `Agent` card expands.
 #[utoipa::path(
     get,
     path = "/api/v1/tasks/{task_id}/tool-calls/{tool_use_id}/messages",

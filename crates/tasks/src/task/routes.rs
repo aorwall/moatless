@@ -54,15 +54,9 @@ use moatless_workspaces::workspace::git_sync::GitSyncService;
 )]
 pub struct TaskApiDoc;
 
-/// Build the task router with OpenAPI metadata.
-///
-/// Generic over the router state `S` so this module names no root type: the
-/// composition root supplies the concrete state at the call site, and each
-/// registered handler reaches its ports — the task/message/creation services,
-/// the task/binding/turn/message stores, the repository/workspace/git
-/// and tag ports, the sandbox lifecycle and preflight ports, the credential
-/// sync and config, and the `UserTokenVerifier` behind `AuthUser` — through
-/// `FromRef<S>`.
+/// Build the task router with OpenAPI metadata. Generic over state `S` so this
+/// module names no root type — the composition root supplies it, and handlers
+/// reach their ports through `FromRef<S>`.
 pub fn task_router<S>(state: S) -> (axum::Router, utoipa::openapi::OpenApi)
 where
     S: Clone + Send + Sync + 'static,

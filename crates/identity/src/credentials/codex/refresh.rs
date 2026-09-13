@@ -19,17 +19,8 @@ impl CredentialService {
     /// The pure Codex `auth.json` refresh, serialized on the per-scope mutex.
     ///
     /// No in-flight guard and no broadcast: the tasks-band `CredentialSync`
-    /// calls this and then, on [`CodexRefreshOutcome::Rotated`], fans the new
-    /// blob out.
-    ///
-    /// Behaviour:
-    /// 1. Check `should_refresh` (access-token exp <= now + 5min, or
-    ///    `last_refresh` < now - 8d). If not, return the stored blob unchanged.
-    /// 2. POST `refresh_token` to `auth.openai.com`. On success merge the
-    ///    rotated fields into the blob.
-    /// 3. On permanent failure the store writes `metadata.refresh_failure` and
-    ///    this returns `CredentialError::NotFound`. On transient failure, return
-    ///    the stored (stale) blob. Without HTTP wired, fall back to a raw read.
+    /// calls this and fans out the new blob itself on
+    /// [`CodexRefreshOutcome::Rotated`].
     pub async fn refresh_codex_locked(
         &self,
         scope: &CodexScope,
@@ -108,10 +99,12 @@ impl CredentialService {
         }
     }
 
-    /// Read the codex blob for `scope` straight from `provider_tokens` with
-    /// no refresh. Used by `CredentialSync` on the in-flight-guard path, and
-    /// here as the fallback when the HTTP plumbing for refresh is absent
-    /// (tests) or another replica is the active refresher.
+    /// Read the codex blob for `scope` straight from `provider_tokens` with no
+    /// refresh.
+    ///
+    /// Used by `CredentialSync`'s in-flight-guard path, and as the fallback
+    /// when refresh's HTTP plumbing is absent (tests) or another replica is the
+    /// active refresher.
     pub async fn read_raw_codex(&self, scope: &CodexScope) -> Result<String, CredentialError> {
         let row = self
             .provider_tokens
@@ -204,10 +197,9 @@ const CODEX_REFRESH_MAX_AGE_SECS: i64 = 8 * 24 * 60 * 60;
 
 /// Decide whether the stored Codex blob needs a refresh.
 ///
-/// Three signals — refresh if any of:
-/// - `tokens.access_token` JWT `exp` is within [`CODEX_REFRESH_LEEWAY_SECS`].
-/// - `last_refresh` is older than [`CODEX_REFRESH_MAX_AGE_SECS`].
-/// - We can't decode the access token at all (treat as expired).
+/// Refreshes when `access_token` exp nears [`CODEX_REFRESH_LEEWAY_SECS`],
+/// `last_refresh` exceeds [`CODEX_REFRESH_MAX_AGE_SECS`], or the access token
+/// can't be decoded (treated as expired).
 fn codex_should_refresh(blob: &serde_json::Value) -> bool {
     let access_token = blob
         .get("tokens")

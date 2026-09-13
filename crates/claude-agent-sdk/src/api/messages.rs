@@ -137,13 +137,11 @@ impl std::fmt::Display for TaskNotificationStatus {
     }
 }
 
-/// The core SDK message type — a union of all 16 message variants
-/// that the Claude CLI can emit over NDJSON stdout.
+/// The core SDK message type — a union of all 16 message variants that the
+/// Claude CLI can emit over NDJSON stdout.
 ///
-/// Custom deserialization is required because:
-/// - `"system"` type has 8 subtypes dispatched via `subtype` field
-/// - `"result"` has success vs error variants dispatched via `subtype`
-/// - Some types like `"user"` branch on `isReplay`
+/// Needs custom deserialization: `"system"` and `"result"` dispatch on
+/// `subtype`, and `"user"` branches on `isReplay`.
 #[derive(Debug, Clone)]
 pub enum SdkMessage {
     /// type: "assistant" — a complete assistant turn
@@ -181,7 +179,8 @@ pub enum SdkMessage {
 }
 
 impl SdkMessage {
-    /// Parse a raw JSON value into an `SdkMessage`, returning `None` if unrecognized.
+    /// Parse a raw JSON value into an `SdkMessage`, returning `None` if
+    /// unrecognized.
     pub fn from_value(value: Value) -> Option<Self> {
         let msg_type = value.get("type")?.as_str()?;
 
@@ -289,9 +288,11 @@ pub enum AssistantMessageError {
     InvalidRequest,
     ServerError,
     /// Catch-all for error codes the CLI introduces faster than this enum is
-    /// updated (e.g. `model_not_found`). Without `#[serde(other)]` an unknown
-    /// code fails deserialization of the whole `AssistantMessage`, which would
-    /// cause the record — and the API error it carries — to be silently dropped.
+    /// updated.
+    ///
+    /// Without `#[serde(other)]` an unknown code fails deserialization of the
+    /// whole `AssistantMessage`, silently dropping the record and its API
+    /// error.
     #[serde(other)]
     Unknown,
 }
@@ -300,10 +301,9 @@ pub enum AssistantMessageError {
 
 /// Priority for injected user messages.
 ///
-/// Controls when a mid-loop message gets processed by the CLI:
-/// - `Now` — process immediately, even interrupting current tool execution.
-/// - `Next` — queue for the next API round-trip (default).
-/// - `Later` — wait for current turn to finish, then process as a new query.
+/// `Now` interrupts the current tool execution immediately; `Next` (default)
+/// queues for the next round-trip; `Later` waits for the current turn to finish
+/// before running as a new query.
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum MessagePriority {
@@ -461,11 +461,11 @@ pub enum ApiKeySource {
     Project,
     Org,
     Temporary,
-    /// A source this crate does not model. The CLI names the environment
-    /// variable it read the key from (`ANTHROPIC_API_KEY`), so the set is
-    /// open-ended. Without this fallback an unrecognised value fails
-    /// `SystemInitMessage`, which aborts the init handshake and ends the turn
-    /// with no assistant reply and no error on the task.
+    /// A source this crate does not model.
+    ///
+    /// The CLI names the environment variable it read the key from
+    /// (`ANTHROPIC_API_KEY`); an unrecognised value would otherwise fail
+    /// `SystemInitMessage` and silently drop the turn.
     #[serde(other)]
     Unknown,
 }
@@ -743,9 +743,10 @@ mod tests {
     }
 
     /// The CLI names the env var it read the key from, so the value set is open
-    /// ended. Dropping the init message over one costs the whole turn: it is
-    /// discarded here, the session is never established, and the task ends idle
-    /// with no assistant reply and nothing on the task to explain it.
+    /// ended.
+    ///
+    /// An unmodelled source must not fail deserialization and silently drop the
+    /// whole init message, leaving the task idle with no explanation.
     #[test]
     fn parse_system_init_with_unmodelled_api_key_source() {
         let json = serde_json::json!({

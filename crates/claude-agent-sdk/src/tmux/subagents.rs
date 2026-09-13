@@ -1,16 +1,11 @@
-//! Tails sub-agent transcripts and threads them onto the spawning tool call.
-//!
 //! The TUI writes each sub-agent's conversation to its own file under
-//! `<project_dir>/<session_id>/subagents/agent-<agent_id>.jsonl`, outside the
-//! main transcript the tailer follows. Without this watcher those records never
-//! become `SdkMessage`s, so a `Task` call shows as a tool result with no
-//! visible sub-conversation — unlike the subprocess transport, where the CLI
-//! interleaves them into the one stream.
+//! `<project_dir>/<session_id>/subagents/agent-<agent_id>.jsonl`, separate from
+//! the main transcript; without this watcher those records never become
+//! `SdkMessage`s, unlike the subprocess transport which interleaves them.
 //!
-//! Records are buffered until the spawning `tool_use_id` is known. That id only
-//! reaches the main transcript when the sub-agent finishes, and consumers key
-//! sub-agent messages off it, so emitting earlier would produce messages that
-//! thread onto nothing.
+//! Records are buffered until the spawning `tool_use_id` is known — it only
+//! reaches the main transcript when the sub-agent finishes — since emitting
+//! earlier would thread onto nothing.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -29,8 +24,8 @@ use crate::api::messages::SdkMessage;
 
 use super::translator::{Translated, TurnAccumulator, translate_record};
 
-/// Maps sub-agent id → the `tool_use_id` of the `Task` call that spawned it,
-/// as learned from the main transcript.
+/// Maps sub-agent id → the `tool_use_id` of the `Task` call that spawned it, as
+/// learned from the main transcript.
 pub(crate) type SubagentRegistry = Arc<Mutex<HashMap<String, String>>>;
 
 const POLL_INTERVAL: Duration = Duration::from_millis(500);
@@ -92,16 +87,11 @@ pub(crate) fn spawn_subagent_watcher(
     })
 }
 
-/// Total a finished sub-agent's transcript.
-///
-/// `toolUseResult` on the main stream reports only the sub-agent's final API
-/// call — its `usage`, `iterations`, and `totalTokens` all omit the earlier
-/// messages — so the transcript is the only complete source. Safe to read
-/// directly: the file is fully written by the time the spawning `Task` call
-/// returns.
-///
-/// Deduped by `message.id` for the same reason the turn accumulator is: the
-/// TUI writes one record per content block, each repeating the message's usage.
+/// `toolUseResult` on the main stream reports only the final API call, omitting
+/// earlier messages, so the transcript is the only complete source; safe to
+/// read directly since it's fully written by the time `Task` returns. Deduped
+/// by `message.id`, since the TUI writes one record per content block, each
+/// repeating the message's usage.
 pub(crate) async fn sum_transcript_usage(path: &Path) -> Option<Usage> {
     // Streamed line-by-line: a transcript carries full tool outputs, so reading
     // it whole would spike with the sub-agent's output size.
@@ -167,17 +157,10 @@ fn set_parent(msg: &mut SdkMessage, tool_use_id: &str) {
     }
 }
 
-/// Wait for the spawning `tool_use_id`, then stream the sub-agent transcript.
-///
-/// Nothing can be emitted before the `tool_use_id` is known (consumers key
-/// sub-agent messages off it, and it only reaches the main transcript when the
-/// sub-agent finishes), so this waits rather than buffering. That keeps memory
-/// flat per sub-agent no matter how much it produced — a waiting task holds two
-/// short strings, not its conversation. Registration also means the file is
-/// complete, so it is read once to EOF instead of tailed.
-///
-/// `Result` records are dropped: a sub-agent's turn boundary is not the run's,
-/// and forwarding one would end the run early.
+/// Waits rather than buffers, keeping memory flat regardless of output size;
+/// reads the file once to EOF since registration means it's already complete.
+/// `Result` records are dropped — forwarding one would end the run early, since
+/// a sub-agent's turn boundary isn't the run's.
 async fn subagent_tail_loop(
     path: PathBuf,
     agent_id: String,

@@ -27,30 +27,14 @@ use moatless_core::db::DbPool;
 use moatless_core::db_enum::decode_required;
 use moatless_ports::task::EventSubject;
 
-/// The tool calls that hand a conversation back to a person. A sidebar shows
-/// whether one is outstanding, so the message that raises one moves a listing
-/// row even though the agent wrote it.
-///
 /// Keep in sync with `handlers::INTERACTIVE_TOOL_NAMES`,
-/// `transform::check_pending_user_input` and the same pair in `moatless_t3code::dao`,
-/// which is what reads the flag back out.
+/// `transform::check_pending_user_input`, and `moatless_t3code::dao`'s pair. A
+/// message raising one of these moves a sidebar listing row.
 const INTERACTIVE_TOOLS: &[&str] = &["AskUserQuestion", "ExitPlanMode"];
 
-/// Whether appending this message moves anything a personal sidebar shows.
-///
-/// Two things, and deliberately not a third. A message **a person wrote** moves
-/// the activity timestamp, which is what T3 orders the sidebar by — and the
-/// answer to a question arrives as one of these, so answering is covered here
-/// too. A message **raising an interactive tool call** flips the
-/// waiting-on-a-person flag, and that one the agent writes.
-///
-/// Everything else the agent produces is excluded, and that exclusion is what
-/// keeps this design affordable: ordinary agent output is the highest-rate path
-/// in the system, the only sidebar value it could touch is the activity
-/// timestamp, and T3 defines that as counting messages authored by a person. A
-/// tool result is *not* treated as an answer here for the same reason — every
-/// tool the agent runs produces one, and the answers that matter are the
-/// person's own `user` rows.
+/// Whether this message moves anything a sidebar shows: a person-authored
+/// message moves the activity timestamp T3 orders by; raising an interactive
+/// tool call flips the waiting-on-a-person flag.
 fn moves_a_listing_row(msg: &TaskMessage, conversation: &ConversationWrite) -> bool {
     if msg.message_type == MessageType::User {
         return true;
@@ -63,17 +47,9 @@ fn moves_a_listing_row(msg: &TaskMessage, conversation: &ConversationWrite) -> b
     })
 }
 
-/// The next position inside one subagent's own transcript.
-///
-/// A subagent's activities never enter the Task's stream — they are assembled on
-/// demand behind the `Agent` call that spawned them — so they take nothing from
-/// the Task's counter. Within their own transcript they still need an order, and
-/// arrival order is the order they happened in.
-///
-/// A redelivered block does not move: `activities::upsert` deliberately leaves
-/// `position` alone. Two blocks racing can take the same number, which the
-/// reads break on `activity_id` — the block's own index, so the tie resolves the
-/// way the source ordered it.
+/// The next position inside one subagent's own transcript; subagent activities
+/// never touch the Task's counter. A redelivered block does not move; a race
+/// breaks its tie on `activity_id`.
 async fn next_subagent_position(
     tx: &mut sqlx::PgConnection,
     task_id: &str,
@@ -99,7 +75,8 @@ pub(crate) struct SubagentAggregate {
     pub parent_uuid: String,
     /// `COUNT(*)` of the subagent's rows.
     pub message_count: i64,
-    /// `SUM(input_tokens + output_tokens)` across the subagent's assistant rows.
+    /// `SUM(input_tokens + output_tokens)` across the subagent's assistant
+    /// rows.
     pub tokens: i64,
 }
 
@@ -118,13 +95,9 @@ pub(crate) trait MessageDao: Send + Sync {
         conversation: &ConversationWrite,
     ) -> Result<i32, sqlx::Error>;
 
-    /// Write what a turn *did* when the turn said nothing.
-    ///
-    /// A Message row exists when somebody said something, so a turn that only
-    /// called tools — and a carrier row that only relays a result — has none to
-    /// hang its activities off. `message_uuid` is still what the conversation
-    /// change names: for the tool-result case it is the calling Message, which
-    /// is the row a reader will see move.
+    /// Write what a turn *did* when it said nothing: a tool-only turn has no
+    /// Message row of its own. `message_uuid` still names the conversation
+    /// change — the calling Message, for a tool result.
     async fn append_activities(
         &self,
         task_id: &str,
@@ -132,8 +105,8 @@ pub(crate) trait MessageDao: Send + Sync {
         conversation: &ConversationWrite,
     ) -> Result<(), sqlx::Error>;
 
-    /// Write a Sandbox status change or error as an activity, unless it restates
-    /// the one before it. Returns whether a row was written.
+    /// Write a Sandbox status change or error as an activity, unless it
+    /// restates the one before it. Returns whether a row was written.
     async fn record_sandbox_activity(
         &self,
         activity: &crate::task_activities::mapping::ActivityRow,
@@ -148,19 +121,16 @@ pub(crate) trait MessageDao: Send + Sync {
     ) -> Result<bool, sqlx::Error>;
 
     /// The context rows attached to a set of Messages, keyed by
-    /// `task_message_id`.
-    ///
-    /// The preview URL and the selected element a person sent with a message.
-    /// They are persisted once, on the way in, and rebuilt into the agent's view
-    /// of the message on the way out — which is what this read is for.
+    /// `task_message_id`: the preview URL and selected element a person sent,
+    /// persisted once and rebuilt into the agent's view on the way out.
     async fn get_contexts_for_messages(
         &self,
         task_id: &str,
         message_ids: &[i32],
     ) -> Result<HashMap<i32, Vec<TaskMessageContext>>, sqlx::Error>;
 
-    /// Look up a single message by its public uuid. Returns `None` when no
-    /// row matches.
+    /// Look up a single message by its public uuid. Returns `None` when no row
+    /// matches.
     async fn find_by_uuid(&self, uuid: &str) -> Result<Option<TaskMessage>, sqlx::Error>;
 
     async fn get_pending_user(&self, task_id: &str) -> Result<Vec<TaskMessage>, sqlx::Error>;
@@ -178,16 +148,9 @@ pub(crate) trait MessageDao: Send + Sync {
         task_id: &str,
     ) -> Result<Option<TaskMessage>, sqlx::Error>;
 
-    /// Backfill token usage onto the most recent `assistant` row for the task,
-    /// but ONLY when that row has no usage yet (`assistant_usage IS NULL`).
-    ///
-    /// Codex reports token counts only on the terminal `turn.completed` event —
-    /// its assistant message carries none — so unlike Claude the usage never
-    /// reaches the per-message columns at insert time. `handle_agent_completed`
-    /// calls this to attach the turn's usage to the assistant reply it belongs
-    /// to. The `IS NULL` guard makes it a no-op for Claude/tmux (whose assistant
-    /// rows already carry inline usage), so it's safe to call for every
-    /// transport. Returns `true` when a row was updated.
+    /// Backfills the latest `assistant` row's usage, only if none yet
+    /// (`assistant_usage IS NULL`): Codex reports counts on `turn.completed`,
+    /// not the message, so the guard is a no-op elsewhere.
     async fn backfill_last_assistant_usage<'a>(
         &self,
         task_id: &'a str,
@@ -208,9 +171,9 @@ pub(crate) trait MessageDao: Send + Sync {
         task_id: &str,
         session_id: &str,
     ) -> Result<u64, sqlx::Error>;
-    /// Mark queued messages as delivered to an agent run, stamping the turn
-    /// the run was allocated. Queued rows carry no turn number until here —
-    /// a turn is one agent run, and only the ack says which run took them.
+    /// Mark queued messages as delivered to an agent run, stamping the turn the
+    /// run was allocated. Queued rows carry no turn number until here — a turn
+    /// is one agent run, and only the ack says which run took them.
     async fn acknowledge_messages(
         &self,
         task_id: &str,
@@ -223,22 +186,9 @@ pub(crate) trait MessageDao: Send + Sync {
         task_id: &str,
     ) -> Result<Option<super::models::MessageType>, sqlx::Error>;
 
-    /// Whether a turn has already been satisfied by a final assistant reply.
-    /// The primary check is scoped to `turn_number`: the most recent row for
-    /// that turn must be an `assistant` message with
-    /// `assistant_stop_reason = 'end_turn'`.
-    ///
-    /// The orphaned-turn reaper also needs to recognize the batched-message
-    /// shape where the sandbox coalesced multiple pending user messages into
-    /// one agent run and all lifecycle/result rows were attributed to the later
-    /// sibling turn. In that case an older user-only turn may be considered
-    /// completed on the strength of the task's latest later-turn final reply.
-    /// Older turns with substantive assistant/system/result rows are not
-    /// treated this way; those remain genuine interrupted/orphan candidates.
-    ///
-    /// The `turn_number` scope matters: `list_unclosed_active_turns` can return
-    /// a stale open turn while a *later* turn already has a final reply — without
-    /// scoping, that older turn would be wrongly closed as completed.
+    /// Whether `turn_number` has a final assistant reply: its latest row is
+    /// `assistant`/`end_turn` — or, for a batched turn, a later turn already
+    /// got one, since coalesced runs attribute it there.
     async fn last_message_is_completed_reply(
         &self,
         task_id: &str,
@@ -257,10 +207,8 @@ pub(crate) trait MessageDao: Send + Sync {
         source_name: Option<&'a str>,
     ) -> Result<bool, sqlx::Error>;
 
-    /// Record an external event this Task produced.
-    ///
-    /// The entry for a caller with no `tool_use_id` to hang the record on — a
-    /// `moat` command in a sandbox shell. See
+    /// Record an external event this Task produced, for a caller with no
+    /// `tool_use_id` to hang it on — a `moat` command in a sandbox shell. See
     /// [`outbound_events`](crate::task::outbound_events_dao).
     async fn record_external_event<'a>(
         &self,
@@ -276,10 +224,9 @@ pub(crate) trait MessageDao: Send + Sync {
         external_id: &str,
     ) -> Result<bool, sqlx::Error>;
 
-    /// Like [`Self::has_external_event_id`] but matches any of the supplied
-    /// candidate ids. Used by the dedup gate to recognize both the new
-    /// `<provider>:<kind>:<id>` form and any legacy bare-int form for the
-    /// same row in a single round-trip.
+    /// Like [`Self::has_external_event_id`] but matches any candidate id. Used
+    /// by the dedup gate to recognize both the new `<provider>:<kind>:<id>`
+    /// form and any legacy bare-int form in one round-trip.
     async fn has_any_external_event_id(
         &self,
         task_id: &str,
@@ -288,34 +235,33 @@ pub(crate) trait MessageDao: Send + Sync {
 
     async fn get_external_event_ids(&self, task_id: &str) -> Result<Vec<String>, sqlx::Error>;
 
-    /// Find the owning task for any one of the supplied external IDs.
+    /// Find the owning task for any of the given external IDs. Matches the id
+    /// alone across every subject, so it only suits ids a provider allocates
+    /// once (e.g. a comment id).
     ///
-    /// Matches on the id alone, across every subject, so it answers only for
-    /// ids the provider allocates once across all of them — a comment id. Use
+    /// Use
     /// [`find_task_id_by_any_external_event_id_on_subject`](Self::find_task_id_by_any_external_event_id_on_subject)
-    /// for anything a second subject can repeat.
+    /// for ids a second subject can repeat.
     async fn find_task_id_by_any_external_event_id(
         &self,
         external_ids: &[String],
     ) -> Result<Option<String>, sqlx::Error>;
 
-    /// Find the owning task for any one of the supplied external IDs, among
-    /// only the events carried on `subject`.
+    /// Find the owning task among events carried on `subject`: `task_messages`
+    /// is scoped by its subject key, `task_outbound_events` by its source name;
+    /// a row carrying neither is not a match.
     ///
-    /// Used by adapter delivery to name the task that authored the event, so
-    /// that a binding can be attached to it, while sibling bindings on the same
-    /// subject still receive it. Each table is scoped by the column that
-    /// locates it: `task_messages` by its subject key, `task_outbound_events`
-    /// by its source name. A row carrying neither is not a match.
+    /// Used by adapter delivery to attach a binding to the authoring task while
+    /// sibling bindings on the subject still receive it.
     async fn find_task_id_by_any_external_event_id_on_subject<'a>(
         &self,
         external_ids: &[String],
         subject: EventSubject<'a>,
     ) -> Result<Option<String>, sqlx::Error>;
 
-    /// Keyset-paginated page of messages strictly older than `before_id`
-    /// (or the most recent `limit` rows when `before_id` is `None`).
-    /// Returned rows are in chronological (oldest-first) order.
+    /// Keyset-paginated page of messages strictly older than `before_id` (or
+    /// the most recent `limit` rows when `before_id` is `None`). Returned rows
+    /// are in chronological (oldest-first) order.
     async fn get_paginated(
         &self,
         task_id: &str,
@@ -323,18 +269,12 @@ pub(crate) trait MessageDao: Send + Sync {
         limit: i32,
     ) -> Result<MessagePage, sqlx::Error>;
 
-    /// Load exactly the rows needed to re-assemble the Message affected by a
-    /// change to `message_uuid`, together with the `uuid` the derived upsert
-    /// should target.
+    /// Load exactly the rows to re-assemble the Message for `message_uuid`,
+    /// plus the upsert's target `uuid` — the named uuid *is* the target; a
+    /// carrier row is redirected on the way in, not here.
     ///
-    /// The named uuid *is* the target — no "affected parent" is resolved here. A
-    /// result settles the call's own activity, and the writer resolves the anchor
-    /// before it commits, so a change naming a carrier row is redirected once, on
-    /// the way in.
-    ///
-    /// Returns `None` for a subagent row (`parent_uuid` set — those ride the
-    /// progress path), and for a uuid this Task has neither text nor activity
-    /// under.
+    /// Returns `None` for a subagent row (rides the progress path) or a uuid
+    /// with neither text nor activity.
     async fn get_message_for_assembly(
         &self,
         task_id: &str,
@@ -365,10 +305,9 @@ pub(crate) trait MessageDao: Send + Sync {
         tool_use_id: &str,
     ) -> Result<Option<ToolCallRow>, sqlx::Error>;
 
-    /// Return whether `file_id` is referenced by any message belonging to
-    /// `task_id` via the persisted `attachments.file_ids` JSON. Used by the
-    /// sandbox `DownloadUpload` RPC to defense-in-depth the cross-task
-    /// scope check.
+    /// Whether `file_id` is referenced by any message in `task_id` via the
+    /// persisted `attachments.file_ids` JSON. Used by the sandbox
+    /// `DownloadUpload` RPC to defense-in-depth the cross-task check.
     async fn file_id_used_in_task(&self, task_id: &str, file_id: &str)
     -> Result<bool, sqlx::Error>;
 
@@ -380,12 +319,12 @@ pub(crate) trait MessageDao: Send + Sync {
         task_id: &str,
     ) -> Result<Option<InterruptedTurn>, sqlx::Error>;
 
-    /// Whether the turn produced agent output (an `agent.message` row) after its
-    /// most recent `agent.recovery_started` — i.e. the last recovery re-drive
-    /// ran productively before the pod died again. `true` marks a legitimate
-    /// re-interruption of live work; `false` marks a crash-loop that never got
-    /// past resume. The recovery handler resets the attempt counter on `true` so
-    /// only a no-progress loop exhausts the cap.
+    /// Whether the turn produced agent output after its most recent
+    /// `agent.recovery_started`: `true` marks a legitimate re-interruption,
+    /// `false` a crash-loop that never resumed.
+    ///
+    /// Resets the attempt counter on `true`, so only a no-progress loop
+    /// exhausts the cap.
     async fn turn_progressed_since_last_recovery(
         &self,
         task_id: &str,
@@ -410,9 +349,8 @@ pub(crate) trait MessageDao: Send + Sync {
     ) -> Result<crate::message::models::ForkCopyCounts, sqlx::Error>;
 
     /// Delete a fork's copied conversation, undoing [`Self::fork_conversation`]
-    /// when the create that was to follow it fails. See
-    /// [`crate::message::fork_dao::discard_conversation`] for why this exists and
-    /// when it is safe to call.
+    /// when the create meant to follow it fails. See
+    /// [`crate::message::fork_dao::discard_conversation`] for when it's safe.
     async fn discard_forked_conversation(&self, dest_task_id: &str) -> Result<(), sqlx::Error>;
 }
 
@@ -421,11 +359,9 @@ pub(crate) struct PgMessageDao(pub(crate) DbPool);
 
 /// The columns a whole Message is written with, and their placeholders.
 ///
-/// A macro rather than a `const`, because sqlx 0.9 takes only `&'static str`
-/// and both users concatenate it into a larger statement at compile time. It is
-/// paired with [`bind_message`], which binds the same columns in the same
-/// order: the fork copy writes Messages the ingest path never saw, and two
-/// hand-kept lists would drift a column apart without failing to compile.
+/// A macro, not a `const`, since sqlx 0.9 needs `&'static str` concatenated at
+/// compile time; paired with [`bind_message`] to keep both lists in sync
+/// without drifting silently.
 macro_rules! message_columns {
     () => {
         "task_id, uuid, message_type, user_type, parent_uuid,
@@ -461,8 +397,7 @@ pub(crate) use message_placeholders;
 /// Bind one `TaskMessage` to the placeholders [`message_columns`] declares.
 ///
 /// A macro because the two callers hold different query types — `query_as` for
-/// the upsert that returns an id, `query` for the fork copy that does not — and
-/// `bind` is inherent to each.
+/// the upsert, `query` for the fork copy — and `bind` is inherent to each.
 macro_rules! bind_message {
     ($q:expr, $msg:expr) => {
         $q.bind(&$msg.task_id)
@@ -522,17 +457,12 @@ macro_rules! bind_message {
 }
 pub(crate) use bind_message;
 
-/// Every open Task sharing `task_id`'s Sandbox that holds an unclaimed user
-/// message.
+/// Every open Task sharing `task_id`'s Sandbox with an unclaimed user message —
+/// matches `clear_settled_pending_work` so a wake that survives always names
+/// someone.
 ///
-/// The Sandbox's wake signal is one flag for the whole Sandbox, while the pod
-/// dispatches per Task, so the control plane asks this to turn the flag into
-/// the Tasks to notify. The predicate matches `clear_settled_pending_work`'s
-/// below: the set this returns is exactly the set whose emptiness clears the
-/// flag, so a wake that survives always names someone. Backed by the partial
-/// index `task_messages_pending_user_idx`.
-///
-/// Reached through `moatless_ports::task::PendingWorkReader`.
+/// Backed by the partial index `task_messages_pending_user_idx`; reached
+/// through `moatless_ports::task::PendingWorkReader`.
 pub(crate) async fn members_awaiting_dispatch(
     pool: &DbPool,
     task_id: &str,
@@ -559,10 +489,9 @@ pub(crate) async fn members_awaiting_dispatch(
 
 /// Drop the Sandbox's wake signal once nothing is waiting on it.
 ///
-/// Runs in the claiming transaction, after the claim, so it sees the rows that
-/// claim just took. The condition is exact on purpose: clearing while a peer
-/// member still has an unclaimed user message would drop that work, and never
-/// clearing would wake the Sandbox forever.
+/// Runs in the claiming transaction after the claim, so it sees the rows just
+/// claimed; the condition is exact, or it either drops a peer's unclaimed work
+/// or wakes the Sandbox forever.
 async fn clear_settled_pending_work(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     task_id: &str,
@@ -725,8 +654,7 @@ impl MessageDao for PgMessageDao {
         if !conversation.text.is_empty() {
             // `array_to_string` skips NULL holes, which is what the slots for
             // blocks that are not text are. The separator is the blank line
-            // markdown needs between paragraphs — what `push_paragraph` and the
-            // per-block render this replaces both produced.
+            // markdown needs between paragraphs.
             sqlx::query(
                 r#"UPDATE task_messages
                       SET message_text = array_to_string(message_text_parts, E'\n\n')

@@ -3,8 +3,8 @@ use moatless_types::store::StoreError;
 
 /// Where a turn came from, as the Task's transcript records it.
 ///
-/// `event_id` is what dedup keys on: a provider that re-delivers, or an echo of
-/// what this product just sent outward, must not become a second turn.
+/// `event_id` is what dedup keys on, so a re-delivery or an echo of an outbound
+/// send never becomes a second turn.
 #[derive(Debug, Clone, Default)]
 pub struct TurnOrigin {
     pub event_id: Option<String>,
@@ -14,16 +14,15 @@ pub struct TurnOrigin {
     /// The handle the external system knows the writer by, recorded verbatim
     /// and never resolved to a Moatless identity.
     pub author: Option<String>,
-    /// The writer's own id in the external system — a Slack `U0000000001`.
-    /// What the sender label resolves through, since the Moatless user id on
-    /// the send is the subscription's owner when the writer is unmapped.
+    /// The writer's own id in the external system — a Slack `U0000000001`. What
+    /// the sender label resolves through, since the Moatless user id on the
+    /// send is the subscription's owner when the writer is unmapped.
     pub sender_id: Option<String>,
 }
 
 /// A turn arriving from outside the product, addressed to a Task that exists.
 ///
-/// One struct rather than a parameter list: every field below is set
-/// per-provider, and the flow it feeds already carried
+/// One struct rather than a parameter list: the flow it feeds already carried
 /// `#[allow(clippy::too_many_arguments)]`.
 #[derive(Debug, Clone)]
 pub struct InboundTurn {
@@ -41,8 +40,8 @@ pub struct InboundTurn {
 
 /// Accepting a turn onto an existing Task.
 ///
-/// Distinct from [`super::TranscriptAppend`], which writes one row and runs no flow: a
-/// turn accepted here is deduplicated, persisted, and handed to the agent.
+/// Distinct from [`super::TranscriptAppend`], which writes one row and runs no
+/// flow; this deduplicates, persists, and hands the turn to the agent.
 #[cfg_attr(feature = "test-support", mockall::automock)]
 #[async_trait]
 pub trait MessageAcceptor: Send + Sync {

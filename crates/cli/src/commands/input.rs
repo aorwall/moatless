@@ -1,13 +1,12 @@
-//! Gathering command input: message text from `--text` or stdin, JSON
-//! arguments given inline or as `@file`, and file uploads.
+//! Gathering command input: message text from `--text` or stdin, JSON arguments
+//! given inline or as `@file`, and file uploads.
 
 use crate::client::MoatClient;
 
 /// Resolve the outbound message text from `--text` or stdin.
 ///
-/// - If `text` is `Some`, returns it as-is.
-/// - Otherwise reads from stdin when piped. Returns an error if neither
-///   `--text` nor a piped stdin is available.
+/// If `text` is `Some`, returns it as-is; otherwise reads piped stdin, erroring
+/// when neither is available.
 pub fn read_text_or_stdin(text: Option<String>) -> Result<String, Box<dyn std::error::Error>> {
     if let Some(t) = text {
         return Ok(t);
@@ -23,8 +22,8 @@ pub fn read_text_or_stdin(text: Option<String>) -> Result<String, Box<dyn std::e
 
 /// Parse a JSON argument given inline or as `@path/to/file.json`.
 ///
-/// Separate from [`read_text_or_stdin`], which trims its input: that is right
-/// for prose and wrong for a payload.
+/// Separate from [`read_text_or_stdin`], which trims its input — right for
+/// prose, wrong for a payload.
 pub fn read_json_arg<T: serde::de::DeserializeOwned>(
     flag: &str,
     arg: &str,

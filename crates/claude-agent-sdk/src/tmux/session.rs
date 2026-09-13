@@ -1,16 +1,10 @@
-//! Manage a detached tmux session running the interactive Claude TUI.
+//! Snapshot existing `*.jsonl` files before spawning via `tmux new-session -d`,
+//! then hand off to the tailer. The TUI writes no JSONL until the first user
+//! message is submitted — paste a prompt before calling [`discover_new_jsonl`]
+//! to wait for the file.
 //!
-//! Lifecycle:
-//! 1. Snapshot existing `*.jsonl` files in the project directory (caller does
-//!    this BEFORE spawn, so we know which files are new afterwards).
-//! 2. `tmux new-session -d -s <name> -x 220 -y 50 -- env -u CLAUDECODE claude <args...>`.
-//! 3. **The TUI does not write a JSONL until the first user message is
-//!    submitted.** The caller must paste a prompt first, then call
-//!    [`discover_new_jsonl`] to wait for the file to appear.
-//! 4. Hand control to the tailer.
-//!
-//! Cleanup runs through `kill()` (called by the supervisor task on
-//! cancellation) and a best-effort sync kill in `Drop` as a safety net.
+//! Cleanup runs through `kill()` (supervisor, on cancellation) and a
+//! best-effort sync kill in `Drop` as a safety net.
 
 use std::path::{Path, PathBuf};
 
@@ -28,8 +22,8 @@ const TMUX_HEIGHT: u32 = 50;
 /// One spawned tmux + claude session.
 ///
 /// JSONL discovery is intentionally NOT part of this struct — the TUI defers
-/// creating the transcript file until the first user message is submitted, so
-/// the orchestration in `query.rs` must paste a prompt before discovering.
+/// the transcript until the first user message, so `query.rs` must paste a
+/// prompt before discovering it.
 pub(crate) struct TmuxSession {
     pub(crate) session_name: String,
     /// The SDK-private tmux server socket (`-S <socket>`) this session runs on.
@@ -42,8 +36,8 @@ impl TmuxSession {
     /// Spawn a detached tmux session running `claude` with the given options.
     /// Does not wait for the JSONL transcript — see [`discover_new_jsonl`].
     ///
-    /// `settings_json` is the harness-owned inline `--settings` JSON (or
-    /// `None` to skip the `--settings` flag entirely).
+    /// `settings_json` is the harness-owned inline `--settings` JSON, or `None`
+    /// to skip the flag entirely.
     pub(crate) async fn spawn(
         options: &ClaudeOptions,
         settings_json: Option<&str>,
@@ -135,10 +129,9 @@ impl TmuxSession {
 
     /// Kill the tmux session (and the claude process inside).
     ///
-    /// Escalation, mirroring `claude-p`'s sequence:
-    /// 1. `tmux kill-session` (graceful — sends SIGHUP via tmux's pane reaper).
-    /// 2. Poll `tmux has-session` every 50ms for up to 200ms.
-    /// 3. If still alive, grab the pane PID and send SIGKILL directly.
+    /// Escalates: graceful `tmux kill-session` (SIGHUP), poll `tmux
+    /// has-session` for up to 200ms, then SIGKILL the pane PID directly if
+    /// still alive.
     pub(crate) async fn kill(&self) {
         debug!(session_name = %self.session_name, "Killing tmux session");
 
@@ -185,8 +178,8 @@ impl TmuxSession {
         }
     }
 
-    /// Capture the pane PID of the tmux session, used by [`Self::kill`] for
-    /// the SIGKILL escalation step. Returns `None` if the session has already
+    /// Capture the pane PID of the tmux session, used by [`Self::kill`] for the
+    /// SIGKILL escalation step. Returns `None` if the session has already
     /// exited or the PID couldn't be parsed.
     pub(crate) async fn pane_pid(&self) -> Option<u32> {
         let out = tmux_command(&self.socket)
@@ -253,26 +246,19 @@ impl Drop for TmuxSession {
     }
 }
 
-/// Path to the SDK's private tmux server socket for `session_name`.
-///
-/// We run every session on its own `-S <socket>` rather than tmux's shared
-/// default socket (`$TMUX_TMPDIR/tmux-<uid>/default`). The default socket is a
-/// single well-known path per user: if a previous tmux server died uncleanly
-/// and left its socket file behind — e.g. a sandbox container restart, where
-/// the memory-backed `/tmp` survives the restart — `new-session` tries to
-/// connect to the dead server and fails with "error connecting to <socket>
-/// (Connection refused)" (exit 1). A fresh, per-session socket path derived
-/// from the unique `session_name` can never collide with such a leftover.
+/// Each session gets its own `-S <socket>` instead of tmux's shared default: a
+/// leftover socket from an uncleanly-died server (e.g. surviving a container
+/// restart) makes `new-session` fail connecting to the dead server, which a
+/// name-derived per-session path can never collide with.
 fn tmux_socket_path(session_name: &str) -> PathBuf {
     std::env::temp_dir().join(format!("{session_name}.sock"))
 }
 
 /// Build a `tmux` command pinned to the SDK's private server socket (`-S`).
 ///
-/// Every tmux invocation for a given session MUST go through this so it targets
-/// the same server the session was created on — otherwise `kill-session`,
-/// `has-session`, `capture-pane`, and the paste writer would talk to tmux's
-/// default socket and never find the session.
+/// Every tmux invocation for a session MUST go through this to target the
+/// server it was created on, or `kill-session`/`has-session`/`capture-pane`/the
+/// paste writer hit the default socket and never find it.
 pub(super) fn tmux_command(socket: &Path) -> tokio::process::Command {
     let mut cmd = tokio::process::Command::new("tmux");
     cmd.arg("-S").arg(socket);
@@ -281,26 +267,13 @@ pub(super) fn tmux_command(socket: &Path) -> tokio::process::Command {
 
 /// Build the env vars to set on the tmux CLIENT process before `new-session`.
 ///
-/// These end up visible to the pane's `claude` process because a
-/// private-socket session (see [`tmux_socket_path`]) always forks a brand new
-/// tmux SERVER, which inherits the client's environment at fork time and
-/// copies it into the new session's environment table. Setting them via
-/// `Command::env` rather than `KEY=VALUE` `new-session` argv words keeps them
-/// out of tmux's control-socket message, which is capped at `MAX_IMSGSIZE`
-/// (16384 bytes, tmux's `compat/imsg.h`) — a limit `options.env` alone can
-/// exceed in production, since it carries every resolved credential/secret
-/// (see `crates/sandbox/src/agent/claude_code.rs`), not just the two pins below.
-///
-/// Meanwhile JSONL discovery ([`crate::transcripts::resolve_project_dir`]) computes the polled
-/// transcript dir from the *SDK process's* env. If the child's
-/// `CLAUDE_CONFIG_DIR`/`HOME` don't match, claude writes its transcript
-/// somewhere the SDK never looks → `JsonlNotFound`.
-///
-/// Pinning both here — using the exact resolver discovery uses
-/// ([`crate::config_dir::resolve_claude_config_dir`]) — makes "SDK polls X ⟺
-/// claude writes X" an invariant by construction. `options.env` is applied
-/// after so callers can still override (last write to a given key wins, same
-/// as `Command::env` semantics).
+/// The new tmux SERVER inherits them into the pane's `claude` process. Sent via
+/// `Command::env`, not `new-session` argv, since `options.env` alone can exceed
+/// tmux's `MAX_IMSGSIZE` control-socket cap (16384 bytes). Pins
+/// `CLAUDE_CONFIG_DIR`/`HOME` with the same resolver JSONL discovery uses
+/// ([`crate::config_dir::resolve_claude_config_dir`]), so a mismatch can't
+/// misdirect claude's transcript and trigger `JsonlNotFound`; `options.env`
+/// applies after, so callers can still override.
 fn child_env_vars(options: &ClaudeOptions) -> Vec<(String, String)> {
     let mut vars = Vec::new();
 

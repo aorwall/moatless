@@ -14,19 +14,18 @@ use crate::secret::service::SecretService;
 use moatless_types::access_control::ScopeContext;
 use moatless_types::secret::SecretKind;
 
-/// Key of the internal secret holding a GitHub App user's original credential
-/// while a PAT override is active, so removing the override can restore it.
+/// Key of the internal secret stashing a GitHub App user's original credential
+/// while a PAT override is active; removing the override restores it.
+///
 /// Encrypted and `internal`-kind, so it never reaches a sandbox.
 pub const GITHUB_OAUTH_STASH_KEY: &str = "GITHUB_OAUTH_ACCESS_TOKEN";
 
 /// The OAuth credential a PAT override stands in front of.
 ///
-/// A user access token expires within hours, so `refresh_token` and
-/// `expires_at` are as much of the credential as the token is: a restore that
-/// drops them leaves a row
-/// [`crate::auth::token_refresh::ensure_fresh_token`] can neither date nor
-/// renew, and the person loses host access at the original token's expiry
-/// with nothing in the logs to say so.
+/// `refresh_token` and `expires_at` are as much the credential as the access
+/// token: dropped on restore,
+/// [`crate::auth::token_refresh::ensure_fresh_token`] can't renew it, and
+/// access silently expires.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct StashedOAuthCredential {
     pub access_token: String,
@@ -47,11 +46,11 @@ impl StashedOAuthCredential {
         }
     }
 
-    /// Read a stored stash.
+    /// Reads a stored stash.
     ///
     /// A stash written before the credential was stored whole holds the bare
-    /// access token, which is not JSON — those restore as access-token-only
-    /// and refresh once the person reconnects.
+    /// access token, not JSON; those restore as access-token-only and refresh
+    /// once the person reconnects.
     fn parse(stored: &str) -> Self {
         serde_json::from_str(stored).unwrap_or_else(|_| Self::from_access_token(stored))
     }

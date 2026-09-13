@@ -35,8 +35,8 @@ async fn seed_task(pool: &PgPool, task_id: &str, repo_id: &str, workspace_id: Op
 }
 
 /// Insert a minimal `task_activities` row directly: the domain writer
-/// (`upsert`) needs a transaction and an allocated conversation position,
-/// which is more machinery than a fixture needs to prove a read.
+/// (`upsert`) needs a transaction and an allocated conversation position, which
+/// is more machinery than a fixture needs to prove a read.
 async fn seed_activity(
     pool: &PgPool,
     task_id: &str,
@@ -59,8 +59,8 @@ async fn seed_activity(
     .expect("seed activity");
 }
 
-/// Insert a minimal `task_messages` row, so `latest_activity`'s
-/// message-only fallback has a row to find.
+/// Insert a minimal `task_messages` row, so `latest_activity`'s message-only
+/// fallback has a row to find.
 async fn seed_message(pool: &PgPool, task_id: &str, uuid: &str) {
     let msg = crate::message::test_support::make_message_row(task_id, uuid);
     message_fixtures::seed_message(pool, &msg, &[], &ConversationWrite::default())

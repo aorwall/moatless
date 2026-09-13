@@ -24,12 +24,9 @@ struct SandboxIntentViewRow {
     desired_state_updated_at: Option<DateTime<Utc>>,
 }
 
-/// Batch-load the task-response projection of Sandbox intent from the
-/// `sandboxes` table. Owns the lazy-row semantic: an existing Task without a
-/// Sandbox row is returned as converged Stopped at the no-intent epoch. Lives
-/// here beside the other task-response reads of the `sandboxes` table (the
-/// projection type and epoch sentinel are tasks-band); `Lifecycle` remains the
-/// sole *writer* of that intent.
+/// Batch-load the task-response projection of Sandbox intent. A Task with no
+/// Sandbox row returns converged Stopped at the no-intent epoch; `Lifecycle`
+/// remains the sole *writer*.
 async fn load_sandbox_intent_views(
     pool: &DbPool,
     task_ids: &[String],
@@ -67,11 +64,9 @@ async fn load_sandbox_intent_views(
         .collect()
 }
 
-/// DAO trait for task persistence.
-///
-/// The mock the attribute generates inherits this trait's visibility, so it
-/// stays inside the crate. `test-support` is in the gate because
-/// [`super::test_support::ScriptedTasks`] builds on the mock for a host test.
+/// DAO trait for task persistence. The generated mock inherits this trait's
+/// visibility; `test-support` gates it since
+/// [`super::test_support::ScriptedTasks`] uses the mock in a host test.
 #[cfg_attr(any(test, feature = "test-support"), mockall::automock)]
 #[async_trait]
 pub(crate) trait TaskDao: Send + Sync {
@@ -84,70 +79,38 @@ pub(crate) trait TaskDao: Send + Sync {
     /// Insert a task. `row.workspace_id` must be set: every Task runs in a
     /// Workspace, and the Sandbox row written alongside it is keyed on that id.
     async fn insert_task(&self, row: &Task) -> Result<(), sqlx::Error>;
-    /// Compensate a create-time shared-sandbox join failure after `insert_task`
-    /// committed. This removes the just-created Task and create-side rows, but
-    /// deliberately does not mutate the Sandbox row: the Sandbox belongs to the
-    /// existing members the failed Task tried to join.
+    /// Compensate a shared-sandbox join failure after `insert_task`: removes
+    /// the just-created Task and its rows, never the Sandbox row — it belongs
+    /// to the members the Task tried to join.
     async fn delete_inserted_task_after_join_failure(
         &self,
         task_id: &str,
     ) -> Result<bool, sqlx::Error>;
-    /// Free the id of a Task that errored before anything was said in it, and
-    /// report whether there was one.
-    ///
-    /// The whole condition rides in the statement's `WHERE`, so what is removed
-    /// is decided at the database rather than by a read the caller took
-    /// earlier: the row must be `Error`, carry no messages, and be one `ctx`
-    /// controls. A live Task, a Task with a conversation, and somebody else's
-    /// Task are all left untouched and reported as `false`.
-    ///
-    /// This is the compensation `create` cannot run for itself: a preflight
-    /// failure persists the row as `Error` and *then* returns the error, so the
-    /// id stays taken by a Task that never became usable. A caller that owns
-    /// the id it creates under — the T3 compatibility surface, whose client
-    /// mints the thread id and re-sends the same one — otherwise hits the
-    /// unique index on `tasks.task_id` on every retry.
-    ///
-    /// Everything projected under the id goes with the row (activities, events,
-    /// follows, read receipts, and the Sandbox row when no other Task is left
-    /// on it), because the id is about to name a different incarnation and a
-    /// surviving row would be read as belonging to it.
+    /// Free the id of a Task that errored before anything was said, reporting
+    /// whether one existed. The `Error`/no-messages/`ctx`-owned check runs
+    /// atomically in `WHERE`; deletes all rows under the id.
     async fn delete_errored_empty_task(
         &self,
         task_id: &str,
         ctx: &ScopeContext,
     ) -> Result<bool, sqlx::Error>;
     async fn list_tasks(&self, filter: &TaskFilter) -> Result<(Vec<Task>, i64), sqlx::Error>;
-    /// Update task fields for the caller's scope. Per-field statements embed the
-    /// `write_filter` so the caller only modifies rows they own. Returns `true`
-    /// when at least one field was updated; returns `Ok(true)` when `patch` is
-    /// empty (no writes occurred but the caller already read-checked the task,
-    /// so the phantom "succeeded" is acceptable — callers that reach here with
-    /// an empty patch performed a read first).
+    /// Update task fields for the caller's scope via a `write_filter`-embedded
+    /// statement per field. An empty `patch` returns `Ok(true)` with no writes
+    /// — the caller already read-checked.
     async fn update_task(
         &self,
         task_id: &str,
         patch: &TaskPatch,
         ctx: &ScopeContext,
     ) -> Result<bool, sqlx::Error>;
-    /// Recompute `tasks.total_cost_usd` as the sum of every turn's priced cost.
-    ///
-    /// Deriving the total from the durable `task_turns.metrics` rows is
-    /// idempotent: a completion event redelivered under at-least-once semantics
-    /// yields the same sum, where a `total_cost_usd + cost` increment would
-    /// drift up on every redelivery.
+    /// Recompute `tasks.total_cost_usd` as the sum of every turn's priced cost,
+    /// from durable `task_turns.metrics` rows — idempotent, since a redelivered
+    /// event yields the same sum, unlike an increment.
     async fn recompute_total_cost(&self, task_id: &str) -> Result<(), sqlx::Error>;
-    /// Flip status to `new_status` only if the task is not already `Closed`.
-    ///
-    /// Returns `true` when a row changed (status updated), `false` when the
-    /// task was already `Closed` (no-op). The `WHERE status <> 'closed'` guard
-    /// is evaluated atomically at the DB, so this closes the close-vs-terminal
-    /// TOCTOU a plain read-then-write would lose: a `Closed` task can never be
-    /// resurrected by an automated agent-lifecycle event. `Open`→`Open` and
-    /// `Error`→`Open` still match the predicate, preserving today's behaviour.
-    ///
-    /// System callers (reaper, event handlers) pass `ScopeContext::system()` so
-    /// they are not limited to the task owner.
+    /// Flip status to `new_status` unless already `Closed`, atomically via
+    /// `WHERE status <> 'closed'` so no racing event resurrects a `Closed`
+    /// task. System callers pass `ScopeContext::system()`.
     async fn update_status_if_not_closed(
         &self,
         task_id: &str,
@@ -155,7 +118,8 @@ pub(crate) trait TaskDao: Send + Sync {
         ctx: &ScopeContext,
     ) -> Result<bool, sqlx::Error>;
     /// Delete a task. Returns `true` when a row was deleted, `false` when the
-    /// task was not found or the caller does not have control (existence hiding).
+    /// task was not found or the caller does not have control (existence
+    /// hiding).
     async fn delete_task(&self, task_id: &str, ctx: &ScopeContext) -> Result<bool, sqlx::Error>;
     async fn exists_by_short_id(&self, short_id: &str) -> Result<bool, sqlx::Error>;
     async fn get_created_times(
@@ -167,9 +131,8 @@ pub(crate) trait TaskDao: Send + Sync {
         task_ids: &[String],
     ) -> Result<HashMap<String, DateTime<Utc>>, sqlx::Error>;
     /// Batch-fetch the durable Sandbox lifecycle state (desired state, stop
-    /// reason, start + intent timestamps) for the given tasks from `sandboxes`.
-    /// Existing Tasks with no Sandbox row are returned with the lifecycle
-    /// module's lazy converged-Stopped default.
+    /// reason, timestamps) from `sandboxes`. A Task with no Sandbox row gets
+    /// the lazy converged-Stopped default.
     async fn get_sandbox_intents(
         &self,
         task_ids: &[String],
@@ -225,8 +188,8 @@ pub(crate) trait TaskDao: Send + Sync {
     /// already-followed task is a no-op.
     async fn follow_task(&self, user_id: &str, task_id: &str) -> Result<(), sqlx::Error>;
 
-    /// Make `user_id` stop following `task_id`. Idempotent — unfollowing a
-    /// task that isn't followed is a no-op.
+    /// Make `user_id` stop following `task_id`. Idempotent — unfollowing a task
+    /// that isn't followed is a no-op.
     async fn unfollow_task(&self, user_id: &str, task_id: &str) -> Result<(), sqlx::Error>;
 
     async fn settle_task(
@@ -261,15 +224,9 @@ pub(crate) trait TaskDao: Send + Sync {
         task_ids: &[String],
     ) -> Result<std::collections::HashSet<String>, sqlx::Error>;
 
-    /// List task IDs for currently-open codex tasks under a given codex scope,
-    /// optionally excluding `except_task_id`. Drives both the Codex refresh
-    /// in-flight guard (empty → backend may refresh; non-empty → defer to the
-    /// active sandbox watcher) and the rotation broadcast fan-out.
-    ///
-    /// `scope_kind` is `"user"` or `"global"`. `scope_id` is the `user_id`;
-    /// ignored for global. Pass `""` for `except_task_id` to disable the
-    /// exclusion. Owned `String` params keep `mockall::automock` happy —
-    /// `Option<&str>` and `&str` elide lifetimes the macro can't synthesise.
+    /// List task IDs of open codex tasks in scope, optionally excluding
+    /// `except_task_id` (`""` disables it). `scope_kind` is `"user"` or
+    /// `"global"`; owned `String` params keep `mockall::automock` happy.
     async fn list_open_codex_tasks_for_scope(
         &self,
         scope_kind: String,
@@ -289,8 +246,9 @@ impl PgTaskDao {
     }
 }
 
-/// The E-(b) session-gate port over `TaskDao`: `verify_handler` (identity) holds
-/// `Arc<dyn TaskAccess>`, not a `TaskDao`, so identity keeps no `task` import.
+/// The E-(b) session-gate port over `TaskDao`: `verify_handler` (identity)
+/// holds `Arc<dyn TaskAccess>`, not a `TaskDao`, so identity keeps no `task`
+/// import.
 #[async_trait]
 impl moatless_core::http_auth::TaskAccess for PgTaskDao {
     async fn may_access_task(&self, task_id: &str, ctx: &ScopeContext) -> bool {
@@ -628,11 +586,9 @@ impl TaskDao for PgTaskDao {
                 self.task_id.is_none()
             }
 
-            /// `None` only when a column that is `NOT NULL` in `tasks` came back
-            /// NULL, or held a value no variant names. Callers must reject that
-            /// rather than skip the row: dropping a task from the page while
-            /// still counting it in the total is the page/total drift this query
-            /// exists to prevent.
+            /// `None` only when a `NOT NULL` column came back NULL, or held an
+            /// unnamed value. Callers must reject that, not skip the row —
+            /// skipping would drift the page's tasks from its total.
             fn into_task(self) -> Option<Task> {
                 fn timestamp(value: &str) -> Option<DateTime<Utc>> {
                     DateTime::parse_from_rfc3339(value)

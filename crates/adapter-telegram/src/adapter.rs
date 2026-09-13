@@ -17,13 +17,11 @@ use moatless_types::adapter::AdapterKind;
 
 use super::api::TelegramApi;
 
-/// Telegram adapter.
+/// The ingress ports (`adapter_connections`, `loops`, `adapter_delivery`).
 ///
-/// The ingress ports (`adapter_connections`, `loops`, `adapter_delivery`) are
-/// carried here so the webhook route and the poller read them through this
-/// adapter rather than an `AppState`. They are present on the composition-root
-/// instance (see [`Self::with_ingress_ports`]) and absent on the `#[cfg(test)]`
-/// constructors, which never reach [`super::ingress::receive`].
+/// Present only on the composition-root instance
+/// ([`Self::with_ingress_ports`]) — absent on `#[cfg(test)]` constructors,
+/// which never reach [`super::ingress::receive`].
 pub struct TelegramAdapter {
     api: TelegramApi,
     db: Option<DbPool>,
@@ -79,14 +77,9 @@ impl TelegramAdapter {
     /// Attach the ingress ports the webhook route and the poller reach through
     /// this adapter, so neither has to take an `AppState`.
     ///
-    /// Built by the composition root from the pool it already holds — the same
-    /// local-construction move as `LinearAdapter::with_tasks`. All three are
-    /// pool-wrapper DAOs, which the backend guidelines allow constructing
-    /// locally precisely because they stay stateless, so a per-provider instance
-    /// is interchangeable with the one `AppState` holds (the concrete
-    /// `AdapterDeliveryStore` behind this `DeliveryAdmission` carries the one
-    /// non-obvious case — policy state — and pins the invariant at its own
-    /// definition).
+    /// Built locally as stateless pool-wrapper DAOs, interchangeable with the
+    /// ones `AppState` holds — except the `AdapterDeliveryStore` behind
+    /// `DeliveryAdmission`, whose policy state is pinned at its own definition.
     pub fn with_ingress_ports(
         mut self,
         adapter_connections: Arc<dyn ConnectionLookup>,
@@ -130,11 +123,10 @@ impl TelegramAdapter {
 
     /// Build the Adapter over an already-constructed client.
     ///
-    /// [`Self::new`] builds its client from a bot token, so a test that drives
-    /// any path reaching the Bot API has nowhere to put a stub. Pair this with
-    /// [`TelegramApi::with_base_url`] and
-    /// [`moatless_adapter_model::test_support::stub_provider`]; no test reaches
-    /// api.telegram.org.
+    /// [`Self::new`] builds its client from a bot token, leaving no path to a
+    /// stub; pair this with [`TelegramApi::with_base_url`] and
+    /// [`moatless_adapter_model::test_support::stub_provider`] so no test
+    /// reaches api.telegram.org.
     #[cfg(test)]
     pub(super) const fn with_api(api: TelegramApi) -> Self {
         Self {

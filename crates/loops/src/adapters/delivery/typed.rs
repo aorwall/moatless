@@ -1,15 +1,11 @@
 //! Function-shaped registration helpers for typed Adapter delivery work.
 //!
-//! Provider modules still own their payloads, kind names, and runtime
-//! functions. This module owns the repeated worker wrapper mechanics: decode
-//! the stored JSON payload once, classify malformed rows as permanent, and, for
-//! connection-scoped work, re-read the adapter connection in the system scope.
+//! Provider modules own their payloads, kind names, and runtime functions; this
+//! module owns the wrapper mechanics — decode the JSON payload once and
+//! classify malformed rows as permanent.
 //!
-//! The handler carries no application state: each provider closure captures the
-//! values its own work needs at registration time, so this module names no
-//! `AppState` and the only port it touches directly is the one
-//! `register_connection_delivery` re-reads a connection through — passed in as
-//! an explicit `ConnectionLookup`, not reached for off a bag.
+//! The handler carries no application state — the only port touched is the
+//! explicit `ConnectionLookup` passed to `register_connection_delivery`.
 
 use std::future::Future;
 use std::marker::PhantomData;
@@ -31,7 +27,7 @@ pub trait ConnectionDeliveryPayload: serde::de::DeserializeOwned + Send + Sync +
 /// Register a typed handler that receives the decoded provider payload.
 ///
 /// The `execute` closure carries whatever it needs (captured at registration);
-/// this helper adds only the payload decode and the handler wrapper.
+/// this helper only adds the payload decode and handler wrapper.
 pub fn register_typed_delivery<P, F, Fut>(
     handlers: &mut AdapterDeliveryHandlers,
     kind: &'static str,
@@ -51,12 +47,12 @@ pub fn register_typed_delivery<P, F, Fut>(
     );
 }
 
-/// Register a typed handler for work that should re-read its connection before
+/// Register a typed handler for work that re-reads its connection before
 /// running provider behavior.
 ///
-/// The connection is re-read through the `adapter_connections` port passed here,
-/// in the system scope — a durable delivery runs in the worker with no user
-/// session.
+/// The connection is re-read through the `adapter_connections` port passed
+/// here, in the system scope, since a durable delivery runs in the worker with
+/// no user session.
 pub fn register_connection_delivery<P, F, Fut>(
     handlers: &mut AdapterDeliveryHandlers,
     kind: &'static str,

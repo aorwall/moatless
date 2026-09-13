@@ -1,27 +1,12 @@
 //! One Linear envelope in, a [`Plan`] out. Nothing else.
 //!
-//! This module is pure: no database, no Linear call, no admission. Everything
-//! it decides it decides from the request body, which is what makes the whole
-//! `type` × `action` matrix — five event types, every payload-shape guard, and
-//! each of the seven ignore reasons — reachable from a table-driven test with
-//! no `AppState` and no HTTP request.
+//! Pure: no database, no Linear call, no admission — everything is decided from
+//! the request body alone, so the whole `type` × `action` matrix is reachable
+//! from a table-driven test with no `AppState` and no HTTP request.
 //!
-//! What it produces is a description, not an action:
-//!
-//! - **Requests.** One envelope fans into one or more [`AdapterDeliveryRequest`]s,
-//!   each already carrying the delivery identity [`ingress`](super::ingress)
-//!   derived. Linear sends one kind per envelope today, so the vector holds one
-//!   element; it is a vector because the shape of an ingress is "this envelope
-//!   means this work", and Linear's `Comment.create` fan-out already proves an
-//!   envelope can mean more than one thing downstream.
-//! - **Effects.** The one thing that has to happen on the response path, applied
-//!   by `ingress` and never here. See [`Effect`].
-//! - **Requirements.** The one gate that needs I/O to settle. See
-//!   [`Requirement`].
-//!
-//! Everything a delivery is *rejected* for is an [`ignore reason`](super::ingress::reason)
-//! rather than an error, with the single exception of a delivery that carries
-//! work but no identity — see [`IngressError::Unidentifiable`].
+//! A rejected delivery is an [`ignore reason`](super::ingress::reason), not an
+//! error, except when it carries work but no identity — see
+//! [`IngressError::Unidentifiable`].
 
 use moatless_adapter_model::delivery::AdapterDeliveryRequest;
 
@@ -31,12 +16,13 @@ use super::webhook_payloads::LinearWebhookEnvelope;
 /// What one envelope means.
 pub(super) enum Plan {
     Admit {
-        /// The admission requests, each carrying the identity `ingress` derived.
+        /// The admission requests, each carrying the identity `ingress`
+        /// derived.
         requests: Vec<AdapterDeliveryRequest>,
         /// Applied by `ingress` before it admits, never by [`normalize`].
         effects: Vec<Effect>,
-        /// Settled by `ingress` before the effects are applied. `None` for every
-        /// event type but a created session.
+        /// Settled by `ingress` before the effects are applied. `None` for
+        /// every event type but a created session.
         requires: Option<Requirement>,
     },
     /// The delivery carries no work this Adapter acts on. Acknowledged, and
@@ -44,14 +30,13 @@ pub(super) enum Plan {
     Ignored { reason: &'static str },
 }
 
-/// The one thing that must happen before the `200`, because Linear's panel goes
+/// The one thing that must happen before the `200`, since Linear's panel goes
 /// dark after ten seconds.
 ///
-/// It is described here and applied by [`ingress::receive`](super::ingress::receive)
-/// so that `normalize` stays drivable without a Linear client, and so that the
-/// exception to "nothing reaches Linear before the acknowledgment" is a value
-/// that can be asserted rather than a call buried in a workflow. Same shape as
-/// Slack's notice.
+/// Described here, applied by [`ingress::receive`](super::ingress::receive), so
+/// `normalize` stays drivable without a Linear client and the one exception to
+/// "nothing reaches Linear before the ack" is an assertable value, not a buried
+/// call.
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum Effect {
     SessionHeartbeat {
@@ -62,12 +47,11 @@ pub(super) enum Effect {
 
 /// A precondition on the admission that only I/O can settle.
 ///
-/// A created session is the one event whose admission is gated on state
-/// `normalize` cannot see. The gate is not moved by this refactor: the
-/// Subscription lookup runs before the heartbeat, exactly where it always did.
-/// An unmet requirement is [`reason::NO_SUBSCRIPTION`]; rather than the
-/// heartbeat, the session is closed with a terminal `error` activity so its
-/// panel doesn't spin forever behind an admission that never happens.
+/// A created session is the one event gated on state `normalize` can't see: the
+/// Subscription lookup runs before the heartbeat, same as always. Unmet is
+/// [`reason::NO_SUBSCRIPTION`] — the session is closed with a terminal `error`
+/// activity instead of the heartbeat, so its panel doesn't spin forever behind
+/// an admission that never happens.
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum Requirement {
     /// At least one active Subscription bound to this Linear team.
@@ -81,10 +65,9 @@ const SESSION_CREATED_HEARTBEAT: &str = "Spinning up sandbox…";
 
 /// Turn one parsed envelope into the work it carries.
 ///
-/// `event_id` is the delivery identity — see [`super::ingress::dedup_key`] for
-/// why it is that string and not a new one. It becomes the `event_id` of every
-/// request below, so a Linear retry of one envelope collapses onto the records
-/// its first delivery admitted.
+/// `event_id` (see [`super::ingress::dedup_key`]) becomes the `event_id` of
+/// every request below, so a Linear retry of one envelope collapses onto the
+/// records its first delivery admitted.
 pub(super) fn normalize(
     envelope: &LinearWebhookEnvelope,
     connection_id: &str,
@@ -168,9 +151,9 @@ fn agent_session_event(
 
 /// An issue state change.
 ///
-/// The guards are the ones this path always had, minus the rule lookup: which
-/// rules are active is re-resolved when the record executes, so an operator
-/// disabling one between the delivery and its execution stops the work.
+/// Guards are unchanged minus the rule lookup: active rules are re-resolved
+/// when the record executes, so disabling one between delivery and execution
+/// still stops the work.
 fn issue_event(
     envelope: &LinearWebhookEnvelope,
     connection_id: &str,
@@ -280,11 +263,10 @@ fn comment_event(
 
 /// A workspace notification.
 ///
-/// Every action is admitted, including the ones this adapter does not act on.
-/// Which actions are handled is a decision, and a decision made before
-/// admission leaves a whole class of Linear delivery with no durable trace of
-/// having arrived — so the action is carried into the record and the worker
-/// no-ops on it.
+/// Every action is admitted, including ones this adapter doesn't act on —
+/// deciding which to handle before admission would leave a whole class of
+/// Linear delivery with no durable trace of arrival, so the action is carried
+/// into the record and the worker no-ops on it.
 fn notification_event(
     envelope: &LinearWebhookEnvelope,
     connection_id: &str,
@@ -466,11 +448,9 @@ mod tests {
         }
     }
 
-    /// Regression: Linear sends `Issue`/`update` for every field it stores,
-    /// and `updatedFrom` names only the fields that changed. Requiring
-    /// `updatedFrom.stateId` to build the identity refused each one with a
-    /// `400`, so a workspace editing titles and labels filled its Linear
-    /// webhook log with delivery failures for traffic there was no work behind.
+    /// Regression: Linear sends `Issue`/`update` for every changed field, and
+    /// requiring `updatedFrom.stateId` to build the identity refused each
+    /// non-state edit with a `400`, flooding the webhook log with failures.
     #[test]
     fn an_issue_update_that_moved_no_state_is_ignored_rather_than_refused() {
         for changed in [
@@ -491,9 +471,9 @@ mod tests {
     }
 
     /// `updatedFrom` naming a `stateId` says the issue moved, so a payload
-    /// carrying no `state` it moved *to* is malformed rather than uneventful.
-    /// `IssuePayload::state` is `Option` behind `#[serde(default)]`, so that
-    /// shape parses and clears the malformed guard above the state checks.
+    /// carrying no `state` it moved *to* is malformed, not uneventful —
+    /// `IssuePayload::state` is `Option`, so that shape parses past the earlier
+    /// guard.
     #[test]
     fn a_move_whose_payload_names_no_new_state_is_malformed_not_uneventful() {
         let mut raw = issue("update");

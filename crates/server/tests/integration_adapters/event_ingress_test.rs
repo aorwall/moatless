@@ -5,18 +5,14 @@
     clippy::print_stdout,
     clippy::print_stderr
 )]
-//! Integration tests for durable event admission (the durable-ingress decision) — requires
-//! `DATABASE_URL` and `--features db-tests`.
+//! Integration tests for durable event admission — requires `DATABASE_URL` and
+//! `--features db-tests`.
 //!
-//! Drives the real gRPC ingress handler, the real Postgres outbox, the real
-//! relay and the real event-handler consumer, so each case is asserted at the
-//! seam the sandbox and the consumer actually meet:
-//!
-//! - Redis disabled, and Redis fail-then-recover.
-//! - A gRPC response lost after successful admission.
-//! - Concurrent duplicate requests.
-//! - Full message content reaching `task_messages` exactly once, and state
-//!   committed before fan-out.
+//! Drives the real gRPC ingress, outbox, relay, and consumer so each case is
+//! asserted at the seam the sandbox and consumer meet: Redis
+//! disabled/recovered, a lost gRPC response, concurrent duplicates, and full
+//! message content reaching `task_messages` exactly once with state committed
+//! before fan-out.
 
 use crate::common;
 
@@ -360,13 +356,9 @@ async fn a_response_lost_after_admission_is_not_re_admitted(pool: PgPool) {
     assert_eq!(outbox_event_ids(&pool).await, ["evt-1"]);
 }
 
-/// The dedup cache is bounded — it expires entries and dies with the process —
-/// while the sandbox retries indefinitely. So the retry that matters is the one
-/// the cache has already forgotten: after a restart, and after the record was
-/// consumed and deleted, leaving nothing in memory to answer "already admitted".
-///
-/// It must converge, not duplicate. The guarantee is downstream idempotency,
-/// which the consumer needs anyway because Redis redelivers its pending list.
+/// A retry the dedup cache has forgotten (post-restart, record already consumed
+/// and deleted) still converges rather than duplicating, since the consumer's
+/// idempotency covers Redis's redelivery too.
 #[sqlx::test]
 async fn a_retry_that_outlives_the_dedup_cache_converges(pool: PgPool) {
     let task_id = "task-admit-2b";

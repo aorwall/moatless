@@ -1,7 +1,7 @@
 //! Reusable SSE/NDJSON event collector for integration tests.
 //!
 //! Spawns a background task that reads the global event stream and accumulates
-//! parsed events.  Tests can query events by `task_id`, type, and `sub_type`.
+//! parsed events. Tests can query events by `task_id`, type, and `sub_type`.
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -29,7 +29,7 @@ pub struct EventCollector {
 }
 
 impl EventCollector {
-    /// Start collecting events.  Spawns a tokio task that reads from
+    /// Start collecting events. Spawns a tokio task that reads from
     /// `/api/v1/events/stream` and accumulates parsed events.
     pub async fn start(client: &MoatClient) -> Result<Self, crate::client::ClientError> {
         let resp = client.raw_get_stream("/api/v1/events/stream").await?;
@@ -110,7 +110,7 @@ impl EventCollector {
     }
 
     /// Wait for an event matching `event_type` (and optionally `sub_type`) for
-    /// the given `task_id`.  Polls at 500ms intervals up to `timeout`.
+    /// the given `task_id`. Polls at 500ms intervals up to `timeout`.
     pub async fn wait_for_event(
         &self,
         event_type: &str,
@@ -193,10 +193,11 @@ impl EventCollector {
             .count()
     }
 
-    /// Wait for an event matching type/subType where a payload field equals a value.
+    /// Wait for an event matching type/subType where a payload field equals a
+    /// value.
     ///
-    /// Useful for filtering events by payload content, e.g. waiting for a
-    /// `sandbox.initializing` event with `payload.reason == "PluginsCloned"`.
+    /// Useful for filtering by payload content, e.g. a `sandbox.initializing`
+    /// event with `payload.reason == "PluginsCloned"`.
     pub async fn wait_for_event_with_payload(
         &self,
         event_type: &str,

@@ -4,7 +4,8 @@ use super::fixtures::*;
 use super::service_fixtures::*;
 use super::*;
 
-/// Stamped per Member; see `crates/sandbox/AGENTS.md` "Spawning a child process".
+/// Stamped per Member; see `crates/sandbox/AGENTS.md` "Spawning a child
+/// process".
 #[tokio::test]
 async fn coordinator_service_submits_this_members_task_id_to_the_harness() {
     let cancel = CancellationToken::new();

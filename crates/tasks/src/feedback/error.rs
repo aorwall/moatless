@@ -5,9 +5,10 @@ use axum::response::{IntoResponse, Response};
 
 use moatless_core::error::error_response;
 
-/// A stored `feedback` row holds `source` and `surface` as text. A value
-/// outside the known set means the row was written by something other than
-/// this API, and the row cannot be projected onto the response contract.
+/// A stored `feedback` row holds `source` and `surface` as text.
+///
+/// A value outside the known set means the row was written by something other
+/// than this API, and cannot be projected onto the response contract.
 #[derive(Debug, thiserror::Error)]
 #[error("feedback row column '{column}' holds unknown value {value:?}")]
 pub struct UnknownFeedbackDiscriminant {

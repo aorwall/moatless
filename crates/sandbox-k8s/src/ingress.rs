@@ -30,15 +30,11 @@ fn ingress_api(k8s: &K8sClient) -> Api<DynamicObject> {
     Api::namespaced_with(k8s.client.clone(), k8s.namespace(), &ar)
 }
 
-/// Create Traefik `IngressRoute` CRDs for each server port of a task.
+/// Maps `{task_id}--{port}.{proxy_domain}` to the workspace Service for each
+/// server port; idempotent — handles 409 (`AlreadyExists`) gracefully.
 ///
-/// Each `IngressRoute` maps `{task_id}--{port}.{proxy_domain}` to the
-/// workspace Service. Idempotent — handles 409 (`AlreadyExists`) gracefully.
-///
-/// `owner`, when present, is set as each `IngressRoute`'s `ownerReference` (the
-/// task's Deployment) so K8s garbage collection cascades their deletion when
-/// the Deployment is deleted. GC is resource-agnostic, so this works for the
-/// Traefik CRD exactly as it does for built-in resources.
+/// `owner`, when present, is set as each route's `ownerReference` (the task's
+/// Deployment) so K8s garbage collection cascades their deletion.
 pub async fn create_task_ingress_routes(
     k8s: &K8sClient,
     task_id: &str,
@@ -128,9 +124,9 @@ pub async fn create_task_ingress_routes(
 
 /// Collect the `moatless.io/task-id` label of every managed `IngressRoute`.
 ///
-/// Used by the reaper's orphan-GC pass to discover tasks that may have leftover
-/// `IngressRoutes`. Returns an empty vec (not an error) when the Traefik CRD isn't
-/// installed (404) or the list fails — orphan GC is best-effort.
+/// Used by the reaper's orphan-GC pass; returns an empty vec (not an error)
+/// when the Traefik CRD isn't installed (404) or the list fails — orphan GC is
+/// best-effort.
 pub async fn list_ingress_route_task_ids(k8s: &K8sClient) -> Vec<String> {
     let api = ingress_api(k8s);
     let lp = ListParams::default().labels("moatless.io/task-id");
@@ -162,8 +158,8 @@ pub async fn list_ingress_route_task_ids(k8s: &K8sClient) -> Vec<String> {
 
 /// Delete all Traefik `IngressRoute` CRDs for a task.
 ///
-/// Uses label selector `moatless.io/task-id={task_id}` to find and delete
-/// all routes. Handles 404 (`NotFound`) gracefully.
+/// Uses label selector `moatless.io/task-id={task_id}` to find and delete all
+/// routes. Handles 404 (`NotFound`) gracefully.
 pub async fn delete_task_ingress_routes(k8s: &K8sClient, task_id: &str) -> Result<(), kube::Error> {
     let api = ingress_api(k8s);
     let lp = ListParams::default().labels(&format!("moatless.io/task-id={task_id}"));

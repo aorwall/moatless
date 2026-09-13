@@ -10,18 +10,12 @@ use sqlx::{PgConnection, PgPool};
 // Activities and Messages are ordered by one counter per Task, and a reader
 // learns the conversation moved from the log that counter writes.
 
-/// Record that `message_uuid` was written or rewritten, returning the position
-/// allocated for it. `tx` is the connection the mutation's transaction is
-/// running on — `&mut *tx`, never a pool, which would commit immediately and
-/// make the record visible before the write it describes.
+/// Record that `message_uuid` was written or rewritten, returning the allocated
+/// position.
 ///
-/// # Call this before `task_listing::record_change`
-///
-/// Both allocators hold a counter row until commit, so every transaction that
-/// takes both must take them in one order or the pair deadlocks. This one goes
-/// first and the shell's stays last, exactly as its own "call this last" says:
-/// this counter is one row per Task and the shell's is one row for the whole
-/// deployment, so this order also holds the contended one for the shorter time.
+/// `tx` must be `&mut *tx`, never a pool, to avoid exposing the record early;
+/// call before `task_listing::record_change` since both allocators lock a
+/// counter row until commit.
 pub async fn record_message_change(
     tx: &mut PgConnection,
     task_id: &str,
@@ -31,11 +25,10 @@ pub async fn record_message_change(
 }
 
 /// Record that the conversation itself moved — its Turn, or the Sandbox its
-/// session status is read from. Names no Message, because none changed: the
-/// reader answers this by re-reading the conversation's own row.
+/// session status is read from.
 ///
-/// Same transaction rule and same ordering against the shell's allocator as
-/// [`record_message_change`].
+/// Names no Message; the reader re-reads the conversation's own row. Same `tx`
+/// and ordering rules as [`record_message_change`].
 pub async fn record_session_change(
     tx: &mut PgConnection,
     task_id: &str,
@@ -43,12 +36,11 @@ pub async fn record_session_change(
     allocate(tx, task_id, None, None, None).await
 }
 
-/// Record that an activity happened on no Message — a Sandbox lifecycle change,
-/// a context-window reading. Names the activity so a live reader re-reads that
-/// one row rather than the conversation's own session, which nothing about the
-/// activity moved.
+/// Record that an activity happened on no Message — a Sandbox lifecycle change
+/// or a context-window reading.
 ///
-/// Same transaction rule and same ordering against the shell's allocator as
+/// Names the activity so a live reader re-reads that row instead of the
+/// conversation's own session. Same `tx` and ordering rules as
 /// [`record_message_change`].
 pub async fn record_activity_change(
     tx: &mut PgConnection,
@@ -58,16 +50,11 @@ pub async fn record_activity_change(
     allocate(tx, task_id, None, Some(activity_id), None).await
 }
 
-/// Record that the conversation was rewound to `reverted_to_turn`, dropping
-/// every turn above it. `0` keeps none.
+/// Record that the conversation was rewound to `reverted_to_turn` (`0` keeps
+/// none), dropping every turn above it.
 ///
-/// Names no Message and no activity, unlike every other record here, because
-/// the rows it is about are gone by the time a reader looks: a name would
-/// re-read nothing and project no event, leaving the client showing a
-/// transcript this server no longer holds.
-///
-/// Same transaction rule and same ordering against the shell's allocator as
-/// [`record_message_change`].
+/// Names no Message and no activity, since those rows are gone by the time a
+/// reader looks. Same `tx` and ordering rules as [`record_message_change`].
 pub async fn record_revert_change(
     tx: &mut PgConnection,
     task_id: &str,
@@ -78,19 +65,9 @@ pub async fn record_revert_change(
 
 /// Take the next position without recording a change.
 ///
-/// Activities are ordered by this counter and notified through the Message they
-/// belong to, so each one takes a position but leaves no record: a record per
-/// activity would multiply the feed's row count by the number of blocks in a
-/// turn to say something the Message's own record already said.
-///
-/// One position per activity rather than one shared by all of a Message's is
-/// what keeps `(task_id, position)` a total order. Sharing one would leave
-/// activities within a Message tied, and the only tiebreaker left is the id —
-/// where `msg:10` sorts before `msg:2`.
-///
-/// Same transaction rule as [`record_message_change`], and no ordering hazard
-/// against it: the first allocation in a transaction takes the counter row and
-/// holds it until commit, so every later one on the same connection is free.
+/// One position per activity keeps `(task_id, position)` a total order —
+/// sharing one with a Message ties activities via lexicographic order (`msg:10`
+/// before `msg:2`).
 pub async fn allocate_position(tx: &mut PgConnection, task_id: &str) -> Result<i64, sqlx::Error> {
     let (position,): (i64,) = sqlx::query_as(
         r#"INSERT INTO task_conversation_position (task_id, position) VALUES ($1, 1)
@@ -136,12 +113,11 @@ async fn allocate(
 }
 
 /// The highest position this conversation has reached — 0 before its first
-/// change, and 0 for a Task that has never had one.
+/// change.
 ///
-/// The counter is the authority, never `MAX(task_conversation_changes.position)`:
-/// [`prune_changes`] keeps the records for a bounded window, so on a
-/// conversation older than that window a `MAX` drops back to a position long
-/// since passed and hands a client a stale place to resume from, silently.
+/// The counter is the authority, never
+/// `MAX(task_conversation_changes.position)`: [`prune_changes`] bounds that
+/// table, so `MAX` can silently drop back on an old conversation.
 pub async fn current_head(pool: &PgPool, task_id: &str) -> Result<ConversationHead, sqlx::Error> {
     let position: Option<(i64,)> =
         sqlx::query_as(r#"SELECT position FROM task_conversation_position WHERE task_id = $1"#)
@@ -156,14 +132,10 @@ pub async fn current_head(pool: &PgPool, task_id: &str) -> Result<ConversationHe
 /// Every change to this conversation recorded at or after `from`, oldest first,
 /// capped at `limit`.
 ///
-/// At `from` rather than after it: a client disconnected partway through one
-/// change's events holds a cursor inside that position, and the events it
-/// missed are the rest of that same change. Filtering the *events* by sequence
-/// is what makes this exact — see
-/// [`position_of`](super::position::position_of).
-///
-/// Safe as a polling cursor only because commits happen in position order, so
-/// nothing can appear below a position this has already returned.
+/// At `from`, not after: a disconnected client's cursor can sit inside a change
+/// it partly missed; filtering *events* by sequence
+/// ([`position_of`](super::position::position_of)) keeps this a safe polling
+/// cursor.
 pub async fn changes_from(
     pool: &PgPool,
     task_id: &str,
@@ -185,10 +157,11 @@ pub async fn changes_from(
 }
 
 /// Delete the changes that have fallen out of each conversation's retention
-/// window, returning how many went. The cut comes from each Task's own counter,
-/// per [`current_head`]. Safe from every replica — one bounded `DELETE` over
-/// durable state, so two racing delete the same rows and the second finds
-/// nothing. No lease, no leader.
+/// window; returns how many went.
+///
+/// Safe from every replica: one bounded `DELETE` over durable state, so two
+/// racing prunes target the same rows and the second finds nothing. No lease,
+/// no leader.
 pub async fn prune_changes(pool: &PgPool) -> Result<u64, sqlx::Error> {
     let deleted = sqlx::query(
         r#"DELETE FROM task_conversation_changes c

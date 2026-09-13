@@ -6,16 +6,13 @@
     clippy::print_stderr
 )]
 //! Integration tests for per-block Message assembly in
-//! `event_handler::agent_handlers::handle_agent_message` (ticket 02).
+//! `event_handler::agent_handlers::handle_agent_message`.
 //!
-//! A native assistant Message may arrive as several canonical source events —
-//! one per content block, each tagged with its native `blockIndex` and (for a
-//! CLI that repeats it) the same usage. The backend must fold these into one
-//! Message carrying the folded text and one activity per call, with usage
-//! admitted exactly once, idempotent under duplicate delivery, and an
-//! interleaved tool result settling the call it answers rather than landing as
-//! a Message of its own. Coalesced full-content events (no `blockIndex`) must
-//! remain compatible during the migration.
+//! A native Message may arrive as several per-block events tagged with
+//! `blockIndex` (same usage repeated by some CLIs). These fold into one Message
+//! with usage admitted once even under duplicate delivery; an interleaved tool
+//! result settles its call instead of becoming its own Message, and calls
+//! without `blockIndex` stay compatible.
 
 use crate::common;
 
@@ -332,8 +329,8 @@ async fn coalesced_events_remain_compatible(pool: PgPool) {
 }
 
 /// A per-block assistant source event belonging to a subagent: it carries the
-/// spawning `Agent` tool-use id as `parent_tool_use_id`, so its assembled row is
-/// a subagent row (excluded from the top-level conversation).
+/// spawning `Agent` tool-use id as `parent_tool_use_id`, so its assembled row
+/// is a subagent row (excluded from the top-level conversation).
 fn subagent_per_block_event(
     event_id: &str,
     task_id: &str,

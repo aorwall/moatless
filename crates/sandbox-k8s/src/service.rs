@@ -22,9 +22,8 @@ pub async fn sandbox_service_exists(k8s: &K8sClient, task_id: &str) -> Result<bo
 
 /// Every task id that currently has a sandbox Service, in one namespace LIST.
 ///
-/// The fleet observer pairs this with its Deployment LIST, which is why it is a
-/// LIST and not a GET per task: the observer's budget is one call per resource
-/// kind per tick, not one per sandbox.
+/// The fleet observer pairs this with its Deployment LIST — one call per
+/// resource kind per tick, not one per sandbox.
 pub async fn list_sandbox_service_task_ids(
     k8s: &K8sClient,
 ) -> Result<HashSet<String>, kube::Error> {
@@ -39,14 +38,12 @@ pub async fn list_sandbox_service_task_ids(
         .collect())
 }
 
-/// The Service's whole `spec.ports` list: the sandbox's own HTTP and gRPC
-/// ports, then one entry per declared server, then one per script port.
+/// The Service's whole `spec.ports` list: sandbox HTTP/gRPC, one entry per
+/// declared server, then one per script port.
 ///
-/// A declared server is forwarded to the port its sidecar binds. A script port
-/// is forwarded to [`SANDBOX_PREVIEW_PROXY_PORT`], matching what
-/// `edge::script_service_port_patch` writes when the port is first published —
-/// the two are the only writers of a script port's `targetPort`, and a rebuild
-/// here that used `port` would silently undo the proxy.
+/// A script port forwards to [`SANDBOX_PREVIEW_PROXY_PORT`], not `port`,
+/// matching `edge::script_service_port_patch` — the only other writer of its
+/// `targetPort`; using `port` here would silently undo the proxy.
 fn service_port_entries(
     server_ports: &BTreeMap<String, u16>,
     script_ports: &BTreeSet<u16>,
@@ -88,19 +85,11 @@ fn service_port_entries(
     ports
 }
 
-/// Create a `ClusterIP` Service for a workspace pod.
 /// Idempotent — handles `AlreadyExists` (409) gracefully.
 ///
-/// `server_ports` are the declared preview servers, each forwarded to the port
-/// its sidecar binds. `script_ports` are ports a Script published against the
-/// live sandbox; they are forwarded to [`SANDBOX_PREVIEW_PROXY_PORT`] instead,
-/// matching what `edge::script_service_port_patch` writes when the port is first
-/// published. They are passed apart rather than derived from the entry name so
-/// the target is stated by the caller that knows which kind it holds.
-///
-/// `owner`, when present, is set as the Service's `ownerReference` (the task's
-/// Deployment) so K8s garbage collection cascades the Service's deletion when
-/// the Deployment is deleted.
+/// `server_ports`/`script_ports` are forwarded as in [`service_port_entries`];
+/// `owner`, when present, becomes the `ownerReference` so deleting the
+/// Deployment cascades to the Service.
 pub async fn create_sandbox_service(
     k8s: &K8sClient,
     task_id: &str,
@@ -233,10 +222,11 @@ mod tests {
             .unwrap_or_else(|| panic!("no port named {name}"))
     }
 
-    /// The heal recreates a Service from the ports it read back out of the
-    /// surviving `IngressRoutes`. Rebuilding a script port with
-    /// `targetPort == port` would restore the pre-proxy wiring, and a
-    /// `127.0.0.1`-bound server is then unreachable rather than merely awkward.
+    /// The heal recreates a Service from ports read back out of surviving
+    /// `IngressRoutes`.
+    ///
+    /// Rebuilding a script port with `targetPort == port` would restore the
+    /// pre-proxy wiring, leaving a `127.0.0.1`-bound server unreachable.
     #[test]
     fn a_script_port_is_rebuilt_pointing_at_the_preview_proxy() {
         let ports = entries(&[], &[3100, 5173]);

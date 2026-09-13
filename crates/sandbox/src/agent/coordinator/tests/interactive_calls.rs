@@ -3,11 +3,12 @@
 use super::fixtures::*;
 use super::*;
 
-/// An interactive call is published by the permission handler at the moment it
-/// parks on it, so a person can see what they are being asked. The block
-/// holding it arrives here too, carrying the same tool-use id, and the
-/// conversation stores one row per id — so the coordinator must let the
-/// announcement stand rather than write the call a second time.
+/// An interactive call is published by the permission handler the moment it
+/// parks, so a person can see the question.
+///
+/// The block holding it arrives here too under the same tool-use id; since the
+/// conversation stores one row per id, the coordinator must let the
+/// announcement stand rather than write it again.
 #[tokio::test]
 async fn a_call_the_permission_handler_announced_is_not_published_again() {
     let (events, received, _cancel) = recording_publisher();
@@ -48,11 +49,12 @@ async fn a_call_the_permission_handler_announced_is_not_published_again() {
     assert_eq!(messages[0]["message"]["content"][0]["text"], "after");
 }
 
-/// The claim runs the other way too: a call that reaches the coordinator before
-/// the handler announces it is published here, and the claim it takes is what
-/// keeps the announcement from writing it again. Only the calls that park a run
-/// are claimed — every other tool call is published unconditionally, and the
-/// claim set stays as small as the questions asked.
+/// The claim runs the other way too: a call reaching the coordinator before the
+/// handler announces it is published here, taking the claim that keeps the
+/// announcement from writing it again.
+///
+/// Only calls that park a run are claimed; every other tool call publishes
+/// unconditionally, so the claim set stays as small as the questions asked.
 #[tokio::test]
 async fn a_call_that_arrives_first_publishes_and_takes_the_claim() {
     let (events, received, _cancel) = recording_publisher();

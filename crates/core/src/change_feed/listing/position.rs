@@ -1,8 +1,9 @@
 //! The durable record that a Task's listing-visible state changed.
 //!
 //! One counter row for the whole deployment, held until commit. See the module
-//! doc on [`super::super`] for why the hold is what makes commit order and position
-//! order the same order, and for this counter's place in the lock order.
+//! doc on [`super::super`] for why the hold is what makes commit order and
+//! position order the same order, and for this counter's place in the lock
+//! order.
 //!
 //! No T3 vocabulary appears here — `moatless-t3code` turns the record into a
 //! shell event.
@@ -14,20 +15,22 @@ use sha2::{Digest, Sha256};
 /// cost; 5,000 is ten `CHANGES_PER_POLL` batches.
 pub const RESUME_WINDOW: i64 = 5_000;
 
-/// How many of the most recent changes are kept. Wider than [`RESUME_WINDOW`],
-/// and the margin is load-bearing: [`resume`] decides off the head and the
-/// catch-up poll reads the records a moment later, so equal numbers would let a
-/// prune committing between the two delete the record just admitted.
+/// How many of the most recent changes are kept.
+///
+/// Must stay wider than [`RESUME_WINDOW`]: [`resume`] decides off the head and
+/// the catch-up poll reads moments later, so equal numbers let a prune delete
+/// the record just admitted.
 pub const RETAINED_CHANGES: i64 = 2 * RESUME_WINDOW;
 
 /// At compile time rather than in a test, because the failure it prevents is
 /// silent. See [`RETAINED_CHANGES`].
 const _: () = assert!(RETAINED_CHANGES > RESUME_WINDOW);
 
-/// Which database this deployment's positions were allocated in — the cluster's
-/// `system_identifier` and the database's OID, joined. Both halves load-bearing,
-/// and neither a row anything writes: an identity stored *in* the database is in
-/// the dump, so a restore reports the copy as the original. Decision 7.
+/// Which database this deployment's positions were allocated in: the cluster's
+/// `system_identifier` and the database's OID, joined.
+///
+/// Neither half is a row anything writes — an identity stored *in* the database
+/// would be in the dump, so a restore would report the copy as the original.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EnvironmentIdentity(String);
 
@@ -37,7 +40,8 @@ impl EnvironmentIdentity {
     }
 
     /// A short, opaque name changing exactly when the identity does. The
-    /// identity is operational detail, and the descriptor carrying it is public.
+    /// identity is operational detail, and the descriptor carrying it is
+    /// public.
     pub fn digest(&self) -> String {
         let digest = Sha256::digest(self.0.as_bytes());
         digest[..8].iter().fold(String::new(), |mut hex, byte| {
@@ -49,9 +53,10 @@ impl EnvironmentIdentity {
 }
 
 /// The position this deployment has reached, and the database it reached it in.
+///
 /// One read, deliberately: read apart, a database replaced between them yields
 /// one deployment's position carrying the other's identity — the state
-/// [`resume`] refuses, arriving through the check.
+/// [`resume`] refuses.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ListingHead {
     pub identity: EnvironmentIdentity,
@@ -70,17 +75,12 @@ pub enum Resume {
     Rebuild,
 }
 
-/// Decide whether a client holding `after` can be replayed. `deployment` is the
-/// identity this process read at startup; `database` and `head` are what
-/// [`current_head`](super::dao::current_head) reads together, now.
+/// Decide whether a client holding `after` can be replayed.
 ///
-/// Three reasons to rebuild, and no two see the same failure (Decision 7): a
-/// database other than the one this process started against, whose reissued
-/// positions the other two guards find plausible by construction; a position
-/// never reached, which no change can carry, so silence would strand the client;
-/// and a cursor further behind than [`RESUME_WINDOW`]. Pure in the counter's
-/// head, never in the retained rows — see
-/// [`current_head`](super::dao::current_head).
+/// `deployment` is the identity read at startup; `database`/`head` come from
+/// [`current_head`](super::dao::current_head), now. Rebuilds on: a mismatched
+/// database, a position never reached, or a cursor further behind than
+/// [`RESUME_WINDOW`].
 pub fn resume(
     deployment: &EnvironmentIdentity,
     database: &EnvironmentIdentity,

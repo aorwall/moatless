@@ -18,8 +18,8 @@ pub(super) fn service_with_script(
     service_with_harness(Harness::scripted(script), config, agent_state, cancel)
 }
 
-/// Like `service_with_script` but takes a pre-built `Harness` so tests can drive
-/// a scripted *sequence* (e.g. fail-then-succeed for a retry).
+/// Like `service_with_script` but takes a pre-built `Harness` so tests can
+/// drive a scripted *sequence* (e.g. fail-then-succeed for a retry).
 pub(super) fn service_with_harness(
     harness: Harness,
     config: Arc<Config>,

@@ -1,9 +1,9 @@
-//! Agent harness vocabulary: the credential an agent session runs under,
-//! and what its events say.
+//! Agent harness vocabulary: the credential an agent session runs under, and
+//! what its events say.
 //!
 //! The Codex `auth.json` an agent session runs with is an agent harness
-//! credential, not a provider token a user signs in with, so its settings
-//! and its credential-row discriminator live here rather than in `auth`.
+//! credential, not a provider token a user signs in with, so its settings and
+//! its credential-row discriminator live here rather than in `auth`.
 
 // reason: test code may unwrap freely; production code keeps the workspace `deny`.
 #![cfg_attr(test, allow(clippy::unwrap_used))]
@@ -12,8 +12,8 @@ use serde::{Deserialize, Serialize};
 
 /// Codex (OpenAI) device-code OAuth configuration.
 ///
-/// Defaults reuse the Codex CLI's public `client_id` so the flow works out of
-/// the box. Override via env vars to register a Moatless-owned OAuth client.
+/// Defaults reuse the Codex CLI's public `client_id`; override via env vars to
+/// register a Moatless-owned OAuth client.
 #[derive(Debug, Clone)]
 pub struct CodexOAuthConfig {
     /// OAuth issuer base URL (default: `https://auth.openai.com`).
@@ -28,24 +28,14 @@ pub struct CodexOAuthConfig {
 
 /// Discriminator + identifier for a Codex `provider_tokens` row's scope.
 ///
-/// It is the discriminant that drives every scope-aware operation
-/// in the Codex refresh pipeline: the SQL `WHERE` fragment that targets the
-/// right row, the Postgres advisory-lock key, and the in-process per-row mutex
-/// key. The variants intentionally carry the scope identifier so a single
-/// value uniquely addresses one row without callers having to thread
-/// `(scope_kind, scope_id)` tuples through every layer.
-///
-/// Two scopes:
-/// - [`CodexScope::User`] — per-user row keyed by `user_id`.
-/// - [`CodexScope::Global`] — single global row: `user_id IS NULL`,
-///   `team_id IS NULL`, `scope = 'global'`.
-///
-/// Resolver precedence: `User > Global` (most-specific wins).
+/// Drives the SQL `WHERE` fragment, advisory-lock key, and per-row mutex key
+/// that address that row; resolver precedence is `User > Global`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CodexScope {
     /// Per-user row: `(user_id = id, scope = 'user')`.
     User(String),
-    /// Singleton global row: `(user_id IS NULL, team_id IS NULL, scope = 'global')`.
+    /// Singleton global row: `(user_id IS NULL, team_id IS NULL, scope =
+    /// 'global')`.
     Global,
 }
 
@@ -55,7 +45,8 @@ impl CodexScope {
         Self::User(id.into())
     }
 
-    /// Short human-readable label for log fields (`scope=user`, `scope=global`).
+    /// Short human-readable label for log fields (`scope=user`,
+    /// `scope=global`).
     pub fn display(&self) -> String {
         match self {
             Self::User(id) => format!("user:{id}"),
@@ -102,20 +93,19 @@ pub enum AgentSubType {
     /// stale session id after a pod restart); the agent fell back to a fresh
     /// session. Previous conversation context is lost. Warning, not an error.
     SessionContextLost,
-    /// Lightweight liveness marker published (rate-limited) while a
-    /// long-running tool call streams progress. Carries no conversation
-    /// content — it exists so the reaper's activity floor keeps advancing
-    /// during a multi-minute tool run instead of freezing at the last
-    /// message. SSE-only downstream; never persisted as a message.
+    /// Liveness marker published (rate-limited) during a long-running tool call
+    /// so the reaper's activity floor keeps advancing.
+    ///
+    /// Carries no conversation content; SSE-only, never persisted as a message.
     Activity,
     /// What the harness said about its own context window: how much of it the
     /// session occupies, and how large it is where the harness states one.
     ContextWindow,
-    /// How many `moat cmd` commands are running, published whenever that count
-    /// moves. The count is absolute rather than a delta: the registry is
-    /// in-memory, so a pod replacement would strand a decrement and leave the
-    /// Task reading busy forever. Says nothing about the agent — see
-    /// [`crate::event::agent_working`], which leaves the turn where it was.
+    /// Count of running `moat cmd` commands, published whenever it changes.
+    ///
+    /// Absolute, not a delta — the registry is in-memory, so a pod replacement
+    /// would strand a decrement. Says nothing about the agent; see
+    /// [`crate::event::agent_working`].
     CommandsChanged,
 }
 
@@ -178,9 +168,8 @@ impl TryFrom<&str> for AgentSubType {
 
 /// Agent event payload — typed shape for `EventType::Agent` events.
 ///
-/// Agent payloads are pass-through from the sandbox (Claude CLI output).
-/// This struct is primarily for OpenAPI schema generation; at runtime the
-/// backend continues to forward `serde_json::Value` payloads.
+/// Pass-through from the sandbox; primarily for OpenAPI schema generation,
+/// since the backend forwards raw `serde_json::Value` payloads at runtime.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]

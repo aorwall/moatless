@@ -3,8 +3,8 @@
 //! The stub's address reaches the Adapter through
 //! [`super::adapter::GithubPrAdapter::with_api_base`], not through the
 //! `GITHUB_API_BASE_URL` process-global: a global is shared with every other
-//! test in the binary, so writing it would make the stub see requests it
-//! never provoked and serialize every GitHub stub test behind one mutex.
+//! test in the binary, so writing it would make the stub see requests it never
+//! provoked and serialize every GitHub stub test behind one mutex.
 
 use std::sync::Arc;
 

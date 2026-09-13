@@ -16,9 +16,9 @@ pub(super) const DEFAULT_VALUES_FILE: &str = "values.local.yaml";
 
 /// Explicit Kubernetes target for kubectl and Helm subprocesses.
 ///
-/// When a context is supplied, every cluster operation is pinned to it without
-/// changing the user's current kubectl context. Omitting it preserves the
-/// existing current-context behavior for interactive use.
+/// A supplied context pins every cluster operation to it without changing the
+/// user's current kubectl context; omitting it preserves current-context
+/// behavior.
 #[derive(Clone, Debug, Default)]
 pub(super) struct KubeTarget {
     context: Option<String>,
@@ -110,7 +110,8 @@ impl CmdOutput {
         self.status == 0
     }
 
-    /// Return `stdout` on success; map non-zero to a `ClientError` that includes stderr.
+    /// Return `stdout` on success; map non-zero to a `ClientError` that
+    /// includes stderr.
     pub(super) fn into_stdout(self, context: &str) -> Result<String, ClientError> {
         if self.success() {
             Ok(self.stdout)
@@ -225,7 +226,8 @@ fn kubectl_json_from(
         .map_err(|e| ClientError::Other(format!("Invalid JSON from kubectl: {e}")))
 }
 
-/// Return the current kubectl context name, or None if no config / no current-context.
+/// Return the current kubectl context name, or None if no config / no
+/// current-context.
 pub(super) async fn current_context() -> Result<Option<String>, ClientError> {
     let out = kubectl(&["config", "current-context"]).await?;
     if !out.success() {

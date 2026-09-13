@@ -1,11 +1,11 @@
-//! What `create` refuses before it asks the server, and the message
-//! contexts `--context-file` turns into.
+//! What `create` refuses before it asks the server, and the message contexts
+//! `--context-file` turns into.
 
 use crate::client::ClientError;
 use moatless_api_schemas::task::{FileContextData, MessageContextInput};
 
-/// Refuse a create the server would refuse: every Task runs in a Workspace, and
-/// only `--workspace`, a joined sandbox, or a parent to inherit from names one.
+/// Refuses a create when no Workspace source is named: `--workspace`, a joined
+/// sandbox, or a `--parent` to inherit from.
 ///
 /// Not a clap `required_unless_present`: inside a sandbox the ambient task is
 /// the parent, and no flag carries it.

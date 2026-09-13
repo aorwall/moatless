@@ -21,8 +21,8 @@ pub enum AgentKind {
 
 /// Agent-specific options resolved from the catalog (extensible).
 pub struct AgentParams {
-    /// Run the Claude Code transport over tmux (interactive TUI) instead of
-    /// the subprocess/NDJSON transport.
+    /// Run the Claude Code transport over tmux (interactive TUI) instead of the
+    /// subprocess/NDJSON transport.
     pub use_tmux: bool,
 }
 
@@ -34,7 +34,8 @@ pub struct AgentEntry {
     pub kind: AgentKind,
     /// Agent-specific options (e.g. `use_tmux`).
     pub params: AgentParams,
-    /// Credential keys (secrets / env vars) any of which makes the agent usable.
+    /// Credential keys (secrets / env vars) any of which makes the agent
+    /// usable.
     pub credential_keys: &'static [&'static str],
     /// Provider-token provider names any of which makes the agent usable.
     pub provider_token_providers: &'static [&'static str],
@@ -234,12 +235,9 @@ pub fn offers_model(agent_type: &str, model: &str) -> bool {
 /// Whether `model` is knowably wrong for `agent_type`: some other catalog agent
 /// offers it and this one does not.
 ///
-/// `models` is the picker's menu, not the set of runnable models. `model` is a
-/// free-form pass-through to the agent CLI (`build_options` in
-/// `sandbox/src/agent/options.rs`), so a pinned upstream id such as
-/// `claude-haiku-4-5-20251001` runs while no entry lists it. An unlisted model
-/// is therefore unknown rather than wrong, and only one that belongs to a
-/// different agent can be rejected on the catalog's word alone.
+/// `models` is the picker's menu, not the set of runnable models — a pinned
+/// upstream id can run unlisted, so only a model belonging to a different agent
+/// can be rejected on the catalog's word alone.
 pub fn model_conflicts(agent_type: &str, model: &str) -> bool {
     !offers_model(agent_type, model)
         && catalog()

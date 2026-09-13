@@ -4,10 +4,8 @@
 use super::fixtures::*;
 use super::*;
 
-/// A fleet with one Sandbox in it, for the dispatch test below. Real
-/// mapping from pod list and metrics into this shape is unit-tested
-/// against fixtures in `sandbox::k8s::pod_reader`; this only checks that
-/// the RPC arm serializes what the seam hands it, unchanged.
+/// A fleet with one Sandbox, for the test below. Real mapping is tested in
+/// `sandbox::k8s::pod_reader`; this only checks serialization is unchanged.
 struct FakeFleet;
 
 #[async_trait]

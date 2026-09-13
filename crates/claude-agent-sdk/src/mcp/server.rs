@@ -7,9 +7,9 @@ use super::tool::SdkMcpTool;
 
 /// An in-process MCP server that hosts SDK-defined tools.
 ///
-/// Build one via `SdkMcpServer::builder()`, add tools, then call `.build()`.
-/// The server handles JSON-RPC messages from the CLI (tools/list, tools/call)
-/// and dispatches to the registered tool handlers.
+/// Build via `SdkMcpServer::builder()`, add tools, `.build()`; it then handles
+/// JSON-RPC (tools/list, tools/call) from the CLI and dispatches to registered
+/// handlers.
 pub struct SdkMcpServer {
     pub(crate) name: String,
     pub(crate) version: String,
@@ -45,8 +45,8 @@ impl SdkMcpServer {
 
     /// Handle an incoming JSON-RPC message and return the response.
     ///
-    /// This is called by the orchestrator when a `McpMessage` control request
-    /// is received for this server.
+    /// Called by the orchestrator when a `McpMessage` control request targets
+    /// this server.
     pub async fn handle_message(&self, message: &Value) -> Value {
         let method = message.get("method").and_then(|v| v.as_str()).unwrap_or("");
         let id = message.get("id").cloned().unwrap_or(Value::Null);

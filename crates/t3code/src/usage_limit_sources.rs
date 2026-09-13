@@ -2,16 +2,14 @@
 //! stream as `usageLimitSourcesUpdated`.
 //!
 //! T3's own hub protocol, `GET /v0/management/quota-scheduler/status`, is a
-//! convention third-party daemons implement for it. No `CLIProxyAPI` release or
-//! plugin serves that path, so this backend reads the hub's real
-//! `GET /v0/management/auth-files` and maps each pooled account itself.
+//! convention third-party daemons implement, but no `CLIProxyAPI` release or
+//! plugin serves that path — this backend reads the hub's real `GET
+//! /v0/management/auth-files` and maps each pooled account itself.
 //!
 //! The hub reports quota as the upstream rate-limit headers it last saw on a
 //! response for that account, so a window appears only after the account has
-//! served a request through the hub.
-//!
-//! Codex states a used percent per window and Anthropic states a used fraction,
-//! so both providers draw a real bar.
+//! served a request through the hub. Codex states a used percent per window and
+//! Anthropic states a used fraction, so both providers draw a real bar.
 
 use std::collections::BTreeMap;
 use std::env;
@@ -24,14 +22,14 @@ use serde_json::{Value, json};
 use tokio::sync::{RwLock, broadcast};
 use tracing::{debug, warn};
 
-/// Read cadence. Matches the client's own provider health-check default, so
-/// the hub rows age at the same rate as the local provider rows beside them.
+/// Read cadence. Matches the client's own provider health-check default, so the
+/// hub rows age at the same rate as the local provider rows beside them.
 const REFRESH_INTERVAL: Duration = Duration::from_mins(1);
 const FETCH_TIMEOUT: Duration = Duration::from_secs(10);
 const AUTH_FILES_PATH: &str = "/v0/management/auth-files";
 
-/// The `id` of the one source this backend publishes. A T3 environment keys
-/// its rows by source id, and the chart configures exactly one hub.
+/// The `id` of the one source this backend publishes. A T3 environment keys its
+/// rows by source id, and the chart configures exactly one hub.
 const SOURCE_ID: &str = "cliproxy";
 
 const SESSION_WINDOW_MINS: u64 = 5 * 60;
@@ -86,9 +84,9 @@ pub struct UsageLimitSources {
 }
 
 impl UsageLimitSources {
-    /// Reads the hub out of the environment and starts the poller. A
-    /// deployment with no hub configured gets an inert value: no task, no
-    /// capability, and no event.
+    /// Reads the hub out of the environment and starts the poller. A deployment
+    /// with no hub configured gets an inert value: no task, no capability, and
+    /// no event.
     pub fn from_env(client: reqwest::Client) -> Self {
         let hub = HubConfig::from_env().map(Arc::new);
         let (changes, _) = broadcast::channel(8);

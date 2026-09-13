@@ -13,8 +13,8 @@ use chrono::{DateTime, Utc};
 
 /// A Forgejo instance's OAuth2 application, opened for use.
 ///
-/// Held only for the duration of one call: [`Self::client_secret`] is
-/// plaintext, and nothing caches it.
+/// Held only for the duration of one call: [`Self::client_secret`] is plaintext
+/// and nothing caches it.
 pub struct ForgejoOAuthApp {
     pub host: String,
     pub client_id: String,
@@ -30,9 +30,9 @@ pub struct RegisteredForgejoInstance {
 
 /// The base URL every REST and OAuth call against `host` is built on.
 ///
-/// HTTPS always: the host is parsed out of a repository's remote URL, which a
-/// Workspace controls, and honouring a scheme from there would let one
-/// downgrade the connection its own credential travels over.
+/// HTTPS always: `host` is parsed from a Workspace-controlled remote URL, and
+/// honouring a scheme from there would let one downgrade the connection its own
+/// credential travels over.
 pub fn base_url(host: &str) -> String {
     format!("https://{host}")
 }
@@ -40,10 +40,9 @@ pub fn base_url(host: &str) -> String {
 /// The `redirect_uri` every authorization request carries, and the one each
 /// registered Forgejo application must list.
 ///
-/// Derived from the frontend origin rather than configured separately: the
-/// browser reaches this deployment's API through the frontend host, which
-/// proxies `/api`, and that is also the origin the `oauth_state` cookie the
-/// callback reads is set on.
+/// Derived from the frontend origin: the browser reaches this API through the
+/// frontend host, which proxies `/api` and is where the `oauth_state` cookie is
+/// set.
 pub fn callback_url(frontend_url: &str) -> String {
     format!(
         "{}/api/v1/auth/forgejo/callback",
@@ -54,9 +53,9 @@ pub fn callback_url(frontend_url: &str) -> String {
 /// `host` as it is stored and compared: lowercased, with any scheme, path,
 /// query, fragment or trailing dot removed.
 ///
-/// Both writers normalise, because the value is matched against the host
-/// [`moatless_types::repository::GitHostRepo::host`] parsed out of a remote
-/// URL, which is already lowercase.
+/// Both writers normalise, since this is matched against
+/// [`moatless_types::repository::GitHostRepo::host`], which is already
+/// lowercase.
 pub fn normalize_host(host: &str) -> String {
     host.trim()
         .trim_start_matches("https://")
@@ -86,10 +85,9 @@ impl ForgejoInstances {
 
     /// The application registered for `host`, with its secret opened.
     ///
-    /// `Ok(None)` means no application is registered, which leaves a personal
-    /// access token as the only way to connect that host. An `Err` means the
-    /// registration exists but cannot be read, which is a different thing:
-    /// callers must not collapse the two.
+    /// `Ok(None)` means no application is registered (a PAT is the only way to
+    /// connect); `Err` means one exists but can't be read — callers must not
+    /// collapse the two.
     pub async fn app(&self, host: &str) -> Result<Option<ForgejoOAuthApp>, AuthError> {
         let Some(record) = self.instances.find_by_host(&normalize_host(host)).await? else {
             return Ok(None);
@@ -118,10 +116,9 @@ impl ForgejoInstances {
 
     /// Whether `host` has a registered application, without opening its secret.
     ///
-    /// A deployment with no encryption key configured has no usable
-    /// registration, because every stored client secret stays sealed. Unlike
-    /// [`Self::app`] this decrypts nothing, so a screen can ask it per listed
-    /// host.
+    /// With no encryption key configured, every stored secret stays sealed and
+    /// no registration is usable; unlike [`Self::app`] this decrypts nothing,
+    /// so a screen can ask it per listed host.
     pub(crate) async fn app_available(&self, host: &str) -> Result<bool, AuthError> {
         if self.cipher.is_none() {
             // Registering needs a cipher, so no row here is usable.
@@ -203,9 +200,8 @@ impl ForgejoInstances {
 
     /// Remove `host`'s application. Returns whether one was registered.
     ///
-    /// The personal access tokens people hold for `host` are untouched: they
-    /// authenticate without an application, and removing the row only closes
-    /// the connect flow.
+    /// Personal access tokens for `host` are untouched — they authenticate
+    /// without an application, so this only closes the connect flow.
     pub async fn remove(&self, host: &str) -> Result<bool, AuthError> {
         self.instances.delete(&normalize_host(host)).await
     }

@@ -11,7 +11,7 @@ use uuid::Uuid;
 
 /// A Workspace's run configuration, plus the identity it runs as.
 ///
-/// Exactly the columns a Sandbox plan and an agent prompt read. Provenance,
+/// Exactly the columns a Sandbox plan and an agent prompt read; provenance,
 /// access-control, and timestamp columns stay behind the seam.
 #[derive(Debug, Clone)]
 pub struct ResolvedWorkspace {
@@ -35,10 +35,9 @@ pub struct ResolvedWorkspace {
 /// One repository placed in a Workspace, with the repository it points at
 /// already resolved.
 ///
-/// Ordered by the Workspace's own precedence: the primary placement first,
-/// then by `position`. `repository` is `None` when the placement points at a
-/// row that no longer exists — a configuration problem the caller reports,
-/// not a read failure.
+/// Ordered primary-first, then by `position`. `repository` is `None` when the
+/// placement points at a row that no longer exists — a configuration problem
+/// the caller reports, not a read failure.
 #[derive(Debug, Clone)]
 pub struct RepoPlacement {
     pub repository_id: String,
@@ -73,26 +72,25 @@ pub trait WorkspaceResolver: Send + Sync {
         workspace_id: &str,
     ) -> Result<Vec<PluginDelivery>, StoreError>;
 
-    /// Display name per Workspace id. Ids with no Workspace are absent from
-    /// the map. Resolves across owners, like the rest of this port.
+    /// Display name per Workspace id. Ids with no Workspace are absent from the
+    /// map. Resolves across owners, like the rest of this port.
     async fn names(&self, workspace_ids: &[String]) -> Result<HashMap<String, String>, StoreError>;
 
     /// The Workspace `ctx` may see, or `None` when there is none to show.
     ///
-    /// Scoped, unlike the rest of this port: it answers a request a person just
-    /// made, so a Workspace the caller may not see reads exactly as one that
-    /// does not exist.
+    /// Scoped, unlike the rest of this port: a Workspace the caller may not see
+    /// reads exactly as one that does not exist.
     async fn describe(
         &self,
         ctx: &ScopeContext,
         workspace_id: &str,
     ) -> Result<Option<Workspace>, StoreError>;
 
-    /// The live Workspaces placing this repository: the ones where it is the
-    /// primary placement first, then oldest first. Deleted Workspaces are
-    /// absent, and the result is not scope-filtered.
+    /// The live Workspaces placing this repository, primary placement first
+    /// then oldest first. Deleted Workspaces are absent, and the result is not
+    /// scope-filtered.
     ///
-    /// The first element is the Workspace a Loop declaring none resolves to at
-    /// sync, so the order is the contract and not a convenience.
+    /// The first element is what a Loop declaring none resolves to at sync, so
+    /// the order is the contract, not a convenience.
     async fn for_repository(&self, repository_id: &str) -> Result<Vec<Workspace>, StoreError>;
 }

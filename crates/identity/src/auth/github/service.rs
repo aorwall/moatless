@@ -3,8 +3,8 @@
 //! Provides three capabilities:
 //! 1. **Installation tokens** — server-to-server API calls as the App itself.
 //! 2. **User token refresh** — refresh expired GitHub App user access tokens.
-//! 3. **Bot identity discovery** — resolve `{slug}[bot]` login and noreply email
-//!    for use as git author / committer when running "act-as-App" mode.
+//! 3. **Bot identity discovery** — resolve `{slug}[bot]` login and noreply
+//!    email for use as git author / committer when running "act-as-App" mode.
 
 use std::collections::HashMap;
 use std::time::Duration;
@@ -143,7 +143,8 @@ struct OwnerInstallation {
 impl GitHubAppService {
     /// Default registry key used by the implicit single-App config (the
     /// `GITHUB_APP_*` env vars). Code paths that operate on "the user-auth App"
-    /// resolve via `GitHubAppRegistry::default_service()` which targets this key.
+    /// resolve via `GitHubAppRegistry::default_service()` which targets this
+    /// key.
     pub const DEFAULT_KEY: &'static str = "default";
 
     /// Create from the legacy single-App env-var config. Returns `None` if
@@ -176,12 +177,12 @@ impl GitHubAppService {
         )
     }
 
-    /// Create from a stored App registration, whose signing key has already
-    /// been decrypted. A bot App carries no OAuth client credentials: it never
-    /// authorizes a person, so it has nothing to authorize them with.
+    /// Creates from a stored App registration, whose signing key is already
+    /// decrypted; a bot App carries no OAuth client credentials since it never
+    /// authorizes a person.
     ///
-    /// Returns `None` only when the stored key no longer parses, which means
-    /// the record was written by a version that did not prove keys.
+    /// Returns `None` only when the stored key no longer parses — the record
+    /// was written by a version that didn't prove keys.
     pub(crate) fn from_record(record: &GitHubAppRecord, private_key_pem: &str) -> Option<Self> {
         Self::build(
             record.app_key.clone(),
@@ -577,13 +578,12 @@ impl GitHubAppService {
         })
     }
 
-    /// Prove that this signing key works, and that it belongs to the App the
-    /// admin named.
+    /// Proves that this signing key works, and belongs to the App the admin
+    /// named.
     ///
-    /// Run before an App is stored and before a rotated key replaces the one
-    /// in place, so a stored App is always one that has already worked. The
-    /// error messages are the ones an admin reads, so they name which part
-    /// failed, say what to do about it, and never suggest something was saved.
+    /// Run before an App is stored or a rotated key replaces one in place, so a
+    /// stored App has always already worked; error messages name what failed
+    /// and never suggest something was saved.
     pub async fn prove(&self) -> Result<ProvedApp, AuthError> {
         let app_jwt = self.generate_app_jwt()?;
         let resp = self
@@ -722,11 +722,11 @@ impl GitHubAppService {
         })
     }
 
-    /// Resolve the installation id for an `owner` (org or user), cached.
+    /// Resolves the installation id for an `owner` (org or user), cached.
     ///
-    /// Calls `GET /orgs/{owner}/installation` first; falls back to
-    /// `GET /users/{owner}/installation` for user-owned repos. Returns
-    /// `Config` error if the App isn't installed on that owner.
+    /// Calls `GET /orgs/{owner}/installation` first, falling back to `GET
+    /// /users/{owner}/installation` for user-owned repos; `Config` error if the
+    /// App isn't installed on that owner.
     pub async fn resolve_installation_id(&self, owner: &str) -> Result<u64, AuthError> {
         {
             let cache = self.installation_by_owner.read().await;
@@ -786,11 +786,10 @@ impl GitHubAppService {
         )))
     }
 
-    /// Resolve the bot identity for this App (cached).
+    /// Resolves the bot identity for this App (cached).
     ///
-    /// Calls `GET /app` (authenticated as the App JWT) to fetch the slug, then
-    /// `GET /users/{slug}[bot]` (public) to fetch the bot user's numeric id.
-    /// The committer/author email follows GitHub's noreply convention:
+    /// Calls `GET /app` (App JWT) for the slug, then `GET /users/{slug}[bot]`
+    /// (public) for the bot user's numeric id; the committer/author email is
     /// `{user_id}+{slug}[bot]@users.noreply.github.com`.
     pub async fn get_bot_identity(&self) -> Result<BotIdentity, AuthError> {
         {
@@ -869,14 +868,12 @@ fn has_next_page(headers: &reqwest::header::HeaderMap) -> bool {
         })
 }
 
-/// Turn GitHub's refusal of `GET /app` into something an admin can act on.
+/// Turns GitHub's refusal of `GET /app` into something an admin can act on.
 ///
-/// The status alone is not enough to act on, and 404 in particular reads as a
-/// broken deployment when it is nothing of the sort: GitHub answers `404
-/// Integration not found` when the JWT is signed correctly but its issuer is
-/// not an App id. That is what an admin sees after pasting the Installation ID
-/// — the long number in the installation URL — into the App ID field, which is
-/// the easiest of the three numbers on those pages to reach for.
+/// The status alone isn't enough: 404 reads as a broken deployment but usually
+/// means the JWT's issuer isn't an App id — typically because an admin pasted
+/// the Installation ID into the App ID field, the easiest of the three numbers
+/// to reach for.
 fn refusal(status: reqwest::StatusCode, body: &str, app_id: u64) -> AuthError {
     let github_said = serde_json::from_str::<serde_json::Value>(body)
         .ok()

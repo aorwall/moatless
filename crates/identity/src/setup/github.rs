@@ -56,7 +56,7 @@ impl SetupRequirementCheck for GithubTokenRequirement {
 /// Turn presence into a status without decrypting anything or calling GitHub.
 ///
 /// `/me` runs on every page load, so this stays to at most one extra indexed
-/// read — the `secret_exists` probe, and only for reference rows.
+/// read (the `secret_exists` probe), and only for reference rows.
 async fn classify(
     ctx: &SetupContext<'_>,
     presence: &GithubTokenPresence,
@@ -99,8 +99,8 @@ async fn classify(
     }
 }
 
-/// One remedy, and it is the same for everyone: connect your own account.
-/// An administrator's missing credential is their own to connect.
+/// One remedy, and it is the same for everyone: connect your own account. An
+/// administrator's missing credential is their own to connect.
 fn actions() -> Vec<SetupAction> {
     vec![SetupAction {
         kind: SetupActionKind::OpenSettings,

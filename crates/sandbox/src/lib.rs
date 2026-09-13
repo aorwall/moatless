@@ -11,8 +11,8 @@
 
 //! Moatless Sandbox — library target.
 //!
-//! Re-exports all modules so that both the binary (`main.rs`) and
-//! integration tests (`tests/`) can access them.
+//! Re-exports all modules so that both the binary (`main.rs`) and integration
+//! tests (`tests/`) can access them.
 
 pub mod agent;
 pub mod backend_client;

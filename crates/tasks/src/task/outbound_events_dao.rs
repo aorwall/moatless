@@ -1,25 +1,17 @@
 //! The external events a Task caused.
 //!
 //! A provider webhooks a Task's own change straight back, so without this table
-//! the Task reads its own comment as a new inbound message and answers it.
+//! the Task reads its own comment as new and answers it. Every row is keyed
+//! under the id the *inbound* event will carry.
 //!
-//! Every row is outbound, and is written under the id the *inbound* event will
-//! carry, so matching an arriving webhook is equality on one column. Where the
-//! writer cannot know that id the Adapter maps between the two in one place: a
-//! GitHub push records `github:commit:<sha>` and the following
-//! `pull_request.synchronize` aliases to it.
-//!
-//! A row is a fact about the Task, so nothing here names the Message or tool
-//! call behind it. The inbound side is `task_messages.external_event_id`; a
-//! reader that cannot tell the two apart cannot tell a redelivered webhook from
-//! its own echo.
+//! Where a writer cannot know that id, the Adapter aliases it: a GitHub push
+//! records `github:commit:<sha>` and `pull_request.synchronize` resolves to it.
 
 use moatless_core::db::DbPool;
 
-/// Record `external_event_id` as `task_id`'s own work.
-///
-/// Idempotent, and an id another Task already holds is left alone: an id names
-/// one event, and the Task that made it is the one that recorded it first.
+/// Record `external_event_id` as `task_id`'s own work. Idempotent; an id
+/// another Task already holds is left alone — an id names one event, and the
+/// Task that made it is the one that recorded it first.
 pub(crate) async fn record(
     pool: &DbPool,
     task_id: &str,
@@ -84,21 +76,9 @@ pub(crate) async fn task_for_any(
     .await
 }
 
-/// The Task that produced any of `external_event_ids` **at `source_name`**,
-/// if one did.
-///
-/// The table is keyed on the id alone, because that is all a writer holds, and
-/// it holds every source's rows together. `source_name` is the column that
-/// tells them apart, so a caller that knows where it is asking says so and
-/// reads back only its own. That an id names its own subject — GitHub's do,
-/// `owner/repo#607` rather than `607` — is a property of each provider's codec,
-/// and this answer does not rest on it: a row written under an earlier shape,
-/// or by a provider that numbers per subject, is placed by its source here
-/// either way.
-///
-/// A row that records no source is not a match: it cannot be shown to have
-/// happened here, and naming the wrong Task as an event's author is what the
-/// scoping exists to prevent.
+/// The Task that produced any of `external_event_ids` **at `source_name`**, if
+/// any. `source_name` disambiguates rows sharing an id; a sourceless row never
+/// matches, avoiding misattribution.
 pub(crate) async fn task_for_any_from_source(
     pool: &DbPool,
     external_event_ids: &[String],

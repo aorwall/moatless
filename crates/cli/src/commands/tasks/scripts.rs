@@ -20,10 +20,10 @@ pub enum TaskScriptAction {
     },
 }
 
-/// Lists or starts a script, against a REST wrapper around the same
-/// `scripts.run` the T3 UI's chat header uses (`crates/t3code/src/lib.rs`'s
-/// `scripts_run_http`, no WebSocket ticket needed since it's a plain
-/// bearer-key HTTP route).
+/// Lists or starts a script, via a REST wrapper around the same `scripts.run`
+/// the T3 UI's chat header uses (`scripts_run_http`).
+///
+/// A plain bearer-key HTTP route — no WebSocket ticket needed.
 pub(super) async fn run_task_script_action(
     client: &MoatClient,
     task_id: &str,
@@ -89,9 +89,9 @@ pub(super) async fn run_task_script_action(
     Ok(())
 }
 
-/// `scripts.run`'s refusals are typed and already say the specific thing
-/// (`"No script named \"nope\"."`, `"Sandbox not running."`) — this only adds
-/// the next command, the same way `resolve_task_id`'s own errors do.
+/// `scripts.run`'s refusals are typed and already say the specific thing (`"No
+/// script named \"nope\"."`, `"Sandbox not running."`) — this only adds the
+/// next command, the same way `resolve_task_id`'s own errors do.
 fn friendlier_scripts_error(err: ClientError, task_id: &str) -> ClientError {
     let ClientError::Api { status, body } = &err else {
         return err;

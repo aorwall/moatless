@@ -22,10 +22,8 @@ pub(super) struct GithubPrAuth {
     git_host_tokens: Arc<dyn GitHostTokenIssuer>,
     /// REST root every client below is built against, when a test injected one.
     ///
-    /// Unlike Slack and Telegram there is no single client to hand in: a token
-    /// is selected per call, so the injection point is the base URL rather than
-    /// the client. Test-only, because production reads
-    /// [`super::api::api_base`] and has no second root to point at.
+    /// Test-only: a token is selected per call, so the injection point is the
+    /// base URL rather than a shared client.
     #[cfg(test)]
     api_base: Option<String>,
 }
@@ -109,18 +107,9 @@ impl GithubPrAuth {
 
     /// Mint a GitHub client from `actor`'s OWN row, scoped to `repo`.
     ///
-    /// This is the only credential rule this Adapter has, for every one of its
-    /// use cases. The identity that pushed the branch is the identity that
-    /// opens the pull request, posts the comment and adds the reaction.
-    ///
-    /// It performs no scope walk: the repository's persisted scope, the org
-    /// credential and the deployment's environment are never consulted. An
-    /// identity with no row cannot reach GitHub here rather than silently
-    /// acting as somebody else.
-    ///
-    /// Which repository is named therefore only scopes the token, never whether
-    /// one is found: a pull request against a repo the task is not bound to
-    /// resolves exactly like one against its own.
+    /// No scope walk: an identity with no row fails rather than silently acting
+    /// as somebody else, and `repo` only scopes the token, never whether one is
+    /// found.
     pub(super) async fn client_for(
         &self,
         actor: &Actor,
@@ -168,9 +157,8 @@ fn outbound_actor(
 
 /// The identity a reaction acts as.
 ///
-/// A `BindingContext` carries no author and no subscription, so the precedence
-/// starts at the binding's filter user. There is no deployment-wide fallback
-/// below it: a reaction is posted by somebody, and nobody is not an answer.
+/// `BindingContext` carries no author or subscription, so precedence starts at
+/// the binding's filter user; there is no deployment-wide fallback below it.
 fn reaction_actor(binding: &BindingContext) -> Result<Actor, AdapterError> {
     binding_filter_user_id(&binding.destination_config, &binding.metadata)
         .map(Actor::of)
@@ -239,14 +227,9 @@ fn binding_filter_user_id<'a>(
 /// Resolve a GitHub API client for `user_id` acting on `workspace_id`, minted
 /// against `owner/repo_name`.
 ///
-/// `user_id` is the task's run-as identity — the sandbox's `X-User-Token` JWT
-/// and its `GITHUB_TOKEN` are cut from the same `grant.ctx.user_id`. Naming the
-/// task's Workspace is what makes this route present the same account the
-/// sandbox does: a Workspace that pins a GitHub credential pins it for both.
-/// The credential rule (the Workspace's pin or the identity's own row, no scope
-/// walk, no repository or global fallback, fails closed) lives on
-/// `GithubPrAuth::client_for`; this wrapper just names the provider handle the
-/// route reaches it through.
+/// `user_id` is the task's run-as identity, cut from the same
+/// `grant.ctx.user_id` as the sandbox's `X-User-Token`/`GITHUB_TOKEN`; the
+/// credential rule itself lives on `GithubPrAuth::client_for`.
 pub(super) async fn resolve_github_api(
     adapter: &GithubPrAdapter,
     user_id: &str,

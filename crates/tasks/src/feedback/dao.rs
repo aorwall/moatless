@@ -19,11 +19,11 @@ pub trait FeedbackDao: Send + Sync {
     /// List all feedback rows for a task, ordered oldest → newest.
     async fn list_for_task(&self, task_id: &str) -> Result<Vec<Feedback>, sqlx::Error>;
     /// Set a row's triage status and return it, or `None` when no row carries
-    /// `feedback_id`. `note` replaces whatever note the previous status
-    /// carried: a note explains the status beside it, so an unexplained status
-    /// change clears the old reason rather than inheriting it. The caller
-    /// checks access to the row's task first — `feedback` carries no scope
-    /// columns of its own.
+    /// `feedback_id`.
+    ///
+    /// `note` replaces the previous status's note rather than inheriting it —
+    /// an unexplained change clears the old reason. Caller checks task access
+    /// first: `feedback` carries no scope columns of its own.
     async fn update_status(
         &self,
         feedback_id: &str,
@@ -202,9 +202,11 @@ impl FeedbackDao for PgFeedbackDao {
             }
 
             /// `None` only when a `NOT NULL` column came back NULL on a row
-            /// that is not the total-only one. Callers must reject that rather
-            /// than skip it: dropping a row from the page while still counting
-            /// it in the total is the drift this query exists to prevent.
+            /// that isn't the total-only one.
+            ///
+            /// Callers must reject that rather than skip it: dropping a row
+            /// from the page while still counting it in the total is the drift
+            /// this query exists to prevent.
             fn into_item(self) -> Option<FeedbackWithTask> {
                 let task_title = self
                     .task_name

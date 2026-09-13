@@ -14,14 +14,12 @@ use crate::ports::{UsageBucketRow, UsageWindow};
 /// older version renders partial coverage rather than failing the page.
 const CONTRACT_VERSION: u32 = 5;
 
-/// The rate table `cache_savings_usd` is computed against, in USD per 1M
-/// tokens, keyed by the substring a model id carries.
+/// Rate table for `cache_savings_usd`, in USD per 1M tokens, keyed by model-id
+/// substring.
 ///
-/// Same rates and same ordering rule as the backend's own
-/// `event_handler::pricing`: a specific generation precedes the family name it
-/// contains, so `sonnet-5` is not billed at `sonnet-4-6`'s rate. Only the
-/// input and cache-read rates are needed, because savings is the difference
-/// between them.
+/// Ordering matters: a specific generation must precede the family name it
+/// contains, so `sonnet-5` is not billed at `sonnet-4-6`'s rate (same rule as
+/// `event_handler::pricing`).
 const RATES: &[(&str, f64, f64)] = &[
     // (model substring, input, cache read)
     ("opus", 5.0, 0.5),
@@ -33,9 +31,9 @@ const RATES: &[(&str, f64, f64)] = &[
     ("codex", 1.25, 0.125),
 ];
 
-/// What the cached input would have cost at full input rates, minus what it
-/// did cost. Zero for a model with no known rate, which keeps an unpriced
-/// model out of the savings total rather than guessing at it.
+/// What the cached input would have cost at full input rates, minus what it did
+/// cost. Zero for a model with no known rate, which keeps an unpriced model out
+/// of the savings total rather than guessing at it.
 fn cache_savings_usd(model: &str, cached_input_tokens: i64) -> f64 {
     if cached_input_tokens <= 0 {
         return 0.0;
@@ -51,10 +49,9 @@ fn cache_savings_usd(model: &str, cached_input_tokens: i64) -> f64 {
 
 /// Why a bucket's cost is what it is.
 ///
-/// Never `modelPriced`: a turn's cost is whatever the run reported, and a turn
-/// that reported none is left unpriced rather than valued here. Pricing it
-/// would put a second rate table behind the same number the backend already
-/// derives, and the two would drift.
+/// Never `modelPriced`: an unpriced turn stays unpriced rather than being
+/// valued here, since a second rate table would drift from what the backend
+/// already derives.
 fn cost_source(row: &UsageBucketRow) -> &'static str {
     if row.unpriced_records >= row.records {
         "unpriced"
@@ -92,12 +89,9 @@ fn bucket(row: &UsageBucketRow) -> Value {
 
 /// The one source this deployment reports.
 ///
-/// `UsageSourceFingerprint` identifies a transcript directory by host and
-/// `device:inode`, so that two T3 servers reading one directory are counted
-/// once. Nothing here reads a directory: the rows come from this deployment's
-/// database, which is already one source however many Sandboxes produced it.
-/// So the fingerprint names the deployment and leaves `volumeId` empty, which
-/// the contract allows for a volume that cannot be read.
+/// `UsageSourceFingerprint` normally dedupes two T3 servers reading one
+/// transcript directory by `device:inode`; here nothing reads a directory, so
+/// it names the deployment instead and leaves `volumeId` empty.
 fn source_for(provider: &str, sessions: i64, records: i64) -> Value {
     json!({
         "fingerprint": {
@@ -118,7 +112,7 @@ fn source_for(provider: &str, sessions: i64, records: i64) -> Value {
 /// Build the `UsageSummary` reply from the rows a read returned.
 ///
 /// `read_at` and `scan_duration_ms` are passed in so the caller owns the clock,
-/// which keeps this function pure and testable.
+/// keeping this function pure and testable.
 pub(crate) fn summary(
     window: &UsageWindow,
     rows: &[UsageBucketRow],

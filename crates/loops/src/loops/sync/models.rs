@@ -2,19 +2,19 @@
 
 use serde::Deserialize;
 
-/// YAML frontmatter of a `LOOP.md`. Field names mirror the authoring surface
-/// documented for `.moatless/loops/<name>/LOOP.md` (camelCase keys).
+/// YAML frontmatter of a `LOOP.md` (camelCase keys); field names mirror the
+/// authoring surface documented for `.moatless/loops/<name>/LOOP.md`.
 ///
-/// `on` and `name` are the required fields; everything else has a default
-/// applied during sync. Unknown keys are ignored so the format can grow without
-/// breaking older backends.
+/// `on` and `name` are required; everything else defaults during sync, and
+/// unknown keys are ignored so the format can grow without breaking older
+/// backends.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LoopFrontmatter {
     /// Event source: `github_pr`, `schedule`, `slack`, or `linear`.
     pub on: String,
-    /// Human-readable name (`loops.name`). Required — the directory name is
-    /// the reconciliation key, not a name anybody chose.
+    /// Human-readable name (`loops.name`). Required — the directory name is the
+    /// reconciliation key, not a name anybody chose.
     pub name: String,
     /// Name of the Workspace the spawned tasks run in, resolved among the
     /// Workspaces this repository is placed in. See
@@ -39,21 +39,21 @@ pub struct LoopFrontmatter {
     /// the pod that runs the task, so there is nothing to look up here.
     #[serde(default)]
     pub skills: Option<Vec<String>>,
-    /// Legacy Git field retained for compatibility. Sync reports and ignores
-    /// it because only an administrator may approve the run-as identity.
+    /// Legacy Git field retained for compatibility. Sync reports and ignores it
+    /// because only an administrator may approve the run-as identity.
     #[serde(default)]
     pub run_as_user_id: Option<String>,
     /// Override the adapter-event `source_matcher` (default `owner/repo`).
     #[serde(default)]
     pub source_matcher: Option<String>,
-    /// Slack workspace/team id for resolving the adapter connection (`on: slack`).
-    /// For `on: linear` this is the Linear **workspace/organization id** used to
-    /// resolve the Linear connection when more than one is installed; omit it
-    /// when there's exactly one Linear connection.
+    /// Slack workspace/team id for resolving the adapter connection (`on:
+    /// slack`). For `on: linear`, the Linear **workspace/organization id**,
+    /// used to resolve the connection when more than one is installed; omit
+    /// when there's exactly one.
     #[serde(default)]
     pub team_id: Option<String>,
-    /// `on: linear` only — Linear workflow state NAMES whose ENTRY spawns a task
-    /// (e.g. `["Ready"]`). Maps to `adapter_config.trigger_states`.
+    /// `on: linear` only — Linear workflow state NAMES whose ENTRY spawns a
+    /// task (e.g. `["Ready"]`). Maps to `adapter_config.trigger_states`.
     #[serde(default)]
     pub trigger_states: Option<Vec<String>>,
     /// `on: linear` only — Linear project UUIDs to restrict task creation to.
@@ -69,11 +69,10 @@ pub struct LoopFrontmatter {
     /// `adapter_config.start_state`.
     #[serde(default)]
     pub start_state: Option<String>,
-    /// `on: linear` only — whether an `Issue.update` that moves the issue into a
-    /// `trigger_states` value spawns a task. Maps to
-    /// `adapter_config.create_on_status_entry`. `None` keeps the default-on
-    /// behavior (and the `adapterConfig` escape hatch); set `false` to author a
-    /// mention-mode loop where only `@mention`/assignment spawns tasks.
+    /// `on: linear` only — whether an `Issue.update` into a `trigger_states`
+    /// value spawns a task (`adapter_config.create_on_status_entry`). `None`
+    /// keeps default-on; `false` makes a mention-mode loop where only
+    /// `@mention`/assignment spawns tasks.
     #[serde(default)]
     pub create_on_status_entry: Option<bool>,
     /// Adapter-event filter JSON (default `[]`).
@@ -82,8 +81,8 @@ pub struct LoopFrontmatter {
     /// Adapter-specific config JSON stored on the subscription.
     #[serde(default)]
     pub adapter_config: Option<serde_json::Value>,
-    /// Legacy Git field retained for compatibility. Sync reports and ignores
-    /// it because Git configuration cannot approve Loop execution.
+    /// Legacy Git field retained for compatibility. Sync reports and ignores it
+    /// because Git configuration cannot approve Loop execution.
     #[serde(default)]
     pub active: Option<bool>,
     /// Per-loop task inactivity TTL in days (`loop_configs.inactive_ttl_days`).
@@ -114,8 +113,8 @@ pub struct LoopSchedule {
 /// frontmatter, and the markdown body (used as the agent's
 /// `append_system_prompt`).
 ///
-/// The directory name identifies the Loop across syncs; the name it is
-/// displayed under is `frontmatter.name` and may change freely.
+/// The directory name identifies the Loop across syncs; the displayed name,
+/// `frontmatter.name`, may change freely.
 #[derive(Debug, Clone)]
 pub struct ParsedLoop {
     pub dir_name: String,

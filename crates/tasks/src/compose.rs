@@ -46,11 +46,9 @@ use crate::task_turn::operations::TaskTurns;
 
 /// Every store the tasks band owns, built once over one pool.
 ///
-/// The stores stay private: a host takes the capabilities below, and
-/// [`TaskGraph::assemble`] consumes the graph to produce the workflow services.
-///
-/// Cloning shares every store, so a host that keeps the graph alongside the
-/// capabilities it already took assembles over the same instances.
+/// Cloning shares every store (each is an `Arc`), so a host that keeps the
+/// graph alongside capabilities it already took assembles over the same
+/// instances.
 #[derive(Clone)]
 pub struct TaskGraph {
     db: DbPool,
@@ -139,9 +137,8 @@ impl TaskGraph {
     /// Durable admission for sandbox-published events, over the turn, event and
     /// outbox stores and the `publisher` the fan-out reaches.
     ///
-    /// `publisher` is `None` where the deployment runs without Redis, which is
-    /// what makes an `agent.message` unadmittable: see
-    /// [`EventAdmission::admit`].
+    /// `publisher` is `None` without Redis, which is what makes an
+    /// `agent.message` unadmittable — see [`EventAdmission::admit`].
     pub fn event_ingress(&self, publisher: Option<Arc<dyn EventPublisher>>) -> Arc<EventAdmission> {
         Arc::new(EventAdmission::new(
             Some(self.turns.clone()),

@@ -24,16 +24,11 @@ use crate::workspace::UiRpcListedWorkspace;
 
 /// The shell listing: the viewer's projects, and the conversations in them.
 ///
-/// A conversation whose project is absent from `workspaces` is left out here.
-/// The client skips one whose project it cannot find with a bare `continue`,
-/// so the row would vanish with nothing logged; dropping it here leaves a
-/// warning behind.
-///
-/// `sequence` is the listing position the snapshot was read at, and it has to
-/// be read *before* the rows. The client discards every later event at or below
-/// it, so a position taken afterwards would discard the event for a change the
-/// rows already reflect. Taken beforehand the worst case is one change
-/// delivered twice.
+/// `sequence` is the read position and must be captured *before* the rows: the
+/// client discards every event at or below it, so reading it after risks
+/// dropping an event for a change the rows already reflect. A conversation
+/// whose project is absent from `workspaces` is left out, with a warning where
+/// the client would silently drop it.
 pub(crate) fn shell_snapshot(
     workspaces: &[UiRpcListedWorkspace],
     conversations: &[Conversation],
@@ -83,10 +78,8 @@ pub(crate) fn listed_threads(
 /// it.
 ///
 /// Never a per-change difference: the client applies this as an upsert keyed on
-/// the conversation's id and moves its position to `sequence`, so what it needs
-/// is the current row rather than an account of what moved. That is also what
-/// makes coalescing safe — a burst collapses into one of these, and the burst's
-/// last position is the one it carries.
+/// the conversation's id, which is what makes coalescing a burst into one of
+/// these safe.
 pub(crate) fn thread_upserted(
     conversation: &Conversation,
     project_id: &str,
@@ -102,10 +95,9 @@ pub(crate) fn thread_upserted(
 
 /// One conversation leaving a viewer's listing.
 ///
-/// Built only for a conversation the viewer was previously sent — see
-/// `ShellFeed`. The id is the whole payload, so emitting one whenever a re-read
-/// came back empty would tell every connected client the id of every
-/// conversation that changed anywhere.
+/// Built only for a conversation the viewer was previously sent (see
+/// `ShellFeed`); emitting one on every empty re-read would leak every
+/// conversation's id to every connected client.
 pub(crate) fn thread_removed(task_id: &str, sequence: i64) -> Value {
     json!({
         "kind": "thread-removed",
@@ -117,9 +109,8 @@ pub(crate) fn thread_removed(task_id: &str, sequence: i64) -> Value {
 /// One conversation's listing row, asked for by id rather than arrived at
 /// through a listing.
 ///
-/// The row is the listing's, to the field: what a client holds for a
-/// conversation must not depend on which read delivered it, or the same
-/// conversation would render two ways depending on how it was reached.
+/// The row is the listing's, to the field: what a client holds must not depend
+/// on which read delivered it, or the conversation would render two ways.
 pub(crate) fn thread_shell(
     conversation: &Conversation,
     project_id: &str,
@@ -130,9 +121,8 @@ pub(crate) fn thread_shell(
 
 /// One conversation, in the shape the shell listing carries.
 ///
-/// This is the contract's *shell* thread, not its full one: no messages, no
-/// activities, no checkpoints, no proposed plans, and no `deletedAt`. See
-/// [`thread_detail`] for the other member of the pair.
+/// The contract's *shell* thread, not its full one: no messages, activities,
+/// checkpoints, proposed plans, or `deletedAt` — see [`thread_detail`].
 pub(super) fn thread(
     conversation: &Conversation,
     project_id: &str,
@@ -184,10 +174,9 @@ pub(super) fn thread(
 
 /// The fields both shapes of a conversation carry, with the same values.
 ///
-/// `interactionMode` is deliberately absent rather than null: it has no
-/// separate Moatless state. `archivedAt` is the Task's close time, because
-/// archiving a conversation is closing it. Settlement and snoozing are follower
-/// state and are emitted here.
+/// `interactionMode` is deliberately absent rather than null, having no
+/// separate Moatless state; `archivedAt` is the Task's close time, since
+/// archiving a conversation is closing it.
 pub(super) fn conversation_row(
     conversation: &Conversation,
     project_id: &str,

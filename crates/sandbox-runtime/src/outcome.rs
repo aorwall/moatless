@@ -13,8 +13,9 @@ pub struct DegradationWarning {
 }
 
 /// A single server that failed to come up while the sandbox itself succeeded.
-/// Docker surfaces these per-server; they survive into the outcome so that
-/// visibility is not lost when adapters stop publishing their own events.
+///
+/// Docker surfaces these per-server; they survive into the outcome so
+/// visibility isn't lost when adapters stop publishing their own events.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ServerFailure {
     pub server: String,
@@ -36,13 +37,12 @@ impl Diagnostics {
     }
 }
 
-/// The common result of every lifecycle operation, with **two independent
-/// effect axes**.
+/// The common result of every lifecycle operation, with two independent effect
+/// axes.
 ///
-/// The axes are independent: a stop against already-stopped compute is
-/// `Changed` + `NoOp` — the intent change is real and publishable even though
-/// infrastructure did nothing. Conversely a reconciler retry of a persisted
-/// remove is `Unchanged` + `Applied`.
+/// Independent: a stop against already-stopped compute is `Changed`+`NoOp`
+/// (real, publishable intent change, no infra work); a reconciler retry of a
+/// persisted remove is `Unchanged`+`Applied`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LifecycleOutcome {
     /// From the intent write. `Changed` covers any real intent change: the

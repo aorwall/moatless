@@ -217,9 +217,10 @@ fn clean_result_completes() {
     ));
 }
 
-/// The CLI can end a run without ever reaching the model: a clean result with no
-/// turns, no text and no model usage. Reporting that as a completed turn answers
-/// the person's message with silence and consumes it, so it must retry instead.
+/// The CLI can end a run without ever reaching the model: a clean result with
+/// no turns, no text and no model usage. Reporting that as a completed turn
+/// answers the person's message with silence and consumes it, so it must retry
+/// instead.
 #[test]
 fn zero_turn_result_fails_as_retryable() {
     let result = ResultMessage::Success(ResultSuccess {
@@ -294,10 +295,9 @@ fn success_with_is_error_is_invalid_input() {
     }
 }
 
-/// The CLI reports an unreachable provider through the same `is_error` result as a
-/// rejected command, so the text is the only thing separating "your pod has no
-/// egress" from "your input was bad". Classifying these as `InvalidInput` both
-/// mislabels the outage and makes it terminal, since only some classes retry.
+/// The CLI reports an unreachable provider through the same `is_error` result
+/// as a rejected command, so only the text tells the two apart (see
+/// [`ErrorClass::Connectivity`]).
 #[test]
 fn unreachable_provider_is_connectivity_not_invalid_input() {
     for text in [
@@ -517,9 +517,10 @@ fn malformed_protocol_is_native_protocol() {
 }
 
 /// Focused real-CLI E2E: launch the actual `claude` subprocess through the
-/// production [`crate::agent::harness::Harness::claude`] seam and assert the external
-/// signal ordering for a trivial Turn. Gated behind `CLAUDE_SDK_E2E=1` and
-/// `#[ignore]` — the full E2E matrix runs at ticket 10, per the guide.
+/// production [`crate::agent::harness::Harness::claude`] seam and assert
+/// external signal ordering for a trivial Turn.
+///
+/// Gated behind `CLAUDE_SDK_E2E=1`; the full E2E matrix runs at ticket 10.
 #[tokio::test]
 #[ignore = "requires the real claude CLI and API credentials (CLAUDE_SDK_E2E=1)"]
 async fn e2e_claude_subprocess_turn_through_the_harness() {
@@ -585,10 +586,9 @@ async fn e2e_claude_subprocess_turn_through_the_harness() {
 }
 
 /// Focused real-CLI E2E for the persistent tmux transport: launch the actual
-/// TUI through the production [`crate::agent::harness::Harness::claude_persistent`] seam,
-/// run one Turn, then submit a second Turn to prove the same live Session hosts
-/// it (no replacement). Gated behind `CLAUDE_TMUX_E2E=1` (and needs `tmux` on
-/// PATH); the full E2E matrix runs at ticket 10.
+/// TUI through [`crate::agent::harness::Harness::claude_persistent`], run one
+/// Turn, then a second to prove the same live Session hosts it (no
+/// replacement).
 #[tokio::test]
 #[ignore = "requires the real claude CLI + tmux + credentials (CLAUDE_TMUX_E2E=1)"]
 async fn e2e_persistent_claude_two_turns_share_a_session() {

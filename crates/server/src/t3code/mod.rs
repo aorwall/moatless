@@ -7,9 +7,8 @@ pub mod startup_scripts;
 #[cfg(any(test, feature = "db-tests"))]
 mod test_support {
     /// The T3 read model over a pool, with its activity seam wired to the same
-    /// pool. Every db-test that reaches the read model wants that pairing, so
-    /// it is built here — the composition root — rather than repeated at each
-    /// call site.
+    /// pool. Built here, the composition root, so every db-test that reaches it
+    /// gets the pairing.
     #[must_use]
     pub fn t3_graph_over(pool: &moatless_core::db::DbPool) -> moatless_t3code::T3Graph {
         let tasks = moatless_tasks::compose::task_graph(pool.clone());

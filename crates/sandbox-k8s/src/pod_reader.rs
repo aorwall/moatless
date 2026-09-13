@@ -1,7 +1,8 @@
-//! Pod data readers: fetch container statuses and stream logs from running pods.
+//! Pod data readers: fetch container statuses and stream logs from running
+//! pods.
 //!
-//! These functions perform K8s API reads against sandbox pods — listing pods
-//! by task label, extracting container statuses, and streaming container logs.
+//! These functions perform K8s API reads against sandbox pods — listing pods by
+//! task label, extracting container statuses, and streaming container logs.
 
 use futures::stream::BoxStream;
 use k8s_openapi::api::core::v1::Pod;
@@ -20,12 +21,14 @@ use moatless_sandbox_runtime::container_status::{
 use moatless_sandbox_runtime::schemas::RuntimeEvent;
 use moatless_types::workspace::{Cpu, Memory};
 
-/// Errors from log streaming, distinguishing "not ready yet" from other failures.
+/// Errors from log streaming, distinguishing "not ready yet" from other
+/// failures.
 #[derive(Debug)]
 pub enum LogStreamError {
     /// No pod found for the given task — sandbox not running.
     NoPod(String),
-    /// Container exists but has not started yet (e.g. `PodInitializing`) — no logs available.
+    /// Container exists but has not started yet (e.g. `PodInitializing`) — no
+    /// logs available.
     NotStarted(String),
     /// No previous instance of the container to read logs from.
     NoPreviousLogs(String),
@@ -34,7 +37,8 @@ pub enum LogStreamError {
 }
 
 /// K8s rejects log reads with 400 while a container is waiting to start
-/// (`PodInitializing`, `ContainerCreating`, ...). Returns the API message if so.
+/// (`PodInitializing`, `ContainerCreating`, ...). Returns the API message if
+/// so.
 fn container_waiting_message(e: &kube::Error) -> Option<&str> {
     match e {
         kube::Error::Api(api) if api.code == 400 && api.message.contains("waiting to start") => {
@@ -50,10 +54,8 @@ fn no_previous_container(e: &kube::Error) -> bool {
     matches!(e, kube::Error::Api(api) if api.code == 400 && api.message.contains("not found"))
 }
 
-/// Fetch server container statuses from K8s API.
-///
-/// Reads containerStatuses from the pod matching the task ID,
-/// excludes the "sandbox" container, and returns observed statuses.
+/// Fetch container statuses from the pod matching the task ID, excluding the
+/// "sandbox" container.
 pub async fn fetch_server_container_statuses(
     k8s: &K8sClient,
     task_id: &str,
@@ -76,7 +78,8 @@ pub async fn fetch_server_container_statuses(
     }
 }
 
-/// Fetch observed statuses for **all** containers (including sandbox) from K8s API.
+/// Fetch observed statuses for **all** containers (including sandbox) from K8s
+/// API.
 ///
 /// Used for diagnostics/troubleshooting — includes the sandbox container.
 pub async fn fetch_all_container_statuses(
@@ -101,10 +104,8 @@ pub async fn fetch_all_container_statuses(
     }
 }
 
-/// Fetch runtime events associated with a sandbox pod.
+/// Fetch a sandbox pod's K8s events as provider-agnostic `RuntimeEvent`s.
 ///
-/// Uses the K8s Event API with a field selector on the pod name,
-/// mapping K8s events into provider-agnostic `RuntimeEvent` structs.
 /// Returns an empty vec if no pod or events are found.
 pub async fn fetch_pod_runtime_events(k8s: &K8sClient, task_id: &str) -> Vec<RuntimeEvent> {
     let pods_api: Api<Pod> = Api::namespaced(k8s.client.clone(), k8s.namespace());
@@ -146,10 +147,8 @@ pub async fn fetch_pod_runtime_events(k8s: &K8sClient, task_id: &str) -> Vec<Run
     }
 }
 
-/// Stream server container logs via K8s API, one value per line.
-///
-/// When live streaming fails (e.g. container terminated), falls back to
-/// fetching previous container logs (`previous: true`).
+/// Stream server container logs, one value per line; falls back to previous
+/// container logs (`previous: true`) if live streaming fails (e.g. terminated).
 pub async fn stream_container_logs_k8s(
     k8s: &K8sClient,
     task_id: &str,
@@ -313,10 +312,8 @@ struct ContainerUsage {
     memory: String,
 }
 
-/// Fetch resource usage for all containers in a task's pod via the K8s Metrics API.
-///
-/// Requires metrics-server to be installed in the cluster.
-/// Returns an empty map on any failure (metrics unavailable, pod not found, etc.).
+/// Fetch resource usage for a task's pod via the K8s Metrics API (requires
+/// metrics-server). Returns an empty map on any failure.
 pub async fn fetch_container_resource_usage(
     k8s: &K8sClient,
     task_id: &str,
@@ -411,12 +408,11 @@ struct PodMetricsObjectMeta {
     name: String,
 }
 
-/// Fetch resource usage for every pod in the namespace via one K8s Metrics API
-/// read, keyed by pod name then container name.
+/// Fetch resource usage for every pod in the namespace, keyed by pod then
+/// container name.
 ///
-/// Requires metrics-server. Returns an empty map on any failure (metrics
-/// unavailable, RBAC missing, a pod not yet scraped) — the same best-effort
-/// contract [`fetch_container_resource_usage`] makes for a single pod.
+/// Requires metrics-server; empty map on any failure, same best-effort contract
+/// as [`fetch_container_resource_usage`].
 async fn fetch_namespace_resource_usage(
     k8s: &K8sClient,
 ) -> HashMap<String, HashMap<String, ContainerResourceUsage>> {
@@ -478,13 +474,10 @@ async fn fetch_namespace_resource_usage(
         .collect()
 }
 
-/// Project one pod, and its resource usage if any was found for it, into the
-/// fleet-wide diagnostics entry.
+/// Project one pod (and its resource usage) into a fleet diagnostics entry;
+/// skips a pod with no `moatless.io/task-id` label.
 ///
-/// A pod with no `moatless.io/task-id` label is not a Sandbox and is skipped —
-/// callers list by that label already, so this only matters for defense in
-/// depth. Pure and synchronous, which is what makes it unit-testable without a
-/// K8s API: [`fetch_fleet_diagnostics`] is the thin async wrapper that fetches
+/// Pure and synchronous for unit-testing; [`fetch_fleet_diagnostics`] fetches
 /// the two inputs this closes over.
 fn map_pod_to_diagnostics_entry(
     pod: &Pod,
@@ -539,16 +532,11 @@ fn map_pod_to_diagnostics_entry(
     })
 }
 
-/// Every Sandbox in the namespace, with its status and — best-effort — live
-/// resource usage: one pod LIST (label key present) plus one namespace-wide
-/// metrics read, joined by pod and container name.
+/// Every Sandbox in the namespace with status and best-effort live resource
+/// usage.
 ///
-/// Mirrors [`fetch_all_container_statuses`] + [`fetch_container_resource_usage`]
-/// for one Task; this is the same combinator run once for the whole fleet
-/// instead of once per Task. A failed pod list is a real error — there is
-/// nothing to answer with — but a failed metrics read is not: entries still
-/// carry status and restart counts with `None` usage, the pod list is fetched
-/// first, and metrics are overlaid on it afterward.
+/// A failed pod list errors; a failed metrics read does not — entries just
+/// carry `None` usage.
 pub async fn fetch_fleet_diagnostics(
     k8s: &K8sClient,
 ) -> Result<Vec<SandboxDiagnosticsEntry>, kube::Error> {

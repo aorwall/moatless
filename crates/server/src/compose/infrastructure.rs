@@ -88,7 +88,7 @@ pub async fn init_s3(config: &Config) -> Option<moatless_s3::S3Storage> {
 
 /// The STS client the workspace-repository grant assumes its role through.
 ///
-/// Built off the same default chain as the S3 client, so in-cluster it is the
+/// Built off the same default chain as the S3 client, so in-cluster it's the
 /// backend's IRSA identity that does the assuming.
 pub async fn init_sts(config: &Config) -> Option<aws_sdk_sts::Client> {
     _ = config.sandbox.workspace_repository_role_arn.as_ref()?;

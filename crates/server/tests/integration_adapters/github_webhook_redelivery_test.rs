@@ -8,18 +8,11 @@
 //! The GitHub Adapter has no in-process delivery cache; durable admission is
 //! the only thing that collapses a redelivery.
 //!
-//! A per-process cache cannot see a delivery on another replica, so its
-//! presence would hide both properties asserted here. A "replica" is its own
-//! `AppState` + `GithubPrAdapter` over the shared pool — which is what a
-//! second backend process is, and what a process-local cache could never see.
-//!
-//! - A redelivery landing on a *different* replica must do no second effect:
-//!   a per-process cache can only answer `200 duplicate` on the replica that
-//!   saw the first delivery, never on another one.
-//! - The work the ingress path does *before* admitting now re-runs on every
-//!   redelivery. It has to be harmless, and that is asserted rather than
-//!   assumed: the PR status and review decision writes derive their value from
-//!   the delivery payload, so a replay writes the same value again.
+//! A per-process cache can't see a delivery on another replica, so a replica
+//! (its own `AppState` + `GithubPrAdapter` over the shared pool) stands in for
+//! a second backend process, asserting: a redelivery on a different replica
+//! does no second effect, and the pre-admission PR-status/review-decision
+//! writes re-run harmlessly since they derive purely from the payload.
 
 use crate::common;
 
@@ -73,12 +66,9 @@ async fn request_counting_github_stub()
     request_counting_github_stub_with_mergeable_state("dirty").await
 }
 
-/// The same stub, with the PR's `mergeable_state` chosen by the caller.
-///
-/// `dirty` is what every conflict-notification assertion below wants. A test
-/// that needs the check to *run and settle* without also posting a notice asks
-/// for `clean` instead: notification is gated on a conflict, so a clean PR
-/// spends the same request budget and leaves the task's messages alone.
+/// The same stub, with `mergeable_state` chosen by the caller: `dirty` (what
+/// conflict-notification tests want) or `clean`, which settles the check at the
+/// same request cost without posting a notice.
 async fn request_counting_github_stub_with_mergeable_state(
     mergeable_state: &'static str,
 ) -> (String, Arc<tokio::sync::Mutex<Vec<RecordedGithubRequest>>>) {
@@ -724,11 +714,9 @@ async fn connection_without_subscription_delivers_existing_bindings_but_creates_
     );
 }
 
-/// A merge is a `pull_request` `closed` carrying `merged: true`, and the notice
-/// it produces is its own durable kind. This asserts the shape that motivates
-/// the split: the task that opened the pull request is bound to it as a
-/// `connected_thread`, nothing auto-closes it, and it hears that its work
-/// landed — without the handler making a single GitHub call.
+/// A merge is a `pull_request` `closed` with `merged: true`, a durable notice
+/// kind. Asserts the task bound as a `connected_thread` isn't auto-closed and
+/// hears its work landed, zero GitHub calls.
 #[sqlx::test]
 async fn a_merged_pull_request_notifies_the_task_that_outlives_it(pool: PgPool) {
     let task_id = "task-merged-notice";
@@ -1342,12 +1330,9 @@ async fn durable_workflows_preserve_audience_fallback_and_github_call_budgets(po
     );
 }
 
-/// Verification: a redelivery on a different replica does no second effect.
-///
-/// The first delivery is accepted by one replica; the redelivery — same body,
-/// same `X-GitHub-Delivery` — is accepted by a second replica that has never
-/// seen it. Nothing in that process could recognise it, and nothing needs to:
-/// the durable record is the recognition.
+/// A redelivery — same body, same `X-GitHub-Delivery` — lands on a replica that
+/// never saw the first; nothing in-process could recognise it, so the durable
+/// record alone prevents the second effect.
 #[sqlx::test]
 async fn a_redelivery_on_a_different_replica_does_no_second_effect(pool: PgPool) {
     common::seed_github_token(&pool, CONNECTION_USER).await;
@@ -1431,18 +1416,9 @@ async fn a_redelivery_on_a_different_replica_does_no_second_effect(pool: PgPool)
     );
 }
 
-/// Verification: the work that runs before admission is safe to repeat.
-///
-/// Both writes derive their value from the delivery payload, so a replay
-/// recomputes the same value — the only reason a cache here would be a
-/// performance question rather than a correctness one. The columns are
-/// cleared between the two deliveries precisely so the second write has to
-/// be observed doing the work rather than merely not undoing it.
-///
-/// The PR-status half deliberately redelivers to the *same* replica — the
-/// one case where a per-process cache would answer without running
-/// anything, so this half fails if the work is ever skipped rather than
-/// merely passing on both deliveries.
+/// Pre-admission writes derive their value from the payload, so a replay is
+/// idempotent by construction; the PR-status half redelivers to the same
+/// replica to rule out a cache masking a skip.
 #[sqlx::test]
 async fn replaying_the_pre_admission_writes_lands_on_the_same_value(pool: PgPool) {
     let task_id = "task-gh-replay";

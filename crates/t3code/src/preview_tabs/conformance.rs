@@ -6,9 +6,9 @@ use std::time::Duration;
 
 /// The two Task ids every case below works under.
 ///
-/// Fixed rather than generated, so a caller pointing these at a store
-/// shared with anything else — which the integration tier does, at a real
-/// Redis — owns them for the length of the run.
+/// Fixed rather than generated, so a caller sharing a store with anything else
+/// — as the integration tier does, against a real Redis — owns them for the
+/// run.
 pub const TASK: &str = "task";
 pub const OTHER: &str = "other";
 
@@ -26,10 +26,9 @@ pub fn tab(task_id: &str, tab_id: &str, url: &str) -> PreviewTab {
 
 /// Start from no tabs.
 ///
-/// Each case says what it starts from rather than assuming, because
-/// `run_every_case` runs them all against one handle and a store that
-/// persists — the property the Redis one exists for — would otherwise
-/// carry each case's tabs into the next.
+/// `run_every_case` runs every case against one handle; a persisting store (the
+/// property the Redis one exists for) would otherwise carry each case's tabs
+/// into the next.
 async fn reset(store: &dyn PreviewTabDao) {
     store.remove(TASK, None).await.unwrap();
     store.remove(OTHER, None).await.unwrap();
@@ -110,11 +109,11 @@ pub async fn a_published_event_reaches_a_subscriber(store: &dyn PreviewTabDao) {
     );
 }
 
-/// Every case above, in one call, for a caller that only wants "does this
-/// handle behave". Each case resets first, so they compose.
+/// Every case above, in one call, for a caller that wants "does this handle
+/// behave"; each case resets first, so they compose.
 ///
-/// The unit tier names each case one at a time, so this whole-list form is
-/// reached only from `redis_tests`.
+/// Reached only from `redis_tests` — the unit tier names each case one at a
+/// time.
 #[cfg(feature = "db-tests")]
 pub async fn run_every_case(store: &dyn PreviewTabDao) {
     opening_a_tab_lists_it(store).await;

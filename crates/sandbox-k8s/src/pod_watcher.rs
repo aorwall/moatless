@@ -1,14 +1,12 @@
 //! Persistent pod lifecycle watcher.
 //!
-//! Watches every sandbox pod (label `app.kubernetes.io/managed-by=moatless`),
-//! detects runtime events — OOM, crash loops, evictions, deletions, restarts,
-//! server container status changes — and publishes them to Redis Streams for SSE
-//! and the event handler. Only the leader replica runs it, elected by K8s Lease.
+//! Watches sandbox pods (`app.kubernetes.io/managed-by=moatless`) for crashes,
+//! evictions, and restarts, publishing to Redis Streams; only the leader (K8s
+//! Lease) runs it.
 //!
-//! Pod states are keyed by **`pod_name`** rather than `task_id`, so a rolling
-//! update tracks the terminating pod and the starting pod independently. A
-//! delete event checks for a surviving sibling before publishing `pod_deleted`
-//! or setting `NotCreated`.
+//! Pod states key by `pod_name`, not `task_id`, so a rolling update tracks the
+//! terminating and starting pod independently; a delete checks for a surviving
+//! sibling before publishing `pod_deleted` or `NotCreated`.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;

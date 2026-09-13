@@ -9,12 +9,10 @@
 //! Adapter delivery seam.
 //!
 //! These drive the seam at the highest point reachable without a live chat
-//! sender: a delivery is admitted exactly as the webhook handlers admit it —
-//! same Adapter name, same kind, same event id, same payload shape — and
-//! executed by the same handlers `main` registers. The webhook request itself is not
-//! replayed because that would need a signed Slack envelope and a live Slack
-//! API for `users.info`; what happens either side of that call is what this
-//! ticket changed, and that is what is covered here.
+//! sender: a delivery is admitted exactly as the webhook handlers admit it and
+//! executed by the same handlers `main` registers. The webhook request itself
+//! isn't replayed — that needs a signed Slack envelope and a live `users.info`
+//! call — so only what happens either side of that call is covered here.
 
 use crate::common;
 
@@ -108,12 +106,11 @@ async fn count(pool: &PgPool, kind: &str, event_id: &str) -> i64 {
         .unwrap()
 }
 
-/// Register every provider exactly as `main` does, then run the worker until
-/// every named record is terminal or the budget runs out.
+/// Registers every provider like `main`, then runs the worker until every named
+/// record is terminal or the budget runs out.
 ///
-/// Registration goes through the real registrar so the test also pins that each
-/// provider claims its own kind — the property that keeps two provider
-/// migrations from contending for one name.
+/// Uses the real registrar so the test also pins that each provider claims its
+/// own kind, keeping two provider migrations from contending for one name.
 async fn run_worker_until_terminal(
     state: &AppState,
     pool: &PgPool,
@@ -245,15 +242,11 @@ async fn work_whose_trigger_was_deleted_goes_terminal_without_burning_the_budget
     );
 }
 
-/// Verification: restart recovery, for both providers. Records left `claimed`
-/// by a worker that died are picked back up — which is what makes
-/// acknowledging the provider before the routing runs safe in the first place.
+/// Verification: restart recovery, for both providers.
 ///
-/// The recovery driven here is claim-lease expiry, the mechanism that holds
-/// however the dead process was identified: a replaced pod comes back under a
-/// new name and never releases its own claims. The same-owner startup release
-/// is the faster path for a process that does return, and is already covered
-/// by the seam's own tests.
+/// Claimed records survive worker death via claim-lease expiry (works even if a
+/// replaced pod returns under a new name), which is what makes acknowledging
+/// the provider before routing runs safe.
 #[sqlx::test]
 async fn claims_left_by_a_killed_worker_are_recovered_for_both_providers(pool: PgPool) {
     let state = test_app_state_with_adapters(pool.clone(), test_config());

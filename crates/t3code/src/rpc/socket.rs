@@ -12,29 +12,27 @@ use tracing::warn;
 
 /// The largest WebSocket message this socket reads or writes.
 ///
-/// Sized by the one frame that is not small: T3 has no upload endpoint, so a
-/// composer attachment travels inside `orchestration.dispatchCommand` as a
-/// base64 data URL of up to 14,000,000 characters. Oversized attachments are
-/// refused by name in [`commands`]; a frame cap is only reached by turns the
-/// contract allows, and it fails as a dropped socket rather than a refusal.
-/// Deliberately below eight maximum-size images: the composer re-encodes before
-/// sending, and this buffer is allocated for anyone who can open the socket.
+/// Sized for the one large frame T3 has: an attachment traveling as a base64
+/// data URL inside `orchestration.dispatchCommand`, up to 14,000,000
+/// characters; oversized attachments are refused by name in [`commands`], so a
+/// frame this big only comes from a turn the contract allows and fails as a
+/// dropped socket, not a refusal — deliberately below eight maximum-size
+/// images, since this buffer is allocated for anyone who can open the socket.
 pub(crate) const MAX_FRAME_BYTES: usize = 32 * 1024 * 1024;
 
 /// Frames a subscription may have queued for the socket before it is dropped.
 ///
 /// A shell subscription produces at most one chunk per poll, so this is deep
 /// enough to absorb several seconds of a stalled writer; past that the poller
-/// waits, which is the correct backpressure — the next poll coalesces whatever
-/// accumulated while it was blocked into the same single row.
+/// waits — correct backpressure, since the next poll coalesces whatever
+/// accumulated into one row.
 pub(crate) const OUTBOUND_FRAMES: usize = 64;
 
 /// Serve one connection: answer what the client asks, and send what a
 /// subscription produces on its own.
 ///
 /// The socket is split because those two are independent — a subscription's
-/// chunk must not wait for the client to say something first, which is what the
-/// request-response loop this replaces required.
+/// chunk must not wait for the client to say something first.
 pub(crate) async fn serve_websocket(
     socket: WebSocket,
     state: UiRpcState,
@@ -105,7 +103,8 @@ pub(crate) async fn serve_websocket(
     debug!(user_id = %identity.user_id, "T3 UI WebSocket disconnected");
 }
 
-/// Write frames to the socket, reporting whether the connection is still usable.
+/// Write frames to the socket, reporting whether the connection is still
+/// usable.
 pub(crate) async fn send_frames(
     sink: &mut futures::stream::SplitSink<WebSocket, Message>,
     frames: Vec<Value>,

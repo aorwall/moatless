@@ -2,23 +2,10 @@
 //! repo's `s3` storage switch.
 //!
 //! Inside a git repo the contents come from `git ls-files -c -o
-//! --exclude-standard` plus `.git`, so ignored artifacts stay out; outside one
-//! everything is included. Entries are stored workspace-relative, so one gzipped
-//! tar untars location-independently onto `WORKSPACE_DIR` and reproduces each
-//! repo's HEAD, index, branch and dirty tree — which is why [`restore_on_start`]
-//! can skip the fresh clone. Restore detects the gzip magic, and handles two
-//! older archive shapes: working-tree-only (returns `false`, caller falls back to
-//! clone + [`download_on_start`]) and single-repo repo-relative (extracted onto
-//! `repo_dir`).
-//!
-//! The sandbox holds no AWS credentials: the backend mints presigned URLs scoped
-//! to this task's `workspace.tar` and stays out of the data path, so the sandbox
-//! reports each transfer's size, duration and outcome back for metrics.
-//!
-//! All four upload points share one [`WorkspaceSyncTracker`], which fingerprints
-//! the tracked file set and skips a transfer when nothing moved. The periodic
-//! loop is off when the volume is durable ([`is_periodic_enabled`]). Every
-//! operation is best-effort: a fresh clone already gives a working repo.
+//! --exclude-standard` plus `.git`; outside one everything is included, stored
+//! workspace-relative so a tar untars location-independently, letting
+//! [`restore_on_start`] skip the clone. The sandbox holds no AWS credentials;
+//! [`WorkspaceSyncTracker`] skips a transfer when nothing moved.
 
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -44,12 +31,11 @@ use crate::state::SandboxState;
 /// `"restic"`.
 const FORMAT: &str = "tar";
 
-/// Default periodic-upload interval when `WORKSPACE_SYNC_INTERVAL_SECS` is unset.
+/// Default periodic-upload interval when `WORKSPACE_SYNC_INTERVAL_SECS` is
+/// unset.
 ///
-/// Five minutes: turn completion and the shutdown flush are the primary
-/// durability points, so this loop only bounds the loss from an involuntary
-/// mid-turn kill — a coarse cadence is enough and keeps the fingerprint walk +
-/// tar upload off the hot path.
+/// Bounds the loss from an involuntary mid-turn kill; turn completion and the
+/// shutdown flush are the primary durability points.
 const DEFAULT_INTERVAL_SECS: u64 = 300;
 
 /// Bound on the sync-on-shutdown flush so it stays within the pod's 30s grace
@@ -61,19 +47,19 @@ const SHUTDOWN_FLUSH_TIMEOUT: Duration = Duration::from_secs(10);
 /// plain tar on restore.
 const GZIP_MAGIC: [u8; 2] = [0x1f, 0x8b];
 
-/// Per-transfer HTTP timeout for the direct-to-S3 PUT/GET. Generous enough for a
-/// large tar on a slow in-cluster link, but bounded so a stuck transfer can't
+/// Per-transfer HTTP timeout for the direct-to-S3 PUT/GET. Generous enough for
+/// a large tar on a slow in-cluster link, but bounded so a stuck transfer can't
 /// wedge the upload path.
 const HTTP_TIMEOUT: Duration = Duration::from_mins(5);
 
 /// What one upload attempt did, for the caller that has to report it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct SyncOutcome {
-    /// Whether this transfer moved workspace data. It is what
-    /// `SyncWorkspaceResponse.synced` carries, so it answers the wire's
-    /// question — not "did any request reach S3". A `restic` snapshot of an
-    /// unchanged tree writes a snapshot object and still reports `false`,
-    /// because no workspace bytes moved.
+    /// Whether this transfer moved workspace data — what
+    /// `SyncWorkspaceResponse.synced` carries.
+    ///
+    /// A `restic` snapshot of an unchanged tree still writes a snapshot object
+    /// but reports `false`.
     pub synced: bool,
     /// Bytes of workspace data this transfer moved; `0` when nothing did.
     pub bytes: u64,
@@ -89,18 +75,11 @@ pub(super) enum NotStored {
     Failed,
 }
 
-/// The fingerprint of the last successfully uploaded workspace, shared by every
-/// upload path.
+/// The fingerprint of the last successfully uploaded workspace.
 ///
-/// Turn boundaries, the pre-stop RPC, the shutdown flush and the periodic loop
-/// all ask the same question — *has anything changed since we last shipped?* —
-/// so they share one answer. Without that, each path keeps its own baseline and
-/// a turn-boundary upload is immediately followed by an identical periodic one.
-///
-/// The fingerprint is taken *before* anything is written and stored only after
-/// [`WorkspaceSyncTracker::store_current`] reports every enabled format holding
-/// the tree, so a change made while the transfer ran is not recorded as shipped:
-/// the next attempt uploads again rather than skipping.
+/// Shared by every upload path. Taken *before* anything is written and stored
+/// only once every enabled format confirms it holds the tree, so a mid-transfer
+/// change is not recorded as shipped.
 #[derive(Clone, Default)]
 pub struct WorkspaceSyncTracker {
     last_uploaded: Arc<tokio::sync::Mutex<Option<u64>>>,
@@ -112,23 +91,20 @@ pub struct WorkspaceSyncTracker {
     turn_upload: Arc<TurnUpload>,
 }
 
-/// Admission control for the turn-boundary upload, which runs off the agent's
-/// main loop ([`spawn_after_turn`]).
+/// Admission control for the turn-boundary upload, run off the agent's main
+/// loop ([`spawn_after_turn`]).
 ///
-/// Turns arrive faster than a large workspace uploads, so spawning one task per
-/// turn would pile up transfers of the same tree. At most one upload runs and at
-/// most one waits: the upload ships the workspace *as it is when it starts*, not
-/// a per-turn delta, so a single trailing run covers every turn that landed
-/// while the first was in flight.
+/// At most one upload runs and at most one waits; it ships the workspace as it
+/// is when it starts, so one trailing run covers every turn queued behind it.
 #[derive(Default)]
 struct TurnUpload {
     /// Held for one upload. Also what makes "one waiting" a real queue rather
     /// than a second concurrent transfer.
     gate: tokio::sync::Mutex<()>,
-    /// Set by whoever spawns, cleared by that task once it holds the gate —
-    /// never earlier. Clearing it before the gate would let a third turn spawn
-    /// behind a queue that is still only one deep, which is the unbounded growth
-    /// this exists to prevent.
+    /// Set by whoever spawns, cleared only once that task holds the gate.
+    ///
+    /// Clearing it earlier would let a third turn queue behind one that's still
+    /// only one deep — unbounded growth.
     queued: AtomicBool,
 }
 
@@ -139,8 +115,8 @@ impl WorkspaceSyncTracker {
 
     /// Adopt the current workspace as the baseline without uploading it.
     ///
-    /// Called once init has placed the repos: a workspace that is exactly what
-    /// the restore or the clone produced has nothing new to ship.
+    /// Called once init has placed the repos, which already match this
+    /// baseline.
     pub async fn adopt_current(&self, config: &Config) {
         let dir = PathBuf::from(&config.workspace_dir);
         *self.last_uploaded.lock().await = workspace_fingerprint(dir).await;
@@ -148,12 +124,9 @@ impl WorkspaceSyncTracker {
 
     /// Refuse every upload for this pod's life.
     ///
-    /// Do not call this for a task that merely has no snapshot. It is for a
-    /// snapshot that exists and could not be read: that snapshot is then the
-    /// only copy of the work, and this pod holds a clone or an older archive
-    /// instead, so an upload replaces the copy with a tree that never held it.
-    /// Holding costs this pod's own new work, which is the lesser loss — a
-    /// restart re-reads the snapshot, and a transient failure clears itself.
+    /// Only for a snapshot that exists and could not be read, never for a task
+    /// with no snapshot: an upload here would overwrite the only copy of the
+    /// work with a tree that never held it.
     pub fn hold_uploads(&self) {
         self.uploads_held.store(true, Ordering::Relaxed);
     }
@@ -210,11 +183,9 @@ impl WorkspaceSyncTracker {
 
     /// Write the workspace as a `restic` snapshot, falling back to the tar.
     ///
-    /// The repository failing holds the baseline back even when the tar stored
-    /// the tree, because [`restore_on_start`] reads the repository first and
-    /// never compares generations: a repository one tick behind the tar is
-    /// still what a restart gets. The cost is that the next tick re-writes what
-    /// succeeded, and only while the repository is failing.
+    /// A repository failure holds the baseline back even when the tar stored
+    /// the tree: the repository is read first on restart and never compared for
+    /// generations, so a stale one is still what the restart gets.
     async fn store_current(&self, config: &Config, backend_client: &dyn BackendClient) -> Stored {
         // The repository is incremental and atomic, so it runs first and its
         // outcome is what a caller sees.
@@ -258,20 +229,18 @@ struct Stored {
 
 /// Whether the periodic upload loop should run at all.
 ///
-/// It exists to bound the loss when an involuntary kill (node-pressure eviction,
-/// OOM, spot reclaim with no grace) destroys the workspace before any other
-/// upload path runs. A durable volume survives that kill, so on the PVC tier the
-/// accepted bound is the last turn boundary and the loop is pure overhead.
+/// Bounds the loss from an involuntary kill that destroys the workspace before
+/// any other upload path runs; a durable volume survives that kill, so on the
+/// PVC tier the loop is pure overhead.
 pub fn is_periodic_enabled(config: &Config) -> bool {
     config.workspace_sync_enabled && !config.workspace_restore_if_empty
 }
 
 /// Whether the local volume already holds a usable primary repo.
 ///
-/// The test is deliberately the same one the agent would fail on: a `.git` that
-/// exists *and* answers `git rev-parse HEAD`. An empty volume, a half-extracted
-/// tree, or a `.git` corrupted by a kill mid-write all read as "not usable" and
-/// let the snapshot win.
+/// Deliberately the same test the agent would fail on: a `.git` that exists
+/// *and* answers `git rev-parse HEAD`. Anything else — empty, half-extracted,
+/// corrupted — reads as "not usable" and lets the snapshot win.
 pub(super) async fn primary_repo_is_usable(repo_dir: &Path) -> bool {
     if !repo_dir.join(".git").exists() {
         return false;
@@ -289,15 +258,13 @@ pub(super) async fn primary_repo_is_usable(repo_dir: &Path) -> bool {
 
 /// What [`restore_on_start`] decided, and what the caller still owes.
 ///
-/// Three states, not two: "the volume already has the repo" and "nothing was
-/// restored" both skip the full-snapshot path, but only the latter may be
-/// followed by [`download_on_start`]'s working-tree overlay. Collapsing them to
-/// one `false` lets an older archive extract over a live durable volume and
-/// revert work that was never in the snapshot.
+/// Not a bool: collapsing "volume already has the repo" and "nothing restored"
+/// into one `false` would let an older archive overlay onto a live durable
+/// volume and revert work never in the snapshot.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RestoreDecision {
-    /// A full snapshot (carrying `.git`) was extracted. Skip the clone, skip the
-    /// overlay — the snapshot *is* the working tree.
+    /// A full snapshot (carrying `.git`) was extracted. Skip the clone, skip
+    /// the overlay — the snapshot *is* the working tree.
     RestoredSnapshot,
     /// The durable volume already holds a usable primary repo. Nothing was
     /// fetched; the volume is the live copy. Skip the overlay — it is the older
@@ -306,10 +273,9 @@ pub enum RestoreDecision {
     /// Nothing was restored. Clone as usual, then overlay any working-tree
     /// archive.
     Nothing,
-    /// Nothing was restored, and no archive may be overlaid either: a format
-    /// holds a snapshot this pod could not read, so the tar is an older copy of
-    /// the same workspace rather than a working-tree addition to it. Clone, and
-    /// run on the clone alone.
+    /// Nothing was restored, and no archive may be overlaid: a format holds a
+    /// snapshot this pod could not read, so the tar is an older copy, not an
+    /// addition. Clone and run on it alone.
     CloneOnly,
 }
 
@@ -333,11 +299,9 @@ impl RestoreDecision {
 
 /// What the repository's restore concluded, and whether the tar may run.
 ///
-/// Three states, not two. [`Self::Absent`] and [`Self::Failed`] both leave the
-/// workspace empty, but only `Absent` may fall through. The tar is a strictly
-/// older copy of the same workspace, so descending after a read failure reverts
-/// the task to whatever that copy last held — and the tar is written only when
-/// the repository stored nothing, so its age is unbounded.
+/// [`Self::Absent`] and [`Self::Failed`] both leave the workspace empty, but
+/// only `Absent` may fall through: the tar is a strictly older copy, so
+/// descending after a read failure reverts the task to whatever it last held.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum RestoreAttempt {
     /// The format restored the workspace.
@@ -348,17 +312,11 @@ pub(super) enum RestoreAttempt {
     Failed,
 }
 
-/// Clone, and hold every upload, because the repository holds a snapshot this
-/// pod could not read.
+/// Clone and hold every upload; the repository's snapshot could not be read.
 ///
-/// The clone is the only tree with a known provenance left: the remote's. It is
-/// missing whatever the snapshot held and the remote does not, which is why the
-/// hold matters more than the clone — it keeps the snapshot readable by the next
-/// pod instead of overwriting it with this one.
-///
-/// Returns [`RestoreDecision::CloneOnly`], not `Nothing`: `Nothing` still owes
-/// [`download_on_start`]'s overlay, which extracts the same rescue tar this walk
-/// just refused to descend to.
+/// Returns [`RestoreDecision::CloneOnly`], not `Nothing`: `Nothing` owes
+/// [`download_on_start`]'s overlay, which re-extracts the tar this walk refused
+/// to descend to.
 fn hold_for_unread_snapshot(state: &SandboxState) -> RestoreDecision {
     error!(
         task_id = %state.config.task_id,
@@ -389,35 +347,11 @@ fn hold_for_unread_snapshot(state: &SandboxState) -> RestoreDecision {
     RestoreDecision::CloneOnly
 }
 
-/// Restore a full snapshot from S3 *before* the clone, returning what the caller
-/// still owes (see [`RestoreDecision`]).
+/// Restore a full snapshot from S3 before the clone; see [`RestoreDecision`].
 ///
-/// Runs on startup after credentials + git auth are configured but before the
-/// repo clone. When a snapshot exists **and contains the primary repo's `.git`**
-/// it's a complete set of repos: extracting it onto the empty `emptyDir`
-/// reproduces the exact HEAD, index, branch and dirty working tree of every repo
-/// from the previous pod (primary *and* siblings), so the caller skips the clone
-/// ([`RestoreDecision::RestoredSnapshot`]). This avoids the base-drift
-/// phantom-revert bug — there is no fresh clone of an advanced base branch to
-/// drift against.
-///
-/// Returns [`RestoreDecision::UseExistingVolume`] when the volume is durable and
-/// already holds a usable primary repo (`WORKSPACE_RESTORE_IF_EMPTY`; nothing is
-/// even fetched). The clone is a no-op there, and the overlay is suppressed.
-///
-/// Returns [`RestoreDecision::Nothing`], leaving the workspace untouched, when:
-/// - the feature is disabled (backend S3 not configured),
-/// - there is no stored snapshot yet (fresh task → 404),
-/// - a transfer/extract fails, or
-/// - the snapshot is working-tree-only and carries no `.git`.
-///
-/// A repository that failed to read a snapshot it holds instead returns
-/// [`RestoreDecision::CloneOnly`], and holds every upload for this pod — see
-/// [`hold_for_unread_snapshot`].
-///
-/// In every `Nothing` case the caller clones as usual, and working-tree-only
-/// archives are then overlaid by [`download_on_start`]. Best-effort and
-/// non-fatal throughout.
+/// Runs after credentials and git auth, before the clone. Every failure path
+/// returns [`RestoreDecision::Nothing`], so the caller clones and
+/// [`download_on_start`] overlays instead.
 pub async fn restore_on_start(state: &SandboxState) -> RestoreDecision {
     let task_id = &state.config.task_id;
     let workspace_dir = PathBuf::from(&state.config.workspace_dir);
@@ -536,14 +470,9 @@ pub async fn restore_on_start(state: &SandboxState) -> RestoreDecision {
 
 /// Download the stored workspace archive and overlay it onto the fresh clone.
 ///
-/// Only reached when [`restore_on_start`] declined (no snapshot, or a
-/// working-tree-only snapshot without `.git`). Runs after the repo clone and
-/// before the sandbox is marked Ready, so agent edits / uncommitted changes from
-/// the previous pod are in place before the agent runs. The tar is extracted
-/// *over* the clone: edited files overwrite their pristine versions, untracked
-/// files are added. Working-tree-only archives are repo-relative, so they overlay
-/// onto `repo_dir`. Non-fatal: a missing archive or a disabled feature is logged
-/// and skipped.
+/// Reached only when [`restore_on_start`] declined. Runs after the clone and
+/// before Ready, extracting the tar *over* it — repo-relative onto `repo_dir`,
+/// existing files overwritten, new ones added. Non-fatal.
 pub async fn download_on_start(state: &SandboxState) {
     let task_id = &state.config.task_id;
     let repo_dir = PathBuf::from(&state.config.repo_dir);
@@ -615,10 +544,11 @@ pub async fn download_on_start(state: &SandboxState) {
         .await;
 }
 
-/// Store everything under `workspace_dir` in each format this config enables,
-/// unless the workspace is unchanged since the last successful upload. No-op
-/// when there's nothing to sync. Best-effort: failures (including a disabled
-/// feature) are logged, never propagated.
+/// Store everything under `workspace_dir` in each enabled format, unless
+/// unchanged since the last upload.
+///
+/// No-op when there's nothing to sync. Best-effort: failures are logged, never
+/// propagated.
 pub async fn upload(state: &SandboxState) -> SyncOutcome {
     state
         .workspace_sync
@@ -626,28 +556,11 @@ pub async fn upload(state: &SandboxState) -> SyncOutcome {
         .await
 }
 
-/// Start the turn-boundary upload and return; the transfer runs on its own task.
+/// Start the turn-boundary upload and return without waiting for the transfer.
 ///
-/// # Why this does not block its caller
-///
-/// The caller is the agent coordinator's main loop, the same loop that drains
-/// the command channel — user messages, stop requests, and the wake a
-/// [`BackgroundWatchJob`](crate::agent::background_watch_job) injects when a
-/// `moat cmd` finishes. Awaiting the upload there put every one of those behind
-/// an S3 transfer. When uploads started failing on zero-byte files, each
-/// attempt burned its full retry budget and a task sat idle for four minutes
-/// with its wake already queued (task `5f0f1eaf`): the agent looked hung, and a
-/// user message appeared to be what unstuck it, when it was really the upload
-/// finishing.
-///
-/// Durability is unchanged. The upload still starts at the same boundary, the
-/// shared [`WorkspaceSyncTracker`] still gates it on a moved fingerprint, and a
-/// failure still leaves the baseline alone. What a slow transfer now delays is
-/// only the *next* upload — via [`TurnUpload`] — not the agent.
-///
-/// [`flush_on_shutdown`] remains the ordered flush: it takes the same tracker
-/// locks, so an in-flight background upload either completes first or the flush
-/// gives up on its own timeout rather than the two racing.
+/// Never awaited by the caller (the agent coordinator's main loop): a slow
+/// transfer delays the *next* upload ([`TurnUpload`]), not the agent;
+/// [`flush_on_shutdown`] shares its locks and races it safely.
 pub fn spawn_after_turn(
     config: Arc<Config>,
     backend_client: Arc<dyn BackendClient>,
@@ -673,12 +586,9 @@ pub fn spawn_after_turn(
 
 /// Upload the workspace when an agent turn reaches a terminal boundary.
 ///
-/// This is the normal durability point between turns — and on the PVC tier the
-/// only periodic one, since the loop is off there. Startup restore, the
-/// pre-stop RPC and the shutdown flush stay separate.
-///
-/// The agent reaches this through [`spawn_after_turn`], which runs it off the
-/// main loop.
+/// The normal durability point between turns, and on the PVC tier the only
+/// periodic one since the loop is off there. Reached through
+/// [`spawn_after_turn`], off the main loop.
 async fn upload_after_turn(
     config: &Config,
     backend_client: &dyn BackendClient,
@@ -689,16 +599,11 @@ async fn upload_after_turn(
     }
 }
 
-/// Answer the backend's pre-stop `SyncWorkspace`: make the durable copy current
-/// before the caller destroys the live one.
+/// Answer the backend's pre-stop `SyncWorkspace` before the pod is destroyed.
 ///
-/// Reports `synced: false` both when this sandbox has no S3 switch and when the
-/// workspace has not moved since the last upload — in either case S3 already
-/// holds what it should and nothing had to travel.
-///
-/// This is also the only place the repository is pruned. A prune rewrites the
-/// index, which is not work a turn boundary should pay for, and a task being
-/// stopped is the one moment there is no next turn to slow down.
+/// The only place the repository is pruned: a prune rewrites the index, too
+/// costly for a turn boundary, and this is the one moment with no next turn to
+/// slow down.
 pub async fn sync_on_request(state: &SandboxState) -> SyncOutcome {
     if !state.config.workspace_sync_enabled {
         debug!(task_id = %state.config.task_id, "SyncWorkspace requested but workspace sync is off");
@@ -716,16 +621,9 @@ pub async fn sync_on_request(state: &SandboxState) -> SyncOutcome {
 
 /// One-shot rescue upload: tar `workspace_dir` and PUT it to `put_url`.
 ///
-/// The one upload path that reaches neither the backend nor `SandboxState`. Its
-/// caller is not a sandbox: it is a short-lived pod the runtime schedules onto a
-/// volume whose sandbox is already gone, so there is no task token, no gRPC
-/// channel, and nothing to report a metric through — the presigned URL is the
-/// whole capability it holds.
-///
-/// Unlike every other path here it is **not** best-effort. It runs because the
-/// backend could not prove the archive current, and its caller deletes the
-/// volume on success, so a silent failure would be the one that loses work: an
-/// empty workspace, an unreachable URL, and a rejected PUT are all errors.
+/// Unlike every other path here, not best-effort: the caller is a short-lived
+/// pod with no task token or gRPC channel, only the presigned URL, and it
+/// deletes the volume on success, so a silent failure here loses work.
 pub async fn rescue_upload(workspace_dir: &str, put_url: &str) -> Result<u64, String> {
     let tar = build_tar(PathBuf::from(workspace_dir))
         .await
@@ -798,9 +696,9 @@ async fn upload_from_config(
     })
 }
 
-/// Read the periodic upload interval from `WORKSPACE_SYNC_INTERVAL_SECS`
-/// (default [`DEFAULT_INTERVAL_SECS`]). Returns `None` when set to `0`, which
-/// disables the periodic loop (turn-boundary and shutdown uploads still run).
+/// Read the upload interval from `WORKSPACE_SYNC_INTERVAL_SECS` (default
+/// [`DEFAULT_INTERVAL_SECS`]). `0` yields `None`, disabling the periodic loop;
+/// turn-boundary and shutdown uploads still run.
 pub fn read_interval_from_env() -> Option<Duration> {
     match std::env::var("WORKSPACE_SYNC_INTERVAL_SECS") {
         Ok(v) => match v.parse::<u64>() {
@@ -812,22 +710,11 @@ pub fn read_interval_from_env() -> Option<Duration> {
     }
 }
 
-/// Periodically upload the workspace, but only when the tracked file set
-/// changed since the last upload.
+/// Periodically upload the workspace when the tracked file set has changed.
 ///
-/// This is the between-turns durability backstop, and only runs when the volume
-/// is not durable (see [`is_periodic_enabled`]): turn completion and the
-/// shutdown flush are the primary points, but a long turn killed involuntarily
-/// (node-pressure eviction, OOM, spot reclaim with no grace) reaches neither and
-/// would otherwise lose everything since the last completed turn.
-///
-/// Each tick delegates to the shared [`WorkspaceSyncTracker`], which fingerprints
-/// the workspace (the same tracked/untracked-non-ignored files plus each repo's
-/// `.git` that the tar carries, `.gitignore`d artifacts excluded) and uploads
-/// only when it moved — so an idle sandbox, one churning only gitignored build
-/// output, or one whose last turn already uploaded ships nothing.
-/// Mirrors the transcript sync: a `tokio::select!` on the lifecycle token and a
-/// fixed interval.
+/// The between-turns durability backstop, running only when the volume is not
+/// durable ([`is_periodic_enabled`]); each tick delegates to
+/// [`WorkspaceSyncTracker`], which fingerprints and uploads only when it moved.
 pub async fn run_workspace_sync(
     state: SandboxState,
     cancel: CancellationToken,
@@ -855,9 +742,9 @@ pub async fn run_workspace_sync(
 
 /// Flush the workspace on shutdown, bounded by [`SHUTDOWN_FLUSH_TIMEOUT`].
 ///
-/// Called from the shutdown driver after the agent has stopped (so the working
-/// tree is stable) and before the lifecycle token is cancelled. A timeout is
-/// logged and swallowed so the drain proceeds.
+/// Called after the agent has stopped (working tree stable) and before the
+/// lifecycle token is cancelled; a timeout is logged and swallowed so the drain
+/// proceeds.
 pub async fn flush_on_shutdown(state: &SandboxState) {
     if tokio::time::timeout(SHUTDOWN_FLUSH_TIMEOUT, upload(state))
         .await
@@ -869,8 +756,9 @@ pub async fn flush_on_shutdown(state: &SandboxState) {
     }
 }
 
-/// True when a gRPC error means the workspace-sync feature is simply unavailable
-/// (backend S3 not configured) rather than a real transient failure.
+/// True when a gRPC error means the workspace-sync feature is simply
+/// unavailable (backend S3 not configured) rather than a real transient
+/// failure.
 pub(super) fn is_feature_disabled(status: &tonic::Status) -> bool {
     matches!(
         status.code(),
@@ -878,8 +766,9 @@ pub(super) fn is_feature_disabled(status: &tonic::Status) -> bool {
     )
 }
 
-/// The workspace-relative prefix of the primary repo (e.g. `"soap-tm"`), or `""`
-/// when the primary repo *is* the workspace dir (the no-clone-URL fallback).
+/// The workspace-relative prefix of the primary repo (e.g. `"soap-tm"`), or
+/// `""` when the primary repo *is* the workspace dir (the no-clone-URL
+/// fallback).
 pub(super) fn primary_prefix(workspace_dir: &str, repo_dir: &str) -> String {
     match Path::new(repo_dir).strip_prefix(Path::new(workspace_dir)) {
         Ok(rel) => rel.to_string_lossy().trim_end_matches('/').to_string(),
@@ -889,9 +778,8 @@ pub(super) fn primary_prefix(workspace_dir: &str, repo_dir: &str) -> String {
 
 /// Build a reqwest client for transfers bounded by `timeout`.
 ///
-/// The tar paths build one per transfer, which is cheap at the sync cadence
-/// (default 5 min) and keeps no long-lived connection open against the
-/// presigned host.
+/// One built per transfer — cheap at the sync cadence — keeps no long-lived
+/// connection open against the presigned host.
 pub(super) fn http_client(timeout: Duration) -> Result<reqwest::Client, String> {
     reqwest::Client::builder()
         .timeout(timeout)
@@ -901,12 +789,9 @@ pub(super) fn http_client(timeout: Duration) -> Result<reqwest::Client, String> 
 
 /// `PUT` bytes to a presigned S3 URL.
 ///
-/// # `Content-Length` is set by hand
-///
-/// For an empty body reqwest sends neither `Content-Length` nor
-/// `Transfer-Encoding`, and S3 answers an unframed `PUT` with `411 Length
-/// Required`. Setting the header explicitly frames all three cases: an empty
-/// body, a small one, and a large one.
+/// `Content-Length` is set by hand: for an empty body reqwest sends neither it
+/// nor `Transfer-Encoding`, and S3 answers an unframed PUT with `411 Length
+/// Required`.
 pub(super) async fn http_put(
     client: &reqwest::Client,
     url: &str,
@@ -926,8 +811,8 @@ pub(super) async fn http_put(
     }
 }
 
-/// `GET` bytes from a presigned S3 URL. `Ok(None)` on 404 — nothing stored under
-/// that key yet.
+/// `GET` bytes from a presigned S3 URL. `Ok(None)` on 404 — nothing stored
+/// under that key yet.
 pub(super) async fn http_get(
     client: &reqwest::Client,
     url: &str,
@@ -961,15 +846,10 @@ pub(super) fn rel_from(root: &Path, path: &Path) -> String {
 }
 
 /// Recursively append everything under `dir` to the archive, keyed at paths
-/// relative to `root` (the workspace dir). Returns whether anything was added.
+/// relative to `root`. Returns whether anything was added.
 ///
-/// A directory that is a git repo root (contains `.git`) is handed to
-/// [`append_repo`], which enumerates it via git so its `.gitignore`d artifacts
-/// are excluded while its `.git` is kept — and the generic walk does **not**
-/// descend into it (git already listed its contents). Every other file is added
-/// verbatim and every other directory is walked, so all non-repo data under the
-/// workspace is captured. Symlinks and other non-regular files are skipped
-/// (never followed), so the walk can't loop or escape `root`.
+/// A git repo root goes to [`append_repo`] instead; symlinks and non-regular
+/// files are skipped so the walk can't loop or escape `root`.
 fn append_tree<W: std::io::Write>(builder: &mut tar::Builder<W>, root: &Path, dir: &Path) -> bool {
     // A git repo root: enumerate via git (honors gitignore) and stop descending.
     if dir.join(".git").is_dir() {
@@ -1015,11 +895,8 @@ pub(super) fn join_prefix(prefix: &str, rel: &str) -> String {
 /// Append one repo's working tree + `.git` to `builder`, entries named at their
 /// workspace-relative path (`<prefix>/…`). Returns whether anything was added.
 ///
-/// The working-tree file set is `git ls-files -c -o --exclude-standard` —
-/// tracked plus untracked-non-ignored — so ignored artifacts (`node_modules`,
-/// `dist`, `target`, …) are excluded. The `.git` directory is then appended
-/// wholesale (it is never gitignored), making each repo a *complete* repo on
-/// restore: exact HEAD, index, refs and dirty working tree.
+/// File set: `git ls-files -c -o --exclude-standard` (tracked + untracked, non-
+/// ignored), plus `.git` wholesale, so each repo is complete on restore.
 fn append_repo<W: std::io::Write>(
     builder: &mut tar::Builder<W>,
     repo_dir: &Path,
@@ -1091,17 +968,11 @@ fn append_symlink<W: std::io::Write>(
     builder.append_link(&mut header, name, target).is_ok()
 }
 
-/// Build an in-memory **gzipped** tar of all data under `workspace_dir` (git
-/// repos enumerated with gitignore honored, everything else included verbatim),
-/// or `None` when there's nothing to archive. Entries are stored at their
-/// workspace-relative path so the archive untars location-independently onto
-/// `workspace_dir`. Runs on a blocking thread (blocking `git` subprocess + `tar`
-/// + `std::fs` + deflate).
+/// Build an in-memory **gzipped** tar of all data under `workspace_dir`, or
+/// `None` when there's nothing to archive.
 ///
-/// Tar entries stream straight into the encoder, so the uncompressed archive is
-/// never held in memory — only the compressed result is. Source trees compress
-/// several-fold, which shrinks both the S3 transfer and the heap this allocates
-/// inside a sandbox whose memory pressure is what makes the snapshot matter.
+/// Tar entries stream into the encoder, so only the compressed result is held
+/// in memory, inside a sandbox where memory pressure is what makes this matter.
 async fn build_tar(workspace_dir: PathBuf) -> Option<Vec<u8>> {
     tokio::task::spawn_blocking(move || {
         if !workspace_dir.is_dir() {
@@ -1121,9 +992,8 @@ async fn build_tar(workspace_dir: PathBuf) -> Option<Vec<u8>> {
 
 /// Return the plain tar bytes for an archive that may or may not be gzipped.
 ///
-/// Archives are written gzipped; a stored archive without the gzip magic is
-/// passed through untouched so it still restores. Runs inside the caller's
-/// blocking context.
+/// Archives are written gzipped; one without the gzip magic is passed through
+/// untouched so it still restores.
 fn decompress_if_gzip(bytes: Vec<u8>) -> std::io::Result<Vec<u8>> {
     if !bytes.starts_with(&GZIP_MAGIC) {
         return Ok(bytes);
@@ -1135,13 +1005,9 @@ fn decompress_if_gzip(bytes: Vec<u8>) -> std::io::Result<Vec<u8>> {
 
 /// Fingerprint the workspace's snapshot content without reading file bodies.
 ///
-/// Walks the exact file set [`build_tar`] would archive — each repo's
-/// tracked/untracked-non-ignored working tree plus its whole `.git`, and every
-/// loose file outside a repo — and hashes `(workspace-relative path, len,
-/// mtime)` for each. `.gitignore`d artifacts inside repos are excluded, so build
-/// churn (`node_modules`, `target`, …) does not move the fingerprint. `None`
-/// when there is nothing to archive. Runs on a blocking thread (`git` subprocess
-/// + `std::fs`).
+/// Walks the exact file set [`build_tar`] would archive and hashes `(path, len,
+/// mtime)` for each; `.gitignore`d artifacts are excluded, so build churn
+/// doesn't move the fingerprint. `None` when there's nothing to archive.
 async fn workspace_fingerprint(workspace_dir: PathBuf) -> Option<u64> {
     tokio::task::spawn_blocking(move || {
         if !workspace_dir.is_dir() {
@@ -1163,9 +1029,9 @@ async fn workspace_fingerprint(workspace_dir: PathBuf) -> Option<u64> {
 }
 
 /// Metadata twin of [`append_tree`]: a git repo root is enumerated via
-/// [`fingerprint_repo`] and not descended into; every other file contributes its
-/// metadata and every other directory is walked. Symlinks/special files are
-/// skipped, matching the tar walk.
+/// [`fingerprint_repo`] and not descended into.
+///
+/// Symlinks/special files are skipped, matching the tar walk.
 fn fingerprint_tree(entries: &mut Vec<(String, u64, u128)>, root: &Path, dir: &Path) {
     if dir.join(".git").is_dir() {
         fingerprint_repo(entries, dir, &rel_from(root, dir));
@@ -1189,10 +1055,10 @@ fn fingerprint_tree(entries: &mut Vec<(String, u64, u128)>, root: &Path, dir: &P
     }
 }
 
-/// Metadata twin of [`append_repo`]: the working-tree file set from
-/// `git ls-files -c -o --exclude-standard` plus the whole `.git` directory,
-/// contributing `(len, mtime)` for each file — and each symlink, which the tar
-/// walk stores too — instead of its bytes.
+/// Metadata twin of [`append_repo`]: the working-tree file set from `git
+/// ls-files -c -o --exclude-standard` plus the whole `.git` directory.
+///
+/// Contributes `(len, mtime)` for each file and symlink instead of its bytes.
 fn fingerprint_repo(entries: &mut Vec<(String, u64, u128)>, repo_dir: &Path, prefix: &str) {
     if let Ok(output) = std::process::Command::new("git")
         .arg("-C")
@@ -1250,8 +1116,8 @@ fn fingerprint_dir(entries: &mut Vec<(String, u64, u128)>, name_prefix: &str, di
     }
 }
 
-/// A file's mtime as nanoseconds since the Unix epoch, or `0` when unavailable —
-/// a stable-enough change signal for the periodic fingerprint.
+/// A file's mtime as nanoseconds since the Unix epoch, or `0` when unavailable
+/// — a stable-enough change signal for the periodic fingerprint.
 fn mtime_nanos(meta: &std::fs::Metadata) -> u128 {
     meta.modified()
         .ok()
@@ -1259,22 +1125,11 @@ fn mtime_nanos(meta: &std::fs::Metadata) -> u128 {
         .map_or(0, |d| d.as_nanos())
 }
 
-/// Extract a repo-set archive, choosing the extraction root by archive shape so
-/// supported snapshots restore correctly. Returns `Ok(true)` when the
-/// primary repo (with its `.git`) was restored (caller skips the clone), or
-/// `Ok(false)` — extracting nothing — when the archive is a
-/// working-tree-only snapshot, so the caller clones and overlays instead.
+/// Extract a repo-set archive, picking the extraction root by its shape.
 ///
-/// Archive shapes:
-/// - **multi-repo** (primary at `<primary_prefix>/.git`, no top-level
-///   `.git`): unpack onto `workspace_dir`.
-/// - **primary at workspace root** (`primary_prefix == ""`, top-level `.git`):
-///   unpack onto `workspace_dir` (which equals `repo_dir`).
-/// - **single-repo, repo-relative** (top-level `.git`, prefixed primary):
-///   unpack onto `repo_dir`.
-/// - **working-tree-only** (no `.git` anywhere): decline (`Ok(false)`).
-///
-/// The `tar` crate rejects path-traversal (`..`) entries by default.
+/// `Ok(true)`: the primary repo (with `.git`) was restored, so the caller skips
+/// the clone; `Ok(false)`: working-tree-only, caller clones and overlays. The
+/// `tar` crate rejects path-traversal (`..`) entries by default.
 async fn extract_workspace(
     bytes: Vec<u8>,
     workspace_dir: PathBuf,
@@ -1357,8 +1212,8 @@ async fn extract_tar(bytes: Vec<u8>, dir: PathBuf) -> std::io::Result<()> {
 }
 
 /// Best-effort removal of everything inside `dir` (but not `dir` itself), so a
-/// failed restore leaves an empty directory for the fallback clone. Failures are
-/// logged, never propagated.
+/// failed restore leaves an empty directory for the fallback clone. Failures
+/// are logged, never propagated.
 pub(super) async fn clear_dir_contents(dir: &std::path::Path) {
     let dir = dir.to_path_buf();
     let result = tokio::task::spawn_blocking(move || -> std::io::Result<()> {

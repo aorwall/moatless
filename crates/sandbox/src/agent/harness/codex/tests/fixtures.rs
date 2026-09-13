@@ -1,5 +1,5 @@
-//! Wire-shaped `ServerEvent` builders and the transport fixtures every case runs
-//! against.
+//! Wire-shaped `ServerEvent` builders and the transport fixtures every case
+//! runs against.
 
 use super::*;
 

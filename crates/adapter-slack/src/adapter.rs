@@ -53,13 +53,12 @@ pub struct SlackAdapter {
     /// The stored Slack apps, when this Adapter was built over a database.
     /// `None` leaves every read on the three fields above.
     apps: Option<Arc<dyn AdapterAppReader>>,
-    /// The Slack ↔ Moatless links, for the two paths the webhook's own
-    /// `ProviderIdentityLink` never reaches: naming the writers in fetched
-    /// thread history, and resolving an outbound `<@login>`. `None` for an
-    /// adapter built without a directory, where both degrade to raw ids.
+    /// The Slack ↔ Moatless links, for naming writers in fetched thread history
+    /// and resolving an outbound `<@login>`. `None` for an adapter built
+    /// without a directory, where both degrade to raw ids.
     users: Option<Arc<dyn ProviderIdentityLink>>,
-    /// Workspace (team) id memoized after the first `auth.test` call so
-    /// direct sends don't ping Slack on every send.
+    /// Workspace (team) id memoized after the first `auth.test` call so direct
+    /// sends don't ping Slack on every send.
     workspace_id: OnceCell<String>,
     /// Bot user id memoized after the first successful resolution, so a
     /// deployment that configured none pays one `auth.test` rather than one per
@@ -112,8 +111,8 @@ impl SlackAdapter {
 
     /// Build an adapter around an already-constructed API client.
     ///
-    /// [`Self::new`] builds its client internally, which leaves nowhere to put
-    /// a stub; every seam test here goes through this constructor with a
+    /// [`Self::new`] builds its client internally with nowhere to put a stub;
+    /// every seam test here uses this constructor with a
     /// [`SlackApi::with_base_url`] client pointed at a loopback stub.
     #[cfg(test)]
     pub(super) fn with_api(
@@ -176,12 +175,9 @@ impl SlackAdapter {
     /// The bot's own Slack user ID, asking `auth.test` when the app configured
     /// none.
     ///
-    /// The id drives the agent's response discipline, not just self-echo
-    /// suppression: without it the system prompt loses the block that tells the
-    /// agent to stay out of a conversation between two other people
-    /// (`text::reply_instructions`). Leaving it to configuration alone made an
-    /// unset optional field silently change what the agent does, so it is
-    /// derived here instead.
+    /// Drives the agent's response discipline, not just self-echo suppression:
+    /// without it the system prompt loses the block that keeps the agent out of
+    /// a two-person conversation (`text::reply_instructions`).
     pub(super) async fn ensure_bot_user_id(&self) -> Option<&str> {
         self.resolved_bot_user_id
             .get_or_try_init(|| async {

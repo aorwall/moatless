@@ -25,8 +25,8 @@ pub async fn list_pending_for_user(
 
 /// Approve a pairing request: mark approved + add user ID to `dm_allowlist`.
 ///
-/// The request row is marked approved before the `dm_allowlist` write, so a
-/// failed config write leaves the request approved and the user not allowed.
+/// Approved is written before the allowlist write, so a failed config write
+/// leaves the request approved but the user not allowed.
 pub async fn approve_request(
     db: &DbPool,
     store: &Loops,

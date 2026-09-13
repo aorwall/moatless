@@ -19,14 +19,16 @@ const ACTIVE_OR_GIT_TOMBSTONE: &str = "((deleted IS NULL OR deleted = false) OR 
 #[cfg_attr(test, mockall::automock)]
 #[async_trait]
 pub(crate) trait WorkspaceDao: Send + Sync {
-    /// Read an active workspace's scripts for replacement under the caller's read grant.
+    /// Read an active workspace's scripts for replacement under the caller's
+    /// read grant.
     async fn scripts_write_target(
         &self,
         ctx: &ScopeContext,
         workspace_id: &str,
     ) -> Result<Option<WorkspaceScriptsTarget>, sqlx::Error>;
 
-    /// Replace scripts only while the workspace remains readable, active and not Git-owned.
+    /// Replace scripts only while the workspace remains readable, active and
+    /// not Git-owned.
     async fn replace_scripts(
         &self,
         ctx: &ScopeContext,
@@ -46,36 +48,31 @@ pub(crate) trait WorkspaceDao: Send + Sync {
     /// ordered by name.
     async fn list(&self, ctx: &ScopeContext) -> Result<Vec<Workspace>, sqlx::Error>;
 
-    /// Resolve `(id, name)` for several workspaces in one query. Used to label
-    /// rows that already reference a workspace by id, so it is deliberately not
-    /// scope-filtered — the caller has already been authorized for the owning
-    /// row. Missing or soft-deleted ids are simply absent from the result.
+    /// Resolve `(id, name)` for several workspaces in one query, to label rows
+    /// that already reference a workspace by id — deliberately not
+    /// scope-filtered since the caller was already authorized for the owning
+    /// row; missing or soft-deleted ids are simply absent.
     async fn find_names_by_ids(&self, ids: &[String])
     -> Result<Vec<(String, String)>, sqlx::Error>;
 
     /// Every non-deleted workspace the caller may read, plus every workspace in
-    /// `also_include` whether or not they may read it and whether or not it is
-    /// deleted, ordered by name.
+    /// `also_include` regardless of readability or deletion, for listings that
+    /// group tasks by workspace.
     ///
-    /// The widening exists for listings that group tasks by their workspace. A
-    /// task the caller may read can run in a workspace they may not — someone
-    /// else's user-scoped one — or in one a sync has tombstoned, and a grouping
-    /// that omits the workspace omits the task with it.
-    ///
-    /// Each row says which half of the union it came from — see
-    /// [`ListedWorkspace`]. A caller that projects the two halves the same way
-    /// hands the widened half's configuration to someone the read rule refused,
-    /// so the distinction is returned rather than left to be re-derived.
+    /// Each row says which half of the union it came from ([`ListedWorkspace`])
+    /// — projecting both halves the same way would leak the widened half's
+    /// configuration to someone the read rule refused.
     async fn list_readable_including(
         &self,
         ctx: &ScopeContext,
         also_include: &[String],
     ) -> Result<Vec<ListedWorkspace>, sqlx::Error>;
 
-    /// Every live workspace placing this repository, the ones placing it as
-    /// primary first, then oldest first. Not scope-filtered, and tombstones are
-    /// excluded: this answers "where can work on this repository run", which no
-    /// deleted row can.
+    /// Every live workspace placing this repository, primary placements first
+    /// then oldest first.
+    ///
+    /// Not scope-filtered, and tombstones excluded: this answers "where can
+    /// work on this repository run", which no deleted row can.
     async fn find_by_repository(
         &self,
         repository_id: &str,
@@ -84,8 +81,8 @@ pub(crate) trait WorkspaceDao: Send + Sync {
     /// List a workspace's repo placements, primary first then by `position`.
     async fn find_repos(&self, workspace_id: &str) -> Result<Vec<WorkspaceRepo>, sqlx::Error>;
 
-    /// List repo placements for several workspaces in one query (avoids the
-    /// N+1 in list endpoints). Ordered by workspace, then primary/position.
+    /// List repo placements for several workspaces in one query (avoids the N+1
+    /// in list endpoints). Ordered by workspace, then primary/position.
     async fn find_repos_for_workspaces(
         &self,
         workspace_ids: &[String],
@@ -115,18 +112,21 @@ pub(crate) trait WorkspaceDao: Send + Sync {
     async fn soft_delete(&self, id: &str, ctx: &ScopeContext) -> Result<bool, sqlx::Error>;
 
     /// Soft-delete a git-origin workspace as a manual tombstone. The provenance
-    /// key remains occupied so automatic and repo-wide syncs do not recreate it.
+    /// key remains occupied so automatic and repo-wide syncs do not recreate
+    /// it.
     async fn soft_delete_git_origin(
         &self,
         id: &str,
         ctx: &ScopeContext,
     ) -> Result<bool, sqlx::Error>;
 
-    /// Insert a `workspace_repo` placement, gated on caller controlling the workspace.
+    /// Insert a `workspace_repo` placement, gated on caller controlling the
+    /// workspace.
     async fn add_repo(&self, row: &WorkspaceRepo, ctx: &ScopeContext) -> Result<bool, sqlx::Error>;
 
-    /// Remove a placement from a workspace, gated on caller controlling the workspace.
-    /// Returns `false` when not found or caller cannot control the workspace.
+    /// Remove a placement from a workspace, gated on caller controlling the
+    /// workspace. Returns `false` when not found or caller cannot control the
+    /// workspace.
     async fn remove_repo(
         &self,
         workspace_id: &str,
@@ -136,7 +136,8 @@ pub(crate) trait WorkspaceDao: Send + Sync {
 
     /// Make `placement_id` the sole primary placement in the workspace
     /// (transactionally clears any existing primary first). Returns `false`
-    /// when the placement does not belong to the workspace or caller cannot control it.
+    /// when the placement does not belong to the workspace or caller cannot
+    /// control it.
     async fn set_primary(
         &self,
         workspace_id: &str,

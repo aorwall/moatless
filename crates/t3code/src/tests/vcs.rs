@@ -3,8 +3,8 @@
 use super::fixtures::*;
 use super::*;
 
-/// The client polls this for every conversation it holds, most of which
-/// have no Sandbox running to ask.
+/// The client polls this for every conversation it holds, most of which have no
+/// Sandbox running to ask.
 #[tokio::test]
 async fn list_refs_answers_a_conversation_with_no_sandbox_rather_than_failing() {
     let mut connection = connection();
@@ -38,9 +38,9 @@ async fn list_refs_answers_a_conversation_with_no_sandbox_rather_than_failing() 
     );
 }
 
-/// Picking a branch for a draft thread is answered as done, echoing the
-/// ref, so the client records it and sends it when the Task is created —
-/// there is no checkout to switch yet.
+/// Picking a branch for a draft thread is answered as done, echoing the ref, so
+/// the client records it and sends it when the Task is created — there is no
+/// checkout to switch yet.
 #[tokio::test]
 async fn switching_a_draft_threads_branch_echoes_the_ref() {
     let mut session = session();
@@ -63,8 +63,8 @@ async fn switching_a_draft_threads_branch_echoes_the_ref() {
     );
 }
 
-/// A thread that already has a Sandbox cannot change branch — that is fixed
-/// at creation — so a switch addressed to a worktree is refused rather than
+/// A thread that already has a Sandbox cannot change branch — that is fixed at
+/// creation — so a switch addressed to a worktree is refused rather than
 /// silently claimed as done.
 #[tokio::test]
 async fn switching_an_existing_threads_branch_is_unsupported() {
@@ -86,9 +86,9 @@ async fn switching_an_existing_threads_branch_is_unsupported() {
     assert_eq!(cause["error"]["_tag"], "UnsupportedMethodError");
 }
 
-/// The diff panel is a surface the person opened on purpose, so a
-/// conversation it cannot read says why — in the error type the method
-/// declares, which is what the panel renders instead of a defect.
+/// The diff panel is a surface the person opened on purpose, so a conversation
+/// it cannot read says why — in the error type the method declares, which is
+/// what the panel renders instead of a defect.
 #[tokio::test]
 async fn a_refused_diff_preview_fails_with_the_method_s_own_error() {
     let mut connection = connection();
@@ -115,8 +115,8 @@ async fn a_refused_diff_preview_fails_with_the_method_s_own_error() {
 }
 
 /// Opened for every conversation the client shows, including the ones this
-/// surface has no path to. A stream that says nothing is the answer there;
-/// a failure would be one the client keeps.
+/// surface has no path to. A stream that says nothing is the answer there; a
+/// failure would be one the client keeps.
 #[tokio::test]
 async fn a_vcs_status_subscription_without_an_addressable_cwd_simply_stays_quiet() {
     let mut session = session();
@@ -131,9 +131,9 @@ async fn a_vcs_status_subscription_without_an_addressable_cwd_simply_stays_quiet
     assert!(output.frames.is_empty(), "no chunk, and no failure either");
 }
 
-/// The client calls this one on its own schedule and when a worktree is
-/// cleaned up, so an unanswerable `cwd` has to come back as the method's
-/// error rather than the defect an unimplemented method produces.
+/// The client calls this one on its own schedule and when a worktree is cleaned
+/// up, so an unanswerable `cwd` has to come back as the method's error rather
+/// than the defect an unimplemented method produces.
 #[tokio::test]
 async fn a_status_refresh_answers_rather_than_dying() {
     let mut connection = connection();

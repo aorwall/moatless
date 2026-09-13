@@ -31,10 +31,9 @@ use crate::objects::{
 
 /// The runtime every backend call blocks on.
 ///
-/// Do not replace this with `Handle::block_on`: `rustic_core` runs the backup
-/// on its own worker threads, which under `spawn_blocking` are runtime worker
-/// threads, and `Handle::block_on` panics there. A dedicated runtime has no
-/// such rule. This is what `rustic_backend`'s own opendal backend does.
+/// Do not replace with `Handle::block_on`: `rustic_core` runs the backup on its
+/// own worker threads, which under `spawn_blocking` are runtime worker threads,
+/// where `Handle::block_on` panics.
 fn runtime() -> &'static tokio::runtime::Runtime {
     static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
     RUNTIME.get_or_init(|| {
@@ -66,7 +65,7 @@ pub struct ResticS3Backend {
 impl ResticS3Backend {
     /// Address the repository rooted at `prefix` in `bucket`.
     ///
-    /// `prefix` must be non-empty. An empty one roots every key at `/config`,
+    /// `prefix` must be non-empty: an empty one roots every key at `/config`,
     /// `/data/…`, which S3 accepts as a segment with no name.
     pub fn new(client: aws_sdk_s3::Client, bucket: impl Into<String>, prefix: &str) -> Self {
         Self {

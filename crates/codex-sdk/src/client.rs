@@ -5,15 +5,15 @@ use crate::query::{self, QueryHandle};
 
 /// High-level multi-turn conversation client.
 ///
-/// This is the Codex equivalent of the Claude SDK's `ClaudeClient`.
-/// It wraps a `QueryHandle` and provides a simpler `send()`/`recv()` interface.
+/// This is the Codex equivalent of the Claude SDK's `ClaudeClient`. It wraps a
+/// `QueryHandle` and provides a simpler `send()`/`recv()` interface.
 pub struct CodexClient {
     handle: QueryHandle,
 }
 
 impl CodexClient {
-    /// Create a new client and initialize a Codex session.
-    /// No initial prompt is sent; use `send()` to start a turn.
+    /// Create a new client and initialize a Codex session. No initial prompt is
+    /// sent; use `send()` to start a turn.
     pub async fn new(options: CodexOptions) -> Result<Self> {
         let handle = query::query_streaming(options).await?;
         Ok(Self { handle })
@@ -24,8 +24,8 @@ impl CodexClient {
         self.handle.send(message).await
     }
 
-    /// Receive the next message from the agent.
-    /// Returns `None` when the stream is exhausted.
+    /// Receive the next message from the agent. Returns `None` when the stream
+    /// is exhausted.
     pub async fn recv(&mut self) -> Option<Result<CodexMessage>> {
         self.handle.messages.recv().await
     }

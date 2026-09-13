@@ -1,15 +1,11 @@
 //! Operation-driven event derivation with deterministic identity.
 //!
-//! Lifecycle publishes two event classes with distinct sources. **Acceptance
-//! events** derive from `IntentEffect::Changed`. **Completion events** publish
-//! when an operation **newly establishes convergence**. Only
-//! **infrastructure-effect events** gate on `RuntimeEffect::Applied`. Lifecycle
-//! never publishes `Ready` — that is the watcher's convergence event.
+//! [`acceptance_events`] and [`outcome_events`] derive Acceptance, Completion,
+//! and Infrastructure-effect facts respectively. Lifecycle never publishes
+//! `Ready` — that is the watcher's convergence event.
 //!
-//! Event ids are deterministic — `sandbox:{task_id}:{operation_generation}:{fact}`
-//! — and ride the existing commit-before-publication / idempotent-persistence path
-//! (`ON CONFLICT (event_id) DO NOTHING`), so at-least-once retries of one
-//! generation persist exactly once.
+//! Event ids (`sandbox:{task_id}:{operation_generation}:{fact}`) ride `ON
+//! CONFLICT (event_id) DO NOTHING`, so retries persist exactly once.
 
 use moatless_types::sandbox::{SandboxEventPayload, SandboxStatus};
 
@@ -22,9 +18,9 @@ use moatless_sandbox_runtime::outcome::LifecycleOutcome;
 /// Why an operation failed, carried on a failure fact so the durable event
 /// explains itself instead of reading "Sandbox operation failed".
 ///
-/// Adapters have no event publisher — they surface everything through
-/// [`RuntimeError`](moatless_sandbox_runtime::runtime::RuntimeError), and this is where lifecycle
-/// republishes it.
+/// Adapters surface everything through
+/// [`RuntimeError`](moatless_sandbox_runtime::runtime::RuntimeError); this is
+/// where lifecycle republishes it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FailureDetail {
     /// The operation that failed. Named in the message, since the coarse
@@ -80,7 +76,8 @@ impl LifecycleEvent {
         }
     }
 
-    /// The `task_events.sub_type` value — the `SandboxStatus` `snake_case` slug.
+    /// The `task_events.sub_type` value — the `SandboxStatus` `snake_case`
+    /// slug.
     pub fn sub_type(&self) -> &'static str {
         self.status.as_str()
     }
@@ -90,21 +87,20 @@ impl LifecycleEvent {
         matches!(self.fact, EventFact::Error | EventFact::RecoveryExhausted)
     }
 
-    /// Whether the store's completion transaction persists this fact. Completion
-    /// facts (`Stopped`/`Removed`) are committed to `task_events` before
-    /// publication, so publication carries `payload_persisted = true`; other
-    /// facts are persisted by the event consumer.
+    /// Whether the store's completion transaction persists this fact.
+    ///
+    /// `Stopped`/`Removed` commit to `task_events` before publication (so
+    /// `payload_persisted = true`); other facts are persisted by the event
+    /// consumer.
     pub fn persisted_as_completion(&self) -> bool {
         matches!(self.fact, EventFact::Stopped | EventFact::Removed)
     }
 
-    /// The typed payload published and persisted for this event. A `Stopped`
-    /// completion carries its reason tag so the UI attributes the stop; a
-    /// failure fact carries the operation, the bounded cause slug, and the full
-    /// error chain, so the three consumers of this payload — the sandbox event
-    /// feed (`message`), the conversation transcript (`error`), and the Linear
-    /// error activity (`message`) — all read a real reason instead of a
-    /// placeholder.
+    /// The typed payload published and persisted for this event.
+    ///
+    /// A `Stopped` completion carries its reason tag; a failure fact carries
+    /// the operation, cause slug, and full error chain, so the event feed,
+    /// transcript, and Linear activity each read a real reason.
     pub fn payload(&self) -> SandboxEventPayload {
         let mut payload = SandboxEventPayload {
             message: self.message(),
@@ -144,8 +140,8 @@ impl LifecycleEvent {
 }
 
 /// `(lifecycle_event, initiator)` tags carried on a `Stopped` completion so the
-/// UI attributes an intentional stop (idle stop → `idle_reaped`/`reaper`, crash →
-/// `crash_autostop`), matching the tags the reaper and pod watcher stamp.
+/// UI attributes an intentional stop (idle stop → `idle_reaped`/`reaper`, crash
+/// → `crash_autostop`), matching the tags the reaper and pod watcher stamp.
 fn stop_reason_tags(reason: SandboxStopReason) -> (Option<&'static str>, &'static str) {
     match reason {
         SandboxStopReason::User => (None, "user"),
@@ -168,9 +164,10 @@ pub struct EventContext {
     /// The status the operation ended at.
     pub observed: ObservedStatus,
     /// Was a marker for this operation already persisted-but-incomplete before
-    /// this attempt? Load-bearing for recovery: a retry that is
-    /// `Unchanged` + `NoOp` yet completes an incomplete remove still newly
-    /// establishes convergence.
+    /// this attempt?
+    ///
+    /// Load-bearing for recovery: an `Unchanged` + `NoOp` retry that completes
+    /// an incomplete remove still newly establishes convergence.
     pub marker_was_incomplete: bool,
     /// The stop reason to tag onto a `Stopped` completion.
     pub stop_reason: Option<SandboxStopReason>,
@@ -196,18 +193,20 @@ impl EventContext {
     }
 
     /// An operation newly establishes convergence when it ends converged on its
-    /// target **and** any of intent-changed, runtime-applied, or an incomplete
-    /// marker proves it (not a pre-effect status read) that the operation did
-    /// the establishing.
+    /// target.
+    ///
+    /// **And** intent-changed, runtime-applied, or an incomplete marker proves
+    /// this attempt (not a pre-effect status read) did the establishing.
     fn newly_establishes(&self, target: ObservedStatus) -> bool {
         self.observed == target
             && (self.intent_changed || self.runtime_applied || self.marker_was_incomplete)
     }
 }
 
-/// Acceptance events — emitted right after the atomic intent write, **before**
-/// the runtime effect, so a later runtime failure still records that intent
-/// moved. Currently only `Removing`.
+/// Acceptance events derive from `IntentEffect::Changed`, emitted right after
+/// the atomic intent write and **before** the runtime effect, so a later
+/// runtime failure still records that intent moved. Currently only
+/// `Removing`.
 pub fn acceptance_events(task_id: &str, ctx: &EventContext) -> Vec<LifecycleEvent> {
     let mut out = Vec::new();
     if ctx.op == OperationKind::Remove && ctx.intent_changed {
@@ -221,15 +220,13 @@ pub fn acceptance_events(task_id: &str, ctx: &EventContext) -> Vec<LifecycleEven
     out
 }
 
-/// Completion + infrastructure events — emitted after a successful runtime
+/// Completion + infrastructure events, emitted after a successful runtime
 /// effect.
 ///
-/// - Completion (`Stopped` / `Removed`) publishes when the operation newly
-///   establishes convergence — including `NoOp` completions (stopping
-///   already-stopped compute is a real stop) and recovery retries.
-/// - Infrastructure (`Initializing`) gates on `RuntimeEffect::Applied`.
-/// - A pure `Unchanged` + `NoOp` against an already-converged target publishes
-///   nothing.
+/// Completion (`Stopped`/`Removed`) publishes on newly-established convergence,
+/// including `NoOp` completions and recovery retries; infrastructure
+/// (`Initializing`) gates on `RuntimeEffect::Applied`; a pure `Unchanged` +
+/// `NoOp` against an already-converged target publishes nothing.
 pub fn outcome_events(task_id: &str, ctx: &EventContext) -> Vec<LifecycleEvent> {
     let mut out = Vec::new();
 
@@ -271,10 +268,10 @@ pub fn outcome_events(task_id: &str, ctx: &EventContext) -> Vec<LifecycleEvent> 
 }
 
 /// The deterministic `Error` fact for a failed attempt of this generation.
-/// One per operation generation — at-least-once retries of the same generation
-/// dedup on the deterministic id, so the fact records the **first** failure a
-/// generation hit. Repeated failures are not silence: exhausting the
-/// reconciler's cap publishes [`recovery_exhausted_event`].
+///
+/// One per generation — retries dedup on the id, so it records the **first**
+/// failure; exhausting the reconciler's cap instead publishes
+/// [`recovery_exhausted_event`].
 pub fn error_event(
     task_id: &str,
     generation: OperationGeneration,

@@ -4,10 +4,9 @@
 use super::fixtures::*;
 use super::*;
 
-/// An unfiltered browse is every Task the viewer may read, so the refusal has to
-/// land before the query. `state()` sets no `expect_list_browsable`, and mockall
-/// panics on a call it was never told to answer, so a refusal that stopped
-/// short of the database is what a passing assertion means here.
+/// An unfiltered browse must be refused before it queries every readable Task.
+/// `state()` sets no `expect_list_browsable`, so mockall panics if the database
+/// is reached — passing proves it wasn't.
 #[tokio::test]
 async fn a_browse_naming_neither_owner_nor_tag_never_reaches_the_database() {
     let mut connection = connection();
@@ -39,8 +38,8 @@ async fn a_browse_naming_neither_owner_nor_tag_never_reaches_the_database() {
 }
 
 /// The client asking is already showing the conversation. Answering `null`
-/// leaves it showing what the thread subscription gave it; failing would
-/// take a rendered transcript off the screen over a missing title.
+/// leaves it showing what the thread subscription gave it; failing would take a
+/// rendered transcript off the screen over a missing title.
 #[tokio::test]
 async fn a_listing_row_for_a_conversation_this_viewer_cannot_reach_is_null_not_an_error() {
     let mut connection = connection();
@@ -57,8 +56,8 @@ async fn a_listing_row_for_a_conversation_this_viewer_cannot_reach_is_null_not_a
 }
 
 /// Every client encodes against the contract, so a request without one is
-/// malformed rather than a conversation that is missing — and the two must
-/// not answer alike, or a client bug reads as an empty deployment.
+/// malformed rather than a conversation that is missing — and the two must not
+/// answer alike, or a client bug reads as an empty deployment.
 #[tokio::test]
 async fn a_listing_row_asked_for_without_a_thread_id_is_a_failure() {
     let mut connection = connection();

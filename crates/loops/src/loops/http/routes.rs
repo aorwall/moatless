@@ -37,12 +37,9 @@ pub struct LoopsApiDoc;
 
 /// Build the Loop router.
 ///
-/// Generic over the router state `S` so this module names no root type: the
-/// composition root supplies the concrete state at the call site, and each
-/// registered handler reaches its dependencies — [`Loops`], the `users`,
-/// `task_bindings`, `repositories` and `adapter_connections` seams, the
-/// `LoopSyncService`, and the `UserTokenVerifier` behind `AuthUser` — through
-/// `FromRef<S>`.
+/// Generic over router state `S` so this module names no root type: the caller
+/// supplies state via `FromRef<S>`, reaching [`Loops`] and the other seams a
+/// handler depends on.
 pub fn loops_router<S>(state: S) -> (axum::Router, utoipa::openapi::OpenApi)
 where
     S: Clone + Send + Sync + 'static,

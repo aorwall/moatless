@@ -290,11 +290,9 @@ impl TagResolver for TagCatalog {
 
 /// The provider path into task creation.
 ///
-/// [`TaskCreationService::create`] is generic over two closures — the backend's
-/// HTTP path enriches the success event and delivers a first message through
-/// the whole `AppState` — so it is not dyn-safe. A Loop needs neither: it
-/// carries event metadata and delivers its own first message. This port is that
-/// entry, and the inherent method stays for the HTTP path.
+/// [`TaskCreationService::create`] is generic over two closures tied to the
+/// backend's `AppState`, so it is not dyn-safe; a Loop needs neither, so this
+/// port is that entry and the inherent method stays for the HTTP path.
 #[async_trait]
 impl TaskOpener for crate::task::creation::TaskCreationService {
     async fn open(&self, req: NewTask) -> Result<TaskOpened, TaskOpenError> {
@@ -450,7 +448,7 @@ impl RelationRecorder for crate::task::relations::TaskRelations {
 
 /// The unclaimed-user-message predicate, answered for a Sandbox's members.
 ///
-/// The control plane holds the wake signal but not the queue it stands for, so
+/// The control plane holds the wake signal but not the queue it stands for;
 /// this is the read that turns "this Sandbox has work" into the Tasks to
 /// notify.
 pub struct PendingWork {

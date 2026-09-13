@@ -87,8 +87,8 @@ fn pr_create_accepts_the_gh_short_body_file_flag() {
     assert!(matches!(parsed, Some(TypedInvocation::PrCreate(_))));
 }
 
-/// Both spellings at once is a user error, not a demotion — but it still
-/// falls through, so real gh reports it rather than moat guessing.
+/// Both spellings at once is a user error, not a demotion — but it still falls
+/// through, so real gh reports it rather than moat guessing.
 #[test]
 fn pr_create_rejects_body_and_body_file_together() {
     assert_eq!(
@@ -106,8 +106,8 @@ fn pr_create_rejects_body_and_body_file_together() {
     );
 }
 
-/// A comment body may come from a file as well; the same demotion cost
-/// applied, and the same flag caused it.
+/// A comment body may come from a file as well; the same demotion cost applied,
+/// and the same flag caused it.
 #[test]
 fn comment_accepts_body_file() {
     let parsed = parse_typed(&argv(&["pr", "comment", "42", "--body-file", "/tmp/b.md"]));
@@ -149,8 +149,8 @@ fn body_file_is_read_when_no_inline_body_is_given() {
     std::fs::remove_file(&path).ok();
 }
 
-/// A missing file names the path rather than failing as a bare io error —
-/// the agent needs to know which file it meant.
+/// A missing file names the path rather than failing as a bare io error — the
+/// agent needs to know which file it meant.
 #[test]
 fn a_missing_body_file_names_the_path() {
     let err = read_body(None, Some(std::path::Path::new("/nonexistent/body.md")))
@@ -347,8 +347,8 @@ fn parse_github_remote_forms() {
 // `gh api` recognition
 // =======================================================================
 
-/// The shape a `gh api …` argument list creates, if any. `line` is written
-/// the way an agent types it, starting at `api`.
+/// The shape a `gh api …` argument list creates, if any. `line` is written the
+/// way an agent types it, starting at `api`.
 fn api_kind(line: &str) -> Option<ApiCreated> {
     let args: Vec<String> = line.split_whitespace().map(ToString::to_string).collect();
     assert_eq!(
@@ -564,8 +564,8 @@ fn the_claimed_id_comes_from_the_response_not_the_request() {
 }
 
 /// The reported 401: `GH_TOKEN` is seeded at provision and expires with the
-/// installation token behind it, so in a sandbox the broker's per-call
-/// token has to outrank it.
+/// installation token behind it, so in a sandbox the broker's per-call token
+/// has to outrank it.
 #[test]
 fn the_broker_outranks_a_stale_env_token() {
     assert_eq!(
@@ -613,8 +613,8 @@ fn the_credential_helper_answers_when_no_env_token_is_set() {
     );
 }
 
-/// A broker read that fails leaves `gh` to find the ambient `GH_TOKEN`,
-/// which beats sending the call unauthenticated.
+/// A broker read that fails leaves `gh` to find the ambient `GH_TOKEN`, which
+/// beats sending the call unauthenticated.
 #[test]
 fn a_failed_broker_read_falls_back_to_gh_s_own_resolution() {
     assert_eq!(resolve_gh_token(true, true, || None), None);

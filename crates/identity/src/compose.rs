@@ -33,7 +33,8 @@ use crate::secret::service::{SecretCipher, SecretService};
 use crate::team::dao::PgTeamDao;
 use moatless_ports::workspace::WorkspaceCredentialReader;
 
-/// The `users` and `provider_tokens` tables behind the identity ports peers read.
+/// The `users` and `provider_tokens` tables behind the identity ports peers
+/// read.
 pub fn user_directory(db: DbPool) -> Arc<UserDirectory> {
     Arc::new(UserDirectory::new(
         Arc::new(PgUserDao(db.clone())),
@@ -79,7 +80,8 @@ pub fn harness_credentials(db: DbPool) -> Arc<HarnessTokens> {
     Arc::new(HarnessTokens::new(Arc::new(PgProviderTokenDao(db))))
 }
 
-/// The one way to a git-host token, over this crate's own provider-token stores.
+/// The one way to a git-host token, over this crate's own provider-token
+/// stores.
 ///
 /// `workspace_credentials` is `None` in a deployment that wires no workspace
 /// credential store, which resolves every identity to its own credential.
@@ -277,8 +279,8 @@ pub async fn local_credential(
         .expect("the credential read succeeds")
 }
 
-/// A fresh API key for `user_id`, for a consumer's PostgreSQL tests. Returns the
-/// raw key a caller sends as a bearer token.
+/// A fresh API key for `user_id`, for a consumer's PostgreSQL tests. Returns
+/// the raw key a caller sends as a bearer token.
 #[cfg(any(test, feature = "test-support"))]
 #[expect(
     clippy::expect_used,

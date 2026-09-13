@@ -10,9 +10,9 @@ use super::orchestrator::{OutstandingCommand, TaskIntent};
 /// What the Sandbox's gRPC service reads off its own row, beside the intent
 /// [`super::Lifecycle`] owns.
 ///
-/// The pod reports its running-command count and asks which Workspace and
-/// run-as identity its credentials are minted against. Neither is a lifecycle
-/// transition, so neither takes the per-Task lock.
+/// The pod reports its running-command count and asks which Workspace/run-as
+/// identity its credentials are minted against; neither takes the per-Task
+/// lock, since neither is a lifecycle transition.
 pub struct SandboxIngress {
     store: Arc<dyn LifecycleDao>,
 }

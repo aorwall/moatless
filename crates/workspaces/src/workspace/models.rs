@@ -29,7 +29,8 @@ pub struct WorkspaceRow {
     pub name: String,
     pub description: Option<String>,
     pub icon: Option<serde_json::Value>,
-    /// Derived label from the `WorkspaceRepo` count: `blank`, `single`, `multi`.
+    /// Derived label from the `WorkspaceRepo` count: `blank`, `single`,
+    /// `multi`.
     pub kind: String,
     // --- Run configuration ---
     pub docker_image: Option<String>,
@@ -104,9 +105,8 @@ impl TryFrom<WorkspaceRow> for Workspace {
 /// Decode one JSONB run-config column, logging what was dropped.
 ///
 /// A column that fails to decode reads as unset, so one bad value cannot block
-/// a task start. The log is what makes that recoverable: the sandbox comes up
-/// on the deployment defaults instead of the workspace's own configuration, and
-/// without the log nothing says why.
+/// a task start — the sandbox falls back to deployment defaults, and the log is
+/// what says why.
 fn decode_column<T: serde::de::DeserializeOwned>(
     value: Option<serde_json::Value>,
     workspace_id: &str,
@@ -195,15 +195,11 @@ pub struct ListedWorkspaceRow {
 /// A workspace in a widened listing, and whether the caller may actually read
 /// it.
 ///
-/// A widened listing is a union of two sets with different rules behind them:
-/// the workspaces the read rule admits, and the workspaces something the caller
-/// may see happens to reference. A row from the second half is present so that a
-/// listing can render a group for it — not because the caller was granted
-/// anything — and a caller that cannot tell the halves apart will project them
-/// alike and disclose the second half's configuration.
-///
-/// The flag is evaluated by the same access filter the `WHERE` clause is built
-/// from, in the same statement, so the two cannot drift.
+/// A widened listing unions what the read rule admits with what something the
+/// caller may see merely references — the second half is present to render a
+/// group, not because it was granted, so conflating the halves discloses its
+/// configuration. The flag comes from the same access filter as the `WHERE`
+/// clause, in the same statement, so the two cannot drift.
 #[derive(Debug, Clone)]
 pub struct ListedWorkspace {
     pub workspace: Workspace,

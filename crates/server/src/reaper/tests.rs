@@ -1,11 +1,11 @@
-//! Unit tests for the reaper's pure decision functions: what the cycle
-//! groups, what it stops, closes and reclaims, and which turn it reconciles.
+//! Unit tests for the reaper's pure decision functions: what the cycle groups,
+//! what it stops, closes and reclaims, and which turn it reconciles.
 
 use super::*;
 
-/// The reconcile event's shape. The id must be deterministic per
-/// `(task, turn)` so a cycle that repeats while the terminal event is still
-/// missing upserts one message row instead of stacking duplicates.
+/// The reconcile event's shape. The id must be deterministic per `(task, turn)`
+/// so a cycle that repeats while the terminal event is still missing upserts
+/// one message row instead of stacking duplicates.
 #[test]
 fn reconcile_error_event_is_deterministic_per_task_and_turn() {
     let turn = UnclosedTurn {
@@ -45,8 +45,8 @@ fn reconcile_error_event_labels_a_numberless_turn() {
     );
 }
 
-/// A parked run is doing no work, so it does not hold its sandbox open past
-/// the ordinary TTL. Everything the agent is actually running does.
+/// A parked run is doing no work, so it does not hold its sandbox open past the
+/// ordinary TTL. Everything the agent is actually running does.
 #[test]
 fn a_waiting_agent_does_not_hold_its_sandbox() {
     assert!(!agent_holds_the_sandbox("waiting"));
@@ -83,8 +83,8 @@ fn a_fork_is_grouped_under_the_sandbox_it_runs_in() {
     );
 }
 
-/// The defect this pass fixes: the owner went idle, the fork was working,
-/// and the pod both of them live in was stopped anyway.
+/// The defect this pass fixes: the owner went idle, the fork was working, and
+/// the pod both of them live in was stopped anyway.
 #[test]
 fn a_working_member_keeps_the_whole_sandbox() {
     let now = Utc::now();
@@ -130,8 +130,8 @@ fn one_pinned_member_pins_the_sandbox() {
     );
 }
 
-/// Otherwise the most patient Member sets the TTL: a shorter one must not
-/// take the pod out from under it.
+/// Otherwise the most patient Member sets the TTL: a shorter one must not take
+/// the pod out from under it.
 #[test]
 fn the_largest_member_ttl_wins() {
     let ttl_map = HashMap::from([("sandbox-a".to_string(), 10)]);
@@ -141,12 +141,11 @@ fn the_largest_member_ttl_wins() {
     );
 }
 
-/// A turn parked on a person is not a finished turn: it continues where it
-/// left off the moment the answer lands, so the reconciler leaves its turn
-/// open even though the reaper may reclaim the sandbox under it.
-/// The case this pass exists for: the run's `taskTurn.active` was lost, so
-/// the row still names the previous run while the agent works under a new
-/// one. Every reader shows a settled thread until this opens the turn.
+/// A parked turn is not finished — it resumes where it left off, so the
+/// reconciler leaves it open even if the sandbox is reclaimed.
+///
+/// Covers a lost `taskTurn.active`: the agent works under a new run while the
+/// row still names the previous one.
 #[test]
 fn a_live_run_the_row_never_covered_opens_a_turn() {
     assert_eq!(
@@ -155,8 +154,8 @@ fn a_live_run_the_row_never_covered_opens_a_turn() {
     );
 }
 
-/// A parked run is still a run — the same reading `agent_turn_is_over`
-/// already applies on the orphaned-turn side.
+/// A parked run is still a run — the same reading `agent_turn_is_over` already
+/// applies on the orphaned-turn side.
 #[test]
 fn a_waiting_run_still_opens_a_turn() {
     assert_eq!(
@@ -173,8 +172,8 @@ fn a_turn_row_from_before_run_attribution_yields_to_a_named_run() {
     );
 }
 
-/// Both records describe one run and disagree about whether it ended.
-/// Writing either way would bury a coordinator defect.
+/// Both records describe one run and disagree about whether it ended. Writing
+/// either way would bury a coordinator defect.
 #[test]
 fn the_same_run_on_both_sides_is_a_contradiction_not_a_repair() {
     assert_eq!(

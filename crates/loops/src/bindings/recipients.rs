@@ -1,22 +1,14 @@
-//! Which bindings receive an inbound event.
+//! Which bindings receive an inbound event — the one place that decision is
+//! made.
 //!
-//! The one place that decision is made. Before this module the rules lived once
-//! inside the GitHub PR adapter and once inside the Linear adapter, disagreeing
-//! with each other on threaded replies, and neither had a test of the
-//! composition: both decided while reading from the database inside the loop, so
-//! testing them meant standing up Postgres and nobody did.
+//! [`resolve_recipients`] performs no I/O: everything it reasons over — the
+//! active bindings, the event's author task, and the parent event's author an
+//! [`Audience::ParentAuthor`] names — is resolved by the router first, which is
+//! what makes the whole matrix affordable to test as a table.
 //!
-//! [`resolve_recipients`] performs no input or output. Everything it reasons
-//! over is resolved by the router before the call — the active bindings on the
-//! subject, the task that authored the event, and the task that authored the
-//! parent event an [`Audience::ParentAuthor`] names. The redelivery-receipt
-//! check happens after it returns. That is what makes the whole matrix
-//! affordable to enumerate as a table.
-//!
-//! Identity plays no part, here or in the `fan_out` loop that walks this
-//! result: a task is passed over only where it can be *named* as the author of
-//! what arrived. A sender identity cannot name one. Every provider posts under
-//! an identity a person also posts under, so matching on it mutes that person.
+//! Identity plays no part: a task is excluded only where it can be *named* as
+//! the author of what arrived, never by matching a sender identity, which would
+//! mute any person posting under the same identity a provider uses.
 
 use moatless_adapter_model::binding::ADAPTER_EVENT_BINDING_ORIGIN;
 use moatless_types::adapter::Audience;
@@ -24,10 +16,8 @@ use moatless_types::adapter::TaskBinding;
 
 /// What the event says about who wrote it, resolved before the resolver runs.
 ///
-/// Both fields are task ids recovered from recorded messages — a footer naming
-/// a task, a claim the task recorded when it acted, or an event identifier
-/// already recorded against a task. An event that carries none of them arrives
-/// with both fields `None` and is treated as authored by nobody, which is the
+/// Both fields are task ids recovered from recorded messages; an event carrying
+/// neither arrives with both `None` and is treated as authored by nobody, a
 /// case that must still reach the producing task.
 #[derive(Debug, Clone, Copy)]
 pub struct EventProvenance<'a> {
@@ -39,16 +29,12 @@ pub struct EventProvenance<'a> {
     pub parent_author_task_id: Option<&'a str>,
 }
 
-/// The bindings that should receive an event with this `audience`.
+/// The bindings that should receive an event with this `audience`, in
+/// `bindings` order with no duplicates.
 ///
-/// Order follows `bindings`, and a binding appears at most once.
-///
-/// Two steps, in this order and not the other. The audience **names** bindings
-/// first, knowing nothing about who wrote the event; the author of the event is
-/// **excluded** from that set afterwards. Excluding first would conflate two
-/// different empty sets — an audience that named nobody, which is a reason to
-/// fall back, and an audience that named exactly the task that wrote the event,
-/// which is a reason to deliver to nobody at all.
+/// Order matters: the audience **names** bindings first, then the event's
+/// author is **excluded** — excluding first would conflate "named nobody" (fall
+/// back) with "named exactly the author" (deliver to nobody).
 pub fn resolve_recipients<'b>(
     audience: &Audience,
     bindings: &'b [TaskBinding],
@@ -104,10 +90,9 @@ fn or_everyone<'b>(
 /// A binding formed task-to-subject: the task existed first and reached out.
 ///
 /// Stated as the negation of the responder direction, deliberately: the
-/// responder has exactly one origin, the one the router writes from an inbound
-/// event, and `origin` is an open column. Matching a list of producers instead
-/// would read an undeclared origin as a responder. See the origin constants in
-/// [`moatless_adapter_model::binding`].
+/// responder has exactly one origin (the one the router writes from an inbound
+/// event), and `origin` is an open column — matching a list of producers
+/// instead would read an undeclared origin as a responder.
 fn is_producer(binding: &TaskBinding) -> bool {
     binding.origin != ADAPTER_EVENT_BINDING_ORIGIN
 }
@@ -122,8 +107,8 @@ mod tests {
     use moatless_types::adapter::Audience;
     use moatless_types::adapter::TaskBinding;
 
-    /// A binding is identified in these tests by its task id; every other column
-    /// is scenery. `origin` is the only field the resolver reads besides
+    /// A binding is identified in these tests by its task id; every other
+    /// column is scenery. `origin` is the only field the resolver reads besides
     /// `task_id`, and it carries the task's role on the subject.
     fn binding(task_id: &str, origin: &str) -> TaskBinding {
         let now = Utc::now();
@@ -186,8 +171,8 @@ mod tests {
             .collect()
     }
 
-    /// One row of the matrix: an audience, the roles present on the subject, and
-    /// the provenance the event carries.
+    /// One row of the matrix: an audience, the roles present on the subject,
+    /// and the provenance the event carries.
     struct Row {
         /// What the row demonstrates, quoted back on failure.
         case: &'static str,
@@ -465,13 +450,10 @@ mod tests {
         }
     }
 
-    /// What the fallbacks buy, asserted across every row rather than per
-    /// audience: a recipient set is empty only where every binding the audience
-    /// named is excluded as an author of the event. So an empty result can
-    /// always name the task that wrote what arrived — it is never the rules
-    /// quietly narrowing an event down to nobody, which is the fault this whole
-    /// change exists to remove, and it is the property the router relies on to
-    /// tell a delivery that reached nobody from one that was never for anyone.
+    /// What the fallbacks buy: a recipient set is empty only where every
+    /// binding the audience named is excluded as the event's author, never
+    /// because the rules quietly narrowed it to nobody — the property the
+    /// router relies on to tell "reached nobody" from "never for anyone".
     #[test]
     fn an_empty_result_can_always_name_the_task_that_wrote_the_event() {
         for row in table() {

@@ -19,13 +19,15 @@ mod tests {
         PermissionContext, PermissionHandler, PermissionResult, PermissionUpdate,
     };
 
-    /// Helper to spawn an orchestrator with mock transport and return the pieces.
+    /// Helper to spawn an orchestrator with mock transport and return the
+    /// pieces.
     struct TestHarness {
         /// Send messages to the orchestrator (simulates CLI stdout)
         msg_feeder: mpsc::Sender<RawStdoutMessage>,
         /// Receive SDK messages from the orchestrator (consumer side)
         sdk_rx: mpsc::Receiver<Result<SdkMessage>>,
-        /// Receive JSON lines written by the orchestrator (captures stdin writes)
+        /// Receive JSON lines written by the orchestrator (captures stdin
+        /// writes)
         stdin_rx: mpsc::UnboundedReceiver<String>,
         /// Request tracker for outgoing control requests
         request_tracker: Arc<Mutex<RequestTracker>>,
@@ -404,11 +406,9 @@ mod tests {
         }
     }
 
-    /// The decision a person has not made yet must not stop the CLI's output
-    /// being read. Answered in line, an unanswered `can_use_tool` blocks the
-    /// only reader of stdout, and everything the CLI already wrote — including
-    /// the assistant block holding the call being asked about — is stranded
-    /// until the answer comes, so a run parked on a question looks stopped.
+    /// Answered in line, it would block the only stdout reader and strand
+    /// everything already written, making a run parked on a question look
+    /// stopped.
     #[tokio::test]
     async fn a_parked_permission_decision_does_not_stall_the_message_stream() {
         let entered = Arc::new(tokio::sync::Notify::new());

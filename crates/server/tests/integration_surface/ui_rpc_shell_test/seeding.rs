@@ -22,9 +22,8 @@ use sqlx::PgPool;
 
 /// Insert a task in `workspace_id`, owned by `owner`.
 ///
-/// `insert_task` auto-follows for the creator, exactly as every production
-/// creation path does, so the seeded state is the one a real deployment
-/// reaches. Tests that need a non-follower unfollow explicitly.
+/// `insert_task` auto-follows for the creator, matching every production
+/// creation path; tests needing a non-follower must unfollow explicitly.
 pub(super) async fn seed_task(
     pool: &PgPool,
     task_id: &str,
@@ -227,9 +226,8 @@ pub(super) async fn seed_workspaces(pool: &PgPool) {
 /// not what these tests vary — the conversation's is.
 pub(super) const MATRIX_WS: &str = "ws-matrix";
 
-/// One conversation per combination the two filters have to distinguish: who
-/// owns it, whether it is public, whether it is user- or deployment-scoped,
-/// and whether the viewer follows it.
+/// One conversation per combination of owner, visibility, scope, and follow the
+/// two filters must distinguish.
 ///
 /// Ids read `{owner}-{visibility}-{scope}-{follow}`, so a failing assertion
 /// names the combination that broke.

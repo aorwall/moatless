@@ -1,31 +1,11 @@
 //! What *happened* in a conversation, as rows.
 //!
-//! A Message is what somebody said — a role and text. An activity is everything
-//! on the way there: a tool call carrying its own outcome, a stretch of thinking,
-//! a Sandbox status change, a Sandbox error. An activity is identified by where
-//! it came from rather than by when it was written —
-//! `{message_uuid}:{block_index}` for a block, the event id for a Sandbox event —
-//! which is what makes redelivery a no-op rather than a duplicate.
+//! Everything besides a Message (role + text): a tool call and its outcome,
+//! thinking, a Sandbox status or error — identified by where it came from
+//! rather than when written, so redelivery is a no-op.
 //!
-//! # The counter and the change log
-//!
-//! Both live here too, because they are how activities and Messages end up in one
-//! order and how a reader hears about either. Every write takes a position from
-//! that Task's own counter, in the mutation's own transaction, and a write that
-//! changed a Message also leaves a record at that position.
-//!
-//! [`task_listing`](crate::task_listing) answers "which Tasks changed since
-//! position N" for a sidebar. The log here answers "what changed *inside* this
-//! conversation since position N", which that feed cannot: only Turn transitions
-//! enter it, so a Message arriving is invisible there, and its counter is one row
-//! for the whole deployment — a per-activity record through it would put every
-//! conversation write in the deployment behind one lock.
-//!
-//! A `bigserial` will not do; `moatless_core::change_feed` states why.
-//!
-//! No T3 vocabulary appears here — [`moatless_t3code`] turns a row into the event
-//! that surface carries, which is also why a change record names a Message rather
-//! than describing what about it changed.
+//! The counter and change log live here too: only Turn transitions enter the
+//! log, so a Message arriving does not, and no T3 vocabulary appears here.
 
 pub(crate) mod dao;
 pub mod mapping;

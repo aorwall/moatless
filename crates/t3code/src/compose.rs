@@ -193,8 +193,7 @@ pub async fn mount(
 /// The T3 band's own persistence, built once at the composition root.
 ///
 /// One [`PgConversationDao`] serves the conversation, workspace and task read
-/// views, so a request that spans them reads one connection pool and one
-/// access filter.
+/// views, so a request spanning them shares one pool and one access filter.
 #[derive(Clone)]
 pub struct T3Graph {
     reads: T3Reads,
@@ -248,9 +247,9 @@ pub struct UiRpc {
 
 /// Everything the T3 compatibility routes need from the rest of the backend.
 ///
-/// A struct rather than an argument list because these are opaque handles
-/// whose order carries no meaning at the call site. What this crate reads for
-/// itself is not here; it comes from [`T3Graph`].
+/// A struct rather than an argument list because these are opaque handles whose
+/// order carries no meaning; what this crate reads for itself comes from
+/// [`T3Graph`] instead.
 pub struct UiRpcDependencies {
     /// Reported in the auth descriptor so a browser knows which cookie to send.
     pub session_cookie_name: String,
@@ -283,8 +282,8 @@ pub struct UiRpcDependencies {
     /// Restarts, redeploys and cleans up a Task's Sandbox, through the same
     /// lifecycle path as the REST API.
     pub operator: Arc<dyn SandboxOperator>,
-    /// Where preview tabs are shared across replicas. `None` holds them in
-    /// this process only.
+    /// Where preview tabs are shared across replicas. `None` holds them in this
+    /// process only.
     pub redis_url: Option<String>,
     /// How long a Task's tabs outlive their last write.
     pub preview_tab_ttl: PreviewTabTtl,
@@ -296,8 +295,8 @@ pub struct UiRpcDependencies {
     pub branches: Arc<dyn ports::RepositoryBranchSource>,
     /// The skills a Workspace offers, for the composer's `/` menu.
     pub skills: Arc<dyn ports::SkillCatalog>,
-    /// The child edges behind `subtasks.list`. Access is applied afterwards,
-    /// by re-reading each child through `conversations`.
+    /// The child edges behind `subtasks.list`. Access is applied afterwards, by
+    /// re-reading each child through `conversations`.
     pub relations: Arc<dyn ports::TaskRelationSource>,
     /// The pull request a Task is bound to, and reference resolution for the
     /// attach-PR dialog.
@@ -313,7 +312,7 @@ pub struct UiRpcDependencies {
     /// configured — see `config::OtelConfig`), reported to the client as
     /// `observability.otlpTracesEnabled`.
     pub otlp_traces_enabled: bool,
-    /// This deployment's own web address (`config.frontend_url`), for the link a
-    /// Task origin carries back into the Moatless UI.
+    /// This deployment's own web address (`config.frontend_url`), for the link
+    /// a Task origin carries back into the Moatless UI.
     pub frontend_url: String,
 }

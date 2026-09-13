@@ -1,13 +1,11 @@
 //! The desired-state reconciler's per-Task decision.
 //!
 //! The reconciler is the single async recovery owner for level states. Its
-//! decision combines two already-normalized inputs — message-wake causal
-//! precedence ([`wake`](super::wake)) and the desired/observed convergence map
-//! ([`convergence`](super::convergence)) — into one action the driver then
-//! issues through a lifecycle operation, never directly.
-//!
-//! A causally eligible pending user message turns the effective desired state
-//! into Running (converge + notify); otherwise the persisted intent stands.
+//! decision combines message-wake causal precedence ([`wake`](super::wake)) and
+//! the desired/observed convergence map ([`convergence`](super::convergence))
+//! into one action the driver issues through a lifecycle operation, never
+//! directly. See [`decide`] for how a pending message shifts the effective
+//! desired state.
 
 use chrono::{DateTime, Utc};
 
@@ -39,13 +37,10 @@ pub struct ReconcileDecision {
     pub woken: bool,
 }
 
-/// Decide the reconcile action for a Task.
-///
-/// A pending message that causally supersedes the intent (per [`wake`]) makes
-/// the effective desired state Running; the convergence map then chooses the
-/// action for `(effective_desired, observed)`. A still-present remove marker is
-/// the one signal that keeps `remove` retrying past observed absence, because the
-/// archive-deletion obligation has no observable trace.
+/// A pending message that causally supersedes intent (per [`wake`]) makes the
+/// effective desired state Running; the convergence map then chooses the
+/// action. A still-present remove marker keeps `remove` retrying past observed
+/// absence, since archive-deletion has no observable trace.
 pub fn decide(input: &ReconcileInput) -> ReconcileDecision {
     let intent = &input.intent;
 

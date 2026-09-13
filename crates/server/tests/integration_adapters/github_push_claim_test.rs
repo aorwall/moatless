@@ -7,17 +7,11 @@
 )]
 //! A Task's own `git push` must not come back to it as a notification.
 //!
-//! A push reaches GitHub without passing through the backend, so the
-//! `pull_request.synchronize` webhook that follows carries nothing naming the
-//! Task behind it: the payload has no body to hold the `Moatless task:` footer,
-//! and no typed route recorded an id. The sandbox files a claim on the sha as
-//! the push completes instead.
-//!
-//! Two halves have to meet for that claim to be found, and they are written on
-//! opposite sides of the push. The sandbox knows the repository and the sha and
-//! not the pull request number, which on a first push does not exist yet.
-//! Routing knows the whole `synchronize` id, number included. What joins them
-//! is the alias, and this is where it is asserted end to end.
+//! A push bypasses the backend, so the `pull_request.synchronize` webhook that
+//! follows carries no `Moatless task:` footer and no typed route naming the
+//! Task. The sandbox files a claim on the sha instead, keyed by repository and
+//! sha (no PR number exists yet); routing later has the full `synchronize` id,
+//! number included. The alias is what joins the two, asserted end to end here.
 
 use std::sync::Arc;
 
@@ -102,10 +96,9 @@ async fn a_pushed_sha_names_its_task_when_the_synchronize_event_arrives(pool: Pg
     );
 }
 
-/// A sha nothing claimed names no Task, so a push by anyone else is delivered.
-/// This is the case reading the reflog message protects: were a fetch claimed as
-/// a push, the collaborator's commits would arrive here as the Task's own work
-/// and the notification would be dropped.
+/// An unclaimed sha names no Task, so another's push is delivered — guarding
+/// against a fetch being wrongly claimed as a push, which would misattribute a
+/// collaborator's commits as the Task's work.
 #[sqlx::test]
 async fn an_unclaimed_sha_names_no_task(pool: PgPool) {
     seed_task(&pool, "task-1", "user-1").await;
@@ -129,8 +122,8 @@ async fn an_unclaimed_sha_names_no_task(pool: PgPool) {
     );
 }
 
-/// The claim carries no pull request number, so the repository is the only thing
-/// keeping it apart from another repository's push of the same sha. A sha
+/// The claim carries no pull request number, so the repository is the only
+/// thing keeping it apart from another repository's push of the same sha. A sha
 /// collides across repositories whenever one is forked from the other.
 #[sqlx::test]
 async fn a_claim_answers_only_for_the_repository_it_was_filed_in(pool: PgPool) {

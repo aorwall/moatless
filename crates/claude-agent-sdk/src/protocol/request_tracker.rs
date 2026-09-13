@@ -10,8 +10,8 @@ pub(crate) struct ControlErrorInfo {
     pub pending_permission_requests: Option<Vec<Value>>,
 }
 
-/// Tracks pending outgoing control requests by ID, providing oneshot
-/// channels for response correlation.
+/// Tracks pending outgoing control requests by ID, providing oneshot channels
+/// for response correlation.
 pub(crate) struct RequestTracker {
     counter: u64,
     pending: HashMap<String, oneshot::Sender<Result<Option<Value>, ControlErrorInfo>>>,

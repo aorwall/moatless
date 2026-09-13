@@ -25,10 +25,11 @@ pub(super) fn server_get_settings(request: Request) -> Vec<Value> {
     vec![success_exit(&request.id, json!({}))]
 }
 
-/// Which client is focused decides whether *T3* keeps background work running on
-/// its own host. Moatless runs its agents in Sandboxes that no browser tab is
-/// attached to, so the report is accepted and dropped rather than refused: the
-/// client sends it on every focus change and a defect per change is pure noise.
+/// Accepted and dropped, never refused.
+///
+/// Moatless runs agents in Sandboxes no browser tab is attached to, so this
+/// per-focus-change report is meaningless here, and refusing it would just be
+/// noise.
 pub(super) fn server_report_client_activity(request: Request) -> Vec<Value> {
     vec![success_exit(&request.id, Value::Null)]
 }
@@ -61,8 +62,8 @@ pub(super) async fn server_get_config(request: Request) -> Vec<Value> {
 }
 
 /// Publishes a fresh provider list twice: as the reply, which is what stops the
-/// composer asking again, and on the open config stream, which is what fills the
-/// menu.
+/// composer asking again, and on the open config stream, which is what fills
+/// the menu.
 pub(super) async fn server_refresh_providers(request: Request) -> Vec<Value> {
     let Request {
         id,

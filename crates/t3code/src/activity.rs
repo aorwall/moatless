@@ -10,11 +10,8 @@ use moatless_types::activity::ActivityView;
 const MAX_PROJECTED_FILES: usize = 12;
 const MAX_PROJECTED_FILE_DEPTH: usize = 4;
 
-/// The kind that closes an open question panel on the client.
-///
-/// Named because a panel row whose call has come back is projected as one
-/// whether or not anything wrote a resolution beside it — see
-/// `projection::panel_kind`.
+/// The kind that closes an open question panel on the client, once its call has
+/// returned — see `projection::panel_kind`.
 pub const USER_INPUT_RESOLVED_KIND: &str = "user-input.resolved";
 
 pub trait T3ActivityViewExt {
@@ -126,10 +123,9 @@ impl T3ActivityViewExt for ActivityView<'_> {
 
 /// The identity the client's Agents surface folds a subagent card from.
 ///
-/// That surface keys its roster by `taskId` and admits only rows stamped
-/// `agentKind: "agent"`; a row without the stamp is background work and stays
-/// in the work log. The call's `tool_use_id` is the key on both sides of the
-/// wire — it is what the subagent's own rows carry as `parent_uuid`.
+/// It keys its roster by `taskId`, admits only rows stamped `agentKind:
+/// "agent"`, and uses `tool_use_id` as the wire key the subagent's own rows
+/// carry as `parent_uuid`.
 fn stamp_agent_identity(payload: &mut Map<String, Value>, view: &ActivityView<'_>) {
     let Some(task_id) = view.tool_use_id() else {
         return;
@@ -149,9 +145,8 @@ fn stamp_agent_identity(payload: &mut Map<String, Value>, view: &ActivityView<'_
 
 /// Whether this row is the call that spawned a subagent.
 ///
-/// The subagent's own work is not in the Task's stream, so this one row is the
-/// whole of what a client sees of it — which is why it is reported as a task
-/// rather than as a tool call.
+/// The subagent's own work never enters the Task's stream, so this row is
+/// reported as a task rather than a tool call.
 pub fn is_subagent_call(view: &ActivityView<'_>) -> bool {
     view.kind() == ActivityKind::ToolCall
         && t3_item_type(view.summary()) == "collab_agent_tool_call"
@@ -331,10 +326,9 @@ fn truncate_chars(value: &str, limit: usize) -> String {
     value.chars().take(limit).collect()
 }
 
-/// Keep the small pieces T3's work-log renderer reads while the full input and
-/// result stay in storage. This mirrors T3's own activity-payload projection:
-/// Codex commands and changed paths cross the wire, Claude commands use their
-/// request detail, and MCP calls retain the provider data their renderer uses.
+/// Keeps the small pieces T3's work-log renderer reads; the full input and
+/// result stay in storage, mirroring the Codex/Claude/MCP-specific projections
+/// T3 itself applies.
 fn project_tool_data(
     payload: &Map<String, Value>,
     tool_name: &str,
@@ -506,8 +500,8 @@ mod tests {
         }
     }
 
-    /// Each spelling is the one the client's own deriver matches on. A kind that
-    /// reaches it under any other name renders as nothing at all.
+    /// Each spelling is the one the client's own deriver matches on. A kind
+    /// that reaches it under any other name renders as nothing at all.
     #[test]
     fn every_kind_reaches_the_client_under_the_name_it_matches_on() {
         for (kind, expected) in [
@@ -531,10 +525,9 @@ mod tests {
         assert_eq!(ActivityView::new(&call).t3_kind(), "tool.completed");
     }
 
-    /// A tool call's raw input and result never reach this contract — it
-    /// re-sends its whole snapshot every time the conversation moves. The rows
-    /// a panel is derived from carry their own payload instead, which is why
-    /// the questions survive the strip.
+    /// A tool call's raw input/result never reach this contract since it
+    /// re-sends its whole snapshot each move; a panel's own payload carries
+    /// what a tool call strips, which is why the questions survive.
     #[test]
     fn a_panels_payload_survives_the_strip_a_calls_input_does_not() {
         let call = stored(
@@ -718,9 +711,8 @@ mod tests {
 
     /// A subagent is reported as a task the client watches run.
     ///
-    /// The subagent's own rows are not in the Task's stream, so this row is all
-    /// that is seen of it: open, it is progress; settled, it is a completion —
-    /// and a failed one is toned like every other error.
+    /// This row is all that is seen of it: open it is progress, settled it is a
+    /// completion, and a failed one is toned like any other error.
     #[test]
     fn a_subagent_call_is_reported_as_a_task_rather_than_a_tool() {
         let mut call = stored(ActivityKind::ToolCall, json!({ "input": {} }));
@@ -747,11 +739,9 @@ mod tests {
         assert_eq!(ActivityView::new(&bash).t3_tone(), "tool");
     }
 
-    /// The classifier is ordered as T3's is, and the order is what decides the
-    /// names that read like agent work but do not contain `agent`: `Task`
-    /// alone is a subagent call, `TaskCreate` reaches the `create` arm first
-    /// and is a file change. Both clients answer the same, so the answer is
-    /// held here rather than corrected.
+    /// Ordered as T3's classifier is: `Task` alone is a subagent call, but
+    /// `TaskCreate` reaches the `create` arm first and is a file change. Both
+    /// clients agree, so the order is kept rather than "corrected".
     #[test]
     fn a_name_that_only_looks_like_agent_work_is_classified_as_t3_classifies_it() {
         assert_eq!(t3_item_type("Task"), "collab_agent_tool_call");

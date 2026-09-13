@@ -50,10 +50,9 @@ impl<'a> WebhookRequest<'a> {
 
 /// Reject one ingress-path failure as worth another delivery.
 ///
-/// GitHub does not retry a failed delivery on its own: a non-2xx marks it
-/// failed in the delivery log, where it stays redeliverable by an operator for
-/// 30 days. Everything this path rejects is therefore [`IngressError::Ingress`]
-/// — a recorded, recoverable loss instead of a silent one.
+/// A non-2xx leaves GitHub's delivery redeliverable by an operator for 30 days,
+/// so everything here maps to [`IngressError::Ingress`] — a recorded,
+/// recoverable loss instead of a silent one.
 fn ingress(e: AdapterError) -> IngressError {
     IngressError::Ingress(e)
 }
@@ -362,9 +361,9 @@ pub(crate) async fn receive(
 
 /// Look up the connection and optional matching Subscription for one event.
 ///
-/// A connection is required for signature and tenant policy. A Subscription is
-/// optional because existing PR bindings remain opted in even when no trigger
-/// matches; only trigger-created Task behavior requires the real Subscription.
+/// A connection is required for signature and tenant policy; a Subscription is
+/// optional since existing PR bindings stay opted in even with no matching
+/// trigger.
 async fn resolve_provider_event(
     adapter_connections: &dyn ConnectionLookup,
     loops: &dyn LoopReader,
@@ -406,8 +405,8 @@ fn delivery_event_id(delivery_id: &str, body: &[u8]) -> String {
 
 /// Admit every planned kind in order, stopping at the first failure.
 ///
-/// Each successful admission commits independently. A redelivery therefore
-/// sees earlier kinds as duplicates and resumes at the first missing kind.
+/// Each successful admission commits independently, so a redelivery sees
+/// earlier kinds as duplicates and resumes at the first missing kind.
 async fn admit_sequentially(
     adapter_delivery: &dyn DeliveryAdmission,
     plan: Vec<AdapterDeliveryRequest>,

@@ -71,8 +71,8 @@ fn extract_falls_back_to_last_terminated_state() {
     );
 }
 
-/// When the sandbox container itself is not ready, the state is not ready
-/// even if other containers are healthy.
+/// When the sandbox container itself is not ready, the state is not ready even
+/// if other containers are healthy.
 #[test]
 fn not_ready_when_sandbox_container_not_ready() {
     let pod = pod_with_phase_and_containers(
@@ -129,9 +129,9 @@ fn server_container_restart_count_is_populated() {
     assert_eq!(sb.restart_count, 7);
 }
 
-/// `extract_pod_observed_state` captures the scheduled node and the
-/// structured `DisruptionTarget` reason so node-level correlation and the
-/// disruption cause are readable directly from the event.
+/// `extract_pod_observed_state` captures the scheduled node and the structured
+/// `DisruptionTarget` reason so node-level correlation and the disruption cause
+/// are readable directly from the event.
 #[test]
 fn extract_captures_node_and_disruption_reason() {
     use k8s_openapi::api::core::v1::{PodCondition, PodSpec, PodStatus};
@@ -194,8 +194,8 @@ fn pod_observation_carries_operation_generation() {
 }
 
 /// A remove deletes the Deployment before the pod's exit-0 event arrives, so
-/// "confirming" a scale-to-0 here would patch a Deployment that is already
-/// gone and log a spurious `NotFound` warning.
+/// "confirming" a scale-to-0 here would patch a Deployment that is already gone
+/// and log a spurious `NotFound` warning.
 #[test]
 fn clean_exit_after_remove_leaves_the_deleted_deployment_alone() {
     assert_eq!(

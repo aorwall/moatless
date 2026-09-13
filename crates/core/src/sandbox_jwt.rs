@@ -1,16 +1,11 @@
-//! JWT generation and verification for sandbox auth tokens.
-//!
 //! Generates HS256 JWTs that sandbox pods use to authenticate back to the
-//! backend. Two flavours share the same claim shape and signing secret:
+//! backend. Two flavours share the same claim shape and signing secret.
 //!
-//! - **Long-lived user token** (`aud` unset): the credential a sandbox uses for
-//!   the bulk of its gRPC calls, delivered at runtime over the `GetCredentials`
-//!   channel with a configurable (and much shorter) TTL.
-//! - **Bootstrap token** (`aud = "sandbox-bootstrap"`): a short-lived token set
-//!   on the pod spec whose *only* privilege is to authenticate the sandbox's
-//!   initial `GetCredentials` call, at which point the sandbox swaps to the
-//!   long-lived token it receives back. Minutes-scale TTL bounds the blast
-//!   radius of the one secret that still lands in etcd.
+//! The long-lived user token (`aud` unset) is the credential for a sandbox's
+//! gRPC calls; see [`generate_user_auth_token`] for its TTL behavior.
+//!
+//! The bootstrap token ([`AUDIENCE_BOOTSTRAP`]) is short-lived and scoped to
+//! bootstrapping; see [`generate_bootstrap_token`] for its lifecycle.
 
 use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, decode, encode};
 use serde::{Deserialize, Serialize};
@@ -28,10 +23,12 @@ pub struct UserTokenClaims {
     pub user_id: String,
     /// User login name
     pub login: String,
-    /// The task this token is minted for. A sandbox is provisioned per task, so
-    /// its token is bound to exactly one task id; the verification layer rejects
-    /// any RPC whose in-band `task_id` disagrees with this claim. `None` is
-    /// accepted only when the claim grace flag is on (see `SandboxAuthorizer`).
+    /// The task this token is minted for; a sandbox is provisioned per task, so
+    /// its token is bound to exactly one task id.
+    ///
+    /// The verification layer rejects any RPC whose in-band `task_id`
+    /// disagrees; `None` is accepted only when the grace flag is on (see
+    /// `SandboxAuthorizer`).
     #[serde(rename = "taskId", default, skip_serializing_if = "Option::is_none")]
     pub task_id: Option<String>,
     /// The sandbox this token is minted for. When present, backend gRPC
@@ -71,10 +68,10 @@ fn encode_claims(
 
 /// Generate the long-lived user auth token a sandbox uses for its gRPC calls.
 ///
-/// `ttl_secs` controls expiry — the token is re-minted on every `GetCredentials`
-/// response, so a short TTL is fine (the 15-min credential refresher keeps a
-/// running sandbox's copy fresh). `aud` is left unset so the backend's
-/// [`verify_user_auth_token`] accepts it everywhere.
+/// `ttl_secs` controls expiry — the token is re-minted on every
+/// `GetCredentials` response, so a short TTL is fine (the 15-min credential
+/// refresher keeps a running sandbox's copy fresh); `aud` is left unset so the
+/// backend's [`verify_user_auth_token`] accepts it everywhere.
 pub fn generate_user_auth_token(
     user_id: &str,
     login: &str,
@@ -101,9 +98,9 @@ pub fn generate_user_auth_token(
 
 /// Generate a short-lived bootstrap token (audience [`AUDIENCE_BOOTSTRAP`]).
 ///
-/// Placed on the pod spec in lieu of the long-lived user token. It authenticates
-/// only the initial `GetCredentials` call; the sandbox then swaps to the
-/// long-lived token delivered in that response.
+/// Placed on the pod spec in lieu of the long-lived user token. It
+/// authenticates only the initial `GetCredentials` call; the sandbox then swaps
+/// to the long-lived token delivered in that response.
 pub fn generate_bootstrap_token(
     user_id: &str,
     login: &str,
@@ -216,8 +213,8 @@ pub fn verify_user_auth_token(
 /// Verify a token accepted for the initial `GetCredentials` call: either a
 /// short-lived bootstrap token or a long-lived user token.
 ///
-/// Used only by the `GetCredentials` handler. Both bootstrap and long-lived user
-/// tokens are accepted here.
+/// Used only by the `GetCredentials` handler. Both bootstrap and long-lived
+/// user tokens are accepted here.
 pub fn verify_bootstrap_or_user_token(
     token: &str,
     secret: &str,
@@ -227,8 +224,8 @@ pub fn verify_bootstrap_or_user_token(
 
 /// Check if a user auth token is near expiry.
 ///
-/// Returns `true` if the token expires within `threshold_secs` seconds,
-/// or if the token is invalid / cannot be decoded.
+/// Returns `true` if the token expires within `threshold_secs` seconds, or if
+/// the token is invalid / cannot be decoded.
 pub fn is_token_near_expiry(token: &str, secret: &str, threshold_secs: u64) -> bool {
     match verify_user_auth_token(token, secret) {
         Ok(claims) => claims.exp <= now_secs() + threshold_secs,
@@ -236,10 +233,11 @@ pub fn is_token_near_expiry(token: &str, secret: &str, threshold_secs: u64) -> b
     }
 }
 
-/// Verifies `X-User-Token` JWTs against the process token secret, satisfying
-/// the consumer-declared [`crate::http_auth::UserTokenVerifier`] port. Keeps
-/// the `sandbox::jwt` dependency behind the port so the auth extractors do not
-/// name this module.
+/// Verifies `X-User-Token` JWTs against the process token secret.
+///
+/// Satisfies the consumer-declared [`crate::http_auth::UserTokenVerifier`]
+/// port, keeping the `sandbox::jwt` dependency behind it so the auth extractors
+/// do not name this module.
 pub struct JwtUserTokenVerifier {
     secret: Option<String>,
 }

@@ -20,16 +20,9 @@ use super::permission_handler::InteractivePermissionHandler;
 
 /// Claude CLI environment defaults for a sandbox run.
 ///
-/// A floor, not a setting: [`build_options`] applies each one only where the
-/// key is still unset, so a value resolved for the task — a user- or
-/// global-scoped secret, delivered on the credential channel — wins. They are
-/// deliberately not in `settings.json`, whose `env` block would outrank that
-/// channel; see [`crate::init::claude_code_settings`].
-///
-/// What they turn off is what a sandbox pod has no use for: it has no terminal,
-/// no IDE, no human watching, and a pinned CLI version it must not update away
-/// from. `CLAUDE_CODE_DISABLE_TERMINAL_TITLE` also skips the small-model title
-/// request each `claude -p` session would otherwise make.
+/// A floor, not a setting: [`build_options`] applies each only where the key is
+/// unset, so a task-resolved credential-channel value wins; kept out of
+/// `settings.json`, whose `env` block would outrank it.
 pub const CLAUDE_ENV_DEFAULTS: &[(&str, &str)] = &[
     ("CLAUDE_CODE_AUTO_COMPACT_WINDOW", "300000"),
     ("CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING", "1"),
@@ -202,9 +195,8 @@ pub fn build_options(
 
 /// The tools kept out of the CLI's context for this run.
 ///
-/// See the call site in [`build_options`] for why each one is on the list. A
-/// plan-mode run keeps `ExitPlanMode`: it is the only way out of plan mode, and
-/// asking for plan mode is asking for the approval prompt it raises.
+/// A plan-mode run keeps `ExitPlanMode`: it is the only way out of plan mode,
+/// and asking for plan mode is asking for the approval prompt it raises.
 fn disallowed_tools(config: &Config, is_plan_mode: bool) -> Vec<String> {
     let mut tools: Vec<&str> = Vec::new();
     if !config.use_tmux {
@@ -237,11 +229,8 @@ const CLAUDE_EFFORT_LEVELS: &[&str] = &["low", "medium", "high", "xhigh", "max"]
 /// The `--effort` value for a requested effort, or `None` to leave the CLI on
 /// its own default.
 ///
-/// `ultracode` is a Claude Code setting rather than a CLI level and stands for
-/// the highest reasoning the model offers, so it resolves to `xhigh`. A level
-/// this CLI does not know (`ultrathink`, which is prompt-injected where it is
-/// implemented at all) is dropped with a warning rather than passed through for
-/// the CLI to ignore silently.
+/// `ultracode` maps to `xhigh` (a Claude Code setting, not a CLI level); an
+/// unknown level is dropped with a warning instead of passed through.
 fn claude_effort(requested: Option<&str>) -> Option<String> {
     let requested = requested.map(str::trim).filter(|value| !value.is_empty())?;
     let level = match requested.to_ascii_lowercase().as_str() {
@@ -258,14 +247,9 @@ fn claude_effort(requested: Option<&str>) -> Option<String> {
 /// Return the backend-supplied append-system-prompt, prefixed with a note
 /// describing the workspace layout.
 ///
-/// The backend assembles the bulk of the prompt (task identity, repo/channel
-/// system prompts, preview servers, task URL, CLI reference, GitHub hint) when
-/// the coordinator fetches the system prompt. On top of that, the sandbox
-/// prepends a short explanation of the on-disk layout, since only the
-/// sandbox knows the concrete `workspace_dir`/`repo_dir` paths for this pod:
-/// the workspace dir is the persisted working area (the agent's cwd, synced to
-/// durable storage), and the repo dir is the checkout of the task repository
-/// inside it.
+/// The sandbox prepends this note because only it knows the concrete
+/// `workspace_dir`/`repo_dir` paths for this pod; the backend assembles the
+/// rest without them.
 pub fn build_prompt_append(config: &Config, request: &AgentRunRequest) -> String {
     let backend_prompt = request.system_prompt.clone().unwrap_or_default();
     let layout_note = build_workspace_layout_note(config);
@@ -290,16 +274,9 @@ pub fn build_prompt_append(config: &Config, request: &AgentRunRequest) -> String
 
 /// Build the workspace-layout note prepended to every system prompt.
 ///
-/// Explains the split between the workspace dir (the agent's cwd) and the repo
-/// dir (the checkout of the task's repository). The note is deliberately precise
-/// about *what persists*: the task repository is snapshotted to durable storage
-/// (its committed history plus tracked/untracked-non-ignored working-tree
-/// changes), so repo work survives sandbox restarts. Files written outside the
-/// repository — loose files in the workspace dir — are currently ephemeral. A
-/// workspace that places several repositories lists the others too, so the agent
-/// knows they were checked out for it rather than assuming a stray clone. When
-/// there is no separate repo checkout (`repo_dir == workspace_dir`) the note
-/// collapses to a single paragraph.
+/// States what persists: the repo is snapshotted to durable storage and
+/// survives restarts, but loose files elsewhere in the workspace dir are
+/// ephemeral. Collapses to one paragraph when `repo_dir == workspace_dir`.
 fn build_workspace_layout_note(config: &Config) -> String {
     let workspace_dir = &config.workspace_dir;
     if config.repo_dir == config.workspace_dir {
@@ -350,11 +327,9 @@ fn build_workspace_layout_note(config: &Config) -> String {
 
 /// Tell the agent to hand long-running work to `moat cmd`.
 ///
-/// Only in subprocess mode: there the per-turn CLI runs one-shot with
-/// `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1`, so `Bash(run_in_background)` is
-/// gone and the Bash tool kills anything past its 10-minute cap — an agent left
-/// to itself blocks the turn on `sleep` loops polling a build. In tmux mode the
-/// session persists and none of that applies, so the note would only mislead.
+/// Subprocess-mode only: the per-turn CLI runs one-shot with background tasks
+/// disabled, so an agent left to itself blocks the turn polling a build; tmux
+/// mode keeps a persistent session, where this would mislead.
 fn build_managed_command_note(config: &Config) -> Option<String> {
     if config.use_tmux {
         return None;
@@ -378,11 +353,11 @@ fn build_managed_command_note(config: &Config) -> Option<String> {
     )
 }
 
-/// The root instruction filenames to look for, in preference order, for the
-/// harness this Member runs: Claude reads `CLAUDE.md` and Codex reads
-/// `AGENTS.md`, so the agent is pointed at the file it would have loaded itself.
-/// A repo commits one of the two (often as a symlink to the other), so the other
-/// name is the fallback.
+/// The root instruction filenames to look for, in preference order: Claude
+/// reads `CLAUDE.md`, Codex reads `AGENTS.md`.
+///
+/// The agent is pointed at the file it would load itself; the other name is the
+/// fallback, since a repo commits one as a symlink to the other.
 fn repo_instruction_filenames(config: &Config) -> [&'static str; 2] {
     let is_codex = config
         .agent_type
@@ -402,23 +377,12 @@ fn repo_instruction_filenames(config: &Config) -> [&'static str; 2] {
 const MAX_INLINED_INSTRUCTIONS_BYTES: usize = 64 * 1024;
 
 /// Build the "# Repository Instructions" section for each checked-out repo's
-/// root instruction file.
+/// root instruction file, inlined by default since a pointer alone often goes
+/// unread.
 ///
-/// These files are kept out of the agents' on-the-fly memory loading (Claude's
-/// `claudeMdExcludes`, Codex's `project_doc_max_bytes = 0`; both set in `init`),
-/// so this section is the only thing that puts them in front of the agent.
-///
-/// By default the contents are inlined: being told a path is not the same as
-/// reading it, and an agent that skips the file works without the repo's
-/// conventions. A repo opts out with `agentConfig.frontloadInstructions: false`
-/// in its `REPO_CONFIG` — see
-/// [`crate::config::AgentConfig::frontload_instructions_enabled`] — and gets the
-/// path listing instead, which is the cheaper choice for a large file or a multi-repo
-/// workspace whose other repos the task never touches. That config travels with
-/// the primary repo, so in a multi-repo workspace its setting governs the
-/// section as a whole.
-///
-/// Returns `None` when no checked-out repo has a root instruction file.
+/// A repo opts out via `frontloadInstructions: false`, which travels with the
+/// primary repo and governs the whole section in a multi-repo workspace.
+/// Returns `None` when no repo has one.
 fn build_repo_instructions_section(config: &Config) -> Option<String> {
     let filenames = repo_instruction_filenames(config);
     let paths: Vec<String> = config
@@ -455,9 +419,7 @@ fn build_repo_instructions_section(config: &Config) -> Option<String> {
 
 /// Render one repo instruction file as a section titled by its path.
 ///
-/// A file that cannot be read degrades to pointing at it: the agent still learns
-/// the repo has conventions and where they live, which is what the path-listing
-/// mode would have given it anyway.
+/// A read failure degrades to pointing at the file instead of inlining it.
 fn inline_repo_instructions(path: &str) -> String {
     match read_capped(path, MAX_INLINED_INSTRUCTIONS_BYTES) {
         Ok((contents, truncated)) => {
@@ -484,18 +446,12 @@ fn inline_repo_instructions(path: &str) -> String {
     }
 }
 
-/// Read at most `limit` bytes of `path`, stopping there rather than pulling the
-/// whole file into memory first.
+/// Read at most `limit` bytes of `path`, stopping there instead of reading the
+/// whole file first.
 ///
-/// The cap has to apply *while* reading, not after. This path is repo-controlled
-/// and [`repo_instruction_path`] resolves through symlinks, so a checkout can
-/// aim `CLAUDE.md` at something enormous or endless (`/dev/zero`). Reading it
-/// whole and trimming afterwards would let a repo decide how much memory and
-/// time prompt assembly spends; a bounded read makes that impossible.
-///
-/// Returns the text and whether the cap cut it short. Bytes are trimmed back to
-/// the last valid UTF-8 boundary, which covers a cut landing mid-character and
-/// also keeps a malformed file from failing the whole section.
+/// The cap must apply *while* reading: `path` is repo-controlled and may
+/// symlink to something endless (`/dev/zero`), so reading whole and trimming
+/// after would let a repo dictate assembly's memory and time.
 fn read_capped(path: &str, limit: usize) -> std::io::Result<(String, bool)> {
     use std::io::Read;
 
@@ -520,8 +476,8 @@ fn read_capped(path: &str, limit: usize) -> std::io::Result<(String, bool)> {
 }
 
 /// The path of a repo's root instruction file: the first of `filenames` that
-/// exists. Existence follows symlinks (the `CLAUDE.md -> AGENTS.md` convention),
-/// so either committed name resolves.
+/// exists. Existence follows symlinks (the `CLAUDE.md -> AGENTS.md`
+/// convention), so either committed name resolves.
 fn repo_instruction_path(dir: &str, filenames: [&'static str; 2]) -> Option<String> {
     filenames.into_iter().find_map(|filename| {
         let path = Path::new(dir).join(filename);
@@ -684,11 +640,11 @@ fn normalize_marketplace_path(raw: &str) -> Result<String, String> {
     Ok(stripped.to_string())
 }
 
-/// Resolve session resume from request.
+/// Resolve session resume from request into `(resume_session_id,
+/// continue_conversation)`.
 ///
-/// Returns `(resume_session_id, continue_conversation)`:
-/// - `WithId(id)` → `--resume <id>`
-/// - `Last` → `--continue` (let the CLI find the latest session)
+/// `WithId(id)` maps to `--resume <id>`; `Last` maps to `--continue`, letting
+/// the CLI find the latest session.
 fn resolve_resume(request: &AgentRunRequest) -> (Option<String>, Option<bool>) {
     use super::types::ResumeSession;
     match &request.resume {
@@ -1095,8 +1051,8 @@ mod tests {
         assert!(!note.contains("Also checked out beside it"));
     }
 
-    /// A multi-repo workspace must tell the agent the sibling checkouts are part
-    /// of the task, not stray clones it should ignore.
+    /// A multi-repo workspace must tell the agent the sibling checkouts are
+    /// part of the task, not stray clones it should ignore.
     #[test]
     fn layout_note_lists_the_workspaces_other_repos() {
         let mut config = test_config(false);
@@ -1162,8 +1118,8 @@ mod tests {
         }
     }
 
-    /// By default each repo's root instruction file is inlined under its path; a
-    /// repo carrying only the other filename is picked up via the fallback.
+    /// By default each repo's root instruction file is inlined under its path;
+    /// a repo carrying only the other filename is picked up via the fallback.
     #[test]
     fn repo_instructions_section_inlines_each_repos_root_file_by_default() {
         let root = tempdir().unwrap();
@@ -1241,7 +1197,8 @@ mod tests {
         assert!(append.len() < body.len() + 4096);
     }
 
-    /// The cap cuts on a UTF-8 boundary, and a file within it is returned whole.
+    /// The cap cuts on a UTF-8 boundary, and a file within it is returned
+    /// whole.
     #[test]
     fn read_capped_stops_at_the_limit_without_splitting_a_character() {
         let root = tempdir().unwrap();
@@ -1290,8 +1247,9 @@ mod tests {
         assert!(section.contains("could not be read"));
     }
 
-    /// A repo committing both names is pointed at under the one the running agent
-    /// would have loaded itself: `CLAUDE.md` for Claude, `AGENTS.md` for Codex.
+    /// A repo committing both names is pointed at under the one the running
+    /// agent would have loaded itself: `CLAUDE.md` for Claude, `AGENTS.md` for
+    /// Codex.
     #[test]
     fn repo_instructions_filename_follows_the_agent() {
         let root = tempdir().unwrap();
@@ -1340,8 +1298,8 @@ mod tests {
         }
     }
 
-    /// A repo with no root instruction file adds no section rather than an empty
-    /// heading.
+    /// A repo with no root instruction file adds no section rather than an
+    /// empty heading.
     #[test]
     fn repo_instructions_section_absent_without_instruction_files() {
         let root = tempdir().unwrap();

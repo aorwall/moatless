@@ -52,11 +52,9 @@ pub enum PresignOp {
 
 /// Presign `keys` for one operation, in order, under a single TTL.
 ///
-/// [`effective_presign_ttl`] reads the credentials provider, and that read is a
-/// network call whenever the provider's cache is cold. Signing a few hundred
-/// keys one call at a time pays it a few hundred times, which is what put a
-/// batch of 500 past the sandbox's gRPC deadline. The whole batch shares one
-/// resolved TTL, so the caller gets it back rather than a per-URL minimum.
+/// [`effective_presign_ttl`] calls the credentials provider when its cache is
+/// cold; signing per-key put a 500-key batch past the sandbox's gRPC deadline,
+/// so the whole batch shares one resolved TTL, returned to the caller.
 pub async fn presign_batch(
     storage: &S3Storage,
     bucket: &str,

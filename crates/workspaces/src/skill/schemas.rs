@@ -8,7 +8,8 @@ use super::models::Skill;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum SkillSource {
-    /// Skill lives in the workspace repository's own `.claude/skills/` directory.
+    /// Skill lives in the workspace repository's own `.claude/skills/`
+    /// directory.
     Workspace,
     /// Skill lives inside a linked plugin.
     Plugin,

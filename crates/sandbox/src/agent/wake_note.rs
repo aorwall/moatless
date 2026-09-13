@@ -14,12 +14,9 @@ use tracing::warn;
 
 /// How long a note stays deliverable.
 ///
-/// A note describes a pod replacement its caller was about to cause, and a
-/// replacement takes minutes. Past this bound the caller either never caused
-/// one or the agent has long since moved on, so delivering the note would
-/// announce an event that did not just happen. It also bounds the note a
-/// transport error deliberately keeps; see `cancel_wake_note` in
-/// `moatless-cli`.
+/// Past this, the caller either never caused the replacement or the agent has
+/// long since moved on; also bounds the note a transport error deliberately
+/// keeps (`cancel_wake_note` in `moatless-cli`).
 const MAX_AGE_MS: i64 = 60 * 60 * 1000;
 
 /// One caller's note, waiting for the agent it names.
@@ -28,22 +25,21 @@ const MAX_AGE_MS: i64 = 60 * 60 * 1000;
 pub struct WakeNote {
     /// What the agent is told. The caller owns the wording.
     pub text: String,
-    /// When [`record`] stored it, against which [`take`] applies [`MAX_AGE_MS`].
+    /// When [`record`] stored it, against which [`take`] applies
+    /// [`MAX_AGE_MS`].
     pub recorded_at_unix_ms: i64,
 }
 
 /// Every Member's note, keyed by `task_id`.
 ///
-/// A Sandbox has several Members and each one drives its own agent, so a note
-/// carries the Member it is owed to. Keying by Member is also what makes
-/// [`cancel`] unambiguous when two of them record at once.
+/// A Sandbox has several Members, each driving its own agent; keying by Member
+/// is what makes [`cancel`] unambiguous when two record at once.
 type Notes = BTreeMap<String, WakeNote>;
 
 /// Serializes the read-modify-write every entry point performs.
 ///
-/// tonic serves concurrently and two Members can record at once, so an
-/// unguarded read-modify-write would drop whichever note was read first. The
-/// pod holds one notes file, so one lock covers it.
+/// tonic serves concurrently, so an unguarded read-modify-write could drop
+/// whichever note was read first; one lock covers the pod's single notes file.
 static NOTES_LOCK: Mutex<()> = Mutex::const_new(());
 
 /// Where the pod's wake notes live. Inside `WORKSPACE_DIR` so they ride the
@@ -53,13 +49,11 @@ pub fn default_path(workspace_dir: &str) -> PathBuf {
     Path::new(workspace_dir).join(".moat-wake-notes.json")
 }
 
-/// Hold `text` for `task_id`, replacing any note that Member already left.
+/// Hold `text` for `task_id`, replacing any note that Member already left; a
+/// Member has at most one, since it can cause only one replacement.
 ///
-/// A Member has at most one note because a note describes the pod replacement
-/// the caller is about to cause, and it can only cause one.
-///
-/// An error means nothing was stored. The caller must not take the pod down
-/// after one, or the agent is never told why the pod went away.
+/// An error means nothing was stored — the caller must not take the pod down
+/// after one, or the agent is never told why.
 pub async fn record(path: &Path, task_id: &str, text: String) -> std::io::Result<()> {
     let _guard = NOTES_LOCK.lock().await;
     let mut notes = read(path).await;
@@ -75,9 +69,9 @@ pub async fn record(path: &Path, task_id: &str, text: String) -> std::io::Result
 
 /// Drop `task_id`'s note.
 ///
-/// The caller records before it acts, because a pod that is going down cannot
-/// be told anything afterwards. An action that then fails outright has to take
-/// its note back, or the next unrelated replacement delivers it.
+/// The caller records before it acts, since a pod going down cannot be told
+/// anything afterward; an action that then fails outright must take its note
+/// back, or the next unrelated replacement delivers it.
 pub async fn cancel(path: &Path, task_id: &str) -> std::io::Result<()> {
     let _guard = NOTES_LOCK.lock().await;
     let mut notes = read(path).await;
@@ -88,10 +82,10 @@ pub async fn cancel(path: &Path, task_id: &str) -> std::io::Result<()> {
 }
 
 /// Read and clear every note a previous incarnation of this pod left behind,
-/// dropping any that is older than [`MAX_AGE_MS`].
+/// dropping any older than [`MAX_AGE_MS`].
 ///
-/// Clearing here is what delivers a note exactly once: the file is gone whether
-/// or not it parsed, so a corrupt file cannot be re-read on every later start.
+/// Clearing here delivers a note exactly once: the file is gone whether or not
+/// it parsed, so a corrupt file isn't re-read on every later start.
 pub async fn take(path: &Path) -> Notes {
     let _guard = NOTES_LOCK.lock().await;
     let mut notes = read(path).await;

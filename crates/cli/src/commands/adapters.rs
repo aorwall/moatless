@@ -19,8 +19,8 @@ pub enum AdaptersAction {
     List,
     /// Launch the OAuth install flow for an adapter.
     ///
-    /// Builds the backend install URL and opens it in your browser
-    /// (use `--print` to copy/paste instead). Currently supports `linear`.
+    /// Opens the backend's install URL in your browser (`--print` copies/pastes
+    /// instead). Currently supports `linear`.
     Install {
         #[arg(long)]
         adapter: String,

@@ -13,10 +13,9 @@ use crate::setup::SetupStatus;
 
 /// Query params for OAuth callback.
 ///
-/// `code` is optional because a provider sends `error` instead when the person
-/// declines on the consent screen. Requiring it makes the extractor reject that
-/// callback with a deserialization error, before any handler can redirect the
-/// browser back where it came from.
+/// `code` is optional: a provider sends `error` instead when the person
+/// declines, and requiring `code` would reject that callback before any handler
+/// can redirect back.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct OAuthCallbackQuery {
     pub code: Option<String>,
@@ -43,8 +42,8 @@ pub struct UpdateUserRequest {
 
 /// Body for PATCH /api/v1/users/{login}.
 ///
-/// `None` means the field was omitted and should remain unchanged.
-/// `Some(None)` means the caller explicitly sent `null` and the column should be cleared.
+/// `None` leaves the field unchanged; `Some(None)` is an explicit `null` that
+/// clears the column.
 #[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
@@ -101,9 +100,8 @@ pub struct SessionResponse {
 
 /// Connection state for an external provider (OAuth app, GitHub App, PAT, …).
 ///
-/// `connected = false` indicates the frontend should prompt the user to
-/// reconnect: either no token is stored, or the most recent refresh attempt
-/// failed.
+/// `connected = false` means the frontend should prompt reconnect: no token is
+/// stored, or the most recent refresh failed.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
@@ -158,9 +156,8 @@ pub struct CreatePairingCodeRequest {
 
 /// POST /api/v1/auth/pairing-codes response.
 ///
-/// The code is readable here and nowhere else — only its hash is stored — so a
-/// caller that loses this response asks for another code rather than recovering
-/// this one.
+/// The code is readable only here — only its hash is stored — so a caller that
+/// loses it must request a new code.
 #[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
@@ -212,15 +209,6 @@ pub struct UserListResponse {
 }
 
 /// POST /api/v1/users request.
-///
-/// With `isBot: true`, creates a bot user backed by a configured GitHub App:
-/// the server resolves the App's `{slug}[bot]` identity from
-/// `GitHubAppRegistry` and writes both the `users` row and the matching
-/// `provider_tokens` row atomically. `githubAppKey` is required in this mode.
-///
-/// With `isBot: false`, creates a human user with a local password. Only
-/// available when the server runs local password auth; `email`, `login`, and
-/// `password` are required in this mode.
 ///
 /// `Debug` is hand-written to redact `password`.
 #[derive(Serialize, Deserialize)]
@@ -341,8 +329,9 @@ pub enum AuthMode {
 
 /// GET /api/v1/auth/mode response.
 ///
-/// A dedicated endpoint rather than a field on `SessionResponse`: `/auth/me`
-/// 401s for anonymous callers, and the login page is anonymous by definition.
+/// A dedicated endpoint rather than a field on `SessionResponse`, since
+/// `/auth/me` 401s for anonymous callers and the login page is anonymous by
+/// definition.
 #[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
@@ -352,7 +341,8 @@ pub struct AuthModeResponse {
     pub provider: String,
     /// Human-readable provider label for the login UI (for example, `Google`).
     pub provider_name: Option<String>,
-    /// Where to send the browser to start an OAuth login. `None` in password mode.
+    /// Where to send the browser to start an OAuth login. `None` in password
+    /// mode.
     pub login_url: Option<String>,
 }
 

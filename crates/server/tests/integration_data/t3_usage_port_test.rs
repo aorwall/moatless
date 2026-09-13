@@ -7,9 +7,9 @@
 )]
 //! Integration tests for the `UsageReporter` port the T3 band builds.
 //!
-//! The bucket query is built by string interpolation and bound positionally,
-//! so a parameter index that drifts from the bind order compiles and only
-//! fails when Postgres prepares the statement. Every test here executes it.
+//! The bucket query is built by string interpolation and bound positionally, so
+//! a parameter index that drifts from the bind order compiles and only fails
+//! when Postgres prepares the statement. Every test here executes it.
 
 use crate::common;
 

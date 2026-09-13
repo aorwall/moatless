@@ -28,7 +28,8 @@ pub enum DockerAction {
 
 #[derive(Subcommand)]
 pub enum EnvAction {
-    /// Write or replace a key in `.env` (creates `.env` from `.env.example` if missing)
+    /// Write or replace a key in `.env` (creates `.env` from `.env.example` if
+    /// missing)
     Set(EnvSetArgs),
 
     /// Remove a key from `.env` entirely. Distinct from `set KEY ""` — the next
@@ -36,7 +37,8 @@ pub enum EnvAction {
     /// secrets (e.g. `TASK_TOKEN_SECRET`, `SECRETS_ENCRYPTION_KEY`).
     Unset(EnvUnsetArgs),
 
-    /// Show all keys in `.env` with status (set / placeholder / empty); secrets are masked
+    /// Show all keys in `.env` with status (set / placeholder / empty); secrets
+    /// are masked
     List(EnvListArgs),
 }
 
@@ -134,7 +136,8 @@ pub struct LogsArgs {
     #[arg(long, short = 'f')]
     pub follow: bool,
 
-    /// Only show logs from this many lines back (e.g. `100`) or time window (e.g. `10m`)
+    /// Only show logs from this many lines back (e.g. `100`) or time window
+    /// (e.g. `10m`)
     #[arg(long)]
     pub since: Option<String>,
 }

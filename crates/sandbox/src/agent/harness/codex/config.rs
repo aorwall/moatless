@@ -5,9 +5,10 @@ use std::sync::Arc;
 #[derive(Clone)]
 pub struct CodexConfig {
     pub config: Arc<Config>,
-    /// Shared per-credential failure flags. A Turn that fails with the named
-    /// code for an unauthorized request flips the Codex flag, which the
-    /// coordinator polls to drive a credential pull + retry, keeping credential
-    /// recovery behind the harness.
+    /// Shared per-credential failure flags.
+    ///
+    /// A Turn that fails with the named unauthorized-request code flips the
+    /// Codex flag, which the coordinator polls to drive a credential pull +
+    /// retry, keeping credential recovery behind the harness.
     pub credential_failures: CredentialFailureDetector,
 }

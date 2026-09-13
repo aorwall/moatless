@@ -2,16 +2,13 @@
 // allows these at its own root.
 #![allow(clippy::print_stdout, clippy::print_stderr)]
 
-//! Print every architecture violation in the workspace.
+//! Prints every architecture violation in the workspace; exits 0 regardless.
 //!
 //! ```text
 //! cargo run -p moatless-arch-rules --bin arch-report
 //! cargo run -p moatless-arch-rules --bin arch-report -- --update-baseline
 //! cargo run -p moatless-arch-rules --bin arch-report -- --persistence-inventory
 //! ```
-//!
-//! Exits 0 whatever it finds. Enforcement is the test harness's job, so this
-//! stays usable as a to-do list while the counts come down.
 
 #[path = "arch_report/report.rs"]
 mod report;

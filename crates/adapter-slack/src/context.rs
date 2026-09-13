@@ -361,10 +361,10 @@ mod tests {
         assert!(stub.paths().is_empty(), "a configured id costs no call");
     }
 
-    /// The reported incident: an app registered with no `bot_user_id` produced
-    /// a system prompt with no response-discipline block at all, and the agent
-    /// answered a question two other people were having. The id is derivable,
-    /// so an unset optional field must not decide what the agent does.
+    /// The reported incident: an unset `bot_user_id` left the agent silently
+    /// answering a question between two other people.
+    ///
+    /// The id is derivable, so an unset field must not decide agent behavior.
     #[tokio::test]
     async fn an_unconfigured_bot_id_is_derived_so_the_silence_rules_still_ship() {
         let stub = identified_stub().await;

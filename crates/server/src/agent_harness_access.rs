@@ -105,7 +105,8 @@ impl CodexDeviceLoginProvider for ProviderCodexDeviceLogin {
     }
 }
 
-/// Restrict credential access to the caller's own user scope or an administrator.
+/// Restrict credential access to the caller's own user scope or an
+/// administrator.
 fn authorize_scope(
     ctx: &ScopeContext,
     scope: &CodexScope,

@@ -23,11 +23,9 @@ fn origin_of(url: &str) -> Option<&str> {
 
 /// Where a finished connect may send the browser.
 ///
-/// A request names its own return URL, so it is checked against the same
-/// origins the CSRF middleware trusts for cookie-authenticated writes; anything
-/// else is an open redirect and falls back to the configured frontend. One list
-/// covers both because a client that may drive writes with this session is
-/// already a client this session's credential work belongs to.
+/// Checked against the same origins the CSRF middleware trusts for
+/// cookie-authenticated writes; anything else is an open redirect and falls
+/// back to the configured frontend.
 pub(super) fn approved_return_url(
     frontend_url: &str,
     trusted_origins: &[AllowedOrigin],
@@ -51,11 +49,10 @@ pub(super) fn approved_return_url(
     }
 }
 
-/// Load `return_url` with `param={outcome}`, ahead of any fragment.
+/// Loads `return_url` with `param={outcome}`, ahead of any fragment.
 ///
-/// A fragment is not part of the query, so appending after one puts the
-/// parameter where `location.search` cannot see it — and reporting the outcome
-/// is the only thing it is for.
+/// A fragment isn't part of the query, so appending after one puts the
+/// parameter where `location.search` can't see it.
 pub(super) fn with_outcome(return_url: &str, param: &str, outcome: &str) -> String {
     let (base, fragment) = match return_url.split_once('#') {
         Some((base, fragment)) => (base, Some(fragment)),

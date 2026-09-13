@@ -79,10 +79,11 @@ pub(super) struct AuthState {
     /// override, and the validated PAT itself.
     pub(super) secrets: Arc<SecretService>,
     /// Preview-URL access for the session gate — the one `may_access_task` bool
-    /// the `ForwardAuth` gate needs (E-(b)), behind a port so this crate holds no
-    /// `task` import.
+    /// the `ForwardAuth` gate needs (E-(b)), behind a port so this crate holds
+    /// no `task` import.
     pub(super) task_access: Arc<dyn moatless_core::http_auth::TaskAccess>,
     /// Verifies the sandbox-issued `X-User-Token` on `exchange_token`, behind a
-    /// port so this crate holds neither the token secret nor a `sandbox` import.
+    /// port so this crate holds neither the token secret nor a `sandbox`
+    /// import.
     pub(super) token_verifier: Arc<dyn moatless_core::http_auth::UserTokenVerifier>,
 }

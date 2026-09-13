@@ -1,23 +1,15 @@
 // reason: examples print results to stdout/stderr for the reader.
 #![allow(clippy::print_stdout, clippy::print_stderr)]
 
-//! Tmux-mode one-shot query. Spawns the real interactive Claude TUI inside a
-//! detached tmux session, drives it via the paste buffer, and consumes the
-//! JSONL transcript as `SdkMessage` events — same shape as `simple_query.rs`,
-//! different backend.
+//! Tmux-mode one-shot query: drives the real interactive Claude TUI in a
+//! detached tmux session and reads its JSONL transcript as `SdkMessage`s.
 //!
-//! # Requirements
-//! - `tmux` and `claude` CLIs on your PATH
-//! - A valid auth setup for `claude`
+//! Needs `tmux` and `claude` on your PATH. Attach with `tmux attach -t
+//! claude-sdk-<8 hex>` (`tmux ls` names it) to watch the TUI.
 //!
-//! # Usage
 //! ```bash
 //! cargo run -p claude-agent-sdk --example tmux_hello
 //! ```
-//!
-//! While running, you can attach to the tmux session in another terminal with
-//! `tmux attach -t claude-sdk-<8 hex>` (run `tmux ls` to find the name) to
-//! observe the TUI; the SDK consumer will still see all messages.
 
 use claude_agent_sdk::api::messages::ResultMessage;
 use claude_agent_sdk::{query_tmux, ClaudeOptions, ContentBlock, SdkMessage};

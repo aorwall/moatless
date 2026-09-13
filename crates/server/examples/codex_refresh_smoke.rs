@@ -1,25 +1,13 @@
 //! Local smoke test for `refresh_chatgpt_tokens`.
 //!
-//! Reads a Codex `auth.json` blob from disk (defaults to
-//! `$HOME/.codex/auth.json`, override with `CODEX_AUTH_JSON_PATH`), extracts
-//! the `refresh_token`, and exercises the backend-side refresh primitive
-//! against the live `auth.openai.com` endpoint.
+//! Reads a Codex `auth.json` (default `$HOME/.codex/auth.json`, override via
+//! `CODEX_AUTH_JSON_PATH`) and calls the live refresh endpoint (mock via
+//! `CODEX_REFRESH_TOKEN_URL_OVERRIDE`).
 //!
-//! **WARNING**: a successful refresh rotates the `refresh_token` server-side.
-//! Once this runs, the OLD `refresh_token` in the file you read from is dead.
-//! If you ran this against the SoapLabBot account's blob, immediately
-//! persist the rotated value back to AWS Secrets Manager and/or POST it
-//! through the admin endpoint targeting `bot:reviewer` before another caller
-//! tries to use the old token.
-//!
-//! Set `CODEX_WRITE_BACK=1` to merge the rotated tokens back into the source
-//! file (keeps the file alive for your local Codex CLI). Off by default so
-//! the smoke stays a pure read-only test of the primitive.
-//!
-//! Set `CODEX_REFRESH_TOKEN_URL_OVERRIDE=http://localhost:9999/...` to
-//! point at a mock instead of the live endpoint.
-//!
-//! Run: `cargo run --example codex_refresh_smoke -p moatless-backend`
+//! **WARNING**: refresh rotates `refresh_token` server-side, killing the old
+//! one — against SoapLabBot's blob, persist the rotated value immediately, or
+//! set `CODEX_WRITE_BACK=1` to write it back to the source file (off by
+//! default).
 
 #![allow(clippy::print_stdout)] // reason: smoke example writes to stdout by design
 

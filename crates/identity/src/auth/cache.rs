@@ -1,7 +1,7 @@
 //! In-memory cache for auth verification (API keys).
 //!
-//! Session authentication uses self-validating JWTs — no cache needed.
-//! This cache eliminates DB hits on the API key verification path.
+//! Session authentication uses self-validating JWTs — no cache needed. This
+//! cache eliminates DB hits on the API key verification path.
 
 use chrono::{DateTime, Utc};
 use moka::future::Cache;
@@ -10,8 +10,8 @@ use std::time::Duration;
 
 use moatless_types::user::UserRole;
 
-/// Minimal payload cached for verify responses.
-/// Contains only what `verify_handler` needs — no tokens are cached.
+/// Minimal payload cached for verify responses. Contains only what
+/// `verify_handler` needs — no tokens are cached.
 #[derive(Debug, Clone)]
 pub struct VerifyPayload {
     pub user_id: String,

@@ -24,9 +24,9 @@ struct LoadedUpload {
 
 /// Split an upload into the chunk sequence `DownloadUploadChunked` streams.
 ///
-/// The first chunk names the file; the rest carry bytes only. A zero-byte
-/// upload still yields one chunk, so the filename always reaches the sandbox
-/// and an empty stream stays available to mean "protocol violation".
+/// The first chunk names the file, the rest carry bytes only; a zero-byte
+/// upload still yields one chunk, so the filename always arrives and an empty
+/// stream stays free to mean "protocol violation".
 fn upload_chunks(upload: LoadedUpload) -> Vec<UploadChunk> {
     /// 1 MiB, matching the transcript stream: well inside any default
     /// per-message cap, and tens of messages for a 50 MiB upload.
@@ -126,7 +126,7 @@ impl BackendSandboxServiceImpl {
 
 /// Serve an uploaded file's bytes to the sandbox in one message.
 ///
-/// Bounded by the transport's per-message cap. Auth and scope checks are
+/// Bounded by the transport's per-message cap; auth and scope checks are
 /// [`BackendSandboxServiceImpl::load_upload`]'s.
 pub(super) async fn download_upload(
     service: &BackendSandboxServiceImpl,
@@ -147,16 +147,10 @@ pub(super) async fn download_upload(
 
 /// Stream an uploaded file's bytes to the sandbox, chunk by chunk.
 ///
-/// The sandbox calls this for every `file_id` on a pending message before it
-/// invokes the agent, so the path the prompt advertises ("Saved to: …") is
-/// valid by the time the agent reads it. Each message is `CHUNK_SIZE`, whatever
-/// the file weighs.
-///
-/// The object is read from S3 before the first chunk goes out, so the
-/// client-side call timeout — which tonic applies to the response headers and
-/// not to the body that follows — covers the S3 read.
-///
-/// Auth and scope checks are [`BackendSandboxServiceImpl::load_upload`]'s.
+/// Called for every `file_id` on a pending message before the agent runs, so
+/// the advertised "Saved to: …" path is valid by then; the S3 read happens
+/// before the first chunk, so tonic's response-header timeout covers it. Auth
+/// and scope checks are [`BackendSandboxServiceImpl::load_upload`]'s.
 pub(super) async fn download_upload_chunked(
     service: &BackendSandboxServiceImpl,
     request: Request<DownloadUploadRequest>,

@@ -72,8 +72,8 @@ pub struct FeedbackWithTask {
     pub workspace_id: Option<String>,
 }
 
-/// The task's most recent point of activity, used to scope feedback the
-/// caller submitted without naming a message or tool call.
+/// The task's most recent point of activity, used to scope feedback the caller
+/// submitted without naming a message or tool call.
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct LatestActivity {
     pub message_uuid: String,

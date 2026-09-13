@@ -1,12 +1,10 @@
 //! Snapshotting the workspace into the task's `restic` repository.
 //!
-//! One repository per task, at the prefix the backend names, opened with the
-//! password it derives. A snapshot ships only the blocks that moved, and it
-//! commits or it does not exist: a run killed mid-write leaves unreferenced
-//! packs and no snapshot, never a tree mixed from two generations.
-//!
-//! `rustic_core` is synchronous throughout, so every call here runs inside one
-//! `spawn_blocking`.
+//! One repository per task, at the prefix the backend names. A snapshot ships
+//! only the blocks that moved, and it commits or it does not exist: a run
+//! killed mid-write leaves unreferenced packs and no snapshot, never a tree
+//! mixed from two generations. `rustic_core` is synchronous throughout, so
+//! every call here runs inside one `spawn_blocking`.
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -39,37 +37,28 @@ pub(super) const FORMAT: &str = "restic";
 
 /// Where the local pack cache lives.
 ///
-/// Mandatory, never `no_cache`. Without it `rustic_core` issues one range GET
-/// per blob: measured in-cluster, a tree listing goes from 628 ms to 15.6 s and
-/// a restore from 13 requests to 1,222.
-///
-/// `/tmp` and not somewhere under `WORKSPACE_DIR`: the workspace is the snapshot
-/// source and a cache there would feed on itself. Not `/opt/moatless/data` (the
-/// capped `shared-data` emptyDir every sidecar mounts) and not `/run/moatless`
-/// (`medium: Memory`, `sizeLimit: 1Mi`, which cannot hold a cache at all).
-///
-/// `pod_builder.rs` serves `/tmp` from the `workspace-data` volume's `tmp`
-/// subPath, so this spends the budget whose overflow evicts the pod, and
-/// nothing bounds it — see `docs/deferred-changes.md`.
+/// Must be `/tmp`, never `no_cache` (`rustic_core` then issues one GET per
+/// blob), `WORKSPACE_DIR` (feeds on itself), `/opt/moatless/data` (capped), or
+/// `/run/moatless` (1Mi); shares `pod_builder.rs`'s unbounded `/tmp` budget.
 const CACHE_DIR: &str = "/tmp/rustic-cache";
 
 /// Where the whitelist of paths to snapshot is written.
 ///
-/// Outside `WORKSPACE_DIR` on purpose: the sandbox must not write into a
-/// checkout, and a file written there would appear in the next snapshot.
+/// Outside `WORKSPACE_DIR` on purpose: a file written into a checkout would
+/// appear in the next snapshot.
 const GLOB_FILE: &str = "/tmp/moatless-workspace-globs.txt";
 
 /// The snapshot label, which must never vary.
 ///
-/// The default parent grouping is hostname + label + paths. A label that
-/// changed per snapshot would find no parent and re-read every file as new:
-/// measured at 1.92 s against 546 ms for the same delta.
+/// Parent grouping is hostname + label + paths; a label that changed per
+/// snapshot would find no parent and re-read every file as new (measured 1.92s
+/// vs 546ms for the same delta).
 const SNAPSHOT_LABEL: &str = "workspace";
 
 /// Snapshots kept when a stopping task prunes.
 ///
-/// Enough that a restore can step back past a bad turn, few enough that a
-/// long-lived task does not accumulate indefinitely.
+/// Enough to step back past a bad turn, few enough that a long-lived task does
+/// not accumulate indefinitely.
 const KEEP_SNAPSHOTS: i32 = 10;
 
 /// One repository: where its files are and what decrypts them.
@@ -84,27 +73,26 @@ pub(super) struct RepoAccess {
 pub(super) struct Access {
     /// The task's own repository. The only one anything writes.
     own: RepoAccess,
-    /// The fork source's repository, granted only while this task holds no
-    /// repository of its own. [`restore_on_start`] reads it and nothing else
-    /// touches it — the grant's session policy allows no write there, so a
-    /// snapshot aimed here would fail rather than overwrite the source.
+    /// The fork source's repository, granted only while this task holds none of
+    /// its own.
+    ///
+    /// The grant's session policy allows no write there, so a snapshot aimed
+    /// here would fail rather than overwrite the source.
     source: Option<RepoAccess>,
 }
 
 /// How long before its stated expiry a grant is replaced.
 ///
-/// One operation holds the credentials it opened with for its whole run, and a
-/// snapshot of a large tree runs for minutes, so the margin bounds an operation
-/// rather than a request.
+/// An operation holds the credentials it opened with for its whole run, and a
+/// large snapshot runs for minutes, so this margin bounds an operation, not a
+/// request.
 const REFRESH_MARGIN_SECS: i64 = 300;
 
-/// The grant every repository operation opens with, reused until it is close to
+/// The grant every repository operation opens with, reused until close to
 /// expiring.
 ///
-/// A grant costs a backend round trip plus an STS mint and lasts an hour
-/// (`crates/s3/src/session.rs`), so minting one per sync spends a growing share
-/// of a shortening interval on credentials. It reaches one task's prefix only —
-/// the session policy scopes it — so the held grant is keyed by task id.
+/// A grant costs a backend round trip plus an STS mint and lasts an hour, so
+/// minting one per sync wastes it; keyed by task id.
 #[derive(Default)]
 pub(super) struct AccessCache(tokio::sync::Mutex<Option<CachedAccess>>);
 
@@ -194,10 +182,9 @@ impl AccessCache {
 
     /// Drop the held grant so the next operation mints one.
     ///
-    /// Called by every operation that fails — [`upload`], [`restore_on_start`]
-    /// and [`forget_and_prune`]. The credentials are one of the things that can
-    /// fail an operation, and a session lasts an hour, so a grant kept past a
-    /// failure would repeat it for the rest of that hour.
+    /// Called by every operation that fails: credentials are one of the things
+    /// that can fail an operation, and a session lasts an hour, so a grant kept
+    /// past a failure would repeat it for the rest of that hour.
     pub(super) async fn invalidate(&self) {
         *self.0.lock().await = None;
     }
@@ -213,16 +200,9 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
 
 /// The client every repository operation speaks through.
 ///
-/// Both settings are stated here rather than left to `behavior_version_latest()`,
-/// which resolves them from the SDK's own version and today disables retries
-/// outright. `rustic_core` issues hundreds of requests per snapshot, so a single
-/// unretried connect failure fails the whole operation — and on the restore path
-/// [`restore_on_start`] reports that as a repository it could not read, which
-/// holds the pod's uploads for its lifetime.
-///
-/// No operation-attempt timeout, deliberately: a pack upload is unbounded in
-/// size, so a cap would abort the largest transfers rather than the connects it
-/// is meant to catch.
+/// Retries and connect timeout are explicit (`behavior_version_latest()`
+/// disables retries today): unretried, a connect failure fails the whole
+/// snapshot. No attempt timeout, since a pack upload is unbounded.
 fn s3_config(region: String, credentials: Credentials) -> aws_sdk_s3::Config {
     aws_sdk_s3::Config::builder()
         .behavior_version_latest()
@@ -243,9 +223,9 @@ fn options() -> RepositoryOptions {
 
 /// Write the whitelist that makes `rustic_core`'s walk yield today's file set.
 ///
-/// A whitelist and not `git_ignore`: that flag is `.gitignore`-*file* semantics
-/// and not the git index, so it drops a file that is tracked **and** ignored
-/// (`git add -f`) and the restore then reports it deleted.
+/// Not `git_ignore`: that flag follows `.gitignore` file semantics, not the git
+/// index, so it drops a file that is tracked **and** ignored (`git add -f`),
+/// and restore then reports it deleted.
 fn write_glob_file(workspace_dir: &Path) -> Result<usize, String> {
     let files = file_set::collect(workspace_dir);
     let mut out = String::new();
@@ -422,9 +402,8 @@ fn open(access: &RepoAccess) -> Result<Repository<rustic_core::OpenStatus>, Stri
 /// Restore the whole workspace from the latest snapshot.
 ///
 /// [`RestoreAttempt::Restored`] means the caller can skip the clone: a snapshot
-/// carries every repo's `.git`, so it reproduces HEAD, the index, the branch and
-/// the dirty tree exactly. `Absent` sends the caller on to the next format;
-/// `Failed` does not.
+/// carries every repo's `.git`, reproducing HEAD, index, branch and dirty tree
+/// exactly. `Absent` sends the caller to the next format; `Failed` does not.
 pub(super) async fn restore_on_start(state: &SandboxState) -> RestoreAttempt {
     let task_id = state.config.task_id.clone();
     let workspace_dir = PathBuf::from(&state.config.workspace_dir);
@@ -512,14 +491,7 @@ pub(super) async fn restore_on_start(state: &SandboxState) -> RestoreAttempt {
 /// Restore from the task's own repository, falling back to the fork source's
 /// when the task's own holds no snapshot.
 ///
-/// The order is what makes the fallback safe to leave in place: a fork that has
-/// snapshotted once restores its own tree, and it reaches the source only on the
-/// start that finds nothing of its own. The source is read-only, so a fallback
-/// that fired when it should not have would still not damage the source.
-///
-/// An unreadable own repository propagates rather than falling through: that is
-/// an outage and not an absence, and `restore_on_start`'s ladder already decides
-/// what a failed repository read descends to.
+/// Safe: the read-only source can't be damaged by a wrongly-fired fallback.
 fn restore_own_or_source(access: &Access, workspace_dir: &Path) -> Result<Option<u64>, String> {
     match restore(&access.own, workspace_dir)? {
         Some(bytes) => Ok(Some(bytes)),
@@ -580,9 +552,9 @@ fn restore(access: &RepoAccess, workspace_dir: &Path) -> Result<Option<u64>, Str
 
 /// Drop all but the last [`KEEP_SNAPSHOTS`] snapshots and reclaim their packs.
 ///
-/// Pre-stop only, never per turn: a prune rewrites the index, which is work a
-/// turn boundary should not pay for. Best-effort — a repository that keeps a few
-/// snapshots too many still restores.
+/// Pre-stop only, never per turn: a prune rewrites the index, work a turn
+/// boundary should not pay for. Best-effort — a repository that keeps a few too
+/// many still restores.
 pub(super) async fn forget_and_prune(
     config: &Config,
     backend_client: &dyn BackendClient,
@@ -700,15 +672,12 @@ mod tests {
 
     /// Every test that calls [`snapshot`] takes this for its whole body.
     ///
-    /// [`GLOB_FILE`] is one fixed path because one sandbox runs one sync, so two
-    /// snapshots in one test process write the same whitelist file. Overlapping
-    /// them makes the second one's file set decide the first one's snapshot, and
-    /// the failure reads as a file the restore lost.
+    /// [`GLOB_FILE`] is one fixed path, so overlapping snapshots in one test
+    /// process let the second one's file set decide the first one's, and the
+    /// failure reads as a file the restore lost.
     static SNAPSHOTTING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
-    /// The whole point of the format: what comes back is what went in.
-    ///
-    /// Ignored, because it needs an endpoint. Start one and run it with
+    /// Start the endpoint this needs, then run it:
     ///
     /// ```bash
     /// docker run -d --name minio-restic -p 19000:9000 \
@@ -717,10 +686,10 @@ mod tests {
     /// cargo test -p moatless-sandbox --lib restic -- --ignored --nocapture
     /// ```
     ///
-    /// This is the regression test for the file set. `git_ignore` cannot
-    /// produce it — that flag is `.gitignore`-*file* semantics and not the git
-    /// index, so a `git add -f`'d file is dropped and the restored repo reports
-    /// it deleted. The tree below contains exactly that case.
+    /// `git_ignore` cannot produce this file set: that flag is
+    /// `.gitignore`-*file* semantics and not the git index, so a `git add -f`'d
+    /// file is dropped and the restored repo reports it deleted. The tree below
+    /// contains that case.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     #[ignore = "needs an S3 endpoint at 127.0.0.1:19000"]
     async fn a_snapshot_restores_the_file_set_byte_for_byte() {

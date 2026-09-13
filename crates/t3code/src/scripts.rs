@@ -1,31 +1,11 @@
 //! Running and editing a workspace Script.
 //!
 //! A Script is declared on the Workspace ([`ScriptConfig`]) and listed on the
-//! T3 project by [`projection::scripts`](crate::projection). This module is the
-//! other half: the two writes the listing implies. `scripts.run` resolves a
-//! Script for the viewer, publishes its port if it declares one, then hosts it
-//! in a named terminal session and runs the command as that session.
-//! [`replace`] is the editing half — the `project.meta.update` command's
-//! `scripts` field, written back to the Workspace the projection read it from.
-//!
-//! A Script that serves a port also opens the browser tab pointing at it, here
-//! rather than in the client, because a Script is run from two places: the chat
-//! header and `moat tasks scripts run`. Tabs are a Task's rather than a
-//! client's ([`preview_tabs`](crate::preview_tabs)), so opening one here is
-//! what makes the CLI's run reach the browser of everyone watching the Task.
-//!
-//! The terminal is not new machinery — it is the same PTY surface
-//! [`terminal`](crate::terminal) already exposes, addressed by the Task's
-//! nominal worktree path so the sandbox resolves it to the real checkout. The
-//! port, when there is one, is published *before* the PTY starts, so a Script
-//! that binds instantly is never briefly unreachable.
-//!
-//! Two things make the session the Script's rather than a shell that happens to
-//! be running it. The command is `exec`'d, so the session ends when the command
-//! does and reports its exit status ([`exec_line`]). And the command is written
-//! only when this call is what started the session — the sandbox, which owns the
-//! session, reports that — so running a Script that is already running attaches
-//! to it instead of typing into it, on any replica.
+//! T3 project by [`projection::scripts`](crate::projection). `run` resolves a
+//! Script, publishes its port if declared, then execs the command in a named
+//! terminal session; running one already running attaches instead of starting a
+//! second. [`replace`] writes the `project.meta.update` command's `scripts`
+//! field back to the Workspace.
 
 use std::sync::Arc;
 
@@ -44,9 +24,8 @@ use moatless_types::access_control::ScopeContext;
 use sandbox_proto::client::SandboxConnector;
 
 /// Everything `scripts.run` reaches that the terminal path does not already
-/// hand it. The conversation, sandbox and terminal handles are the ones
-/// [`terminal::open`] already takes, so they are passed through rather than held
-/// here.
+/// hand it; conversation, sandbox and terminal handles are passed through from
+/// [`terminal::open`] rather than held here.
 #[derive(Clone)]
 pub(crate) struct ScriptsState {
     /// Reads a Task's Workspace scripts, scoped to the viewer.
@@ -115,12 +94,10 @@ pub(crate) async fn list(
         .ok_or(ScriptsError::NotFound)
 }
 
-/// A Script as `moat tasks scripts list` reports it — everything needed to
-/// resolve and describe a Script, minus `env_vars`. That field is carried
-/// across a client rewrite by the Workspace-owned write operation,
-/// is never sent to the T3 client either, and stays that way here: a
-/// task-scoped bearer key reads this route without the workspace-level access
-/// a pinned secret would assume.
+/// A Script as `moat tasks scripts list` reports it.
+///
+/// Omits `env_vars`: a task-scoped bearer key reads this route without the
+/// workspace-level access a pinned secret would assume.
 pub fn public_script_list(scripts: &[ScriptConfig]) -> Vec<Value> {
     scripts
         .iter()
@@ -234,22 +211,11 @@ pub(crate) async fn run(
     }))
 }
 
-/// The line written into a freshly opened shell to run `command` *as* that
-/// shell, rather than under it.
+/// The line written into a freshly opened shell to run `command` as that shell,
+/// not under it.
 ///
-/// `exec` replaces the shell process with the command, which is what makes the
-/// session's lifetime the command's lifetime: the PTY closes when the command
-/// exits, so the terminal reports `exited` with the command's status instead of
-/// sitting `running` on a shell prompt that outlived a failed test run.
-///
-/// The command goes to `sh -c` rather than after `exec` directly so a pipeline,
-/// `&&`, or a redirect still means what it says — `exec` takes a simple command,
-/// and appending a compound one would exec only its first word. Single quotes in
-/// the command are escaped for the single-quoted argument they land in.
-///
-/// It is preceded by the workspace-setup gate ([`SETUP_GATE`]), because a Script
-/// is the one workspace command that can otherwise start before its
-/// dependencies are installed.
+/// `exec` replaces the shell process so the PTY closes with the command's own
+/// exit status; runs under `sh -c`, with single quotes escaped.
 fn exec_line(command: &str) -> String {
     format!(
         "{SETUP_GATE}exec sh -c '{}'\r",
@@ -259,20 +225,8 @@ fn exec_line(command: &str) -> String {
 
 /// Hold the Script until the sandbox's workspace setup has finished.
 ///
-/// A Sandbox reports Ready when its health endpoint is up, which is *before*
-/// Phase 2 runs the Workspace's setup commands — so a Script that starts at
-/// Ready can run `bun run dev` against a checkout whose `bun install` has not
-/// happened yet. That is not a rare race: a restarted Sandbox restores its repo
-/// from the snapshot without gitignored `node_modules`, so setup is exactly
-/// when it is slowest and the Script is exactly when it would fail.
-///
-/// Declared preview servers already wait on the `.workspace-ready` sentinel the
-/// sandbox writes after setup (`sandbox-control`'s server runner); a Script is a
-/// PTY write and bypassed it. This is the same gate, in the Script's own
-/// terminal — so the wait is something the person watches rather than a failure
-/// they have to interpret. `DATA_DIR` is the sandbox's own env var, defaulted to
-/// the same path its config defaults to. When setup is already done — every run
-/// on a warm sandbox — the file is there and this costs one `[ -f ]`.
+/// A Sandbox reports Ready before Phase 2 runs setup, so this waits on the same
+/// `.workspace-ready` sentinel preview servers use.
 const SETUP_GATE: &str = concat!(
     r#"if [ ! -f "${DATA_DIR:-/opt/moatless/data}/.workspace-ready" ]; then "#,
     r#"echo "Waiting for workspace setup to finish..."; "#,
@@ -282,10 +236,8 @@ const SETUP_GATE: &str = concat!(
 
 /// Why a Scripts write could not be carried out.
 ///
-/// Separate from [`ScriptsError`] because the two halves fail differently and
-/// answer to different callers: running is an RPC that fails, editing is a
-/// dispatched command that is *refused*, and the caller maps these onto the
-/// contract's refusal shapes.
+/// Separate from [`ScriptsError`]: running is an RPC that fails, editing is a
+/// dispatched command that is *refused*.
 #[derive(Debug, thiserror::Error)]
 pub enum ScriptsWriteError {
     /// The viewer cannot be shown this Workspace, or it does not exist. One
@@ -382,10 +334,8 @@ fn required_field(script: &Value, field: &str) -> Result<String, ScriptsWriteErr
 
 /// The port a Script serves on, if it declares one.
 ///
-/// Absent and null both mean "serves nothing", which is what a client clearing
-/// the field sends. Anything outside a port's range is refused rather than
-/// clamped: a mistyped port that silently became 65535 would publish a route to
-/// a port nothing is listening on.
+/// Absent and null both mean "serves nothing". Out-of-range is refused, not
+/// clamped, so a mistyped port never silently becomes 65535.
 fn port(script: &Value) -> Result<Option<u16>, ScriptsWriteError> {
     let Some(port) = script.get("port") else {
         return Ok(None);
@@ -442,10 +392,9 @@ mod tests {
         );
     }
 
-    /// The gate is what keeps a Script from starting before `bun install` has
-    /// run on a Sandbox that reported Ready. It has to wait on the same sentinel
-    /// the declared preview servers wait on, and it has to come *before* the
-    /// `exec` — after it, the shell is already gone.
+    /// The gate keeps a Script from starting before `bun install` has run on a
+    /// Sandbox that reported Ready, and must come *before* the `exec` — after
+    /// it, the shell is already gone.
     #[test]
     fn the_command_waits_for_workspace_setup_before_it_execs() {
         let line = exec_line("bun run dev");

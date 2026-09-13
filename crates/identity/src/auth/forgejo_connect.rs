@@ -1,13 +1,11 @@
 //! Attaching a Forgejo OAuth credential to a session that already exists.
 //!
-//! The GitHub counterpart is [`super::github_connect`], and both write a
-//! credential row without issuing or revoking a session. What differs is
-//! addressing: Forgejo is self-hostable, so the host selects the registered
-//! OAuth2 application, and it rides in the CSRF state so the callback writes
-//! against the instance the flow started on.
-//!
-//! Forgejo has no login flow here, so this gets its own callback route rather
-//! than sharing one — a `state` that does not parse is simply not a connect.
+//! The GitHub counterpart is [`super::github_connect`]; both write a credential
+//! row without issuing or revoking a session. Forgejo differs in addressing:
+//! self-hostable, so the host selects the registered OAuth2 application, riding
+//! in the CSRF state so the callback writes against the instance the flow
+//! started on. Forgejo has no login flow here, so this gets its own callback
+//! route — a `state` that doesn't parse is simply not a connect.
 
 use axum::response::Response;
 use moatless_types::access_control::ScopeContext;
@@ -29,8 +27,8 @@ const OUTCOME_PARAM: &str = "forgejoConnect";
 
 /// Separates the CSRF head, the host and the return URL in the `state`.
 ///
-/// Not `:`, which a nonce, a `host:port` and a URL all contain. A Forgejo host
-/// cannot contain it — `forgejo_instances_host_format_chk` restricts one to
+/// Not `:`, which a nonce, `host:port` and a URL all contain; a Forgejo host
+/// can't contain it since `forgejo_instances_host_format_chk` restricts one to
 /// `[a-z0-9.-]` and an optional numeric port.
 const FIELD: char = '|';
 
@@ -61,10 +59,10 @@ pub(super) fn parse_connect_state(state: &str) -> Option<ConnectState<'_>> {
     })
 }
 
-/// Send the browser to `host` to authorize this deployment on `user_id`'s
+/// Sends the browser to `host` to authorize this deployment on `user_id`'s
 /// behalf.
 ///
-/// `NotFound` when `host` has no registered OAuth2 application, which leaves a
+/// `NotFound` when `host` has no registered OAuth2 application, leaving a
 /// personal access token as the only way to connect it.
 pub(super) async fn start(
     state: &AuthState,
@@ -95,21 +93,14 @@ pub(super) async fn start(
     ))
 }
 
-/// Store the authorization `connect` asked for as its initiator's credential.
+/// Stores the authorization `connect` asked for as its initiator's credential.
 ///
-/// `viewer` is whoever holds the callback request, which is not necessarily who
-/// started the flow: `oauth_state` outlives both a logout and the session
-/// itself, so a consent screen left open past `session_max_age_secs`, or a
-/// shared browser someone else signed into, both come back under a session that
-/// is not the initiator's. `None` is that request carrying no session at all.
-/// Writing the credential to the session in hand would hand a second person the
-/// first person's Forgejo account, so anything but a match stores nothing.
-///
-/// `code` is absent when the person declined on Forgejo.
-///
-/// Always redirects to the return URL, carrying the outcome as a query
-/// parameter: the browser is mid-flow on a page the person opened, and a JSON
-/// error body would strand them there.
+/// Only stores when `viewer` matches the initiator (`oauth_state` outlives a
+/// logout and the session itself, so a stale or shared-browser session must not
+/// inherit another person's Forgejo account); `code` is absent when the person
+/// declined. Always redirects to the return URL with the outcome as a query
+/// parameter instead of a JSON error, since the browser is mid-flow on a page
+/// the person opened.
 pub(super) async fn finish(
     state: &AuthState,
     viewer: Option<&AuthIdentity>,

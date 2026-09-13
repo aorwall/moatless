@@ -1,18 +1,17 @@
 //! Docker container and volume path name generation.
 //!
-//! Container names are deterministic from the task ID, enabling lookup
-//! without any database or external state. Docker allows container names
-//! matching `[a-zA-Z0-9][a-zA-Z0-9_.-]`.
+//! Container names are deterministic from the task ID, enabling lookup without
+//! any database or external state. Docker allows container names matching
+//! `[a-zA-Z0-9][a-zA-Z0-9_.-]`.
 
 use std::path::PathBuf;
 
 /// Maximum Docker container name length.
 const MAX_CONTAINER_NAME_LEN: usize = 128;
 
-/// Sanitize a string for use in a Docker container name.
-///
-/// Lowercase, replace non-alphanumeric chars (except `-`, `_`, `.`) with `-`,
-/// truncate to `max_len` characters.
+/// Sanitizes a string for use in a Docker container name: lowercases, replaces
+/// non-alphanumeric chars (except `-`, `_`, `.`) with `-`, truncates to
+/// `max_len`.
 fn sanitize_docker_name(input: &str, max_len: usize) -> String {
     input
         .to_lowercase()
@@ -40,7 +39,8 @@ pub fn generate_container_name(task_id: &str) -> String {
 
 /// Generate a deterministic Docker container name for a server sidecar.
 ///
-/// Format: `moatless-server-{sanitized_task_id}-{sanitized_server_name}` (max 128 chars).
+/// Format: `moatless-server-{sanitized_task_id}-{sanitized_server_name}` (max
+/// 128 chars).
 pub fn generate_server_container_name(task_id: &str, server_name: &str) -> String {
     let prefix = "moatless-server-";
     let separator = "-";
@@ -67,8 +67,8 @@ pub fn generate_sandbox_host_path(data_dir: &str, task_id: &str) -> String {
 
 /// Generate the host volume path for a task's shared data directory.
 ///
-/// Used for the `.workspace-ready` sentinel file that server containers
-/// poll before starting. Format: `{data_dir}/tasks/{task_id}/data/`
+/// Used for the `.workspace-ready` sentinel file server containers poll before
+/// starting: `{data_dir}/tasks/{task_id}/data/`
 pub fn generate_data_host_path(data_dir: &str, task_id: &str) -> String {
     let mut path = PathBuf::from(data_dir);
     path.push("tasks");
@@ -80,7 +80,7 @@ pub fn generate_data_host_path(data_dir: &str, task_id: &str) -> String {
 /// Generate the host volume path for a task's Claude config directory.
 ///
 /// Persists Claude CLI session data (`CLAUDE_CONFIG_DIR`) across container
-/// stop/start and recreation cycles. Format: `{data_dir}/tasks/{task_id}/claude-config`
+/// stop/start and recreation cycles: `{data_dir}/tasks/{task_id}/claude-config`
 pub fn generate_claude_config_host_path(data_dir: &str, task_id: &str) -> String {
     let mut path = PathBuf::from(data_dir);
     path.push("tasks");
@@ -90,10 +90,10 @@ pub fn generate_claude_config_host_path(data_dir: &str, task_id: &str) -> String
 }
 
 /// Generate the task-scoped data directory that owns every Docker-mode disk
-/// archive (`repo`, `data`, and `claude-config`).
+/// archive (`repo`, `data`, `claude-config`).
 ///
-/// Reject path separators and traversal components before this path is used by
-/// hard deletion.
+/// Rejects path separators and traversal components; the result feeds hard
+/// deletion.
 pub fn generate_task_host_path(data_dir: &str, task_id: &str) -> Result<PathBuf, String> {
     let task_path = std::path::Path::new(task_id);
     let mut components = task_path.components();

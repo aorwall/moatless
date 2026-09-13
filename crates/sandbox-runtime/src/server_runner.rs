@@ -1,23 +1,18 @@
 //! The start script every preview-server sidecar runs.
 //!
-//! Shared by the K8s pod builder and the Docker container builder so both
-//! runtimes get identical restart semantics.
+//! Shared by the K8s pod builder and the Docker container builder for identical
+//! restart semantics. It is a supervisor, not the bare start command: the
+//! sidecar re-reads an override from the workspace volume on a generation bump
+//! and re-execs its child in place, avoiding a pod rebuild that would also
+//! restart the agent container.
 //!
-//! The script is a supervisor rather than the bare start command, because the
-//! start command and env are otherwise baked into the container spec: changing
-//! either would mean rebuilding the pod, which restarts the agent container
-//! too. Instead the sidecar re-reads an override from the workspace volume
-//! whenever the sandbox bumps a generation counter, and re-execs its child in
-//! place.
+//! Invariant: only a generation bump restarts the child. A server that dies on
+//! its own still takes the container down with it, so readiness-timeout
+//! detection and crash-loop auto-disable (`k8s/pod_watcher.rs`) keep working,
+//! and a user restart never consumes the crash budget.
 //!
-//! The load-bearing invariant is that **only a generation bump restarts the
-//! child**. A server that dies on its own still takes the container down with
-//! it, so readiness-timeout detection and crash-loop auto-disable
-//! (`k8s/pod_watcher.rs`) keep working, and a user-initiated restart never
-//! consumes the crash budget.
-//!
-//! It is bash rather than a helper binary because `docker_image` is per-server:
-//! a sidecar may run an image that has no moatless binaries in it.
+//! Bash, not a helper binary, because `docker_image` is per-server: a sidecar
+//! may run an image with no moatless binaries.
 
 /// Where the sandbox writes the shared env file. An `emptyDir` in K8s, so
 /// nothing here survives the pod — fine for secrets the sandbox rewrites on
@@ -25,20 +20,18 @@
 const DATA_DIR: &str = "/opt/moatless/data";
 
 /// Where the sandbox writes per-server overrides, mirroring
-/// `crates/sandbox/src/server_control.rs`. On the workspace volume rather than
-/// `DATA_DIR` so an override outlives the pod: a stop/start, a redeploy, and the
-/// reaper's idle-stop all delete it. Dot-prefixed at the workspace root, a
-/// sibling of the repo checkouts rather than inside one.
+/// `crates/sandbox/src/server_control.rs`.
 ///
-/// Hardcoded for the same reason `DATA_DIR` is: a sidecar may run any
-/// `docker_image`, so the script cannot depend on the sandbox image's env. Both
-/// builders mount the workspace here.
+/// On the workspace volume (not `DATA_DIR`) so an override outlives the pod
+/// across stop/start, redeploy, and idle-stop; hardcoded, like `DATA_DIR`,
+/// since a sidecar's `docker_image` may carry no sandbox env. Both builders
+/// mount the workspace here.
 const CONTROL_DIR: &str = "/opt/moatless/workspace/.moatless/servers";
 
 /// Build the `bash -c` script for one server's sidecar.
 ///
-/// `start_commands` are joined with `&&` and become the fallback used whenever
-/// no override is present.
+/// `start_commands` are joined with `&&` as the fallback used whenever no
+/// override is present.
 pub fn build_server_start_script(server_name: &str, start_commands: &[String]) -> String {
     let default_cmd = shell_single_quote(&start_commands.join(" && "));
     let ctl = shell_single_quote(&format!("{CONTROL_DIR}/{server_name}"));
@@ -144,8 +137,8 @@ mod tests {
         assert!(s.contains(r#"DEFAULT_CMD='echo '\''hi'\'''"#));
     }
 
-    /// The path is a contract with `crates/sandbox/src/server_control.rs`, which
-    /// writes these files. It lives on the workspace volume, not the
+    /// The path is a contract with `crates/sandbox/src/server_control.rs`,
+    /// which writes these files. It lives on the workspace volume, not the
     /// `emptyDir` data volume, so an override outlives the pod.
     #[test]
     fn control_path_is_namespaced_per_server_under_the_workspace() {

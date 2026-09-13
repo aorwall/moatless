@@ -1,17 +1,13 @@
 //! The `SandboxRuntime` seam — the infrastructure-mutation interface lifecycle
 //! owns.
 //!
-//! Every mutation returns a typed [`RuntimeOutcome`] so lifecycle never infers
-//! what happened through a second status read, and takes a
-//! [`RuntimeOperationContext`] so the operation generation reaches the runtime
-//! and is stamped onto the resources it creates.
+//! Every mutation returns a typed [`RuntimeOutcome`] (no inferring via a second
+//! status read) and takes a [`RuntimeOperationContext`].
 //!
-//! The seam is held **only** by the lifecycle module: a task-scoped lifecycle
-//! mutation that bypasses lifecycle is a compile error, not a review comment.
-//! The one named exception is the orphan resource sweep (label-based deletion
-//! of taskless resources), which lifecycle cannot express and which lives
-//! outside this seam. The K8s and Docker adapters implement this trait; a
-//! recording adapter implements it for lifecycle module tests.
+//! Held only by the lifecycle module — a task-scoped mutation that bypasses
+//! lifecycle is a compile error. The one exception is the orphan resource sweep
+//! (label-based deletion of taskless resources), which lifecycle cannot
+//! express.
 
 use async_trait::async_trait;
 
@@ -26,11 +22,11 @@ use moatless_types::sandbox::ArchiveRetention;
 /// Runtime-resource label carrying lifecycle's operation identity.
 pub const OPERATION_GENERATION_LABEL: &str = "moatless.io/operation-generation";
 
-/// Context threaded to **every** runtime mutation.
+/// Context threaded to every runtime mutation.
 ///
 /// Carries the operation generation the adapter stamps onto the resources it
-/// creates (K8s pod-template label, Docker container label) so that watcher
-/// events can be correlated back to the operation that caused them.
+/// creates (K8s pod-template label, Docker container label), so watcher events
+/// can be correlated back to the operation that caused them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RuntimeOperationContext {
     pub operation_generation: OperationGeneration,
@@ -89,11 +85,10 @@ pub fn map_sandbox_error(error: SandboxError) -> RuntimeError {
     }
 }
 
-/// Returned by **every** `SandboxRuntime` mutation.
+/// Returned by every `SandboxRuntime` mutation.
 ///
-/// Carries the observed status, the [`RuntimeEffect`] (so lifecycle knows
-/// whether infrastructure actually changed), and success diagnostics. It never
-/// describes failure — that is [`RuntimeError`].
+/// Carries observed status, [`RuntimeEffect`] (did infrastructure change), and
+/// success diagnostics; never describes failure — that is [`RuntimeError`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimeOutcome {
     pub observed: ObservedStatus,
@@ -129,13 +124,12 @@ impl RuntimeOutcome {
     }
 }
 
-/// The infrastructure mutation seam, implemented by the K8s and Docker
-/// adapters (and, for module tests, a recording adapter).
+/// The infrastructure mutation seam, implemented by the K8s and Docker adapters
+/// (and, for module tests, a recording adapter).
 ///
-/// `ensure_running` names what the runtime start actually does: reuse Ready,
-/// wait for Initializing, scale up Stopped, rebuild on image change, create
-/// missing, heal network resources, and replace a terminal/error pod from the
-/// fresh plan. An existing failed pod is not reported as indefinitely
+/// `ensure_running` covers reuse-Ready, wait-Initializing, scale-up-Stopped,
+/// rebuild-on-image-change, create-missing, heal-network, and
+/// replace-terminal-pod — a failed pod is never reported as indefinitely
 /// Initializing.
 ///
 /// Build every server container from `ServerConfig`. Do not hardcode a server
@@ -159,32 +153,31 @@ pub trait SandboxRuntime: Send + Sync {
     ) -> Result<RuntimeOutcome, RuntimeError>;
 
     /// Restart the current deployment, preserving identity by carrying the new
-    /// generation onto the replacement. On Kubernetes this patches the
-    /// pod-template under the `Recreate` strategy; on Docker it strictly
-    /// removes and recreates the sandbox container (labels are immutable on a
-    /// live container, so in-place restart could never carry identity).
+    /// generation onto the replacement.
+    ///
+    /// Kubernetes patches the pod-template under `Recreate`; Docker strictly
+    /// removes and recreates the container, since labels are immutable on a
+    /// live container.
     async fn restart(
         &self,
         task_id: &str,
         ctx: RuntimeOperationContext,
     ) -> Result<RuntimeOutcome, RuntimeError>;
 
-    /// Replace the deployment from a fresh plan. **Edge teardown is strict**:
-    /// a redeploy never proceeds to provision past a failed delete.
+    /// Replace the deployment from a fresh plan. **Edge teardown is strict**: a
+    /// redeploy never proceeds to provision past a failed delete.
     async fn redeploy(
         &self,
         task_id: &str,
         ctx: RuntimeOperationContext,
     ) -> Result<RuntimeOutcome, RuntimeError>;
 
-    /// Delete all runtime resources (Deployment, Service, `IngressRoutes`, and
-    /// the PVC unconditionally), honoring `retention` for S3 and local-disk
-    /// archives.
+    /// Delete all runtime resources (Deployment, Service, `IngressRoutes`, PVC
+    /// unconditionally), honoring `retention` for S3 and local-disk archives.
     ///
-    /// **Strict success means observed absence, not accepted deletion**: the
-    /// implementation awaits actual absence of every resource before returning
-    /// `Ok`. An archive-deletion failure is load-bearing — it surfaces as a
-    /// [`RuntimeError`], not a swallowed log.
+    /// Strict success means observed absence, not accepted deletion: awaits
+    /// actual absence before returning `Ok`; an archive-deletion failure
+    /// surfaces as a [`RuntimeError`], never a swallowed log.
     async fn remove(
         &self,
         task_id: &str,
@@ -192,24 +185,15 @@ pub trait SandboxRuntime: Send + Sync {
         ctx: RuntimeOperationContext,
     ) -> Result<RuntimeOutcome, RuntimeError>;
 
-    /// Reclaim the compute objects and the workspace volume of a **stopped**
-    /// sandbox, keeping everything that gives the task its identity — the
-    /// Service, the `IngressRoutes`, the network policy, and the S3 archive. A
-    /// later start provisions a fresh volume and restores into it.
+    /// Reclaim the compute objects and workspace volume of a **stopped**
+    /// sandbox, keeping the Service, `IngressRoutes`, network policy, and S3
+    /// archive; a later start provisions a fresh volume and restores into it.
     ///
-    /// The Deployment goes before the claim, and its absence is awaited: a
-    /// pod template that still names a deleted claim leaves the next scale-up
-    /// Pending forever.
-    ///
-    /// `rescue_upload_url` is `Some` when lifecycle could not prove the archive
-    /// is current — the runtime must then get the volume's contents to that
-    /// presigned URL **before** deleting anything, and fail the whole operation
-    /// if it cannot. Lifecycle owns the proof because it owns the archive;
-    /// the runtime owns how a detached volume is read.
-    ///
-    /// **Strict success means observed absence**, as with [`Self::remove`].
-    /// Idempotent: a sandbox with no Deployment and no claim returns `NoOp`, so
-    /// a caller that reruns on a schedule does no work on an already-cold task.
+    /// The Deployment's absence is awaited before the claim is deleted (else a
+    /// stale pod template leaves the next scale-up Pending forever);
+    /// `rescue_upload_url`, when `Some`, must be filled before deleting
+    /// anything or the operation fails. Strict success means observed absence,
+    /// and it's idempotent (`NoOp` when nothing remains).
     async fn reclaim_storage(
         &self,
         task_id: &str,
@@ -221,7 +205,7 @@ pub trait SandboxRuntime: Send + Sync {
 /// Coarse error class driving retry policy.
 ///
 /// The reconciler retries only *transient* classes (runtime/infra) under its
-/// attempt cap and never *permanent* ones (the Closed guard).
+/// attempt cap, never *permanent* ones (the Closed guard).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ErrorClass {
     /// Transient infrastructure/runtime failure — safe to retry with backoff.
@@ -242,17 +226,17 @@ impl ErrorClass {
 
 /// Failure raised by a [`SandboxRuntime`] mutation.
 ///
-/// **Failure diagnostics belong here**, never on the success
-/// [`RuntimeOutcome`]. Adapters have no event publisher; they
-/// surface everything through this type and lifecycle republishes it.
+/// Failure diagnostics belong here, never on the success [`RuntimeOutcome`];
+/// adapters have no event publisher, so they surface everything through this
+/// type and lifecycle republishes it.
 #[derive(Debug, Error)]
 pub enum RuntimeError {
     /// A transient infrastructure failure (API timeout, conflict, network).
     #[error("runtime infrastructure error: {0}")]
     Infrastructure(String),
 
-    /// The runtime rejected the request permanently (e.g. an unbuildable
-    /// plan). Retrying cannot help.
+    /// The runtime rejected the request permanently (e.g. an unbuildable plan).
+    /// Retrying cannot help.
     #[error("runtime rejected the request: {0}")]
     Rejected(String),
 

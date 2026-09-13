@@ -3,11 +3,9 @@
 
 //! Multi-turn streaming conversation using `ClaudeClient`.
 //!
-//! This example demonstrates the `ClaudeClient` API for interactive
-//! multi-turn conversations. Unlike `query()` which is one-shot,
-//! `ClaudeClient` keeps the session open for multiple exchanges.
+//! Unlike one-shot `query()`, `ClaudeClient` keeps the session open across
+//! exchanges.
 //!
-//! # Usage
 //! ```bash
 //! cargo run -p claude-agent-sdk --example streaming_client
 //! ```

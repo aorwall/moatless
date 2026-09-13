@@ -7,8 +7,10 @@ use moatless_types::store::StoreError;
 
 /// The activities a Task recorded, for a read model that projects them.
 ///
-/// arch-allow(port-admission): keeps the T3 projection independent of the Task implementation; remove when another read seam replaces it.
-/// arch-allow(single-implementation-trait): the Task-owned read port keeps the T3 projection independent; remove when that projection uses another source.
+/// arch-allow(port-admission): keeps the T3 projection independent of the Task
+/// implementation; remove when another read seam replaces it.
+/// arch-allow(single-implementation-trait): the Task-owned read port keeps the
+/// T3 projection independent; remove when that projection uses another source.
 #[cfg_attr(feature = "test-support", mockall::automock)]
 #[async_trait]
 pub trait ActivitySource: Send + Sync {

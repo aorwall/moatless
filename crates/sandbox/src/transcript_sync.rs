@@ -1,28 +1,11 @@
-//! Agent session-state sync — backend-proxied S3 persistence of CLI resume data.
+//! Agent session-state sync: backend-proxied S3 persistence of CLI resume data.
 //!
-//! Claude writes conversation transcripts (the only stateful, growing part of
-//! `$CLAUDE_CONFIG_DIR`) under `projects/<dashed-cwd>/*.jsonl`. Everything else in
-//! the config dir is regenerated on every boot, so this is all we persist for
-//! Claude. Codex writes resumable thread rollouts under `$CODEX_HOME/sessions/`;
-//! those files must survive pod recreation too, otherwise the app-server's
-//! `thread/resume` fails with a missing rollout even when the backend remembers
-//! the thread id.
-//!
-//! The sandbox is AWS-credential-less by design, so session-state I/O is proxied
-//! through the backend over JWT-authed gRPC (mirroring `DownloadUpload`). This
-//! module owns:
-//! - resolving the on-disk Claude and Codex session dirs,
-//! - tarring them for upload and untarring a downloaded archive,
-//! - the download-on-start, periodic-upload, and sync-on-shutdown entry points.
-//!
-//! Archive format:
-//! - prefix-routed archives store Claude entries under `claude/` and Codex
-//!   entries under `codex/sessions/`;
-//! - flat Claude-only archives restore into the Claude transcript dir.
-//!
-//! Every operation is best-effort and tier-agnostic: a task runs fine without
-//! resume history, so failures are logged, never fatal. For the ephemeral (no-EBS)
-//! tier this sync is the *only* CLI-session durability.
+//! Claude's transcripts and Codex's resumable rollouts must survive pod
+//! recreation, or `thread/resume` fails with a missing rollout even when the
+//! backend remembers the thread id. See [`transcript_dir`] and
+//! [`codex_sessions_dir`] for the on-disk paths. AWS-credential-less by design:
+//! I/O is proxied through the backend over JWT-authed gRPC, mirroring
+//! `DownloadUpload`.
 
 use std::path::{Component, Path, PathBuf};
 use std::time::Duration;
@@ -33,7 +16,8 @@ use tracing::{debug, info, warn};
 use crate::config::Config;
 use crate::state::SandboxState;
 
-/// Default periodic-upload interval when `TRANSCRIPT_SYNC_INTERVAL_SECS` is unset.
+/// Default periodic-upload interval when `TRANSCRIPT_SYNC_INTERVAL_SECS` is
+/// unset.
 const DEFAULT_INTERVAL_SECS: u64 = 60;
 
 /// Bound on the sync-on-shutdown flush so it stays within the pod's 30s grace
@@ -43,8 +27,10 @@ const CLAUDE_ARCHIVE_PREFIX: &str = "claude";
 const CODEX_SESSIONS_ARCHIVE_PREFIX: &str = "codex/sessions";
 
 /// Read the periodic upload interval from `TRANSCRIPT_SYNC_INTERVAL_SECS`
-/// (default 60s). Returns `None` when set to `0`, which disables the periodic
-/// loop (download-on-start and sync-on-shutdown still run).
+/// (default 60s).
+///
+/// Returns `None` when set to `0`, which disables the periodic loop (download-
+/// on-start and sync-on-shutdown still run).
 pub fn read_interval_from_env() -> Option<Duration> {
     match std::env::var("TRANSCRIPT_SYNC_INTERVAL_SECS") {
         Ok(v) => match v.parse::<u64>() {
@@ -58,12 +44,9 @@ pub fn read_interval_from_env() -> Option<Duration> {
 
 /// Resolve the transcript dir: `<claude_config_dir>/projects/<dashed-cwd>`.
 ///
-/// The Claude CLI writes transcripts under `projects/<cwd with '/' → '-'>`, where
-/// `cwd` is the canonicalized workspace dir (the agent's `cwd` is
-/// `config.workspace_dir`). We mirror that exactly so the sync targets the same
-/// files the CLI writes and `--resume` reads. Canonicalize with a lexical fallback,
-/// matching the SDK's `resolve_project_dir`; for a non-symlink path the two yield
-/// the identical dashed name.
+/// Mirrors the Claude CLI's own `projects/<cwd with '/' → '-'>` scheme, so sync
+/// and `--resume` target the same files; canonicalizes with a lexical fallback
+/// matching the SDK's `resolve_project_dir` (identical for a non-symlink path).
 pub fn transcript_dir(config: &Config) -> PathBuf {
     let cwd = PathBuf::from(&config.workspace_dir);
     let resolved = cwd.canonicalize().map_or_else(
@@ -83,11 +66,9 @@ pub fn codex_sessions_dir(config: &Config) -> PathBuf {
 
 /// Download the stored session-state archive and restore it.
 ///
-/// Runs on startup, after the repo clone and before the sandbox is marked Ready,
-/// so `recover_interrupted_run` / pending-message dispatch see restored
-/// `--resume` history. Creates target dirs first (the CLIs expect them to
-/// exist). Non-fatal: a missing archive or a disabled feature is logged and
-/// skipped.
+/// Runs after the repo clone, before Ready, so `recover_interrupted_run` and
+/// pending-message dispatch see restored `--resume` history. Non-fatal: skips
+/// on a missing archive or disabled feature.
 pub async fn download_on_start(state: &SandboxState) {
     let task_id = &state.config.task_id;
     let claude_dir = transcript_dir(&state.config);
@@ -133,8 +114,8 @@ pub async fn download_on_start(state: &SandboxState) {
 }
 
 /// Tar the CLI session-state dirs and upload them to the backend. No-op when
-/// both dirs are absent or empty. Best-effort: failures (including a disabled feature) are
-/// logged, never propagated.
+/// both dirs are absent or empty. Best-effort: failures (including a disabled
+/// feature) are logged, never propagated.
 pub async fn upload(state: &SandboxState) {
     let task_id = &state.config.task_id;
     let claude_dir = transcript_dir(&state.config);
@@ -162,8 +143,8 @@ pub async fn upload(state: &SandboxState) {
 /// Flush the transcript on shutdown, bounded by [`SHUTDOWN_FLUSH_TIMEOUT`].
 ///
 /// Called from the shutdown driver after the agent has stopped (so the active
-/// `.jsonl` is flushed) and before the lifecycle token is cancelled. A timeout is
-/// logged and swallowed so the drain proceeds.
+/// `.jsonl` is flushed) and before the lifecycle token is cancelled; a timeout
+/// is logged and swallowed so the drain proceeds.
 pub async fn flush_on_shutdown(state: &SandboxState) {
     if tokio::time::timeout(SHUTDOWN_FLUSH_TIMEOUT, upload(state))
         .await
@@ -175,8 +156,9 @@ pub async fn flush_on_shutdown(state: &SandboxState) {
     }
 }
 
-/// Periodically upload the session state until cancelled. Mirrors the credential
-/// refresher: `tokio::select!` on the lifecycle token and a fixed interval.
+/// Periodically upload the session state until cancelled. Mirrors the
+/// credential refresher: `tokio::select!` on the lifecycle token and a fixed
+/// interval.
 pub async fn run_transcript_sync(
     state: SandboxState,
     cancel: CancellationToken,
@@ -202,8 +184,8 @@ pub async fn run_transcript_sync(
 }
 
 /// True when a gRPC error means the transcript feature is simply unavailable
-/// (backend S3 not configured) rather than a real transient failure — so callers
-/// can log at debug instead of warn.
+/// (backend S3 not configured) rather than a real transient failure — so
+/// callers can log at debug instead of warn.
 fn is_feature_disabled(status: &tonic::Status) -> bool {
     matches!(
         status.code(),
@@ -214,9 +196,8 @@ fn is_feature_disabled(status: &tonic::Status) -> bool {
 /// Build an in-memory tar of the CLI session-state dirs, or `None` when neither
 /// has entries.
 ///
-/// The tar build uses the blocking `tar` + `std::fs` APIs, so it runs on a
-/// blocking thread. Entries are stored under stable top-level prefixes so the
-/// archive can restore both CLIs location-independently on the next pod.
+/// Entries are stored under stable top-level prefixes so the archive can
+/// restore both CLIs location-independently on the next pod.
 async fn build_tar(claude_dir: PathBuf, codex_dir: PathBuf) -> Option<Vec<u8>> {
     let has_claude_entries = has_entries(&claude_dir).await;
     let has_codex_entries = has_entries(&codex_dir).await;

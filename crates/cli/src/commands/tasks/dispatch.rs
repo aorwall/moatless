@@ -41,8 +41,8 @@ pub enum TaskAction {
     },
     /// Get task details
     Get { task_id: String },
-    /// Fork a task: branch a new task off it, carrying its conversation and
-    /// the agent's own session up to a chosen turn
+    /// Fork a task: branch a new task off it, carrying its conversation and the
+    /// agent's own session up to a chosen turn
     Fork {
         /// Task id or short id to branch off
         task_id: String,
@@ -59,7 +59,8 @@ pub enum TaskAction {
         #[arg(long)]
         same_sandbox: bool,
     },
-    /// Create a new task (starts the sandbox and, if --message is provided, the agent)
+    /// Create a new task (starts the sandbox and, if --message is provided, the
+    /// agent)
     Create {
         /// Repository ID or name. Ignored: the workspace's primary repository
         /// is what the task runs against
@@ -69,14 +70,12 @@ pub enum TaskAction {
         /// parent task or a joined sandbox already settles one
         #[arg(long)]
         workspace: Option<String>,
-        /// Run in the same Sandbox as another task, reusing its warm checkout
-        /// instead of provisioning a new one. Takes that task's id or short id
-        /// — not a sandbox id, which nobody has to hand. With no value it means
-        /// the task this CLI is running as, so an agent inside a sandbox can
-        /// spawn a sibling into it with a bare `--same-sandbox`.
+        /// Runs in the same Sandbox as another task (by task id, not sandbox
+        /// id), reusing its checkout. Bare `--same-sandbox` means this CLI's
+        /// own task.
         ///
-        /// A Sandbox materializes exactly one Workspace, so joining one settles
-        /// where the task runs; --repo and --workspace have nothing left to say.
+        /// A Sandbox materializes exactly one Workspace, so
+        /// `--repo`/`--workspace` conflict with it.
         #[arg(
             long,
             value_name = "TASK_ID",
@@ -104,8 +103,7 @@ pub enum TaskAction {
         parent: Option<String>,
         /// Identity the task's sandbox acts as on a git host — a moatless login
         /// or user id. Admin only, and only a bot user; omit it to run as
-        /// yourself. Use it to reproduce what a bot sees, e.g.
-        /// `--run-as 'soap-reviewer[bot]'`.
+        /// yourself.
         #[arg(long, value_name = "USER")]
         run_as: Option<String>,
         #[arg(long)]
@@ -126,11 +124,11 @@ pub enum TaskAction {
         /// Model for the chosen harness, e.g. `haiku` or `gpt-5.3-codex-spark`
         #[arg(long)]
         model: Option<String>,
-        /// Run without anyone watching: no preview servers, and no tools that
-        /// wait on a person (`AskUserQuestion`, Enter/ExitPlanMode). Defaults to
-        /// true for CLI-created tasks — there is no browser here to view them
-        /// or answer a prompt. Pass `--headless false` for a task you intend to
-        /// open in the UI.
+        /// Runs headless: no preview servers, and no tools that wait on a
+        /// person (`AskUserQuestion`, Enter/ExitPlanMode).
+        ///
+        /// Defaults to true for CLI-created tasks, since there's no browser
+        /// here to view them or answer a prompt.
         // `num_args`/`default_missing_value` are what make the value optional:
         // a plain `bool` field is a set-true flag in clap, which would leave no
         // way to turn an on-by-default option off.
@@ -190,7 +188,8 @@ pub enum TaskAction {
         #[arg(long)]
         yes: bool,
     },
-    /// Redeploy sandbox (recreate with fresh repo config, preserves workspace data)
+    /// Redeploy sandbox (recreate with fresh repo config, preserves workspace
+    /// data)
     Redeploy {
         task_id: String,
         /// Redeploy this command's own sandbox. Required there, and ignored for
@@ -223,7 +222,7 @@ pub enum TaskAction {
     },
     /// Print what the `restic` CLI needs to open a task's workspace repository.
     ///
-    /// Platform admins only. The output carries live S3 credentials and the
+    /// Platform admins only — the output carries live S3 credentials and the
     /// repository password.
     WorkspaceRepo { task_id: String },
     /// Fetch preview server page content
@@ -248,11 +247,12 @@ pub enum TaskAction {
         #[command(subcommand)]
         action: ServerAction,
     },
-    /// Run a workspace's declared scripts against this task's sandbox. Starts
-    /// the command in a terminal and, if the script declares a port, reports a
-    /// preview URL pointing at it and opens a browser tab on it in the T3 UI.
+    /// Run a workspace's declared script against this task's sandbox, reporting
+    /// a preview URL and opening a browser tab in the T3 UI if it declares a
+    /// port.
+    ///
     /// Unlike clicking Run in the chat header, this does not start a stopped
-    /// sandbox for you — run `moat tasks start` first if needed
+    /// sandbox — run `moat tasks start` first.
     Scripts {
         task_id: String,
         #[command(subcommand)]

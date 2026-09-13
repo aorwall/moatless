@@ -1,15 +1,11 @@
-//! Short-lived in-memory cache of `(task_id, external_event_id)` pairs we
-//! have just sent outbound, so the inbound webhook for the same id can be
-//! dropped before it reaches the per-row DB tag — closing the race where the
-//! webhook arrives before the outbound `set_external_event_id` UPDATE
-//! commits.
+//! Short-lived in-memory cache of `(task_id, external_event_id)` pairs just
+//! sent outbound.
 //!
-//! Lossy by design: if the backend restarts between outbound and webhook the
-//! DB tag still catches it, and on a provider that renders the task-provenance
-//! footer the footer names the authoring task independently of both.
-//!
-//! TTL is `120s` — comfortably above realistic webhook delivery latency and
-//! well below realistic external-id reuse windows.
+//! Lets the inbound webhook for the same id be dropped before it reaches the
+//! per-row DB tag, closing the race where the webhook arrives before the
+//! outbound `set_external_event_id` UPDATE commits. Lossy by design: after a
+//! restart the DB tag still catches the duplicate. TTL is `120s`, above
+//! realistic webhook latency and below realistic external-id reuse.
 
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -28,9 +24,9 @@ impl RecentlySent {
         Self::default()
     }
 
-    /// Record that we just sent an outbound that produced `ext_id` for `task_id`.
-    /// Subsequent inbound webhooks carrying the same id within the TTL window
-    /// will be deduped via [`Self::contains`].
+    /// Record that we just sent an outbound that produced `ext_id` for
+    /// `task_id`. Subsequent inbound webhooks carrying the same id within the
+    /// TTL window will be deduped via [`Self::contains`].
     pub fn note(&self, task_id: &str, ext_id: &str) {
         let key = key(task_id, ext_id);
         if let Ok(mut guard) = self.inner.lock() {

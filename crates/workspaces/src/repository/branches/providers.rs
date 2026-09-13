@@ -223,9 +223,9 @@ pub(super) async fn fetch_gitlab_branches(
 
 /// Forgejo's REST API v1, addressed at the host `remote_url` names.
 ///
-/// HTTPS always, whatever scheme `remote_url` carries: a Workspace controls
-/// that URL, and honouring a scheme from it would let one downgrade the
-/// connection `token` travels over.
+/// HTTPS always, whatever scheme `remote_url` carries — a Workspace controls
+/// that URL, and honouring its scheme would let one downgrade the connection
+/// `token` travels over.
 pub(super) async fn fetch_forgejo_branches(
     client: &reqwest::Client,
     remote_url: &str,

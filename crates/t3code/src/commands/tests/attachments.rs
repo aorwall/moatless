@@ -26,8 +26,8 @@ fn turn_with(attachments: Value) -> Value {
     command
 }
 
-/// The bytes are what reaches the sink — not the data URL, and not the
-/// sizes the client declared, which are only what the client believes.
+/// The bytes are what reaches the sink — not the data URL, and not the sizes
+/// the client declared, which are only what the client believes.
 #[tokio::test]
 async fn an_attached_image_reaches_the_sink_decoded() {
     let (result, calls) = run(turn_with(json!([an_image("screenshot.png")]))).await;
@@ -45,8 +45,8 @@ async fn an_attached_image_reaches_the_sink_decoded() {
     );
 }
 
-/// The order the composer held them in is the order they are stored in, so
-/// the bubble renders them the way the person arranged them.
+/// The order the composer held them in is the order they are stored in, so the
+/// bubble renders them the way the person arranged them.
 #[tokio::test]
 async fn attachments_keep_the_order_they_were_sent_in() {
     let (_, calls) = run(turn_with(json!([an_image("a.png"), an_image("b.png")]))).await;
@@ -62,15 +62,13 @@ async fn attachments_keep_the_order_they_were_sent_in() {
     );
 }
 
-/// A composer that has read `attachmentUploads` uploads first and sends a
-/// reference, for images as well as files. Both members carry no bytes, and
-/// the id is the only thing this side needs off the wire — the name, type
-/// and size beside it are the client's copy of what the upload row already
-/// records.
+/// A composer that has read `attachmentUploads` sends a reference — image or
+/// file — carrying no bytes; only the id matters, since the name, type and size
+/// beside it are just the client's copy of the upload row.
 ///
-/// The member travels with the id. An id is not a provenance, so the
-/// resolver has to measure the stored row against the member it was claimed
-/// under, and it can only do that if this side says which one that was.
+/// An id alone is not provenance, so the resolver measures the stored row
+/// against the member kind it was claimed under, which this side must keep
+/// naming.
 #[tokio::test]
 async fn an_uploaded_attachment_reaches_the_sink_as_the_id_it_named() {
     let uploaded = |kind: &str, name: &str, id: &str| {
@@ -107,9 +105,9 @@ async fn an_uploaded_attachment_reaches_the_sink_as_the_id_it_named() {
     );
 }
 
-/// A file has no inline form — only `UploadChatImageAttachment` carries
-/// bytes — and an id that is a path is not an id. Both refuse the turn
-/// rather than reaching the sink with something it would have to guess at.
+/// A file has no inline form — only `UploadChatImageAttachment` carries bytes —
+/// and an id that is a path is not an id. Both refuse the turn rather than
+/// reaching the sink with something it would have to guess at.
 #[tokio::test]
 async fn a_reference_that_is_not_one_refuses_the_turn() {
     for attachment in [
@@ -149,9 +147,9 @@ async fn a_turn_without_attachments_carries_none() {
     ));
 }
 
-/// Each of these is refused rather than dropped: an image that disappears
-/// on send reads as Moatless losing it, and nothing reaches the sink, so
-/// the refusal is the whole outcome.
+/// Each of these is refused rather than dropped: an image that disappears on
+/// send reads as Moatless losing it, and nothing reaches the sink, so the
+/// refusal is the whole outcome.
 #[tokio::test]
 async fn an_attachment_that_cannot_be_honoured_refuses_the_turn() {
     let mut oversized = an_image("huge.png");
@@ -190,8 +188,8 @@ async fn an_attachment_that_cannot_be_honoured_refuses_the_turn() {
     }
 }
 
-/// The contract caps a turn at eight, and a client that sends more is
-/// answering a different contract.
+/// The contract caps a turn at eight, and a client that sends more is answering
+/// a different contract.
 #[tokio::test]
 async fn more_attachments_than_the_contract_allows_refuses_the_turn() {
     let too_many: Vec<Value> = (0..=MAX_ATTACHMENTS)
@@ -202,8 +200,8 @@ async fn more_attachments_than_the_contract_allows_refuses_the_turn() {
     assert!(calls.is_empty());
 }
 
-/// A data URL that is not base64 has no bytes to read, and a payload with
-/// the newlines an encoder wrapped it at does.
+/// A data URL that is not base64 has no bytes to read, and a payload with the
+/// newlines an encoder wrapped it at does.
 #[test]
 fn a_data_url_is_read_only_where_it_is_base64() {
     assert!(decode_data_url("data:image/png,not-encoded").is_none());

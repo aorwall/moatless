@@ -23,9 +23,9 @@ use super::deployment::SandboxDeploymentState;
 /// The coarse status a Deployment's replica counts imply, given whether its
 /// sandbox Service is present.
 ///
-/// `serviced` is `None` when the Service LIST failed. An unreadable list is not
-/// evidence that a Service is gone, so it leaves every Deployment's own
-/// readiness standing rather than restarting the fleet on one failed call.
+/// `serviced` is `None` when the Service LIST failed; an unreadable list is not
+/// evidence the Service is gone, so it leaves each Deployment's own readiness
+/// standing rather than restarting the fleet on one failed call.
 fn observed_status(
     state: &SandboxDeploymentState,
     serviced: Option<&HashSet<String>>,

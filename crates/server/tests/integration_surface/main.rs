@@ -1,5 +1,5 @@
-//! Integration tests over the client surface — `ui_rpc`, agent handlers, pairing.
-//! One of three `integration_*` test targets; shared fixtures live in
+//! Integration tests over the client surface — `ui_rpc`, agent handlers,
+//! pairing. One of three `integration_*` test targets; shared fixtures live in
 //! `tests/common`.
 
 // Every module below carries its own `#![cfg(feature = "db-tests")]`,

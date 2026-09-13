@@ -1,15 +1,12 @@
 //! Cutting a Task's own conversation back to a turn.
 //!
-//! The mirror of `message::fork_dao`, which copies the rows at or below a cut
-//! onto another Task. This deletes the rows above one, in place. Both cut by
-//! `turn_number`, and a row carrying none is kept here for the reason the copy
-//! drops it: it cannot be placed relative to the cut, and a queued user Message
-//! the agent has not picked up yet is pending work rather than history.
+//! The mirror of `message::fork_dao`, which copies rows at or below a cut onto
+//! another Task; this deletes the rows above one, in place. A row with no
+//! `turn_number` is kept — a queued user Message not yet picked up is pending
+//! work, not history.
 //!
-//! The mirror stops at the activities that happened on no Message. The copy
-//! takes those by `position`, because a fork's Sandbox never saw them; a rewind
-//! leaves them, because this Sandbox did and still reflects them. See the
-//! delete in [`truncate_conversation`].
+//! The mirror stops at activities that happened on no Message: the copy takes
+//! those by `position` (a fork's Sandbox never saw them); a rewind leaves them.
 
 use moatless_core::change_feed::{conversation, listing};
 use moatless_core::db::DbPool;
@@ -25,16 +22,9 @@ pub(crate) struct RewindCounts {
     pub turns: u64,
 }
 
-/// Delete everything `task_id` recorded above turn `keep_through`, and leave the
-/// Task pointing at the session it should branch from, in one transaction.
-///
-/// `anchor` is the `task_forks` row the next turn reads, or `None` when the cut
-/// leaves no agent session to resume — which also clears whatever was there.
-///
-/// Atomic by necessity, not by habit: the anchor is what makes the pod branch
-/// the transcript at the cut instead of `--resume`-ing the whole thing, so a
-/// commit that dropped the rows without it would have the agent carry on from a
-/// history the person just deleted.
+/// Delete everything `task_id` recorded above turn `keep_through`, and set
+/// `anchor` as the `task_forks` row to resume from (or clear it), atomically —
+/// else the pod could resume a deleted history.
 pub(crate) async fn truncate_conversation(
     pool: &DbPool,
     task_id: &str,

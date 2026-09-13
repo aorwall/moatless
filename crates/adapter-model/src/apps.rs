@@ -4,8 +4,8 @@
 //! An Adapter needs one thing from the stored app: the secrets and settings a
 //! deployment saved under its `app_key`. What the Adapter makes of them — a bot
 //! token, a signing secret, an OAuth client pair — is that Adapter's own shape,
-//! so each one reads the fields it needs out of [`AdapterAppSecrets`]. The crate
-//! that stores the rows names no provider.
+//! so each one reads the fields it needs out of [`AdapterAppSecrets`]. The
+//! crate that stores the rows names no provider.
 
 use std::collections::HashMap;
 

@@ -1,16 +1,15 @@
 //! Per-task gate that suppresses stray Linear activity emission after a turn
-//! has terminated. Mirrors the shape of `bindings::recently_sent::RecentlySent`.
+//! has terminated. Mirrors the shape of
+//! `bindings::recently_sent::RecentlySent`.
 //!
-//! A turn "opens" when an inbound Linear webhook routes to a task (or when an
-//! `Agent(Started)` event arrives for a Linear-bound task) and "closes" when
-//! the terminal `agent.completed` / `agent.stopped` / `agent.error` handler
-//! has finished posting its final activity. While the gate is closed, all
-//! event-consumer dispatches to `notify_linear_*` are dropped so post-turn
-//! sandbox lifecycle events (`Sandbox(Stopped)`, late `tool_results`, etc.)
-//! never leak into Linear's UI.
+//! A turn opens when an inbound Linear webhook routes to a task (or an
+//! `Agent(Started)` event arrives for a Linear-bound task) and closes when the
+//! terminal `agent.completed`/`agent.stopped`/`agent.error` handler posts its
+//! final activity; while closed, all `notify_linear_*` dispatches are dropped
+//! so post-turn sandbox lifecycle events never leak into Linear's UI.
 //!
-//! TTL is `60min` — a safety valve for entries that get stuck open after a
-//! pod crash or missed completion event. Below realistic turn durations.
+//! TTL is `60min`, a safety valve (below realistic turn durations) for entries
+//! stuck open after a pod crash or missed completion event.
 
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -37,8 +36,8 @@ impl ActiveLinearTurns {
         }
     }
 
-    /// Mark the task's Linear turn as inactive. Absence == closed, so this is
-    /// a plain `remove`.
+    /// Mark the task's Linear turn as inactive. Absence == closed, so this is a
+    /// plain `remove`.
     pub fn close(&self, task_id: &str) {
         if let Ok(mut guard) = self.inner.lock() {
             guard.remove(task_id);

@@ -13,7 +13,7 @@ use moatless_tasks::task::operations::TaskCommands;
 
 /// A resolved authorization to act on one task over the sandbox gRPC API.
 ///
-/// Produced by [`SandboxAuthorizer`]. Its `ctx` is what a handler runs its
+/// Produced by [`SandboxAuthorizer`]; its `ctx` is what a handler runs its
 /// scoped DB work as.
 #[derive(Debug)]
 pub(crate) struct TaskGrant {
@@ -29,7 +29,8 @@ pub(crate) struct TaskGrant {
 /// DB-backed task-grant resolution in [`SandboxAuthorizer::resolve_grant`].
 pub(super) enum VerifiedToken {
     /// No `TASK_TOKEN_SECRET` configured: dev/test bypass. Constructed only via
-    /// [`SandboxAuthorizer::dev_unauthenticated`], so the bypass has one origin.
+    /// [`SandboxAuthorizer::dev_unauthenticated`], so the bypass has one
+    /// origin.
     DevBypass,
     /// A token carrying a `taskId` claim (the post-binding norm). The claim is
     /// authoritative; the request's `task_id` must equal it.
@@ -50,11 +51,9 @@ pub(super) enum VerifiedToken {
 
 /// The single verification layer for the sandbox gRPC API.
 ///
-/// Every RPC begins at [`authorize`](Self::authorize), or at
+/// Every RPC begins at [`authorize`](Self::authorize), or
 /// [`authorize_bootstrap`](Self::authorize_bootstrap) for the one
-/// `GetCredentials` exception. A concrete type and not a trait: there is one
-/// verification path, and the dev-mode bypass has one constructor
-/// ([`dev_unauthenticated`](Self::dev_unauthenticated)).
+/// `GetCredentials` exception.
 pub struct SandboxAuthorizer {
     /// JWT signing secret. Enforcing mode has one; the dev bypass has none.
     secret: Option<String>,
@@ -83,10 +82,10 @@ impl SandboxAuthorizer {
     }
 
     /// Dev/test constructor: no signing secret, so every request is trusted and
-    /// mapped to a system-scope grant for whatever task it names. This is the
-    /// **only** place the bypass is constructed; production refuses to boot
-    /// without `TASK_TOKEN_SECRET` (see `Config::validate`), so it never runs
-    /// there.
+    /// mapped to a system-scope grant for whatever task it names.
+    ///
+    /// The only place the bypass is constructed; production refuses to boot
+    /// without `TASK_TOKEN_SECRET` (see `Config::validate`).
     pub(crate) fn dev_unauthenticated(
         tasks: Option<Arc<TaskCommands>>,
         users: Option<Arc<dyn CommitIdentity>>,
@@ -99,8 +98,8 @@ impl SandboxAuthorizer {
         }
     }
 
-    /// Select the mode from config: `Some(secret)` → enforcing, `None` → the dev
-    /// bypass. The single branch that decides authenticated-vs-bypass.
+    /// Select the mode from config: `Some(secret)` → enforcing, `None` → the
+    /// dev bypass. The single branch that decides authenticated-vs-bypass.
     pub fn from_config(
         secret: Option<String>,
         accept_claimless: bool,
@@ -115,10 +114,9 @@ impl SandboxAuthorizer {
 
     /// Extract and verify the bearer token from request metadata.
     ///
-    /// `allow_bootstrap` is set only for `GetCredentials`, which uniquely accepts
-    /// both bootstrap and long-lived user tokens. The grant is resolved
-    /// separately by [`resolve_grant`](Self::resolve_grant), because a streaming
-    /// RPC's `task_id` arrives in-band and is not known yet.
+    /// `allow_bootstrap` is set only for `GetCredentials`; the grant is
+    /// resolved separately by [`resolve_grant`](Self::resolve_grant) since a
+    /// streaming RPC's `task_id` arrives in-band, not yet known here.
     #[allow(clippy::result_large_err)] // reason: tonic::Status is the required gRPC error type
     pub(super) fn verify_token<T>(
         &self,
@@ -200,7 +198,8 @@ impl SandboxAuthorizer {
         }
     }
 
-    /// Verify + resolve in one step: the standard entrypoint for task-scoped RPCs.
+    /// Verify + resolve in one step: the standard entrypoint for task-scoped
+    /// RPCs.
     pub(super) async fn authorize<T>(
         &self,
         request: &Request<T>,
@@ -210,8 +209,8 @@ impl SandboxAuthorizer {
         self.resolve_grant(verified, request_task_id).await
     }
 
-    /// Like [`authorize`](Self::authorize) but also accepts the bootstrap token —
-    /// used by `GetCredentials` alone.
+    /// Like [`authorize`](Self::authorize) but also accepts the bootstrap token
+    /// — used by `GetCredentials` alone.
     pub(super) async fn authorize_bootstrap<T>(
         &self,
         request: &Request<T>,
@@ -222,10 +221,11 @@ impl SandboxAuthorizer {
     }
 
     /// The DB-backed write gate: load the task through the caller's scoped read
-    /// (an invisible task is a plain `NotFound`, like the HTTP 404), then require
-    /// `ctx.can_write` (owner or admin). Public *visibility* grants control —
-    /// operating the sandbox — but never write, so the calls behind this gate
-    /// (credentials, messages, workspace writes) stay owner-only.
+    /// (an invisible task is a plain `NotFound`, like HTTP 404), then require
+    /// `ctx.can_write` (owner or admin).
+    ///
+    /// Public *visibility* grants control but never write, so credentials,
+    /// messages, and workspace writes stay owner-only.
     async fn resolve_write(
         &self,
         claims: &jwt::UserTokenClaims,
@@ -324,8 +324,8 @@ impl SandboxAuthorizer {
         })
     }
 
-    /// Platform-admin check for the control gate. Missing repo or a lookup error
-    /// is treated as "not admin" (fail closed).
+    /// Platform-admin check for the control gate. Missing repo or a lookup
+    /// error is treated as "not admin" (fail closed).
     async fn user_is_admin(&self, user_id: &uuid::Uuid) -> bool {
         match self.users.as_ref() {
             Some(users) => matches!(

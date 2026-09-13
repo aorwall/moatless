@@ -1,24 +1,11 @@
 //! The one pod port every published preview reaches.
 //!
-//! A published preview's Service sends `{task}--{port}` to
-//! [`SANDBOX_PREVIEW_PROXY_PORT`] rather than to the port the server binds
-//! (`sandbox-k8s`'s `edge::script_service_port_patch`), and the upstream port
-//! comes from the request's `Host`. So one listener serves every published
-//! port, and the server is always dialled over loopback with a loopback `Host`:
-//! a server bound to `127.0.0.1`, or one that refuses an unrecognized `Host`,
-//! is previewable without changing how it is started.
-//!
-//! A published port is opened in a browser tab before anything binds it, so a
-//! refused connection on a request for a page is answered with
-//! [`starting_page`] rather than a gateway error. Every other request, and every
-//! other failure, keeps its status and its plain-text body.
-//!
-//! Preview traffic is untrusted, so this is its own listener and never the
-//! control router: the only thing it can reach is a non-reserved port in the
-//! pod's network namespace. That namespace is shared by every container in the
-//! pod (`sandbox-k8s`'s `pod_builder`), so it spans the server sidecars and
-//! `dind` as well as this container — a new sidecar is reachable here the day it
-//! is added, and keeping it out means reserving its port.
+//! A published preview's Service sends `{task}--{port}` here, not to the
+//! server's own port; the upstream port comes from the request's `Host`, and
+//! the server is always dialled over loopback with a loopback `Host`, so it
+//! previews without changing how it is started. Untrusted traffic gets its own
+//! listener, reaching only a non-reserved port in the pod's shared namespace;
+//! see [`starting_page`] for why a refused connection isn't a gateway error.
 
 use std::convert::Infallible;
 use std::time::Duration;
@@ -61,9 +48,9 @@ const UPSTREAM_HEAD_TIMEOUT: Duration = Duration::from_mins(1);
 
 /// Serve preview traffic on `listener` until `cancel` fires.
 ///
-/// Cancellation stops the accept loop; connections already accepted run in
-/// detached tasks and end with the process. A preview is not worth holding a
-/// shutdown open for, and a hung WebSocket would hold it indefinitely.
+/// Cancellation stops the accept loop; already-accepted connections run in
+/// detached tasks and end with the process — a preview is not worth holding a
+/// shutdown open for a hung WebSocket.
 pub async fn serve(listener: TcpListener, grpc_port: u16, cancel: CancellationToken) {
     let listen_port = match listener.local_addr() {
         Ok(addr) => addr.port(),
@@ -211,12 +198,11 @@ async fn forward(
     Ok(response.map(BodyExt::boxed))
 }
 
-/// The port `{task}--{port}.{domain}` names, or `None` when the host is not one
-/// of ours.
+/// The port `{task}--{port}.{domain}` names, or `None` when the host isn't
+/// ours.
 ///
-/// Only the first label is read, so the proxy domain never has to be configured
-/// here. `--` is the separator `edge::publish_task_port` builds the hostname
-/// with, and the last one wins because a task id contains single dashes.
+/// Only the first label is read; `--` is `edge::publish_task_port`'s separator,
+/// and the last one wins since a task id contains single dashes.
 fn upstream_port(host: &str) -> Option<u16> {
     let label = host.split('.').next()?.split(':').next()?;
     let (_, port) = label.rsplit_once("--")?;
@@ -225,9 +211,8 @@ fn upstream_port(host: &str) -> Option<u16> {
 
 /// Whether this request is a browser asking for a page to render.
 ///
-/// `Accept` is the portable signal, and it separates the cases cleanly: a
-/// stylesheet asks for `text/css,*/*`, an image for `image/…`, `fetch` and
-/// `curl` for `*/*`, and none of them name `text/html`.
+/// `Accept` is the portable signal: a stylesheet asks for `text/css,*/*`, an
+/// image for `image/…`, `fetch`/`curl` for `*/*` — none name `text/html`.
 fn is_document_request(method: &Method, headers: &HeaderMap) -> bool {
     method == Method::GET
         && headers
@@ -236,18 +221,18 @@ fn is_document_request(method: &Method, headers: &HeaderMap) -> bool {
             .is_some_and(|accept| accept.contains("text/html"))
 }
 
-/// The `Accept` the page's own poll sends, rendered into it as `{{POLL_ACCEPT}}`.
+/// The `Accept` the page's own poll sends, rendered into it as
+/// `{{POLL_ACCEPT}}`.
 ///
-/// The poll has to reach the same arm a navigation does, or it reads the plain
-/// `502`, finds no [`X_MOATLESS_PREVIEW`] and reloads the page into itself once
-/// a second. `fetch` defaults to `*/*`, which [`is_document_request`] rejects.
+/// Must match a navigation's `Accept`, or it reads `502` and reloads every
+/// second: `fetch`'s `*/*` default is what [`is_document_request`] rejects.
 const POLL_ACCEPT: &str = "text/html";
 
 /// The page a reader gets while the server on `port` is still starting.
 ///
-/// It polls this same URL and loads the app itself once the server answers, so
-/// the status has to be one no client caches: `503` with `Retry-After`, and the
-/// [`X_MOATLESS_PREVIEW`] marker the poll reads.
+/// Status must be one no client caches: `503` with `Retry-After` and the
+/// [`X_MOATLESS_PREVIEW`] marker the poll reads, since it polls this same URL
+/// and loads the app once the server answers.
 fn starting_page(port: u16) -> Response<BoxBody<Bytes, hyper::Error>> {
     let html = include_str!("preview_proxy/starting.html")
         .replace("{{PORT}}", &port.to_string())
@@ -512,11 +497,11 @@ mod tests {
         port
     }
 
-    /// A server bound to loopback only — the case the proxy exists for, and one
-    /// the pod's own address could not reach.
+    /// A server bound to loopback only, the case the proxy exists for and the
+    /// pod's own address could not reach.
     ///
-    /// It answers with the `Host` it was given, so a test can assert what
-    /// reached it rather than only what came back.
+    /// Answers with the `Host` it was given, so a test can assert what reached
+    /// it, not just what came back.
     async fn start_loopback_server(response: &'static str) -> u16 {
         let listener = TcpListener::bind(("127.0.0.1", 0))
             .await

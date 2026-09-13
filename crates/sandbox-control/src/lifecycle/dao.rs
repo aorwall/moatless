@@ -1,12 +1,11 @@
 //! Postgres [`LifecycleDao`] — durable intent, generation allocation, and the
 //! commit-before-publication completion commit.
 //!
-//! The atomic intent write collapses desired state, stop reason, archive
-//! retention, and the correlation marker into **one** statement (a CTE captures
-//! the pre-image so `persist_intent` can report whether intent actually changed).
-//! `commit_fact_and_clear_marker` persists the deterministic terminal fact and clears the
-//! marker in one transaction, so the deterministic event id is never live without
-//! its persisted fact.
+//! The atomic intent write collapses desired state, stop reason, retention, and
+//! the correlation marker into **one** statement, so readers never see partial
+//! intent. `commit_fact_and_clear_marker` persists the terminal fact and clears
+//! the marker in one transaction, so the deterministic event id is never live
+//! without its persisted fact.
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -26,10 +25,9 @@ use moatless_types::sandbox::ArchiveRetention;
 
 /// What a Sandbox's pod is built from, all of it off the `sandboxes` row.
 ///
-/// `owner_user_id` is the identity the pod authenticates back to the backend
-/// as, so it is the one the gRPC control gate checks. `run_as_user_id` is the
-/// identity the pod acts as outward — for git-host credentials and for the
-/// plugins it is delivered.
+/// `owner_user_id` is the identity the gRPC control gate checks;
+/// `run_as_user_id` is the identity the pod acts as outward for git-host
+/// credentials and delivered plugins.
 #[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
 pub struct SandboxShape {
     pub workspace_id: String,
@@ -43,8 +41,8 @@ pub struct SandboxShape {
     pub use_tmux: bool,
 }
 
-/// One Sandbox the reconciler should look at, named by the Task that
-/// represents it, plus when work was last queued for it.
+/// One Sandbox the reconciler should look at, named by the Task that represents
+/// it, plus when work was last queued for it.
 #[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
 pub struct ReconcileCandidate {
     pub task_id: String,
@@ -67,10 +65,11 @@ pub struct IntentWrite {
 pub trait LifecycleDao: Send + Sync {
     async fn load(&self, task_id: &str) -> Result<Option<TaskIntent>, StoreError>;
 
-    /// DB-derived reconciler candidates: participating Tasks (Open/Error) that
-    /// desire Running, any Sandbox carrying an incomplete operation marker, and
-    /// any Sandbox with queued work. The reconciler unions these with the
-    /// observed fleet, then decides which have actually diverged.
+    /// DB-derived reconciler candidates for the reconciler to check.
+    ///
+    /// Tasks that desire Running, Sandboxes with an incomplete operation
+    /// marker, and Sandboxes with queued work, unioned with the observed fleet
+    /// to decide what diverged.
     async fn reconcile_candidates(&self) -> Result<Vec<ReconcileCandidate>, StoreError>;
 
     /// All open/error Task members of Sandboxes that durably desire Running.
@@ -80,7 +79,7 @@ pub trait LifecycleDao: Send + Sync {
 
     /// Whether another active Task still points at the same Sandbox.
     ///
-    /// A member close/delete may stop that member's agent, but the runtime
+    /// A member close/delete may stop that member's agent, but runtime
     /// resources belong to the Sandbox and stay while any open/error peer is
     /// still attached.
     async fn has_other_active_members(
@@ -104,10 +103,10 @@ pub trait LifecycleDao: Send + Sync {
         write: &IntentWrite,
     ) -> Result<IntentEffect, StoreError>;
 
-    /// Persist a **full** deterministic terminal fact (id, status, and any
-    /// reason tag) and clear the marker in one transaction. Used for ordinary
-    /// completion and for a stale edge's durable abandonment fact. The caller
-    /// publishes only after this returns `Ok`.
+    /// Persist a full deterministic terminal fact and clear the marker.
+    ///
+    /// One transaction, for ordinary completion and a stale edge's abandonment
+    /// fact; the caller publishes only after this returns `Ok`.
     async fn commit_fact_and_clear_marker(
         &self,
         sandbox_id: &str,
@@ -124,13 +123,11 @@ pub trait LifecycleDao: Send + Sync {
         generation: OperationGeneration,
     ) -> Result<(), StoreError>;
 
-    /// When each of `task_ids` entered `Stopped`, for the subset that is
-    /// stopped now and still owns storage.
+    /// When each of `task_ids` entered `Stopped`, for the subset stopped now
+    /// and still owning storage.
     ///
-    /// The two exclusions are what make this a *candidate* set rather than a
-    /// state read: a Task with no Sandbox row never had storage, and one whose
-    /// storage was already reclaimed stays `Stopped` forever and would
-    /// otherwise be re-offered on every cycle.
+    /// Excludes a Task with no Sandbox row (never had storage) and one already
+    /// reclaimed (would otherwise be re-offered every cycle).
     async fn stopped_with_storage(
         &self,
         task_ids: &[String],
@@ -141,26 +138,21 @@ pub trait LifecycleDao: Send + Sync {
     async fn mark_storage_reclaimed(&self, task_id: &str) -> Result<(), StoreError>;
 
     /// Record how many `moat cmd` commands the Sandbox is running, as the pod
-    /// last reported. Absolute, so a repeat of an already-recorded count is a
-    /// no-op and a missed report is corrected by the next one.
+    /// last reported. Absolute, so a missed report is corrected by the next
+    /// one.
     ///
-    /// Notifies the listing only when the count crosses zero: the sidebar
-    /// renders "is anything running", so a 2→3 move changes no row and a feed
-    /// record for it would wake every connected client for nothing.
+    /// Notifies the listing only when the count crosses zero, since the sidebar
+    /// renders "is anything running" and a 2→3 move would wake every client for
+    /// nothing.
     async fn record_running_commands(&self, task_id: &str, running: i32) -> Result<(), StoreError>;
 
-    /// Mirror the commands a pod says still owe its agent an outcome, so a
-    /// replacement can name them.
+    /// Mirror the commands a pod says still owe its agent an outcome, on a row
+    /// no failed workspace-snapshot restore touches, so a replacement can name
+    /// them.
     ///
-    /// The pod's own journal rides the S3 workspace snapshot, which a failed
-    /// restore takes with it, and the wake is then never delivered. This is the
-    /// second copy, on a row no restore touches.
-    ///
-    /// Absolute, for the reason [`Self::record_running_commands`] is: the
-    /// registry dies with its pod, so nothing would ever retract a delta. The
-    /// write happens off the pod's registry lock, so two of them can arrive out
-    /// of order; `revision` is that lock's counter, and a call carrying one no
-    /// higher than the stored value is dropped rather than applied.
+    /// Absolute, like [`Self::record_running_commands`]; `revision` is the pod
+    /// registry lock's counter, and a call carrying one no higher than stored
+    /// is dropped.
     async fn record_unreported_commands(
         &self,
         task_id: &str,
@@ -187,9 +179,9 @@ impl PgLifecycleDao {
     }
 }
 
-/// The statement that clears the correlation marker (`kind/generation/started_at`).
-/// Shared by the standalone clear and the completion transaction so the two
-/// cannot drift.
+/// The statement that clears the correlation marker
+/// (`kind/generation/started_at`). Shared by the standalone clear and the
+/// completion transaction so the two cannot drift.
 const CLEAR_MARKER_SQL: &str = r#"UPDATE sandboxes SET
        operation_kind = NULL,
        operation_generation = NULL,
@@ -769,10 +761,10 @@ mod tests {
     }
 }
 
-/// Postgres-backed store tests. Gated on `db-tests` and run in isolation
-/// (`cargo test -p moatless-backend --features db-tests --lib`) against a
-/// live Postgres via `#[sqlx::test]`, which provisions an isolated database and
-/// applies `backend/migrations` (including the `sandboxes` table).
+/// Postgres-backed store tests, gated on `db-tests`.
+///
+/// Run in isolation via `#[sqlx::test]` against an isolated DB with
+/// `backend/migrations` applied.
 #[cfg(all(test, feature = "db-tests"))]
 mod db_tests {
     use super::super::test_support::{seed_bare_task, seed_task as seed};
@@ -1217,13 +1209,11 @@ mod db_tests {
         );
     }
 
-    /// A sidebar shows whether a conversation's session is running, so intent
-    /// moving is a listing change — and intent *not* moving is not one.
+    /// A sidebar shows whether a session is running, so intent moving is a
+    /// listing change and intent *not* moving is not.
     ///
-    /// The second half is the half with teeth. Every operation rewrites the
-    /// correlation marker, and a store that recorded on the call rather than on
-    /// the effect would advance the deployment's one position counter for
-    /// bookkeeping churn no sidebar shows.
+    /// Recording on the call rather than the effect would advance the
+    /// deployment's position counter for bookkeeping churn no sidebar shows.
     #[sqlx::test]
     async fn intent_records_a_listing_change_only_when_it_actually_moves(pool: PgPool) {
         seed(&pool, "t1").await;
@@ -1272,16 +1262,12 @@ mod db_tests {
         );
     }
 
-    /// `record_change`'s "call this last", for the one mutation site an
-    /// integration test cannot reach: `PgLifecycleDao` is `pub(crate)`, so the
-    /// loop in `tests/integration_data/task_listing_position_test.rs` cannot name it.
+    /// `record_change`'s "call this last" rule, for the one mutation site an
+    /// integration test cannot reach since `PgLifecycleDao` is `pub(crate)`.
     ///
-    /// Same shape as that loop. Someone holds the `sandboxes` row this write
-    /// locks `FOR UPDATE`; the write is started and asserted to be waiting on
-    /// it; then the deployment's counter is taken on a third connection and has
-    /// to answer. Against the other order this times out, because the write
-    /// would be holding the counter while it waits — one half of a deadlock
-    /// with every conversation mutation in the deployment.
+    /// Holds the `sandboxes` row `FOR UPDATE`, then takes the counter on a
+    /// third connection; reversing that order would deadlock with every
+    /// conversation mutation.
     #[sqlx::test]
     async fn an_intent_write_blocked_on_the_sandbox_row_is_not_holding_the_counter(pool: PgPool) {
         use std::time::Duration;

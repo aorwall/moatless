@@ -4,10 +4,9 @@
 use super::fixtures::*;
 use super::*;
 
-/// Both file methods answer in the shape their own contract declares, and
-/// not as a defect. A `Die` reaches the file panel as "Workspace query
-/// failed." with the reason stripped, so a refusal the person can act on —
-/// no sandbox — has to arrive as a `Fail` carrying the sentence to show.
+/// Both methods answer in their contract's shape, not as a defect. A `Die`
+/// strips the reason from the panel message, so an actionable refusal must
+/// arrive as a `Fail` carrying the sentence.
 #[tokio::test]
 async fn a_refused_file_request_fails_with_the_method_s_own_error() {
     for (tag, payload, error_tag) in [

@@ -1,12 +1,11 @@
 //! Consolidated K8s resource name generation.
 //!
-//! All Kubernetes resource naming follows the same pattern:
-//! sanitize the task ID, combine with a prefix, and truncate to 63 chars.
+//! All Kubernetes resource naming follows the same pattern: sanitize the task
+//! ID, combine with a prefix, and truncate to 63 chars.
 
-/// Sanitize a string for use in a Kubernetes resource name.
-///
-/// Lowercase, replace non-alphanumeric chars (except `-`) with `-`,
-/// optionally truncate to `max_len` characters.
+/// Sanitizes a string for use in a Kubernetes resource name: lowercases,
+/// replaces non-alphanumeric chars (except `-`) with `-`, optionally truncates
+/// to `max_len`.
 pub(crate) fn sanitize_k8s_name(input: &str, max_len: usize) -> String {
     input
         .to_lowercase()
@@ -39,14 +38,11 @@ pub fn generate_service_name(task_id: &str) -> String {
     truncate_k8s(format!("moatless-ws-{sanitized}"))
 }
 
-/// Build a valid Traefik `IngressRoute` name from a (pre-sanitized) service name
-/// and a user-supplied server name.
+/// Sanitizes `server_name` and truncates the combined name to fit K8s limits.
 ///
-/// The server name comes straight from repo config and may contain arbitrary or
-/// multi-byte characters, so it is run through [`sanitize_k8s_name`] first. The
-/// combined name is then truncated **char-safely** to the 63-char K8s limit
-/// (a byte slice would panic on a multi-byte boundary), and any trailing `-`
-/// left by sanitization or truncation is trimmed — a K8s name may not end in `-`.
+/// User-supplied and possibly multi-byte, so it's run through
+/// [`sanitize_k8s_name`] first; truncated char-safely to 63 chars (a byte
+/// slice would panic mid-character) with any trailing `-` trimmed.
 pub(crate) fn generate_ingress_route_name(service_name: &str, server_name: &str) -> String {
     let sanitized_server = sanitize_k8s_name(server_name, 63);
     let combined = format!("{service_name}-{sanitized_server}");
@@ -56,8 +52,8 @@ pub(crate) fn generate_ingress_route_name(service_name: &str, server_name: &str)
 
 /// Generate the deterministic per-task preview `NetworkPolicy` name.
 ///
-/// Format: `moatless-ws-{sanitized_task_id}-preview-ingress` (max 63 chars).
-/// The task id is truncated to fit the fixed prefix/suffix, so the name never
+/// Format: `moatless-ws-{sanitized_task_id}-preview-ingress` (max 63 chars);
+/// the task id is truncated to fit the fixed prefix/suffix, so the name never
 /// ends in `-`.
 pub fn generate_preview_network_policy_name(task_id: &str) -> String {
     let prefix = "moatless-ws-";
@@ -70,7 +66,8 @@ pub fn generate_preview_network_policy_name(task_id: &str) -> String {
 
 /// Generate a unique PVC name for a task.
 ///
-/// Format: `moatless-sandbox-{sanitized_task_id}-{base36_timestamp}` (max 63 chars).
+/// Format: `moatless-sandbox-{sanitized_task_id}-{base36_timestamp}` (max 63
+/// chars).
 pub fn generate_pvc_name(task_id: &str) -> String {
     let sanitized = sanitize_k8s_name(task_id, 30);
     let timestamp = std::time::SystemTime::now()
@@ -83,7 +80,8 @@ pub fn generate_pvc_name(task_id: &str) -> String {
 
 /// Generate a unique pod name for a task.
 ///
-/// Format: `moatless-{sanitized_repo}-{sanitized_task}-{hex_timestamp}` (max 63 chars).
+/// Format: `moatless-{sanitized_repo}-{sanitized_task}-{hex_timestamp}` (max 63
+/// chars).
 pub fn generate_pod_name(repository_name: &str, task_id: &str) -> String {
     let sanitized_repo = sanitize_k8s_name(repository_name, 20);
     let sanitized_task = sanitize_k8s_name(task_id, 20);

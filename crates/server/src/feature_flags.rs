@@ -18,15 +18,14 @@ pub struct FeatureFlagsResponse {
     pub forgejo_enabled: bool,
     /// Whether a T3 project's settings page edits the Workspace behind it.
     ///
-    /// On, the page gains the Workspace's own description, repositories, image
-    /// and defaults, and drops the three rows a Moatless Workspace does not
-    /// have (`defaultThreadEnvMode`, auto-pull, agent browser access).
+    /// On, the page gains the Workspace description, repositories, image and
+    /// defaults, and drops `defaultThreadEnvMode`, auto-pull, and agent browser
+    /// access.
     pub workspace_settings: bool,
     /// Whether the settings dialog offers to pair a device.
     ///
     /// Not an `FF_*` variable of its own: pairing is the bootstrap half of the
-    /// T3 compatibility routes, and a code is worth nothing on a deployment
-    /// that does not mount them. So it reports whether *they* are on.
+    /// T3 compatibility routes, so it reports whether those routes are mounted.
     pub device_pairing: bool,
 }
 
@@ -47,8 +46,8 @@ impl FeatureFlagsResponse {
 
 /// GET /api/v1/feature-flags
 ///
-/// Returns all feature flags and their current values.
-/// Flags are controlled by `FF_*` environment variables.
+/// Returns all feature flags and their current values, controlled by `FF_*`
+/// environment variables.
 #[utoipa::path(
     get,
     path = "/api/v1/feature-flags",
@@ -67,7 +66,8 @@ pub async fn get_feature_flags(
 #[openapi(paths(get_feature_flags), components(schemas(FeatureFlagsResponse)))]
 pub struct FeatureFlagsApiDoc;
 
-/// Build the feature-flags router from the deployment snapshot and capabilities.
+/// Build the feature-flags router from the deployment snapshot and
+/// capabilities.
 pub fn feature_flags_router(
     flags: FeatureFlags,
     device_pairing: bool,

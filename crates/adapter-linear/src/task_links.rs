@@ -31,8 +31,8 @@ pub(super) async fn task_attachment_title(
 
 /// Attach the moatless task URL to a Linear issue as a "source" pill, titled
 /// for the case where the Moatless side is the parent. Idempotent on
-/// `(issue_id, url)`. Failures are logged and swallowed — the caller has already
-/// created the issue / posted the comment this links back from.
+/// `(issue_id, url)`; failures are logged and swallowed since the caller
+/// already created the issue/comment.
 pub(super) async fn attach_parent_task_link(
     config: &Config,
     tasks: &dyn TaskReader,

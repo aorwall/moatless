@@ -23,17 +23,11 @@ static MENTION: LazyLock<Regex> =
 
 /// Rewrite every `<@…>` in `text` into what `provider` can address.
 ///
-/// Three outcomes per token, in this order:
-///
-/// - `is_native_id` says it is already the Adapter's own id — rendered by
-///   `render_native`, unresolved. This is what keeps a raw id usable.
-/// - It is a Moatless login linked at `provider` — rendered by `render_native`
-///   from the linked id, which is the ping the agent asked for.
-/// - Neither — rendered as plain `@token`. It names who was meant without
-///   claiming a link that does not exist, and pings nobody.
-///
-/// A lookup that fails is treated as unlinked: a reply must not be held up, and
-/// plain text is never the wrong person.
+/// Three outcomes per token: the Adapter's own id passes through unresolved; a
+/// Moatless login linked at `provider` renders from the linked id; anything
+/// else renders as plain `@token`, naming who was meant without pinging anyone.
+/// A failed lookup is treated as unlinked, since a reply must never be held up
+/// or ping the wrong person.
 pub async fn render_mentions(
     users: &dyn ProviderIdentityLink,
     provider: &str,

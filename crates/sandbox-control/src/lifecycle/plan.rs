@@ -17,10 +17,11 @@ use super::orchestrator::TaskIntent;
 use moatless_sandbox_runtime::runtime::RuntimeError;
 use moatless_sandbox_runtime::runtime::map_sandbox_error;
 
-/// The three seams a fresh runtime plan is assembled from. `sandboxes` is the
-/// sole source of a pod's shape, `workspaces` supplies its run configuration
-/// and repository placements, and `users` resolves the platform-admin flag for
-/// the control check every plan is gated on.
+/// The three seams a fresh runtime plan is assembled from.
+///
+/// `sandboxes` is the sole source of a pod's shape, `workspaces` supplies run
+/// configuration and repository placements, and `users` resolves the
+/// platform-admin flag every plan is gated on.
 #[derive(Clone)]
 pub struct ProvisionDeps {
     sandboxes: Arc<dyn LifecycleDao>,

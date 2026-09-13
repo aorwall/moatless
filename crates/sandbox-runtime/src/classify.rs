@@ -2,10 +2,10 @@
 //!
 //! Watchers classify every observation against desired state **and the
 //! correlation marker** into exactly one of four cases, each of which either
-//! publishes or suppresses. Lifecycle owns operation-driven events; the
-//! watcher owns exactly one desired-matching observation — `Ready` while
-//! desired Running (the convergence event). Everything else that matches
-//! desired state is an echo of something lifecycle already announced.
+//! publishes or suppresses. Lifecycle owns operation-driven events; the watcher
+//! owns exactly one desired-matching observation — `Ready` while desired
+//! Running (the convergence event). Everything else that matches desired state
+//! is an echo of something lifecycle already announced.
 
 use moatless_types::sandbox::SandboxDesiredState;
 
@@ -13,10 +13,9 @@ use crate::operation::{CorrelationMarker, OperationGeneration};
 
 /// What a watcher observed about a pod/container, normalized.
 ///
-/// Hard failures (`Crash`, `OomKilled`, `Evicted`) are **never** expected and
-/// always publish, marker or not. Docker reports a force-removed superseded
-/// container as a non-zero stop, so that transition remains a correlation
-/// candidate until its generation proves whether it was the old container.
+/// Hard failures always publish, marker or not; a Docker force-removed
+/// superseded container reports as `NonZeroStop`, kept as a correlation
+/// candidate.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ObservedTransition {
     /// Sandbox container became ready.
@@ -42,10 +41,11 @@ impl ObservedTransition {
     }
 }
 
-/// A single watcher observation carrying the *observed* generation stamped on
-/// the resource (K8s pod-template label / Docker container label). `None` for
-/// a resource with no generation label; these observations are un-correlatable
-/// and never suppressed as a superseded echo.
+/// A single watcher observation with the *observed* generation stamped on the
+/// resource.
+///
+/// `None` means no generation label; such observations are never suppressed as
+/// a superseded echo.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Observation {
     pub transition: ObservedTransition,
@@ -74,9 +74,8 @@ pub enum Classification {
     /// announced (observed stop while desired Stopped). Suppressed.
     OperationEcho,
     /// An observation the marked operation's `kind` declares expected — the
-    /// stop/deletion of the **superseded** pod during restart/redeploy,
-    /// identified by an observed generation *below* the marker generation.
-    /// Suppressed.
+    /// superseded pod's stop/deletion during restart/redeploy (observed
+    /// generation below the marker generation). Suppressed.
     ExpectedIntermediate,
     /// Everything else (crash, OOM, eviction, external stop while desired
     /// Running). Published.
@@ -101,8 +100,8 @@ impl Classification {
 
 /// Classify and select the generation used by a published observation.
 ///
-/// Runtime adapters stamp every replacement, including waking a stopped Docker
-/// sandbox, so the observed label is a time-independent event identity.
+/// Runtime adapters stamp every replacement, including a woken Docker sandbox,
+/// so the observed label is a time-independent event identity.
 pub fn classify_with_correlation(
     obs: Observation,
     desired: SandboxDesiredState,
@@ -119,11 +118,9 @@ pub fn classify_with_correlation(
 
 /// Classify one observation.
 ///
-/// `suppression_active` is the reconciler-managed flag on the marker: a stale
-/// edge marker first **disables** suppression (so a lingering unfinished edge
-/// cannot indefinitely hide observations), then is cleared only after the
-/// replacement generation is observed Ready or the edge is durably abandoned.
-/// When `false`, the expected-intermediate suppression does not apply.
+/// `suppression_active` gates expected-intermediate suppression: a stale edge
+/// marker disables it first (so it can't hide observations forever), then
+/// clears once the replacement generation is Ready or the edge is abandoned.
 pub fn classify(
     obs: Observation,
     desired: SandboxDesiredState,
@@ -182,9 +179,9 @@ pub fn classify(
     }
 }
 
-/// An observed generation strictly below the marker generation proves the
-/// event belongs to a superseded operation. A missing observed generation
-/// cannot be proven superseded, so it is not suppressed.
+/// An observed generation strictly below the marker generation proves the event
+/// belongs to a superseded operation. A missing observed generation cannot be
+/// proven superseded, so it is not suppressed.
 fn is_superseded(observed: Option<OperationGeneration>, marker: OperationGeneration) -> bool {
     matches!(observed, Some(g) if g < marker)
 }

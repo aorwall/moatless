@@ -19,8 +19,8 @@ use super::auth::GithubPrAuth;
 
 /// GitHub PR adapter.
 pub struct GithubPrAdapter {
-    /// Global webhook secret from env (`GITHUB_CHANNEL_WEBHOOK_SECRET`).
-    /// Used as a fallback when the org connection has no `webhook_secret` set.
+    /// Global webhook secret from env (`GITHUB_CHANNEL_WEBHOOK_SECRET`). Used
+    /// as a fallback when the org connection has no `webhook_secret` set.
     global_webhook_secret: Option<String>,
     /// Frontend base URL (`config.auth.frontend_url`). Used to render the
     /// `Moatless task:` footer link on outbound comments and to recover the
@@ -75,15 +75,8 @@ impl GithubPrAdapter {
     /// Attach the ingress ports the webhook route reaches through this adapter,
     /// so [`super::handlers::github_webhook`] takes no `AppState`.
     ///
-    /// Built by the composition root from the pool it already holds — the same
-    /// local-construction move Telegram's `with_ingress_ports` and
-    /// `LinearAdapter::with_tasks` make. All five are pool-wrapper DAOs the
-    /// backend guidelines allow constructing locally precisely because they
-    /// stay stateless, so a per-provider instance is
-    /// interchangeable with the one `AppState` holds (the concrete
-    /// `AdapterDeliveryStore` behind this `DeliveryAdmission` carries the one
-    /// non-obvious case — policy state — and pins the invariant at its own
-    /// definition).
+    /// Only the `AdapterDeliveryStore` behind this `DeliveryAdmission` carries
+    /// policy state; the rest are stateless pool wrappers.
     #[must_use]
     pub fn with_ingress_ports(
         mut self,
@@ -102,7 +95,8 @@ impl GithubPrAdapter {
     }
 
     /// The connection store, for connection resolution during admission. `Err`
-    /// only if this adapter was built without ingress ports (a test constructor).
+    /// only if this adapter was built without ingress ports (a test
+    /// constructor).
     pub(super) fn require_adapter_connections(
         &self,
     ) -> Result<&dyn ConnectionLookup, AdapterError> {
@@ -116,7 +110,8 @@ impl GithubPrAdapter {
         self.loops.as_deref().ok_or_else(|| missing_port("loops"))
     }
 
-    /// The binding store, for the subscription/binding reads admission plans on.
+    /// The binding store, for the subscription/binding reads admission plans
+    /// on.
     pub(super) fn require_task_bindings(&self) -> Result<&Arc<Bindings>, AdapterError> {
         self.task_bindings
             .as_ref()
@@ -135,14 +130,11 @@ impl GithubPrAdapter {
             .ok_or_else(|| missing_port("adapter_delivery"))
     }
 
-    /// Point every REST client this Adapter builds at a caller-supplied root.
+    /// Point every REST client this Adapter builds at a caller-supplied root
+    /// (test-only).
     ///
-    /// [`Self::new`] resolves the root from the process environment, which
-    /// leaves a test nowhere to put a stub except a process-global — and a
-    /// process-global is shared with every other test in the binary. This is
-    /// GitHub's form of `SlackAdapter::with_api` / `TelegramAdapter::with_api`:
-    /// the root is injected because the client cannot be, tokens being selected
-    /// per call.
+    /// [`Self::new`] pulls the root from the process environment, which has no
+    /// per-test injection point otherwise.
     #[cfg(test)]
     #[must_use]
     pub(super) fn with_api_base(mut self, base_url: impl Into<String>) -> Self {

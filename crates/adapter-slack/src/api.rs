@@ -1,4 +1,5 @@
-//! Slack Web API client — chat.postMessage, users.info, conversations.list/replies.
+//! Slack Web API client — chat.postMessage, users.info,
+//! conversations.list/replies.
 
 use serde::Deserialize;
 use tracing::warn;
@@ -11,8 +12,8 @@ use moatless_types::adapter::SlackBlock;
 pub struct SlackApi {
     token: String,
     client: reqwest::Client,
-    /// Web API root. A field rather than a constant so tests can drive the
-    /// real request path against a local address.
+    /// Web API root. A field rather than a constant so tests can drive the real
+    /// request path against a local address.
     base_url: String,
 }
 
@@ -96,10 +97,9 @@ pub(crate) struct SlackMessage {
 
 /// One `chat.postMessage` request.
 ///
-/// `text` is always sent. Slack uses it for the notification and for clients
-/// that cannot render Block Kit, and moatless persists it as the task-timeline
-/// entry, so it carries the message rather than a stub. `blocks` supersedes it
-/// for display in the channel.
+/// `text` is always sent — Slack's notification/fallback text, and what
+/// moatless persists as the task-timeline entry. `blocks` supersedes it for
+/// channel display.
 pub struct PostMessage<'a> {
     pub channel: &'a str,
     pub text: &'a str,
@@ -168,9 +168,8 @@ impl SlackApi {
 
     /// Post a message that may carry Block Kit blocks.
     ///
-    /// When Slack rejects the blocks, the same message is posted once more
-    /// without them. A block Slack dislikes then costs the message its
-    /// formatting instead of costing the reply its existence.
+    /// When Slack rejects the blocks, the message is reposted once without
+    /// them: a bad block costs formatting, not the reply's existence.
     pub async fn post_message_with(
         &self,
         msg: PostMessage<'_>,
@@ -279,8 +278,9 @@ impl SlackApi {
 
     /// Fetch thread replies for context enrichment.
     ///
-    /// Returns structured replies with Slack `ts` for filtering already-delivered messages.
-    /// When `oldest` is provided, only messages with `ts` strictly greater than it are returned.
+    /// Returns structured replies with Slack `ts` for filtering
+    /// already-delivered messages; `oldest`, when given, returns only `ts`
+    /// strictly greater than it.
     pub async fn get_thread_replies(
         &self,
         channel: &str,
@@ -321,11 +321,9 @@ impl SlackApi {
         Ok(resp.messages.unwrap_or_default())
     }
 
-    /// Upload a file to a Slack channel/thread using the V2 upload flow.
-    ///
-    /// 1. `files.getUploadURLExternal` — get a presigned upload URL from Slack
-    /// 2. Upload file bytes to that URL
-    /// 3. `files.completeUploadExternal` — finalize, associating with channel + thread
+    /// Upload a file to a Slack channel/thread via the V2 upload flow: get a
+    /// presigned URL (`files.getUploadURLExternal`), upload the bytes, then
+    /// finalize with `files.completeUploadExternal`.
     pub async fn upload_file(
         &self,
         channel: &str,
@@ -422,7 +420,8 @@ impl SlackApi {
 
     /// Open a DM channel with a Slack user and return the channel ID.
     ///
-    /// Calls `conversations.open` and returns the `channel.id` (starts with "D").
+    /// Calls `conversations.open` and returns the `channel.id` (starts with
+    /// "D").
     pub async fn open_dm(&self, slack_user_id: &str) -> Result<String, AdapterError> {
         let body = serde_json::json!({ "users": slack_user_id });
 
@@ -624,8 +623,8 @@ mod tests {
         assert_eq!(user.name.as_deref(), Some("soapbot"));
     }
 
-    /// Slack sometimes omits the bot flags for older accounts; treat missing
-    /// as false.
+    /// Slack sometimes omits the bot flags for older accounts; treat missing as
+    /// false.
     #[test]
     fn user_info_missing_flags_default_to_false() {
         let body = serde_json::json!({

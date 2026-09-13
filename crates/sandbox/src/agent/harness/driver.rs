@@ -1,17 +1,11 @@
 //! The shared ordering state machine.
 //!
-//! The driver is harness-neutral: it consumes raw [`ProcessEvent`]s from an
-//! [`AgentProcess`] and emits the external [`Signal`] contract, enforcing the
-//! invariants that every harness must satisfy:
-//!
-//! - no source event is emitted before `ExecutionStarted` (early output is
-//!   buffered and released in native order once the Session is known);
-//! - every started execution emits exactly one terminal `ExecutionFinished`;
-//! - a submitted input that never starts produces exactly one `InputRejected`;
-//! - cancellation is idempotent and maps a terminated execution to a single
-//!   cancelled outcome;
-//! - nothing is silently dropped — bounded channels provide backpressure and a
-//!   closed signal channel stops the driver instead of discarding output.
+//! Harness-neutral: consumes raw [`ProcessEvent`]s from an [`AgentProcess`] and
+//! emits the external [`Signal`] contract, enforcing that no source event
+//! precedes `ExecutionStarted`, every execution emits exactly one terminal
+//! `ExecutionFinished`, an input that never starts yields one `InputRejected`,
+//! cancellation is idempotent, and nothing is silently dropped — a closed
+//! signal channel stops the driver instead of discarding output.
 
 use std::collections::VecDeque;
 
@@ -22,15 +16,16 @@ use super::error::{ErrorClass, FailureStage, HarnessError, SessionImpact};
 use super::process::{AgentProcess, ProcessEvent, ProcessTermination};
 use super::signal::{Cause, Input, InputId, Outcome, Rejection, Signal};
 
-/// Signalled when the coordinator dropped the signal receiver; the driver stops.
+/// Signalled when the coordinator dropped the signal receiver; the driver
+/// stops.
 struct SignalClosed;
 
-/// Run the driver loop until the command side closes and no work remains, or the
-/// signal receiver is dropped.
+/// Run the driver loop until the command side closes and no work remains, or
+/// the signal receiver is dropped.
 ///
-/// `factory` mints a fresh [`AgentProcess`] for each execution — a one-shot
-/// process per Turn for Codex-style harnesses, or (in later tickets) a handle to
-/// a persistent process for Claude-style harnesses.
+/// `factory` mints a fresh [`AgentProcess`] per execution — one-shot for
+/// Codex-style harnesses, or a handle to a persistent process for Claude-style
+/// harnesses.
 pub(crate) async fn run<P, F>(
     mut factory: F,
     mut submit_rx: mpsc::Receiver<Input>,
@@ -80,16 +75,12 @@ pub(crate) async fn run<P, F>(
 /// Run the persistent-process driver loop until the command side closes and the
 /// process ends, or the signal receiver is dropped.
 ///
-/// Unlike [`run`], the process is long-lived: it hosts many executions
-/// (`ExecutionEnded` is a Turn boundary, not process death), accepts input
-/// injected into an active execution, and may open harness-internal executions
-/// on its own. The same ordering invariants hold — no `Source` before its
-/// `ExecutionStarted`/`InputAccepted`, and exactly one terminal per execution —
-/// enforced through the shared [`emit`]/[`flush_early`]/[`finalize`] helpers.
-///
-/// All persistent-transport policy (fingerprint compatibility, injection vs.
-/// replacement, tmux teardown) lives inside the [`AgentProcess`]; this loop is
-/// harness-neutral and only sequences the external contract.
+/// Unlike [`run`], the process is long-lived (`ExecutionEnded` is a Turn
+/// boundary, not process death) and may inject input or open harness-internal
+/// executions on its own; all persistent-transport policy (fingerprint
+/// compatibility, injection vs. replacement, tmux teardown) lives inside the
+/// [`AgentProcess`], and this loop only sequences the external contract via the
+/// shared [`emit`]/[`flush_early`]/[`finalize`] helpers.
 pub(crate) async fn run_persistent<P: AgentProcess>(
     mut process: P,
     mut submit_rx: mpsc::Receiver<Input>,
@@ -169,8 +160,9 @@ pub(crate) async fn run_persistent<P: AgentProcess>(
 }
 
 /// What woke the persistent loop. The channel receives are resolved inside the
-/// `select!`; process interactions (`submit`, `cancel`) then run in the match arm
-/// so the `process.next()` branch never overlaps another `&mut process` borrow.
+/// `select!`; process interactions (`submit`, `cancel`) then run in the match
+/// arm so the `process.next()` branch never overlaps another `&mut process`
+/// borrow.
 enum Woke {
     Cancel,
     CancelClosed,
@@ -197,8 +189,9 @@ struct PersistentState {
     pending: VecDeque<InputId>,
     /// Source events held until the active execution has started and accepted.
     early: Vec<super::source::SourceEvent>,
-    /// The active execution's run totals, captured from `ProcessEvent::RunTotals`
-    /// and attached to the `Completed` outcome at its terminal.
+    /// The active execution's run totals, captured from
+    /// `ProcessEvent::RunTotals` and attached to the `Completed` outcome at its
+    /// terminal.
     run_totals: Option<super::signal::RunTotals>,
 }
 
@@ -651,10 +644,11 @@ async fn run_execution<P: AgentProcess>(
 }
 
 /// Release buffered source events once the execution has both started and had
-/// its input accepted. A no-op until then, so `Source` never precedes
-/// `InputAccepted` — including at a terminal, which never synthesizes acceptance:
-/// buffered blocks with no real `InputAccepted` are dropped rather than emitted
-/// out of contract order.
+/// its input accepted.
+///
+/// A no-op until then, so `Source` never precedes `InputAccepted` — including
+/// at a terminal, which never synthesizes acceptance: buffered blocks with no
+/// real `InputAccepted` are dropped rather than emitted out of contract order.
 async fn flush_early(
     signal_tx: &mpsc::Sender<Signal>,
     started: bool,

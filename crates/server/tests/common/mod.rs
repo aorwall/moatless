@@ -179,10 +179,8 @@ impl NotifyPort for MockNotify {
 /// The Linear half of a test config.
 ///
 /// `api_base_url` is the injection seam: `LinearAgentApi` is built deep inside
-/// webhook and worker paths that hold only an `AppState`, so the only way to
-/// point a workflow's Linear calls at a loopback stub is to hand it in here.
-/// Pass a stub's base and no test in this file can reach `api.linear.app`;
-/// pass `None` and the client is production's.
+/// webhook/worker paths holding only an `AppState`, so a stub's base here is
+/// the only way to keep a workflow's Linear calls off `api.linear.app`.
 #[allow(dead_code)]
 pub fn linear_config(webhook_secret: Option<&str>, api_base_url: Option<&str>) -> LinearConfig {
     LinearConfig {
@@ -196,19 +194,10 @@ pub fn linear_config(webhook_secret: Option<&str>, api_base_url: Option<&str>) -
 
 /// The `adapter_apps` row every Linear API call resolves its client from.
 ///
-/// Linear app credentials are DB-authoritative: `api_for_connection` builds its
-/// client from [`linear_app_config`], which reads `adapter_apps` and returns
-/// `None` when no row exists — and every Linear emitter treats that as
-/// best-effort and silently skips the call. So a test that seeds only
-/// [`linear_config`] makes *no* Linear calls at all, and any API-call budget it
-/// asserts is vacuous. Seed this alongside the connection.
-///
-/// `api_base_url` lives in `config_json` (not the secret rows), which is what
-/// points the resolved client at a stub. No `adapter_app_secrets` rows are
-/// needed: the OAuth client id/secret are only read to refresh a token, and a
-/// seeded token that is not near expiry is never refreshed.
-///
-/// [`linear_app_config`]: moatless_identity::adapter_apps::linear_app_config
+/// Seed alongside the connection: `api_for_connection` returns `None` when
+/// missing and every Linear emitter skips the call best-effort, so a test
+/// seeding only [`linear_config`] makes no calls and any API-call budget it
+/// asserts is vacuous.
 #[allow(dead_code)]
 pub async fn seed_linear_app(pool: &sqlx::PgPool, api_base_url: &str) {
     sqlx::query(
@@ -226,14 +215,9 @@ pub async fn seed_linear_app(pool: &sqlx::PgPool, api_base_url: &str) {
 
 /// The `adapter_apps` row every Telegram Bot API call resolves its client from.
 ///
-/// Telegram credentials are DB-authoritative the same way Linear's are, but the
-/// bot token is a *secret*, so the row cannot be a plain `INSERT`: it has to go
-/// through [`upsert_adapter_app`], which encrypts it under the test config's
-/// `SECRETS_ENCRYPTION_KEY`. Unlike Linear's best-effort emitters, the Telegram
-/// ingress path resolves its client before it normalizes an update and turns a
-/// missing app into a `400`, so without this row every delivery is refused.
-///
-/// [`upsert_adapter_app`]: moatless_identity::adapter_apps::upsert_adapter_app
+/// The bot token is a secret, so this goes through
+/// `adapter_apps::upsert_adapter_app`; without it the ingress path turns a
+/// missing app into a `400` and refuses every delivery.
 #[allow(dead_code)]
 pub async fn seed_telegram_app(pool: &sqlx::PgPool, config: &Config, bot_token: &str) {
     moatless_identity::adapter_apps::upsert_adapter_app(
@@ -257,16 +241,10 @@ pub async fn seed_telegram_app(pool: &sqlx::PgPool, config: &Config, bot_token: 
 
 /// Exclusive, restoring ownership of `GITHUB_API_BASE_URL` for the caller.
 ///
-/// The GitHub REST base is resolved from that env var — `moatless_core::github`
-/// reads it on every client build — so pointing the backend at a stub means
-/// writing a process-global. It lives here rather than in one test file because
-/// the lock only serializes the tests that share *it*: two files each with their
-/// own mutex would take turns with themselves and race with each other, which
-/// under a runner that puts the whole binary in one process (plain `cargo test`)
-/// is one test's stub answering another test's calls.
-///
-/// Hold the returned guard for as long as the stub must stay addressable; the
-/// previous value is restored when it drops.
+/// The GitHub REST base is resolved from that env var on every client build, so
+/// pointing the backend at a stub writes a process-global; the lock lives here,
+/// not per test file, so one file's stub cannot answer another's calls in a
+/// one-process `cargo test` run.
 #[allow(dead_code)]
 pub async fn github_api_base(base_url: &str) -> GithubApiBaseGuard {
     static LOCK: std::sync::LazyLock<tokio::sync::Mutex<()>> =
@@ -517,11 +495,9 @@ pub fn test_app_state_with_recorded_events(
 
 /// [`test_app_state_with_adapters`] with the config chosen by the caller.
 ///
-/// The Adapter-side seams that decide which host an outbound call reaches live
-/// on `Config` — `linear.api_base_url` is the one this exists for. A workflow
-/// that builds its API client from `state.config` cannot be pointed at a stub
-/// any other way, and a workflow test that cannot be pointed at a stub reaches
-/// the real sender.
+/// The seams deciding which host an outbound call reaches live on `Config` —
+/// `linear.api_base_url` is the one this exists for — so a workflow building
+/// its API client from `state.config` can be pointed at a stub no other way.
 #[allow(
     dead_code,
     reason = "this module is compiled into every test binary; each one uses a subset of it"
@@ -581,11 +557,12 @@ fn build_app_state(
 // Factory functions
 // =========================================================================
 
-/// Well-known test user ids. `AuthIdentity::user_id` is now a `Uuid`, so HTTP
-/// handler tests must authenticate as a real uuid and seed the matching row's
-/// owner with the same value. DB-only DAO tests keep using plain symbolic names
-/// (`"user-1"`) since they build their `ScopeContext` directly and never parse a
-/// uuid.
+/// Well-known test user ids.
+///
+/// `AuthIdentity::user_id` is a `Uuid`, so HTTP handler tests authenticate as a
+/// real uuid and seed the matching row's owner with the same value; DB-only DAO
+/// tests keep symbolic names (`"user-1"`) since they build `ScopeContext`
+/// directly and never parse a uuid.
 #[allow(dead_code)]
 pub const USER_1: &str = "11111111-1111-1111-1111-111111111111";
 #[allow(dead_code)]
@@ -606,14 +583,11 @@ pub fn user_scope(user_id: &str) -> ScopeContext {
 // Adapter delivery
 // =========================================================================
 
-/// Run the real adapter-delivery worker with the Linear handlers registered until
-/// nothing is left unfinished, then stop it.
+/// `worker_state` is deliberately the caller's *second* replica.
 ///
-/// A Linear delivery is answered once it is durably owned, so nothing has
-/// reached the Agent when the route returns; this stands in for the supervised
-/// worker a running process has. `worker_state` is deliberately the caller's
-/// *second* replica — what executes a record never depends on the process that
-/// accepted it.
+/// A delivery is answered once durably owned, so nothing has reached the Agent
+/// when the route returns; what executes a record never depends on the process
+/// that accepted it.
 #[allow(
     dead_code,
     reason = "this module is compiled into every integration test binary and each uses a \

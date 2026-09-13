@@ -24,8 +24,9 @@ pub struct SandboxDiagnosticsContainer {
 pub struct SandboxDiagnosticsEntry {
     pub task_id: String,
     /// Left `None` by every implementation: the seam is a pure infrastructure
-    /// read with no database behind it, the same boundary [`super::SandboxObserver`]
-    /// draws. A caller that wants a Task's title reads it separately.
+    /// read with no database behind it, the same boundary
+    /// [`super::SandboxObserver`] draws. A caller that wants a Task's title
+    /// reads it separately.
     pub title: Option<String>,
     pub sandbox_status: SandboxStatus,
     /// The pod's scheduled node, when the runtime has one (K8s only).
@@ -40,11 +41,9 @@ pub struct SandboxDiagnosticsEntry {
 
 /// Fleet-wide Sandbox status and live resource usage.
 ///
-/// Deployment-scoped rather than per-Task: it answers "what does every Sandbox
-/// in this deployment look like right now," which is a different question from
-/// [`super::SandboxObserver`]'s one-Task-at-a-time read, and it is why this is its own
-/// seam rather than a method added there. Read-only and idempotent — safe to
-/// call on any replica and safe to retry.
+/// Deployment-scoped rather than per-Task, unlike [`super::SandboxObserver`]'s
+/// one-Task read — why this is its own seam. Read-only, idempotent, and safe to
+/// retry on any replica.
 #[async_trait]
 pub trait ClusterDiagnostics: Send + Sync {
     async fn list_sandbox_diagnostics(&self) -> Result<Vec<SandboxDiagnosticsEntry>, SandboxError>;

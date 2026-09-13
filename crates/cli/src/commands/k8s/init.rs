@@ -1,4 +1,5 @@
-//! `moat k8s init` — generate a `values.local.yaml` from prompts and provider presets.
+//! `moat k8s init` — generate a `values.local.yaml` from prompts and provider
+//! presets.
 
 use std::path::Path;
 

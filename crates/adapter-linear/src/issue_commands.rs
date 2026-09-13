@@ -579,8 +579,8 @@ pub(crate) async fn lookup(
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// Persist a `task_bindings` row pointing the given task at the Linear
-/// issue. Used for both create and comment auto-binding.
+/// Persist a `task_bindings` row pointing the given task at the Linear issue.
+/// Used for both create and comment auto-binding.
 async fn create_issue_binding(
     task_bindings: &Bindings,
     connection: &AdapterConnection,
@@ -635,9 +635,9 @@ async fn create_issue_binding(
 }
 
 /// Attach the moatless task URL to the Linear issue as a "source" pill.
-/// Idempotent on `(issue_id, url)` — safe to call multiple times. Failures
-/// are logged and swallowed so they don't block the surrounding mutation
-/// (the issue is already created / commented on).
+///
+/// Idempotent on `(issue_id, url)` — safe to call multiple times. Failures are
+/// logged and swallowed so they don't block the surrounding mutation.
 pub(crate) async fn attach_moatless_task(
     config: &Config,
     tasks: &dyn TaskReader,

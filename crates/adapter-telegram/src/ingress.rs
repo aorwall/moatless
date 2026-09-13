@@ -30,21 +30,18 @@ pub(super) enum Transport<'a> {
     Poll,
 }
 
-/// Telegram's ignore, which carries no event type.
+/// Telegram's ignore outcome, which carries no event type.
 ///
-/// The Adapter has never labelled its webhook metric with one — `not_routable`
-/// is the single label its dashboards query (spec Decision 9) — so the shared
-/// [`Outcome`]'s `event_type` stays empty and `reason` is carried for the log
-/// line the handler and the poller write.
+/// `event_type` stays empty; `reason` is carried for the log line the handler
+/// and poller write.
 fn ignored(reason: &'static str) -> Outcome {
     Outcome::ignored("", reason)
 }
 
 /// Verify, resolve, normalize, apply effects, and durably admit one update.
 ///
-/// Returns only once the routing is durable (or there is none to do). Both
-/// entry points must leave their acknowledgment unsent on an `Err`: the webhook
-/// by answering non-2xx, the poller by holding its offset back.
+/// On `Err`, the caller must leave its acknowledgment unsent: non-2xx for the
+/// webhook, held offset for the poller.
 pub(super) async fn receive(
     adapter: &TelegramAdapter,
     users: &dyn ProviderIdentityLink,
@@ -214,14 +211,10 @@ pub(super) async fn receive(
     }
 }
 
-/// Normalization is the one step in [`receive`] that can reject an envelope
-/// *permanently*: a chat with no id, a message with no `message_id`. No
-/// re-delivery repairs those, so they belong in the class the poller drops —
-/// putting them in the retryable one wedges it on that update and blocks every
-/// update queued behind it.
+/// Classifies a normalization failure as permanent or retryable.
 ///
-/// Everything else normalization can raise is a database read that could
-/// succeed next time.
+/// Permanent (a chat or message with no id) must not enter the retryable class:
+/// that wedges the poller on it.
 fn classify_normalization(error: AdapterError) -> IngressError {
     match error {
         AdapterError::Shared(SharedAdapterError::BadRequest(message)) => {
@@ -253,11 +246,8 @@ fn verify_secret(rule: &SubscriptionMatch, provided: Option<&str>) -> Result<(),
 
 /// Do what normalization decided on but deliberately did not do.
 ///
-/// Every Bot API call here is best-effort, exactly as the inline calls it
-/// replaces were: a refused send is logged, not propagated, because the update
-/// was going to be ignored either way. The pairing *write* is not best-effort —
-/// a request that was never recorded is a code the admin can never approve, so
-/// it fails the delivery and Telegram sends the update again.
+/// Bot API sends here are best-effort (failures logged, not propagated); the
+/// pairing write is not — its failure fails the delivery so Telegram retries.
 pub(super) async fn apply_effects(
     api: &TelegramApi,
     db: &DbPool,
@@ -338,9 +328,8 @@ mod tests {
     }
 
     /// A malformed envelope must not reach the retryable class: the poller
-    /// holds its offset back for everything there, so one `message` with no
-    /// `message_id` would wedge it on that update and block every update queued
-    /// behind it.
+    /// holds its offset back there, so a `message` with no `message_id` would
+    /// wedge it.
     #[test]
     fn a_malformed_envelope_is_unidentifiable_and_a_failed_read_is_not() {
         assert!(matches!(
@@ -359,10 +348,8 @@ mod tests {
         ));
     }
 
-    /// A `secret_token` configured as the empty string is compared like any
-    /// other, and an absent header reads as empty — so it accepts exactly the
-    /// requests carrying no secret and refuses the ones that do. Preserved as
-    /// found; it is a misconfiguration either way.
+    /// A blank `secret_token` is compared like any other value, and an absent
+    /// header reads as empty — so it accepts only requests carrying no secret.
     #[test]
     fn a_blank_secret_token_accepts_only_a_blank_header() {
         let blank = rule_with(Some(serde_json::json!({ "secret_token": "" })));

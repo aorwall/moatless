@@ -19,8 +19,8 @@ pub struct GitHubProviderTokenStatusResponse {
     /// credential that `DELETE /settings/github/pat` can put back. A PAT with
     /// nothing behind it is the only credential there is, not an override.
     pub has_pat_override: bool,
-    /// Whether `GET /auth/github-app/connect` can run on this deployment.
-    /// False leaves a Personal Access Token as the only way to connect.
+    /// Whether `GET /auth/github-app/connect` can run on this deployment. False
+    /// leaves a Personal Access Token as the only way to connect.
     pub app_connect_available: bool,
 }
 
@@ -59,8 +59,8 @@ pub struct GitHubAppOption {
     #[serde(default)]
     pub deployment_configured: bool,
     /// Short digest of the stored signing key. Enough to tell two keys apart;
-    /// the key itself is never returned. Absent for the login App, whose key
-    /// is not stored.
+    /// the key itself is never returned. Absent for the login App, whose key is
+    /// not stored.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub key_fingerprint: Option<String>,
     /// The bot login this App would have, as GitHub reported it when the App
@@ -137,8 +137,8 @@ pub struct GitHubAppRegistrationResponse {
 #[serde(rename_all = "camelCase")]
 pub struct RemoveGitHubAppResponse {
     pub github_app_key: String,
-    /// Bot users that named this App and can no longer obtain a token. They
-    /// are left in place so past work stays attributed, and named here so the
+    /// Bot users that named this App and can no longer obtain a token. They are
+    /// left in place so past work stays attributed, and named here so the
     /// consequence is not silent.
     pub orphaned_bot_users: Vec<String>,
 }
@@ -149,17 +149,19 @@ pub struct CodexAgentHarnessCredentialStatusResponse {
     pub connected: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub token_type: Option<String>,
-    /// "`device_code`" | "`auth_json`" | "`api_key`" — which save path produced the row.
+    /// "`device_code`" | "`auth_json`" | "`api_key`" — which save path produced
+    /// the row.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub auth_method: Option<String>,
-    /// Email reported by ChatGPT account on the `id_token` (device-code flow only).
+    /// Email reported by ChatGPT account on the `id_token` (device-code flow
+    /// only).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub email: Option<String>,
     /// ChatGPT plan type (e.g., "plus", "pro").
     #[serde(skip_serializing_if = "Option::is_none")]
     pub plan_type: Option<String>,
-    /// True when the stored credential hit a permanent refresh failure and
-    /// the user must sign in again. Absent when no credential exists.
+    /// True when the stored credential hit a permanent refresh failure and the
+    /// user must sign in again. Absent when no credential exists.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub needs_reconnect: Option<bool>,
 }
@@ -237,16 +239,17 @@ impl std::fmt::Debug for SaveGitnessProviderTokenRequest {
 
 /// One person's connection to one Forgejo instance.
 ///
-/// There is no `login`, unlike every sibling here: a `read:repository` personal
-/// access token cannot reach Forgejo's `user` endpoint, so validating one
-/// learns only that it works. A screen names the `host`.
+/// There is no `login`, unlike every sibling here: a `read:repository` token
+/// can't reach Forgejo's `user` endpoint, so validating one only learns that it
+/// works.
 #[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ForgejoProviderTokenStatusResponse {
     pub host: String,
     pub connected: bool,
     /// How the stored credential resolves: `secret_ref` for a personal access
-    /// token held in the secret store, `forgejo_oauth` for an OAuth2 credential.
+    /// token held in the secret store, `forgejo_oauth` for an OAuth2
+    /// credential.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub auth_method: Option<String>,
     /// Whether a personal access token is standing in front of an OAuth
@@ -301,8 +304,7 @@ pub struct ForgejoInstancesResponse {
 
 /// Every registered instance, each carrying the caller's own connection to it.
 ///
-/// This is not [`ForgejoInstancesResponse`]: that one is the admin view of the
-/// registered OAuth2 applications, and it names a `client_id`.
+/// Not [`ForgejoInstancesResponse`], the admin view that names a `client_id`.
 #[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ForgejoConnectionsResponse {

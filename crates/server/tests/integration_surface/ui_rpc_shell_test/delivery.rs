@@ -1,11 +1,11 @@
 //! Delivery: a watching client sees a turn change.
 //!
 //! The snapshot is a listing read at a position; everything that happens after
-//! it reaches the client as stream events off the change feed. These tests drive
-//! the real writers — the turn-number allocator and the gRPC ingress — rather
-//! than inserting change records by hand, because a record written by a test
-//! helper proves only that the helper works. What is asserted is what a client
-//! watching the feed is handed.
+//! it reaches the client as stream events off the change feed. These tests
+//! drive the real writers — the turn-number allocator and the gRPC ingress —
+//! rather than inserting change records by hand, because a record written by a
+//! test helper proves only that the helper works. What is asserted is what a
+//! client watching the feed is handed.
 
 use super::feed::{
     delivered, ingress, one_item, one_row, recorded_after, start_turn, watcher, watching,
@@ -179,23 +179,12 @@ async fn a_pool_that_has_gone_away(pool: &PgPool) -> PgPool {
     closed
 }
 
-/// A poll that fails after reading its change records still delivers them.
+/// A poll that fails after reading its change records still delivers them on
+/// the next poll.
 ///
-/// The cursor is the client's only record of what it has been told about, and
-/// `watch_shell` deliberately keeps a subscription alive across a transient
-/// failure rather than presenting a database blip as a dead sidebar. That
-/// decision is sound and its premise is that the failed poll left the cursor
-/// alone. Advance the cursor before the reads that build the batch and the two
-/// together lose the batch permanently: the next poll starts above it, the
-/// client is never told, and it goes on reporting itself live — the silent
-/// staleness this whole feed exists to prevent, arriving through its own error
-/// handling.
-///
-/// Both reads that happen after the change records are covered, and both
-/// separately, because a cursor moved to sit between them fails only one: a fix
-/// that advanced after the conversation re-read but before the workspace read
-/// would pass the first half of this test and lose every batch whose workspace
-/// read failed.
+/// The cursor must not advance until after both the conversation and workspace
+/// reads succeed; advancing between them would pass only half this test while
+/// still losing every batch whose workspace read failed.
 #[sqlx::test]
 async fn a_poll_that_fails_after_reading_its_changes_delivers_them_on_the_next_one(pool: PgPool) {
     seed_live_project(&pool).await;

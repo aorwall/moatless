@@ -1,5 +1,6 @@
-//! The background worker that keeps `task_listing_changes` bounded. Registered
-//! with the root `Supervisor` in the backend binary's `main` as
+//! The background worker that keeps `task_listing_changes` bounded.
+//!
+//! Registered with the root `Supervisor` in the backend binary's `main` as
 //! `listing-change-pruner`, and unconditional rather than gated on the T3
 //! compatibility module: the records are written by Moatless mutations whether
 //! or not anything is subscribed.
@@ -17,10 +18,10 @@ use moatless_core::db::DbPool;
 /// How often the pruner deletes what has fallen out of the retention window.
 const PRUNE_INTERVAL: Duration = Duration::from_mins(5);
 
-/// Run [`prune_changes`] on a timer until cancelled. A failed prune is a warning
-/// and nothing more: it deletes rows no reader is allowed to ask for —
-/// [`resume`](super::models::resume) has already refused them — so falling
-/// behind costs disk and the next tick covers the same ground.
+/// Run [`prune_changes`] on a timer until cancelled.
+///
+/// A failed prune only warns: it deletes rows [`resume`](super::models::resume)
+/// already refused, so falling behind costs disk and the next tick catches up.
 pub fn spawn_change_pruner(pool: DbPool, cancel: CancellationToken) -> JoinHandle<()> {
     tokio::spawn(async move {
         let mut ticker = tokio::time::interval(PRUNE_INTERVAL);

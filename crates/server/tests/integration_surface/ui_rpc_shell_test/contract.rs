@@ -1,14 +1,7 @@
 //! The contract, transcribed.
 //!
-//! `OrchestrationThreadShell` and the types it nests, copied out of
-//! `packages/contracts/src/orchestration.ts` on `moatless-adapter`. "Optional"
-//! means the contract can fill it — `Schema.optional` or a decoding default.
-//! Everything else has to be on the wire, `null` included, or the whole
-//! snapshot fails to decode and the sidebar goes blank.
-//!
-//! The unit tests assert this against hand-built rows; here it is asserted
-//! against rows a real database produced, where the nullable columns are
-//! genuinely null rather than null because a factory said so.
+//! See the comment below for what `OrchestrationThreadShell` copies from
+//! `packages/contracts/src/orchestration.ts` and what "Optional" means here.
 
 use serde_json::Value;
 
@@ -188,10 +181,11 @@ pub(super) fn assert_decodable_upsert(event: &Value) {
 // same empty result unless they are made different, and a client that cannot
 // tell them apart renders a stale sidebar forever while reporting itself live.
 
-/// The `snapshot` member of `OrchestrationShellStreamItem`
-/// (`orchestration.ts:466-469`). Two keys, both required — the member is what
-/// carries "rebuild" in the contract's own vocabulary, so an undeclared key
-/// here is a client that decodes nothing and rebuilds never.
+/// The `snapshot` member of `OrchestrationShellStreamItem`, both keys required
+/// (`orchestration.ts:466-469`).
+///
+/// It carries "rebuild" in the contract's vocabulary, so an undeclared key here
+/// is a client that decodes nothing and rebuilds never.
 const SNAPSHOT_ITEM_REQUIRED: &[&str] = &["kind", "snapshot"];
 
 /// `OrchestrationShellSnapshot` (`orchestration.ts:430-435`).

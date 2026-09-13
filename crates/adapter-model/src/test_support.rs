@@ -1,23 +1,7 @@
-//! Test-only helpers that travel with the Adapter contract.
-//!
-//! Three groups, each about something this crate defines. The error helpers read
-//! a rendered response back into `(status, body)`, walk a source chain, and
-//! produce a genuine [`reqwest::Error`] from a refused connection; they live
-//! beside [`crate::error`] because they exist to assert it, and a copy parked
-//! in a band above would drift from the renderer it is checking.
-//!
-//! The loopback stubs give a provider client somewhere local to talk to: an
-//! address nothing listens on ([`UNREACHABLE_BASE`], transport failure), a
-//! server that answers with a body of our choosing ([`stub_provider`],
-//! rejection or undecodable payload), and a recorder that distinguishes
-//! endpoints and so makes a workflow'"'"'s API-call budget assertable
-//! ([`ProviderStub`]). Adapter error classification only means something if the
-//! real request path produces it, which is what these are for.
-//!
-//! [`InMemoryConnections`] stands in for the connection store, so the policy a
-//! provider runs over it — [`crate::connections::resolve_connection`] and
-//! [`crate::connections::resolve_chat_provider_event`] — is assertable without
-//! a database.
+//! Test-only helpers that travel with the Adapter contract, in three groups:
+//! error helpers (kept beside [`crate::error`] so they cannot drift from it),
+//! loopback stubs ([`UNREACHABLE_BASE`], [`stub_provider`], [`ProviderStub`]),
+//! and [`InMemoryConnections`] — each documented at its own definition.
 
 // Compiled for two consumers — in-crate `#[cfg(test)]` modules and the crates
 // that enable `test-support` — and neither uses all of it.
@@ -55,9 +39,10 @@ pub enum FakeAdmissionAnswer {
 }
 
 /// A [`DeliveryAdmission`] that answers a fixed outcome and records every
-/// request, so a handler test can drive each admission branch without a
-/// database — the outcomes the concrete store reaches only against real
-/// Postgres state.
+/// request.
+///
+/// Lets a handler test drive each admission branch without a database, unlike
+/// the concrete store which needs real Postgres state.
 pub struct FakeAdmission {
     answer: FakeAdmissionAnswer,
     seen: Mutex<Vec<AdapterDeliveryRequest>>,
@@ -96,9 +81,10 @@ impl DeliveryAdmission for FakeAdmission {
     }
 }
 
-/// An address on loopback nothing is listening on, so connecting is refused
-/// immediately. Injected as a provider client'"'"'s base URL to exercise the "we
-/// could not reach the provider" path deterministically and offline.
+/// A loopback address nothing listens on, so connecting is refused immediately.
+///
+/// Injected as a provider client's base URL to exercise the "could not reach
+/// the provider" path deterministically and offline.
 pub const UNREACHABLE_BASE: &str = "http://127.0.0.1:1";
 
 /// A genuine [`reqwest::Error`] from a refused connection.
@@ -169,9 +155,9 @@ struct StubState {
 /// A loopback stand-in for a provider's HTTP API that answers each path from a
 /// closure and records every request it saw.
 ///
-/// Unlike [`stub_provider`] it distinguishes endpoints, which is what makes the
-/// per-workflow API-call budgets assertable: the recorded paths *are* the calls
-/// the code under test made.
+/// Unlike [`stub_provider`] it distinguishes endpoints, so the recorded paths
+/// *are* the calls the code under test made — making per-workflow API-call
+/// budgets assertable.
 pub struct ProviderStub {
     base_url: String,
     requests: Arc<Mutex<Vec<RecordedRequest>>>,
@@ -247,14 +233,12 @@ impl ProviderStub {
 
     /// The GraphQL operations invoked, in order.
     ///
-    /// [`Self::paths`] cannot express the budget of a GraphQL sender: every
-    /// call is `POST /graphql`, so a workflow that made three round trips and
-    /// one that made one look identical. The operation is the only thing that
-    /// distinguishes them, and it is in the body — the top-level field of the
-    /// `query` document, which is `issue` for a read and the mutation name for
-    /// a write. Requests that carry no recognisable document are reported by
-    /// their path rather than dropped — an OAuth token refresh is a real round
-    /// trip, and a budget that hid it would understate what the workflow cost.
+    /// [`Self::paths`] can't distinguish calls here since every request is
+    /// `POST /graphql`; this reads the top-level field of the `query` document
+    /// instead (`issue` for a read, the mutation name for a write), falling
+    /// back to `method path` for a request with no recognisable document — e.g.
+    /// an OAuth token refresh — rather than dropping it and understating the
+    /// budget.
     pub fn graphql_operations(&self) -> Vec<String> {
         self.requests()
             .into_iter()
@@ -271,13 +255,11 @@ impl ProviderStub {
     }
 }
 
-/// The top-level field of a GraphQL document — `issueUpdate` in
-/// `mutation IssueUpdate($id: String!) { issueUpdate(...) { ... } }`, `issue`
-/// in `query ($id: String!) { issue(id: $id) { ... } }`.
+/// The top-level field of a GraphQL document — `issueUpdate` for a mutation,
+/// `issue` for a query.
 ///
-/// Deliberately a scan rather than a parse: the documents this reads are the
-/// literal strings in `agent_api.rs`, and a budget assertion that failed
-/// because a query gained a whitespace would be worse than useless.
+/// Deliberately a scan rather than a parse, so a budget assertion never fails
+/// just because a query in `agent_api.rs` gained whitespace.
 fn graphql_operation_name(document: &str) -> Option<String> {
     let body = document.split_once('{')?.1;
     let field = body
@@ -289,9 +271,8 @@ fn graphql_operation_name(document: &str) -> Option<String> {
 /// Adapter connections in memory, for a test that exercises a policy over them
 /// rather than the SQL underneath.
 ///
-/// `ScopeContext` is ignored: the access filter is SQL, and a double that
-/// reproduced it would assert its own copy. Seed exactly the rows the viewer
-/// under test may see.
+/// `ScopeContext` is ignored since the access filter is SQL; seed exactly the
+/// rows the viewer under test may see.
 #[derive(Default)]
 pub struct InMemoryConnections {
     rows: Mutex<Vec<AdapterConnection>>,

@@ -1,7 +1,6 @@
 /// The path a `restic` snapshot records its tree under.
 ///
-/// Fixed rather than taken from `WORKSPACE_DIR`, so a snapshot's paths do not
-/// depend on where the writer had the workspace mounted and a reader needs no
-/// knowledge of it. The sandbox passes it as `BackupOptions::as_path` and the
-/// backend addresses through it; the two must agree or a read resolves nothing.
+/// Fixed rather than tied to `WORKSPACE_DIR`, so paths don't depend on mount
+/// location; sandbox and backend must agree on it via `BackupOptions::as_path`
+/// or a read resolves nothing.
 pub const SNAPSHOT_ROOT: &str = "/workspace";

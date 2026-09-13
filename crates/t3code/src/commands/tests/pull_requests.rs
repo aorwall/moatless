@@ -37,8 +37,8 @@ async fn a_link_and_an_unlink_reach_the_sink_as_the_same_key() {
 }
 
 /// A key the server cannot resolve to one pull request is refused before
-/// anything writes a Binding, because a link changes what every surface
-/// reports for the Thread.
+/// anything writes a Binding, because a link changes what every surface reports
+/// for the Thread.
 #[tokio::test]
 async fn a_link_naming_no_pull_request_is_rejected_before_any_write() {
     for absent in ["host", "repository", "number"] {
@@ -53,8 +53,8 @@ async fn a_link_naming_no_pull_request_is_rejected_before_any_write() {
     }
 }
 
-/// Gated on control rather than on read: a reader may open a Thread they
-/// cannot write, and linking a pull request is a write.
+/// Gated on control rather than on read: a reader may open a Thread they cannot
+/// write, and linking a pull request is a write.
 #[tokio::test]
 async fn a_link_into_a_thread_the_viewer_does_not_control_is_refused() {
     let found = conversation(AgentType::CLAUDE_CODE);

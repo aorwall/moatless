@@ -2,9 +2,9 @@
 //!
 //! Each test drives the real [`Coordinator`] over a scripted [`Harness`] and a
 //! real [`GrpcEventPublisher`] whose outbox delivers to an in-memory recording
-//! backend. Assertions are on the exact `agent.*` events published (their order,
-//! sub-types, and per-block payload shape) plus the acknowledgement — the
-//! externally observable contract, not the coordinator's internals.
+//! backend. Assertions are on the exact `agent.*` events published (their
+//! order, sub-types, and per-block payload shape) plus the acknowledgement —
+//! the externally observable contract, not the coordinator's internals.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};

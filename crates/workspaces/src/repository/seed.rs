@@ -10,8 +10,8 @@ use moatless_types::repository::{RepositoryKind, RepositoryProvider};
 
 /// Insert default template repositories if they don't already exist.
 ///
-/// Called once during startup. Idempotent — skips if a row with the
-/// same canonical URL and access owner already exists.
+/// Called once during startup. Idempotent — skips if a row with the same
+/// canonical URL and access owner already exists.
 pub async fn seed_default_repositories(repos: &dyn RepositoryDao) {
     if let Err(e) = seed_moatable(repos).await {
         tracing::warn!(error = %e, "Failed to seed default Moatable repository");

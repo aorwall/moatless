@@ -3,8 +3,8 @@
 use super::fixtures::*;
 use super::*;
 
-/// What the composer gets back before it moves any bytes: the id it will
-/// name on the turn, and the URL it will `POST` to.
+/// What the composer gets back before it moves any bytes: the id it will name
+/// on the turn, and the URL it will `POST` to.
 #[tokio::test]
 async fn create_upload_url_answers_an_id_and_a_url_under_the_upload_prefix() {
     let frame = request(
@@ -31,9 +31,9 @@ async fn create_upload_url_answers_an_id_and_a_url_under_the_upload_prefix() {
     assert!(value["expiresAt"].as_i64().is_some_and(|at| at > 0));
 }
 
-/// A payload outside the union never becomes an upload URL. The client's
-/// own schema refuses these before they are sent, so this is a malformed
-/// request rather than one of the method's declared outcomes.
+/// A payload outside the union never becomes an upload URL. The client's own
+/// schema refuses these before they are sent, so this is a malformed request
+/// rather than one of the method's declared outcomes.
 #[tokio::test]
 async fn create_upload_url_refuses_a_payload_outside_the_union() {
     let frame = request(
@@ -48,8 +48,8 @@ async fn create_upload_url_refuses_a_payload_outside_the_union() {
 }
 
 /// The composer deletes an attachment it abandoned — a cancel, a retry, a
-/// discarded draft — without knowing whether the upload ever landed, so
-/// this succeeds either way and the id is what has to reach the store.
+/// discarded draft — without knowing whether the upload ever landed, so this
+/// succeeds either way and the id is what has to reach the store.
 #[tokio::test]
 async fn delete_reaches_the_store_with_the_id_it_was_given() {
     let attachments = Arc::new(RecordingAttachments::default());
@@ -73,8 +73,8 @@ async fn delete_reaches_the_store_with_the_id_it_was_given() {
     assert_eq!(deleted, vec!["6b1f7b2e-0000-4000-8000-000000000001"]);
 }
 
-/// Somebody else's attachment is, from here, one that is not there:
-/// answering differently would make this a way to ask whether an id exists.
+/// Somebody else's attachment is, from here, one that is not there: answering
+/// differently would make this a way to ask whether an id exists.
 #[tokio::test]
 async fn delete_of_an_attachment_this_viewer_may_not_touch_still_succeeds() {
     let attachments = Arc::new(RecordingAttachments {
@@ -90,8 +90,8 @@ async fn delete_of_an_attachment_this_viewer_may_not_touch_still_succeeds() {
     assert_eq!(output.frames[0]["exit"]["_tag"], "Success");
 }
 
-/// An id that could leave the route it becomes a segment of never reaches
-/// the store.
+/// An id that could leave the route it becomes a segment of never reaches the
+/// store.
 #[tokio::test]
 async fn delete_of_something_that_is_not_an_id_never_reaches_the_store() {
     let attachments = Arc::new(RecordingAttachments::default());

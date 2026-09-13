@@ -54,10 +54,11 @@ pub struct K8sSandboxAdapter {
     // struct literal requires every field it sets to be `pub`. Visibility follows
     // the real consumer, which is in another crate.
     pub plan: Option<ProvisionDeps>,
-    /// Optional S3 client used to delete a task's transcript archive on cleanup.
-    /// The sandbox uploads transcripts via backend-proxied gRPC (no pod creds);
-    /// the backend owns the credentials, so cleanup of `<prefix>/<task_id>/` lives
-    /// here. `None` when S3 isn't configured — cleanup then skips the delete.
+    /// Optional S3 client used to delete a task's transcript archive on
+    /// cleanup.
+    ///
+    /// The backend owns the credentials (sandbox uploads via proxied gRPC), so
+    /// cleanup of `<prefix>/<task_id>/` lives here; `None` skips the delete.
     pub s3: Option<Arc<aws_sdk_s3::Client>>,
 }
 
@@ -863,26 +864,25 @@ pub enum StorageFallbackOutcome {
     /// The Deployment was rebuilt on an emptyDir; the caller should surface a
     /// `storage_degraded` degradation warning.
     Rebuilt,
-    /// Nothing to swap — the task is not a pvc+s3 tier, or no plan is available.
-    /// The Pending pod and its environment error are left in place.
+    /// Nothing to swap — the task is not a pvc+s3 tier, or no plan is
+    /// available. The Pending pod and its environment error are left in place.
     Skipped,
     /// The rebuild was attempted but failed.
     Failed,
 }
 
-/// The Kubernetes runtime's attach-failure remediation, factored behind a trait
-/// so the pod watcher can drive it without naming the concrete adapter.
+/// The Kubernetes runtime's attach-failure remediation, behind a trait so the
+/// pod watcher can drive it without naming the concrete adapter.
 ///
-/// A pvc+s3 task whose PVC will not attach (`Multi-Attach`, `FailedAttachVolume`)
-/// would otherwise sit Pending forever. Because its workspace is snapshotted to
-/// S3, it can instead come back up on an emptyDir and restore — a visible
-/// downgrade rather than a stall.
+/// A pvc+s3 task whose PVC won't attach would otherwise sit Pending forever;
+/// since its workspace is snapshotted to S3, it can rebuild on an emptyDir.
 #[async_trait]
 pub trait StorageFallback: Send + Sync {
-    /// Rebuild the task's Deployment on ephemeral storage, keeping the operation
-    /// generation so the replacement is the current pod. Best-effort and
-    /// idempotent from the caller's side; the caller guards it to once per
-    /// generation.
+    /// Rebuild the task's Deployment on ephemeral storage, keeping the
+    /// operation generation so the replacement is the current pod.
+    ///
+    /// Best-effort and idempotent from the caller's side, which guards it to
+    /// once per generation.
     async fn rebuild_without_pvc(
         &self,
         task_id: &str,
@@ -1066,13 +1066,11 @@ impl moatless_sandbox_runtime::client::SandboxConnector for K8sSandboxAdapter {
 
 #[async_trait]
 impl core_sandbox::SandboxPortPublisher for K8sSandboxAdapter {
-    /// Publish one port on a running sandbox — the Script path into the same
-    /// edge provisioning builds for declared preview servers.
+    /// Script path to the same edge provisioning declared preview servers use.
     ///
-    /// Refuses a reserved infrastructure port before touching the cluster, for
-    /// the same reason `admitted_server_ports` filters the declared ones:
-    /// routing the authenticated preview edge onto the control plane, the gRPC
-    /// channel or the Docker socket would be a sandbox escape.
+    /// Refuses a reserved infrastructure port first: routing the preview edge
+    /// onto the control plane, gRPC channel, or Docker socket would be a
+    /// sandbox escape.
     async fn publish_port(
         &self,
         task_id: &str,
@@ -1145,14 +1143,11 @@ fn deployment_has_workspace_sync(dep: &Deployment) -> bool {
         })
 }
 
-/// True when a stopped Deployment's pod template still matches what the current
-/// config builds, so the start path can scale it up rather than rebuild it.
+/// True when a stopped Deployment's pod template still matches the current
+/// config, so the start path can scale up instead of rebuilding.
 ///
-/// `fingerprint` is `None` when the comparison pod could not be built. That
-/// build passes the claim the Deployment mounts while `redeploy_with_plan`
-/// resolves its own, and Fargate rejects a claim, so one can fail where the
-/// other succeeds. The image tag stays as the floor for that case, rather than
-/// pinning the task to a template nothing rewrites.
+/// `fingerprint` is `None` when the comparison pod couldn't be built (e.g. a
+/// Fargate claim conflict); falls back to comparing the image tag instead.
 fn stopped_template_is_current(
     dep: &Deployment,
     fingerprint: Option<&str>,
@@ -1195,10 +1190,11 @@ impl K8sSandboxAdapter {
         }
     }
 
-    /// Recreate the sandbox Service and `IngressRoutes` if they went missing while
-    /// the Deployment lives on.
+    /// Recreate the sandbox Service and `IngressRoutes` if they went missing
+    /// while the Deployment lives on.
+    ///
     /// Best-effort: failures are logged, not returned, so provisioning still
-    /// proceeds (the notify path surfaces unreachability on its own).
+    /// proceeds; the notify path surfaces unreachability on its own.
     async fn heal_network_resources(&self, task_id: &str, plan: &ProvisionPlan) {
         match service::sandbox_service_exists(&self.k8s, task_id).await {
             Ok(true) => return,
@@ -1298,10 +1294,10 @@ impl K8sSandboxAdapter {
     }
 
     /// Resolve both storage switches for a *running* task from cluster state
-    /// (used where there's no `ProvisionPlan`, e.g. restart). Each is read from
-    /// the resource that realizes it: an existing PVC is the `pvc` switch, and
-    /// the `WORKSPACE_SYNC_ENABLED` env on the sandbox container is the `s3`
-    /// switch.
+    /// (used where there's no `ProvisionPlan`, e.g. restart).
+    ///
+    /// Each is read from the resource that realizes it: an existing PVC is
+    /// `pvc`; `WORKSPACE_SYNC_ENABLED` on the sandbox container is `s3`.
     async fn deployment_storage_backend(&self, task_id: &str) -> StorageBackend {
         StorageBackend {
             pvc: pvc::find_task_pvc(&self.k8s, task_id).await.is_some(),
@@ -1312,13 +1308,12 @@ impl K8sSandboxAdapter {
         }
     }
 
-    /// Create or find existing PVC. A per-repo `resources.storage` override
-    /// (if set) sizes a freshly created PVC; existing PVCs are reused as-is.
+    /// Create or find an existing PVC; a per-repo `resources.storage` override
+    /// sizes a freshly created one, existing PVCs are reused as-is.
     ///
-    /// Returns an empty string (→ no PVC) when the repo's `resources.pvcEnabled`
-    /// switch is off: `build_pod` then mounts a node-local emptyDir at
-    /// `/opt/moatless` instead. The check runs *before* `find_task_pvc` so a repo
-    /// that flipped the switch off stops reusing any stale PVC.
+    /// Returns an empty string when `resources.pvcEnabled` is off (checked
+    /// before reuse, so a flipped-off repo stops reusing a stale PVC);
+    /// `build_pod` then mounts an emptyDir instead.
     async fn create_or_find_pvc(
         &self,
         task_id: &str,
@@ -1354,10 +1349,9 @@ impl K8sSandboxAdapter {
 
     /// Best-effort delete of a task's transcript archive from S3.
     ///
-    /// Removes every object under `<transcript_prefix>/<task_id>/` in the uploads
-    /// bucket. No-op when S3 or the bucket isn't configured. On a hard delete the
-    /// removal is load-bearing: a failure propagates so `cleanup` can withhold
-    /// the `Removed` completion and leave the archive obligation for a retry.
+    /// No-op when S3/bucket isn't configured; otherwise load-bearing — a
+    /// failure propagates so `cleanup` withholds `Removed` and retries the
+    /// archive obligation.
     async fn delete_task_transcripts(&self, task_id: &str) -> Result<(), SandboxError> {
         let (Some(s3), Some(bucket)) = (self.s3.as_ref(), self.config.s3.bucket_name.as_deref())
         else {
@@ -1379,13 +1373,10 @@ impl K8sSandboxAdapter {
         Ok(())
     }
 
-    /// Delete of a task's `s3`-backend workspace archive from S3.
+    /// The counterpart to the sandbox's presigned uploads.
     ///
-    /// Removes every object under `<workspace_prefix>/<task_id>/` in the uploads
-    /// bucket — the counterpart to the sandbox's presigned uploads. No-op when
-    /// S3 or the bucket isn't configured, or for tasks that never used the `s3`
-    /// backend (the prefix is simply empty). Load-bearing like
-    /// [`Self::delete_task_transcripts`]: a failure propagates.
+    /// No-op when S3/bucket isn't configured or the task never used `s3`; load-
+    /// bearing like [`Self::delete_task_transcripts`] — a failure propagates.
     async fn delete_task_sandbox(&self, task_id: &str) -> Result<(), SandboxError> {
         let (Some(s3), Some(bucket)) = (self.s3.as_ref(), self.config.s3.bucket_name.as_deref())
         else {
@@ -1405,12 +1396,8 @@ impl K8sSandboxAdapter {
         Ok(())
     }
 
-    /// Check for existing pod — returns richer result for idempotent provisioning.
-    ///
-    /// - `Ready`: Running pod with sandbox container ready
-    /// - `Initializing`: Deployment exists but pod not ready yet
-    /// - `Stopped`: Deployment scaled to 0 (carries current sandbox image)
-    /// - `NotFound`: No Deployment exists
+    /// Check for an existing pod — returns [`ExistingPodResult`] for idempotent
+    /// provisioning.
     async fn check_existing_pod(&self, task_id: &str) -> ExistingPodResult {
         // Check if a Deployment already exists
         let dep = match deployment::find_deployment(&self.k8s, task_id).await {
@@ -1528,10 +1515,11 @@ mod tests {
         ));
     }
 
-    /// The comparison pod passes the claim this Deployment mounts, and a rebuild
-    /// resolves its own, so a build can fail here and succeed there. Reading
-    /// that failure as current would pin the task to a template nothing
-    /// rewrites, and it would stop rebuilding even on a new image tag.
+    /// The comparison pod passes the claim this Deployment mounts, while a
+    /// rebuild resolves its own — a build can fail here and succeed there.
+    ///
+    /// Reading that failure as current would pin the task to a template nothing
+    /// rewrites, even on a new image tag.
     #[test]
     fn a_pod_spec_that_will_not_build_falls_back_to_the_image_tag() {
         let dep = stopped_deployment("sandbox:v2", Some("abc123"));

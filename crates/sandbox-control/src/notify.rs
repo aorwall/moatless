@@ -30,9 +30,9 @@ pub async fn notify_task_over_grpc(connector: &dyn SandboxConnector, task_id: &s
 
 /// Sandbox-control implementation of the [`SandboxWaker`] port.
 ///
-/// Holds the two ports the wake reads — the lifecycle orchestrator (for the
-/// closed-task guard and the start) and the notification port — so the wake
-/// logic names neither through `AppState`.
+/// Holds the two ports the wake reads — the lifecycle orchestrator (closed-task
+/// guard, start) and the notification port — so the wake logic names neither
+/// through `AppState`.
 pub struct SandboxWakeService {
     sandbox: Arc<Lifecycle>,
     sandbox_notify: Arc<dyn NotifyPort>,
@@ -49,11 +49,11 @@ impl SandboxWakeService {
 
 #[async_trait]
 impl SandboxWaker for SandboxWakeService {
-    /// - If already running (`Ready`): sends a gRPC notification.
-    /// - If stopped or not yet created: provisions/starts it. The sandbox will
-    ///   fetch pending messages on startup, so no notification is needed.
-    /// - On failure: logs the error and returns `Err(String)` with a
-    ///   human-readable message so callers can decide whether to persist it.
+    /// Ready sends a gRPC notification; stopped or not-yet-created
+    /// provisions/starts it, since it fetches pending messages on startup.
+    ///
+    /// On failure, logs the error and returns `Err(String)` with a message
+    /// callers can choose to persist.
     async fn wake(&self, task_id: &str) -> Result<(), String> {
         // A closed task is terminal — never re-provision its sandbox. This is the
         // single backstop against resurrection from every caller (adapter inbound

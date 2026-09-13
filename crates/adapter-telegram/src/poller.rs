@@ -1,5 +1,5 @@
-//! Background Telegram long-polling — calls `getUpdates` in a loop when
-//! the server cannot expose a webhook endpoint.
+//! Background Telegram long-polling — calls `getUpdates` in a loop when the
+//! server cannot expose a webhook endpoint.
 
 use std::sync::Arc;
 
@@ -22,7 +22,7 @@ const MAX_BACKOFF: Duration = Duration::from_secs(30);
 /// Confirm an update to Telegram by asking for everything after it.
 ///
 /// `getUpdates` treats the offset as the acknowledgment: once it moves past an
-/// update, Telegram discards it and will never send it again.
+/// update, Telegram discards it and never sends it again.
 fn advance(offset: &mut Option<i64>, update_id: Option<i64>) {
     if let Some(update_id) = update_id {
         *offset = Some(update_id + 1);
@@ -32,16 +32,8 @@ fn advance(offset: &mut Option<i64>, update_id: Option<i64>) {
 /// Whether asking Telegram for this update again could produce a different
 /// outcome.
 ///
-/// A refused admission or a database blip could; an update missing a field no
-/// re-delivery supplies never will, and holding the offset back for one would
-/// wedge the poller on it forever rather than delivering the updates queued
-/// behind it.
-///
-/// This is the whole rule, and it is a match on [`IngressError`] rather than a
-/// guess about which errors that path happens to raise — which is why the
-/// variants were made to carry the distinction (spec Decision 6). Which class
-/// a rejection lands in is decided where it is raised: see
-/// `ingress::classify_normalization`.
+/// A refused admission or database blip could; a missing-field error never
+/// will, and treating it as retryable wedges the poller forever.
 const fn is_worth_redelivering(error: &IngressError) -> bool {
     match error {
         IngressError::NotAdmitted(_) | IngressError::Ingress(_) => true,
@@ -51,14 +43,8 @@ const fn is_worth_redelivering(error: &IngressError) -> bool {
 
 /// Wait out the current backoff, then double it up to [`MAX_BACKOFF`].
 ///
-/// Returns `false` when shutdown was requested while waiting, which the caller
-/// must treat as "stop", not "retry now".
-///
-/// Every failure that leaves work to re-attempt goes through here — a
-/// `getUpdates` transport failure and a held-back offset alike. Keeping one
-/// wait rather than one per failure kind is the point: a backoff that some
-/// failure path skips is a backoff that does not exist on the path that needed
-/// it most.
+/// Returns `false` when shutdown was requested while waiting; the caller must
+/// treat that as stop, not retry-now.
 async fn back_off(cancel: &CancellationToken, backoff: &mut Duration) -> bool {
     tokio::select! {
         () = cancel.cancelled() => false,
@@ -71,11 +57,9 @@ async fn back_off(cancel: &CancellationToken, backoff: &mut Duration) -> bool {
 
 /// Spawn the Telegram long-polling background task.
 ///
-/// Follows the same `tokio::spawn` + `CancellationToken` pattern as the cron
-/// scheduler in `cron/scheduler.rs`. The join handle is returned for the root
-/// supervisor to own; the poller is registered as an optional worker, so its
-/// early exit (an unregistered provider, a rival polling instance) degrades
-/// Telegram alone and is logged rather than failing the process.
+/// Registered as an optional worker: an early exit (unregistered provider,
+/// rival poller) degrades Telegram alone and is logged, not failed as a process
+/// error.
 pub fn spawn_telegram_poller(
     telegram_provider: Arc<TelegramAdapter>,
     users: Arc<dyn ProviderIdentityLink>,

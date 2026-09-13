@@ -22,21 +22,17 @@ use super::protocol::{
 use crate::agent::options::build_prompt_append;
 use crate::agent::types::AgentRunRequest;
 
-/// Hardcoded final fallback model for Codex sessions.
+/// Final fallback model for Codex sessions, when no other source supplies one.
 ///
-/// Used when neither the request, the repo `agent_config.model`, nor the
-/// `DEFAULT_CODEX_MODEL` env var supplies a model. Keep this aligned with the
-/// backend's default so direct sandbox runs and orchestrated pods behave alike.
-///
-/// The slug must be one the Codex CLI pinned in `docker/cli-versions.env`
-/// serves from `model/list`; an older CLI in an un-rebuilt image rejects it.
+/// Must be a slug the pinned Codex CLI serves from `model/list`; an older CLI
+/// in an un-rebuilt image rejects it.
 pub(crate) const DEFAULT_CODEX_MODEL: &str = "gpt-6-astra";
 
 /// Default Codex reasoning effort, sent as `TurnStartParams.effort`.
 pub(crate) const DEFAULT_CODEX_REASONING_EFFORT: &str = "high";
 
-/// Resolve the Codex model with the same priority as Claude:
-/// request > repo `agent_config.model` > `DEFAULT_CODEX_MODEL` env > hardcoded default.
+/// Resolve the Codex model with the same priority as Claude: request > repo
+/// `agent_config.model` > `DEFAULT_CODEX_MODEL` env > hardcoded default.
 pub(crate) fn resolve_codex_model(config: &Config, request: &AgentRunRequest) -> String {
     request
         .model
@@ -54,8 +50,9 @@ pub(crate) enum ServerEvent {
     ThreadStarted(ThreadEnvelope),
     /// The Turn is now steerable.
     TurnStarted(TurnStartedNotification),
-    /// An item the Turn has begun but not finished. Nothing is rendered until it
-    /// completes; the harness logs it so a Turn that hangs names what it hung on.
+    /// An item the Turn has begun but not finished. Nothing is rendered until
+    /// it completes; the harness logs it so a Turn that hangs names what it
+    /// hung on.
     ItemStarted(ItemNotification),
     ItemCompleted(ItemNotification),
     TokenUsage(ThreadTokenUsageUpdatedNotification),
@@ -63,17 +60,17 @@ pub(crate) enum ServerEvent {
     /// transport's `todo_list` item.
     PlanUpdated(TurnPlanUpdatedNotification),
     Error(ErrorNotification),
-    /// The terminal. Measured to carry `itemsView: "notLoaded"` and no items, so
-    /// content must come from the streamed `item/completed` notifications.
+    /// The terminal. Measured to carry `itemsView: "notLoaded"` and no items,
+    /// so content must come from the streamed `item/completed` notifications.
     TurnCompleted(TurnCompletedNotification),
 }
 
 impl ServerEvent {
-    /// The thread this notification belongs to, or `None` where the server
-    /// stated none.
+    /// The thread this notification belongs to, or `None` if the server didn't
+    /// say.
     ///
-    /// `thread/started` announces its thread as the envelope's own id rather
-    /// than a `threadId` field, so it reports that.
+    /// `thread/started` reports its own id as the thread id, not via a
+    /// `threadId` field.
     pub(crate) fn thread_id(&self) -> Option<&str> {
         match self {
             Self::ThreadStarted(started) => Some(started.thread.id.as_str()),
@@ -119,9 +116,8 @@ pub(crate) enum RpcError {
 
 /// One `codex app-server` process and the JSON-RPC conversation with it.
 ///
-/// `notifications` is the only stream of server-pushed events; requests are made
-/// through the methods, which are `&self` so a running Turn can be steered while
-/// the caller still owns the receiver.
+/// Request methods take `&self` so a running Turn can be steered while the
+/// caller still owns `notifications`.
 pub(crate) struct AppServerSession {
     pub(crate) notifications: mpsc::UnboundedReceiver<Result<ServerEvent, String>>,
     rpc: Arc<Rpc>,
@@ -151,12 +147,12 @@ impl AppServerSession {
         Ok(serde_json::from_value::<ThreadEnvelope>(value)?.thread.id)
     }
 
-    /// `thread/resume` → the reopened Session id, which equals the one asked for.
+    /// `thread/resume` → the reopened Session id, which equals the one asked
+    /// for.
     ///
-    /// Measured: a resume emits **no** `thread/started` notification, so the
-    /// response is the only place the Session id is announced. A caller that
-    /// waits for the notification to learn it waits forever on every Turn after
-    /// the first.
+    /// A resume emits no `thread/started` notification; the response is the
+    /// only place the id appears, so waiting for the notification hangs
+    /// forever.
     pub(crate) async fn resume_thread(
         &self,
         params: ThreadResumeParams,
@@ -167,9 +163,8 @@ impl AppServerSession {
 
     /// `thread/fork` → the new, forked Session id.
     ///
-    /// Like `thread/resume`, a fork announces its id only in the response — no
-    /// `thread/started` notification — so the return value is the sole place the
-    /// forked Session id appears.
+    /// Like `thread/resume`, a fork announces its id only in the response,
+    /// never via `thread/started`.
     pub(crate) async fn fork_thread(&self, params: ThreadForkParams) -> Result<String, RpcError> {
         let value = self.rpc.request("thread/fork", params).await?;
         Ok(serde_json::from_value::<ThreadEnvelope>(value)?.thread.id)
@@ -215,30 +210,9 @@ impl AppServerSession {
 
 /// Waiters keyed by the request id, one entry per in-flight [`Rpc::request`].
 ///
-/// The handoff is unbounded and untimed by design. An entry is admitted the
-/// moment the id is minted, and it is released by exactly two things: the
-/// matching response ([`Rpc::resolve`]), or the stdout stream ending —
-/// [`Rpc::fail_all`], which covers EOF, a read error and cancellation. Nothing
-/// else drops a waiter, so a server that stays alive and simply never answers
-/// leaves its entry in the map and its caller parked forever.
-///
-/// That is deliberate: the deadline belongs to the Turn, not to the frame. A
-/// request is only ever in flight because the harness is waiting on a Turn, and
-/// the harness already owns that Turn's cancellation — cancelling it kills the
-/// child, which ends the stream, which fails every waiter with a transport
-/// error. A per-request timeout here would either duplicate that deadline or
-/// contradict it, and it would have to guess a bound for `turn/start`, which
-/// legitimately takes as long as the model does.
-///
-/// This rests entirely on the harness being able to cancel *whenever* a request
-/// is in flight, including the opening `initialize` / `thread/*` / `turn/start`
-/// before it holds a session — which is why [`start`] takes the token rather
-/// than returning one, and why the driver races cancellation against the whole
-/// of `submit`.
-///
-/// Capacity is the number of concurrent requests one Session can have in
-/// flight, which is bounded by the harness: a Turn issues them one at a time,
-/// plus at most one `turn/steer` or `turn/interrupt` alongside.
+/// Unbounded and untimed: freed only by its matching response or
+/// [`Rpc::fail_all`] on stream end — the Turn's own cancellation is the sole
+/// deadline, so [`start`] takes the token instead of minting one.
 type PendingRequests = HashMap<i64, oneshot::Sender<Result<serde_json::Value, JsonRpcErrorInfo>>>;
 
 /// Request-id correlation and the write half of the pipe.
@@ -337,9 +311,9 @@ impl Rpc {
 
 /// Spawn the stdout reader and return the request half.
 ///
-/// Split out from [`start`] so the framing can be exercised over an in-memory
-/// pipe. The read loop ends at EOF, at a read error, or when `cancel` fires;
-/// dropping the pending map then fails every outstanding request.
+/// Split from [`start`] so framing can be tested over an in-memory pipe; the
+/// read loop ends at EOF, a read error, or `cancel`, failing every outstanding
+/// request.
 fn connect(
     reader: impl AsyncRead + Send + Unpin + 'static,
     writer: impl AsyncWrite + Send + Unpin + 'static,
@@ -444,18 +418,9 @@ async fn read_loop(
 /// Spawn `codex app-server --stdio`, complete the `initialize` → `initialized`
 /// handshake, and return before any thread work.
 ///
-/// Spawn parity with `codex exec` (see the spec's parity table): the binary,
-/// `CODEX_HOME`, `HOME` and the coordinator-supplied `env` are identical. The
-/// difference is stdin, which is a pipe here rather than `Stdio::null()` — the
-/// hang the exec transport guarded against with `Stdio::null()` was `codex exec`
-/// blocking on an *inherited empty* stdin, and this one is a real pipe that is
-/// written to.
-///
-/// `cancel_token` comes from the caller rather than being minted here, because
-/// the handshake this function awaits is itself cancellable work: a caller that
-/// only received a token back could not stop a server that never answers
-/// `initialize`. Cancelling it kills the child at any point, including before
-/// the spawn.
+/// `cancel_token` comes from the caller: the handshake itself is cancellable,
+/// and a token returned afterward could not stop a server that never answers
+/// `initialize`.
 pub(crate) async fn start(
     config: &Config,
     env: Option<HashMap<String, String>>,
@@ -580,9 +545,9 @@ pub(crate) fn thread_start_params(config: &Config, request: &AgentRunRequest) ->
     }
 }
 
-/// `thread/resume` params for `resume <id>`. There is no equivalent of
-/// `resume --last`, and none is needed: `build_resume` (`coordinator.rs`) only
-/// ever yields `ResumeSession::Last` for the Claude family.
+/// `thread/resume` params for `resume <id>`. There is no equivalent of `resume
+/// --last`, and none is needed: `build_resume` (`coordinator.rs`) only ever
+/// yields `ResumeSession::Last` for the Claude family.
 pub(crate) fn thread_resume_params(
     config: &Config,
     request: &AgentRunRequest,
@@ -708,10 +673,9 @@ impl AppServerSession {
     /// A session backed by an in-memory pipe instead of a real process, for
     /// deterministic harness lifecycle tests.
     ///
-    /// The returned sender feeds `notifications` directly, so a test can script
-    /// server events without framing them; dropping it closes the stream (EOF).
-    /// The [`ScriptedServer`] is the other end of the request pipe, for the
-    /// requests the harness makes (`turn/interrupt` on cancel).
+    /// The sender feeds `notifications` directly; dropping it closes the stream
+    /// (EOF). [`ScriptedServer`] is the other end, for requests the harness
+    /// makes.
     pub(crate) fn scripted() -> (
         mpsc::UnboundedSender<Result<ServerEvent, String>>,
         ScriptedServer,
@@ -729,8 +693,8 @@ impl AppServerSession {
         )
     }
 
-    /// Whether cancellation has been requested — the scripted analog of the real
-    /// process tree being torn down.
+    /// Whether cancellation has been requested — the scripted analog of the
+    /// real process tree being torn down.
     pub(crate) fn is_cancelled(&self) -> bool {
         self.cancel_token.is_cancelled()
     }

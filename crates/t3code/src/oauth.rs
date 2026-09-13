@@ -1,17 +1,11 @@
 //! How a T3 Code client on another device comes to hold a credential.
 //!
-//! Two endpoints, both named by T3's contract and neither shaped like anything
-//! else in this backend. `POST /oauth/token` is the exchange a phone makes once,
-//! trading the pairing code someone typed for the token it then keeps.
-//! `POST /api/auth/websocket-ticket` is the exchange it makes on every connect,
-//! trading that token for a ticket that survives the one hop the token cannot:
-//! a browser-grade `WebSocket` constructor, which sends no headers at all.
-//!
-//! Both are translation and nothing more. The code is redeemed through the
-//! [`crate::DevicePairing`] port, the token it returns is an ordinary Moatless
-//! API key, and the ticket is verified by the root backend's auth middleware.
-//! What lives here is T3's vocabulary for all three: its grant-type URNs, its
-//! scope strings, and its error bodies.
+//! `POST /oauth/token` trades a pairing code for the token a device keeps;
+//! `POST /api/auth/websocket-ticket` trades that token for a ticket that
+//! survives the one hop the token cannot: a browser-grade `WebSocket`
+//! constructor, which sends no headers at all. Both are translation only —
+//! redeemed through the [`crate::DevicePairing`] port into an ordinary Moatless
+//! API key, verified by the root backend's own auth middleware.
 
 use axum::Json;
 use axum::extract::rejection::FormRejection;
@@ -30,18 +24,8 @@ use moatless_types::ui_rpc::UiRpcAuthIdentity;
 
 /// The scopes this deployment is able to grant, in the order it reports them.
 ///
-/// This is what the surface actually serves, and it is checked: every request
-/// passes [`required_scope`] before dispatch, and a method whose scope is not
-/// in this list is refused with `EnvironmentAuthorizationError`.
-///
-/// `orchestration.dispatchCommand` is a write, gated by `orchestration:operate`;
-/// `review.getDiffPreview` is what `review:write` gates in the reference
-/// server's own map. Both are granted: serving a capability without declaring
-/// its scope does not remove the exposure.
-///
-/// The two that stay out each name a surface with nothing behind it:
-/// `access:write` — this surface administers no pairings; `relay:write` —
-/// `cloud.getRelayClientStatus` answers `"unsupported"`.
+/// Checked against [`required_scope`] before dispatch; `access:write` and
+/// `relay:write` stay out because nothing behind this deployment needs them.
 pub(super) const GRANTED_SCOPES: [&str; 6] = [
     "orchestration:read",
     "orchestration:operate",
@@ -53,9 +37,8 @@ pub(super) const GRANTED_SCOPES: [&str; 6] = [
 
 /// Every scope name T3's contract defines, granted here or not.
 ///
-/// Kept apart from [`GRANTED_SCOPES`] because asking for a scope this
-/// deployment does not grant and asking for a scope that does not exist are
-/// different mistakes, and the contract gives them different answers.
+/// Kept apart from [`GRANTED_SCOPES`]: asking for an ungranted scope and asking
+/// for a nonexistent one are different mistakes, answered differently.
 const KNOWN_SCOPES: [&str; 8] = [
     "orchestration:read",
     "orchestration:operate",
@@ -70,19 +53,10 @@ const KNOWN_SCOPES: [&str; 8] = [
 /// The scope a method requires, ported from the reference server's
 /// `RPC_REQUIRED_SCOPES` (`apps/server/src/auth/RpcAuthorization.ts:23`).
 ///
-/// A `match` rather than a table, because the dispatcher's own arms are a
-/// `match` on the same strings and the two have to be read against each other.
-///
-/// Every method the *contract* declares is listed, not only the ones this
-/// server dispatches, and that is the point: the gate runs ahead of the dispatch
-/// table, so a client asking for a withheld surface is told the needed scope is
-/// not granted rather than told the method does not exist. Which of those two
-/// is true depends on the deployment; only one of them is actionable.
-///
-/// The default is `orchestration:read` — the reference server's own default for
-/// everything unclassified, and the narrowest scope this deployment grants — so
-/// a method added to dispatch without a thought about scope gets the least
-/// authority rather than an accidental pass.
+/// Runs ahead of dispatch, listing every method the *contract* declares, so a
+/// withheld surface is refused for its scope rather than told it doesn't exist;
+/// the `orchestration:read` default gives an unclassified method the least
+/// authority.
 pub(super) fn required_scope(tag: &str) -> &'static str {
     match tag {
         // Writes.
@@ -173,9 +147,9 @@ pub(super) struct TokenExchangeRequest {
 
 /// Trade a pairing code for the token a device keeps.
 ///
-/// The one route in this module that is not authenticated, because the
-/// credential it is authenticated by is in the body. It is exempt in
-/// [`crate::oauth::middleware`] for that reason and no other.
+/// The one route in this module not authenticated by
+/// [`crate::oauth::middleware`] — exempted because the credential it needs is
+/// in the body itself.
 pub(super) async fn token_exchange(
     State(state): State<UiRpcState>,
     request: Result<Form<TokenExchangeRequest>, FormRejection>,
@@ -241,8 +215,8 @@ pub(super) async fn token_exchange(
 
 /// Trade the token a device holds for a ticket that can be spent on the socket.
 ///
-/// The client is already authenticated by the time this runs — the middleware
-/// took its `Authorization` header — so this reads who that was and signs it.
+/// Middleware already authenticated the client via its `Authorization` header;
+/// this reads who that was and signs it.
 pub(super) async fn websocket_ticket(
     State(state): State<UiRpcState>,
     Extension(identity): Extension<UiRpcAuthIdentity>,
@@ -270,12 +244,8 @@ pub(super) async fn websocket_ticket(
 
 /// What a client asking for `requested` is given.
 ///
-/// The answer is the overlap, not the request: a client asks for the scopes it
-/// would use anywhere, and the mobile client's list names two this deployment
-/// has nothing behind. Refusing the exchange over that would mean refusing to
-/// pair a phone at all, in return for a distinction the client does not draw —
-/// it stores whatever it is granted and never compares it to what it asked for.
-/// An overlap of nothing is a different matter, and is refused.
+/// The overlap of `requested` and [`GRANTED_SCOPES`], never the bare request —
+/// the client stores whatever it's granted — but an empty overlap is refused.
 fn granted_scopes(requested: Option<&str>) -> Result<Vec<String>, &'static str> {
     let Some(requested) = requested else {
         return Ok(GRANTED_SCOPES.iter().map(ToString::to_string).collect());
@@ -406,9 +376,10 @@ mod tests {
         assert_eq!(required_scope("review.getDiffPreview"), "review:write");
     }
 
-    /// An unknown tag is one this server does not implement, and it has to reach
-    /// the dispatch to be told so. Defaulting it to anything stronger than read
-    /// would answer "you may not" where the truth is "there is no such method".
+    /// An unknown tag is one this server does not implement, and it has to
+    /// reach the dispatch to be told so. Defaulting it to anything stronger
+    /// than read would answer "you may not" where the truth is "there is no
+    /// such method".
     #[test]
     fn a_method_this_map_does_not_name_falls_through_to_read() {
         assert_eq!(

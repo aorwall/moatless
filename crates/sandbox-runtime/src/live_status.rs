@@ -10,7 +10,8 @@ use moatless_types::task::TaskStatus;
 
 pub use moatless_types::sandbox::{AgentStatus, LiveStatus, SandboxStatus};
 
-/// Combine raw runtime signals and durable Task intent into canonical live status.
+/// Combine raw runtime signals and durable Task intent into canonical live
+/// status.
 pub fn derive_live_status(
     task_status: TaskStatus,
     desired_state: SandboxDesiredState,
@@ -56,11 +57,9 @@ pub fn derive_live_status(
 
 /// Reconcile a live status with the durable turn state behind it.
 ///
-/// The second half of [`derive_live_status`], run where the Task band's signals
-/// are also in hand, so both go through [`derive_running`]. It only ever
-/// upgrades: a `Running` heartbeat stays, and what changes is the case the
-/// heartbeat cannot speak to. A turn stuck open behind a finished agent is the
-/// reaper's to fix, not this function's.
+/// The second half of [`derive_live_status`]; only ever upgrades a `Running`
+/// heartbeat's case, never demotes it. A turn stuck open behind a finished
+/// agent is the reaper's to fix, not this function's.
 pub fn apply_running_rule(
     status: LiveStatus,
     desired_state: SandboxDesiredState,

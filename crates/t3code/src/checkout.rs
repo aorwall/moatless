@@ -18,8 +18,8 @@ use crate::workspace::WorkspaceAccessError;
 /// The ports a checkout is opened through, together so a read surface takes one
 /// value rather than two positional handles it never looks inside.
 ///
-/// `pub` because [`crate::files::list_entries`] and its siblings take it and are
-/// exercised directly by the backend's integration tests.
+/// `pub` because [`crate::files::list_entries`] and its siblings take it and
+/// are exercised directly by the backend's integration tests.
 #[derive(Clone, Copy)]
 pub struct Sources<'a> {
     pub sandboxes: &'a dyn SandboxConnector,
@@ -36,10 +36,9 @@ pub(crate) struct Checkout<'a> {
 
 enum Backing<'a> {
     Live(SandboxClient),
-    /// The snapshot, plus what the Sandbox said when it could not be reached.
-    /// That text is the answer a caller gets if the snapshot turns out to hold
-    /// nothing for this Task: the reason there are no files is still that
-    /// nothing is running.
+    /// The snapshot, plus what the Sandbox said when unreachable: that text is
+    /// the answer if the snapshot also holds nothing, since no files still
+    /// means nothing is running.
     Stored {
         source: &'a dyn WorkspaceSnapshotSource,
         unreachable: String,
@@ -59,9 +58,9 @@ pub(crate) struct Content {
 
 /// A file's bytes, and whether they are text.
 ///
-/// The distinction is the file's, not the transport's: the Sandbox base64-encodes
-/// what it cannot decode as UTF-8 and a snapshot hands back raw bytes, and both
-/// arrive here as the same two cases.
+/// The distinction is the file's, not the transport's: the Sandbox
+/// base64-encodes what it cannot decode as UTF-8, a snapshot hands back raw
+/// bytes, and both arrive here as the same two cases.
 pub(crate) enum Body {
     Text(String),
     Binary(Vec<u8>),
@@ -77,12 +76,12 @@ impl Body {
 }
 
 impl<'a> Checkout<'a> {
-    /// Open `task_id`'s files, live when its Sandbox answers and from the
-    /// snapshot when there is no Sandbox to answer.
+    /// Open `task_id`'s files, live when its Sandbox answers, from the snapshot
+    /// when there is none to answer.
     ///
     /// [`no_live_sandbox`] is the whole of that distinction: a Sandbox that is
-    /// up and refused the connection has current files, and answering it from a
-    /// stored copy would present an older tree as the live one.
+    /// up and refused the connection has current files, so answering from a
+    /// stored copy would present an older tree as live.
     pub(crate) async fn open(
         sources: Sources<'a>,
         task_id: &str,
@@ -106,9 +105,8 @@ impl<'a> Checkout<'a> {
 
     /// Every path in the workspace, a directory suffixed with `/`.
     ///
-    /// Honours the repositories' ignore rules whichever way it is answered: the
-    /// live walk is asked to, and the mirror only ever stored the non-ignored
-    /// set.
+    /// Honours the repositories' ignore rules either way: the live walk is
+    /// asked to, and the mirror only ever stored the non-ignored set.
     pub(crate) async fn listing(&self) -> Result<Vec<String>, WorkspaceAccessError> {
         match &self.backing {
             Backing::Live(client) => client
@@ -140,9 +138,9 @@ impl<'a> Checkout<'a> {
 
     /// Up to `limit` files whose name matches `query`, case-insensitively.
     ///
-    /// Files only. The live search walks for files
-    /// (`crates/sandbox/src/files/search.rs`) and the mirror stores nothing else, so
-    /// there is no directory here to carry a trailing slash.
+    /// Files only: the live search walks for files
+    /// (`crates/sandbox/src/files/search.rs`) and the mirror stores nothing
+    /// else, so no directory here carries a trailing slash.
     pub(crate) async fn search(
         &self,
         query: &str,
@@ -177,9 +175,9 @@ impl<'a> Checkout<'a> {
     /// One file, resolving a path an agent wrote rather than one this module
     /// issued.
     ///
-    /// A path the workspace root holds is read as it stands, and anything else
-    /// goes to [`Self::resolve`]. The [`Content::path`] that comes back is the
-    /// one that was read.
+    /// A path the workspace root holds is read as it stands, anything else goes
+    /// to [`Self::resolve`], and the [`Content::path`] returned is the one
+    /// actually read.
     pub(crate) async fn read(&self, relative_path: &str) -> Result<Content, WorkspaceAccessError> {
         // Reading an absolute path is refused before either backing looks at
         // the file, so there is no miss to learn anything from.
@@ -254,12 +252,9 @@ impl<'a> Checkout<'a> {
     /// The workspace path a mention names, when this module's own addressing
     /// does not reach the file.
     ///
-    /// A mention arrives either short of the workspace root or past it, and the
-    /// string does not say which: the asset route spends a Sandbox path's
-    /// leading `/` on the URL it is a segment of, and a proxy that merges
-    /// duplicate slashes would eat it anyway. So the root is stripped and both
-    /// readings are tried, [`nested_match`] first because a repository-relative
-    /// mention is the one an agent writes most.
+    /// A mention arrives either short of the workspace root or past it, so the
+    /// root is stripped and both readings are tried, [`nested_match`] first
+    /// since a repository-relative mention is what an agent writes most.
     async fn resolve(&self, mention: &str) -> Option<String> {
         let needle = mention
             .trim_start_matches('/')
@@ -283,9 +278,8 @@ impl<'a> Checkout<'a> {
     /// What a caller is told when the snapshot could not answer.
     ///
     /// `NoSnapshot` reads back as the Sandbox failure that sent the read here:
-    /// a Task with nothing running and nothing stored is not running, and
-    /// naming the store would tell the person about a mechanism instead of
-    /// about their Task.
+    /// a Task with nothing running and nothing stored is not running, not a
+    /// store-mechanism error.
     fn stored_failed(
         &self,
         error: SnapshotError,
@@ -311,20 +305,11 @@ fn sandbox_failed(status: tonic::Status, operation: &str) -> WorkspaceAccessErro
     WorkspaceAccessError::Sandbox(classify_grpc_error(status, operation))
 }
 
-/// The one entry of `listing` that `needle` names from inside a checkout.
+/// The one entry of `listing` that `needle` names from a repository inside a
+/// multi-checkout workspace, one directory short of the root this module
+/// presents.
 ///
-/// A Moatless workspace is a *set* of checkouts under one root, and the agent
-/// works inside one of them — so the paths it writes into a transcript,
-/// `backend/migrations/0125.sql`, are relative to its repository and not to the
-/// root this module presents. The client has no way to know that: the `cwd` it
-/// resolves a mention against is the workspace root, so what arrives is the path
-/// the agent wrote, one directory short of a file.
-///
-/// Matching is on whole segments against the listing the tree itself shows, so
-/// this can only ever name a file the person could already see, and it costs a
-/// walk only on the miss. The shallowest match wins — the checkout nearest the
-/// root — and equal-length ones break by name, so the same mention always opens
-/// the same file rather than depending on walk order.
+/// Matches on whole segments; the shallowest match wins, ties broken by name.
 pub(crate) fn nested_match<'l>(listing: &'l [String], needle: &str) -> Option<&'l str> {
     let suffix = format!("/{needle}");
     listing
@@ -337,20 +322,9 @@ pub(crate) fn nested_match<'l>(listing: &'l [String], needle: &str) -> Option<&'
 
 /// The one entry of `listing` that an absolute `needle` names.
 ///
-/// An agent works inside the Sandbox and writes the path it used there, so a
-/// transcript carries `/opt/moatless/workspace/moatless/README.md` as readily as
-/// it carries a repository-relative path. Both name a file the tree already
-/// shows, and neither is addressable as it stands: this module addresses from
-/// the workspace root, and the Sandbox refuses a leading `/` before it opens
-/// anything (`crates/sandbox/src/files/path.rs`).
-///
-/// Where that root sits on the Sandbox's disk is the Sandbox's own business and
-/// no field this crate is given, so the match is on the listing instead: the
-/// longest entry the absolute path ends on, at a segment boundary. Longest
-/// rather than shallowest, deliberately — every shorter match is a different
-/// file that happens to share a tail, and the longest is the one the person
-/// named. A path that ends on nothing in the listing stays unresolved, which is
-/// what keeps `/etc/passwd` out of a workspace read.
+/// The longest entry the path ends on, at a segment boundary — longest, not
+/// shortest, since a shorter match is a different file sharing a tail; no match
+/// leaves it unresolved, keeping `/etc/passwd` out.
 pub(crate) fn rooted_match<'l>(listing: &'l [String], needle: &str) -> Option<&'l str> {
     listing
         .iter()

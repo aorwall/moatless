@@ -29,9 +29,9 @@ async fn pending_work_at(pool: &PgPool, sandbox_id: &str) -> Option<DateTime<Utc
         .expect("read pending_work_at")
 }
 
-/// The wake signal is a fact on the Sandbox row, so the reconciler can see
-/// that work is waiting while the pod is down. A stopped Sandbox is exactly
-/// that case, and the one the signal exists for.
+/// The wake signal is a fact on the Sandbox row, so the reconciler can see that
+/// work is waiting while the pod is down. A stopped Sandbox is exactly that
+/// case, and the one the signal exists for.
 #[sqlx::test]
 async fn a_user_message_queues_work_on_a_stopped_sandbox(pool: PgPool) {
     seed_bare_task(&pool, "t1", "open").await;
@@ -90,17 +90,12 @@ async fn claiming_every_message_clears_the_signal(pool: PgPool) {
     );
 }
 
-/// A fork's cut is resolved from rows the production write path produced,
-/// never from a hand-stamped fixture.
+/// Seeds like ingest, not a hand-stamped fixture, so a fork anchor keyed on the
+/// wrong column silently starts fresh.
 ///
-/// `agent_session_id` is written only by `set_session_id_for_task` and
-/// `acknowledge_messages`, both of which filter to `user`/`error`, so an
-/// assistant row carries its session in `session_id` alone. An anchor query
-/// keyed on `agent_session_id` therefore matched no assistant row and every
-/// fork silently started on a fresh session. Seed the way ingest does —
-/// acknowledge the user turn, then append the assistant row with
-/// `session_id` set and `agent_session_id` left `None` — so this fails if
-/// the anchor goes back to a column production never fills.
+/// `agent_session_id` is set only by
+/// `set_session_id_for_task`/`acknowledge_messages` on `user`/`error` rows, so
+/// an assistant row's session lives in `session_id` alone.
 #[sqlx::test]
 async fn the_fork_anchor_comes_off_the_assistant_row_ingest_actually_writes(pool: PgPool) {
     seed_bare_task(&pool, "t1", "open").await;
@@ -146,8 +141,8 @@ async fn the_fork_anchor_comes_off_the_assistant_row_ingest_actually_writes(pool
     );
 }
 
-/// An early clear drops work: acknowledging one Message must leave the
-/// signal up while another is still unacknowledged.
+/// An early clear drops work: acknowledging one Message must leave the signal
+/// up while another is still unacknowledged.
 #[sqlx::test]
 async fn acknowledging_one_of_two_keeps_the_signal(pool: PgPool) {
     seed_bare_task(&pool, "t1", "open").await;

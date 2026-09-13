@@ -5,11 +5,10 @@ use moatless_types::adapter::{AdapterKind, TaskBinding};
 
 /// Row from the `task_bindings` table.
 ///
-/// The `external_*` and `active` columns are `#[sqlx(default)]` because many
-/// existing `SELECT`s do not project them. `active` defaults to `false`, the
-/// fail-safe direction: a forgotten projection drops delivery rather than
-/// resurrecting a Task. The shared `TASK_BINDING_SELECT` and the `upsert`
-/// `RETURNING` both project it, so live paths see the real value.
+/// `external_*` and `active` are `#[sqlx(default)]` since many `SELECT`s don't
+/// project them; `active` defaults to `false` (fail-safe — a forgotten
+/// projection drops delivery, not resurrects a Task), and live paths project
+/// the real value via `TASK_BINDING_SELECT`/`upsert`'s `RETURNING`.
 #[derive(sqlx::FromRow, Debug, Clone)]
 pub struct TaskBindingRow {
     pub id: String,

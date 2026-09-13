@@ -185,13 +185,10 @@ pub async fn update_repository(
 
 /// Move each repository to [`Scope::Global`], dropping its owner.
 ///
-/// One-directional, and the workspace scope cascade is the only caller: a
-/// Workspace moving back to user scope leaves its repositories global, because
-/// the promotion dropped the owner this would have to hand them back to.
-///
-/// A repository the caller cannot read is skipped rather than rejected — for
-/// the admin this write requires, that means the row is soft-deleted, and a
-/// stale placement should not fail the Workspace's own move.
+/// One-directional: a Workspace moving back to user scope leaves its
+/// repositories global, since promotion already dropped the owner to hand them
+/// back to. A repository the caller cannot read (soft-deleted) is skipped
+/// rather than rejected.
 pub(crate) async fn promote_repositories_to_global(
     repositories: &dyn RepositoryDao,
     ctx: &ScopeContext,

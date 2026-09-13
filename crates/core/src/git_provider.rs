@@ -3,9 +3,9 @@
 
 /// Failure from a git-provider credential check (GitHub or Gitness).
 ///
-/// Classification matters to the caller: a token that a provider *rejected* is
-/// the user's problem, while a provider we could not *reach* is ours. Both keep
-/// the causal error reachable through [`std::error::Error::source`].
+/// Classification matters to the caller: a token the provider *rejected* is the
+/// user's problem, a provider we could not *reach* is ours; both keep the
+/// causal error reachable through [`std::error::Error::source`].
 #[derive(Debug, thiserror::Error)]
 pub enum GitProviderError {
     /// We never got an answer — DNS, TLS, connect, or timeout.

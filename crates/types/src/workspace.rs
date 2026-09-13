@@ -2,11 +2,11 @@
 //! carries — its scripts, preview servers, container sizing, and the providers
 //! whose credential can be pinned to it.
 //!
-//! Every string field that is really a value — a CPU quantity, a memory
-//! quantity, a storage medium, an environment-variable name, a port — is parsed
-//! at deserialization. Parsing is strict: an unrecognised value fails the whole
-//! decode rather than silently becoming a default. Serialization keeps the
-//! original spelling, so persisted JSON round-trips byte for byte.
+//! Every string field that is really a value (CPU/memory quantity, storage
+//! medium, env-var name, port) is parsed at deserialization, strictly — an
+//! unrecognised value fails the whole decode instead of becoming a default —
+//! and serialized keeping the original spelling, so persisted JSON round-trips
+//! byte for byte.
 
 // reason: test code may unwrap freely; production code keeps the workspace `deny`.
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
@@ -53,9 +53,9 @@ crate::string_enum!(
 
 /// The glyph a client renders beside a Workspace name.
 ///
-/// Mirrors the T3 client's `ProjectIconOverride`: it is the only surface that
-/// picks one, and its own schema enumerates the legal glyph names and colours.
-/// Neither vocabulary is restated here — both would drift from the client's.
+/// Mirrors the T3 client's `ProjectIconOverride`, the only surface that picks
+/// one; its own schema enumerates legal glyph names and colours, not restated
+/// here to avoid drift.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(tag = "kind", rename_all = "camelCase")]
@@ -67,9 +67,9 @@ pub enum WorkspaceIcon {
 /// The composition of one or more repositories plus the run configuration a
 /// Task runs against.
 ///
-/// The run-config fields stay `Option` to keep "unset" apart from "empty": a
-/// Workspace that declares no servers is not the same as one that declares an
-/// empty list, and the two reach the frontend as `null` and `[]`.
+/// Run-config fields stay `Option` to keep "unset" apart from "empty": a
+/// Workspace declaring no servers differs from one declaring an empty list,
+/// reaching the frontend as `null` vs `[]`.
 #[derive(Debug, Clone)]
 pub struct Workspace {
     pub id: String,
@@ -88,9 +88,9 @@ pub struct Workspace {
     /// Named commands run on demand in the sandbox.
     pub scripts: Option<Vec<ScriptConfig>>,
     pub resources: Option<ResourceConfig>,
-    /// Selects a static `NetworkPolicy` through the pod label. Grants nothing on
-    /// its own, and the set of valid names is deployment configuration, so this
-    /// stays an open string.
+    /// Selects a static `NetworkPolicy` through the pod label. Grants nothing
+    /// on its own, and the set of valid names is deployment configuration, so
+    /// this stays an open string.
     pub network_profile: Option<String>,
     // --- Task defaults ---
     /// Model catalog id (`opus`, `sonnet`) a new Task on this Workspace starts
@@ -115,9 +115,9 @@ pub struct Workspace {
     /// dedicated machine account instead of as whoever started the Task.
     pub run_as_user_id: Option<String>,
     pub created_by: Option<String>,
-    /// Soft-deleted Workspaces are normally hidden. A git-origin tombstone stays
-    /// visible in admin so an operator can restore it from git without the
-    /// automatic sync recreating it behind their back.
+    /// Soft-deleted Workspaces are normally hidden. A git-origin tombstone
+    /// stays visible in admin so an operator can restore it from git without
+    /// the automatic sync recreating it behind their back.
     pub deleted: bool,
     pub created_at: Option<DateTime<Utc>>,
     pub updated_at: Option<DateTime<Utc>>,
@@ -134,8 +134,8 @@ pub struct WorkspaceRepo {
     /// Subdirectory under the workspace directory. `None` defaults to the
     /// repository name at runtime.
     pub mount_name: Option<String>,
-    /// The repository used for diffs, PRs, and AGENTS.md. Exactly one
-    /// placement is primary once the Workspace holds any.
+    /// The repository used for diffs, PRs, and AGENTS.md. Exactly one placement
+    /// is primary once the Workspace holds any.
     pub is_primary: bool,
     /// Ordering within the Workspace.
     pub position: i32,
@@ -146,18 +146,17 @@ pub struct WorkspaceRepo {
 ///
 /// The backend writes it into the sandbox container spec; the sandbox reads it
 /// at boot. Absent on a pod provisioned before multi-repo support, where the
-/// legacy single-repo `GIT_CLONE_URL`/`GIT_BRANCH`/`GIT_PROVIDER` trio is the
-/// only checkout.
+/// legacy `GIT_CLONE_URL`/`GIT_BRANCH`/`GIT_PROVIDER` trio is the only
+/// checkout.
 pub const WORKSPACE_REPOS_ENV: &str = "WORKSPACE_REPOS";
 
 /// A [`WorkspaceRepo`] placement resolved for provisioning: what the backend
 /// hands a Sandbox in `WORKSPACE_REPOS`, one entry per checkout, primary first.
 ///
-/// A workspace holds 0..n repository placements, so a sandbox holds 0..n
-/// checkouts. Each is cloned into `{WORKSPACE_DIR}/{mount_name}`; exactly one is
-/// primary and its directory is the sandbox's `repo_dir` (git status/diff, the
-/// file API, setup commands, preview servers). `mount_name` and `clone_url` are
-/// resolved here — on `WorkspaceRepo` both are still open.
+/// Each is cloned into `{WORKSPACE_DIR}/{mount_name}`; the primary's directory
+/// is the sandbox's `repo_dir` (git status/diff, file API, setup commands,
+/// preview servers). `mount_name`/`clone_url` are resolved here — still open on
+/// `WorkspaceRepo`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
@@ -169,8 +168,8 @@ pub struct RepoCheckout {
     #[serde(default)]
     pub branch: Option<String>,
     /// The `repositories` row [`Self::clone_url`] came from. Empty for a
-    /// template checkout, which has no row, and on a pod provisioned before
-    /// this field existed.
+    /// template checkout (no row) or a pod provisioned before this field
+    /// existed.
     ///
     /// Carried so a proxied clone can name the repository back to the backend:
     /// a Forgejo `clone_url` addresses `/git/{repository_id}` rather than the
@@ -199,18 +198,19 @@ impl RepoCheckout {
     }
 }
 
-/// The provider whose checkouts clone through the backend's git proxy instead of
-/// from their own host.
+/// The provider whose checkouts clone through the backend's git proxy instead
+/// of from their own host.
 ///
-/// A Forgejo token is never delivered into a pod, so the pod addresses the
-/// backend and the backend attaches the credential. Every other provider's
-/// checkout `clone_url` reaches its host directly.
+/// A Forgejo token is never delivered into a pod: the pod addresses the
+/// backend, which attaches the credential. Every other provider's `clone_url`
+/// reaches its host directly.
 pub const PROXIED_PROVIDER: &str = "forgejo";
 
-/// The proxied remote for `repository_id`: `{backend_api_url}/git/{repository_id}`.
+/// The proxied remote for `repository_id`:
+/// `{backend_api_url}/git/{repository_id}`.
 ///
-/// The path is the one the backend's `git_proxy` routes serve, and the pod's
-/// task token is the HTTP Basic password on it.
+/// The path is the one the backend's `git_proxy` routes serve; the pod's task
+/// token is the HTTP Basic password on it.
 pub fn proxy_clone_url(backend_api_url: &str, repository_id: &str) -> String {
     format!(
         "{}/git/{repository_id}",
@@ -220,8 +220,8 @@ pub fn proxy_clone_url(backend_api_url: &str, repository_id: &str) -> String {
 
 /// The repository id in a [`proxy_clone_url`] against `backend_api_url`.
 ///
-/// Returns `None` when `url` names another origin, which is every checkout that
-/// clones from its own git host.
+/// Returns `None` when `url` names another origin — every checkout that clones
+/// from its own git host.
 pub fn proxy_clone_repository_id<'a>(backend_api_url: &str, url: &'a str) -> Option<&'a str> {
     let prefix = format!("{}/git/", backend_api_url.trim_end_matches('/'));
     let id = url.strip_prefix(&prefix)?.trim_end_matches('/');
@@ -229,14 +229,13 @@ pub fn proxy_clone_repository_id<'a>(backend_api_url: &str, url: &'a str) -> Opt
     (!id.is_empty() && !id.contains('/')).then_some(id)
 }
 
-/// Derive a mount name from a clone URL: the last path segment with any trailing
-/// `.git` and slashes stripped. Falls back to `"repo"` for URLs that don't yield
-/// a usable segment.
+/// Derive a mount name from a clone URL: the last path segment with `.git` and
+/// slashes stripped, falling back to `"repo"`.
 ///
-/// Handles `https://host/owner/repo(.git)` and `git@host:owner/repo(.git)`. This
-/// is the default when a placement has no explicit mount name, and must stay
-/// stable: an existing sandbox's primary checkout lives at this path on its
-/// persistent volume.
+/// Handles `https://host/owner/repo(.git)` and `git@host:owner/repo(.git)`;
+/// this is the default when a placement has no explicit mount name, and must
+/// stay stable — an existing sandbox's primary checkout lives at this path on
+/// its persistent volume.
 pub fn derive_mount_name(clone_url: &str) -> String {
     let name = clone_url
         .trim_end_matches('/')
@@ -250,10 +249,9 @@ pub fn derive_mount_name(clone_url: &str) -> String {
 /// Reduce a user-authored mount name to a single safe path segment, or `None`
 /// when nothing usable remains.
 ///
-/// Mount names come from the UI and from repositories' committed
-/// `.moatless/workspaces.json`, and they are joined onto `WORKSPACE_DIR` — so
-/// separators and `..` must never survive. Characters outside
-/// `[A-Za-z0-9._-]` become `-`, and a name that is only dots is rejected.
+/// Mount names are joined onto `WORKSPACE_DIR`, so separators and `..` must
+/// never survive: characters outside `[A-Za-z0-9._-]` become `-`, and an
+/// all-dots name is rejected.
 pub fn sanitize_mount_name(name: &str) -> Option<String> {
     let cleaned: String = name
         .trim()
@@ -298,9 +296,9 @@ pub struct ScriptConfig {
 /// A provider whose credential can be pinned to a Workspace.
 ///
 /// Only providers whose sandbox credential is a single static environment
-/// variable are here. Codex (`CODEX_AUTH_JSON`) and the Claude OAuth token are
-/// refreshed and written back against the connected user's own row, so a
-/// workspace-level copy of either would go stale with nothing to rotate it.
+/// variable are here — Codex (`CODEX_AUTH_JSON`) and the Claude OAuth token are
+/// refreshed against the connected user's own row, so a workspace-level copy
+/// would go stale with nothing to rotate it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "lowercase")]
@@ -323,10 +321,11 @@ impl WorkspaceCredentialProvider {
         Self::Anthropic,
     ];
 
-    /// The git hosts among these. A pin for one of them is the token every
-    /// call against that host presents, so it is resolved by
-    /// `moatless_identity::git_host_tokens::GitHostTokens` rather than only
-    /// delivered as an environment variable.
+    /// The git hosts among these.
+    ///
+    /// A pin for one is the token every call against that host presents, so
+    /// it's resolved by `moatless_identity::git_host_tokens::GitHostTokens`
+    /// rather than only delivered as an environment variable.
     pub const GIT_HOSTS: &'static [Self] =
         &[Self::Github, Self::Gitlab, Self::Gitness, Self::Forgejo];
 
@@ -341,9 +340,10 @@ impl WorkspaceCredentialProvider {
         }
     }
 
-    /// A Forgejo pin is single-valued while a deployment may hold repositories
-    /// on several Forgejo hosts, so it authenticates against every one of them.
-    /// Per-host Forgejo credentials are the `provider_tokens` rows keyed
+    /// A Forgejo pin is single-valued though a deployment may hold repositories
+    /// on several Forgejo hosts, so it authenticates against all of them.
+    ///
+    /// Per-host Forgejo credentials are `provider_tokens` rows keyed
     /// `forgejo:{host}`, which a pin deliberately outranks.
     pub fn env_key(self) -> &'static str {
         match self {
@@ -415,8 +415,8 @@ pub struct QuantityParseError {
 
 /// A Kubernetes CPU quantity — `"250m"`, `"2"`, `"500000u"`, `"1000000000n"`.
 ///
-/// Keeps the original spelling for pass-through to the Kubernetes API and
-/// exposes the parsed value in millicores for the Docker path and for metrics.
+/// Keeps the original spelling for pass-through to the Kubernetes API, and
+/// exposes the parsed value in millicores for the Docker path and metrics.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Cpu {
     raw: String,
@@ -494,8 +494,8 @@ impl<'de> Deserialize<'de> for Cpu {
 
 /// A Kubernetes memory quantity — `"4Gi"`, `"512Mi"`, `"2k"`, `"4096"`.
 ///
-/// Keeps the original spelling for pass-through to the Kubernetes API and
-/// exposes the parsed value in bytes for the Docker path and for metrics.
+/// Keeps the original spelling for pass-through to the Kubernetes API, and
+/// exposes the parsed value in bytes for the Docker path and metrics.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Memory {
     raw: String,
@@ -669,8 +669,8 @@ impl<'de> Deserialize<'de> for EnvKey {
 
 /// Environment overrides for one container, ordered by name.
 ///
-/// The order is deterministic so a generated pod spec does not churn between
-/// two provisions of the same config.
+/// The order is deterministic so a generated pod spec doesn't churn between two
+/// provisions of the same config.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct EnvVars(BTreeMap<EnvKey, String>);
@@ -736,8 +736,8 @@ impl fmt::Display for Port {
 
 /// A container's CPU and memory for one direction (requests or limits).
 ///
-/// Each field overrides the deployment default independently: a config that
-/// names only `memory` keeps the configured CPU default.
+/// Each field overrides the deployment default independently: a config naming
+/// only `memory` keeps the configured CPU default.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ResourceQuantities {
@@ -755,8 +755,8 @@ impl ResourceQuantities {
 
 /// Resource and storage configuration for a sandbox, consumed by every runtime.
 ///
-/// The same shape serves the workspace-wide block and a per-server override.
-/// Only `requests`/`limits` are meaningful per server; the storage fields are
+/// The same shape serves the workspace-wide block and a per-server override;
+/// only `requests`/`limits` are meaningful per server, the storage fields stay
 /// workspace-wide.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -1165,19 +1165,21 @@ mod tests {
     }
 }
 
-/// A live override of one preview server's start command and env.
-/// Callers send the complete state; the sandbox replaces it without merging.
+/// A live override of one preview server's start command and env. Callers send
+/// the complete state; the sandbox replaces it without merging.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct ServerOverride {
-    /// Replaces the configured start command; `None` uses the workspace command.
+    /// Replaces the configured start command; `None` uses the workspace
+    /// command.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub start_command: Option<String>,
     /// Applied after the configured server environment, so these values win.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub env: BTreeMap<String, String>,
-    /// Removes variables injected through the container spec; sourcing an env file cannot unset them.
+    /// Removes variables injected through the container spec; sourcing an env
+    /// file cannot unset them.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub unset_env: Vec<String>,
 }

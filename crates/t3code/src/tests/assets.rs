@@ -3,10 +3,12 @@
 use super::fixtures::*;
 use super::*;
 
-/// The client decodes a method's failure against that method's declared
-/// error type, so a tagged error is one of its ordinary outcomes and a
-/// string defect is not. Answering "no favicon" with a defect leaves the
-/// same blank icon behind a stack trace.
+/// The client decodes a method's failure against that method's declared error
+/// type: a tagged error is one of its ordinary outcomes, a string defect is
+/// not.
+///
+/// Answering "no favicon" with a defect leaves the same blank icon behind a
+/// stack trace.
 #[tokio::test]
 async fn an_asset_this_environment_has_no_file_for_fails_in_the_contracts_own_type() {
     let mut session = session();

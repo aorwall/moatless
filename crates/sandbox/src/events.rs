@@ -1,12 +1,8 @@
 //! gRPC event publisher for sandbox agent events.
 //!
-//! Publishes events to the backend via gRPC. The backend then writes them
-//! to Redis Streams for SSE consumption.
-//!
-//! Publishing is enqueue-only: every method hands the event to the
-//! [`crate::outbox::EventOutbox`], which owns the at-least-once delivery
-//! (ordered, retried with backoff). The public API stays fire-and-forget — an
-//! `enqueue` never blocks and never fails the caller.
+//! Publishes events to the backend via gRPC, which writes them to Redis Streams
+//! for SSE consumption. See [`GrpcEventPublisher`] for the enqueue-only,
+//! at-least-once delivery contract.
 
 use moatless_types::agent::AgentSubType;
 use moatless_types::event::EventType;
@@ -18,8 +14,8 @@ use crate::outbox::EventOutbox;
 
 /// Publishes sandbox events to the backend via the at-least-once outbox.
 ///
-/// All publish operations are non-blocking — they enqueue and return. Delivery,
-/// retry, ordering and overflow handling live in [`crate::outbox`].
+/// All publish operations are non-blocking; delivery, retry, ordering and
+/// overflow handling live in [`crate::outbox`].
 #[derive(Clone)]
 pub struct GrpcEventPublisher {
     outbox: EventOutbox,
@@ -52,9 +48,8 @@ impl GrpcEventPublisher {
         &self.outbox
     }
 
-    /// Enqueue a pre-built request. Assigns a stable `event_id` when the caller
-    /// left it empty. Used for events assembled outside the typed helpers below
-    /// (e.g. init's sandbox status event with its custom payload shape).
+    /// Enqueue a pre-built request, assigning a stable `event_id` when empty;
+    /// for events assembled outside the typed helpers below.
     ///
     /// Returns whether the outbox took it; see [`EventOutbox::enqueue`].
     pub fn enqueue(&self, mut req: PublishEventRequest) -> bool {
@@ -82,15 +77,11 @@ impl GrpcEventPublisher {
             .await;
     }
 
-    /// Publish an agent lifecycle event (e.g. started, completed, error, message).
+    /// Routes as `event_type="agent"` (`"agent.completed"`, etc.) to the
+    /// backend consumer.
     ///
-    /// Uses `event_type="agent"` so the backend consumer routes these as
-    /// `"agent.completed"`, `"agent.error"`, etc.
-    ///
-    /// Returns whether the event was enqueued for delivery. Most callers ignore
-    /// it — they have nothing to undo. The one that does not is the interactive
-    /// prompt announcement, which records the call as published and must not
-    /// record one that was refused.
+    /// Returns whether it was enqueued; most callers ignore it, but the prompt
+    /// announcement must not record itself as published when refused.
     pub async fn publish_agent_event(
         &self,
         task_id: &str,
@@ -233,8 +224,8 @@ fn sanitize_value_nuls(value: &mut serde_json::Value) -> bool {
 
 /// A `BackendClient` that keeps what it was asked to publish.
 ///
-/// Lives here rather than in a test module so the agent's own tests can build a
-/// publisher without restating the trait.
+/// Lives here rather than in a test module, so the agent's own tests can build
+/// a publisher without restating the trait.
 #[cfg(test)]
 pub(crate) mod test_backend {
     use std::sync::Mutex;
@@ -251,7 +242,8 @@ pub(crate) mod test_backend {
     #[derive(Default)]
     pub(crate) struct CapturingBackend {
         pub(crate) received: Mutex<Vec<PublishEventRequest>>,
-        /// Every `record_unreported_commands` call, oldest first, with its revision.
+        /// Every `record_unreported_commands` call, oldest first, with its
+        /// revision.
         pub(crate) unreported_commands: Mutex<Vec<(i64, Vec<JournaledCommand>)>>,
     }
 

@@ -27,9 +27,9 @@ async fn a_meta_update_carries_title_and_translated_model() {
     );
 }
 
-/// The client titles a thread from its first message seconds after creating
-/// it, before the agent has run. That title is dropped, so the Task reaches
-/// the pod unnamed and the agent names it. The model still lands.
+/// The client titles a thread from its first message seconds after creating it,
+/// before the agent has run. That title is dropped, so the Task reaches the pod
+/// unnamed and the agent names it. The model still lands.
 #[tokio::test]
 async fn a_title_asserted_while_the_thread_is_unnamed_is_dropped() {
     let command = json!({
@@ -73,9 +73,9 @@ async fn a_title_asserted_against_a_blank_name_is_dropped() {
     );
 }
 
-/// The client sends a meta update before every turn. Refusing one because
-/// it names the other instance's model would abort the send before the turn
-/// itself could explain why.
+/// The client sends a meta update before every turn. Refusing one because it
+/// names the other instance's model would abort the send before the turn itself
+/// could explain why.
 #[tokio::test]
 async fn a_meta_update_naming_the_other_instance_still_updates_the_title() {
     let command = json!({

@@ -1,7 +1,8 @@
-//! Linear adapter — Agents trait impl. The webhook dispatcher lives in
-//! `handlers.rs`; this module owns the [`Adapter`] trait surface (outbound
-//! `agentActivityCreate` calls) and the workspace-scoped configuration
-//! (webhook secret, OAuth client credentials).
+//! The Linear adapter's [`Adapter`] trait implementation.
+//!
+//! The webhook dispatcher lives in `handlers.rs`; this module owns the outbound
+//! `agentActivityCreate` calls and the workspace-scoped configuration (webhook
+//! secret, OAuth client credentials).
 
 use std::sync::Arc;
 
@@ -35,8 +36,8 @@ use super::status;
 
 /// Linear adapter.
 pub struct LinearAdapter {
-    /// Global webhook secret from env (`LINEAR_CHANNEL_WEBHOOK_SECRET`).
-    /// Used as a fallback when the connection has no `webhook_secret` set.
+    /// Global webhook secret from env (`LINEAR_CHANNEL_WEBHOOK_SECRET`). Used
+    /// as a fallback when the connection has no `webhook_secret` set.
     pub(crate) global_webhook_secret: Option<String>,
     /// How this Adapter's outbound calls authenticate, and which host they
     /// reach. Owned by [`auth`](super::auth), which is the only module that
@@ -49,15 +50,18 @@ pub struct LinearAdapter {
     /// The stored Linear apps. Present on the DB-backed constructor; the
     /// test-only ones never reach a stored app.
     apps: Option<Arc<dyn AdapterAppReader>>,
-    /// Task store the post-binding follow-up reads to title the attachment it
-    /// links back onto the Linear issue. `None` in test-only constructors that
-    /// never drive the follow-up; the composition root injects it through
-    /// [`with_tasks`](Self::with_tasks).
+    /// Task store the post-binding follow-up reads to title the attachment
+    /// linking back onto the Linear issue.
+    ///
+    /// `None` in test-only constructors; the composition root injects it
+    /// through [`with_tasks`](Self::with_tasks).
     tasks: Option<Arc<dyn TaskReader>>,
-    /// Ingress ports the webhook route reads through this adapter rather than an
-    /// `AppState`. Present on the composition-root instance (see
-    /// [`with_ingress_ports`](Self::with_ingress_ports)) and absent on the
-    /// test constructors, which never reach [`super::ingress::receive`].
+    /// Ingress port the webhook route reads through this adapter rather than an
+    /// `AppState`.
+    ///
+    /// Present on the composition-root instance (see
+    /// [`with_ingress_ports`](Self::with_ingress_ports)); absent on test
+    /// constructors, which never reach [`super::ingress::receive`].
     adapter_connections: Option<Arc<dyn ConnectionLookup>>,
     /// The same rows read on a caller's behalf, for the `/api/v1/linear/*`
     /// endpoints that resolve the connection a request may see.
@@ -72,11 +76,12 @@ fn missing_port(name: &str) -> AdapterError {
     SharedAdapterError::Internal(format!("Linear adapter missing {name} port")).into()
 }
 
-/// Build an outbound Linear comment body: the reply text followed by the
-/// optional `Moatless task:` footer linking back to the moatless task. The
-/// footer URL doubles as the echo-filter source — when the comment's own
-/// webhook echo arrives, the authoring task id is recovered from that link
-/// (see `comments::handle_comment_created`).
+/// Build an outbound Linear comment body: the reply text plus the optional
+/// `Moatless task:` footer.
+///
+/// The footer URL doubles as the echo-filter source: when the comment's own
+/// webhook echo arrives, the authoring task id is recovered from that link (see
+/// `comments::handle_comment_created`).
 fn build_comment_body(message: &OutboundReply) -> String {
     let mut body = message.text.clone();
     if let Some(ref footer) = message.footer {
@@ -87,8 +92,8 @@ fn build_comment_body(message: &OutboundReply) -> String {
 
 impl LinearAdapter {
     /// Register `LinearAdapter`'s capabilities into `adapters`. See
-    /// [`moatless_loops::adapters::Adapters`]. `pub` so the integration
-    /// harness can build a Linear-only registry directly.
+    /// [`moatless_loops::adapters::Adapters`]. `pub` so the integration harness
+    /// can build a Linear-only registry directly.
     pub fn register_into(self: Arc<Self>, adapters: &mut Adapters) {
         let kind = AdapterKind::Linear;
         adapters.register_trait_object(self.clone());
@@ -102,13 +107,9 @@ impl LinearAdapter {
 
     /// Build the Adapter from the one place its credentials come from.
     ///
-    /// Taking [`LinearConfig`] rather than three loose `Option<String>`s is
-    /// what makes the Adapter's credentials provably the same ones the
-    /// `AppState`-side paths use — assembling them separately would leave
-    /// nothing to check they agree. It is also the injection seam: a test
-    /// builds a `LinearConfig` with `api_base_url` pointed at a loopback stub
-    /// and gets an Adapter whose outbound calls never leave the machine,
-    /// through the same constructor production calls.
+    /// Taking [`LinearConfig`] rather than loose fields keeps the Adapter's
+    /// credentials provably the same ones `AppState`-side paths use, and
+    /// doubles as the test injection seam via `api_base_url`.
     pub fn new(
         config: &moatless_types::adapter::LinearConfig,
         app_tokens: Arc<dyn AppCredentials>,
@@ -154,11 +155,12 @@ impl LinearAdapter {
         self
     }
 
-    /// Inject the ports [`super::ingress::receive`] reads. The composition root
-    /// calls this so the webhook route can read them off the adapter instead of
-    /// an `AppState`; test constructors leave them unset because no test drives
-    /// the webhook path. `db` and `config` already live on the adapter, so only
-    /// the request-scoped ports are carried here.
+    /// Inject the ports [`super::ingress::receive`] reads, so the webhook route
+    /// reads them off the adapter instead of an `AppState`.
+    ///
+    /// `db` and `config` already live on the adapter, so only the
+    /// request-scoped ports are carried here; test constructors leave them
+    /// unset.
     pub fn with_ingress_ports(
         mut self,
         adapter_connections: Arc<dyn ConnectionLookup>,
@@ -173,7 +175,8 @@ impl LinearAdapter {
         self
     }
 
-    /// The connection store the webhook route hands [`super::ingress::receive`].
+    /// The connection store the webhook route hands
+    /// [`super::ingress::receive`].
     pub(super) fn require_adapter_connections(
         &self,
     ) -> Result<&dyn ConnectionLookup, AdapterError> {
@@ -216,8 +219,8 @@ impl LinearAdapter {
             .ok_or_else(|| missing_port("adapter apps"))
     }
 
-    /// Build a Linear Agents API client for the given workspace.
-    /// The app-level OAuth credential this Adapter's outbound calls use.
+    /// Build a Linear Agents API client for the given workspace. The app-level
+    /// OAuth credential this Adapter's outbound calls use.
     pub(crate) fn app_tokens(&self) -> &Arc<dyn AppCredentials> {
         &self.app_tokens
     }
@@ -266,8 +269,8 @@ impl Adapter for LinearAdapter {
 }
 
 impl AdapterOutboundContent for LinearAdapter {
-    /// Linear comments allow generous bodies; cap well below the documented
-    /// 50k limit to leave headroom for the `Moatless task:` footer.
+    /// Linear comments allow generous bodies; cap well below the documented 50k
+    /// limit to leave headroom for the `Moatless task:` footer.
     fn max_message_length(&self) -> usize {
         50_000
     }
@@ -287,14 +290,12 @@ impl AdapterBindingReply for LinearAdapter {
         .into())
     }
 
-    /// Reply to a bound Linear destination. Routes by `subject_kind`:
-    /// - `linear_agent_session` → `commentCreate` on the session's bound issue
-    /// - `linear_issue` → `commentCreate` (CLI-created or operator-bound issue)
+    /// Reply to a bound Linear destination: `commentCreate` on the session's or
+    /// issue's bound Linear issue, keyed by `subject_kind`.
     ///
-    /// The terminal `response` activity that closes the Linear agent session is
-    /// not emitted here: it is posted by `handle_agent_completed` once
-    /// the task finishes, using the last assistant message body. This keeps
-    /// the agent-session lifecycle owned by a single emission point.
+    /// The terminal `response` activity closing the Linear agent session is
+    /// posted separately by `handle_agent_completed`, not here — keeps that
+    /// lifecycle owned by a single emission point.
     async fn send_reply_for_binding(
         &self,
         binding: &TaskBinding,
@@ -385,10 +386,11 @@ impl AdapterMessageReply for LinearAdapter {
 #[async_trait::async_trait]
 impl AdapterDirectDestination for LinearAdapter {
     /// Post a comment on a Linear issue. Destination format:
-    /// `issue:<identifier-or-uuid>` (e.g. `issue:SP-123` or
-    /// `issue:bf0e…`). The single Linear connection in `adapter_connections`
-    /// is used as the workspace context — multi-org callers must use the
-    /// typed `/api/v1/linear/*` endpoints instead.
+    /// `issue:<identifier-or-uuid>` (e.g. `issue:SP-123`).
+    ///
+    /// Uses the single Linear connection in `adapter_connections` as workspace
+    /// context; multi-org callers must use the typed `/api/v1/linear/*`
+    /// endpoints instead.
     async fn post_to_destination(
         &self,
         destination: &str,
@@ -492,12 +494,12 @@ impl AdapterPostBindingFollowup for LinearAdapter {
     }
 }
 
-/// Reply guidance appended to a Linear-fired task's firing system prompt
-/// (posting and mention conventions). Held as a module constant because two
-/// callers reference the same text: the [`AdapterInboundPresentation`] impl
-/// below, and the issue status-entry firing path in [`issues`](super::issues),
-/// which is this adapter and so supplies its own guidance directly rather than
-/// through the adapter registry.
+/// Reply guidance (posting and mention conventions) appended to a Linear-fired
+/// task's firing system prompt.
+///
+/// Held as a module constant since both the [`AdapterInboundPresentation`] impl
+/// below and the issue status-entry firing path in [`issues`](super::issues)
+/// reference the same text.
 pub(super) const REPLY_INSTRUCTIONS: &str = "## Linear Agent Notes\n\
      - Intermediate progress (text + tool calls) is emitted automatically \
        as ephemeral `thought` / `action` activities — you do not need to \

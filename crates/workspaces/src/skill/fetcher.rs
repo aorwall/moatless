@@ -1,30 +1,11 @@
 //! GitHub REST API-based fetcher for skill directories.
 //!
-//! Supports two layouts:
+//! Two layouts — see [`SkillLayout::Workspace`] and [`SkillLayout::Plugin`].
 //!
-//! - [`SkillLayout::Workspace`] — skills live at `{name}/SKILL.md` under either
-//!   `.claude/skills` (Claude) or `.agents/skills` (Codex). Both roots are
-//!   listed and merged; a skill exposed in both (typically `.claude/skills/foo`
-//!   symlinking to `../../.agents/skills/foo`) is de-duplicated by directory
-//!   name, with `.claude/skills` winning.
-//! - [`SkillLayout::Plugin`] — plugin. Probes `.codex-plugin/plugin.json`,
-//!   `.agents-plugin/plugin.json`, and `.claude-plugin/plugin.json` to resolve
-//!   the skills directory, defaulting to `skills/` at the repo root. Also
-//!   supports repo-local `.agents/plugins/marketplace.json` and
-//!   `.claude-plugin/marketplace.json` files with local plugin entries such as
-//!   `./plugins/foo`.
-//!
-//! Uses `GET /repos/{owner}/{repo}/contents/{prefix}` to list skill
-//! directories and `GET /repos/{owner}/{repo}/contents/{prefix}/{dir}/SKILL.md`
-//! with `Accept: application/vnd.github.raw+json` to fetch each SKILL.md body.
-//! A 404 on the parent directory is treated as "no skills" and returns an
-//! empty vector.
-//!
-//! Skill entries that are symlinks (e.g. `.claude/skills/foo ->
-//! ../../.agents/skills/foo`) are listed by GitHub with `type: "symlink"`,
-//! and the API refuses to traverse paths through a symlinked directory
-//! (404). Each symlink entry is therefore resolved via its contents object's
-//! `target` field before fetching `SKILL.md` from the real path.
+//! Lists directories via `GET .../contents/{prefix}` and fetches each
+//! `SKILL.md` raw (a 404 on the parent means no skills). Symlinked entries —
+//! which GitHub refuses to traverse through directly — are resolved via their
+//! contents object's `target` field.
 
 use std::collections::HashSet;
 
@@ -38,9 +19,9 @@ use super::error::SkillError;
 use moatless_types::repository::GitHostRepo;
 use moatless_types::repository::RepositoryProvider;
 
-/// Raw SKILL.md content plus its enclosing directory name, so callers can
-/// parse frontmatter themselves and fall back to the directory name when
-/// `name:` is missing.
+/// Raw SKILL.md content plus its enclosing directory name, so callers can parse
+/// frontmatter themselves and fall back to the directory name when `name:` is
+/// missing.
 #[derive(Debug, Clone)]
 pub struct FetchedSkillFile {
     pub dir_name: String,
@@ -50,7 +31,8 @@ pub struct FetchedSkillFile {
 /// Layout convention used by the target repository.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SkillLayout {
-    /// Workspace repo: skills live at `.claude/skills/{name}/SKILL.md`.
+    /// Workspace repo: merges `.claude/skills/{name}/SKILL.md` with
+    /// `.agents/skills` (`.claude/skills` wins on a name clash).
     Workspace,
     /// Claude Code plugin: resolve the skills directory from
     /// `.claude-plugin/plugin.json` (optional `skills` field), default
@@ -99,9 +81,9 @@ struct ContentEntry {
     entry_type: String,
 }
 
-/// Contents API object for a single symlink path
-/// (`Accept: application/vnd.github.object+json`). Only the link target is
-/// needed; directory listings include the field as `null`.
+/// Contents API object for a single symlink path (`Accept:
+/// application/vnd.github.object+json`). Only the link target is needed;
+/// directory listings include the field as `null`.
 #[derive(Debug, Deserialize)]
 struct SymlinkObject {
     #[serde(default)]
@@ -261,9 +243,10 @@ impl SkillFetcher for GitHubSkillFetcher {
 }
 
 impl GitHubSkillFetcher {
-    /// List one skills root (`skills_prefix`) and fetch every skill's `SKILL.md`.
-    /// Returns `Ok(None)` when the root directory itself is absent (404), so the
-    /// caller can distinguish "no such root" from "root present but empty".
+    /// List one skills root (`skills_prefix`) and fetch every skill's
+    /// `SKILL.md`. Returns `Ok(None)` when the root directory itself is absent
+    /// (404), so the caller can distinguish "no such root" from "root present
+    /// but empty".
     async fn fetch_skills_at_prefix(
         &self,
         owner: &str,
@@ -401,10 +384,11 @@ fn dedup_by_dir_name(groups: Vec<Vec<FetchedSkillFile>>) -> Vec<FetchedSkillFile
     merged
 }
 
-/// Resolve a symlinked skill entry to the repo-relative directory it points
-/// at, by reading the symlink object's `target` and resolving it against the
-/// directory containing the symlink. Returns `Ok(None)` when the target is
-/// missing, absolute, or escapes the repo root — the entry is then skipped.
+/// Resolve a symlinked skill entry to the repo-relative directory it points at.
+///
+/// Reads the symlink's `target` and resolves it against the symlink's
+/// directory; returns `Ok(None)` (entry skipped) if the target is missing,
+/// absolute, or escapes the repo root.
 async fn resolve_symlink_dir(
     client: &Client,
     owner: &str,
@@ -468,10 +452,9 @@ fn resolve_relative_path(base_dir: &str, target: &str) -> Option<String> {
 
 /// Resolve repo-relative skills roots for a plugin.
 ///
-/// Supports both single-plugins and marketplace repos. Local marketplace
-/// entries are resolved relative to the repository root, matching both Codex's
-/// `.agents/plugins/marketplace.json` and Claude Code's
-/// `.claude-plugin/marketplace.json` conventions.
+/// Supports single-plugin and marketplace repos; local marketplace entries
+/// resolve relative to the repository root, matching both Codex's and Claude
+/// Code's marketplace.json conventions.
 async fn resolve_plugin_skills_prefixes(
     client: &Client,
     owner: &str,
@@ -601,12 +584,9 @@ async fn resolve_plugin_manifest_skills_prefix(
     Ok(None)
 }
 
-/// Normalize a `plugin.json` `skills` value into a clean GitHub API path
-/// segment:
-///
-/// - strips an optional leading `./`
-/// - strips an optional trailing `/`
-/// - rejects absolute paths (`/…`) and any `..` segment
+/// Normalize a `plugin.json` `skills` value into a repo-relative GitHub API
+/// path segment — strips a leading `./` and trailing `/`, rejects absolute
+/// paths or any `..` segment.
 fn normalize_skills_path(raw: &str) -> Result<String, String> {
     let trimmed = raw.trim();
     if trimmed.starts_with('/') {
@@ -690,8 +670,8 @@ async fn send_github_json<T: for<'de> Deserialize<'de>>(
     Ok(Some(parsed))
 }
 
-/// GET a GitHub file with `Accept: application/vnd.github.raw+json` and
-/// return its body as a string. Returns `Ok(None)` on 404.
+/// GET a GitHub file with `Accept: application/vnd.github.raw+json` and return
+/// its body as a string. Returns `Ok(None)` on 404.
 async fn fetch_github_raw(
     client: &Client,
     url: &str,

@@ -26,14 +26,8 @@ use tracing::warn;
 /// A request id, in the JSON form it arrived as and the text this protocol
 /// correlates on.
 ///
-/// T3 encodes the id as `string | number` and sends whichever it already had —
-/// an unquoted integer for the counter its client generates. The form matters
-/// on the way back: the client resolves a response by looking `requestId` up in
-/// a map keyed by the value it sent, and its JSON codec coerces nothing. An id
-/// that arrives as `0` and returns as `"0"` therefore matches no caller, the
-/// request never completes, and the connection attempt times out with the
-/// socket open and every frame apparently fine. So the id goes back exactly as
-/// it came, while correlation here stays on the decimal text.
+/// The client keys its response map by the exact value it sent; echoing `"0"`
+/// back for a request sent as `0` matches no caller and silently times out.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct RequestId {
     pub(crate) text: String,
@@ -156,11 +150,9 @@ pub(crate) fn failure_exit(request_id: &RequestId, defect: impl Into<String>) ->
 
 /// Fail a request with an error the client's schema knows how to decode.
 ///
-/// [`failure_exit`] dies with a string, which every caller renders as an
-/// unexpected server defect. A `Fail` cause carrying a tagged error is instead
-/// matched against the method's declared error type, so the client handles it as
-/// one of that method's ordinary outcomes. Use this where the failure is one the
-/// contract anticipated and the string form where it is not.
+/// Unlike [`failure_exit`]'s string defect, this carries a tagged error the
+/// client matches against the method's declared error type and handles as an
+/// ordinary outcome, not a server defect.
 pub(crate) fn typed_failure_exit(request_id: &RequestId, error: Value) -> Value {
     json!({
         "_tag": "Exit",
@@ -177,17 +169,15 @@ pub(crate) fn typed_failure_exit(request_id: &RequestId, error: Value) -> Value 
 
 /// What a viewer is told about a Task the read gate did not return.
 ///
-/// It says the same thing whether the Task is missing or merely unreadable,
-/// because `find_by_id` answers `None` to both and the difference is what a
-/// caller would use to probe for Tasks it cannot see.
+/// Says the same thing whether missing or merely unreadable, so a caller can't
+/// probe for Tasks it cannot see.
 pub(crate) const THREAD_UNAVAILABLE: &str = "This thread is not available.";
 
 /// The contract's `EnvironmentAuthorizationError`, as the error a `Fail` cause
 /// carries.
 ///
-/// `requiredScope` is the scope the method needs, which is not always why the
-/// request was refused: a viewer holding the scope may still be refused one
-/// Task. The `message` is what says which of the two happened.
+/// `requiredScope` is not always why the request was refused — a viewer with
+/// the scope may still be refused one Task; `message` says which happened.
 pub(crate) fn authorization_error(required_scope: &str, message: impl Into<String>) -> Value {
     json!({
         "_tag": "EnvironmentAuthorizationError",
@@ -198,20 +188,9 @@ pub(crate) fn authorization_error(required_scope: &str, message: impl Into<Strin
 
 /// A workspace-file request the client is told about in its own terms.
 ///
-/// This is one of the failures [`typed_failure_exit`] exists for, and the
-/// difference from a `Die` is what the person sees. Each of these methods
-/// declares a tagged error in the contract, and the client renders that
-/// error's `message` in the file panel; a `Die` reaches the same panel as
-/// nothing but *"Workspace query failed."*, because the defect never decodes
-/// into an `Error` for it to read a message off
-/// (`projectFilesQueryState.ts:errorMessage`). Refusing to open a file is a
-/// normal outcome here — no sandbox, a binary file, a stopped pod — and each of
-/// those is worth saying out loud.
-///
-/// The tag names which error type the method declares, since the client decodes
-/// the cause against that method's own union and a mismatch would land back as
-/// an undecodable defect. Causes stay in the log: the `message` is written for
-/// the person, and the sqlx or gRPC failure behind it is not.
+/// The client renders `message` in the file panel (a `Die` would show only a
+/// generic error); `tag` selects the error type and must match the method's own
+/// declared union or the cause fails to decode.
 pub(crate) fn file_failure_exit(
     request_id: &RequestId,
     tag: &str,
@@ -251,12 +230,8 @@ pub(crate) fn file_failure_exit(
 /// Why a review request could not be answered, as the failure its method
 /// declares.
 ///
-/// `GitCommandError` is the one shape both methods' error unions carry, and the
-/// client renders its `message` — `Git command failed in {operation} ({cwd}):
-/// {detail}` — in the diff panel. A `Die` would reach the same panel as nothing
-/// but an unexpected server error, and refusing to show a diff is a normal
-/// outcome here: no sandbox, a stopped pod, a conversation this viewer cannot
-/// be told about.
+/// `GitCommandError`'s `message` is what the client renders in the diff panel;
+/// a `Die` would show only a generic server error.
 pub(crate) fn review_failure_exit(
     request_id: &RequestId,
     tag: &str,
@@ -305,12 +280,9 @@ pub(crate) fn review_failure_exit(
 
 /// Refuse a `git.runStackedAction` that could not be handed to the agent.
 ///
-/// A refusal the viewer caused — an unaddressable `cwd`, a Task they do not
-/// control, a malformed request — or the message failing to send after it was
-/// accepted. A rejected request is a `Die` (the client sent something it should
-/// not have); an access refusal or a failed send carries the same
-/// `GitCommandError` shape the read path uses, so it renders in the toolbar the
-/// same way a status read's failure does.
+/// A rejected request is a `Die` (the client sent something it shouldn't have);
+/// an access refusal or a failed send carries the same `GitCommandError` shape
+/// the read path uses.
 pub(crate) fn git_action_failure_exit(
     request_id: &RequestId,
     error: &git_actions::ActionError,
@@ -361,18 +333,11 @@ pub(crate) fn git_action_failure_exit(
     )
 }
 
-/// Why a pull-request reference could not be resolved, as the failure both
-/// dialog methods declare.
+/// Why a `pullRequests.summary` request could not be answered.
 ///
-/// `GitManagerError` is one shape of their `GitManagerServiceError` union, and
-/// the client renders its `message` — `Git manager failed in {operation}:
-/// {detail}` — in the attach-PR dialog. A reference that names no reachable pull
-/// request, or a repository the viewer cannot be shown, is an ordinary outcome
-/// there; a database failure is logged and reported the same way, since a `Die`
-/// would reach the dialog as an undecodable defect.
-/// A `pullRequests.summary` refusal, as the contract's `PullRequestRpcError`
-/// union carries one. `PullRequestUnavailableError` is the wrong tag: its
-/// reasons all name a git host this method never reaches.
+/// The contract's `PullRequestRpcError` union carries this as
+/// `PullRequestOperationError`; `PullRequestUnavailableError` is the wrong tag,
+/// since its reasons all name a git host this method never reaches.
 pub(crate) fn pull_request_summary_failure_exit(request_id: &RequestId, detail: &str) -> Value {
     typed_failure_exit(
         request_id,
@@ -433,12 +398,9 @@ pub(crate) fn pull_request_failure_exit(
 /// Answer a project-root `vcs.listRefs` whose branch listing did not produce a
 /// page.
 ///
-/// A workspace with no repository the viewer can be shown answers with an empty
-/// list, the same as a conversation with no Sandbox. The other outcomes are the
-/// branch picker's own: an unavailable git host — no token, a host that refused
-/// — is surfaced verbatim so the "connect your account" prompt lands, and a
-/// database failure is logged and reported as a generic git error, since
-/// `GitCommandError` is the shape this method declares.
+/// An empty repository answers with an empty list; an unavailable git host is
+/// surfaced verbatim so the "connect your account" prompt lands; a database
+/// failure is logged and generalized.
 pub(crate) fn branch_list_exit(
     request_id: &RequestId,
     cwd: &str,
@@ -471,10 +433,8 @@ pub(crate) fn branch_list_exit(
 /// The result of switching a draft thread to a branch, if this is one to
 /// answer.
 ///
-/// The switch is a no-op for a draft: there is no checkout yet, so the ref is
-/// echoed back for the client to record on the draft and send at creation.
-/// `None` — a switch on a thread that already has a Sandbox, or one with no
-/// addressable `cwd` — is left for the caller to refuse, because a Task's
+/// A no-op for a draft: there's no checkout yet, so the ref is echoed back for
+/// the client to record and send at creation. `None` means refuse — a Task's
 /// branch is fixed once its checkout exists.
 pub(crate) fn branch_switch_result(payload: &Value) -> Option<Value> {
     let cwd = workspace_cwd(payload)?;
@@ -499,10 +459,8 @@ pub(crate) fn shell_failure_exit(
 /// Answer a `preview.*` call, in the client's own terms where the contract
 /// gives it terms.
 ///
-/// An unknown tab is a `PreviewSessionLookupError` the panel renders; a store
-/// that cannot be reached is a defect, because it is not one of the method's
-/// declared outcomes and pretending otherwise would present an outage as a
-/// missing tab.
+/// An unknown tab is a `PreviewSessionLookupError`; a store that can't be
+/// reached is a defect, since that isn't one of the method's declared outcomes.
 pub(crate) fn preview_answer(
     request_id: &RequestId,
     result: Result<Value, PreviewError>,
@@ -578,11 +536,10 @@ pub(crate) fn subtasks_failure_exit(
 
 /// How a failed `scripts.run` reaches the client.
 ///
-/// A terminal failure that means the Sandbox is stopped is retold as
-/// [`sandbox_not_running`], which is what this method's contract declares; the
-/// rest of the terminal errors are not in that union and reach the client as a
-/// string. A reserved-port refusal is a configuration mistake and its message is
-/// shown verbatim; a database error is logged here and generalised.
+/// A terminal failure meaning the Sandbox is stopped becomes
+/// [`sandbox_not_running`], the contract's declared outcome; other terminal
+/// errors reach the client as a plain string; a reserved-port refusal's message
+/// is shown verbatim.
 pub(crate) fn scripts_failure_exit(
     request_id: &RequestId,
     error: &ScriptsError,
@@ -634,12 +591,11 @@ pub(crate) fn scripts_failure_exit(
     }
 }
 
-/// The contract's `SandboxNotRunningError`, as the error a `Fail` cause carries.
+/// The contract's `SandboxNotRunningError`, as the error a `Fail` cause
+/// carries.
 ///
-/// Typed, not a string: this is the one `scripts.run` refusal a client can *act*
-/// on rather than report — start the Sandbox, wait for it, and run the Script
-/// the person already asked for. A `Die` with a sentence in it would leave that
-/// behind string matching.
+/// Typed, not a string: this is the one `scripts.run` refusal a client can act
+/// on — start the Sandbox, wait, then run the Script — rather than just report.
 fn sandbox_not_running(thread_id: &str) -> Value {
     json!({
         "_tag": "SandboxNotRunningError",
@@ -650,11 +606,9 @@ fn sandbox_not_running(thread_id: &str) -> Value {
 /// The client is told the sandbox status or command could not be answered; the
 /// cause is logged once here rather than shipped to the browser.
 ///
-/// [`SandboxRpcError::NotFound`] is the one that is not a defect. It is what the
-/// read gate answers for a Task this viewer may not be told about, which is a
-/// decision this surface made and which every sandbox method declares as
-/// `EnvironmentAuthorizationError` — so it goes back as a `Fail` the client
-/// renders, not a `Die` it can only report as a broken server.
+/// [`SandboxRpcError::NotFound`] is not a defect: it's what the read gate
+/// answers for a Task this viewer may not be told about, so it goes back as
+/// `EnvironmentAuthorizationError`.
 pub(crate) fn sandbox_failure_exit(
     request_id: &RequestId,
     tag: &str,
@@ -684,9 +638,8 @@ pub(crate) fn sandbox_failure_exit(
 
 /// How a `sandbox.subscribe*` stream ends once its Task stops being readable.
 ///
-/// The same refusal [`sandbox_failure_exit`] answers the opening request with,
-/// as the `Exit` that closes a stream already delivering chunks. The caller
-/// logs it: this is reached from the poller, which knows the Task id.
+/// The same refusal [`sandbox_failure_exit`] gives the opening request, as the
+/// `Exit` that closes a stream already delivering chunks.
 pub(crate) fn sandbox_stream_refusal(request_id: &RequestId, tag: &str) -> Value {
     typed_failure_exit(
         request_id,
@@ -696,11 +649,9 @@ pub(crate) fn sandbox_stream_refusal(request_id: &RequestId, tag: &str) -> Value
 
 /// A conversation with no Sandbox, as `servers.list` answers it.
 ///
-/// `servers.list` declares no domain error, so there is no typed failure to give
-/// here and a `Die` would reach the panel as an unexpected server error. The
-/// server-list contract names this case itself: an empty list is what a project
-/// with no sandbox has to list. Sandbox lifecycle status is answered separately
-/// by `sandbox.status`.
+/// `servers.list` declares no domain error, so a `Die` would reach the panel as
+/// an unexpected server error; an empty list is what a project with no sandbox
+/// has to list.
 pub(crate) fn servers_not_found() -> Value {
     json!({ "servers": [] })
 }
@@ -708,8 +659,7 @@ pub(crate) fn servers_not_found() -> Value {
 /// The method is not one this server has.
 ///
 /// Every RPC declares `UnsupportedMethodError`, so this decodes wherever it
-/// lands and the client can say which method is absent, distinguishing a
-/// server that does not implement a method from one that has failed.
+/// lands and the client can say which method is absent.
 pub(crate) fn unsupported_exit(request_id: &RequestId, tag: &str) -> Value {
     typed_failure_exit(
         request_id,
@@ -736,10 +686,9 @@ pub(crate) fn interrupted_exit(request_id: &RequestId) -> Value {
 
 /// Refuse a frame the socket could not act on at all.
 ///
-/// A `Defect` answers the connection rather than a request, so it is what the
-/// checks that run before any dispatch emit. `reason` is a fixed word, not the
-/// message: the message carries a serde error or a request id and would make the
-/// counter's label set unbounded.
+/// A `Defect` answers the connection rather than a request. `reason` is a fixed
+/// word, not `defect`'s message, which carries a serde error or request id and
+/// would make the counter's label set unbounded.
 pub(crate) fn connection_defect(reason: &'static str, defect: impl Into<String>) -> Value {
     metrics::counter!(rpc_metrics::CONNECTION_DEFECTS, "reason" => reason).increment(1);
     json!({

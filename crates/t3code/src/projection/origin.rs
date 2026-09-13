@@ -77,10 +77,10 @@ pub(super) fn message_origin(
 
 /// The GitHub URL a pull-request comment opens at, from `owner/repo#N`.
 ///
-/// The subject key carries the repository and PR number; the event id says
-/// which kind of comment, which is the fragment. A key that is not `owner/repo#N`
-/// yields no URL rather than a wrong one, and an event id this does not
-/// recognise — or none — leaves the reader at the pull request itself.
+/// The subject key carries the repository and PR number; the event id names the
+/// fragment. A key that is not `owner/repo#N` yields no URL, and an
+/// unrecognised or absent event id leaves the reader at the pull request
+/// itself.
 pub(super) fn github_pr_url(
     subject_key: Option<&str>,
     external_event_id: Option<&str>,

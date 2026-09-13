@@ -21,10 +21,10 @@ pub fn get_cookie_value(headers: &HeaderMap, name: &str) -> Option<String> {
     None
 }
 
-/// Extract all cookie values matching `name` from the request headers.
+/// Extracts all cookie values matching `name` from the request headers.
 ///
-/// Browsers may send duplicate cookies when the domain or path changed between
-/// deployments. This returns every matching value so callers can try each one.
+/// Browsers may send duplicates when the domain or path changed between
+/// deployments; this returns every match so callers can try each.
 pub fn get_all_cookie_values(headers: &HeaderMap, name: &str) -> Vec<String> {
     let Some(cookie_header) = headers.get(header::COOKIE).and_then(|v| v.to_str().ok()) else {
         return Vec::new();
@@ -90,8 +90,8 @@ pub fn build_clear_session_cookie(config: &Config) -> String {
         .to_string()
 }
 
-/// Build the readable half of the double-submit CSRF token. Its digest is
-/// bound to the authoritative auth-session row.
+/// Build the readable half of the double-submit CSRF token. Its digest is bound
+/// to the authoritative auth-session row.
 pub fn build_csrf_cookie(config: &Config, token: &str, max_age_secs: u64) -> String {
     build_cookie(
         config,
@@ -112,7 +112,8 @@ pub fn build_clear_csrf_cookie(config: &Config) -> String {
         .to_string()
 }
 
-/// Build a Set-Cookie header value for the OAuth state cookie. Lives 10 minutes.
+/// Build a Set-Cookie header value for the OAuth state cookie. Lives 10
+/// minutes.
 pub fn build_oauth_state_cookie(config: &Config, state: &str) -> String {
     build_cookie(config, "oauth_state", state, Duration::seconds(600))
         .http_only(true)

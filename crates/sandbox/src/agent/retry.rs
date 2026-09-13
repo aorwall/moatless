@@ -11,8 +11,8 @@ const BACKOFF_BASE_SECS: f64 = 5.0;
 const BACKOFF_CAP_SECS: f64 = 60.0;
 const JITTER_FACTOR: f64 = 0.2;
 
-/// Whether a terminal harness failure is transient and worth retrying.
-/// The harness reports stable error classes, so retry policy is independent of
+/// Whether a terminal harness failure is transient and worth retrying. The
+/// harness reports stable error classes, so retry policy is independent of
 /// Claude/Codex native SDK error shapes and relies on the `MAX_RETRIES` cap.
 pub(crate) fn is_retryable_harness_error(err: &HarnessError) -> bool {
     matches!(

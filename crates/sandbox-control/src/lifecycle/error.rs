@@ -22,11 +22,10 @@ pub enum LifecycleError {
     #[error("task not found: {0}")]
     TaskNotFound(String),
 
-    /// The operation is not permitted for the task's current status — a
-    /// `start`/`restart`/`redeploy` against a Closed task. Permanent (the
-    /// Closed guard is per-operation; stop/remove stay permitted). The
-    /// [`TaskStatus`] is retained as a domain value and formatted only at the
-    /// response/logging boundary.
+    /// Operation not permitted for the task's current status (a Closed task
+    /// rejects start/restart/redeploy; stop/remove stay permitted). Permanent.
+    ///
+    /// [`TaskStatus`] is formatted only at the response/logging boundary.
     #[error("operation {kind} not allowed for task {task_id} in status {status}")]
     NotAllowed {
         kind: OperationKind,
@@ -65,25 +64,25 @@ pub enum LifecycleError {
     #[error("failed to commit completion for task {task_id}: {reason}")]
     CompletionCommit { task_id: String, reason: String },
 
-    /// Another lifecycle operation holds the per-Task lock. Carries the
-    /// conflicting operation's `kind` so callers can react without a marker
-    /// read — HTTP maps to 409, background to a bounded retry or a return to
-    /// the reconciler. Deliberately **not** "Busy" (which already means
-    /// agent/process activity here). The `kind` is best-effort: in the brief
-    /// window between lock acquisition and the intent write, the holder's marker
-    /// is not yet persisted, so `kind` reports the requester's own kind.
+    /// Another lifecycle operation holds the per-Task lock; HTTP maps this to
+    /// 409, background retries or returns to the reconciler.
+    ///
+    /// `kind` is best-effort: in the brief window before the holder's marker is
+    /// persisted, it reports the requester's own kind, not the holder's.
     #[error("operation in progress on task: conflicting {kind}")]
     OperationInProgress { kind: OperationKind },
 
-    /// The cold transition could not establish that the workspace archive is
-    /// current — the head read failed, or the rescue upload could not be
-    /// presigned. Transient, and deliberately *not* a decision to delete: a
-    /// storage backend that cannot answer "is the archive there?" has not
-    /// answered "no". The volume survives for the next cycle to retry.
+    /// The cold transition could not prove the workspace archive is current —
+    /// the head read failed, or the rescue upload could not be presigned.
+    /// Transient.
+    ///
+    /// Not a decision to delete: an unproven archive is not a "no". The volume
+    /// survives for the next cycle to retry.
     #[error("cannot prove workspace archive for task {task_id}: {reason}")]
     ArchiveUnproven { task_id: String, reason: String },
 
-    /// The detached transition task failed to join (panicked). A bug; permanent.
+    /// The detached transition task failed to join (panicked). A bug;
+    /// permanent.
     #[error("lifecycle transition failed for task {task_id}: {reason}")]
     Interrupted { task_id: String, reason: String },
 }
@@ -109,8 +108,8 @@ impl LifecycleError {
         self.class().is_transient()
     }
 
-    /// Bounded cause slug published as the `Error` fact's `lifecycle_event`.
-    /// A runtime failure defers to its [`RuntimeError`] so the adapter's own
+    /// Bounded cause slug published as the `Error` fact's `lifecycle_event`. A
+    /// runtime failure defers to its [`RuntimeError`] so the adapter's own
     /// vocabulary survives the wrap.
     pub fn cause(&self) -> &'static str {
         match self {
@@ -128,8 +127,8 @@ impl LifecycleError {
     }
 }
 
-/// How a lifecycle failure reaches an HTTP caller. Three map to a client-visible
-/// status; everything else keeps the whole chain behind a 500.
+/// How a lifecycle failure reaches an HTTP caller. Three map to a
+/// client-visible status; everything else keeps the whole chain behind a 500.
 impl From<LifecycleError> for SandboxError {
     fn from(value: LifecycleError) -> Self {
         match &value {

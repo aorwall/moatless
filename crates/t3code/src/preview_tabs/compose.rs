@@ -4,8 +4,8 @@ use tokio::task::JoinHandle;
 use tracing::{info, warn};
 /// Build the store this deployment's configuration calls for.
 ///
-/// Returns the subscriber task alongside it when there is one to supervise;
-/// the in-memory store publishes straight onto its own broadcast and has none.
+/// Returns the subscriber task to supervise when there is one; the in-memory
+/// store publishes onto its own broadcast and has none.
 pub async fn build(
     redis_url: Option<&str>,
     ttl: PreviewTabTtl,

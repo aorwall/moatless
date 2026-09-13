@@ -33,13 +33,9 @@ pub enum Persisted {
 
 /// Store `tokens` as `user_id`'s GitHub credential.
 ///
-/// An active PAT override is not overwritten: the person set it deliberately
-/// and re-authorizing the App is not a request to drop it. The stash is
-/// refreshed instead, so removing the override later restores a live token
-/// rather than an expired one.
-///
-/// A blank `access_token` is a no-op — GitHub returning no token is not a
-/// reason to erase a working row.
+/// An active PAT override is left in place and the stash refreshed instead, so
+/// removing the override later restores a live token; a blank `access_token` is
+/// a no-op.
 pub async fn persist(
     provider_tokens: &dyn ProviderTokenAuthDao,
     secrets: &SecretService,

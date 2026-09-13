@@ -1,18 +1,11 @@
 //! Stage plugin skills so that Codex can discover them.
 //!
-//! Claude Code consumes plugins via `PluginConfig { type: "local", path }`
-//! entries in `ClaudeOptions`. Codex has no plugin system; it only discovers
-//! skills via its admin skill path `/etc/codex/skills`. When a repo ships
-//! with a plugin that bundles skills, we copy those skills into
-//! `/etc/codex/skills/{plugin_name}--{skill_name}/` so the Codex agent picks
-//! them up like any other skill.
-//!
-//! Runs after `clone_plugins()` during core init. Non-fatal: failures
-//! are logged and skipped.
-//!
-//! Synchronous and recursive (it copies whole skill trees and removes stale
-//! targets), so core init invokes it through [`super::run_init_blocking`]
-//! rather than on a Tokio worker.
+//! Codex has no plugin system and only discovers skills under
+//! `/etc/codex/skills`, so a repo-bundled plugin skill is copied into
+//! `/etc/codex/skills/{plugin_name}--{skill_name}/`; Claude instead consumes
+//! plugins in place via `PluginConfig`. Runs after `clone_plugins()` during
+//! core init — see [`stage_plugin_skills_for_codex`] for the non-fatal/
+//! blocking contract.
 
 use std::path::{Path, PathBuf};
 
@@ -64,14 +57,11 @@ const PLUGIN_MARKETPLACE_PATHS: [&str; 2] = [
     ".claude-plugin/marketplace.json",
 ];
 
-/// Scan `/opt/moatless/plugins/*`, resolve each plugin's `skills/` directory
-/// (honoring plugin manifests and repo-local plugin marketplace files), and
-/// copy every skill into `/etc/codex/skills/{plugin}--{skill}/`.
+/// Scans `/opt/moatless/plugins/*` and copies every plugin's skills into
+/// `/etc/codex/skills/{plugin}--{skill}/`, honoring plugin manifests and
+/// marketplace files.
 ///
-/// Returns the number of skills copied. Non-fatal — any error is logged and
-/// the scan continues.
-///
-/// Blocking and recursive — call it through [`super::run_init_blocking`].
+/// Non-fatal; blocking, recursive — via [`super::run_init_blocking`].
 pub(super) fn stage_plugin_skills_for_codex() -> usize {
     stage_plugin_skills_with_roots(Path::new(PLUGINS_DIR), Path::new(CODEX_SKILLS_DIR))
 }
@@ -132,17 +122,11 @@ fn stage_single_plugin(plugin_path: &Path, plugin_name: &str, codex_skills_root:
         .sum()
 }
 
-/// Remove every skill directory in a cloned plugin that is not in `picked`,
-/// returning how many went.
+/// Remove every skill directory in a cloned plugin that is not in `picked`
+/// (identified by directory name), returning how many went.
 ///
-/// This is where the activation records land: the backend resolved which skills
-/// the task's owner gets, and everything else the plugin ships is deleted before
-/// any agent sees it. The rest of the plugin — its manifest, commands, hooks and
-/// agents — is untouched, so a plugin with one skill picked still works.
-///
-/// A skill is identified by its directory name, which is what the backend
-/// stores. Non-fatal throughout: a directory we fail to remove stays, and the
-/// agent sees one skill too many rather than the sandbox failing to start.
+/// Deletes unpicked skills, leaving manifest, commands, hooks and agents
+/// untouched; non-fatal — a failed removal just stays visible.
 pub(super) fn keep_only(plugin_path: &Path, plugin_name: &str, picked: &[String]) -> usize {
     let mut dropped = 0usize;
 
@@ -271,12 +255,9 @@ fn marketplace_local_path(source: &PluginMarketplaceSource, plugin_name: &str) -
 
 /// Every installed plugin's resolved `skills/` directory.
 ///
-/// The staging above copies these into `/etc/codex/skills` for Codex only —
-/// Claude reads the plugins in place through its own `PluginConfig`. So this is
-/// the one place a plugin skill's `SKILL.md` is always found, whichever harness
-/// is running, and it is what `agent::skills` reads bodies from.
-///
-/// Blocking: reads plugin manifests. Call it off the async worker.
+/// The one place a plugin skill's `SKILL.md` is always found regardless of
+/// harness (Codex only gets a staged copy); `agent::skills` reads bodies from
+/// here. Blocking — reads plugin manifests, so call it off the async worker.
 pub(crate) fn plugin_skill_dirs(plugins: &[PluginDelivery]) -> Vec<PathBuf> {
     plugin_skill_dirs_under(Path::new(PLUGINS_DIR), plugins)
 }
@@ -414,13 +395,11 @@ fn resolve_plugin_skills_subdir(plugin_path: &Path) -> PathBuf {
     PathBuf::from("skills")
 }
 
-/// Normalize a `plugin.json` `skills` value:
+/// Normalize a `plugin.json` `skills` value: strip an optional leading `./` and
+/// trailing `/`, then reject an absolute path or any `..` segment.
 ///
-/// - strips an optional leading `./`
-/// - strips an optional trailing `/`
-/// - rejects absolute paths (`/…`) and any `..` segment
-///
-/// Ported verbatim from `backend/src/skill/fetcher.rs::normalize_skills_path`.
+/// Ported verbatim from `backend/src/skill/fetcher.rs::normalize_skills_path` —
+/// keep the two in sync.
 fn normalize_skills_path(raw: &str) -> Result<String, String> {
     let trimmed = raw.trim();
     if trimmed.starts_with('/') {

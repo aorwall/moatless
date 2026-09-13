@@ -1,5 +1,5 @@
-//! Database tests for the Sandbox row a Task's own writes maintain, and for
-//! the cleanup a failed bootstrap gets.
+//! Database tests for the Sandbox row a Task's own writes maintain, and for the
+//! cleanup a failed bootstrap gets.
 
 use super::*;
 use crate::task::test_support::seed_bare_task;
@@ -91,9 +91,9 @@ async fn sandbox_shape(pool: &PgPool, sandbox_id: &str) -> Option<SandboxShape> 
     .expect("read sandbox")
 }
 
-/// Task creation writes the Sandbox row, and its shape comes off the Task
-/// that created it. This is the invariant migration 0142 backfilled for
-/// Sandboxes that predate it, so the two cannot disagree.
+/// Task creation writes the Sandbox row, and its shape comes off the Task that
+/// created it. This is the invariant migration 0142 backfilled for Sandboxes
+/// that predate it, so the two cannot disagree.
 #[sqlx::test]
 async fn insert_task_writes_the_sandbox_row_from_the_task(pool: PgPool) {
     // Seeds the team and the `ws_repo-x` workspace the row points at.
@@ -119,8 +119,8 @@ async fn insert_task_writes_the_sandbox_row_from_the_task(pool: PgPool) {
     assert_eq!(bound.as_deref(), Some("t1"), "the Task names its Sandbox");
 }
 
-/// `run_as_user_id` follows `Actor::run_as`: the Workspace's account
-/// outranks the owner of the work, and falls back to that owner.
+/// `run_as_user_id` follows `Actor::run_as`: the Workspace's account outranks
+/// the owner of the work, and falls back to that owner.
 #[sqlx::test]
 async fn the_workspace_run_as_account_outranks_the_task_owner(pool: PgPool) {
     seed_bare_task(&pool, "seed", "open").await;
@@ -153,9 +153,9 @@ async fn the_workspace_run_as_account_outranks_the_task_owner(pool: PgPool) {
     );
 }
 
-/// A Task naming its own run-as outranks the Workspace's account. This is
-/// what `moat tasks create --run-as` writes; `service::normalize` is where
-/// the admin-and-bot check that admits it lives.
+/// A Task naming its own run-as outranks the Workspace's account. This is what
+/// `moat tasks create --run-as` writes; `service::normalize` is where the
+/// admin-and-bot check that admits it lives.
 #[sqlx::test]
 async fn the_task_run_as_account_outranks_the_workspace(pool: PgPool) {
     seed_bare_task(&pool, "seed", "open").await;
@@ -202,9 +202,9 @@ async fn joining_a_sandbox_writes_no_second_row(pool: PgPool) {
     assert_eq!(bound.as_deref(), Some("t1"));
 }
 
-/// A Task whose `sandboxes` row is gone projects as converged Stopped at
-/// the no-intent epoch — the absence semantic this task-response projection
-/// owns. Deleting the projection would silently drop it.
+/// A Task whose `sandboxes` row is gone projects as converged Stopped at the
+/// no-intent epoch — the absence semantic this task-response projection owns.
+/// Deleting the projection would silently drop it.
 #[sqlx::test]
 async fn no_sandbox_row_projects_as_converged_stopped(pool: PgPool) {
     seed_bare_task(&pool, "t1", "open").await;

@@ -1,19 +1,10 @@
 //! Lookup for configured GitHub Apps, keyed by App key.
 //!
-//! Two kinds of App answer the same lookup:
-//!
-//! - **The login App**, configured by the deployment (`GITHUB_APP_*`) and
-//!   registered under [`GitHubAppService::DEFAULT_KEY`]. It is start-up state
-//!   and cannot be changed from any screen, so that nothing done through the UI
-//!   can make the UI unreachable.
-//! - **Bot Apps**, registered by admins and held in durable storage. These are
-//!   read at the moment they are used, never cached as a list, so an App
-//!   registered on one backend is usable from every backend at once.
-//!
-//! What an App *is* is never cached. What an App *has obtained from GitHub* —
-//! minted tokens, resolved installation ids, its bot identity — is, and it is
-//! held against the specific stored record it came from. Editing one App
-//! discards that App's obtained tokens and nobody else's.
+//! The login App is registered under [`GitHubAppService::DEFAULT_KEY`]. Bot
+//! Apps live in [`crate::adapter_apps::dao`]; this registry reads them fresh
+//! on each use and caches only what an App *has obtained from GitHub* (tokens,
+//! installation ids, bot identity) against its stored record — editing an App
+//! discards only that App's tokens.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -29,11 +20,10 @@ use moatless_types::auth::GitHubAppConfig;
 
 /// A live App service, and which stored record it was built from.
 ///
-/// The record id is held alongside the revision because the revision alone
-/// does not identify a record: removing an App and registering a new one under
-/// the same key produces a fresh record that also starts at revision 1, and a
-/// backend holding the old one would go on minting tokens with the deleted
-/// signing key.
+/// The record id is held alongside the revision because revision alone doesn't
+/// identify a record: a re-registered App under the same key restarts at
+/// revision 1 too, so a backend keying on revision alone would keep minting
+/// tokens with the deleted signing key.
 struct CachedApp {
     record_id: String,
     revision: i32,
@@ -45,11 +35,11 @@ struct CachedApp {
 pub struct GitHubAppRegistry {
     /// The deployment-configured login App, if configured.
     login_app: Option<Arc<GitHubAppService>>,
-    /// Durable state for admin-registered Apps. Absent in minimal wiring
-    /// (no database), where only the login App exists.
+    /// Durable state for admin-registered Apps. Absent in minimal wiring (no
+    /// database), where only the login App exists.
     store: Option<Arc<dyn AdapterAppDao>>,
-    /// Needed to open a stored signing key. Absent when the installation has
-    /// no encryption configured, which makes stored Apps unusable — loudly.
+    /// Needed to open a stored signing key. Absent when the installation has no
+    /// encryption configured, which makes stored Apps unusable — loudly.
     cipher: Option<Arc<dyn SecretCipher>>,
     /// Services built from stored records, held against the record they came
     /// from.
@@ -57,11 +47,11 @@ pub struct GitHubAppRegistry {
 }
 
 impl GitHubAppRegistry {
-    /// Build the registry.
+    /// Builds the registry.
     ///
-    /// The login App is supplied by the caller because it is deployment
-    /// configuration and cannot change afterwards. Everything else comes from
-    /// `store` at the moment it is asked for.
+    /// The login App is supplied by the caller since it's deployment
+    /// configuration that can't change afterward; everything else comes from
+    /// `store` at the moment it's asked for.
     pub(crate) fn new(
         login_app: Option<Arc<GitHubAppService>>,
         store: Option<Arc<dyn AdapterAppDao>>,
@@ -75,12 +65,11 @@ impl GitHubAppRegistry {
         }
     }
 
-    /// Look up an App by its key.
+    /// Looks up an App by its key.
     ///
-    /// `Ok(None)` means no App is registered under that key. An `Err` means
-    /// durable state could not be read, which is a different thing entirely:
-    /// one says an admin should register something, the other says the
-    /// installation is unhealthy. Callers must not collapse the two.
+    /// `Ok(None)` means no App is registered under that key; `Err` means
+    /// durable state couldn't be read — an unhealthy installation, not a
+    /// missing registration. Callers must not collapse the two.
     pub async fn get(&self, key: &str) -> Result<Option<Arc<GitHubAppService>>, AuthError> {
         if let Some(login_app) = &self.login_app {
             if login_app.key() == key {
@@ -116,10 +105,10 @@ impl GitHubAppRegistry {
         Ok(Some(service))
     }
 
-    /// Look up an App by key, or fail with the keys that do exist.
+    /// Looks up an App by key, or fails with the keys that do exist.
     ///
-    /// The message is read by an admin who has just named an App that is not
-    /// there, so it lists what is.
+    /// Read by an admin who just named an App that isn't there, so the error
+    /// lists what is.
     pub async fn require(&self, key: &str) -> Result<Arc<GitHubAppService>, AuthError> {
         match self.get(key).await? {
             Some(app) => Ok(app),
@@ -177,9 +166,9 @@ impl GitHubAppRegistry {
 
     /// Every App currently available, in stable key order.
     ///
-    /// An App whose stored key cannot be opened is skipped with a warning
-    /// rather than failing the listing: one broken registration must not hide
-    /// the rest, and the admin needs the list to fix it.
+    /// An App whose stored key can't be opened is skipped with a warning rather
+    /// than failing the listing, so one broken registration doesn't hide the
+    /// rest from the admin who needs to fix it.
     pub async fn entries(&self) -> Result<Vec<(String, Arc<GitHubAppService>)>, AuthError> {
         let mut entries: Vec<(String, Arc<GitHubAppService>)> = Vec::new();
         if let Some(login_app) = &self.login_app {
@@ -214,23 +203,19 @@ impl GitHubAppRegistry {
         self.cipher.as_ref()
     }
 
-    /// Forget an App's obtained tokens. Called after a registration changes,
-    /// so the backend that took the request does not serve its own stale
-    /// tokens until the next revision check.
+    /// Forget an App's obtained tokens. Called after a registration changes, so
+    /// the backend that took the request does not serve its own stale tokens
+    /// until the next revision check.
     pub async fn forget(&self, key: &str) {
         self.cache.write().await.remove(key);
     }
 
-    /// Move Apps configured through `GITHUB_APPS_JSON` into durable storage,
-    /// once, on the first start after upgrading.
+    /// Moves Apps configured through `GITHUB_APPS_JSON` into durable storage
+    /// once, on the first start after upgrading; deleting the env var afterward
+    /// does not remove the carried Apps.
     ///
-    /// A deployment that has been setting bot Apps through the environment
-    /// keeps working without anyone editing anything; from then on the stored
-    /// copy is what counts and the env var can be deleted. Removing the var
-    /// afterwards does not remove the Apps, which is the point.
-    ///
-    /// This never fails a start-up. An App that cannot be carried is named in
-    /// the log with the reason, and an admin registers it from the UI.
+    /// Never fails a start-up — an App that can't be carried is only named in
+    /// the log with the reason, for an admin to register from the UI.
     pub async fn carry_over_env_apps(&self, entries: &[GitHubAppConfig]) {
         if entries.is_empty() {
             return;

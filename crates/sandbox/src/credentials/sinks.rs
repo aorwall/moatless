@@ -12,9 +12,11 @@ use super::CredentialSink;
 use crate::credentials::codex_watcher::WatcherHandle;
 use crate::credentials::gh_hosts;
 
-/// Atomic-write `~/.codex/auth.json`. After write, seeds the watcher cache so
-/// the resulting filesystem event is recognised as a backend-originating
-/// write and not echoed back as a fresh `UpdateCredential` push.
+/// Atomic-writes `~/.codex/auth.json`.
+///
+/// After write, seeds the watcher cache so the resulting filesystem event is
+/// recognised as a backend-originating write and not echoed back as a fresh
+/// `UpdateCredential` push.
 pub struct CodexAuthJsonSink {
     pub codex_home_dir: String,
     pub watcher_handle: Arc<RwLock<Option<WatcherHandle>>>,
@@ -86,9 +88,9 @@ impl CredentialSink for GitTokenSink {
     }
 }
 
-/// Stub sink for `CLAUDE_CODE_OAUTH_TOKEN`. Today these tokens don't rotate,
-/// so this is a no-op kept registered for forward compatibility — when Claude
-/// adds rotation, the file-write logic moves here.
+/// Stub sink for `CLAUDE_CODE_OAUTH_TOKEN`. Today these tokens don't rotate, so
+/// this is a no-op kept registered for forward compatibility — when Claude adds
+/// rotation, the file-write logic moves here.
 pub struct ClaudeOauthSink;
 
 #[async_trait]

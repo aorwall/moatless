@@ -16,18 +16,11 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::warn;
 
-/// Report one conversation's branch state until its socket goes away.
+/// Reports one conversation's branch state, polled rather than pushed since the
+/// state lives in a Sandbox's checkout an agent writes to.
 ///
-/// Polled rather than pushed: the state lives in a Sandbox's checkout,
-/// which changes when an agent writes files and tells nobody. The interval
-/// is long because of what reads it — the panel picks its opening scope
-/// from `hasWorkingTreeChanges` and then reads patches through
-/// `review.getDiffPreview`, which the client refetches on its own.
-///
-/// A pass that cannot reach the Sandbox says nothing and waits for the next
-/// one. Ending the stream would present a stopped or still-starting sandbox
-/// — the ordinary state of most conversations — as a permanent answer the
-/// client would then hold until it reconnects.
+/// A pass that can't reach the Sandbox says nothing rather than ending the
+/// stream, which would present a stopped sandbox as a permanent answer.
 pub(crate) async fn watch_vcs_status(
     sink: subscription::StreamSink,
     cwd: String,
@@ -61,24 +54,12 @@ pub(crate) async fn watch_vcs_status(
     }
 }
 
-/// Watch the listing feed for one subscription until its socket goes away.
+/// Watches the listing feed until the socket goes away, delivering at most one
+/// chunk per pass regardless of how many rows changed.
 ///
-/// Each pass delivers at most one chunk, however many changes it read: a
-/// burst on one conversation is coalesced into one re-read of that row, and
-/// the poll interval is the window that does the coalescing.
-///
-/// Chunks are not gated on the client's `Ack`, which the reference server
-/// uses for backpressure. The client acks a chunk as soon as it has queued
-/// its values (`RpcClient`'s `Chunk` case offers to the queue, then acks),
-/// so it does not require the server to wait — and the poll interval already
-/// bounds this stream to four chunks a second regardless of what changed.
-///
-/// The feed arrives built by [`shell_subscription`] — positioned at the
-/// snapshot's place or at wherever the catch-up read reached, and holding
-/// whatever that left the client holding. Both are facts about how the
-/// subscription opened and neither is this loop's to decide, which is also
-/// why nothing between the first chunk and the first live poll can fall
-/// through the join: it is the same feed either way.
+/// Chunks are not gated on the client's `Ack` — it acks as soon as it has
+/// queued the chunk — so the poll interval alone bounds this to four chunks a
+/// second.
 pub(crate) async fn watch_shell(
     sink: subscription::StreamSink,
     mut feed: ShellFeed,
@@ -128,18 +109,11 @@ pub(crate) async fn watch_shell(
     }
 }
 
-/// Push one conversation's events for as long as the subscription lives.
+/// Mirrors [`watch_shell`] over the conversation's own change log.
 ///
-/// The shape mirrors [`watch_shell`] over a change log of its own, and
-/// runs at a quarter of the rate: a conversation records a position per
-/// Message block where the shell records one per Task, so a poll here reads
-/// a burst rather than a row.
-///
-/// A poll has a third answer the shell's cannot produce: `None`, meaning the
-/// conversation is no longer readable — deleted, unfollowed, or its project
-/// ungrouped. The subscription cannot recover from any of those by polling
-/// again, so it ends rather than idling silently on a screen that would keep
-/// rendering the last snapshot as current.
+/// A poll can also answer `None` — the conversation is no longer readable
+/// (deleted, unfollowed, ungrouped) — and the subscription ends rather than
+/// idling on a stale snapshot.
 pub(crate) async fn watch_thread(
     sink: subscription::StreamSink,
     mut feed: ThreadFeed,
@@ -178,14 +152,11 @@ pub(crate) async fn watch_thread(
     }
 }
 
-/// Send every preview event the viewer is allowed to see.
+/// Every preview event the viewer is allowed to see, until the socket closes.
 ///
-/// The subscription is environment-wide — the contract's payload is empty
-/// and the client filters by thread itself — so this is the one place a
-/// tab opened on a Task the viewer cannot read would otherwise reach them.
-/// Each Task is authorized once per subscription and the answer is
-/// remembered: tab events are rare, and a scoped read per event would put
-/// a database round trip on a fan-out path.
+/// The subscription is environment-wide with client-side thread filtering, so
+/// this is the one gate keeping a tab on an unreadable Task from reaching the
+/// viewer; each Task's authorization is cached per subscription.
 pub(crate) async fn watch_preview_events(
     sink: subscription::StreamSink,
     preview: crate::preview::PreviewState,

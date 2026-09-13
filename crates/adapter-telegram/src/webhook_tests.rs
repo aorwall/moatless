@@ -1,14 +1,10 @@
 //! What one Telegram update normalizes to, pinned before anything moves.
 //!
 //! Everything here is asserted through [`normalize`] below — the one place that
-//! names the function under test. When the breakup moved that function out of
-//! `adapter.rs` and turned its three Sender effects into returned values, every
-//! assertion in this file stayed byte-identical and only the helper's body
-//! changed. That is the whole point of writing them at one call site.
+//! names the function under test, so a future move changes only its body.
 //!
-//! Two properties are asserted as *counts* rather than outcomes, because they
-//! are what the move is at risk of changing: how many Bot API calls a path
-//! makes, and how many rows it writes. Both go through
+//! Two properties are asserted as *counts* rather than outcomes: how many Bot
+//! API calls a path makes, and how many rows it writes. Both go through
 //! [`super::test_support::bot_api_stub`], so no test reaches api.telegram.org.
 
 use axum::http::StatusCode;
@@ -61,10 +57,9 @@ impl Normalized {
 
 /// Normalize one update, applying whatever effects it decided on.
 ///
-/// **The single adaptation point of this file.** Every assertion below is
-/// written against `Normalized` and the stub's call log, so moving
-/// normalization into `webhook::normalize` — where the effects become returned
-/// values applied by the caller — changes this function and nothing else.
+/// The single adaptation point of this file: assertions target `Normalized` and
+/// the stub's call log, so a future refactor of `webhook::normalize` changes
+/// only this function.
 async fn normalize(
     provider: &TelegramAdapter,
     update: &serde_json::Value,

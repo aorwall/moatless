@@ -52,10 +52,9 @@ impl TelegramDestination {
         })
     }
 
-    /// The legacy thread-based reply path, which treats an absent chat id as an
-    /// internal inconsistency rather than a bad request. The two error classes
-    /// are load-bearing — one is a `400`, the other a `500` — so they stay
-    /// distinct.
+    /// The legacy thread-based reply path treats an absent chat id as an
+    /// internal inconsistency (`500`), not a bad request (`400`) — the two
+    /// classes are load-bearing.
     pub(super) fn from_thread_context(value: &serde_json::Value) -> Result<Self, AdapterError> {
         Self::parse(value).ok_or_else(|| {
             SharedAdapterError::Internal("No chat_id in thread properties".into()).into()

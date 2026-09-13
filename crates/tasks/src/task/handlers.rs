@@ -566,8 +566,8 @@ pub async fn delete_task(
 }
 
 /// Mark a task's conversation as read for the requesting user, up to now.
-/// Clears the unread indicator; safe to call repeatedly (the stored marker
-/// only ever advances).
+/// Clears the unread indicator; safe to call repeatedly (the stored marker only
+/// ever advances).
 #[utoipa::path(
     post,
     path = "/api/v1/tasks/{task_id}/read",
@@ -598,8 +598,8 @@ pub async fn mark_task_read(
     Ok(axum::http::StatusCode::NO_CONTENT)
 }
 
-/// Follow a task so it appears in the requesting user's personal task list.
-/// Any task the user can see may be followed. Idempotent.
+/// Follow a task so it appears in the requesting user's personal task list. Any
+/// task the user can see may be followed. Idempotent.
 #[utoipa::path(
     post,
     path = "/api/v1/tasks/{task_id}/follow",
@@ -705,15 +705,9 @@ pub async fn close_task(
     Ok(Json(resp))
 }
 
-/// Reopen a previously closed task.
-///
-/// Flips a `Closed` task back to `Open` so it can be started and chatted with
-/// again. No sandbox is provisioned here — that happens on the next `start` or
-/// inbound message, at which point the sandbox restores any retained S3 state
-/// (Claude transcript + `s3`-mode workspace) keyed by `task_id`. Whether that
-/// state still exists depends on `SANDBOX_RETAIN_STORAGE_ON_CLOSE` having been
-/// set when the task was closed; if not, the task reopens with a fresh
-/// sandbox. External bindings deactivated on close are left inactive.
+/// Reopen a closed task, flipping `Closed` to `Open`. No sandbox is provisioned
+/// here — the next `start` restores retained S3 state if
+/// `SANDBOX_RETAIN_STORAGE_ON_CLOSE` was set; bindings stay inactive.
 #[utoipa::path(
     post,
     path = "/api/v1/tasks/{task_id}/reopen",
@@ -753,10 +747,9 @@ pub async fn reopen_task(
     Ok(Json(resp))
 }
 
-/// Reopen one closed task on `scope_ctx`'s behalf.
-///
-/// The status check is what makes this safe to offer as an undo: a task that
-/// was never closed is refused rather than quietly rewritten.
+/// Reopen one closed task on `scope_ctx`'s behalf. The status check is what
+/// makes this safe as an undo — a task that was never closed is refused rather
+/// than quietly rewritten.
 pub use super::service::reopen_task_for;
 
 /// Start a task (provision sandbox and begin agent).
@@ -930,10 +923,9 @@ pub async fn update_visibility(
     Ok(Json(resp))
 }
 
-/// Update a task's TTLs. `ttl_minutes` is the idle TTL (`0` disables the idle
-/// reaper — the sandbox stays alive until explicitly stopped). `inactive_ttl_days`
-/// is the inactivity TTL (`0` disables auto-close). Both fields are optional;
-/// omit a field to leave that TTL unchanged. At least one must be provided.
+/// Update a task's TTLs. `ttl_minutes` is idle TTL (`0` disables the reaper);
+/// `inactive_ttl_days` is inactivity TTL (`0` disables auto-close). Both
+/// optional; at least one required.
 #[utoipa::path(
     put,
     path = "/api/v1/tasks/{task_id}/ttl",
@@ -1040,12 +1032,9 @@ mod tests {
         }
     }
 
-    /// `TaskBindings` fake that only answers `deactivate_for_task`.
-    ///
-    /// It records the task ids it was asked to deactivate and replays a queued
-    /// outcome, which is everything [`deactivate_task_bindings`] can observe.
-    /// The remaining port methods are unreachable from this seam and panic
-    /// rather than pretending to have behaviour no test asserts.
+    /// `TaskBindings` fake answering only `deactivate_for_task`: records
+    /// requested task ids and replays a queued outcome — everything
+    /// [`deactivate_task_bindings`] can observe. Other methods panic.
     struct FakeBindings {
         outcome: Mutex<Option<Result<u64, StoreError>>>,
         deactivated: Mutex<Vec<String>>,

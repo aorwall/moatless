@@ -14,11 +14,10 @@ const READINESS_FAILURES: &str = "moatless_database_readiness_failures_total";
 
 /// How a pool reclaims idle connections.
 ///
-/// The main pool trims idle connections after ten minutes. The dedicated
-/// lock-only pool ([`PoolKind::Lock`]) keeps them: a held session advisory lock
-/// pins its connection for the operation's whole duration, and idle-reaping it
-/// would drop the lock. Keeping the lock pool separate from the main pool means
-/// a blocking or long-held lock can never starve application queries.
+/// The main pool trims idle connections after ten minutes; the dedicated
+/// lock-only pool ([`PoolKind::Lock`]) never does, since a held session
+/// advisory lock pins its connection for the whole operation and idle-reaping
+/// it would drop the lock.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum PoolKind {
     Main,
@@ -49,8 +48,7 @@ pub async fn create_pool_kind(
 /// Register and refresh the main pool's operator-facing metrics.
 ///
 /// SQLx exposes these values synchronously, so readiness can report pool
-/// starvation without first needing the connection whose absence it is trying
-/// to diagnose.
+/// starvation without needing the connection whose absence it is diagnosing.
 pub fn record_pool_metrics(pool: &DbPool) {
     let size = pool.size() as usize;
     let idle = pool.num_idle();

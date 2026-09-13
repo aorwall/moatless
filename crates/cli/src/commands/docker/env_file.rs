@@ -37,8 +37,8 @@ pub(super) fn is_placeholder(key: &str, value: &str) -> bool {
 }
 
 /// Parse a `.env` file into ordered `(key, value)` pairs. Preserves order so
-/// the written file keeps the layout the user expects; comments and blank
-/// lines are dropped.
+/// the written file keeps the layout the user expects; comments and blank lines
+/// are dropped.
 pub(super) fn read_env_map(path: &Path) -> Result<Vec<(String, String)>, ClientError> {
     if !path.is_file() {
         return Ok(Vec::new());

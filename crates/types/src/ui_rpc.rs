@@ -1,16 +1,16 @@
 //! The identity the auth layer publishes for the UI RPC surface.
 //!
 //! These types travel in request extensions: the auth middleware inserts them,
-//! the RPC handlers read them. Both sides sit in different crates, so the shape
-//! they agree on is owned here.
-//!
-//! `UserRole` is a transport value — it serializes to `"admin"` or `"user"` in
-//! a ticket claim. It is not the access-control input; that is
-//! [`crate::access_control::ScopeContext::is_admin`], which the RPC layer derives from
-//! this role at the point it needs a policy decision.
+//! the RPC handlers read them — both sides sit in different crates, so the
+//! shape they agree on is owned here.
 
 use uuid::Uuid;
 
+/// A transport value, serialized to `"admin"`/`"user"` in a ticket claim.
+///
+/// Not the access-control input, which is
+/// [`crate::access_control::ScopeContext::is_admin`], derived from this role
+/// when a policy decision is needed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UserRole {
     Admin,
@@ -35,8 +35,8 @@ pub struct UiRpcAuthIdentity {
     pub group_id: Option<String>,
 }
 
-/// How the caller proved who they are. The RPC layer reads it to decide
-/// whether an origin check applies.
+/// How the caller proved who they are. The RPC layer reads it to decide whether
+/// an origin check applies.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UiRpcAuthMethod {
     SessionCookie,

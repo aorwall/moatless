@@ -8,10 +8,8 @@
 //! [`footer`], [`signature`]) and the access it gates on ([`access`]), what it
 //! can fail with ([`error`]), which external account it speaks for
 //! ([`connections`]), how it hands inbound work over durably ([`delivery`]),
-//! and how a delivery ends ([`ingress`]).
-//! A provider crate implements the contract by naming this crate and nothing
-//! above it; the bands that orchestrate providers name the same items from the
-//! same paths.
+//! and how a delivery ends ([`ingress`]). A provider crate implements the
+//! contract by naming this crate and nothing above it.
 //!
 //! Two features keep the base surface to the contract itself: `postgres` adds
 //! the connection store and its row shapes, `http` adds the `IntoResponse`
@@ -35,10 +33,12 @@ pub mod metrics;
 pub mod registry;
 pub mod signature;
 
-/// Helpers the Adapter error tests need, shared with the crates whose own tests
-/// assert against a rendered [`error::AdapterError`]. The `test,` disjunct stays
-/// FIRST so items gated this way read as test-context. Requires `http`, which
-/// `test-support` enables: two of the three helpers are about the renderer.
+/// Helpers the Adapter error tests need, shared across crates.
+///
+/// Used by any crate whose tests assert against a rendered
+/// [`error::AdapterError`]. The `test,` disjunct stays FIRST so items gated
+/// this way read as test-context; requires `http`, which `test-support`
+/// enables.
 #[cfg(all(feature = "http", any(test, feature = "test-support")))]
 pub mod test_support;
 

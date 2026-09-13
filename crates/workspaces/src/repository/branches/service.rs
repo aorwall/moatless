@@ -41,7 +41,8 @@ impl RepositoryBranchService {
         }
     }
 
-    /// List visible repository branches after authorizing any pinned workspace credential.
+    /// List visible repository branches after authorizing any pinned workspace
+    /// credential.
     pub async fn list_branches(
         &self,
         ctx: &ScopeContext,

@@ -5,50 +5,32 @@ use crate::init::InitPhase;
 use crate::state::{SandboxState, TaskContext};
 use tracing::{info, warn};
 
-/// Cross the boundary from "restored but private" to "open for work", in the one
-/// order that closes the startup precedence race:
+/// Opens the pod for work: decides interrupted-run precedence for each Member
+/// while dispatch is gated, flips `InitPhase::Ready`, then dispatches once.
 ///
-/// 1. **Decide precedence while dispatch is still gated**, for every Member
-///    registered so far. Session state was restored to disk in `run_core_init`
-///    (before Ready). We probe for a pending Message and, only when none is
-///    waiting, enqueue the interrupted-Run replay. External gRPC dispatch is
-///    still a no-op here because init is not yet Ready.
-/// 2. **Open the gate.** Flip `InitPhase::Ready` (health now returns 200).
-/// 3. **Dispatch once, authoritatively.** Drain any pending Message — a no-op if
-///    step 1 already enqueued a Recover, otherwise the Message that superseded it.
-///
-/// Doing step 1 before step 2 is what prevents a backend notification that races
-/// init from fetching, submitting, and acknowledging the newer pending Message in
-/// the window before the probe — which would leave the probe seeing no pending
-/// row and enqueueing a now-stale Recover behind the Message.
+/// Precedence must be decided first, or a racing backend notification could ack
+/// a newer Message before the probe runs, leaving a stale Recover enqueued
+/// behind it.
 pub(crate) async fn open_for_work(state: &SandboxState, workspace_origin: WorkspaceOrigin) {
-    // Read and clear what a prior pod left behind before anything — a recovered
-    // run, a new command — can overwrite it. The registry this pod started with
-    // is empty, so these entries exist only on the workspace snapshot.
+    // Read and clear what a prior pod left behind before a recovered run or a
+    // new command can overwrite it.
     let lost_commands =
         take_lost_commands(state, &state.config.task_id, &state.config.workspace_dir).await;
     let wake_notes = wake_note::take(&wake_note::default_path(&state.config.workspace_dir)).await;
 
-    // Adopt whatever the restore or the clone produced as the upload baseline: a
-    // workspace nobody has touched since is not worth shipping back.
-    //
-    // Consuming either file is the exception. The take deleted it here, but the
-    // S3 archive it was restored from still carries it, so this tree is already
-    // ahead of the object. Adopting it would let a turn that edits nothing skip
-    // the upload, and the next replacement would restore the stale archive and
-    // deliver the same wake again. Leaving the baseline unset makes the next
-    // upload ship the removal.
+    // Adopt whatever the restore or clone produced as the upload baseline — unless
+    // either file was consumed: the take deleted it here but the S3 archive still
+    // carries it, so adopting now would let an untouched turn skip the upload, and
+    // the next replacement would restore the stale archive and repeat the wake.
     if state.config.workspace_sync_enabled && lost_commands.is_empty() && wake_notes.is_empty() {
         state.workspace_sync.adopt_current(&state.config).await;
     }
 
     {
-        // Held across the recovery pass and the Ready flip, because
-        // `task_context::register` takes the same lock and recovers a Member it
-        // registers once Ready. A `JoinTask` racing this therefore either lands
-        // before the snapshot below — and this pass recovers it — or blocks until
-        // Ready and recovers itself. Drop the lock and a Member registering
-        // between the snapshot and the flip is recovered by neither.
+        // Held across the recovery pass and the Ready flip: `task_context::register`
+        // takes the same lock, so a racing `JoinTask` either lands before the
+        // snapshot (recovered here) or blocks until Ready and recovers itself.
+        // Dropping it early would let a Member land in between and recover from neither.
         let _registration = state.task_context_registration.lock().await;
         *state.workspace_origin.write().await = workspace_origin;
         for context in state.task_contexts_snapshot().await {
@@ -60,23 +42,18 @@ pub(crate) async fn open_for_work(state: &SandboxState, workspace_origin: Worksp
     // health endpoint this flips, and that is the row that says the Sandbox is up.
     info!(task_id = %state.config.task_id, "Core init complete — health is now ready");
 
-    // Awaited, not detached: dispatch only fetches, submits to the agent lifecycle task,
-    // and returns (the turn itself runs in the coordinator) — it does not block on
-    // the turn, so Phase 2 workspace setup is not delayed. Awaiting keeps this the
-    // one authoritative startup dispatch and avoids an orphaned JoinHandle.
+    // Awaited, not detached: dispatch only fetches and submits, it does not block
+    // on the turn, so this stays the one authoritative startup dispatch.
     crate::agent::dispatcher::dispatch_pending_messages(state.clone()).await;
 
     report_wake_notes(state, wake_notes, lost_commands).await;
 }
 
-/// Read and clear both copies of what a prior pod left unreported for one
-/// Member, and merge them.
+/// Reads and clears both copies of what a prior pod left unreported for one
+/// Member, merging them so each command is announced once.
 ///
-/// Both are cleared by the read, so the merge announces each command once and
-/// no later restart announces it again.
-///
-/// Call this before the Member's registry can run a command. Each mirror write
-/// is absolute, so the first `run` erases both copies this reads.
+/// Call before the Member's registry runs a command: each mirror write is
+/// absolute, so the first `run` erases both copies this reads.
 pub(crate) async fn take_lost_commands(
     state: &SandboxState,
     task_id: &str,
@@ -95,14 +72,11 @@ pub(crate) async fn take_lost_commands(
     merge_lost_commands(journal, stored)
 }
 
-/// Union the two copies by command id.
+/// Unions the two copies by command id. The journal rides the workspace
+/// snapshot and the Sandbox row does not, so either alone may be partial.
 ///
-/// The journal rides the workspace snapshot and the Sandbox row does not, so a
-/// failed restore leaves only `stored` and a backend outage leaves only
-/// `journal`. Either alone is a partial account of what the restart destroyed.
-///
-/// `journal` wins a collision: its write is under the registry's entries lock
-/// and the row's is off it, so the journal cannot be the staler of the two.
+/// `journal` wins a collision: its write is under the entries lock, so it
+/// cannot be the staler of the two.
 fn merge_lost_commands(
     mut journal: Vec<crate::commands::JournaledCommand>,
     stored: Vec<crate::commands::JournaledCommand>,
@@ -112,18 +86,12 @@ fn merge_lost_commands(
     journal
 }
 
-/// Wake each Member the replaced pod owes something to.
+/// Wakes each Member the replaced pod owes something to: a `moat cmd` command
+/// whose watch died with the pod, or a caller (`moat tasks restart --yes`) that
+/// died before it could report.
 ///
-/// Two things go unsaid across a pod replacement. A `moat cmd` command's
-/// process, its completion watch and its log live in memory and `/tmp`, so the
-/// wake the agent was promised cannot fire. A caller that took the pod down
-/// (`moat tasks restart --yes`) died with it, so it cannot report what it did.
-/// Both ride the workspace snapshot instead, and this turns them into the wake
-/// neither could deliver. The resumed session (`--continue` for Claude, restored
-/// to disk in init) carries the context.
-///
-/// `dispatcher::queue_and_dispatch` owns the delivery, so the wake is a `user`
-/// row the conversation shows and `find_interrupted_turn` can resume.
+/// Delivered through `dispatcher::queue_and_dispatch`, so it lands as a
+/// resumable `user` row.
 async fn report_wake_notes(
     state: &SandboxState,
     notes: BTreeMap<String, WakeNote>,
@@ -136,12 +104,9 @@ async fn report_wake_notes(
     }
 }
 
-/// One message per Member owed a wake, each wrapped in one
-/// `<sandbox-restart-note>`.
-///
-/// The lost-command text joins `own_task_id`'s note rather than travelling on
-/// its own, so a self-restart that also lost commands opens one turn and not
-/// two.
+/// One message per Member owed a wake, wrapped in one `<sandbox-restart-note>`.
+/// Lost-command text joins `own_task_id`'s note so a self-restart that also
+/// lost commands opens one turn, not two.
 fn wake_messages(
     own_task_id: &str,
     notes: BTreeMap<String, WakeNote>,
@@ -163,12 +128,9 @@ fn wake_messages(
         .collect()
 }
 
-/// The wake a Member joining a replacement pod is owed for the commands that pod
-/// destroyed, or `None` when it is owed none.
-///
-/// [`open_for_work`] covers the Member the pod booted with. A Member that joins
-/// later has its own journal and its own `sandbox_unreported_commands` row, and
-/// neither is read on any other path.
+/// The wake a Member joining a replacement pod is owed for commands it lost, or
+/// `None` when it is owed none. [`open_for_work`] covers only the Member the
+/// pod booted with; a joining Member's journal and row are read here.
 pub(crate) fn lost_commands_wake(lost: &[crate::commands::JournaledCommand]) -> Option<String> {
     lost_commands_body(lost).map(|body| wrap_restart_note(std::slice::from_ref(&body)))
 }
@@ -182,11 +144,9 @@ fn wrap_restart_note(parts: &[String]) -> String {
     )
 }
 
-/// What a restart destroyed, or `None` when no command was owed a wake.
-/// A command still `Running` at the snapshot was cut off mid-flight; a terminal
-/// one had finished but the agent never read the outcome. Neither log survives,
-/// so the text carries what the journal knew and tells the agent to re-run what
-/// it still needs.
+/// What a restart destroyed, or `None` when no command was owed a wake. A
+/// `Running` command was cut off mid-flight; a terminal one finished but was
+/// never read. Neither log survives the restart.
 fn lost_commands_body(lost: &[crate::commands::JournaledCommand]) -> Option<String> {
     use crate::commands::CommandState;
     if lost.is_empty() {
@@ -225,29 +185,26 @@ fn lost_commands_body(lost: &[crate::commands::JournaledCommand]) -> Option<Stri
     ))
 }
 
-/// How the workspace came to exist on this start — determines what (if anything)
-/// a resuming agent must be warned lost across the restart.
+/// How the workspace came to exist on this start — determines what (if
+/// anything) a resuming agent must be warned lost across the restart.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum WorkspaceOrigin {
-    /// Repo persisted in place (EBS/PVC volume already held it) or this is a
-    /// fresh task — nothing was lost, so no restart note is needed. The default,
-    /// so [`SandboxState::workspace_origin`]'s constructors can write
-    /// `Default::default()`.
+    /// Repo persisted in place, or this is a fresh task — nothing was lost. The
+    /// default, since most starts need no restart note.
     #[default]
     Persisted,
-    /// Restored byte-for-byte from an S3 snapshot (the `s3` storage backend).
-    /// The git tree — committed history plus uncommitted, non-gitignored changes
-    /// — and out-of-repo files are intact, but gitignored build artifacts inside
-    /// repos were NOT in the snapshot and are gone.
+    /// Restored from an S3 snapshot: git history and non-gitignored changes are
+    /// intact, but gitignored build artifacts were not in the snapshot and are
+    /// gone.
     RestoredFromSnapshot,
-    /// Rebuilt from a fresh `git clone` — all ephemeral pre-restart state (incl.
-    /// unpushed commits and uncommitted changes) may be gone.
+    /// Rebuilt from a fresh `git clone` — all ephemeral pre-restart state
+    /// (incl. unpushed commits and uncommitted changes) may be gone.
     Recloned,
 }
 
 impl WorkspaceOrigin {
-    /// The `<sandbox-restart-note>` to prepend to a resumed turn, or `None` when
-    /// nothing was lost and the agent needs no warning.
+    /// The `<sandbox-restart-note>` to prepend to a resumed turn, or `None`
+    /// when nothing was lost and the agent needs no warning.
     fn restart_note(self, workspace_dir: &str) -> Option<String> {
         match self {
             Self::Persisted => None,
@@ -258,9 +215,10 @@ impl WorkspaceOrigin {
 }
 
 /// Note prepended to a resumed turn when the workspace was restored from an S3
-/// snapshot across a restart (e.g. the pod was replaced, or evicted for exceeding
-/// its workspace volume size limit). The git tree is intact, but gitignored build
-/// artifacts are not part of the snapshot, so they were wiped and must be rebuilt.
+/// snapshot (pod replaced, or evicted for exceeding its volume size limit).
+///
+/// The git tree is intact, but gitignored build artifacts weren't in the
+/// snapshot and were wiped.
 fn workspace_restored_note(workspace_dir: &str) -> String {
     format!(
         "<sandbox-restart-note>\n\
@@ -279,8 +237,8 @@ fn workspace_restored_note(workspace_dir: &str) -> String {
 }
 
 /// Note prepended to a resumed turn when the workspace was rebuilt from a fresh
-/// clone across the restart, so the agent knows its pre-restart scratch state is
-/// gone rather than silently working against a reset tree.
+/// clone across the restart, so the agent knows its pre-restart scratch state
+/// is gone rather than silently working against a reset tree.
 fn workspace_recloned_note(workspace_dir: &str) -> String {
     format!(
         "<sandbox-restart-note>\n\
@@ -295,35 +253,20 @@ fn workspace_recloned_note(workspace_dir: &str) -> String {
          </sandbox-restart-note>\n\n"
     )
 }
-/// Interrupted-run precedence gate for one Member: probe for pending user
-/// messages first, and replay the interrupted run **only** when none are
-/// waiting. A fresh user message supersedes the interrupted turn —
-/// `dispatch_pending_messages` resumes the prior session with the new text as
-/// the prompt instead. A probe error **fails closed** — treated as "pending
-/// present", skipping the replay — so an unknown probe result can't resume the
-/// stale Run only to have a newer Message dispatched concurrently once the
-/// backend recovers.
+/// Interrupted-run precedence gate for one Member: replays the interrupted run
+/// only when no pending user message is waiting. Keys on `context`, never
+/// `state.config`.
 ///
-/// Everything below keys on `context` and never on `state.config`, whose
-/// `task_id` and `repo_dir` name the Member the pod booted with: in a shared
-/// pod every other Member has its own interrupted Run and its own checkout.
-///
-/// Call this exactly once per Member per start — [`open_for_work`] covers the
-/// Members registered at init, and [`crate::task_context::register`] covers one
-/// that joins after Ready.
-///
-/// `pub(crate)` so the Sandbox-replacement lifecycle can be exercised in-crate
-/// with an in-memory backend without driving the whole of `run_init`.
+/// A probe error fails closed. Call once per Member per start:
+/// [`open_for_work`] covers init, [`crate::task_context::register`] covers one
+/// joining after Ready.
 pub(crate) async fn recover_interrupted_run_unless_pending(
     state: &SandboxState,
     context: &TaskContext,
     origin: WorkspaceOrigin,
 ) {
     let task_id = &context.task_id;
-    // Fail closed on a probe error: treat "unknown" as "pending present" and skip
-    // the interrupted-run replay. Replaying on an unknown probe result risks
-    // resuming the stale Run and then having a newer Message dispatched
-    // concurrently once the backend recovers — two turns racing the same pod.
+    // Fail closed: an unknown probe result is treated as "pending present".
     let has_pending_messages = match state.backend_client.get_pending_messages(task_id).await {
         Ok(msgs) => !msgs.is_empty(),
         Err(e) => {
@@ -346,21 +289,9 @@ pub(crate) async fn recover_interrupted_run_unless_pending(
     }
 }
 
-/// Detect `context`'s interrupted agent run via the backend RPC and queue a
-/// resume on its agent lifecycle task. Its one caller runs it once per Member
-/// per start, **only when there are no new pending user messages** — a fresh
-/// message supersedes the interrupted turn and `dispatch_pending_messages`
-/// carries it forward instead.
-///
-/// The backend handler does the heavy lifting (looks up the unfinished
-/// user-turn, increments `recovery_attempts`, publishes the
-/// `agent.recovery_started` event). If we get back a turn we feed it through
-/// the existing `--resume <session_id>` path; otherwise this is a no-op.
-///
-/// When `origin` indicates the workspace was rebuilt from a fresh clone or
-/// restored from an S3 snapshot on this restart, a `<sandbox-restart-note>` is
-/// prepended to the resumed prompt telling the agent exactly what pre-restart
-/// state (unpushed commits, or just gitignored build artifacts) is gone.
+/// Detects `context`'s interrupted agent run via the backend RPC and queues a
+/// resume through the existing `--resume <session_id>` path; a no-op if there
+/// is none.
 async fn recover_interrupted_run(
     state: &SandboxState,
     context: &TaskContext,
@@ -376,9 +307,7 @@ async fn recover_interrupted_run(
                 workspace_origin = ?origin,
                 "Resuming interrupted agent run"
             );
-            // Prepend a restart note so the resuming agent doesn't assume its
-            // prior scratch state survived. Which note depends on how the
-            // workspace was reconstituted (see `WorkspaceOrigin`).
+            // Note text depends on `origin` (see `WorkspaceOrigin`).
             let prompt_text = match origin.restart_note(&context.checkout_dir) {
                 Some(note) => format!("{note}{}", turn.prompt_text),
                 None => turn.prompt_text,

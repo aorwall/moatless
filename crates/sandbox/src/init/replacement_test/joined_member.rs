@@ -1,13 +1,10 @@
-//! Interrupted-Run recovery for a Member that is not the one the pod booted
-//! with, proven at the backend RPC (which Task the pod asks to recover) and at
-//! the harness (which checkout the replayed prompt's restart note names).
+//! Interrupted-Run recovery for a Member that joined the pod (not the one it
+//! booted with), proven at the backend RPC and at the harness's restart note.
 //!
-//! This is the stranding case for a shared sandbox. A pod hosting two Members is
-//! replaced mid-turn. The reconciler re-issues `JoinTask` for the Member that
-//! joined the old pod, so the Member is registered again — but only the booting
-//! Member's Run used to be replayed, so the joined Member sat idle until the
-//! backend's reaper closed its turn as `reconciled_orphaned_turn` and a person
-//! prodded it back to work.
+//! Covers the stranding case for a shared sandbox: a pod hosting two Members is
+//! replaced mid-turn, and the reconciler re-issues `JoinTask` for the joined
+//! Member. Its Run must be recovered too, or it sits idle until the backend's
+//! reaper closes it as `reconciled_orphaned_turn` and a person prods it back.
 
 use std::sync::Arc;
 
@@ -19,11 +16,11 @@ use crate::init::{
     InitPhase, WorkspaceOrigin, open_for_work, recover_interrupted_run_unless_pending,
 };
 
-/// A state whose agent spawns are inert: `compose_task_context` builds a real
-/// agent for a joining Member, and no `AGENT_TYPE` makes that a poison task
-/// rather than an attempt to exec a CLI this test has no use for. The family
-/// `tmp_config` requires is cleared straight after, and only its tmp dirs are
-/// kept — `materialize_checkout` writes under `workspace_dir`.
+/// A state whose agent spawns are inert.
+///
+/// Clearing `AGENT_TYPE` after `tmp_config` makes a joining Member's real agent
+/// a poison task instead of exec'ing a CLI, while `materialize_checkout` still
+/// gets the tmp dirs it needs.
 fn joinable_state(
     tmp: &tempfile::TempDir,
     phase: InitPhase,

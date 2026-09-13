@@ -189,8 +189,8 @@ async fn run_shared(
 // ---------------------------------------------------------------------------
 
 /// `moat cmd` talks only to the sandbox's own loopback gRPC server, so it must
-/// keep working when the backend session is stale — that is exactly when a build
-/// still needs supervising.
+/// keep working when the backend session is stale — that is exactly when a
+/// build still needs supervising.
 fn runs_without_auth_sandbox(cmd: &SandboxCommands) -> bool {
     match cmd {
         SandboxCommands::Cmd { .. } => true,

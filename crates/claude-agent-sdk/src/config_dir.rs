@@ -2,10 +2,10 @@
 
 use std::path::PathBuf;
 
-/// Resolve Claude's config dir, mirroring the Claude CLI's precedence:
-/// `CLAUDE_CONFIG_DIR` > `CLAUDE_HOME` (documented alias) > `<home_dir>/.claude`.
-/// (docs: code.claude.com/docs/en/env-vars). `home_dir` is the caller's resolved
-/// HOME so each caller keeps its own HOME-unset fallback.
+/// Resolves Claude's config directory.
+///
+/// Precedence: `CLAUDE_CONFIG_DIR` > `CLAUDE_HOME` (alias) >
+/// `<home_dir>/.claude`. Callers pass their own resolved HOME.
 pub fn resolve_claude_config_dir(home_dir: &str) -> PathBuf {
     std::env::var("CLAUDE_CONFIG_DIR")
         .or_else(|_| std::env::var("CLAUDE_HOME"))

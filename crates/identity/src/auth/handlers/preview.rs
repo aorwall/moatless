@@ -5,9 +5,9 @@ use crate::auth::error::AuthError;
 use moatless_types::access_control::ScopeContext;
 
 /// The preview-URL session gate: when `forwarded_host` names a preview host,
-/// `Forbidden` unless `scope_ctx` may reach its task. A non-preview host (or none)
-/// passes without consulting the port. Split out so the gate is testable without
-/// the authentication machinery in front of it.
+/// `Forbidden` unless `scope_ctx` may reach its task.
+///
+/// A non-preview host (or none) passes without consulting the port.
 pub(super) async fn enforce_preview_access(
     task_access: &dyn moatless_core::http_auth::TaskAccess,
     scope_ctx: &ScopeContext,

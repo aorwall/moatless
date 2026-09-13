@@ -22,8 +22,8 @@ pub const DEFAULT_CODEX_MODEL: &str = "gpt-6-astra";
 const DEFAULT_API_BASE: &str = "https://api.github.com";
 
 /// Resolve the GitHub API base URL. `GITHUB_API_BASE_URL` overrides the
-/// default — used by E2E tests to point the backend at a mock server (and
-/// usable for GitHub Enterprise hosts). Empty values are treated as unset.
+/// default, for an E2E mock server or a GitHub Enterprise host. An empty value
+/// is treated as unset.
 pub fn api_base() -> String {
     env::var("GITHUB_API_BASE_URL")
         .ok()
@@ -35,8 +35,8 @@ pub fn api_base() -> String {
 /// Minimum length accepted for an operator-supplied `ADMIN_PASSWORD`.
 pub const MIN_ADMIN_PASSWORD_LEN: usize = 12;
 
-/// Parse an environment variable with a default fallback.
-/// Logs a warning if the env var is set but cannot be parsed.
+/// Parse an environment variable with a default fallback. Logs a warning if the
+/// env var is set but cannot be parsed.
 fn env_or<T: FromStr>(key: &str, default: T) -> T {
     match env::var(key) {
         Ok(v) => {
@@ -75,7 +75,8 @@ fn oidc_config_from_env() -> Option<OidcConfig> {
     })
 }
 
-/// Parse a JSON array of `{"name":"...", "value":"..."}` objects from an env var.
+/// Parse a JSON array of `{"name":"...", "value":"..."}` objects from an env
+/// var.
 fn parse_extra_env(key: &str) -> Vec<(String, String)> {
     let raw = match env::var(key) {
         Ok(v) if !v.is_empty() => v,
@@ -97,16 +98,11 @@ fn parse_extra_env(key: &str) -> Vec<(String, String)> {
     }
 }
 
-/// Parse the generic sandbox package-manager cache list from an env var.
+/// Parse the sandbox package-manager cache list from env var `key` (JSON:
+/// `[{"name":"maven","mountPath":"/maven-cache","env":{...}}]`).
 ///
-/// Shape (JSON): `[{"name":"maven","mountPath":"/maven-cache",
-/// "env":{"MAVEN_OPTS":"-Dmaven.repo.local=/maven-cache"}}]`. Each entry is a
-/// self-describing cache: a name (→ a subdir on the shared NVMe volume), the
-/// in-container mount path, and the env var(s) that point the tool at it.
-/// Adding npm/bun/pnpm later is one more JSON object, no Rust change.
-/// `env` is parsed into a key-sorted `Vec` (via `BTreeMap`) for deterministic
-/// container specs. Returns an empty vec on parse failure with a warning so a
-/// typo can't take down startup.
+/// `env` is sorted into a `Vec` for deterministic container specs; parse
+/// failure warns and returns an empty vec.
 fn parse_cache_volumes(key: &str) -> Vec<SandboxCacheVolume> {
     let raw = match env::var(key) {
         Ok(v) if !v.is_empty() => v,
@@ -151,11 +147,9 @@ fn env_str(key: &str, default: &str) -> String {
 /// Origins the CSRF check trusts beyond `FRONTEND_URL`, from
 /// `CSRF_TRUSTED_ORIGINS`.
 ///
-/// Deliberately not defaulted from `T3_UI_RPC_ALLOWED_ORIGINS`, which the
-/// WebSocket upgrade reads: that list carries wildcard sandbox-preview origins,
-/// and a preview serves agent-authored code. Under a `COOKIE_DOMAIN` covering
-/// both, inheriting it would let a preview origin drive cookie-authenticated
-/// writes. Name a REST origin here, exactly.
+/// Never default this from `T3_UI_RPC_ALLOWED_ORIGINS`: it carries wildcard
+/// preview origins serving agent-authored code, which under a shared
+/// `COOKIE_DOMAIN` could drive cookie-authenticated writes.
 fn csrf_trusted_origins_from_env() -> Vec<AllowedOrigin> {
     moatless_types::auth::parse_allowed_origins(
         &env_opt("CSRF_TRUSTED_ORIGINS").unwrap_or_default(),
@@ -164,9 +158,8 @@ fn csrf_trusted_origins_from_env() -> Vec<AllowedOrigin> {
 
 /// Parse the `GITHUB_APPS_JSON` env var into a list of `GitHubAppConfig`.
 ///
-/// `\\n` sequences in `private_key` are converted to real newlines for
-/// PEM-friendly env-var usage. Returns an empty vec on parse failure with a
-/// warning so a typo in one JSON blob can't take down startup.
+/// Converts `\\n` in `private_key` to real newlines for PEM-friendly env-var
+/// usage; parse failure warns and returns an empty vec.
 fn parse_github_apps_json(raw: Option<String>) -> Vec<GitHubAppConfig> {
     let Some(raw) = raw else {
         return vec![];
@@ -215,18 +208,12 @@ pub struct ServerConfig {
     pub grpc_port: u16,
 }
 
-/// A node-local package-manager cache mounted into sandbox pods.
+/// A node-local package-manager cache mounted into sandbox pods, one `subPath`
+/// (`<cache_host_root>/<name>`) per entry on the shared `pkg-cache` volume.
 ///
-/// Each entry maps to a `subPath` (`<cache_host_root>/<name>`) on the single
-/// shared `pkg-cache` volume, surfaced in the container at `mount_path`, with
-/// `env` pointing the tool at it (e.g.
-/// `MAVEN_OPTS=-Dmaven.repo.local=/maven-cache`). This is backend-agnostic: only
-/// the volume source (node-local hostPath today, EFS later) changes — the
-/// per-entry mount/env logic is reused either way.
-///
-/// Caches each tool's *download cache/store* (maven local repo, npm `_cacache`,
-/// bun cache, pnpm store) — never per-project `node_modules`, which must not be
-/// shared across repos.
+/// Caches each tool's download cache/store (maven repo, npm `_cacache`, pnpm
+/// store) — never per-project `node_modules`, which must not be shared across
+/// repos.
 #[derive(Debug, Clone)]
 pub struct SandboxCacheVolume {
     /// Cache name → subdirectory under the shared cache root (e.g. `maven`).
@@ -271,7 +258,8 @@ impl KubernetesComputeMode {
 /// Sandbox pod configuration (images, resources, storage, idle reaper).
 #[derive(Debug, Clone)]
 pub struct SandboxConfig {
-    /// Kubernetes compute substrate. Env `K8S_COMPUTE_MODE` (`standard` or `fargate`).
+    /// Kubernetes compute substrate. Env `K8S_COMPUTE_MODE` (`standard` or
+    /// `fargate`).
     pub compute_mode: KubernetesComputeMode,
     /// Kubernetes namespace for sandbox pods
     pub namespace: String,
@@ -289,35 +277,37 @@ pub struct SandboxConfig {
     pub resources_cpu_request: String,
     /// Memory request for server containers
     pub resources_memory_request: String,
-    /// CPU request for the sandbox (agent) container (env `K8S_RESOURCE_REQUEST_CPU`)
+    /// CPU request for the sandbox (agent) container (env
+    /// `K8S_RESOURCE_REQUEST_CPU`)
     pub sandbox_resources_cpu_request: String,
-    /// CPU limit for the sandbox (agent) container (env `K8S_RESOURCE_LIMIT_CPU`)
+    /// CPU limit for the sandbox (agent) container (env
+    /// `K8S_RESOURCE_LIMIT_CPU`)
     pub sandbox_resources_cpu_limit: String,
-    /// Memory request for the sandbox (agent) container (env `K8S_RESOURCE_REQUEST_MEMORY`)
+    /// Memory request for the sandbox (agent) container (env
+    /// `K8S_RESOURCE_REQUEST_MEMORY`)
     pub sandbox_resources_memory_request: String,
-    /// Memory limit for the sandbox (agent) container (env `K8S_RESOURCE_LIMIT_MEMORY`)
+    /// Memory limit for the sandbox (agent) container (env
+    /// `K8S_RESOURCE_LIMIT_MEMORY`)
     pub sandbox_resources_memory_limit: String,
     /// Optional ephemeral-storage request and limit for the sandbox container.
     /// EKS Fargate uses the request to provision pod-local disk. Env
     /// `K8S_SANDBOX_EPHEMERAL_STORAGE`.
     pub ephemeral_storage: Option<String>,
-    /// Run the sandbox and server containers as the non-root `moatless` user
-    /// (UID/GID 1000) via a pod-level securityContext (`runAsNonRoot`, `fsGroup`,
-    /// `seccompProfile: RuntimeDefault`). The privileged `dind` sidecar and
-    /// `nvme-setup` init container keep running as root. Defaults to `false` so
-    /// the hardening can roll out per-environment. Env
-    /// `K8S_SANDBOX_RUN_AS_NON_ROOT`.
+    /// Runs the sandbox and server containers as non-root via a pod
+    /// securityContext (env `K8S_SANDBOX_RUN_AS_NON_ROOT`, default `false`).
+    ///
+    /// The `dind` sidecar and `nvme-setup` init container still run as root.
     pub run_as_non_root: bool,
-    /// Size cap for the `shared-data` emptyDir mounted at `/opt/moatless/data`
-    /// across the sandbox and server containers. Without a cap this emptyDir can
-    /// grow unbounded and evict the node. Env `K8S_SANDBOX_SHARED_DATA_SIZE`
-    /// (default `2Gi`).
+    /// Size cap for the `shared-data` emptyDir mounted at `/opt/moatless/data`;
+    /// without it, growth is unbounded and can evict the node.
+    ///
+    /// Env `K8S_SANDBOX_SHARED_DATA_SIZE` (default `2Gi`).
     pub shared_data_size: String,
-    /// Persist cargo's downloaded state (registry + git caches) across pod
-    /// replacement by mounting `workspace-data` subPaths at
-    /// `/opt/cargo/registry` and `/opt/cargo/git`. Costs PVC space — bump the
-    /// repo's storage size when enabling (a warm registry is multiple Gi).
-    /// Env `K8S_SANDBOX_PERSIST_TOOLCHAIN` (default `false`).
+    /// Persists cargo's downloaded state across pod replacement via
+    /// `workspace-data` subPaths. Env `K8S_SANDBOX_PERSIST_TOOLCHAIN` (default
+    /// `false`).
+    ///
+    /// Costs PVC space — bump the repo's storage size when enabling.
     pub persist_toolchain: bool,
     /// Whether PVC storage is enabled for sandbox pods
     pub storage_enabled: bool,
@@ -327,79 +317,81 @@ pub struct SandboxConfig {
     pub storage_class: Option<String>,
     /// Whether sandboxes get a per-task PVC when the repo doesn't set
     /// `resources.pvc_enabled` (env `K8S_SANDBOX_DEFAULT_PVC`, default `true`).
-    /// A per-repo switch overrides this; [`Self::storage_enabled`] overrides both.
+    /// A per-repo switch overrides this; [`Self::storage_enabled`] overrides
+    /// both.
     pub default_pvc_enabled: bool,
-    /// Whether sandboxes snapshot their workspace to S3 when the repo doesn't set
-    /// `resources.s3_enabled` (env `K8S_SANDBOX_DEFAULT_S3`, default `true`).
-    /// A per-repo switch overrides this. Requires the S3 uploads bucket to be
-    /// configured; without it the sandbox's sync calls no-op.
+    /// Whether sandboxes snapshot their workspace to S3 when the repo doesn't
+    /// set `resources.s3_enabled` (env `K8S_SANDBOX_DEFAULT_S3`, default
+    /// `true`).
+    ///
+    /// Requires the S3 uploads bucket configured; without it the sandbox's sync
+    /// calls no-op.
     pub default_s3_enabled: bool,
     /// Master secret every task's workspace-repository password is derived
-    /// from (`moatless_core::workspace_repository::derive_repository_password`).
+    /// from.
+    ///
     /// Without it no restic repository can be opened or written: the sandbox
-    /// falls back to the tar, and a stopped task's files are unreadable.
-    /// Env `SANDBOX_WORKSPACE_REPOSITORY_SECRET`.
+    /// falls back to the tar, and a stopped task's files are unreadable. Env
+    /// `SANDBOX_WORKSPACE_REPOSITORY_SECRET`.
     pub workspace_repository_secret: Option<String>,
     /// IAM role the backend assumes to hand a sandbox direct S3 access to its
-    /// own workspace repository. Each session is narrowed further by a session
-    /// policy naming that one task's prefix, so the role itself stays
-    /// bucket-wide. Without it the sandbox cannot write a repository.
-    /// Env `SANDBOX_WORKSPACE_REPOSITORY_ROLE_ARN`.
+    /// own workspace repository.
+    ///
+    /// Each session is narrowed to that task's prefix, so the role itself stays
+    /// bucket-wide; without it the sandbox cannot write. Env
+    /// `SANDBOX_WORKSPACE_REPOSITORY_ROLE_ARN`.
     pub workspace_repository_role_arn: Option<String>,
     /// Whether Kubernetes node-local workspace/Docker archives are tracked and
-    /// managed across pod lifecycles. When disabled, `node` storage still uses
-    /// hostPath volumes, but the backend does not access archive `ConfigMap`s,
-    /// pin replacements to recorded nodes, or run deterministic node cleanup.
-    /// Env `K8S_SANDBOX_NODE_ARCHIVE_ENABLED` (default: `false`).
+    /// managed across pod lifecycles.
+    ///
+    /// When disabled, `node` storage still uses hostPath, but the backend skips
+    /// archive `ConfigMap`s, node pinning, and cleanup. Env
+    /// `K8S_SANDBOX_NODE_ARCHIVE_ENABLED` (default `false`).
     pub node_archive_enabled: bool,
-    /// When `true`, closing a task preserves its managed archives (S3 plus
-    /// Docker and opt-in K8s node-local disk) instead of deleting them. This is
-    /// what makes a closed task revivable via `POST /tasks/{id}/reopen` —
-    /// retained S3 archives are restored and managed node archives are pinned
-    /// on the next provision.
-    /// K8s runtime resources (Deployment/Service/PVC/IngressRoutes) are still
-    /// torn down.
-    /// Env `SANDBOX_RETAIN_STORAGE_ON_CLOSE` (default: `true`). Permanent
-    /// task deletion always removes storage regardless of this flag. Retained
-    /// archives are bounded by the uploads bucket's own expiry rule, not by
-    /// close.
+    /// When `true`, closing a task preserves its managed archives (S3, Docker,
+    /// node-local disk) instead of deleting them, making it revivable via
+    /// reopen.
+    ///
+    /// K8s runtime resources are still torn down on close, and permanent
+    /// deletion always removes storage regardless of this flag (env
+    /// `SANDBOX_RETAIN_STORAGE_ON_CLOSE`, default `true`).
     pub retain_storage_on_close: bool,
     /// Pod startup timeout in seconds
     pub pod_startup_timeout_secs: u64,
     /// Secret for signing task auth JWTs
     pub task_token_secret: Option<String>,
-    /// TTL (seconds) for the long-lived user auth token delivered to sandboxes
-    /// over `GetCredentials`. Re-minted on every credential fetch, so this only
-    /// needs to outlive the 15-min refresher gap. Env `SANDBOX_USER_TOKEN_TTL_SECS`
-    /// (default: 604800 = 7 days).
+    /// TTL (seconds) for the long-lived user auth token delivered over
+    /// `GetCredentials`.
+    ///
+    /// Re-minted every fetch, so it only needs to outlive the 15-min refresher
+    /// gap. Env `SANDBOX_USER_TOKEN_TTL_SECS` (default 604800 = 7 days).
     pub user_token_ttl_secs: u64,
-    /// TTL (seconds) for the short-lived bootstrap token placed on the pod spec.
-    /// It only authenticates the sandbox's initial `GetCredentials` call, so a
-    /// minutes-scale value bounds the blast radius of the one token still in
-    /// etcd. Env `SANDBOX_BOOTSTRAP_TOKEN_TTL_SECS` (default: 1800 = 30 min).
+    /// TTL (seconds) for the short-lived bootstrap token placed on the pod
+    /// spec.
+    ///
+    /// Only authenticates the initial `GetCredentials` call, so a minutes-scale
+    /// value bounds the blast radius of the one token left in etcd. Env
+    /// `SANDBOX_BOOTSTRAP_TOKEN_TTL_SECS` (default 1800 = 30 min).
     pub bootstrap_token_ttl_secs: u64,
     /// Whether to also emit the long-lived `USER_AUTH_TOKEN` env var on the pod
-    /// spec (in addition to the bootstrap token). Kept `true` during the
-    /// sandbox-image rollout so pods still running the old image — which read the
-    /// token from env — keep working. Flip to `false` once every sandbox image
-    /// consumes the credential-channel token, removing the long-lived secret from
-    /// etcd entirely. Env `SANDBOX_EMIT_LEGACY_USER_TOKEN` (default: true).
+    /// spec, for sandbox images still reading the token from env.
+    ///
+    /// Flip to `false` once every image reads the credential channel instead,
+    /// removing the long-lived secret from etcd. Env
+    /// `SANDBOX_EMIT_LEGACY_USER_TOKEN` (default `true`).
     pub emit_legacy_user_token_env: bool,
     /// Whether the sandbox gRPC verification layer accepts legacy claim-less
-    /// tokens (those minted before the per-task `taskId` binding existed). When
-    /// `true`, such a token falls back to the DB task-access check; when `false`,
-    /// every token must carry a matching `taskId` claim. Grace flag for the
-    /// rollout — flip to `false` once every live sandbox holds a task-bound
-    /// token. Env `SANDBOX_ACCEPT_CLAIMLESS_TOKENS` (default: true).
+    /// tokens (minted before the per-task `taskId` binding existed).
+    ///
+    /// `true` falls back to the DB task-access check; `false` requires a
+    /// matching `taskId` claim. Env `SANDBOX_ACCEPT_CLAIMLESS_TOKENS` (default
+    /// `true`).
     pub accept_claimless_tokens: bool,
-    /// Directory inside sandbox pods that attached uploads are written to
-    /// (env `SANDBOX_FILE_MOUNT_PATH`, default
-    /// `/opt/moatless/workspace/uploads`). It sits under the sandbox's
-    /// `WORKSPACE_DIR` so uploads ride the workspace snapshot and survive a
-    /// restart. This is the single source of truth for the path: the agent
-    /// prompt's "Saved to:" line is rendered from it, and the runtime providers
-    /// pass it to the pod as `UPLOAD_DIR` so the sandbox writes where the prompt
-    /// says.
+    /// Directory inside sandbox pods that attached uploads are written to (env
+    /// `SANDBOX_FILE_MOUNT_PATH`, default `/opt/moatless/workspace/uploads`).
+    ///
+    /// The single source of truth for the path: the agent prompt's "Saved to:"
+    /// line and the pod's `UPLOAD_DIR` env both derive from it.
     pub file_mount_path: String,
     /// Whether the idle sandbox reaper is enabled (default: true)
     pub idle_reaper_enabled: bool,
@@ -407,10 +399,11 @@ pub struct SandboxConfig {
     /// deployment's database and Leases, so it must not fire scheduled jobs.
     /// Env `CRON_SCHEDULER_ENABLED` (default: true).
     pub cron_scheduler_enabled: bool,
-    /// Whether to attach a liveness probe to the sandbox container so K8s
-    /// restarts a hung-but-alive pod (agent actor wedged while `/health` still
-    /// reports Ready). Default OFF: a false-positive restart kills an in-flight
-    /// agent turn, which is worse than a rare hang. Env `K8S_SANDBOX_LIVENESS_ENABLED`.
+    /// Whether to attach a liveness probe restarting a hung-but-alive sandbox
+    /// pod (agent actor wedged while `/health` still reports Ready).
+    ///
+    /// Default off: a false-positive restart kills an in-flight agent turn,
+    /// worse than a rare hang. Env `K8S_SANDBOX_LIVENESS_ENABLED`.
     pub liveness_enabled: bool,
     /// Stop sandboxes idle longer than this (minutes, default: 15)
     pub idle_timeout_minutes: u64,
@@ -419,12 +412,12 @@ pub struct SandboxConfig {
     /// Auto-close Open tasks inactive for this many days. `0` disables
     /// auto-close. Env: `TASK_INACTIVE_TIMEOUT_DAYS` (default: 7).
     pub inactive_task_timeout_days: u64,
-    /// Reclaim the Deployment and PVC of a sandbox that has been Stopped this
-    /// many hours, leaving the S3 snapshot as the only copy. The Task stays
-    /// Open and a later start provisions a fresh volume and restores into it.
-    /// Only tasks on the pvc+s3 tier are eligible — without a snapshot there is
-    /// nothing to reclaim into. `0` disables the transition. Env:
-    /// `SANDBOX_COLD_AFTER_HOURS` (default: 24). A per-task
+    /// Reclaim the Deployment and PVC of a sandbox Stopped this many hours,
+    /// leaving the S3 snapshot as the only copy; a later start restores into a
+    /// fresh volume.
+    ///
+    /// Only pvc+s3-tier tasks are eligible. `0` disables. Env
+    /// `SANDBOX_COLD_AFTER_HOURS` (default 24); a per-task
     /// `tasks.cold_after_hours` overrides this.
     pub cold_after_hours: u64,
     /// Whether the reaper's orphan-GC pass is enabled (default: true). When on,
@@ -432,120 +425,137 @@ pub struct SandboxConfig {
     /// longer exists. Env: `SANDBOX_ORPHAN_GC_ENABLED`.
     pub orphan_gc_enabled: bool,
     /// How often the background Codex refresher sweeps `provider_tokens`.
-    /// Setting this to 0 disables the sweep entirely (env-var fallback
-    /// still works; just no proactive backend refresh). Env:
-    /// `CODEX_REFRESHER_INTERVAL_SECS` (default: 3600 = 1h).
+    ///
+    /// `0` disables the sweep entirely (env-var fallback still works). Env
+    /// `CODEX_REFRESHER_INTERVAL_SECS` (default 3600 = 1h).
     pub codex_refresher_interval_secs: u64,
-    /// Maximum container restart count before auto-stopping a crash-looping sandbox (default: 5).
-    /// Set to 0 to disable crash-loop auto-stop.
+    /// Maximum container restart count before auto-stopping a crash-looping
+    /// sandbox (default: 5). Set to 0 to disable crash-loop auto-stop.
     pub max_crash_restart_count: i32,
-    /// JSON-encoded tolerations for sandbox pods (e.g., `[{"key":"kubernetes.azure.com/scalesetpriority","operator":"Equal","value":"spot","effect":"NoSchedule"}]`)
+    /// JSON-encoded tolerations for sandbox pods (e.g.,
+    /// `[{"key":"kubernetes.azure.com/scalesetpriority","operator":"Equal","value":"spot","effect":"NoSchedule"}]`)
     pub tolerations_json: Option<String>,
-    /// JSON-encoded node selector for sandbox pods (e.g., `{"karpenter.sh/capacity-type":"spot"}`)
+    /// JSON-encoded node selector for sandbox pods (e.g.,
+    /// `{"karpenter.sh/capacity-type":"spot"}`)
     pub node_selector_json: Option<String>,
-    /// Kubernetes `ServiceAccount` name for sandbox pods (set via `K8S_SANDBOX_SERVICE_ACCOUNT`)
+    /// Kubernetes `ServiceAccount` name for sandbox pods (set via
+    /// `K8S_SANDBOX_SERVICE_ACCOUNT`)
     pub service_account_name: Option<String>,
-    /// Default Claude model for sandbox agents (forwarded as `DEFAULT_CLAUDE_CODE_MODEL` env var)
+    /// Default Claude model for sandbox agents (forwarded as
+    /// `DEFAULT_CLAUDE_CODE_MODEL` env var)
     pub default_model: Option<String>,
-    /// Default Codex model for sandbox agents (forwarded as `DEFAULT_CODEX_MODEL` env var)
+    /// Default Codex model for sandbox agents (forwarded as
+    /// `DEFAULT_CODEX_MODEL` env var)
     pub default_codex_model: Option<String>,
-    /// Extra env vars injected into every sandbox pod (parsed from `K8S_SANDBOX_EXTRA_ENV` JSON)
+    /// Extra env vars injected into every sandbox pod (parsed from
+    /// `K8S_SANDBOX_EXTRA_ENV` JSON)
     pub extra_env: Vec<(String, String)>,
     /// Generic package-manager caches mounted into sandbox pods (parsed from
     /// `K8S_SANDBOX_CACHE_VOLUMES` JSON). Empty disables the feature entirely —
     /// no extra volume, no init container. See [`SandboxCacheVolume`].
     pub cache_volumes: Vec<SandboxCacheVolume>,
-    /// Host directory the shared `pkg-cache` volume is rooted at; the node-local
-    /// NVMe is formatted and mounted here by the `nvme-setup` init container, and
-    /// each cache lives in a `<root>/<name>` subdir. Env
+    /// Host directory the shared `pkg-cache` volume is rooted at; the
+    /// `nvme-setup` init container formats/mounts the node-local NVMe here.
+    ///
+    /// Each cache lives in a `<root>/<name>` subdir. Env
     /// `K8S_SANDBOX_CACHE_HOST_ROOT` (default `/mnt/cache`).
     pub cache_host_root: String,
     /// Image for the privileged `nvme-setup` init container that formats/mounts
-    /// the instance-store NVMe. Must be an allowlisted ref under the
-    /// `restrict-image-registries` Kyverno policy (the ECR-mirrored dind image).
-    /// Env `K8S_SANDBOX_CACHE_INIT_IMAGE`.
+    /// the instance-store NVMe.
+    ///
+    /// Must be an allowlisted ref under the `restrict-image-registries` Kyverno
+    /// policy. Env `K8S_SANDBOX_CACHE_INIT_IMAGE`.
     pub cache_init_image: String,
-    /// Image for the privileged `dind` (docker-in-docker) sidecar attached to
-    /// sandbox pods whose repo config sets `dockerAccess: true`. This is what
-    /// lets Testcontainers-based tests run inside the sandbox. Must be an
-    /// allowlisted ref under the `restrict-image-registries` Kyverno policy
-    /// (the ECR-mirrored dind image). Env `K8S_SANDBOX_DOCKER_DIND_IMAGE`.
+    /// Image for the privileged `dind` sidecar attached when a repo sets
+    /// `dockerAccess: true`, letting Testcontainers-based tests run inside the
+    /// sandbox.
+    ///
+    /// Must be an allowlisted ref under the `restrict-image-registries` Kyverno
+    /// policy. Env `K8S_SANDBOX_DOCKER_DIND_IMAGE`.
     pub docker_dind_image: String,
     /// Size cap for the `dind` sidecar's `/var/lib/docker` emptyDir when
-    /// `resources.dockerStorageMode` is `emptyDir`. The default `node` mode uses
-    /// hostPath storage instead and is bounded by node disk capacity. Env
-    /// `K8S_SANDBOX_DOCKER_DIND_STORAGE_SIZE` (default `10Gi`).
+    /// `resources.dockerStorageMode` is `emptyDir`.
+    ///
+    /// The default `node` mode uses hostPath instead, bounded by node disk
+    /// capacity. Env `K8S_SANDBOX_DOCKER_DIND_STORAGE_SIZE` (default `10Gi`).
     pub docker_dind_storage_size: String,
-    /// CPU request for the `dind` sidecar. Env `K8S_SANDBOX_DOCKER_DIND_CPU_REQUEST`.
+    /// CPU request for the `dind` sidecar. Env
+    /// `K8S_SANDBOX_DOCKER_DIND_CPU_REQUEST`.
     pub docker_dind_cpu_request: String,
-    /// CPU limit for the `dind` sidecar. Env `K8S_SANDBOX_DOCKER_DIND_CPU_LIMIT`.
+    /// CPU limit for the `dind` sidecar. Env
+    /// `K8S_SANDBOX_DOCKER_DIND_CPU_LIMIT`.
     pub docker_dind_cpu_limit: String,
-    /// Memory request for the `dind` sidecar. Env `K8S_SANDBOX_DOCKER_DIND_MEMORY_REQUEST`.
+    /// Memory request for the `dind` sidecar. Env
+    /// `K8S_SANDBOX_DOCKER_DIND_MEMORY_REQUEST`.
     pub docker_dind_memory_request: String,
-    /// Memory limit for the `dind` sidecar. Containers started by Testcontainers
-    /// run as children of dockerd inside this container, so their memory charges
-    /// against this limit. Env `K8S_SANDBOX_DOCKER_DIND_MEMORY_LIMIT`.
+    /// Memory limit for the `dind` sidecar. Containers started by
+    /// Testcontainers run as children of dockerd inside this container, so
+    /// their memory charges against this limit. Env
+    /// `K8S_SANDBOX_DOCKER_DIND_MEMORY_LIMIT`.
     pub docker_dind_memory_limit: String,
-    /// In-cluster egress forward-proxy URL (e.g.
-    /// `http://moatless-vibe-egress-proxy.<ns>.svc.cluster.local:3128`). When
-    /// set, sandbox pods whose `network_profile` is listed in
-    /// [`SandboxConfig::egress_proxy_profiles`] get `HTTPS_PROXY`/`HTTP_PROXY`
-    /// pointed at it, so all outbound traffic is funnelled through the proxy's
-    /// hostname allowlist. Pairs with a per-profile `NetworkPolicy` that blocks
-    /// direct internet egress and forces this path. Env
-    /// `SANDBOX_EGRESS_PROXY_URL` (default: unset → no proxy injected).
+    /// In-cluster egress forward-proxy URL. Pods whose `network_profile` is
+    /// listed in [`SandboxConfig::egress_proxy_profiles`] get
+    /// `HTTPS_PROXY`/`HTTP_PROXY` pointed at it.
+    ///
+    /// Pairs with a per-profile `NetworkPolicy` that blocks direct egress and
+    /// forces this path. Env `SANDBOX_EGRESS_PROXY_URL` (default unset).
     pub egress_proxy_url: Option<String>,
     /// Network profiles that receive the egress proxy env (see
-    /// [`SandboxConfig::egress_proxy_url`]). A pod gets the proxy only when its
-    /// `network_profile` value is in this list. Env
-    /// `SANDBOX_EGRESS_PROXY_PROFILES` (comma-separated; default: empty →
-    /// opt-in, no pod gets the proxy even if a URL is set).
+    /// [`SandboxConfig::egress_proxy_url`]); a pod gets it only when its
+    /// `network_profile` is listed here.
+    ///
+    /// Env `SANDBOX_EGRESS_PROXY_PROFILES` (comma-separated). Opt-in: empty
+    /// means no pod gets the proxy even with a URL set.
     pub egress_proxy_profiles: Vec<String>,
     /// `NO_PROXY` value paired with [`SandboxConfig::egress_proxy_url`] so
-    /// in-cluster traffic (backend gRPC, DNS, kube-apiserver, link-local
-    /// metadata) bypasses the proxy. Env `SANDBOX_EGRESS_PROXY_NO_PROXY`
-    /// (default covers localhost, the cluster service domain, RFC-1918 and the
-    /// link-local metadata IP).
+    /// in-cluster traffic (gRPC, DNS, kube-apiserver, link-local metadata)
+    /// bypasses the proxy.
+    ///
+    /// Env `SANDBOX_EGRESS_PROXY_NO_PROXY` (default covers localhost, the
+    /// cluster domain, RFC-1918, and the link-local metadata IP).
     pub egress_proxy_no_proxy: String,
 }
 
 /// Proxy / Traefik `IngressRoute` settings.
 #[derive(Debug, Clone)]
 pub struct ProxyConfig {
-    /// Domain for proxy URLs (e.g., "moatless.xyz"). If None, `IngressRoute`s are not created.
+    /// Domain for proxy URLs (e.g., "moatless.xyz"). If None, `IngressRoute`s
+    /// are not created.
     pub domain: Option<String>,
     /// Protocol for proxy URLs (default: "https")
     pub protocol: String,
-    /// Name of the Traefik `ForwardAuth` Middleware CRD (default: "preview-auth")
+    /// Name of the Traefik `ForwardAuth` Middleware CRD (default:
+    /// "preview-auth")
     pub traefik_auth_middleware_name: String,
-    /// Namespace where the Traefik auth Middleware lives (defaults to sandbox namespace)
+    /// Namespace where the Traefik auth Middleware lives (defaults to sandbox
+    /// namespace)
     pub traefik_auth_middleware_namespace: String,
     /// Traefik entryPoint name for `IngressRoute`s (default: "websecure")
     pub traefik_entry_point: String,
-    /// Namespaces whose Traefik ingress pods (`app.kubernetes.io/name=traefik`)
-    /// the per-sandbox preview `NetworkPolicy` admits to the preview ports. The
-    /// policy is what makes a preview URL reachable once ingress `NetworkPolicy`s
-    /// are enforced; deriving its ports from the sandbox's own server map (see
-    /// `k8s/networkpolicy.rs`) is what keeps it from drifting out of sync.
+    /// Namespaces whose Traefik ingress pods the per-sandbox preview
+    /// `NetworkPolicy` admits to the preview ports.
+    ///
+    /// Deriving the policy's ports from the sandbox's own server map
+    /// (`k8s/networkpolicy.rs`) is what keeps it from drifting out of sync.
     pub traefik_ingress_namespaces: Vec<String>,
 }
 
 /// Redis connection and stream settings.
 #[derive(Debug, Clone)]
 pub struct RedisConfig {
-    /// Redis connection URL. When set, enables event publishing and SSE consumers.
+    /// Redis connection URL. When set, enables event publishing and SSE
+    /// consumers.
     pub url: Option<String>,
     /// Maximum stream length for MAXLEN ~ trimming (default: 500).
     ///
-    /// Sized for the live SSE tail, which is all the stream is for — history is
-    /// served from `task_events` in Postgres. `MAXLEN` bounds entry count only;
-    /// per-entry bytes are capped separately in `events.rs`.
+    /// Sized for the live SSE tail; history lives in `task_events` in Postgres.
+    /// Bounds entry count only — per-entry bytes are capped in `events.rs`.
     pub max_stream_length: usize,
-    /// Whether the event-handler consumer runs (default: true). Its Redis
-    /// consumer group is a shared constant (`event-handler`), so a second
-    /// backend joining the same Redis would split the group's workload with the
-    /// primary. Set `EVENT_HANDLER_ENABLED=false` on a shadow/dev backend that
-    /// shares the primary's Redis so it never claims events meant for it.
+    /// Whether the event-handler consumer runs (default: true).
+    ///
+    /// Its Redis consumer group is a shared constant (`event-handler`), so a
+    /// second backend on the same Redis splits its workload — set
+    /// `EVENT_HANDLER_ENABLED=false` on a shadow/dev backend sharing it.
     pub event_handler_enabled: bool,
 }
 
@@ -566,15 +576,17 @@ pub struct S3Config {
     /// S3 key prefix for uploaded files (default: "uploads")
     pub key_prefix: String,
     /// S3 key prefix for sandbox Claude transcripts, stored under
-    /// `<prefix>/<task_id>/transcripts.tar` (default: "transcripts").
-    /// Reuses the uploads bucket — the backend IRSA already has read/write on it.
-    /// Env: `TRANSCRIPT_S3_PREFIX`.
+    /// `<prefix>/<task_id>/transcripts.tar` (default "transcripts").
+    ///
+    /// Reuses the uploads bucket — the backend IRSA already has read/write on
+    /// it. Env `TRANSCRIPT_S3_PREFIX`.
     pub transcript_prefix: String,
-    /// S3 key prefix for the `s3` storage backend's workspace archives, stored
-    /// under `<prefix>/<task_id>/workspace.tar`. Reuses the uploads bucket. The
-    /// sandbox never gets S3 credentials — the backend presigns PUT/GET URLs
-    /// scoped to this prefix and the sandbox transfers directly. Env:
-    /// `WORKSPACE_S3_PREFIX` (default: "workspaces").
+    /// S3 key prefix for the `s3` storage backend's workspace archives, under
+    /// `<prefix>/<task_id>/workspace.tar`. Reuses the uploads bucket.
+    ///
+    /// The sandbox never gets S3 credentials — the backend presigns PUT/GET
+    /// URLs scoped to this prefix. Env `WORKSPACE_S3_PREFIX` (default
+    /// "workspaces").
     pub workspace_prefix: String,
     /// S3 region (default: "us-east-1")
     pub region: String,
@@ -661,7 +673,8 @@ pub struct DockerConfig {
     pub data_dir: String,
     /// Container-internal path where data is mounted (for backend file ops)
     pub container_data_dir: String,
-    /// Backend container hostname on the Docker network (for sandbox → backend gRPC)
+    /// Backend container hostname on the Docker network (for sandbox → backend
+    /// gRPC)
     pub backend_hostname: String,
     /// Mount Docker socket in sandbox containers (default: false)
     pub enable_socket_mount: bool,
@@ -678,9 +691,9 @@ pub struct DatabaseConfig {
     pub url: Option<String>,
     /// Max connections in the pool (default: 5)
     pub max_connections: u32,
-    /// Whether to apply pending migrations at startup (default: true).
-    /// Env `RUN_MIGRATIONS=false` disables them — used by the shadow-dev
-    /// backend so a dev instance never mutates the shared dev schema.
+    /// Whether to apply pending migrations at startup (default: true). Env
+    /// `RUN_MIGRATIONS=false` disables them — used by the shadow-dev backend so
+    /// a dev instance never mutates the shared dev schema.
     pub run_migrations: bool,
 }
 
@@ -693,16 +706,16 @@ pub struct SkillConfig {
 
 /// OTLP trace export settings (`backend/src/startup.rs::init_tracing`).
 ///
-/// `otlp_endpoint: None` (the default — `OTEL_EXPORTER_OTLP_ENDPOINT` unset)
-/// means trace export is off: `init_tracing` omits the OTel layer entirely and
-/// the process behaves exactly as it did before this config existed.
+/// `otlp_endpoint: None` (default, `OTEL_EXPORTER_OTLP_ENDPOINT` unset) means
+/// trace export is off — `init_tracing` omits the OTel layer entirely.
 #[derive(Debug, Clone)]
 pub struct OtelConfig {
     /// OTLP/gRPC collector endpoint (e.g. `http://tempo:4317`).
     pub otlp_endpoint: Option<String>,
-    /// Head sampling ratio for the parent-based sampler, applied only to
-    /// traces with no sampling decision already made upstream (env:
-    /// `OTEL_TRACES_SAMPLER_ARG`, matching the OTel SDK's own name for a
+    /// Head sampling ratio for the parent-based sampler, applied only to traces
+    /// with no sampling decision already made upstream.
+    ///
+    /// Env `OTEL_TRACES_SAMPLER_ARG` (matches the OTel SDK's own name for a
     /// ratio-sampler argument).
     pub sampling_ratio: f64,
     /// OTel `service.name` resource (env: `OTEL_SERVICE_NAME`).
@@ -713,11 +726,12 @@ impl OtelConfig {
     const DEFAULT_SAMPLING_RATIO: f64 = 0.1;
     const DEFAULT_SERVICE_NAME: &'static str = "moatless-vibe-backend";
 
-    /// Read directly from the environment, without a `tracing::warn!` on a
-    /// malformed value — this runs once from `main()` before
-    /// `startup::init_tracing` installs a subscriber, and a warning emitted
-    /// before that point has nowhere to land. [`Config::from_env`] reads the
-    /// same variables into [`Config::otel`] afterwards, once logging is live.
+    /// Reads directly from the environment without a `tracing::warn!` on bad
+    /// values — this runs before `startup::init_tracing` installs a subscriber,
+    /// so a warning has nowhere to land.
+    ///
+    /// [`Config::from_env`] reads the same variables into [`Config::otel`]
+    /// afterwards, once logging is live.
     pub fn from_env() -> Self {
         Self {
             otlp_endpoint: env_opt("OTEL_EXPORTER_OTLP_ENDPOINT"),
@@ -1271,10 +1285,11 @@ impl Config {
 
 #[cfg(any(test, feature = "test-support"))]
 impl Config {
-    /// Minimal valid config for unit tests across the crate, and for the gRPC
-    /// service's db-backed test constructors (which need a `Config` value but
-    /// never read it). Public so downstream test tiers reach it off core's
-    /// `test-support` feature; no shipping build enables that feature.
+    /// Minimal valid config for unit tests, and for gRPC service test
+    /// constructors that need a `Config` value but never read it.
+    ///
+    /// Public so downstream test tiers reach it via core's `test-support`
+    /// feature; no shipping build enables that feature.
     pub fn test_minimal() -> Self {
         Config {
             server: ServerConfig {

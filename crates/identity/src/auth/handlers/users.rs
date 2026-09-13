@@ -1,5 +1,5 @@
-//! The caller's own profile, and the admin routes over users and their
-//! provider ids.
+//! The caller's own profile, and the admin routes over users and their provider
+//! ids.
 
 use super::session::{authenticate_from_cookie, authenticate_request};
 use crate::auth::error::AuthError;
@@ -82,14 +82,9 @@ pub(in crate::auth) async fn update_me_handler(
 
 /// Create a user. Admin only.
 ///
-/// With `isBot: true`, resolves the App's `{slug}[bot]` identity via
-/// `GitHubAppRegistry`, then inserts both the `users` row and a matching
-/// `provider_tokens` row with `auth_method = 'github_app_installation'` so
-/// credential resolution transparently mints installation tokens for tasks
-/// that `run_as_user_id = <bot id>`.
-///
-/// With `isBot: false`, creates a human user with a local password. Available
-/// only under local password auth — OAuth deployments create users on callback.
+/// `isBot: true` mints a `{slug}[bot]` identity plus a `provider_tokens` row so
+/// credential resolution issues installation tokens for it; `isBot: false`
+/// creates a local-password human user (local auth only).
 #[utoipa::path(
     post,
     path = "/api/v1/users",
@@ -151,12 +146,11 @@ pub(in crate::auth) async fn list_users_handler(
     Ok(Json(UserListResponse { users: items }))
 }
 
-/// Update a user's profile (name and/or email).
+/// Update a user's profile (name and/or email). Only the fields present in the
+/// body are changed.
 ///
 /// A user may update their own profile; updating another user requires the
-/// admin role. Backs the `moat user set-email <login>` CLI command so emails
-/// can be corrected without direct DB access. Only the fields present in the
-/// body are changed.
+/// admin role.
 #[utoipa::path(
     patch,
     path = "/api/v1/users/{login}",
@@ -185,10 +179,9 @@ pub(in crate::auth) async fn update_user_handler(
 
 /// Update the user an internal id names. Admin only.
 ///
-/// A login is not unique — the same handle exists once per provider — and
-/// `PATCH /api/v1/users/{login}` resolves one to its oldest row. Reach any
-/// newer row of a shared login here, keyed on the `id` that `GET /api/v1/users`
-/// already reports. The body is the one `PATCH /api/v1/users/{login}` takes.
+/// A login isn't unique — `PATCH /api/v1/users/{login}` resolves only the
+/// oldest row of a shared login. Reach any other row here, keyed on the `id`
+/// `GET /api/v1/users` reports; takes the same body.
 #[utoipa::path(
     patch,
     path = "/api/v1/admin/users/{user_id}",

@@ -44,9 +44,10 @@ pub fn save_credential(host: &str, api_key: &str, login: &str) -> Result<(), Str
     save_profile(host, api_key, login, None, false)
 }
 
-/// Save a profile with an explicit `api_url` (used by `moat login --local` where
-/// the URL isn't `https://{host}`). If `make_default` is true, this profile
-/// becomes the default host, replacing any previous default.
+/// Save a profile with an explicit `api_url` (used by `moat login --local`,
+/// where the URL isn't `https://{host}`).
+///
+/// `make_default: true` replaces any previous default host with this profile.
 pub fn save_profile(
     host: &str,
     api_key: &str,

@@ -9,11 +9,11 @@ use async_trait::async_trait;
 
 /// Trait for leader election guards.
 ///
-/// Implementations decide whether this replica should run
-/// singleton background tasks (cron scheduler, reapers, etc.).
+/// Implementations decide whether this replica should run singleton background
+/// tasks (cron scheduler, reapers, etc.).
 #[async_trait]
 pub trait LeaderGuard: Send + Sync {
-    /// Try to acquire or renew leadership.
-    /// Returns `true` if this instance is the current leader.
+    /// Try to acquire or renew leadership. Returns `true` if this instance is
+    /// the current leader.
     async fn try_acquire_or_renew(&self) -> Result<bool, Box<dyn std::error::Error + Send + Sync>>;
 }

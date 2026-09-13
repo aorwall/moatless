@@ -24,9 +24,9 @@ use moatless_types::sandbox::SandboxStopReason;
 const STATUS_POLL_INTERVAL: Duration = Duration::from_secs(2);
 
 /// How often a `sandbox.subscribeDetail` subscriber re-reads the panel's data.
-/// Five times the status interval: this read reaches the runtime's diagnostics
-/// and metrics APIs rather than its lifecycle state, and the panel it feeds is
-/// opened deliberately rather than always shown.
+///
+/// Five times the status interval: reads diagnostics/metrics, not lifecycle
+/// state.
 const DETAIL_POLL_INTERVAL: Duration = Duration::from_secs(10);
 
 /// Everything the sandbox lifecycle handlers need.
@@ -149,11 +149,9 @@ pub async fn status(
     Ok(payload)
 }
 
-/// Everything the sandbox panel shows beside the lifecycle state: the image, the
-/// containers and their metrics, the runtime events, and the idle-stop TTL.
-///
-/// Read gate rather than control gate: this reports on a Sandbox and moves
-/// nothing, and the panel is open for anyone who can see the thread.
+/// Everything the sandbox panel shows beside lifecycle state: image,
+/// containers, runtime events, and idle-stop TTL. Read gate, not control gate:
+/// reports only.
 pub async fn detail(
     state: &SandboxState,
     viewer: &ScopeContext,
@@ -222,15 +220,12 @@ pub async fn detail(
     Ok(payload)
 }
 
-/// The panel's Image section: what the sandbox runs, what a redeploy would give
-/// it, and whether those differ. `None` when neither is known, so the panel
-/// hides the section rather than showing two blanks.
+/// The panel's Image section: what the sandbox runs vs. what a redeploy would
+/// give it; `None` when neither is known.
 ///
-/// The two halves come from different places on purpose. `current` is the pod's,
-/// and only the status reader can see it; `latest` is the deployment config's,
-/// and only the lifecycle orchestrator resolves it. An unresolvable `latest`
-/// degrades to absence rather than to a failure, matching `sandbox_status_handler`
-/// — a panel that shows the running image is better than one that shows nothing.
+/// `current` reads the pod (status reader); `latest` reads the deployment
+/// config (lifecycle orchestrator) and degrades to absence, not failure, if
+/// unresolvable.
 async fn image(state: &SandboxState, task_id: &str, current: Option<String>) -> Option<Value> {
     let latest = match state.operator.expected_image(task_id).await {
         Ok(latest) => Some(latest),
@@ -255,8 +250,7 @@ async fn image(state: &SandboxState, task_id: &str, current: Option<String>) -> 
 
 /// What a sandbox subscription re-reads on each tick.
 ///
-/// The two differ in width and in rate, and in nothing else, so one loop serves
-/// both and a change-detection fix cannot land on one and miss the other.
+/// The two differ only in width and rate, so one loop serves both.
 #[derive(Debug, Clone, Copy)]
 enum Watched {
     /// `sandbox.subscribeStatus`: the lifecycle state behind the indicator.
@@ -294,17 +288,11 @@ impl Watched {
     }
 }
 
-/// Push a Task's sandbox status for as long as the subscription lives.
+/// Pushes a Task's sandbox status for the subscription's life; only changes are
+/// sent, so silence means "nothing moved", not "nothing is known".
 ///
-/// Lifecycle has no event to hang this on — a Sandbox reaches Ready because a
-/// pod did, not because anything here was told — so the push is a poll the
-/// server runs once per subscriber instead of every client running its own.
-/// Only changes are sent: an idle subscription is silent, so a client reads the
-/// absence of a message as "nothing moved" rather than "nothing is known".
-///
-/// `seeded` is the status the subscribe arm already sent. It starts the change
-/// detector, because a subscriber that has been told "ready" and is then told
-/// "ready" again a moment later has been sent a change that did not happen.
+/// `seeded` is the status already sent by the subscribe arm, seeding the change
+/// detector so a repeat isn't sent as a change.
 pub async fn watch_status(
     sink: StreamSink,
     state: SandboxState,
@@ -386,9 +374,8 @@ pub async fn start(
 
 /// Every Sandbox in the deployment, with its status and live resource usage.
 ///
-/// Deployment-global rather than per-Task: there is no `threadId` to authorize
-/// against, so reaching this at all is the authorization, and the read is
-/// already scoped to the caller's environment by the RPC dispatch.
+/// Deployment-global, not per-Task: there is no `threadId` to authorize
+/// against, so reaching this at all is the authorization.
 pub async fn list_diagnostics(state: &SandboxState) -> Result<Value, SandboxRpcError> {
     let entries = state
         .diagnostics
@@ -449,9 +436,8 @@ pub async fn redeploy(
 /// Remove a Task's Sandbox and delete its archives, then return lifecycle
 /// status only.
 ///
-/// Gated on write and not on control, matching the REST `/cleanup` route: this
-/// is a change the owner would have to undo, so `visibility = 'public'` does not
-/// widen it.
+/// Gated on write, not control, matching the REST `/cleanup` route: `visibility
+/// = 'public'` does not widen it.
 pub async fn cleanup(
     state: &SandboxState,
     viewer: &ScopeContext,
@@ -466,11 +452,11 @@ pub async fn cleanup(
     status(state, viewer, task_id).await
 }
 
-/// Set how long a Task's Sandbox may sit idle before the reaper stops it.
-///
-/// Written through [`ThreadCommandSink`] rather than through a sandbox port: the
-/// value lives on the Task, and `tasks` is not this crate's to write. `0`
+/// Set how long a Task's Sandbox may sit idle before the reaper stops it. `0`
 /// disables the idle stop.
+///
+/// Written through [`ThreadCommandSink`], not a sandbox port: the value lives
+/// on the Task, which this crate does not own.
 pub async fn set_idle_timeout(
     commands: &dyn crate::ports::ThreadCommandSink,
     viewer: &ScopeContext,
@@ -714,9 +700,8 @@ mod tests {
     }
 
     /// The seed is a value the client already has, so the first poll must not
-    /// repeat it. Starting the change detector empty would send every idle
-    /// subscriber a duplicate one interval in, and "silent unless something
-    /// moved" would be false for exactly the case it is meant to cover.
+    /// repeat it: an empty change detector would send every idle subscriber a
+    /// duplicate one interval in.
     #[tokio::test(start_paused = true)]
     async fn a_status_that_has_not_moved_since_the_seed_sends_nothing() {
         let observer = Arc::new(MovingStatus::at(false));
@@ -847,10 +832,8 @@ mod tests {
         assert!(received.try_recv().is_err(), "a steady command is silent");
     }
 
-    /// The panel hides a section it was sent nothing for, so a runtime that
-    /// reports no containers has to leave the key out rather than send an empty
-    /// array. The two keys that are always there are the two the panel reads
-    /// from the Task and not from the runtime.
+    /// The panel hides a section it was sent nothing for, so a runtime with no
+    /// containers leaves the key out rather than sending an empty array.
     #[tokio::test]
     async fn a_sandbox_with_nothing_to_report_omits_every_runtime_section() {
         let payload = detail(&watched_state(Arc::new(MovingStatus::at(false))), &viewer(), "t")
@@ -864,10 +847,9 @@ mod tests {
         }
     }
 
-    /// The two halves of the Image section come from two places — the running
-    /// image from the status read, the expected one from the lifecycle port —
-    /// so the comparison the panel gates Redeploy on is only right when both
-    /// arrive. Pinned here because neither source alone can produce it.
+    /// The Image section's two halves come from two places — running image from
+    /// the status read, expected from the lifecycle port — so the
+    /// Redeploy-gating comparison is only right when both arrive.
     #[tokio::test]
     async fn a_running_sandbox_reports_both_images_and_compares_them() {
         let payload = detail(&watched_state(Arc::new(MovingStatus::at(true))), &viewer(), "t")

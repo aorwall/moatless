@@ -22,12 +22,12 @@ use super::{CredentialError, StoreOutcome, WriteSource};
 /// The one way to read, persist and refresh a provider-token credential.
 pub struct CredentialService {
     pub(in crate::credentials) provider_tokens: Arc<dyn ProviderTokenDao>,
-    /// Encrypted secret store. Required to read or rotate a `secret_ref`
-    /// GitHub token; `None` in tests / minimal wiring.
+    /// Encrypted secret store. Required to read or rotate a `secret_ref` GitHub
+    /// token; `None` in tests / minimal wiring.
     secrets: Option<Arc<SecretService>>,
     /// Per-`(user_id, key)` mutex. The `()` payload is irrelevant — we lock
-    /// purely for serialization. Auto-evicted after the TTL so inactive
-    /// users' locks don't accumulate forever.
+    /// purely for serialization. Auto-evicted after the TTL so inactive users'
+    /// locks don't accumulate forever.
     locks: moka::future::Cache<(String, String), Arc<Mutex<()>>>,
     /// Shared HTTP client for the Codex refresh path. Reused so connection
     /// pools are warm across refreshes.
@@ -36,8 +36,8 @@ pub struct CredentialService {
 
 impl CredentialService {
     /// Build a service. This is the pure credential half — it persists and
-    /// refreshes; the tasks-band `CredentialSync` wraps it to add the
-    /// in-flight guard and the sandbox fan-out.
+    /// refreshes; the tasks-band `CredentialSync` wraps it to add the in-flight
+    /// guard and the sandbox fan-out.
     pub(crate) fn new(provider_tokens: Arc<dyn ProviderTokenDao>) -> Self {
         let locks = moka::future::Cache::builder()
             .max_capacity(10_000)
@@ -61,8 +61,8 @@ impl CredentialService {
 
     /// Wire in the HTTP client the Codex refresh path calls OpenAI with.
     ///
-    /// Call sites that don't need Codex refresh (e.g. unit tests) can leave it
-    /// unset; `refresh_codex_locked` then falls back to a raw read.
+    /// Left unset (e.g. unit tests), `refresh_codex_locked` falls back to a raw
+    /// read.
     #[must_use]
     pub(crate) fn with_codex_refresh(mut self, http: Arc<reqwest::Client>) -> Self {
         self.http = Some(http);
@@ -81,14 +81,12 @@ impl CredentialService {
             .await
     }
 
-    /// Persist a credential value. Returns which of the three persist paths
-    /// ran, so the tasks-band `CredentialSync` decides whether to fan the value
-    /// out to running sandboxes.
+    /// Persist a credential value; returns which of three persist paths ran,
+    /// for `CredentialSync` to decide fan-out.
     ///
-    /// Per-`(user, key)` serialization prevents lost writes when two callers
-    /// race (e.g. UI save + sandbox push at the same moment). Hash-based dedup
-    /// short-circuits when the stored value is already up to date, which the
-    /// caller uses to suppress an echo broadcast.
+    /// Per-`(user, key)` serialization prevents lost writes on a race, and
+    /// dedup short-circuits an unchanged value so the caller can suppress an
+    /// echo broadcast.
     pub async fn store(
         &self,
         user_id: &str,

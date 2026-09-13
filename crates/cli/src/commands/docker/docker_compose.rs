@@ -1,8 +1,8 @@
 //! Docker and `docker compose` subprocess plumbing for the `moat docker`
 //! subcommands.
 //!
-//! Centralises binary detection, compose-dir resolution, `.env` management,
-//! and subprocess invocation shared across those subcommands.
+//! Centralises binary detection, compose-dir resolution, `.env` management, and
+//! subprocess invocation shared across those subcommands.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -18,31 +18,12 @@ pub(super) const COMPOSE_FILE: &str = "docker-compose.yml";
 pub(super) const ENV_EXAMPLE_FILE: &str = ".env.example";
 pub(super) const NGINX_CONF_FILE: &str = "nginx.conf";
 
-/// Files that must live in the compose work dir for `docker compose up` to
-/// succeed, each paired with the contents embedded into the binary at compile
-/// time. `docker-compose.yml` + `.env.example` are the bootstrap pair;
-/// `nginx.conf` is bind-mounted by the frontend service.
+/// Files required in the compose work dir for `docker compose up`, embedded via
+/// `include_str!` at compile time.
 ///
-/// The contents are `include_str!`'d straight from the repo's `docker-compose/`
-/// dir, five levels up from this file. Embedding lets `moat docker init` seed a
-/// fresh cache dir from memory with no external asset bundle — the break this
-/// fixes.
-///
-/// This reaches outside the crate directory, up into the workspace root. That
-/// is safe only because `moat` is never `cargo package`d or `cargo publish`ed:
-/// it ships as a plain `cargo build -p moatless-cli --release` from a full-repo
-/// checkout (`.github/workflows/release-moat-cli.yml`), where these paths always
-/// resolve.
-///
-/// The guarantee here is "we never package this crate", NOT "packaging would
-/// catch an escape". Verified: `cargo package -p moatless-cli` is rejected at
-/// manifest verification — its workspace path deps carry no version — before it
-/// ever runs the verify build that would flag an escaping `include_str!`. So
-/// packaging is not a tripwire today. If this crate is ever made publishable,
-/// that verify build becomes the backstop (an escaping path is a hard compile
-/// error, so it fails loudly rather than shipping a broken binary) — but until
-/// then, keep these files under `docker-compose/` and do not add this crate to
-/// a publish set without first vendoring them into the crate.
+/// Never add `moatless-cli` to a publish set without vendoring these files
+/// first — the path reaching outside the crate directory is safe only because
+/// this crate is never packaged or published.
 pub(super) const INSTALL_ASSETS: &[(&str, &str)] = &[
     (
         COMPOSE_FILE,
@@ -149,10 +130,9 @@ pub(super) fn require_binary(name: &'static str) -> Result<(), ClientError> {
 
 /// Resolve the directory that holds `docker-compose.yml` + `.env`.
 ///
-/// Priority (highest wins):
-/// 1. Explicit flag (e.g. `--compose-dir /path`)
-/// 2. A repo checkout discovered by walking up from cwd
-/// 3. `$HOME/.moatless/compose/` — a managed cache dir the CLI may create
+/// Priority: an explicit flag, then a repo checkout found by walking up from
+/// cwd, then `$HOME/.moatless/compose/` (a managed cache dir the CLI may
+/// create).
 pub(super) fn resolve_compose_dir(
     flag: Option<&Path>,
 ) -> Result<(PathBuf, ComposeDirSource), ClientError> {
@@ -193,12 +173,8 @@ pub(super) fn cache_compose_dir() -> Result<PathBuf, ClientError> {
 
 /// Seed the compose work dir with the install assets.
 ///
-/// By default the contents come straight from the compiled-in [`INSTALL_ASSETS`]
-/// — no external bundle is needed, which is what lets a cache-dir `moat docker
-/// init` work without a repo checkout. Pass `custom_from` to override with files
-/// read from a directory on disk (an alternate asset bundle); symlinks there are
-/// followed via `fs::copy`, so the work dir always ends up with real contents.
-///
+/// Defaults to the compiled-in [`INSTALL_ASSETS`]; pass `custom_from` to read
+/// from a directory on disk instead (symlinks are followed via `fs::copy`).
 /// Existing files are left untouched unless `overwrite` is set.
 pub(super) fn seed_assets(
     work_dir: &Path,
@@ -281,9 +257,9 @@ impl CmdOutput {
     }
 }
 
-/// Run a `docker compose ...` command against the given work dir. Always
-/// passes `-f <dir>/docker-compose.yml --env-file <dir>/.env -p <project>` so
-/// the command works regardless of cwd.
+/// Run a `docker compose ...` command against the given work dir. Always passes
+/// `-f <dir>/docker-compose.yml --env-file <dir>/.env -p <project>` so the
+/// command works regardless of cwd.
 pub(super) async fn run_compose(
     compose: &ComposeCmd,
     work_dir: &Path,
@@ -352,8 +328,8 @@ pub(super) async fn run_compose_streaming(
     Ok(())
 }
 
-/// Run `docker <args>` directly (not compose). Used by `status` for `pg_isready`
-/// and `redis-cli PING` invocations on running containers.
+/// Run `docker <args>` directly (not compose). Used by `status` for
+/// `pg_isready` and `redis-cli PING` invocations on running containers.
 pub(super) async fn run_docker(args: &[&str]) -> Result<CmdOutput, ClientError> {
     run("docker", args, None).await
 }
@@ -399,8 +375,8 @@ async fn run(cmd: &str, args: &[&str], stdin: Option<&str>) -> Result<CmdOutput,
 }
 
 /// Check whether a TCP port on 127.0.0.1 is already in use. Used by preflight
-/// to warn about conflicts before `docker compose up` fails with an opaque
-/// bind error.
+/// to warn about conflicts before `docker compose up` fails with an opaque bind
+/// error.
 pub(super) async fn port_in_use(port: u16) -> bool {
     tokio::net::TcpListener::bind(("127.0.0.1", port))
         .await

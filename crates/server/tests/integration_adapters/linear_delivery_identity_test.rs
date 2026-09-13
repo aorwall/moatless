@@ -6,24 +6,18 @@
               and in the shared `common` module compiled into this binary; both lints only \
               fire when the db-tests feature is enabled"
 )]
-//! Two Linear deliveries a person made separately must reach the Agent
-//! separately, and one delivery Linear retried must reach it once.
+//! Two Linear deliveries made separately must reach the Agent separately, and
+//! one delivery Linear retried must reach it once.
 //!
-//! These drive the real inbound route — signed body in, `200` out — because the
-//! defect they cover lives between the signature check and the handler: the
-//! delivery identity the dispatcher derives. A unit test on that identity says
-//! the two keys differ; only the route says the second message was actually
-//! delivered.
+//! These run the real inbound route because the delivery identity is derived by
+//! the dispatcher, between the signature check and the handler.
 //!
-//! The route admits the delivery rather than performing it, so every
-//! assertion here runs the real worker afterwards. That is the shape of the
-//! guarantee being asserted: the `200` means the delivery is durably owned, and what
-//! reaches the Agent is decided by the record, not by the process that answered
-//! Linear.
+//! The `200` means the delivery is durably owned; the record, not the process
+//! that answered Linear, decides what reaches the Agent.
 //!
-//! Linear's own API is unreachable from here, which is deliberate and matches
-//! production behaviour on an expired install: the session heartbeat fails and
-//! is logged, and the forward to the task carries on regardless.
+//! Linear's own API is unreachable from here, matching an expired install: the
+//! session heartbeat fails and is logged, and the forward to the task carries
+//! on regardless.
 
 use crate::common;
 use moatless_types::adapter::AdapterKind;
@@ -99,9 +93,8 @@ async fn deliver(state: &AppState, envelope: &serde_json::Value) -> StatusCode {
 /// Run the real worker until every admitted record is terminal, then stop it,
 /// and assert that nothing was abandoned along the way.
 ///
-/// A delivery is answered once it is durably owned, so nothing has reached the
-/// Agent when `deliver` returns. This is the second half of every assertion
-/// below.
+/// A delivery is answered before it reaches the Agent, so this is the second
+/// half of every assertion below.
 async fn drain_admitted_work(pool: &PgPool) {
     drain_linear_adapter_delivery(pool, replica(pool)).await;
 
@@ -117,8 +110,8 @@ async fn drain_admitted_work(pool: &PgPool) {
     );
 }
 
-/// Every message the Linear adapter has forwarded to the task, oldest first,
-/// as `(external_event_id, text)`.
+/// Every message the Linear adapter has forwarded to the task, oldest first, as
+/// `(external_event_id, text)`.
 async fn delivered_messages(pool: &PgPool) -> Vec<(String, String)> {
     sqlx::query_as::<_, (String, Option<String>)>(
         "SELECT m.external_event_id, m.message_text \
@@ -137,11 +130,8 @@ async fn delivered_messages(pool: &PgPool) -> Vec<(String, String)> {
 
 /// Whether some forwarded message carries `needle`, regardless of position.
 ///
-/// Nothing below asserts the *order* the messages arrived in, and that is a
-/// property of the seam rather than a weakened test: the worker claims a batch
-/// ordered by when each record became due and then executes it concurrently, so
-/// two records from two deliveries can complete in either order. The behaviour
-/// under test is that both arrive and that each keeps its own identity.
+/// Order isn't asserted: the worker claims a batch by due time but executes it
+/// concurrently, so two records can complete in either order.
 fn carries(messages: &[(String, String)], needle: &str) -> bool {
     messages.iter().any(|(_, text)| text.contains(needle))
 }
@@ -339,10 +329,11 @@ async fn two_prompts_on_one_session_both_reach_the_agent(pool: PgPool) {
     );
 }
 
-/// The other half of the same property. The retry is delivered to a second
-/// replica, which has never seen the first — so what collapses it is the
-/// durable identity itself, the only deduplication left and the only one that
-/// holds across a restart or across pods.
+/// The other half of the same property: the retry goes to a second replica that
+/// never saw the first, so only the durable identity collapses it.
+///
+/// It is the only deduplication left, and the only one that holds across a
+/// restart or across pods.
 #[sqlx::test]
 async fn a_retried_prompt_reaches_the_agent_once(pool: PgPool) {
     seed_bound_session(&replica(&pool), &pool).await;
@@ -399,11 +390,9 @@ async fn two_state_changes_on_one_issue_both_reach_the_task(pool: PgPool) {
     );
 }
 
-/// Regression, one layer further down: an issue that leaves a state and later
-/// returns to it makes two changes that differ in nothing a person can see —
-/// same issue, same destination state. Identifying the forwarded message by
-/// the state it moved *into* collapsed the return into the first arrival, so
-/// the Task never learned the issue came back.
+/// Regression, one layer down: an issue leaving a state and later returning to
+/// it makes two changes that differ in nothing visible — same issue, same
+/// destination state.
 #[sqlx::test]
 async fn an_issue_returning_to_a_state_reaches_the_task_again(pool: PgPool) {
     let state = replica(&pool);

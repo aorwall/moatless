@@ -15,8 +15,8 @@ const MEMORY_KIB: u32 = 19_456;
 const TIME_COST: u32 = 2;
 const PARALLELISM: u32 = 1;
 
-/// Alphabet for generated passwords. Indexed with a uniform `random_range`
-/// — never `byte % 62`, which would bias the low end of the alphabet.
+/// Alphabet for generated passwords. Indexed with a uniform `random_range` —
+/// never `byte % 62`, which would bias the low end of the alphabet.
 const PASSWORD_ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 
 /// A PHC string produced with the parameters above, used to burn the same CPU
@@ -49,10 +49,11 @@ fn hash_password_blocking(password: &str) -> Result<String, PasswordHashError> {
         .map_err(|e| PasswordHashError::Hash(e.to_string()))
 }
 
-/// Verify a password against a PHC string. Blocking — call via [`verify_password`].
+/// Verify a password against a PHC string. Blocking — call via
+/// [`verify_password`].
 ///
-/// A malformed stored hash verifies as `false` rather than erroring, so a
-/// corrupt row cannot be distinguished from a wrong password.
+/// A malformed stored hash verifies as `false`, not an error, so a corrupt row
+/// cannot be distinguished from a wrong password.
 fn verify_password_blocking(password: &str, phc: &str) -> bool {
     let (Ok(parsed), Ok(argon2)) = (PasswordHash::new(phc), argon2()) else {
         tracing::warn!("stored password hash is not a usable argon2 PHC string");
@@ -77,8 +78,8 @@ pub async fn verify_password(password: String, phc: String) -> Result<bool, Pass
 
 /// Burn a verify's worth of CPU against a fixed hash.
 ///
-/// Called when the email is unknown so response timing does not leak
-/// account existence.
+/// Called when the email is unknown so response timing does not leak account
+/// existence.
 pub async fn verify_dummy(password: String) {
     let _ =
         tokio::task::spawn_blocking(move || verify_password_blocking(&password, DUMMY_HASH)).await;

@@ -16,10 +16,12 @@ pub(crate) const SCHEDULING_BLOCKED_THRESHOLD_SECS: i64 = 60;
 pub(crate) const STARTUP_SLOW_THRESHOLD_SECS: i64 = 120;
 
 /// Periodic sweep over tracked pods that emits the threshold-driven visibility
-/// events — `scheduling_blocked` (pod stuck Pending) and `startup_slow` (pod
-/// scheduled but its sandbox container not yet running). Runs on the watcher's
-/// renew tick so multi-minute silent windows become first-class events. Each
-/// event fires at most once per pod via the sticky `*_published` guards.
+/// events — `scheduling_blocked` (stuck Pending) and `startup_slow` (scheduled
+/// but sandbox container not yet running).
+///
+/// Runs on the watcher's renew tick so multi-minute silent windows become
+/// first-class events; each event fires at most once per pod via the sticky
+/// `*_published` guards.
 pub(super) async fn sweep_pending_pods(
     k8s: &K8sClient,
     event_publisher: &dyn EventPublisher,
@@ -116,6 +118,7 @@ pub(super) async fn sweep_pending_pods(
 }
 
 /// How long a `Failed` pod corpse is kept before being garbage-collected.
+///
 /// Long enough for post-mortem inspection (`kubectl logs --previous`, pod
 /// describe), short enough that corpses don't accumulate — K8s itself never
 /// removes Failed pods until the cluster-wide terminated-pod GC threshold.
@@ -124,11 +127,11 @@ pub(crate) const FAILED_POD_GC_GRACE_MS: i64 = 15 * 60 * 1000;
 /// Delete pods stuck in the terminal `Failed` phase past the grace period.
 ///
 /// Evicted pods (emptyDir sizeLimit exceeded, node pressure) stay `Failed`
-/// forever unless something deletes them. The `ReplicaSet` has already replaced
-/// them, so they are pure corpses — but they still match the task's label
-/// selector, clutter the sandbox view, and pin logs on the node. Runs on the
-/// watcher's renew tick (leader-only). The resulting `Delete` watch event
-/// removes the entry from `pod_states`.
+/// forever unless something deletes them; the `ReplicaSet` has already replaced
+/// them, so they are pure corpses that still match the task's label selector,
+/// clutter the sandbox view, and pin logs on the node. Runs on the watcher's
+/// renew tick (leader-only); the resulting `Delete` watch event removes the
+/// entry from `pod_states`.
 pub(super) async fn gc_failed_pods(
     k8s: &K8sClient,
     pod_states: &mut HashMap<String, PodObservedState>,
@@ -172,10 +175,10 @@ pub(super) async fn gc_failed_pods(
 /// Retry the crash auto-stop for any pod with a still-pending auto-stop.
 ///
 /// The watch stream only fires on pod changes, so if the auto-stop for a
-/// crash-looping / exit-78 pod failed and the pod then produces no further
-/// watch events, nothing would retry it. This sweep (on the renew tick) closes
-/// that gap: it re-issues the lifecycle stop for every pod whose
-/// `auto_stop_pending` is still set and clears the flag on success.
+/// crash-looping/exit-78 pod failed and the pod then produces no further watch
+/// events, nothing would retry it; this sweep closes that gap by re-issuing the
+/// lifecycle stop for every pod whose `auto_stop_pending` is still set,
+/// clearing the flag on success.
 pub(super) async fn retry_pending_auto_stops(
     pod_states: &mut HashMap<String, PodObservedState>,
     deps: &WatcherDeps,

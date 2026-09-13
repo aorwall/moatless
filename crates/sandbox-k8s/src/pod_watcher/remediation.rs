@@ -25,10 +25,11 @@ pub(super) async fn publish_server_failed(
 }
 
 /// Stop a crash-looping sandbox through the lifecycle (Stopped/Error intent +
-/// graceful stop + scale-to-0). Returns whether the stop landed, so callers can
-/// clear their pending-retry flag. The watcher performs no direct K8s mutation:
-/// without a lifecycle handle (DB-less) there is no intent owner, so the crash
-/// loop is left for the reconciler rather than scaled down here.
+/// graceful stop + scale-to-0).
+///
+/// Returns whether the stop landed, so callers can clear their pending-retry
+/// flag; without a lifecycle handle (DB-less) there is no intent owner, so the
+/// crash loop is left for the reconciler rather than scaled down directly.
 pub(super) async fn crash_autostop(deps: &WatcherDeps, task_id: &str) -> bool {
     let Some(lifecycle) = deps.lifecycle.as_ref() else {
         debug!(task_id = %task_id, "No lifecycle handle — leaving crash-looping sandbox for the reconciler");
@@ -47,8 +48,8 @@ pub(super) async fn crash_autostop(deps: &WatcherDeps, task_id: &str) -> bool {
 /// after SIGTERM). See the call site for why a clean exit is ambiguous.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum CleanExitAction {
-    /// Intent is `Removed` — lifecycle already deleted the Deployment as part of
-    /// the remove, so there is nothing left to scale (a patch would 404).
+    /// Intent is `Removed` — lifecycle already deleted the Deployment as part
+    /// of the remove, so there is nothing left to scale (a patch would 404).
     AlreadyRemoved,
     /// Intent is `Stopped` — the SIGTERM is the pod draining after a deliberate
     /// stop. Confirm the scale-to-0.
@@ -60,8 +61,8 @@ pub(super) enum CleanExitAction {
 
 /// Map durable Sandbox intent onto the clean-exit action.
 ///
-/// `None` means intent could not be read (no lifecycle handle, missing Task
-/// row, or a store error) and fails safe: a reschedule after an eviction is
+/// `None` means intent couldn't be read (no lifecycle handle, missing Task row,
+/// or a store error) and fails safe: a reschedule after an eviction is
 /// recoverable, a wrongly cancelled active task is not.
 pub(super) fn clean_exit_action_for_intent(
     desired: Option<SandboxDesiredState>,
@@ -75,14 +76,11 @@ pub(super) fn clean_exit_action_for_intent(
 
 /// Decide what a clean sandbox exit means for the Deployment.
 ///
-/// Intent is the authority: lifecycle is the sole writer of Sandbox intent, and
-/// only it can distinguish "Deployment deleted by a remove" from "Deployment
-/// scaled to 0 by a stop" — the K8s API reports both as zero desired replicas
-/// (`get_deployment_replicas` maps a 404 to `(0, 0)`).
-///
-/// Without a lifecycle handle (DB-less setups) there is no intent to read, so
-/// this falls back to the replica count, which at least separates a stop from a
-/// still-wanted replica.
+/// Intent is the authority: lifecycle alone can distinguish "Deployment deleted
+/// by a remove" from "Deployment scaled to 0 by a stop" — the K8s API reports
+/// both as zero desired replicas (`get_deployment_replicas` maps a 404 to `(0,
+/// 0)`). Without a lifecycle handle (DB-less setups), falls back to the replica
+/// count, which at least separates a stop from a still-wanted replica.
 pub(super) async fn clean_exit_action(
     deps: &WatcherDeps,
     k8s: &K8sClient,
@@ -116,11 +114,11 @@ pub(super) async fn clean_exit_action(
     clean_exit_action_for_intent(desired)
 }
 
-/// Drive the attach-failure storage fallback for one wedged pod and, on a real
-/// rebuild, publish the `storage_degraded` warning that mirrors the provision
-/// path's degradation. The per-pod guard is set whatever the outcome, so a
-/// no-op or a failed rebuild waits for the next clean start rather than firing
-/// every sweep tick.
+/// Drive the attach-failure storage fallback for one wedged pod, publishing the
+/// `storage_degraded` warning (mirroring the provision path) on a real rebuild.
+///
+/// The per-pod guard is set regardless of outcome, so a no-op or failed rebuild
+/// waits for the next clean start rather than firing every sweep tick.
 pub(super) async fn maybe_run_storage_fallback(
     event_publisher: &dyn EventPublisher,
     state: &mut PodObservedState,

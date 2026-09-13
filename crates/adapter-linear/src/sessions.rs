@@ -1,25 +1,13 @@
 //! The two Linear agent-session workflows: a session created, and a prompt
 //! typed into one that already exists.
 //!
-//! A session is what Linear opens when someone mentions or assigns the agent.
-//! It comes with a panel in the issue view, and the panel is the whole reason
-//! these two workflows look the way they do: it is visible, so it must be
-//! answered promptly, and it is where every later activity for the task lands.
-//!
-//! `created` always spawns a Task — a mention is an explicit instruction, so
-//! the issue's workflow state is not consulted. `prompted` never does: it
-//! routes into the Task the session is already bound to, and a prompt naming no
-//! Binding is an ordinary outcome (the session belongs to a Task that has since
-//! closed) rather than an error.
-//!
-//! Both open with a heartbeat activity before doing anything slow, because
-//! Linear renders the panel as pending until something arrives. `created`'s is
-//! the one thing this Adapter posts to Linear before acknowledging a webhook,
-//! so it is described by [`webhook::normalize`](super::webhook::normalize) and
-//! applied by [`ingress`](super::ingress); `prompted`'s runs here, in the
-//! worker. Either way it is the first entry in the workflow's API-call budget,
-//! and the reason `AgentSessionEvent.created` costs one call even when it
-//! decides to do nothing.
+//! A session gets a visible panel, so both open with a heartbeat activity
+//! before anything slow — `created`'s in
+//! [`webhook::normalize`](super::webhook::normalize)/[`ingress`](super::ingress),
+//! `prompted`'s here. `created` always spawns a Task (a mention is an explicit
+//! instruction); `prompted` routes into the Task its session is already bound
+//! to — a missing Binding is ordinary (that task has since closed), not an
+//! error.
 
 use tracing::{info, warn};
 
@@ -48,21 +36,19 @@ use super::webhook_payloads::AgentSession;
 const ADAPTER_LABEL: &str = "linear";
 
 /// Body of the terminal `error` activity posted when a created session reaches
-/// no task: no active Subscription for the team, or one disabled between
-/// admission and execution. Linear infers session state from the last activity,
-/// so a created session that only ever got the ephemeral heartbeat stays
-/// `active` in the panel forever; a terminal `error` closes it and tells the
-/// user why nothing started.
+/// no task (no active Subscription for the team, or one disabled between
+/// admission and execution).
+///
+/// Linear infers session state from the last activity, so only a terminal
+/// `error` closes a panel stuck `active` from the ephemeral heartbeat alone.
 pub(super) const NO_ACTIVE_RULE_DECLINE: &str = "No Moatless automation is configured for this Linear team, so I can't start a task for this issue.";
 
 /// Close a Linear agent session with a terminal `error` activity when no task
 /// will be provisioned behind it.
 ///
-/// A created session that received only the ephemeral heartbeat sits `active`
-/// in Linear's UI indefinitely — the heartbeat resets the 10-second stale timer
-/// but nothing moves the session to a terminal state. Emitting `error` is what
-/// closes the panel. Best-effort: a failure to post is logged, not propagated,
-/// because the caller has already decided not to do the work.
+/// The heartbeat alone only resets Linear's 10-second stale timer, so without
+/// this the panel sits `active` forever; best-effort — a post failure is
+/// logged, not propagated, since the caller already decided not to do the work.
 pub(super) async fn decline_session(api: &LinearAgentApi, session_id: &str, message: &str) {
     if let Err(e) = api
         .agent_activity_create(session_id, ActivityKind::Error, message, false)
@@ -74,8 +60,8 @@ pub(super) async fn decline_session(api: &LinearAgentApi, session_id: &str, mess
 
 /// Select the spawn rule for a created session and provision its task.
 ///
-/// The executable half of a `linear.session_provision` record. It is at-least-once, and it
-/// converges: the binding guard inside [`provision_session_task`] is what makes
+/// The executable half of a `linear.session_provision` record; at-least-once,
+/// converging because the binding guard inside [`provision_session_task`] makes
 /// a second attempt a no-op rather than a second task.
 #[expect(
     clippy::too_many_arguments,
@@ -136,12 +122,11 @@ pub(super) async fn provision_selected_session_task(
 
 /// Project/label-aware spawn-rule selection for a mention/assignment session.
 ///
-/// Skips the Linear API entirely when no rule is project-scoped
-/// ([`rules_need_issue_fetch`] is false) — all-unscoped teams keep the cheap
-/// `rules.first()` path and pay nothing. Otherwise fetches the issue once to
-/// learn its project + labels (mirroring the extraction in
-/// [`create_tasks_for_status_entry`]); a fetch failure degrades to `(None, &[])`,
-/// which the selector routes to the unscoped catch-all / oldest rule.
+/// Skips the Linear API when no rule is project-scoped
+/// ([`rules_need_issue_fetch`] is false); otherwise fetches the issue once for
+/// project + labels (mirroring [`create_tasks_for_status_entry`]) — a fetch
+/// failure degrades to `(None, &[])`, routing to the unscoped catch-all /
+/// oldest rule.
 async fn select_session_spawn_rule(
     api: &LinearAgentApi,
     rules: &[SubscriptionMatch],
@@ -185,10 +170,9 @@ async fn select_session_spawn_rule(
 
 /// Route an `AgentSessionEvent.prompted` payload to the bound task.
 ///
-/// `activity_id` is the id of the `agentActivity` carrying the prompt. It is
-/// what the forwarded message is identified by downstream: it names *this*
-/// prompt, so a second prompt on the same session is a second message, and a
-/// Linear retry of one prompt repeats the id and is dropped as a duplicate.
+/// `activity_id` (the `agentActivity` id) is what the forwarded message is
+/// identified by downstream: it names *this* prompt, so a Linear retry of one
+/// prompt repeats the id and is dropped as a duplicate.
 #[expect(
     clippy::too_many_arguments,
     reason = "the five downward ports the prompt-forwarding path reads (bindings, \

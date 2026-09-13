@@ -1,11 +1,10 @@
 //! Decoding a closed-set enum out of the text column that stores it.
 //!
 //! A required column decodes through `#[sqlx(try_from = "String")]` on the row
-//! field. A nullable one cannot: `try_from` applies to the whole field type,
-//! and `Option<T>: TryFrom<Option<String>>` is not an impl this crate may
-//! write. These helpers cover that case, and they refuse an unrecognised value
-//! rather than reading it as absent — the columns hold a closed set this
-//! application writes, so a value no variant names is corruption, not a
+//! field. A nullable one cannot, since `Option<T>: TryFrom<Option<String>>` is
+//! not an impl this crate may write — these helpers cover that case, and refuse
+//! an unrecognised value rather than reading it as absent: the columns hold a
+//! closed set this application writes, so an unnamed value is corruption, not a
 //! default.
 
 /// Parse a nullable enum column. `None` stays `None`; an unrecognised value is

@@ -1,21 +1,11 @@
 //! Root supervision for the backend's long-lived tasks.
 //!
-//! Every server and background worker the process starts is registered with the
-//! single [`Supervisor`] built in `main`, together with a declared
-//! [`Criticality`]. The supervisor owns the [`JoinHandle`]s, so a task that
-//! returns early or panics becomes a structured [`TaskExit`] instead of
-//! vanishing into a discarded handle, and the declared policy — not the absence
-//! of a handle — decides what that termination means:
+//! Every server and background worker is registered with the single
+//! [`Supervisor`] built in `main` under a declared [`Criticality`].
 //!
-//! - [`Criticality::Fatal`] — cancel everything and fail the process.
-//! - [`Criticality::Readiness`] — keep serving, but flip `/ready` to
-//!   unavailable so Kubernetes sheds traffic to a healthy replica.
-//! - [`Criticality::Optional`] — log and carry on.
-//!
-//! Termination *after* root cancellation is the normal shutdown path and is
-//! never treated as a failure. [`Supervisor::run`] drives both phases: it
-//! watches until a fatal exit or cancellation, then joins the remaining tasks
-//! within a bounded deadline and names the stragglers that outlived it.
+//! The supervisor owns each [`JoinHandle`], so a task that returns early or
+//! panics becomes a structured [`TaskExit`] instead of vanishing into a
+//! discarded handle.
 
 use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -38,10 +28,8 @@ pub enum Criticality {
     /// The replica can still serve in-flight work, but it is no longer a
     /// healthy target: `/ready` reports unavailable until the process restarts.
     ///
-    /// Chosen over [`Fatal`](Self::Fatal) for workers whose only non-shutdown
-    /// exit is a panic, because a panic is usually input-triggered and a
-    /// restart re-reads the same input — failing the process would trade one
-    /// stopped worker for a crash loop that also takes request serving down.
+    /// Chosen over [`Fatal`](Self::Fatal): failing the process on a panic would
+    /// trade one stopped worker for a crash loop that also takes serving down.
     Readiness,
     /// Losing this task degrades one non-essential capability. Nothing else
     /// changes.
@@ -85,14 +73,9 @@ pub struct TaskExit {
 
 /// Readiness view of supervised work, shared with the `/ready` probe.
 ///
-/// Records the [`Criticality::Readiness`] tasks that terminated early. The set
-/// only grows, and nothing here replaces the replica: liveness (`/health`) keeps
-/// answering, so Kubernetes will not restart an unready-but-live pod. Leader-
-/// elected work (reconciler, reaper, Codex refresher, cron, pod watcher) fails
-/// over on its own once the lease expires, but a per-replica consumer stays
-/// stopped until an operator replaces the pod. That replacement is deliberately
-/// not automatic — see [`Criticality::Readiness`] — so it needs an alert on the
-/// `"component": "supervisor"` readiness body or on the task's error log line.
+/// Records [`Criticality::Readiness`] tasks that terminated early; the set only
+/// grows, and nothing here replaces the replica, so an operator must act on the
+/// `"component": "supervisor"` readiness body or the task's error log line.
 #[derive(Debug, Default)]
 pub struct SupervisorHealth {
     failed: Mutex<BTreeSet<&'static str>>,
@@ -152,7 +135,8 @@ impl Supervisor {
     /// Take ownership of an already-spawned task under a declared policy.
     ///
     /// `name` identifies the task in logs, in the readiness body, and in the
-    /// straggler report, so it should match how the task is known operationally.
+    /// straggler report, so it should match how the task is known
+    /// operationally.
     pub fn supervise(
         &mut self,
         name: &'static str,
@@ -171,9 +155,9 @@ impl Supervisor {
     /// terminates early or the root token is cancelled, then cancel and join
     /// the rest within `join_deadline`.
     ///
-    /// Returns the fatal exit that ended the process, if there was one. Tasks
-    /// that outlive the deadline are reported by name and left running — the
-    /// process exits rather than hanging on them.
+    /// Returns the fatal exit that ended the process, if there was one; a task
+    /// that outlives the deadline is reported by name and left running rather
+    /// than hung on.
     pub async fn run(self, join_deadline: Duration) -> Result<(), TaskExit> {
         let Self {
             cancel,

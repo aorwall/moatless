@@ -1,5 +1,7 @@
-//! Linear API schemas — request/response DTOs for the typed `/api/v1/linear/*`
-//! endpoints. Mutating endpoints accept names OR UUIDs for state/label/project/
+//! Linear API schemas: request/response DTOs for the typed `/api/v1/linear/*`
+//! endpoints.
+//!
+//! Mutating endpoints accept names OR UUIDs for state/label/project/
 //! assignee/cycle; the backend resolves names via Linear's GraphQL API before
 //! issuing the underlying mutation. Responses pass through the Linear payload
 //! verbatim as `serde_json::Value`.
@@ -14,8 +16,8 @@ pub struct LinearIssueCreateRequest {
     pub title: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
-    /// Team key (e.g. `SP`) or UUID. Optional — defaults to the only team
-    /// the connection's user can see when omitted.
+    /// Team key (e.g. `SP`) or UUID. Optional — defaults to the only team the
+    /// connection's user can see when omitted.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub team: Option<String>,
     /// State name (e.g. `Ready`) or UUID.
@@ -27,18 +29,12 @@ pub struct LinearIssueCreateRequest {
     /// Label names or UUIDs.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub labels: Vec<String>,
-    /// Assignee: a Moatless login, an email, a display name, or a UUID. `"me"`
-    /// resolves to the authenticated agent (the workspace OAuth viewer). A
-    /// Moatless login resolves through the Linear user id stored for that user
-    /// (`moat user set-provider-id <login> --provider linear --id <uuid>`), and
-    /// outranks an email or display-name match.
+    /// Assignee: a Moatless login, email, display name, or UUID; `"me"`
+    /// resolves to the authenticated agent. Omitted on create, defaults to the
+    /// caller.
     ///
-    /// Omitted on create, this defaults to the caller — their stored Linear
-    /// id, or their moat email matched against Linear's members. Both missing
-    /// leaves the issue unassigned.
-    ///
-    /// Linear rejects an app user here and routes it to `delegate` instead:
-    /// pass an app agent as [`Self::delegate`] so the read-back is meaningful.
+    /// Linear rejects an app user here — pass an app agent as
+    /// [`Self::delegate`] instead.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub assignee: Option<String>,
     /// App agent to delegate the issue to. Resolved like [`Self::assignee`].
@@ -73,11 +69,10 @@ pub struct LinearIssueCreateRequest {
     /// attachment on the issue for traceability).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub task_id: Option<String>,
-    /// Opt the created issue into being a reply target: when `true` (and
-    /// `task_id` is set) a `task_bindings` row with `subject_kind =
-    /// "linear_issue"` is inserted so future comments on the issue route back
-    /// to the task and `moat messages reply` can post here. Filing alone does
-    /// NOT bind — this defaults to `false`.
+    /// Opt the created issue into a reply target: with `task_id` set and
+    /// `true`, inserts a `task_bindings` row so replies route back to the task.
+    ///
+    /// Filing alone does NOT bind — this defaults to `false`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bind: Option<bool>,
 }
@@ -109,8 +104,8 @@ pub struct LinearIssueUpdateRequest {
     pub due_date: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cycle: Option<String>,
-    /// Parent issue identifier or UUID. Pass `"null"` (literal string) or
-    /// the JSON `null` value to clear the parent.
+    /// Parent issue identifier or UUID. Pass `"null"` (literal string) or the
+    /// JSON `null` value to clear the parent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent: Option<String>,
 }
@@ -126,9 +121,11 @@ pub struct LinearCommentCreateRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub task_id: Option<String>,
     /// Force the parent issue into a reply target even when no binding exists
-    /// yet. A comment on an already-bound issue refreshes its binding
-    /// regardless; this flag covers a proactive comment on an unbound issue.
-    /// Defaults to `false`. See [`LinearIssueCreateRequest::bind`].
+    /// yet.
+    ///
+    /// A comment on an already-bound issue refreshes its binding regardless;
+    /// this flag covers a proactive comment on an unbound issue. Defaults to
+    /// `false`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bind: Option<bool>,
 }
@@ -193,8 +190,8 @@ impl LinearRelationType {
 #[cfg_attr(feature = "openapi", derive(utoipa::IntoParams))]
 #[serde(rename_all = "camelCase")]
 pub struct LinearIssueListParams {
-    /// Free text matched against title, description and comments
-    /// (Linear's `searchableContent`).
+    /// Free text matched against title, description and comments (Linear's
+    /// `searchableContent`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub query: Option<String>,
     /// Team key (`SP`) or UUID.
@@ -249,9 +246,11 @@ pub struct LinearGraphqlRequest {
     pub variables: Option<serde_json::Value>,
 }
 
-/// Common envelope for all typed responses. `data` is the raw Linear
-/// subobject (e.g. issue, comment); `binding_id` is set only when the
-/// request included a `task_id` and a `task_bindings` row was inserted.
+/// Envelope for all typed responses.
+///
+/// `data` is the raw Linear subobject (e.g. issue, comment); `binding_id` is
+/// set only when the request included a `task_id` and a `task_bindings` row was
+/// inserted.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]

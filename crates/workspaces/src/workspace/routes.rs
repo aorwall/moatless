@@ -45,12 +45,9 @@ pub struct WorkspaceApiDoc;
 
 /// Build the workspace router with OpenAPI metadata.
 ///
-/// Generic over the router state `S` so this module names no root type: the
-/// composition root supplies the concrete state at the call site, and each
-/// handler reaches its ports — `Arc<GitSyncService>`, `Arc<Repositories>`,
-/// `Arc<Workspaces>`, `Arc<dyn UserResolver>`, and the `UserTokenVerifier`
-/// behind `AuthUser` —
-/// through `FromRef<S>`.
+/// Generic over `S` so this module names no root type; handlers reach their
+/// ports (`Arc<GitSyncService>`, `Arc<Repositories>`, `Arc<Workspaces>`,
+/// `Arc<dyn UserResolver>`, `UserTokenVerifier`) through `FromRef<S>`.
 pub fn workspace_router<S>(state: S) -> (axum::Router, utoipa::openapi::OpenApi)
 where
     S: Clone + Send + Sync + 'static,

@@ -6,8 +6,6 @@
 //! restarts — fails with `refresh_token_reused`. This watcher pushes the
 //! rotated blob back to the backend via `BackendClient::update_credential` so
 //! `provider_tokens` always holds the live value.
-//!
-//! See `Fix 4` of the credential-rotation plan for the full rationale.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -31,11 +29,11 @@ const CODEX_AUTH_KEY: &str = "CODEX_AUTH_JSON";
 /// debouncing avoids spamming the backend with intermediate states.
 const DEBOUNCE: Duration = Duration::from_millis(500);
 
-/// Handle returned by [`spawn`] so callers can seed the watcher's last-known
-/// value. Used by the credential dispatcher: when the backend pushes a
-/// rotated `auth.json`, the dispatcher writes the file and immediately calls
-/// `set_last_value(new)` so the resulting filesystem event is recognised as
-/// a no-op and not echoed back as a fresh `UpdateCredential` push.
+/// Handle returned by [`spawn`] letting callers seed the watcher's cache.
+///
+/// The dispatcher calls `set_last_value(new)` right after writing a
+/// backend-pushed `auth.json`, so the echoed filesystem event is a no-op, not a
+/// fresh push.
 #[derive(Clone)]
 pub struct WatcherHandle {
     pub(crate) last_value: Arc<Mutex<String>>,
@@ -48,15 +46,11 @@ impl WatcherHandle {
     }
 }
 
-/// Spawn the watcher. Returns immediately; the watcher runs until `cancel`
-/// fires.
+/// Spawn the watcher; runs until `cancel` fires.
 ///
-/// `auth_path` is typically `<codex_home_dir>/auth.json`. The directory is
-/// watched (not the file) because Codex rewrites the file via atomic rename,
-/// which would invalidate a file-level watch handle.
-///
-/// Returns the cache handle plus the spawned task's join handle, so the caller
-/// registers termination with the root supervisor instead of detaching it.
+/// Watches `auth_path`'s parent directory (atomic rename would break a file
+/// watch); returns the cache handle plus a join handle for the caller to
+/// register with the root supervisor.
 pub fn spawn(
     task_id: String,
     auth_path: PathBuf,

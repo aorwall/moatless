@@ -39,9 +39,9 @@ fn first_link(row: &Conversation) -> Value {
     one_thread(row)["pullRequests"][0].clone()
 }
 
-/// The link is the Task's binding, so it holds whatever branch the checkout
-/// is on — including none at all, which is the ordinary case for a Task
-/// created without picking one.
+/// The link is the Task's binding, so it holds whatever branch the checkout is
+/// on — including none at all, which is the ordinary case for a Task created
+/// without picking one.
 #[test]
 fn a_thread_row_links_its_bound_pull_request_regardless_of_the_branch() {
     let mut row = conversation("task-a", "ws-a");
@@ -57,8 +57,8 @@ fn a_thread_row_links_its_bound_pull_request_regardless_of_the_branch() {
     assert_eq!(link["stack"], Value::Null);
 }
 
-/// A client from before `threadPullRequests` reads the single reference, so
-/// the row keeps answering it with the primary of the list.
+/// A client from before `threadPullRequests` reads the single reference, so the
+/// row keeps answering it with the primary of the list.
 #[test]
 fn a_thread_row_also_links_the_primary_as_the_legacy_reference() {
     let mut row = conversation("task-a", "ws-a");
@@ -71,9 +71,9 @@ fn a_thread_row_also_links_the_primary_as_the_legacy_reference() {
     assert_eq!(legacy["url"], "https://github.com/acme/web/pull/42");
 }
 
-/// The query orders the list, so the row takes its first element as the
-/// primary rather than choosing again on a shape that has lost the states
-/// the choice was made from.
+/// The query orders the list, so the row takes its first element as the primary
+/// rather than choosing again on a shape that has lost the states the choice
+/// was made from.
 #[test]
 fn a_thread_row_links_every_bound_pull_request_with_the_primary_first() {
     let mut row = conversation("task-a", "ws-a");
@@ -107,9 +107,9 @@ fn a_thread_row_reports_a_task_owned_binding_as_created_from_the_thread() {
     assert_eq!(thread["pullRequests"][1]["source"], "manual");
 }
 
-/// What the rows of the composer's pull-request menu and the sidebar's
-/// status chip read, so neither has to ask `pullRequests.summary` for a
-/// binding this deployment has already fetched.
+/// What the rows of the composer's pull-request menu and the sidebar's status
+/// chip read, so neither has to ask `pullRequests.summary` for a binding this
+/// deployment has already fetched.
 #[test]
 fn a_thread_row_carries_the_snapshot_a_refreshed_binding_recorded() {
     let mut row = conversation("task-a", "ws-a");
@@ -124,9 +124,9 @@ fn a_thread_row_carries_the_snapshot_a_refreshed_binding_recorded() {
     assert_eq!(snapshot["syncedAt"], "2026-02-03T04:05:06.000Z");
 }
 
-/// `syncedAt` is when this deployment read GitHub. The blob records no
-/// instant at which GitHub itself changed the pull request, so `updatedAt`
-/// stays null rather than repeating the read.
+/// `syncedAt` is when this deployment read GitHub. The blob records no instant
+/// at which GitHub itself changed the pull request, so `updatedAt` stays null
+/// rather than repeating the read.
 #[test]
 fn a_snapshot_reports_no_update_instant_of_its_own() {
     let mut row = conversation("task-a", "ws-a");
@@ -135,8 +135,8 @@ fn a_snapshot_reports_no_update_instant_of_its_own() {
     assert_eq!(first_link(&row)["snapshot"]["updatedAt"], Value::Null);
 }
 
-/// GitHub's spellings reach the wire as T3's, and a state neither side
-/// names is reported as `unknown` rather than dropped.
+/// GitHub's spellings reach the wire as T3's, and a state neither side names is
+/// reported as `unknown` rather than dropped.
 #[test]
 fn a_snapshot_translates_the_review_and_merge_verdicts() {
     let mut row = conversation("task-a", "ws-a");
@@ -164,9 +164,11 @@ fn a_thread_row_reports_a_draft_binding_as_an_open_draft() {
 }
 
 /// A blob holding the branches but neither a title nor a state is one
-/// `persisted_status_is_complete` treats as fetched, so no refresh ever
-/// repairs it and the fallback would answer with these two stand-ins
-/// forever. The row carries them instead of buying them with a round trip.
+/// `persisted_status_is_complete` treats as fetched, so no refresh ever repairs
+/// it.
+///
+/// The row carries these two stand-ins instead of buying them with a round
+/// trip.
 #[test]
 fn a_thread_row_stands_in_for_a_title_and_a_state_the_blob_never_recorded() {
     let mut row = conversation("task-a", "ws-a");
@@ -182,10 +184,12 @@ fn a_thread_row_stands_in_for_a_title_and_a_state_the_blob_never_recorded() {
     assert_eq!(snapshot["isDraft"], false);
 }
 
-/// A binding is written with its blob NULL and filled in by a refresh no
-/// listing can trigger, so the link travels without a snapshot rather than
-/// with a state nobody read off GitHub. `pullRequests.summary` is what the
-/// client falls back to, and what refreshes it.
+/// A binding is written with its blob NULL, filled in only by a refresh no
+/// listing can trigger, so the link travels without a snapshot rather than a
+/// state nobody read off GitHub.
+///
+/// `pullRequests.summary` is what the client falls back to, and what refreshes
+/// it.
 #[test]
 fn a_thread_row_carries_no_snapshot_for_a_binding_never_fetched() {
     let mut row = conversation("task-a", "ws-a");
@@ -203,8 +207,8 @@ fn a_thread_row_with_no_binding_links_no_pull_request() {
     assert_eq!(thread["pullRequests"], json!([]));
 }
 
-/// A reference is written whole, so a half-filled one is a bug upstream of
-/// here rather than something to put on the wire.
+/// A reference is written whole, so a half-filled one is a bug upstream of here
+/// rather than something to put on the wire.
 #[test]
 fn a_thread_row_drops_a_pull_request_it_cannot_name() {
     let mut row = conversation("task-a", "ws-a");

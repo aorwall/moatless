@@ -1,9 +1,8 @@
 //! Persisted shapes for the task band.
 //!
-//! The domain types live in `moatless_types::task`. What is here is how
-//! they are stored: `tasks.created_at` is a text column, `created_at_db` is
-//! a second timestamp the domain does not model, and the enum columns are
-//! text.
+//! The domain types live in `moatless_types::task`. What is here is how they
+//! are stored: `tasks.created_at` is a text column, `created_at_db` is a second
+//! timestamp the domain does not model, and the enum columns are text.
 
 use chrono::{DateTime, Utc};
 
@@ -16,15 +15,13 @@ use moatless_types::agent::AgentType;
 pub use moatless_types::sandbox::{SandboxDesiredState, SandboxStopReason, sandbox_intent_epoch};
 pub use moatless_types::task::{CheckoutMode, Task, TaskStatus, Visibility};
 
-/// Default idle TTL in minutes for newly inserted tasks when the caller has no
-/// access to platform config (e.g. integration runtimes). Matches the
-/// `SANDBOX_IDLE_TIMEOUT_MINUTES` env-var default and the `tasks.ttl_minutes`
-/// column default.
+/// Default idle TTL in minutes when the caller has no platform config access
+/// (e.g. integration runtimes). Matches `SANDBOX_IDLE_TIMEOUT_MINUTES` and the
+/// `tasks.ttl_minutes` column default.
 pub const DEFAULT_TTL_MINUTES: i32 = 15;
 
-/// Default inactive TTL in days for newly inserted tasks when the caller has no
-/// access to platform config (e.g. adapter runtimes). Matches the
-/// `TASK_INACTIVE_TIMEOUT_DAYS` env-var default and the
+/// Default inactive TTL in days when the caller has no platform config access
+/// (e.g. adapter runtimes). Matches `TASK_INACTIVE_TIMEOUT_DAYS` and the
 /// `tasks.inactive_ttl_days` column default.
 pub const DEFAULT_INACTIVE_TTL_DAYS: i32 = 7;
 
@@ -46,10 +43,9 @@ pub struct TaskRow {
     /// repository composition through. Nullable only for rows predating
     /// Workspaces; see `docs/deferred-changes.md`.
     pub workspace_id: Option<String>,
-    /// Sandbox this task belongs to. Task creation writes it: a task that joins
-    /// no existing sandbox gets one whose id equals its own. Nullable because
-    /// `tasks_sandbox_id_fkey` is ON DELETE SET NULL, so a task survives the
-    /// removal of its sandbox row.
+    /// Sandbox this task belongs to; joining no existing sandbox gets one with
+    /// its own id. Nullable because `tasks_sandbox_id_fkey` is ON DELETE SET
+    /// NULL, so a task survives its sandbox row's removal.
     pub sandbox_id: Option<String>,
     /// Checkout relationship to other members. `None` is read as shared for
     /// rows predating shared-sandbox membership.
@@ -87,8 +83,8 @@ pub struct TaskRow {
     /// Inactive TTL in days. The reaper auto-closes the task when no activity
     /// has occurred for this many days. `0` means "indefinite — never close".
     pub inactive_ttl_days: i32,
-    /// Loop that spawned this task (subscription + schedule). Independent from any
-    /// communication binding — schedule loops never create a binding.
+    /// Loop that spawned this task (subscription + schedule). Independent from
+    /// any communication binding — schedule loops never create a binding.
     pub loop_id: Option<String>,
     /// Skills every fresh agent session on this task activates. Set by the Loop
     /// that spawned it; re-frontloaded after a restart or a start-fresh send,
@@ -162,8 +158,8 @@ pub struct SandboxIntentView {
 }
 
 impl Default for SandboxIntentView {
-    /// A Task with no Sandbox row: never requested = converged Stopped, no start
-    /// timestamp, epoch intent timestamp.
+    /// A Task with no Sandbox row: never requested = converged Stopped, no
+    /// start timestamp, epoch intent timestamp.
     fn default() -> Self {
         Self {
             started_at: None,
@@ -194,7 +190,8 @@ pub struct TaskFilter {
     pub limit: i64,
     pub offset: i64,
     pub status: Option<TaskStatus>,
-    /// Exclude tasks with this status (NULL = no exclusion). Complements `status`.
+    /// Exclude tasks with this status (NULL = no exclusion). Complements
+    /// `status`.
     pub exclude_status: Option<TaskStatus>,
     pub repository_id: Option<String>,
     pub created_by: Option<String>,
@@ -239,16 +236,9 @@ pub struct TaskPatch {
 }
 
 impl TaskPatch {
-    /// Whether this patch moves anything a personal sidebar listing shows.
-    ///
-    /// The listed fields are the ones Decision 6 of the T3 shell projection spec
-    /// puts in the change feed: a conversation being closed or reopened, its
-    /// name or description, its visibility (which decides who may still read
-    /// it), and its expiry. The rest — the conversation clock, the running cost,
-    /// the site URL, the short id, the appended prompt, the disabled-server set
-    /// — are written by paths a sidebar does not follow, and the busiest of them
-    /// runs once per agent turn. Recording those would advance the deployment's
-    /// one position counter to move values no sidebar carries.
+    /// Whether this patch moves anything a sidebar listing shows — status,
+    /// name, description, visibility, or expiry (Decision 6, T3 shell
+    /// projection spec). Other fields carry no sidebar-visible value.
     pub(crate) fn touches_listing(&self) -> bool {
         self.status.is_some()
             || self.name.is_some()

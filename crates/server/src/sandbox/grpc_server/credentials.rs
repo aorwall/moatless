@@ -27,10 +27,11 @@ use super::state::BackendSandboxServiceImpl;
 pub(crate) struct CredentialKey;
 
 impl CredentialKey {
-    /// Long-lived user auth token the sandbox authenticates its gRPC calls
-    /// back to the backend with. Delivered over this channel rather than the
-    /// pod spec, and re-minted on every fetch, so the sandbox's 15-minute
-    /// refresh loop propagates a rotation.
+    /// Long-lived user auth token the sandbox authenticates its gRPC calls back
+    /// to the backend with.
+    ///
+    /// Delivered over this channel, and re-minted every fetch, so the
+    /// sandbox's 15-minute refresh loop propagates a rotation.
     pub const USER_AUTH_TOKEN: &str = "USER_AUTH_TOKEN";
     pub const GITHUB_TOKEN: &str = secret_keys::GITHUB_TOKEN;
     pub const GITLAB_TOKEN: &str = secret_keys::GITLAB_TOKEN;
@@ -44,10 +45,8 @@ impl CredentialKey {
 /// The provider a sandbox may write a rotated credential back to, if any.
 ///
 /// `None` refuses the write: only an OAuth-style rotating credential has a
-/// write-back path, and a static API key is managed in the backend. Not the
-/// same question as
-/// `moatless_identity::credentials::models::credential_key_to_provider`, which
-/// names every key a person may write.
+/// write-back path; a static API key is backend-managed. Distinct from
+/// `credential_key_to_provider`, which names every key a person may write.
 fn sandbox_rotatable_provider(key: &str) -> Option<&'static str> {
     match key {
         CredentialKey::CODEX_AUTH_JSON => Some("codex"),
@@ -58,9 +57,9 @@ fn sandbox_rotatable_provider(key: &str) -> Option<&'static str> {
 impl BackendSandboxServiceImpl {
     /// Mint the long-lived user auth token delivered over `GetCredentials`.
     ///
-    /// Bound to the grant's `task_id`, so the delivered token carries the same
-    /// per-task binding the verification layer enforces. Returns `None` when
-    /// the secret is unset, and the sandbox keeps the token it already holds.
+    /// Bound to the grant's `task_id`, matching the verification layer's
+    /// per-task binding; returns `None` when the secret is unset, so the
+    /// sandbox keeps its existing token.
     fn mint_user_auth_token(&self, user_id: &str, login: &str, task_id: &str) -> Option<String> {
         let secret = self.task_token_secret.as_ref()?;
         let ttl = self.backend_config.sandbox.user_token_ttl_secs;
@@ -76,10 +75,8 @@ impl BackendSandboxServiceImpl {
 
 /// Return credentials for sandbox initialization.
 ///
-/// Resolution chain, most-specific first:
-/// 1. Credentials pinned to the task's Workspace.
-/// 2. User-level `provider_tokens`.
-/// 3. Scoped global/user secrets.
+/// Resolution chain, most-specific first: Workspace-pinned credentials, then
+/// user-level `provider_tokens`, then scoped global/user secrets.
 #[tracing::instrument(
     skip_all,
     fields(
@@ -206,11 +203,9 @@ pub(super) async fn get_credentials(
 /// Persist a credential rotated locally inside the sandbox back into
 /// `provider_tokens`.
 ///
-/// Called when a runtime, currently Codex, rotates its OAuth refresh token.
-/// Without the write-back the next backend-driven refresh overwrites the
-/// rotated value with the stale stored copy and invalidates the credential.
-///
-/// Always updates the user-level credential row.
+/// Called when a runtime (currently Codex) rotates its OAuth refresh token;
+/// without this, the next backend-driven refresh overwrites it with the stale
+/// stored copy. Always updates the user-level row.
 #[tracing::instrument(
     skip_all,
     fields(

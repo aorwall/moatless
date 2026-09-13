@@ -25,11 +25,11 @@ use moatless_ports::task::{
 };
 use moatless_types::adapter::AdapterKind;
 
-/// Reply delivery for external threads, owning the ports its two entry points
-/// read rather than borrowing the whole `AppState`. Composed once and held on
-/// `AppState`, projected per request through `FromRef` like the other composed
-/// services; the outbound send path is delegated to the [`OutboundSender`] it
-/// owns, so the ports that path needs never reach this struct's surface.
+/// Reply delivery for external threads.
+///
+/// Owns the ports its two entry points read rather than borrowing the whole
+/// `AppState`, and delegates sending to the [`OutboundSender`] it owns, so
+/// those ports stay off this struct's surface.
 pub struct ExternalReplyService {
     pub(super) adapters: Option<Arc<Adapters>>,
     task_bindings: Arc<Bindings>,
@@ -73,14 +73,11 @@ impl ExternalReplyService {
         }
     }
 
-    /// Provenance for a task the caller is about to post about, for send
-    /// paths that hold a task id but no binding.
-    ///
-    /// The direct-destination handler has a task and needs the same footer the
-    /// reply paths get. It reaches it through this service rather than through
-    /// `OutboundSender`, which the composition root keeps off `AppState`.
-    /// There is no Loop on a direct send, so the origin resolves to the person
-    /// who started the task.
+    /// Provenance for a task the caller is about to post about, for send paths
+    /// that hold a task id but no binding — reached here rather than through
+    /// `OutboundSender`, which the composition root keeps off `AppState`; with
+    /// no Loop on a direct send, the origin resolves to the person who started
+    /// the task.
     pub async fn task_provenance(
         &self,
         adapter_kind: AdapterKind,

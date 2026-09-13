@@ -27,9 +27,8 @@ use moatless_types::task::TaskStatus;
 /// Always prepended to the `append_system_prompt` of a task a schedule fires,
 /// so a Loop prompt does not have to restate that the run is unattended.
 ///
-/// Without it a scheduled agent reads the same prompt an interactive one does,
-/// and stops to ask a question that nobody answers until the next person opens
-/// the task.
+/// Without it a scheduled agent stops to ask a question nobody answers until
+/// someone opens the task.
 const SCHEDULE_ORIGIN_CONTEXT: &str = "\
 # Autonomous Run
 
@@ -47,7 +46,8 @@ what you did and what you left undone.
 When a person does message this task, answer them and continue.";
 
 /// Durable schedule-firing runner: claims due schedules and fires each as an
-/// inbound message, holding the ports it needs rather than the whole `AppState`.
+/// inbound message, holding the ports it needs rather than the whole
+/// `AppState`.
 pub struct ScheduleRunner {
     loops: Arc<LoopDao>,
     tasks: Arc<dyn TaskReader>,

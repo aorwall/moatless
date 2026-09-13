@@ -1,8 +1,8 @@
 //! Read-only domain service for resolving sandbox status.
 //!
-//! Resolves environment and server status directly from the K8s API.
-//! Server entries are built config-first (server configs passed by caller)
-//! with K8s container probe statuses overlaid.
+//! Resolves environment and server status directly from the K8s API. Server
+//! entries are built config-first (server configs passed by caller) with K8s
+//! container probe statuses overlaid.
 
 use k8s_openapi::api::core::v1::Pod;
 use kube::api::{Api, ListParams};
@@ -52,8 +52,8 @@ impl AgentStatusSnapshot {
 
 /// Read-only domain service for resolving sandbox status from the K8s API.
 ///
-/// Pure infrastructure — no database dependencies. Server configs are
-/// provided by callers (resolved from DB in handlers).
+/// Pure infrastructure — no DB dependencies; server configs are provided by
+/// callers (resolved from DB in handlers).
 pub struct StatusResolver {
     k8s: K8sClient,
     config: Arc<Config>,
@@ -66,8 +66,8 @@ impl StatusResolver {
 
     /// Full sandbox status (env + servers) from K8s API.
     ///
-    /// `server_configs` are the canonical server definitions from the DB.
-    /// K8s container statuses are overlaid onto them.
+    /// `server_configs` are the canonical server definitions from the DB; K8s
+    /// container statuses are overlaid onto them.
     pub async fn resolve_sandbox_status(
         &self,
         task_id: &str,
@@ -303,8 +303,8 @@ impl StatusResolver {
 
     /// Query the sandbox pod for current agent status via gRPC.
     ///
-    /// Only called when the pod is running, so any gRPC error (timeout,
-    /// unavailable, etc.) means the Agent is unreachable rather than idle.
+    /// Only called when the pod is running, so any gRPC error means the Agent
+    /// is unreachable rather than idle.
     async fn fetch_agent_status(
         &self,
         task_id: &str,
@@ -339,8 +339,8 @@ impl StatusResolver {
         }
     }
 
-    /// Fetch container diagnostics for all containers in the pod,
-    /// including resource usage from the K8s Metrics API when available.
+    /// Fetch container diagnostics for all containers in the pod, including
+    /// resource usage from the K8s Metrics API when available.
     async fn fetch_container_diagnostics(
         &self,
         task_id: &str,
@@ -382,10 +382,9 @@ impl StatusResolver {
 
     /// Whether a ready pod is actually reachable. See the call site.
     ///
-    /// The backend reaches a sandbox only through its Service — gRPC, file
-    /// reads, and every proxied server port — so a ready pod whose Service is
-    /// missing answers nothing and must not read as `Running`. `Failed` is what
-    /// re-drives `ensure_running`, whose network heal recreates the Service.
+    /// The backend reaches a sandbox only through its Service, so a ready pod
+    /// with no Service must not read as `Running`; `Failed` re-drives
+    /// `ensure_running`, whose network heal recreates it.
     async fn running_or_unreachable(&self, task_id: &str) -> (PodPhase, Option<String>) {
         match service::sandbox_service_exists(&self.k8s, task_id).await {
             Ok(true) => (PodPhase::Running, None),
@@ -423,17 +422,12 @@ impl StatusResolver {
         }
     }
 
-    /// Resolve the effective pod phase, any permanent error, and the image the
-    /// sandbox container is provisioned with, checking Deployment replicas first.
+    /// Resolve the effective pod phase, any permanent error, and the
+    /// provisioned sandbox image, checking Deployment replicas first.
     ///
-    /// The third tuple element is the image baked into the Deployment's
-    /// `sandbox` container (`None` when no Deployment exists). If a Deployment
-    /// exists with replicas=0, returns `(PodPhase::Stopped, None, image)`.
-    /// Otherwise falls back to checking actual pod status and probing for
-    /// permanent failures (`CrashLoopBackOff`, `ImagePullBackOff`, etc.).
-    ///
-    /// `desired_state` is read only on the no-Deployment path, to tell a
-    /// sandbox that never existed from one the cold transition reclaimed.
+    /// Replicas=0 returns `(Stopped, None, image)`; otherwise falls back to pod
+    /// status and permanent-failure probes. `desired_state` is read only on the
+    /// no-Deployment path, to distinguish never-existed from reclaimed.
     async fn resolve_pod_phase_and_error(
         &self,
         task_id: &str,

@@ -409,8 +409,8 @@ impl ApiClient {
 
     /// GET `/api/sandbox/v1/tasks/{task_id}/servers/config`
     ///
-    /// Overrides are stored only on the sandbox's workspace volume, so this
-    /// needs a running sandbox — there is no persisted copy to fall back on.
+    /// Overrides live only on the sandbox's workspace volume, so this needs a
+    /// running sandbox; there is no persisted fallback.
     pub async fn list_server_config(
         &self,
         task_id: &str,
@@ -613,8 +613,8 @@ impl ApiClient {
 
     /// PATCH `/api/v1/workspaces/{workspace_id}/override`
     ///
-    /// Override a git-synced workspace — sets `source = "manual"` so git sync
-    /// skips it going forward. Use `reset_git_workspace` to re-enable sync.
+    /// Sets `source = "manual"` so git sync skips this workspace;
+    /// `reset_git_workspace` re-enables sync.
     pub async fn override_workspace(
         &self,
         workspace_id: &str,
@@ -626,8 +626,8 @@ impl ApiClient {
 
     /// POST /api/v1/workspaces/{workspace_id}/reset-git
     ///
-    /// Discard a workspace's local override and re-sync its run-config from the
-    /// repository. `resynced` reports whether the reset took effect.
+    /// Discards the local override and re-syncs run-config from the repository;
+    /// `resynced` reports whether it took effect.
     pub async fn reset_git_workspace(
         &self,
         workspace_id: &str,
@@ -690,8 +690,8 @@ impl ApiClient {
 
     /// GET `/api/v1/tasks/{task_id}/messages?summary=true`
     ///
-    /// Returns messages with heavy fields stripped (`tool_input`, `typed_result`,
-    /// `sdk_metadata`) and tool result content truncated. Ideal for CLI display.
+    /// Strips heavy fields (`tool_input`, `typed_result`, `sdk_metadata`) and
+    /// truncates tool result content; for CLI display.
     pub async fn get_messages_summary(
         &self,
         task_id: &str,
@@ -701,9 +701,9 @@ impl ApiClient {
 
     /// GET `/api/v1/tasks/{task_id}/messages` with explicit pagination.
     ///
-    /// `limit` defaults to 50 server-side (clamped to 1..=200). `before_id`
-    /// is the cursor from a previous page's `next_before_id` — pass it to
-    /// fetch the next older page.
+    /// `limit` defaults to 50 (clamped to 1..=200); `before_id` is the cursor
+    /// from a previous page's `next_before_id`, for fetching the next older
+    /// page.
     pub async fn get_messages_page(
         &self,
         task_id: &str,
@@ -1173,8 +1173,8 @@ impl ApiClient {
 
     /// GET /api/v1/plugins/effective
     ///
-    /// `user_id` asks what somebody else gets, which the server allows an
-    /// administrator; omitted, the answer is the caller's own.
+    /// `user_id` asks what somebody else gets (server allows an administrator);
+    /// omitted, the answer is the caller's own.
     pub async fn list_effective_plugins(
         &self,
         workspace_id: Option<&str>,
@@ -1207,8 +1207,8 @@ impl ApiClient {
 
     /// DELETE /api/v1/plugins/{id}/activation
     ///
-    /// `user_id` clears somebody else's personal record, which the server
-    /// allows an administrator; omitted, it clears the caller's own.
+    /// `user_id` clears somebody else's personal record (server allows an
+    /// administrator); omitted, it clears the caller's own.
     pub async fn clear_plugin_activation(
         &self,
         plugin_id: &str,
@@ -1380,7 +1380,8 @@ impl ApiClient {
         .await
     }
 
-    /// POST `/api/v1/github/repos/{owner}/{repo}/pulls/{number}/comments/{comment_id}/replies`
+    /// POST
+    /// `/api/v1/github/repos/{owner}/{repo}/pulls/{number}/comments/{comment_id}/replies`
     ///
     /// Threaded reply to a PR review (inline) comment.
     pub async fn github_reply_review_comment(
@@ -1419,7 +1420,7 @@ impl ApiClient {
 
     /// POST /api/v1/github/external-events
     ///
-    /// Record a GitHub event the caller produced outside the typed routes
+    /// Records a GitHub event the caller produced outside the typed routes
     /// above — a raw `gh api` POST, or a `git push`.
     pub async fn github_record_external_event(
         &self,
@@ -1431,12 +1432,9 @@ impl ApiClient {
 
 /// Build the query string for `GET /api/v1/linear/issues` (or empty).
 ///
-/// Every filter field of [`LinearIssueListParams`] must be pushed here. The
-/// handler deserializes with `#[serde(default)]`, so a field missing from this
-/// function is dropped server-side and the call returns unfiltered results
-/// rather than failing.
-///
-/// [`LinearIssueListParams`]: moatless_api_schemas::linear::LinearIssueListParams
+/// Every filter field of `LinearIssueListParams` must be pushed here: the
+/// handler deserializes with `#[serde(default)]`, so a missing field is
+/// silently dropped and the call returns unfiltered results instead of failing.
 fn linear_list_issues_qs(params: &moatless_api_schemas::linear::LinearIssueListParams) -> String {
     let mut qs: Vec<String> = Vec::new();
     let mut push = |key: &str, value: &str| qs.push(format!("{key}={}", urlenc(value)));
@@ -1502,10 +1500,9 @@ mod tests {
 
     /// Every filter a caller can set must reach the wire.
     ///
-    /// The expected keys come from serializing the params rather than a hand-
-    /// written list, so a field added to `LinearIssueListParams` fails here
-    /// until `linear_list_issues_qs` pushes it: the exhaustive literal forces
-    /// the new field to be set, and serializing it then demands the key.
+    /// Expected keys come from serializing the params, not a hand-written list,
+    /// so a field added to `LinearIssueListParams` fails here until
+    /// `linear_list_issues_qs` pushes it.
     #[test]
     fn list_issues_qs_carries_every_filter() {
         let params = LinearIssueListParams {

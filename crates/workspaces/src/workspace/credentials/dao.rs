@@ -1,11 +1,11 @@
-//! Workspace credential DAO — ciphertext persistence for `workspace_credentials`.
+//! Workspace credential DAO — ciphertext persistence for
+//! `workspace_credentials`.
 //!
-//! Every method here is unscoped: access control for a workspace credential is
-//! control of the owning workspace row, which
-//! [`super::service::WorkspaceCredentialService`] checks through `WorkspaceDao`
-//! before it calls in. Duplicating a scope filter on this table would give the
-//! two places to disagree, and the sandbox resolution path has no actor to
-//! filter by in the first place.
+//! Every method here is unscoped:
+//! [`super::service::WorkspaceCredentialService`] checks control of the owning
+//! workspace through `WorkspaceDao` before calling in. Duplicating a scope
+//! filter here would let the two disagree, and the sandbox resolution path has
+//! no actor to filter by in the first place.
 
 use async_trait::async_trait;
 

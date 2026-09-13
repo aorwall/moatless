@@ -8,14 +8,15 @@ use super::service_fixtures::*;
 use super::*;
 
 /// A backend whose `get_credentials` returns a configurable `CODEX_AUTH_JSON`
-/// value, optionally rotating it (so each recovery pull is genuinely fresher)
-/// and optionally flagging a shared detector on every call (standing in for
-/// Codex re-emitting `refresh_token_reused` on each failing Turn). Every other
-/// call is inert.
+/// value, optionally rotating it so each recovery pull is genuinely fresher.
+///
+/// Optionally flags a shared detector on every call, standing in for Codex
+/// re-emitting `refresh_token_reused`; every other call is inert.
 struct CredBackend {
     /// The `CODEX_AUTH_JSON` value returned when `rotate` is false.
     base: String,
-    /// When true, return a monotonically fresh value each call instead of `base`.
+    /// When true, return a monotonically fresh value each call instead of
+    /// `base`.
     rotate: bool,
     counter: AtomicU64,
     /// When set, flip this detector's Codex flag on every `get_credentials` —
@@ -213,10 +214,11 @@ fn count_reconnect_errors(received: &Arc<Mutex<Vec<PublishEventRequest>>>) -> us
         .count()
 }
 
-/// A fresher backend credential re-drives the SAME prompt on the SAME Run: the
-/// failed Turn is suppressed to a single `retrying` (reason `credential_recovery`),
-/// the recovered credential is applied, and the re-driven Turn completes — all
-/// under one Run id, with no terminal `error`.
+/// A fresher backend credential re-drives the SAME prompt on the SAME Run.
+///
+/// The failed Turn is suppressed to a single `retrying`
+/// (`credential_recovery`), the credential applied, and the re-driven Turn
+/// completes under one Run id with no terminal `error`.
 #[tokio::test]
 async fn coordinator_service_credential_recovery_redrives_same_run_on_fresher_credential() {
     use crate::agent::types::AgentStatus;
@@ -313,9 +315,10 @@ async fn coordinator_service_credential_recovery_redrives_same_run_on_fresher_cr
     cancel.cancel();
 }
 
-/// An unchanged credential (the backend has nothing fresher than what's on disk)
-/// produces exactly ONE terminal reconnect error and NO retry — recovery detects
-/// the dedup and surfaces the user-facing error instead of burning a re-drive.
+/// An unchanged credential (the backend has nothing fresher than what's on
+/// disk) produces exactly ONE terminal reconnect error and NO retry — recovery
+/// detects the dedup and surfaces the user-facing error instead of burning a
+/// re-drive.
 #[tokio::test]
 async fn coordinator_service_credential_recovery_unchanged_gives_one_terminal_error() {
     let cancel = CancellationToken::new();
@@ -399,10 +402,12 @@ async fn coordinator_service_credential_recovery_unchanged_gives_one_terminal_er
     cancel.cancel();
 }
 
-/// Credential recovery is capped per prompt: with an always-fresher backend and
-/// a Turn that keeps failing, recovery re-drives up to the cap and then gives up
-/// with a single terminal error — exactly `MAX_CREDENTIAL_RECOVERY_RETRIES`
-/// `retrying` events precede it, and the Turn never completes.
+/// Credential recovery is capped per prompt.
+///
+/// With an always-fresher backend and a Turn that keeps failing, recovery
+/// re-drives up to the cap then gives up with one terminal error — exactly
+/// `MAX_CREDENTIAL_RECOVERY_RETRIES` `retrying` events precede it, and the Turn
+/// never completes.
 #[tokio::test]
 async fn coordinator_service_credential_recovery_caps_and_then_gives_up() {
     let cancel = CancellationToken::new();
@@ -483,10 +488,11 @@ async fn coordinator_service_credential_recovery_caps_and_then_gives_up() {
     cancel.cancel();
 }
 
-/// Each credential-recovery give-up counts as exactly ONE consecutive failure —
-/// so it takes three give-ups (not fewer) to trip the circuit breaker on the
-/// fourth Send. A legacy-style double-count would trip it a Send early, so the
-/// three-reconnect-errors-then-breaker sequence proves single-increment accounting.
+/// Each credential-recovery give-up counts as exactly ONE consecutive failure.
+///
+/// It takes three give-ups to trip the circuit breaker on the fourth Send; a
+/// double-count would trip it a Send early, so this proves single-increment
+/// accounting.
 #[tokio::test]
 async fn coordinator_service_credential_giveups_count_once_toward_breaker() {
     let cancel = CancellationToken::new();

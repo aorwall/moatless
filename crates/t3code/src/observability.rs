@@ -1,12 +1,11 @@
 //! The T3 client's own spans, forwarded to a collector.
 //!
-//! T3's web client posts OTLP/JSON to `/api/observability/v1/traces` on the
-//! environment it is connected to, which for this fork is this backend
+//! T3's web client posts OTLP/JSON to `/api/observability/v1/traces`
 //! (`apps/web/src/observability/clientTracing.ts`). Forwarding that body to the
-//! same collector this process exports to is what makes a request one trace
-//! rather than two: the client's span is the parent
-//! [`crate::rpc::metrics::request_root_span`] adopts, and an unexported parent leaves the
-//! backend's spans dangling in Tempo.
+//! same collector this process exports to makes a request one trace rather than
+//! two: the client's span is the parent
+//! [`crate::rpc::metrics::request_root_span`] adopts, and an unexported parent
+//! leaves the backend's spans dangling in Tempo.
 
 use axum::{
     body::Body,
@@ -37,9 +36,8 @@ const FORWARD_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Where a client's spans go, or `None` when this deployment collects none.
 ///
-/// `None` is not an error the client is told about: it keeps exporting and this
-/// backend drops the batches, which is what "off" means for a signal the client
-/// cannot stop producing.
+/// `None` is not an error told to the client: it keeps exporting and this
+/// backend silently drops the batches — that is what "off" means here.
 #[derive(Clone)]
 pub(crate) struct ClientTraceForwarder {
     endpoint: Option<Arc<str>>,
@@ -76,8 +74,8 @@ impl ClientTraceForwarder {
         }
     }
 
-    /// The value reported to the client as `observability.otlpTracesUrl`, so the
-    /// Settings panel names where its own spans go.
+    /// The value reported to the client as `observability.otlpTracesUrl`, so
+    /// the Settings panel names where its own spans go.
     pub(crate) fn endpoint(&self) -> Option<&str> {
         self.endpoint.as_deref()
     }
@@ -91,9 +89,8 @@ impl Default for ClientTraceForwarder {
 
 /// Take one OTLP/JSON batch from the browser and forward it.
 ///
-/// Answers `204` both when the batch was forwarded and when this deployment
-/// collects none, and `502` only when a configured collector refused it — the
-/// one case where telling the client is worth anything.
+/// Answers `204` whether forwarded or collected by nobody, and `502` only when
+/// a configured collector refused it — the one case worth telling the client.
 pub(crate) async fn receive(
     State(state): State<UiRpcState>,
     Extension(identity): Extension<UiRpcAuthIdentity>,

@@ -17,10 +17,9 @@ pub trait TaskEventDao: Send + Sync {
 
     /// List a task's most recent events, returned oldest-first.
     ///
-    /// Selects descending so `limit` truncates the *head* (dropping old events)
-    /// rather than the tail, then reverses so callers still read
-    /// chronologically. `offset` skips that many of the newest events, so paging
-    /// walks backwards through history.
+    /// Selects descending so `limit` truncates the *head*, then reverses for
+    /// chronological order; `offset` skips newest events, so paging walks
+    /// backwards through history.
     async fn list_recent_events(
         &self,
         task_id: &str,
@@ -29,48 +28,31 @@ pub trait TaskEventDao: Send + Sync {
         offset: i64,
     ) -> Result<Vec<TaskEvent>, sqlx::Error>;
 
-    /// Whether the task's agent run had already reached a terminal state
-    /// (`completed` | `stopped` | `error`) by the time `event_id` was logged —
-    /// i.e. the newest run-state event *older* than it is not `started`.
-    ///
-    /// The stop fan-out dedupe: one user stop publishes `agent.stopped` twice
-    /// (the `/stop` handler, and the sandbox answering the graceful
-    /// `StopAgent`), and only the first should count. Both rows can already be
-    /// in the log by dispatch time — the consumer persists an event before
-    /// dispatching it, and the sandbox's ingress commits its row before
-    /// publishing — so the comparison is against the log's own order, not
-    /// against "any event but mine".
+    /// Whether the run was already terminal when `event_id` logged — dedupes
+    /// `agent.stopped`'s double publish by comparing the log's own order, not
+    /// "any event but mine".
     async fn agent_run_already_terminal(
         &self,
         task_id: &str,
         event_id: &str,
     ) -> Result<bool, sqlx::Error>;
 
-    /// For each task in `task_ids`, return its single most-recent agent
-    /// lifecycle event as `(sub_type, created_at)`.
+    /// For each task, its most recent run-state lifecycle event.
     ///
-    /// Considers only `type = 'agent'` rows whose `sub_type` is a run-state
-    /// marker (`started` | `completed` | `stopped` | `error`); other agent
-    /// sub-types (`message`, `session_init`, …) are ignored. Tasks with no such
-    /// event are omitted from the map.
-    ///
-    /// Drives the reaper's idle-TTL floor: a `started` latest event means the
-    /// agent is still running (never reap); a terminal latest event dates the
-    /// floor from when the agent last stopped.
+    /// `(sub_type, created_at)`, omitted if none; drives the reaper's idle-TTL
+    /// floor — `started` means never reap, terminal dates it from when it last
+    /// stopped.
     async fn get_latest_agent_lifecycle(
         &self,
         task_ids: &[String],
     ) -> Result<HashMap<String, (String, DateTime<Utc>)>, sqlx::Error>;
 
-    /// For each task in `task_ids`, return the timestamp of its most recent
-    /// `type = 'agent'` event of any sub-type — including the `message` events
-    /// emitted for every tool call and streamed assistant chunk.
+    /// For each task, the timestamp of its most recent `agent` event of any
+    /// sub-type.
     ///
-    /// This is the reaper's real-activity signal: a long agent turn (many tool
-    /// calls, no new conversation `messages` row and no lifecycle transition)
-    /// still advances this timestamp, so the idle-TTL floor tracks actual work
-    /// instead of freezing at the last user message / sandbox start. Tasks with
-    /// no agent events are omitted from the map.
+    /// The reaper's real-activity signal: a long tool-call turn with no new
+    /// `messages` row still advances it, so idle-TTL tracks actual work instead
+    /// of freezing.
     async fn get_latest_agent_activity(
         &self,
         task_ids: &[String],

@@ -1,4 +1,5 @@
-//! Message content enricher — construct agent-facing prompt text from user input.
+//! Message content enricher — construct agent-facing prompt text from user
+//! input.
 
 use std::collections::HashMap;
 use std::fmt::Write;
@@ -48,9 +49,9 @@ pub struct AgentDelivery {
 
 /// A person's answer to an interactive tool call, as the sandbox resolves it.
 ///
-/// Read off the answering row's own `tool_response` column rather than parsed
-/// back out of the prompt text: the text is what an agent that has forgotten
-/// asking is told, and text is not an answer per question.
+/// Read off the row's own `tool_response` column, never parsed back out of the
+/// prompt text — that text is what an agent who has forgotten asking is told,
+/// not an answer per question.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PromptResponse {
     pub tool_use_id: String,
@@ -90,9 +91,9 @@ impl PromptResponse {
 
 /// Builds pending Message rows into the exact unit the sandbox submits.
 ///
-/// The interface deliberately hides the transient prompt assembly rules from
-/// the gRPC handler and sandbox: callers get text, upload ids, model metadata,
-/// resume intent, and the uuids to acknowledge after harness acceptance.
+/// Hides the transient prompt-assembly rules from the gRPC handler and sandbox:
+/// callers get text, upload ids, model metadata, resume intent, and uuids to
+/// acknowledge after harness acceptance.
 pub struct AgentPromptBuilder<'a> {
     files: Option<&'a Files>,
     config: Option<&'a Config>,
@@ -129,10 +130,9 @@ impl<'a> AgentPromptBuilder<'a> {
 
     /// Build the pending deliveries for this fetch.
     ///
-    /// Today the dispatcher submits one harness input per fetch. To preserve
-    /// that invariant while moving batching ownership into the backend, this
-    /// returns at most one delivery: all rows before the first `start_fresh`, or
-    /// the leading `start_fresh` row alone.
+    /// The dispatcher submits one harness input per fetch, so this returns at
+    /// most one delivery: all rows before the first `start_fresh`, or that row
+    /// alone.
     pub async fn build_pending_deliveries(
         &self,
         pending: &[TaskMessage],
@@ -274,10 +274,9 @@ fn delivery_slice(pending: &[TaskMessage]) -> Option<(&[TaskMessage], usize)> {
 
 /// Resolve the model to deliver for a pending message.
 ///
-/// An explicit per-message model is always preserved. When the message carries
-/// no model, agents that pin a model (e.g. `claude-code-fable` -> `fable`) get it
-/// forced here, since the catalog `default_model` is only a UI hint and is not
-/// otherwise applied at runtime.
+/// An explicit per-message model always wins; otherwise agents that pin a model
+/// (e.g. `claude-code-fable` -> `fable`) get it forced here, since the
+/// catalog's `default_model` is only a UI hint, never applied at runtime.
 pub fn effective_model(
     row_model: Option<String>,
     task_model: Option<String>,
@@ -295,13 +294,12 @@ pub fn sender_key(adapter: &str, sender_external_id: &str) -> String {
     format!("{adapter}:{sender_external_id}")
 }
 
-/// Who wrote an external row, in the terms the agent can act on.
+/// Who wrote an external row, in terms the agent can act on.
 ///
-/// Resolved from the writer's own external id, never from `sent_by`: an
-/// unmapped writer is attributed to the trigger owner, so `sent_by` would name
-/// the wrong person in exactly the multi-participant thread this exists for.
-/// The handle is what stays true when there is no mapping, so it is what is
-/// shown then — with no login claimed.
+/// Resolved from the writer's own external id, never `sent_by` — an unmapped
+/// writer is attributed to the trigger owner, so `sent_by` would misname them
+/// in a multi-participant thread. Falls back to the raw handle, claiming no
+/// login, when there's no mapping.
 fn sender_label(row: &TaskMessage, sender_logins: &HashMap<String, String>) -> Option<String> {
     let adapter = row.external_adapter.as_deref().unwrap_or("external");
     let handle = row.external_author.as_deref();
@@ -359,8 +357,8 @@ fn build_message_header(row: &TaskMessage, login_cache: &HashMap<String, String>
 
 /// Build content blocks from user input + contexts + attachments.
 ///
-/// The primary text block has `show_in_ui = true`; all context and file
-/// blocks have `show_in_ui = false` (they appear only in the agent request).
+/// The primary text block has `show_in_ui = true`; context and file blocks have
+/// `show_in_ui = false` (agent-request only).
 pub async fn build_content_blocks(
     files: &Files,
     config: &Config,
@@ -416,11 +414,10 @@ pub async fn build_content_blocks(
 
 /// Attribution for a message one Task sent to another.
 ///
-/// The agent has to be told where the message came from and how to answer it;
-/// the person reading the transcript is looking at the Task that sent it and
-/// does not. So this is applied on the way out and never stored — which also
-/// means the reply instruction is regenerated from the current `source_task_id`
-/// rather than frozen into a row at send time.
+/// Applied on the way out and never stored, so the reply instruction is
+/// regenerated from the current `source_task_id` rather than frozen into a row
+/// at send time — the agent needs to know where it came from; the person
+/// reading the transcript already sees the sending Task.
 fn attributed_text(text: &str, source_task_id: Option<&str>) -> String {
     match source_task_id {
         Some(id) => format!(
@@ -439,14 +436,10 @@ fn attributed_text(text: &str, source_task_id: Option<&str>) -> String {
 
 /// Rebuild the agent-facing content of a queued Message, at delivery time.
 ///
-/// A user Message stores what the person wrote and nothing else. Everything
-/// wrapped around it for the agent — the preview URL, the selected element, the
-/// attribution to a sending Task, the attached files — is already persisted as
-/// its own context row or column, so keeping a second, pre-rendered copy on the
-/// Message only creates something that can disagree with them. This rebuilds it
-/// from those rows on the way to the sandbox.
-///
-/// It is the read-side twin of [`build_content_blocks`].
+/// A Message stores only what the person wrote; everything else (preview URL,
+/// selected element, attribution, attached files) is rebuilt from its own
+/// persisted row rather than cached, so nothing can disagree. Read-side twin of
+/// [`build_content_blocks`].
 pub async fn build_pending_content_blocks(
     files: &Files,
     config: &Config,
@@ -471,11 +464,10 @@ pub async fn build_pending_content_blocks(
 
 /// Build a content block from a file attachment reference.
 ///
-/// `file_mount_path` is the on-disk directory the sandbox writes uploads to
-/// before invoking the agent (defaults to `/opt/moatless/workspace/uploads`).
-/// The prompt advertises the resulting on-disk path so the agent can read the
-/// file directly with no network round-trip; the sandbox receives the same
-/// value as `UPLOAD_DIR`, so the two cannot disagree.
+/// `file_mount_path` is where the sandbox writes uploads before invoking the
+/// agent; the prompt advertises that on-disk path so the agent reads the file
+/// directly, and the sandbox gets the same value as `UPLOAD_DIR` so the two
+/// cannot disagree.
 async fn build_file_attachment_block(
     files: &Files,
     file_id: &str,
@@ -746,8 +738,8 @@ mod tests {
         assert_eq!(deliveries[0].skills, vec!["e2e-testing".to_string()]);
     }
 
-    /// With neither text nor a skill there is nothing to open a turn with, so the
-    /// delivery is still dropped.
+    /// With neither text nor a skill there is nothing to open a turn with, so
+    /// the delivery is still dropped.
     #[tokio::test]
     async fn a_delivery_with_no_text_and_no_skills_is_dropped() {
         let rows = vec![pending_message(1, "msg-1", "")];
@@ -898,7 +890,8 @@ mod tests {
     }
 
     /// The whole point of resolving from the writer's own id: `sent_by` here
-    /// resolves to `alice`, the trigger owner, and the label must say `aorwall`.
+    /// resolves to `alice`, the trigger owner, and the label must say
+    /// `aorwall`.
     #[tokio::test]
     async fn a_mapped_writer_is_named_by_login_not_by_the_trigger_owner() {
         let mut cache = HashMap::new();

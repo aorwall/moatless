@@ -8,9 +8,9 @@ use codex_app_server_protocol::PermissionsRequestApprovalResponse;
 
 /// Trait for handling approval requests from the Codex agent.
 ///
-/// This is the Codex equivalent of the Claude SDK's `PermissionHandler`.
-/// Codex has three distinct approval types (command execution, file changes,
-/// and permission escalation) compared to Claude's single `can_use_tool`.
+/// This is the Codex equivalent of the Claude SDK's `PermissionHandler`. Codex
+/// has three distinct approval types (command execution, file changes, and
+/// permission escalation) compared to Claude's single `can_use_tool`.
 #[async_trait]
 pub trait ApprovalHandler: Send + Sync {
     /// Called when the agent wants to execute a shell command.
@@ -25,8 +25,8 @@ pub trait ApprovalHandler: Send + Sync {
         params: &FileChangeRequestApprovalParams,
     ) -> FileChangeApprovalDecision;
 
-    /// Called when the agent requests additional permissions.
-    /// Defaults to denying the request.
+    /// Called when the agent requests additional permissions. Defaults to
+    /// denying the request.
     async fn on_permissions_approval(
         &self,
         _params: &PermissionsRequestApprovalParams,

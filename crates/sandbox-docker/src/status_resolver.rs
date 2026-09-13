@@ -1,7 +1,7 @@
 //! Read-only domain service for resolving sandbox status from Docker.
 //!
-//! Maps Docker container states to `SandboxStatus` and resolves
-//! server sidecar container statuses via the Docker API.
+//! Maps Docker container states to `SandboxStatus` and resolves server sidecar
+//! container statuses via the Docker API.
 
 use std::sync::Arc;
 use tracing::{debug, warn};
@@ -92,8 +92,8 @@ impl DockerStatusResolver {
 
     /// Full sandbox status (env + agent + servers) from Docker API.
     ///
-    /// `server_configs` are the canonical server definitions from the DB.
-    /// When non-empty, Docker container statuses are inspected and overlaid.
+    /// `server_configs` are the canonical server definitions from the DB; when
+    /// non-empty, Docker container statuses are inspected and overlaid.
     pub async fn resolve_sandbox_status(
         &self,
         task_id: &str,
@@ -244,8 +244,8 @@ impl DockerStatusResolver {
     // Private helpers
     // =========================================================================
 
-    /// Inspect a Docker container and map its state to `SandboxStatus`,
-    /// along with an optional error message for crash loops or OOM.
+    /// Inspect a Docker container and map its state to `SandboxStatus`, along
+    /// with an optional error message for crash loops or OOM.
     async fn inspect_sandbox_status(
         &self,
         container_name: &str,
@@ -331,8 +331,8 @@ impl DockerStatusResolver {
 
     /// Build server entries by inspecting Docker sidecar containers.
     ///
-    /// For each `ServerConfig`, inspects the corresponding Docker container
-    /// and extracts status + dynamically mapped host port.
+    /// For each `ServerConfig`, inspects the corresponding Docker container and
+    /// extracts status + dynamically mapped host port.
     async fn resolve_server_entries(
         &self,
         task_id: &str,
@@ -368,11 +368,12 @@ impl DockerStatusResolver {
         entries
     }
 
-    /// Inspect a server container and return its status, host URL, and optional error.
+    /// Inspect a server container and return its status, host URL, and optional
+    /// error.
     ///
-    /// When a container is "running", checks whether the port is actually
-    /// reachable via TCP. If not, and the container has been running longer
-    /// than `startup_timeout_secs`, returns `Failed`.
+    /// When "running", checks whether the port is reachable via TCP; if not and
+    /// the container has run longer than `startup_timeout_secs`, returns
+    /// `Failed`.
     async fn inspect_server_container(
         &self,
         container_name: &str,

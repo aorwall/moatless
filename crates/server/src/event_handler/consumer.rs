@@ -1,7 +1,7 @@
 //! Redis stream consumer for agent events.
 //!
-//! Subscribes to `task-events:*` streams using a separate consumer group
-//! from the SSE consumer. Processes `agent.*` and `task.metadata.updated` events.
+//! Subscribes to `task-events:*` streams using a separate consumer group from
+//! the SSE consumer. Processes `agent.*` and `task.metadata.updated` events.
 
 use std::sync::Arc;
 
@@ -37,10 +37,11 @@ pub struct EventHandlerConsumer {
     /// root; this module never names a provider.
     subscribers: Arc<TaskEventSubscribers>,
     cancel: CancellationToken,
-    /// When set, the next cycle first drains this consumer's Pending Entries
-    /// List (delivered-but-not-ACKed entries) before reading new entries.
-    /// Set on startup and after every connection error so an `agent.completed`
-    /// lost mid-cycle during Redis flapping is recovered rather than orphaned.
+    /// When set, the next cycle first drains the Pending Entries List
+    /// (delivered-but-not-ACKed) before reading new entries.
+    ///
+    /// Set on startup and after every connection error, so an event lost
+    /// mid-cycle during Redis flapping is recovered rather than orphaned.
     recover_pending: bool,
 }
 
@@ -144,11 +145,11 @@ impl EventHandlerConsumer {
         Ok(())
     }
 
-    /// Drain this consumer's Pending Entries List across all streams, processing
-    /// and ACKing until empty. Reading with id `0` returns the PEL from the
-    /// start; since each pass ACKs what it processes, successive reads return
-    /// fewer entries until drained. Capped to avoid an unbounded loop on a
-    /// poison entry (those are ACKed by `process_response` regardless).
+    /// Drain this consumer's Pending Entries List across all streams,
+    /// processing and ACKing until empty.
+    ///
+    /// Capped to avoid an unbounded loop on a poison entry — those are ACKed by
+    /// `process_response` regardless, so the cap alone bounds retries.
     async fn recover_pending_entries(
         &mut self,
         streams: &[String],
@@ -245,7 +246,8 @@ impl EventHandlerConsumer {
     }
 
     /// Parse XREADGROUP response and dispatch events to handlers. Returns the
-    /// number of entries ACKed, letting the PEL drain loop detect an empty read.
+    /// number of entries ACKed, letting the PEL drain loop detect an empty
+    /// read.
     async fn process_response(&mut self, value: &Value) -> usize {
         let stream_results = match value {
             Value::Array(arr) => arr,
@@ -334,15 +336,10 @@ impl EventHandlerConsumer {
 
     /// Idempotent fallback projection of turn state into `task_turns`.
     ///
-    /// The gRPC ingress writes turn state transactionally *before*
-    /// publishing (see the turn store's `apply_ingress_event`), so by the time
-    /// this consumer sees the event the row is almost always already current and
-    /// the projection's `WHERE` guards make this a no-op. It stays as a
-    /// rollout/backstop safety net for the rare event that reached Redis without
-    /// the transactional write (e.g. the ingress DB write failed, or the event
-    /// was published by a path that doesn't front the transaction). Touches only
-    /// `task_turns` — the event row stays with `persist_event` and the
-    /// task-status flip with the agent handlers.
+    /// The gRPC ingress writes turn state transactionally before publishing, so
+    /// this is usually a no-op via `WHERE` guards; it's a backstop for the rare
+    /// event that reached Redis without that transactional write. Touches only
+    /// `task_turns`.
     async fn project_turn_state(&self, event: &AgentEvent) {
         let Some(transition) = classify_turn_transition(event.event_type.as_str(), &event.sub_type)
         else {
@@ -396,9 +393,9 @@ impl EventHandlerConsumer {
     /// Dispatch a parsed event: the generic handling this band owns, then the
     /// Adapters that subscribed to it.
     ///
-    /// Subscribers run *after* the generic handler, so a reaction that depends
-    /// on what the handler persisted — the GitHub shell claim keys on the
-    /// message row the handler wrote — sees it.
+    /// Subscribers run *after* the generic handler, so a reaction depending on
+    /// what it persisted (e.g. the GitHub shell claim keying on the message
+    /// row) sees it.
     #[tracing::instrument(
         skip_all,
         fields(task_id = %event.task_id, event_type = %event.event_type, sub_type = %event.sub_type)
@@ -529,11 +526,9 @@ impl EventHandlerConsumer {
 
 /// Append an event to `task_events` (best-effort, never blocks dispatch).
 ///
-/// `agent.message` writes no row. The Sandbox publishes one per block, so a row
-/// here is one event-log row per activity; the conversation holds those.
-/// `task_events` is lifecycle-only.
-///
-/// Free rather than a method so a test can reach it with a pool and no Redis.
+/// `agent.message` writes no row — `task_events` is lifecycle-only, and the
+/// conversation holds per-activity rows. Free rather than a method so a test
+/// can reach it with a pool and no Redis.
 pub async fn persist_event(state: &AppState, event: &AgentEvent) {
     if moatless_tasks::agent_event::is_agent_message(event.event_type.as_str(), &event.sub_type) {
         return;

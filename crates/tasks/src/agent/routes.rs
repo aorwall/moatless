@@ -23,9 +23,9 @@ pub struct AgentApiDoc;
 
 /// Build the agent router with OpenAPI metadata.
 ///
-/// Generic over the router state `S`: the handler extracts its ports through
-/// `FromRef<S>`, so this router names those ports (all identity-band) rather
-/// than the whole `AppState`. The composition root passes `AppState` as `S`.
+/// Generic over router state `S` so the handler names its ports (all
+/// identity-band) via `FromRef<S>` rather than the whole `AppState`, which the
+/// composition root passes as `S`.
 pub fn agent_router<S>(state: S) -> (axum::Router, utoipa::openapi::OpenApi)
 where
     S: Clone + Send + Sync + 'static,

@@ -1,28 +1,11 @@
 //! Mirroring a task's own event stream into its Linear agent session.
 //!
-//! Linear's UI shows a session as a live feed, so a bound Task's progress has to
-//! be pushed there as it happens: what the assistant said, what tools it ran,
-//! how the sandbox is doing, and how the turn ended. This module is the whole of
-//! that reaction — it subscribes to the events it needs and nothing outside this
-//! crate names Linear to make them happen.
+//! Linear's UI shows a session as a live feed, so a bound Task's progress —
+//! assistant output, tool runs, sandbox status, turn end — is pushed here as it
+//! happens.
 //!
-//! # The turn gate
-//!
-//! [`ActiveLinearTurns`] is owned here, because this is the only code that reads
-//! it. It opens when an inbound webhook routes to a Task (`sessions`, `issues`)
-//! or when `agent.started` arrives, and it closes on the terminal event. While
-//! it is closed every emission below is dropped, so post-turn stragglers — a
-//! late `sandbox.stopped`, a trailing tool result — never leak into Linear.
-//!
-//! Both halves of a terminal event live here, in order: emit the final activity,
-//! *then* close the gate.
-//!
-//! # Best effort
-//!
-//! Every emission is a detached `tokio::spawn`. Linear being unreachable must
-//! not slow the event handler or fail the run, and a notification lost to a
-//! restart is not worth recovering — the next event carries the Task's state
-//! again.
+//! [`ActiveLinearTurns`], owned here as the only reader, gates emission (see
+//! its own doc); every emission is a detached, best-effort `tokio::spawn`.
 
 use std::sync::Arc;
 
@@ -139,8 +122,8 @@ impl LinearEventSubscriber {
 
     /// A terminal `response` activity carrying the last assistant message.
     ///
-    /// Awaits the message read rather than spawning it: the body has to be
-    /// resolved before the gate closes, and only the Linear call is detached.
+    /// Awaits the message read rather than spawning it, since the body must
+    /// resolve before the gate closes; only the Linear call is detached.
     async fn on_agent_completed(&self, event: &AgentEvent) {
         // An `is_error` completion is routed through the error machinery by the
         // generic handler and posts no response activity — only the gate closes.

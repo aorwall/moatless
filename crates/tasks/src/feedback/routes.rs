@@ -28,11 +28,9 @@ pub struct FeedbackApiDoc;
 
 /// Build the feedback router with OpenAPI metadata.
 ///
-/// Generic over the router state `S` so this module names no root type: the
-/// composition root supplies the concrete state at the call site, and each
-/// handler reaches its ports — `Arc<FeedbackNotes>`, `Arc<TaskCommands>`,
-/// `Arc<dyn RepositoryReader>`, and the `UserTokenVerifier` behind `AuthUser`
-/// — through `FromRef<S>`.
+/// Generic over router state `S` so this module names no root type: the
+/// composition root supplies the concrete state, and each handler reaches its
+/// ports through `FromRef<S>`.
 pub fn feedback_router<S>(state: S) -> (axum::Router, utoipa::openapi::OpenApi)
 where
     S: Clone + Send + Sync + 'static,

@@ -1,29 +1,27 @@
 //! Shared "Moatless task:" footer appended to outbound comments.
 //!
-//! Comments the agent posts to external providers (Linear, GitHub) end with a
-//! link back to the moatless task so a human reading the external thread can
-//! jump straight to it. The link text is the task's name, falling back to
-//! `View task` when the task is unnamed.
+//! Comments posted to external providers (Linear, GitHub) end with a link back
+//! to the moatless task. It doubles as the echo-filter source: when the
+//! provider echoes the agent's own comment back via webhook,
+//! [`parse_task_id_from_body`] recovers the authoring task id from the footer
+//! URL so only that task's own echo is dropped, with no hidden HTML marker.
 //!
-//! The footer doubles as the echo-filter source: when the provider echoes the
-//! agent's own comment back via webhook, [`parse_task_id_from_body`] recovers
-//! the authoring task id from the footer URL so we can drop only that task's
-//! own echo (no hidden HTML marker required).
-//!
-//! This is the pure render/parse layer. The wrapper that loads a task's name
-//! through a DAO before rendering lives in the binding runtime
-//! (`bindings::footer::task_comment_footer`), where the port belongs.
+//! This is the pure render/parse layer; the DAO-backed wrapper that loads a
+//! task's name before rendering lives in the binding runtime
+//! (`bindings::footer::task_comment_footer`).
 
-/// Footer marker so we can detect if the URL was already appended (and skip
-/// re-appending on retries). Stable across runs. Shared with the GitHub PR-body
-/// footer the typed `/api/v1/github/*` endpoints bake in
-/// (`github_pr::api_routes::compose_footer`), which embeds the same marker.
+/// Marker used to detect the footer was already appended, so a retry doesn't
+/// re-append it.
+///
+/// Stable across runs; shared with the GitHub PR-body footer baked in by
+/// `github_pr::api_routes::compose_footer`, which embeds the same marker.
 pub const FOOTER_MARKER: &str = "Moatless task:";
 
-/// Format the footer suffix from already-resolved inputs. Returns `None` when
-/// `frontend_url` is empty, which is also what the GitHub PR-body footer does.
-/// The string includes the leading separator, e.g.
-/// `"\n\n---\nMoatless task: [My task](https://app/tasks/abc)"`.
+/// Format the footer suffix from already-resolved inputs.
+///
+/// Returns `None` when `frontend_url` is empty, matching the GitHub PR-body
+/// footer. Includes the leading separator, e.g. `"\n\n---\nMoatless task: [My
+/// task](https://app/tasks/abc)"`.
 pub fn render_footer(frontend_url: &str, task_id: &str, name: Option<&str>) -> Option<String> {
     let base = frontend_url.trim_end_matches('/');
     if base.is_empty() {
@@ -37,9 +35,11 @@ pub fn render_footer(frontend_url: &str, task_id: &str, name: Option<&str>) -> O
     Some(format!("\n\n---\n{FOOTER_MARKER} [{label}]({url})"))
 }
 
-/// Extract the moatless task id from a comment body that contains our footer
-/// link `<frontend_url>/tasks/<id>`. Handles both the bare-URL and
-/// `[name](url)` markdown forms. None when `frontend_url` is empty or absent.
+/// Extract the moatless task id from a comment body containing the footer link
+/// `<frontend_url>/tasks/<id>`.
+///
+/// Handles both the bare-URL and `[name](url)` markdown forms; `None` when
+/// `frontend_url` is empty or absent.
 pub fn parse_task_id_from_body(frontend_url: &str, body: &str) -> Option<String> {
     let base = frontend_url.trim_end_matches('/');
     if base.is_empty() {

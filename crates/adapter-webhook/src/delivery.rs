@@ -13,10 +13,10 @@ pub const ADAPTER: &str = "webhook";
 /// The subject a webhook binding is keyed on: one thread on one trigger.
 pub(crate) const SUBJECT_KIND: &str = "webhook_thread";
 
-/// Routing one inbound webhook message.
+/// Routing kind for one inbound webhook message.
 ///
-/// Namespaced under `webhook.` so kinds stay owned by exactly one adapter and
-/// two migrations never contend for the same name.
+/// Namespaced under `webhook.` so two migrations never contend for the same
+/// name.
 pub const INBOUND_MESSAGE: &str = "webhook.inbound_message";
 
 #[cfg(test)]

@@ -10,6 +10,7 @@ pub mod sandbox {
         #![allow(
             clippy::all,
             clippy::pedantic,
+            clippy::too_long_first_doc_paragraph,
             reason = "prost and tonic generate this module"
         )]
         tonic::include_proto!("sandbox.v1");

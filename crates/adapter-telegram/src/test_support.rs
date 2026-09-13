@@ -1,10 +1,11 @@
 //! A local Bot API stub that records what the Adapter sent it, and the one
 //! Subscription fixture its tests build on.
 //!
-//! [`moatless_adapter_model::test_support::stub_provider`] answers, but remembers
-//! nothing — and half of what the Telegram workflows promise is a *count*: one
-//! `sendMessage` per reply, one per `/start`, one per pairing code, and none at
-//! all from normalization. A stub that cannot be counted cannot prove that.
+//! [`moatless_adapter_model::test_support::stub_provider`] answers, but
+//! remembers nothing — and half of what the Telegram workflows promise is a
+//! *count*: one `sendMessage` per reply, one per `/start`, one per pairing
+//! code, and none at all from normalization. A stub that cannot be counted
+//! cannot prove that.
 
 use std::sync::{Arc, Mutex};
 
@@ -22,10 +23,8 @@ pub(super) const OWNER: &str = "user-owner";
 
 /// An active Telegram Subscription matching one chat.
 ///
-/// `SubscriptionMatch` has twenty-odd fields and every module's tests need two
-/// of them; spelling the rest out per module is how two copies drift into
-/// disagreeing about what a default Subscription is. Set what your test is
-/// about on the value this returns.
+/// Set only the fields your test is about; spelling out every field per module
+/// lets copies drift on what "default" means.
 pub(super) fn test_rule(adapter_kind: moatless_types::adapter::AdapterKind, source_matcher: &str) -> SubscriptionMatch {
     let now = chrono::Utc::now();
     SubscriptionMatch {

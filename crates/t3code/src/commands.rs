@@ -1,20 +1,12 @@
 //! `orchestration.dispatchCommand` — the one write the T3 client makes.
 //!
-//! T3's command union is wider than Moatless, so this module is the table
-//! saying, per command, whether it is carried out, discarded or refused. State
-//! all three explicitly: discarding and refusing look identical from here and
-//! completely different to the person holding the mouse.
+//! T3's command union is wider than Moatless's: this module states, per
+//! command, whether it is carried out, discarded, or refused — the two look
+//! identical here but not to the person holding the mouse.
 //!
-//! Three are discarded on purpose: `thread.runtime-mode.set` (no Moatless
-//! meaning), `thread.interaction-mode.set` (the Build/Plan choice rides the turn
-//! itself), and `bootstrap.prepareWorktree` / `runSetupScript` (the Sandbox's
-//! business). Everything else refused is refused because it cannot be honoured.
-//!
-//! Archiving is the one command whose vocabularies differ: T3 archives a thread,
-//! Moatless closes a Task, and they are the same act. The two reverts differ the
-//! other way: `thread.conversation.revert` cuts the transcript and is carried
-//! out, while `thread.checkpoint.revert` also restores the files and is refused,
-//! because nothing here snapshots a worktree.
+//! Discarded on purpose: `thread.runtime-mode.set`,
+//! `thread.interaction-mode.set`, and
+//! `bootstrap.prepareWorktree`/`runSetupScript` (the Sandbox's business).
 
 use chrono::{DateTime, Utc};
 use serde_json::{Value, json};
@@ -52,11 +44,10 @@ pub struct CommandContext<'a> {
     pub caller: Uuid,
 }
 
-/// Answer one dispatched command.
+/// Answers one dispatched command, returning the contract's `DispatchResult`.
 ///
-/// The returned value is the contract's `DispatchResult`. `sequence` is the
-/// listing position the deployment has reached, so a client can tell whether the
-/// change it just caused is already reflected in what it holds.
+/// `sequence` is the listing position reached, so the client can tell whether
+/// its own change already shows in what it holds.
 pub async fn dispatch(
     ctx: &CommandContext<'_>,
     viewer: &ScopeContext,
@@ -290,10 +281,9 @@ async fn turn_start(
 
 /// The skills a turn's text activates, as names Moatless frontloads.
 ///
-/// The composer's `/` and `$` menus write a pick as a `$name` mention and leave
-/// it in the prompt. Only a mention that names a skill this Workspace actually
-/// offers counts, so the listing is read first — a `$HOME` in prose must not
-/// activate anything. A prompt with no mention at all skips the read.
+/// A `$name` mention only activates a skill this Workspace actually offers —
+/// checked against the listing — so a `$HOME` in prose activates nothing; a
+/// prompt with no mention skips that read.
 async fn activated_skills(
     ctx: &CommandContext<'_>,
     viewer: &ScopeContext,
@@ -315,29 +305,21 @@ async fn activated_skills(
 /// (`contracts/src/orchestration.ts:144`).
 const MAX_ATTACHMENTS: usize = 8;
 
-/// The largest single image, decoded
-/// (`contracts/src/orchestration.ts:145`). The composer re-encodes anything
-/// bigger before it sends, so this is a backstop against a client that does
-/// not, not a limit a person meets by pasting a screenshot.
+/// The largest single image, decoded (`contracts/src/orchestration.ts:145`).
+///
+/// A backstop against a client that skips the composer's re-encoding, not a
+/// limit a person meets by pasting a screenshot.
 const MAX_IMAGE_BYTES: usize = 10 * 1024 * 1024;
 
 /// `ChatAttachmentId`'s length (`contracts/src/orchestration.ts:175`).
 const MAX_ATTACHMENT_ID_CHARS: usize = 128;
 
-/// What the composer sent with a turn.
+/// What the composer sent with a turn: a *reference* names an already-uploaded
+/// id, an *inline* one (image only) carries a `data:` URL.
 ///
-/// Two forms arrive here and both are the contract's. An attachment the client
-/// uploaded first is a *reference* — an id and the name, type and size it
-/// already told this server at mint time — and its bytes are already stored. An
-/// attachment from a client that has not read the `attachmentUploads`
-/// capability is *inline*: an image in the command as a `data:` URL, which is
-/// where those bytes enter Moatless. The limits the client's own schema
-/// enforces are re-checked on the inline form, and the mime type and size are
-/// taken from the payload rather than from the sibling fields declaring them —
-/// those are what the client believes, the bytes are what gets stored.
-///
-/// Anything wrong is a rejection rather than a silent drop: an image that
-/// vanishes on send reads as Moatless having lost it.
+/// Its mime type and size are read from the decoded inline payload, not the
+/// client-declared fields, and anything invalid is rejected rather than
+/// silently dropped.
 fn attachments(message: &Value) -> Result<Vec<TurnAttachment>, CommandRefusal> {
     let Some(sent) = message.get("attachments").and_then(Value::as_array) else {
         return Ok(Vec::new());
@@ -356,16 +338,9 @@ fn attachments(message: &Value) -> Result<Vec<TurnAttachment>, CommandRefusal> {
 
 /// One attachment, in whichever form it arrived.
 ///
-/// `ChatAttachment` is a union of `image`, `file` and a deliberately open
-/// catch-all for a type this build does not know
-/// (`contracts/src/orchestration.ts:240-244`). The catch-all exists so a newer
-/// client does not make an older reader fail to decode the message; it is not
-/// something this server can store, so it is refused by name rather than
-/// guessed at.
-///
-/// Within the two known members, what tells the forms apart is `dataUrl`: only
-/// the inline member carries one, and only an image may. Everything else names
-/// an upload by id, and the bytes are already in storage.
+/// `ChatAttachment` is a union of `image`, `file`, and an open catch-all for a
+/// future type (refused by name, not guessed); `dataUrl` marks an inline image,
+/// everything else names an upload by id.
 fn attachment(sent: &Value) -> Result<TurnAttachment, CommandRefusal> {
     let kind = sent.get("type").and_then(Value::as_str).unwrap_or_default();
     if kind != "image" && kind != "file" {
@@ -441,9 +416,8 @@ fn attachment(sent: &Value) -> Result<TurnAttachment, CommandRefusal> {
 
 /// `data:<mime>;base64,<payload>` split into what it says it is and what it is.
 ///
-/// Only base64 payloads are read: that is the one form the composer produces,
-/// and a percent-encoded `data:` URL carrying image bytes is not something a
-/// browser builds from a `File`.
+/// Only base64 payloads are read — the one form the composer produces; a
+/// browser never builds a percent-encoded `data:` URL from a `File`.
 fn decode_data_url(data_url: &str) -> Option<(String, Vec<u8>)> {
     let trimmed = data_url.trim();
     let rest = trimmed
@@ -468,11 +442,11 @@ fn decode_data_url(data_url: &str) -> Option<(String, Vec<u8>)> {
     Some((mime_type, bytes))
 }
 
-/// A thread created with nothing in it, from a proposed plan or from a draft
-/// the person ran a Script in before they sent anything.
+/// A thread created empty — from a proposed plan, or a draft the person ran a
+/// Script in before sending anything.
 ///
-/// `provision` is what separates the two. A plan's thread is about to be sent
-/// a turn, so it waits for the Sandbox; a draft's Script needs one now.
+/// `provision` separates the two: a plan's thread awaits the Sandbox until its
+/// first turn; a draft's Script needs one now.
 async fn create_thread(
     ctx: &CommandContext<'_>,
     viewer: &ScopeContext,
@@ -505,12 +479,11 @@ async fn create_thread(
         .await
 }
 
-/// Branch a new Thread off an existing one at one of its completed turns.
+/// Branches a new Thread off an existing one at one of its completed turns.
 ///
-/// The fork's agent is fixed to the source Thread's — T3 has no picker for
-/// switching it mid-branch — so a `modelSelection` override is checked
-/// against the source's instance exactly as [`meta_update`] checks one
-/// against an existing Thread's.
+/// The fork's agent is fixed to the source Thread's — T3 has no mid-branch
+/// picker — so a `modelSelection` override is checked against the source's
+/// instance exactly as [`meta_update`] checks one against an existing Thread's.
 async fn fork_thread(
     ctx: &CommandContext<'_>,
     viewer: &ScopeContext,
@@ -582,8 +555,8 @@ fn rename(conversation: &Conversation, command: &Value) -> Option<String> {
     Some(title.to_string())
 }
 
-/// The source Task's turn a fork cuts after, if the command named one.
-/// `None` cuts after the newest turn that reached a terminal status.
+/// The source Task's turn a fork cuts after, if the command named one. `None`
+/// cuts after the newest turn that reached a terminal status.
 fn parse_at_turn(command: &Value) -> Result<Option<i32>, CommandRefusal> {
     match command.get("atTurn") {
         None | Some(Value::Null) => Ok(None),
@@ -598,8 +571,8 @@ fn parse_at_turn(command: &Value) -> Result<Option<i32>, CommandRefusal> {
 }
 
 /// Title and model. `branch`, `expectedBranch` and `worktreePath` are read and
-/// ignored: a Task's branch is decided at creation and the checkout lives in the
-/// Sandbox.
+/// ignored: a Task's branch is decided at creation and the checkout lives in
+/// the Sandbox.
 async fn meta_update(
     ctx: &CommandContext<'_>,
     viewer: &ScopeContext,
@@ -629,14 +602,10 @@ async fn meta_update(
 /// The project fields this surface changes: its Workspace's Scripts, and
 /// nothing else.
 ///
-/// `project.meta.update` is one command carrying eight optional fields, and
-/// only one of them names something this surface may set. The rest — the title,
-/// the root path, the default model and effort, the icon, the favicon, the env
-/// mode — describe a T3 project, which here is a *projection* of a Moatless
-/// Workspace: its root is synthesized from the id, and the rest are Workspace
-/// columns the settings page edits over REST. Accepting the command wholesale
-/// and quietly dropping those would report a save that did not happen, so each
-/// is refused by name.
+/// `project.meta.update` carries other fields that describe a Moatless
+/// Workspace projection (see `PROJECT_FIELDS_MOATLESS_OWNS`); accepting them
+/// and quietly dropping the rest would report a save that never happened, so
+/// each is refused by name instead.
 async fn project_meta_update(
     ctx: &CommandContext<'_>,
     viewer: &ScopeContext,
@@ -699,12 +668,10 @@ const PROJECT_FIELDS_MOATLESS_OWNS: [&str; 6] = [
 
 /// An answer to what the agent asked.
 ///
-/// `requestId` is the tool-use id of the call that asked — the panel is derived
-/// from an activity whose `requestId` is exactly that — so the stored call is
-/// what says which tool this answers, and therefore what an answer to it looks
-/// like. Two tools ask, and they take different answers: a question takes one
-/// per question, a proposed plan takes a yes or a no. Assuming either would
-/// label a plan answer as a question answer and send a rejection as a blob.
+/// `requestId` names the tool-use call that asked, and its stored tool decides
+/// the answer's shape: a question takes one answer per question, a proposed
+/// plan takes a yes or no — conflating the two would label a plan answer as a
+/// question answer.
 async fn respond(
     ctx: &CommandContext<'_>,
     viewer: &ScopeContext,
@@ -765,8 +732,8 @@ async fn respond(
 /// The `ThreadPullRequestKey` a link or unlink command carries, on a Thread
 /// this viewer may write to.
 ///
-/// Gated on control rather than on read: a link changes which pull request every
-/// surface reports for the Thread, and a reader may open one they cannot write.
+/// Gated on control rather than read: a link changes what every surface reports
+/// for the Thread, and a reader may open one they cannot write.
 async fn pull_request_ref(
     ctx: &CommandContext<'_>,
     viewer: &ScopeContext,
@@ -800,11 +767,9 @@ async fn pull_request_ref(
 
 /// One answer per question, keyed on the question's full text.
 ///
-/// The client accumulates `string | string[]` per question and a multi-select
-/// answer is joined here, on the way in: the CLI merges the value into the tool
-/// input unread, and Moatless's own panel already sends the joined string, so a
-/// second answer shape would buy nothing. Anything that is neither is dropped
-/// rather than stringified into JSON the agent would have to parse.
+/// A multi-select `string[]` answer is joined into a string here: the CLI
+/// merges it into the tool input unread, and the panel already sends a joined
+/// string. Anything neither string nor array is dropped, not stringified.
 fn answers_by_question(answers: Option<&Value>) -> Value {
     let mut by_question = serde_json::Map::new();
     for (question, answer) in answers.and_then(Value::as_object).into_iter().flatten() {
@@ -824,9 +789,9 @@ fn answers_by_question(answers: Option<&Value>) -> Value {
 
 /// A proposed plan answered through the question in front of it.
 ///
-/// Only the approve option approves. Everything else is a rejection carrying
-/// what was said as feedback — which is what makes "No, use the second
-/// approach" reach the agent as a rejection *and* as the reason.
+/// Only the approve option approves; everything else is a rejection carrying
+/// what was said as feedback, so "No, use the second approach" reaches the
+/// agent as both the rejection and the reason.
 fn plan_verdict(answers: &Value) -> Value {
     let said = answers
         .get(mapping::PLAN_QUESTION)
@@ -846,15 +811,10 @@ fn plan_verdict(answers: &Value) -> Value {
 
 /// The Task, if this viewer may run a turn on it.
 ///
-/// Resolved through the read a link resolves through, then gated on control —
-/// which is the grant a turn takes, because a turn is the agent running in
-/// someone's Sandbox and a controller can already run anything else there. A
-/// Task that fails either is reported the same way as one that does not exist.
-///
-/// The status rule is this function's own, because the two paths want different
-/// answers from it: a reader may open an archived conversation, and no one may
-/// add a turn to one. Unarchiving is the way back, and it does not come through
-/// here.
+/// Gated on control, not just read — a turn runs in the Sandbox a controller
+/// can already act in — and reports failure the same way as a Task that doesn't
+/// exist. Archived Tasks fail here even for a reader who may still open them;
+/// unarchiving is the way back and does not go through this function.
 async fn require_controllable(
     ctx: &CommandContext<'_>,
     viewer: &ScopeContext,
@@ -890,11 +850,10 @@ async fn require_controllable(
 
 /// The catalog model a command asks for, checked against the Task's own agent.
 ///
-/// A Task's harness is fixed at creation — there is no column for it in
-/// `TaskPatch` and no path that changes it — so a model belonging to the other
-/// instance cannot be honoured. Refusing is the only honest answer: running it
-/// on the thread's own agent instead is the silent substitution the published
-/// model names exist to prevent.
+/// A Task's harness is fixed at creation — no column or path changes it — so a
+/// model belonging to another instance is refused rather than silently run on
+/// the Task's own agent, which is the substitution published model names exist
+/// to prevent.
 fn model_for_existing(
     agents: &[crate::agent::schemas::AgentDescriptor],
     conversation: &Conversation,
@@ -940,10 +899,9 @@ fn translate_model(
 
 /// The branch a create command carries, if it names a non-empty one.
 ///
-/// The contract sends `null` for "the repository's default", which reaches
-/// creation as `None` and resolves to the default there. A blank string is the
-/// same intent and is read the same way rather than pinned as a branch named
-/// "".
+/// The contract sends `null` for "the repository's default", reaching creation
+/// as `None`; a blank string carries the same intent and is read the same way
+/// rather than pinned as a branch named "".
 fn branch(command: &Value) -> Option<String> {
     command
         .get("branch")
@@ -963,11 +921,10 @@ fn selected_instance(command: &Value) -> Option<String> {
 
 /// The reasoning effort a command selected, in the agent's own vocabulary.
 ///
-/// T3 carries every per-model choice as one array of `{id, value}` selections
-/// on `modelSelection.options`, keyed by the descriptor ids the provider
-/// published (`providers::effort_option_id`). Only the effort descriptor is read
-/// here; a selection this server never published is another provider's and is
-/// ignored rather than forwarded to an agent that has no such setting.
+/// T3 carries every per-model choice as `{id, value}` selections on
+/// `modelSelection.options`, keyed by the descriptor ids this provider
+/// published (`providers::effort_option_id`); a selection this server never
+/// published is ignored rather than forwarded to an agent with no such setting.
 fn selected_effort(command: &Value) -> Option<String> {
     let instance = selected_instance(command)?;
     let wanted = providers::effort_option_id(&instance);

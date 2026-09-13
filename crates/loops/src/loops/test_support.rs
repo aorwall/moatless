@@ -8,8 +8,8 @@ use crate::loops::operations::Loops;
 
 /// Activate a Loop under `run_as_user_id` without resolving that login.
 ///
-/// [`Loops::activate`] refuses a login no user row carries, and a fixture names
-/// a symbolic runner it never creates.
+/// [`Loops::activate`] refuses a login no user row carries; a fixture names a
+/// symbolic runner it never creates.
 pub async fn activate_loop(
     loops: &Loops,
     ctx: &ScopeContext,

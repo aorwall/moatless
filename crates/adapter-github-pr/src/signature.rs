@@ -5,8 +5,8 @@ use moatless_adapter_model::signature::verify_hmac_sha256;
 
 /// Verify the GitHub webhook signature.
 ///
-/// GitHub signs every webhook payload with `HMAC-SHA256(secret, body)` and sends
-/// the result in the `X-Hub-Signature-256` header as `sha256=<hex>`.
+/// GitHub signs the payload with `HMAC-SHA256(secret, body)` and sends the
+/// result in the `X-Hub-Signature-256` header as `sha256=<hex>`.
 pub(super) fn verify_signature(
     secret: &str,
     body: &[u8],

@@ -23,12 +23,11 @@ const CHANNEL_CAPACITY: usize = 256;
 pub struct QueryHandle {
     /// Stream of SDK messages from the Claude CLI.
     pub messages: mpsc::Receiver<Result<SdkMessage>>,
-    /// PID of the CLI process inside the tmux pane, captured at session start.
     /// `None` for the subprocess transport, or if tmux could not be queried.
     ///
-    /// Lets a caller tell the persistent session apart from work it spawned:
-    /// this PID and its ancestors are the session itself, anything else below
-    /// them is the agent's own background work.
+    /// Lets a caller tell the session apart from work it spawned: this PID and
+    /// its ancestors are the session, anything else is the agent's own
+    /// background work.
     pub tmux_pane_pid: Option<u32>,
     orchestrator_handle: JoinHandle<()>,
     stdin_writer: Arc<dyn StdinWriter>,
@@ -166,10 +165,10 @@ impl QueryHandle {
 }
 
 impl QueryHandle {
-    /// Construct a `QueryHandle` from raw parts. Used by the tmux backend, which
-    /// does not go through the subprocess orchestrator. The `background_task`
-    /// slot stores whichever long-running task represents the session — for the
-    /// subprocess path this is the orchestrator, for tmux it is the JSONL tailer.
+    /// Construct a `QueryHandle` from raw parts, for the tmux backend which
+    /// skips the subprocess orchestrator. `background_task` holds whatever
+    /// represents the session: the orchestrator for subprocess, the JSONL
+    /// tailer for tmux.
     pub(crate) fn from_parts(
         messages: mpsc::Receiver<Result<SdkMessage>>,
         background_task: JoinHandle<()>,
@@ -202,8 +201,8 @@ impl Drop for QueryHandle {
     }
 }
 
-/// Start a one-shot query. The prompt is sent as the initial user message,
-/// and the returned `QueryHandle` provides the message stream.
+/// Start a one-shot query. The prompt is sent as the initial user message, and
+/// the returned `QueryHandle` provides the message stream.
 pub async fn query(prompt: &str, mut options: ClaudeOptions) -> Result<QueryHandle> {
     let cancellation_token = options.cancellation_token.clone().unwrap_or_default();
     let permission_handler = options.can_use_tool.clone();
@@ -468,9 +467,8 @@ pub async fn query_streaming(mut options: ClaudeOptions) -> Result<QueryHandle> 
 
 /// Convert `message.content` from an array of content blocks to a plain string.
 ///
-/// The CLI expects user message content as a string (e.g. `"content": "hello"`),
-/// not as an array of content blocks (`"content": [{"type":"text","text":"hello"}]`).
-/// If content is an array of text blocks, join them into a single string.
+/// The CLI expects user message content as a string (`"content": "hello"`), not
+/// an array of blocks; text blocks are joined into one string.
 fn flatten_content_to_string(obj: &mut serde_json::Map<String, serde_json::Value>) {
     if let Some(msg) = obj.get_mut("message").and_then(|m| m.as_object_mut()) {
         if let Some(content) = msg.get("content") {

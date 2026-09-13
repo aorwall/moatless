@@ -1,4 +1,5 @@
-//! Adapter-layer router for events delivered to an already-bound external subject.
+//! Adapter-layer router for events delivered to an already-bound external
+//! subject.
 //!
 //! Adapter runtimes still decide how to parse a subject and which bindings
 //! exist. The shared binding runtime owns recipient resolution, receipt

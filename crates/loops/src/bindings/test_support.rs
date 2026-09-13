@@ -9,8 +9,8 @@ use crate::bindings::operations::Bindings;
 
 /// Write a Binding a host would have written itself.
 ///
-/// [`Bindings::bind`] mints the id and the timestamps, and a test that later
-/// reads a row back by id has to name both.
+/// [`Bindings::bind`] mints the id and timestamps; a test that later reads a
+/// row back by id has to name both.
 pub async fn upsert_binding(
     bindings: &Bindings,
     row: &TaskBinding,

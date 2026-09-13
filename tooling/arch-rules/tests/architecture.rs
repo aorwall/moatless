@@ -6,14 +6,17 @@
 //!
 //! Each rule is one test, so a failure names the rule in the test list rather
 //! than in a wall of shell output. Every test reads one `cached_violations`
-//! run; `AGENTS.md` owns why that requires `cargo test` and not nextest.
-//! A test fails on a violation absent from `arch-baseline.json`; with
-//! `ARCH_STRICT=1` it fails on any violation at all.
+//! run; `AGENTS.md` owns why that requires `cargo test` and not nextest. A test
+//! fails on a violation absent from `arch-baseline.json`; with `ARCH_STRICT=1`
+//! it fails on any violation at all.
 
 use std::collections::BTreeSet;
 
 use moatless_arch_rules::workspace::{Workspace, workspace_root};
-use moatless_arch_rules::{Violation, baseline, dependency_privacy, duplicate_names, module_names};
+use moatless_arch_rules::{
+    Violation, agents_md_budget, baseline, comment_block_size, dependency_privacy,
+    duplicate_comment_prose, duplicate_names, module_names,
+};
 
 fn strict() -> bool {
     std::env::var("ARCH_STRICT").is_ok_and(|v| v == "1")
@@ -81,6 +84,21 @@ fn no_crate_names_a_dependency_its_band_forbids() {
 #[test]
 fn a_module_is_named_for_its_domain() {
     assert_rule(module_names::RULE, cached_violations());
+}
+
+#[test]
+fn a_comment_block_stays_within_its_line_ceiling() {
+    assert_rule(comment_block_size::RULE, cached_violations());
+}
+
+#[test]
+fn an_agents_md_stays_within_its_line_budget() {
+    assert_rule(agents_md_budget::RULE, cached_violations());
+}
+
+#[test]
+fn comment_prose_is_not_copied_between_files() {
+    assert_rule(duplicate_comment_prose::RULE, cached_violations());
 }
 
 /// A baseline entry that no longer occurs must be removed, or the file stops

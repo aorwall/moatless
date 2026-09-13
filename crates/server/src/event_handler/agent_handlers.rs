@@ -1,4 +1,5 @@
-//! Agent event handlers — process agent.completed, agent.stopped, agent.error events.
+//! Agent event handlers — process agent.completed, agent.stopped, agent.error
+//! events.
 
 use std::sync::Arc;
 
@@ -26,13 +27,9 @@ use moatless_tasks::agent_event::AgentEvent;
 
 /// Handle `agent.completed` event.
 ///
-/// The final assistant message already carries the response text and usage, so
-/// no separate result row is persisted here. Updates task status /
-/// cost from the SDK result, emits follow-up events, and finalizes any active
-/// Linear agent session by posting a `response` activity carrying the body of
-/// the last assistant message (per
-/// <https://linear.app/developers/agent-interaction#activity-content-payload>).
-/// If the payload fails to parse there's nothing to act on — skip.
+/// No separate result row is persisted — the final message already carries the
+/// text and usage — before updating cost, emitting follow-ups, and finalizing
+/// any active Linear session.
 pub async fn handle_agent_completed(state: &AppState, event: &AgentEvent) {
     // reason: agent-lifecycle event handler runs as background system with no caller identity
     #[allow(clippy::disallowed_methods)]
@@ -260,9 +257,8 @@ pub async fn handle_agent_completed(state: &AppState, event: &AgentEvent) {
 
 /// Handle `agent.session_init` event — the agent's session opened.
 ///
-/// Per-message acknowledgment is handled by the sandbox via `AcknowledgeMessages`.
-/// This handler records the run's native turn id (Codex only) on the turn, so a
-/// later fork can cut the thread there; Claude carries none and skips it.
+/// Records the run's native turn id (Codex only) on the turn so a later fork
+/// can cut the thread there; Claude carries none and skips it.
 pub async fn handle_agent_session_init(state: &AppState, event: &AgentEvent) {
     let session_id = if let Some(sid) = event.payload.get("session_id").and_then(|v| v.as_str()) {
         sid
@@ -302,12 +298,9 @@ pub async fn handle_agent_session_init(state: &AppState, event: &AgentEvent) {
 
 /// Handle `agent.stopped` event — the agent was stopped before completing.
 ///
-/// Nothing about a stop enters the conversation. A stop is not something
-/// somebody said, and the reader already knows it happened: the task's live
-/// status and its turn state say so, and for an externally-bound task a
-/// "Stopped by user request" line is pure noise on Slack or Linear. The turn's
-/// terminal status is also what the next run reads to decide it must start a
-/// fresh agent session, so nothing downstream depended on the row either.
+/// Nothing about a stop enters the conversation — the task's status and turn
+/// state already say so, and that terminal status is what the next run reads to
+/// decide it needs a fresh session.
 pub async fn handle_agent_stopped(state: &AppState, event: &AgentEvent) {
     // reason: agent-lifecycle event handler runs as background system with no caller identity
     #[allow(clippy::disallowed_methods)]
@@ -383,9 +376,8 @@ pub async fn handle_agent_stopped(state: &AppState, event: &AgentEvent) {
 
 /// The ports an errored run is closed over.
 ///
-/// Two callers reach this path: the event consumer, which projects the set out
-/// of `AppState`, and the task reaper, which holds the same ports directly and
-/// never names `AppState`.
+/// Two callers reach this path: the event consumer, which projects it out of
+/// `AppState`, and the task reaper, which holds the same ports directly.
 #[derive(Clone)]
 pub struct AgentErrorPorts {
     pub tasks: Arc<TaskCommands>,
@@ -470,11 +462,11 @@ pub async fn handle_agent_error(ports: &AgentErrorPorts, event: &AgentEvent) {
     }
 }
 
-/// Tell the parent task that this child errored. A child that completes
-/// reports its own result to the parent, so only errors are forwarded here.
+/// Tell the parent task that this child errored; a completing child reports its
+/// own result, so only errors are forwarded here.
 ///
-/// `created_by` only. A fork carries a parent edge too, but nobody is waiting
-/// on a fork's result, so its errors stay in its own conversation.
+/// `created_by` only — a fork's errors stay in its own conversation since
+/// nobody awaits a fork's result.
 async fn notify_parent_task_of_child_error(
     ports: &AgentErrorPorts,
     event: &AgentEvent,
@@ -548,18 +540,18 @@ async fn notify_parent_task_of_child_error(
 }
 
 /// Handle `sandbox.fatal` event — delegates to `handle_agent_error` to create
-/// an error result message when the sandbox crashes fatally (OOM, crash loop, etc.).
+/// an error result message when the sandbox crashes fatally (OOM, crash loop,
+/// etc.).
 pub async fn handle_sandbox_fatal(ports: &AgentErrorPorts, event: &AgentEvent) {
     handle_agent_error(ports, event).await;
 }
 
-/// Persist a Sandbox lifecycle change as its own activity — a status, a warning,
-/// or an error — unless it restates the one before it.
+/// Persist a Sandbox lifecycle change as its own activity, unless it restates
+/// the one before it.
 ///
-/// `coarse_status` and `coarse_is_error` are the event's sub-type word and
-/// whether it is the error sub-type; they label the row only where the payload
-/// carries no `lifecycleEvent` to key the rich vocabulary on. A payload that
-/// does not parse leaves an empty one, so the coarse fallback still names a row.
+/// `coarse_status`/`coarse_is_error` label the row only when the payload lacks
+/// a `lifecycleEvent`; an unparseable payload falls back to this coarse label
+/// too.
 pub async fn handle_sandbox_activity(
     state: &AppState,
     event: &AgentEvent,
@@ -585,20 +577,10 @@ pub async fn handle_sandbox_activity(
     }
 }
 
-/// Handle `agent.session_context_lost` event — a session resume failed because
-/// the transcript was unavailable (e.g. stale session id after a pod restart)
-/// and the agent fell back to a fresh session.
-///
-/// The run CONTINUES — the fresh session is already starting — so this must not
-/// flip the task status, publish `task_turn.error`, or close the Linear turn
-/// gate. It writes nothing to the conversation: an `agent` error subtype is not
-/// one of the four activity kinds, and the event itself stays readable in the
-/// Events tab.
 /// Persist a context-window reading as its own activity.
 ///
-/// A reading with no `usedTokens` is nothing to show — the client skips such a
-/// row on its way back through the transcript — so it is dropped rather than
-/// written as a row that shadows the last usable one.
+/// A reading with no `usedTokens` is dropped rather than written as a row that
+/// shadows the last usable one.
 pub async fn handle_agent_context_window(state: &AppState, event: &AgentEvent) {
     let Some(used_tokens) = event
         .payload
@@ -647,9 +629,8 @@ pub async fn handle_agent_session_context_lost(_state: &AppState, event: &AgentE
 /// Confirm delivery of the ingress-outbox record whose payload built this
 /// message, deleting it.
 ///
-/// A failed delete is not a failed delivery: the message is committed, and the
-/// stranded record's next re-publication converges on the same idempotent
-/// upsert and deletes itself then. So this warns and moves on.
+/// The stranded record's next re-publication converges on the same
+/// idempotent upsert and deletes itself, so this warns and moves on.
 async fn release_ingress_record(state: &AppState, task_id: &str, event_id: &str) {
     match state.event_ingress.delivered(event_id).await {
         Ok(true) => {
@@ -669,8 +650,8 @@ async fn release_ingress_record(state: &AppState, task_id: &str, event_id: &str)
 
 /// Handle `agent.message` event — persist SDK messages and auto-tag skills.
 ///
-/// Persists both assistant messages (text + `tool_use` blocks) and SDK user messages
-/// (`tool_result` blocks) to the database. Then extracts skill tags from assistant messages.
+/// Persists both assistant messages (text + `tool_use`) and SDK user messages
+/// (`tool_result`), then extracts skill tags from assistant messages.
 pub async fn handle_agent_message(state: &AppState, event: &AgentEvent) {
     // 1. Determine message type from payload role
     //    SDK assistant → stored as "assistant"
@@ -1061,15 +1042,9 @@ fn as_block_index(value: &serde_json::Value) -> Option<usize> {
 
 /// Which Message a reader will see change.
 ///
-/// Normally the one the blocks arrived on. But a tool result arrives on a
-/// *later* Message than the call it answers, and that carrier is rendered
-/// nowhere — its content is shown as the outcome of the
-/// call, on the Message that made it. So an event carrying nothing but outcomes
-/// names the calling Message instead, and both the conversation change and the
-/// derived `message.upsert` point a reader at something it can actually see.
-///
-/// Falls back to the arriving uuid when the call cannot be found: it predates
-/// the change, or it was never received.
+/// A tool result arrives on a *later* Message than the call it answers but
+/// renders as that call's outcome, so an event with only outcomes names the
+/// calling Message instead; unresolvable calls fall back to the arriving uuid.
 async fn anchor_message_uuid(
     state: &AppState,
     task_id: &str,
@@ -1103,12 +1078,9 @@ async fn anchor_message_uuid(
 
 /// Emit per-tool-call Prometheus metrics from an `agent.message` content array.
 ///
-/// A `tool_use` block carries the tool `name`; the matching `tool_result` block
-/// (which carries `is_error`) arrives in a *separate* user-role event and has
-/// only `tool_use_id`. So we cache `tool_use_id → bucketed tool` when the
-/// assistant call is seen, and increment the counter (with success/error
-/// status) when the user result lands, recovering the tool label from the cache
-/// (or a DB fallback). See [`super::metrics`].
+/// A `tool_result` block carries no tool name, only `tool_use_id`, so the
+/// bucketed tool name is cached at the matching `tool_use` block and recovered
+/// later (cache, then DB fallback). See [`super::metrics`].
 async fn record_tool_call_metrics(
     state: &AppState,
     event: &AgentEvent,
@@ -1159,9 +1131,10 @@ async fn record_tool_call_metrics(
 }
 
 /// Resolve the bucketed tool label for a `tool_use_id`: in-memory cache first,
-/// then a persisted-row lookup, finally `"unknown"`. The DB fallback covers
-/// cross-process / post-restart misses where the assistant `tool_use` block was
-/// never seen by this process.
+/// then a persisted-row lookup, finally `"unknown"`.
+///
+/// The DB fallback covers cross-process/post-restart misses where the
+/// `tool_use` block was never seen by this process.
 async fn resolve_tool_label(state: &AppState, task_id: &str, tool_use_id: &str) -> &'static str {
     if let Some(label) = state.tool_call_names.get(tool_use_id).await {
         return label;
@@ -1190,9 +1163,9 @@ async fn resolve_tool_label(state: &AppState, task_id: &str, tool_use_id: &str) 
 
 /// Resolve which turn a result/error/stopped row belongs to.
 ///
-/// The gRPC ingress resolves the turn from the event's run id and stamps it, so
-/// `event.turn_number` is normally set. The fallback to the task's latest turn
-/// covers events that reached Redis without passing through that ingress.
+/// The gRPC ingress stamps `event.turn_number` from the event's run id, so the
+/// fallback to the task's latest turn only covers events that reached Redis
+/// without passing through that ingress.
 async fn resolve_turn_number(
     state: &AppState,
     task_id: &str,
@@ -1210,8 +1183,8 @@ async fn resolve_turn_number(
     }
 }
 
-/// Build `sdk_metadata` JSON object from selected keys in a payload.
-/// Returns `None` if no keys matched or all were null.
+/// Build `sdk_metadata` JSON object from selected keys in a payload. Returns
+/// `None` if no keys matched or all were null.
 fn build_sdk_metadata(payload: &serde_json::Value, keys: &[&str]) -> Option<serde_json::Value> {
     let mut meta = serde_json::Map::new();
     for key in keys {

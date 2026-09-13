@@ -51,8 +51,8 @@ impl RuntimeWorker {
     }
 }
 
-/// Boots the in-process app-server runtime from SDK options and creates
-/// an initial thread.
+/// Boots the in-process app-server runtime from SDK options and creates an
+/// initial thread.
 pub(crate) async fn start_runtime(options: &CodexOptions) -> Result<RuntimeState> {
     let options = options.clone();
     let timeout = options.init_timeout.unwrap_or(Duration::from_secs(60));

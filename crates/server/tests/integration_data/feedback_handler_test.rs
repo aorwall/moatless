@@ -6,8 +6,8 @@
     clippy::print_stderr
 )]
 //! HTTP handler integration tests for `POST /api/v1/feedback`'s best-effort
-//! scoping: a caller that names no message lands on the task's latest
-//! activity, not on the task as a whole.
+//! scoping: a caller that names no message lands on the task's latest activity,
+//! not on the task as a whole.
 
 use crate::common;
 
@@ -174,9 +174,8 @@ async fn an_explicit_message_scope_is_not_overridden(pool: PgPool) {
     assert_eq!(body["messageUuid"], "msg-earlier");
 }
 
-/// A category survives the round trip and narrows the listing. It is
-/// orthogonal to `surface`: the same note is still auto-scoped to the latest
-/// activity.
+/// A category survives the round trip and narrows the listing. It is orthogonal
+/// to `surface`: the same note is still auto-scoped to the latest activity.
 #[sqlx::test]
 async fn a_category_round_trips_and_filters_the_listing(pool: PgPool) {
     seed_task(&pool, "task-1", USER_1).await;

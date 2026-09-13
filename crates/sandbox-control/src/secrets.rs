@@ -29,11 +29,9 @@ pub const GIT_USER_EMAIL: &str = "GIT_USER_EMAIL";
 
 pub struct TaskCredentialInputs<'a> {
     pub task_id: &'a str,
-    /// The identity the task acts as, and the Workspace it acts on behalf of —
-    /// [`resolve_task_actor`] resolves both, applying the Workspace's run-as
-    /// override over the task's own owner. Taken whole rather than as a user
-    /// id so the git-host token resolved here is the one every other caller
-    /// resolves for this task.
+    /// The identity the task acts as, and the Workspace it acts on behalf of.
+    /// Taken whole (not just a user id) so the git-host token resolved here
+    /// matches what every other caller resolves for this task.
     pub actor: &'a Actor,
     pub secrets: Option<&'a Arc<dyn SecretResolver>>,
     pub provider_tokens: Option<&'a Arc<dyn HarnessCredentials>>,
@@ -51,54 +49,25 @@ pub struct TaskCredentialInputs<'a> {
     /// before handing the blob to the sandbox. When `None`, the codex branch
     /// falls back to a raw `provider_tokens` read.
     pub credential_sync: Option<&'a Arc<dyn CodexCredentials>>,
-    /// Provider credentials pinned to the task's Workspace, already decrypted
-    /// and keyed by environment variable — resolve them with
-    /// [`resolve_workspace_credentials`]. Highest precedence: every other
-    /// source below fills only the slots these leave empty.
+    /// Provider credentials pinned to the task's Workspace, decrypted and
+    /// keyed by env var — resolve with [`resolve_workspace_credentials`].
+    ///
+    /// Highest precedence: every other source below fills only the slots these
+    /// leave empty.
     pub workspace_credentials: HashMap<String, String>,
     /// The Workspace's own `env_vars` — plain configuration rather than
-    /// credentials — resolved with [`resolve_workspace_env_vars`]. Workspace
-    /// scope, so they outrank user- and global-scoped secrets; a pinned
+    /// credentials — resolved with [`resolve_workspace_env_vars`].
+    ///
+    /// Workspace scope outranks user- and global-scoped secrets; a pinned
     /// Workspace credential still wins a key they both name.
     pub workspace_env_vars: HashMap<String, String>,
 }
 
 /// Resolve the credentials a task's sandbox needs.
 ///
-/// Priority order (most-specific wins):
-/// 1. Credentials pinned to the task's Workspace. A Workspace credential names
-///    the account the Workspace runs as, so it outranks whoever started the
-///    task; without that it would not be an override. A git-host token among
-///    them reaches the sandbox by this route and is also what
-///    [`GitHostTokenIssuer`] resolves for backend-side calls, because the actor
-///    carries the Workspace (see [`resolve_task_actor`]) — so the two agree on
-///    which token the task presents.
-/// 2. The Workspace's own `env_vars`. Same scope as 1 and above every
-///    per-user source, so the resolved order across scopes is
-///    workspace > user > global for configuration as well as credentials.
-/// 3. Per-user `provider_tokens` for `user_id`, the identity the task acts as
-///    (OAuth-managed, e.g. a freshly-issued Codex `auth.json` from the
-///    device-code flow or a connected GitHub App user-token).
-/// 4. Scoped secrets — `SecretResolver` already resolves these with
-///    user > global precedence internally; we only fill keys that
-///    aren't already covered by a `provider_token`.
-///
-/// Rationale: `provider_tokens` is the live OAuth/connection state and is
-/// inherently per-user; a generic global secret with the same key (e.g. a
-/// fallback `CODEX_AUTH_JSON` set by an admin) must NOT shadow it, otherwise
-/// users who explicitly reconnect their account see no effect. Globals
-/// remain a useful bottom-most fallback for users who haven't connected.
-///
-/// The order is enforced structurally rather than by a comparison: the map
-/// starts as the workspace credentials and every `fill_*` below skips a key
-/// that is already present, so a new source cannot silently outrank an older
-/// one by being added in the wrong place.
-///
-/// **No Forgejo credential is returned, whatever its source.** A Forgejo
-/// checkout clones through the backend's git proxy
-/// (`moatless_types::workspace::PROXIED_PROVIDER`), which holds the credential
-/// and attaches it upstream, so a pod that held one could reach the host
-/// directly as the run-as identity.
+/// No Forgejo credential is ever returned, whatever its source — a Forgejo
+/// checkout clones through the backend's git proxy, which holds the credential
+/// instead of handing it to the pod.
 pub async fn resolve_task_credentials(input: TaskCredentialInputs<'_>) -> HashMap<String, String> {
     let mut credentials: HashMap<String, String> = input.workspace_credentials;
     for (key, value) in input.workspace_env_vars {
@@ -146,10 +115,8 @@ pub async fn resolve_task_credentials(input: TaskCredentialInputs<'_>) -> HashMa
 
 /// Resolve only the GitHub token a task's sandbox would receive.
 ///
-/// Goes through the same run-as-identity resolution as runtime credential
-/// delivery, so preflight and the sandbox never disagree. `user_id` is that
-/// identity — see [`resolve_task_actor`], which is where a Workspace's
-/// override is applied.
+/// Uses the same run-as-identity resolution as runtime delivery
+/// ([`resolve_task_actor`]), so preflight and the sandbox never disagree.
 pub async fn resolve_task_github_token(
     git_host_tokens: Option<&Arc<dyn GitHostTokenIssuer>>,
     actor: &Actor,
@@ -163,12 +130,10 @@ pub async fn resolve_task_github_token(
 }
 
 /// Resolve the token a task's identity presents for `repository`, whatever
-/// provider hosts it.
+/// provider hosts it; `None` when the repository names no parseable remote.
 ///
-/// `None` when the repository names no git remote this seam can parse. Unlike
-/// [`resolve_task_github_token`] this answers for every provider, because its
-/// caller only proves a credential resolves and never hands one to a pod — a
-/// Forgejo token in particular must not reach one.
+/// Unlike [`resolve_task_github_token`], answers for every provider — callers
+/// only prove a credential resolves and never hand one to a pod.
 pub async fn resolve_task_git_token(
     git_host_tokens: Option<&Arc<dyn GitHostTokenIssuer>>,
     actor: &Actor,
@@ -197,13 +162,10 @@ fn fill_missing_from_scoped(
     }
 }
 
-/// Resolve the SSH private keys a task's sandbox should materialize into
-/// `~/.ssh`.
+/// Resolve the SSH private keys a task's sandbox materializes into `~/.ssh`.
 ///
-/// These are `ssh_key`-kind scoped secrets, resolved with the same
-/// `user > global` precedence as other secrets but delivered on a
-/// dedicated channel so they are never exposed as environment variables to the
-/// agent. Returns a `secret key name → private key` map.
+/// Delivered on a dedicated channel, never as environment variables, with the
+/// same `user > global` precedence as other secrets.
 pub async fn resolve_task_ssh_keys(
     secrets: Option<&Arc<dyn SecretResolver>>,
     user_id: &str,
@@ -222,12 +184,8 @@ pub async fn resolve_task_ssh_keys(
 
 /// Resolve the shared env delivered to every server sidecar.
 ///
-/// The same workspace > user > global order the agent env resolves in, for the
-/// same reason: a sidecar sources `server.env` after the pod environment, so a
-/// workspace var delivered only through the pod spec would lose to a scoped
-/// secret here too. Reserved runtime keys and Forgejo credentials are filtered
-/// out, the latter for the reason [`resolve_task_credentials`] states. The
-/// agent env is a superset that additionally includes provider tokens.
+/// Same workspace > user > global order as the agent env; reserved runtime keys
+/// and Forgejo credentials are filtered out.
 pub async fn resolve_server_env(
     user_id: &str,
     secrets: Option<&Arc<dyn SecretResolver>>,
@@ -258,17 +216,14 @@ pub async fn resolve_server_env(
 pub struct TaskCredentialTargets {
     pub repository: Option<Repository>,
     pub workspace_id: Option<String>,
-    /// The Sandbox row's own run-as identity, which
-    /// [`resolve_task_actor`] takes ahead of the Workspace's.
+    /// The Sandbox row's own run-as identity, which [`resolve_task_actor`]
+    /// takes ahead of the Workspace's.
     pub run_as_user_id: Option<String>,
 }
 
 /// Resolve the repository and workspace a task's sandbox draws credentials
-/// against.
-///
-/// The workspace comes off the task's Sandbox row, and the repository is that
-/// workspace's primary placement — the same repository the pod's primary
-/// checkout was built from.
+/// against: the workspace off the task's Sandbox row, and the repository its
+/// primary placement.
 pub async fn resolve_task_credential_targets(
     sandboxes: Option<&Arc<SandboxIngress>>,
     workspaces: Option<&Arc<dyn WorkspaceResolver>>,
@@ -306,13 +261,11 @@ pub async fn resolve_task_credential_targets(
     }
 }
 
-/// Resolve the Workspace's own `env_vars` — the configuration pinned to a
-/// Workspace, as opposed to the credentials [`resolve_workspace_credentials`]
-/// returns.
+/// Resolve the Workspace's own `env_vars` — configuration, not credentials (see
+/// [`resolve_workspace_credentials`] for those).
 ///
-/// Platform-owned keys are dropped ([`is_platform_owned_key`]). A Workspace
-/// that cannot be read yields no vars — the same degradation as
-/// [`resolve_task_actor`], narrowing what a task gets rather than widening it.
+/// Platform-owned keys are dropped; an unreadable Workspace yields no vars,
+/// narrowing access rather than widening it.
 pub async fn resolve_workspace_env_vars(
     workspaces: Option<&Arc<dyn WorkspaceResolver>>,
     workspace_id: Option<&str>,
@@ -332,20 +285,8 @@ pub async fn resolve_workspace_env_vars(
     env_vars
 }
 
-/// Keys a Workspace's `env_vars` must never define, on any channel that reaches
-/// a pod.
-///
-/// Two families, one rule — the platform names the value, so a Workspace naming
-/// it too would be shadowing rather than configuring:
-///
-/// - Reserved runtime keys (`TASK_ID`, `USER_AUTH_TOKEN`, …): the pod's own
-///   identity and wiring.
-/// - Every key git authentication reaches the sandbox through
-///   ([`is_git_auth_key`]).
-///
-/// A Workspace that legitimately runs as another git account sets
-/// `run_as_user_id` and gets that identity's validated token — see
-/// [`resolve_task_actor`].
+/// Keys a Workspace's `env_vars` must never define on any channel reaching a
+/// pod: reserved runtime keys plus every git-auth key ([`is_git_auth_key`]).
 pub fn is_platform_owned_key(key: &str) -> bool {
     is_reserved_key(key) || is_git_auth_key(key)
 }
@@ -387,21 +328,11 @@ pub fn is_git_auth_key(key: &str) -> bool {
     )
 }
 
-/// The identity a Task's sandbox acts as on a git host.
+/// The identity a Task's sandbox acts as on a git host: `task_run_as` when set,
+/// else the Workspace's `run_as_user_id`, else the Task's owner.
 ///
-/// `task_run_as` when the Task names one, else the Workspace's
-/// `run_as_user_id`, else the identity the Task is attributed to. A Task's own
-/// choice is what an admin set for that one Task, so it outranks the Workspace,
-/// which in turn outranks whoever started the Task.
-///
-/// The returned Actor carries the Workspace itself, so a credential the
-/// Workspace pins for a git host is the one every call on this Task presents —
-/// see [`Actor::workspace_id`]. That holds whether or not the Workspace row can
-/// be read: the pin is looked up from the id alone.
-///
-/// A Workspace that cannot be read degrades to the Task's own owner: the
-/// column is an override, and losing it narrows access rather than widening
-/// it.
+/// An unreadable Workspace degrades to the Task's owner, narrowing access
+/// rather than widening it.
 pub async fn resolve_task_actor(
     workspaces: Option<&Arc<dyn WorkspaceResolver>>,
     workspace_id: Option<&str>,
@@ -430,15 +361,11 @@ pub async fn resolve_task_actor(
         .on_workspace(Some(workspace_id))
 }
 
-/// Resolve the credentials pinned to a workspace, keyed by environment
-/// variable.
+/// Resolve the credentials pinned to a workspace, keyed by env var.
 ///
-/// A task with no workspace, or a caller with no credential service wired,
-/// yields an empty map — the ordinary case, and the one every deployment
-/// without a single workspace credential takes. A workspace that *does* hold
-/// credentials whose values cannot be read is an error: falling back would run
-/// the task under a different identity than it was configured with. See
-/// [`WorkspaceCredentialService::resolve_env`].
+/// No workspace, or no service wired, yields an empty map; but credentials that
+/// exist and cannot be read are an error, not a fallback, since that would run
+/// the task under a different identity than configured.
 pub async fn resolve_workspace_credentials(
     workspace_credentials: Option<&Arc<dyn WorkspaceCredentialReader>>,
     workspace_id: Option<&str>,
@@ -496,21 +423,11 @@ fn task_git_host_repo(repository: Option<&Repository>) -> Option<GitHostRepo> {
     GitHostRepo::parse(provider, repository.remote_url.as_deref()?)
 }
 
-/// Resolve the git-host tokens this task's sandbox needs.
+/// Resolve the git-host tokens this task's sandbox needs, from the actor's own
+/// rows or its Workspace's pin.
 ///
-/// `actor` is the identity the task acts as, and it plus the Workspace it names
-/// are the only credential authorities: a sandbox gets git-host access through
-/// that identity's own rows or its Workspace's pin, never the repository's and
-/// never another account's. Holding none leaves the slot empty, and preflight
-/// refuses to start the sandbox.
-///
-/// Each slot already filled is left alone, so a pin that
-/// [`resolve_task_credentials`] seeded is not resolved twice.
-///
-/// `GITHUB_TOKEN` is minted against the task's own repository, so it is filled
-/// only for a GitHub-hosted task. `GITLAB_TOKEN` and `GITNESS_TOKEN` are single
-/// stored values and are filled whenever the identity holds one, because a
-/// workspace may mount repositories from more than one host.
+/// `GITHUB_TOKEN` mints against the task's repo; `GITLAB_TOKEN`/`GITNESS_TOKEN`
+/// fill whenever held, since a workspace may mount several hosts' repos.
 async fn fill_git_host_tokens(
     credentials: &mut HashMap<String, String>,
     git_host_tokens: Option<&Arc<dyn GitHostTokenIssuer>>,
@@ -547,9 +464,8 @@ async fn fill_git_host_tokens(
 
 /// Store a resolved token, or account for why there is none.
 ///
-/// An identity that has simply not connected the host is the ordinary case and
-/// is silent — preflight is where that becomes a refusal. Anything else is a
-/// credential that exists and does not work, which an operator has to see.
+/// Not-connected is silent (preflight turns that into a refusal); any other
+/// failure is a broken credential an operator needs to see.
 fn insert_token(
     credentials: &mut HashMap<String, String>,
     key: &str,
@@ -569,10 +485,9 @@ fn insert_token(
 
 /// Resolve `CODEX_AUTH_JSON` for this task.
 ///
-/// Delegates to [`CodexCredentials::ensure_fresh_codex_for`] which owns
-/// the `user > global` precedence walk; this function is a thin
-/// fallback shim for callers without the orchestrator wired (tests /
-/// no-DB) — there we walk the same chain via raw DAO reads with no refresh.
+/// Delegates to [`CodexCredentials::ensure_fresh_codex_for`]; without that
+/// orchestrator wired (tests / no-DB), walks the same `user > global` chain via
+/// raw DAO reads with no refresh.
 async fn fill_codex(
     credentials: &mut HashMap<String, String>,
     provider_tokens: &Arc<dyn HarnessCredentials>,
@@ -661,18 +576,10 @@ async fn fill_model_provider_tokens(
 }
 
 /// Source the git author identity for the task's sandbox from the owning
-/// `users` row.
+/// `users` row, as `GIT_USER_NAME`/`GIT_USER_EMAIL` env vars.
 ///
-/// - For **bot** users, both name and email come from the row so commits and
-///   pushes attribute to `{slug}[bot]` instead of whatever `gh api user` would
-///   resolve from the installation token (which has no associated user).
-/// - For **human** users, we override only the email (when the account has one
-///   set) so commits use the user's real Moatless email instead of the
-///   `{login}@users.noreply.github.com` fallback. The name is left to the
-///   sandbox's GitHub-API resolution.
-///
-/// In both cases these land as `GIT_USER_NAME` / `GIT_USER_EMAIL` env vars in
-/// the sandbox, which `configure_git` applies with highest precedence.
+/// Bot users get both fields from the row; human users get only the email
+/// override (when set), leaving the name to GitHub-API resolution.
 async fn fill_git_identity(
     credentials: &mut HashMap<String, String>,
     users: Option<&Arc<dyn CommitIdentity>>,
@@ -960,9 +867,8 @@ mod tests {
     }
 
     /// `fill_git_host_tokens` fills only a slot that is still empty, so a
-    /// workspace-declared git-host token would not merely outrank the validated
-    /// resolver — it would suppress it, and land in the sandbox as the
-    /// clone/push credential.
+    /// workspace-declared git-host token would suppress the validated resolver
+    /// outright, not merely outrank it.
     #[tokio::test]
     async fn a_workspace_cannot_declare_a_git_host_token_as_plain_config() {
         let workspaces = workspace_resolving_to(
@@ -988,10 +894,11 @@ mod tests {
         );
     }
 
-    /// And the merge refuses one too, so a caller that assembles
-    /// `workspace_env_vars` from somewhere other than the resolver cannot
-    /// reopen the bypass. The user here holds a real row: without the guard the
-    /// workspace value would occupy the slot before it is ever consulted.
+    /// The merge refuses one too, so a caller assembling `workspace_env_vars`
+    /// from somewhere other than the resolver cannot reopen the bypass.
+    ///
+    /// The user here holds a real row: without the guard the workspace value
+    /// would occupy the slot before it is ever consulted.
     #[tokio::test]
     async fn a_workspace_env_git_host_token_never_suppresses_the_resolver() {
         let repository = github_repository(moatless_types::access_control::Scope::User);

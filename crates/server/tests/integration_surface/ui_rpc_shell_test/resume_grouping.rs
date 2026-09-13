@@ -1,7 +1,7 @@
 //! What survives the merge of 05 and 06.
 //!
-//! The opening snapshot answers both which Tasks are held and which projects can
-//! group them. A resumed feed reconstructs only the grouping half.
+//! The opening snapshot answers both which Tasks are held and which projects
+//! can group them. A resumed feed reconstructs only the grouping half.
 
 use super::contract::{
     THREAD_REMOVED_REQUIRED, assert_decodable_snapshot_item, assert_decodable_upsert, assert_keys,
@@ -32,18 +32,11 @@ use sqlx::PgPool;
 // group them. A resumed feed reconstructs only the grouping half.
 
 /// A client that reconnects, catches up on nothing, and then watches one
-/// conversation change.
+/// conversation change as a row, not a listing.
 ///
-/// The merge's headline defect. `ShellFeed::resuming_from` leaves the id sets
-/// empty, and `poll` treats a conversation whose project the client is not known
-/// to hold as grounds to send the listing whole — so on the merged branch, and
-/// before this ticket, the *first* live change after any reconnection arrived as
-/// a full snapshot. That is the cost ticket 06 exists to remove, reintroduced
-/// behind it.
-///
-/// Deliberately separate from the catch-up: this client had nothing to replay,
-/// so the empty first chunk is not what is being tested. The break it catches is
-/// a `grouped` set that a resume leaves empty.
+/// Catches `ShellFeed::resuming_from` leaving the `grouped` set empty, which
+/// makes `poll` treat an unrecognized project as grounds to send the whole
+/// listing.
 #[sqlx::test]
 async fn a_resumed_client_watches_the_next_change_as_a_row_not_a_listing(pool: PgPool) {
     seed_live_project(&pool).await;
@@ -79,15 +72,11 @@ async fn a_resumed_client_watches_the_next_change_as_a_row_not_a_listing(pool: P
     assert_eq!(items[0]["thread"]["latestTurn"]["state"], "completed");
 }
 
-/// Archiving reaches a resumed client, which is every client: the T3 web app
-/// reads the snapshot over HTTP and then subscribes from its sequence, so the
-/// feed behind a live sidebar is always a resumed one.
+/// Archiving reaches a resumed client, which is every client — the T3 web app
+/// always resumes from its snapshot's sequence.
 ///
-/// A resumed feed holds no ids it can prove it sent, so it may not name one in a
-/// removal. Archiving therefore arrives as the row itself, carrying
-/// `archivedAt` — which the client filters out of the sidebar and files under
-/// the archive. A conversation that left the viewer's world entirely still has
-/// nothing to arrive as, and that is the case removals are kept for.
+/// A resumed feed can't prove which ids it sent, so it may not name one in a
+/// removal; archiving instead arrives as the row itself, carrying `archivedAt`.
 #[sqlx::test]
 async fn archiving_reaches_a_resumed_client_as_the_row_it_archived(pool: PgPool) {
     seed_live_project(&pool).await;
@@ -145,11 +134,9 @@ async fn archiving_reaches_a_resumed_client_as_the_row_it_archived(pool: PgPool)
 
 /// The delta must not be bought by weakening the case it was carved out of.
 ///
-/// A conversation entering a project the client has no group for still cannot be
-/// delivered as two events at one position, so it still arrives as a listing —
-/// on a resumed subscription exactly as on a fresh one. This is the test that
-/// fails if `grouped` is seeded with something that admits every project rather
-/// than the ones this viewer can read in their own right.
+/// A conversation entering a project the client has no group for still arrives
+/// as a listing, resumed or fresh; this fails if `grouped` admits every project
+/// rather than just the ones the viewer can read.
 #[sqlx::test]
 async fn a_resumed_client_gaining_an_unreadable_project_still_gets_the_listing_whole(pool: PgPool) {
     seed_workspaces(&pool).await;
@@ -186,17 +173,12 @@ async fn a_resumed_client_gaining_an_unreadable_project_still_gets_the_listing_w
     assert!(held.projects.contains(&"ws-other".to_string()));
 }
 
-/// Acceptance criterion 4: a removal after a resume names only ids that client
-/// was sent, exactly as on a fresh subscription.
+/// Criterion 4: a removal after a resume names only ids that client was sent,
+/// exactly as on a fresh subscription.
 ///
-/// A resumed feed starts with an empty removable set — nothing here tells this
-/// server which rows it sent before the socket dropped — and grows it by
-/// delivery alone. So the property is asserted in both directions on one feed:
-/// the ids it has *not* sent stay unmentioned however thoroughly they leave, and
-/// the one it *has* sent comes back as a removal naming it and nothing else.
-///
-/// Verified by seeding the resumed feed's `threads` from the viewer's followed
-/// conversations and watching the first assertion go red.
+/// A resumed feed's removable set starts empty and grows only by delivery, so
+/// ids never sent stay unmentioned no matter how they leave, while a delivered
+/// one comes back named alone.
 #[sqlx::test]
 async fn a_removal_after_a_resume_names_only_ids_that_client_was_sent(pool: PgPool) {
     // A deployment-wide project, so this viewer can read it in their own right
@@ -254,20 +236,12 @@ async fn a_removal_after_a_resume_names_only_ids_that_client_was_sent(pool: PgPo
     assert_eq!(items[0]["threadId"], "t-mine");
 }
 
-/// Acceptance criterion 6: the held set is what the client was *shown*, not what
-/// the viewer may *read*.
+/// Criterion 6: the held set is what the client was *shown*, not what the
+/// viewer may *read*.
 ///
-/// The two are different sets and the difference is constructible: a
-/// conversation the viewer follows and may read, whose workspace is gone, comes
-/// back from `list_followed` and is dropped during projection — so it is in
-/// everything the viewer may read and in nothing they were ever shown. A held
-/// set taken from the first would later "remove" a row that was never on the
-/// screen, which is a `thread-removed` carrying an id and nothing else to a
-/// client that has no idea what it refers to.
-///
-/// Asserted on both subscription shapes, because they seed differently and only
-/// one of them was ever in doubt: the opening snapshot reads its ids back out of
-/// the projected listing, and the resume seeds nothing at all.
+/// The two differ when a followed, readable conversation's workspace is gone:
+/// it's projected out but still in `list_followed`, so a held set built from
+/// the latter would send a removal for a row never shown.
 #[sqlx::test]
 async fn a_removal_never_names_a_row_the_listing_did_not_show(pool: PgPool) {
     seed_workspaces(&pool).await;
@@ -323,25 +297,13 @@ async fn a_removal_never_names_a_row_the_listing_did_not_show(pool: PgPool) {
     }
 }
 
-/// Acceptance criterion 5, and the hazard that goes wrong quietly.
+/// Criterion 5: `rebuild` must replace what the feed believes about the
+/// listing, not just the client's copy of it — identity, cursor, and the
+/// `threads`/grouping sets together.
 ///
-/// `rebuild` replaces the client's listing wholesale, so it has to replace what
-/// the feed believes about that listing too. Ticket 07 wrote it before ticket 05
-/// gave a feed any id sets to replace, and neither branch could see the other:
-/// left as it merges, `rebuild` moves the identity and the cursor into the new
-/// database and leaves `threads` and project grouping describing a listing that
-/// no longer exists anywhere.
-///
-/// Both directions of that are silent, and both are asserted here against a real
-/// second database:
-///
-/// - A row from the *replaced* listing must not come back as a removal. The
-///   client does not have it; the id would refer to nothing.
-/// - A row the rebuild snapshot *introduced* must come back as a removal when it
-///   goes. Stale sets never contained it, so the client would keep it forever.
-///
-/// Verified by deleting the two reseeding lines from `ShellFeed::adopt` and
-/// watching each half fail on its own.
+/// A row from the replaced listing must never come back as a removal, and a row
+/// the rebuild introduced must come back as one when it leaves, or the client
+/// keeps it forever.
 #[sqlx::test]
 async fn a_rebuilt_feed_describes_the_listing_it_sent_not_the_one_it_replaced(pool: PgPool) {
     let watcher_viewer = viewer("user-1");

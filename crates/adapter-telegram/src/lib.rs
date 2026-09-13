@@ -1,9 +1,8 @@
 //! Telegram Adapter: Telegram Bot API inbound, polling, replies, and reactions.
 //!
 //! The backend remains the composition root and reaches this crate through a
-//! permanent facade module
-//! (`crate::adapters::providers::telegram`), so the server band keeps naming its
-//! existing paths unchanged.
+//! permanent facade module (`crate::adapters::providers::telegram`), so the
+//! server band keeps naming its existing paths unchanged.
 
 // Allow unwrap/expect in test code. Production code still enforces the deny.
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]

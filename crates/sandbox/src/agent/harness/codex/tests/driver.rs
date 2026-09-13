@@ -10,13 +10,13 @@ fn the_codex_process_accepts_injection() {
     assert!(process().accepts_injection());
 }
 
-/// The window this covers is the whole of `open_turn`: `initialize`,
-/// `thread/start` or `thread/resume`, and `turn/start`, none of which is bounded
-/// (see `PendingRequests`). Until they land there is no session, so a cancel
-/// that could only reach one would be a no-op for exactly as long as the server
-/// stayed silent. The handle exists from construction and is the token
+/// The window this covers is the whole of `open_turn` — `initialize`,
+/// `thread/start`/`resume`, `turn/start` — none of which is bounded (see
+/// `PendingRequests`).
+///
+/// The handle exists from construction and is the token
 /// `codex_app_server::start` is handed, so cancelling it kills the child
-/// mid-handshake.
+/// mid-handshake, before any session exists.
 #[tokio::test]
 async fn cancelling_before_the_session_opens_still_tears_the_server_down() {
     let mut process = process();
@@ -164,10 +164,11 @@ async fn queued_input_opens_the_next_turn_and_is_accepted_against_it() {
     ));
 }
 
-/// The whole point of the change, at the driver seam: a message submitted while
-/// the execution is open joins it. One `ExecutionStarted`, two acceptances, and
-/// no second `SessionReady` — which is what keeps a steered message on the
-/// running Turn's Run.
+/// A message submitted while the execution is open joins it, at the driver
+/// seam.
+///
+/// One `ExecutionStarted`, two acceptances, and no second `SessionReady` — what
+/// keeps a steered message on the running Turn's Run.
 #[tokio::test]
 async fn a_message_submitted_mid_execution_joins_it_and_opens_no_second_one() {
     let (tx, mut server, session) = AppServerSession::scripted();
@@ -231,10 +232,11 @@ async fn a_message_submitted_mid_execution_joins_it_and_opens_no_second_one() {
     ));
 }
 
-/// Messages that arrive inside the steerability window are held and delivered in
-/// submit order once `turn/started` lands, one acceptance each. The window is
-/// real — `turn/start`'s response is too early to steer — and a submit can land
-/// in it.
+/// Messages arriving inside the steerability window are held and delivered in
+/// submit order once `turn/started` lands, one acceptance each.
+///
+/// The window is real: `turn/start`'s response is too early to steer, and a
+/// submit can land in it.
 #[tokio::test]
 async fn messages_held_for_the_gate_are_delivered_in_submit_order() {
     let (tx, mut server, session) = AppServerSession::scripted();
@@ -282,17 +284,12 @@ async fn messages_held_for_the_gate_are_delivered_in_submit_order() {
     ));
 }
 
-/// A Stop issued while a message is waiting on the gate lands then, not when the
-/// wait gives up. The driver's injection arm is the only reader of `cancel_rx`,
-/// so unless it races the Stop against `submit`, nothing can fire the process's
-/// handle and the wait runs to its bound with the Stop unread behind it. The
-/// message survives the Stop and opens the next Turn.
+/// A Stop issued while a message is waiting on the gate lands then, not when
+/// the wait gives up.
 ///
-/// The notifications here come over the pipe rather than through `tx`, and `tx`
-/// is dropped: then the reader task holds the only sender, and tearing the
-/// session down ends the stream exactly as a dying server would. A test that
-/// kept `tx` would have to close the stream by hand, which would end the gate
-/// wait on its own and prove nothing about the Stop.
+/// The driver's injection arm is the only reader of `cancel_rx`; unless it
+/// races the Stop against `submit`, the wait runs to its bound with the Stop
+/// unread, and the message survives to open the next Turn.
 #[tokio::test]
 async fn a_stop_reaches_the_driver_while_a_message_waits_on_the_gate() {
     let (tx1, mut server1, session1) = AppServerSession::scripted();
@@ -354,9 +351,10 @@ async fn a_stop_reaches_the_driver_while_a_message_waits_on_the_gate() {
 }
 
 /// Every steer rejection is the same `-32600` with a different sentence, so the
-/// harness never reads the sentence: any rejection means this Turn cannot take
-/// the message, and it opens the next one instead. The running execution carries
-/// on untouched.
+/// harness never reads the sentence.
+///
+/// Any rejection means this Turn cannot take the message; it opens the next one
+/// instead, and the running execution carries on untouched.
 #[tokio::test]
 async fn a_rejected_steer_leaves_the_message_for_the_next_turn() {
     let (tx1, mut server1, session1) = AppServerSession::scripted();

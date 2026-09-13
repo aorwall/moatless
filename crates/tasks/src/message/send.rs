@@ -1,4 +1,5 @@
-//! Message sending orchestration — `send_message_flow` and `send_tool_response_flow`.
+//! Message sending orchestration — `send_message_flow` and
+//! `send_tool_response_flow`.
 
 use std::sync::Arc;
 
@@ -20,11 +21,10 @@ use super::contexts::message_context_input_to_row;
 use super::error::MessageError;
 use moatless_types::task::ExternalOrigin;
 
-/// The message domain's one question of the adapter registry: given an inbound
-/// event, has it already been sent from here, and what ids could it be stored
-/// under. Send flows read this port, never `Adapters`. The filter holding the
-/// in-memory race-window cache and the registry lives up-band in
-/// `adapters/self_echo.rs`.
+/// The message domain's one question of the adapter registry.
+///
+/// Given an inbound event: has it already been sent from here, and what ids
+/// could it be stored under. Send flows read this port, never `Adapters`.
 pub trait SelfEchoGuard: Send + Sync {
     /// In-memory race-window check — catches webhooks that land before
     /// `set_external_event_id` has committed.
@@ -32,8 +32,9 @@ pub trait SelfEchoGuard: Send + Sync {
 
     /// Given an adapter name and an external id, the ids this event could be
     /// stored under — the adapter's inbound presentation aliases, or the bare
-    /// id when no adapter is known. Tolerates both the prefixed format and any
-    /// legacy bare-int rows.
+    /// id when no adapter is known.
+    ///
+    /// Tolerates both the prefixed format and legacy bare-int rows.
     fn candidate_ids(&self, adapter: Option<&str>, ext_id: &str) -> Vec<String>;
 }
 
@@ -85,16 +86,16 @@ impl MessageSendService {
     }
 }
 
-/// Fixed namespace for agent→task send idempotency uuids. Arbitrary but stable —
-/// changing it would stop old rows from deduping against new resends.
+/// Fixed namespace for agent→task send idempotency uuids. Arbitrary but stable
+/// — changing it would stop old rows from deduping against new resends.
 const AGENT_SEND_NAMESPACE: uuid::Uuid =
     uuid::Uuid::from_u128(0x9b1e_5c0e_4a7d_4f21_8f3a_2c6b_0d5e_7a91);
 
 /// Deterministic uuid for an agent→task send, so an identical resend from the
-/// same source task dedups on the `message_uuid` guard. Keyed on source +
-/// destination + text (unit-separated so the fields can't run together), which
-/// makes it unique to this (child, parent, message) triple and unable to collide
-/// with any other task's row.
+/// same source task dedups on the `message_uuid` guard.
+///
+/// Keyed on source + destination + text (unit-separated so fields can't run
+/// together), unique to this (child, parent, message) triple.
 fn agent_send_idempotency_uuid(source_task_id: &str, task_id: &str, text: &str) -> String {
     let name = format!("{source_task_id}\u{1f}{task_id}\u{1f}{text}");
     uuid::Uuid::new_v5(&AGENT_SEND_NAMESPACE, name.as_bytes()).to_string()
@@ -157,24 +158,13 @@ fn pending_user_row(task_id: &str, uuid: String, text: String, timestamp: String
     }
 }
 
-/// Queue a user message a sandbox wrote for its own Task, so the turn it opens
-/// is one the conversation and interrupted-turn recovery can both see.
+/// Queue a user message a sandbox wrote for its own Task, so an interrupted
+/// turn recovers — `agent_handle.send` alone leaves no row for
+/// `find_interrupted_turn` to see.
 ///
-/// A pod that wakes its agent through `agent_handle.send` alone leaves no row.
-/// `MessageDao::find_interrupted_turn` selects on a `user` row carrying an
-/// `agent_session_id`, which only the acknowledgment of a queued row writes, so
-/// a pod that died inside such a turn was never recovered — that is the loss
-/// this exists to close. The uuid is derived the way an agent→task send's is, so
-/// a caller that retries a call it could not confirm collapses onto the first
-/// row rather than opening a second turn.
-///
-/// `idempotency_key` is what that collapse keys on. `None` keys it on `text`,
-/// which is what a caller resending one wake wants. A caller whose text repeats
-/// verbatim across genuinely distinct sends passes its own: a `/loop` tick
-/// carries the same prompt every time, so keying on the text would swallow
-/// every tick after the first.
-///
-/// `Ok(None)` means the message is already queued, or the Task is closed.
+/// `idempotency_key` collapses a retried call onto its first row; `None` keys
+/// on `text`, which swallows repeat callers like `/loop` unless they pass their
+/// own key. `Ok(None)` means already queued, or the Task is closed.
 pub async fn enqueue_sandbox_message(
     messages: &Messages,
     tasks: &TaskCommands,
@@ -253,7 +243,8 @@ fn attached_file_ids(file_ids: &[String], contexts: &[MessageContextInput]) -> V
 }
 
 impl MessageSendService {
-    /// The main message flow — called by message handlers, task creation, and external inbound.
+    /// The main message flow — called by message handlers, task creation, and
+    /// external inbound.
     #[allow(clippy::too_many_arguments)]
     pub async fn send_message_flow(
         &self,
@@ -491,10 +482,8 @@ impl MessageSendService {
 
     /// Persist an error result message visible in the chat.
     ///
-    /// Used when the message was saved but a subsequent operation (e.g. sandbox start) failed.
-    /// The error text is prefixed to make it clear to both the UI and the agent that this
-    /// is a system/harness error, not user input.
-    /// Fire-and-forget: logs on failure but never propagates errors.
+    /// Used when the message was saved but a subsequent operation (e.g. sandbox
+    /// start) failed. Fire-and-forget: logs failure but never propagates it.
     pub async fn persist_error_result(&self, task_id: &str, error_text: &str) {
         let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
         let msg_uuid = uuid::Uuid::new_v4().to_string();
@@ -572,9 +561,8 @@ impl MessageSendService {
 /// The question and the answer, as one thing to say to an agent that has
 /// forgotten asking.
 ///
-/// The question comes off the call's own stored input; `asked` is `None` where
-/// that row is gone, and then only the answer survives — still better than
-/// nothing, and the only case where the restatement is partial.
+/// `asked` is `None` when the call's stored input row is gone; only the answer
+/// survives then — partial, but better than nothing.
 fn restate(
     tool_name: &str,
     asked: Option<&serde_json::Value>,
@@ -638,13 +626,10 @@ fn restate(
 impl MessageSendService {
     /// Send a tool response (`AskUserQuestion` / `ExitPlanMode`).
     ///
-    /// The answer leaves here twice, in two shapes, because two paths read it. The
-    /// structured one on `tool_response` is what the sandbox delivers to a run still
-    /// parked on the call — an answer per question, a rejection as a rejection. The
-    /// text in `message_text` is what the agent is *told* when no run is parked:
-    /// the question restated with the answer, because a resumed session has no
-    /// memory of having asked. The CLI drops an unanswered call on resume, and the
-    /// text around it with it, so a bare "Option A" would answer nothing.
+    /// Writes the answer twice: structured on `tool_response` for a run still
+    /// parked on the call, and as restated `message_text` for a resumed session
+    /// with no memory of asking — the CLI drops an unanswered call (and its
+    /// text) on resume, so a bare "Option A" would answer nothing.
     pub async fn send_tool_response_flow(
         &self,
         task_id: &str,
@@ -780,18 +765,13 @@ impl MessageSendService {
     }
 }
 
-/// Settle the interactive call that an ordinary message answered.
+/// Settle the interactive call that an ordinary chat message answered.
 ///
-/// Writing in the chat box answers a parked question as much as the panel does,
-/// but that message carries no tool response, so nothing on its way in settles
-/// the call: the outcome and the resolved row beside it are otherwise written
-/// only by `send_tool_response_flow`. Without them the call stays `in_progress`
-/// and the panel keeps asking a question that has been answered.
-///
-/// The answer recorded is what the run was told — a question hears the text as
-/// its freeform response, a proposed plan hears a rejection carrying it. Both
-/// rows are keyed on the message that answered, so a redelivered acknowledgement
-/// rewrites the same rows.
+/// A plain message carries no tool response, so nothing on its way in settles
+/// the call like `send_tool_response_flow` does, leaving it `in_progress`
+/// forever; this writes the same outcome — text as a freeform answer, or a
+/// rejection for a plan — keyed on the answering message, so a redelivered
+/// acknowledgement is idempotent.
 pub async fn settle_answered_prompt(
     messages: &crate::message::operations::Messages,
     task_id: &str,
@@ -1029,9 +1009,11 @@ mod db_tests {
     use crate::task::test_support::seed_bare_task;
     use sqlx::PgPool;
 
-    /// The loss this closes: a pod that wakes its agent through the agent handle
-    /// alone leaves no row, so a replacement never sees the turn it opened.
-    /// Acknowledging the queued row is what stamps the session and turn
+    /// The loss this closes: a pod that wakes its agent through the agent
+    /// handle alone leaves no row, so a replacement never sees the turn it
+    /// opened.
+    ///
+    /// Acknowledging the queued row stamps the session and turn
     /// `find_interrupted_turn` selects on.
     #[sqlx::test]
     async fn a_queued_wake_becomes_a_recoverable_interrupted_turn(pool: PgPool) {

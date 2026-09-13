@@ -6,23 +6,17 @@
 
 /// One inbound delivery an Adapter hands over before acknowledging its sender.
 ///
-/// `event_id` must be the identifier the *sender* assigned to the delivery.
-/// A backend-generated id would make every redelivery a new record, which is
-/// the duplicate-effect bug this seam exists to prevent.
-///
-/// One caller is deliberately outside that rule and says so on its own
-/// interface: the generic webhook adapter's sender is an arbitrary client with
-/// no retry contract, so it *may* supply a delivery identifier and gets
-/// deduplication when it does, and gets a freshly minted one — and therefore
-/// durable ownership without deduplication — when it does not.
+/// `event_id` must be the identifier the *sender* assigned: a backend-generated
+/// id would make every redelivery a new record, the duplicate-effect bug this
+/// seam exists to prevent.
 #[derive(Debug, Clone)]
 pub struct AdapterDeliveryRequest {
     /// The Adapter this delivery arrived on, used for metrics and operator
     /// queries. Never "provider": the glossary keeps that word as a qualifier
     /// only.
     pub adapter: &'static str,
-    /// Names the registered handler that will execute this delivery. One
-    /// sender delivery becomes one record per kind it fans into.
+    /// Names the registered handler that will execute this delivery. One sender
+    /// delivery becomes one record per kind it fans into.
     pub kind: &'static str,
     /// The sender's delivery identifier.
     pub event_id: String,
@@ -54,10 +48,9 @@ impl Admission {
 
 /// One admitted record, as handed to its handler.
 ///
-/// The row shape is contract, so every field is public whatever the feature
-/// set. Only its *decoder* is a driver concern: `sqlx::FromRow` is derived
-/// under `postgres`, so a provider crate that reads this type without a
-/// database driver still sees the same fields.
+/// The row shape is contract: every field is public regardless of feature set.
+/// Only the *decoder* is a driver concern — `sqlx::FromRow` derives under
+/// `postgres` only.
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "postgres", derive(sqlx::FromRow))]
 pub struct AdapterDelivery {

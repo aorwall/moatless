@@ -201,11 +201,10 @@ pub async fn get_forgejo_config(
     )))
 }
 
-/// List every registered instance with the caller's own connection to each.
+/// Lists every registered instance with the caller's own connection to each.
 ///
-/// Any signed-in caller reads this, unlike
-/// [`admin_list_forgejo_instances`]: a hostname is not a secret, and the
-/// settings screen cannot offer a Connect button without one.
+/// Any signed-in caller may read this, unlike [`admin_list_forgejo_instances`],
+/// since a hostname isn't a secret.
 #[utoipa::path(
     get,
     path = "/api/v1/settings/forgejo/instances",

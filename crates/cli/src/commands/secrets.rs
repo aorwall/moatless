@@ -16,7 +16,8 @@ pub enum SecretAction {
         #[arg(long, short = 's', default_value = "user")]
         scope: String,
 
-        /// Scope ID (team ID for team scope; defaults to current user for user scope)
+        /// Scope ID (team ID for team scope; defaults to current user for user
+        /// scope)
         #[arg(long)]
         scope_id: Option<String>,
     },
@@ -30,7 +31,8 @@ pub enum SecretAction {
         #[arg(long, short = 'v')]
         value: Option<String>,
 
-        /// Read the secret value from a file (handy for multi-line `ssh_key` PEM files)
+        /// Read the secret value from a file (handy for multi-line `ssh_key`
+        /// PEM files)
         #[arg(long, conflicts_with = "value")]
         value_file: Option<String>,
 
@@ -46,7 +48,8 @@ pub enum SecretAction {
         #[arg(long, short = 't', default_value = "agent")]
         target: String,
 
-        /// Secret kind: env, `provider_token`, `runtime_file`, deployment, `ssh_key`
+        /// Secret kind: env, `provider_token`, `runtime_file`, deployment,
+        /// `ssh_key`
         #[arg(long, short = 'k', default_value = "env")]
         kind: String,
 

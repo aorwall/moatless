@@ -1,26 +1,11 @@
 //! Durable lifecycle intent and orchestration for a Task's Sandbox.
 //!
-//! Callers identify a Task and request a transition; the module resolves intent,
-//! persists it, serializes per Task, invokes the [`SandboxRuntime`] seam, and
-//! returns a [`LifecycleOutcome`]. The curated re-exports below are the whole
-//! surface — the decision and implementation submodules are `pub(crate)`, so a
-//! lifecycle mutation cannot bypass [`Lifecycle`].
-//!
-//! Guarantees:
-//! - **Intent before effect.** Desired state, stop reason, retention and the
-//!   correlation marker are written atomically before the runtime effect, so a
-//!   runtime failure leaves the requested target for recovery.
-//! - **Deduplicated events.** Operation events use the id
-//!   `sandbox:{task}:{operation_generation}:{fact}`, and a completion fact is
-//!   persisted with the marker cleared in one transaction before publication.
-//! - **Strict removal.** A remove reports success only on observed absence of
-//!   every resource, PVC included; its marker is never age-cleared.
-//! - **Correlation.** The operation generation rides every runtime mutation and
-//!   watcher event, so superseded observations are told apart by identity rather
-//!   than by the clock.
-//!
-//! Decision logic: [`convergence`], [`classify`], [`marker`], [`wake`],
-//! [`reconcile`], [`events`], [`attempt`].
+//! Callers identify a Task and request a transition; the module resolves
+//! intent, persists it, serializes per Task, invokes the [`SandboxRuntime`]
+//! seam, and returns a [`LifecycleOutcome`].
+//! Guarantees: intent written before effect; events deduplicated by operation
+//! generation; strict removal (absence of every resource, PVC included); and
+//! correlation by generation rather than by the clock.
 
 // Decision modules driven by the desired-state reconciler (wired in `main`).
 // `reconciler`, `watcher`, `observe` and `error` are `pub` (not `pub(crate)`)

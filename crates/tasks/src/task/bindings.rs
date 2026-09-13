@@ -12,14 +12,14 @@ use moatless_types::store::StoreError;
 #[cfg_attr(feature = "test-support", mockall::automock)]
 #[async_trait]
 pub trait TaskBindings: Send + Sync {
-    /// Every Binding on the Task, each already labelled with the Loop that
-    /// owns it. A Binding whose Loop cannot be read is still returned, labelled
-    /// from the Binding alone.
+    /// Every Binding on the Task, each already labelled with the Loop that owns
+    /// it. A Binding whose Loop cannot be read is still returned, labelled from
+    /// the Binding alone.
     async fn summaries(&self, task_id: &str) -> Result<Vec<TaskBindingSummary>, StoreError>;
 
     /// The same, for a page of Tasks, keyed by task id. Carries the Loop label
-    /// only — a listing shows which Loops a Task answers on, not each
-    /// Binding's own subject.
+    /// only — a listing shows which Loops a Task answers on, not each Binding's
+    /// own subject.
     async fn list_summaries(
         &self,
         task_ids: &[String],
@@ -30,9 +30,9 @@ pub trait TaskBindings: Send + Sync {
     async fn deactivate_for_task(&self, task_id: &str) -> Result<u64, StoreError>;
 }
 
-/// Stop inbound adapter events after a task reaches a terminal state.
-/// Failures do not block cleanup because runtime admission also rejects events
-/// for closed tasks.
+/// Stop inbound adapter events after a task reaches a terminal state. Failures
+/// do not block cleanup because runtime admission also rejects events for
+/// closed tasks.
 pub(crate) async fn deactivate_task_bindings(bindings: &dyn TaskBindings, task_id: &str) {
     match bindings.deactivate_for_task(task_id).await {
         Ok(0) => {}

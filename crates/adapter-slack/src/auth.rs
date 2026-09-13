@@ -17,10 +17,8 @@ const PROVIDER: &str = super::delivery::ADAPTER;
 
 /// Whether a token is a Slack user id rather than a Moatless login.
 ///
-/// What lets an outbound `<@…>` carry either: an id the Adapter can already
-/// address is passed through, so a Slack user Moatless has never seen stays
-/// reachable. Slack ids are uppercase and start `U` or `W`; a Moatless login is
-/// lowercase, so the two do not overlap in practice.
+/// Slack ids are uppercase and start `U` or `W`; a Moatless login is lowercase,
+/// so the two never overlap — letting an outbound `<@…>` carry either.
 pub(super) fn is_slack_user_id(token: &str) -> bool {
     token.len() >= 8
         && token.starts_with(['U', 'W'])
@@ -57,13 +55,11 @@ pub(super) enum SenderIdentity {
     /// not drive task flow, and they share emails across deployments, so
     /// resolving them by email is unsafe.
     Rejected { handle: Option<String> },
-    /// Mapped to a system user, by provider id or by email. Carried as the
-    /// `uuid` the column is; the string form is built once, where the shared
-    /// `InboundMessage` demands one.
+    /// Mapped to a system user, by provider id or by email; carried as the
+    /// `uuid` the column is.
     ///
-    /// `handle` rides along on both resolved variants because it says who wrote
-    /// the message in Slack's own terms, which the Moatless user it resolved to
-    /// does not: an unmapped thread reply is attributed to the trigger owner.
+    /// `handle` says who wrote it in Slack's own terms, which the resolved user
+    /// does not.
     Mapped {
         user_id: Uuid,
         handle: Option<String>,
@@ -81,9 +77,8 @@ pub(super) enum SenderIdentity {
 /// Resolve the sender of one inbound Slack event.
 ///
 /// Spends exactly one `users.info`, then tries the provider-id mapping before
-/// the email one. `already_bot` carries the verdict the `bot_id` field on the
-/// event already produced: a sender known to be a bot is never resolved by
-/// email, whichever of the two checks found it.
+/// email. `already_bot` carries the event's own `bot_id` verdict: a known bot
+/// is never resolved by email.
 pub(super) async fn resolve_inbound_sender(
     api: &SlackApi,
     users: &dyn ProviderIdentityLink,
@@ -200,14 +195,11 @@ pub(super) async fn cache_provider_id(
     }
 }
 
-/// Prefer the explicitly configured value; when absent, ask `auth.test` so the
-/// agent's system prompt always has the bot's identity available.
+/// Prefer the explicitly configured value; when absent, ask `auth.test`.
 ///
-/// `auth.test` answers for whichever token calls it, and every outbound post
-/// uses that same bot token, so the id it returns is the one the agent's own
-/// messages carry in the thread. Do not derive this from a Loop's
-/// `run_as_user_id`: that is a Moatless identity, and Slack never attributes a
-/// post to it.
+/// Never derive this from a Loop's `run_as_user_id`: that's a Moatless
+/// identity, and Slack never attributes a post to it — `auth.test` answers for
+/// the same bot token every outbound post uses.
 pub(super) async fn bot_user_id(api: &SlackApi, configured: Option<&str>) -> Option<String> {
     if let Some(id) = configured {
         let id = id.trim();
@@ -376,8 +368,8 @@ mod tests {
         );
     }
 
-    /// A sender the `bot_id` field already flagged skips both queries too,
-    /// even though `users.info` reports a plain human account.
+    /// A sender the `bot_id` field already flagged skips both queries too, even
+    /// though `users.info` reports a plain human account.
     #[tokio::test]
     async fn a_sender_the_event_already_flagged_skips_the_mapping() {
         let stub = stub(serde_json::json!({

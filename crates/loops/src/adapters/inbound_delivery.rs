@@ -1,24 +1,12 @@
 //! Durable execution of inbound chat-message routing.
 //!
-//! Routing an inbound message creates a task and provisions a sandbox, which
-//! is far more than a chat sender will wait for on its webhook response
-//! deadline. The webhook handler therefore hands the routing over to
-//! [`crate::adapters::delivery`] before it acknowledges, and this module is the
-//! other end of that handover: the handler the worker runs against the payload
-//! that survived the admitting process.
-//!
-//! Building that payload is
-//! [`inbound_delivery_request`](moatless_adapter_model::delivery::inbound_delivery_request)
-//! — it is the same shape for every chat Adapter, so it belongs to the
-//! contract rather than to this crate.
-//!
-//! The handler is Adapter-agnostic because the routing is — every chat Adapter
-//! ends at the same [`route_inbound_message`] call with the same arguments.
-//! Each Adapter still owns its own `kind` constant and its own registration,
-//! so adding one adds a module and a registration line and never edits a
-//! shared match arm.
-//!
-//! [`route_inbound_message`]: crate::bindings::runtime::route_inbound_message
+//! Routing creates a task and provisions a sandbox — too slow for a chat
+//! sender's webhook deadline — so the handler hands off to
+//! [`crate::adapters::delivery`] before acknowledging; this module is the
+//! worker-side handler for the surviving payload, built by
+//! [`inbound_delivery_request`](moatless_adapter_model::delivery::inbound_delivery_request).
+//! Adapter-agnostic since the routing is: every chat Adapter owns only its
+//! `kind` constant and registration.
 
 use std::sync::Arc;
 
@@ -31,13 +19,11 @@ use moatless_types::adapter::InboundDeliveryPayload;
 
 /// Routes one admitted inbound message.
 ///
-/// Idempotent as the seam requires, and not by its own doing: repeat delivery
-/// to a binding is stopped by the event-receipt table inside
-/// [`route_inbound_message`], and repeat task creation by the binding that
-/// creation upserts. A re-execution after a crash therefore re-walks the same
-/// bindings and delivers nothing twice.
-///
-/// [`route_inbound_message`]: crate::bindings::runtime::route_inbound_message
+/// Idempotent not by its own doing: repeat delivery is stopped by the
+/// event-receipt table inside
+/// [`route_inbound_message`](crate::bindings::runtime::route_inbound_message),
+/// and repeat task creation by the binding it upserts, so a crash re-walks the
+/// same bindings and delivers nothing twice.
 pub struct InboundMessageHandler {
     /// Sender label used for routing, bindings, and metrics.
     adapter: &'static str,
@@ -275,11 +261,12 @@ mod db_tests {
 
     const KIND: &str = "slack.inbound_message";
 
-    /// Fails the way `route_inbound_message` fails when the backend, rather
-    /// than the event, is at fault — a database blip mid-routing — and
-    /// classifies it through the same `From<AdapterError>` the real handler uses.
-    /// The point is not that this stand-in fails, it is that *this
-    /// classification* is what the shared worker policy retries.
+    /// Fails the way `route_inbound_message` fails when the backend, not the
+    /// event, is at fault, classified through the same `From<AdapterError>` the
+    /// real handler uses.
+    ///
+    /// The point is that this classification is what the shared worker policy
+    /// retries.
     struct FailingRoute {
         runs: Arc<AtomicUsize>,
     }

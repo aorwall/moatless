@@ -1,13 +1,10 @@
 //! The Binding domain's implementations of the read seams it answers.
 //!
-//! An Adapter that only *asks about* Bindings reads [`BindingProbe`], published
-//! by the Adapter kernel (`moatless_adapter_model::binding`); [`BindingDirectory`]
-//! below answers it over the Binding handle it holds. An Adapter that *drives*
-//! the Binding lifecycle — `adapter-github-pr` and `adapter-linear`, which both
-//! bind as well as read and write status — holds [`Bindings`] itself: a narrow
-//! read port beside a handle it already has is a second surface, not a seam.
-//!
-//! The Task band sits *below* this crate and reaches Binding through
+//! An Adapter that only *asks about* Bindings reads [`BindingProbe`]
+//! (`moatless_adapter_model::binding`); [`BindingDirectory`] answers it over
+//! the Binding handle it holds. An Adapter that *drives* the lifecycle —
+//! `adapter-github-pr`, `adapter-linear` — holds [`Bindings`] itself instead.
+//! The Task band, below this crate, reaches Binding through
 //! `moatless_tasks::task::bindings::TaskBindings`, implemented at the bottom of
 //! this file.
 

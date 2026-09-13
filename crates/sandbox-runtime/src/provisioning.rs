@@ -1,4 +1,5 @@
-//! The provision plan a runtime is handed, and the per-server config it derives.
+//! The provision plan a runtime is handed, and the per-server config it
+//! derives.
 //!
 //! [`ProvisionRequest`]/[`ProvisionPlan`] and [`RepoConfig`] are the plan the
 //! backend sends; [`allocated_port`] and [`server_capabilities_from_config`]
@@ -30,7 +31,8 @@ pub struct ProvisionPlan {
     pub git_clone_url: String,
     /// The primary repository's branch. Mirrors `repos[0].branch`.
     pub git_branch: Option<String>,
-    /// The primary repository's git provider (e.g. "github", "gitlab", "gitness")
+    /// The primary repository's git provider (e.g. "github", "gitlab",
+    /// "gitness")
     #[serde(default = "default_git_provider")]
     pub git_provider: String,
     /// Custom environment variables
@@ -73,26 +75,28 @@ pub struct RepoConfig {
     /// picked. The sandbox clones each one and removes the skills not named.
     pub plugins: Option<Vec<moatless_types::plugin::PluginDelivery>>,
     // --- Docker access (opt-in) ---
-    /// Mount Docker socket inside sandbox container (default: false).
-    /// Overrides global `DOCKER_ENABLE_SOCKET_MOUNT` when set.
+    /// Mount Docker socket inside sandbox container (default: false). Overrides
+    /// global `DOCKER_ENABLE_SOCKET_MOUNT` when set.
     #[serde(default)]
     pub docker_access: Option<bool>,
-    /// Additional Docker networks to connect sandbox to.
-    /// Overrides global `DOCKER_EXTRA_NETWORKS` when set.
+    /// Additional Docker networks to connect sandbox to. Overrides global
+    /// `DOCKER_EXTRA_NETWORKS` when set.
     #[serde(default)]
     pub docker_networks: Option<Vec<String>>,
     // --- Kubernetes ServiceAccount (opt-in per-repo) ---
-    /// Per-repo Kubernetes `ServiceAccount` for the sandbox pod. Overrides the
-    /// global default (`K8S_SANDBOX_SERVICE_ACCOUNT`) when set. Ignored in Docker
-    /// mode. Enables "shadow" dev sandboxes that run under an SA bound to the
+    /// Per-repo Kubernetes `ServiceAccount` for the sandbox pod; overrides
+    /// `K8S_SANDBOX_SERVICE_ACCOUNT` when set, ignored in Docker mode.
+    ///
+    /// Enables "shadow" dev sandboxes that run under an SA bound to the
     /// backend's RBAC.
     #[serde(default)]
     pub sandbox_service_account: Option<String>,
     // --- Network profile (opt-in per-repo) ---
-    /// Per-repo network profile. When set, the sandbox pod carries the label
-    /// `moatless.io/network-profile=<value>`, which a static (GitOps-owned)
-    /// `NetworkPolicy` can select to govern the pod's egress/ingress. Selects a
-    /// policy only; grants nothing on its own. Ignored in Docker mode.
+    /// Per-repo network profile; sets label
+    /// `moatless.io/network-profile=<value>` for a static `NetworkPolicy` to
+    /// select. Ignored in Docker mode.
+    ///
+    /// Selects a policy only; grants nothing on its own.
     #[serde(default)]
     pub network_profile: Option<String>,
 }
@@ -113,10 +117,9 @@ pub fn server_capabilities_from_config(config: &ServerConfig) -> ServerCapabilit
 
 /// The port a runtime can act on for this server, or `None` with a log.
 ///
-/// Every server in a provision plan has been through `assign_missing_ports`, so
-/// a server without a port here means the plan was assembled some other way. A
-/// runtime can neither start nor observe such a server, so it is skipped rather
-/// than given an invented port.
+/// Every plan server has been through `assign_missing_ports`; a missing port
+/// here means the plan was assembled some other way, so the server is skipped
+/// rather than given an invented port.
 pub fn allocated_port(server: &ServerConfig, task_id: &str) -> Option<u16> {
     if server.port.is_none() {
         warn!(

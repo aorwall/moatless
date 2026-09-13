@@ -49,9 +49,9 @@ fn a_running_turn_withholds_itself_and_nothing_below_it() {
     assert_eq!(checkpoints[0]["checkpointTurnCount"], json!(1));
 }
 
-/// `ready` with no files, never `missing`: the client defers on `missing`
-/// and would re-examine the turn for a diff for as long as the thread is
-/// open, and this backend has no worktree snapshot to hand it either way.
+/// `ready` with no files, never `missing`: the client defers on `missing` and
+/// would re-examine the turn for a diff for as long as the thread is open, and
+/// this backend has no worktree snapshot to hand it either way.
 #[test]
 fn a_checkpoint_is_ready_and_carries_no_files() {
     let mut message = message(1, MessageType::Assistant, "did it");
@@ -70,9 +70,9 @@ fn a_checkpoint_on_a_silent_turn_names_no_assistant_message() {
     assert_eq!(detail["checkpoints"][0]["assistantMessageId"], Value::Null);
 }
 
-/// The turns are `task_turns`, not the Messages: a turn past
-/// `TRANSCRIPT_LIMIT` is one a rewind still takes, and withholding it would
-/// make a long thread's older turns silently unrewindable.
+/// The turns are `task_turns`, not the Messages: a turn past `TRANSCRIPT_LIMIT`
+/// is one a rewind still takes, and withholding it would make a long thread's
+/// older turns silently unrewindable.
 #[test]
 fn a_turn_with_no_message_in_the_window_is_still_a_checkpoint() {
     let mut rows = transcript(Vec::new(), Vec::new());
@@ -88,8 +88,8 @@ fn a_turn_with_no_message_in_the_window_is_still_a_checkpoint() {
     assert_eq!(checkpoints[0]["completedAt"], "2026-07-01T09:00:00.000Z");
 }
 
-/// A queued Message has no Turn, and a checkpoint the client cannot revert
-/// to would be a control that refuses when pressed.
+/// A queued Message has no Turn, and a checkpoint the client cannot revert to
+/// would be a control that refuses when pressed.
 #[test]
 fn a_queued_message_is_no_checkpoint() {
     let mut message = message(1, MessageType::User, "not picked up yet");

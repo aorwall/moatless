@@ -9,15 +9,15 @@
 //!
 //! Gated `#[cfg(any(test, feature = "test-support"))]`, so it compiles for this
 //! crate's own db-tests and, off `test-support`, for the sandbox-control band's
-//! lifecycle db-tests (still in the backend), which seed the same task row shape
-//! before layering their own `sandboxes` row on top. The tasks band owns the
-//! `tasks`/`teams` tables, so it owns their seeder.
+//! lifecycle db-tests (still in the backend), which seed the same task row
+//! shape before layering their own `sandboxes` row on top. The tasks band owns
+//! the `tasks`/`teams` tables, so it owns their seeder.
 
 use sqlx::PgPool;
 
-/// Seed a team, one task, and the Sandbox row task creation writes for it —
-/// the shape a Task has before any lifecycle operation: converged Stopped at
-/// the intent epoch, owning no volume.
+/// Seed a team, one task, and the Sandbox row task creation writes for it — the
+/// shape a Task has before any lifecycle operation: converged Stopped at the
+/// intent epoch, owning no volume.
 pub async fn seed_bare_task(pool: &PgPool, task_id: &str, status: &str) {
     // tasks.team_id is NOT NULL (no FK); seed a row so the fixture matches the
     // production shape.
@@ -84,10 +84,9 @@ fn tasks(pool: &DbPool) -> PgTaskDao {
     store_over(pool)
 }
 
-/// Insert a Task, creating `row.workspace_id` first when no such Workspace
-/// exists. A fixture names a Workspace it rarely seeds, and
-/// [`TaskDao::insert_task`] refuses a Task whose Workspace is absent. Use
-/// [`store_over`] directly to test that refusal.
+/// Insert a Task, creating `row.workspace_id` first if absent. A fixture rarely
+/// seeds its own Workspace, and [`TaskDao::insert_task`] refuses an absent one;
+/// [`store_over`] tests that refusal.
 pub async fn seed_task(pool: &DbPool, row: &Task) -> Result<(), sqlx::Error> {
     if let Some(workspace_id) = row.workspace_id.as_deref() {
         sqlx::query(
@@ -286,11 +285,9 @@ impl TaskStoreCalls {
     }
 }
 
-/// A task store scripted for a host test: it answers the reads a gate path
-/// takes and records what the path asked, so a test asserts the scope, the
-/// filter and the call count that path threaded without a database.
-///
-/// Every unscripted read answers "nothing there".
+/// A task store scripted for a host test: answers gate-path reads and records
+/// what was asked, so a test asserts scope, filter and count with no database.
+/// Unscripted reads answer "nothing there".
 #[derive(Default)]
 pub struct ScriptedTasks {
     holding: Option<Task>,

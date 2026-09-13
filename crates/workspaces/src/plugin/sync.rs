@@ -1,18 +1,9 @@
 //! The one routine that turns a plugin's git content into stored skills.
 //!
-//! Every reader of a plugin's skills goes through [`PluginSyncService::skills`]
-//! and nothing else, so there is a single answer to "what is in this plugin"
-//! and a single place where fetching is decided.
-//!
-//! The sequence is: ask the source what version it is at, compare against what
-//! was stored, and fetch only on a difference. Fetching runs as the caller: a
-//! plugin in a repository they cannot read fetches unauthenticated and fails at
-//! the fetch, naming authentication.
-//!
-//! Concurrent callers for the same plugin are serialised on a per-plugin lock.
-//! The second caller re-reads the stored version after the first one finishes,
-//! finds it current, and fetches nothing — so a burst of callers arriving at a
-//! changed version costs exactly one fetch.
+//! Every reader goes through [`PluginSyncService::skills`], the single place
+//! fetching is decided: compare the source's version against what's stored and
+//! fetch only on a difference, running as the caller so an unreadable repo
+//! fails naming authentication.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -62,9 +53,9 @@ impl PluginSyncService {
 
     /// The skills in a plugin, syncing first if the source has moved on.
     ///
-    /// A failed sync is not an error: the previous snapshot is served and the
-    /// failure logged, so one unreachable plugin does not empty a skill list
-    /// that other plugins contributed to.
+    /// A failed sync is not an error: the previous snapshot is served and
+    /// logged, so one unreachable plugin does not empty a skill list others
+    /// contributed to.
     pub async fn skills(
         &self,
         actor: &Actor,
@@ -162,9 +153,9 @@ impl PluginSyncService {
 
     /// `actor`'s own credential for a plugin's repository.
     ///
-    /// `None` when they have not connected the host or it cannot be minted — a
-    /// public plugin still fetches unauthenticated, and a private one fails at
-    /// the fetch with a message about authentication rather than here.
+    /// `None` when unconnected or unmintable — a public plugin still fetches
+    /// unauthenticated; a private one fails at the fetch naming authentication,
+    /// not here.
     async fn fetch_token(&self, actor: &Actor, git_url: &str) -> Option<String> {
         let repo = GitHostRepo::parse(RepositoryProvider::Github, git_url)?;
         match self.git_host_tokens.token(actor, &repo).await {

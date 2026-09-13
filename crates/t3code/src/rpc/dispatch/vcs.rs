@@ -20,11 +20,9 @@ use serde_json::Value;
 use serde_json::json;
 use tracing::error;
 
-/// A draft thread has no checkout to switch: its branch is recorded on the draft
-/// and applied when the Task is created, so the switch is answered as done,
-/// echoing the ref the client should store. A thread that already has a Sandbox
-/// cannot change branch — that is fixed at creation — so the switch there falls
-/// through to unsupported.
+/// A draft thread has no checkout, so the switch answers done, echoing back the
+/// ref to store; a thread with a Sandbox can't change branch (fixed at
+/// creation) and falls through to unsupported.
 pub(super) fn vcs_switch_ref(request: Request) -> Vec<Value> {
     match branch_switch_result(&request.payload) {
         Some(result) => vec![success_exit(&request.id, result)],
@@ -150,11 +148,9 @@ pub(super) async fn review_get_diff_preview(request: Request) -> Vec<Value> {
     }
 }
 
-/// The one method of the `pullRequests.*` group this backend serves. The rest of
-/// the group reads a git host and is refused, which is why
-/// `capabilities.pullRequests` stays absent: the listing route, the right-panel
-/// surface and the review actions all gate on it, and none of them can be served
-/// from a binding.
+/// The one method of the `pullRequests.*` group this backend serves; the rest
+/// read a git host and are refused, which is why `capabilities.pullRequests`
+/// stays absent.
 pub(super) async fn pull_requests_summary(request: Request) -> Vec<Value> {
     let Request {
         id,
@@ -245,10 +241,11 @@ pub(super) async fn git_prepare_pull_request_thread(request: Request) -> Vec<Val
     }
 }
 
-/// The action is not run here or in the Sandbox: the button press becomes a
-/// message asking the Task's agent to do the git work. The client's contract is
-/// a stream, so it is answered with one `action_finished` chunk and a terminal
-/// success, the same shape a completed action produced.
+/// Not run here or in the Sandbox.
+///
+/// The button press becomes a message asking the Task's agent to do the git
+/// work, answered as one `action_finished` chunk plus terminal success — the
+/// shape a completed action produces.
 pub(super) async fn git_run_stacked_action(request: Request) -> Vec<Value> {
     let Request {
         id,

@@ -1,8 +1,8 @@
 //! The reads this surface needs and the conversation feed does not.
 //!
 //! Everything a Moatless reader already asks of `task_activities` is served by
-//! [`moatless_ports::activity::ActivitySource`]. What is left here
-//! answers questions only a T3 transcript asks.
+//! [`moatless_ports::activity::ActivitySource`]. What is left here answers
+//! questions only a T3 transcript asks.
 
 use std::collections::{HashMap, HashSet};
 
@@ -15,10 +15,9 @@ use crate::UiRpcDbPool;
 
 /// Of the requests `activities` ask, the ones whose call has come back.
 ///
-/// One indexed lookup on `(task_id, tool_use_id)` per read, and none at all for
-/// a read that asks nothing — which is nearly every one. See
+/// One indexed lookup per read, none for a read that asks nothing; see
 /// [`crate::transcript_dao::Transcript::settled_requests`] for why the call
-/// cannot be found among the rows themselves.
+/// isn't found among the rows themselves.
 pub async fn settled_requests(
     pool: &UiRpcDbPool,
     task_id: &str,
@@ -54,12 +53,8 @@ pub async fn settled_requests(
 /// What each subagent named by these rows has spent, keyed by the spawning
 /// `Agent` tool-use id.
 ///
-/// That id is the `taskId` the projection stamps on the row, and the key the
-/// subagent's own Messages carry as `parent_uuid`. Usage is summed over
-/// `task_message_usage` rather than `task_messages` because a subagent spends
-/// most of its tokens on turns that only called tools — turns that said nothing
-/// and so have no Message row to sum. One indexed grouped read per transcript,
-/// and none at all for a transcript that spawned nothing.
+/// Summed over `task_message_usage`, not `task_messages`, since tool-only turns
+/// spend tokens but leave no Message row.
 pub async fn subagent_usage(
     pool: &UiRpcDbPool,
     task_id: &str,
@@ -94,6 +89,7 @@ pub async fn subagent_usage(
 /// One subagent's token spend.
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct SubagentUsage {
+    /// The spawning `Agent` tool-use id.
     pub parent_uuid: String,
     pub input_tokens: i64,
     pub output_tokens: i64,

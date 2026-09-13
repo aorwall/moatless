@@ -1,7 +1,8 @@
-//! Generic agent state machine — tracks status, session, cancel token, and pending prompts.
+//! Generic agent state machine — tracks status, session, cancel token, and
+//! pending prompts.
 //!
-//! Owned by the coordinator service (`coordinator.rs`); harness-neutral so any agent
-//! implementation can reuse it.
+//! Owned by the coordinator service (`coordinator.rs`); harness-neutral so any
+//! agent implementation can reuse it.
 
 use std::collections::HashSet;
 
@@ -21,9 +22,10 @@ pub struct AgentState {
 struct AgentInner {
     status: AgentStatus,
     last_session_id: Option<String>,
-    /// The agent run currently in flight (see the coordinator's `run_id`). Read by
-    /// paths that must attribute a message to the running turn without going
-    /// through the lifecycle task — e.g. acknowledging an interactive prompt response.
+    /// The agent run currently in flight (see the coordinator's `run_id`). Read
+    /// by paths that must attribute a message to the running turn without going
+    /// through the lifecycle task — e.g. acknowledging an interactive prompt
+    /// response.
     current_run_id: Option<String>,
     last_error: Option<String>,
     cancel_token: Option<CancellationToken>,
@@ -86,9 +88,8 @@ impl AgentState {
 
     /// Report that the run is parked on a person, for as long as it is.
     ///
-    /// Only from `Running`, and only back to `Running`: every other status is a
-    /// lifecycle transition that has already cleared the prompt, and moving one
-    /// of those to `Waiting` would report a stopped agent as mid-turn.
+    /// Only transitions `Running` -> `Waiting`; any other status is left alone,
+    /// since it already reflects a lifecycle transition past the prompt.
     pub async fn begin_waiting(&self) {
         let mut inner = self.inner.write().await;
         if inner.status == AgentStatus::Running {
@@ -163,16 +164,10 @@ impl AgentState {
     /// Claim the right to publish this interactive call, and report whether the
     /// claim is this caller's.
     ///
-    /// One call, two routes to the backend. The permission handler publishes it
-    /// as it parks, because a person cannot answer a question they were never
-    /// shown and the block holding it may not have been written yet. The
-    /// coordinator publishes that block when the harness delivers it. Both carry
-    /// the same tool-use id, and the conversation stores one row per id — so the
-    /// second write is a conflict, not an update.
-    ///
-    /// Whichever arrives first takes the claim and publishes; the other sees it
-    /// taken and stays quiet. A claim outlives the publication it stands for: an
-    /// id names one call for the life of the session.
+    /// Two routes (the permission handler and the coordinator) race on the same
+    /// tool-use id; whichever claims first publishes, the other stays quiet —
+    /// the claim outlives the publication and names the call for the session's
+    /// life.
     pub async fn claim_prompt_publication(&self, tool_use_id: &str) -> bool {
         self.inner
             .write()
@@ -183,11 +178,9 @@ impl AgentState {
 
     /// Give a claim back, for a publication that did not happen.
     ///
-    /// A claim states that the call reached the backend by this route, and the
-    /// other route stays quiet on the strength of it. So a claimant whose
-    /// publication was refused has to hand it back — otherwise the call is
-    /// suppressed on both routes and the conversation never learns a question
-    /// was asked, which reads downstream as an agent that stopped for no reason.
+    /// The other route stays quiet on the strength of a claim, so a refused
+    /// publication must hand it back or the call is suppressed on both routes —
+    /// silently, as if the agent stopped for no reason.
     pub async fn release_prompt_publication(&self, tool_use_id: &str) {
         self.inner
             .write()
@@ -198,13 +191,9 @@ impl AgentState {
 
     /// Park a prompt, unless one is already parked. Returns whether it was.
     ///
-    /// One question stands at a time: the answer path takes *the* pending
-    /// prompt, and a person answers the one panel the task shows. Permission
-    /// decisions are made off the SDK's read loop, so two interactive calls in
-    /// one assistant message do arrive together — and replacing the standing
-    /// prompt would drop its sender, which the run waiting on it reads as a
-    /// cancellation. The second call is refused instead, and the model is told
-    /// to ask again.
+    /// Only one question stands at a time: replacing a standing prompt would
+    /// drop its sender, which the waiting run reads as a cancellation, so a
+    /// second concurrent call is refused and the model is told to ask again.
     pub async fn set_pending_prompt(&self, prompt: PendingPrompt) -> bool {
         let mut inner = self.inner.write().await;
         if inner.pending_prompt.is_some() {
@@ -399,9 +388,9 @@ mod tests {
         assert_eq!(state.status().await, AgentStatus::Running);
     }
 
-    /// Every other status is a lifecycle transition that has already cleared the
-    /// prompt. Moving one of those to waiting would report a stopped agent as
-    /// mid-turn, and moving it back would restart a run that ended.
+    /// Every other status is a lifecycle transition that has already cleared
+    /// the prompt. Moving one of those to waiting would report a stopped agent
+    /// as mid-turn, and moving it back would restart a run that ended.
     #[tokio::test]
     async fn waiting_never_overwrites_a_lifecycle_status() {
         for (transition, expected) in [

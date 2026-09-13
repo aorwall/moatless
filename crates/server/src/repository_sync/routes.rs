@@ -2,9 +2,9 @@
 //!
 //! The operation keeps `tag = "repositories"`: the OpenAPI tag is the external
 //! contract that drives the frontend's tags-split client codegen, so it stays
-//! grouped under `repositories` even though the handler lives here. This `ApiDoc`
-//! declares no tag of its own; `repository::routes::RepositoryApiDoc` owns the
-//! `repositories` tag description.
+//! grouped under `repositories` even though the handler lives here. This
+//! `ApiDoc` declares no tag of its own; `repository::routes::RepositoryApiDoc`
+//! owns the `repositories` tag description.
 
 use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};

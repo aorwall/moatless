@@ -1,15 +1,15 @@
 //! Uploads as a caller reaches them: the bytes into S3, the metadata into
 //! Postgres, and the removal that undoes both.
 //!
-//! Three surfaces store an upload. The multipart route takes a form field; the
-//! T3 compatibility surface takes an image that arrived inline on a turn,
-//! because a client that does not know this server accepts uploads sends
-//! attachment bytes in the command instead; and the T3 attachment-upload route
-//! takes a raw body under an id it minted beforehand. They differ only in how
-//! the bytes got here, so what an upload *is* — a uuid, an object under the
-//! configured prefix, and a metadata row scoped to its creator — is decided
-//! once, and all three are readable afterwards through
-//! `GET /api/v1/uploads/{file_id}`.
+//! Three surfaces store an upload — the multipart route's form field, the T3
+//! compatibility surface's inline turn image (for a client that sends bytes
+//! because it doesn't know this server accepts uploads), and the T3
+//! attachment-upload route's raw body under a pre-minted id.
+//!
+//! They differ only in how the bytes got here: what an upload *is* — a uuid, an
+//! object under the configured prefix, and a metadata row scoped to its creator
+//! — is decided once, and all three are readable afterwards through `GET
+//! /api/v1/uploads/{file_id}`.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -26,9 +26,9 @@ use crate::config::S3Config;
 
 /// The uploads a caller may reach, over the object storage they live in.
 ///
-/// Built by [`super::compose::files`]. Every operation that touches bytes
-/// answers [`FileStorageError::S3NotConfigured`] on a deployment without object
-/// storage; the metadata reads answer without it.
+/// Built by [`super::compose::files`]. Every operation touching bytes answers
+/// [`FileStorageError::S3NotConfigured`] on a deployment without object
+/// storage; metadata reads do not need it.
 pub struct Files {
     store: Arc<dyn FileDao>,
     s3: Option<S3Storage>,
@@ -72,8 +72,7 @@ impl Files {
     /// Store `upload` and return what was written for it.
     ///
     /// The row is `User` scoped and owned by `viewer`, which is what makes
-    /// [`Files::read`]'s access check the thing that decides who may fetch it
-    /// back.
+    /// [`Files::read`]'s access check decide who may fetch it back.
     pub async fn store_upload(
         &self,
         viewer: &ScopeContext,
@@ -157,21 +156,12 @@ impl Files {
     /// Remove an upload: its object, then its metadata row. Answers whether
     /// there was one to remove.
     ///
-    /// An id that names nothing is `Ok(false)` rather than an error — the T3
-    /// composer deletes an attachment it abandoned without knowing whether the
-    /// bytes ever landed, and that is not a failure to report to anyone.
-    ///
-    /// The object goes first and the row second. A failure between the two
-    /// leaves the row naming bytes that are gone, and a later [`Self::read`] of
-    /// that id reads the row and then fails on the fetch. Calling `delete`
-    /// again clears it: S3 answers a delete of an absent key with success.
-    ///
-    /// Access is all this checks. Whether anything still points at the upload
-    /// is a question about the caller's own domain, not about file storage: the
-    /// T3 attachment store asks it in
-    /// `moatless_backend::t3code::backend::AppStateAttachments::is_on_a_message`
-    /// before it deletes or replaces anything, so a sent attachment is not
-    /// collected as an abandoned one.
+    /// Object before row, so a failure between them leaves the row naming gone
+    /// bytes rather than an orphaned object — retrying then succeeds since S3
+    /// treats deleting an absent key as success; an id naming nothing is
+    /// `Ok(false)`, not an error. Access is all this checks — whether anything
+    /// still points at the upload is the caller's own domain question, asked
+    /// elsewhere.
     pub async fn delete(
         &self,
         viewer: &ScopeContext,
@@ -236,9 +226,8 @@ impl Files {
     /// The uploads an outbound message carries, bytes included.
     ///
     /// An id that resolves to nothing is dropped with a warning rather than
-    /// failing the send: the message is worth delivering without an attachment
-    /// that is already gone. A deployment without object storage resolves
-    /// nothing at all.
+    /// failing the send, since the message is worth delivering without a gone
+    /// attachment; a deployment without object storage resolves nothing at all.
     pub async fn resolve_attachments(&self, file_ids: &[String]) -> Vec<Attachment> {
         if file_ids.is_empty() {
             return vec![];

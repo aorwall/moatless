@@ -3,10 +3,9 @@
 use super::fixtures::*;
 use super::*;
 
-/// The client reports focus on every change so a host can idle its own
-/// background work. Moatless runs its agents in Sandboxes no browser tab is
-/// attached to, so the report is accepted and dropped — refusing it would
-/// put a defect in the console on every tab switch.
+/// The client reports focus changes so a host can idle work. Moatless runs
+/// agents in Sandboxes no tab is attached to, so the report is accepted and
+/// dropped — refusing it would break tab switching.
 #[tokio::test]
 async fn a_client_activity_report_is_accepted() {
     let mut session = session();
@@ -25,10 +24,9 @@ async fn a_client_activity_report_is_accepted() {
     assert_eq!(output.frames[0]["exit"]["value"], Value::Null);
 }
 
-/// The difference between a `Fail` and a `Die` is what the person sees: a
-/// declared error renders its own message, a defect renders as "unexpected
-/// server error" and nothing else. A method this server does not have has
-/// not failed, and saying so is not a defect.
+/// A `Fail` renders its own message; a `Die` renders only "unexpected server
+/// error". A method this server does not have is a typed absence, not a defect,
+/// so it arrives as a `Fail`.
 #[tokio::test]
 async fn a_method_this_server_does_not_have_says_so_in_a_type_the_client_reads() {
     let mut session = session();
@@ -49,8 +47,8 @@ async fn a_method_this_server_does_not_have_says_so_in_a_type_the_client_reads()
 }
 
 /// Found in production by `moatless_ui_rpc_requests_total{outcome="die"}`:
-/// opening a thread the viewer cannot read answered `Die`, so the panel
-/// could say only that the server was broken.
+/// opening a thread the viewer cannot read answered `Die`, so the panel could
+/// say only that the server was broken.
 #[test]
 fn a_thread_the_viewer_cannot_read_is_a_typed_refusal_not_a_defect() {
     let frame = sandbox_failure_exit(
@@ -67,8 +65,8 @@ fn a_thread_the_viewer_cannot_read_is_a_typed_refusal_not_a_defect() {
     assert_eq!(cause["error"]["message"], THREAD_UNAVAILABLE);
 }
 
-/// The narrowing only moves `NotFound`. A read that actually broke is still
-/// a defect, because no client action answers it.
+/// The narrowing only moves `NotFound`. A read that actually broke is still a
+/// defect, because no client action answers it.
 #[test]
 fn a_sandbox_that_could_not_be_read_is_still_a_defect() {
     let frame = sandbox_failure_exit(

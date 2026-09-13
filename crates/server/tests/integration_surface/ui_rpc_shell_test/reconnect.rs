@@ -14,13 +14,11 @@ use super::seeding::{seed_live_project, seed_task};
 use moatless_t3code::listing::RESUME_WINDOW;
 use sqlx::PgPool;
 
-/// Acceptance criterion 1. Away briefly, things happened, and the list the
-/// client already had is updated rather than replaced.
+/// Acceptance criterion 1: away briefly, things happened, and the client's list
+/// is updated rather than replaced.
 ///
-/// The teeth are the negative half: `assert!(!rebuilt)`. Before this ticket
-/// every subscription answered with a snapshot, so an implementation that
-/// ignores `afterSequence` fails here — and so does one that rebuilds whenever
-/// it is unsure.
+/// The teeth are the negative half, `assert!(!rebuilt)` — an implementation
+/// that ignores `afterSequence`, or rebuilds whenever unsure, fails here.
 #[sqlx::test]
 async fn a_client_that_missed_changes_is_replayed_rather_than_rebuilt(pool: PgPool) {
     seed_live_project(&pool).await;
@@ -58,24 +56,11 @@ async fn a_client_that_missed_changes_is_replayed_rather_than_rebuilt(pool: PgPo
     assert!(values[0]["sequence"].as_i64().unwrap() > held);
 }
 
-/// Acceptance criterion 4, with the teeth the criterion does not have on its
-/// own.
+/// Acceptance criterion 4, with the teeth the bare criterion lacks.
 ///
-/// "Replaying from the position a client holds returns nothing" passes against
-/// an implementation that always returns nothing — which is exactly the dead
-/// path this ticket replaces, so on its own it is worth nothing. So the test is
-/// asymmetric, and every half is a break somebody could ship:
-///
-/// - A change is recorded *before* the position the client holds, so there is
-///   something to wrongly re-send. Replaying `WHERE position >= cursor` instead
-///   of `>` fails here, which is the second clause of the criterion.
-/// - A second change is recorded, and **replaying from the same held position
-///   again must now carry it**. An always-empty replay fails here.
-/// - The feed that same subscription was handed must deliver it live too, so
-///   the empty first answer was a cursor in the right place rather than a
-///   subscription that never started.
-///
-/// Verified by making each of those three breaks and watching this fail.
+/// Asymmetric: proves replay excludes the change at the held position (`>` not
+/// `>=`), still returns a later change from the same position, and the feed the
+/// subscription holds delivers it live.
 #[sqlx::test]
 async fn a_caught_up_client_is_replayed_nothing_and_still_hears_what_comes_next(pool: PgPool) {
     seed_live_project(&pool).await;
@@ -120,13 +105,11 @@ async fn a_caught_up_client_is_replayed_nothing_and_still_hears_what_comes_next(
     assert!(event["sequence"].as_i64().unwrap() > held);
 }
 
-/// Acceptance criteria 2 and 3 together, because they are the same assertion
-/// from two sides: the answer to "too much happened" is a listing, and it is
-/// not the answer to "nothing happened".
+/// Acceptance criteria 2 and 3 together: "too much happened" answers with a
+/// listing, which is not the answer to "nothing happened".
 ///
-/// Both clients below are told something the other is not. Collapse the two
-/// into one answer — return `[]` for the gap, or a snapshot for both — and one
-/// of these halves fails.
+/// Both clients here are told something the other is not; collapsing the two
+/// into one answer fails one half.
 #[sqlx::test]
 async fn a_gap_too_large_to_replay_is_a_fresh_listing_and_silence_is_not(pool: PgPool) {
     seed_live_project(&pool).await;
@@ -191,17 +174,12 @@ async fn the_resume_window_is_exclusive_at_exactly_its_own_width(pool: PgPool) {
     assert_eq!(past[0]["kind"], "snapshot");
 }
 
-/// The spec's Decision 7, first guard: a position this deployment has never
-/// reached is impossible, and is answered with a listing rather than an empty
-/// reply.
+/// Decision 7's first guard: a position this deployment has never reached is
+/// impossible, and answers with a listing, not an empty reply.
 ///
-/// This is the failure nothing else watches. T3 guards against the client
-/// falling behind the server; neither side guards against the server falling
-/// behind the client. A client asking for everything after a position that will
-/// never be allocated receives nothing, forever, while reporting itself live.
-///
-/// (The other guard — an identity derived from the database, which catches a
-/// *reused* position after a restore — is ticket 07's.)
+/// Neither side otherwise guards against the server falling behind the client,
+/// so asking past the last allocated position would receive nothing forever
+/// while reporting itself live.
 #[sqlx::test]
 async fn a_position_the_deployment_has_never_reached_is_rebuilt_not_answered_with_silence(
     pool: PgPool,
@@ -224,11 +202,11 @@ async fn a_position_the_deployment_has_never_reached_is_rebuilt_not_answered_wit
     }
 }
 
-/// A client holding nothing gets the listing, exactly as before this ticket.
+/// A client holding no position gets the listing.
 ///
 /// Kept because the resume path is the same function: a change to how
-/// `afterSequence` is read must not turn the first connection of a fresh client
-/// into an empty sidebar.
+/// `afterSequence` is read must not turn a fresh client's first connection into
+/// an empty sidebar.
 #[sqlx::test]
 async fn a_client_holding_no_position_is_sent_the_listing(pool: PgPool) {
     seed_live_project(&pool).await;
@@ -244,13 +222,12 @@ async fn a_client_holding_no_position_is_sent_the_listing(pool: PgPool) {
     );
 }
 
-/// A replay is filtered by the same two rules the snapshot is, because it is
-/// the same query — someone else's change advances the cursor and tells this
-/// viewer nothing.
+/// A replay is filtered by the same two rules as the snapshot, being the same
+/// query: someone else's change advances the cursor and tells this viewer
+/// nothing.
 ///
-/// Worth its own test because replay is the one path that could plausibly be
-/// written from the change records themselves, which carry no viewer. That
-/// version leaks the id of every conversation in the deployment to everyone.
+/// Worth its own test because a version written from the bare change records,
+/// which carry no viewer, would leak every conversation's id to everyone.
 #[sqlx::test]
 async fn a_replay_does_not_carry_changes_the_viewer_may_not_see(pool: PgPool) {
     seed_live_project(&pool).await;

@@ -26,9 +26,9 @@ use moatless_types::secret::SecretKind;
 
 /// One person's connection to one Forgejo instance.
 ///
-/// There is no login: a `read:repository` personal access token cannot reach
-/// Forgejo's `user` endpoint, so [`crate::forgejo::api::validate_token`] learns
-/// only that the credential works. A screen names [`Self::host`] instead.
+/// There is no login: a `read:repository` token cannot reach Forgejo's `user`
+/// endpoint, so [`crate::forgejo::api::validate_token`] only confirms the
+/// credential works; a screen names [`Self::host`] instead.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ForgejoProviderTokenStatus {
     pub host: String,

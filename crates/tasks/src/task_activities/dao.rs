@@ -9,15 +9,9 @@ use super::mapping::{self, ActivityRow, ToolOutcome};
 use moatless_core::change_feed::conversation::record_activity_change;
 use moatless_core::db::DbPool;
 pub(crate) use moatless_types::activity::Activity;
-/// The kinds this build can decode, as SQL.
-///
-/// The narrowing is what keeps a rollback survivable: a row written by a newer
-/// backend carries a kind [`ActivityKind::from_str`] refuses, and a refused
-/// decode fails the whole read — one unknown row would blank a conversation.
-/// Skipped in SQL, it costs that row and nothing else.
-///
-/// Kept honest by `every_known_kind_is_readable`, which is a test rather than a
-/// derive because sqlx 0.9 takes only `&'static str` and the list has to be one.
+/// The kinds this build can decode, as SQL. A row with an unlisted kind is
+/// skipped rather than failing the whole read. Must list every `ActivityKind`,
+/// checked by `every_known_kind_is_readable`.
 macro_rules! known_kinds {
     () => {
         "kind IN ('tool_call', 'thinking', 'sandbox_status', 'sandbox_warning', \
@@ -26,11 +20,8 @@ macro_rules! known_kinds {
     };
 }
 
-/// The columns every read of this table selects, in one place so four queries
-/// cannot drift into four different row shapes.
-///
-/// A macro rather than a `const` joined with `format!`: sqlx 0.9 takes only
-/// `&'static str`, so the concatenation has to happen at compile time.
+/// The columns every read of this table selects, in one place so queries cannot
+/// drift into different row shapes.
 macro_rules! read_activities {
     ($predicate:literal) => {
         concat!(
@@ -44,21 +35,9 @@ macro_rules! read_activities {
     };
 }
 
-/// Write one activity, or leave the existing one as it is.
-///
-/// Redelivery lands on `activity_id`, which is derived from the source. The
-/// update deliberately does *not* touch `status`, `is_error` or the result: a
-/// call whose result already arrived must not be reset to `in_progress` by a
-/// second copy of the block that started it — the two arrive on different
-/// Messages and nothing orders them.
-///
-/// The `NOT EXISTS` guard covers the other way the same call can arrive twice:
-/// re-presented under a *different* Message, so it derives a different
-/// `activity_id` that the arbiter above cannot see. `(task_id, tool_use_id)` is
-/// unique, so that insert raises rather than merging, and the raise aborts the
-/// whole Message write. One call is one row and the stored one is the row
-/// [`settle`] will find, so the later arrival is dropped. A NULL `tool_use_id`
-/// matches nothing and so is never guarded — several are not a conflict.
+/// Write one activity, or leave the existing one as is. On conflict,
+/// `status`/`is_error`/the result stay untouched, so a redelivery can't reset a
+/// settled row; a different Message raises via the guard.
 pub(crate) async fn upsert(
     tx: &mut PgConnection,
     position: i64,
@@ -107,16 +86,9 @@ pub(crate) async fn upsert(
     Ok(())
 }
 
-/// Settle the call a result answers.
-///
-/// Finds the row by `(task_id, tool_use_id)` because the result arrives on a
-/// later Message than the call and cannot derive its key. If no row matches —
-/// the call was never received, or the Task predates the migration — nothing is
-/// created and nothing errors: a result whose call predates the change is the
-/// common case.
-///
-/// This is where `detail` is cut, because this is where the result arrives. Any
-/// other placement leaves a settled call whose preview is missing.
+/// Settle the call a result answers, matched by `(task_id, tool_use_id)` (no
+/// `activity_id` on a result). No match isn't an error — calls predating this
+/// path are common; `detail` is written only here.
 pub(crate) async fn settle(
     tx: &mut PgConnection,
     outcome: &ToolOutcome,
@@ -149,18 +121,9 @@ pub(crate) async fn settle(
     Ok(settled > 0)
 }
 
-/// Write a Sandbox status change or error, unless it restates the one before it.
-///
-/// The collapse rule is not new to this codebase — the lifecycle *intent* path
-/// already has the equivalent `IS DISTINCT FROM` guard around
-/// [`record_session_change`]. The event path simply never had it, and 92,165 of
-/// 139,595 Sandbox rows today restate the status before them.
-///
-/// The collapse check runs *before* the position is allocated, so a restated
-/// status spends no position and records no change: allocating first would burn
-/// one of each to project to nothing. Returns whether a row was written. The
-/// event itself is recorded either way by its own handler, so the Events tab is
-/// unaffected.
+/// Write a Sandbox status change or error, unless it restates the one before
+/// it. The check runs before a position is allocated, so a restatement spends
+/// none; the event is still recorded either way.
 pub(crate) async fn record_sandbox(
     tx: &mut PgConnection,
     activity: &ActivityRow,
@@ -185,15 +148,9 @@ pub(crate) async fn record_sandbox(
     record_standalone(tx, position, activity).await
 }
 
-/// Write an activity that happened on no Message.
-///
-/// A Sandbox lifecycle change and a context-window reading are both this: alone
-/// in their change, named by the event that carried them, ordinal 0.
-///
-/// No merge on conflict — the id *is* the event, so a conflict is the same event
-/// redelivered and the stored row is already what this would write.
-///
-/// Returns whether a row was written.
+/// An activity with no Message — a Sandbox lifecycle change or context-window
+/// reading, named by the event, ordinal 0. No merge on conflict: the id *is*
+/// the event, so a conflict is a redelivery.
 pub(crate) async fn record_standalone(
     tx: &mut PgConnection,
     position: i64,
@@ -221,12 +178,9 @@ pub(crate) async fn record_standalone(
     Ok(written > 0)
 }
 
-/// Admit a Message's token usage exactly once.
-///
-/// Where the usage of a turn that said nothing survives the row it was reported
-/// on. `DO NOTHING` rather than an update, for the reason `task_messages` keeps
-/// the first non-null value: a CLI that repeats usage on every per-block source
-/// event must not count it twice.
+/// Admit a Message's token usage exactly once. `DO NOTHING` on conflict: a CLI
+/// that repeats usage on every per-block source event must not have it counted
+/// twice.
 pub(crate) async fn admit_usage(
     tx: &mut PgConnection,
     task_id: &str,
@@ -253,11 +207,9 @@ pub(crate) async fn admit_usage(
     Ok(())
 }
 
-/// Every activity of a Task's own conversation, in stream order.
-///
-/// Subagent activities are excluded for the reason their Messages are: they are
-/// assembled on demand behind the `Agent` call that spawned them, and they
-/// outnumber the rows that render.
+/// Every activity of a Task's own conversation, in stream order. Subagent
+/// activities are excluded — assembled on demand behind the `Agent` call that
+/// spawned them, and they outnumber the rows that render.
 pub(crate) async fn for_task(pool: &DbPool, task_id: &str) -> Result<Vec<Activity>, sqlx::Error> {
     sqlx::query_as::<_, StoredActivity>(read_activities!(
         "task_id = $1 AND parent_uuid IS NULL ORDER BY position, ordinal, activity_id"
@@ -268,12 +220,9 @@ pub(crate) async fn for_task(pool: &DbPool, task_id: &str) -> Result<Vec<Activit
     .map(|rows| rows.into_iter().map(|row| row.0).collect())
 }
 
-/// A Task's own activities from a point in time onwards.
-///
-/// What a paginated conversation read needs, and it is a time window rather than
-/// a set of named Messages for one reason: a turn that only called tools said
-/// nothing and has no Message to be named by, and its calls are exactly what the
-/// page has to show. `None` means from the beginning.
+/// A Task's own activities from a point in time onwards (`None` = from the
+/// start). A time window, not named Messages: a tool-only turn has no Message
+/// to be named by, yet its calls must show.
 pub(crate) async fn for_task_since(
     pool: &DbPool,
     task_id: &str,
@@ -346,10 +295,9 @@ pub(crate) async fn for_activity_ids(
     .map(|rows| rows.into_iter().map(|row| row.0).collect())
 }
 
-/// One tool call by the id it was made under.
-///
-/// One row, found by an index: the call and its outcome are one row, so there is
-/// no second lookup for whichever later Message carried the result.
+/// One tool call by the id it was made under. One row, found by an index: the
+/// call and its outcome are one row, so there is no second lookup for whichever
+/// later Message carried the result.
 pub(crate) async fn find_tool_call(
     pool: &DbPool,
     task_id: &str,

@@ -64,9 +64,9 @@ pub(super) fn candidate(event_type: &str, payload: &serde_json::Value) -> Option
 impl GithubPrInboundRouter {
     /// Execute one durable merge-conflict check.
     ///
-    /// Skips before authentication and GitHub access when no active Binding tracks
-    /// the PR. Once active, failures that prevent the check are retryable to the
-    /// delivery worker, while persistence and notification remain best-effort.
+    /// Skips before auth/GitHub access when no active Binding tracks the PR;
+    /// once active, failures that prevent the check are retryable, while
+    /// persistence and notification stay best-effort.
     pub(super) async fn run_merge_conflict(
         &self,
         connection: &AdapterConnection,
@@ -164,11 +164,11 @@ impl GithubPrInboundRouter {
         Ok(())
     }
 
-    /// Persist mergeability and notify only on an open PR's transition to conflict.
+    /// Persist mergeability and notify only on an open PR's transition to
+    /// conflict.
     ///
-    /// Both persistence and notification are deliberately best-effort. The
-    /// durable execution retries failures that prevent the check, not an FYI that
-    /// was already decided.
+    /// Both are deliberately best-effort: the durable execution retries
+    /// failures that prevent the check, not an FYI that was already decided.
     async fn record_state_and_notify(
         &self,
         connection: &AdapterConnection,

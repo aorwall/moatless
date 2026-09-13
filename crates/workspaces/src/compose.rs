@@ -87,8 +87,8 @@ pub fn repository_branches(
 
 /// Provider credentials pinned to a Workspace.
 ///
-/// `cipher` is `None` in a deployment that configures no encryption key, which
-/// leaves every path here a 503 rather than an unencrypted write.
+/// `cipher` is `None` without an encryption key, forcing every path to 503
+/// instead of an unencrypted write.
 pub fn workspace_credentials(
     db: DbPool,
     audits: Arc<SecretAudit>,

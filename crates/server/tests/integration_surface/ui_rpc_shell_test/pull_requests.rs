@@ -79,10 +79,11 @@ async fn refresh_pr_binding(pool: &PgPool, binding_id: &str, title: &str, head_r
     .unwrap();
 }
 
-/// The regression behind the surfaces showing nothing: a binding is written
-/// with `external_status_raw` NULL and only filled in by a refresh the listing
-/// cannot trigger, so a link conditioned on that blob never appeared for a pull
-/// request the agent had just opened.
+/// Regression: a binding is written with `external_status_raw` NULL, filled in
+/// only by a refresh the listing can't trigger.
+///
+/// A link conditioned on that blob never appeared for a pull request the agent
+/// had just opened.
 #[sqlx::test]
 async fn a_thread_links_a_pull_request_whose_status_was_never_fetched(pool: PgPool) {
     seed_live_project(&pool).await;
@@ -132,10 +133,10 @@ async fn a_thread_links_every_bound_pull_request_live_first_then_newest(pool: Pg
     assert_eq!(row["linkedPullRequest"], linked[0]);
 }
 
-/// What spares every pull-request surface a `pullRequests.summary` round trip:
-/// a refreshed binding's title, branches and state reach the client on the
-/// thread row itself, and one that was never refreshed still carries the
-/// reference alone.
+/// Spares every pull-request surface a `pullRequests.summary` round trip.
+///
+/// A refreshed binding's title, branches, and state reach the client on the
+/// thread row itself; an unrefreshed one still carries the bare reference.
 #[sqlx::test]
 async fn a_thread_carries_the_status_of_each_pull_request_that_was_refreshed(pool: PgPool) {
     seed_live_project(&pool).await;
@@ -228,13 +229,12 @@ async fn a_listing_row_for_a_conversation_out_of_reach_is_absent(pool: PgPool) {
     }
 }
 
-/// The two halves are one partition of what a person follows: archiving is
-/// closing, so a conversation is in exactly one of them and moves between them
-/// by changing status and nothing else.
+/// Open and archived partition what a person follows: archiving is closing, so
+/// a conversation moves between them by changing status alone.
 ///
-/// `archivedAt` is what tells the client which half a row came from, and it is
-/// maintained by the write that sets the status — so closing stamps it and
-/// reopening clears it, with no separate call to forget.
+/// `archivedAt` tells the client which half a row came from; the status write
+/// maintains it, stamping on close and clearing on reopen, with no separate
+/// call to forget.
 #[sqlx::test]
 async fn a_closed_conversation_moves_to_the_archived_listing(pool: PgPool) {
     seed_live_project(&pool).await;
@@ -320,14 +320,11 @@ async fn a_closed_conversation_moves_to_the_archived_listing(pool: PgPool) {
     );
 }
 
-/// Opening a conversation by id is filtered by **access**, and the sidebar by
-/// Follow, so a link to a Task this viewer may read resolves whether or not it
-/// is on their sidebar. A person handed a URL for work they are allowed to see
-/// opens it; being told it does not exist is the thing this rules out.
+/// Opening by id is filtered by access, the sidebar by Follow, so a readable
+/// Task's link resolves whether or not it's on the sidebar.
 ///
-/// The two halves of that are asserted together, because the widening is only
-/// correct while the second one holds: the conversation opens, and the sidebar
-/// stays exactly as narrow as it was.
+/// Both are asserted together: the widening is only correct if the conversation
+/// opens while the sidebar stays exactly as narrow as before.
 #[sqlx::test]
 async fn a_readable_conversation_opens_by_id_without_being_followed(pool: PgPool) {
     seed_live_project(&pool).await;
@@ -357,10 +354,11 @@ async fn a_readable_conversation_opens_by_id_without_being_followed(pool: PgPool
     );
 }
 
-/// Access is the whole of the widening. A Task this viewer may not read answers
-/// exactly as it did when the follow rule was the one refusing it — one answer
-/// for every way a conversation can be absent, so which one it was stays
-/// undisclosed.
+/// Access is the whole of the widening: an unreadable Task answers exactly as
+/// it did when the follow rule refused it.
+///
+/// One answer for every way a conversation can be absent, so which one it was
+/// stays undisclosed.
 #[sqlx::test]
 async fn an_unreadable_conversation_still_does_not_open_by_id(pool: PgPool) {
     seed_live_project(&pool).await;

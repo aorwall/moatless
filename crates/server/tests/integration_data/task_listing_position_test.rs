@@ -5,18 +5,15 @@
     clippy::print_stdout,
     clippy::print_stderr
 )]
-//! The position a watching client resumes from, and the one property it rests on.
+//! The position a watching client resumes from, and the one property it rests
+//! on.
 //!
-//! A client polls `WHERE position > N`, moves its cursor to whatever it sees,
-//! and never looks below that line again. So the only thing that can go wrong is
-//! a record becoming visible *below* a position the client has already passed —
-//! and when it does, nothing reports it. The client believes it is up to date,
-//! and one conversation stops moving in the sidebar for good.
+//! A client polls `WHERE position > N` and moves its cursor forward, never
+//! looking back — so the only failure mode is a record becoming visible *below*
+//! a position already passed, silently stalling a conversation.
 //!
-//! Everything in this file exists to pin that one property down. It is not
-//! observable without a real database and two real concurrent transactions: the
-//! mechanism is Postgres's row locking and commit visibility, and neither has a
-//! shape a unit test can see.
+//! Not observable without a real database and two concurrent transactions: the
+//! mechanism is Postgres's row locking and commit visibility.
 
 use crate::common;
 
@@ -80,15 +77,12 @@ async fn observed(pool: &PgPool) -> Vec<i64> {
 // The property
 // =========================================================================
 
-/// Two writers race for a position. The one that allocates second cannot commit
-/// first — it cannot even *finish* allocating until the first commits — so the
-/// order a client observes is the order the changes committed in.
+/// The second writer cannot finish allocating a position until the first
+/// commits.
 ///
-/// The middle assertion is where this test's teeth are. Against an allocator
-/// that hands out a number without holding it (a `bigserial`, a sequence, a
-/// `MAX(id) + 1`), the second writer completes immediately and that assertion
-/// fails. Against the counter it must block, because the first writer is still
-/// holding the counter row.
+/// An allocator that hands out a value without holding it (`bigserial`, a
+/// sequence, `MAX(id) + 1`) would let the second finish immediately instead,
+/// breaking commit order.
 #[sqlx::test]
 async fn a_second_writer_cannot_take_a_position_until_the_first_commits(pool: PgPool) {
     let mut first = pool.begin().await.unwrap();
@@ -125,20 +119,12 @@ async fn a_second_writer_cannot_take_a_position_until_the_first_commits(pool: Pg
     assert_eq!(observed(&pool).await, vec![1, 2]);
 }
 
-/// A client polling across a window in which one slow writer is overtaken by
-/// several fast ones sees a prefix of the changes, never a hole in one.
+/// A client polling while fast writers overtake a slow one sees a prefix of the
+/// changes, never a hole.
 ///
-/// This is what the property is *for*: the test above shows the second writer
-/// blocks, and this shows what that buys. The shape is deliberately not a fair
-/// race — a fair race only *sometimes* commits out of order, and a test that
-/// only sometimes catches the bug is not evidence. One writer allocates and then
-/// holds its transaction open far longer than the others need to finish theirs,
-/// so against an allocator that does not hold its position the fast writers are
-/// guaranteed to commit ahead of it and the poller is guaranteed to move its
-/// cursor past the position the slow writer is still holding.
-///
-/// Verified by construction: against a `nextval` allocator this fails on the
-/// first poll, because `seen` starts at 2.
+/// Deliberately not a fair race: the slow writer holds its transaction open
+/// long enough to guarantee the fast ones commit first, so a `nextval`
+/// allocator would fail this on the first poll.
 #[sqlx::test]
 async fn a_polling_client_never_sees_a_hole(pool: PgPool) {
     const FAST_WRITERS: usize = 5;
@@ -203,18 +189,12 @@ async fn a_polling_client_never_sees_a_hole(pool: PgPool) {
     assert_eq!(observed(&pool).await.len(), total as usize);
 }
 
-/// The hazard, demonstrated on the mechanism this feed deliberately does not
-/// use, so that the test above is measuring something rather than restating an
-/// assumption.
+/// The negative control: reproduces on a `bigserial` the hazard the counter
+/// prevents.
 ///
-/// This is the negative control, and it is the only test here that literally
-/// commits two positions out of order — because with the counter in place that
-/// is not expressible. A `bigserial` assigns its value at INSERT and makes it
-/// visible at COMMIT, so two writers take 1 and 2, the second commits first, and
-/// a reader polling past 0 sees 2, advances, and never sees 1. The assertions
-/// below are that *broken* behaviour: if Postgres ever stopped behaving this way
-/// the counter would be solving nothing, and this test would be the thing that
-/// said so.
+/// `bigserial` assigns its value at INSERT but makes it visible at COMMIT, so
+/// two writers take 1 and 2, the second commits first, and a reader polling
+/// past 0 sees 2 and never 1.
 #[sqlx::test]
 async fn a_bigserial_position_lets_a_polling_client_skip_a_committed_change(pool: PgPool) {
     sqlx::query(
@@ -279,10 +259,8 @@ async fn a_bigserial_position_lets_a_polling_client_skip_a_committed_change(pool
 
 /// A change and its record commit together, or neither commits.
 ///
-/// The record is written on the caller's transaction, so a rollback takes it
-/// with the mutation. The teeth: a `record_change` handed the pool instead of
-/// the transaction would survive this rollback, and the last four assertions
-/// would fail.
+/// Written on the caller's transaction, so a rollback takes it with the
+/// mutation; a `record_change` handed the pool instead would survive it.
 #[sqlx::test]
 async fn a_rolled_back_mutation_leaves_no_record_and_no_position(pool: PgPool) {
     let mut tx = pool.begin().await.unwrap();
@@ -421,12 +399,9 @@ async fn a_caught_up_client_is_told_nothing(pool: PgPool) {
 // Retention, and the window a client may resume from
 // =========================================================================
 
-/// Advance the counter by `count`, recording one change per position, exactly
-/// as `record_change` does in production.
+/// Advances the counter by `count`, recording one change per position.
 ///
-/// One transaction, because the alternative is `count` round trips and the
-/// point of the call is the counter's value rather than the concurrency. The
-/// positions it leaves behind are the same dense run either way.
+/// One transaction: the point is the counter's value, not concurrency.
 async fn record_many(pool: &PgPool, count: i64) {
     let mut tx = pool.begin().await.unwrap();
     for index in 0..count {
@@ -444,14 +419,12 @@ async fn retained(pool: &PgPool) -> Vec<i64> {
         .unwrap()
 }
 
-/// The prune keeps the retention window and deletes below it, and it takes its
-/// cut from the counter rather than from the table it is deleting from.
+/// Pruning keeps the retention window and deletes below it, without touching
+/// the counter.
 ///
-/// The second half is the trap `current_position`'s comment names: a reader
-/// that derives a position from `MAX(task_listing_changes.position)` starts
-/// handing clients a resume point the deployment passed long ago. Pruning is
-/// the first thing in this backend that makes the counter and the table
-/// disagree, so this is where that can first be observed.
+/// The trap: deriving `current_position` from
+/// `MAX(task_listing_changes.position)` would hand out a resume point the
+/// deployment passed long ago, and pruning is where that would first surface.
 #[sqlx::test]
 async fn pruning_keeps_the_retention_window_and_leaves_the_counter_alone(pool: PgPool) {
     let head = RETAINED_CHANGES + 12;
@@ -484,28 +457,12 @@ async fn a_young_deployment_prunes_nothing(pool: PgPool) {
     assert_eq!(retained(&pool).await.len(), 40);
 }
 
-/// The property the whole retention design rests on: **a cursor `resume`
-/// admitted still has its records by the time the catch-up reads them.**
+/// The invariant: a cursor `resume` admits still has its records by the time
+/// the catch-up reads them.
 ///
-/// Checked as a contiguous run rather than a count — the client asks
-/// `WHERE position > cursor` and applies what comes back in order, so what
-/// matters is that the very next position after the cursor survived, and every
-/// one after it.
-///
-/// The shape is not "prune, then check", because that version has no teeth: the
-/// prune's cut and the oldest admitted cursor are exactly one position apart, so
-/// with the two constants set equal it still passes. Written that way it went
-/// green against `RETAINED_CHANGES = RESUME_WINDOW`, which is the setting the
-/// margin exists to forbid.
-///
-/// So this reproduces the sequence the margin is actually for, in the order it
-/// happens in production: `resume` decides against one head, the deployment
-/// moves on, a prune runs against the newer head, and only then does the
-/// catch-up read. With the constants equal, the prune's cut lands one position
-/// above the cut `resume` assumed and deletes exactly the record the client
-/// needed next — the run comes back starting at `oldest + 2` and this fails
-/// with a one-position hole. Verified by setting them equal and watching it,
-/// not by reasoning about it.
+/// Reproduces the production order — decide, then prune against a newer head,
+/// then catch up — rather than "prune, then check", which has no teeth: it
+/// still passes even when `RETAINED_CHANGES = RESUME_WINDOW`.
 #[sqlx::test]
 async fn a_prune_cannot_delete_a_record_resume_has_already_promised(pool: PgPool) {
     let head = RETAINED_CHANGES + 500;
@@ -558,18 +515,8 @@ async fn a_prune_cannot_delete_a_record_resume_has_already_promised(pool: PgPool
 
 /// A writer waiting on any other lock must not be holding the counter.
 ///
-/// The counter is one row for the whole deployment, so it is on one side of a
-/// lock order with everything else a mutation touches. `apply_ingress_event`
-/// locks the `tasks` row to reopen a Task when a turn ends; every mutation that
-/// renames, closes, reopens or deletes a conversation locks that same row and
-/// then records a change of its own. If the ingress recorded *before* its
-/// `tasks` update, the two would take the same two locks in opposite orders and
-/// deadlock under concurrent load — intermittently, and only once the second
-/// writer exists.
-///
-/// So this pins the invariant from `record_change`'s "call this last" as
-/// behaviour: hold the `tasks` row, let the ingress block on it, and check that
-/// the deployment's counter is still free while it waits.
+/// Every mutation locks the `tasks` row before recording a change; recording
+/// first inverts that order and deadlocks intermittently under load.
 #[sqlx::test]
 async fn a_writer_blocked_on_a_task_row_is_not_holding_the_counter(pool: PgPool) {
     sqlx::query(
@@ -654,25 +601,12 @@ async fn a_writer_blocked_on_a_task_row_is_not_holding_the_counter(pool: PgPool)
     assert_eq!(changes[1].position, 2);
 }
 
-/// The same invariant, once for every mutation that records a change.
+/// One test case for the invariant: no mutation may hold the counter while it
+/// waits on another lock.
 ///
-/// The test above pins it for the ingress. This pins it for the rest, and it has
-/// to be every one of them: the deadlock the invariant prevents needs only *one*
-/// call site to take the counter before something else, and it appears
-/// intermittently under load rather than in the site that got it wrong. A
-/// mutation added later without this ordering fails here.
-///
-/// Each case is checked the same way. A third party holds the row that mutation
-/// must take, on its own transaction; the mutation is started and asserted to be
-/// *waiting* on it, which is what makes the next assertion mean anything; then
-/// the deployment's counter is taken on a third connection and has to answer
-/// inside the timeout. Against a call site that allocated the position first,
-/// that probe blocks until the holder lets go, which is one half of the cycle.
-///
-/// One change kind is missing here and covered in-crate instead: the Sandbox's
-/// intent write goes through `PgLifecycleDao`, which is `pub(crate)` and
-/// invisible to an integration test. Its case lives beside it in
-/// `crates/sandbox-control/src/lifecycle/dao.rs`.
+/// A third party holds the row the mutation must take; the mutation is asserted
+/// *waiting* on it, then the counter must be taken on a third connection inside
+/// the timeout.
 struct Mutation {
     /// What a person did, in the words the acceptance criteria use.
     what: &'static str,
@@ -946,12 +880,11 @@ enum Counter {
     Last,
 }
 
-/// The transaction being priced. `Turn` is ticket 04's — the shape
-/// `apply_ingress_event` runs for a terminal turn, and the yardstick every later
-/// number is compared against. The other two are the shapes ticket 05 adds, and
-/// they are here because the counter's cost is a property of the transaction it
-/// sits in: a shorter transaction holds the one contended row for a smaller
-/// fraction of its length, so the same counter costs a different proportion.
+/// The transaction being priced.
+///
+/// `Turn` is the yardstick the other shapes are compared against — a shorter
+/// transaction holds the contended row for a smaller fraction of its length,
+/// changing the counter's relative cost.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Shape {
     /// Project the turn row, then reopen the Task.
@@ -1066,21 +999,10 @@ async fn seed_tasks(pool: &PgPool) {
 /// What the counter costs under concurrent mutation, measured rather than
 /// assumed.
 ///
-/// Every change that advances the position serializes on one row, and that is
-/// the accepted cost of the ordering guarantee above. This drives the real
-/// transactions from many writers at once and prints three throughputs for each:
-/// without the counter at all, with it allocated last, and with it allocated
-/// before the statement it must follow. The third arm prices the invariant — the
-/// counter is held across one more statement, and it is the one row the whole
-/// deployment serializes on, so the hold is the cost.
-///
-/// Three shapes, because ticket 05 put the counter in transactions much shorter
-/// than the turn ingress ticket 04 measured, and the ratio is a property of the
-/// transaction as much as of the counter: the less a transaction does around the
-/// allocation, the larger a share of it the one contended row becomes. The
-/// numbers belong in the pull request; what is asserted here is only that the
-/// counter costs less than an order of magnitude and that allocating last is not
-/// the more expensive order.
+/// Drives many writers and compares three throughputs — no counter, counter
+/// allocated last, counter allocated early (which prices holding it across one
+/// more statement) — asserting only an order-of-magnitude cost and that
+/// allocating last is no slower than early.
 #[sqlx::test]
 async fn the_counter_is_measured_under_concurrent_mutation(pool: PgPool) {
     let total = (WRITERS * PER_WRITER) as f64;
@@ -1147,8 +1069,8 @@ async fn the_counter_is_measured_under_concurrent_mutation(pool: PgPool) {
     assert_eq!(current_position(&pool).await.unwrap(), counted);
 }
 
-/// Clear what one arm wrote, so the next can write it again. The counter and its
-/// records are deliberately left alone.
+/// Clear what one arm wrote, so the next can write it again. The counter and
+/// its records are deliberately left alone.
 async fn reset(pool: &PgPool) {
     sqlx::query("TRUNCATE task_turns, task_messages CASCADE")
         .execute(pool)

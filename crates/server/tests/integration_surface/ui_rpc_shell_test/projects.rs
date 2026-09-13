@@ -1,5 +1,5 @@
-//! The project half of the listing: which workspaces a viewer is grouped
-//! under, and what a project row says about its scripts.
+//! The project half of the listing: which workspaces a viewer is grouped under,
+//! and what a project row says about its scripts.
 
 use super::contract::assert_decodable_thread;
 use super::harness::{admin, mounted_router, project, project_ids, ui_rpc_authed_request, viewer};
@@ -72,10 +72,11 @@ async fn two_workspaces_are_two_groups_not_one(pool: PgPool) {
     assert_eq!(b["title"], "ws-ws-b");
 }
 
-/// The listing's widening half: a workspace the viewer cannot read is included
-/// once something in the listing references it, and absent otherwise. Nothing
-/// references a workspace yet — tasks are not listed — so this is asserted one
-/// level down, at the query the listing is built from.
+/// The listing's widening half: an unreadable workspace is included once
+/// something in the listing references it, absent otherwise.
+///
+/// Asserted one level down, at the query the listing is built from, since
+/// nothing here references a workspace yet.
 #[sqlx::test]
 async fn an_unreadable_workspace_is_included_only_when_referenced(pool: PgPool) {
     let repo = compose::workspaces(pool.clone());
@@ -107,10 +108,11 @@ async fn an_unreadable_workspace_is_included_only_when_referenced(pool: PgPool) 
     );
 }
 
-/// A deleted workspace is off the readable half and still on the widened one:
-/// the tasks that name it are open work, and a listing that drops the group
-/// drops them with it. Readable by this viewer, so it is deletion and not
-/// access that keeps it off the first half.
+/// A deleted workspace is off the readable half but still on the widened one,
+/// since tasks naming it are open work a listing must not drop.
+///
+/// Readable by this viewer, so it is deletion, not access, that keeps it off
+/// the first half.
 #[sqlx::test]
 async fn a_referenced_workspace_that_was_deleted_is_still_included(pool: PgPool) {
     let repo = compose::workspaces(pool.clone());

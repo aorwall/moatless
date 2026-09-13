@@ -27,13 +27,9 @@ use moatless_types::task::{TaskRelationType, TurnStatus};
 /// One conversation, in the shape the thread view carries: the shared row plus
 /// the transcript.
 ///
-/// `checkpoints` is the completed turns — see [`checkpoints`].
-///
-/// `proposedPlans` is read back out of the transcript — see [`proposed_plans`].
-///
-/// The four shell-only fields are absent rather than false: they are not part
-/// of the contract's full thread, and the client reads a conversation's pending
-/// state from its activities here.
+/// `checkpoints` ([`checkpoints`]) and `proposedPlans` ([`proposed_plans`]) are
+/// read off the transcript; the four shell-only fields are absent rather than
+/// false, since the client reads pending state from activities here instead.
 pub(crate) fn thread_detail(
     conversation: &Conversation,
     project_id: &str,
@@ -62,27 +58,14 @@ pub(crate) fn thread_detail(
 
 /// The turns a person may rewind this conversation to, oldest first.
 ///
-/// A T3 checkpoint is a per-turn worktree snapshot and Moatless takes none, so
-/// `files` is empty and `checkpointRef` names the turn rather than a tree. Every
-/// rewind decision the client makes reads `checkpointTurnCount`, and
-/// `commands::dispatch` refuses the file-restoring half.
-///
-/// `status` is `ready` and never `missing`, even carrying no files:
-/// `resolveProactiveTurnDiffAction` defers on `missing` and its caller keeps the
-/// turn eligible, so a completed turn would be re-examined for as long as the
-/// thread stays open.
-///
-/// `checkpointTurnCount` is `task_turns.turn_number` itself and not a position
-/// in this list, because the number the client sends back is the cut
-/// `TaskRewindService::rewind` takes verbatim. The set is [`Transcript::turns`]
-/// and not the Messages' turn numbers, so it is the set that cut is decided
-/// against; a turn with no Message to read a label off reports a null
-/// `assistantMessageId` and the conversation's own instant.
-///
-/// The open turn is withheld while it runs, and the completed turns below it
-/// are offered like any other: the client disables its revert control for as
-/// long as the thread is working, so a person sees where a rewind would land
-/// and `rewind` receives no cut until the turn ends.
+/// Moatless takes no per-turn snapshot, so `files` is empty and `checkpointRef`
+/// names the turn, not a tree; `status` is always `ready`, never `missing`,
+/// since the client's `resolveProactiveTurnDiffAction` defers forever on
+/// `missing`. `checkpointTurnCount` is `task_turns.turn_number` verbatim — the
+/// cut `TaskRewindService::rewind` takes — sourced from [`Transcript::turns`],
+/// not the Messages' turn numbers. The open turn is withheld and the completed
+/// turns below it are offered: the client greys its revert control out while
+/// the thread works, rather than hiding where a rewind would land.
 pub(super) fn checkpoints(conversation: &Conversation, transcript: &Transcript) -> Vec<Value> {
     let open_turn = turn_is_open(conversation)
         .then_some(conversation.turn_number)
@@ -137,13 +120,10 @@ pub(super) fn checkpoints(conversation: &Conversation, transcript: &Transcript) 
 
 /// The plans the agent proposed, answered or not.
 ///
-/// A Moatless proposed plan is an `ExitPlanMode` call: the run parks on it, and
-/// an answer releases it. The list is read off the transcript rather than
-/// stored, one entry per call, identified by the call's own activity id.
-///
-/// An answered call keeps its entry and carries `implementedAt`, which the
-/// client reads to stop offering the plan. A rejected call carries it too: the
-/// field says the plan was answered, not that it was approved.
+/// A proposed plan is an `ExitPlanMode` call the run parks on; read off the
+/// transcript rather than stored, one entry per call, identified by its
+/// activity id. `implementedAt` means the plan was answered, not approved — a
+/// rejected call carries it too.
 fn proposed_plans(conversation: &Conversation, transcript: &Transcript) -> Vec<Value> {
     transcript
         .activities
@@ -176,11 +156,11 @@ fn proposed_plans(conversation: &Conversation, transcript: &Transcript) -> Vec<V
 /// When the answer to a parked interactive call landed, or `None` while it is
 /// still parked.
 ///
-/// The join is `requestId`: the resolved row leaves its own `tool_use_id` column
-/// empty and carries the call's id in its payload instead
-/// (`mapping::user_input_resolved`). A settled call whose resolved row the
-/// window does not reach reports the call's own instant, so that no settled
-/// call reads as still parked.
+/// Joined on `requestId`, since the resolved row's own `tool_use_id` column is
+/// empty and carries the call's id in its payload
+/// (`mapping::user_input_resolved`) instead; a settled call whose resolved row
+/// falls outside the window reports the call's own instant, never as still
+/// parked.
 fn answered_at(transcript: &Transcript, call: &Activity) -> Option<String> {
     if !call.is_settled() {
         return None;
@@ -199,10 +179,9 @@ fn answered_at(transcript: &Transcript, call: &Activity) -> Option<String> {
 /// One child Task, in the shape `Subtask` has on the wire
 /// (`packages/contracts/src/subtasks.ts`).
 ///
-/// Deliberately not a thread row: a subtask is rendered as a fleet member
-/// beside the subagents of the Task it belongs to, so it carries what that row
-/// shows and a `threadId` to open it by. The client that follows the link gets
-/// the model, worktree and session fields from the thread itself.
+/// Deliberately not a thread row: rendered as a fleet member beside the Task's
+/// subagents, carrying what that row shows plus a `threadId` — the client
+/// follows the link for the model, worktree and session fields.
 pub(crate) fn subtask(conversation: &Conversation, relation: TaskRelationType) -> Value {
     json!({
         "threadId": conversation.task_id,
@@ -239,10 +218,9 @@ pub(crate) fn subtask(conversation: &Conversation, relation: TaskRelationType) -
 /// A child Task's state in the agents panel's own status vocabulary, so a
 /// subtask row and a subagent row read the same.
 ///
-/// Closing is Moatless's way of saying the work is done, so it outranks the
-/// newest turn: a closed Task whose last turn errored is finished, not failing.
-/// A Task that has never run is `pending`, and one whose last turn completed
-/// while the Task is still open is `idle`.
+/// Closing outranks the newest turn: a closed Task whose last turn errored
+/// reads as finished, not failing. Never run is `pending`; completed while
+/// still open is `idle`.
 fn subtask_status(conversation: &Conversation) -> &'static str {
     if conversation.closed_at.is_some() {
         return "completed";
@@ -269,8 +247,8 @@ fn subtask_status(conversation: &Conversation) -> &'static str {
 /// The head of a transcript that did not fit, said out loud.
 ///
 /// A capped read that simply started in the middle would look like a
-/// conversation that began there. This is the one message in a transcript that
-/// no row in the database backs, which is why it says so.
+/// conversation that began there; this is the one message in a transcript
+/// backed by no database row.
 pub(super) fn elision_notice(conversation: &Conversation, transcript: &Transcript) -> Value {
     let at = instant(transcript.messages.first().map_or_else(
         || created_at(conversation),

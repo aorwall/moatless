@@ -9,10 +9,9 @@
 //!
 //! The route exists so a test run can remove the connections it created —
 //! without it, a shared environment accumulates one per trigger fixture
-//! forever. What matters is that it removes only what the caller controls,
-//! and that a connection they cannot control is refused the same way as one
-//! that is not there — a delete must not confirm existence the read would
-//! have hidden.
+//! forever. What matters is that it removes only what the caller controls, and
+//! that a connection they cannot control is refused the same way as one that is
+//! not there — a delete must not confirm existence the read would have hidden.
 
 use crate::common;
 use moatless_types::adapter::AdapterKind;

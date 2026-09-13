@@ -33,8 +33,8 @@ pub enum FeedbackAction {
         /// `preview_failure`
         #[arg(long)]
         surface: Option<String>,
-        /// What it is about: `environment`, `codebase`, `instruction`,
-        /// or `other`
+        /// What it is about: `environment`, `codebase`, `instruction`, or
+        /// `other`
         #[arg(long)]
         category: Option<String>,
         /// Triage state: `open`, `fixed`, or `not_relevant`
@@ -276,9 +276,9 @@ pub struct FeedbackInvocation {
     /// Task the feedback is about. Defaults to `$TASK_ID`.
     #[arg(long)]
     pub task: Option<String>,
-    /// What the feedback is about: `environment` (the sandbox),
-    /// `codebase` (this repository's code or tooling), `instruction`
-    /// (`AGENTS.md`, `CLAUDE.md`, or a skill), or `other`.
+    /// What the feedback is about: `environment` (the sandbox), `codebase`
+    /// (this repository's code or tooling), `instruction` (`AGENTS.md`,
+    /// `CLAUDE.md`, or a skill), or `other`.
     #[arg(long)]
     pub category: Option<String>,
     /// Optional: scope feedback to a specific assistant message
@@ -286,8 +286,8 @@ pub struct FeedbackInvocation {
     /// task's most recent activity instead of the whole task.
     #[arg(long)]
     pub message: Option<String>,
-    /// Optional: scope feedback to a specific tool call within the
-    /// referenced message. Requires `--message`.
+    /// Optional: scope feedback to a specific tool call within the referenced
+    /// message. Requires `--message`.
     #[arg(long = "tool-use-id")]
     pub tool_use_id: Option<String>,
 }

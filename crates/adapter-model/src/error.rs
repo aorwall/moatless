@@ -1,18 +1,14 @@
 //! The Adapter error space.
 //!
-//! [`SharedAdapterError`] is the band-local half: the variants that name
-//! nothing above this crate, carrying only `String`, unit, `StoreError`,
-//! `reqwest::Error`, `serde_json::Error`, or `Vec<ReplyTarget>`.
-//! [`AdapterError`] wraps it and adds the variants that carry a failure from
-//! another band, plus the `IntoResponse` renderer over both halves.
+//! [`SharedAdapterError`] is the band-local half: variants naming nothing above
+//! this crate. [`AdapterError`] wraps it and adds variants that carry a failure
+//! from another band, plus the `IntoResponse` renderer over both.
 //!
-//! Each of the two cross-band variants boxes its source. `IntoResponse` never
-//! inspects one — it picks a status class and logs the chain — so naming the
-//! other band's error type here would buy a dependency and no behaviour.
-//!
-//! The renderer sits behind the `http` feature: what an Adapter failure *is*
-//! belongs to the kernel, what it looks like on the wire belongs to whoever
-//! answers the request.
+//! Each cross-band variant boxes its source rather than naming the other band's
+//! error type — `IntoResponse` only picks a status class and logs the chain, so
+//! naming it would buy a dependency and no behaviour. The renderer sits behind
+//! the `http` feature: what a failure *is* belongs to the kernel, what it looks
+//! like on the wire belongs to whoever answers the request.
 
 use moatless_types::access_control::AccessControlError;
 use moatless_types::store::StoreError;
@@ -40,7 +36,7 @@ pub struct ReplyTarget {
 /// Why a provider's response body could not be turned into a value we can use.
 ///
 /// Adapters decode either straight off the wire (`Response::json`) or from a
-/// buffered body (`serde_json::from_str`); both causes stay reachable through
+/// buffered body (`serde_json::from_str`); both stay reachable through
 /// [`std::error::Error::source`].
 #[derive(Debug, thiserror::Error)]
 pub enum ProviderDecodeError {
@@ -85,9 +81,9 @@ pub enum SharedAdapterError {
     AdapterApi(String),
 
     /// We never got an answer from the provider: DNS, TLS, connect, timeout, or
-    /// a body that died mid-read. Distinct from [`SharedAdapterError::AdapterApi`] —
-    /// callers that must tell "provider rejected us" from "we could not reach
-    /// the provider" match on this.
+    /// a body that died mid-read. Distinct from
+    /// [`SharedAdapterError::AdapterApi`] — callers telling "provider rejected
+    /// us" from "we could not reach it" match on this.
     #[error("Adapter API error: {operation} failed: {source}")]
     ProviderUnreachable {
         /// The provider call that failed, e.g. `chat.postMessage`.
@@ -112,8 +108,8 @@ pub enum SharedAdapterError {
     AccessDenied(String),
 
     /// Returned by the no-flag send endpoint when a task has more than one
-    /// reply target — the caller must pick one with `--thread`,
-    /// `--binding`, or `--pr`.
+    /// reply target — the caller must pick one with `--thread`, `--binding`, or
+    /// `--pr`.
     #[error("Task has multiple reply targets; pick one explicitly")]
     MultipleTargets { targets: Vec<ReplyTarget> },
 
@@ -135,7 +131,8 @@ pub enum SharedAdapterError {
 }
 
 impl SharedAdapterError {
-    /// The provider call never completed — keep the transport failure as source.
+    /// The provider call never completed — keep the transport failure as
+    /// source.
     pub fn provider_unreachable(operation: impl Into<String>, source: reqwest::Error) -> Self {
         Self::ProviderUnreachable {
             operation: operation.into(),
@@ -183,11 +180,10 @@ pub enum AdapterError {
 
     /// Another delivery is creating the task for this subject right now.
     ///
-    /// Not a fault: the claim exists so exactly one of the racing deliveries
-    /// creates, and this is how the others are told. Retrying is the whole
-    /// point — by the next attempt the winner's binding exists and the message
-    /// routes to it, or the event-receipt table drops it as the duplicate it
-    /// is. Carries no source because nothing failed.
+    /// Not a fault: the claim lets exactly one racing delivery create, and
+    /// retrying is the point — by the next attempt the winner's binding exists
+    /// and the message routes to it, or the event-receipt table drops it as a
+    /// duplicate. Carries no source since nothing failed.
     #[error("Another delivery is creating the task for {subject_kind}:{subject_key}")]
     CreationClaimed {
         subject_kind: String,
@@ -229,10 +225,10 @@ impl AdapterError {
     }
 }
 
-/// The bands above this crate own tables and read them straight through `sqlx`.
-/// A failure there has no context narrower than the query that raised it, which
-/// the source carries. Behind the same `postgres` gate as the connection store:
-/// a consumer that compiled no driver has no `sqlx::Error` to convert.
+/// The bands above this crate own tables and read them straight through `sqlx`;
+/// a failure there has no context narrower than the query that raised it.
+/// Behind the same `postgres` gate as the connection store, so a driver-less
+/// consumer has no `sqlx::Error` to convert.
 #[cfg(feature = "postgres")]
 impl From<sqlx::Error> for AdapterError {
     fn from(value: sqlx::Error) -> Self {
@@ -444,10 +440,10 @@ mod tests {
         ));
     }
 
-    /// The two cross-band variants box their source. Boxing is what takes the
-    /// other band's error type out of this crate's dependency list, so what has
-    /// to keep working is reaching the cause through `Error::source` and
-    /// downcasting it there.
+    /// The two cross-band variants box their source, which is what takes the
+    /// other band's error type out of this crate's dependency list — so what
+    /// must keep working is reaching the cause via `Error::source` and
+    /// downcasting it.
     #[tokio::test]
     async fn an_upstream_credential_failure_keeps_its_source_on_the_502_path() {
         let err = AdapterError::upstream_credential(
@@ -547,7 +543,7 @@ mod tests {
 
     /// The variants that wrap an internal cause all render one redacted 500 —
     /// the cause never reaches the client — while staying reachable through
-    /// `source()` for the logs. `Internal` renders the same body with nothing
+    /// `source()` for the logs; `Internal` renders the same body with nothing
     /// to carry.
     #[tokio::test]
     async fn redacted_500_variants_hide_their_cause_but_keep_the_source() {

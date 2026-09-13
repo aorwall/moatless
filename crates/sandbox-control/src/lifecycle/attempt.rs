@@ -32,9 +32,7 @@ impl AttemptBudget {
 
     /// Begin (or continue) driving an operation for `generation`.
     ///
-    /// A **new** generation resets the budget (a new caller-requested
-    /// operation). The **same** generation continues it, so reconciler retries
-    /// that reuse the generation keep consuming the same cap.
+    /// A new generation resets the budget; the same generation continues it.
     pub fn begin(&mut self, generation: OperationGeneration) {
         if self.generation != Some(generation) {
             self.generation = Some(generation);
@@ -55,14 +53,11 @@ impl AttemptBudget {
         self.blocked = false;
     }
 
-    /// Exhaust the budget outright — a permanent failure (bad plan, Closed) is
-    /// never retried for this generation. A new generation (`begin`) or a wake
-    /// (`reset_for_wake`) reopens it.
+    /// Exhaust the budget outright: a permanent failure is never retried for
+    /// this generation until `begin` or `reset_for_wake` reopens it.
     ///
-    /// The block is a flag rather than a jump to `cap`, so
-    /// [`attempts`](Self::attempts) keeps counting real attempts. The give-up
-    /// event publishes that count, and a permanent failure on the first attempt
-    /// reported the cap instead of `1`.
+    /// A flag rather than a jump to `cap`, so [`attempts`](Self::attempts)
+    /// keeps counting real attempts for the give-up event.
     pub fn block(&mut self) {
         self.record_failure();
         self.blocked = true;

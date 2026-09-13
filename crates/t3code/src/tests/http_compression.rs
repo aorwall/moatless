@@ -16,9 +16,9 @@ async fn shell(accept_encoding: Option<&str>) -> Response {
     router(state()).oneshot(request).await.unwrap()
 }
 
-/// A client that offers gzip gets it: the layer is wired to this route,
-/// which is the ~5x saving on the thread bootstrap the client pulls over
-/// HTTP for exactly this reason.
+/// A client that offers gzip gets it: the layer is wired to this route, which
+/// is the ~5x saving on the thread bootstrap the client pulls over HTTP for
+/// exactly this reason.
 #[tokio::test]
 async fn a_client_that_offers_gzip_gets_a_gzipped_body() {
     let response = shell(Some("gzip")).await;
@@ -32,8 +32,8 @@ async fn a_client_that_offers_gzip_gets_a_gzipped_body() {
     );
 }
 
-/// A client that offers nothing still gets a readable body: compression
-/// is negotiated, never forced on a client that cannot decode it.
+/// A client that offers nothing still gets a readable body: compression is
+/// negotiated, never forced on a client that cannot decode it.
 #[tokio::test]
 async fn a_client_that_offers_no_encoding_gets_an_uncompressed_body() {
     let response = shell(None).await;

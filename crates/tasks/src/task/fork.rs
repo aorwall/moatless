@@ -1,15 +1,12 @@
 //! Forking a Task: where the cut lands, and what the pod needs to reproduce it.
 //!
-//! A fork is a Task branched off another Task at one of its completed turns. It
-//! starts holding a copy of everything the parent had said and done up to that
-//! turn (`crate::message::fork_dao`), and its first turn resumes the parent's Claude
-//! session or Codex thread cut at the same point — which is what the
-//! `task_forks` row below carries.
+//! A fork is a Task branched off another at a completed turn, holding a copy of
+//! everything said and done up to it; its first turn resumes the parent's
+//! Claude session or Codex thread cut at that point — carried by `task_forks`.
 //!
-//! The session fork itself happens in the pod, on the fork's first turn: Codex's
-//! `thread/fork` is an app-server call only a pod can make, and a same-Sandbox
-//! fork copies no archive, so a backend-side rewrite would be a second
-//! implementation covering one of the two cases.
+//! The session fork itself happens in the pod: Codex's `thread/fork` is an
+//! app-server call only a pod can make, and a same-Sandbox fork copies no
+//! archive.
 
 use std::sync::Arc;
 
@@ -30,10 +27,8 @@ pub(crate) use super::fork_dao::TaskForkDao;
 
 use super::models::TaskFork;
 
-/// The `task_forks` table, as the delivery path reads it.
-///
-/// A pod asks for the anchors of the Task it runs; nothing outside this crate
-/// writes a row.
+/// The `task_forks` table, as the delivery path reads it. A pod asks for the
+/// anchors of the Task it runs; nothing outside this crate writes a row.
 pub struct TaskForks {
     store: Arc<dyn TaskForkDao>,
 }
@@ -49,10 +44,9 @@ impl TaskForks {
     }
 }
 
-/// The parent's agent session at the cut, and the two anchors that name the cut
-/// inside it. One or the other is set, never both: Claude's transcript is keyed
-/// by Message uuid and carries no turn id, and Codex's `thread/fork` takes the
-/// cut as `lastTurnId` and knows nothing about Messages.
+/// The parent's agent session at the cut, and the anchor naming it. Exactly one
+/// is set: Claude keys by Message uuid; Codex's `thread/fork` takes
+/// `lastTurnId`, knowing no Messages.
 #[derive(Debug, Clone)]
 pub struct ForkSession {
     pub source_session_id: String,
@@ -60,10 +54,9 @@ pub struct ForkSession {
     pub source_agent_turn_id: Option<String>,
 }
 
-/// A resolved fork: which Task, cut where, and what the pod will need.
-///
-/// Produced by [`TaskForkService::plan`] before anything is created, so every
-/// refusal happens with nothing to undo.
+/// A resolved fork: which Task, cut where, and what the pod will need. Produced
+/// by [`TaskForkService::plan`] before anything is created, so every refusal
+/// happens with nothing to undo.
 #[derive(Debug, Clone)]
 pub struct ForkPlan {
     /// The Task being forked.
@@ -76,15 +69,9 @@ pub struct ForkPlan {
     pub session: Option<ForkSession>,
 }
 
-/// The in-flight turn a cut is not allowed to reach, if there is one.
-///
-/// A cut strictly below the open turn is allowed. That turn has finished
-/// writing: the copy filters on `turn_number <= cut`, so the open turn's rows
-/// are never in it, and the pod branches the parent's transcript into a file
-/// under a fresh session id rather than resuming the one the parent is still
-/// appending to. A cut that reaches the open turn is refused — its transcript
-/// ends on an unanswered call. `turn: None` alongside an open turn is a Task
-/// whose only content is that turn, so there is nothing below it to cut at.
+/// The in-flight turn a cut must not reach, if any. A cut strictly below it is
+/// allowed (the copy filters `turn_number <= cut`); reaching it is refused —
+/// its transcript ends on an unanswered call.
 fn blocking_open_turn(point: &ForkPoint) -> Option<i32> {
     let open = point.open_turn?;
     match point.turn {
@@ -94,11 +81,8 @@ fn blocking_open_turn(point: &ForkPoint) -> Option<i32> {
 }
 
 /// Resolving a fork's cut point, and copying the parent's conversation onto it.
-///
-/// The create itself is not here: a fork is created through the same
-/// `service::normalize` → `TaskCreationService::create` pair as any other Task,
-/// so one credential check, one access check and one provisioning sequence
-/// serve both.
+/// Creation is not here: a fork goes through the same `normalize` →
+/// `TaskCreationService::create` pair as any Task.
 pub struct TaskForkService {
     tasks: Arc<dyn TaskDao>,
     turns: Arc<dyn TaskTurnDao>,
@@ -121,12 +105,9 @@ impl TaskForkService {
         }
     }
 
-    /// The source Task's tag ids, for the fork to be created with.
-    ///
-    /// Best-effort: a fork that lands without its parent's tags is still the
-    /// fork the caller asked for, and tags are re-settable from the UI. Every
-    /// other tag assignment on the create path is best-effort for the same
-    /// reason.
+    /// The source Task's tag ids, for the fork to be created with. Best-effort:
+    /// a fork that lands without its parent's tags is still the fork the caller
+    /// asked for, and tags are re-settable from the UI.
     pub async fn source_tag_ids(&self, source_task_id: &str) -> Vec<String> {
         match self.tags.get_tags_for_task(source_task_id).await {
             Ok(tags) => tags.into_iter().map(|tag| tag.tag_id).collect(),
@@ -142,10 +123,8 @@ impl TaskForkService {
     }
 
     /// Resolve where a fork of `source_task_id` cuts, refusing before anything
-    /// is created.
-    ///
-    /// `at_turn` is the caller's selector; omitting it cuts after the parent's
-    /// newest turn that reached a terminal status.
+    /// is created. `at_turn` is the caller's selector; omitting it cuts after
+    /// the parent's newest turn that reached a terminal status.
     pub async fn plan(
         &self,
         scope_ctx: &ScopeContext,
@@ -223,10 +202,9 @@ impl TaskForkService {
         ))
     }
 
-    /// Copy the parent's conversation onto the fork's id.
-    ///
-    /// Runs before the fork's Task row exists, which is what puts the copied
-    /// Messages behind the fork's own first message rather than in front of it.
+    /// Copy the parent's conversation onto the fork's id. Runs before the
+    /// fork's Task row exists, which puts the copied Messages behind the fork's
+    /// own first message rather than in front of it.
     pub async fn copy_conversation(
         &self,
         plan: &ForkPlan,
@@ -238,15 +216,9 @@ impl TaskForkService {
             .await?)
     }
 
-    /// Undo [`Self::copy_conversation`] when the create that was to follow it
-    /// fails, so a failed fork leaves no conversation rows behind the Task that
-    /// never came to exist.
-    ///
-    /// Best-effort and logged, not propagated: the caller is already returning
-    /// the create's error, and the copy's rows belong to a `task_id` no other
-    /// Task will ever mint, so what survives a failed sweep is inert until a
-    /// later retry sweeps it or the id is reaped. Call it only on the failure
-    /// path — a fork that created cleanly owns these rows.
+    /// Undo [`Self::copy_conversation`] when the following create fails, so no
+    /// rows survive behind a Task that never existed. Best-effort and logged,
+    /// not propagated — call only on the failure path.
     pub async fn discard_conversation(&self, fork_task_id: &str) {
         if let Err(error) = self
             .messages
@@ -271,7 +243,8 @@ pub struct ForkCreationPorts<'a> {
 }
 
 impl TaskForkService {
-    /// Copy the selected conversation and compensate every failed task creation.
+    /// Copy the selected conversation and compensate every failed task
+    /// creation.
     pub async fn fork<EvFut>(
         &self,
         ports: ForkCreationPorts<'_>,

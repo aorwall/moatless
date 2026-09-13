@@ -10,13 +10,13 @@ use super::*;
 // CSRF trusted origins
 // =========================================================================
 
-/// Restore whatever the process had, so this test does not leak into the
-/// others sharing the environment.
+/// Restore whatever the process had, so this test does not leak into the others
+/// sharing the environment.
 const ORIGIN_VARS: [&str; 2] = ["CSRF_TRUSTED_ORIGINS", "T3_UI_RPC_ALLOWED_ORIGINS"];
 
 /// The environment is process-wide and `cargo test` runs a binary's tests on
-/// several threads, so the two tests below would otherwise interleave: one
-/// sets `CSRF_TRUSTED_ORIGINS` while the other asserts it is absent.
+/// several threads, so the two tests below would otherwise interleave: one sets
+/// `CSRF_TRUSTED_ORIGINS` while the other asserts it is absent.
 static ORIGIN_ENV_LOCK: Mutex<()> = Mutex::new(());
 
 fn apply_origin_vars(values: [Option<String>; 2]) {
@@ -30,8 +30,8 @@ fn apply_origin_vars(values: [Option<String>; 2]) {
 
 /// Run `check` with the two variables set, restoring what the process had.
 ///
-/// Restores through a panic as well: a failed assertion that leaked its
-/// variables would fail an unrelated test later, far from the cause.
+/// Restores through a panic too — a leaked variable would fail an unrelated
+/// test later, far from the cause.
 fn with_origin_vars(csrf: Option<&str>, websocket: Option<&str>, check: impl FnOnce()) {
     // A failing test poisons the lock. The guarded data is `()`, so there is
     // no torn state to protect the next test from.
@@ -50,8 +50,8 @@ fn with_origin_vars(csrf: Option<&str>, websocket: Option<&str>, check: impl FnO
     }
 }
 
-/// The WebSocket allow-list must not reach the CSRF check: it carries
-/// wildcard preview origins, and a preview serves agent-authored code.
+/// The WebSocket allow-list must not reach the CSRF check: it carries wildcard
+/// preview origins, and a preview serves agent-authored code.
 #[test]
 fn the_websocket_allow_list_is_not_a_source_of_csrf_trust() {
     with_origin_vars(

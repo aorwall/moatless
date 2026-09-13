@@ -1,16 +1,15 @@
-//! The backend's full-fidelity sandbox read, for the HTTP status and log routes.
+//! The backend's full-fidelity sandbox read, for the HTTP status and log
+//! routes.
 //!
-//! This crate's `handlers` module serves `SandboxStatusFullResponse` — the
-//! thirteen-field status body — as a documented HTTP response, so that route
-//! reads through this trait rather than the runtime contract. The contract
-//! `moatless_ports::sandbox::SandboxObserver` carries a two-field status
-//! and is implemented for the same adapters by projecting from this read; the
-//! projection lives in the backend's `t3code::projection`.
+//! `handlers` serves `SandboxStatusFullResponse` (thirteen fields) as a
+//! documented HTTP response, so that route reads through this trait rather than
+//! the runtime contract `moatless_ports::sandbox::SandboxObserver` (two-field
+//! status), which is implemented for the same adapters by projecting from this
+//! read in `t3code::projection`.
 //!
-//! `live_status` and `server_logs` are field-identical to the contract's and
-//! differ only in error type — this trait returns the sandbox module's
-//! `SandboxError` (with its axum `IntoResponse`), the contract returns the
-//! runtime contract's.
+//! `live_status`/`server_logs` are field-identical to the contract's, differing
+//! only in error type: this trait returns the sandbox module's `SandboxError`
+//! (with its axum `IntoResponse`), the contract returns the runtime contract's.
 
 use std::sync::Arc;
 
@@ -46,8 +45,9 @@ pub trait SandboxStatusReader: Send + Sync {
 
     /// One value per log line, and nothing about how a line is delivered.
     ///
-    /// The SSE route frames each line at its own boundary; an `axum` SSE `Event`
-    /// is write-only and could not be re-emitted over a second transport.
+    /// The SSE route frames each line at its own boundary; an `axum` SSE
+    /// `Event` is write-only and could not be re-emitted over a second
+    /// transport.
     async fn server_logs(
         &self,
         task_id: &str,

@@ -1,6 +1,6 @@
-//! Unified `moat send` command — drives a task, DMs a user, or pass-through-sends
-//! through any adapter destination. Replies to specific inbound messages live
-//! under `moat messages reply --message <id>`.
+//! Unified `moat send` command — drives a task, DMs a user, or
+//! pass-through-sends through any adapter destination. Replies to specific
+//! inbound messages live under `moat messages reply --message <id>`.
 
 use clap::{ArgGroup, Args};
 use moatless_api_schemas::adapters::AdapterSendRequest;
@@ -21,10 +21,11 @@ use crate::output;
         .args(["task", "user", "to"])
 ))]
 pub struct SendArgs {
-    /// Drive the agent on a task by ID. The recipient is an AI agent, not a
-    /// person: send one message per completed unit of work, keep it to the
-    /// outcome and what that agent has to act on, and send no acknowledgements
-    /// or progress updates.
+    /// Drive the agent on a task by ID.
+    ///
+    /// The recipient is an AI agent, not a person: send one message per
+    /// completed unit of work, covering only the outcome and what to act on —
+    /// no acknowledgements or progress updates.
     #[arg(long, group = "send_target")]
     pub task: Option<String>,
 
@@ -32,9 +33,9 @@ pub struct SendArgs {
     #[arg(long, group = "send_target")]
     pub user: Option<String>,
 
-    /// Generic adapter pass-through: adapter-specific destination string
-    /// (e.g. `channel:C123`, `dm:D456`, `thread:C123/172...`, `issue:LIN-12`).
-    /// Pair with `--via`.
+    /// Generic adapter pass-through: adapter-specific destination string (e.g.
+    /// `channel:C123`, `dm:D456`, `thread:C123/172...`, `issue:LIN-12`). Pair
+    /// with `--via`.
     #[arg(long, group = "send_target", requires = "via")]
     pub to: Option<String>,
 
@@ -44,8 +45,8 @@ pub struct SendArgs {
     #[arg(long)]
     pub rich: Option<String>,
 
-    /// Adapter selector. For `--user`: provider ID type to look up
-    /// (slack | telegram). For `--to`: adapter kind to dispatch through.
+    /// Adapter selector. For `--user`: provider ID type to look up (slack |
+    /// telegram). For `--to`: adapter kind to dispatch through.
     #[arg(long)]
     pub via: Option<String>,
 
@@ -61,8 +62,7 @@ pub struct SendArgs {
     #[arg(long = "file")]
     pub files: Vec<String>,
 
-    /// Task ID to bind the send to. Defaults to `$TASK_ID` for
-    /// `--user`/`--to`.
+    /// Task ID to bind the send to. Defaults to `$TASK_ID` for `--user`/`--to`.
     #[arg(long)]
     pub task_id: Option<String>,
 }

@@ -3,15 +3,14 @@
 use super::*;
 
 /// Auth tokens delivered to a sandbox pod.
-///
-/// The `bootstrap` token is placed on the pod spec (env `SANDBOX_BOOTSTRAP_TOKEN`)
-/// and authenticates only the sandbox's initial `GetCredentials` call. The
-/// long-lived user token is delivered over that credential channel instead of the
-/// pod spec — see `secrets.rs`. `legacy_user_token`, when present, additionally
-/// emits the `USER_AUTH_TOKEN` env (gated by `SANDBOX_EMIT_LEGACY_USER_TOKEN`).
 #[derive(Clone, Copy)]
 pub struct SandboxAuthTokens<'a> {
+    /// Sits on the pod spec (`SANDBOX_BOOTSTRAP_TOKEN`) and authenticates only
+    /// the sandbox's initial `GetCredentials` call; the long-lived user token
+    /// instead travels over that credential channel (see `secrets.rs`).
     pub bootstrap: &'a str,
+    /// When present, additionally emits `USER_AUTH_TOKEN` (gated by
+    /// `SANDBOX_EMIT_LEGACY_USER_TOKEN`).
     pub legacy_user_token: Option<&'a str>,
 }
 
@@ -28,9 +27,9 @@ impl<'a> SandboxAuthTokens<'a> {
 /// Mint the auth tokens a sandbox pod needs from config.
 ///
 /// Produces a short-lived bootstrap token plus, while
-/// `SANDBOX_EMIT_LEGACY_USER_TOKEN` is set, the long-lived user token emitted as
-/// the `USER_AUTH_TOKEN` env. Callers borrow the result into
-/// [`SandboxAuthTokens`] via [`SandboxAuthTokens::from_minted`].
+/// `SANDBOX_EMIT_LEGACY_USER_TOKEN` is set, the long-lived user token as
+/// `USER_AUTH_TOKEN`; callers borrow the result into [`SandboxAuthTokens`] via
+/// [`SandboxAuthTokens::from_minted`].
 pub fn mint_sandbox_tokens(
     config: &Config,
     task_id: &str,

@@ -16,21 +16,8 @@ use tracing::warn;
 
 /// Assemble the shell listing one viewer sees.
 ///
-/// This is the module's data-access seam, and the whole of its internal
-/// interface: read the conversations this viewer follows, read the workspaces
-/// they need in order to be grouped, and project both onto the wire.
-///
-/// The two halves are filtered by deliberately different rules, and the
-/// asymmetry is load-bearing rather than an oversight. Conversations are the
-/// ones the viewer **follows**, may still read, and that are still **open** — a
-/// sidebar is about involvement in unfinished work, so an administrator's is
-/// what they follow like everyone else's, and a closed Task leaves it the way an
-/// unfollowed one does. See [`dao::ConversationDao::list_followed`].
-/// Workspaces are the union of every one the viewer may **read** *plus* every
-/// one referenced by a listed conversation, whether or not they may read it:
-/// people follow work that runs in someone else's private workspace, and the
-/// client silently drops any conversation whose project is missing from the
-/// listing, with no error and nothing logged.
+/// Conversations are followed, readable, and open; a conversation whose
+/// workspace is missing from the viewer's readable set is silently dropped.
 pub async fn shell_snapshot(
     reads: &T3Reads,
     model_defaults: &AgentModelDefaults,
@@ -38,11 +25,8 @@ pub async fn shell_snapshot(
 ) -> Result<ShellSnapshot, sqlx::Error> {
     let conversations = reads.conversations();
     let workspaces = reads.workspaces();
-    // Before the rows, never after. A position read afterwards would sit above
-    // a change the rows already reflect, and the event carrying that change
-    // would be discarded by the client as stale — one row frozen, silently.
-    // Read first, the worst case is a change delivered twice, and delivery is a
-    // whole row, so twice is the same as once.
+    // Read position before rows: reading after risks the client discarding a
+    // live change as stale. Read first, worst case is one change delivered twice.
     let head = conversations.listing_head().await?;
     let sequence = head.position;
     let conversations = conversations.list_followed(viewer).await?;
@@ -60,16 +44,11 @@ pub async fn shell_snapshot(
     })
 }
 
-/// One conversation this viewer may read, together with the project a client
-/// would file it under — or nothing.
+/// One conversation this viewer may read, with the project a client would file
+/// it under — or nothing.
 ///
-/// The project is the second condition, not a detail of the first. A client
-/// groups every conversation under a project it already holds, so one whose
-/// workspace is not in the listing has nowhere to go and is dropped here rather
-/// than sent to be silently discarded on arrival.
-///
-/// `Ok(None)` collapses every way a conversation can be absent for this viewer
-/// into one answer; distinguishing them would disclose which.
+/// `Ok(None)` collapses every way it can be absent into one answer;
+/// distinguishing them would disclose which.
 pub(crate) async fn readable_under_a_project(
     reads: &T3Reads,
     viewer: &ScopeContext,
@@ -93,9 +72,7 @@ pub(crate) async fn readable_under_a_project(
         .filter(|id| workspaces.iter().any(|listed| listed.workspace.id == *id))
         .map(str::to_string);
     let Some(project_id) = project_id else {
-        // The shell drops this conversation for the same reason, with the same
-        // warning. Opening one the sidebar could not show it is the same gap
-        // seen from the other side.
+        // Mirrors the shell's drop of the same conversation, with the same warning.
         warn!(
             task_id = %conversation.task_id,
             workspace_id = ?conversation.workspace_id,
@@ -108,15 +85,8 @@ pub(crate) async fn readable_under_a_project(
 
 /// One conversation's listing row, by id.
 ///
-/// The listings answer "what am I involved in"; this answers "what is this
-/// one", and those are different questions. A conversation reaches a client
-/// through a link, a task tree or an archive long before it reaches the
-/// sidebar — closed work never reaches the sidebar at all — and without this
-/// the client holds a thread it can render a transcript for and cannot name.
-///
-/// Resolved by access rather than by Follow, exactly as [`thread_snapshot`] is:
-/// the two are the same conversation seen at two levels of detail, so a
-/// deployment where one opens and the other does not would be the bug.
+/// Resolved by access, not Follow, like [`thread_snapshot`]: the two are the
+/// same conversation at two levels of detail, so they must open together.
 pub async fn thread_shell(
     reads: &T3Reads,
     defaults: &AgentModelDefaults,
@@ -132,19 +102,9 @@ pub async fn thread_shell(
 
 /// Assemble one conversation as the thread view carries it.
 ///
-/// `Ok(None)` collapses every way a conversation can be absent for this viewer
-/// into one answer; distinguishing them would disclose which.
-///
-/// The row is resolved by access ([`ConversationDao::readable_by_id`]), not by
-/// Follow, so a link to a readable Task opens. The sidebar stays narrowed to
-/// Follows until the reader writes. Reading is the whole of that widening —
-/// running a turn resolves through [`commands::require_controllable`].
-///
-/// Read the change position **before** the rows, as [`shell_snapshot`] does:
-/// read afterwards it sits above a change the rows already reflect and the
-/// client discards that event as stale, freezing the conversation. Read first,
-/// the worst case is one change delivered twice, and every event here is an
-/// upsert.
+/// `Ok(None)` collapses every absence into one answer. Reads the change
+/// position before the rows, like [`shell_snapshot`], to avoid discarding a
+/// live change.
 pub async fn thread_snapshot(
     reads: &T3Reads,
     deployment: &Deployment<'_>,
@@ -186,10 +146,8 @@ pub async fn thread_snapshot(
 
 /// The names of the Tasks a window's Messages came from, by task id.
 ///
-/// One scoped read, and only when a Message in the window came from another
-/// Task at all — which nearly none do. A failure here costs the origins their
-/// label and their link; it must not cost the reader the conversation, so it is
-/// logged and answered with nothing.
+/// A failure here must not cost the reader the conversation: logged, and
+/// answered with an empty map instead of propagated.
 pub(crate) async fn source_task_names(
     conversations: &dyn ConversationDao,
     viewer: &ScopeContext,
@@ -214,23 +172,16 @@ pub(crate) async fn source_task_names(
     }
 }
 
-/// One conversation as the client receives it, and the position it was built
-/// at.
-///
-/// They travel together because a subscription needs both: the conversation
-/// goes to the client and the position is where its feed starts watching.
+/// One conversation as the client receives it, with the position it was built
+/// at — a subscription needs both, since the position is where its feed starts.
 pub struct ThreadSnapshot {
     pub value: Value,
     pub head: ConversationHead,
 }
 
 /// A shell listing, the position it was read at, and the database it was read
-/// from.
-///
-/// They travel together because a subscription needs all three: the listing goes
-/// to the client, and the position and identity are where its live feed starts.
-/// Splitting them is what lets the second be taken after the first, which is the
-/// ordering mistake this whole mechanism exists to avoid.
+/// from. Bundled together so a caller can't split them and read the position in
+/// the wrong order relative to the listing.
 pub struct ShellSnapshot {
     pub value: Value,
     pub sequence: i64,
@@ -239,10 +190,8 @@ pub struct ShellSnapshot {
 
 /// The workspace root a file request addresses.
 ///
-/// The contract types `cwd` as a trimmed non-empty string, so a payload
-/// carrying anything else did not come from a client encoding against it. It is
-/// refused rather than defaulted: every value this module could substitute
-/// names somebody's conversation.
+/// Refused, not defaulted: any substitute for a missing `cwd` would name
+/// somebody else's conversation.
 pub(crate) fn workspace_cwd(payload: &Value) -> Option<String> {
     payload
         .get("cwd")
@@ -254,11 +203,8 @@ pub(crate) fn workspace_cwd(payload: &Value) -> Option<String> {
 
 /// The position a client says it already holds.
 ///
-/// The contract types `afterSequence` as an optional `NonNegativeInt`, so a
-/// value that is neither absent nor a non-negative integer cannot come from a
-/// client that encodes against it. Reading one as *absent* is the safe
-/// direction: the client is rebuilt, which is a listing it can use. Reading it
-/// as a position would be resuming from a number nothing allocated.
+/// Invalid input reads as absent, not a position: rebuilding the client is
+/// safe, resuming from an unallocated number is not.
 pub(crate) fn after_sequence(payload: &Value) -> Option<i64> {
     payload
         .get("afterSequence")
@@ -269,11 +215,9 @@ pub(crate) fn after_sequence(payload: &Value) -> Option<i64> {
 impl ShellSnapshot {
     /// The conversation ids this listing puts in front of the viewer.
     ///
-    /// Read back out of the projected listing rather than off the rows it was
-    /// built from, and deliberately: a conversation whose project is missing is
-    /// dropped during projection, and a feed that believed the client held it
-    /// would later "remove" a row that was never on the screen. What was sent is
-    /// the only honest answer to what is held.
+    /// Read from the projected listing, not the source rows: a row dropped
+    /// during projection was never sent, so a feed off the rows would try to
+    /// remove one the client never held.
     pub fn thread_ids(&self) -> Vec<String> {
         self.ids("threads", "id")
     }
@@ -295,27 +239,11 @@ impl ShellSnapshot {
     }
 }
 
-/// The listing rows a browse filter names — rows for conversations the viewer
-/// may read and does not necessarily follow.
+/// The listing rows a browse filter names — conversations the viewer may read,
+/// not necessarily follows.
 ///
-/// Rows only, and narrowed to the projects the viewer may **read** rather than
-/// the wider set [`shell_snapshot`] assembles. A browse is read alongside a
-/// shell listing the client already holds, and the readable projects are in it;
-/// the extras that listing adds are the ones it referenced itself, which a
-/// browsed row cannot rely on being there. One whose project the client would
-/// not hold is dropped here rather than sent to be silently discarded.
-///
-/// No sequence travels with these. Nothing pushes a browsed row — the change
-/// feed re-reads by Follow — so a client keeps them current by asking again,
-/// and a position it could mistake for its listing's would have it discard live
-/// events instead.
-///
-/// `truncated` says the filter matched more rows than `dao::BROWSE_LIMIT`
-/// returns, so a client can say a list is partial. It is decided on the rows the
-/// query answered with rather than the projected ones, because a row dropped for
-/// its project is dropped after the cap and would otherwise read as room to
-/// spare — and on the row past the cap rather than on a count, so a filter
-/// matching exactly `BROWSE_LIMIT` reports a complete list.
+/// No sequence travels with these; a client re-asks to stay current.
+/// `truncated` is decided on the raw rows, before projection can drop any.
 pub async fn browse_snapshot(
     reads: &T3Reads,
     defaults: &AgentModelDefaults,
@@ -335,13 +263,11 @@ pub async fn browse_snapshot(
     }))
 }
 
-/// The archived half of the listing: the closed conversations the viewer
-/// follows, under the same projects the live half carries.
+/// The archived half of the listing: closed conversations the viewer follows,
+/// under the same projects the live half carries.
 ///
-/// Archiving is closing, so this is the live listing's complement — the same
-/// follow and read rules at the other status. The projects come whole rather
-/// than narrowed to the ones these conversations sit in, because the client
-/// groups an archived row under a project it must already hold.
+/// Projects come whole, not narrowed: the client groups an archived row under a
+/// project it must already hold.
 pub async fn archived_shell_snapshot(
     reads: &T3Reads,
     defaults: &AgentModelDefaults,

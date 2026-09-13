@@ -1,21 +1,12 @@
 //! The diff-panel half of the T3 compatibility module.
 //!
-//! The panel reads a conversation's changes in two scopes — what is not
-//! committed, and what the branch has committed since it left its base — picks
-//! a base ref for the second, and shows which branch it is looking at. That is
-//! three calls on the wire (`review.getDiffPreview`, `vcs.listRefs`,
-//! `subscribeVcsStatus`), all addressed by [`super::workspace`]'s `cwd`, and
-//! all answered from the conversation's Sandbox, which is the only place its
-//! checkout exists.
+//! The panel reads a conversation's changes in two scopes — uncommitted, and
+//! committed since the branch left its base — across three wire calls
+//! (`review.getDiffPreview`, `vcs.listRefs`, `subscribeVcsStatus`), all
+//! addressed by [`super::workspace`]'s `cwd` and answered from the Sandbox.
 //!
-//! # What this surface does not carry
-//!
-//! The panel's other scope is a *turn checkpoint*: the worktree as it stood at
-//! the end of one turn, diffed against the turn before. Moatless records no such
-//! snapshot, so every checkpoint `projection::checkpoints` reports carries no
-//! `files` and the panel offers the two git scopes alone. A checkpoint here
-//! names a turn a person may rewind the *conversation* to, and nothing about the
-//! working copy.
+//! It does not carry a *turn checkpoint*: Moatless records no per-turn worktree
+//! snapshot, so `projection::checkpoints` reports no `files` there.
 
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -73,9 +64,9 @@ pub async fn diff_preview(
 
 /// The two sources the panel's scope selector switches between.
 ///
-/// Both are always present, patch or no patch: the selector reads its options
-/// off this list, and a scope that vanishes when it happens to be empty is a
-/// scope a person cannot switch back to.
+/// Both are always present, patch or no patch — the selector reads its options
+/// off this list, and an empty scope that vanished would be one a person cannot
+/// switch back to.
 fn sources(preview: &GetGitDiffPreviewResponse) -> Value {
     let base_ref = single_value(preview.ranges.iter().map(|range| range.base_ref.as_str()));
     let head_ref = single_value(preview.ranges.iter().map(|range| range.head_ref.as_str()));
@@ -108,10 +99,9 @@ fn sources(preview: &GetGitDiffPreviewResponse) -> Value {
 
 /// The one value every repository in the workspace agreed on, if they did.
 ///
-/// The contract carries one ref name per source and a workspace can hold
-/// several repositories. Naming one of their branches would put a ref in the
-/// header that most of the patch was not taken against, so disagreement — and
-/// a workspace with no repository at all — answers with nothing.
+/// The contract carries one ref name per source; naming one repository's branch
+/// would put a ref in the header most of the patch wasn't taken against, so
+/// disagreement (or no repository at all) answers with nothing.
 fn single_value<'a>(values: impl Iterator<Item = &'a str>) -> Option<String> {
     let mut agreed: Option<&str> = None;
     for value in values {
@@ -148,9 +138,9 @@ fn hex(bytes: &[u8]) -> String {
 /// The primary repository's branches, in the shape the contract's
 /// `vcs.listRefs` returns.
 ///
-/// Filtering, ordering and paging happen here rather than in the Sandbox: the
-/// Sandbox reads a repository's refs in one pass, and every knob the contract
-/// offers is a view over that one list.
+/// Filtering, ordering and paging happen here, not in the Sandbox: it reads a
+/// repository's refs in one pass, and every knob the contract offers is a view
+/// over that one list.
 pub async fn list_refs(
     conversations: &dyn ConversationDao,
     sandboxes: &dyn SandboxConnector,
@@ -175,8 +165,8 @@ pub async fn list_refs(
 /// What a conversation with no Sandbox to ask has to offer.
 ///
 /// The client polls this in the background for every conversation it holds, so
-/// "there is no repository reachable here" is answered rather than failed: a
-/// failure is retried on a schedule and surfaces where nothing went wrong.
+/// "no repository reachable" is answered, not failed — a failure retries on a
+/// schedule and surfaces where nothing went wrong.
 pub fn no_refs() -> Value {
     json!({
         "refs": [],
@@ -189,12 +179,10 @@ pub fn no_refs() -> Value {
 
 /// Whether a failed ref listing should answer [`no_refs`] rather than fail.
 ///
-/// The bar is whether the person could do anything with being told. A Sandbox
-/// that is absent, stopped, or from an image older than the method is a state
-/// of the conversation, and the client would surface it once per poll. A
-/// Sandbox that is up and refusing, or a database that would not answer, is
-/// this deployment failing, and hiding that behind an empty ref list would make
-/// the branch picker look merely empty.
+/// The bar is whether telling the person would help: an absent/stopped/too-old
+/// Sandbox is a state of the conversation and is quieted, but a refusing
+/// Sandbox or unreachable database is this deployment failing and must surface,
+/// not hide behind an empty list.
 pub fn refs_are_quiet(error: &WorkspaceAccessError) -> bool {
     matches!(
         error,
@@ -359,12 +347,10 @@ fn shadows_a_local_branch(
 /// The branches of a draft thread's workspace, in the shape `vcs.listRefs`
 /// returns.
 ///
-/// A draft thread has no Sandbox, so it addresses its Workspace by the project
-/// root rather than a worktree. Its branches are the primary repository's, read
-/// from the git host — the same list Moatless's own branch picker shows before
-/// a Task runs — rather than a checkout that does not exist yet. Access is
-/// gated through the scoped workspace read first, so a project root the viewer
-/// cannot be shown answers as an empty list.
+/// A draft thread has no Sandbox, so it reads branches from the git host via
+/// its project root instead of a checkout; access gates through the scoped
+/// workspace read first, so an unreadable project root answers as an empty
+/// list.
 pub async fn workspace_branches(
     workspaces: &dyn T3WorkspaceDao,
     branches: &dyn RepositoryBranchSource,
@@ -395,11 +381,10 @@ pub async fn workspace_branches(
 /// One page of a repository's branches, as the contract's `vcs.listRefs`
 /// result.
 ///
-/// The git host lists a repository's branches in one pass and every knob the
-/// contract offers is a view over that one list — the same relationship
-/// [`ref_page`] has with a Sandbox's refs. A branch on the host has no checkout
-/// here, so none is `current` and none names a `worktreePath`; the default
-/// leads the list already, as [`list_branches`] returns it default-first.
+/// The git host lists branches in one pass and every knob here is a view over
+/// that list, like [`ref_page`] over a Sandbox's refs; none is `current` or has
+/// a `worktreePath` since none has a checkout, and the default already leads
+/// since [`list_branches`] returns it default-first.
 fn branch_ref_page(response: &BranchListResponse, request: &RefRequest<'_>) -> Value {
     // A host branch is a plain branch, not a remote-tracking ref, so a request
     // narrowed to remote refs has nothing to answer with.
@@ -460,10 +445,10 @@ pub async fn status(
 
 /// One `snapshot` event of the contract's status stream.
 ///
-/// The local and remote halves are sent together because they are read
-/// together: one `git status --porcelain=2 --branch` carries the branch, the
-/// dirty paths and the ahead/behind counts, so splitting them would report a
-/// remote half this backend never asked for separately.
+/// Local and remote halves are sent together because they're read together: one
+/// `git status --porcelain=2 --branch` carries branch, dirty paths and
+/// ahead/behind counts, so splitting them would report a remote half never
+/// asked for separately.
 fn status_snapshot(status: &GetGitStatusResponse, pr: Option<&BoundPullRequest>) -> Value {
     json!({
         "_tag": "snapshot",
@@ -475,9 +460,8 @@ fn status_snapshot(status: &GetGitStatusResponse, pr: Option<&BoundPullRequest>)
 /// The same branch state, flattened, as `vcs.refreshStatus` returns it.
 ///
 /// The subscription and this method read one `git status`, so a refresh is the
-/// same call the poll makes rather than a second notion of what the status is.
-/// The client merges the stream's two halves into exactly this shape, which is
-/// why the difference between them is only where the seam falls.
+/// same call the poll makes, not a second notion of the status; the client
+/// merges the stream's two halves into exactly this shape anyway.
 pub async fn status_result(
     conversations: &dyn ConversationDao,
     sandboxes: &dyn SandboxConnector,
@@ -594,24 +578,20 @@ fn pull_request_json(pr: &BoundPullRequest) -> Value {
 
 /// Why a linked pull request could not be summarized.
 pub enum PullRequestSummaryError {
-    /// No active binding names this reference, none the viewer may read, or
-    /// no readable Task's binding resolved — a refresh that could not reach
-    /// GitHub leaves the listing linking a pull request this cannot recover.
-    /// One answer for the first two: telling them apart would say a Task exists.
+    /// No active binding names this reference, none the viewer may read, or no
+    /// readable Task's binding resolved (a refresh that couldn't reach GitHub).
+    /// One answer for all three: telling them apart would disclose a Task
+    /// exists.
     Unknown,
     Store(sqlx::Error),
 }
 
 /// The live fields of one linked pull request, as T3's `PullRequestSummary`.
 ///
-/// Read from the readable Task's binding rather than from GitHub: every field
-/// the summary declares is already persisted there, so the sidebar's per-thread
-/// status check is a database read for a binding already fetched. A binding
-/// whose status blob is still NULL — a freshly opened pull request no surface
-/// has polled — costs one GitHub call to fill it, once, per cold binding. That
-/// is also what bounds this method — it answers for a pull request some Task is
-/// bound to, never for an arbitrary reference, which is `pullRequests.detail`'s
-/// job and is not served.
+/// Read from the readable Task's binding, not GitHub — a database read, except
+/// a still-NULL binding costs one GitHub call to fill, once. Answers only for a
+/// pull request some Task is bound to; an arbitrary reference is
+/// `pullRequests.detail`'s job.
 pub async fn pull_request_summary(
     conversations: &dyn ConversationDao,
     pull_requests: &dyn BoundPullRequestSource,
@@ -970,9 +950,9 @@ mod tests {
     }
 
     /// A workspace DAO wired to answer with `primary`, the repository the
-    /// picker would list. `None` is every reason there is nothing to list: the
-    /// viewer cannot be shown the workspace, it is gone, or it declares no
-    /// repository — the port answers them alike so none of them discloses which.
+    /// picker would list. `None` covers every reason there is nothing to list —
+    /// unreadable, gone, or repository-less — answered alike so none discloses
+    /// which.
     fn workspaces(primary: Option<&str>) -> MockT3WorkspaceDao {
         let primary = primary.map(str::to_string);
         let mut dao = MockT3WorkspaceDao::new();
@@ -1008,8 +988,8 @@ mod tests {
 
     /// The listing is made on behalf of the workspace the picker was opened in,
     /// so a repository only that workspace's pinned credential can reach still
-    /// answers. A picker that asked as the viewer alone would show nothing for
-    /// exactly the repositories the pin exists for.
+    /// answers — asking as the viewer alone would show nothing for exactly the
+    /// repositories the pin exists for.
     #[tokio::test]
     async fn the_picker_lists_on_behalf_of_the_workspace_it_was_opened_in() {
         let dao = workspaces(Some("repo-1"));
@@ -1448,8 +1428,8 @@ mod tests {
 
     /// Resolving a binding refreshes it on the Task creator's GitHub token, so
     /// it must not run for a Task the viewer cannot read: otherwise naming an
-    /// arbitrary reference spends another user's token and turns the `Unknown`
-    /// answer into a slow one that says a Task exists.
+    /// arbitrary reference spends another user's token and discloses a Task
+    /// exists.
     #[tokio::test]
     async fn an_unreadable_task_is_never_resolved() {
         let bound = StubBoundPullRequests::new(vec![("task-a".to_string(), bound_pr("open"))]);

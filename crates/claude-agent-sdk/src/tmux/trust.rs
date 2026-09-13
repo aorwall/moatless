@@ -1,30 +1,20 @@
 //! Detect the workspace-trust dialog Claude shows in unfamiliar directories.
 //!
-//! Claude's TUI renders "Do you trust the files in this folder?" before the
-//! readline loop comes up. The dialog blocks startup, the `SessionStart` hook
-//! does NOT fire while it's on-screen, and `--dangerously-skip-permissions`
-//! does not suppress it. Default selection is "Yes, I trust this folder"; a
-//! bare Enter accepts.
+//! The dialog blocks startup before `SessionStart` fires, and
+//! `--dangerously-skip-permissions` does not suppress it; default selection
+//! accepts on a bare Enter.
 //!
-//! Detection: capture the tmux pane, strip CSI/OSC/DCS escapes (the dialog
-//! pads words with `\e[1C` cursor-move escapes rather than literal spaces,
-//! so a stripped substring search is necessary), then check for the presence
-//! of both "trust" and "folder" in the visible text.
-//!
-//! Mirrors the `claude-p` `driver.zig:stripCsi` + trust-detection block 1:1.
+//! Detection: strip CSI/OSC/DCS escapes (cursor-move padding, not literal
+//! spaces) and check for "trust" and "folder". Mirrors `claude-p`'s 1:1.
 
 // reason: trust detection wires in at step 5, when the trust-dialog watcher
 // runs concurrently with the SessionStart wait. Until then the module is
 // staged with passing unit tests.
 #![allow(dead_code)]
 
-/// Strip CSI / OSC / DCS escape sequences from `bytes`, returning a `Vec<u8>`
-/// of just the literal payload. The output is well-suited for plain-text
-/// substring matching against on-screen dialog text.
-///
-/// We don't attempt to reconstruct the visible layout — just to remove
-/// escape control sequences so adjacent words aren't separated by cursor-
-/// positioning bytes.
+/// Strip CSI / OSC / DCS escape sequences from `bytes`, leaving just the
+/// literal payload for plain-text matching. Not a layout reconstruction — only
+/// removes bytes that would otherwise separate adjacent words.
 pub(crate) fn strip_csi(bytes: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0;
@@ -88,33 +78,17 @@ pub(crate) fn strip_csi(bytes: &[u8]) -> Vec<u8> {
     out
 }
 
-/// Return true when the stripped pane bytes look like the workspace-trust
-/// dialog is on screen.
-///
-/// Heuristic: both "trust" and "folder" appear in the literal text after CSI
-/// stripping. Both words are present in the dialog ("Do you trust the files
-/// in this folder?", "Yes, proceed", "No, exit") and absent from the normal
-/// Claude REPL prompt area, so the combo is specific.
+/// Heuristic: both "trust" and "folder" appear post-CSI-stripping — present in
+/// the dialog text and absent from the normal REPL prompt, so the combo is
+/// specific.
 pub(crate) fn scan_for_trust_dialog(stripped: &[u8]) -> bool {
     contains_lower(stripped, b"trust") && contains_lower(stripped, b"folder")
 }
 
-/// Return true when the stripped pane bytes look like the "Bypass Permissions
-/// mode" acceptance dialog is on screen.
-///
-/// `--dangerously-skip-permissions` (which the tmux transport always passes)
-/// makes Claude render a one-time warning — "WARNING: Claude Code running in
-/// Bypass Permissions mode … you accept all responsibility …" — with a menu
-/// whose DEFAULT is "1. No, exit". A bare Enter would quit, so the watcher must
-/// navigate to "2. Yes, I accept" before confirming. The dialog blocks startup
-/// and is not suppressible via config (Claude rewrites `.claude.json` on launch
-/// and re-prompts each session).
-///
-/// Heuristic: both "bypass" and "accept" appear after CSI stripping. The dialog
-/// title/body carry "Bypass Permissions mode" + "you accept all responsibility"
-/// and the menu carries "Yes, I accept". The post-acceptance status line reads
-/// "bypass permissions on (shift+tab to cycle)" — it has "bypass" but NOT
-/// "accept", so the combo won't re-fire once dismissed.
+/// The default menu selection is "1. No, exit" — a bare Enter would quit — so
+/// the watcher must navigate to "2. Yes, I accept". Detection checks for both
+/// "bypass" and "accept" post-CSI-stripping; the post-acceptance status line
+/// has "bypass" but not "accept", so it won't re-fire once dismissed.
 pub(crate) fn scan_for_bypass_dialog(stripped: &[u8]) -> bool {
     contains_lower(stripped, b"bypass") && contains_lower(stripped, b"accept")
 }

@@ -1,19 +1,11 @@
 //! Prometheus counters for adapter webhook ingress and inbound binding routing.
 //!
-//! `loop_id` and `connection_id` are emitted as labels so the admin UI
-//! can render per-loop and per-connection counts. Pass empty strings
-//! at call sites where the IDs aren't yet known (e.g. before subscription lookup).
+//! `loop_id` and `connection_id` are labels, passed as `""` when unknown.
+//! `event_type` is the provider's event name (bounded by its API): GitHub's
+//! `X-GitHub-Event` header, or Slack's payload `type` / `"slash_command"`.
 //!
-//! `event_type` is the provider's own event name — for GitHub it's the
-//! `X-GitHub-Event` header (`check_run`, `pull_request`, ...); for Slack
-//! it's the outer payload `type` (`event_callback`, `url_verification`)
-//! plus the synthetic `"slash_command"` for slash-command deliveries. The
-//! vocabulary is bounded by each provider's API so cardinality is safe.
-//!
-//! Cardinality note: number of active loops × connections × adapters ×
-//! outcomes × reasons × `event_types`. Keep the `reason` vocabulary small
-//! and prune unused loops/connections to avoid runaway series in
-//! Prometheus.
+//! Cardinality: loops × connections × adapters × outcomes × reasons ×
+//! `event_types` — keep `reason` small and prune unused loops/connections.
 
 pub(crate) const ADAPTER_WEBHOOK_TOTAL: &str = "moatless_adapter_webhook_total";
 
@@ -38,13 +30,8 @@ pub fn describe_adapter_metrics() {
 
 /// Record one adapter webhook outcome.
 ///
-/// `outcome` must be one of `"success"`, `"ignored"`, `"error"`.
-/// `reason` is a fixed-vocabulary label (e.g. `"inactive"`, `"no_trigger"`,
-/// `"delivery_failed"`); pass `""` when not applicable.
-/// `event_type` is the provider's event name (see module doc); pass `""`
-/// when the request errored before the type could be determined.
-/// `loop_id` / `connection_id` are passed as empty strings when not
-/// resolved yet (e.g. early validation failures).
+/// `outcome` is one of `"success"`, `"ignored"`, `"error"`; `reason`,
+/// `event_type`, `loop_id`, and `connection_id` pass `""` when not yet known.
 pub fn record_webhook(
     adapter: &'static str,
     outcome: &'static str,
@@ -67,9 +54,9 @@ pub fn record_webhook(
 
 /// Record one outbound adapter API call outcome.
 ///
-/// `outcome` must be one of `"success"`, `"auth_error"`, `"error"`. A 401 that
-/// is healed by a reactive token refresh records `auth_error` then `success` —
-/// exactly the signal the auth-failure alert keys off.
+/// `outcome` is one of `"success"`, `"auth_error"`, `"error"`. A 401 healed by
+/// a reactive token refresh records `auth_error` then `success` — the signal
+/// the auth-failure alert keys off.
 pub fn record_api_call(adapter: &'static str, outcome: &'static str) {
     metrics::counter!(
         ADAPTER_API_TOTAL,
@@ -81,8 +68,7 @@ pub fn record_api_call(adapter: &'static str, outcome: &'static str) {
 
 /// Inbound binding routing outcomes, by provider, loop, connection, and reason.
 ///
-/// `describe_binding_metrics` in `moatless-loops` registers the description,
-/// beside the outbound counter that belongs to that band alone.
+/// `describe_binding_metrics` in `moatless-loops` registers the description.
 pub const BINDING_INBOUND_TOTAL: &str = "moatless_binding_inbound_total";
 
 /// Record one inbound routing outcome.

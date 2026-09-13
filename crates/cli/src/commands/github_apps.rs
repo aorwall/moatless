@@ -1,11 +1,11 @@
 //! GitHub App administration — `moat github-app list|register|rotate|remove`.
 //!
-//! Registering and rotating both take a signing key, and neither takes it as
-//! an argument: a key passed on a command line lands in shell history and in
-//! the process table. It is read from a file, or from standard input.
+//! Registering and rotating both take a signing key, and neither takes it as an
+//! argument: a key passed on a command line lands in shell history and in the
+//! process table. It is read from a file, or from standard input.
 //!
-//! No command here prints a stored key. What is shown instead is a
-//! fingerprint, which is enough to tell two keys apart and reveals neither.
+//! No command here prints a stored key. What is shown instead is a fingerprint,
+//! which is enough to tell two keys apart and reveals neither.
 
 use std::io::Read;
 use std::path::PathBuf;
@@ -22,9 +22,8 @@ pub enum GitHubAppAction {
 
     /// Register an App created at GitHub, proving its signing key first.
     ///
-    /// The key is used against GitHub immediately and the App it identifies is
-    /// confirmed to be the App named by `--app-id`. Nothing is stored unless
-    /// that succeeds.
+    /// The key is used against GitHub immediately to confirm it identifies the
+    /// App named by `--app-id`; nothing is stored unless that succeeds.
     Register {
         /// Short stable name the App will be known by, e.g. `dev-bot`. This is
         /// what a bot user, an Adapter connection and a Loop refer to.
@@ -47,8 +46,8 @@ pub enum GitHubAppAction {
 
     /// Replace an App's signing key.
     ///
-    /// The new key is proved before the stored one is replaced, so a key that
-    /// GitHub will not accept leaves the App exactly as it was.
+    /// The new key is proved before the stored one is replaced, so a key GitHub
+    /// won't accept leaves the App exactly as it was.
     Rotate {
         /// Name the App was registered under.
         key: String,
@@ -61,8 +60,8 @@ pub enum GitHubAppAction {
 
     /// Remove an App, installation-wide.
     ///
-    /// Bot users backed by it are left in place so past work stays attributed,
-    /// and are named in the output because they can no longer obtain a token.
+    /// Bot users backed by it are left in place so past work stays attributed;
+    /// they're named in the output since they can no longer obtain a token.
     Remove {
         /// Name the App was registered under.
         key: String,

@@ -21,7 +21,7 @@ impl Tags {
 
     /// Tag `task_id` with `names`, creating any tag that does not exist yet.
     ///
-    /// Best effort: a failure is logged and swallowed, because the caller is an
+    /// Best effort: failures are logged and swallowed, since the caller is an
     /// event handler whose message is already committed and whose tags are a
     /// listing convenience.
     pub async fn propagate_tags(&self, task_id: &str, names: &[String]) {

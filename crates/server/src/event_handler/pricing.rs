@@ -15,16 +15,11 @@ struct ModelPrice {
     output: f64,
 }
 
-/// Prices for the model, matched by the substrings its published id carries.
-/// `None` for an unrecognised model, which leaves the run unpriced rather than
-/// billed at a guessed rate.
+/// Prices for the model, matched by substrings in its published id. `None` for
+/// an unrecognised model, leaving the run unpriced.
 ///
-/// The Claude rates are the ones Anthropic's own `modelUsage.costUSD` implies,
-/// and `cache_write` is the 5m-TTL tier: `UsageInfo` carries one
-/// cache-creation count with no TTL split, and a 1h write costs 2x input
-/// against the 5m tier's 1.25x, so a run that used the 1h TTL prices low here.
-/// Claude reports `total_cost_usd` itself, so its rates are the fallback for a
-/// run that arrived without one, not the usual path.
+/// `cache_write` assumes the 5m-TTL tier; a run that used the pricier 1h TTL
+/// prices low here, since `UsageInfo` carries no TTL split.
 fn price_for(model: &str) -> Option<ModelPrice> {
     let m = model.to_ascii_lowercase();
     // Codex ids are `gpt-5*` / `*codex*`; cached input is priced, cache-write is
@@ -82,9 +77,8 @@ fn price_for(model: &str) -> Option<ModelPrice> {
 /// Estimated USD cost of a run from its `model` and per-tier token counts.
 ///
 /// `usage.input_tokens` is the non-cached input (both harnesses normalize to
-/// this at the seam), so the cached-prefix reads are priced separately at the
-/// cache-read rate. `output_tokens` already includes any reasoning tokens, so
-/// reasoning is not priced again. `None` when the model is unrecognised.
+/// this at the seam); `output_tokens` already includes reasoning tokens, so
+/// reasoning isn't priced twice. `None` when the model is unrecognised.
 pub fn estimate_cost_usd(model: &str, usage: &UsageInfo) -> Option<f64> {
     let price = price_for(model)?;
     let tok = |v: Option<i64>| f64::from(i32::try_from(v.unwrap_or(0).max(0)).unwrap_or(i32::MAX));

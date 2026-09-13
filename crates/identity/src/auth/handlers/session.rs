@@ -160,8 +160,8 @@ pub(super) async fn authenticate_request(
 
 /// Verify authentication via session cookie or API key (Traefik `ForwardAuth`).
 ///
-/// Returns 200/401 only — no response headers.
-/// For preview URLs (hostname contains `--`), also checks task-based access.
+/// Returns 200/401 only, no response headers; for preview URLs (hostname
+/// contains `--`), also checks task-based access.
 #[utoipa::path(
     get,
     path = "/api/v1/auth/verify",

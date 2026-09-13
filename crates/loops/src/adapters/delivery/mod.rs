@@ -1,9 +1,9 @@
 //! Durable admission for every inbound Adapter delivery.
 //!
-//! A handler commits an `adapter_delivery` record keyed by
-//! `(adapter, kind, event_id)` before answering the sender; the supervised
-//! `adapter-delivery-worker` claims and executes it. One sender delivery that
-//! fans into several kinds becomes one record per kind, each on its own budget.
+//! A handler commits an `adapter_delivery` record keyed by `(adapter, kind,
+//! event_id)` before answering the sender; the `adapter-delivery-worker` claims
+//! and executes it, with one delivery fanning into several kinds becoming one
+//! record per kind, each on its own budget.
 //!
 //! Surface an `AdmitError` to the sender as a retryable failure — a 200 over it
 //! drops the delivery. Do not put an in-process dedup cache in front of

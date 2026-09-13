@@ -3,7 +3,8 @@
 //! Every source event represents exactly one native content block. The type
 //! deliberately carries a single `block`, never a vector, so a harness cannot
 //! return an already-assembled Message: Message assembly is exclusively the
-//! backend's job (server-owned message assembly, the agent.message skeleton, the harness-outcome boundary).
+//! backend's job (server-owned message assembly, the agent.message skeleton,
+//! the harness-outcome boundary).
 
 use crate::agent::harness::content::CanonicalContentBlock;
 
@@ -31,8 +32,10 @@ pub struct SourceId(pub String);
 pub struct NativeMessageId(pub String);
 
 /// One native content block, normalized into the canonical shape the backend
-/// assembles. Harnesses preserve native ordering and repeated usage; they do
-/// not coalesce content, fold tool results, or deduplicate usage.
+/// assembles.
+///
+/// Harnesses preserve native ordering and repeated usage; they do not coalesce
+/// content, fold tool results, or deduplicate usage.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SourceEvent {
     /// Stable, collision-safe identity for this block.
@@ -48,24 +51,25 @@ pub struct SourceEvent {
     /// The single canonical content block. Both agent harnesses transform their
     /// native output into this one type-checked shape.
     pub block: CanonicalContentBlock,
-    /// Typed tool result surfaced at the payload top level (`toolUseResult`) for
-    /// backend enrichment of a `tool_result` block — e.g. a Codex `CodexShellResult`
-    /// the UI renders as command output. `None` for every non-result block.
+    /// Typed tool result surfaced at the payload top level (`toolUseResult`)
+    /// for backend enrichment of a `tool_result` block — e.g. a Codex
+    /// `CodexShellResult` the UI renders as command output. `None` for every
+    /// non-result block.
     pub tool_use_result: Option<serde_json::Value>,
     /// Usage exactly as reported on this block (repeated usage is preserved for
     /// backend admission, never coalesced in the harness).
     pub usage: Option<serde_json::Value>,
     /// Model that produced the block, where available.
     pub model: Option<String>,
-    /// Bounded native diagnostics preserved for unknown or new block types so an
-    /// upstream CLI update does not silently discard output.
+    /// Bounded native diagnostics preserved for unknown or new block types so
+    /// an upstream CLI update does not silently discard output.
     pub diagnostics: Option<serde_json::Value>,
 }
 
 impl SourceEvent {
     /// The block serialized to its Anthropic-shaped wire JSON — the form the
-    /// coordinator forwards to the backend assembler. Serialization is infallible
-    /// for these variants; `Null` is a defensive floor.
+    /// coordinator forwards to the backend assembler. Serialization is
+    /// infallible for these variants; `Null` is a defensive floor.
     pub fn block_json(&self) -> serde_json::Value {
         serde_json::to_value(&self.block).unwrap_or(serde_json::Value::Null)
     }

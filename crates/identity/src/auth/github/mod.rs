@@ -1,13 +1,11 @@
 //! GitHub App authentication: the services that mint App tokens.
 //!
 //! GitHub bot App records live in `crate::adapter_apps::dao`. [`service`] is
-//! what an App can *do* — mint a JWT from its signing key and exchange it for
-//! short-lived installation tokens. [`registry`] joins the two, handing out a
-//! live service for an App named by key and noticing when the stored record
-//! behind it has changed.
+//! what an App can *do* — mint a JWT and exchange it for installation tokens;
+//! [`registry`] joins the two, keyed by App key.
 //!
-//! GitHub App *login* (the OAuth user-authorization flow) is a different thing
-//! and lives with the other OAuth providers, in [`crate::auth::oauth`].
+//! GitHub App *login* is a different thing, living with other OAuth providers
+//! in [`crate::auth::oauth`].
 
 pub mod registry;
 pub mod service;

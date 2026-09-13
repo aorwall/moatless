@@ -32,9 +32,8 @@ use super::routes::SseState;
 /// Per-connection access context for the firehose, resolved once from the
 /// canonical `AuthIdentity` the auth middleware injects.
 ///
-/// `None` means no identity was attached — the request did not authenticate,
-/// and the handler rejects it. When `Some`, non-admin callers are filtered per
-/// task.
+/// `None` means no identity was attached, so the handler rejects the request;
+/// `Some` filters non-admin callers per task.
 pub(crate) struct SseAuth(Option<ScopeContext>);
 
 impl<S: Send + Sync> FromRequestParts<S> for SseAuth {
@@ -77,17 +76,8 @@ pub struct TaskEventsQuery {
     pub limit: Option<usize>,
 }
 
-/// SSE endpoint handler.
-///
-/// Returns an NDJSON stream with:
-/// - Event lines: raw JSON from Redis + `\n`
-/// - Ping every 30s: `{"type":"ping","timestamp":"..."}\n`
-///
-/// The shared broadcast bus carries events for *all* tasks, so each connection
-/// filters them to what the authenticated caller may read. Admins receive
-/// everything; scoped users receive only events for tasks they can access,
-/// resolved once per distinct task and cached for the life of the connection.
-/// Unauthenticated callers are rejected outright.
+/// SSE endpoint handler. Returns an NDJSON stream of raw event lines plus a 30s
+/// `{"type":"ping",...}` keepalive.
 pub(crate) async fn sse_handler(
     State(state): State<SseState>,
     SseAuth(scope): SseAuth,
@@ -206,22 +196,13 @@ pub(crate) async fn sse_handler(
         .expect("valid SSE response with static header names")
 }
 
-/// Historical task events handler.
+/// Historical task events handler: returns stored events from the `task_events`
+/// Postgres table so the frontend can hydrate the Events tab on reload.
 ///
-/// Returns stored events from the `task_events` Postgres table for a given
-/// task, allowing the frontend to hydrate the Events tab on page reload.
-///
-/// History is served from Postgres — not Redis `XRANGE` — because the Redis
-/// stream is trimmed by `MAXLEN` and expires after a 72h TTL, silently
-/// truncating older history. Every event is durably persisted to `task_events`
-/// by the `event_handler` consumer, so Postgres is the complete source of truth.
-/// Redis is kept strictly for the live SSE tail (`/api/v1/events/stream`).
-///
-/// **Seam with the live tail:** the frontend loads this page first, then opens
-/// the SSE stream. Because the SSE consumer creates its group at the stream
-/// head, an event published between the two calls can appear both here and on
-/// the live stream. Each returned envelope carries its `eventId`, so the client
-/// dedupes across the boundary by id — no gap, no duplicate rendered.
+/// Served from Postgres, not Redis `XRANGE`, since Redis is trimmed by `MAXLEN`
+/// and a 72h TTL. An event published between this call and opening the SSE
+/// stream can appear in both; each envelope carries its `eventId` so the client
+/// dedupes across the boundary.
 pub(crate) async fn task_events_handler(
     State(tasks): State<Arc<dyn TaskReader>>,
     State(task_events): State<Arc<TaskEvents>>,
@@ -279,10 +260,9 @@ pub(crate) async fn task_events_handler(
 
 /// Reconstruct the SSE `StreamEvent` wire envelope from a persisted row.
 ///
-/// This mirrors `moatless_types::event::StreamEvent`'s serialization exactly (camelCase
-/// keys, `type` for the event type, optional `agentType`/`turnNumber` omitted
-/// when absent), so the payload is byte-for-byte compatible with what the old
-/// Redis `XRANGE` replay produced — the frontend needs no changes.
+/// Mirrors `moatless_types::event::StreamEvent`'s serialization exactly
+/// (camelCase keys, optional fields omitted when absent), so the frontend
+/// needs no changes.
 fn event_row_to_json(row: TaskEvent) -> serde_json::Value {
     // Derived, not stored: the row predates the field, and the answer is a
     // function of `(type, sub_type)` alone, so replay and live stream agree

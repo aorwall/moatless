@@ -1,4 +1,5 @@
-//! The messages a sandbox takes off its queue, and the prompt it runs them with.
+//! The messages a sandbox takes off its queue, and the prompt it runs them
+//! with.
 
 use tonic::{Request, Response, Status};
 use tracing::{debug, info, warn};
@@ -378,7 +379,7 @@ pub(super) async fn acknowledge_messages(
 
 /// Queue a user message the sandbox wrote for its own Task.
 ///
-/// The row is what makes the turn visible to the conversation and to
+/// The row makes the turn visible to the conversation and to
 /// `find_interrupted_turn`; waking the agent handle alone leaves none.
 pub(super) async fn enqueue_sandbox_message(
     service: &BackendSandboxServiceImpl,
@@ -418,8 +419,8 @@ pub(super) async fn enqueue_sandbox_message(
 
 /// Build and return the assembled append-system-prompt for a task.
 ///
-/// The sandbox calls this once per agent run, in `start_session`, and caches
-/// the result as the fallback for a later failure.
+/// Called once per agent run, in `start_session`; the sandbox caches the result
+/// as the fallback for a later failure.
 pub(super) async fn get_system_prompt(
     service: &BackendSandboxServiceImpl,
     request: Request<GetSystemPromptRequest>,

@@ -1,9 +1,8 @@
 //! Build Docker container configuration from a `ProvisionPlan`.
 //!
-//! Generates a `bollard::container::Config` with all the env vars,
-//! labels, bind mounts, port mappings, and networking required for
-//! a sandbox container running as a sibling container on a shared
-//! Docker network.
+//! Generates a `bollard::container::Config` with all the env vars, labels, bind
+//! mounts, port mappings, and networking required for a sandbox container
+//! running as a sibling container on a shared Docker network.
 
 use std::collections::HashMap;
 
@@ -28,16 +27,11 @@ pub(crate) const SERVICE_LABEL: &str = "moatless.service";
 pub(crate) const SANDBOX_SERVICE: &str = "sandbox";
 pub(crate) const SERVER_SERVICE: &str = "server";
 
-/// Build a complete `bollard::container::Config` for a sandbox container.
+/// Resolve the sandbox image for a plan: per-repo override → default docker
+/// image.
 ///
-/// The sandbox container runs all servers inside it (unlike K8s which uses
-/// sidecar containers). Environment variables tell the sandbox binary how
-/// to start servers, clone the repo, and connect back to the backend.
-/// Resolve the sandbox image for a plan: per-repo override → default docker image.
-///
-/// An empty override string is treated as unset. This is the single source of
-/// truth for the "expected" image, so the start path can diff it against the
-/// image baked into a stopped container.
+/// An empty override string is treated as unset. The start path diffs this
+/// against the image baked into a stopped container.
 pub fn resolve_sandbox_image(config: &Config, plan: &ProvisionPlan) -> String {
     plan.repo_config
         .docker_image
@@ -292,16 +286,10 @@ fn build_repo_config_json(plan: &ProvisionPlan) -> Option<String> {
 
 /// Validate a server's configuration before we try to launch it.
 ///
-/// Server containers reuse the sandbox image by default, whose ENTRYPOINT
-/// runs the sandbox binary — useless for a server. So when no per-server
-/// `docker_image` is set, we require `start_commands` to override the
-/// entrypoint. If a custom `docker_image` is set, we trust it has its own
-/// usable CMD.
-///
-/// A server also needs a port: the container publishes one, so a server that
-/// reached the provider without an allocated port cannot be launched.
-///
-/// Returns the validated port, or a human-readable message on failure.
+/// Requires `start_commands` unless a custom `docker_image` is set (trusted to
+/// have its own CMD) — the sandbox image's default ENTRYPOINT just runs the
+/// sandbox binary. Also requires an allocated port, since the container
+/// publishes one.
 pub(super) fn validate_server_config(server: &ServerConfig) -> Result<u16, String> {
     let has_start_commands = !server.start_commands.is_empty();
     let has_per_server_image = server.docker_image.is_some();
@@ -325,9 +313,8 @@ pub(super) fn validate_server_config(server: &ServerConfig) -> Result<u16, Strin
 
 /// Build a `bollard::container::Config` for a server sidecar container.
 ///
-/// Mirrors the K8s `build_server_containers()` pattern: each server config
-/// produces a container that waits for the `.workspace-ready` sentinel,
-/// then runs the start commands.
+/// Mirrors the K8s `build_server_containers()` pattern: waits for the
+/// `.workspace-ready` sentinel, then runs the start commands.
 pub fn build_server_container_config(
     config: &Config,
     task_id: &str,

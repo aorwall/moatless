@@ -8,20 +8,13 @@
 )]
 //! What the `linear` webhook metric says, row by row.
 //!
-//! Every assertion below pins one row of the route's outcome-to-metric
-//! mapping, so a change to which reason a delivery meters under shows up
-//! here and nowhere else.
+//! Pins the route's outcome-to-metric mapping: eight benign rejections meter
+//! `ignored` under one of the seven reasons Decision 4 names, rather than
+//! `success` (D1); the three error rows carry the `event_type` they need,
+//! except the one delivery with none to carry (D2).
 //!
-//! Eight benign rejections meter `ignored`, with one of the seven reasons
-//! Decision 4 names, rather than `success` — the dashboard must be able to
-//! tell "arrived and admitted" apart from "arrived and dropped" (D1). The
-//! three error rows carry the `event_type` they need (D2), except the one
-//! delivery that has no event type to carry.
-//!
-//! Observed at the real route, because the metric is emitted by the route: the
-//! outcome depends on which `IngressError` variant reached it, and that
-//! mapping is precisely what a unit test below the route cannot see. What each
-//! reason *means* is asserted one level down, in `linear_ingress_test.rs`.
+//! Observed at the real route, since only it sees which `IngressError` variant
+//! produced the outcome; reason semantics live in `linear_ingress_test.rs`.
 
 use crate::common;
 
@@ -54,10 +47,8 @@ type HmacSha256 = Hmac<Sha256>;
 
 /// A replica whose Linear clients point at an address nothing listens on.
 ///
-/// The created-session path posts a heartbeat activity before it answers, and
-/// that call must not leave the machine. Pointing it at a dead port also makes
-/// the point the metric assertions rest on: the outcome label does not depend
-/// on whether Linear answered, because the heartbeat is best-effort.
+/// The best-effort heartbeat call therefore cannot leave the machine, and the
+/// outcome label never depends on whether Linear answered.
 fn replica(pool: &PgPool) -> AppState {
     let mut config = test_config();
     config.linear = linear_config(
@@ -151,8 +142,8 @@ fn row(outcome: &str, reason: &str, event_type: &str, loop_id: &str, connection_
     }
 }
 
-/// Run `f` against a thread-local recorder and return every webhook-counter row
-/// it produced.
+/// Runs `f` against a thread-local recorder and returns every webhook-counter
+/// row it produced.
 ///
 /// `sqlx::test` drives the body on a current-thread runtime, so awaiting inside
 /// the guard stays on the thread the recorder is installed for.
@@ -262,8 +253,7 @@ fn session_envelope(action: &str) -> serde_json::Value {
 /// The one row that means what it says: a signed delivery on a known
 /// organization, admitted, acknowledged.
 ///
-/// It is also the row every `success` below is indistinguishable from, which is
-/// the whole of D1.
+/// Every `success` below is indistinguishable from this row — the whole of D1.
 #[sqlx::test]
 async fn an_admitted_delivery_is_success_with_its_event_type(pool: PgPool) {
     let state = replica(&pool);
@@ -298,8 +288,8 @@ async fn an_unsigned_delivery_is_ignored_as_no_signature(pool: PgPool) {
     );
 }
 
-/// An organization with no `adapter_connections` row. Resolution misses
-/// and the delivery is dropped.
+/// An organization with no `adapter_connections` row. Resolution misses and the
+/// delivery is dropped.
 #[sqlx::test]
 async fn an_unknown_organization_is_ignored_as_no_connection(pool: PgPool) {
     let state = replica(&pool);
@@ -397,15 +387,12 @@ async fn an_unsupported_session_action_is_ignored_as_unsupported_action(pool: Pg
     );
 }
 
-/// A created session on a team with no active Subscription. The heartbeat is
-/// attempted and nothing durable is written.
+/// A created session on a team with no active Subscription: the heartbeat is
+/// attempted but nothing durable is written.
 ///
-/// The session closing on the drop is asserted where it is observable — the
-/// `AgentSessionEvent.created` budget in `linear_workflow_test.rs`, which
-/// spends its one `agentActivityCreate` with a rule (the heartbeat) and without
-/// one (a terminal `error` that closes the panel). Open question 2 in the plan
-/// is about whether the drop should also become durable; `no_subscription` is
-/// the interim answer, and it is this row.
+/// Session-closing behavior is asserted in `linear_workflow_test.rs`;
+/// `no_subscription` is the interim answer to open question 2 (whether the drop
+/// should become durable).
 #[sqlx::test]
 async fn a_created_session_with_no_rule_is_ignored_as_no_subscription(pool: PgPool) {
     let state = replica(&pool);
@@ -456,11 +443,11 @@ async fn an_empty_prompt_body_is_ignored_as_empty_body(pool: PgPool) {
 // The three error rows, and the `event_type` they now carry (D2)
 // =========================================================================
 
-/// A delivery whose signature does not verify. Acknowledged — no redelivery of
-/// the same body will ever verify — but metered as an error.
+/// A delivery whose signature does not verify: acknowledged (redelivery of the
+/// same body would never verify) but metered as an error.
 ///
-/// The `event_type` label carries the type the envelope already parsed, so
-/// the one metric that fires when something breaks does not go out empty.
+/// The `event_type` label still carries the type the envelope already parsed,
+/// so the error metric never goes out empty.
 #[sqlx::test]
 async fn a_bad_signature_is_error_delivery_failed_with_its_event_type(pool: PgPool) {
     let state = replica(&pool);
@@ -506,13 +493,12 @@ async fn an_unparseable_envelope_is_error_delivery_failed(pool: PgPool) {
     assert_eq!(rows, vec![row("error", "delivery_failed", "", "", "")]);
 }
 
-/// An `Issue.update` with no `webhookTimestamp`. The delivery carries work but
-/// no field that tells that work apart from the next update to the same issue,
-/// so it is refused with a `400` rather than admitted under a colliding
-/// identity — and metered as `unidentifiable`.
+/// An `Issue.update` with no `webhookTimestamp` is refused with a `400` and
+/// metered as `unidentifiable`, not admitted under a colliding identity.
 ///
-/// The `400` is the contract: a refusal the sender can see, rather than a
-/// silent collision that loses the *next* delivery.
+/// It carries no field distinguishing it from the next update to the same
+/// issue; the `400` is a visible refusal, not a silent collision that loses
+/// that next delivery.
 #[sqlx::test]
 async fn a_delivery_with_no_identity_is_error_unidentifiable_and_a_400(pool: PgPool) {
     let state = replica(&pool);
@@ -538,8 +524,8 @@ async fn a_delivery_with_no_identity_is_error_unidentifiable_and_a_400(pool: PgP
     assert_eq!(admitted, 0, "a refused delivery writes nothing");
 }
 
-/// The same issue update *with* its timestamp is admitted and metered
-/// `success` — so the row above is about the missing field, not about issues.
+/// The same issue update *with* its timestamp is admitted and metered `success`
+/// — so the row above is about the missing field, not about issues.
 #[sqlx::test]
 async fn an_identified_issue_update_is_success(pool: PgPool) {
     let state = replica(&pool);
@@ -551,13 +537,12 @@ async fn an_identified_issue_update_is_success(pool: PgPool) {
     assert_eq!(rows, vec![row("success", "", "Issue", "", "")]);
 }
 
-/// Every row this route can emit sets `loop_id` and `connection_id` to the
-/// empty string, on every outcome.
+/// Every row this route emits sets `loop_id` and `connection_id` to the empty
+/// string.
 ///
-/// Asserted once, on purpose: the two labels are on the metric's signature and
-/// nothing fills them, so a stage that starts filling one changes the metric's
-/// cardinality. That is a decision, and it should fail a test rather than
-/// appear in a dashboard.
+/// Asserted once on purpose: both labels are on the metric's signature but
+/// nothing fills them, so a stage that starts filling one changes cardinality —
+/// a decision that should fail a test, not surface first in a dashboard.
 #[sqlx::test]
 async fn no_row_carries_a_trigger_or_connection_label(pool: PgPool) {
     let state = replica(&pool);

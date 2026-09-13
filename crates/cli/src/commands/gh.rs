@@ -1,22 +1,11 @@
 //! `moat gh` — GitHub proxy for sandbox agents.
 //!
-//! The mutations needing backend side effects (task↔PR binding, the
-//! `Moatless task:` footer, webhook echo dedup) route through the typed
-//! `/api/v1/github/*` endpoints: `pr create`, `pr comment`, `issue comment`,
-//! `pr reply` (moat-only), and `stack`, which runs the official extension with
-//! the sandbox's token and binds the stack's PRs afterwards.
-//!
-//! `gh api` stays a passthrough — its surface is too wide to type — but a POST
-//! creating a review comment, a review or an issue comment has its response
-//! captured and the id recorded through `/api/v1/github/external-events`. Those
-//! three carry no footer and pass no proxy, so without the record the webhook
-//! echoing them back reaches the task as somebody else's edit.
-//!
-//! Everything else passes through verbatim, including an intercepted subcommand
-//! carrying flags the typed parser does not understand. That fall-through is a
-//! demotion — the call succeeds and prints a URL while the binding, footer and
-//! dedup are gone — so `warn_on_demotion` announces it on stderr. A typed-path
-//! API failure is an error and never falls back, to avoid double-posting.
+//! Typed subcommands (`pr create`/`comment`/`reply`, `stack`) route through
+//! `/api/v1/github/*` for task↔PR binding, the `Moatless task:` footer, and
+//! webhook dedup. `gh api` passes through, except a POST creating a
+//! review/issue comment records its id via `/api/v1/github/external-events`. An
+//! unmodeled flag silently demotes a typed call to passthrough (warned via
+//! `warn_on_demotion`); a typed-path failure always errors, never falls back.
 
 use clap::Parser;
 use moatless_api_schemas::github::{
@@ -59,8 +48,8 @@ struct PrCreateArgs {
     /// Task to bind the PR to (defaults to `$TASK_ID`).
     #[arg(long = "task")]
     task: Option<String>,
-    /// Output raw JSON. (The global `--json` lands here when written after
-    /// `gh` because of trailing-var-arg capture.)
+    /// Output raw JSON. (The global `--json` lands here when written after `gh`
+    /// because of trailing-var-arg capture.)
     #[arg(long)]
     json: bool,
 }
@@ -83,8 +72,8 @@ struct CommentArgs {
     /// Task to bind / dedup against (defaults to `$TASK_ID`).
     #[arg(long = "task")]
     task: Option<String>,
-    /// Output raw JSON. (The global `--json` lands here when written after
-    /// `gh` because of trailing-var-arg capture.)
+    /// Output raw JSON. (The global `--json` lands here when written after `gh`
+    /// because of trailing-var-arg capture.)
     #[arg(long)]
     json: bool,
 }
@@ -110,8 +99,8 @@ struct ReplyArgs {
     /// Task to bind / dedup against (defaults to `$TASK_ID`).
     #[arg(long = "task")]
     task: Option<String>,
-    /// Output raw JSON. (The global `--json` lands here when written after
-    /// `gh` because of trailing-var-arg capture.)
+    /// Output raw JSON. (The global `--json` lands here when written after `gh`
+    /// because of trailing-var-arg capture.)
     #[arg(long)]
     json: bool,
 }
@@ -177,18 +166,11 @@ fn command_status(code: i32) -> Result<(), Box<dyn std::error::Error>> {
     }
 }
 
-/// Classify the invocation: a successfully parsed `pr create` / `pr comment`
-/// / `issue comment` is handled by the typed path; anything else (including
-/// those three with unrecognized flags) returns `None` → passthrough.
+/// Classify the invocation: a successfully parsed typed subcommand goes down
+/// the typed path; anything else returns `None` → passthrough, silently
+/// dropping task binding, footer, and dedup.
 ///
-/// Falling through is deliberate — an agent is never stuck on a flag we do not
-/// model — but for these three it is a demotion, not a passthrough: the call
-/// still succeeds and still prints a URL, while the task binding, the
-/// `Moatless task:` footer and webhook echo dedup are all silently gone. That
-/// is not theoretical. A release agent ran `moat gh pr create … --body-file`,
-/// got a PR URL and exit 0, and the PR was never connected to its task; the
-/// comments it posted in the same run were, because `--body` happened to be
-/// modelled. So say so on stderr rather than letting exit 0 speak for it.
+/// `warn_on_demotion` reports that loss on stderr.
 fn parse_typed(args: &[String]) -> Option<TypedInvocation> {
     let first = args.first()?.as_str();
     let second = args.get(1)?.as_str();
@@ -212,8 +194,8 @@ fn parse_typed(args: &[String]) -> Option<TypedInvocation> {
 
 /// Unwrap a typed parse, and name what the demotion costs when it failed.
 ///
-/// `--help` and `--version` are not demotions: clap reports them as errors but
-/// the user asked for text, and real `gh` prints better text than we would.
+/// `--help`/`--version` are not demotions: clap reports them as errors, but
+/// real `gh` prints better text than we would.
 fn warn_on_demotion<T>(subcommand: &str, parsed: Result<T, clap::Error>) -> Option<T> {
     match parsed {
         Ok(v) => Some(v),
@@ -491,14 +473,10 @@ fn env_github_token_is_set() -> bool {
 
 /// Pick the token to hand `gh`, or `None` to let `gh` resolve its own.
 ///
-/// With the broker present the credential helper wins over `GH_TOKEN`: inside a
-/// sandbox that variable and `hosts.yml` are snapshots taken at provision, and
-/// both 401 once the installation token behind them expires, while the helper
-/// mints a fresh one per call. Off the broker an exported `GH_TOKEN` is a
-/// deliberate override and keeps precedence.
-///
-/// `None` leaves `gh` to resolve its own token, so a failed credential read
-/// still reaches the ambient `GH_TOKEN` rather than going unauthenticated.
+/// With the broker present the credential helper wins over `GH_TOKEN`, which is
+/// a provision-time snapshot that 401s once its installation token expires
+/// while the helper mints a fresh one per call. Off the broker an exported
+/// `GH_TOKEN` keeps precedence.
 fn resolve_gh_token(
     broker_present: bool,
     env_token_set: bool,
@@ -737,9 +715,9 @@ fn non_empty_task_id(task_id: Option<String>) -> Option<String> {
 
 /// Resolve `(owner, repo)` from an explicit `-R` value or the cwd git repo.
 ///
-/// `moat repos clone <repository_id>` leaves the backend's `/git/{id}` path as
-/// `origin`, which names no owner. The id is read back through the API, and the
-/// row's own `remote_url` answers.
+/// `moat repos clone <repository_id>` leaves `origin` as the backend's
+/// `/git/{id}` path, which names no owner, so the id is read back through the
+/// API instead.
 async fn resolve_repo(
     client: &MoatClient,
     flag: Option<&str>,
@@ -781,12 +759,9 @@ async fn proxied_repo(
 
 /// The `owner/repo` to hand a spawned `gh` as `GH_REPO`.
 ///
-/// `gh` reads `origin` for itself, and a proxied origin names no owner, so
-/// every repository-scoped subcommand fails in such a checkout without this.
-/// Returns `None` for an ordinary remote, for a caller that set `GH_REPO`, and
-/// for a proxied row on another git host, which `moat gh` does not serve. Only a
-/// failed read is announced, because a Forgejo checkout reaches here on every
-/// invocation and has nothing to fix.
+/// `gh` reads `origin` itself, and a proxied origin names no owner, so
+/// repo-scoped subcommands fail without this; only a failed read is announced,
+/// since a Forgejo checkout hits that on every invocation.
 async fn proxied_gh_repo(client: &MoatClient) -> Option<String> {
     if std::env::var_os("GH_REPO").is_some() {
         return None;
@@ -868,9 +843,8 @@ fn git_stdout(args: &[&str]) -> Result<String, String> {
 
 /// What a raw `gh api` POST creates, and where.
 ///
-/// These three endpoints are the posting shapes that carry no footer and go
-/// through neither the typed proxy nor a `gh` subcommand, so nothing else in
-/// the system can recognise them as the task's own work.
+/// Carries no footer and bypasses the typed proxy, so nothing else here
+/// recognises it as the task's own work.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ApiCreation {
     owner: String,
@@ -913,15 +887,9 @@ impl ApiCreated {
 
 /// Run `gh api …`, and record what a recognised POST created.
 ///
-/// A call this does not recognise as one of the three creating POSTs runs as a
-/// plain passthrough with inherited stdio, so an unrecognised shape costs
-/// nothing — not even the buffering.
-///
-/// For a recognised one, stdout is captured so the created id can be read out
-/// of the response and then written through unchanged. That is the whole reason
-/// the record belongs here rather than in a later transcript scan: the response
-/// is already in hand, synchronously, before the webhook it will produce can
-/// arrive.
+/// An unrecognised call passes through with inherited stdio at no extra cost; a
+/// recognised one captures stdout to read the created id before writing it
+/// through unchanged.
 async fn run_api(
     client: &MoatClient,
     cfg: &Config,
@@ -994,12 +962,9 @@ async fn record_event(
 
 /// The ids of the inline comments a submitted review created.
 ///
-/// GitHub delivers each one as its own `pull_request_review_comment` webhook
-/// under its own id, which the review id recognises as nothing, so each needs a
-/// record of its own. The POST response carries the review alone, so the ids
-/// are read back from the endpoint that lists them. A failure here yields none:
-/// the review is already recorded, and an unrecorded comment costs one wasted
-/// turn rather than suppressing somebody else's event.
+/// Each arrives as its own webhook under its own id, unrecognised by the review
+/// id, so the ids are read back from the endpoint that lists them; a failure
+/// yields none since the review is already recorded.
 fn review_comment_ids(created: &ApiCreation, review_id: u64, token: Option<&str>) -> Vec<u64> {
     // `--slurp` is what makes the body parseable: `--paginate` alone prints one
     // JSON array per page, and two pages concatenated parse as nothing.
@@ -1040,13 +1005,12 @@ fn ids_in_comment_list(body: &[u8]) -> Vec<u64> {
         .collect()
 }
 
-/// Detect a `gh api` argument list that creates a review comment, a review or
+/// Detect a `gh api` argument list that creates a review comment, a review, or
 /// an issue comment, and name what it creates.
 ///
-/// The target is the endpoint path, which can sit anywhere among the flags, so
-/// it is recognised by its own shape rather than by position. The call must be
-/// a POST: `gh api` defaults to GET, and a read of the same endpoint must never
-/// record somebody else's comment.
+/// Recognised by endpoint shape wherever it sits among the flags; the call must
+/// be a POST, since a GET of the same endpoint must never record somebody
+/// else's comment.
 fn parse_api_creation(args: &[String]) -> Option<ApiCreation> {
     if !api_posts(args) {
         return None;
@@ -1056,8 +1020,8 @@ fn parse_api_creation(args: &[String]) -> Option<ApiCreation> {
 
 /// Whether a `gh api` argument list issues a POST.
 ///
-/// `gh api` sends GET unless the call carries a body (`-f` / `-F` /
-/// `--input`), and an explicit `--method` / `-X` overrides either way.
+/// `gh api` sends GET unless the call carries a body (`-f`/`-F`/`--input`); an
+/// explicit `--method`/`-X` overrides either way.
 fn api_posts(args: &[String]) -> bool {
     let mut explicit: Option<String> = None;
     let mut has_body = false;
@@ -1091,10 +1055,9 @@ fn api_posts(args: &[String]) -> bool {
 /// Decompose a `gh api` endpoint argument into the repository it targets and
 /// the kind of event a POST to it creates.
 ///
-/// Accepts the bare (`repos/o/r/…`), rooted (`/repos/o/r/…`) and absolute
-/// (`https://api.github.com/repos/o/r/…`) spellings, and ignores a query
-/// string. Any other endpoint — a read, an unrelated resource, or a deeper
-/// path such as `…/comments/{id}/replies` — returns `None`.
+/// Accepts bare, rooted, and absolute (`https://api.github.com/...`) spellings,
+/// ignoring any query string; a deeper path like `.../comments/{id}/replies`
+/// returns `None`.
 fn parse_api_endpoint(arg: &str) -> Option<ApiCreation> {
     let path = arg
         .strip_prefix("https://api.github.com/")
@@ -1134,12 +1097,10 @@ fn parse_api_endpoint(arg: &str) -> Option<ApiCreation> {
 
 /// The id GitHub gave the object the call created.
 ///
-/// Read out of the response two ways: the `id` field of a JSON object body, and
-/// failing that the anchor in the object's `html_url` — `#discussion_r…`,
-/// `#pullrequestreview-…` or `#issuecomment-…` — which survives output the JSON
-/// parse cannot take. Both read the id *back out of the response*: an id
-/// reconstructed from the request would be a guess, and a wrong record silently
-/// suppresses somebody else's event.
+/// Read from the response's `id` field, or failing that the anchor in its
+/// `html_url` — both read the id back out of the response, since one
+/// reconstructed from the request would risk silently recording somebody else's
+/// event.
 fn parse_created_id(text: &str, kind: ApiCreated) -> Option<u64> {
     if let Ok(serde_json::Value::Object(body)) =
         serde_json::from_str::<serde_json::Value>(text.trim())

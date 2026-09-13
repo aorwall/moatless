@@ -93,14 +93,15 @@ pub(super) struct NormalizeContext<'a> {
 
 impl NormalizeContext<'_> {
     /// The pull request an event in this delivery happened on. Every id and
-    /// subject key built here names the repository, so a number is never on
-    /// its own.
+    /// subject key built here names the repository, so a number is never on its
+    /// own.
     fn subject(&self, pr_number: u64) -> GithubPrSubject {
         GithubPrSubject::new(self.owner, self.repo, pr_number)
     }
 }
 
-/// Normalize one GitHub webhook without persistence, API calls, admission, or routing.
+/// Normalize one GitHub webhook without persistence, API calls, admission, or
+/// routing.
 pub(super) async fn normalize(
     event_type: &str,
     payload: &serde_json::Value,
@@ -551,10 +552,11 @@ async fn normalize_review(
     )))
 }
 
-/// Conclusions worth waking a task for. `cancelled` is deliberately absent: a
-/// cancelled job is usually collateral — a concurrency group superseding the run
-/// after a new push, or a sibling job failing first — so it says nothing the task
-/// can act on, and one superseded run fires one of these per job.
+/// Conclusions worth waking a task for.
+///
+/// `cancelled` is deliberately absent: it's usually collateral (a concurrency
+/// group superseding the run, a sibling job failing first) and says nothing the
+/// task can act on.
 const CHECK_RUN_FAILURE_CONCLUSIONS: &[&str] = &["failure", "timed_out", "action_required"];
 const CHECK_RUN_SUMMARY_MAX_LEN: usize = 2000;
 

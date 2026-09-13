@@ -5,18 +5,18 @@
 //! 1. Single roundtrip — AgentMessageDelta + TurnCompleted, thread_id non-empty.
 //! 2. Multi-turn via CodexClient — turn 2 recalls a phrase from turn 1.
 //! 3. Resume session — persistent thread (ephemeral=false), shutdown, then
-//!    resume_thread_id recalls the secret word.
+//! resume_thread_id recalls the secret word.
 //!
 //! Unlike `claude-agent-sdk`'s smoke (which asserts a pinned CLI version on
-//! PATH), codex-sdk has no runtime binary to interrogate — it embeds the
-//! Codex runtime via Rust path dependencies pinned in `Cargo.lock`. Drift
-//! is caught at compile time, not runtime.
+//! PATH), codex-sdk has no runtime binary to interrogate — it embeds the Codex
+//! runtime via Rust path dependencies pinned in `Cargo.lock`. Drift is caught
+//! at compile time, not runtime.
 //!
 //! Gated on CODEX_SDK_E2E=1. Run from the codex-sdk crate root (standalone
 //! workspace; does not participate in the parent moatless workspace):
 //!
-//!   cd crates/codex-sdk
-//!   CODEX_SDK_E2E=1 cargo test --test smoke -- --ignored --nocapture
+//! cd crates/codex-sdk CODEX_SDK_E2E=1 cargo test --test smoke -- --ignored
+//! --nocapture
 
 use std::time::Duration;
 

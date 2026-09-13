@@ -61,9 +61,8 @@ pub(in crate::auth) async fn create_api_key_handler(
 
 /// Mint a one-time code that pairs a client on another device to this account.
 ///
-/// The code is the bootstrap half of pairing: the client exchanges it once, at
-/// `POST /oauth/token`, for the API key it then keeps. It is readable in this
-/// response and nowhere afterwards.
+/// The client exchanges it once, at `POST /oauth/token`, for the API key it
+/// keeps; readable in this response and nowhere afterwards.
 #[utoipa::path(
     post,
     path = "/api/v1/auth/pairing-codes",

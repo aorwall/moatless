@@ -1,15 +1,12 @@
 //! [`WorkspaceSyncPort`] over the sandbox gRPC client.
 //!
-//! The sandbox's workspace lives on a volume only the sandbox can read, and on
-//! `stop`/`remove` that volume is about to be scaled away or deleted. Lifecycle
-//! asks for a push to S3 at that moment — the last point where the live copy and
-//! a process that can read it both exist.
+//! On `stop`/`remove` the sandbox's volume is about to be scaled away or
+//! deleted, so lifecycle asks for a push to S3 at the last point where the live
+//! copy and a process that can read it both exist.
 //!
-//! Best-effort, like `agent_stop`: a sandbox that cannot answer must not hold the
-//! transition open. The push is bounded by [`SYNC_TIMEOUT`] because the caller is
-//! on the stop path; the sandbox itself skips the transfer when nothing changed
-//! since its last upload, so the usual case costs a round trip and a fingerprint
-//! walk, not a tar.
+//! Best-effort, like `agent_stop`, and bounded by [`SYNC_TIMEOUT`]; the sandbox
+//! itself skips the transfer when nothing changed, so the usual case costs a
+//! round trip and a fingerprint walk, not a tar.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -22,11 +19,9 @@ use super::orchestrator::WorkspaceSyncPort;
 
 /// Deadline for the pre-stop push.
 ///
-/// Sized for a real transfer of a source tree, not for the fingerprint check
-/// that usually answers it. Two minutes is well beyond the pod's own 30s
-/// termination grace — this runs *before* the runtime effect, so it is not
-/// competing with the drain, and a stop that waits a little is better than one
-/// that abandons a workspace mid-upload.
+/// Sized for a real transfer, not just the fingerprint check that usually
+/// answers it; well beyond the pod's own 30s termination grace, since this runs
+/// before the runtime effect and is not competing with the drain.
 const SYNC_TIMEOUT: Duration = Duration::from_mins(2);
 
 /// Issues `SyncWorkspace` over the sandbox gRPC client.

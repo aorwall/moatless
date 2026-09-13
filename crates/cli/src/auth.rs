@@ -43,9 +43,10 @@ pub async fn ensure_session_sandbox(
 }
 
 /// Drop the cached sandbox session so the next invocation re-exchanges the
-/// (refreshed) user token. Called when a request is rejected as unauthorized:
-/// the on-disk session may be stale — expired or rotated — and replaying it
-/// would keep the CLI wedged in a 401 loop. A no-op outside sandbox mode.
+/// (refreshed) user token.
+///
+/// Called on a 401 — replaying a stale session would wedge the CLI in a loop.
+/// No-op outside sandbox mode.
 pub fn invalidate_session(config: &Config) {
     if matches!(config.auth_mode, AuthMode::Sandbox { .. }) {
         let _ = std::fs::remove_file(&config.session_file);
@@ -71,10 +72,9 @@ fn load_session(path: &str) -> Option<String> {
 
 /// Top-level login entry point.
 ///
-/// Asks `{url}/api/v1/auth/mode` which flow the server runs, then either
-/// prompts for a username/password or opens the browser for OAuth.
-///
-/// If `url_override` is `None`, uses the URL from `config` (env-resolved).
+/// Asks `{url}/api/v1/auth/mode` which flow the server runs, then prompts for a
+/// password or opens the browser for OAuth; falls back to `config`'s
+/// (env-resolved) URL when `url_override` is `None`.
 pub async fn login(config: &Config, url_override: Option<String>) -> Result<(), ClientError> {
     let url = url_override
         .unwrap_or_else(|| config.api_url.clone())
@@ -95,7 +95,7 @@ enum ProbedAuthMode {
 
 /// Ask the server which login flow it runs.
 ///
-/// Fails closed to the browser flow: an older server without `/auth/mode`
+/// Fails closed to the browser/OAuth flow: an older server lacking `/auth/mode`
 /// returns 404, and OAuth is the only thing it can do.
 async fn probe_auth_mode(url: &str) -> ProbedAuthMode {
     let Ok(http) = reqwest::Client::builder()
@@ -118,11 +118,9 @@ async fn probe_auth_mode(url: &str) -> ProbedAuthMode {
 
 /// Email/password login.
 ///
-/// Composes two existing endpoints — no server-side CLI flow needed:
-/// 1. `POST /api/v1/auth/password/login` → session cookie
-/// 2. `POST /api/v1/auth/api-keys` with that cookie → an `mvk_` key
-///
-/// Only the key is persisted; the password never touches disk.
+/// Composes two existing endpoints — no server-side CLI flow needed: password
+/// login for a session cookie, then that cookie mints an `mvk_` API key. Only
+/// the key is persisted; the password never touches disk.
 async fn login_password(url: &str) -> Result<(), ClientError> {
     let email =
         match std::env::var("MOATLESS_EMAIL").or_else(|_| std::env::var("MOATLESS_USERNAME")) {
@@ -230,10 +228,9 @@ fn extract_session_cookie(resp: &reqwest::Response) -> Option<String> {
 
 /// Browser-based login for standalone CLI usage.
 ///
-/// 1. Bind a one-shot HTTP server on a random port
-/// 2. Open browser to `{api_url}/api/v1/auth/cli/login?port={port}`
-/// 3. Wait for callback with API key
-/// 4. Save credentials to disk
+/// Binds a one-shot local HTTP server, opens the browser to
+/// `{api_url}/api/v1/auth/cli/login?port={port}`, and waits for the callback
+/// carrying the API key.
 async fn login_browser(api_url: &str) -> Result<(), ClientError> {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
@@ -355,8 +352,8 @@ fn parse_callback_request(request: &str) -> Result<(String, String), ClientError
 // Ensure auth: dispatcher for both modes
 // ============================================================================
 
-/// Ensure we have valid auth. In sandbox mode, exchanges token for session.
-/// In standalone mode, checks for API key and prompts login if missing.
+/// Ensure we have valid auth. In sandbox mode, exchanges token for session. In
+/// standalone mode, checks for API key and prompts login if missing.
 pub async fn ensure_auth(client: &mut MoatClient, config: &Config) -> Result<(), ClientError> {
     match &config.auth_mode {
         AuthMode::Sandbox { .. } => ensure_session_sandbox(client, config).await,

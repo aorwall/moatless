@@ -1,8 +1,8 @@
 //! Kubernetes Deployment lifecycle operations for sandboxes.
 //!
 //! Wraps pod specs (built by `pod_builder`) in Deployments for automatic
-//! restart, stop (scale to 0), and start (scale to 1) without needing
-//! the full `ProvisionPlan`.
+//! restart, stop (scale to 0), and start (scale to 1) without needing the full
+//! `ProvisionPlan`.
 
 use k8s_openapi::api::apps::v1::Deployment;
 use k8s_openapi::api::core::v1::Pod;
@@ -23,10 +23,9 @@ use moatless_sandbox_runtime::provisioning::ProvisionRequest;
 
 /// Name + UID of a created (or reused) Deployment.
 ///
-/// The `uid` is used to build `ownerReferences` on the Service and `IngressRoutes`
-/// so K8s garbage collection cascades their deletion when the Deployment is
-/// deleted. It is `None` only when a reused (409) Deployment couldn't be
-/// re-fetched — callers then simply skip owner-referencing (best effort).
+/// The `uid` builds `ownerReferences` on the Service and `IngressRoutes` so K8s
+/// garbage-collects them with the Deployment; `None` only when a reused (409)
+/// Deployment couldn't be re-fetched, so owner-referencing is skipped.
 pub struct DeploymentHandle {
     pub name: String,
     pub uid: Option<String>,
@@ -34,8 +33,8 @@ pub struct DeploymentHandle {
 
 /// Build the Deployment object wrapping the given Pod spec.
 ///
-/// Extracts the pod's `.spec` and wraps it as the Deployment's pod template.
-/// Labels are preserved so the Service selector (`moatless.io/task-id`) still matches.
+/// Extracts the pod's `.spec` as the Deployment's pod template; labels are
+/// preserved so the Service selector (`moatless.io/task-id`) still matches.
 pub fn build_deployment_object(
     namespace: &str,
     task_id: &str,
@@ -119,8 +118,8 @@ pub fn build_deployment_object(
 
 /// Create a Deployment wrapping the given Pod spec.
 ///
-/// Returns the deployment name + UID on success. An already-existing
-/// Deployment (409) is reused.
+/// Returns the deployment name + UID on success; an already-existing Deployment
+/// (409) is reused.
 pub async fn create_sandbox_deployment(
     k8s: &K8sClient,
     task_id: &str,
@@ -222,13 +221,11 @@ pub async fn stamp_operation_generation(
     Ok(())
 }
 
-/// Place a stopped/restarting node-backed sandbox on the node that owns its
-/// retained hostPath data, or clear any prior placement when `node_name` is
-/// `None`. The merge patch preserves the rest of the pod template.
+/// Place a stopped/restarting sandbox on the node owning its retained hostPath
+/// data, or clear placement when `node_name` is `None`.
 ///
-/// Clearing is load-bearing: a Deployment keeps the placement an earlier start
-/// wrote, so once its recorded nodes are gone the sandbox stays bound to a
-/// destroyed node and never schedules again.
+/// Clearing is load-bearing: without it, a Deployment keeps stale placement and
+/// the sandbox stays bound to a destroyed node, never scheduling again.
 pub async fn set_node_placement(
     k8s: &K8sClient,
     task_id: &str,
@@ -293,8 +290,8 @@ pub async fn delete_deployment(k8s: &K8sClient, task_id: &str) -> Result<(), kub
     }
 }
 
-/// Restart a Deployment gracefully: scale to 0, wait for the pod to fully
-/// terminate, then scale back to 1.
+/// Restart a Deployment gracefully: scale to 0, wait for full pod termination,
+/// then scale back to 1.
 ///
 /// Scaling to 0 first lets the `ReadWriteOnce` workspace PVC detach before the
 /// replacement pod is created.
@@ -320,21 +317,12 @@ pub async fn restart_deployment(
     Ok(())
 }
 
-/// Rebuild a task's Deployment from a (possibly filtered) provision request.
+/// Rebuild a task's Deployment in place (GET + PUT) from a (possibly filtered)
+/// provision request, preserving the Deployment UID that the Service and
+/// `IngressRoutes` own-reference.
 ///
-/// Replaces the Deployment's spec with a freshly built pod template. Removed
-/// server containers disappear from the running pod through this path.
-///
-/// The replace is done in place (GET + PUT). The Service and `IngressRoutes` carry
-/// an `ownerReference` to the Deployment, so the Deployment UID must be preserved
-/// to keep the sandbox reachable over gRPC and preview routes. The `Recreate`
-/// strategy still terminates the current pod and detaches the `ReadWriteOnce` PVC
-/// before scheduling the replacement.
-///
-/// `pvc_name` is resolved by the caller, which is the only party that knows
-/// whether this rebuild wants the task's PVC: an ordinary redeploy passes the
-/// existing claim so no data is lost, while the attach-failure fallback passes
-/// `None` to come back up on an emptyDir restored from S3.
+/// `pvc_name` distinguishes an ordinary redeploy (existing claim, no data loss)
+/// from the attach-failure fallback (`None`, emptyDir restored from S3).
 pub async fn redeploy_with_plan(
     k8s: &K8sClient,
     config: &Config,
@@ -388,12 +376,11 @@ pub async fn redeploy_with_plan(
     Ok(())
 }
 
-/// True when a pod can still hold volume attachments and so must be waited on
-/// before recreating its Deployment. Pods in a terminal phase
-/// (`Succeeded`/`Failed`) have no running containers and hold no attachments —
-/// notably, K8s never garbage-collects `Failed` pods (e.g. evicted for
-/// exceeding an emptyDir sizeLimit), so treating them as blocking would stall
-/// every subsequent start until the timeout.
+/// True when a pod may still hold volume attachments.
+///
+/// Terminal-phase pods (`Succeeded`/`Failed`) hold no attachments; K8s never
+/// garbage-collects `Failed` pods, so treating them as blocking would stall
+/// every start until timeout.
 fn pod_blocks_redeploy(pod: &Pod) -> bool {
     let phase = pod
         .status
@@ -403,15 +390,11 @@ fn pod_blocks_redeploy(pod: &Pod) -> bool {
     !matches!(phase, "Succeeded" | "Failed")
 }
 
-/// Poll until no non-terminal pods match the task's label selector, or the
-/// timeout elapses.
+/// Poll until no non-terminal pods match the task's label selector, or timeout.
 ///
-/// Returns an error on timeout: proceeding while a terminating pod still holds the
-/// `ReadWriteOnce` workspace PVC lets the replacement race the attachment and
-/// stall in Pending with a "Multi-Attach" error for minutes — the exact failure
-/// this wait exists to prevent. Callers surface it as an environment error
-/// rather than silently scheduling into the stall. A transient list error is
-/// still treated as best-effort (log and proceed), since it isn't the stall.
+/// Errors on timeout: a terminating pod holding the `ReadWriteOnce` PVC would
+/// otherwise let the replacement race the attach and stall in "Multi-Attach"
+/// for minutes; a transient list error is still best-effort (log and proceed).
 pub async fn wait_for_pods_deleted(k8s: &K8sClient, task_id: &str) -> Result<(), SandboxError> {
     wait_for_pods_deleted_inner(k8s, task_id, false).await
 }
@@ -579,7 +562,8 @@ pub async fn get_deployment_replicas(
     }
 }
 
-/// Extract the image of the `sandbox` container from a Deployment's pod template.
+/// Extract the image of the `sandbox` container from a Deployment's pod
+/// template.
 ///
 /// Returns `None` if the template, container list, or the `sandbox` container's
 /// image are absent.
@@ -841,8 +825,9 @@ mod tests {
     }
 
     /// Kubernetes accepts an in-place Deployment replace only when the name and
-    /// immutable `spec.selector` match the existing object. Both must therefore be
-    /// deterministic functions of the `task_id`, independent of the wrapped pod spec.
+    /// immutable `spec.selector` match the existing object. Both must therefore
+    /// be deterministic functions of the `task_id`, independent of the wrapped
+    /// pod spec.
     #[test]
     fn build_deployment_object_is_stable_across_pod_specs() {
         let dep =

@@ -1,7 +1,7 @@
 //! Message vocabulary: the derived, UI-only events the live Chat renders.
 //!
-//! These are assembled server-side and relayed to clients, never persisted
-//! to `task_events`.
+//! These are assembled server-side and relayed to clients, never persisted to
+//! `task_events`.
 
 use serde::{Deserialize, Serialize};
 
@@ -16,10 +16,11 @@ use serde::{Deserialize, Serialize};
 pub enum MessageSubType {
     Upsert,
     /// A subagent step advanced: carries the absolute `{ toolUseId,
-    /// messageCount, tokens, status }` summary for one `Agent` tool call. UI-only
-    /// — keeps the collapsed `Agent` card live without streaming transcript
-    /// content. Intentionally camelCase (not the crate's `snake_case` subtype
-    /// convention) so the wire value matches the frontend event contract.
+    /// messageCount, tokens, status }` summary for one `Agent` tool call —
+    /// keeps the card live without streaming transcript.
+    ///
+    /// Intentionally camelCase, not the crate's `snake_case` convention, so the
+    /// wire value matches the frontend event contract.
     #[serde(rename = "subagentProgress")]
     SubagentProgress,
 }

@@ -1,18 +1,10 @@
 //! Native Codex thread item → canonical Anthropic-shaped content block(s).
 //!
-//! The backend assembler and UI do not understand Codex's native item families,
-//! so a forwarded native block renders as nothing. Each family maps to the same
-//! `text` / `tool_use` / `tool_result` blocks the coordinator publishes, through
-//! the shared [`CanonicalContentBlock`] enum the Claude harness also normalizes
-//! into. Tool families expand to a `tool_use` plus, where the item carries
-//! output, a paired `tool_result` under one tool-use id.
-//!
-//! [`item_blocks`] distinguishes three outcomes: blocks, an empty list for a
-//! family deliberately dropped, and `None` for an unknown family — which the
-//! caller forwards as a raw block with bounded diagnostics, so an upstream
-//! addition is visible. The canonical vocabulary is `text` plus a fixed set of
-//! `codex.*` tool names; a status notice is dropped rather than rendered as
-//! invented assistant text or a fake tool call.
+//! The backend assembler and UI don't understand Codex's native item families,
+//! so a forwarded native block renders as nothing. Each family maps into the
+//! shared [`CanonicalContentBlock`] enum, which the Claude harness also
+//! normalizes into. Tool families expand to a `tool_use` plus, when the item
+//! carries output, a paired `tool_result` under one id.
 
 use crate::agent::harness::content::CanonicalContentBlock;
 use serde_json::{Value, json};
@@ -97,12 +89,9 @@ fn tool_call(
 
 /// The reasoning text, from whichever of the item's two lists carries it.
 ///
-/// `codex exec` reported a single `text`; this transport splits it into
-/// `summary` (the redacted reasoning summary) and `content` (the raw chain of
-/// thought). Every observation has the text in `summary` with `content` empty,
-/// so `summary` is what today's `text` was — but both are read, because an item
-/// with neither is also normal and must produce no block rather than an empty
-/// one.
+/// `summary` is redacted and `content` is the raw chain of thought; observed
+/// items always populate `summary`, but both are read since an item with
+/// neither is normal and must yield no block.
 fn reasoning_text(item: &ReasoningItem) -> Option<String> {
     let parts = if item.summary.is_empty() {
         &item.content
@@ -127,9 +116,9 @@ pub(super) fn plan_blocks(plan: &[TurnPlanStep], tool_use_id: &str) -> Vec<ItemB
 /// Map one native item into canonical blocks. `tool_use_id` is the item's
 /// qualified id, shared by a `tool_use` and its paired `tool_result`.
 ///
-/// Returns `None` for an unknown family, which the caller forwards as its raw
-/// native block with bounded diagnostics instead. An empty list means the family
-/// is known and deliberately renders nothing — see the module docs.
+/// Returns `None` for an unknown family (forwarded raw with bounded
+/// diagnostics) or an empty list when the family is known and deliberately
+/// renders nothing.
 pub(super) fn item_blocks(item: &ThreadItem, tool_use_id: &str) -> Option<Vec<ItemBlock>> {
     let blocks = match item {
         // Assistant text and model reasoning both render as assistant text.

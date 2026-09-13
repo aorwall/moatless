@@ -1,5 +1,6 @@
 #![cfg_attr(test, allow(clippy::expect_used, clippy::unwrap_used))]
-//! T3 wire compatibility over Moatless-owned operations and scoped read projections.
+//! T3 wire compatibility over Moatless-owned operations and scoped read
+//! projections.
 
 pub mod activity;
 pub(crate) mod activity_dao;

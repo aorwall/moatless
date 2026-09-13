@@ -13,7 +13,8 @@ pub struct AccessFilter {
 }
 
 impl AccessFilter {
-    /// The SQL WHERE clause fragment (e.g. `($1 OR visibility = 'public' OR ...)`).
+    /// The SQL WHERE clause fragment (e.g. `($1 OR visibility = 'public' OR
+    /// ...)`).
     pub fn sql(&self) -> &str {
         &self.sql
     }
@@ -24,16 +25,11 @@ impl AccessFilter {
     }
 }
 
-/// Build a read SQL filter for the given entity.
+/// Build a read SQL filter for the given entity, using 2 positional parameters
+/// from `start`: `is_admin` then `user_id`, bound from `ScopeContext`.
 ///
-/// Uses 2 positional parameters starting at `start`:
-///   - `$start`: `is_admin` (bool)
-///   - `$start+1`: `user_id` (text)
-///
-/// Caller must `.bind()` these from `ScopeContext::is_admin`, `ScopeContext::user_id`.
-///
-/// `prefix` is the table alias (e.g. `""` or `"t."`).
-/// The entity determines whether `visibility = 'public'` is included.
+/// `prefix` is the table alias (e.g. `"t."`); the entity decides whether
+/// `visibility = 'public'` is included.
 pub fn access_filter(entity: ScopedEntity, prefix: &str, start: usize) -> AccessFilter {
     let (p1, p2) = (start, start + 1);
     let vis = if has_visibility(entity) {
@@ -51,22 +47,12 @@ pub fn access_filter(entity: ScopedEntity, prefix: &str, start: usize) -> Access
     }
 }
 
-/// Build a write (mutation) SQL filter.
+/// Build a write (mutation) SQL filter, using 2 positional parameters from
+/// `start`: `is_admin` then `user_id`, bound from `ScopeContext`.
 ///
-/// Write is the strictest grant: global rows are admin-managed and task
-/// visibility never grants it, so the fragment is identical for every
-/// entity and this takes no [`ScopedEntity`].
-///
-/// Uses 2 positional parameters starting at `start`:
-///   - `$start`: `is_admin` (bool)
-///   - `$start+1`: `user_id` (text)
-///
-/// Caller must `.bind()` these from `ScopeContext::is_admin`, `ScopeContext::user_id`.
-/// `prefix` is the table alias (e.g. `""` or `"t."`).
-///
-/// Embedding this in a mutation's `WHERE` makes the check and the write a
-/// single atomic statement; `rows_affected == 0` maps to the module's
-/// `NotFound` error, matching the existence-hiding reads.
+/// Write is the strictest grant (identical for every entity, so this takes no
+/// [`ScopedEntity`]); embedding it in a mutation's `WHERE` makes check and
+/// write atomic, with `rows_affected == 0` mapping to `NotFound`.
 pub fn write_filter(prefix: &str, start: usize) -> AccessFilter {
     let (p1, p2) = (start, start + 1);
     let sql = format!(
@@ -79,20 +65,12 @@ pub fn write_filter(prefix: &str, start: usize) -> AccessFilter {
     }
 }
 
-/// Build a control (operate) SQL filter.
+/// Build a control (operate) SQL filter, using 2 positional parameters from
+/// `start`: `is_admin` then `user_id`, bound from `ScopeContext`.
 ///
-/// Control is write plus the public-task arm. The entity decides whether
-/// that arm appears, exactly as it does for [`access_filter`], so a
-/// caller cannot ask for it on a table with no `visibility` column. For
-/// every entity but [`ScopedEntity::Task`] this is [`write_filter`],
-/// because only a Task has anything to operate.
-///
-/// Uses 2 positional parameters starting at `start`:
-///   - `$start`: `is_admin` (bool)
-///   - `$start+1`: `user_id` (text)
-///
-/// Caller must `.bind()` these from `ScopeContext::is_admin`, `ScopeContext::user_id`.
-/// `prefix` is the table alias (e.g. `""` or `"t."`).
+/// Control is write plus the public-task arm, which the entity gates exactly as
+/// [`access_filter`] does; for every entity but [`ScopedEntity::Task`] this
+/// equals [`write_filter`].
 pub fn control_filter(entity: ScopedEntity, prefix: &str, start: usize) -> AccessFilter {
     let (p1, p2) = (start, start + 1);
     let vis = if has_visibility(entity) {

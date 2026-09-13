@@ -1,19 +1,19 @@
-//! Permanent facade over the sandbox crates. Add no sandbox logic here; put it
-//! in one of the re-exported crates, behind that crate's band. Start in
-//! `moatless-sandbox-control` for a change to sandbox intent, events, or the
-//! reconciler; each crate's own module docs hold its rules.
+//! Permanent facade over the sandbox crates.
+//!
+//! Add no sandbox logic here; put it in one of the re-exported crates, behind
+//! that crate's band. Start in `moatless-sandbox-control` for a change to
+//! sandbox intent, events, or the reconciler; each crate's own module docs hold
+//! its rules.
 //!
 //! Keep every re-export explicit and named. Never write a glob: the crate
 //! census resolves an edge through this facade to its definition site only
 //! when the name is written out.
 //!
-//! `grpc_server` is the exception: it is a module of this crate, not a
-//! re-export. It is the sandbox's inbound RPC surface — the same task, message,
-//! event and file-storage work the REST routes do, over a different transport —
-//! so it belongs at the edge with the other transports rather than inside the
-//! lifecycle crate. It reaches back down into `event_dedup`, `metrics`,
-//! `secrets` and `storage` through this facade, and names
-//! `moatless_core::sandbox_jwt` directly.
+//! `grpc_server` is the exception: a module of this crate, not a re-export. It
+//! is the sandbox's inbound RPC surface — the same task/message/event/file work
+//! the REST routes do, over a different transport — so it belongs at the edge,
+//! reaching back into `event_dedup`, `metrics`, `secrets` and `storage` through
+//! this facade and naming `moatless_core::sandbox_jwt` directly.
 //!
 //! ## What the backend still owns
 //!

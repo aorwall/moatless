@@ -35,8 +35,8 @@ impl Working {
 /// The signals [`derive_running`] reads.
 ///
 /// `None` means *not known to this caller*, never *absent*: callers see
-/// different halves of the picture, and an unknown field does not fire its
-/// clause rather than reading as a negative answer.
+/// different halves of the picture, so an unknown field skips its clause rather
+/// than reading as a negative answer.
 #[derive(Debug, Clone, Default)]
 pub struct RunningInputs {
     /// Durable Sandbox intent.
@@ -92,8 +92,8 @@ pub fn derive_running(inputs: &RunningInputs) -> Working {
 
 /// Whether a person is waiting for a turn that has not opened yet.
 ///
-/// A turn opens on `taskTurn.active`, published from inside the Sandbox, so
-/// between a person sending and the agent starting there is a window with no
+/// A turn opens on `taskTurn.active`, published from inside the Sandbox —
+/// leaving a window between a person sending and the agent starting with no
 /// open turn and work in flight.
 fn turn_is_owed(inputs: &RunningInputs) -> bool {
     let Some(asked) = inputs.latest_user_message_at else {

@@ -1,15 +1,13 @@
 //! [`WorkspaceArchivePort`] over the S3 workspace archive.
 //!
 //! The cold transition trades a live volume for the snapshot at
-//! `<prefix>/<task_id>/workspace.tar` — the same object the sandbox pushes to on
-//! every sync, addressed through the same key builder so a divergence here could
-//! not silently head the wrong object.
+//! `<prefix>/<task_id>/workspace.tar` — the same object the sandbox pushes to,
+//! addressed through the same key builder so a divergence here could not
+//! silently head the wrong object.
 //!
-//! Two questions, both answered from the backend's S3 handle: when the snapshot
-//! was last written, and a capability to write a new one. The second exists
-//! because the party that can still read a detached volume is not this process —
-//! it is a workload the runtime schedules — and handing it a presigned URL keeps
-//! AWS credentials out of it, exactly as the sandbox's own sync does.
+//! Answers when the snapshot was last written, and hands a presigned upload URL
+//! to whatever workload the runtime schedules to read the detached volume,
+//! keeping AWS credentials out of it.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -24,10 +22,9 @@ use moatless_sandbox_runtime::storage::sandbox_key;
 
 /// Lifetime of a rescue upload URL.
 ///
-/// Longer than the sandbox's own 15-minute sync TTL because the holder starts
-/// from nothing: the workload has to be scheduled, pull its image, and mount the
-/// claim before the first byte moves, and the URL must still be valid when the
-/// last one does.
+/// Longer than the sandbox's own 15-minute sync TTL: the holder starts from
+/// nothing (scheduled, image pulled, claim mounted) before the first byte
+/// moves, and must still be valid when the last one does.
 const RESCUE_PRESIGN_TTL: Duration = Duration::from_mins(30);
 
 /// Reads (and hands out write capabilities for) the S3 workspace archive.

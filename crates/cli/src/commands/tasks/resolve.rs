@@ -18,9 +18,8 @@ pub(super) fn resolve_parent_task_id(
 
 /// Resolve a task reference to a full `task_id`.
 ///
-/// Accepts either a full `task_id` (UUID — passed through) or the 8-char shortId
-/// shown in the UI, which is looked up among the most recent tasks. Short ids
-/// are unique, so the first match wins.
+/// Accepts a full `task_id` (UUID, passed through) or the 8-char shortId shown
+/// in the UI, resolved among the most recent tasks; the first match wins.
 pub(super) async fn resolve_task_id(
     client: &MoatClient,
     task_ref: &str,
@@ -66,14 +65,9 @@ pub(super) struct JoinTarget {
 
 /// Resolve `--same-sandbox` to the Sandbox to join.
 ///
-/// The flag takes a *task* id because that is the identifier a caller has —
-/// sandbox ids appear in no listing anyone reads. `task_ref` is `None` for a
-/// bare `--same-sandbox`, meaning "the task I am running as", which only has an
-/// answer inside a sandbox.
-///
-/// The workspace rides along: joining requires matching the Sandbox's
-/// workspace, so making the caller name it again would only be a way to get it
-/// wrong.
+/// Takes a *task* id (sandbox ids appear in no listing); `task_ref: None` means
+/// the task this CLI is running as, valid only inside a sandbox. The workspace
+/// rides along, matched to the Sandbox's own.
 pub(super) async fn resolve_same_sandbox(
     client: &MoatClient,
     ambient_task_id: Option<&str>,
@@ -102,8 +96,8 @@ pub(super) async fn resolve_same_sandbox(
     })
 }
 
-/// Resolve a repo argument to a repository ID.
-/// If it looks like a UUID, pass through. Otherwise, search by name.
+/// Resolve a repo argument to a repository ID. If it looks like a UUID, pass
+/// through. Otherwise, search by name.
 pub(super) async fn resolve_repo_id(
     client: &MoatClient,
     repo_arg: &str,
@@ -144,8 +138,8 @@ pub(super) async fn resolve_repo_id(
     }
 }
 
-/// Resolve a workspace argument to a workspace ID.
-/// `ws_`-prefixed IDs pass through. Otherwise, search by name.
+/// Resolve a workspace argument to a workspace ID. `ws_`-prefixed IDs pass
+/// through. Otherwise, search by name.
 pub(super) async fn resolve_workspace_id(
     client: &MoatClient,
     ws_arg: &str,

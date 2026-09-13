@@ -22,11 +22,10 @@ use moatless_types::access_control::ScopeContext;
 
 use crate::access_settings::error::{AccessSettingsError, auth_error};
 
-/// The two stores a provider app lands in, and the frontend origin
-/// [`callback_url`] derives the Forgejo redirect URI from.
+/// The two stores a provider app lands in, and the origin its Forgejo redirect
+/// URI ([`callback_url`]) is derived from.
 ///
-/// A handler extracts it as `State<ProviderApps>`, through the `FromRef`
-/// implementation in `crate::state`.
+/// Extracted as `State<ProviderApps>` via the `FromRef` impl in `crate::state`.
 pub struct ProviderApps {
     pub forgejo_instances: Arc<ForgejoInstances>,
     pub app_administration: Arc<AppAdministration>,
@@ -51,10 +50,8 @@ struct FieldEntry {
     name: &'static str,
     /// The name the provider's own store writes this field under.
     ///
-    /// [`rekey`] translates it back to [`FieldEntry::name`] on every read path,
-    /// so every name a [`ProviderAppSummary`] returns is one [`save`] accepts
-    /// back. The adapter store writes `bot_user_id` where the spec publishes
-    /// `botUserId`, and `forgejo_instances` returns `client_id`.
+    /// [`rekey`] maps it back to [`FieldEntry::name`] on every read, so a name
+    /// [`ProviderAppSummary`] returns is one [`save`] accepts back.
     stored_as: &'static str,
     label: &'static str,
     description: &'static str,
@@ -92,9 +89,8 @@ const FORGEJO_SPEC: SpecEntry = SpecEntry {
 
 /// Every provider this endpoint registers.
 ///
-/// A GitHub App is absent deliberately: registering one takes a PEM signing key
-/// proved against GitHub before it is stored, which is not a flat string field.
-/// `moat github-app` and `/api/v1/admin/settings/github/apps` own it.
+/// A GitHub App is absent deliberately: it needs a PEM signing key, not a flat
+/// string field; `moat github-app` and the admin GitHub-apps endpoint own it.
 const SPECS: &[SpecEntry] = &[
     FORGEJO_SPEC,
     SpecEntry {
@@ -249,10 +245,11 @@ fn registered(provider: &str) -> Result<&'static SpecEntry, AccessSettingsError>
     })
 }
 
-/// `stored` keyed by [`FieldEntry::name`] rather than [`FieldEntry::stored_as`].
+/// `stored` keyed by [`FieldEntry::name`] rather than
+/// [`FieldEntry::stored_as`].
 ///
-/// A key no field claims is returned unchanged, so a value a provider's store
-/// holds under a name this spec does not publish still reaches the reader.
+/// A key no field claims is returned unchanged, so an unpublished stored name
+/// still reaches the reader.
 fn rekey(entry: &SpecEntry, stored: BTreeMap<String, String>) -> BTreeMap<String, String> {
     stored
         .into_iter()
@@ -267,12 +264,9 @@ fn rekey(entry: &SpecEntry, stored: BTreeMap<String, String>) -> BTreeMap<String
 
 /// `fields`, checked against `spec` and trimmed.
 ///
-/// An unrecognised name is rejected rather than dropped: a mistyped secret name
-/// would otherwise register an app that authenticates against nothing. A field
-/// left empty is treated as absent, so clearing one and omitting one agree.
-///
-/// Every value is trimmed, including a secret. No field here is multi-line, and
-/// a secret pasted with a trailing newline is the failure that costs an hour.
+/// An unrecognised name is rejected, not dropped, so a mistyped secret name
+/// never registers an app that authenticates against nothing; every value,
+/// including secrets, is trimmed, and an empty one is treated as absent.
 fn validate(
     spec: &ProviderAppSpec,
     fields: BTreeMap<String, String>,
@@ -344,13 +338,9 @@ pub async fn list(
 
 /// Store `fields` as `provider`'s app for `key`.
 ///
-/// **A field the request omits is cleared, not left as it was.** The adapter
-/// store deletes every secret row and rewrites `config_json` whole on each save
-/// (`app_dao::upsert`), so a caller changing one field sends the others again.
-/// `moat app set` refuses to drop a stored secret without `--clear-omitted`.
-///
-/// Forgejo is checked against its instance first, so a pair it rejects is never
-/// written. The adapters have no equivalent check that costs one request.
+/// **A field the request omits is cleared, not left as it was**: each save
+/// rewrites the row whole, so `moat app set` needs `--clear-omitted` to drop a
+/// stored secret on purpose.
 pub async fn save(
     apps_state: &ProviderApps,
     ctx: &ScopeContext,

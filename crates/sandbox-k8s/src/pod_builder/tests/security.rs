@@ -34,9 +34,10 @@ fn run_as_non_root_off_keeps_root_behaviour() {
 }
 
 /// Flag ON: pod-level securityContext runs containers as UID/GID 1000 with
-/// fsGroup 1000 + `RuntimeDefault` seccomp, and the agent/server containers
-/// drop `DAC_OVERRIDE` (chown plus `fsGroup: 1000` already give it
-/// ownership) but keep `NET_BIND_SERVICE`.
+/// fsGroup 1000 + `RuntimeDefault` seccomp.
+///
+/// Agent/server containers drop `DAC_OVERRIDE` (chown + `fsGroup: 1000` already
+/// give ownership) but keep `NET_BIND_SERVICE`.
 #[test]
 fn run_as_non_root_on_sets_pod_security_context_and_drops_dac_override() {
     let mut config = test_config();
@@ -110,9 +111,9 @@ fn run_as_non_root_on_keeps_dind_root() {
     assert_eq!(sc.run_as_non_root, Some(false));
 }
 
-/// Privileged containers carry no `seLinuxOptions`. The CRI drops the field
-/// for privileged containers on an SELinux-enforcing node, so emitting one
-/// would assert a guarantee the runtime does not honour.
+/// Privileged containers carry no `seLinuxOptions`. The CRI drops the field for
+/// privileged containers on an SELinux-enforcing node, so emitting one would
+/// assert a guarantee the runtime does not honour.
 #[test]
 fn privileged_containers_have_no_selinux_options() {
     use moatless_core::config::SandboxCacheVolume;

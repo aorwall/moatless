@@ -130,8 +130,8 @@ impl BoundPullRequestSource for AppStateBoundPullRequests {
 
 impl AppStateBoundPullRequests {
     /// Fetch live status for a binding whose persisted blob is incomplete and
-    /// return a copy carrying the freshly written-through fields. `None` when no
-    /// live status could be obtained.
+    /// return a copy carrying the freshly written-through fields. `None` when
+    /// no live status could be obtained.
     async fn refresh_incomplete_binding(
         &self,
         task_id: &str,
@@ -159,8 +159,8 @@ impl AppStateBoundPullRequests {
         self.1.task_creator(task_id).await.ok().flatten()
     }
 
-    /// The `owner/repo` a repository's GitHub remote names, if the viewer can be
-    /// shown the repository and it is a GitHub remote.
+    /// The `owner/repo` a repository's GitHub remote names, if the viewer can
+    /// be shown the repository and it is a GitHub remote.
     async fn github_owner_repo(
         &self,
         viewer: &ScopeContext,
@@ -185,11 +185,10 @@ impl AppStateBoundPullRequests {
     }
 }
 
-/// A GitHub API failure, as the attach-PR dialog is told it.
+/// A GitHub API failure, mapped to what the attach-PR dialog is told.
 ///
-/// A reference that names no pull request the credential can see is `NotFound`;
-/// a missing credential or a host that refused is surfaced verbatim; anything
-/// else is this deployment's own failure, logged rather than sent.
+/// Unmatched references become `NotFound`; a bad credential or host refusal
+/// surfaces verbatim; anything else is a generic, logged failure.
 pub(super) fn pull_request_error(
     error: moatless_adapter_model::error::AdapterError,
 ) -> PullRequestError {
@@ -218,13 +217,10 @@ fn resolved_pull_request(
     }
 }
 
-/// Bind a newly created Task to the open pull request whose head is its branch,
-/// when the branch names one.
+/// Binds a newly created task to the open pull request on its branch, if any.
 ///
-/// Best-effort: a thread whose branch has no open PR, whose repository has no
-/// GitHub remote, or whose host cannot be reached is created unbound rather than
-/// refused — creating the thread is the operation the person asked for, and the
-/// binding is a convenience layered on it.
+/// Best-effort: a missing PR, remote, or unreachable host leaves the thread
+/// unbound rather than refusing its creation.
 pub(super) async fn bind_thread_to_open_pr(
     state: &AppState,
     viewer: &ScopeContext,
@@ -359,11 +355,9 @@ fn bound_pull_request_from_binding(binding: &TaskBinding) -> Option<BoundPullReq
     })
 }
 
-/// The `owner` and `repo` a `ThreadPullRequestKey` names, if this server can
-/// bind it at all.
+/// Splits a `ThreadPullRequestRef` into `owner` and `repo`.
 ///
-/// Only GitHub is bound, so a key on another host is refused by name rather
-/// than bound to a repository that happens to share the path.
+/// Only GitHub is bound; a reference on another host is refused by name.
 pub(super) fn github_owner_repo(
     reference: &ThreadPullRequestRef,
 ) -> Result<(&str, &str), CommandRefusal> {

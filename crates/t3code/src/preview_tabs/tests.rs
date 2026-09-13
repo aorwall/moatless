@@ -4,8 +4,8 @@ use super::{InMemoryPreviewTabDao, PreviewTabDao, conformance};
 use serde_json::json;
 use std::collections::HashMap;
 
-/// Each case gets its own handle, so one failing does not leave state for
-/// the next and a failure names the behaviour that broke.
+/// Each case gets its own handle, so one failing does not leave state for the
+/// next and a failure names the behaviour that broke.
 #[tokio::test]
 async fn opening_a_tab_lists_it() {
     conformance::opening_a_tab_lists_it(&InMemoryPreviewTabDao::new()).await;

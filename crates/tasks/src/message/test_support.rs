@@ -154,8 +154,8 @@ pub async fn record_standalone_activity(
     messages(pool).record_standalone_activity(activity).await
 }
 
-/// Write a Sandbox status activity. Returns whether a row was written: a
-/// status that restates the one before it writes none.
+/// Write a Sandbox status activity. Returns whether a row was written: a status
+/// that restates the one before it writes none.
 pub async fn record_sandbox_activity(
     pool: &DbPool,
     activity: &ActivityRow,

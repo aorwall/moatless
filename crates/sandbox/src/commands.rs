@@ -1,13 +1,11 @@
 //! Registry of long-running commands started through `moat cmd`.
 //!
-//! The sandbox spawns each command itself, so it stays the parent: it reaps the
-//! child (an orphan reparented to PID 1 would linger as a zombie and make any
-//! PID-liveness check read "alive" forever) and it owns the deadline. Only a
-//! command in this registry counts toward `busy_processes`, so a process the
-//! agent started some other way cannot hold the sandbox open.
-//!
-//! Each command runs in its own process group, so a kill reaches the whole tree
-//! a build spawns rather than just the `bash -lc` wrapper.
+//! The sandbox spawns each command itself and stays the parent: reparenting to
+//! PID 1 would leave a zombie that reads "alive" forever. Only a command in
+//! this registry counts toward `busy_processes`, so a process started some
+//! other way cannot hold the sandbox open. Each command runs in its own process
+//! group, so a kill reaches the whole tree a build spawns, not just the `bash
+//! -lc` wrapper.
 
 use std::collections::HashMap;
 use std::io::{Read, Seek};
@@ -29,8 +27,8 @@ use crate::events::GrpcEventPublisher;
 /// Grace period between the SIGTERM and the SIGKILL of a timed-out command.
 const KILL_GRACE: Duration = Duration::from_secs(5);
 
-/// Exit code reported for a command the sandbox killed at its deadline.
-/// Matches coreutils `timeout` so a caller reading the log sees the usual value.
+/// Exit code reported for a command the sandbox killed at its deadline. Matches
+/// coreutils `timeout` so a caller reading the log sees the usual value.
 const TIMEOUT_EXIT_CODE: i32 = 124;
 
 /// How much of the command string becomes the default label.
@@ -65,8 +63,8 @@ impl CommandState {
     }
 
     /// Parse [`Self::as_str`]. An unrecognized value becomes `Running`, whose
-    /// wake text claims only that the outcome is unknown — which is what a state
-    /// this pod cannot interpret leaves true.
+    /// wake text claims only that the outcome is unknown — which is what a
+    /// state this pod cannot interpret leaves true.
     pub fn from_wire(value: &str) -> Self {
         match value {
             "exited" => CommandState::Exited,
@@ -119,17 +117,16 @@ struct Entry {
     command: CommandRecord,
     /// Cancels the supervisor's wait, which then kills the process group.
     kill: CancellationToken,
-    /// The agent has been shown this command's terminal outcome — either it
-    /// read the command back through `moat cmd`, or a wake named it. Until
-    /// that is true a finished command still owes the agent an answer, even
+    /// Whether the agent has seen this command's terminal outcome, via `moat
+    /// cmd` or a wake. Until true, a finished command still owes an answer,
     /// though it no longer defers the reaper.
     reported: bool,
 }
 
 /// A command that owed the agent an outcome, as recorded in the journal.
 ///
-/// Carries what a replacement pod can still say about it. The log cannot be
-/// among that: it lives outside the workspace snapshot and dies with the pod.
+/// Carries what a replacement pod can still say; the log is excluded, since it
+/// lives outside the workspace snapshot.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct JournaledCommand {
@@ -161,11 +158,8 @@ fn owed(entries: &HashMap<String, Entry>) -> Vec<JournaledCommand> {
 
 /// Durable mirror of the unreported commands.
 ///
-/// The registry is in-memory, so a pod replacement destroys every `moat cmd`
-/// process along with the watch that promised the agent a wake. This file is
-/// what a replacement pod reads to name what it lost. It lives under
-/// `WORKSPACE_DIR` because the S3 workspace snapshot is the only sandbox state
-/// that rides a pod replacement.
+/// Rides `WORKSPACE_DIR`, since only the S3 snapshot survives a pod
+/// replacement, so the next pod can read what it lost.
 #[derive(Debug, Clone)]
 struct Journal {
     path: PathBuf,
@@ -173,8 +167,8 @@ struct Journal {
 
 impl Journal {
     /// Rewrite the file with the entries that still owe the agent an outcome.
-    /// Called with the entries lock held, so the file never records a command the
-    /// registry has already discharged.
+    /// Called with the entries lock held, so the file never records a command
+    /// the registry has already discharged.
     async fn write(&self, entries: &HashMap<String, Entry>) {
         let owed = owed(entries);
 
@@ -213,9 +207,8 @@ impl Journal {
 
 /// Read and clear the journal a previous incarnation of this pod left behind.
 ///
-/// Clearing it here is what makes the loss reported exactly once: the file is
-/// gone whether or not it parsed, so a corrupt journal cannot be re-read on
-/// every subsequent start.
+/// Clearing here makes the loss reported exactly once, whether or not the file
+/// parsed.
 pub async fn take_journal(path: &Path) -> Vec<JournaledCommand> {
     let bytes = match tokio::fs::read(path).await {
         Ok(bytes) => bytes,
@@ -238,22 +231,17 @@ pub async fn take_journal(path: &Path) -> Vec<JournaledCommand> {
     }
 }
 
-/// Where a task's command journal lives. Inside `WORKSPACE_DIR` so it rides the
-/// snapshot into a replacement pod, and a sibling of the checkouts rather than
-/// a path inside one, so it stays out of the user's `git status`.
+/// Where a task's command journal lives.
 ///
-/// Keyed by task: a shared checkout gives every Member one `workspace_dir`, and
-/// each registry writes its journal absolutely, so a shared name would let one
-/// Member erase the other's record of what a replacement destroyed.
+/// A sibling of the checkouts under `WORKSPACE_DIR`, keyed by task so two
+/// Members sharing a checkout don't overwrite each other's record.
 pub fn default_journal_path(workspace_dir: &str, task_id: &str) -> PathBuf {
     Path::new(workspace_dir).join(format!(".moat-commands-{task_id}.json"))
 }
 
 /// Publishes the running-command count to the backend whenever it moves.
 ///
-/// The count is what reaches a Task's sidebar row, so an unreported change
-/// leaves the row claiming the opposite of what the sandbox is doing until the
-/// next command moves. Absolute rather than a delta — see
+/// Feeds a Task's sidebar row as an absolute count, not a delta — see
 /// [`AgentSubType::CommandsChanged`].
 #[derive(Clone)]
 struct LivenessReporter {
@@ -275,26 +263,23 @@ impl LivenessReporter {
 
 /// Second mirror of the unreported commands, on its own row.
 ///
-/// The journal is the first, and it rides the S3 workspace snapshot — which a
-/// failed restore takes with it, leaving the agent never told what the restart
-/// destroyed. This copy is on a row no restore touches.
+/// The journal is the first, and rides the S3 snapshot; this copy lives on a
+/// row no restore touches.
 #[derive(Clone)]
 struct UnreportedMirror {
     client: Arc<dyn BackendClient>,
     task_id: String,
-    /// Stamped on each snapshot under the entries lock, and compared by the
-    /// backend. The send happens off that lock, so two of them can arrive out of
-    /// order and an older, larger set would resurrect a command the agent has
-    /// already been told about.
+    /// Stamped on each snapshot under the entries lock and compared by the
+    /// backend; sent off-lock, so an older, larger revision arriving late must
+    /// not resurrect a command already told to the agent.
     revision: Arc<AtomicI64>,
 }
 
 impl UnreportedMirror {
     /// Snapshot and stamp under the caller's entries lock, then send off it.
     ///
-    /// Detached rather than awaited: every caller holds the write lock, and
-    /// waiting for a gRPC round trip there would serialize every reader behind
-    /// the backend's latency.
+    /// Detached, not awaited: awaiting the round trip there would serialize
+    /// every reader behind the backend's latency.
     fn spawn_report(&self, entries: &HashMap<String, Entry>) {
         let owed = owed(entries);
         let revision = self.revision.fetch_add(1, Ordering::Relaxed) + 1;
@@ -368,10 +353,9 @@ impl CommandRegistry {
         }
     }
 
-    /// Publish the count this registry starts life with, which is what clears a
-    /// stale non-zero left by the pod this one replaced. The registry is
-    /// in-memory, so nothing else would ever report that command gone: it died
-    /// with its pod and no transition remains to publish.
+    /// Publish the count this registry starts life with, clearing a stale
+    /// non-zero left by the replaced pod — the registry is in-memory, so
+    /// nothing else would ever report that command gone.
     pub async fn report_initial_liveness(&self) {
         self.report_liveness().await;
     }
@@ -492,8 +476,8 @@ impl CommandRegistry {
         Ok(command)
     }
 
-    /// Registry over a throwaway log dir, for fixtures that need one but do
-    /// not exercise commands.
+    /// Registry over a throwaway log dir, for fixtures that need one but do not
+    /// exercise commands.
     #[cfg(test)]
     pub fn for_test() -> Self {
         Self::new(
@@ -514,13 +498,10 @@ impl CommandRegistry {
         self.entries.read().await.get(id).map(|e| e.command.clone())
     }
 
-    /// Read commands back on the agent's behalf, marking any that have already
-    /// finished as reported: the agent has now seen the outcome, so the
-    /// turn-end watch owes it no wake. `None` reads every command.
+    /// Read commands back for the agent, marking already-finished ones reported
+    /// so the turn-end watch owes no wake; `None` reads every command.
     ///
-    /// Separate from `list` because the backend polls status on its own
-    /// schedule; letting that poll mark a command seen would swallow the very
-    /// wake this exists to guarantee.
+    /// Separate from `list`, whose backend poll must never mark a command seen.
     pub async fn read_for_agent(
         &self,
         id: Option<&str>,
@@ -547,11 +528,9 @@ impl CommandRegistry {
         Ok(out)
     }
 
-    /// Signal a command to stop. The supervisor performs the kill and records
-    /// the terminal state, so the snapshot returned here is still `Running`.
-    ///
-    /// The kill counts as reporting: the agent asked for this outcome, so
-    /// waking it to announce the death it ordered is noise.
+    /// Signal a command to stop, returning a still-`Running` snapshot; the
+    /// supervisor performs the kill. Also counts as reporting: waking the agent
+    /// about an ordered death is noise.
     pub async fn kill(&self, id: &str) -> Result<CommandRecord, CommandError> {
         let mut entries = self.entries.write().await;
         let entry = entries
@@ -564,9 +543,9 @@ impl CommandRegistry {
         Ok(command)
     }
 
-    /// Whether any registered command is still running. This is the whole of
-    /// `busy_processes`: the supervisor clears a command's `Running` state at
-    /// its deadline, so a hung command stops deferring the reaper on its own.
+    /// Whether any registered command is still running — the whole of
+    /// `busy_processes`, since the supervisor clears a `Running` state at its
+    /// deadline so a hung command stops deferring the reaper.
     pub async fn busy(&self) -> bool {
         self.entries
             .read()
@@ -577,10 +556,8 @@ impl CommandRegistry {
 
     /// The subset of `ids` that still owes the agent an outcome.
     ///
-    /// A watch re-reads this on every poll rather than trusting the set it
-    /// armed with, because an entry can be reported from under it: a later
-    /// turn can kill or read back a command this watch is still waiting on. An
-    /// unknown id owes nothing, so a dropped entry cannot hold a watch open.
+    /// Re-read on every poll, not trusted from when the watch armed: a later
+    /// turn can kill or read back a command; an unknown id owes nothing.
     pub async fn unreported_among(&self, ids: &[String]) -> Vec<CommandRecord> {
         let entries = self.entries.read().await;
         ids.iter()
@@ -590,15 +567,11 @@ impl CommandRegistry {
             .collect()
     }
 
-    /// Commands that still owe the agent an outcome, whatever state they are in.
+    /// Commands that still owe the agent an outcome, whatever state they are
+    /// in.
     ///
-    /// This is the whole of what the turn-end watch waits on, and it keys off
-    /// `reported` rather than the state for two reasons. A command can die
-    /// between being spawned and the turn ending — a bad path takes under a
-    /// second — so it is already terminal when the watch arms and a
-    /// still-running filter would drop it. And `kill` marks it reported while
-    /// the process is still winding down, so a state filter would pick the
-    /// command back up and wake the agent about the death it just ordered.
+    /// Keys off `reported`, never state: a command can die before the watch
+    /// arms, and `kill` marks it reported while still winding down.
     pub async fn unreported(&self) -> Vec<CommandRecord> {
         let entries = self.entries.read().await;
         let mut out: Vec<CommandRecord> = entries
@@ -621,10 +594,10 @@ impl CommandRegistry {
         self.persist(&entries).await;
     }
 
-    /// Mirror the unreported commands to whichever sinks are configured. Takes
-    /// the live entries so the caller holds the lock across the write: a snapshot
-    /// taken and written separately could land after a later, smaller set and
-    /// resurrect a command the agent has already been told about.
+    /// Mirror the unreported commands to whichever sinks are configured.
+    ///
+    /// Takes the live entries so the caller holds the lock across the write,
+    /// since a separately-written snapshot could resurrect a reported command.
     async fn persist(&self, entries: &HashMap<String, Entry>) {
         mirror(self.journal.as_ref(), self.row_mirror.as_ref(), entries).await;
     }
@@ -639,9 +612,9 @@ fn running_count(entries: &HashMap<String, Entry>) -> usize {
         .count()
 }
 
-/// Where a finished command's outcome is written: the live entries, plus the
-/// mirrors that must move with them — the two a replacement pod reads the
-/// unreported commands from, and the count the backend renders.
+/// Where a finished command's outcome is written: live entries plus the mirrors
+/// that move with them — what a replacement pod reads unreported commands from,
+/// and what the backend renders as the count.
 #[derive(Clone)]
 struct CommandSinks {
     entries: Arc<RwLock<HashMap<String, Entry>>>,
@@ -650,7 +623,8 @@ struct CommandSinks {
     liveness: Option<LivenessReporter>,
 }
 
-/// Wait for the child, its deadline, or a kill request, then record the outcome.
+/// Wait for the child, its deadline, or a kill request, then record the
+/// outcome.
 async fn supervise(
     sinks: CommandSinks,
     id: String,
@@ -714,10 +688,10 @@ async fn terminate(pid: u32, child: &mut tokio::process::Child) {
     let _ = child.wait().await;
 }
 
-/// Signal every process in `pid`'s group. `pid` is the group leader because the
-/// command was spawned with `process_group(0)`, and a negative pid is how `kill`
-/// addresses a group. Shelled out because this crate denies `unsafe_code`, so
-/// `killpg` is not available.
+/// Signal every process in `pid`'s group.
+///
+/// `pid` is the group leader (spawned with `process_group(0)`); shelled out
+/// since this crate denies `unsafe_code`, so no `killpg`.
 async fn signal_group(pid: u32, signal: &str) -> bool {
     if pid == 0 {
         return false;
@@ -733,9 +707,11 @@ async fn signal_group(pid: u32, signal: &str) -> bool {
         .is_ok_and(|status| status.success())
 }
 
-/// The end of a command's log, for telling the agent *why* it failed rather
-/// than only that it did. Reads from the end: a build log is unbounded and only
-/// its tail explains the outcome. Returns `None` when there is nothing to show.
+/// The end of a command's log, for telling the agent *why* it failed, not only
+/// that it did.
+///
+/// Reads from the end since a build log is unbounded; returns `None` when there
+/// is nothing to show.
 pub fn log_tail(path: &Path, lines: usize, bytes: u64) -> Option<String> {
     let mut file = std::fs::File::open(path).ok()?;
     let len = file.metadata().ok()?.len();
@@ -870,8 +846,8 @@ mod tests {
     }
 
     /// A shared checkout gives two Members one `WORKSPACE_DIR`, and each take
-    /// deletes the file it read, so one Member's recovery must leave the other's
-    /// record of what the restart destroyed.
+    /// deletes the file it read, so one Member's recovery must leave the
+    /// other's record of what the restart destroyed.
     #[tokio::test]
     async fn one_members_take_leaves_the_other_members_journal() {
         let dir = std::env::temp_dir().join(format!("moat-cmd-shared-{}", short_id()));
@@ -920,7 +896,8 @@ mod tests {
         panic!("command never reached a terminal state");
     }
 
-    /// Stamped per Member; see `crates/sandbox/AGENTS.md` "Spawning a child process".
+    /// Stamped per Member; see `crates/sandbox/AGENTS.md` "Spawning a child
+    /// process".
     #[tokio::test]
     async fn a_command_sees_the_registrys_own_task_id() {
         let dir = std::env::temp_dir().join(format!("moat-cmd-env-{}", short_id()));
@@ -1237,8 +1214,9 @@ mod tests {
         assert!(log_tail(&empty, 5, 4096).is_none());
     }
 
-    /// The mirror writes the backend has seen, oldest first. The send is detached
-    /// from the entries lock, so it polls until at least `want` have landed.
+    /// The mirror writes the backend has seen, oldest first. The send is
+    /// detached from the entries lock, so it polls until at least `want` have
+    /// landed.
     async fn mirror_writes(
         backend: &crate::events::test_backend::CapturingBackend,
         want: usize,
@@ -1324,10 +1302,9 @@ mod tests {
         assert_eq!(journal[0].state, CommandState::Running);
     }
 
-    /// The journal is installed by renaming a sibling temp file over it, so a
-    /// crash mid-write never leaves a truncated file. The temp file must not
-    /// survive a successful write — a leftover would ride the workspace snapshot
-    /// as untracked cruft.
+    /// Installed by renaming a sibling temp file over it, so a crash mid-write
+    /// never leaves a truncated file; the temp file must not survive a
+    /// successful write, or it rides the snapshot as untracked cruft.
     #[tokio::test]
     async fn writing_the_journal_leaves_no_temp_file() {
         let (reg, path) = journalled(Duration::from_mins(1));
@@ -1369,8 +1346,8 @@ mod tests {
         assert_eq!(journal[0].exit_code, Some(4));
     }
 
-    /// Reading the outcome back marks it reported, so a restart after that
-    /// must not re-announce a command the agent has already seen.
+    /// Reading the outcome back marks it reported, so a restart after that must
+    /// not re-announce a command the agent has already seen.
     #[tokio::test]
     async fn reading_a_command_back_clears_it_from_the_journal() {
         let (reg, path) = journalled(Duration::from_mins(1));
@@ -1393,9 +1370,9 @@ mod tests {
         );
     }
 
-    /// `kill` marks the command reported at the request, while the process is
-    /// still winding down. The journal keys off `reported`, so it drops the command
-    /// then rather than when the supervisor records the death.
+    /// `kill` marks the command reported at the request, while the process
+    /// still winds down. The journal keys off `reported`, so it drops the
+    /// command then, not when the supervisor records the death.
     #[tokio::test]
     async fn killing_a_command_clears_it_from_the_journal() {
         let (reg, path) = journalled(Duration::from_mins(1));

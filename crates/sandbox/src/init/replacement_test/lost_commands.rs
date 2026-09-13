@@ -2,10 +2,10 @@
 //! harness: which `Input` it actually accepts on a start whose workspace
 //! snapshot carried a command journal.
 //!
-//! This is the stranding case. The agent starts a command, ends its turn as the
+//! This is the stranding case: the agent starts a command, ends its turn as the
 //! prompt tells it to, and the pod is evicted. The process, its log and the
-//! armed watch all die with the pod, and the turn had already completed — so
-//! there is no interrupted run to replay and nothing else re-triggers the agent.
+//! armed watch die with it, and the completed turn leaves no interrupted run to
+//! replay and nothing else to re-trigger the agent.
 
 use std::sync::Arc;
 
@@ -112,11 +112,11 @@ async fn the_wake_fires_once_across_repeated_restarts() {
     );
 }
 
-/// Consuming the journal deletes it here but not from the S3 archive this pod
-/// restored, so the tree is already ahead of the object. Adopting it as the
-/// upload baseline would let a turn that edits nothing skip the upload, and the
-/// next replacement would restore the stale archive and announce the same loss
-/// again — breaking the once-only guarantee across a second restart.
+/// Consuming the journal deletes it locally but not from the restored S3
+/// archive, leaving the tree ahead of the object.
+///
+/// Adopting it as the upload baseline would skip the upload on a no-op turn, so
+/// a later replacement restores the stale archive and repeats the announcement.
 #[tokio::test]
 async fn consuming_a_journal_leaves_the_workspace_owing_an_upload() {
     let tmp = tempfile::TempDir::new().expect("tmp");

@@ -1,21 +1,11 @@
 //! Claims the commit shas this Task pushes to GitHub.
 //!
-//! A `git push` reaches GitHub directly, so the backend never sees it and
-//! nothing names the Task behind the `pull_request.synchronize` webhook that
-//! follows. Every other GitHub event a Task produces names its author — a
-//! comment through the `Moatless task:` footer, a typed `moat gh` call through
-//! the id GitHub returned — and a push had nothing, so it echoed back into the
-//! Task that made it.
-//!
-//! Git's own reflog is the signal. A push writes `update by push` to
-//! `.git/logs/refs/remotes/<remote>/<branch>`; a fetch writes `fetch: …` to the
-//! same file. Reading the message rather than the ref value is what keeps a
-//! fetch of somebody else's commits from being claimed as this Task's work,
-//! which would suppress a notification the Task should have received.
-//!
-//! Timing: the reflog is written as the push completes, and GitHub's webhook
-//! still has to travel to the backend and through a durable delivery record
-//! before anything reads the claim.
+//! A `git push` bypasses the backend, so nothing names the Task behind the
+//! `pull_request.synchronize` webhook, unlike other GitHub events a Task
+//! produces. Git's reflog at `.git/logs/refs/remotes/<remote>/<branch>` signals
+//! it instead — see [`pushed_shas`] for telling a push apart from a fetch — and
+//! its write completes before GitHub's webhook reaches the backend, however
+//! durably delivered.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -46,7 +36,8 @@ const GIT_TIMEOUT_SECS: u64 = 5;
 struct Repo {
     /// Working-tree directory, which `git -C` is run against.
     dir: String,
-    /// `<git-dir>/logs/refs/remotes` — the reflogs of every remote-tracking ref.
+    /// `<git-dir>/logs/refs/remotes` — the reflogs of every remote-tracking
+    /// ref.
     remote_logs: PathBuf,
 }
 
@@ -261,6 +252,8 @@ fn remote_name(remote_logs: &Path, reflog: &Path) -> Option<String> {
 /// The new-value shas of a reflog's `update by push` entries.
 ///
 /// Reflog line: `<old-sha> <new-sha> <name> <email> <time> <tz>\t<message>`.
+/// Matches on `message`, not the sha alone, so a fetch of someone else's
+/// commits (message `fetch: …`) is never misclaimed as a push.
 fn pushed_shas(reflog: &str) -> Vec<String> {
     reflog
         .lines()

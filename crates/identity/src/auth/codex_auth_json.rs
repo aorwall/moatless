@@ -3,8 +3,8 @@
 //! Parsing and the canonical `provider_tokens.metadata` shape live here so
 //! every scope endpoint that seeds a codex row — the user save handler, the
 //! admin seed endpoint, the global admin endpoint — produces an identical row
-//! shape. The scope-aware save path that persists and broadcasts the blob
-//! lives in `agent_harness_access::AgentHarnessAccess`.
+//! shape. The scope-aware save path that persists and broadcasts the blob lives
+//! in `agent_harness_access::AgentHarnessAccess`.
 
 use crate::auth::error::AuthError;
 

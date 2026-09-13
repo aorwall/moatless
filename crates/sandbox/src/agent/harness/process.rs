@@ -14,7 +14,7 @@ use super::source::SourceEvent;
 
 /// How an Agent process ended on its own.
 ///
-/// Cancellation is not represented here: the driver requests cancellation via
+/// Cancellation is not represented here: the driver requests it via
 /// [`AgentProcess::cancel`] and owns mapping the resulting termination to a
 /// cancelled outcome, so a process never reports "cancelled" itself.
 #[derive(Debug, Clone, PartialEq)]
@@ -35,12 +35,12 @@ pub(crate) enum ProcessTermination {
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum ProcessEvent {
-    /// The process is ready and its real Session identity is known. Reports an
+    /// The process is ready and its real Session identity is known; reports an
     /// execution opened by the most recently submitted input.
     ///
-    /// `agent_turn_id` is the harness's native turn id when it has one at
-    /// announcement — Codex's `turn/start` id, which a later fork cuts the thread
-    /// on. Claude has none (its fork cuts by Message uuid) and reports `None`.
+    /// `agent_turn_id` is the harness's native turn id when known at
+    /// announcement (Codex's `turn/start` id, which a fork later cuts the
+    /// thread on); Claude has none and reports `None`.
     SessionReady {
         session: SessionId,
         agent_turn_id: Option<String>,
@@ -61,11 +61,13 @@ pub(crate) enum ProcessEvent {
     ContextWindow(ContextWindow),
     /// The completed run's authoritative token/cost totals, emitted just before
     /// the terminal. The driver captures the most recent one and attaches it to
-    /// the `Completed` outcome, so it never rides a `Failed` or `Cancelled` end.
+    /// the `Completed` outcome, so it never rides a `Failed` or `Cancelled`
+    /// end.
     RunTotals(RunTotals),
-    /// The current execution reached its single terminal while the process stays
-    /// alive to host later executions. Persistent transports only; a one-shot
-    /// process reports `Terminated` at the end of its single execution instead.
+    /// The current execution reached its single terminal while the process
+    /// stays alive to host later executions. Persistent transports only; a
+    /// one-shot process reports `Terminated` at the end of its single execution
+    /// instead.
     ExecutionEnded { termination: ProcessTermination },
     /// The process ended on its own.
     Terminated { termination: ProcessTermination },
@@ -74,19 +76,18 @@ pub(crate) enum ProcessEvent {
 /// One Agent process implementation.
 #[async_trait::async_trait]
 pub(crate) trait AgentProcess: Send {
-    /// Deliver input to the process. An error is a pre-start / input failure the
-    /// driver surfaces as `InputRejected` (before execution start) or a failed
-    /// terminal (after execution start).
+    /// Deliver input to the process. An error is a pre-start / input failure
+    /// the driver surfaces as `InputRejected` (before execution start) or a
+    /// failed terminal (after execution start).
     async fn submit(&mut self, input: Input) -> Result<(), HarnessError>;
 
     /// Whether input submitted while an execution is already active is injected
-    /// into that execution (reported as a bare `InputAccepted`) rather than
-    /// having to wait for a later one.
+    /// into that execution (as a bare `InputAccepted`) rather than waiting for
+    /// a later one.
     ///
-    /// Consulted only by the one-execution-per-process driver, which otherwise
-    /// queues mid-execution input. A process that opens a fresh execution per
-    /// submit must leave this `false` so its input is queued instead of
-    /// clobbering the running execution.
+    /// Consulted only by the one-execution-per-process driver; a process that
+    /// opens a fresh execution per submit must leave this `false` so input
+    /// queues instead of clobbering the running execution.
     fn accepts_injection(&self) -> bool {
         false
     }
@@ -97,17 +98,12 @@ pub(crate) trait AgentProcess: Send {
 
     /// A handle that cancels the process tree without borrowing it.
     ///
-    /// [`AgentProcess::cancel`] cannot be reached while [`AgentProcess::submit`]
-    /// is still running — that future holds the process mutably — so a transport
-    /// whose opening path blocks on the Agent must hand back a handle here or a
-    /// Stop cannot land until the open finishes on its own. Codex awaits
-    /// `initialize`, `thread/start` and `turn/start` before `submit` returns, and
-    /// overrides this.
-    ///
-    /// The default is a token nobody else holds, so cancelling it does nothing.
-    /// That is correct only for a transport whose `submit` cannot block on the
-    /// Agent — it spawns, or writes locally, and returns. The driver still
-    /// records the Stop and applies it as soon as `submit` lands.
+    /// [`AgentProcess::cancel`] can't be reached while [`AgentProcess::submit`]
+    /// still holds the process mutably, so a transport whose open blocks on the
+    /// Agent (like Codex) must override this or a Stop cannot land until the
+    /// open finishes; the default token nobody else holds does nothing, which
+    /// is correct only when `submit` cannot block — the driver still records
+    /// the Stop and applies it once `submit` lands.
     fn cancel_handle(&self) -> CancellationToken {
         CancellationToken::new()
     }

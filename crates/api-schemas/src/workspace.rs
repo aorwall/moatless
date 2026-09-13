@@ -13,8 +13,7 @@ use crate::patch::deserialize_optional_nullable_field;
 
 /// The glyph a client renders beside a Workspace name.
 ///
-/// The domain enum itself; a DTO naming it names the same shape the column
-/// stores, so there is no wire spelling to convert to.
+/// The domain enum itself — same shape the column stores, no wire conversion.
 pub use moatless_types::workspace::WorkspaceIcon;
 
 // =============================================================================
@@ -23,15 +22,12 @@ pub use moatless_types::workspace::WorkspaceIcon;
 
 /// Where a node-local sandbox volume is backed.
 ///
-/// The domain enum itself. A DTO naming it names the same type the provider
-/// reads, so there is no wire spelling to convert to.
+/// The domain enum itself — same type the provider reads, no wire conversion.
 pub use moatless_types::workspace::StorageMedium;
 
 /// A container's CPU and memory for one direction (requests or limits), as
-/// Kubernetes quantity strings (`"250m"`, `"4Gi"`).
-///
-/// Each field overrides the deployment default independently: a block that
-/// names only `memory` keeps the configured CPU default.
+/// Kubernetes quantity strings (`"250m"`, `"4Gi"`); each field overrides the
+/// deployment default independently.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
@@ -58,44 +54,38 @@ pub struct ResourceConfig {
     pub requests: ResourceQuantities,
     #[serde(default, skip_serializing_if = "ResourceQuantities::is_empty")]
     pub limits: ResourceQuantities,
-    /// Per-repository workspace storage size override (e.g. "8Gi"). Sizes the
-    /// per-task PVC when `pvc_enabled`, and the node-local emptyDir otherwise.
-    /// When unset, the global `K8S_SANDBOX_STORAGE_SIZE` default applies. Never
-    /// copied into container resource specs.
+    /// Per-repository workspace storage size override (e.g. "8Gi").
+    ///
+    /// Sizes the per-task PVC when `pvc_enabled`, else the node-local emptyDir.
+    /// Defaults to `K8S_SANDBOX_STORAGE_SIZE`; never copied into container
+    /// resource specs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub storage: Option<String>,
-    /// Whether this repo's sandbox gets a per-task PVC mounted at
-    /// `/opt/moatless`. The PVC is owned by the Deployment: it survives pod
-    /// restarts and is deleted when the sandbox is removed. When `false`, the
-    /// workspace is a node-local emptyDir that dies with the pod.
+    /// Whether this repo's sandbox gets a per-task PVC at `/opt/moatless`.
     ///
-    /// When unset, the deployment-wide default applies (`K8S_SANDBOX_DEFAULT_PVC`).
-    /// The global `K8S_SANDBOX_STORAGE_ENABLED` kill switch still wins over both.
+    /// Survives pod restarts, unlike the emptyDir fallback. Defaults to
+    /// `K8S_SANDBOX_DEFAULT_PVC`; `K8S_SANDBOX_STORAGE_ENABLED` overrides both.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pvc_enabled: Option<bool>,
-    /// Whether this repo's sandbox snapshots its workspace to S3 — the copy that
-    /// outlives the Deployment. Pushed before a stop or remove, and pulled back
-    /// on start when the volume holds nothing usable (a fresh PVC, a redeploy, or
-    /// a fallback after the PVC could not attach).
+    /// Whether this repo's sandbox snapshots its workspace to S3.
     ///
-    /// Independent of [`Self::pvc_enabled`]: with a PVC the volume is the live
-    /// copy and S3 is read only when it is empty or broken; without one, S3 is
-    /// the only persistence and is read on every start.
-    ///
-    /// When unset, the deployment-wide default applies (`K8S_SANDBOX_DEFAULT_S3`).
+    /// The copy that outlives the Deployment: pushed before stop/remove, pulled
+    /// back on start when the volume holds nothing usable. Defaults to
+    /// `K8S_SANDBOX_DEFAULT_S3`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub s3_enabled: Option<bool>,
     /// Per-repository size cap for the `dind` sidecar's `/var/lib/docker`
-    /// emptyDir (e.g. "50Gi"). Only meaningful for repos with `dockerAccess`
-    /// and `dockerStorageMode: "emptyDir"`. Exceeding the cap gets the pod
-    /// **evicted** by the kubelet, wiping all dind container data. When unset,
-    /// the global `K8S_SANDBOX_DOCKER_DIND_STORAGE_SIZE` default applies.
+    /// emptyDir.
+    ///
+    /// Only meaningful with `dockerAccess` + `dockerStorageMode: "emptyDir"`.
+    /// Exceeding it gets the pod evicted, wiping all dind data. Defaults to
+    /// `K8S_SANDBOX_DOCKER_DIND_STORAGE_SIZE`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub docker_storage: Option<String>,
-    /// Storage backend for the `dind` sidecar's `/var/lib/docker`:
-    /// - `"node"` (default) — best-effort node-local hostPath. Docker layers,
-    ///   images, and volumes survive stop/start only on the same node.
-    /// - `"emptyDir"` — node-local emptyDir capped by `dockerStorage`.
+    /// Storage backend for the `dind` sidecar's `/var/lib/docker`.
+    ///
+    /// `"node"` (default): best-effort hostPath, survives stop/start only on
+    /// the same node. `"emptyDir"`: capped by `dockerStorage`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub docker_storage_mode: Option<StorageMedium>,
 }
@@ -144,7 +134,7 @@ pub struct ServerConfig {
 
 /// Named command run on demand inside a Sandbox.
 ///
-/// `name` is the identity — it must survive a git round trip, so no id is
+/// `name` is the identity, since it must survive a git round trip; no id is
 /// allocated by the backend.
 pub use moatless_types::workspace::ScriptConfig;
 
@@ -234,11 +224,11 @@ pub struct CreateWorkspaceRequest {
 pub struct UpdateWorkspaceRequest {
     pub name: Option<String>,
     pub description: Option<String>,
-    /// Change the workspace's access scope (`global` or `user`). When set,
-    /// `owner_user_id` is re-resolved from the new scope. Requesting `global`
-    /// requires admin, and this write promotes every repository the workspace
-    /// places at the time to `global` as well — a repository placed afterwards
-    /// keeps its own scope. Returning to `user` leaves those repositories global.
+    /// Change the workspace's access scope (`global` requires admin).
+    ///
+    /// Promotes every repository already placed to `global` too — repos added
+    /// later keep their own scope — and returning to `user` does not demote
+    /// them back.
     pub scope: Option<Scope>,
     /// Identity every Task on this Workspace acts as on a git host. When set it
     /// outranks the Task's own owner. An explicit empty string clears it.
@@ -328,7 +318,8 @@ pub struct WorkspaceResponse {
     pub description: Option<String>,
     #[serde(default)]
     pub icon: Option<WorkspaceIcon>,
-    /// Derived from the placement count: `blank` (0), `single` (1), `multi` (n).
+    /// Derived from the placement count: `blank` (0), `single` (1), `multi`
+    /// (n).
     pub kind: String,
     pub docker_image: Option<String>,
     pub docker_access: Option<bool>,
@@ -362,7 +353,8 @@ pub struct WorkspaceResponse {
     /// override so the origin remains visible.
     #[serde(default)]
     pub source_config_path: Option<String>,
-    /// The repository whose git tree declared this workspace (`source == "git"`).
+    /// The repository whose git tree declared this workspace (`source ==
+    /// "git"`).
     #[serde(default)]
     pub source_repository_id: Option<String>,
     /// The entry's stable key within the declaring file (its `key`, else the
@@ -376,9 +368,9 @@ pub struct WorkspaceResponse {
     #[serde(default)]
     pub run_as_user_id: Option<String>,
     pub created_by: Option<String>,
-    /// Soft-deleted workspaces are normally hidden. Git-origin tombstones remain
-    /// visible in admin so users can restore them from git without automatic
-    /// sync recreating them behind their back.
+    /// Soft-deleted workspaces are normally hidden. Git-origin tombstones
+    /// remain visible in admin so users can restore them from git without
+    /// automatic sync recreating them behind their back.
     #[serde(default)]
     pub deleted: bool,
     pub created_at: Option<String>,
@@ -421,9 +413,8 @@ pub struct WorkspaceSyncSummary {
 
 /// Response for `POST /api/v1/workspaces/{id}/reset-git`.
 ///
-/// The workspace only returns to `source = "git"` when the re-sync actually
-/// found it still declared in the repository, so `resynced` reports whether the
-/// reset took effect.
+/// `resynced` reports whether the re-sync found the workspace still declared in
+/// git; only then does `source` return to `"git"`.
 #[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
@@ -442,10 +433,9 @@ pub struct ResetGitWorkspaceResponse {
 
 /// A provider whose credential can be pinned to a Workspace.
 ///
-/// Only providers whose sandbox credential is a single static environment
-/// variable are here. Codex (`CODEX_AUTH_JSON`) and the Claude OAuth token are
-/// refreshed and written back against the connected user's own row, so a
-/// workspace-level copy of either would go stale with nothing to rotate it.
+/// Limited to single static env-var credentials; Codex and Claude OAuth are
+/// excluded since they refresh against the connected user's row, and a
+/// workspace-level copy would go stale with nothing to rotate it.
 pub use moatless_types::workspace::WorkspaceCredentialProvider;
 
 /// `PUT /api/v1/workspaces/{id}/credentials/{provider}` body.

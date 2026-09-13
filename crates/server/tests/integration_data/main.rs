@@ -1,5 +1,5 @@
-//! Integration tests over the persistence tier — DAOs and their handlers.
-//! One of three `integration_*` test targets; shared fixtures live in
+//! Integration tests over the persistence tier — DAOs and their handlers. One
+//! of three `integration_*` test targets; shared fixtures live in
 //! `tests/common`.
 
 // Every module below except `supervisor_test` carries its own

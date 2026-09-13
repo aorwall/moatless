@@ -1,14 +1,12 @@
-//! What servers a Task declares, what state each is in, and what one is printing.
+//! What servers a Task declares, what state each is in, and what one is
+//! printing.
 //!
-//! Everything here is a read. Nothing in this module starts, stops, restarts or
-//! reconfigures a server — those are specified in `.plans/moatless-convergence.md`
-//! and deliberately out of scope for the change this module belongs to.
+//! Everything here is a read; nothing here starts, stops, restarts or
+//! reconfigures a server.
 //!
-//! The data is not new: [`SandboxObserver::sandbox_status`] already assembles it
-//! for the Moatless UI's own status route, config-first, straight from the K8s
-//! API with no cache in between. This module projects that answer onto T3's
-//! `servers.*` contract and streams it, so a T3 client learns about a server the
-//! same way it learns about everything else — over the one socket it already has.
+//! The data is not new: [`SandboxObserver::sandbox_status`] already assembles
+//! it, config-first from the K8s API, for the Moatless UI's own status route.
+//! This module projects that answer onto T3's `servers.*` contract.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -27,17 +25,15 @@ use moatless_types::access_control::ScopeContext;
 
 /// How often a subscribed status stream asks the runtime what changed.
 ///
-/// A container going ready is the transition this exists to make visible, and
-/// two seconds is short enough that it reads as immediate to someone watching.
-/// Nothing is emitted unless the projected list actually moved, so an idle
-/// subscription costs one status read per interval and no frames.
+/// Two seconds reads as immediate; nothing is emitted unless the list moved, so
+/// an idle subscription costs a read but no frames.
 const STATUS_POLL_INTERVAL: Duration = Duration::from_secs(2);
 
 /// Everything the `servers.*` handlers read through.
 ///
-/// `t3code` cannot reuse the sandbox module's own `authorize_task_read` and
-/// `resolve_desired_state` — both belong to the root backend — so the
-/// same two reads are performed here against the same two handles.
+/// `t3code` cannot reuse the sandbox module's
+/// `authorize_task_read`/`resolve_desired_state` (root backend), so the same
+/// two reads happen here.
 #[derive(Clone)]
 pub struct ServersState {
     pub observer: Arc<dyn SandboxObserver>,
@@ -62,9 +58,8 @@ pub enum ServersError {
 /// One server, in the shape `ThreadServer` has on the wire
 /// (`packages/contracts/src/servers.ts`).
 ///
-/// Field-for-field from [`ServerEntry`], which is why this is a projection and
-/// not a translation: the contract was written from the Rust shape so that a
-/// reviewer comparing the two is reading the same names twice.
+/// Field-for-field from [`ServerEntry`]: a projection, not a translation — the
+/// contract was written from this Rust shape.
 fn project_server(entry: &ServerEntry) -> Value {
     json!({
         "name": entry.name,
@@ -99,13 +94,9 @@ async fn authorized_task(
 
 /// Every server declared by a Task, with the state the runtime reports for it.
 ///
-/// A Task whose sandbox was never provisioned still answers: status resolution
-/// is config-first, so the servers its Workspace declares are listed rather
-/// than the list being empty. What each row *says* in that case is the
-/// resolver's fallback and not an observation — `starting`, with the ingress
-/// URL its port will have — so a client showing one of these rows is showing a
-/// server declaration only. Sandbox lifecycle status is exposed by
-/// `sandbox.status`.
+/// Status resolution is config-first: an unprovisioned sandbox still lists
+/// declared servers, each falling back to `starting` rather than an
+/// observation. Sandbox lifecycle itself is `sandbox.status`.
 pub async fn list(
     state: &ServersState,
     viewer: &ScopeContext,
@@ -143,16 +134,9 @@ async fn status_snapshot(
 
 /// Push a Task's server list for as long as the subscription lives.
 ///
-/// Polling rather than watching, and that is a decision rather than a shortcut.
-/// A push path exists — the pod watcher publishes convergence events to Redis
-/// Streams — but what it classifies is the *sandbox* converging, not a server
-/// container's probe flipping, which is the transition this stream is about.
-///
-/// A poll that produces the same list as the last one emitted sends nothing, so
-/// the interval is the coalescing window and an idle subscription is silent. A
-/// failed poll leaves the last emitted list where it was and the subscription
-/// survives: ending it would present a transient K8s error as a dead panel, and
-/// the next poll covers the same ground.
+/// Polls, not watches, since push events classify the sandbox converging, not a
+/// container probe flipping; sends only on change, and a failed poll keeps the
+/// subscription alive rather than showing a transient error as dead.
 pub async fn watch_status(
     sink: StreamSink,
     state: ServersState,
@@ -189,9 +173,8 @@ pub async fn watch_status(
 
 /// Send one server's log lines for as long as the subscription lives.
 ///
-/// The stream ends when the container's does. Nothing is retained, so a client
-/// that reconnects receives only new lines and the gap is not backfilled —
-/// which is a fact the panel states rather than hides.
+/// Ends when the container's does. Nothing is retained, so a reconnecting
+/// client gets only new lines; the gap is not backfilled.
 pub async fn watch_logs(
     sink: StreamSink,
     state: ServersState,

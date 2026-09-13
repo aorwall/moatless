@@ -20,9 +20,8 @@ use super::subject::{
 
 /// The message text as Telegram receives it, task link included.
 ///
-/// Every outbound path appends the same link the same way; before the breakup
-/// it did so in four separate copies, which is three chances for a fifth path
-/// to render it differently.
+/// Every outbound path appends the link the same way, so none can render it
+/// differently.
 fn with_task_link(message: &OutboundReply) -> String {
     let mut text = message.text.clone();
     if let Some(p) = message.provenance.as_ref() {
@@ -313,10 +312,8 @@ mod tests {
         }
     }
 
-    /// The spec's budget for a Telegram reply is one `sendMessage`, and every
-    /// binding-shaped path has to hit it — a second call is a duplicate message
-    /// in someone's chat, and a lost `reply_parameters` is a reply that stops
-    /// threading.
+    /// A binding reply must be exactly one `sendMessage`: a second call
+    /// duplicates the message, and a lost `reply_parameters` breaks threading.
     #[tokio::test]
     async fn a_binding_reply_is_one_send_message_onto_the_thread() {
         let (provider, stub) = provider_with_stub().await;

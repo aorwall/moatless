@@ -1,15 +1,12 @@
 //! Task turn DAO — authoritative per-turn lifecycle persistence.
 //!
-//! The [`TaskTurnDao::apply_ingress_event`] method is the
-//! commit-before-fan-out writer for turn state: it commits the event row, the
-//! turn row, and the task-status flip in ONE transaction *before* the gRPC
-//! handler publishes to Redis, so turn state is never lost to a dropped event.
-//! The Redis consumer re-applies the same projection idempotently via
-//! [`TaskTurnDao::project_turn`] as a rollout/backstop fallback.
+//! [`TaskTurnDao::apply_ingress_event`] commits the event row, turn row, and
+//! task-status flip in ONE transaction before the gRPC handler publishes to
+//! Redis, so turn state is never lost to a dropped event; the Redis consumer
+//! re-applies it idempotently via [`TaskTurnDao::project_turn`] as a backstop.
 //!
-//! This is ordering, not an outbox: nothing is spooled here and nothing relays
-//! or deletes these rows. "Transactional outbox" names only the durable
-//! payload-and-relay path in [`crate::event_ingress`] (the durable-ingress decision).
+//! This is ordering, not an outbox: nothing here is spooled, relayed, or
+//! deleted.
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -25,13 +22,9 @@ use moatless_core::db::DbPool;
 
 /// Build the idempotent `task_turns` upsert for a transition.
 ///
-/// The `WHERE` guards make every projection idempotent and monotonic:
-/// - `Open` only (re)opens a missing or `interrupted` turn — never resurrects a
-///   terminal one, and re-delivery of the same active event is a no-op.
-/// - `Interrupted` only moves an `active` turn to `interrupted`.
-/// - `Terminal` only closes an `active`/`interrupted` turn (preserving the
-///   first terminal status on re-delivery), and inserts a terminal row outright
-///   when no open row exists (a lost `active` event).
+/// The `WHERE` guards make every transition idempotent and monotonic: never
+/// resurrecting a terminal turn, and preserving the first terminal status on
+/// re-delivery.
 fn turn_projection_query<'a>(
     task_id: &'a str,
     turn_number: i32,
@@ -77,17 +70,11 @@ fn turn_projection_query<'a>(
     }
 }
 
-/// Record that `task_id`'s Turn moved, on the same transaction that moved it —
-/// to the sidebar's feed and to the conversation's, which both show it. Only
-/// when the projection above actually moved the row.
+/// Record that `task_id`'s Turn moved, on the transaction that moved it.
 ///
-/// The guard is `rows_affected` rather than the transition because the Redis
-/// consumer re-applies every event the gRPC ingress already committed, so
-/// recording on arrival would double each turn's position advance and deliver
-/// the same row twice.
-///
-/// Conversation first, listing last, per `record_message_change`'s ordering
-/// rule and `record_change`'s "call this last".
+/// Guarded by `rows_affected`, not transition kind, since the Redis consumer
+/// re-applies committed events; ordered conversation-first, listing-last per
+/// `record_change`'s rule.
 async fn record_turn_change(
     tx: &mut sqlx::PgConnection,
     task_id: &str,
@@ -104,16 +91,17 @@ async fn record_turn_change(
 #[cfg_attr(test, mockall::automock)]
 #[async_trait]
 pub trait TaskTurnDao: Send + Sync {
-    /// Transactionally apply a state-bearing event at the gRPC ingress: persist
-    /// the `task_events` row (idempotent on `event_id`), project the turn row,
-    /// and — for terminal transitions — return the task to `Open` unless it was
-    /// closed mid-run. All three writes commit together, before the caller
-    /// publishes to Redis.
+    /// Transactionally apply a state-bearing event at the gRPC ingress.
+    ///
+    /// Persists the event row (idempotent on `event_id`), projects the turn
+    /// row, and reopens the task on a terminal transition unless it closed
+    /// mid-run — all committed before the caller publishes to Redis.
     async fn apply_ingress_event(&self, ev: &TurnStateEvent) -> Result<(), sqlx::Error>;
 
     /// Idempotent turn projection used by the Redis consumer as a fallback.
     /// Touches only `task_turns` (the event row and task-status flip stay with
-    /// the consumer's existing writes). A no-op when the row is already current.
+    /// the consumer's existing writes). A no-op when the row is already
+    /// current.
     async fn project_turn(
         &self,
         task_id: &str,
@@ -131,24 +119,17 @@ pub trait TaskTurnDao: Send + Sync {
         older_than: DateTime<Utc>,
     ) -> Result<Vec<UnclosedTurn>, sqlx::Error>;
 
-    /// Tasks whose newest turn is closed, yet which have recorded activity
-    /// since it closed — the signature of an agent still working under a turn
-    /// row that says it finished.
-    ///
-    /// One query narrows the fleet to a handful of candidates, which the caller
-    /// confirms against the agent itself; sweeping every running Sandbox would
-    /// cost a gRPC round trip each per tick. `run_id` is the run recorded on
-    /// the closed turn, for telling a newer run from one that contradicts it.
+    /// Tasks whose newest turn is closed yet show activity since — an agent
+    /// still working under a turn row that says it finished. `run_id`
+    /// distinguishes a newer run from a contradicting one.
     async fn list_settled_turns_with_later_activity(&self)
     -> Result<Vec<SettledTurn>, sqlx::Error>;
 
-    /// Open turns (`active`/`interrupted`) that a higher-numbered turn already
-    /// supersedes, started before `older_than`. A later turn proves the agent
-    /// moved on, so these will never resume and are settled directly rather
-    /// than by inspecting a sandbox — the one whose turn it was is long gone.
-    /// [`Self::list_unclosed_active_turns`] returns only a task's newest open
-    /// turn, so without this a stranded earlier turn stays open forever,
-    /// reporting the task busy to every reader of `task_turns`.
+    /// Open turns a higher-numbered turn already supersedes, started before
+    /// `older_than`.
+    ///
+    /// [`Self::list_unclosed_active_turns`] only returns the newest open turn,
+    /// so without this a stranded earlier one stays open forever.
     async fn list_superseded_open_turns(
         &self,
         older_than: DateTime<Utc>,
@@ -156,21 +137,16 @@ pub trait TaskTurnDao: Send + Sync {
 
     /// The turn number for a sandbox agent run, allocating it on first sight.
     ///
-    /// This is the sole allocator of turn numbers. A turn is one agent run, so
-    /// everything the run touches — the messages it consumed, its lifecycle
-    /// events, its result — resolves through here and lands on one turn.
-    ///
-    /// Idempotent and order-independent: whichever of the run's signals arrives
-    /// first (the ack, `taskTurn.active`, or a terminal event that overtook
-    /// them in the Sandbox's send queue) allocates, and the rest join.
+    /// The sole allocator; idempotent and order-independent — whichever signal
+    /// arrives first (ack, `taskTurn.active`, or an overtaking terminal event)
+    /// allocates, and the rest join.
     async fn resolve_turn_for_run(&self, task_id: &str, run_id: &str) -> Result<i32, sqlx::Error>;
 
     /// The Task band's half of the running rule, for one task, in one query.
     ///
-    /// The newest turn's state and when the newest user message arrived travel
-    /// together because the rule reads them together: a turn that closed before
-    /// the newest user message is a turn that is owed, and neither half says
-    /// that alone.
+    /// Turn state and newest-user-message time travel together because the rule
+    /// reads them together: a turn closed before the newest message is one
+    /// that's owed.
     async fn latest_running_signals(&self, task_id: &str) -> Result<TurnSignals, sqlx::Error>;
 
     /// The task's highest turn number, or `None` when it has none yet.
@@ -179,12 +155,10 @@ pub trait TaskTurnDao: Send + Sync {
     /// replies, outbound stubs), which belong to the turn already in progress.
     async fn latest_turn_number(&self, task_id: &str) -> Result<Option<i32>, sqlx::Error>;
 
-    /// The status of the task's most recently *closed* turn, or `None` when it
-    /// has none. Open turns (`active`/`interrupted`) are skipped, so the answer
-    /// doesn't flip once the next run opens its own turn.
+    /// The status of the task's most recently *closed* turn, or `None`.
     ///
-    /// Read when deriving `--resume`: a turn that ended `stopped` or `error`
-    /// cut its agent session off mid-flight (see
+    /// Open turns are skipped so the answer doesn't flip once the next run
+    /// opens; read when deriving `--resume` (see
     /// [`TurnStatus::cut_off_session`]).
     async fn latest_closed_turn_status(
         &self,
@@ -198,10 +172,9 @@ pub trait TaskTurnDao: Send + Sync {
 
     /// Store the SDK result message's turn totals on the turn row.
     ///
-    /// The authoritative token counts and cost live only on the terminal result:
-    /// Claude Code's per-message `output_tokens` is a partial value taken before
-    /// the response finished. Writing them here keeps turn totals off the
-    /// individual message rows, where summing them would double-count.
+    /// Authoritative counts live only on the terminal result — per-message
+    /// `output_tokens` is partial — kept off message rows, where summing would
+    /// double-count.
     async fn set_turn_metrics(
         &self,
         task_id: &str,
@@ -209,11 +182,12 @@ pub trait TaskTurnDao: Send + Sync {
         metrics: &serde_json::Value,
     ) -> Result<bool, sqlx::Error>;
 
-    /// Record the agent's native turn id on the turn — Codex's `turn/start` id,
-    /// which [`Self::fork_point`] hands the pod as `thread/fork`'s `lastTurnId`.
-    /// Claude carries no such id (a fork cuts its transcript by Message uuid), so
-    /// only Codex runs ever call this. First writer wins: the id is fixed for a
-    /// turn's life, so a re-delivered `session_init` must not overwrite it.
+    /// Record the agent's native turn id (Codex's `turn/start` id, used by
+    /// [`Self::fork_point`]).
+    ///
+    /// First writer wins — the id is fixed for the turn's life, so a
+    /// re-delivered `session_init` must not overwrite it. Only Codex runs call
+    /// this.
     async fn set_agent_turn_id(
         &self,
         task_id: &str,
@@ -232,19 +206,17 @@ pub trait TaskTurnDao: Send + Sync {
 
     /// Where a fork of `task_id` would cut, and the harness id that names it.
     ///
-    /// One read rather than three, because the three answers are one decision:
-    /// whether the cut clears the turn still in flight, and the cut and its
-    /// `agent_turn_id` come off the same row.
+    /// One read, not three: the cut and its `agent_turn_id` must come off the
+    /// same row to decide whether the cut clears the turn still in flight.
     async fn fork_point(
         &self,
         task_id: &str,
         at_turn: Option<i32>,
     ) -> Result<ForkPoint, sqlx::Error>;
 
-    /// Zero a turn's recovery counter. Called when the last re-drive made
-    /// forward progress before the pod died again, so a long turn interrupted by
-    /// repeated external reschedules never exhausts the crash-loop cap. A no-op
-    /// when the row is absent.
+    /// Zero a turn's recovery counter so repeated external reschedules never
+    /// exhaust the crash-loop cap. Called after a re-drive makes progress; a
+    /// no-op when the row is absent.
     async fn reset_recovery_attempts(
         &self,
         task_id: &str,
@@ -255,8 +227,8 @@ pub trait TaskTurnDao: Send + Sync {
 /// The next free turn number for a task.
 ///
 /// `GREATEST` over both tables is required: migration 0071 seeded `task_turns`
-/// only for turns that were `active` at rollout, so for most tasks that table
-/// is empty while `task_messages` holds the full turn history.
+/// only for turns active at rollout, so most tasks' table is empty while
+/// `task_messages` holds full history.
 const NEXT_TURN_NUMBER_SQL: &str = r#"
     SELECT GREATEST(
         COALESCE((SELECT MAX(turn_number) FROM task_turns WHERE task_id = $1), 0),

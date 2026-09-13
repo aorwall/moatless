@@ -1,5 +1,5 @@
-//! Admission and relay behaviour (the durable-ingress decision), driven through the seams the
-//! gRPC ingress and the relay actually use.
+//! Admission and relay behaviour (the durable-ingress decision), driven through
+//! the seams the gRPC ingress and the relay actually use.
 
 use std::sync::{Arc, Mutex};
 
@@ -480,18 +480,11 @@ async fn agent_message_without_a_transport_is_not_admitted() {
 
 /// The delivery-path predicate is the transport, deliberately not the consumer.
 ///
-/// Reviewers keep reading `EVENT_HANDLER_ENABLED=false` as "nothing will ever
-/// consume this" and proposing that admission refuse in that case. It means
-/// "not in *this* process": the consumer group is the shared constant
-/// `event-handler`, and a shadow backend sets the flag precisely because it
-/// shares the primary's Redis and Postgres, so the primary consumes and deletes
-/// the record on its behalf (`scripts/shadow/sync-env.sh`).
-///
-/// Folding consumer presence into the predicate would therefore refuse
-/// admission in the one configuration the flag exists to support, and the
-/// sandbox would retry forever against a delivery path that works. If this test
-/// fails, that is the change being made — a genuinely consumer-less deployment
-/// surfaces at runtime through `event_ingress_outbox_stalled`, not here.
+/// `EVENT_HANDLER_ENABLED=false` means "not in *this* process", not "nothing
+/// will ever consume this": a shadow backend sets it because it shares the
+/// primary's Redis/Postgres, so the primary consumes on its behalf. Folding
+/// consumer presence into the predicate would refuse admission in the one
+/// configuration the flag exists to support.
 #[tokio::test]
 async fn agent_message_is_admitted_when_no_consumer_runs_in_this_process() {
     let outbox = Arc::new(FakeOutbox::default());
@@ -529,8 +522,8 @@ async fn agent_message_without_an_outbox_is_not_admitted() {
     assert!(error.is_retryable());
 }
 
-/// An `agent.message` never touches `task_events`, so a failing event repository
-/// has no say in whether one is admitted.
+/// An `agent.message` never touches `task_events`, so a failing event
+/// repository has no say in whether one is admitted.
 #[tokio::test]
 async fn an_agent_message_is_admitted_with_no_event_row_at_all() {
     let rec: Recorder = Arc::new(Mutex::new(Vec::new()));

@@ -4,9 +4,8 @@ use serde::Deserialize;
 
 /// SDK result message payload (embedded in agent.completed events).
 ///
-/// Note: The sandbox serializes Rust structs with `snake_case` field names,
-/// so multi-word fields need `#[serde(alias = "snake_case")]` to accept
-/// both camelCase (from `rename_all`) and `snake_case` (from the sandbox).
+/// The sandbox serializes with `snake_case` field names, so multi-word fields
+/// need `#[serde(alias = "snake_case")]` to accept both that and camelCase.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SdkResultMessage {
@@ -46,7 +45,7 @@ pub struct PermissionDenialInfo {
 
 /// Deserialize any JSON value into `Option<String>`.
 ///
-/// Strings pass through directly; other types are converted via `to_string()`.
+/// Strings pass through directly, other types convert via `to_string()`, and
 /// `null` becomes `None`.
 fn deserialize_value_as_string<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
 where

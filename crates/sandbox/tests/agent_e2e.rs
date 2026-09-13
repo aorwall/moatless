@@ -7,19 +7,13 @@
 )]
 //! End-to-end integration tests for the sandbox agent module.
 //!
-//! Test 1 (`test_agent_state_transitions`) is a pure state-machine test —
-//! no CLI or API key needed, runs with `cargo test -p moatless-sandbox`.
+//! `test_agent_state_transitions` is a pure state-machine test, no CLI or API
+//! key needed. The rest are gated behind `CLAUDE_SDK_E2E=1` and `#[ignore]`:
+//! they spawn the real `claude` CLI, make actual API calls (~$0.01-0.05 each),
+//! and need `ANTHROPIC_API_KEY` set.
 //!
-//! Tests 2–5 are E2E tests gated behind `CLAUDE_SDK_E2E=1` and `#[ignore]`.
-//! They spawn the real `claude` CLI and make actual API calls.
-//!
-//! Run all E2E tests:
-//!   `CLAUDE_SDK_E2E=1` cargo test -p moatless-sandbox --test `agent_e2e` -- --ignored --nocapture
-//!
-//! Requirements (for tests 2–5):
-//! - `claude` CLI installed and on PATH
-//! - Valid `ANTHROPIC_API_KEY` in environment
-//! - Each test costs ~$0.01-0.05 in API usage
+//! Run: `CLAUDE_SDK_E2E=1 cargo test -p moatless-sandbox --test agent_e2e --
+//! --ignored --nocapture`.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -576,15 +570,11 @@ async fn test_cancel_during_pending_prompt() {
 // Test 7: Mid-turn injection folds into the running turn (E2E)
 // ===========================================================================
 
-/// The load-bearing assumption behind `ClaudeProcess`'s injection path: a user
-/// message written into a running Session with `MessagePriority::Next` is folded
-/// into the execution already in flight rather than opening a second one.
+/// `ClaudeProcess`'s injection path assumes `MessagePriority::Next` folds into
+/// the in-flight execution, not a second one.
 ///
-/// If the CLI instead started a fresh execution it would emit a second `Result`,
-/// which the one-shot orchestrator never reads (it ends the stream at the first)
-/// — so the injected message's output would be silently lost. This asserts both
-/// halves: exactly one `Result`, and the injected instruction visibly
-/// influencing that same Result.
+/// Asserts exactly one `Result`, with the injected instruction visibly
+/// influencing it.
 #[tokio::test]
 #[ignore]
 async fn test_mid_turn_injection_joins_the_running_turn() {

@@ -93,10 +93,11 @@ The comment rules in the root `AGENTS.md` apply. Rust specifics:
 
 - Doc comments are Markdown: `-` lists, fenced blocks, tables, and a bold label
   such as `**Failure policy:**` are the house style. No HTML tags.
-- The first line is the one-sentence summary. Failure semantics follow as
-  prose: "Returns `None` when ...", "Panics when ...". Do not add
-  `# Arguments`, `# Returns`, or `# Errors` sections. A `#` heading names a
-  concern the reader must find, such as `# Concurrency` or `# Call this last`.
+- The first line is the one-sentence summary. `clippy::too_long_first_doc_paragraph`
+  caps it at 200 characters on a public item only. Failure semantics follow as prose:
+  "Returns `None` when ...", "Panics when ...". Do not add `# Arguments`,
+  `# Returns`, or `# Errors` sections. A `#` heading names a concern the
+  reader must find, such as `# Concurrency` or `# Call this last`.
 - Link to the owner of a fact with an intra-doc link: `` [`Type::member`] ``
   or `` [`crate::module::item`] ``. `cargo doc` reports a link that does not
   resolve.

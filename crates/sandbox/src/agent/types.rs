@@ -18,10 +18,9 @@ pub enum ResumeSession {
 /// Where a fork's first turn branches from — the parent's session, and the cut
 /// inside it.
 ///
-/// Exactly one of the two anchors is set, and which one follows the harness:
-/// Claude's transcript is keyed by message uuid and carries no turn id, and
-/// Codex's `thread/fork` takes the cut as `lastTurnId` and knows nothing about
-/// messages. Neither is set for a fork at the session's head.
+/// Exactly one anchor is set: Claude keys by message uuid (no turn id), Codex's
+/// `thread/fork` takes `lastTurnId`. Neither is set for a fork at the session's
+/// head.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ForkSource {
     pub source_session_id: String,
@@ -55,8 +54,8 @@ impl<'de> Deserialize<'de> for ResumeSession {
 // ImageSourceType
 // =============================================================================
 
-/// Type of image source (re-export from SDK not possible since sandbox
-/// has its own `ImageSource` struct for proto conversion).
+/// Type of image source (re-export from SDK not possible since sandbox has its
+/// own `ImageSource` struct for proto conversion).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ImageSourceType {
@@ -140,9 +139,9 @@ pub enum AgentStatus {
     Waiting,
 }
 
-/// Who initiated an agent stop. Carried on the terminal `agent.stopped`
-/// event payload as `source` so the backend can attribute the stop instead
-/// of assuming every stop was user-requested.
+/// Who initiated an agent stop. Carried on the terminal `agent.stopped` event
+/// payload as `source` so the backend can attribute the stop instead of
+/// assuming every stop was user-requested.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StopSource {
     User,
@@ -181,7 +180,8 @@ impl From<sandbox_proto::AgentStopSource> for StopSource {
 
 /// Convert proto `ContentBlock`s to internal `ContentBlock`s.
 ///
-/// Shared by both `grpc_server.rs` (`execute_agent`) and `consumer.rs` (message polling).
+/// Shared by both `grpc_server.rs` (`execute_agent`) and `consumer.rs` (message
+/// polling).
 pub fn content_blocks_from_proto(
     proto_blocks: Vec<sandbox_proto::ContentBlock>,
 ) -> Vec<ContentBlock> {

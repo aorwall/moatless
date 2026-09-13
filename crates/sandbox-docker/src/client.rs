@@ -6,8 +6,8 @@ use bollard::Docker;
 
 /// Shared Docker client state.
 ///
-/// Cheap to clone — `bollard::Docker` uses an internal Arc'd HTTP client,
-/// and configuration fields are wrapped in `Arc`.
+/// Cheap to clone — `bollard::Docker` uses an internal Arc'd HTTP client, and
+/// configuration fields are wrapped in `Arc`.
 #[derive(Clone)]
 pub struct DockerClient {
     /// The underlying Docker API client.

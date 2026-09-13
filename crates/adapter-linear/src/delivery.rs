@@ -2,18 +2,14 @@
 //!
 //! Linear does not resend an acknowledged delivery, so all five kinds are
 //! admitted into [`moatless_loops::adapters::delivery`] before the response
-//! returns. Only signature verification, envelope parsing and the shape guards
-//! run on the response path; anything with an effect belongs in the worker.
+//! returns; only verification, parsing, and shape guards run on the response
+//! path.
 //!
-//! `event_id` is the existing [`dedup_key`](super::ingress) string. Do not key
-//! on Linear's `webhookId`: it is the webhook *configuration* id, identical on
-//! every delivery. The kinds stay distinct because dedup and the retry budget
-//! are both per `(adapter, kind, event_id)`.
-//!
-//! Each kind converges on an identity it does not invent — `linear:prompt:`,
-//! `linear:comment:`, `linear:issue-state:` — so a retry after the execution
-//! timeout is a no-op. The uncovered window is a timeout landing between task
-//! creation and the binding write in `provision_session_task`.
+//! `event_id` is the existing [`dedup_key`](super::ingress) string, not
+//! Linear's `webhookId` (identical on every delivery). Each kind converges on
+//! an identity it does not invent, so a retry after the execution timeout is a
+//! no-op — except a timeout landing between task creation and the binding write
+//! in `provision_session_task`.
 
 use std::sync::Arc;
 
@@ -68,10 +64,9 @@ pub const NOTIFICATION: &str = "linear.notification";
 /// methods, over the downward ports they read.
 ///
 /// Constructed once at the composition root and shared behind an `Arc` by
-/// [`register`], which captures a clone in each kind's delivery closure. The
-/// ports are held here rather than on [`LinearAdapter`](super::adapter::LinearAdapter)
-/// so the adapter stays a description of the provider and the worker-side
-/// behaviour keeps its substrate beside it.
+/// [`register`]; ports live here rather than on
+/// [`LinearAdapter`](super::adapter::LinearAdapter) so the adapter stays a
+/// description of the provider.
 pub struct LinearInboundRouter {
     adapter_connections: Arc<dyn ConnectionLookup>,
     app_tokens: Arc<dyn AppCredentials>,
@@ -207,11 +202,9 @@ pub fn register(handlers: &mut AdapterDeliveryHandlers, router: Arc<LinearInboun
 
 /// Everything the provisioning handler needs to redo the work from scratch.
 ///
-/// The connection is referenced by id rather than snapshotted, so a webhook
-/// secret never lands in a table retained for weeks and a record executed
-/// minutes later sees the connection as it is. The session, by contrast, is
-/// carried verbatim: it is the sender's own event payload and cannot be
-/// re-fetched from anywhere once the request body is gone.
+/// The connection is referenced by id, not snapshotted, so a webhook secret
+/// never lands in a long-retained table; the session is carried verbatim since
+/// it's the sender's own payload and can't be re-fetched later.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub(super) struct SessionProvisionDelivery {
     pub(super) connection_id: String,
@@ -226,11 +219,10 @@ impl ConnectionDeliveryPayload for SessionProvisionDelivery {
 
 /// Everything the prompt handler needs to forward one follow-up prompt.
 ///
-/// `activity_id` is what the forwarded message is identified by downstream
-/// (`linear:prompt:{activity_id}`), so it has to survive the restart with the
-/// body: rebuilding it from anything the worker observes — a clock, a fresh
-/// uuid — would give every attempt its own identity and double-deliver the
-/// prompt to the Agent.
+/// `activity_id` identifies the forwarded message downstream
+/// (`linear:prompt:{activity_id}`) and must survive the restart with the body;
+/// rebuilding it from a clock or fresh uuid would double-deliver the prompt to
+/// the Agent.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub(super) struct SessionPromptDelivery {
     pub(super) connection_id: String,
@@ -247,10 +239,10 @@ impl ConnectionDeliveryPayload for SessionPromptDelivery {
 
 /// Everything the issue handler needs to act on one workflow state change.
 ///
-/// `transition_id` is the semantic state transition derived at ingress. It is
-/// half of both the delivery identity and the forwarded message's
-/// `linear:issue-state:{issue}:{transition_id}` id. Older admitted records only
-/// carried `delivered_at`, so the worker keeps that field as a fallback.
+/// `transition_id` is the semantic state transition derived at ingress and half
+/// of both the delivery identity and the forwarded message's
+/// `linear:issue-state:{issue}:{transition_id}` id; older records only carried
+/// `delivered_at`, kept here as a fallback.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub(super) struct IssueUpdateDelivery {
     pub(super) connection_id: String,
@@ -287,11 +279,9 @@ impl ConnectionDeliveryPayload for CommentDelivery {
 /// Everything the notification handler needs to act on one workspace
 /// notification.
 ///
-/// `action` is carried rather than filtered on at the route, because whether an
-/// action is one this adapter acts on is a decision, and every decision belongs
-/// behind admission. Filtering at the route would leave a whole class of Linear
-/// delivery with no durable record of having arrived — which is the question an
-/// operator asks first and the one this seam exists to answer.
+/// `action` is carried rather than filtered on at the route: whether this
+/// adapter acts on it is a decision that belongs behind admission, so every
+/// delivery still gets a durable record of having arrived.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub(super) struct NotificationDelivery {
     pub(super) connection_id: String,
@@ -307,11 +297,9 @@ impl ConnectionDeliveryPayload for NotificationDelivery {
 
 /// Build the admission request for one Linear delivery.
 ///
-/// `event_id` must be the dispatcher's dedup key, so that one delivery has one
-/// identity no matter which kind it fans into. Fails only if the payload cannot
-/// be serialized, which for these types means a `serde_json::Value` carrying a
-/// non-string map key — impossible for a value parsed from a webhook body, but
-/// not worth an `unwrap`.
+/// `event_id` must be the dispatcher's dedup key, so one delivery has one
+/// identity no matter which kind it fans into. Fails only on a non-string map
+/// key, impossible for a webhook-parsed value but not worth an `unwrap`.
 fn request(
     kind: &'static str,
     event_id: &str,
@@ -752,10 +740,10 @@ mod tests {
         assert!(kinds.iter().all(|k| k.starts_with("linear.")));
     }
 
-    /// One delivery has one identity. Two kinds admitted under it are two
-    /// records because the *kind* differs, not because the key does — asserting
-    /// that here keeps a future "make the key unique per kind" change from
-    /// silently breaking the dedup the identity provides.
+    /// One delivery has one identity; two kinds admitted under it are two
+    /// records because the *kind* differs, not the key — asserting that here
+    /// guards a future "make the key unique per kind" change from silently
+    /// breaking the dedup the identity provides.
     #[test]
     fn every_kind_admits_under_the_dispatchers_delivery_identity() {
         let event_id = "AgentSessionEvent:prompted:activity-1";

@@ -42,15 +42,15 @@ pub(crate) struct UiRpcState {
     /// behind this module that is not a database read: a checkout exists inside
     /// its Sandbox and nowhere else.
     pub(crate) sandboxes: Arc<dyn SandboxConnector>,
-    /// The workspace as S3 last stored it, read when a conversation's Sandbox is
-    /// not running. `None` when the deployment stores no snapshots (no S3
+    /// The workspace as S3 last stored it, read when a conversation's Sandbox
+    /// is not running. `None` when the deployment stores no snapshots (no S3
     /// bucket), in which case a stopped Task's files are unavailable as before.
     pub(crate) snapshots: Option<Arc<dyn WorkspaceSnapshotSource>>,
     /// What a Task's servers are doing. Distinct from `sandboxes`, which
     /// reaches *into* a Sandbox; this only observes one from outside.
     pub(crate) servers: ServersState,
-    /// Running a Workspace's declared Scripts: reads the scripts and publishes a
-    /// script's port. The terminal it runs in is reached through `reads`,
+    /// Running a Workspace's declared Scripts: reads the scripts and publishes
+    /// a script's port. The terminal it runs in is reached through `reads`,
     /// `sandboxes` and `terminal`, the same handles `terminal.open` uses.
     pub(crate) scripts: ScriptsState,
     /// What a Task's Sandbox lifecycle is doing, and lifecycle commands.
@@ -79,8 +79,8 @@ pub(crate) struct UiRpcState {
     /// auth badge. Read per request because credentials come and go without a
     /// restart.
     pub(crate) source_control_auth: Arc<dyn ports::SourceControlAuthSource>,
-    /// Carries out the commands the T3 client dispatches. Not this module's only
-    /// write: a git action reaches a Sandbox through `sandboxes`.
+    /// Carries out the commands the T3 client dispatches. Not this module's
+    /// only write: a git action reaches a Sandbox through `sandboxes`.
     pub(crate) commands: Arc<dyn ports::ThreadCommandSink>,
     /// Where a chat attachment's bytes go, for the upload route and for
     /// `attachments.delete`.
@@ -96,11 +96,11 @@ pub(crate) struct UiRpcState {
     pub(crate) usage_limit_sources: crate::usage_limit_sources::UsageLimitSources,
 }
 
-/// What this deployment is, for the parts of a thread projection that are not
-/// read out of the conversation: the agent settings a thread reports where it
-/// states none of its own, and the address a link back into Moatless is built
-/// from. Grouped so a thread projection takes one value rather than two more
-/// positional arguments.
+/// What this deployment is, for the parts of a thread projection not read out
+/// of the conversation.
+///
+/// The agent settings a thread reports where it states none of its own, and the
+/// address a link back into Moatless is built from.
 pub struct Deployment<'a> {
     pub model_defaults: &'a AgentModelDefaults,
     pub frontend_url: &'a str,

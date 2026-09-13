@@ -1,7 +1,7 @@
 //! Environment-setup requirements reported alongside the session.
 //!
-//! The payload is deliberately machine-readable only — ids, statuses and
-//! action targets. All user-facing copy lives in the frontend, keyed on
+//! The payload is deliberately machine-readable only — ids, statuses and action
+//! targets. All user-facing copy lives in the frontend, keyed on
 //! [`SetupRequirementId`], so wording changes don't need a backend deploy and
 //! the backend never carries English strings.
 
@@ -35,8 +35,8 @@ pub struct SetupRequirement {
     pub actions: Vec<SetupAction>,
 }
 
-/// A remediation step the frontend can offer. `target` is machine-readable:
-/// a settings-section id, an in-app route, or an absolute URL, per `kind`.
+/// A remediation step the frontend can offer. `target` is machine-readable: a
+/// settings-section id, an in-app route, or an absolute URL, per `kind`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
@@ -59,9 +59,9 @@ pub enum SetupRequirementId {
     Unknown,
 }
 
-/// Tri-state because "configured but unusable" needs different copy from
-/// "never configured": a `secret_ref` row whose secret is gone is `Broken`,
-/// and telling that user to "connect GitHub" would be wrong.
+/// Tri-state because "configured but unusable" needs different copy from "never
+/// configured": a `secret_ref` row whose secret is gone is `Broken`, and
+/// telling that user to "connect GitHub" would be wrong.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
@@ -71,8 +71,8 @@ pub enum SetupRequirementStatus {
     Broken,
 }
 
-/// A closed vocabulary: a new value here is a real contract change the
-/// frontend should fail to compile against rather than silently ignore.
+/// A closed vocabulary: a new value here is a real contract change the frontend
+/// should fail to compile against rather than silently ignore.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]

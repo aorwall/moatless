@@ -1,9 +1,8 @@
 //! A crate may not name a dependency its band forbids.
 //!
-//! Cargo enforces acyclicity and nothing else, so band order and driver
-//! privacy are held here. Each entry states the rule and the document that
-//! explains it, because a forbidden edge is only obvious to whoever wrote it
-//! down.
+//! Cargo enforces acyclicity and nothing else, so band order and driver privacy
+//! are held here. Each entry states the rule and the document that explains it,
+//! because a forbidden edge is only obvious to whoever wrote it down.
 
 use crate::Violation;
 use crate::workspace::Workspace;

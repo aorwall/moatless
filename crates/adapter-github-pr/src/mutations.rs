@@ -23,13 +23,8 @@ use super::auth::resolve_github_api;
 use super::external_id;
 use super::subject::GithubPrSubject;
 
-/// Extract the configured GitHub PR adapter or answer "adapter not configured".
-///
-/// The typed API resolves credentials, the frontend-URL footer, and the binding
-/// Connector through this one provider handle rather than an `AppState`, mirroring
-/// [`super::handlers::github_webhook`].
-/// Provider label recorded on an external event, and the `external_adapter` an inbound
-/// event is matched under.
+/// Provider label recorded on an external event, and the `external_adapter` an
+/// inbound event is matched under.
 const ADAPTER_LABEL: &str = "github_pr";
 
 fn require_provider(
@@ -360,10 +355,9 @@ pub(crate) async fn bind_pr(
 
 /// Record a GitHub event the caller produced outside the typed routes above.
 ///
-/// `moat gh api` reaches GitHub directly, because the endpoint surface of `gh
-/// api` is too wide to type, so the side effect the typed routes perform inline
-/// has to be requested separately. The command that made the change is the one
-/// that calls this, with the response in hand.
+/// `moat gh api` reaches GitHub directly (its endpoint surface is too wide to
+/// type), so the caller must self-report the resulting event here instead of it
+/// being recorded inline.
 pub(crate) async fn record_external_event(
     tasks: Arc<dyn TaskReader>,
     recently_sent: Arc<RecentlySent>,
@@ -402,9 +396,8 @@ pub(crate) async fn record_external_event(
 
 /// Append the `Moatless task: <url>` footer to a body.
 ///
-/// Baked into the PR body at creation so the link is there from the first
-/// revision, and so the inbound echo filter can recover the authoring task from
-/// any comment quoting it.
+/// Baked in at creation so the link exists from the first revision, letting the
+/// inbound echo filter recover the authoring task from any comment quoting it.
 fn compose_footer(existing: &str, task_url: &str) -> String {
     let trimmed = existing.trim_end_matches('\n').to_string();
     if trimmed.is_empty() {
@@ -419,8 +412,8 @@ fn compose_footer(existing: &str, task_url: &str) -> String {
 /// Record `external_id` as `task_id`'s own work, in memory and durably.
 ///
 /// The in-memory note closes the race where the webhook lands before anything
-/// has committed; the durable row is what still answers after a restart, and on
-/// the replica that did not serve this request.
+/// commits; the durable row still answers after a restart or on a replica that
+/// didn't serve this request.
 async fn note_external_event(
     recently_sent: &RecentlySent,
     messages: &dyn TranscriptAppend,
@@ -441,8 +434,8 @@ async fn note_external_event(
 
 /// The durable half, and whether it landed.
 ///
-/// Best effort: a failure costs one echoed event on a replica that did not
-/// serve this request, and the in-memory note has already landed here.
+/// Best effort: a failure costs one echoed event on a replica that didn't serve
+/// this request, since the in-memory note already landed here.
 async fn record_durable_event(
     messages: &dyn TranscriptAppend,
     task_id: &str,
@@ -470,9 +463,8 @@ async fn record_durable_event(
 
 /// Authorize the caller against the Task and answer the Workspace it runs in.
 ///
-/// The same `NotFound`-on-denied rule the routes had before they needed the
-/// Workspace; a route naming no Task authorizes nothing and has no Workspace to
-/// report.
+/// Same `NotFound`-on-denied rule the routes always had; a route naming no Task
+/// authorizes nothing and has no Workspace to report.
 async fn task_workspace(
     tasks: &dyn TaskReader,
     ctx: &moatless_types::access_control::ScopeContext,
@@ -497,8 +489,8 @@ fn task_footer_url(frontend_url: &str, task_id: Option<&str>) -> Option<String> 
     Some(format!("{frontend_url}/tasks/{task_id}"))
 }
 
-/// Compose the PR body, truncated to GitHub's limit, with the
-/// `Moatless task:` footer baked in when a task URL is available.
+/// Compose the PR body, truncated to GitHub's limit, with the `Moatless task:`
+/// footer baked in when a task URL is available.
 fn build_pr_body(body: &str, task_url: Option<&str>) -> String {
     match task_url {
         Some(url) if !body.contains(FOOTER_MARKER) => {

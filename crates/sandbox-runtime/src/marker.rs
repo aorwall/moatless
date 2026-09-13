@@ -1,12 +1,11 @@
 //! Correlation-marker acknowledgement — the reconciler's per-class rules.
 //!
-//! The reconciler is the marker's acknowledgement owner. Marker age is a
-//! recovery signal, **never** proof of completion: stale level markers are
-//! reconciled and never cleared merely because of age; an incomplete remove
-//! marker survives until strict success. A stale edge marker first disables
-//! event suppression, then is cleared only after the replacement generation is
-//! observed Ready or the edge is durably classified as abandoned with its
-//! deterministic `Error` fact persisted.
+//! The reconciler owns acknowledgement. Marker age is a recovery signal, never
+//! proof of completion: stale level markers are reconciled, never cleared by
+//! age alone; an incomplete remove marker survives until strict success. A
+//! stale edge marker first disables suppression, then clears only once the
+//! replacement generation is Ready or the edge is durably abandoned with its
+//! `Error` fact persisted.
 
 use std::time::Duration;
 
@@ -44,9 +43,9 @@ pub struct AckContext {
     pub observed: SandboxObservedStatus,
     /// Edge ops: the **replacement** generation has been observed Ready.
     pub replacement_ready: bool,
-    /// Stop/remove: the deterministic completion fact is durably persisted.
-    /// For remove this implies strict success including archive deletion,
-    /// because the completion fact is only written on strict success.
+    /// Stop/remove: the deterministic completion fact is durably persisted. For
+    /// remove this implies strict success including archive deletion, because
+    /// the completion fact is only written on strict success.
     pub completion_persisted: bool,
     /// Remove: every runtime resource is absent (PVC unconditionally included).
     pub resources_absent: bool,
@@ -69,14 +68,10 @@ impl Default for AckContext {
 
 /// Decide whether a persisted marker can be cleared.
 ///
-/// - **start** clears after observed Ready;
-/// - **stop** clears after observed convergence **and** durable persistence of
-///   its `Stopped` completion event;
-/// - **remove** clears only after strict success **and** durable persistence of
-///   its `Removed` completion event — observed absence is not enough, because
-///   the archive-deletion obligation has no observable trace;
-/// - **edge** ops clear only when the replacement generation is observed Ready
-///   (or the edge is durably abandoned with its `Error` fact persisted).
+/// `start` clears on observed Ready; `stop`/`remove` need durable completion
+/// persistence (`remove` also needs absence, since archive deletion leaves no
+/// observable trace); edge ops need the replacement Ready or the edge durably
+/// abandoned.
 pub fn acknowledge(marker: &CorrelationMarker, ctx: AckContext) -> MarkerAck {
     use SandboxObservedStatus as O;
     let clear = match marker.kind {
@@ -100,8 +95,8 @@ pub fn acknowledge(marker: &CorrelationMarker, ctx: AckContext) -> MarkerAck {
 
 /// Whether a marker is stale (age exceeds `threshold`).
 ///
-/// Staleness is a recovery signal only — it is **never** grounds to clear a
-/// level or remove marker. For an edge marker it drives disabling suppression.
+/// A recovery signal only — never grounds to clear a level or remove marker;
+/// for an edge marker it drives disabling suppression.
 pub fn is_stale(marker: &CorrelationMarker, now: DateTime<Utc>, threshold: Duration) -> bool {
     let age = now.signed_duration_since(marker.started_at);
     match age.to_std() {
@@ -112,8 +107,10 @@ pub fn is_stale(marker: &CorrelationMarker, now: DateTime<Utc>, threshold: Durat
 }
 
 /// Whether the watcher's expected-intermediate suppression is active for this
-/// marker. Only edge markers ever suppress; a stale edge marker disables it so
-/// a lingering unfinished edge cannot indefinitely hide observations.
+/// marker.
+///
+/// Only edge markers ever suppress; a stale one disables it so a lingering
+/// unfinished edge cannot indefinitely hide observations.
 pub fn edge_suppression_active(
     marker: &CorrelationMarker,
     now: DateTime<Utc>,

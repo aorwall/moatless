@@ -1,5 +1,5 @@
-//! Feedback domain module — captures qualitative comments on tasks,
-//! messages, tool calls, and preview failures.
+//! Feedback domain module — captures qualitative comments on tasks, messages,
+//! tool calls, and preview failures.
 
 pub(crate) mod dao;
 pub mod error;

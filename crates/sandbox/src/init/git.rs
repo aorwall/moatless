@@ -15,10 +15,8 @@ use tracing::{info, warn};
 
 use crate::config::Config;
 
-/// Configure git authentication.
-///
-/// For GitHub: uses `gh auth setup-git` + resolves user info via `gh api user`.
-/// For other providers: configures token-based HTTPS auth via git credential helper.
+/// Configure git authentication: `gh auth setup-git` (plus `gh api user` for
+/// identity) on GitHub, a token-based credential helper on other providers.
 pub async fn configure_git(config: &Config) -> Result<(), String> {
     let is_ssh = config.git_clone_url.as_deref().is_some_and(is_ssh_url);
     let is_github = config.git_provider == "github";
@@ -139,23 +137,17 @@ pub struct CloneSummary {
     /// Mount names freshly cloned in this pass; empty when every repo was
     /// already on disk.
     pub cloned: Vec<String>,
-    /// Whether the *primary* repo was freshly cloned rather than found in place.
-    /// When true the pre-restart working tree is gone, which a resuming agent is
-    /// told about.
+    /// Whether the *primary* repo was freshly cloned rather than found in
+    /// place. When true the pre-restart working tree is gone, which a resuming
+    /// agent is told about.
     pub primary_recloned: bool,
 }
 
-/// Clone every repository the task's workspace places in this sandbox.
+/// Clone every repository the task's workspace names, each into its own dir.
 ///
-/// Each checkout lands in its own `{workspace_dir}/{mount_name}` directory and
-/// authenticates with its own provider's token, so a workspace can mix providers.
-/// A repo whose directory already holds a `.git` is left alone, which makes this
-/// safe to run on a pod whose volume survived a restart and lets a repo added to
-/// the workspace afterwards be picked up on the next start.
-///
-/// Every declared repo is required: a workspace names the repos the task's work
-/// spans, so silently starting the agent without one produces work against the
-/// wrong tree. The first failure aborts.
+/// Uses each repo's own provider token; a dir already holding `.git` is left
+/// alone (safe across a restart), and every repo is required, so the first
+/// failure aborts.
 pub async fn clone_repositories(config: &Config) -> Result<CloneSummary, CloneFailure> {
     let deadline = Instant::now() + CLONE_RETRY_BUDGET;
     let mut summary = CloneSummary {
@@ -184,10 +176,9 @@ pub async fn clone_repositories(config: &Config) -> Result<CloneSummary, CloneFa
 #[derive(Debug)]
 pub struct CloneFailure {
     message: String,
-    /// Another attempt could get past this: the pod could not reach the host, or
-    /// the service answered for its own outage. The attempt then says nothing
-    /// about whether the repo exists or its credentials are accepted, so init
-    /// retries rather than reporting a permanent config error.
+    /// Another attempt could get past this: the failure reflects reachability,
+    /// not the service's verdict on the repo or its credentials — so init
+    /// retries instead of reporting a permanent error.
     pub retryable: bool,
 }
 
@@ -199,15 +190,9 @@ impl std::fmt::Display for CloneFailure {
 
 /// Wall-clock ceiling on clone retries, shared by every repo in one pass.
 ///
-/// The pod's startup probe kills the container after
-/// `K8S_POD_STARTUP_TIMEOUT_SECS / 5 + 6` failed `/health` checks at 5s spacing
-/// — 150s at the default. `credentials::fetch::RETRY_BUDGET` (90s) and the
-/// workspace restore run ahead of this one, so an outage spending both leaves
-/// little here and this loop is SIGKILLed mid-backoff before it reports. That
-/// is the deliberate loser of the three:
-/// the restore must reach its own reporting, which is what holds this pod's
-/// uploads off a snapshot it could not read, and a clone that reports nothing
-/// costs a diagnostic. The container restart is the outer retry for all three.
+/// The deliberate loser of three startup budgets (credential fetch, workspace
+/// restore, this): the probe may SIGKILL it mid-backoff since the restore's
+/// report matters more, and the container restart is the outer retry.
 const CLONE_RETRY_BUDGET: Duration = Duration::from_secs(45);
 
 /// Longest single backoff between clone attempts.
@@ -217,11 +202,11 @@ const MAX_CLONE_RETRY_DELAY: Duration = Duration::from_secs(8);
 /// whole retry budget inside a single connect.
 const HOST_PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// Clone one repo, retrying for as long as its host is unreachable and
-/// `deadline` allows.
+/// Clone one repo, retrying while its host is unreachable and `deadline`
+/// allows.
 ///
-/// A reachable host means the failure is about the repo or its credentials, so
-/// this returns at once — retrying a 404 only burns the startup budget.
+/// A reachable host means the failure is the repo's own, so this returns at
+/// once — retrying a 404 only burns the startup budget.
 async fn clone_with_retry(
     repo: &RepoCheckout,
     dest: &str,
@@ -270,8 +255,8 @@ async fn clone_with_retry(
 
 /// Whether a failed clone is worth another attempt.
 ///
-/// Two measured signals, never git's stderr: the status the service answers for
-/// this repo, and whether the host answers a TCP connect at all.
+/// Two measured signals, never git's stderr: the service's status for this
+/// repo, and whether the host answers a TCP connect.
 async fn failure_is_retryable(repo: &RepoCheckout, pod_provider: &str) -> bool {
     // A 5xx is the service having its own outage, which a reachable host would
     // otherwise be read as a verdict on the repo. This can only ever promote a
@@ -312,12 +297,9 @@ async fn repo_advertisement_status(
 
 /// Whether the pod can currently reach the host `clone_url` points at.
 ///
-/// Asks the resolver and the TCP stack directly instead of reading git's stderr:
-/// git exits 128 for every fatal error, and a host that does not resolve or
-/// refuses a connection is why the clone failed whatever it printed.
-///
-/// A URL with no host to probe answers `true` — nothing was learned about the
-/// pod's network, and the clone failure has to stand on its own.
+/// Probes the resolver and TCP directly since git exits 128 for every fatal
+/// error; a URL with no host to probe answers `true`, leaving the clone failure
+/// to stand on its own.
 async fn host_reachable(clone_url: &str) -> bool {
     let Some((host, port)) = clone_host_port(clone_url) else {
         return true;
@@ -377,8 +359,8 @@ fn clone_host_port(clone_url: &str) -> Option<(String, u16)> {
 
 /// Clone one repository into `dest`.
 ///
-/// For GitHub repos, tries `gh repo clone` first, then falls back to `git clone`.
-/// For other providers, uses `git clone` with token-authenticated HTTPS URL.
+/// GitHub repos try `gh repo clone` first, falling back to `git clone`; other
+/// providers use `git clone` with a token-authenticated HTTPS URL.
 async fn clone_checkout(repo: &RepoCheckout, dest: &str, pod_provider: &str) -> Result<(), String> {
     let clone_url = &repo.clone_url;
     let is_ssh = is_ssh_url(clone_url);
@@ -490,24 +472,19 @@ async fn clone_checkout(repo: &RepoCheckout, dest: &str, pod_provider: &str) -> 
     }
 }
 
-/// Resolve the clone token for one provider from the credentials the sandbox
-/// fetched at init.
+/// Resolve one provider's clone token from the credentials fetched at init.
 ///
-/// `credentials.rs` sets each provider's token in the process env, except
-/// GitHub's — `GITHUB_TOKEN`/`GH_TOKEN` are deliberately kept out so `gh` reads
-/// the refresher-owned `hosts.yml` instead. `GIT_TOKEN` therefore backs GitHub
-/// up, but only when this checkout uses the *pod's* provider: `GIT_TOKEN` holds
-/// that provider's token, and injecting it into another host's clone URL would
-/// hand the credential to a third party. When it doesn't match, the `gh repo
-/// clone` attempt (GitHub) or an unauthenticated clone is the remaining path.
+/// `GITHUB_TOKEN`/`GH_TOKEN` are deliberately kept out of the env so `gh` reads
+/// `hosts.yml`; `GIT_TOKEN` backs GitHub only when this checkout matches the
+/// *pod's own* provider, never lending it to a foreign host.
 fn provider_git_token(provider: &str, pod_provider: &str) -> Option<String> {
     resolve_provider_git_token(provider, pod_provider, |key| {
         std::env::var(key).ok().filter(|value| !value.is_empty())
     })
 }
 
-/// The env-free half of [`provider_git_token`], so the "never lend the pod token
-/// to a foreign host" rule is testable without touching the process env.
+/// The env-free half of [`provider_git_token`], so the "never lend the pod
+/// token to a foreign host" rule is testable without touching the process env.
 fn resolve_provider_git_token(
     provider: &str,
     pod_provider: &str,
@@ -533,12 +510,11 @@ fn resolve_provider_git_token(
     })
 }
 
-/// Remove contents of the workspace directory without removing the directory itself.
+/// Remove the workspace directory's contents but keep the directory itself.
 ///
-/// This is needed between clone fallback attempts: a failed `git clone` may leave
-/// partial data (`.git/`, etc.) that causes the next attempt to fail with
-/// "directory already exists and is not an empty directory". The directory itself
-/// is kept because it may be a mount point (e.g. a Kubernetes PVC).
+/// Needed between clone fallback attempts: leftover `.git/` from a failed clone
+/// makes git refuse a non-empty dir. The dir itself is kept since it may be a
+/// mount point (e.g. a PVC).
 async fn clean_workspace_dir(dir: &str) {
     let Ok(mut entries) = tokio::fs::read_dir(dir).await else {
         return;
@@ -561,11 +537,9 @@ async fn clean_workspace_dir(dir: &str) {
     info!(dir = %dir, "Cleaned workspace directory for next clone attempt");
 }
 
-/// Extract "owner/repo" from a GitHub URL.
-///
-/// Handles:
-/// - `https://github.com/owner/repo.git`
-/// - `git@github.com:owner/repo.git`
+/// Extract "owner/repo" from a GitHub URL, handling both the
+/// `https://github.com/owner/repo.git` and `git@github.com:owner/repo.git`
+/// forms.
 fn extract_github_repo_path(url: &str) -> String {
     url.replace("https://github.com/", "")
         .replace("git@github.com:", "")
@@ -573,10 +547,9 @@ fn extract_github_repo_path(url: &str) -> String {
         .to_string()
 }
 
-/// Inject a token into an HTTPS clone URL.
-///
-/// Converts `https://host/path.git` → `https://x-access-token:{token}@host/path.git`.
-/// If the URL already has credentials embedded, replaces them.
+/// Inject a token into an HTTPS clone URL: `https://host/path` becomes
+/// `https://x-access-token:{token}@host/path`, replacing any embedded
+/// credentials.
 pub(crate) fn inject_token_into_url(url: &str, token: &str) -> String {
     if let Some(rest) = url.strip_prefix("https://") {
         // Strip any existing credentials (user:pass@)
@@ -631,15 +604,11 @@ async fn resolve_github_user() -> Result<(Option<String>, Option<String>), Strin
 /// sandbox image alongside the sandbox binary.
 const BROKER_HELPER_PATH: &str = "/usr/local/bin/moatless-git-cred";
 
-/// Configure git to use the broker-backed credential helper as the primary
-/// credential source for `origin`, with `gh auth git-credential` retained as a
-/// fallback (added inside the helper script itself).
+/// Sets the broker-backed credential helper as `origin`'s primary, via
+/// `--replace-all` (wiping e.g. any helper `gh auth setup-git` added).
 ///
-/// `--replace-all` wipes any previous helper entries for that origin (including
-/// the one installed by `gh auth setup-git`) so the broker helper is the only
-/// one configured. The helper script handles fallback to `gh auth
-/// git-credential` internally, which keeps the existing hosts.yml-backed path
-/// working when the broker is unreachable.
+/// The helper script itself falls back to `gh auth git-credential` when the
+/// broker is unreachable.
 async fn wire_broker_git_helper(origin: &str) {
     if !std::path::Path::new(BROKER_HELPER_PATH).exists() {
         info!(
@@ -690,7 +659,8 @@ mod tests {
     use crate::config::test_support::minimal_config;
 
     /// A port nothing listens on. Well below the ephemeral range, so a
-    /// concurrently-running test cannot be handed it and make the connect succeed.
+    /// concurrently-running test cannot be handed it and make the connect
+    /// succeed.
     const DEAD_PORT: u16 = 1;
 
     fn checkout(mount: &str, provider: &str, is_primary: bool) -> RepoCheckout {
@@ -732,8 +702,9 @@ mod tests {
         );
     }
 
-    /// A repo whose directory already holds a `.git` is left alone, so a restart
-    /// onto a persistent volume neither re-clones nor reports a reclone.
+    /// A repo whose directory already holds a `.git` is left alone, so a
+    /// restart onto a persistent volume neither re-clones nor reports a
+    /// reclone.
     #[tokio::test]
     async fn already_cloned_repos_are_skipped() {
         let tmp = tempfile::tempdir().unwrap();
@@ -749,10 +720,11 @@ mod tests {
         assert!(!summary.primary_recloned);
     }
 
-    /// A full S3 restore can contain an older workspace shape: the primary repo
-    /// is present, but a repo added to the workspace later is absent. The init
-    /// flow still runs this clone pass after restore, so only the missing sibling
-    /// should be cloned and the primary should not count as recloned.
+    /// A restore can carry an older workspace shape: the primary repo present
+    /// but a later-added sibling absent.
+    ///
+    /// The clone pass after restore must clone only the missing sibling, and
+    /// not count the primary as recloned.
     #[tokio::test]
     async fn restored_primary_does_not_prevent_new_sibling_clone() {
         let tmp = tempfile::tempdir().unwrap();
@@ -795,10 +767,11 @@ mod tests {
         assert!(workspace.join("secondary").join("README.md").is_file());
     }
 
-    /// Each checkout authenticates with its own provider's token, and the pod's
-    /// `GIT_TOKEN` only backs up a checkout on the pod's own provider — injecting
-    /// it into another host's clone URL would hand the credential to a third
-    /// party.
+    /// Each checkout authenticates with its own provider's token; the pod's
+    /// `GIT_TOKEN` backs up only a checkout on the pod's own provider.
+    ///
+    /// Injecting it into another host's clone URL would hand the credential to
+    /// a third party.
     #[test]
     fn each_checkout_uses_its_own_providers_token() {
         let env = |key: &str| match key {
@@ -832,8 +805,10 @@ mod tests {
     }
 
     /// The probe answers from the resolver and the TCP stack, so both verdicts
-    /// are exercised against a real local socket rather than the public network:
-    /// a listener that exists, and a port nothing is bound to.
+    /// are exercised against a real local socket rather than the public
+    /// network.
+    ///
+    /// That means a listener that exists, and a port nothing is bound to.
     #[tokio::test]
     async fn probe_reports_reachable_and_unreachable_hosts() {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -844,10 +819,10 @@ mod tests {
         assert!(!host_reachable(&format!("https://127.0.0.1:{DEAD_PORT}/acme/api.git")).await);
     }
 
-    /// A host resolving to several addresses is reachable when *any* of them
-    /// connects. On a dual-stack runner `localhost` yields `::1` before
-    /// `127.0.0.1`, and a listener bound only to `127.0.0.1` is reached solely by
-    /// walking past the first address.
+    /// A multi-address host is reachable when *any* of its addresses connects.
+    ///
+    /// On a dual-stack runner, `localhost` resolves `::1` before `127.0.0.1`,
+    /// so a `127.0.0.1`-only listener needs walking past the first address.
     #[tokio::test]
     async fn probe_walks_every_resolved_address() {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -855,9 +830,9 @@ mod tests {
         assert!(host_reachable(&format!("https://localhost:{port}/acme/api.git")).await);
     }
 
-    /// The retry loop must not sleep the budget away and then start an attempt it
-    /// cannot afford — the startup probe SIGKILLs the container mid-clone and the
-    /// error never reaches the termination log.
+    /// The retry loop must not sleep the budget away and then start an attempt
+    /// it cannot afford — the startup probe SIGKILLs the container mid-clone
+    /// and the error never reaches the termination log.
     #[tokio::test]
     async fn retry_stops_before_an_attempt_it_cannot_afford() {
         let tmp = tempfile::tempdir().unwrap();
@@ -922,17 +897,17 @@ mod tests {
         }
     }
 
-    /// A service answering 5xx is reporting its own outage, not passing a verdict
-    /// on the repo. Reachability alone would call that permanent and kill the
-    /// sandbox for the length of a provider incident.
+    /// A service answering 5xx is reporting its own outage, not passing a
+    /// verdict on the repo. Reachability alone would call that permanent and
+    /// kill the sandbox for the length of a provider incident.
     #[tokio::test]
     async fn service_side_5xx_stays_retryable() {
         let port = serve_status("503 Service Unavailable").await;
         assert!(failure_is_retryable(&repo_at(port), "local").await);
     }
 
-    /// A 4xx never decides on its own — it falls through to reachability — but a
-    /// host that answers leaves the failure the repo's own, and permanent.
+    /// A 4xx never decides on its own — it falls through to reachability — but
+    /// a host that answers leaves the failure the repo's own, and permanent.
     #[tokio::test]
     async fn client_error_from_a_reachable_host_is_not_retryable() {
         let port = serve_status("404 Not Found").await;
@@ -981,9 +956,9 @@ mod tests {
         assert_eq!(port("/srv/git/local-repo.git"), None);
     }
 
-    /// The incident shape: the host is unreachable and the retry budget is gone,
-    /// so the failure is reported as environmental (exit 1, the restart retries)
-    /// rather than as a permanent config error.
+    /// The incident shape: the host is unreachable and the retry budget is
+    /// gone, so the failure is reported as environmental (exit 1, the restart
+    /// retries) rather than as a permanent config error.
     #[tokio::test]
     async fn exhausted_budget_against_an_unreachable_host_stays_retryable() {
         let tmp = tempfile::tempdir().unwrap();
@@ -1010,8 +985,8 @@ mod tests {
     }
 
     /// A repo the pod can reach is judged on the clone itself: no amount of
-    /// retrying makes a missing repository appear, so it must not be reported as
-    /// a network fault.
+    /// retrying makes a missing repository appear, so it must not be reported
+    /// as a network fault.
     #[tokio::test]
     async fn reachable_host_reports_the_failure_as_its_own() {
         let tmp = tempfile::tempdir().unwrap();
@@ -1078,10 +1053,8 @@ mod tests {
     }
 
     /// The backend hands the sandbox a credential-free clone URL (userinfo
-    /// stripped in `pod_builder::redact_url_userinfo`). Cloning still authenticates
-    /// by injecting the provider token from the credential channel (`GIT_TOKEN`).
-    /// Verify both the GitHub and GitLab token flows produce an authenticated URL
-    /// from a redacted input.
+    /// stripped by `pod_builder::redact_url_userinfo`); cloning
+    /// re-authenticates by injecting the provider token.
     #[test]
     fn redacted_url_authenticates_via_injected_token() {
         // GitHub flow.

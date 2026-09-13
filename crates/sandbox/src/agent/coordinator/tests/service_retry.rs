@@ -170,9 +170,10 @@ async fn coordinator_service_retryable_failure_retries_then_completes() {
 }
 
 /// After `MAX_CONSECUTIVE_ERRORS` terminal failures in a row, the circuit
-/// breaker trips: the next `Send` is rejected without reaching the harness — its
-/// ack is dropped and a sandbox `error` event names the consecutive-failure
-/// count.
+/// breaker trips.
+///
+/// The next `Send` is rejected without reaching the harness: its ack is
+/// dropped, and a sandbox `error` event names the consecutive-failure count.
 #[tokio::test]
 async fn coordinator_service_circuit_breaker_trips_after_consecutive_errors() {
     let cancel = CancellationToken::new();

@@ -515,7 +515,8 @@ impl Loops {
         Ok(())
     }
 
-    /// Restore a Loop from its Git provenance and report synchronization failure.
+    /// Restore a Loop from its Git provenance and report synchronization
+    /// failure.
     pub(crate) async fn reset_git(
         &self,
         repositories: &dyn RepositoryReader,
@@ -569,9 +570,9 @@ impl Loops {
 
 /// Merge a config patch onto the Loop's current config.
 ///
-/// The Loop form does not send `model` (`buildUpdateConfig` in
-/// `loop-form.tsx`), so a carried-forward value is dropped on an `agent_type`
-/// change rather than rejected. Only a `model` the patch names is validated.
+/// The Loop form never sends `model` (`buildUpdateConfig` in `loop-form.tsx`),
+/// so a carried-forward value is dropped on an `agent_type` change rather than
+/// rejected, and only a `model` the patch names is validated.
 fn next_config(
     current: &LoopRecord,
     rule: UpdateLoopConfig,

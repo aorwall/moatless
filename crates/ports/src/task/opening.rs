@@ -6,10 +6,9 @@ use moatless_types::task::Visibility;
 
 /// A Task a Loop asks the task band to open.
 ///
-/// The provider path's shape, not the whole creation surface: every Task
-/// opened this way is headless, provisions a sandbox, and publishes an `Open`
-/// event, so none of those is a field. What varies is the Loop's configuration
-/// and what the firing event carried.
+/// The provider path's shape: every Task opened this way is headless,
+/// provisions a sandbox, and publishes an `Open` event, so none of those is a
+/// field here.
 #[derive(Debug, Clone)]
 pub struct NewTask {
     /// The Workspace the Loop names. Its primary placement is the repository
@@ -53,9 +52,9 @@ pub struct TaskOpened {
 
 /// Why a Task could not be opened.
 ///
-/// [`Self::Refused`] is the preflight answer — the identity the Task would run
-/// as cannot reach what it needs — and is the one variant a caller reports to a
-/// person rather than logging.
+/// [`Self::Refused`] is the preflight answer — the identity would run as cannot
+/// reach what it needs — the one variant a caller reports to a person rather
+/// than logging.
 #[derive(Debug, thiserror::Error)]
 pub enum TaskOpenError {
     #[error("repository {0} not found")]

@@ -11,12 +11,8 @@ use crate::config::Config;
 /// Clone each of the task owner's plugins into `/opt/moatless/plugins/{name}/`
 /// and remove the skills they did not pick.
 ///
-/// Clone is `git clone --depth 1` using `GIT_TOKEN` for auth, and skips a
-/// plugin that is already there. Non-fatal on failure. The prune runs on every
-/// pass, including for an already-cloned plugin, because the picked set can
-/// change between two starts of the same sandbox.
-///
-/// Returns the directories that are ready to use.
+/// `git clone --depth 1` via `GIT_TOKEN` skips existing plugins, non-fatal on
+/// failure; prune reruns since picks can change between starts.
 pub async fn clone_plugins(config: &Config) -> Vec<String> {
     if config.plugins.is_empty() {
         return Vec::new();

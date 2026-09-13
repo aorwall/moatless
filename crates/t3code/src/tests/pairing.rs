@@ -1,5 +1,5 @@
-//! The pairing exchange and the ticket route, over HTTP, as a client on
-//! another device drives them.
+//! The pairing exchange and the ticket route, over HTTP, as a client on another
+//! device drives them.
 
 use super::fixtures::*;
 use super::*;
@@ -27,12 +27,9 @@ fn exchange(body: &str) -> Request<Body> {
         .unwrap()
 }
 
-/// What the T3 mobile client sends, byte for byte.
-///
-/// Captured off `bootstrapRemoteBearerSession` driven with the mobile
-/// app's own scopes and metadata, rather than written from the schema:
-/// the encoding is the part a hand-written fixture gets wrong, and it
-/// is `+` for a space and `%3A` for the colons in every URN.
+/// What the T3 mobile client sends, byte for byte — captured off
+/// `bootstrapRemoteBearerSession`, since a hand-written fixture gets the
+/// encoding wrong (`+` for space, `%3A` for colons).
 fn mobile_exchange(code: &str) -> Request<Body> {
     exchange(&format!(
         "grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Atoken-exchange\

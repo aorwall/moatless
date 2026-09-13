@@ -40,9 +40,9 @@ use crate::loops::sync::LoopSyncService;
 
 /// Every store the loops band owns, built once over one pool.
 ///
-/// The stores stay private: a host takes the capabilities and complete handles
-/// below. Cloning shares every store, so a host that keeps the graph builds its
-/// later services over the same instances.
+/// The stores stay private: a host takes the capabilities and handles below.
+/// Cloning shares every store, so a host that keeps the graph builds later
+/// services over the same instances.
 #[derive(Clone)]
 pub struct LoopGraph {
     loops: Arc<LoopDao>,

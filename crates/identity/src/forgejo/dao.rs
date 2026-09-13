@@ -8,8 +8,8 @@ use crate::secret::models::EncryptedSecretValue;
 
 /// A registered instance with its client secret still sealed.
 ///
-/// [`Self::host`] is the additional authenticated data the secret was encrypted
-/// under, so a ciphertext cannot be replayed onto another instance's row.
+/// [`Self::host`] is the ciphertext's additional authenticated data, so it
+/// cannot be replayed onto another instance's row.
 pub(crate) struct ForgejoInstanceRecord {
     pub id: String,
     pub host: String,
@@ -87,13 +87,12 @@ impl PgForgejoInstanceDao {
             .collect())
     }
 
-    /// Insert `record`, or replace the application registered for its host, and
-    /// return the row's `updated_at`.
+    /// Insert `record`, or replace the application registered for its host,
+    /// returning the row's `updated_at`.
     ///
-    /// A replace keeps the stored `id`, and the incoming ciphertext is sealed
-    /// under `host` rather than that id: `host` is the conflict key, so it is
-    /// the one value the caller can seal against without first reading the row
-    /// it is racing another registration to write.
+    /// A replace keeps the stored `id`; the ciphertext is sealed under `host`
+    /// (the conflict key) so the caller need not first read the row it may be
+    /// racing to write.
     pub(crate) async fn upsert(
         &self,
         record: &ForgejoInstanceRecord,

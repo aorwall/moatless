@@ -1,12 +1,12 @@
 //! GitHub REST API-based fetcher for `.moatless/loops/` directories.
 //!
-//! Near-copy of the workspace band's skill fetcher: lists `.moatless/loops/` via
-//! `GET /repos/{owner}/{repo}/contents/.moatless/loops` and fetches each
-//! `LOOP.md` with `Accept: application/vnd.github.raw+json`. A 404 on the
-//! parent directory is treated as "no loops" and returns an empty vector.
+//! Near-copy of the workspace band's skill fetcher: lists `.moatless/loops/`
+//! via `GET /repos/{owner}/{repo}/contents/.moatless/loops` and fetches each
+//! `LOOP.md` with `Accept: application/vnd.github.raw+json`; a 404 on the
+//! parent directory means "no loops" and returns an empty vector.
 //!
-//! Loops are GitHub-only for v1 (matching skills); GitLab/Gitness fetching is
-//! a follow-up and currently returns an empty list with a warning.
+//! Loops are GitHub-only for v1 (matching skills); GitLab/Gitness fetching is a
+//! follow-up, returning an empty list with a warning.
 
 use async_trait::async_trait;
 use futures::future::try_join_all;
@@ -22,8 +22,8 @@ use moatless_types::repository::RepositoryProvider;
 const LOOPS_PREFIX: &str = ".moatless/loops";
 
 /// Raw `LOOP.md` content plus its enclosing directory name, so callers can
-/// parse frontmatter themselves and use the directory name as the loop's
-/// stable key.
+/// parse frontmatter themselves and use the directory name as the loop's stable
+/// key.
 #[derive(Debug, Clone)]
 pub struct FetchedLoopFile {
     pub dir_name: String,
@@ -142,8 +142,7 @@ impl LoopFetcher for GitHubLoopFetcher {
 /// GET a GitHub Contents API URL and parse the body as JSON.
 ///
 /// Returns `Ok(None)` on 404, `Err(LoopError::AuthRequired)` on 401/403,
-/// `Err(LoopError::Fetch)` on any other non-success status or transport
-/// failure.
+/// `Err(LoopError::Fetch)` on any other failure.
 async fn send_github_json<T: for<'de> Deserialize<'de>>(
     client: &Client,
     url: &str,

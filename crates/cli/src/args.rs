@@ -18,9 +18,9 @@ pub(super) struct GlobalOpts {
     #[arg(long, global = true)]
     pub(super) verbose: bool,
 
-    /// Seconds to wait for a response, overriding the 30-second default.
-    /// Raise it for commands whose endpoint provisions or removes a sandbox
-    /// before it answers.
+    /// Seconds to wait for a response, overriding the 30-second default. Raise
+    /// it for commands whose endpoint provisions or removes a sandbox before it
+    /// answers.
     #[arg(long, global = true)]
     pub(super) timeout: Option<u64>,
 }
@@ -69,11 +69,13 @@ pub(super) enum SharedCommands {
     /// proxied through the backend (typed task binding + webhook dedup);
     /// everything else passes through to the local `gh` CLI verbatim.
     Gh {
-        /// Arguments as you would pass them to `gh` (e.g. `pr create --title …`)
+        /// Arguments as you would pass them to `gh` (e.g. `pr create --title
+        /// …`)
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
-    /// Loop management (recurring agent work fired by subscriptions or schedules)
+    /// Loop management (recurring agent work fired by subscriptions or
+    /// schedules)
     Loops {
         #[command(subcommand)]
         action: Box<commands::loops::LoopsAction>,
@@ -113,12 +115,14 @@ pub(super) enum SharedCommands {
     },
     /// List tags
     Tags,
-    /// Kubernetes installation workflow (preflight, init, secrets, install, status)
+    /// Kubernetes installation workflow (preflight, init, secrets, install,
+    /// status)
     K8s {
         #[command(subcommand)]
         action: commands::k8s::K8sAction,
     },
-    /// Docker Compose installation workflow (preflight, init, install, status, logs)
+    /// Docker Compose installation workflow (preflight, init, install, status,
+    /// logs)
     Docker {
         #[command(subcommand)]
         action: commands::docker::DockerAction,
@@ -191,8 +195,8 @@ pub(super) enum SandboxCommands {
     },
 
     /// Run a command that outlives one Bash tool call. The sandbox owns the
-    /// process, so it stays awake until the command finishes and wakes you
-    /// when it does.
+    /// process, so it stays awake until the command finishes and wakes you when
+    /// it does.
     Cmd {
         #[command(subcommand)]
         action: commands::cmd::CmdAction,
@@ -220,14 +224,12 @@ pub(super) enum StandaloneCommands {
 
     /// Authenticate with the Moatless API.
     ///
-    /// Asks the server which flow it runs (`GET /api/v1/auth/mode`):
-    /// - Local password auth → prompts for a username and password. Honors
-    ///   `MOATLESS_EMAIL` / `MOATLESS_PASSWORD` for non-interactive use.
-    ///   `MOATLESS_USERNAME` remains accepted as a compatibility alias.
-    /// - An OAuth provider → runs the browser-based flow.
+    /// Asks the server which flow it runs (`GET /api/v1/auth/mode`): local
+    /// password auth (prompts, or `MOATLESS_EMAIL`/`MOATLESS_PASSWORD`
+    /// non-interactively) or an OAuth provider's browser-based flow.
     Login {
-        /// URL to authenticate against. Defaults to the configured API URL
-        /// (env `MOATLESS_API_URL` or the default profile).
+        /// URL to authenticate against. Defaults to the configured API URL (env
+        /// `MOATLESS_API_URL` or the default profile).
         #[arg(long)]
         url: Option<String>,
     },

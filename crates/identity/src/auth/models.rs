@@ -30,10 +30,11 @@ impl std::fmt::Debug for ProviderAccessToken {
     }
 }
 
-/// State of the GitHub `provider_tokens` row belonging to one user. Carries no
-/// token material — reading it requires no decrypt and no `mark_used` write, so
-/// `/me` can report setup state on every page load without touching the secrets
-/// table or GitHub.
+/// State of the GitHub `provider_tokens` row belonging to one user.
+///
+/// Carries no token material, so reading it needs no decrypt and no `mark_used`
+/// write; `/me` can report setup state on every page load without touching the
+/// secrets table or GitHub.
 #[derive(sqlx::FromRow, Debug, Clone)]
 pub struct GithubTokenPresence {
     pub auth_method: Option<String>,
@@ -57,10 +58,9 @@ pub struct ProviderToken {
     pub metadata: Option<serde_json::Value>,
     pub created_at: Option<DateTime<Utc>>,
     pub updated_at: Option<DateTime<Utc>>,
-    /// Provider-side identifier. For bot users (`auth_method =
-    /// 'github_app_installation'`) this stores the `GitHubAppRegistry` key
-    /// of the App backing the bot. For regular OAuth users it's the
-    /// provider's user id (e.g. GitHub user id).
+    /// Provider-side identifier: for bot users (`auth_method =
+    /// 'github_app_installation'`) the `GitHubAppRegistry` key of the App
+    /// backing the bot; for regular OAuth users, the provider's user id.
     pub provider_user_id: Option<String>,
     pub provider_login: Option<String>,
 }

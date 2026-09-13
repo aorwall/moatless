@@ -1,13 +1,10 @@
 //! What a provider crate names to reach an Adapter connection, and the policy
 //! every consumer of one shares.
 //!
-//! A provider compiles no database driver, so it cannot name either handle in
-//! [`crate::connections`]. Each trait below is one authority: the reads a
-//! provider makes as itself ([`ConnectionLookup`]), the reads it makes on
-//! behalf of a caller ([`ConnectionReader`]), and the one write an OAuth
-//! install performs ([`ConnectionInstaller`]). The handles implement them under
-//! `postgres`, and `crate::test_support::InMemoryConnections` implements them
-//! for a test.
+//! A provider compiles no database driver, so it names no handle in
+//! [`crate::connections`] directly — see [`ConnectionLookup`],
+//! [`ConnectionReader`], and [`ConnectionInstaller`]. Implemented under
+//! `postgres`, and for tests by `crate::test_support::InMemoryConnections`.
 
 use async_trait::async_trait;
 use tracing::{debug, warn};
@@ -66,8 +63,8 @@ pub trait ConnectionReader: Send + Sync {
     ) -> Result<Vec<AdapterConnection>, StoreError>;
 }
 
-/// The connection an OAuth install writes for the account it just granted,
-/// over the lookup that carries the existing row's ownership forward.
+/// The connection an OAuth install writes for the account it just granted, over
+/// the lookup that carries the existing row's ownership forward.
 #[async_trait]
 pub trait ConnectionInstaller: ConnectionLookup {
     /// Write the connection, keyed by its Adapter and external account.
@@ -89,9 +86,8 @@ pub async fn connection_for_auth(
 }
 
 /// The connection a caller's request runs against: the one it named, or the
-/// single one of that Adapter it can see.
-///
-/// Every error here is a CLI hint, so each names what to pass next.
+/// single one of that Adapter it can see. Every error here is a CLI hint, so
+/// each names what to pass next.
 pub async fn resolve_connection(
     connections: &dyn ConnectionReader,
     ctx: &ScopeContext,
@@ -133,17 +129,12 @@ pub async fn resolve_connection(
     }
 }
 
-/// Resolve one inbound chat event to its connection and Subscription.
+/// Resolve one inbound chat event to its connection and Subscription, the
+/// tenant-isolation check every chat Adapter must apply identically.
 ///
-/// Every chat Adapter answers the same question before it can route: which
-/// Adapter connection owns this event's scope, and which Subscription matches
-/// its source? The answer is contract, not policy — the tenant-isolation rule
-/// below is one every Adapter has to obey identically — so it is spelled once
-/// here rather than per provider.
-///
-/// `Ok(None)` is an ignore that has already been metered: each early return
-/// records its own `inbound_reason` before it leaves, so a caller that drops
-/// the `None` still leaves the operator a reason to query.
+/// `Ok(None)` is already metered: each early return records its own
+/// `inbound_reason`, so a caller that drops the `None` still gets an
+/// operator-queryable reason.
 pub async fn resolve_chat_provider_event(
     connections: &dyn ConnectionLookup,
     loops: &dyn LoopReader,

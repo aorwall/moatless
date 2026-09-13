@@ -26,9 +26,10 @@ pub struct RecentEventsQuery {
     pub offset: i64,
 }
 
-/// A fixed event log, answered the way the DAO answers it: the newest `limit`
-/// rows, oldest-first. Every query is recorded, so a caller that reads from the
-/// start of the log instead is visible in [`RecentEventLog::queries`].
+/// A fixed event log, answered like the DAO: the newest `limit` rows,
+/// oldest-first.
+///
+/// Every query is recorded, visible in [`RecentEventLog::queries`].
 pub struct RecentEventLog {
     log: Vec<TaskEvent>,
     queries: Mutex<Vec<RecentEventsQuery>>,

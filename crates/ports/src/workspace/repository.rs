@@ -6,10 +6,9 @@ use std::collections::HashMap;
 
 /// The repository facts a peer band reads: one repository, or a batch of names.
 ///
-/// [`Self::describe`] is scoped — it answers `None` for a repository the caller
-/// may not be shown, exactly as one that does not exist. [`Self::names`] is not:
-/// a caller batching names already holds ids it read through a scoped path, and
-/// a name is not a fact worth a second walk.
+/// [`Self::describe`] is scoped — a repository the caller may not see reads as
+/// `None`, same as one that does not exist; [`Self::names`] is not, since its
+/// ids already came from a scoped read.
 #[cfg_attr(feature = "test-support", mockall::automock)]
 #[async_trait]
 pub trait RepositoryReader: Send + Sync {

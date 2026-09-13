@@ -33,10 +33,9 @@ pub struct Export {
     pub kind: Kind,
     /// The module path an importer writes to reach it, below the crate root.
     pub path: Vec<String>,
-    /// Type names the declaration writes where a caller can see them: `pub`
-    /// fields, enum variant fields, function arguments and returns, trait
-    /// method signatures, and the `pub` methods of its inherent impls. Bodies
-    /// are not read.
+    /// Type names a declaration exposes: `pub` fields, enum variant fields,
+    /// function args/returns, trait signatures, and `pub` inherent methods.
+    /// Bodies are not read.
     pub signature: Vec<String>,
 }
 
@@ -51,9 +50,9 @@ impl Export {
 
 /// Which build the walk counts items from.
 ///
-/// A consumer that turns on `test-support` or `db-tests` can name what those
-/// features add, so a privacy rule has to ask both questions. `#[cfg(test)]`
-/// alone is never nameable from another crate and stays out of both.
+/// A consumer enabling `test-support` or `db-tests` can name what those
+/// features add, so a privacy rule asks both; `#[cfg(test)]` alone is never
+/// nameable from another crate.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Scope {
     Default,
@@ -213,11 +212,10 @@ pub fn exports_in(
 
 /// Every name each module holds, keyed by the name an importer writes.
 ///
-/// A `pub use` in a private module is followed, because an outer `pub use` may
-/// point at it. That is one re-export chain, and it puts the item on the crate
-/// surface as surely as a single step does. The loop runs to a fixed point, and
-/// duplicate entries are dropped, so a pair of modules that re-export each
-/// other terminates.
+/// A `pub use` in a private module is followed, since a chain of re-exports
+/// puts the item on the crate surface as surely as one step; the loop runs to a
+/// fixed point with duplicates dropped, so mutually re-exporting modules
+/// terminate.
 fn reachable_names(
     candidates: &[(Export, Vec<String>, bool)],
     reexports: &[ReExport],
@@ -320,8 +318,8 @@ struct ReExport {
     /// The module the `pub use` was written in, which is where an importer
     /// writes the alias.
     at: Vec<String>,
-    /// The module inside this crate it points into. A path naming another
-    /// crate re-exports nothing of ours.
+    /// The module inside this crate it points into. A path naming another crate
+    /// re-exports nothing of ours.
     module: Vec<String>,
     /// The item's own name.
     name: String,
@@ -352,8 +350,8 @@ struct Declared {
 #[derive(Default)]
 struct Scanned {
     types: Vec<Declared>,
-    /// An inherent impl's type name, its module path, and the signatures of
-    /// its `pub` methods.
+    /// An inherent impl's type name, its module path, and the signatures of its
+    /// `pub` methods.
     inherent: Vec<(String, Vec<String>, Vec<String>)>,
     /// A child module in another file, and whether it is declared `pub`.
     mods: Vec<(String, bool)>,
@@ -587,12 +585,11 @@ fn walk_use(tree: &syn::UseTree, prefix: &mut Vec<String>, at: &[String], out: &
     }
 }
 
-/// A use-path as a module path inside this crate, or `None` when it names
-/// another crate.
+/// `None` when the use-path names another crate.
 ///
-/// `crate`, `self` and `super` are explicit. A bare first segment is a crate
-/// name *unless* it is a module in scope — the 2018 edition's uniform paths —
-/// so it is resolved against the modules the walk found.
+/// `crate`, `self`, and `super` are explicit; a bare first segment is a crate
+/// name unless it is a module in scope (2018 edition uniform paths), so it is
+/// resolved against the modules the walk found.
 fn local_path(
     prefix: &[String],
     at: &[String],
@@ -711,8 +708,8 @@ mod tests {
         assert_eq!(types(&sources), vec!["Lifted"]);
     }
 
-    /// An alias is the only name an importer can write, so it is the only
-    /// name a collision can happen on.
+    /// An alias is the only name an importer can write, so it is the only name
+    /// a collision can happen on.
     #[test]
     fn a_renamed_re_export_exports_the_alias_and_not_the_source_name() {
         let sources = crate_of(&[
@@ -788,8 +785,8 @@ mod tests {
         assert_eq!(types(&sources), vec!["Real"]);
     }
 
-    /// The same crate read as a `test-support` consumer sees it: the feature
-    /// is one a consumer turns on, so what it adds is nameable.
+    /// The same crate read as a `test-support` consumer sees it: the feature is
+    /// one a consumer turns on, so what it adds is nameable.
     #[test]
     fn a_test_support_module_is_part_of_the_test_support_api() {
         let sources = crate_of(&[

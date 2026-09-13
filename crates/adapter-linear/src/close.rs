@@ -1,17 +1,12 @@
 //! Closing the Task an issue produced.
 //!
-//! Reached from two workflows — an `Issue.update` and an `AppUserNotification`
-//! can each be the first to observe the issue entering a terminal state — which
-//! is why this is its own module rather than a dependency between the two.
+//! Reached from two workflows — `Issue.update` and `AppUserNotification` can
+//! each be first to observe a terminal state — hence its own module.
 //!
-//! Closing is the one irreversible thing this Adapter does to a Task, so
-//! eligibility is four separate questions, each of which can refuse on its own:
-//! the Binding must be the Task's only one (a Task also bound to a GitHub PR is
-//! not this issue's to close), it must have been created by an adapter event
-//! rather than by hand, it must name the trigger that is asking, and the Task
-//! must not already be closed. The close itself belongs to
-//! [`TaskCloser`](moatless_tasks::task::closer::TaskCloser) — this module
-//! decides *whether*, and carries the Linear-shaped `Closed` event.
+//! Eligibility is four separate questions that can each refuse: sole binding,
+//! adapter-event origin, matching trigger, and not already closed. The close
+//! itself belongs to [`TaskCloser`](moatless_tasks::task::closer::TaskCloser);
+//! this module decides *whether*.
 
 use std::fmt::Write as _;
 
@@ -34,8 +29,8 @@ use super::webhook_payloads::IssuePayload;
 /// Close every eligible Task bound to `issue`.
 ///
 /// Scoped by `rule`, not by Adapter connection: a Binding names the trigger
-/// that created it, and only that trigger's terminal states may close it. The
-/// connection is already implied — the trigger belongs to one.
+/// that created it, and only that trigger's terminal states may close it — the
+/// connection is already implied.
 pub(super) async fn close_active_bindings_for_issue(
     task_bindings: &Bindings,
     tasks: &dyn TaskReader,
@@ -119,10 +114,10 @@ async fn sole_binding_for_task(
 
 /// Whether the Task is still open.
 ///
-/// [`TaskCloser::close_single`] repeats this check, but too late to be a
-/// substitute: `emit_linear_close_response` posts to Linear *before* the close
+/// [`TaskCloser::close_single`] repeats this check, but too late to substitute
+/// for it: `emit_linear_close_response` posts to Linear *before* the close
 /// runs, so an already-closed Task would get a second comment on every repeated
-/// terminal delivery. Both checks are load-bearing.
+/// terminal delivery.
 async fn task_can_be_closed(
     tasks: &dyn TaskReader,
     issue: &IssuePayload,

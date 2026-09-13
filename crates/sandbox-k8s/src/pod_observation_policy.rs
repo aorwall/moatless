@@ -127,8 +127,8 @@ pub(super) fn should_emit_scheduling_blocked(state: &PodObservedState, age_secs:
         && age_secs >= super::pod_watcher::SCHEDULING_BLOCKED_THRESHOLD_SECS
 }
 
-/// Whether a pod qualifies for a `startup_slow` event: scheduled onto a node but
-/// the sandbox container still isn't ready beyond the threshold.
+/// Whether a pod qualifies for a `startup_slow` event: scheduled onto a node
+/// but the sandbox container still isn't ready beyond the threshold.
 pub(super) fn should_emit_startup_slow(state: &PodObservedState, age_secs: i64) -> bool {
     !state.startup_slow_published
         && state.node_name.is_some()
@@ -138,13 +138,10 @@ pub(super) fn should_emit_startup_slow(state: &PodObservedState, age_secs: i64) 
 }
 
 /// Whether a stuck-Pending pod is a candidate for the attach-failure storage
-/// fallback: still Pending past the threshold, not ready, and not yet acted on.
+/// fallback.
 ///
-/// This deliberately does not require `node_name.is_none()` like
-/// `should_emit_scheduling_blocked` — a `Multi-Attach` / `FailedAttachVolume`
-/// stall happens *after* the pod binds to a node, so the pod carries a node yet
-/// never leaves Pending. The caller still confirms the cause is an attach
-/// failure (via [`cause_is_attach_failure`]) before swapping storage.
+/// Allows a bound node, unlike `should_emit_scheduling_blocked`; the caller
+/// confirms the cause via [`cause_is_attach_failure`].
 pub(super) fn should_attempt_storage_fallback(state: &PodObservedState, age_secs: i64) -> bool {
     !state.storage_fallback_requested
         && state.phase == "Pending"
@@ -152,10 +149,9 @@ pub(super) fn should_attempt_storage_fallback(state: &PodObservedState, age_secs
         && age_secs >= super::pod_watcher::SCHEDULING_BLOCKED_THRESHOLD_SECS
 }
 
-/// Whether a pod's newest Warning event names a volume-attach failure — the
-/// recoverable stall the storage fallback exists for. Matches the `AttachDetach`
-/// controller's `FailedAttachVolume` and the kubelet's `Multi-Attach` message,
-/// case-insensitively.
+/// Whether a pod's newest Warning event names a volume-attach failure that the
+/// storage fallback recovers from: matches `FailedAttachVolume` or
+/// `Multi-Attach`, case-insensitively.
 pub(super) fn cause_is_attach_failure(cause: &str) -> bool {
     let c = cause.to_ascii_lowercase();
     c.contains("failedattachvolume") || c.contains("multi-attach")
@@ -169,10 +165,10 @@ pub(super) fn should_gc_failed_pod(state: &PodObservedState, now_ms: i64) -> boo
         && !state.gc_requested
 }
 
-/// Lifecycle `sub_types` that can fire on every K8s watch Apply while a
-/// container flaps (CrashLoopBackOff): one publish per restart cycle otherwise
-/// floods history with identical `initializing` events. Genuine transitions
-/// always publish.
+/// Lifecycle `sub_types` that can fire repeatedly during a `CrashLoopBackOff`.
+///
+/// Deduplicated to one publish per restart cycle so history isn't flooded;
+/// genuine transitions always publish.
 const HIGH_FREQUENCY_LIFECYCLE_SUB_TYPES: &[&str] = &[
     "container_restarted",
     "container_crash_loop",

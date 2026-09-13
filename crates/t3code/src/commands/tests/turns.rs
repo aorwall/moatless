@@ -29,9 +29,9 @@ fn turn_saying(text: &str) -> Value {
     command
 }
 
-/// The `$name` stays in the text, because that is what the T3 timeline
-/// renders as a chip. Moatless frontloads by name instead, so the same pick
-/// has to reach `skills` as well or the prompt is the only thing that ships.
+/// The `$name` stays in the text, because that is what the T3 timeline renders
+/// as a chip. Moatless frontloads by name instead, so the same pick has to
+/// reach `skills` as well or the prompt is the only thing that ships.
 #[tokio::test]
 async fn a_turn_activates_the_skill_its_text_mentions() {
     let (result, calls) = run(turn_saying("$git-workflow open the PR")).await;
@@ -42,8 +42,8 @@ async fn a_turn_activates_the_skill_its_text_mentions() {
     );
 }
 
-/// A mention only counts when the Workspace offers it, so an env var in
-/// prose stays prose.
+/// A mention only counts when the Workspace offers it, so an env var in prose
+/// stays prose.
 #[tokio::test]
 async fn a_mention_of_something_that_is_not_a_skill_activates_nothing() {
     let (_, calls) = run(turn_saying("echo $HOME and $linearity")).await;

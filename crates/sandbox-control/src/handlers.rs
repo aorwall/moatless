@@ -1,7 +1,7 @@
 //! Sandbox handler functions.
 //!
-//! Extracted from routes.rs for consistency with other modules
-//! (task/, message/, agent/, etc.).
+//! Extracted from routes.rs for consistency with other modules (task/,
+//! message/, agent/, etc.).
 
 use axum::Json;
 use axum::extract::{Path, Query, State};
@@ -32,10 +32,7 @@ use moatless_types::sandbox::SandboxStopReason;
 /// Provision a new sandbox for a task.
 ///
 /// Builds the provision request internally from DB state (task, repository,
-/// credentials). No request body required.
-///
-/// Requires control access: the Sandbox's owner, a platform admin, or any
-/// signed-in caller when the Task is public.
+/// credentials); no request body required. Requires control access.
 #[utoipa::path(
     post,
     path = "/api/sandbox/v1/tasks/{task_id}/provision",
@@ -252,7 +249,8 @@ pub async fn restart_handler(
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// Redeploy a sandbox (delete Deployment/Service/IngressRoutes, recreate with fresh repo config).
+/// Redeploy a sandbox (delete Deployment/Service/IngressRoutes, recreate with
+/// fresh repo config).
 ///
 /// Preserves workspace data (PVC). Use after updating repo server configs.
 #[utoipa::path(
@@ -289,11 +287,9 @@ pub async fn redeploy_handler(
 
 /// Mint direct access to a task's workspace `restic` repository.
 ///
-/// Platform admins only, on top of write access. The response is a live S3
-/// session plus the repository password — everything the `restic` CLI needs and
-/// everything an attacker would. Write access alone is not enough: a task owner
-/// can already read their own files through this API, and this hands out the
-/// keys to the store they sit in.
+/// Platform admins only, on top of write access — write alone is not enough:
+/// this hands out the S3 session and repository password, everything the
+/// `restic` CLI (and an attacker) would need.
 #[utoipa::path(
     post,
     path = "/api/sandbox/v1/tasks/{task_id}/workspace-repository/access",
@@ -449,7 +445,8 @@ pub async fn server_status_handler(
 /// Query parameters for the server logs endpoint.
 #[derive(Debug, Deserialize)]
 pub struct LogsQuery {
-    /// Fetch logs from the previous container instance (useful for crashed containers).
+    /// Fetch logs from the previous container instance (useful for crashed
+    /// containers).
     #[serde(default)]
     pub previous: bool,
     /// Hold the stream open and append new lines. Defaults to true.
@@ -470,11 +467,9 @@ fn default_tail() -> i64 {
 
 /// Stream server logs via SSE.
 ///
-/// Returns a Server-Sent Events stream of log lines for the given server.
-/// Pass `?previous=true` to fetch logs from a crashed/restarted container, and
-/// `?follow=false` to end the stream after the buffered lines instead of
-/// waiting for more. The response body cannot be represented in OpenAPI (SSE
-/// streaming).
+/// `?previous=true` fetches logs from a crashed/restarted container;
+/// `?follow=false` ends the stream after the buffered lines instead of
+/// waiting for more. OpenAPI cannot represent an SSE response body.
 #[utoipa::path(
     get,
     path = "/api/sandbox/v1/tasks/{task_id}/servers/{server_name}/logs",
@@ -538,7 +533,7 @@ pub async fn server_logs_handler(
 
 /// List the overrides currently in effect, read off the sandbox's workspace.
 ///
-/// Separate from `GET /servers` because it needs a live sandbox: there is no
+/// Separate from `GET /servers` because it needs a live sandbox; there is no
 /// persisted copy to fall back on, so a stopped sandbox has no answer.
 #[utoipa::path(
     get,

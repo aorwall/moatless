@@ -13,10 +13,9 @@ const SUBJECT_KIND: &str = "slack_thread";
 
 /// The Slack coordinates a thread-properties bag names.
 ///
-/// `AdapterDestinationBuilder` takes an untyped `serde_json::Value` and keeps
-/// doing so (spec Open question 3), so the bag is read exactly once — here —
-/// and every caller inside the Adapter goes through these fields instead of
-/// reaching into the JSON again with its own defaults.
+/// `AdapterDestinationBuilder` keeps this bag as an untyped
+/// `serde_json::Value`, so it is read exactly once — here — and every caller
+/// goes through these fields instead of reaching into the JSON again.
 struct SlackThread {
     /// Workspace id. `"default"` when the event carried none, which is the
     /// value the subject key has always been built from.
@@ -88,11 +87,9 @@ impl SlackThread {
 
 /// The thread coordinates a Binding's `destination_config` carries.
 ///
-/// Each field is handed back exactly as it was found — absent stays absent,
-/// empty stays empty — because the three callers disagree about what a missing
-/// one means: a reply errors, a context fetch returns nothing, a fallback
-/// `LoopContext` takes the empty string. Reading the bag is shared; deciding
-/// what an absence costs stays at the call site.
+/// Each field is handed back exactly as found — absent stays absent, empty
+/// stays empty — because callers disagree on what a missing one means; deciding
+/// that cost stays at the call site.
 pub(super) struct ThreadCoordinates<'a> {
     pub(super) channel: Option<&'a str>,
     pub(super) thread_ts: Option<&'a str>,
@@ -112,12 +109,8 @@ pub(super) fn thread_coordinates(destination_config: &serde_json::Value) -> Thre
 
 /// Parse a Slack destination string into `(channel, optional thread_ts)`.
 ///
-/// Accepted shapes:
-/// - `channel:<id>` — top-level post to `<id>`
-/// - `dm:<id>` — top-level post to DM channel `<id>` (`D…`)
-/// - `thread:<channel>/<thread_ts>` — reply in existing thread
-/// - raw `<id>` (no prefix) — treated as a channel ID; matches the legacy
-///   behavior before the prefix syntax was introduced.
+/// Accepts `channel:<id>`, `dm:<id>`, `thread:<channel>/<thread_ts>`, or a raw
+/// `<id>` (no prefix, treated as a channel for backward compatibility).
 pub(super) fn parse_destination(
     destination: &str,
 ) -> Result<(String, Option<String>), AdapterError> {
@@ -217,9 +210,8 @@ pub(super) const fn subject_kind() -> &'static str {
 
 /// The Binding a thread-properties bag names.
 ///
-/// Infallible, unlike the trait method below: no Slack destination can fail to
-/// be built, because every field of the bag has a fallback. Ingress calls this
-/// one so no unreachable failure arm has to exist there.
+/// Infallible, unlike the trait method below: every field of the bag has a
+/// fallback, so ingress calls this one and needs no unreachable failure arm.
 pub(super) fn thread_destination(
     source_id: &str,
     external_thread_id: &str,
@@ -287,9 +279,8 @@ mod tests {
     }
 
     /// The bag the tracked-thread lookup builds carries no `ts` while the
-    /// admission path passes the real one. Both must keep producing the same
-    /// subject key, which is what let the two literals diverge in the first
-    /// place.
+    /// admission path passes the real one; both must keep producing the same
+    /// subject key.
     #[test]
     fn a_bag_without_a_ts_keys_the_same_subject() {
         let with_ts = adapter()

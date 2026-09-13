@@ -22,27 +22,23 @@ use crate::agent::harness::signal::{ContextWindow, Input, InputId, SessionId};
 
 use super::normalize::{Normalizer, TurnUsage};
 
-/// How long a mid-Turn message waits for the steerability gate before it is
-/// handed back for the next Turn instead.
+/// How long a mid-Turn message waits for the steerability gate before falling
+/// back to opening the next Turn instead — the same fallback a rejected steer
+/// takes.
 ///
-/// A healthy Turn never reaches it: `turn/started` follows `turn/start`'s
-/// response as fast as the server can write the line. It bounds the one wait in
-/// `submit` that depends on a notification arriving at all — a server that never
-/// sent `turn/started` would otherwise hold the message for the life of the
-/// Turn. On expiry the message opens the next Turn, the same fallback a rejected
-/// steer takes.
-///
-/// It deliberately does not cover the `turn/steer` that follows the gate, which
-/// must not be abandoned once written: see [`AgentProcess::submit`].
+/// Bounds only the wait for `turn/started` in `submit`, a notification a server
+/// might never send; it does not cover the `turn/steer` call that follows the
+/// gate, which must not be abandoned once written (see
+/// [`AgentProcess::submit`]).
 const MID_TURN_DELIVERY_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// Where the Turn is in its life, which is what decides whether a message that
-/// arrives now can join it.
+/// Where the Turn is in its life, which decides whether a message that arrives
+/// now can join it.
 ///
 /// The gate between the first two states is measured, not defensive: steering
-/// with the correct turn id immediately after `turn/start`'s **response** is
-/// rejected with `-32600 "no active turn to steer"`, and the Turn only becomes
-/// steerable when the `turn/started` **notification** arrives (see the spec).
+/// immediately after `turn/start`'s **response** is rejected (`-32600 "no
+/// active turn to steer"`); the Turn is steerable only once the `turn/started`
+/// **notification** arrives.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TurnPhase {
     /// `turn/start` has been sent and `turn/started` has not arrived. Not
@@ -75,11 +71,12 @@ pub(crate) struct CodexProcess {
     turn_id: Option<String>,
     /// How far the Turn has got, which is what the steerability gate reads.
     phase: TurnPhase,
-    /// The message this Turn is being asked to take, while it waits for the gate.
+    /// The message this Turn is being asked to take, while it waits for the
+    /// gate.
     ///
-    /// One slot, because there can only ever be one: the driver submits inputs
-    /// one at a time and `submit` empties this again before it answers, so a
-    /// second arrival cannot begin until the first has been dealt with.
+    /// One slot: the driver submits inputs one at a time and `submit` empties
+    /// this again before it answers, so a second arrival cannot begin until the
+    /// first is dealt with.
     held: Option<Input>,
     /// What the Session had already spent when this Turn opened. `Some` only on
     /// a resumed thread, whose stored total is replayed before the Turn runs.
@@ -88,6 +85,7 @@ pub(crate) struct CodexProcess {
     /// the terminal instead of riding on it.
     usage_latest: Option<TokenUsageBreakdown>,
     /// Tears the server down, and exists before there is a server to tear down.
+    ///
     /// The session is handed this same token, so a Stop that arrives while the
     /// Turn is still opening kills the child mid-handshake instead of waiting
     /// for a reply that may never come.
@@ -125,8 +123,8 @@ impl CodexProcess {
         process
     }
 
-    /// Whether the underlying session has been torn down — the observable effect
-    /// of [`AgentProcess::cancel`] on the Codex process tree.
+    /// Whether the underlying session has been torn down — the observable
+    /// effect of [`AgentProcess::cancel`] on the Codex process tree.
     #[cfg(test)]
     pub(crate) fn session_cancelled(&self) -> bool {
         self.session
@@ -136,11 +134,9 @@ impl CodexProcess {
 
     /// Announce the Session and the acceptance of the opening input, once.
     ///
-    /// Both are known as soon as the thread is open. This is driven from the
-    /// `thread/start` / `thread/resume` **response** rather than the
-    /// `thread/started` notification, because a resume emits no such
-    /// notification (measured) — waiting for one would hang every Turn after the
-    /// first.
+    /// Driven from the `thread/start`/`thread/resume` **response**, not the
+    /// `thread/started` notification: a resume emits no such notification
+    /// (measured), so waiting for one would hang every Turn after the first.
     fn announce_session(&mut self, thread_id: String) {
         let session = SessionId(thread_id);
         self.normalizer.set_session(session.clone());
@@ -164,9 +160,10 @@ impl CodexProcess {
     }
 
     /// Open the Turn: spawn the server, start or resume the thread, and run one
-    /// Turn on it, returning the thread the Turn is running on. Every step's
-    /// failure is classified, and a failed resume is never quietly turned into a
-    /// fresh thread.
+    /// Turn on it, returning the thread it's running on.
+    ///
+    /// Every step's failure is classified, and a failed resume is never quietly
+    /// turned into a fresh thread.
     async fn open_turn(&mut self, input: &Input) -> Result<String, HarnessError> {
         // `start_fresh` always wins; otherwise the resume request rides straight
         // to the server.
@@ -244,20 +241,14 @@ impl CodexProcess {
         Ok(thread_id)
     }
 
-    /// Deliver what [`Self::held`] owes the running Turn.
+    /// Deliver what [`Self::held`] owes the running Turn, once the gate is open
+    /// (see [`Self::await_steerable`]).
     ///
-    /// A delivered message reports exactly one bare `InputAccepted`, which is
-    /// what puts it on the running Turn rather than opening a second execution.
-    ///
-    /// An error means this Turn cannot take the message, and the driver queues it
-    /// for the next one (`driver.rs`). That is the only way back: the driver's
-    /// queue is reachable *only* through an error from `submit`, and a message
-    /// reported neither accepted nor rejected leaves the coordinator holding its
-    /// acknowledgement, which pins the dispatcher's single-flight lock for the
-    /// life of the pod. So nothing is answered `Ok` until the server has taken
-    /// it, and `submit` clears whatever is still held when it answers with one.
-    ///
-    /// Only ever called once the gate is open — see [`Self::await_steerable`].
+    /// An error means this Turn cannot take the message; the driver then queues
+    /// it for the next Turn — the only way back, since a message left neither
+    /// accepted nor rejected would pin the dispatcher's single-flight lock for
+    /// the life of the pod, so nothing here is answered `Ok` until the server
+    /// has actually taken it.
     async fn deliver_held(&mut self) -> Result<(), HarnessError> {
         match self.held.take() {
             Some(input) => self.steer(&input).await,
@@ -267,9 +258,9 @@ impl CodexProcess {
 
     /// Wait out the steerability gate.
     ///
-    /// Nothing else is reading the notification stream while `submit` runs, so
-    /// this pumps it itself — `turn/started` arrives on that stream, and the
-    /// events it absorbs on the way queue up for [`Self::next`] in native order.
+    /// Nothing else reads the notification stream while `submit` runs, so this
+    /// pumps it itself; `turn/started` arrives there, and events absorbed along
+    /// the way queue for [`Self::next`] in native order.
     async fn await_steerable(&mut self) -> Result<(), HarnessError> {
         loop {
             match self.phase {
@@ -286,10 +277,10 @@ impl CodexProcess {
 
     /// Send one message into the running Turn and report it accepted.
     ///
-    /// `expectedTurnId` is a precondition the server checks: it must be the Turn
-    /// currently held, never a remembered one. Every rejection uses the same
+    /// `expectedTurnId` is a precondition the server checks against the Turn
+    /// currently held, never a remembered one; every rejection uses the same
     /// `-32600` with a different sentence, so nothing here reads the message —
-    /// any failure means the same thing, that this Turn cannot take the input.
+    /// any failure means this Turn cannot take the input.
     async fn steer(&mut self, input: &Input) -> Result<(), HarnessError> {
         let (Some(session), Some(thread_id), Some(turn_id)) = (
             self.session.as_ref(),
@@ -310,8 +301,8 @@ impl CodexProcess {
     }
 
     /// Take the next server event off the stream and absorb it. Returns `false`
-    /// once the stream is finished — its terminal, if it produced one, is already
-    /// on the pending queue.
+    /// once the stream is finished — its terminal, if it produced one, is
+    /// already on the pending queue.
     async fn pump(&mut self) -> bool {
         let Some(session) = self.session.as_mut() else {
             return false;
@@ -340,9 +331,10 @@ impl CodexProcess {
     }
 
     /// Normalize one native item into its canonical block(s) and append each as
-    /// a `ProcessEvent::Block` in native order (a tool item expands to a `tool_use`
-    /// plus its paired `tool_result`). A family that renders nothing appends
-    /// nothing.
+    /// a `ProcessEvent::Block` in native order.
+    ///
+    /// A tool item expands to a `tool_use` plus its paired `tool_result`; a
+    /// family that renders nothing appends nothing.
     fn push_item_blocks(&mut self, item: &ThreadItem) {
         for source in self.normalizer.item_sources(item) {
             self.pending.push_back(ProcessEvent::Block(source));
@@ -390,8 +382,8 @@ impl CodexProcess {
     }
 
     /// Classify a failed Turn, flagging the Codex credential first when the
-    /// named cause is an unauthorized request. The coordinator polls the flag at
-    /// the turn-failure boundary and owns everything after it.
+    /// named cause is an unauthorized request. The coordinator polls the flag
+    /// at the turn-failure boundary and owns everything after it.
     fn classify_failure(&self, error: &TurnError) -> HarnessError {
         if classify::is_expired_credential(error) {
             info!("Codex reported an unauthorized request; flagging the credential");
@@ -402,16 +394,12 @@ impl CodexProcess {
 
     /// Whether a notification belongs to the thread this process opened.
     ///
-    /// A native sub-agent runs on a thread of its own and streams over the same
-    /// connection, so a `turn/completed` on this pipe is not necessarily *this*
-    /// Turn's terminal. Everything the sub-agent's thread emits belongs to that
-    /// thread: its items are not this Turn's transcript, and its token totals
-    /// are not this Turn's spend.
-    ///
-    /// **Fails open.** A notification the server attributed to no thread is
-    /// taken as this one's. Dropping an unattributed `turn/completed` would
-    /// leave the Turn with no terminal at all, which costs more than the
-    /// mis-attribution it would prevent.
+    /// A native sub-agent runs its own thread over the same connection, so a
+    /// `turn/completed` here isn't necessarily this Turn's terminal —
+    /// everything that thread emits belongs to it, not this Turn's transcript
+    /// or spend. **Fails open**: an unattributed notification is taken as this
+    /// one's, since dropping an unattributed `turn/completed` would leave the
+    /// Turn with no terminal at all.
     fn owns_thread(&self, event: &ServerEvent) -> bool {
         let (Some(own), Some(event_thread)) = (self.thread_id.as_deref(), event.thread_id()) else {
             return true;
@@ -599,9 +587,10 @@ impl AgentProcess for CodexProcess {
 }
 
 /// This Turn cannot take a mid-Turn message, whatever the reason — the gate had
-/// not opened, the Turn had ended, or the server refused the steer. The driver
-/// queues the message for the next Turn (`driver.rs`), which is the one and only
-/// answer to all of them.
+/// not opened, the Turn had ended, or the server refused the steer.
+///
+/// The driver queues the message for the next Turn (`driver.rs`), the one and
+/// only answer to all of them.
 fn not_steerable(reason: &str) -> HarnessError {
     HarnessError::new(
         FailureStage::Input,

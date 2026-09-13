@@ -1,8 +1,7 @@
 //! Shared API request/response types for backend and CLI.
 //!
-//! This crate provides the canonical set of API DTOs (Data Transfer Objects)
-//! used across both the Rust backend (with `utoipa` OpenAPI support) and the
-//! CLI client (serde-only).
+//! Canonical DTOs used by both the Rust backend (with `utoipa` OpenAPI support)
+//! and the CLI client (serde-only).
 //!
 //! # Feature flags
 //!

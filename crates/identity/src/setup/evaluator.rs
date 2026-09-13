@@ -12,9 +12,9 @@ use crate::secret::service::SecretService;
 
 /// Everything a requirement check may read.
 ///
-/// An explicit dependency list rather than a state handle, because `/me` runs
-/// on `AuthState` while most of the app runs on `AppState` — the evaluator has
-/// to work from either.
+/// An explicit dependency list rather than a state handle, since `/me` runs on
+/// `AuthState` while most of the app runs on `AppState` and the evaluator must
+/// work from either.
 pub struct SetupContext<'a> {
     pub user_id: &'a str,
     pub is_admin: bool,

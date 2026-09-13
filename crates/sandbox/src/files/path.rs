@@ -3,8 +3,8 @@ use std::path::{Path, PathBuf};
 
 /// Validate and resolve a relative path within the workspace.
 ///
-/// Rejects `..` segments, absolute paths, and paths that escape the
-/// workspace root after resolution.
+/// Rejects `..` segments, absolute paths, and paths that escape the workspace
+/// root after resolution.
 pub fn validate_path(workspace_dir: &str, relative_path: &str) -> Result<PathBuf, FileError> {
     // Reject absolute paths
     if relative_path.starts_with('/') {

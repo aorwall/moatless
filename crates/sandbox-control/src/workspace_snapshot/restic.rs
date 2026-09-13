@@ -30,18 +30,18 @@ use super::tree::{SnapshotNode, dir_prefix, listing_under, resolve, search_under
 /// describe the previous generation.
 const REPOSITORY_TTL: Duration = Duration::from_secs(30);
 
-/// Cache slots held at once. An indexed repository holds its whole pack index
-/// in memory, so this bounds the reader's footprint. [`Entry::Absent`] slots
-/// share the budget and cost nothing to rebuild, so a fleet of tasks holding no
-/// repository can evict a live index — which costs one repeated open, never a
-/// wrong answer.
+/// Cache slots held at once, bounding memory: an indexed repository holds its
+/// whole pack index.
+///
+/// [`Entry::Absent`] slots share the budget and rebuild free, so idle tasks can
+/// evict a live index — one repeated open, never a wrong answer.
 const REPOSITORY_CACHE_CAP: usize = 32;
 
 /// Where the local pack cache lives.
 ///
 /// Mandatory, never `no_cache`: without it `rustic_core` issues one range GET
-/// per blob, which measured in-cluster as a tree listing going from 628 ms to
-/// 15.6 s and a restore from 13 requests to 1,222.
+/// per blob, measured in-cluster as 628 ms -> 15.6 s (listing) and 13 -> 1,222
+/// requests (restore).
 const CACHE_DIR: &str = "/tmp/rustic-cache";
 
 struct Cached {
@@ -55,8 +55,8 @@ struct Cached {
     fetched: Instant,
 }
 
-/// A cache slot. `Absent` is held so a task holding no repository does not probe
-/// `config` again on every read, list and search.
+/// A cache slot. `Absent` is held so a task holding no repository does not
+/// probe `config` again on every read, list and search.
 enum Entry {
     Open(Cached),
     Absent(Instant),
@@ -104,10 +104,8 @@ impl ResticWorkspaceSnapshots {
     /// The task's open repository, file set, and the time of its latest
     /// snapshot — from cache when fresh.
     ///
-    /// Opening is what this cache exists for: the scrypt key derivation in
-    /// `Repository::open` costs about 400 ms of CPU on a sandbox node, which is
-    /// 85% of a cold read that already hits a populated pack cache, and it does
-    /// not shrink on a faster network.
+    /// Opening is what this cache exists for: scrypt key derivation costs
+    /// ~400ms CPU, 85% of a cold read, and doesn't shrink on a faster network.
     async fn opened(&self, task_id: &str) -> Result<Cached, SnapshotError> {
         if let Some(hit) = self.cached(task_id).await {
             return hit;

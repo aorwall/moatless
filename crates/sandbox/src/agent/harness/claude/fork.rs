@@ -1,30 +1,20 @@
 //! Cutting a Claude transcript for a fork's first Turn.
 //!
-//! A fork resumes the parent's Session at one of its Turns, not at its head, so
-//! `--resume --fork-session` (which branches at the end) will not do. Instead the
-//! pod writes a truncated copy of the parent's transcript under a fresh session
-//! id — every line through the cut, none after it — and resumes *that*. Claude
-//! then appends the fork's own Turns to a transcript that shares none of its id
-//! with the parent's, so the two never write each other's files.
-//!
-//! The cut anchor is an assistant `task_messages.uuid`, which for a Claude turn
-//! holds the Anthropic message id. The CLI writes that id as `message.id` on
-//! every transcript line belonging to the message, so it is the one identifier
-//! the stored row and the transcript share. The line's own `uuid` is minted by
-//! the CLI and appears in no database row.
+//! A fork resumes the parent's Session at one of its Turns, not its head, so
+//! `--resume --fork-session` (which branches at the end) won't do. The pod
+//! instead writes a truncated copy under a fresh session id and resumes that,
+//! so the fork's Turns never land in the parent's transcript file.
 
 use claude_agent_sdk::transcript_dir;
 use tracing::warn;
 
 /// Write a truncated copy of `source_session_id`'s transcript under a fresh id,
-/// keeping every line through `through_message_uuid`, and return that id for the
-/// harness to `--resume`.
+/// keeping every line through `through_message_uuid`, and return that id for
+/// the harness to `--resume`.
 ///
-/// `None` when the source transcript is not on disk, or the anchor line is
-/// absent — both leave the caller to start the fork fresh rather than resume
-/// something unintended. The anchor is absent when the restored archive was
-/// uploaded before the cut's turn reached it; the sync is periodic, not
-/// cut-triggered.
+/// Returns `None` when the source is missing or the anchor line is absent (e.g.
+/// the archive synced before the cut's turn reached it) — both leave the caller
+/// to start the fork fresh rather than resume something unintended.
 pub(super) async fn write_forked_transcript(
     cwd: &str,
     source_session_id: &str,
@@ -65,22 +55,14 @@ pub(super) async fn write_forked_transcript(
     Some(new_session_id)
 }
 
-/// Keep `body`'s lines through the last one the anchor names, inclusive,
-/// rewriting every `sessionId` to `session_id`.
+/// Keep `body`'s lines through the last one matching `through_uuid`, rewriting
+/// `sessionId` to `session_id`.
 ///
-/// The anchor is matched against `message.id` first and the line's own `uuid`
-/// second. `message.id` is the Anthropic message id, which is what a
-/// `task_messages` row for an assistant turn stores as its `uuid`; the line's
-/// `uuid` is minted by the CLI and appears in no database row, so matching it
-/// alone found nothing. One message spans up to four consecutive lines, so the
-/// cut runs to the *last* line carrying the anchor — stopping at the first would
-/// truncate the message the fork is supposed to keep.
-///
-/// Returns the empty string when the anchor names no line, because copying the
-/// whole session would hand the fork the parent's later Turns. An unparseable
-/// line is dropped: a transcript the CLI wrote is JSONL, and a line this cannot
-/// read cannot have its `sessionId` rewritten, so carrying it forward would
-/// leave the parent's id on the fork's transcript.
+/// Matched against `message.id` first, then the line's own `uuid` (a stored
+/// row's `uuid` never matches the CLI-minted one); the cut runs to the *last*
+/// matching line, not the first, since one message spans up to four lines and
+/// stopping earlier would truncate it. Empty string means no match; an
+/// unparseable line is dropped rather than carried forward unrewritten.
 fn cut_transcript(body: &str, through_uuid: &str, session_id: &str) -> String {
     let parsed: Vec<serde_json::Value> = body
         .lines()
@@ -126,8 +108,9 @@ mod tests {
         serde_json::json!({ "uuid": uuid, "sessionId": session, "type": kind }).to_string()
     }
 
-    /// An assistant line as the CLI writes it: a per-line `uuid` no database row
-    /// holds, plus the `message.id` the `task_messages` row stores as its uuid.
+    /// An assistant line as the CLI writes it: a per-line `uuid` no database
+    /// row holds, plus the `message.id` the `task_messages` row stores as its
+    /// uuid.
     fn assistant_line(uuid: &str, session: &str, message_id: &str) -> String {
         serde_json::json!({
             "uuid": uuid,

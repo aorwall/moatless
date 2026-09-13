@@ -20,8 +20,8 @@ use tracing::error;
 use tracing::warn;
 
 /// The one write. A refusal is a typed failure the composer renders, not a
-/// defect: "that action does not exist here" is true, "this server is broken" is
-/// not.
+/// defect: "that action does not exist here" is true, "this server is broken"
+/// is not.
 pub(super) async fn orchestration_dispatch_command(request: Request) -> Vec<Value> {
     let Request {
         id,
@@ -109,11 +109,12 @@ pub(super) async fn orchestration_search_threads(request: Request) -> Vec<Value>
     }
 }
 
-/// Answers with nothing, deliberately. No T3 client calls it: web, desktop and
-/// mobile share `client-runtime`, whose only resume is `subscribeShell` with
-/// `afterSequence` (`state/shell.ts:181`). Its `OrchestrationEvent` result
-/// carries an event id, an aggregate and a causation chain, none of which this
-/// backend records.
+/// Answers with nothing, deliberately: no T3 client calls it, since all three
+/// share `client-runtime`, whose only resume is `subscribeShell` with
+/// `afterSequence` (`state/shell.ts:181`).
+///
+/// Its `OrchestrationEvent` result carries an event id, an aggregate and a
+/// causation chain, none of which this backend records.
 pub(super) fn orchestration_replay_events(request: Request) -> Vec<Value> {
     vec![success_exit(&request.id, json!([]))]
 }
@@ -133,9 +134,11 @@ pub(super) async fn orchestration_get_archived_shell_snapshot(request: Request) 
 }
 
 /// The listings' complement: one row, by id, for a conversation the client is
-/// holding and no listing named. `null` is the answer for every way it can be
-/// absent — the client is already on that page, and a failure would take a
-/// rendered transcript off the screen to report a missing title.
+/// holding and no listing named.
+///
+/// `null` answers every way it can be absent: the client is already on that
+/// page, and a failure would take a rendered transcript off screen to report a
+/// missing title.
 pub(super) async fn threads_get_shell(request: Request) -> Vec<Value> {
     let Request {
         id,
@@ -160,10 +163,9 @@ pub(super) async fn threads_get_shell(request: Request) -> Vec<Value> {
 /// The listing rows a filter names, for conversations outside the viewer's own
 /// listing.
 ///
-/// The refusal is the filter being empty, not the viewer not being an
-/// administrator: what a browse may reach is the read rule, which
-/// `list_browsable` applies to everyone alike. Empty is refused because that
-/// read unnarrowed is every Task an administrator may read.
+/// Refused when the filter is empty, not when the viewer isn't an
+/// administrator: `list_browsable` applies the read rule to everyone alike, and
+/// unnarrowed that read is every Task an administrator may read.
 pub(super) async fn threads_browse(request: Request) -> Vec<Value> {
     let Request {
         id,

@@ -1,17 +1,11 @@
 //! Typed wire messages for `codex app-server --stdio`, and nothing else.
 //!
-//! Generated from the installed binary with
-//! `codex app-server generate-json-schema --out <dir> --experimental` (codex-cli
-//! 0.145.0) and checked against recorded samples in `fixtures/`. Every struct is
-//! `#[serde(rename_all = "camelCase")]` — the app-server protocol is camelCase on
-//! both message names and field names, unlike the `snake_case` `codex exec --json`
-//! stream this replaced.
+//! Every struct is `#[serde(rename_all = "camelCase")]`, unlike the
+//! `snake_case` `codex exec --json` stream this replaced.
 //!
-//! Only the subset the harness drives is modelled: six client requests, one
-//! client notification, the server notifications it consumes, and the eighteen
-//! `ThreadItem` families. Unknown item families and unknown `codexErrorInfo`
-//! values fall through to a raw-JSON variant rather than failing the parse, so a
-//! newer Codex release cannot break a running Turn.
+//! Unknown `ThreadItem` families and unknown `codexErrorInfo` values fall
+//! through to a raw-JSON variant rather than failing the parse, so a newer
+//! Codex release cannot break a running Turn.
 
 use std::collections::HashMap;
 
@@ -28,10 +22,8 @@ use serde::{Deserialize, Deserializer, Serialize};
 #[serde(rename_all = "camelCase")]
 pub(crate) struct InitializeParams {
     pub(crate) client_info: ClientInfo,
-    /// Measured: omitting this entirely still permits `turn/steer` on codex-cli
-    /// 0.145.0, where `codex features list` reports `steer removed true`. Left
-    /// on the type because the server accepts it and a future feature may need
-    /// it; the harness sends `None`.
+    /// Omitting this still permits `turn/steer` on codex-cli 0.145.0 (`codex
+    /// features list` reports `steer removed true`); the harness sends `None`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) capabilities: Option<InitializeCapabilities>,
 }
@@ -92,13 +84,11 @@ pub(crate) struct ThreadResumeParams {
     pub(crate) developer_instructions: Option<String>,
 }
 
-/// `thread/fork` — branches a new Session off an existing one at a cut. The
-/// server copies the source thread's transcript up to `last_turn_id` onto a
-/// fresh id and returns it; the source is untouched. `exclude_turns` keeps the
-/// cut Turn's own boundary out of the copy so the fork's first Turn is the
-/// resumed prompt, not a replay.
+/// `thread/fork` — branches a new Session off an existing one at a cut.
 ///
-/// `last_turn_id` is omitted to fork at the source's head — the whole thread.
+/// `exclude_turns` excludes the cut Turn's own boundary so the fork's first
+/// Turn is the resumed prompt, not a replay; omitting `last_turn_id` forks at
+/// the source's head.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ThreadForkParams {
@@ -145,9 +135,8 @@ pub(crate) struct TurnStartResponse {
 
 /// `turn/steer` — appends input to the Turn already running.
 ///
-/// `expected_turn_id` is a precondition, not a hint: an empty or stale value is
-/// rejected with `-32600`, and so is any steer sent before the `turn/started`
-/// notification (see [`super`] for the measurement).
+/// `expected_turn_id` is a precondition: empty, stale, or sent before
+/// `turn/started` is rejected with `-32600` (see [`super`]).
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct TurnSteerParams {
@@ -187,8 +176,8 @@ pub(crate) enum UserInput {
     LocalImage {
         path: String,
     },
-    /// Any input kind this build does not model (`audio`, `skill`, …). Kept as a
-    /// unit variant so reading back a `userMessage` never fails.
+    /// Any input kind this build does not model (`audio`, `skill`, …). Kept as
+    /// a unit variant so reading back a `userMessage` never fails.
     #[serde(other)]
     Unsupported,
 }
@@ -270,16 +259,18 @@ pub(crate) struct ThreadTokenUsageUpdatedNotification {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ThreadTokenUsage {
-    /// Usage for the most recent model *request*, which is not a Turn: a Turn
-    /// that takes three requests reports three of these. What a Turn spent is
-    /// the growth of `total` while it ran (see
-    /// `harness::codex::normalize::TurnUsage`); what currently occupies the
-    /// context window is this, the last request's own input and output.
+    /// Usage for the most recent model *request*, not the whole Turn.
+    ///
+    /// A Turn spanning three requests reports three of these; what it spent is
+    /// `total`'s growth, and this is what currently occupies the context
+    /// window.
     pub(crate) last: TokenUsageBreakdown,
-    /// Usage accumulated over the whole Session, carried across `thread/resume`.
+    /// Usage accumulated over the whole Session, carried across
+    /// `thread/resume`.
     pub(crate) total: TokenUsageBreakdown,
     /// The window the Session's model runs in. Absent where the app-server did
-    /// not state one, which is a reading with no denominator rather than a zero.
+    /// not state one, which is a reading with no denominator rather than a
+    /// zero.
     #[serde(default)]
     pub(crate) model_context_window: Option<i64>,
 }
@@ -297,8 +288,8 @@ pub(crate) struct TokenUsageBreakdown {
     pub(crate) reasoning_output_tokens: i64,
 }
 
-/// The `error` notification — the same [`TurnError`] `turn/completed` will carry,
-/// arriving first, plus whether Codex is retrying internally.
+/// The `error` notification — the same [`TurnError`] `turn/completed` will
+/// carry, arriving first, plus whether Codex is retrying internally.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ErrorNotification {
@@ -308,12 +299,10 @@ pub(crate) struct ErrorNotification {
     pub(crate) will_retry: bool,
 }
 
-/// `turn/plan/updated` — the running plan tracker. Measured: this, not a `plan`
-/// thread item, is what carries what `codex exec --json` reported as a
-/// `todo_list` item.
+/// `turn/plan/updated` — the running plan tracker, not the `plan` thread item;
+/// this is what `codex exec --json` reported as `todo_list`.
 ///
-/// The wire also carries an `explanation`; `codex.todo_list` is a bare item list
-/// with nowhere to put it, so it is left on the wire.
+/// The wire's `explanation` has no slot in `codex.todo_list` and stays there.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct TurnPlanUpdatedNotification {
@@ -351,11 +340,8 @@ pub(crate) struct Turn {
     /// Only populated when `status` is [`TurnStatus::Failed`].
     #[serde(default)]
     pub(crate) error: Option<TurnError>,
-    /// Measured as always empty with `items_view: NotLoaded` on the
-    /// `turn/completed` notification — content comes from the streaming
-    /// `item/completed` notifications, not from the terminal. Both fields exist
-    /// for the fixture test that pins that measurement, which is what licenses
-    /// the harness to accumulate items as they stream.
+    /// Always empty with `items_view: NotLoaded` on `turn/completed`; content
+    /// comes from streaming `item/completed` notifications, not this field.
     #[cfg_attr(
         not(test),
         expect(
@@ -410,12 +396,8 @@ pub(crate) struct TurnError {
     pub(crate) additional_details: Option<String>,
 }
 
-/// The named failure cause on a failed Turn — the value classification reads
-/// instead of matching substrings against free text.
-///
-/// Unknown values land in [`CodexErrorInfo::Unrecognized`] carrying the raw JSON
-/// so a new upstream code is visible in logs rather than silently collapsing
-/// into the default class.
+/// The named failure cause on a failed Turn, read as a value rather than
+/// matching substrings against free text.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum CodexErrorInfo {
     ContextWindowExceeded,
@@ -434,6 +416,8 @@ pub(crate) enum CodexErrorInfo {
     ResponseStreamDisconnected { http_status_code: Option<u16> },
     ResponseTooManyFailedAttempts { http_status_code: Option<u16> },
     ActiveTurnNotSteerable { turn_kind: NonSteerableTurnKind },
+    /// Unknown values land here with the raw JSON, so a new upstream code
+    /// stays visible instead of collapsing into the default class.
     Unrecognized(serde_json::Value),
 }
 
@@ -511,10 +495,9 @@ impl<'de> Deserialize<'de> for CodexErrorInfo {
 
 /// One item in a Turn, as delivered by `item/started` and `item/completed`.
 ///
-/// Deserialization is hand-written rather than `#[serde(tag = "type")]` so an
-/// unrecognised family keeps both its name and its payload in
-/// [`ThreadItem::Other`] instead of failing the whole notification — the same
-/// forward-compatibility contract the exec transport's `ThreadItemDetails` had.
+/// Deserialization is hand-written, not `#[serde(tag = "type")]`, so an
+/// unrecognised family keeps its name and payload in [`ThreadItem::Other`]
+/// instead of failing the whole notification.
 #[derive(Debug, Clone)]
 pub(crate) enum ThreadItem {
     UserMessage(UserMessageItem),
@@ -653,10 +636,9 @@ impl<'de> Deserialize<'de> for ThreadItem {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct UserMessageItem {
     pub(crate) id: String,
-    /// The echoed input. Read only by the fixture test that pins what a steer
-    /// comes back as — the harness deliberately renders nothing for this family,
-    /// because the text is already in the conversation as the Message that sent
-    /// it (see the spec's *Data model*).
+    /// The echoed input. The harness renders nothing for this family — the text
+    /// is already in the conversation as the Message that sent it (see the
+    /// spec's *Data model*).
     #[cfg_attr(
         not(test),
         expect(
@@ -673,10 +655,9 @@ pub(crate) struct HookPromptItem {
     pub(crate) id: String,
 }
 
-/// Assistant text. The wire also carries a `phase` (`commentary` for mid-Turn
-/// narration, `final_answer` for the Turn's answer); `codex exec` reported no
-/// such distinction and the canonical `text` block has nowhere to put it, so it
-/// is left on the wire.
+/// Assistant text. The wire also carries a `phase` (`commentary` vs
+/// `final_answer`) that the canonical `text` block has nowhere to put, so it
+/// stays unparsed on the wire.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct AgentMessageItem {
@@ -717,10 +698,9 @@ pub(crate) struct CommandExecutionItem {
     pub(crate) exit_code: Option<i32>,
     #[serde(default)]
     pub(crate) duration_ms: Option<i64>,
-    /// Which subsystem ran the command. Read only by the fixture test, which
-    /// pins the observed value: even a command the model asked for arrives as
-    /// `unifiedExecStartup`, so the harness must not treat a non-`agent` source
-    /// as somebody else's command and hide the card.
+    /// Which subsystem ran the command. Even a command the model asked for
+    /// arrives as `unifiedExecStartup`, so a non-`agent` source must not be
+    /// treated as somebody else's command and hidden.
     #[cfg_attr(
         not(test),
         expect(
@@ -951,7 +931,8 @@ pub(crate) struct ImageGenerationItem {
     pub(crate) id: String,
 }
 
-/// Both `enteredReviewMode` and `exitedReviewMode`; the two carry the same shape.
+/// Both `enteredReviewMode` and `exitedReviewMode`; the two carry the same
+/// shape.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ReviewModeItem {
@@ -977,7 +958,7 @@ pub(crate) enum RequestId {
     String(String),
 }
 
-/// The whole of a JSON-RPC error object: `JSONRPCErrorError.json` declares
+/// The whole of a JSON-RPC error object; `JSONRPCErrorError.json` declares
 /// exactly these three fields.
 ///
 /// Every `turn/steer` rejection measured returned `-32600` with a different
@@ -997,7 +978,8 @@ impl std::fmt::Display for JsonRpcErrorInfo {
 }
 
 /// One message read off the server's stdout. `jsonrpc` is not required: the
-/// measured server omits it on notifications and adds a top-level `emittedAtMs`.
+/// measured server omits it on notifications and adds a top-level
+/// `emittedAtMs`.
 #[derive(Debug, Clone, Deserialize)]
 pub(crate) struct IncomingMessage {
     #[serde(default)]

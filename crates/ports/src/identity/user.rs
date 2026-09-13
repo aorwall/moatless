@@ -21,20 +21,17 @@ pub trait UserDisplay: Send + Sync {
 /// Resolution of a user reference to the canonical internal id.
 ///
 /// A reference is either the internal uuid or a legacy provider id preserved
-/// from before the id migration; the caller does not have to know which it
-/// holds.
+/// from before the id migration; the caller need not know which it holds.
 #[cfg_attr(feature = "test-support", mockall::automock)]
 #[async_trait]
 pub trait UserResolver: Send + Sync {
     async fn canonical_id(&self, reference: &str) -> Result<Option<Uuid>, StoreError>;
 
     /// Resolve a run-as reference — a uuid or a login — to the identity a
-    /// [`moatless_types::access_control::ScopeContext::can_run_as`] check reads. `None` when nobody matches.
+    /// run-as check reads. `None` when nobody matches.
     ///
     /// Accepts a login because a run-as target is named by a person, who knows
     /// `soap-reviewer[bot]` and not its uuid.
-    ///
-    /// [`moatless_types::access_control::ScopeContext::can_run_as`]: moatless_types::access_control::ScopeContext::can_run_as
     async fn run_as_target(&self, reference: &str) -> Result<Option<RunAsUser>, StoreError>;
 }
 

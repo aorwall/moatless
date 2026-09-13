@@ -1,4 +1,5 @@
-//! GitHub PR routing on top of provider connections, task loops, and task bindings.
+//! GitHub PR routing on top of provider connections, task loops, and task
+//! bindings.
 
 use std::fmt::Write as _;
 
@@ -30,8 +31,8 @@ pub(super) const ADAPTER: &str = "github";
 /// Subject kind for GitHub PRs (`task_bindings.subject_kind`).
 pub(super) const SUBJECT_KIND: &str = "github_pr";
 /// Label written to `task_messages.external_adapter`. Matches the
-/// `AdapterKind::GithubPr.as_str()` value so existing UI treats new rows
-/// the same as the legacy ones.
+/// `AdapterKind::GithubPr.as_str()` value so existing UI treats new rows the
+/// same as the legacy ones.
 pub(super) const ADAPTER_LABEL: &str = "github_pr";
 
 const ORIGIN_ADAPTER_EVENT: &str = ADAPTER_EVENT_BINDING_ORIGIN;
@@ -44,9 +45,9 @@ const PR_ORIGIN_CONTEXT: &str = "This task was created from a GitHub Pull Reques
 /// Build the config-only Subscription used when a connection has no matching
 /// trigger.
 ///
-/// This value is never persisted or used to authorize Task creation. Routing
-/// owns it because the fallback exists only to keep normalization, metrics, and
-/// message labelling consistent for events delivered to existing PR bindings.
+/// Never persisted or used to authorize Task creation; it exists only to keep
+/// normalization, metrics, and message labelling consistent for events
+/// delivered to existing PR bindings.
 pub(super) fn delivery_only_rule(
     connection: &AdapterConnection,
     repo_full_name: &str,
@@ -87,13 +88,13 @@ pub(super) fn delivery_only_rule(
 }
 
 impl GithubPrInboundRouter {
-    /// Route an inbound GitHub PR message to the tasks bound to its pull request.
+    /// Route an inbound GitHub PR message to the tasks bound to its pull
+    /// request.
     ///
-    /// What is GitHub's about routing is assembling the bindings: attaching one for
-    /// a task the event names as its author, and spawning the review task a freshly
-    /// opened pull request calls for. Which of them receive the event is not — that
-    /// is [`moatless_loops::bindings::runtime::fan_out`], deciding from the audience
-    /// `adapter.rs` classified the event into. Identity plays no part here.
+    /// Assembles the bindings — attaching one for the event's author task,
+    /// spawning the review task a fresh open PR calls for — but
+    /// [`moatless_loops::bindings::runtime::fan_out`] decides which receive the
+    /// event, from the audience `adapter.rs` classified it into.
     pub(super) async fn route_event(
         &self,
         connection: &AdapterConnection,
@@ -447,12 +448,11 @@ impl GithubPrInboundRouter {
         Ok(())
     }
 
-    /// Build the synthetic `InboundMessage` that gets persisted into a task's
-    /// chat to explain why the task auto-closed when its PR was closed/merged.
+    /// Build the synthetic `InboundMessage` explaining why a task auto-closed
+    /// when its PR was closed/merged.
     ///
     /// Mirrors the shape of a `pull_request.opened` inbound message so the UI
-    /// renders it identically (same `display (login):` sender prefix, same
-    /// source pill, same metadata).
+    /// renders it identically.
     async fn build_close_inbound_message(
         &self,
         owner: &str,
@@ -509,11 +509,11 @@ impl GithubPrInboundRouter {
         }
     }
 
-    /// Upsert a `github_pr` binding through the shared spine. Parses the PR
-    /// coordinates out of `thread_properties` into the `{owner, repo, pr_number}`
-    /// destination config, then delegates the row build + persistence to
-    /// [`moatless_loops::bindings::operations::Bindings::bind`]. PR bindings
-    /// never seed a cursor, so `last_external_event_id` is always `None`.
+    /// Upsert a `github_pr` binding through the shared spine.
+    ///
+    /// Parses PR coordinates from `thread_properties` into the destination
+    /// config; PR bindings never seed a cursor, so `last_external_event_id` is
+    /// always `None`.
     async fn upsert_binding(
         &self,
         connection: &AdapterConnection,
@@ -541,18 +541,13 @@ impl GithubPrInboundRouter {
             .await
     }
 
-    /// Translate a GitHub PR provider event into a [`NewTaskRequest`] and hand it to
-    /// the task band's own opener. It owns short-id generation,
-    /// preflight, insert, tags, provision, and the task event; this function only
-    /// maps the subscription + inbound message onto the normalised request.
-    ///
-    /// The binding upsert and first-message delivery stay with the caller
-    /// ([`route_event`]), so no first message is passed here.
+    /// Translate a GitHub PR provider event into a [`NewTaskRequest`] and hand
+    /// it to the task band's own opener; the binding upsert and first-message
+    /// delivery stay with the caller ([`route_event`]).
     ///
     /// Returns the raw [`TaskOpenError`] so the caller can distinguish a
-    /// permanent failure (`Preflight` — a bad token that a webhook redelivery
-    /// can't fix) from a transient one (a DB blip, short-id exhaustion) that
-    /// should surface as a 5xx so GitHub retries.
+    /// permanent failure (`Preflight`) from a transient one that should surface
+    /// as a 5xx so GitHub retries.
     async fn create_provider_event_task(
         &self,
         rule: &SubscriptionMatch,
@@ -597,12 +592,10 @@ impl GithubPrInboundRouter {
 
     /// Append a message to a bound task's chat without waking it.
     ///
-    /// The one GitHub PR delivery that does not route. The PR-close notice has to
-    /// land while the task is still `Open` — `send.rs` drops inbound external
-    /// messages on a `Closed` task — and it must not provision or wake an agent on
-    /// a sandbox that is about to be torn down, which is what routing would do.
-    /// Every event that is news rather than an epitaph goes through
-    /// [`route_event`].
+    /// The one GitHub PR delivery that does not route: the PR-close notice must
+    /// land while the task is still `Open` (`send.rs` drops inbound messages on
+    /// a `Closed` task) without waking an agent on a sandbox about to be torn
+    /// down. Everything else goes through [`route_event`].
     async fn append_to_binding(
         &self,
         rule: &SubscriptionMatch,

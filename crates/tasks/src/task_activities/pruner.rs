@@ -1,8 +1,9 @@
 //! The background worker that keeps `task_conversation_changes` bounded.
-//! Registered with the root `Supervisor` (up in the backend) in
-//! `main` as `conversation-change-pruner`, and unconditional rather than gated
-//! on the T3 compatibility module for the reason its sibling is: the records
-//! are written by Moatless mutations whether or not anything is subscribed.
+//!
+//! Registered with the root `Supervisor` (up in the backend) in `main` as
+//! `conversation-change-pruner`, and unconditional rather than gated on the T3
+//! compatibility module for the reason its sibling is: the records are written
+//! by Moatless mutations whether or not anything is subscribed.
 
 use std::time::Duration;
 
@@ -19,10 +20,10 @@ use moatless_core::db::DbPool;
 /// written rather than per Task whose listing row moved.
 const PRUNE_INTERVAL: Duration = Duration::from_mins(2);
 
-/// Run [`prune_changes`] on a timer until cancelled. A failed prune is a
-/// warning and nothing more: it deletes rows no reader is allowed to ask for —
-/// [`resume`](super::models::resume) has already refused them — so falling
-/// behind costs disk and the next tick covers the same ground.
+/// Run [`prune_changes`] on a timer until cancelled.
+///
+/// A failed prune only warns: it deletes rows [`resume`](super::models::resume)
+/// already refused, so falling behind costs disk and the next tick catches up.
 pub fn spawn_change_pruner(pool: DbPool, cancel: CancellationToken) -> JoinHandle<()> {
     tokio::spawn(async move {
         let mut ticker = tokio::time::interval(PRUNE_INTERVAL);

@@ -31,10 +31,11 @@ pub struct TaskEvent {
     pub created_at: DateTime<Utc>,
 }
 
-/// A task whose most recent turn is still open (`active` or `interrupted`) and
-/// older than a cutoff — the reaper's stuck-turn backstop. Surfaced fleet-wide
-/// by the `task_turns`-table query `TaskTurns::list_unclosed_active_turns`;
-/// `task_turn::models` re-exports this type.
+/// A task whose turn is still open (`active`/`interrupted`) past a cutoff — the
+/// reaper's stuck-turn backstop.
+///
+/// Surfaced by `TaskTurns::list_unclosed_active_turns`; re-exported from
+/// `task_turn::models`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnclosedTurn {
     pub task_id: String,

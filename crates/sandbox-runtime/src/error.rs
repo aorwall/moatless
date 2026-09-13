@@ -12,13 +12,13 @@ pub enum SandboxError {
     #[error("Configuration missing: {0}")]
     ConfigMissing(String),
 
-    /// A synthesized JWT complaint with no underlying failure. Minting
-    /// failures use [`SandboxError::JwtSigning`].
+    /// A synthesized JWT complaint with no underlying failure. Minting failures
+    /// use [`SandboxError::JwtSigning`].
     #[error("JWT generation failed: {0}")]
     JwtError(String),
 
-    /// Minting a sandbox or user token failed. Retains the jsonwebtoken error
-    /// — the key material it complains about never leaves the log line.
+    /// Minting a sandbox or user token failed. Retains the jsonwebtoken error —
+    /// the key material it complains about never leaves the log line.
     #[error("JWT generation failed for {purpose}")]
     JwtSigning {
         purpose: &'static str,
@@ -26,11 +26,11 @@ pub enum SandboxError {
         source: jsonwebtoken::errors::Error,
     },
 
-    /// A Kubernetes API call failed. The `kube` error is boxed at the provider
-    /// call site so this band's error type names no provider SDK — the orphan
-    /// rule forbids a `From<kube::Error>` here anyway, since both types are
-    /// foreign to band 7. Boxed rather than stringified so the cause stays on
-    /// the source chain for `causal_chain`.
+    /// A Kubernetes API call failed.
+    ///
+    /// Boxed (not stringified) at the provider call site: the orphan rule
+    /// forbids `From<kube::Error>` here, and boxing keeps the cause on the
+    /// source chain for `causal_chain`.
     #[error("Kubernetes API error: {0}")]
     KubeError(#[source] Box<dyn std::error::Error + Send + Sync>),
 
@@ -43,11 +43,11 @@ pub enum SandboxError {
     #[error("Docker API error: {0}")]
     DockerError(String),
 
-    /// A Docker Engine call failed. `operation` names the call so the log says
-    /// what was attempted without the caller having to re-describe it. The
-    /// `bollard` error is boxed at the provider call site so this band's error
-    /// type names no provider SDK; boxed rather than stringified so the cause
-    /// stays on the source chain for `causal_chain`.
+    /// A Docker Engine call failed; `operation` names the call for the log.
+    ///
+    /// The `bollard` error is boxed at the provider call site (orphan rule)
+    /// rather than stringified, so the cause stays on the source chain for
+    /// `causal_chain`.
     #[error("Docker API error during {operation}")]
     Docker {
         operation: &'static str,
@@ -70,11 +70,10 @@ pub enum SandboxError {
         source: Box<dyn std::error::Error + Send + Sync>,
     },
 
-    /// The sandbox answered that it does not serve the method that was called:
-    /// its image predates it. Backend and sandbox images roll out separately,
-    /// so this is a version skew a redeploy resolves, and it is worth telling
-    /// apart from a sandbox that could not be reached at all — the request got
-    /// there, and waiting will not change the answer.
+    /// The sandbox does not serve the method called; its image predates it.
+    ///
+    /// A version skew a redeploy resolves — distinct from unreachable: the
+    /// request got there, and waiting will not change the answer.
     #[error("Sandbox does not implement {operation}")]
     Unsupported {
         operation: String,
@@ -86,8 +85,8 @@ pub enum SandboxError {
     #[error("Sandbox gRPC client could not be created")]
     GrpcClient(#[from] crate::client::ClientError),
 
-    /// A read through a published store seam failed. The port already names
-    /// the read and carries its own source, so this variant adds nothing.
+    /// A read through a published store seam failed. The port already names the
+    /// read and carries its own source, so this variant adds nothing.
     #[error(transparent)]
     Store(#[from] moatless_types::store::StoreError),
 
@@ -96,18 +95,19 @@ pub enum SandboxError {
     Authorization(#[from] moatless_types::access_control::AccessControlError),
 
     /// A runtime step raised by a provider's own helpers (node-archive
-    /// bookkeeping, log streaming). Kept as a source so `map_sandbox_error`
-    /// can hand lifecycle back the original classification instead of a
-    /// flattened string.
+    /// bookkeeping, log streaming).
+    ///
+    /// Kept as a source so `map_sandbox_error` can hand lifecycle the original
+    /// classification, not a flattened string.
     #[error("Sandbox runtime step failed")]
     Runtime(#[source] crate::runtime::RuntimeError),
 
-    /// A lifecycle operation failed for a reason with no client-visible
-    /// mapping. The three that *do* map — task-not-found, closed-task, and
-    /// lock contention — become `NotFound`/`BadRequest`/`Conflict` instead.
+    /// A lifecycle operation failed with no client-visible mapping
+    /// (task-not-found, closed-task, and lock contention map instead to
+    /// `NotFound`/`BadRequest`/`Conflict`).
     ///
-    /// The source is boxed: the orchestrator that raises it sits a band above,
-    /// and this error is what a runtime answers with.
+    /// Boxed because the orchestrator that raises it sits a band above this
+    /// error.
     #[error("Sandbox lifecycle operation failed")]
     Lifecycle(#[source] Box<dyn std::error::Error + Send + Sync>),
 
@@ -137,15 +137,11 @@ pub enum SandboxError {
 }
 
 impl SandboxError {
-    /// This module's error as the sandbox runtime contract states it.
+    /// Exhaustively matched, so a new variant forces its mapping.
     ///
-    /// Every variant is named, so a variant added here does not compile until
-    /// its contract mapping is decided. The two container runtimes reach the
-    /// contract as a [`core_sandbox::ProviderKind`] and a message, so nothing
-    /// downstream of the contract compiles `kube` or `bollard`. The backend-only
-    /// outcomes — configuration, token minting, the database, lifecycle, and the
-    /// HTTP-only 409/403 the contract does not model — flatten to `Other` with
-    /// their rendered text intact.
+    /// Container-runtime failures become [`core_sandbox::ProviderKind`] plus a
+    /// message so nothing downstream compiles `kube`/`bollard`; backend-only
+    /// outcomes flatten to `Other` with their text intact.
     pub fn into_contract(self) -> core_sandbox::SandboxError {
         use core_sandbox::ProviderKind;
 
@@ -187,14 +183,11 @@ impl SandboxError {
 }
 
 impl From<core_sandbox::SandboxError> for SandboxError {
-    /// The contract error as this module's error.
+    /// Exhaustively matched, so a new contract variant forces its mapping.
     ///
-    /// Every variant is named, so a variant added to the contract does not
-    /// compile until its module mapping is decided. A provider-classified or
-    /// client-construction failure has already been flattened past the point
-    /// where the runtime that raised it could be reconstructed, so both — and
-    /// the contract's `Other` — arrive as an internal failure with their text
-    /// intact.
+    /// A provider-classified or client-construction failure is already
+    /// flattened past reconstruction, so both — and `Other` — arrive as an
+    /// internal failure with their text intact.
     fn from(error: core_sandbox::SandboxError) -> Self {
         use core_sandbox::SandboxError as Contract;
 
@@ -305,8 +298,8 @@ mod tests {
     use core_sandbox::{ProviderKind, SandboxError as ContractError};
 
     /// The contract must be satisfiable without compiling either container
-    /// runtime, so every `kube`- and `bollard`-shaped failure has to arrive as a
-    /// kind and a message.
+    /// runtime, so every `kube`- and `bollard`-shaped failure has to arrive as
+    /// a kind and a message.
     #[test]
     fn container_runtime_failures_reach_the_contract_provider_classified() {
         let cases = vec![
@@ -487,8 +480,8 @@ mod tests {
         assert_eq!(json["error"].as_str().unwrap(), "Internal server error");
     }
 
-    /// Every source-bearing variant, built from a cause whose `Display`
-    /// carries exactly the detail the client must never see.
+    /// Every source-bearing variant, built from a cause whose `Display` carries
+    /// exactly the detail the client must never see.
     fn source_bearing_errors() -> Vec<(SandboxError, &'static str)> {
         vec![
             (

@@ -1,14 +1,14 @@
 //! Failure classification for the Codex adapter.
 //!
 //! Maps Codex startup failures, stream transport errors, request rejections and
-//! failed Turns into stable [`HarnessError`] facts so the coordinator drives
+//! failed Turns into stable [`HarnessError`] facts, so the coordinator drives
 //! retry/credential policy without learning Codex-native error shapes.
 //!
 //! A failed Turn is classified from the **named** `codexErrorInfo` the server
-//! reports, not by matching substrings against the message. The message is free
-//! text that varies by provider — the same `-32600` steer rejection carries
-//! three different sentences — and an stderr scan for the same markers also
-//! matched a background model refresh unrelated to the Turn.
+//! reports, never by matching substrings: the message is free text that varies
+//! by provider (one steer rejection carries three different sentences), and a
+//! stderr scan for the same markers matched an unrelated background model
+//! refresh.
 
 use tracing::warn;
 
@@ -64,10 +64,12 @@ pub(super) fn classify_stream_error(text: &str) -> HarnessError {
 /// rather than a `codexErrorInfo`.
 const SERVER_OVERLOADED: i64 = -32001;
 
-/// A rejected request. `thread/resume` is the one method whose rejection says
-/// something about the Session itself — the thread could not be reopened — so it
-/// reports the Session lost rather than letting the coordinator retry against a
-/// thread that is not there.
+/// A rejected request.
+///
+/// `thread/resume` is the one method whose rejection says something about the
+/// Session itself (the thread could not be reopened), so it reports the Session
+/// lost rather than letting the coordinator retry against a thread that isn't
+/// there.
 pub(super) fn classify_request_error(method: &str, error: &RpcError) -> HarnessError {
     let (class, impact) = match error {
         RpcError::Rpc(info) if info.code == SERVER_OVERLOADED => {
@@ -90,11 +92,10 @@ pub(super) fn classify_request_error(method: &str, error: &RpcError) -> HarnessE
 
 /// A failed Turn, classified from its named cause.
 ///
-/// An error with no `codexErrorInfo` at all, or one this build does not know,
-/// takes the same conservative default as an explicit `other`: the input was
-/// rejected and the Session is still usable. An unrecognised value is logged
-/// with its raw JSON so a new upstream code is visible rather than silently
-/// collapsing into that default.
+/// A missing or unknown `codexErrorInfo` takes the same conservative default as
+/// an explicit `other` (input rejected, Session still usable); an unrecognised
+/// value is logged with its raw JSON so a new upstream code stays visible
+/// instead of silently collapsing into that default.
 pub(super) fn classify_turn_error(error: &TurnError) -> HarnessError {
     let (class, impact) = match &error.codex_error_info {
         Some(CodexErrorInfo::Unauthorized) => (ErrorClass::Authentication, SessionImpact::Unknown),

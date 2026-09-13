@@ -21,23 +21,10 @@ use moatless_types::loops::SubscriptionMatch;
 /// Wires a task to an external Adapter subject: resolves the connection and
 /// (optionally) the Subscription, then upserts the canonical task binding.
 ///
-/// Holds the four ports this module reads as typed fields — the GitHub PR
-/// destination builder (`github_destination`), the adapter-connection DAO
-/// (`adapter_connections`), the Subscription reads (`loops`), and the
-/// task-binding DAO (`task_bindings`). Read ports through those fields.
-///
-/// `github_destination` is the *concrete* GitHub PR
-/// [`AdapterDestinationBuilder`], not the adapter registry. A registry field
-/// here would be an upward edge in disguise: this module only ever wants the
-/// one builder named by `AdapterKind::GithubPr`, and reaching it through the
-/// registry (`adapters.destination_builder(GithubPr)`) is a provider self-lookup
-/// laundered through the band-8 aggregate — the caller supplies the concrete
-/// builder instead, so nothing below the provider band names a specific kind to
-/// fetch a provider.
-///
-/// [`Connector::write_binding`] writes through
-/// [`crate::bindings::operations::Bindings::bind`], holding that handle
-/// directly rather than the whole `AppState`.
+/// `github_destination` holds the concrete GitHub PR
+/// [`AdapterDestinationBuilder`] directly, never the adapter registry —
+/// reaching it via `adapters.destination_builder(GithubPr)` would be a provider
+/// self-lookup laundered through the band-8 aggregate.
 pub struct Connector {
     github_destination: Option<Arc<dyn AdapterDestinationBuilder>>,
     adapter_connections: Arc<ConnectionRouting>,
@@ -61,16 +48,10 @@ impl Connector {
     }
 
     /// Resolve the connection and its optional Subscription, then upsert the
-    /// binding — a missing or mismatched Subscription is tolerated rather than
-    /// treated as an error.
-    ///
-    /// Used for outbound binds — e.g. a PR opened by the agent via
-    /// `moat gh pr create` — where the connection alone is enough to persist the
-    /// task↔thread binding so it appears under the task's Connections. Inbound
-    /// delivery still finds the binding by its subject key
-    /// (`route_inbound_message` looks up bindings via `find_by_subject`, not by
-    /// `loop_id`). A Subscription that resolves to a different connection is
-    /// ignored rather than treated as an error.
+    /// binding — a missing or mismatched Subscription is tolerated, not treated
+    /// as an error, since outbound binds (e.g. `moat gh pr create`) only need
+    /// the connection; inbound delivery instead finds the binding via
+    /// `find_by_subject`.
     #[expect(
         clippy::too_many_arguments,
         reason = "eight against the threshold of seven: the &self receiver plus seven \
@@ -217,11 +198,10 @@ impl Connector {
         })
     }
 
-    /// Resolve the Subscription for a source, returning `None` when no
-    /// Subscription matches.
+    /// Resolve the Subscription for a source, or `None` when none matches.
     ///
     /// A Subscription belonging to a different connection is treated as absent
-    /// (and logged) so callers that tolerate a missing Subscription still
+    /// (and logged), so callers that tolerate a missing Subscription still
     /// succeed.
     async fn resolve_optional_subscription(
         &self,

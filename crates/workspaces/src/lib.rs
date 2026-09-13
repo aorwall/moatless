@@ -2,16 +2,13 @@
 // workspace `deny`/`warn`.
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
-//! Workspaces band (band 4): workspace git sync, repository CRUD and token access,
-//! skill fetching, and plugin activation/sync.
+//! Workspaces band (band 4): workspace git sync, repository CRUD and token
+//! access, skill fetching, and plugin activation/sync.
 //!
-//! The backend composes this crate through permanent facade modules
-//! (`backend/src/{workspace,repository,skill,plugin}`) that re-export
-//! these paths, so call sites keep naming `crate::repository::…` etc. The facade is
-//! not transitional: the backend stays the composition root that wires these ports
-//! into `AppState`. Every router here is generic over the state `S` with
-//! `FromRef<S>` bounds, so this crate names no concrete `AppState` — the `FromRef`
-//! impls live in the backend.
+//! The backend re-exports these paths through permanent facade modules
+//! (`backend/src/{workspace,repository,skill,plugin}`), so call sites keep
+//! naming `crate::repository::…` etc. The facade is not transitional — the
+//! backend stays the composition root wiring these ports into `AppState`.
 
 pub mod compose;
 pub mod plugin;

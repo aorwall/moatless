@@ -1,5 +1,5 @@
-//! Bot user management — `moat bot create --app-key <key>` provisions a
-//! `users` row tied to a configured GitHub App (`auth_method =
+//! Bot user management — `moat bot create --app-key <key>` provisions a `users`
+//! row tied to a configured GitHub App (`auth_method =
 //! 'github_app_installation'` on the matching `provider_tokens` row).
 
 use clap::Subcommand;
@@ -11,11 +11,9 @@ use crate::output;
 pub enum BotAction {
     /// Create a bot user backed by a configured GitHub App.
     ///
-    /// The server resolves the App's `{slug}[bot]` identity from
-    /// `GitHubAppRegistry` and writes both the `users` row and the matching
-    /// `provider_tokens` row. Triggers can then set `run_as_user_id` to the
-    /// returned bot id so tasks attribute commits, PRs, and comments to the
-    /// bot identity.
+    /// Resolves the App's `{slug}[bot]` identity, writing both the `users` and
+    /// matching `provider_tokens` rows; triggers can set `run_as_user_id` to
+    /// the returned id to attribute commits/PRs/comments to the bot.
     Create {
         /// Registry key of the GitHub App, e.g. `dev-bot`.
         #[arg(long)]

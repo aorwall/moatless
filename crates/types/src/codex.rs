@@ -21,7 +21,8 @@ pub const CODEX_TOOL_WEB_SEARCH: &str = "codex.web_search";
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
-/// arch-allow(floor-type-admission): Part of the shared Codex payload contract used by the sandbox and API schemas.
+/// arch-allow(floor-type-admission): Part of the shared Codex payload contract
+/// used by the sandbox and API schemas.
 pub enum CodexToolStatus {
     InProgress,
     Completed,
@@ -33,7 +34,8 @@ pub enum CodexToolStatus {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
-/// arch-allow(floor-type-admission): Part of the shared Codex payload contract used by the sandbox and API schemas.
+/// arch-allow(floor-type-admission): Part of the shared Codex payload contract
+/// used by the sandbox and API schemas.
 pub struct CommandAction {
     #[serde(rename = "type")]
     pub action_type: String,
@@ -45,7 +47,8 @@ pub struct CommandAction {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
-/// arch-allow(floor-type-admission): Part of the shared Codex payload contract used by the sandbox and API schemas.
+/// arch-allow(floor-type-admission): Part of the shared Codex payload contract
+/// used by the sandbox and API schemas.
 pub struct CodexShellInput {
     pub command: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -58,7 +61,8 @@ pub struct CodexShellInput {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
-/// arch-allow(floor-type-admission): Part of the shared Codex payload contract used by the sandbox and API schemas.
+/// arch-allow(floor-type-admission): Part of the shared Codex payload contract
+/// used by the sandbox and API schemas.
 pub struct CodexShellResult {
     pub status: CodexToolStatus,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -73,7 +77,8 @@ pub struct CodexShellResult {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
-/// arch-allow(floor-type-admission): Part of the shared Codex payload contract used by the sandbox and API schemas.
+/// arch-allow(floor-type-admission): Part of the shared Codex payload contract
+/// used by the sandbox and API schemas.
 pub enum FileUpdateKind {
     Add,
     Update,
@@ -84,7 +89,8 @@ pub enum FileUpdateKind {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
-/// arch-allow(floor-type-admission): Part of the shared Codex payload contract used by the sandbox and API schemas.
+/// arch-allow(floor-type-admission): Part of the shared Codex payload contract
+/// used by the sandbox and API schemas.
 pub struct FileUpdateChange {
     pub path: String,
     pub kind: FileUpdateKind,
@@ -96,7 +102,8 @@ pub struct FileUpdateChange {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
-/// arch-allow(floor-type-admission): Part of the shared Codex payload contract used by the sandbox and API schemas.
+/// arch-allow(floor-type-admission): Part of the shared Codex payload contract
+/// used by the sandbox and API schemas.
 pub struct CodexEditInput {
     pub changes: Vec<FileUpdateChange>,
 }
@@ -105,7 +112,8 @@ pub struct CodexEditInput {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
-/// arch-allow(floor-type-admission): Part of the shared Codex payload contract used by the sandbox and API schemas.
+/// arch-allow(floor-type-admission): Part of the shared Codex payload contract
+/// used by the sandbox and API schemas.
 pub struct CodexEditResult {
     pub status: CodexToolStatus,
     #[serde(default)]
@@ -114,12 +122,13 @@ pub struct CodexEditResult {
 
 /// A single entry in a codex `todo_list` plan tracker.
 ///
-/// `status` is the step's own three-state state; `completed` is the same fact
-/// narrowed to done/not-done, kept because it is what a `todo_list` item states.
+/// `status` is the step's own three-state state; `completed` narrows the same
+/// fact to done/not-done, kept because it's what a `todo_list` item states.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
-/// arch-allow(floor-type-admission): Part of the shared Codex payload contract used by the sandbox and API schemas.
+/// arch-allow(floor-type-admission): Part of the shared Codex payload contract
+/// used by the sandbox and API schemas.
 pub struct CodexTodoItem {
     pub text: String,
     pub completed: bool,
@@ -131,7 +140,8 @@ pub struct CodexTodoItem {
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
-/// arch-allow(floor-type-admission): Part of the shared Codex payload contract used by the sandbox and API schemas.
+/// arch-allow(floor-type-admission): Part of the shared Codex payload contract
+/// used by the sandbox and API schemas.
 pub enum CodexTodoStatus {
     #[default]
     Pending,
@@ -139,12 +149,15 @@ pub enum CodexTodoStatus {
     Completed,
 }
 
-/// Input for `codex.todo_list` tool calls. Codex emits this as a running plan
-/// tracker: the same `item_id` is re-emitted on every progress update.
+/// Input for `codex.todo_list` tool calls.
+///
+/// Codex emits this as a running plan tracker: the same `item_id` is re-emitted
+/// on every progress update.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
-/// arch-allow(floor-type-admission): Part of the shared Codex payload contract used by the sandbox and API schemas.
+/// arch-allow(floor-type-admission): Part of the shared Codex payload contract
+/// used by the sandbox and API schemas.
 pub struct CodexTodoListInput {
     #[serde(default)]
     pub items: Vec<CodexTodoItem>,
@@ -154,7 +167,8 @@ pub struct CodexTodoListInput {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
-/// arch-allow(floor-type-admission): Part of the shared Codex payload contract used by the sandbox and API schemas.
+/// arch-allow(floor-type-admission): Part of the shared Codex payload contract
+/// used by the sandbox and API schemas.
 pub struct CodexMcpInput {
     pub server: String,
     pub tool: String,
@@ -166,7 +180,8 @@ pub struct CodexMcpInput {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
-/// arch-allow(floor-type-admission): Part of the shared Codex payload contract used by the sandbox and API schemas.
+/// arch-allow(floor-type-admission): Part of the shared Codex payload contract
+/// used by the sandbox and API schemas.
 pub struct CodexMcpResult {
     pub status: CodexToolStatus,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -181,7 +196,8 @@ pub struct CodexMcpResult {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
-/// arch-allow(floor-type-admission): Part of the shared Codex payload contract used by the sandbox and API schemas.
+/// arch-allow(floor-type-admission): Part of the shared Codex payload contract
+/// used by the sandbox and API schemas.
 pub enum CodexCollabTool {
     SpawnAgent,
     SendInput,
@@ -195,7 +211,8 @@ pub enum CodexCollabTool {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
-/// arch-allow(floor-type-admission): Part of the shared Codex payload contract used by the sandbox and API schemas.
+/// arch-allow(floor-type-admission): Part of the shared Codex payload contract
+/// used by the sandbox and API schemas.
 pub enum CodexCollabAgentStatus {
     PendingInit,
     Running,
@@ -212,7 +229,8 @@ pub enum CodexCollabAgentStatus {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
-/// arch-allow(floor-type-admission): Part of the shared Codex payload contract used by the sandbox and API schemas.
+/// arch-allow(floor-type-admission): Part of the shared Codex payload contract
+/// used by the sandbox and API schemas.
 pub struct CodexCollabAgentState {
     pub status: CodexCollabAgentStatus,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -223,7 +241,8 @@ pub struct CodexCollabAgentState {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
-/// arch-allow(floor-type-admission): Part of the shared Codex payload contract used by the sandbox and API schemas.
+/// arch-allow(floor-type-admission): Part of the shared Codex payload contract
+/// used by the sandbox and API schemas.
 pub struct CodexCollabInput {
     pub tool: CodexCollabTool,
     pub sender_thread_id: String,
@@ -239,7 +258,8 @@ pub struct CodexCollabInput {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
-/// arch-allow(floor-type-admission): Part of the shared Codex payload contract used by the sandbox and API schemas.
+/// arch-allow(floor-type-admission): Part of the shared Codex payload contract
+/// used by the sandbox and API schemas.
 pub struct CodexCollabResult {
     pub status: CodexToolStatus,
     #[serde(default)]
@@ -248,13 +268,14 @@ pub struct CodexCollabResult {
 
 /// Input for `codex.web_search` tool calls.
 ///
-/// Upstream's `WebSearchAction` is itself an enum whose variants depend on
-/// the underlying provider; we keep it as a raw JSON value since we do not
-/// introspect it today.
+/// `action` is kept as raw JSON: upstream's `WebSearchAction` is itself an enum
+/// whose variants depend on the underlying provider, and we don't introspect
+/// it.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
-/// arch-allow(floor-type-admission): Part of the shared Codex payload contract used by the sandbox and API schemas.
+/// arch-allow(floor-type-admission): Part of the shared Codex payload contract
+/// used by the sandbox and API schemas.
 pub struct CodexWebSearchInput {
     pub query: String,
     #[serde(default, skip_serializing_if = "serde_json::Value::is_null")]
@@ -263,8 +284,8 @@ pub struct CodexWebSearchInput {
 
 /// Typed union of codex tool inputs, keyed by canonical tool name.
 ///
-/// Used by the backend enricher to deserialize stored `tool_input` JSON
-/// into a strongly-typed value based on the content block's `tool_name`.
+/// Used by the backend enricher to deserialize stored `tool_input` JSON into a
+/// strongly-typed value based on the content block's `tool_name`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(untagged)]

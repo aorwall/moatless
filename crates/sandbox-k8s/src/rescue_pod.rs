@@ -1,19 +1,11 @@
 //! Last-chance workspace upload from an orphaned claim.
 //!
-//! The pre-stop `SyncWorkspace` RPC is best-effort: a pod that was evicted,
-//! OOM-killed or already gone never answers it, and its volume is then the only
-//! copy of everything since the last turn boundary. Reclaiming that claim on a
-//! timer would delete work no snapshot holds.
-//!
-//! So before the cold transition deletes a claim it cannot prove is archived, it
-//! runs one deterministic pod that mounts the claim, tars `WORKSPACE_DIR` and
-//! `PUT`s it to a presigned URL. The pod carries no service-account token and no
-//! AWS credentials — the URL is the whole grant, the same way a live sandbox
-//! transfers its workspace.
-//!
-//! A one-shot Pod rather than a Job, matching [`super::node_archive`]'s cleanup
-//! pod: the two have the same shape (run once, observe terminal phase, delete),
-//! and the backend Role already carries `pods`.
+//! The pre-stop `SyncWorkspace` RPC is best-effort — an evicted/OOM-killed pod
+//! never answers it, leaving the claim the only copy since the last turn
+//! boundary. Before a cold transition deletes such a claim, this runs one
+//! deterministic pod that tars `WORKSPACE_DIR` and `PUT`s it to a presigned URL
+//! — no service-account token or AWS creds needed, the URL is the grant. A
+//! one-shot Pod (not a Job) matches [`super::node_archive`]'s cleanup pod.
 
 use std::collections::BTreeMap;
 use std::time::Duration;
@@ -37,9 +29,9 @@ use moatless_sandbox_runtime::runtime::RuntimeError;
 const WORKSPACE_MOUNT_PATH: &str = "/opt/moatless";
 const WORKSPACE_DIR: &str = "/opt/moatless/workspace";
 
-/// How long the rescue may take before the claim is left for the next cycle.
-/// A large workspace tar plus one HTTPS transfer, with the sandbox's own
-/// 5-minute transfer budget inside it.
+/// How long the rescue may take before the claim is left for the next cycle. A
+/// large workspace tar plus one HTTPS transfer, with the sandbox's own 5-minute
+/// transfer budget inside it.
 const RESCUE_TIMEOUT: Duration = Duration::from_mins(10);
 
 /// How often the pod's phase is polled.
@@ -56,9 +48,8 @@ pub(crate) fn rescue_pod_name(task_id: &str) -> String {
 
 /// Tar the claim's workspace and upload it to `put_url`.
 ///
-/// Returns `Ok(())` only when the pod reached `Succeeded`, which is what makes
-/// the claim safe to delete. Every other outcome — a failed pod, a timeout, an
-/// API error — is an error, and the caller keeps the claim.
+/// Returns `Ok(())` only on pod `Succeeded`, which is what makes the claim safe
+/// to delete; every other outcome is an error and the caller keeps the claim.
 pub(crate) async fn rescue_workspace(
     k8s: &K8sClient,
     config: &Config,
@@ -128,11 +119,10 @@ async fn await_rescue(pods: &Api<Pod>, task_id: &str, name: &str) -> Result<(), 
 
 /// Describe why a rescue pod's container exited non-zero.
 ///
-/// The pod-level `status.message` Kubernetes sets only for pod-admission
-/// failures, never for a container that ran and exited — that detail lives on
-/// `containerStatuses[].state.terminated` instead, whose `message` field the
-/// kubelet fills from the container's own stdout/stderr tail because the
-/// container carries `terminationMessagePolicy: FallbackToLogsOnError`.
+/// Pod-level `status.message` covers only admission failures, not a container
+/// that ran and exited; that detail lives on
+/// `containerStatuses[].state.terminated.message`, filled from stdout/stderr
+/// via `FallbackToLogsOnError`.
 fn failure_detail(pod: &Pod) -> String {
     if let Some(message) = pod
         .status

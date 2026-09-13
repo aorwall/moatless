@@ -29,14 +29,10 @@ pub struct WakeIntent {
 /// Does a pending user message supersede the persisted intent — i.e. should the
 /// reconciler converge the Task to Running and (re-)notify?
 ///
-/// Causal precedence is explicit:
-/// - only Open/Error Tasks participate; **Closed is never resurrected**;
-/// - a pending message **older** than `sandbox_desired_state_updated_at` cannot
-///   supersede a later stop/remove;
-/// - a newer message may supersede Stopped;
-/// - a newer message may supersede Removed **only** when the removal retention
-///   is `RetainArchives` (the durable explicit wake after a soft removal) — an
-///   in-progress `DeleteArchives` removal is never superseded, deletion wins.
+/// Closed is never resurrected; a message newer than
+/// `sandbox_desired_state_updated_at` may supersede Stopped, or Removed only
+/// when its retention is `RetainArchives` — an in-progress `DeleteArchives`
+/// removal always wins.
 pub fn message_supersedes_intent(intent: WakeIntent, message_created_at: DateTime<Utc>) -> bool {
     // Closed is never resurrected by a pending message.
     if intent.task_status == TaskStatus::Closed {

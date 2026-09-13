@@ -50,7 +50,8 @@ pub struct ListFilesQuery {
     pub recursive: Option<bool>,
 }
 
-/// See `sandbox::files::tree::get_file_tree_with_changes` for the file-tree contract.
+/// See `sandbox::files::tree::get_file_tree_with_changes` for the file-tree
+/// contract.
 #[utoipa::path(
     get,
     path = "/api/sandbox/v1/tasks/{task_id}/files/tree",
@@ -251,9 +252,9 @@ pub async fn search_by_name_handler(
 
 /// Map a snapshot miss onto the response error.
 ///
-/// `NotFound` is the path's own 404. `NoSnapshot` and `Unavailable` read back as
-/// the sandbox failure that sent the read here — a Task with nothing running and
-/// nothing stored is not running, and an outage is not the path's fault.
+/// `NotFound` is the path's own 404; `NoSnapshot` and `Unavailable` read back
+/// as the sandbox failure that sent the read here — nothing running and nothing
+/// stored means not running, and an outage is not this path's fault.
 fn snapshot_failed(
     task_id: &str,
     what: &str,
@@ -405,11 +406,10 @@ async fn snapshot_search(
 
 /// The nested file tree for one snapshot listing.
 ///
-/// A directory always carries a child list (possibly empty) and a file never
-/// does, matching [`FileTreeNodeDto`]'s live contract: a client tells
-/// "expandable" from "not" by that `Some`/`None`. A non-recursive listing has
-/// only the root's direct children, so its directories come back with an empty
-/// list — expandable, not yet expanded.
+/// A directory always carries a child list (possibly empty), a file never does
+/// — matching [`FileTreeNodeDto`]'s live contract of telling "expandable" from
+/// "not" via `Some`/`None`; a non-recursive listing gives the root's direct
+/// children only, so its directories come back expandable but not yet expanded.
 fn tree_nodes(root: &str, listing: &SnapshotListing, recursive: bool) -> Vec<FileTreeNodeDto> {
     use std::collections::BTreeMap;
     let mut children_of: BTreeMap<&str, Vec<&core_sandbox::SnapshotEntry>> = BTreeMap::new();

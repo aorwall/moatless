@@ -44,13 +44,8 @@ async fn fresh_turn_publishes_ordered_events_and_acks_after_acceptance() {
 
 /// A signal moves the state machine and the event stream as one act.
 ///
-/// The invariant, checked after *every* signal rather than at the end: the
-/// agent reports `Running` for exactly the span the events say the turn is
-/// open. It fails against the arrangement this replaced, where the transitions
-/// lived in the service's run loop — a coordinator driven directly moved no
-/// state at all, and in the loop the terminal event was published before
-/// `set_idle`, which is the window a reader caught as "agent running, turn
-/// completed".
+/// Checked after *every* signal, not just at the end: the agent reports
+/// `Running` for exactly the span the events say the turn is open.
 #[tokio::test]
 async fn a_turn_moves_the_state_machine_and_the_event_stream_together() {
     use crate::agent::agent_state::AgentState;

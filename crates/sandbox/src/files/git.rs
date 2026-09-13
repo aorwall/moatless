@@ -1,7 +1,7 @@
 //! Git operations via CLI for file change tracking.
 //!
-//! All functions shell out to `git` via `tokio::process::Command`,
-//! which works reliably in sandbox containers where git is always available.
+//! All functions shell out to `git` via `tokio::process::Command`, which works
+//! reliably in sandbox containers where git is always available.
 
 use std::collections::{HashMap, HashSet};
 
@@ -69,9 +69,9 @@ struct CompareRef {
 pub struct GitRepo {
     /// Absolute path to the repository root.
     pub abs_path: String,
-    /// Path prefix relative to the workspace dir. Empty when the workspace
-    /// root is itself a repo, otherwise the subdirectory name
-    /// (e.g. `"moatless-vibe"`).
+    /// Path prefix relative to the workspace dir. Empty when the workspace root
+    /// is itself a repo, otherwise the subdirectory name (e.g.
+    /// `"moatless-vibe"`).
     pub prefix: String,
 }
 
@@ -92,10 +92,9 @@ impl GitOutput {
 
 /// Run a git command and keep its exit status.
 ///
-/// A non-zero exit is an answer rather than an error for several of the
-/// commands here — `diff --no-index` reports "they differ" that way, and
-/// `rev-parse` reports "no such ref" — so the status rides along with the
-/// output instead of erasing it.
+/// A non-zero exit is an answer, not an error, for commands like `diff
+/// --no-index` ("they differ") or `rev-parse` ("no such ref"); the caller reads
+/// it from the output.
 pub(super) async fn run_git_capture(
     workspace_dir: &str,
     args: &[&str],
@@ -159,12 +158,8 @@ pub async fn is_git_repository(workspace_dir: &str) -> bool {
 
 /// Discover git repositories within the workspace directory.
 ///
-/// The file browser is rooted at the workspace directory rather than a single
-/// repo, so change overlays must be computed per-repo. Repos are always cloned
-/// into first-level subdirectories of the workspace, so the immediate
-/// (non-hidden) subdirectories are scanned and each one that is a git
-/// repository is returned with its directory name as the prefix. Repos are
-/// sorted by prefix for deterministic ordering.
+/// Scans immediate non-hidden subdirectories (repos are always cloned one level
+/// deep) and returns each git repo found, sorted by its directory-name prefix.
 pub async fn discover_git_repos(workspace_dir: &str) -> Vec<GitRepo> {
     let mut entries = match tokio::fs::read_dir(workspace_dir).await {
         Ok(entries) => entries,
@@ -207,8 +202,8 @@ pub async fn discover_git_repos(workspace_dir: &str) -> Vec<GitRepo> {
 
 /// Resolve which discovered repo a workspace-relative path belongs to.
 ///
-/// Returns the owning repo and the path relative to that repo's root, picking
-/// the most specific (longest prefix) match when repos are nested.
+/// Returns the owning repo and the path relative to its root, picking the
+/// longest-prefix match when repos are nested.
 fn resolve_repo_for_path<'a>(
     repos: &'a [GitRepo],
     file_path: &str,
@@ -488,11 +483,9 @@ fn count_changes(chunk: &str) -> (i32, i32) {
 
 /// Get detailed git diff information for the workspace.
 ///
-/// The file browser is rooted at the workspace directory, which may contain
-/// one or more git repositories (either the root itself, or sibling repos in
-/// subdirectories). Diffs are computed per-repo and merged, with each file's
-/// path prefixed by its repo's workspace-relative location so it lines up with
-/// the file tree. Returns an empty result when no git repositories are found.
+/// Diffs are computed per-repo and merged, with each file's path prefixed by
+/// its repo's workspace-relative location to match the file tree. Empty when no
+/// repos are found.
 pub async fn get_git_diff_detailed(workspace_dir: &str) -> GitDiffResponse {
     let repos = discover_git_repos(workspace_dir).await;
     if repos.is_empty() {
@@ -573,9 +566,8 @@ async fn get_repo_diff_detailed(workspace_dir: &str) -> GitDiffResponse {
 
 /// Get change info for a specific file (used by read-file-with-changes).
 ///
-/// `file_path` is relative to the workspace root; it is resolved to the git
-/// repository that owns it (the workspace root itself, or a sibling repo in a
-/// subdirectory) and the diff is computed relative to that repo.
+/// `file_path` is workspace-root-relative; it is resolved to the git repo that
+/// owns it and the diff is computed relative to that repo.
 pub async fn get_file_change_info(workspace_dir: &str, file_path: &str) -> FileChangeInfo {
     let repos = discover_git_repos(workspace_dir).await;
     let Some((repo, file_path)) = resolve_repo_for_path(&repos, file_path) else {

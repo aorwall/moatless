@@ -4,9 +4,10 @@ use super::fixtures::*;
 use super::service_fixtures::*;
 use super::*;
 
-/// An **active** Stop (a Turn is in flight) requests harness cancellation, drives
-/// to the single `Cancelled` outcome, and publishes exactly one `stopped` event —
-/// closing the Run and Turn. The gRPC-style ack resolves only after that publish.
+/// An **active** Stop (a Turn is in flight) requests harness cancellation,
+/// drives to the single `Cancelled` outcome, and publishes exactly one
+/// `stopped` event — closing the Run and Turn. The gRPC-style ack resolves only
+/// after that publish.
 #[tokio::test]
 async fn coordinator_service_active_stop_publishes_exactly_one_stopped() {
     use crate::agent::types::AgentStatus;
@@ -160,12 +161,9 @@ async fn coordinator_service_duplicate_stop_emits_exactly_one_stopped() {
     cancel.cancel();
 }
 
-/// The shutdown path: cancelling via `AgentState::stop()` (the token) — not an
-/// `AgentCommand::Stop` — closes the Turn as `turn_interrupted`, never
-/// `stopped`. A `stopped` row is terminal, and the backend's
-/// `find_interrupted_turn` reads a terminal row as "this Turn ended": publishing
-/// one on a pod teardown is what leaves the replacement pod idle instead of
-/// resuming the interrupted run.
+/// The shutdown path: cancelling via `AgentState::stop()` (not an
+/// `AgentCommand::Stop`) closes the Turn as `turn_interrupted`, never
+/// `stopped`. See `seam::interrupted_turn_payload` for why.
 #[tokio::test]
 async fn coordinator_service_cancel_token_publishes_turn_interrupted_not_stopped() {
     use crate::agent::types::AgentStatus;

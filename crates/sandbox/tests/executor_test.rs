@@ -1,9 +1,9 @@
 //! Integration tests for the agent dispatcher and handle.
 //!
-//! Tests `dispatch_pending_messages` with a mock `BackendClient`.
-//! The agent handle spawns the coordinator service, but since we don't have a real
-//! Claude CLI, we test the dispatcher routing, acknowledgment logic,
-//! and multi-send command channel mechanics.
+//! Tests `dispatch_pending_messages` with a mock `BackendClient`. The agent
+//! handle spawns the coordinator service, but since we don't have a real Claude
+//! CLI, we test the dispatcher routing, acknowledgment logic, and multi-send
+//! command channel mechanics.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

@@ -1,13 +1,11 @@
 //! The reconciler's one normalized convergence definition.
 //!
-//! The reconciler compares [`SandboxDesiredState`] against
-//! [`SandboxObservedStatus`] — **never bare "state"** — and every non-converged
-//! pairing has a rule. There is no unmapped pairing.
+//! Compares [`SandboxDesiredState`] against [`SandboxObservedStatus`] — never
+//! bare "state" — and every non-converged pairing has a rule; none unmapped.
 //!
-//! Archive deletion is part of strict remove *success*, not of observed
-//! convergence — the remove marker carries that obligation. `remove_marker_incomplete`
-//! is the one input that lets an all-absent Removed target still demand a
-//! retry, because the archive-deletion obligation has no observable trace.
+//! Archive deletion belongs to remove *success*, not observed convergence:
+//! `remove_marker_incomplete` lets an absent Removed target still demand a
+//! retry, since that obligation leaves no observable trace.
 
 use moatless_types::sandbox::SandboxDesiredState;
 
@@ -15,13 +13,8 @@ pub use moatless_types::sandbox::SandboxStatus;
 
 /// The reconciler's normalized observed vocabulary.
 ///
-/// Distinct from the display [`SandboxStatus`] (which mixes intent-derived
-/// values like `Removed`) and from the operation-level
-/// [`super::operation::ObservedStatus`]. `Absent` means **every runtime resource
-/// is gone, PVC unconditionally included** — the reconciler treats an existing
-/// PVC as not-absent. `Terminating` is accepted-but-still-terminating: a
-/// delete was accepted but resources persist, which is *not* converged for
-/// Removed.
+/// Distinct from the display [`SandboxStatus`] (mixes intent-derived values
+/// like `Removed`) and from [`super::operation::ObservedStatus`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SandboxObservedStatus {
     Ready,
@@ -40,8 +33,8 @@ impl SandboxObservedStatus {
     /// Normalize the display [`SandboxStatus`] projection into the reconciler's
     /// observed vocabulary.
     ///
-    /// `Removed` is intent-derived, not an observation — a reconciler never
-    /// sees it from the runtime; it is mapped to `Absent` defensively.
+    /// `Removed` is intent-derived, never observed from the runtime; mapped to
+    /// `Absent` defensively.
     pub fn from_display(status: SandboxStatus) -> Self {
         match status {
             SandboxStatus::Ready => Self::Ready,
@@ -76,16 +69,11 @@ impl ReconcileAction {
     }
 }
 
-/// Is the observed status converged on the desired state?
+/// Is the observed status converged on the desired state? Running↔Ready,
+/// Stopped↔Stopped-or-Absent, Removed↔Absent-with-complete-archive-obligation.
 ///
-/// - Running ↔ `Ready`
-/// - Stopped ↔ `Stopped` **or** `Absent` (a missing runtime satisfies Stopped)
-/// - Removed ↔ `Absent` (every resource gone, PVC included) — and only when the
-///   remove marker's archive obligation is complete.
-///
-/// The driver acts through [`reconcile_action`]; this is the paired predicate it
-/// is verified total against (action is `None` exactly when converged), so it is
-/// exercised only by tests.
+/// Verified total against [`reconcile_action`] (action is `None` exactly when
+/// converged); exercised only by tests.
 #[cfg(test)]
 pub fn converged(
     desired: SandboxDesiredState,
@@ -104,9 +92,8 @@ pub fn converged(
 
 /// The reconciler decision for a `(desired, observed)` pair.
 ///
-/// `remove_marker_incomplete` is load-bearing when runtime resources are absent
-/// but archive deletion has not completed: it keeps the reconciler retrying
-/// `remove` even when no resources are live.
+/// `remove_marker_incomplete` keeps the reconciler retrying `remove` when
+/// resources are absent but archive deletion has not completed.
 pub fn reconcile_action(
     desired: SandboxDesiredState,
     observed: SandboxObservedStatus,

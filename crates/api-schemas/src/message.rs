@@ -79,14 +79,15 @@ pub struct UiMessageExternalSource {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source_name: Option<String>,
     /// Stable, type-namespaced external id (e.g. "github:ic:12345",
-    /// "slack:ts:1700000.000123"). Present when the row was tagged by an
-    /// inbound webhook or by the outbound dedup fix; absent for legacy
-    /// rows written before the prefix scheme.
+    /// "slack:ts:1700000.000123").
+    ///
+    /// Present when tagged by an inbound webhook or the outbound dedup fix;
+    /// absent for legacy rows written before the prefix scheme.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub external_id: Option<String>,
-    /// Human-readable rendering of `external_id` (e.g. "Comment #12345",
-    /// "PR #42 opened", "ts 1700000.000123"). Falls back to the raw
-    /// `external_id` for legacy or unknown prefix shapes.
+    /// Human-readable rendering of `external_id` (e.g. "Comment #12345", "PR
+    /// #42 opened", "ts 1700000.000123"). Falls back to the raw `external_id`
+    /// for legacy or unknown prefix shapes.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub external_label: Option<String>,
 }
@@ -103,10 +104,10 @@ pub enum SubagentStatus {
 }
 
 impl SubagentStatus {
-    /// The single rule for subagent status, derived from the outer `Agent`
-    /// `tool_result`: present + `is_error` → `Error`; present → `Completed`;
-    /// absent → `Running`. Shared by the read path and the live progress event
-    /// so the collapsed card has one source of truth.
+    /// Derives [`SubagentStatus`] from the outer `Agent` `tool_result`.
+    ///
+    /// Shared by the read path and the live progress event so the collapsed
+    /// card has one source of truth.
     pub fn from_outer_result(present: bool, is_error: bool) -> Self {
         match (present, is_error) {
             (true, true) => Self::Error,
@@ -125,10 +126,11 @@ impl SubagentStatus {
     }
 }
 
-/// Derived aggregate metadata for a spawned subagent, carried on the `Agent`
-/// tool-use content block. Not content — the collapsed `Agent` card renders as
-/// a pure read of this. Shared shape between the read path and the live
-/// `subagentProgress` event (absolute values).
+/// Derived aggregate metadata for a spawned subagent.
+///
+/// Carried on the `Agent` tool-use content block, not as content; shared shape
+/// between the read path and the live `subagentProgress` event (absolute
+/// values).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
@@ -136,7 +138,8 @@ pub struct SubagentSummary {
     /// `COUNT(*)` of the subagent's rows (rows whose `parent_uuid` equals the
     /// `Agent` tool-use id).
     pub message_count: u32,
-    /// `SUM(input_tokens + output_tokens)` across the subagent's assistant rows.
+    /// `SUM(input_tokens + output_tokens)` across the subagent's assistant
+    /// rows.
     pub tokens: u32,
     pub status: SubagentStatus,
 }
@@ -174,7 +177,8 @@ pub struct UiToolResult {
     pub tool_use_id: String,
     pub content: Option<String>,
     pub is_error: Option<bool>,
-    /// Typed tool result from SDK (e.g., `BashToolUseResult`, `ReadToolUseResult`).
+    /// Typed tool result from SDK (e.g., `BashToolUseResult`,
+    /// `ReadToolUseResult`).
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "openapi", schema(value_type = Option<Object>))]
     pub typed_result: Option<serde_json::Value>,
@@ -207,7 +211,8 @@ pub struct UiResultMeta {
 #[serde(rename_all = "camelCase")]
 pub struct GetMessagesResponse {
     pub messages: Vec<UiMessage>,
-    /// Cursor for fetching the next older page; `None` when no older rows remain.
+    /// Cursor for fetching the next older page; `None` when no older rows
+    /// remain.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub next_before_id: Option<i32>,
     /// Whether older messages exist beyond the returned page.
@@ -348,8 +353,9 @@ pub struct SendMessageRequest {
     pub agent_mode: Option<AgentMode>,
     /// Reasoning effort for the turn, in the agent's own vocabulary
     /// (`low`/`medium`/`high`/`xhigh`/`max` for Claude,
-    /// `minimal`/`low`/`medium`/`high` for Codex). Omit to leave the agent on
-    /// its own default.
+    /// `minimal`/`low`/`medium`/`high` for Codex).
+    ///
+    /// Omit to leave the agent on its own default.
     pub effort: Option<String>,
     #[serde(default)]
     pub contexts: Vec<MessageContextInput>,
@@ -358,10 +364,11 @@ pub struct SendMessageRequest {
     pub tool_name: Option<String>,
     #[cfg_attr(feature = "openapi", schema(value_type = Option<Object>))]
     pub tool_response: Option<serde_json::Value>,
-    /// Task ID of the sender (set automatically when sent from within a sandbox).
+    /// Task ID of the sender (set automatically when sent from within a
+    /// sandbox).
     pub source_task_id: Option<String>,
-    /// When true, the next agent run starts a fresh session instead of resuming.
-    /// Per-message and cleared after send.
+    /// When true, the next agent run starts a fresh session instead of
+    /// resuming. Per-message and cleared after send.
     pub start_fresh: Option<bool>,
     /// Skills to activate for this turn. Names only — the sandbox resolves each
     /// one's `SKILL.md` on disk and frontloads its body ahead of the message.
@@ -391,7 +398,8 @@ pub struct SendMessageResponse {
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct AddMessageReactionRequest {
-    /// Emoji name (e.g. "thumbsup", "+1", "rocket"). Platform-native names accepted.
+    /// Emoji name (e.g. "thumbsup", "+1", "rocket"). Platform-native names
+    /// accepted.
     pub emoji: String,
 }
 
@@ -401,8 +409,8 @@ pub struct AddMessageReactionRequest {
 #[serde(rename_all = "camelCase")]
 pub struct MessageReactionResponse {
     pub ok: bool,
-    /// Provider-specific reaction id, when the API returns one
-    /// (e.g. GitHub reaction id, Linear reaction UUID).
+    /// Provider-specific reaction id, when the API returns one (e.g. GitHub
+    /// reaction id, Linear reaction UUID).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub external_id: Option<String>,
 }
@@ -419,8 +427,8 @@ pub struct ReplyToMessageRequest {
     pub text: String,
     #[serde(default)]
     pub file_ids: Vec<String>,
-    /// Adapter-native rich rendering of the message body. The payload names
-    /// the adapter it addresses; one whose kind does not match the resolved
+    /// Adapter-native rich rendering of the message body. The payload names the
+    /// adapter it addresses; one whose kind does not match the resolved
     /// destination is rejected rather than dropped.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub presentation: Option<moatless_types::adapter::OutboundPresentation>,
@@ -432,7 +440,8 @@ pub struct ReplyToMessageRequest {
 #[serde(rename_all = "camelCase")]
 pub struct ReplyToMessageResponse {
     pub ok: bool,
-    /// Provider-specific external id of the reply we posted, when the API returns one.
+    /// Provider-specific external id of the reply we posted, when the API
+    /// returns one.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub external_id: Option<String>,
 }

@@ -3,7 +3,8 @@
 /// not echo back as a fresh `RefreshCredential` push.
 #[derive(Debug, Clone)]
 pub enum WriteSource {
-    /// Sandbox-side rotation pushed via `BackendSandboxService::UpdateCredential`.
+    /// Sandbox-side rotation pushed via
+    /// `BackendSandboxService::UpdateCredential`.
     SandboxRotation { task_id: String },
     /// Backend-driven refresh (e.g. GitHub App user-token expiry path).
     BackendRefresh,
@@ -35,8 +36,8 @@ pub fn should_broadcast(key: &str) -> bool {
 
 /// Map a credential env-var key to the provider name in `provider_tokens`.
 ///
-/// Returns `None` for keys that aren't backed by a provider row (e.g. raw
-/// secrets that live elsewhere).
+/// Returns `None` for keys not backed by a provider row (e.g. raw secrets that
+/// live elsewhere).
 pub(crate) fn credential_key_to_provider(key: &str) -> Option<&'static str> {
     match key {
         "CODEX_AUTH_JSON" => Some("codex"),

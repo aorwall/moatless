@@ -1,23 +1,15 @@
 //! The ingress outbox relay: re-publication of admitted payloads.
 //!
-//! Every `agent.message` the gRPC ingress admits is published to the consumer
-//! path immediately, so on the healthy path the consumer commits
-//! `task_messages` and deletes the record before the relay ever sees it. The
-//! relay exists for the other path: a publish that failed, a Redis outage, a
-//! consumer that died mid-entry. It re-publishes records whose delivery is
-//! still unconfirmed until one of them lands.
+//! On the healthy path the consumer commits `task_messages` and deletes the
+//! record before the relay ever sees it. The relay exists for the other path —
+//! a failed publish, a Redis outage, a dead consumer — and re-publishes
+//! unconfirmed records until one lands.
 //!
-//! **Only confirmed delivery deletes a record.** The relay never deletes: it
-//! cannot observe a commit, and a record that still exists is by definition
-//! content that never reached `task_messages`. The delete belongs to the one
-//! component that *does* observe the commit — the event-handler consumer, which
-//! calls [`IngressOutbox::delete_delivered`] immediately after appending the
-//! message. A re-publish that the consumer processes therefore removes its own
-//! record; a re-publish that fails leaves it for the next pass.
-//!
-//! Re-publication re-stamps the stream envelope's timestamp, so a message
-//! recovered by the relay carries the recovery time rather than its admission
-//! time. That is a visible consequence of the failure path, not the norm.
+//! **Only confirmed delivery deletes a record**, via
+//! [`IngressOutbox::delete_delivered`] called by the event-handler consumer
+//! after it commits; the relay itself never deletes. Re-publication re-stamps
+//! the envelope's timestamp, so a recovered message carries the recovery time,
+//! not its admission time.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -67,8 +59,8 @@ impl IngressRelay {
     /// One pass: claim the due records and re-publish each.
     ///
     /// A claim reschedules its records in the same statement, so a pass that
-    /// panics or is cancelled mid-flight loses nothing — the records simply come
-    /// due again later.
+    /// panics or is cancelled mid-flight loses nothing — the records simply
+    /// come due again later.
     pub async fn relay_once(&self) -> RelayPass {
         let due = match self.outbox.claim_due(Utc::now(), BATCH_SIZE).await {
             Ok(due) => due,
@@ -159,9 +151,9 @@ impl IngressRelay {
 
     /// Run until `cancel` fires, handing back the owned handle.
     ///
-    /// The loop itself never returns early: a failing pass is logged and
-    /// retried on the next tick, so termination means cancellation (or a panic,
-    /// which surfaces through the handle's join result).
+    /// The loop never returns early: a failing pass is logged and retried next
+    /// tick, so termination means cancellation (or a panic, surfaced through
+    /// the handle's join result).
     pub fn spawn(self, cancel: CancellationToken) -> IngressRelayHandle {
         let join = tokio::spawn(async move {
             let mut ticker = tokio::time::interval(self.poll_interval);
@@ -178,22 +170,13 @@ impl IngressRelay {
     }
 }
 
-/// Owned handle to the spawned [`IngressRelay`].
+/// Owned handle to the spawned [`IngressRelay`], `#[must_use]` since dropping
+/// it detaches critical work.
 ///
-/// # Ownership and criticality
-///
-/// **Criticality: critical.** The relay is the recovery half of event
-/// admission: the backend answers gRPC success for an `agent.message` on the
-/// strength of the outbox record, and only this task turns an undelivered
-/// record back into a delivery. A process that keeps admitting events without a
-/// running relay accumulates content that never reaches `task_messages`.
-///
-/// The handle is therefore returned to the composition root rather than
-/// discarded, and is `#[must_use]` so dropping it is a deliberate act. It
-/// participates in cancellation through the token passed to
-/// [`IngressRelay::spawn`], and [`Self::shutdown`] joins it within a bounded
-/// deadline. [`Self::into_join_handle`] hands the raw handle to a root
-/// supervisor that wants to own termination policy itself.
+/// The backend answers gRPC success for an `agent.message` on the outbox record
+/// alone; without a running relay, undelivered content never reaches
+/// `task_messages`. Cancel via the token passed to [`IngressRelay::spawn`], or
+/// join with [`Self::shutdown`].
 #[must_use = "the relay handle owns critical work; dropping it detaches the task"]
 pub struct IngressRelayHandle {
     join: JoinHandle<()>,

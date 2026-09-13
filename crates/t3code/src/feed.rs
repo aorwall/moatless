@@ -1,23 +1,11 @@
 //! Turning recorded changes into the events a watching client applies.
 //!
-//! Two feeds over two logs — the sidebar's listing and one conversation's
-//! transcript — and one rule they share: the client folds events into the
-//! snapshot it holds and discards anything at or below the position it already
-//! has, so a cursor is only ever handed back in the numbering that allocated it.
-//! The notes below are the *shell's*; [`ThreadFeed`] carries its own.
-//!
-//! The shell side never sends a difference:
-//! it coalesces a burst per conversation, re-reads the row through the same
-//! listing query the snapshot uses, and sends it whole at the burst's last
-//! position. Removals come from what the viewer **previously held**, never from
-//! an empty re-read, which on a shared deployment would disclose the id of every
-//! conversation unfollowed, made private or deleted (Decision 11).
-//!
-//! One case is not expressible as a Task delta: a conversation entering a project the
-//! client does not hold needs both events, and two events at one position
-//! deliver one. Neither neighbour works either: `P - 1` has no room when the
-//! client already holds `P - 1`, and `P + 1` is unallocated, so the real change
-//! that later takes it is dropped in silence. That case sends a snapshot.
+//! Two feeds, over two logs (the sidebar listing and one conversation's
+//! transcript), share one rule: the client discards anything at or below the
+//! position it already holds, so a cursor is handed back only in the numbering
+//! that allocated it. Removals come from what the viewer previously held, never
+//! an empty re-read, which would disclose who left; two events needed at one
+//! position are sent as a snapshot instead.
 
 use std::collections::{HashMap, HashSet};
 
@@ -32,23 +20,18 @@ use moatless_types::access_control::ScopeContext;
 
 use moatless_core::change_feed::conversation::{ConversationChange, ConversationHead};
 
-/// How many recorded changes one poll reads. A cap rather than a limit — the
-/// cursor still advances to the last record read, so a full batch only splits
-/// the delivery in two. Saturation is logged because a poll that is always full
-/// means the interval is too long for the deployment's change rate.
+/// How many recorded changes one poll reads — a cap, not a limit.
+///
+/// The cursor still advances to the last record read, so a full batch just
+/// splits delivery in two; a poll that's always full means the interval is too
+/// long.
 const CHANGES_PER_POLL: i64 = 500;
 
-/// A client's place in the change feed, the database that place is in, and what
-/// the client is holding.
+/// A client's place in the change feed, the database it's in, and what the
+/// client holds.
 ///
-/// Owned by one subscription. The cursor moves over *records*, not delivered
-/// events, so a change this viewer cannot see advances it and sends nothing; the
-/// identity travels with it because a cursor without one is a number naming a
-/// different change in every database. All four move together or not at all.
-///
-/// `grouped` tracks the projects the client can group a changed Task under. The
-/// live feed carries only Task changes, so project membership itself changes
-/// only when a snapshot replaces the listing.
+/// The cursor moves over records, not delivered events, and travels with the
+/// database identity; all four fields move together.
 pub struct ShellFeed {
     identity: UiRpcEnvironmentIdentity,
     cursor: i64,
@@ -57,15 +40,11 @@ pub struct ShellFeed {
 }
 
 impl ShellFeed {
-    /// Start from the position a snapshot was read at, in the database it was
-    /// read from, holding nothing.
+    /// Start from the position a snapshot was read at, in that database,
+    /// holding nothing.
     ///
-    /// The removable Task set stays empty for the life of a resumed feed, and
-    /// deliberately: reconstructing it from what the viewer can read now is
-    /// wrong in the one direction that matters, since the rows missing are
-    /// exactly the ones that left while the client was away (Decision 11).
-    /// [`ShellFeed::grouping_by`] keeps that from also costing a snapshot per
-    /// reconnection; callers holding the snapshot use [`ShellFeed::holding`].
+    /// The removable set stays empty deliberately: a fresh read would miss rows
+    /// that left while the client was away.
     pub fn resuming_from(identity: UiRpcEnvironmentIdentity, position: i64) -> Self {
         Self {
             identity,
@@ -91,14 +70,11 @@ impl ShellFeed {
         self
     }
 
-    /// Everything this viewer should be told since the last poll, oldest first.
-    /// Empty means nothing changed, or nothing that changed is theirs.
+    /// Everything this viewer should be told since the last poll, oldest first;
+    /// empty means nothing changed or nothing is theirs.
     ///
-    /// The head is read as well as the changes because a subscription outliving
-    /// the database it opened against never resumes, so the guards never run on
-    /// it: the poll asks for changes past a position the replacement has not
-    /// reached — silence, then changes, having skipped everything between.
-    /// Decision 7's third place the check has to run.
+    /// The head is read too, or a stale subscription would silently skip
+    /// everything between the old database and the new one.
     pub async fn poll(
         &mut self,
         reads: &T3Reads,
@@ -219,19 +195,12 @@ impl ShellFeed {
         Ok(items)
     }
 
-    /// Put a watching client back onto a listing built from the database that is
-    /// actually there now.
+    /// Put a watching client back onto a listing built from the database that
+    /// is actually there now.
     ///
-    /// The client *replaces* the snapshot it holds rather than folding into it
-    /// (`client-runtime/src/state/shell.ts:141-147`), so nothing has to be told
-    /// which rows went, and the feed continues from the new identity as well as
-    /// the new position.
-    ///
-    /// The cursor is *set* here, not advanced — the one thing this does not
-    /// share with [`ShellFeed::resynchronize`]. The old cursor came from a
-    /// counter that is gone, so a `max()` of the two would park the feed above a
-    /// position the replacement has not reached and answer every poll with
-    /// silence until it got there.
+    /// The cursor is *set*, not advanced like [`ShellFeed::resynchronize`] —
+    /// the old counter is gone, and `max()`-ing it in would park the feed
+    /// silent.
     async fn rebuild(
         &mut self,
         reads: &T3Reads,
@@ -274,11 +243,9 @@ impl ShellFeed {
         Ok(self.adopt(snapshot, cursor))
     }
 
-    /// Take a freshly built listing as the client's whole state, and hand it
-    /// over.
-    ///
-    /// Both callers replace what the client is looking at, so both replace
-    /// everything this feed believes about its Tasks and project grouping.
+    /// Take a freshly built listing as the client's whole state and hand it
+    /// over: both callers replace what the client is looking at, so this
+    /// replaces everything the feed believes about its Tasks and grouping.
     fn adopt(&mut self, snapshot: super::ShellSnapshot, cursor: i64) -> Vec<Value> {
         self.threads = snapshot.thread_ids().into_iter().collect();
         self.grouped = snapshot.project_ids().into_iter().collect();
@@ -293,39 +260,21 @@ impl ShellFeed {
 
 /// A watching client's place in one conversation.
 ///
-/// The same mechanism as the shell's and against a different log: every write
-/// to a Message a conversation shows records a position against that
-/// conversation (`task_activities`), and this reads forward from the position
-/// the client holds. What it sends is the contract's own events, so a change is
-/// the few hundred bytes of the row that moved rather than the whole transcript.
-///
-/// # Coalescing
-///
-/// One Message is assembled from its blocks by a run of in-place merges, so a
-/// single assistant turn records a change per block and each of them names the
-/// same Message. Re-reading that Message once per change would send the same
-/// bubble several times over, so a poll keeps only the last position each
-/// Message was named at. The events are the same either way — they are upserts
-/// — but the last position is the one that carries the whole row.
-///
-/// The poll interval is `THREAD_POLL_INTERVAL` in the crate root.
+/// Reads forward from the client's position in this conversation's change log;
+/// a poll coalesces a burst per Message (see [`coalesced`]).
 pub struct ThreadFeed {
     task_id: String,
     /// The position this feed reads from next, in the change log's own
     /// numbering rather than the contract's.
     cursor: i64,
-    /// The sequence the client has been sent, below which an event of a
-    /// re-read change is dropped rather than sent again. See [`ThreadFeed::poll`].
+    /// The sequence the client has been sent, below which an event of a re-read
+    /// change is dropped rather than sent again. See [`ThreadFeed::poll`].
     delivered: i64,
 }
 
-/// How many recorded changes one poll reads.
-///
-/// A cap rather than a window: what is left over is read by the next poll from
-/// the cursor this one advanced to, so a client behind by more than this
-/// catches up over several intervals instead of one large frame. Four times the
-/// shell's, because a conversation records a position per Message block and the
-/// shell records one per Task.
+/// How many recorded changes one poll reads: a cap, not a window — the rest is
+/// read by the next poll, so a client far behind catches up over several
+/// intervals rather than one large frame.
 const THREAD_POLL_CHANGES: i64 = 512;
 
 impl ThreadFeed {
@@ -342,12 +291,8 @@ impl ThreadFeed {
 
     /// Start from the sequence a returning client says it holds.
     ///
-    /// The cursor is the position that sequence sits *inside*, not the one
-    /// after it: a client disconnected partway through one change's events
-    /// holds a sequence in the middle of that change, and the events it missed
-    /// are the rest of that same change. Re-reading the whole change and
-    /// dropping the events at or below `after` is what makes the boundary
-    /// exact — see [`activity::position_of`].
+    /// The cursor is the position that sequence sits *inside*, not after it — a
+    /// mid-change disconnect re-reads the rest, filtered at `after`.
     pub fn resuming_from(task_id: String, after: i64) -> Self {
         Self {
             task_id,
@@ -356,30 +301,11 @@ impl ThreadFeed {
         }
     }
 
-    /// Everything recorded since this feed last read, as stream items — an
-    /// empty list when nothing was, and `None` when the conversation is gone.
+    /// Everything recorded since this feed last read, as stream items — empty
+    /// when nothing changed, `None` when gone.
     ///
-    /// "Gone" is deliberately one answer for three different endings — deleted,
-    /// unfollowed, or no longer readable — because they are the same fact to
-    /// the client and separating them here would tell it which. The
-    /// subscription ends; the *shell* feed is what tells a client a
-    /// conversation left its sidebar, and it applies the disclosure rule that
-    /// decision needs.
-    ///
-    /// The changes are read before the rows they name, and the rows are read
-    /// once for the whole batch. So a row that moves again between the two
-    /// reads is projected in its newer state under the older change's
-    /// sequence — which is why the next poll re-reads it: the newer change has
-    /// its own position, still ahead of this cursor.
-    ///
-    /// Every read here happens before the cursor moves, so a poll that fails
-    /// part-way leaves this feed exactly where it started and the next one
-    /// covers the same ground. That is the invariant `watch_thread` survives a
-    /// transient database error on.
-    ///
-    /// Neither the workspace listing nor the model defaults are read: a thread
-    /// event carries no grouping and no model, unlike the shell rows and the
-    /// snapshot this feed continues from.
+    /// Rows re-read once per batch may go stale mid-poll; the cursor advances
+    /// only once every read succeeds, so a failed poll retries from here.
     pub(crate) async fn poll(
         &mut self,
         conversations: &dyn ConversationDao,
@@ -460,12 +386,10 @@ impl ThreadFeed {
     }
 }
 
-/// One change per named row, keeping the last position each was named at, in
-/// position order. A row is named by a Message uuid or, for the activities that
-/// happened on no Message, by its own activity id; both fold the same way.
-/// Changes naming neither are the conversation's own and are all kept: each is a
-/// distinct transition of its session, or a rewind, which is ordered against the
-/// changes around it and so cannot be folded into one of them.
+/// One change per named row, kept at its last position, in position order.
+///
+/// Changes naming neither a Message uuid nor an activity id are the
+/// conversation's own and are all kept as ordered transitions.
 fn coalesced(changes: Vec<ConversationChange>) -> Vec<ConversationChange> {
     let mut latest: HashMap<&str, i64> = HashMap::new();
     for change in &changes {
@@ -707,8 +631,8 @@ mod tests {
     }
 
     /// The client drops an event at or below the position it holds, in silence.
-    /// A resuming feed re-reads the change its cursor sits inside, so it is this
-    /// side that has to drop the events the client already has.
+    /// A resuming feed re-reads the change its cursor sits inside, so it is
+    /// this side that has to drop the events the client already has.
     #[tokio::test]
     async fn a_resuming_poll_drops_the_events_the_client_already_holds() {
         let dao = a_dao(vec![change(9, Some("msg-a"))]);
@@ -726,8 +650,8 @@ mod tests {
         assert_eq!(feed.delivered, already);
     }
 
-    /// A conversation that left this viewer's reach ends the subscription —
-    /// one answer for deleted, unfollowed and no longer readable.
+    /// A conversation that left this viewer's reach ends the subscription — one
+    /// answer for deleted, unfollowed and no longer readable.
     #[tokio::test]
     async fn a_poll_that_can_no_longer_see_the_conversation_ends_the_subscription() {
         let mut dao = MockConversationDao::new();
@@ -762,11 +686,9 @@ mod tests {
         assert_eq!(feed.cursor, 9, "and the cursor stayed where it was");
     }
 
-    /// The end a conversation is most likely to reach is the one that records
-    /// no change: closing, deleting or unfollowing a Task moves none of its
-    /// Messages. A check that ran only when something was recorded would never
-    /// run on those, and the subscription would sit open on a thread that is
-    /// gone — which is why the silent poll above still reads the row.
+    /// Closing, deleting or unfollowing a Task records no change, so a check
+    /// that only ran when something was recorded would never catch it — which
+    /// is why the silent poll above still reads the row.
     #[tokio::test]
     async fn an_idle_subscription_still_discovers_that_its_conversation_ended() {
         let mut dao = MockConversationDao::new();
@@ -783,11 +705,9 @@ mod tests {
         );
     }
 
-    /// `watch_thread` keeps a subscription alive across a failed poll on the
-    /// ground that the cursor has not moved, so the next poll covers the same
-    /// ground. A cursor advanced before the reads that can fail makes that
-    /// sentence false and loses the batch outright: nothing logged on the
-    /// client's side, nothing wrong on its screen except that it is frozen.
+    /// `watch_thread` retries a failed poll because the cursor hasn't moved. If
+    /// the cursor advanced before the reads that can fail, that would be false
+    /// and the batch would be lost silently.
     #[tokio::test]
     async fn a_poll_that_fails_part_way_leaves_the_cursor_where_it_started() {
         let mut dao = MockConversationDao::new();

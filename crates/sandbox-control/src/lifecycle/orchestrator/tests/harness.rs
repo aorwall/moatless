@@ -1,5 +1,5 @@
-//! The doubles each orchestrator port is exercised against, and the
-//! `Harness` that wires them to one `Lifecycle`.
+//! The doubles each orchestrator port is exercised against, and the `Harness`
+//! that wires them to one `Lifecycle`.
 
 use super::super::*;
 use std::sync::Mutex;
@@ -256,9 +256,9 @@ impl WorkspaceSyncPort for FailingWorkspaceSync {
     }
 }
 
-/// Configurable archive double. The head answer and the presign answer are
-/// the only two inputs the cold decision is made from, so both are settable
-/// and both are logged into the shared order log.
+/// Configurable archive double. The head answer and the presign answer are the
+/// only two inputs the cold decision is made from, so both are settable and
+/// both are logged into the shared order log.
 pub(super) struct RecordingArchive {
     pub(super) log: Log,
     pub(super) head: Result<Option<DateTime<Utc>>, String>,

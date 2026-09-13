@@ -73,11 +73,9 @@ fn state_with_sandbox_status(status: SandboxStatus) -> UiRpcState {
     state
 }
 
-/// The subscription seeds before its first poll interval elapses.
-///
-/// Without the seed the indicator would render nothing for the first
-/// interval on every mount — which is the stale-status bug the push channel
-/// exists to end, just moved to the start of the stream.
+/// The subscription seeds before its first poll interval elapses; without it,
+/// the indicator renders nothing until the first poll — the stale-status bug
+/// this push channel exists to end.
 #[tokio::test]
 async fn subscribing_to_a_sandbox_status_answers_before_the_first_poll() {
     let frame = request(

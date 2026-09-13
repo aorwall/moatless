@@ -1,21 +1,12 @@
 //! Prometheus metrics for agent runs and tool calls.
 //!
-//! These are emitted from the event handler as it processes the agent event
-//! stream (`agent.message`, `agent.completed`, `agent.error`, `agent.stopped`).
-//! They surface what the agent is actually *doing* inside a sandbox — tool
-//! usage, failures, turn latency, cost — which the K8s-derived fleet metrics
-//! (deployments, restarts, terminations) can't see.
+//! Emitted from the event handler processing the agent event stream; surfaces
+//! what the agent is actually *doing* inside a sandbox — tool usage, failures,
+//! turn latency, cost — which K8s-derived fleet metrics can't see.
 //!
-//! ## Cardinality
-//! Labels are deliberately bounded:
-//! - `tool` is bucketed via [`bucket_tool`] — built-in tools keep their name,
-//!   every `mcp__*` tool collapses to `mcp`, everything else to `other`. This
-//!   stops open-ended MCP / skill names from exploding the series count.
-//! - `agent_type` is the handful of agent runtimes (claude, codex, …); `unknown`
-//!   when absent.
-//! - `status` ∈ {`ok`, `error`}; `outcome` ∈ a small fixed terminal-state set.
-//! - `context_bucket` is the five fixed size classes of [`context_bucket`], plus
-//!   `unknown`; `kind` is the four token classes the SDK usage object reports.
+//! Labels are deliberately bounded: [`bucket_tool`] and [`context_bucket`]
+//! collapse open-ended tool names and context sizes into a small fixed
+//! vocabulary, to keep the series count from exploding.
 
 use super::models::UsageInfo;
 
@@ -28,23 +19,26 @@ pub(crate) const AGENT_TOOL_CALLS_TOTAL: &str = "moatless_agent_tool_calls_total
 /// `agent_type`. One increment per terminal agent event.
 pub(crate) const AGENT_RUNS_TOTAL: &str = "moatless_agent_runs_total";
 
-/// Agent cost in USD per run by `agent_type` (histogram). A histogram (not a
-/// counter) because cost is fractional and the `metrics` counter only takes
-/// `u64`; the histogram's `_sum` accumulates real-USD spend (rate of `_sum`
-/// gives $/s) while the buckets show per-run cost distribution.
+/// Agent cost in USD per run by `agent_type` (histogram, not a counter: cost is
+/// fractional and `metrics` counters only take `u64`).
+///
+/// The histogram's `_sum` accumulates real-USD spend (rate of `_sum` gives
+/// $/s).
 pub(crate) const AGENT_COST_USD: &str = "moatless_agent_cost_usd";
 
 /// Wall-clock turn duration in seconds by `agent_type`, `outcome`, and
-/// `context_bucket` (histogram). Sourced from the SDK result's `duration_ms`.
-/// The `context_bucket` label is what makes "a big context makes a turn slow"
-/// visible: without it the histogram mixes a 20k-context turn and a 400k one.
+/// `context_bucket` (histogram), sourced from the SDK result's `duration_ms`.
+///
+/// The `context_bucket` label separates a 20k-context turn from a 400k one —
+/// without it the histogram mixes both.
 pub(crate) const AGENT_TURN_DURATION_SECONDS: &str = "moatless_agent_turn_duration_seconds";
 
 /// Tokens consumed by a run, by `agent_type` and `kind` (`input` | `output` |
-/// `cache_read` | `cache_creation`) — counter. Sourced from the SDK result's
-/// `usage`, which reports the run's authoritative totals; the per-message
-/// `output_tokens` on the stream is a partial value sampled before the response
-/// finished, so it is not summed here.
+/// `cache_read` | `cache_creation`) — counter, sourced from the SDK result's
+/// authoritative `usage` totals.
+///
+/// The per-message `output_tokens` on the stream is a partial value sampled
+/// before the response finished, so it is not summed here.
 pub(crate) const AGENT_TOKENS_TOTAL: &str = "moatless_agent_tokens_total";
 
 /// API-time portion of a turn in seconds by `agent_type` (histogram). Sourced
@@ -91,9 +85,8 @@ const KNOWN_TOOLS: &[&str] = &[
 /// Bucket a raw tool name into a bounded, low-cardinality label.
 ///
 /// Built-in tools keep their own name; `mcp__server__tool` names collapse to
-/// `mcp`; anything else (unknown / dynamically named) collapses to `other`.
-/// Returns a `&'static str` so it can be used directly as a metric label and
-/// cached cheaply.
+/// `mcp`; anything else collapses to `other`. Returns `&'static str` so it can
+/// be cached cheaply as a metric label.
 pub(crate) fn bucket_tool(name: &str) -> &'static str {
     if let Some(known) = KNOWN_TOOLS.iter().find(|&&t| t == name) {
         return known;
@@ -104,20 +97,12 @@ pub(crate) fn bucket_tool(name: &str) -> &'static str {
     "other"
 }
 
-/// Bucket the prompt size one of a run's internal turns carried, as a bounded
-/// label.
+/// Bucket the mean per-call prompt size in a run, as a bounded label.
 ///
-/// The SDK result reports usage for the whole run — the sum over its internal
-/// API calls — so the input side is divided by `num_turns` to recover what a
-/// single call actually carried. That per-call size is what drives
-/// time-to-first-token, and the run total obscures it: a 20-turn run at a 100k
-/// context and a 4-turn run at a 500k one both report 2M input tokens.
-///
-/// Only the input side counts (prompt + cache read + cache creation); output
-/// tokens are produced by the call, not fed to it.
-///
-/// Label values are zero-padded lower bounds so the lexical order Prometheus and
-/// Grafana sort by is also the numeric one.
+/// Divides the SDK result's whole-run input usage by `num_turns` to recover
+/// per-call size — the run total alone can't distinguish a 20-turn 100k-context
+/// run from a 4-turn 500k one. Only the input side counts; output isn't fed to
+/// a call.
 pub(crate) fn context_bucket(usage: Option<&UsageInfo>, num_turns: Option<u32>) -> &'static str {
     let Some(usage) = usage else {
         return "unknown";
@@ -199,7 +184,8 @@ pub(crate) fn record_tool_call(tool: &'static str, agent_type: Option<&str>, sta
     .increment(1);
 }
 
-/// Record one terminal agent-run outcome (`"completed"`, `"error"`, `"stopped"`).
+/// Record one terminal agent-run outcome (`"completed"`, `"error"`,
+/// `"stopped"`).
 pub(crate) fn record_run(outcome: &'static str, agent_type: Option<&str>) {
     metrics::counter!(
         AGENT_RUNS_TOTAL,

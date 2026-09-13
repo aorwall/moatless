@@ -1,13 +1,12 @@
 //! Prometheus counters for binding outbound send, and the descriptions for both
 //! binding counters.
 //!
-//! `loop_id` and `connection_id` are emitted as labels so the admin UI
-//! can render per-loop / per-connection counts.
+//! `loop_id` and `connection_id` are emitted as labels so the admin UI can
+//! render per-loop / per-connection counts.
 //!
-//! The inbound counter and the `inbound_reason` vocabulary belong to the Adapter
-//! kernel (`moatless_adapter_model::metrics`), because a provider crate meters
-//! its own ignores. Both descriptions are registered here so one call covers the
-//! pair an operator reads together.
+//! The inbound counter and the `inbound_reason` vocabulary belong to the
+//! Adapter kernel (`moatless_adapter_model::metrics`); both descriptions are
+//! registered here so one call covers the pair an operator reads together.
 
 use moatless_adapter_model::metrics::BINDING_INBOUND_TOTAL;
 

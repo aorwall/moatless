@@ -12,19 +12,11 @@ use moatless_core::http_auth::AuthUser;
 
 /// List all skills discovered for a repository.
 ///
-/// Returns skills from the workspace repo's own `.claude/skills/` directory
-/// plus the plugin skills the caller's own activation records turn on,
-/// deduplicated by name (workspace shadows plugin, first plugin wins on
-/// plugin-vs-plugin clash).
-///
-/// The plugin half is per-caller: this is the same list that will be delivered
-/// into that caller's sandbox, so two people can see different skills for the
-/// same repository.
-///
-/// `workspaceId` narrows the plugin half by that Workspace's own activation
-/// records, which outrank both the global default and the caller's own. Pass
-/// the Workspace the task runs in and the list is what its agent will have;
-/// omit it and the list is what the caller gets anywhere.
+/// Combines the repo's `.claude/skills/` with the caller's plugin activations
+/// (workspace shadows plugin, first plugin wins a clash) — the per-caller list
+/// also delivered into their sandbox. `workspaceId` narrows the plugin half to
+/// that Workspace's own records, which outrank the global default and the
+/// caller's own.
 #[utoipa::path(
     get,
     path = "/api/v1/repositories/{repository_id}/skills",

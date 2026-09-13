@@ -31,9 +31,9 @@ impl AppStateCommands {
 
     /// A viewer as the message and task services expect one.
     ///
-    /// `is_agent_context` is false because every command on this socket comes
-    /// from a person looking at a screen — which is what makes the auto-follow
-    /// on send correct here.
+    /// `is_agent_context` is false: every command on this socket comes from a
+    /// person looking at a screen, which is what makes the auto-follow on send
+    /// correct here.
     pub(super) fn sender(viewer: &ScopeContext) -> message_service::Sender<'_> {
         message_service::Sender {
             user_id: &viewer.user_id,
@@ -135,10 +135,11 @@ impl AppStateCommands {
         }
     }
 
-    /// Whether this turn's Message is already persisted — the frame is a
-    /// replay. The send path makes the same read and is what actually resolves
-    /// the replay, so a lookup that fails answers `false` and leaves that
-    /// decision where it belongs rather than refusing a turn over it.
+    /// Whether this turn's Message is already persisted (the frame is a
+    /// replay).
+    ///
+    /// The send path makes the same read and actually resolves the replay, so a
+    /// failed lookup answers `false` rather than refusing the turn over it.
     async fn already_sent(&self, turn: &ThreadTurn) -> bool {
         match self.0.messages.find_by_uuid(&turn.message_uuid).await {
             Ok(existing) => existing.is_some_and(|message| message.task_id == turn.task_id),
@@ -791,19 +792,13 @@ fn send_refusal(task_id: &str, error: MessageError) -> CommandRefusal {
 
 /// Make the id a `thread.create` names available, or say why it is not.
 ///
-/// T3's client mints the thread id and Moatless persists it verbatim, so an id
-/// can arrive already taken by the Task a failed creation left behind: a
-/// preflight failure persists the row as `Error` and *then* returns the error.
-/// The client cannot escape that on its own — it rotates a draft id only on a
-/// `thread.deleted` event, which this server never emits, and `thread.delete`
-/// is refused — so without this the retry hits the unique index on
-/// `tasks.task_id` and the draft is dead for as long as the person keeps it.
-///
-/// Only that incarnation is cleared, and the delete re-checks the condition in
-/// its own `WHERE`: an id held by a Task that is alive or has a conversation in
-/// it is refused, so `thread.create` never becomes a way to discard a thread.
-/// The ownership check here is what keeps the refusal for somebody else's id
-/// indistinguishable from an id this viewer may not read.
+/// T3 mints the thread id client-side, so it can arrive already taken by the
+/// `Error` row a prior failed creation left behind; since the client never gets
+/// a `thread.deleted` to rotate off of and `thread.delete` is refused, only
+/// reclaiming that exact failed-bootstrap incarnation here unblocks the retry.
+/// The delete re-checks its own `WHERE` (alive or non-empty is refused), and
+/// the ownership check keeps a refusal for somebody else's id indistinguishable
+/// from one this viewer may not read.
 pub(super) async fn free_thread_id(
     tasks: &TaskCommands,
     viewer: &ScopeContext,

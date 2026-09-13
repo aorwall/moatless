@@ -7,18 +7,11 @@
 //! E2E reproduction: what happens to a `run_in_background` Bash job when the
 //! one-shot `claude -p` (subprocess) process exits at the end of a turn.
 //!
-//! Motivation: in the sandbox's default subprocess dispatch, each turn is a
-//! separate `claude --print` process. Claude Code documents that after it
-//! prints the final result and stdin closes, any background Bash shell is given
-//! a short grace period and then **terminated** so the `-p` process can exit
-//! cleanly (see <https://code.claude.com/docs/en/headless> and
-//! anthropics/claude-code#65498). This test proves that empirically: a
-//! background writer that should run for ~60s stops growing within a few
-//! seconds of the turn's `Result` — i.e. it was killed, not left running.
-//!
-//! Run:
-//!   `CLAUDE_SDK_E2E=1` cargo test -p claude-agent-sdk --test `background_e2e` \
-//!       -- --ignored --nocapture
+//! Claude Code docs say a background Bash shell gets a short grace period then
+//! is **terminated** so `-p` can exit cleanly (see
+//! <https://code.claude.com/docs/en/headless>, anthropics/claude-code#65498).
+//! This test proves it empirically: a ~60s background writer stops growing
+//! within seconds of the turn's `Result` — killed, not left running.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -189,11 +182,9 @@ async fn background_bash_is_killed_when_print_process_exits() {
     );
 }
 
-/// Contrast: under the tmux backend the CLI (TUI) stays alive after the turn's
-/// Result, so the same `run_in_background` job keeps running. This is the
-/// behaviour subprocess mode lacks — and the reason the sandbox skips the
-/// background-completion watch in tmux mode (the CLI delivers its own
-/// completion notification there).
+/// Contrast: under tmux the CLI (TUI) stays alive after the turn's Result, so
+/// the `run_in_background` job keeps running — why the sandbox skips the
+/// background-completion watch in tmux mode.
 ///
 /// Requires `CLAUDE_TMUX_E2E=1` and the `tmux` binary on PATH.
 #[tokio::test]
@@ -290,21 +281,13 @@ async fn background_bash_survives_under_tmux() {
     );
 }
 
-/// The CLI's built-in `Monitor` tool only works when the CLI process outlives
-/// the turn — true for the tmux transport (persistent TUI), false for the
-/// one-shot subprocess `claude -p`. This is why the sandbox leaves `Monitor`
-/// allowed in tmux mode but disallows it in subprocess mode
-/// (`crates/sandbox/src/agent/options.rs`).
+/// The CLI's `Monitor` tool needs the CLI process to outlive the turn — true
+/// for tmux's persistent TUI, false for one-shot subprocess `claude -p` — so
+/// the sandbox allows it only in tmux mode.
 ///
-/// This test proves the tmux half empirically: the agent starts a
-/// `run_in_background` job, arms `Monitor` on it, and ends the turn. When the
-/// job finishes, the persistent TUI re-enters a turn *on its own* (driven by
-/// the Monitor event) — surfacing as a **second** `Result` in the SDK stream,
-/// with no new caller `send`. We assert (a) the agent actually invoked
-/// `Monitor`, (b) a second turn arrived autonomously after the first Result,
-/// and (c) that second turn read the marker the background job wrote.
-///
-/// Requires `CLAUDE_TMUX_E2E=1` and the `tmux` binary on PATH.
+/// Proves an autonomous second turn (second `Result`, no new caller `send`)
+/// fires once a Monitor-armed background job finishes. Requires
+/// `CLAUDE_TMUX_E2E=1` and `tmux` on PATH.
 #[tokio::test]
 #[ignore = "requires claude CLI + API key + tmux (CLAUDE_TMUX_E2E=1)"]
 async fn monitor_retriggers_turn_under_tmux() {
@@ -421,16 +404,12 @@ async fn monitor_retriggers_turn_under_tmux() {
     );
 }
 
-/// Negative counterpart to [`monitor_retriggers_turn_under_tmux`]: in the
-/// subprocess transport the sandbox disallows `Monitor` (its watcher would die
-/// with the one-shot `claude -p` process before any event is delivered). Here we
-/// mirror that configuration — `disallowed_tools: ["Monitor", ...]`, exactly
-/// what `crates/sandbox/src/agent/options.rs` sets for subprocess mode — and prove the
-/// agent cannot use Monitor: it never appears in the session's advertised tool
-/// set, and no Monitor tool call ever succeeds. The turn still ends cleanly with
-/// a `Result` (the CLI does not hang on the disallowed tool).
+/// Negative counterpart to [`monitor_retriggers_turn_under_tmux`]: mirrors the
+/// sandbox's subprocess-mode Monitor disallow list (its watcher would die with
+/// the one-shot process before any event fires).
 ///
-/// Requires `CLAUDE_SDK_E2E=1`.
+/// Proves Monitor never appears in the tool set nor succeeds, yet the turn
+/// still ends cleanly with a `Result`. Requires `CLAUDE_SDK_E2E=1`.
 #[tokio::test]
 #[ignore = "requires claude CLI + API key (CLAUDE_SDK_E2E=1)"]
 async fn monitor_disallowed_in_subprocess() {

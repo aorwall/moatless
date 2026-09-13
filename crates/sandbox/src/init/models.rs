@@ -1,9 +1,8 @@
 /// Tracks the current initialization phase.
 ///
-/// Stored in `SandboxState` as `Arc<RwLock<InitPhase>>` and read by:
-/// - HTTP `/health` endpoint (returns 503 until Ready)
-/// - gRPC `CheckHealth` (returns healthy=true only when Ready)
-/// - Message consumer (waits for Ready before polling)
+/// Stored in `SandboxState` as `Arc<RwLock<InitPhase>>`; `/health`, gRPC
+/// `CheckHealth`, and the message consumer all treat it as
+/// unhealthy/not-yet-ready until it reaches `Ready`.
 #[derive(Debug, Clone)]
 pub enum InitPhase {
     Starting,

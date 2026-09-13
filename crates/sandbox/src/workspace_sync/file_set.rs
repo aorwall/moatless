@@ -1,9 +1,5 @@
-//! What a workspace sync stores in the `restic` repository.
-//!
-//! Inside a git repo the set is `git ls-files -c -o --exclude-standard` plus
-//! that repo's whole `.git`, so ignored build output stays out while HEAD, the
-//! index and the dirty tree come back exactly. Every other directory is walked
-//! generically.
+//! What a workspace sync stores in the `restic` repository. See
+//! [`collect_repo`] and [`collect_tree`] for what each directory contributes.
 //!
 //! The tar is **not** on this walk. `sync::append_tree`, `sync::append_repo`
 //! and `sync::workspace_fingerprint` each carry their own copy of the same
@@ -47,7 +43,8 @@ fn collect_tree(files: &mut Vec<PathBuf>, dir: &Path) {
 }
 
 /// The working-tree file set from `git ls-files -c -o --exclude-standard` plus
-/// the whole `.git`.
+/// the whole `.git`, so ignored build output stays out while HEAD, the index
+/// and the dirty tree come back exactly.
 fn collect_repo(files: &mut Vec<PathBuf>, repo_dir: &Path) {
     if let Ok(output) = std::process::Command::new("git")
         .arg("-C")

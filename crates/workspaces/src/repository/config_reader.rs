@@ -14,8 +14,8 @@ use moatless_types::repository::RepositoryProvider as GitHostProvider;
 
 /// Fetch a repository file's raw contents via the provider API.
 ///
-/// Returns `Ok(None)` on a 404 (file absent). `path` is a repo-relative path
-/// such as `.moatless/workspaces.json`. Gitness is not wired (needs a `base_url`).
+/// Returns `Ok(None)` on a 404 (file absent). Gitness is not wired (needs a
+/// `base_url`).
 pub(crate) async fn fetch_provider_file(
     remote_url: &str,
     path: &str,
@@ -43,11 +43,9 @@ pub(crate) async fn fetch_provider_file(
 
 /// Cheap best-effort check for whether a repo ships a `.moatless/` directory.
 ///
-/// Used to gate the automatic config sync on task start so we don't hit the
-/// provider API for repos that don't use moatless config at all. Fails open:
-/// on a definitive 404 it returns `false`, but on any other error (transport,
-/// rate limit, unsupported provider) it returns `true` so the caller still
-/// attempts the sync rather than silently skipping a repo that does have config.
+/// Gates the automatic config sync on task start. Fails open: only a definitive
+/// 404 returns `false`; any other error returns `true` so the caller still
+/// attempts the sync rather than silently skipping a repo that has config.
 pub async fn moatless_dir_exists(
     remote_url: &str,
     branch: Option<&str>,
@@ -62,8 +60,9 @@ pub async fn moatless_dir_exists(
     }
 }
 
-/// GitHub existence probe: `GET /repos/{owner}/{repo}/contents/.moatless?ref={branch}`.
-/// Only a 404 is treated as "no directory"; everything else fails open to `true`.
+/// GitHub existence probe: `GET
+/// /repos/{owner}/{repo}/contents/.moatless?ref={branch}`. Only a 404 is
+/// treated as "no directory"; everything else fails open to `true`.
 async fn github_moatless_dir_exists(
     remote_url: &str,
     branch: Option<&str>,
@@ -99,9 +98,9 @@ async fn github_moatless_dir_exists(
     }
 }
 
-/// Forgejo existence probe:
-/// `GET /api/v1/repos/{owner}/{repo}/contents/.moatless?ref={branch}`.
-/// Only a 404 is treated as "no directory"; everything else fails open to `true`.
+/// Forgejo existence probe: `GET
+/// /api/v1/repos/{owner}/{repo}/contents/.moatless?ref={branch}`. Only a 404 is
+/// treated as "no directory"; everything else fails open to `true`.
 async fn forgejo_moatless_dir_exists(
     remote_url: &str,
     branch: Option<&str>,
@@ -124,9 +123,9 @@ async fn forgejo_moatless_dir_exists(
     }
 }
 
-/// Fetch a file from Forgejo:
-/// `GET /api/v1/repos/{owner}/{repo}/raw/{path}?ref={branch}`.
-/// Returns the raw file body, or `Ok(None)` on 404.
+/// Fetch a file from Forgejo: `GET
+/// /api/v1/repos/{owner}/{repo}/raw/{path}?ref={branch}`. Returns the raw file
+/// body, or `Ok(None)` on 404.
 async fn fetch_forgejo_file(
     remote_url: &str,
     path: &str,
@@ -164,9 +163,9 @@ async fn fetch_forgejo_file(
 
 /// A Forgejo REST URL for `suffix` under the repository `remote_url` names.
 ///
-/// HTTPS always, whatever scheme `remote_url` carries: a Workspace controls
-/// that URL, and honouring a scheme from it would let one downgrade the
-/// connection the token below travels over.
+/// HTTPS always, whatever scheme `remote_url` carries — a Workspace controls
+/// that URL, and honouring its scheme would let one downgrade the connection
+/// the token below travels over.
 fn forgejo_api_url(
     remote_url: &str,
     suffix: &str,
@@ -185,8 +184,9 @@ fn forgejo_api_url(
     Ok(url)
 }
 
-/// Fetch a file from GitHub: `GET /repos/{owner}/{repo}/contents/{path}?ref={branch}`.
-/// Returns the raw file body, or `Ok(None)` on 404.
+/// Fetch a file from GitHub: `GET
+/// /repos/{owner}/{repo}/contents/{path}?ref={branch}`. Returns the raw file
+/// body, or `Ok(None)` on 404.
 async fn fetch_github_file(
     remote_url: &str,
     path: &str,
@@ -237,8 +237,8 @@ async fn fetch_github_file(
     Ok(Some(body))
 }
 
-/// Fetch a file from GitLab:
-/// `GET /api/v4/projects/{id}/repository/files/{encoded_path}/raw?ref={branch}`.
+/// Fetch a file from GitLab: `GET
+/// /api/v4/projects/{id}/repository/files/{encoded_path}/raw?ref={branch}`.
 /// Returns the raw file body, or `Ok(None)` on 404.
 async fn fetch_gitlab_file(
     remote_url: &str,

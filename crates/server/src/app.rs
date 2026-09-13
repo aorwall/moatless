@@ -589,15 +589,14 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// How long shutdown waits for the OTel batch span processor to flush and
-/// close its exporter connection before giving up and exiting anyway. Best
-/// effort: a slow or unreachable collector loses buffered spans, not the
-/// process's own shutdown.
+/// How long shutdown waits for the OTel batch span processor to flush before
+/// giving up. Best effort: a slow collector loses buffered spans, not the
+/// process shutdown.
 const OTEL_SHUTDOWN_DEADLINE: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// Flush and shut down the OTel tracer provider off the async runtime
-/// (`shutdown` blocks the calling thread while it drains the batch
-/// processor), bounded by [`OTEL_SHUTDOWN_DEADLINE`].
+/// (`shutdown` blocks the calling thread while it drains the batch processor),
+/// bounded by [`OTEL_SHUTDOWN_DEADLINE`].
 async fn shutdown_otel_provider(provider: opentelemetry_sdk::trace::SdkTracerProvider) {
     let shutdown = tokio::task::spawn_blocking(move || provider.shutdown());
     match tokio::time::timeout(OTEL_SHUTDOWN_DEADLINE, shutdown).await {
@@ -611,16 +610,14 @@ async fn shutdown_otel_provider(provider: opentelemetry_sdk::trace::SdkTracerPro
 /// How long shutdown waits for the ingress-outbox relay before reporting it as
 /// a straggler and exiting anyway.
 ///
-/// Separate from `SHUTDOWN_JOIN_DEADLINE` because the two waits are sequential:
-/// the supervisor is joined first, then the relay. Keeping this at 5s holds the
-/// worst case to 25s, inside Kubernetes' default 30s termination grace period.
+/// Separate from `SHUTDOWN_JOIN_DEADLINE`; 5s holds the worst case to 25s,
+/// inside k8s' default 30s grace period.
 const RELAY_SHUTDOWN_DEADLINE: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// Spawn the ingress-outbox relay, returning its owned handle.
 ///
 /// Requires an event transport: with none configured the gRPC ingress refuses
-/// to admit `agent.message` payloads at all (they would have no delivery path),
-/// so there is nothing for a relay to re-publish.
+/// `agent.message` payloads outright, so there is nothing to re-publish.
 fn spawn_ingress_relay(
     app_state: &AppState,
     cancel: CancellationToken,
@@ -636,8 +633,8 @@ fn spawn_ingress_relay(
 
 /// Spawn the Redis event-handler consumer if Redis is configured.
 ///
-/// `None` means no consumer was started — the feature is switched off or Redis
-/// is not reachable at startup — so there is nothing for the supervisor to own.
+/// `None` means no consumer started, whether the feature is off or Redis is
+/// unreachable at startup, so there is nothing for the supervisor to own.
 async fn spawn_event_handler(
     config: &Config,
     app_state: &AppState,
@@ -675,8 +672,8 @@ fn spawn_task_reaper(
     Some(handle)
 }
 
-/// Spawn the background Codex token refresher if enabled. Leader-elected via
-/// a dedicated K8s Lease (`moatless-codex-refresher`). `None` when disabled.
+/// Spawn the background Codex token refresher if enabled. Leader-elected via a
+/// dedicated K8s Lease (`moatless-codex-refresher`). `None` when disabled.
 fn spawn_codex_refresher(
     app_state: &AppState,
     k8s: sandbox::k8s::client::K8sClient,

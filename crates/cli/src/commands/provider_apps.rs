@@ -4,9 +4,8 @@
 //! takes whatever the deployment's specs name and this command needs no edit
 //! when a provider is added.
 //!
-//! A secret is never taken as an inline argument by default: a value passed on
-//! a command line lands in shell history and in the process table. Omit it and
-//! it is prompted for, or read it from a file with `@path`.
+//! A secret is never taken inline by default — it lands in shell history and
+//! the process table — so it's prompted for, or read from a file with `@path`.
 
 use std::collections::BTreeMap;
 use std::io::Read;
@@ -39,18 +38,11 @@ pub enum ProviderAppAction {
 
     /// Register or replace an app.
     ///
-    /// A save replaces every field, so a field this command omits is cleared. A
-    /// value already registered and not secret is sent again unchanged. A
-    /// secret cannot be read back, so this command handles an omitted one by
-    /// what the provider's spec says about it:
-    ///
-    /// - Required, such as Slack's bot token: prompted for. The prompt needs a
-    ///   terminal, so a script sends every required secret again.
-    /// - Optional, such as Linear's webhook secret: the command stops rather
-    ///   than clear a stored value, unless `--clear-omitted` says to drop it.
-    ///
-    /// The provider is asked to confirm the credentials where it can, and
-    /// nothing is stored when it refuses them.
+    /// A save replaces every field, so an omitted one is cleared — except a
+    /// secret, which can't be read back: an omitted required secret is prompted
+    /// for, and an omitted optional one is left alone unless `--clear-omitted`
+    /// says to drop it. The provider confirms credentials where it can; nothing
+    /// is stored when it refuses them.
     Set {
         /// A provider named by `moat app list`, e.g. `forgejo`.
         provider: String,
@@ -256,9 +248,9 @@ fn pick_spec(
 
 /// The secret fields `app` has stored that `fields` gives no value for.
 ///
-/// A save replaces every field, so each one named here would be cleared. A
-/// secret cannot be read back, so this command cannot send it again on the
-/// caller's behalf the way [`carry_forward`] sends a plain value.
+/// A save replaces every field, so each one named here would be cleared — a
+/// secret can't be read back, so this can't be resent the way [`carry_forward`]
+/// resends a plain value.
 fn secrets_that_would_be_cleared(
     spec: &ProviderAppSpec,
     app: &ProviderAppSummary,

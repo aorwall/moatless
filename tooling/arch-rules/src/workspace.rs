@@ -71,9 +71,9 @@ pub struct Workspace {
 impl Workspace {
     /// Read the workspace by shelling out to `cargo metadata`.
     ///
-    /// `--no-deps` keeps this to the members and their declared dependency
-    /// names, which is all any rule here needs, and keeps the call fast enough
-    /// to run on every test invocation.
+    /// `--no-deps` keeps this to members and their declared dependency names —
+    /// all any rule here needs — and keeps the call fast enough to run on every
+    /// test invocation.
     pub fn load(root: impl AsRef<Path>) -> Result<Self> {
         let root = root.as_ref().to_path_buf();
         let out = Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()))
@@ -238,12 +238,18 @@ impl Workspace {
         false
     }
 
-    /// Every `.rs` file under a member's `src/`, as (relative path, contents).
-    ///
-    /// Paths are relative to the workspace root so a violation reads the same
-    /// wherever the checkout lives.
+    /// Every `.rs` file under a member's `src/`, `tests/` and `benches/`, as
+    /// (relative path, contents). Paths are workspace-root-relative, so a
+    /// violation reads the same wherever the checkout lives.
     pub fn sources(&self, member: &Member) -> Result<Vec<(String, String)>> {
-        let mut roots = BTreeSet::from([member.dir.join("src")]);
+        // `tests` and `benches` by name, not just each target's parent: cargo
+        // auto-discovers `tests/<dir>/main.rs`, so a shared `tests/common/`
+        // beside it is the parent of no target and would go unread.
+        let mut roots = BTreeSet::from([
+            member.dir.join("src"),
+            member.dir.join("tests"),
+            member.dir.join("benches"),
+        ]);
         roots.extend(
             member
                 .targets
@@ -283,6 +289,44 @@ pub fn workspace_root() -> PathBuf {
         .ancestors()
         .nth(2)
         .map_or_else(|| PathBuf::from("."), Path::to_path_buf)
+}
+
+/// Every `AGENTS.md` in the repository, as (repo-relative path, contents).
+///
+/// Walks the tree rather than the cargo members: an `AGENTS.md` binds every
+/// agent that reads its directory, whether or not a crate lives there. A
+/// symlink is skipped, so the `CLAUDE.md` beside each one is never a second
+/// copy of the same file.
+pub fn agents_md_files(root: &Path) -> Result<Vec<(String, String)>> {
+    const EXCLUDED_DIRS: &[&str] = &["node_modules", "target", ".git"];
+    let mut out = Vec::new();
+    for entry in WalkDir::new(root)
+        .follow_links(false)
+        .into_iter()
+        .filter_entry(|e| {
+            !e.file_name()
+                .to_str()
+                .is_some_and(|name| EXCLUDED_DIRS.contains(&name))
+        })
+    {
+        let entry = entry.context("walking the repository for AGENTS.md")?;
+        if entry.file_name() != "AGENTS.md"
+            || entry.file_type().is_symlink()
+            || !entry.file_type().is_file()
+        {
+            continue;
+        }
+        let text = std::fs::read_to_string(entry.path())
+            .with_context(|| format!("reading {}", entry.path().display()))?;
+        let relative = entry
+            .path()
+            .strip_prefix(root)
+            .unwrap_or_else(|_| entry.path())
+            .to_string_lossy()
+            .replace('\\', "/");
+        out.push((relative, text));
+    }
+    Ok(out)
 }
 
 fn source_only_members(root: &Path) -> Result<Vec<Member>> {
