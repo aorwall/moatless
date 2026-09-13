@@ -11,8 +11,7 @@ interface TaskConnectionsSectionProps {
 /**
  * Lists a task's external connections (Linear issues, GitHub PRs, Slack
  * threads) one per row — a clickable label, live external status, message
- * tally, and last-activity time. Reuses the admin task-connections rendering
- * helpers so the panel and the admin table stay visually consistent.
+ * tally, and last-activity time.
  */
 export function TaskConnectionsSection({ taskId }: TaskConnectionsSectionProps) {
   const { data: connections, isLoading } = useTaskConnectionsQuery(taskId)

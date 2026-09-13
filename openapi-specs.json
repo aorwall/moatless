@@ -2279,75 +2279,6 @@
         }
       }
     },
-    "/api/v1/admin/task-connections": {
-      "get": {
-        "tags": [
-          "tasks"
-        ],
-        "summary": "List tasks with their external connections, statuses, and message counts.",
-        "operationId": "list_task_connections",
-        "parameters": [
-          {
-            "name": "limit",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": [
-                "integer",
-                "null"
-              ],
-              "format": "int64"
-            }
-          },
-          {
-            "name": "offset",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": [
-                "integer",
-                "null"
-              ],
-              "format": "int64"
-            }
-          },
-          {
-            "name": "refresh",
-            "in": "query",
-            "description": "When `true`, fill in missing/stale connection statuses with a live\nGitHub / Linear fetch (bounded concurrency). Default is DB-only and\nfast.",
-            "required": false,
-            "schema": {
-              "type": [
-                "boolean",
-                "null"
-              ]
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Tasks with their external connections",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TaskConnectionsResponse"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Admin role required",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/v1/admin/users/{user_id}": {
       "patch": {
         "tags": [
@@ -7252,7 +7183,7 @@
           "tasks"
         ],
         "summary": "Get a single task's external connections, statuses, and message counts.",
-        "description": "Per-task counterpart to [`list_task_connections`]. Unlike the admin list,\nthis is scope-checked like [`crate::task::handlers::get_task`] (not admin-gated),\nso any user who can see the task can see its connections.",
+        "description": "Scope-checked like [`moatless_tasks::task::handlers::get_task`], so any user\nwho can see the task can see its connections.",
         "operationId": "get_task_connections",
         "parameters": [
           {
@@ -18106,71 +18037,6 @@
             ],
             "format": "int32",
             "description": "Deprecated legacy thread identifier. Canonical callers should use\n`binding_id`, which carries the task binding id."
-          }
-        }
-      },
-      "TaskConnectionRow": {
-        "type": "object",
-        "description": "One task and the external connections wired to it.",
-        "required": [
-          "taskId",
-          "title",
-          "status",
-          "connections"
-        ],
-        "properties": {
-          "connections": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/Connection"
-            }
-          },
-          "owner": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Display name of the task's creator (`None` when unresolved)."
-          },
-          "repositoryName": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "shortId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "status": {
-            "$ref": "#/components/schemas/TaskStatus"
-          },
-          "taskId": {
-            "type": "string"
-          },
-          "title": {
-            "type": "string"
-          }
-        }
-      },
-      "TaskConnectionsResponse": {
-        "type": "object",
-        "description": "Paginated list of tasks with their external connections.",
-        "required": [
-          "items",
-          "pagination"
-        ],
-        "properties": {
-          "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/TaskConnectionRow"
-            }
-          },
-          "pagination": {
-            "$ref": "#/components/schemas/PaginationResponse"
           }
         }
       },

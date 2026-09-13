@@ -490,21 +490,16 @@ mod openapi_dump_tests {
     /// The `--dump-openapi` builder feeds CI's TS-client generation and is a
     /// second, independent assembly site from the runtime router. A router
     /// whose `ApiDoc` is not merged here compiles clean but silently drops its
-    /// endpoints from the generated client. Pin the task-connection endpoints,
-    /// which live in their own `ApiDoc` rather than the task router's.
+    /// endpoints from the generated client. Pin the task-connection endpoint,
+    /// which lives in its own `ApiDoc` rather than the task router's.
     #[test]
-    fn dump_includes_task_connection_endpoints() {
+    fn dump_includes_the_task_connections_endpoint() {
         let spec = serde_json::to_value(build_merged_openapi()).unwrap();
-        let paths = &spec["paths"];
-        for p in [
-            "/api/v1/admin/task-connections",
-            "/api/v1/tasks/{task_id}/connections",
-        ] {
-            assert!(
-                paths.get(p).is_some(),
-                "build_merged_openapi() is missing {p}; its ApiDoc is not merged into the dump builder"
-            );
-        }
+        let p = "/api/v1/tasks/{task_id}/connections";
+        assert!(
+            spec["paths"].get(p).is_some(),
+            "build_merged_openapi() is missing {p}; its ApiDoc is not merged into the dump builder"
+        );
     }
 
     #[test]

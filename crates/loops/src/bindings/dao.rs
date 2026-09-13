@@ -317,7 +317,7 @@ impl PgTaskBindingDao {
 
     /// Deactivate every active binding for a task — called when the task closes
     /// (a closed task is terminal, so its external listeners must stop routing
-    /// inbound events). Rows are kept for the admin Task Connections view.
+    /// inbound events). Rows are kept for the task-connections view.
     /// Idempotent: the `active = TRUE` predicate makes re-runs no-ops. Returns
     /// the number of bindings deactivated.
     pub(crate) async fn deactivate_by_task(&self, task_id: &str) -> Result<u64, sqlx::Error> {
@@ -482,7 +482,7 @@ impl PgTaskBindingDao {
 
     /// Batch-fetch full binding rows (including `destination_config` and the
     /// `external_status*` columns) for a set of tasks. Drives the
-    /// task-connections admin view.
+    /// task-connections view.
     pub(crate) async fn find_by_task_ids(
         &self,
         task_ids: &[String],

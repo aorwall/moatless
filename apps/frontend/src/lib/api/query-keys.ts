@@ -125,8 +125,6 @@ export const queryKeys = {
 
   admin: {
     all: () => [...queryKeys.all, 'admin'] as const,
-    taskConnections: (params?: { limit?: number; offset?: number; refresh?: boolean }) =>
-      [...queryKeys.admin.all(), 'task-connections', params] as const,
     github: () => [...queryKeys.admin.all(), 'github'] as const,
     githubApps: () => [...queryKeys.admin.github(), 'apps'] as const,
   },

@@ -682,7 +682,7 @@ pub struct TaskBinding {
     pub external_status_updated_at: Option<DateTime<Utc>>,
     /// Whether this binding still routes inbound events. Flipped to `false`
     /// when the Task closes, which is terminal. Inbound routing skips inactive
-    /// bindings; the admin Task Connections view still shows them, flagged.
+    /// bindings; the task-connections view still shows them, flagged.
     pub active: bool,
     /// When this binding was deactivated; `None` while active.
     pub deactivated_at: Option<DateTime<Utc>>,

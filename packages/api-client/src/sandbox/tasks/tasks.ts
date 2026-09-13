@@ -33,12 +33,10 @@ import type {
   FollowTaskResponse,
   ForkTaskRequest,
   GetTaskConnectionsParams,
-  ListTaskConnectionsParams,
   ListTasksParams,
   ListTasksResponse,
   SetTagsRequest,
   TagResponse,
-  TaskConnectionsResponse,
   TaskResponse,
   TaskStatisticsResponse,
   UpdateTaskMetadataRequest,
@@ -73,106 +71,7 @@ const withQueryKey = <T extends object, K>(query: T, queryKey: K): T & { queryKe
   return result;
 };
 
-export type listTaskConnectionsResponse200 = {
-  data: TaskConnectionsResponse
-  status: 200
-}
-
-export type listTaskConnectionsResponse403 = {
-  data: ErrorBody
-  status: 403
-}
-
-export type listTaskConnectionsResponseSuccess = (listTaskConnectionsResponse200) & {
-  headers: Headers;
-};
-export type listTaskConnectionsResponseError = (listTaskConnectionsResponse403) & {
-  headers: Headers;
-};
-
-export type listTaskConnectionsResponse = (listTaskConnectionsResponseSuccess | listTaskConnectionsResponseError)
-
-export const getListTaskConnectionsUrl = (params?: ListTaskConnectionsParams,) => {
-  const normalizedParams = new URLSearchParams();
-
-  Object.entries(params || {}).forEach(([key, value]) => {
-
-    if (value !== undefined) {
-      normalizedParams.append(key, value === null ? 'null' : String(value))
-    }
-  });
-
-  const stringifiedParams = normalizedParams.toString();
-
-  return stringifiedParams.length > 0 ? `/api/v1/admin/task-connections?${stringifiedParams}` : `/api/v1/admin/task-connections`
-}
-
-/**
- * @summary List tasks with their external connections, statuses, and message counts.
- */
-export const listTaskConnections = async (params?: ListTaskConnectionsParams, options?: Parameters<typeof customInstance>[1]): Promise<listTaskConnectionsResponse> => {
-
-  return customInstance<listTaskConnectionsResponse>(getListTaskConnectionsUrl(params),
-  {
-    ...options,
-    method: 'GET'
-
-
-  }
-);}
-
-
-
-
-
-export const getListTaskConnectionsMutationKey = () => ['listTaskConnections'] as const;
-
-export const getListTaskConnectionsMutationOptions = <TError = ErrorType<ErrorBody>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof listTaskConnections>>, TError,ListTaskConnectionsMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
-): UseMutationOptions<Awaited<ReturnType<typeof listTaskConnections>>, TError,ListTaskConnectionsMutationVariables, TContext> => {
-
-const mutationKey = getListTaskConnectionsMutationKey();
-const {mutation: mutationOptions, request: requestOptions} = options ?
-      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
-      options
-      : {...options, mutation: {...options.mutation, mutationKey}}
-      : {mutation: { mutationKey, }, request: undefined};
-
-
-
-
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof listTaskConnections>>, ListTaskConnectionsMutationVariables> = (props) => {
-          const {params} = props ?? {};
-
-          return  listTaskConnections(params,requestOptions)
-        }
-
-
-
-
-
-
-  return  { mutationFn, ...mutationOptions }}
-
-    export type ListTaskConnectionsMutationResult = NonNullable<Awaited<ReturnType<typeof listTaskConnections>>>
-
-    export type ListTaskConnectionsMutationError = ErrorType<ErrorBody>
-    export type ListTaskConnectionsMutationVariables = {params?: ListTaskConnectionsParams}
-
-    /**
- * @summary List tasks with their external connections, statuses, and message counts.
- */
-export const useListTaskConnections = <TError = ErrorType<ErrorBody>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof listTaskConnections>>, TError,ListTaskConnectionsMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
- , queryClient?: QueryClient): UseMutationResult<
-        Awaited<ReturnType<typeof listTaskConnections>>,
-        TError,
-        ListTaskConnectionsMutationVariables,
-        TContext
-      > => {
-      return useMutation(getListTaskConnectionsMutationOptions(options), queryClient);
-    }
-    export type listTasksResponse200 = {
+export type listTasksResponse200 = {
   data: ListTasksResponse
   status: 200
 }
@@ -973,9 +872,8 @@ export const getGetTaskConnectionsUrl = (taskId: string,
 }
 
 /**
- * Per-task counterpart to [`list_task_connections`]. Unlike the admin list,
- * this is scope-checked like [`crate::task::handlers::get_task`] (not admin-gated),
- * so any user who can see the task can see its connections.
+ * Scope-checked like [`moatless_tasks::task::handlers::get_task`], so any user
+ * who can see the task can see its connections.
  * @summary Get a single task's external connections, statuses, and message counts.
  */
 export const getTaskConnections = async (taskId: string,

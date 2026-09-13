@@ -46,9 +46,6 @@ const AdminWorkspacesIndexLazyRouteImport =
   createFileRoute('/admin/workspaces/')()
 const AdminUsersIndexLazyRouteImport = createFileRoute('/admin/users/')()
 const AdminTeamsIndexLazyRouteImport = createFileRoute('/admin/teams/')()
-const AdminTaskConnectionsIndexLazyRouteImport = createFileRoute(
-  '/admin/task-connections/',
-)()
 const AdminSecretsIndexLazyRouteImport = createFileRoute('/admin/secrets/')()
 const AdminRepositoriesIndexLazyRouteImport = createFileRoute(
   '/admin/repositories/',
@@ -218,14 +215,6 @@ const AdminTeamsIndexLazyRoute = AdminTeamsIndexLazyRouteImport.update({
 } as any).lazy(() =>
   import('./routes/admin/teams/index.lazy').then((d) => d.Route),
 )
-const AdminTaskConnectionsIndexLazyRoute =
-  AdminTaskConnectionsIndexLazyRouteImport.update({
-    id: '/task-connections/',
-    path: '/task-connections/',
-    getParentRoute: () => AdminRoute,
-  } as any).lazy(() =>
-    import('./routes/admin/task-connections/index.lazy').then((d) => d.Route),
-  )
 const AdminSecretsIndexLazyRoute = AdminSecretsIndexLazyRouteImport.update({
   id: '/secrets/',
   path: '/secrets/',
@@ -467,7 +456,6 @@ export interface FileRoutesByFullPath {
   '/admin/plugins/': typeof AdminPluginsIndexLazyRoute
   '/admin/repositories/': typeof AdminRepositoriesIndexLazyRoute
   '/admin/secrets': typeof AdminSecretsIndexLazyRoute
-  '/admin/task-connections': typeof AdminTaskConnectionsIndexLazyRoute
   '/admin/teams/': typeof AdminTeamsIndexLazyRoute
   '/admin/users/': typeof AdminUsersIndexLazyRoute
   '/admin/workspaces/': typeof AdminWorkspacesIndexLazyRoute
@@ -510,7 +498,6 @@ export interface FileRoutesByTo {
   '/admin/plugins': typeof AdminPluginsIndexLazyRoute
   '/admin/repositories': typeof AdminRepositoriesIndexLazyRoute
   '/admin/secrets': typeof AdminSecretsIndexLazyRoute
-  '/admin/task-connections': typeof AdminTaskConnectionsIndexLazyRoute
   '/admin/teams': typeof AdminTeamsIndexLazyRoute
   '/admin/users': typeof AdminUsersIndexLazyRoute
   '/admin/workspaces': typeof AdminWorkspacesIndexLazyRoute
@@ -564,7 +551,6 @@ export interface FileRoutesById {
   '/admin/plugins/': typeof AdminPluginsIndexLazyRoute
   '/admin/repositories/': typeof AdminRepositoriesIndexLazyRoute
   '/admin/secrets/': typeof AdminSecretsIndexLazyRoute
-  '/admin/task-connections/': typeof AdminTaskConnectionsIndexLazyRoute
   '/admin/teams/': typeof AdminTeamsIndexLazyRoute
   '/admin/users/': typeof AdminUsersIndexLazyRoute
   '/admin/workspaces/': typeof AdminWorkspacesIndexLazyRoute
@@ -619,7 +605,6 @@ export interface FileRouteTypes {
     | '/admin/plugins/'
     | '/admin/repositories/'
     | '/admin/secrets'
-    | '/admin/task-connections'
     | '/admin/teams/'
     | '/admin/users/'
     | '/admin/workspaces/'
@@ -662,7 +647,6 @@ export interface FileRouteTypes {
     | '/admin/plugins'
     | '/admin/repositories'
     | '/admin/secrets'
-    | '/admin/task-connections'
     | '/admin/teams'
     | '/admin/users'
     | '/admin/workspaces'
@@ -715,7 +699,6 @@ export interface FileRouteTypes {
     | '/admin/plugins/'
     | '/admin/repositories/'
     | '/admin/secrets/'
-    | '/admin/task-connections/'
     | '/admin/teams/'
     | '/admin/users/'
     | '/admin/workspaces/'
@@ -899,13 +882,6 @@ declare module '@tanstack/react-router' {
       fullPath: '/admin/teams/'
       preLoaderRoute: typeof AdminTeamsIndexLazyRouteImport
       parentRoute: typeof AdminTeamsLazyRoute
-    }
-    '/admin/task-connections/': {
-      id: '/admin/task-connections/'
-      path: '/task-connections'
-      fullPath: '/admin/task-connections'
-      preLoaderRoute: typeof AdminTaskConnectionsIndexLazyRouteImport
-      parentRoute: typeof AdminRoute
     }
     '/admin/secrets/': {
       id: '/admin/secrets/'
@@ -1233,7 +1209,6 @@ interface AdminRouteChildren {
   AdminIntegrationsGithubLazyRoute: typeof AdminIntegrationsGithubLazyRoute
   AdminTriggersIndexRoute: typeof AdminTriggersIndexRoute
   AdminSecretsIndexLazyRoute: typeof AdminSecretsIndexLazyRoute
-  AdminTaskConnectionsIndexLazyRoute: typeof AdminTaskConnectionsIndexLazyRoute
   AdminTriggersTriggerIdEditRoute: typeof AdminTriggersTriggerIdEditRoute
   AdminTriggersTriggerIdIndexRoute: typeof AdminTriggersTriggerIdIndexRoute
 }
@@ -1253,7 +1228,6 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminIntegrationsGithubLazyRoute: AdminIntegrationsGithubLazyRoute,
   AdminTriggersIndexRoute: AdminTriggersIndexRoute,
   AdminSecretsIndexLazyRoute: AdminSecretsIndexLazyRoute,
-  AdminTaskConnectionsIndexLazyRoute: AdminTaskConnectionsIndexLazyRoute,
   AdminTriggersTriggerIdEditRoute: AdminTriggersTriggerIdEditRoute,
   AdminTriggersTriggerIdIndexRoute: AdminTriggersTriggerIdIndexRoute,
 }

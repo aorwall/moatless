@@ -22,30 +22,12 @@ fn normalize_adapter(s: &str) -> &str {
     }
 }
 
-pub(super) fn group_counts_by_task(
-    counts: &[ConnectionMessageCount],
-) -> HashMap<&str, Vec<&ConnectionMessageCount>> {
-    let mut map: HashMap<&str, Vec<&ConnectionMessageCount>> = HashMap::new();
-    for c in counts {
-        map.entry(c.task_id.as_str()).or_default().push(c);
-    }
-    map
-}
-
-pub(super) fn group_bindings_by_task(bindings: &[TaskBinding]) -> HashMap<&str, Vec<&TaskBinding>> {
-    let mut map: HashMap<&str, Vec<&TaskBinding>> = HashMap::new();
-    for b in bindings {
-        map.entry(b.task_id.as_str()).or_default().push(b);
-    }
-    map
-}
-
 /// Attribute message counts to bindings. Exact `subject_key` match wins;
 /// counts whose `subject_key` matches no binding fall back to a per-adapter
 /// bucket, applied only when that adapter has a single binding on the task.
 pub(super) fn match_counts(
-    task_bindings: &[&TaskBinding],
-    rows: &[&ConnectionMessageCount],
+    task_bindings: &[TaskBinding],
+    rows: &[ConnectionMessageCount],
 ) -> HashMap<String, (i64, i64)> {
     let mut out: HashMap<String, (i64, i64)> = HashMap::new();
 
@@ -224,12 +206,14 @@ mod tests {
 
     #[test]
     fn counts_match_on_subject_key() {
-        let b1 = binding("b1", "github", "github_pr", "o/r#1");
-        let b2 = binding("b2", "github", "github_pr", "o/r#2");
-        let bindings = vec![&b1, &b2];
-        let c1 = count(Some("o/r#1"), Some("github_pr"), 3, 1);
-        let c2 = count(Some("o/r#2"), Some("github_pr"), 5, 2);
-        let rows = vec![&c1, &c2];
+        let bindings = vec![
+            binding("b1", "github", "github_pr", "o/r#1"),
+            binding("b2", "github", "github_pr", "o/r#2"),
+        ];
+        let rows = vec![
+            count(Some("o/r#1"), Some("github_pr"), 3, 1),
+            count(Some("o/r#2"), Some("github_pr"), 5, 2),
+        ];
 
         let matched = match_counts(&bindings, &rows);
         assert_eq!(matched.get("b1").copied(), Some((3, 1)));
@@ -240,10 +224,8 @@ mod tests {
     fn counts_without_subject_fall_back_to_sole_adapter_binding() {
         // Single linear binding; a legacy row with null subject_key should be
         // attributed to it.
-        let b1 = binding("b1", "linear", "linear_agent_session", "session-uuid");
-        let bindings = vec![&b1];
-        let legacy = count(None, Some("linear"), 4, 6);
-        let rows = vec![&legacy];
+        let bindings = vec![binding("b1", "linear", "linear_agent_session", "session-uuid")];
+        let rows = vec![count(None, Some("linear"), 4, 6)];
 
         let matched = match_counts(&bindings, &rows);
         assert_eq!(matched.get("b1").copied(), Some((4, 6)));
@@ -253,10 +235,8 @@ mod tests {
     fn two_provider_spellings_fold_together() {
         // The binding is stored under the connection key, the message row under
         // the message key; `normalize_adapter` folds them so the join lands.
-        let b1 = binding("b1", "github", "github_pr", "o/r#1");
-        let bindings = vec![&b1];
-        let legacy = count(None, Some("github_pr"), 2, 3);
-        let rows = vec![&legacy];
+        let bindings = vec![binding("b1", "github", "github_pr", "o/r#1")];
+        let rows = vec![count(None, Some("github_pr"), 2, 3)];
 
         let matched = match_counts(&bindings, &rows);
         assert_eq!(matched.get("b1").copied(), Some((2, 3)));
@@ -266,11 +246,11 @@ mod tests {
     fn ambiguous_adapter_fallback_is_dropped() {
         // Two bindings of the same adapter — a null-subject row can't be
         // attributed unambiguously, so it's dropped rather than double-counted.
-        let b1 = binding("b1", "github", "github_pr", "o/r#1");
-        let b2 = binding("b2", "github", "github_pr", "o/r#2");
-        let bindings = vec![&b1, &b2];
-        let orphan = count(None, Some("github_pr"), 9, 9);
-        let rows = vec![&orphan];
+        let bindings = vec![
+            binding("b1", "github", "github_pr", "o/r#1"),
+            binding("b2", "github", "github_pr", "o/r#2"),
+        ];
+        let rows = vec![count(None, Some("github_pr"), 9, 9)];
 
         let matched = match_counts(&bindings, &rows);
         assert!(matched.is_empty());

@@ -1,9 +1,9 @@
 /**
  * Standalone: Task Connections
  *
- * `GET /api/v1/tasks/{id}/connections` is the per-task counterpart to the admin
- * list, and it is scope-checked exactly like reading the task: whoever can see
- * the task can see what is wired to it, and whoever cannot gets a 404.
+ * `GET /api/v1/tasks/{id}/connections` is scope-checked exactly like reading
+ * the task: whoever can see the task can see what is wired to it, and whoever
+ * cannot gets a 404.
  *
  * Scenarios:
  *   TASK-13: A task with no external connection reports none

@@ -63,7 +63,7 @@ pub struct ToolCallRow {
 
 /// Per-connection inbound/outgoing message tally for a task, grouped by the
 /// external adapter + subject key the message was routed through. Drives the
-/// per-connection `↓in / ↑out` counts on the task-connections admin view.
+/// per-connection `↓in / ↑out` counts on the task-connections view.
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct ConnectionMessageCount {
     pub task_id: String,
