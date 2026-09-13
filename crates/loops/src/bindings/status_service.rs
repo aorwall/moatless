@@ -105,7 +105,9 @@ pub async fn get_or_fetch(
 
     cache().insert(key, fetched.clone()).await;
 
-    // Write-through so the persisted value stays warm for DB-only reads.
+    // Write-through. `TASK_BINDING_SELECT` does not list the `external_status*`
+    // columns and `TaskBindingRow` defaults them, so no production read sees
+    // what this writes — the `integration_adapters` db-tests are its readers.
     if let Err(e) = task_bindings
         .record_external_status(
             &binding.id,
