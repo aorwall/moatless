@@ -65,8 +65,9 @@ macro_rules! string_enum {
 
 /// Generates `as_str`, `Display`, `FromStr`, `TryFrom`, and `const ALL` over
 /// an enum the caller already declared — for a type that wants its own derive
-/// list rather than [`string_enum!`]'s. Keep `string_enum` in this macro's
-/// name too: architecture analysis greps for it to find every domain enum.
+/// list rather than [`string_enum!`]'s. Unlike that macro, the caller declares
+/// the enum, so architecture analysis indexes it directly and this name is not
+/// part of the grep contract.
 macro_rules! string_enum_mapping {
     (
         $name:ident {
@@ -88,12 +89,9 @@ macro_rules! string_enum_mapping {
         }
 
         impl std::fmt::Display for $name {
-            // Matches `self` by reference directly, rather than through
-            // `as_str(self)`: a caller that keeps `as_str` taking `self` by
-            // value (the default, so it composes with `Option::map` and
-            // friends) but declares its own non-`Copy` enum still needs
-            // `Display` to work without moving out of the reference `fmt`
-            // receives.
+            // Matches on `self` directly rather than through `as_str(self)`:
+            // `as_str` takes `self` by value, which would move `*self` out
+            // from behind the `&self` a non-`Copy` caller's enum gets here.
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 f.write_str(match self {
                     $(Self::$variant => $value,)+

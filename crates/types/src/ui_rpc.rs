@@ -11,6 +11,8 @@ use uuid::Uuid;
 /// Not the access-control input, which is
 /// [`crate::access_control::ScopeContext::is_admin`], derived from this role
 /// when a policy decision is needed.
+///
+/// Deliberately not `Copy`: nothing here needs it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UserRole {
     Admin,

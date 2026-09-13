@@ -163,7 +163,8 @@ crate::string_enum!(
         /// Parked on a person: the run is open, and nothing is running until it is
         /// answered.
         Waiting => "waiting",
-        // "stopped" is a legacy spelling already written to the database.
+        // The sandbox's own `AgentStatus::Stopped` goes on the wire as "stopped"
+        // (`sandbox::grpc_server::get_agent_status`); this side has no such variant.
         Idle => "idle" | "stopped",
         Unknown => "unknown",
     }
@@ -400,7 +401,7 @@ mod tests {
     }
 
     #[test]
-    fn agent_status_try_from_accepts_the_legacy_stopped_spelling() {
+    fn agent_status_try_from_accepts_the_sandboxs_own_stopped_spelling() {
         assert_eq!(AgentStatus::try_from("stopped"), Ok(AgentStatus::Idle));
     }
 
