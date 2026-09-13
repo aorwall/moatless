@@ -4,55 +4,18 @@
 //! The module is plural because `loop` is a Rust keyword.
 
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
 
 use crate::access_control::Scope;
 use crate::adapter::AdapterKind;
 use crate::agent::AgentType;
 
-/// Loop routing mode for message-to-task mapping.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "snake_case")]
-pub enum RoutingMode {
-    Ongoing,
-    BySubject,
-}
-
-impl RoutingMode {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Ongoing => "ongoing",
-            Self::BySubject => "by_subject",
-        }
+crate::string_enum!(
+    /// Loop routing mode for message-to-task mapping.
+    RoutingMode {
+        Ongoing => "ongoing",
+        BySubject => "by_subject",
     }
-}
-
-impl std::fmt::Display for RoutingMode {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-
-impl TryFrom<String> for RoutingMode {
-    type Error = String;
-
-    fn try_from(value: String) -> Result<Self, Self::Error> {
-        Self::try_from(value.as_str())
-    }
-}
-
-impl TryFrom<&str> for RoutingMode {
-    type Error = String;
-
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
-        match value {
-            "ongoing" => Ok(Self::Ongoing),
-            "by_subject" => Ok(Self::BySubject),
-            other => Err(format!("unknown RoutingMode: {other:?}")),
-        }
-    }
-}
+);
 
 /// Adapter-facing Loop context.
 ///

@@ -16,6 +16,7 @@ use serde::Deserialize;
 use tracing::{debug, warn};
 
 use super::error::SkillError;
+use moatless_workspace_types::plugin::{PluginMarketplaceSource, marketplace_local_path};
 use moatless_workspace_types::repository::RepositoryProvider;
 use moatless_workspace_types::repository::RepositoryRemote;
 
@@ -107,17 +108,6 @@ struct PluginMarketplace {
 #[derive(Debug, Deserialize)]
 struct PluginMarketplaceEntry {
     source: PluginMarketplaceSource,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(untagged)]
-enum PluginMarketplaceSource {
-    LocalPath(String),
-    Descriptor {
-        source: String,
-        #[serde(default)]
-        path: Option<String>,
-    },
 }
 
 /// Workspace skill roots, in precedence order. Both are listed and merged so a
@@ -520,32 +510,6 @@ async fn fetch_first_marketplace(
         }
     }
     Ok(None)
-}
-
-fn marketplace_local_path(source: &PluginMarketplaceSource, git_url: &str) -> Option<String> {
-    match source {
-        PluginMarketplaceSource::LocalPath(path) => {
-            if path.trim().starts_with("./") {
-                Some(path.clone())
-            } else {
-                debug!(
-                    git_url,
-                    source = %path,
-                    "Skipping non-local plugin marketplace string source"
-                );
-                None
-            }
-        }
-        PluginMarketplaceSource::Descriptor { source, path } if source == "local" => path.clone(),
-        PluginMarketplaceSource::Descriptor { source, .. } => {
-            debug!(
-                git_url,
-                source = %source,
-                "Skipping non-local plugin marketplace descriptor source"
-            );
-            None
-        }
-    }
 }
 
 async fn resolve_plugin_manifest_skills_prefix(

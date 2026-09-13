@@ -17,60 +17,23 @@ use crate::message::MessageSubType;
 use crate::sandbox::{SandboxStatus, ServerSubType};
 use crate::task::{TaskSubType, TaskTurnSubType};
 
-/// Top-level event types.
-///
-/// Serializes to the exact strings the frontend `EventTypeSchema` expects.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "camelCase")]
-pub enum EventType {
-    Task,
-    TaskTurn,
-    Sandbox,
-    Agent,
-    Server,
-    Resources,
-    /// Derived, UI-only events (`message.upsert` / `message.subagentProgress`).
-    /// Assembled server-side and relayed to clients, never persisted to
-    /// `task_events`.
-    Message,
-}
-
-impl EventType {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::Task => "task",
-            Self::TaskTurn => "taskTurn",
-            Self::Sandbox => "sandbox",
-            Self::Agent => "agent",
-            Self::Server => "server",
-            Self::Resources => "resources",
-            Self::Message => "message",
-        }
+crate::string_enum!(
+    /// Top-level event types.
+    ///
+    /// Serializes to the exact strings the frontend `EventTypeSchema` expects.
+    EventType [Hash] {
+        Task => "task",
+        TaskTurn => "taskTurn",
+        Sandbox => "sandbox",
+        Agent => "agent",
+        Server => "server",
+        Resources => "resources",
+        /// Derived, UI-only events (`message.upsert` / `message.subagentProgress`).
+        /// Assembled server-side and relayed to clients, never persisted to
+        /// `task_events`.
+        Message => "message",
     }
-}
-
-impl std::fmt::Display for EventType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-
-impl TryFrom<&str> for EventType {
-    type Error = String;
-    fn try_from(s: &str) -> Result<Self, Self::Error> {
-        match s {
-            "task" => Ok(Self::Task),
-            "taskTurn" => Ok(Self::TaskTurn),
-            "sandbox" => Ok(Self::Sandbox),
-            "agent" => Ok(Self::Agent),
-            "server" => Ok(Self::Server),
-            "resources" => Ok(Self::Resources),
-            "message" => Ok(Self::Message),
-            other => Err(format!("unknown EventType: {other}")),
-        }
-    }
-}
+);
 
 /// SSE event envelope — the shape of events streamed to the frontend.
 ///

@@ -6,15 +6,73 @@
 ///
 /// Keep this invocation name (`string_enum!`) stable: architecture analysis
 /// greps for it to find every domain enum.
+///
+/// Two knobs beyond the bare form:
+/// - `Name [Hash, Default] { ... }` adds derives beyond the default set.
+/// - `Name using "lowercase" { ... }` overrides the default `snake_case`
+///   `#[serde(rename_all = ...)]`.
+///
+/// A variant's `$value` is what `as_str`/`Display`/serde use; `$value | alias`
+/// accepts additional strings (e.g. a retired spelling from old rows) in
+/// `TryFrom` only.
 macro_rules! string_enum {
     (
         $(#[$meta:meta])*
-        $name:ident { $($(#[$vmeta:meta])* $variant:ident => $value:literal),+ $(,)? }
+        $name:ident [$($extra:ident),+ $(,)?] using $rename:literal {
+            $($(#[$vmeta:meta])* $variant:ident => $value:literal $(| $alias:literal)*),+ $(,)?
+        }
+    ) => {
+        $crate::string_enum!(@impl
+            $(#[$meta])* $name [$($extra),+] $rename {
+                $($(#[$vmeta])* $variant => $value $(| $alias)*),+
+            }
+        );
+    };
+    (
+        $(#[$meta:meta])*
+        $name:ident [$($extra:ident),+ $(,)?] {
+            $($(#[$vmeta:meta])* $variant:ident => $value:literal $(| $alias:literal)*),+ $(,)?
+        }
+    ) => {
+        $crate::string_enum!(@impl
+            $(#[$meta])* $name [$($extra),+] "snake_case" {
+                $($(#[$vmeta])* $variant => $value $(| $alias)*),+
+            }
+        );
+    };
+    (
+        $(#[$meta:meta])*
+        $name:ident using $rename:literal {
+            $($(#[$vmeta:meta])* $variant:ident => $value:literal $(| $alias:literal)*),+ $(,)?
+        }
+    ) => {
+        $crate::string_enum!(@impl
+            $(#[$meta])* $name [] $rename {
+                $($(#[$vmeta])* $variant => $value $(| $alias)*),+
+            }
+        );
+    };
+    (
+        $(#[$meta:meta])*
+        $name:ident { $($(#[$vmeta:meta])* $variant:ident => $value:literal $(| $alias:literal)*),+ $(,)? }
+    ) => {
+        $crate::string_enum!(@impl
+            $(#[$meta])* $name [] "snake_case" {
+                $($(#[$vmeta])* $variant => $value $(| $alias)*),+
+            }
+        );
+    };
+    (
+        @impl
+        $(#[$meta:meta])*
+        $name:ident [$($extra:ident),*] $rename:literal {
+            $($(#[$vmeta:meta])* $variant:ident => $value:literal $(| $alias:literal)*),+ $(,)?
+        }
     ) => {
         $(#[$meta])*
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, $($extra,)* serde::Serialize, serde::Deserialize)]
         #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-        #[serde(rename_all = "snake_case")]
+        #[serde(rename_all = $rename)]
         pub enum $name {
             $($(#[$vmeta])* $variant),+
         }
@@ -38,7 +96,7 @@ macro_rules! string_enum {
 
             fn try_from(value: &str) -> Result<Self, String> {
                 match value {
-                    $($value => Ok(Self::$variant)),+,
+                    $($value $(| $alias)* => Ok(Self::$variant)),+,
                     other => Err(format!("unknown {}: {other:?}", stringify!($name))),
                 }
             }

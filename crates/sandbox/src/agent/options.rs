@@ -6,9 +6,10 @@ use std::sync::Arc;
 
 use claude_agent_sdk::api::options::{PluginConfig, SystemPrompt};
 use claude_agent_sdk::{ClaudeOptions, PermissionMode};
+use moatless_workspace_types::plugin::{PluginMarketplaceSource, marketplace_local_path};
 use serde::Deserialize;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, info, warn};
+use tracing::{info, warn};
 
 use crate::agent::handle::{AGENT_TYPE_CODEX, resolve_agent_harness};
 use crate::agent::types::AgentRunRequest;
@@ -524,17 +525,6 @@ struct PluginMarketplaceEntry {
     source: PluginMarketplaceSource,
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(untagged)]
-enum PluginMarketplaceSource {
-    LocalPath(String),
-    Descriptor {
-        source: String,
-        #[serde(default)]
-        path: Option<String>,
-    },
-}
-
 const PLUGIN_MARKETPLACE_PATHS: [&str; 2] = [
     ".agents/plugins/marketplace.json",
     ".claude-plugin/marketplace.json",
@@ -597,32 +587,6 @@ fn read_first_marketplace(repo_path: &Path) -> Option<(PathBuf, String)> {
         }
     }
     None
-}
-
-fn marketplace_local_path(source: &PluginMarketplaceSource, plugin_name: &str) -> Option<String> {
-    match source {
-        PluginMarketplaceSource::LocalPath(path) => {
-            if path.trim().starts_with("./") {
-                Some(path.clone())
-            } else {
-                debug!(
-                    plugin = %plugin_name,
-                    source = %path,
-                    "Skipping non-local plugin marketplace string source"
-                );
-                None
-            }
-        }
-        PluginMarketplaceSource::Descriptor { source, path } if source == "local" => path.clone(),
-        PluginMarketplaceSource::Descriptor { source, .. } => {
-            debug!(
-                plugin = %plugin_name,
-                source = %source,
-                "Skipping non-local plugin marketplace descriptor source"
-            );
-            None
-        }
-    }
 }
 
 fn normalize_marketplace_path(raw: &str) -> Result<String, String> {

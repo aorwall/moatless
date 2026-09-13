@@ -69,100 +69,49 @@ impl std::fmt::Display for CodexScope {
     }
 }
 
-/// Agent sub-types.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "snake_case")]
-pub enum AgentSubType {
-    Started,
-    Stopped,
-    Message,
-    Completed,
-    Error,
-    PendingResponse,
-    SessionInit,
-    Retrying,
-    Scheduled,
-    /// Sandbox restarted mid-run and is replaying the previously interrupted
-    /// turn via `--resume <session_id>`.
-    RecoveryStarted,
-    /// Recovery attempts exhausted for an interrupted turn — the run has been
-    /// abandoned and an Aborted Result row was inserted in its place.
-    RecoveryExhausted,
-    /// A session resume failed because the transcript is unavailable (e.g.
-    /// stale session id after a pod restart); the agent fell back to a fresh
-    /// session. Previous conversation context is lost. Warning, not an error.
-    SessionContextLost,
-    /// Liveness marker published (rate-limited) during a long-running tool call
-    /// so the reaper's activity floor keeps advancing.
-    ///
-    /// Carries no conversation content; SSE-only, never persisted as a message.
-    Activity,
-    /// What the harness said about its own context window: how much of it the
-    /// session occupies, and how large it is where the harness states one.
-    ContextWindow,
-    /// Count of running `moat cmd` commands, published whenever it changes.
-    ///
-    /// Absolute, not a delta — the registry is in-memory, so a pod replacement
-    /// would strand a decrement. Says nothing about the agent; see
-    /// [`crate::event::agent_working`].
-    CommandsChanged,
-}
+crate::string_enum!(
+    /// Agent sub-types.
+    AgentSubType [Hash] {
+        Started => "started",
+        Stopped => "stopped",
+        Message => "message",
+        Completed => "completed",
+        Error => "error",
+        PendingResponse => "pending_response",
+        SessionInit => "session_init",
+        Retrying => "retrying",
+        Scheduled => "scheduled",
+        /// Sandbox restarted mid-run and is replaying the previously interrupted
+        /// turn via `--resume <session_id>`.
+        RecoveryStarted => "recovery_started",
+        /// Recovery attempts exhausted for an interrupted turn — the run has been
+        /// abandoned and an Aborted Result row was inserted in its place.
+        RecoveryExhausted => "recovery_exhausted",
+        /// A session resume failed because the transcript is unavailable (e.g.
+        /// stale session id after a pod restart); the agent fell back to a fresh
+        /// session. Previous conversation context is lost. Warning, not an error.
+        SessionContextLost => "session_context_lost",
+        /// Liveness marker published (rate-limited) during a long-running tool call
+        /// so the reaper's activity floor keeps advancing.
+        ///
+        /// Carries no conversation content; SSE-only, never persisted as a message.
+        Activity => "activity",
+        /// What the harness said about its own context window: how much of it the
+        /// session occupies, and how large it is where the harness states one.
+        ContextWindow => "context_window",
+        /// Count of running `moat cmd` commands, published whenever it changes.
+        ///
+        /// Absolute, not a delta — the registry is in-memory, so a pod replacement
+        /// would strand a decrement. Says nothing about the agent; see
+        /// [`crate::event::agent_working`].
+        CommandsChanged => "commands_changed",
+    }
+);
 
 impl AgentSubType {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::Started => "started",
-            Self::Stopped => "stopped",
-            Self::Message => "message",
-            Self::Completed => "completed",
-            Self::Error => "error",
-            Self::PendingResponse => "pending_response",
-            Self::SessionInit => "session_init",
-            Self::Retrying => "retrying",
-            Self::Scheduled => "scheduled",
-            Self::RecoveryStarted => "recovery_started",
-            Self::RecoveryExhausted => "recovery_exhausted",
-            Self::SessionContextLost => "session_context_lost",
-            Self::Activity => "activity",
-            Self::ContextWindow => "context_window",
-            Self::CommandsChanged => "commands_changed",
-        }
-    }
-
     /// Whether this sub-type represents an error condition.
     pub fn is_error(&self) -> bool {
         matches!(self, Self::Error | Self::RecoveryExhausted)
-    }
-}
-
-impl std::fmt::Display for AgentSubType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-
-impl TryFrom<&str> for AgentSubType {
-    type Error = String;
-    fn try_from(s: &str) -> Result<Self, String> {
-        match s {
-            "started" => Ok(Self::Started),
-            "stopped" => Ok(Self::Stopped),
-            "message" => Ok(Self::Message),
-            "completed" => Ok(Self::Completed),
-            "error" => Ok(Self::Error),
-            "pending_response" => Ok(Self::PendingResponse),
-            "session_init" => Ok(Self::SessionInit),
-            "retrying" => Ok(Self::Retrying),
-            "scheduled" => Ok(Self::Scheduled),
-            "recovery_started" => Ok(Self::RecoveryStarted),
-            "recovery_exhausted" => Ok(Self::RecoveryExhausted),
-            "session_context_lost" => Ok(Self::SessionContextLost),
-            "activity" => Ok(Self::Activity),
-            "context_window" => Ok(Self::ContextWindow),
-            "commands_changed" => Ok(Self::CommandsChanged),
-            other => Err(format!("unknown AgentSubType: {other}")),
-        }
     }
 }
 

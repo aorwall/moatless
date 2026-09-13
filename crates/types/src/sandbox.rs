@@ -98,63 +98,24 @@ impl ArchiveRetention {
     }
 }
 
-/// Sandbox status — valid status values for sandbox lifecycle events.
-///
-/// These match the frontend `SandboxStatus` values.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "snake_case")]
-pub enum SandboxStatus {
-    NotCreated,
-    Initializing,
-    Ready,
-    Stopped,
-    Removing,
-    Removed,
-    Error,
-}
-
-impl SandboxStatus {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::NotCreated => "not_created",
-            Self::Initializing => "initializing",
-            Self::Ready => "ready",
-            Self::Stopped => "stopped",
-            Self::Removing => "removing",
-            Self::Removed => "removed",
-            Self::Error => "error",
-        }
+crate::string_enum!(
+    /// Sandbox status — valid status values for sandbox lifecycle events.
+    ///
+    /// These match the frontend `SandboxStatus` values.
+    SandboxStatus [Hash] {
+        NotCreated => "not_created",
+        Initializing => "initializing",
+        Ready => "ready",
+        Stopped => "stopped",
+        Removing => "removing",
+        Removed => "removed",
+        // "fatal" is a legacy spelling already written to the database.
+        Error => "error" | "fatal",
     }
-}
+);
 
-impl std::fmt::Display for SandboxStatus {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-
-impl TryFrom<&str> for SandboxStatus {
-    type Error = String;
-    fn try_from(s: &str) -> Result<Self, String> {
-        match s {
-            "not_created" => Ok(Self::NotCreated),
-            "initializing" => Ok(Self::Initializing),
-            "ready" => Ok(Self::Ready),
-            "stopped" => Ok(Self::Stopped),
-            "removing" => Ok(Self::Removing),
-            "removed" => Ok(Self::Removed),
-            "error" => Ok(Self::Error),
-            // Accept legacy "fatal" as Error for backwards compatibility
-            "fatal" => Ok(Self::Error),
-            other => Err(format!("unknown SandboxStatus: {other}")),
-        }
-    }
-}
-
-/// Matches TS `ServerStatusEnumSchema`: 'stopped' | 'installing' | 'starting' |
-/// 'started' | 'failed'
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+/// Matches TS `ServerStatusEnumSchema`: 'stopped' | 'installing' | 'starting' | 'started' | 'failed'
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "lowercase")]
 pub enum ServerStatus {
@@ -166,7 +127,7 @@ pub enum ServerStatus {
 }
 
 impl ServerStatus {
-    pub fn as_str(&self) -> &'static str {
+    pub fn as_str(self) -> &'static str {
         match self {
             Self::Stopped => "stopped",
             Self::Installing => "installing",
@@ -229,7 +190,13 @@ pub struct ServerEntry {
 }
 
 /// Observed Agent lifecycle while its Sandbox is ready.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+///
+/// Not migrated onto [`crate::string_enum!`]: this type's `From<&str>` is
+/// lenient (unrecognised reads as [`Unknown`](Self::Unknown), legacy
+/// `"stopped"` reads as [`Idle`](Self::Idle)), and the standard library's
+/// blanket `impl<T, U: Into<T>> TryFrom<U> for T` forbids a type from having
+/// both a `From<&str>` and the macro's own `TryFrom<&str>`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "lowercase")]
 pub enum AgentStatus {
@@ -242,7 +209,7 @@ pub enum AgentStatus {
 }
 
 impl AgentStatus {
-    pub fn as_str(&self) -> &'static str {
+    pub fn as_str(self) -> &'static str {
         match self {
             Self::Running => "running",
             Self::Waiting => "waiting",
@@ -346,52 +313,18 @@ impl LiveStatus {
     }
 }
 
-/// Server sub-types — server container lifecycle.
-///
-/// `Failed` covers all error conditions (was: Failed, Error, Timeout —
-/// consolidated).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "snake_case")]
-pub enum ServerSubType {
-    Installing,
-    Starting,
-    Started,
-    Stopped,
-    Failed,
-}
-
-impl ServerSubType {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::Installing => "installing",
-            Self::Starting => "starting",
-            Self::Started => "started",
-            Self::Stopped => "stopped",
-            Self::Failed => "failed",
-        }
+crate::string_enum!(
+    /// Server sub-types — server container lifecycle.
+    ///
+    /// `Failed` covers all error conditions (was: Failed, Error, Timeout — consolidated).
+    ServerSubType [Hash] {
+        Installing => "installing",
+        Starting => "starting",
+        Started => "started",
+        Stopped => "stopped",
+        Failed => "failed",
     }
-}
-
-impl std::fmt::Display for ServerSubType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-
-impl TryFrom<&str> for ServerSubType {
-    type Error = String;
-    fn try_from(s: &str) -> Result<Self, Self::Error> {
-        match s {
-            "installing" => Ok(Self::Installing),
-            "starting" => Ok(Self::Starting),
-            "started" => Ok(Self::Started),
-            "stopped" => Ok(Self::Stopped),
-            "failed" => Ok(Self::Failed),
-            other => Err(format!("unknown ServerSubType: {other}")),
-        }
-    }
-}
+);
 
 /// Server event payload — matches frontend `ServerEventPayloadSchema`.
 #[derive(Clone, Debug, Serialize, Deserialize)]

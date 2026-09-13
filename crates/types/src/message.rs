@@ -3,55 +3,27 @@
 //! These are assembled server-side and relayed to clients, never persisted to
 //! `task_events`.
 
-use serde::{Deserialize, Serialize};
-
-/// Message sub-types — derived, UI-only events for the live Chat.
-///
-/// `upsert` replaces-or-inserts an assembled Message by `uuid`;
-/// `subagentProgress` carries a subagent's absolute activity summary. Neither
-/// is an error.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "snake_case")]
-pub enum MessageSubType {
-    Upsert,
-    /// A subagent step advanced: carries the absolute `{ toolUseId,
-    /// messageCount, tokens, status }` summary for one `Agent` tool call —
-    /// keeps the card live without streaming transcript.
+crate::string_enum!(
+    /// Message sub-types — derived, UI-only events for the live Chat.
     ///
-    /// Intentionally camelCase, not the crate's `snake_case` convention, so the
-    /// wire value matches the frontend event contract.
-    #[serde(rename = "subagentProgress")]
-    SubagentProgress,
-}
+    /// `upsert` replaces-or-inserts an assembled Message by `uuid`;
+    /// `subagentProgress` carries a subagent's absolute activity summary. Neither
+    /// is an error.
+    MessageSubType {
+        Upsert => "upsert",
+        /// A subagent step advanced: carries the absolute `{ toolUseId,
+        /// messageCount, tokens, status }` summary for one `Agent` tool call —
+        /// keeps the card live without streaming transcript.
+        ///
+        /// Intentionally camelCase, not the crate's `snake_case` convention, so the
+        /// wire value matches the frontend event contract.
+        SubagentProgress => "subagentProgress",
+    }
+);
 
 impl MessageSubType {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::Upsert => "upsert",
-            Self::SubagentProgress => "subagentProgress",
-        }
-    }
-
     pub fn is_error(&self) -> bool {
         false
-    }
-}
-
-impl std::fmt::Display for MessageSubType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-
-impl TryFrom<&str> for MessageSubType {
-    type Error = String;
-    fn try_from(s: &str) -> Result<Self, String> {
-        match s {
-            "upsert" => Ok(Self::Upsert),
-            "subagentProgress" => Ok(Self::SubagentProgress),
-            other => Err(format!("unknown MessageSubType: {other}")),
-        }
     }
 }
 

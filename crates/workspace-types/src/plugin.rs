@@ -24,3 +24,51 @@ pub struct PluginDelivery {
     #[serde(default)]
     pub frontload_skill_names: Vec<String>,
 }
+
+/// One entry's `source` value from a repo's on-disk `marketplace.json`.
+///
+/// Every reader parses this independently off the raw file (a sandbox
+/// resolving local plugin directories, and workspaces fetching a plugin's
+/// skills over the GitHub API without a clone), so this is only the shared
+/// wire shape — not a single parse path.
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+pub enum PluginMarketplaceSource {
+    LocalPath(String),
+    Descriptor {
+        source: String,
+        #[serde(default)]
+        path: Option<String>,
+    },
+}
+
+/// A marketplace entry's local source path, or `None` for a non-local source.
+///
+/// `context` is logged as-is on the skip path; callers pass whatever
+/// identifies the entry for their own diagnostics (a plugin name, or a git
+/// URL where no plugin name is in scope yet).
+pub fn marketplace_local_path(source: &PluginMarketplaceSource, context: &str) -> Option<String> {
+    match source {
+        PluginMarketplaceSource::LocalPath(path) => {
+            if path.trim().starts_with("./") {
+                Some(path.clone())
+            } else {
+                tracing::debug!(
+                    context,
+                    source = %path,
+                    "Skipping non-local plugin marketplace string source"
+                );
+                None
+            }
+        }
+        PluginMarketplaceSource::Descriptor { source, path } if source == "local" => path.clone(),
+        PluginMarketplaceSource::Descriptor { source, .. } => {
+            tracing::debug!(
+                context,
+                source = %source,
+                "Skipping non-local plugin marketplace descriptor source"
+            );
+            None
+        }
+    }
+}

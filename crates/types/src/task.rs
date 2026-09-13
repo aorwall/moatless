@@ -57,104 +57,42 @@ pub struct RelatedTask {
     pub context: serde_json::Value,
 }
 
-/// Task sub-types.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "snake_case")]
-pub enum TaskSubType {
-    Created,
-    Open,
-    Closed,
-    Updated,
-    #[serde(rename = "metadata.updated")]
-    MetadataUpdated,
-}
-
-impl TaskSubType {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::Created => "created",
-            Self::Open => "open",
-            Self::Closed => "closed",
-            Self::Updated => "updated",
-            Self::MetadataUpdated => "metadata.updated",
-        }
+crate::string_enum!(
+    /// Task sub-types.
+    TaskSubType [Hash] {
+        Created => "created",
+        Open => "open",
+        Closed => "closed",
+        Updated => "updated",
+        #[serde(rename = "metadata.updated")]
+        MetadataUpdated => "metadata.updated",
     }
-}
+);
 
-impl std::fmt::Display for TaskSubType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
+crate::string_enum!(
+    /// `TaskTurn` sub-types.
+    TaskTurnSubType [Hash] {
+        Active => "active",
+        Completed => "completed",
+        Error => "error",
+        Stopped => "stopped",
+        /// The turn's sandbox pod terminated involuntarily (eviction, node loss)
+        /// while the turn was active. Emitted immediately by the pod watcher so the
+        /// interruption is visible without waiting for the delayed orphaned-turn
+        /// reconciliation. The turn resumes once the pod reschedules — not a
+        /// terminal error, so `is_error` stays false.
+        ///
+        /// Renamed explicitly: `rename_all = "snake_case"` would yield
+        /// `"interrupted"`, but the wire value (and `as_str`/`TryFrom`/frontend) is
+        /// `"turn_interrupted"` — pin it so the serde-derived OpenAPI schema agrees.
+        #[serde(rename = "turn_interrupted")]
+        Interrupted => "turn_interrupted",
     }
-}
-
-impl TryFrom<&str> for TaskSubType {
-    type Error = String;
-    fn try_from(s: &str) -> Result<Self, Self::Error> {
-        match s {
-            "created" => Ok(Self::Created),
-            "open" => Ok(Self::Open),
-            "closed" => Ok(Self::Closed),
-            "updated" => Ok(Self::Updated),
-            "metadata.updated" => Ok(Self::MetadataUpdated),
-            other => Err(format!("unknown TaskSubType: {other}")),
-        }
-    }
-}
-
-/// `TaskTurn` sub-types.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "snake_case")]
-pub enum TaskTurnSubType {
-    Active,
-    Completed,
-    Error,
-    Stopped,
-    /// The turn's sandbox pod terminated involuntarily (eviction, node loss)
-    /// while the turn was active, emitted immediately by the pod watcher, not
-    /// waiting for orphaned-turn reconciliation.
-    ///
-    /// The turn resumes once the pod reschedules — not terminal, so `is_error`
-    /// stays false. Wire value is pinned to `"turn_interrupted"` (not the
-    /// derived `"interrupted"`) so the OpenAPI schema agrees.
-    #[serde(rename = "turn_interrupted")]
-    Interrupted,
-}
+);
 
 impl TaskTurnSubType {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::Active => "active",
-            Self::Completed => "completed",
-            Self::Error => "error",
-            Self::Stopped => "stopped",
-            Self::Interrupted => "turn_interrupted",
-        }
-    }
-
     pub fn is_error(&self) -> bool {
         matches!(self, Self::Error)
-    }
-}
-
-impl std::fmt::Display for TaskTurnSubType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-
-impl TryFrom<&str> for TaskTurnSubType {
-    type Error = String;
-    fn try_from(s: &str) -> Result<Self, String> {
-        match s {
-            "active" => Ok(Self::Active),
-            "completed" => Ok(Self::Completed),
-            "error" => Ok(Self::Error),
-            "stopped" => Ok(Self::Stopped),
-            "turn_interrupted" => Ok(Self::Interrupted),
-            other => Err(format!("unknown TaskTurnSubType: {other}")),
-        }
     }
 }
 
@@ -323,51 +261,15 @@ crate::string_enum!(
     }
 );
 
-/// How a task's checkout relates to other members of the same Sandbox.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "snake_case")]
-pub enum CheckoutMode {
-    /// One checkout for every member — the single-member behavior too.
-    #[default]
-    Shared,
-    Isolated,
-}
-
-impl CheckoutMode {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Shared => "shared",
-            Self::Isolated => "isolated",
-        }
+crate::string_enum!(
+    /// How a task's checkout relates to other members of the same Sandbox.
+    CheckoutMode [Default] {
+        /// One checkout for every member — the single-member behavior too.
+        #[default]
+        Shared => "shared",
+        Isolated => "isolated",
     }
-}
-
-impl std::fmt::Display for CheckoutMode {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-
-impl TryFrom<&str> for CheckoutMode {
-    type Error = String;
-
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
-        match value {
-            "shared" => Ok(Self::Shared),
-            "isolated" => Ok(Self::Isolated),
-            other => Err(format!("unknown CheckoutMode: {other:?}")),
-        }
-    }
-}
-
-impl TryFrom<String> for CheckoutMode {
-    type Error = String;
-
-    fn try_from(value: String) -> Result<Self, Self::Error> {
-        Self::try_from(value.as_str())
-    }
-}
+);
 
 #[cfg(test)]
 mod wire_contract {

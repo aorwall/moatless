@@ -278,23 +278,22 @@ pub struct ScriptConfig {
     pub run_on_start: bool,
 }
 
-/// A provider whose credential can be pinned to a Workspace.
-///
-/// Only providers whose sandbox credential is a single static environment
-/// variable are here — Codex (`CODEX_AUTH_JSON`) and the Claude OAuth token are
-/// refreshed against the connected user's own row, so a workspace-level copy
-/// would go stale with nothing to rotate it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "lowercase")]
-pub enum WorkspaceCredentialProvider {
-    Github,
-    Gitlab,
-    Gitness,
-    Forgejo,
-    Openai,
-    Anthropic,
-}
+crate::string_enum!(
+    /// A provider whose credential can be pinned to a Workspace.
+    ///
+    /// Only providers whose sandbox credential is a single static environment
+    /// variable are here. Codex (`CODEX_AUTH_JSON`) and the Claude OAuth token are
+    /// refreshed and written back against the connected user's own row, so a
+    /// workspace-level copy of either would go stale with nothing to rotate it.
+    WorkspaceCredentialProvider [Hash] {
+        Github => "github",
+        Gitlab => "gitlab",
+        Gitness => "gitness",
+        Forgejo => "forgejo",
+        Openai => "openai",
+        Anthropic => "anthropic",
+    }
+);
 
 impl WorkspaceCredentialProvider {
     pub const ALL: &'static [Self] = &[
@@ -313,17 +312,6 @@ impl WorkspaceCredentialProvider {
     /// rather than only delivered as an environment variable.
     pub const GIT_HOSTS: &'static [Self] =
         &[Self::Github, Self::Gitlab, Self::Gitness, Self::Forgejo];
-
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Github => "github",
-            Self::Gitlab => "gitlab",
-            Self::Gitness => "gitness",
-            Self::Forgejo => "forgejo",
-            Self::Openai => "openai",
-            Self::Anthropic => "anthropic",
-        }
-    }
 
     /// A Forgejo pin is single-valued though a deployment may hold repositories
     /// on several Forgejo hosts, so it authenticates against all of them.
@@ -359,12 +347,6 @@ impl From<crate::repository::RepositoryProvider> for WorkspaceCredentialProvider
             Host::Gitness => Self::Gitness,
             Host::Forgejo => Self::Forgejo,
         }
-    }
-}
-
-impl std::fmt::Display for WorkspaceCredentialProvider {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
     }
 }
 
@@ -571,35 +553,20 @@ fn split_suffix<'a>(value: &'a str, suffixes: &[(&str, u64)]) -> (&'a str, Optio
 // StorageMedium
 // =============================================================================
 
-/// Where a node-local sandbox volume is backed.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "camelCase")]
-pub enum StorageMedium {
-    /// A Kubernetes `emptyDir`, capped by the paired size quantity.
-    EmptyDir,
-    /// A node-local `hostPath` under `K8S_SANDBOX_CACHE_HOST_ROOT`. Kubernetes
-    /// enforces no size cap; capacity is the node filesystem.
-    Node,
-}
+crate::string_enum!(
+    /// Where a node-local sandbox volume is backed.
+    StorageMedium using "camelCase" {
+        /// A Kubernetes `emptyDir`, capped by the paired size quantity.
+        EmptyDir => "emptyDir",
+        /// A node-local `hostPath` under `K8S_SANDBOX_CACHE_HOST_ROOT`. Kubernetes
+        /// enforces no size cap; capacity is the node filesystem.
+        Node => "node",
+    }
+);
 
 impl StorageMedium {
     /// Every variant, so a conversion table cannot silently miss one.
     pub const ALL: &'static [Self] = &[Self::EmptyDir, Self::Node];
-
-    /// The wire spelling — the same string serde emits.
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::EmptyDir => "emptyDir",
-            Self::Node => "node",
-        }
-    }
-}
-
-impl fmt::Display for StorageMedium {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.as_str())
-    }
 }
 
 // =============================================================================

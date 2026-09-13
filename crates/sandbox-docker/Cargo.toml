@@ -31,6 +31,7 @@ workspace = true
 [dev-dependencies]
 # Temp dirs for the container-builder / provider unit tests.
 tempfile = { workspace = true }
+moatless-core = { workspace = true, features = ["openapi", "test-support"] }
 
 [[package.metadata.arch.allow]]
 rule = "band-order"

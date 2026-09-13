@@ -9,7 +9,7 @@
 
 use std::path::{Path, PathBuf};
 
-use moatless_workspace_types::plugin::PluginDelivery;
+use moatless_workspace_types::plugin::{PluginDelivery, PluginMarketplaceSource, marketplace_local_path};
 use serde::Deserialize;
 use tracing::{debug, info, warn};
 
@@ -33,17 +33,6 @@ struct PluginMarketplace {
 struct PluginMarketplaceEntry {
     name: String,
     source: PluginMarketplaceSource,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(untagged)]
-enum PluginMarketplaceSource {
-    LocalPath(String),
-    Descriptor {
-        source: String,
-        #[serde(default)]
-        path: Option<String>,
-    },
 }
 
 const PLUGIN_MANIFEST_PATHS: [&str; 3] = [
@@ -225,32 +214,6 @@ fn read_first_marketplace(plugin_path: &Path) -> Option<(PathBuf, String)> {
         }
     }
     None
-}
-
-fn marketplace_local_path(source: &PluginMarketplaceSource, plugin_name: &str) -> Option<String> {
-    match source {
-        PluginMarketplaceSource::LocalPath(path) => {
-            if path.trim().starts_with("./") {
-                Some(path.clone())
-            } else {
-                debug!(
-                    plugin = %plugin_name,
-                    source = %path,
-                    "Skipping non-local plugin marketplace string source"
-                );
-                None
-            }
-        }
-        PluginMarketplaceSource::Descriptor { source, path } if source == "local" => path.clone(),
-        PluginMarketplaceSource::Descriptor { source, .. } => {
-            debug!(
-                plugin = %plugin_name,
-                source = %source,
-                "Skipping non-local plugin marketplace descriptor source"
-            );
-            None
-        }
-    }
 }
 
 /// Every installed plugin's resolved `skills/` directory.

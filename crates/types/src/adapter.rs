@@ -7,31 +7,19 @@ use serde::{Deserialize, Serialize};
 
 use crate::access_control::Scope;
 
-/// Canonical external adapter identifier.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "snake_case")]
-pub enum AdapterKind {
-    Slack,
-    Telegram,
-    Github,
-    GithubPr,
-    Linear,
-    Webhook,
-}
+crate::string_enum!(
+    /// Canonical external adapter identifier.
+    AdapterKind [Hash] {
+        Slack => "slack",
+        Telegram => "telegram",
+        Github => "github",
+        GithubPr => "github_pr",
+        Linear => "linear",
+        Webhook => "webhook",
+    }
+);
 
 impl AdapterKind {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Slack => "slack",
-            Self::Telegram => "telegram",
-            Self::Github => "github",
-            Self::GithubPr => "github_pr",
-            Self::Linear => "linear",
-            Self::Webhook => "webhook",
-        }
-    }
-
     pub fn is_replyable(self) -> bool {
         true
     }
@@ -59,12 +47,6 @@ impl AdapterKind {
             );
             Self::Webhook
         })
-    }
-}
-
-impl std::fmt::Display for AdapterKind {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
     }
 }
 
