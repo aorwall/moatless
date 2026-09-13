@@ -6,13 +6,6 @@ use serde::Serialize;
 use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
-/// Slack workspace configuration.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, utoipa::ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct SlackConfig {
-    pub team_id: String,
-}
-
 /// Response shape for GET /api/v1/feature-flags.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, utoipa::ToSchema)]
 pub struct FeatureFlagsResponse {
@@ -35,12 +28,10 @@ pub struct FeatureFlagsResponse {
     /// T3 compatibility routes, and a code is worth nothing on a deployment
     /// that does not mount them. So it reports whether *they* are on.
     pub device_pairing: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub slack: Option<SlackConfig>,
 }
 
 impl FeatureFlagsResponse {
-    fn new(flags: FeatureFlags, slack_team_id: Option<String>, device_pairing: bool) -> Self {
+    fn new(flags: FeatureFlags, device_pairing: bool) -> Self {
         Self {
             netlify_publish: flags.netlify_publish,
             show_claude_settings: flags.show_claude_settings,
@@ -50,7 +41,6 @@ impl FeatureFlagsResponse {
             forgejo_enabled: flags.forgejo_enabled,
             workspace_settings: flags.workspace_settings,
             device_pairing,
-            slack: slack_team_id.map(|team_id| SlackConfig { team_id }),
         }
     }
 }
@@ -74,19 +64,15 @@ pub async fn get_feature_flags(
 }
 
 #[derive(OpenApi)]
-#[openapi(
-    paths(get_feature_flags),
-    components(schemas(FeatureFlagsResponse, SlackConfig))
-)]
+#[openapi(paths(get_feature_flags), components(schemas(FeatureFlagsResponse)))]
 pub struct FeatureFlagsApiDoc;
 
 /// Build the feature-flags router from the deployment snapshot and capabilities.
 pub fn feature_flags_router(
     flags: FeatureFlags,
-    slack_team_id: Option<String>,
     device_pairing: bool,
 ) -> (axum::Router, utoipa::openapi::OpenApi) {
-    let response = FeatureFlagsResponse::new(flags, slack_team_id, device_pairing);
+    let response = FeatureFlagsResponse::new(flags, device_pairing);
     OpenApiRouter::with_openapi(FeatureFlagsApiDoc::openapi())
         .routes(routes!(get_feature_flags))
         .with_state(response)
@@ -110,8 +96,8 @@ mod tests {
     }
 
     #[test]
-    fn response_contains_the_snapshot_and_optional_slack_config() {
-        let response = FeatureFlagsResponse::new(flags(), Some("T0123".into()), false);
+    fn response_contains_the_snapshot() {
+        let response = FeatureFlagsResponse::new(flags(), false);
 
         assert_eq!(
             response,
@@ -124,18 +110,14 @@ mod tests {
                 forgejo_enabled: true,
                 workspace_settings: true,
                 device_pairing: false,
-                slack: Some(SlackConfig {
-                    team_id: "T0123".into(),
-                }),
             }
         );
     }
 
     #[test]
-    fn response_omits_slack_and_reports_mounted_device_pairing() {
-        let response = FeatureFlagsResponse::new(flags(), None, true);
+    fn response_reports_mounted_device_pairing() {
+        let response = FeatureFlagsResponse::new(flags(), true);
 
         assert!(response.device_pairing);
-        assert_eq!(response.slack, None);
     }
 }

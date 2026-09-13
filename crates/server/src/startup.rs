@@ -1,8 +1,8 @@
 //! Application startup helpers.
 //!
 //! Each function initialises one infrastructure concern (logging, metrics,
-//! database, Redis, S3, K8s, gRPC, SSE) so that `main()` reads as a short
-//! sequential recipe rather than a single monolithic function.
+//! Redis, gRPC, SSE) so that `main()` reads as a short sequential recipe
+//! rather than a single monolithic function.
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -235,10 +235,6 @@ pub fn spawn_metrics_server(port: u16, cancel: CancellationToken) -> JoinHandle<
 }
 
 // =========================================================================
-// Database
-// =========================================================================
-
-// =========================================================================
 // SSE
 // =========================================================================
 
@@ -292,10 +288,6 @@ pub async fn init_sse(
         consumer_handle,
     ))
 }
-
-// =========================================================================
-// S3
-// =========================================================================
 
 // =========================================================================
 // gRPC
@@ -484,13 +476,12 @@ pub fn readiness_router(
 }
 
 // =========================================================================
-// Sandbox adapters
+// OpenAPI (CLI)
 // =========================================================================
 
-pub use crate::compose::infrastructure::{
-    build_docker_sandbox_adapter, build_k8s_sandbox_adapter, build_merged_openapi, init_database,
-    init_event_publisher, init_s3,
-};
+// The only public path into the crate-private `compose::infrastructure`:
+// `main.rs` is a separate binary crate and needs this for `--dump-openapi`.
+pub use crate::compose::infrastructure::build_merged_openapi;
 
 #[cfg(test)]
 mod openapi_dump_tests {
@@ -533,7 +524,6 @@ mod openapi_dump_tests {
                 "show_claude_settings",
                 "show_codex_settings",
                 "show_model_selector",
-                "slack",
                 "workspace_settings",
             ]
         );

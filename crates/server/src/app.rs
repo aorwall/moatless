@@ -64,7 +64,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         Criticality::Fatal,
         startup::spawn_metrics_server(config.server.metrics_port, cancel.clone()),
     );
-    let db_pool = startup::init_database(
+    let db_pool = crate::compose::infrastructure::init_database(
         config.database_url.as_deref(),
         config.database.max_connections,
         config.database.run_migrations,
@@ -85,12 +85,13 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         config
     };
     let feature_flags = FeatureFlags::from_env();
-    let slack_team_id = std::env::var("SLACK_TEAM_ID").ok();
+    // Set only if `ui_rpc` below mounts the T3 compatibility routes; reported
+    // as-is in the feature-flags response.
     let mut device_pairing = false;
     // The composition root: every port this process has, built once from the
     // pool and the configuration it just resolved. Everything downstream
     // receives ports from here rather than building its own.
-    let s3_client = startup::init_s3(&config).await;
+    let s3_client = crate::compose::infrastructure::init_s3(&config).await;
     let ports: Option<Ports> = db_pool
         .as_ref()
         .map(|pool| compose(pool.clone(), &config, s3_client.clone()));
@@ -103,7 +104,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
             async move { github_apps.carry_over_env_apps(&entries).await }
         });
     }
-    let event_publisher = startup::init_event_publisher(&config).await;
+    let event_publisher = crate::compose::infrastructure::init_event_publisher(&config).await;
     let (sse_state, sse_consumer) = startup::init_sse(
         &config,
         ports
@@ -543,7 +544,6 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         router,
         api,
         feature_flags,
-        slack_team_id,
         device_pairing,
         sse_state,
         auth_middleware_state,

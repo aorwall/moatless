@@ -3,15 +3,10 @@ import { createContext, type ReactNode, useContext, useEffect, useState } from '
 import { apiClient } from '@/lib/api/client'
 import type { FeatureFlagKey } from '@/lib/types/feature-flags'
 
-interface SlackConfig {
-  teamId?: string
-}
-
 interface FeatureFlagsContextValue {
   flags: FeatureFlagsResponse | null
   isLoading: boolean
   isEnabled: (flag: FeatureFlagKey) => boolean
-  getSlackConfig: () => SlackConfig | undefined
 }
 
 const FeatureFlagsContext = createContext<FeatureFlagsContextValue | undefined>(undefined)
@@ -79,15 +74,10 @@ export function FeatureFlagsProvider({ children }: FeatureFlagsProviderProps) {
     return typeof value === 'boolean' ? value : false
   }
 
-  const getSlackConfig = (): SlackConfig | undefined => {
-    return flags?.slack ?? undefined
-  }
-
   const value = {
     flags,
     isLoading,
     isEnabled,
-    getSlackConfig,
   }
 
   return <FeatureFlagsContext value={value}>{children}</FeatureFlagsContext>

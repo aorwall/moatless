@@ -12475,16 +12475,6 @@
           "show_model_selector": {
             "type": "boolean"
           },
-          "slack": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/SlackConfig"
-              }
-            ]
-          },
           "workspace_settings": {
             "type": "boolean",
             "description": "Whether a T3 project's settings page edits the Workspace behind it.\n\nOn, the page gains the Workspace's own description, repositories, image\nand defaults, and drops the three rows a Moatless Workspace does not\nhave (`defaultThreadEnvMode`, auto-pull, agent browser access)."
@@ -17564,18 +17554,6 @@
           }
         ],
         "description": "One Slack Block Kit block.\n\nTyped rather than a raw `Value` so a malformed payload fails where it is\nentered, with a field path, instead of reaching Slack and returning a bare\n`invalid_blocks` with the message silently unposted."
-      },
-      "SlackConfig": {
-        "type": "object",
-        "description": "Slack workspace configuration.",
-        "required": [
-          "teamId"
-        ],
-        "properties": {
-          "teamId": {
-            "type": "string"
-          }
-        }
       },
       "SlackPlainText": {
         "oneOf": [

@@ -1,6 +1,9 @@
 //! Runtime provider and workspace archive assembly.
 
-use crate::{compose::Ports, sandbox, startup};
+use crate::{
+    compose::{Ports, infrastructure},
+    sandbox,
+};
 use moatless_core::config::Config;
 use moatless_types::sandbox::SandboxProviderType;
 use std::sync::Arc;
@@ -87,7 +90,7 @@ pub(crate) async fn build(
 
             reaper_k8s = Some(k8s.clone());
             docker_watcher_client = None;
-            let adapter = startup::build_k8s_sandbox_adapter(
+            let adapter = infrastructure::build_k8s_sandbox_adapter(
                 config,
                 k8s.clone(),
                 s3_client
@@ -121,7 +124,7 @@ pub(crate) async fn build(
             reaper_k8s = None;
             docker_watcher_client = Some(docker_client.clone());
             storage_fallback = None;
-            let adapter = startup::build_docker_sandbox_adapter(
+            let adapter = infrastructure::build_docker_sandbox_adapter(
                 config,
                 docker_client.clone(),
                 s3_client

@@ -120,14 +120,13 @@ pub(crate) fn finish(
     mut router: Router,
     mut api: utoipa::openapi::OpenApi,
     feature_flags: FeatureFlags,
-    slack_team_id: Option<String>,
     device_pairing: bool,
     sse_state: crate::sse::routes::SseState,
     auth_middleware_state: Option<auth::middleware::AuthMiddlewareState>,
 ) -> Router {
     // Routes that don't require a database
     let (feature_flags_router, feature_flags_api) =
-        feature_flags::feature_flags_router(feature_flags, slack_team_id, device_pairing);
+        feature_flags::feature_flags_router(feature_flags, device_pairing);
     router = router.merge(feature_flags_router);
     api.merge(feature_flags_api);
     router = router.merge(crate::sse::routes::sse_router(sse_state));
