@@ -190,12 +190,6 @@ pub struct ServerEntry {
 }
 
 /// Observed Agent lifecycle while its Sandbox is ready.
-///
-/// Not migrated onto [`crate::string_enum!`]: this type's `From<&str>` is
-/// lenient (unrecognised reads as [`Unknown`](Self::Unknown), legacy
-/// `"stopped"` reads as [`Idle`](Self::Idle)), and the standard library's
-/// blanket `impl<T, U: Into<T>> TryFrom<U> for T` forbids a type from having
-/// both a `From<&str>` and the macro's own `TryFrom<&str>`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "lowercase")]
@@ -590,6 +584,14 @@ mod tests {
         );
         assert_eq!(SandboxStatus::try_from("fatal"), Ok(SandboxStatus::Error));
         assert!(SandboxStatus::try_from("bad").is_err());
+    }
+
+    #[test]
+    fn sandbox_status_deserializes_the_legacy_alias() {
+        assert_eq!(
+            serde_json::from_str::<SandboxStatus>("\"fatal\"").unwrap(),
+            SandboxStatus::Error
+        );
     }
 
     #[test]

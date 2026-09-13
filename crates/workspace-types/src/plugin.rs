@@ -72,3 +72,53 @@ pub fn marketplace_local_path(source: &PluginMarketplaceSource, context: &str) -
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_string_source_not_starting_with_dot_slash_is_skipped() {
+        let source = PluginMarketplaceSource::LocalPath("plugins/skills".to_string());
+        assert_eq!(marketplace_local_path(&source, "ctx"), None);
+    }
+
+    #[test]
+    fn a_local_descriptor_without_a_path_is_skipped() {
+        let source = PluginMarketplaceSource::Descriptor {
+            source: "local".to_string(),
+            path: None,
+        };
+        assert_eq!(marketplace_local_path(&source, "ctx"), None);
+    }
+
+    #[test]
+    fn a_non_local_descriptor_is_skipped() {
+        let source = PluginMarketplaceSource::Descriptor {
+            source: "git".to_string(),
+            path: Some("./plugins/skills".to_string()),
+        };
+        assert_eq!(marketplace_local_path(&source, "ctx"), None);
+    }
+
+    #[test]
+    fn a_string_source_starting_with_dot_slash_resolves() {
+        let source = PluginMarketplaceSource::LocalPath("./plugins/skills".to_string());
+        assert_eq!(
+            marketplace_local_path(&source, "ctx"),
+            Some("./plugins/skills".to_string())
+        );
+    }
+
+    #[test]
+    fn a_local_descriptor_with_a_path_resolves() {
+        let source = PluginMarketplaceSource::Descriptor {
+            source: "local".to_string(),
+            path: Some("./plugins/skills".to_string()),
+        };
+        assert_eq!(
+            marketplace_local_path(&source, "ctx"),
+            Some("./plugins/skills".to_string())
+        );
+    }
+}

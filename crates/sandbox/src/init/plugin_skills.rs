@@ -9,7 +9,9 @@
 
 use std::path::{Path, PathBuf};
 
-use moatless_workspace_types::plugin::{PluginDelivery, PluginMarketplaceSource, marketplace_local_path};
+use moatless_workspace_types::plugin::{
+    PluginDelivery, PluginMarketplaceSource, marketplace_local_path,
+};
 use serde::Deserialize;
 use tracing::{debug, info, warn};
 

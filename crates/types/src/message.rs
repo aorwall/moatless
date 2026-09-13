@@ -15,8 +15,8 @@ crate::string_enum!(
         /// messageCount, tokens, status }` summary for one `Agent` tool call —
         /// keeps the card live without streaming transcript.
         ///
-        /// Intentionally camelCase, not the crate's `snake_case` convention, so the
-        /// wire value matches the frontend event contract.
+        /// Intentionally camelCase, not the crate's `snake_case` convention, so
+        /// the wire value matches the frontend event contract.
         SubagentProgress => "subagentProgress",
     }
 );

@@ -670,6 +670,11 @@ fn expand_contract_macro(m: &syn::ItemMacro) -> Vec<syn::Item> {
         let attrs = input.call(syn::Attribute::parse_outer)?;
         let _: syn::Visibility = input.parse()?;
         let ident: syn::Ident = input.parse()?;
+        if input.peek(syn::token::Bracket) {
+            let extras;
+            syn::bracketed!(extras in input);
+            let _: proc_macro2::TokenStream = extras.parse()?;
+        }
         let body;
         syn::braced!(body in input);
         let _: proc_macro2::TokenStream = body.parse()?;

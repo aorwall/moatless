@@ -41,6 +41,8 @@ pub(super) fn env_value<'a>(container: &'a Container, name: &str) -> Option<&'a 
 pub(super) fn test_config() -> Config {
     let mut config = Config::test_minimal();
     config.sandbox.image = "sandbox:latest".into();
+    config.sandbox.task_token_secret = Some("secret".into());
+    config.sandbox.default_codex_model = None;
     config
 }
 

@@ -393,6 +393,9 @@ fn scan(items: &[syn::Item], module: &[String], public: bool, scope: Scope, out:
             syn::Item::Static(s) if is_pub(&s.vis) => {
                 Some((s.ident.to_string(), Kind::Value, named(&s.ty)))
             }
+            syn::Item::Macro(m) => {
+                string_enum_name(m).map(|ident| (ident.to_string(), Kind::Enum, Vec::new()))
+            }
             _ => None,
         };
         if let Some((name, kind, signature)) = declared {
@@ -645,6 +648,32 @@ fn is_pub(vis: &syn::Visibility) -> bool {
     matches!(vis, syn::Visibility::Public(_))
 }
 
+/// The enum name a `string_enum!` invocation declares, since its expansion is
+/// unconditionally `pub enum` and never appears as a literal `syn::Item::Enum`.
+fn string_enum_name(m: &syn::ItemMacro) -> Option<syn::Ident> {
+    use syn::parse::Parser;
+    if m.mac.path.segments.last()?.ident != "string_enum" {
+        return None;
+    }
+    // `Parser::parse2` requires the closure to consume the whole stream, so the
+    // optional `[extras]` group and the variant body are parsed and discarded
+    // too, mirroring `source_index::expand_contract_macro`.
+    let parser = |input: syn::parse::ParseStream<'_>| -> syn::Result<syn::Ident> {
+        input.call(syn::Attribute::parse_outer)?;
+        let ident: syn::Ident = input.parse()?;
+        if input.peek(syn::token::Bracket) {
+            let extras;
+            syn::bracketed!(extras in input);
+            let _: proc_macro2::TokenStream = extras.parse()?;
+        }
+        let body;
+        syn::braced!(body in input);
+        let _: proc_macro2::TokenStream = body.parse()?;
+        Ok(ident)
+    };
+    parser.parse2(m.mac.tokens.clone()).ok()
+}
+
 #[cfg(test)]
 #[allow(
     clippy::unwrap_used,
@@ -893,6 +922,21 @@ mod tests {
         assert!(!store.signature.contains(&"Secret".to_string()));
         let wrapper = found.iter().find(|e| e.name == "Wrapper").unwrap();
         assert_eq!(wrapper.signature, vec!["Inner".to_string()]);
+    }
+
+    /// `string_enum!` expands to `pub enum $name`, never a literal
+    /// `syn::Item::Enum`, so a bare-form and bracket-form invocation both need
+    /// their own path to the export list.
+    #[test]
+    fn a_string_enum_invocation_exports_its_name() {
+        let sources = crate_of(&[
+            ("src/lib.rs", "pub mod task;"),
+            (
+                "src/task.rs",
+                "crate::string_enum!(\n    CheckoutMode [Default] {\n        #[default]\n        Shared => \"shared\",\n        Isolated => \"isolated\",\n    }\n);\ncrate::string_enum!(\n    Bare { A => \"a\" }\n);",
+            ),
+        ]);
+        assert_eq!(types(&sources), vec!["Bare", "CheckoutMode"]);
     }
 
     #[test]

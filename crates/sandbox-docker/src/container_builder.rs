@@ -447,6 +447,8 @@ mod tests {
         config.sandbox_provider = SandboxProviderType::Docker;
         config.docker.image = "sandbox:latest".into();
         config.docker.network = "moatless".into();
+        config.sandbox.task_token_secret = Some("secret".into());
+        config.sandbox.default_codex_model = None;
         config
     }
 

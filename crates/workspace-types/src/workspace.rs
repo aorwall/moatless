@@ -282,9 +282,9 @@ crate::string_enum!(
     /// A provider whose credential can be pinned to a Workspace.
     ///
     /// Only providers whose sandbox credential is a single static environment
-    /// variable are here. Codex (`CODEX_AUTH_JSON`) and the Claude OAuth token are
-    /// refreshed and written back against the connected user's own row, so a
-    /// workspace-level copy of either would go stale with nothing to rotate it.
+    /// variable are listed here. Codex and the Claude OAuth token are refreshed
+    /// per-user, so a workspace-level copy would go stale with nothing to
+    /// rotate it.
     WorkspaceCredentialProvider [Hash] {
         Github => "github",
         Gitlab => "gitlab",
@@ -555,7 +555,7 @@ fn split_suffix<'a>(value: &'a str, suffixes: &[(&str, u64)]) -> (&'a str, Optio
 
 crate::string_enum!(
     /// Where a node-local sandbox volume is backed.
-    StorageMedium using "camelCase" {
+    StorageMedium {
         /// A Kubernetes `emptyDir`, capped by the paired size quantity.
         EmptyDir => "emptyDir",
         /// A node-local `hostPath` under `K8S_SANDBOX_CACHE_HOST_ROOT`. Kubernetes

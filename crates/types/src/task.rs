@@ -64,7 +64,6 @@ crate::string_enum!(
         Open => "open",
         Closed => "closed",
         Updated => "updated",
-        #[serde(rename = "metadata.updated")]
         MetadataUpdated => "metadata.updated",
     }
 );
@@ -81,11 +80,6 @@ crate::string_enum!(
         /// interruption is visible without waiting for the delayed orphaned-turn
         /// reconciliation. The turn resumes once the pod reschedules — not a
         /// terminal error, so `is_error` stays false.
-        ///
-        /// Renamed explicitly: `rename_all = "snake_case"` would yield
-        /// `"interrupted"`, but the wire value (and `as_str`/`TryFrom`/frontend) is
-        /// `"turn_interrupted"` — pin it so the serde-derived OpenAPI schema agrees.
-        #[serde(rename = "turn_interrupted")]
         Interrupted => "turn_interrupted",
     }
 );
