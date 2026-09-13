@@ -1,6 +1,7 @@
 //! Methods that read or command the thread listing.
 
 use super::routing::Request;
+use super::routing::ThreadRequest;
 use crate::authentication::viewer_scope;
 use crate::commands;
 use crate::dao::ConversationBrowse;
@@ -140,18 +141,18 @@ pub(super) async fn orchestration_get_archived_shell_snapshot(request: Request) 
 /// page, and a failure would take a rendered transcript off screen to report a
 /// missing title.
 pub(super) async fn threads_get_shell(request: Request) -> Vec<Value> {
-    let Request {
+    let ThreadRequest {
         id,
-        payload,
+        viewer,
+        task_id,
         state,
         identity,
         ..
-    } = request;
-    let viewer = viewer_scope(&identity);
-    let Some(task_id) = payload.get("threadId").and_then(Value::as_str) else {
-        return vec![failure_exit(&id, "threads.getShell requires a threadId")];
+    } = match request.require_thread_id() {
+        Ok(request) => request,
+        Err(failure) => return failure,
     };
-    match thread_shell(&state.reads, &state.model_defaults, &viewer, task_id).await {
+    match thread_shell(&state.reads, &state.model_defaults, &viewer, &task_id).await {
         Ok(thread) => vec![success_exit(
             &id,
             json!({ "thread": thread.unwrap_or(Value::Null) }),

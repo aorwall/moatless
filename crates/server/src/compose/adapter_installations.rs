@@ -108,6 +108,22 @@ impl AdapterInstallations {
     }
 }
 
+/// Register the one-handler inbound-message delivery shared by the Adapters
+/// whose `register_delivery` does nothing but bind their own
+/// `delivery::INBOUND_MESSAGE` and `delivery::ADAPTER` to an
+/// [`InboundMessageHandler`].
+fn register_inbound_message_delivery(
+    handlers: &mut AdapterDeliveryHandlers,
+    state: &AppState,
+    kind: &'static str,
+    adapter: &'static str,
+) {
+    handlers.register(
+        kind,
+        Arc::new(InboundMessageHandler::new(adapter, state.routing.clone())),
+    );
+}
+
 struct SlackInstallation {
     adapter: Arc<SlackAdapter>,
 }
@@ -126,12 +142,11 @@ impl SlackInstallation {
 
     fn register_delivery(handlers: &mut AdapterDeliveryHandlers, state: &AppState) {
         use crate::adapters::providers::slack::delivery;
-        handlers.register(
+        register_inbound_message_delivery(
+            handlers,
+            state,
             delivery::INBOUND_MESSAGE,
-            Arc::new(InboundMessageHandler::new(
-                delivery::ADAPTER,
-                state.routing.clone(),
-            )),
+            delivery::ADAPTER,
         );
     }
 }
@@ -146,12 +161,11 @@ impl WebhookInstallation {
 
     fn register_delivery(handlers: &mut AdapterDeliveryHandlers, state: &AppState) {
         use crate::adapters::providers::webhook::delivery;
-        handlers.register(
+        register_inbound_message_delivery(
+            handlers,
+            state,
             delivery::INBOUND_MESSAGE,
-            Arc::new(InboundMessageHandler::new(
-                delivery::ADAPTER,
-                state.routing.clone(),
-            )),
+            delivery::ADAPTER,
         );
     }
 }
@@ -177,12 +191,11 @@ impl TelegramInstallation {
 
     fn register_delivery(handlers: &mut AdapterDeliveryHandlers, state: &AppState) {
         use crate::adapters::providers::telegram::delivery;
-        handlers.register(
+        register_inbound_message_delivery(
+            handlers,
+            state,
             delivery::INBOUND_MESSAGE,
-            Arc::new(InboundMessageHandler::new(
-                delivery::ADAPTER,
-                state.routing.clone(),
-            )),
+            delivery::ADAPTER,
         );
     }
 }

@@ -1,6 +1,7 @@
 //! Methods that act on a thread's Sandbox and read what runs inside it.
 
 use super::routing::Request;
+use super::routing::ThreadRequest;
 use crate::authentication::viewer_scope;
 use crate::rpc::frames::failure_exit;
 use crate::rpc::frames::sandbox_failure_exit;
@@ -43,115 +44,112 @@ pub(super) async fn scripts_run(request: Request) -> Vec<Value> {
 }
 
 pub(super) async fn sandbox_start(request: Request) -> Vec<Value> {
-    let Request {
+    let ThreadRequest {
         id,
         tag,
-        payload,
+        viewer,
+        task_id,
         state,
         identity,
         ..
-    } = request;
-    let viewer = viewer_scope(&identity);
-    let Some(task_id) = payload.get("threadId").and_then(Value::as_str) else {
-        return vec![failure_exit(&id, "sandbox.start requires a threadId")];
+    } = match request.require_thread_id() {
+        Ok(request) => request,
+        Err(failure) => return failure,
     };
-    match sandbox::start(&state.sandbox, &viewer, task_id).await {
+    match sandbox::start(&state.sandbox, &viewer, &task_id).await {
         Ok(status) => vec![success_exit(&id, status)],
         Err(error) => vec![sandbox_failure_exit(&id, &tag, &error, &identity)],
     }
 }
 
 pub(super) async fn sandbox_stop(request: Request) -> Vec<Value> {
-    let Request {
+    let ThreadRequest {
         id,
         tag,
-        payload,
+        viewer,
+        task_id,
         state,
         identity,
         ..
-    } = request;
-    let viewer = viewer_scope(&identity);
-    let Some(task_id) = payload.get("threadId").and_then(Value::as_str) else {
-        return vec![failure_exit(&id, "sandbox.stop requires a threadId")];
+    } = match request.require_thread_id() {
+        Ok(request) => request,
+        Err(failure) => return failure,
     };
-    match sandbox::stop(&state.sandbox, &viewer, task_id).await {
+    match sandbox::stop(&state.sandbox, &viewer, &task_id).await {
         Ok(status) => vec![success_exit(&id, status)],
         Err(error) => vec![sandbox_failure_exit(&id, &tag, &error, &identity)],
     }
 }
 
 pub(super) async fn sandbox_restart(request: Request) -> Vec<Value> {
-    let Request {
+    let ThreadRequest {
         id,
         tag,
-        payload,
+        viewer,
+        task_id,
         state,
         identity,
         ..
-    } = request;
-    let viewer = viewer_scope(&identity);
-    let Some(task_id) = payload.get("threadId").and_then(Value::as_str) else {
-        return vec![failure_exit(&id, "sandbox.restart requires a threadId")];
+    } = match request.require_thread_id() {
+        Ok(request) => request,
+        Err(failure) => return failure,
     };
-    match sandbox::restart(&state.sandbox, &viewer, task_id).await {
+    match sandbox::restart(&state.sandbox, &viewer, &task_id).await {
         Ok(status) => vec![success_exit(&id, status)],
         Err(error) => vec![sandbox_failure_exit(&id, &tag, &error, &identity)],
     }
 }
 
 pub(super) async fn sandbox_redeploy(request: Request) -> Vec<Value> {
-    let Request {
+    let ThreadRequest {
         id,
         tag,
-        payload,
+        viewer,
+        task_id,
         state,
         identity,
         ..
-    } = request;
-    let viewer = viewer_scope(&identity);
-    let Some(task_id) = payload.get("threadId").and_then(Value::as_str) else {
-        return vec![failure_exit(&id, "sandbox.redeploy requires a threadId")];
+    } = match request.require_thread_id() {
+        Ok(request) => request,
+        Err(failure) => return failure,
     };
-    match sandbox::redeploy(&state.sandbox, &viewer, task_id).await {
+    match sandbox::redeploy(&state.sandbox, &viewer, &task_id).await {
         Ok(status) => vec![success_exit(&id, status)],
         Err(error) => vec![sandbox_failure_exit(&id, &tag, &error, &identity)],
     }
 }
 
 pub(super) async fn sandbox_cleanup(request: Request) -> Vec<Value> {
-    let Request {
+    let ThreadRequest {
         id,
         tag,
-        payload,
+        viewer,
+        task_id,
         state,
         identity,
         ..
-    } = request;
-    let viewer = viewer_scope(&identity);
-    let Some(task_id) = payload.get("threadId").and_then(Value::as_str) else {
-        return vec![failure_exit(&id, "sandbox.cleanup requires a threadId")];
+    } = match request.require_thread_id() {
+        Ok(request) => request,
+        Err(failure) => return failure,
     };
-    match sandbox::cleanup(&state.sandbox, &viewer, task_id).await {
+    match sandbox::cleanup(&state.sandbox, &viewer, &task_id).await {
         Ok(status) => vec![success_exit(&id, status)],
         Err(error) => vec![sandbox_failure_exit(&id, &tag, &error, &identity)],
     }
 }
 
 pub(super) async fn sandbox_set_idle_timeout(request: Request) -> Vec<Value> {
-    let Request {
+    let ThreadRequest {
         id,
         tag,
-        payload,
+        viewer,
+        task_id,
         state,
         identity,
-        ..
-    } = request;
-    let viewer = viewer_scope(&identity);
-    let Some(task_id) = payload.get("threadId").and_then(Value::as_str) else {
-        return vec![failure_exit(
-            &id,
-            "sandbox.setIdleTimeout requires a threadId",
-        )];
+        payload,
+    } = match request.require_thread_id() {
+        Ok(request) => request,
+        Err(failure) => return failure,
     };
     // `as_i64` and not `as_u64`: a client that sends a negative gets the
     // refusal `sandbox::set_idle_timeout` states, not "requires minutes".
@@ -162,26 +160,26 @@ pub(super) async fn sandbox_set_idle_timeout(request: Request) -> Vec<Value> {
     else {
         return vec![failure_exit(&id, "sandbox.setIdleTimeout requires minutes")];
     };
-    match sandbox::set_idle_timeout(state.commands.as_ref(), &viewer, task_id, minutes).await {
+    match sandbox::set_idle_timeout(state.commands.as_ref(), &viewer, &task_id, minutes).await {
         Ok(result) => vec![success_exit(&id, result)],
         Err(error) => vec![sandbox_failure_exit(&id, &tag, &error, &identity)],
     }
 }
 
 pub(super) async fn sandbox_status(request: Request) -> Vec<Value> {
-    let Request {
+    let ThreadRequest {
         id,
         tag,
-        payload,
+        viewer,
+        task_id,
         state,
         identity,
         ..
-    } = request;
-    let viewer = viewer_scope(&identity);
-    let Some(task_id) = payload.get("threadId").and_then(Value::as_str) else {
-        return vec![failure_exit(&id, "sandbox.status requires a threadId")];
+    } = match request.require_thread_id() {
+        Ok(request) => request,
+        Err(failure) => return failure,
     };
-    match sandbox::status(&state.sandbox, &viewer, task_id).await {
+    match sandbox::status(&state.sandbox, &viewer, &task_id).await {
         Ok(status) => vec![success_exit(&id, status)],
         Err(error) => vec![sandbox_failure_exit(&id, &tag, &error, &identity)],
     }
@@ -202,18 +200,18 @@ pub(super) async fn sandbox_list_diagnostics(request: Request) -> Vec<Value> {
 }
 
 pub(super) async fn servers_list(request: Request) -> Vec<Value> {
-    let Request {
+    let ThreadRequest {
         id,
-        payload,
+        viewer,
+        task_id,
         state,
         identity,
         ..
-    } = request;
-    let viewer = viewer_scope(&identity);
-    let Some(task_id) = payload.get("threadId").and_then(Value::as_str) else {
-        return vec![failure_exit(&id, "servers.list requires a threadId")];
+    } = match request.require_thread_id() {
+        Ok(request) => request,
+        Err(failure) => return failure,
     };
-    match servers::list(&state.servers, &viewer, task_id).await {
+    match servers::list(&state.servers, &viewer, &task_id).await {
         Ok(listing) => vec![success_exit(&id, listing)],
         // See [`servers_not_found`]: an unprovisioned conversation has no
         // servers, which is an answer and not a failure.
@@ -223,18 +221,18 @@ pub(super) async fn servers_list(request: Request) -> Vec<Value> {
 }
 
 pub(super) async fn subtasks_list(request: Request) -> Vec<Value> {
-    let Request {
+    let ThreadRequest {
         id,
-        payload,
+        viewer,
+        task_id,
         state,
         identity,
         ..
-    } = request;
-    let viewer = viewer_scope(&identity);
-    let Some(task_id) = payload.get("threadId").and_then(Value::as_str) else {
-        return vec![failure_exit(&id, "subtasks.list requires a threadId")];
+    } = match request.require_thread_id() {
+        Ok(request) => request,
+        Err(failure) => return failure,
     };
-    match subtasks::list(&state.subtasks, &viewer, task_id).await {
+    match subtasks::list(&state.subtasks, &viewer, &task_id).await {
         Ok(listing) => vec![success_exit(&id, listing)],
         // A Thread the viewer cannot read has no subtasks *for them*, and the
         // panel is a section on a page they are already looking at: an empty

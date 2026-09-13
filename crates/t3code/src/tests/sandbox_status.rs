@@ -113,3 +113,19 @@ async fn subscribing_to_a_sandbox_status_without_a_thread_is_refused() {
         "the refusal should name what is missing, got {output:?}"
     );
 }
+
+/// `sandbox.start` shares its missing-`threadId` prologue with every other
+/// thread-addressed method through `Request::require_thread_id`; this pins
+/// the exact defect text so that sharing cannot blur which method refused.
+#[tokio::test]
+async fn starting_a_sandbox_without_a_thread_is_refused_by_name() {
+    let frame = request("1", "sandbox.start", json!({}));
+    let mut session = session();
+    let output = session.handle_json(&frame, &state(), &viewer()).await;
+
+    assert_eq!(output.frames[0]["exit"]["_tag"], "Failure");
+    assert_eq!(
+        output.frames[0]["exit"]["cause"][0]["defect"],
+        "sandbox.start requires a threadId"
+    );
+}

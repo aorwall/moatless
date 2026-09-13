@@ -3,6 +3,7 @@
 //! A method here holds the frame loop; see `docs/deferred-changes.md`.
 
 use super::routing::Request;
+use super::routing::ThreadRequest;
 use crate::authentication::viewer_scope;
 use crate::config::T3_ENVIRONMENT_LABEL;
 use crate::rpc::config::descriptor;
@@ -56,22 +57,18 @@ impl ProtocolSession {
     }
 
     pub(super) async fn sandbox_subscribe_status(&mut self, request: Request) -> Vec<Value> {
-        let Request {
+        let ThreadRequest {
             id,
             tag,
-            payload,
+            viewer,
+            task_id,
             state,
             identity,
             ..
-        } = request;
-        let viewer = viewer_scope(&identity);
-        let Some(task_id) = payload.get("threadId").and_then(Value::as_str) else {
-            return vec![failure_exit(
-                &id,
-                "sandbox.subscribeStatus requires a threadId",
-            )];
+        } = match request.require_thread_id() {
+            Ok(request) => request,
+            Err(failure) => return failure,
         };
-        let task_id = task_id.to_string();
         // Seed from the same read the poller makes, so the indicator has a
         // status before the first interval elapses rather than after it.
         let seeded = match sandbox::status(&state.sandbox, &viewer, &task_id).await {
@@ -86,22 +83,18 @@ impl ProtocolSession {
     }
 
     pub(super) async fn sandbox_subscribe_detail(&mut self, request: Request) -> Vec<Value> {
-        let Request {
+        let ThreadRequest {
             id,
             tag,
-            payload,
+            viewer,
+            task_id,
             state,
             identity,
             ..
-        } = request;
-        let viewer = viewer_scope(&identity);
-        let Some(task_id) = payload.get("threadId").and_then(Value::as_str) else {
-            return vec![failure_exit(
-                &id,
-                "sandbox.subscribeDetail requires a threadId",
-            )];
+        } = match request.require_thread_id() {
+            Ok(request) => request,
+            Err(failure) => return failure,
         };
-        let task_id = task_id.to_string();
         // Seeded for the same reason `sandbox.subscribeStatus` is, and the more
         // so: this subscription's interval is five times as long.
         let seeded = match sandbox::detail(&state.sandbox, &viewer, &task_id).await {
@@ -116,21 +109,17 @@ impl ProtocolSession {
     }
 
     pub(super) async fn subscribe_server_status(&mut self, request: Request) -> Vec<Value> {
-        let Request {
+        let ThreadRequest {
             id,
-            payload,
+            viewer,
+            task_id,
             state,
             identity,
             ..
-        } = request;
-        let viewer = viewer_scope(&identity);
-        let Some(task_id) = payload.get("threadId").and_then(Value::as_str) else {
-            return vec![failure_exit(
-                &id,
-                "subscribeServerStatus requires a threadId",
-            )];
+        } = match request.require_thread_id() {
+            Ok(request) => request,
+            Err(failure) => return failure,
         };
-        let task_id = task_id.to_string();
         // Seed from the same read the poller makes, so the panel has a list
         // before the first interval elapses rather than after it.
         let seeded = match servers::list(&state.servers, &viewer, &task_id).await {
@@ -227,24 +216,18 @@ impl ProtocolSession {
     }
 
     pub(super) async fn orchestration_subscribe_thread(&mut self, request: Request) -> Vec<Value> {
-        let Request {
+        let ThreadRequest {
             id,
-            payload,
+            viewer,
+            task_id,
             state,
             identity,
+            payload,
             ..
-        } = request;
-        let Some(task_id) = payload.get("threadId").and_then(Value::as_str) else {
-            // The contract requires it and every client encodes against the
-            // contract, so this is a malformed request rather than a
-            // conversation that is missing.
-            return vec![failure_exit(
-                &id,
-                "orchestration.subscribeThread requires a threadId",
-            )];
+        } = match request.require_thread_id() {
+            Ok(request) => request,
+            Err(failure) => return failure,
         };
-        let task_id = task_id.to_string();
-        let viewer = viewer_scope(&identity);
         let opened = match thread_subscription(
             &state.reads,
             &state.deployment(),
