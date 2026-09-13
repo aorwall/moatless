@@ -210,6 +210,12 @@ unnested_or_patterns = "allow"
 [profile.dev.package."*"]
 debug = false
 
+# arch-report parses the whole workspace with `syn` on every debug run and
+# every `cargo test -p moatless-arch-rules`; unoptimized parsing dominates its
+# wall clock, so this one package gets full optimization even in dev builds.
+[profile.dev.package.moatless-arch-rules]
+opt-level = 3
+
 # Line tables only (not full DWARF): backtraces still resolve to file:line,
 # but the linker has far less debug info to process on every build.
 [profile.dev]

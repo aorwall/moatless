@@ -1,5 +1,6 @@
 //! Definition identities, imports and references from Cargo's Rust targets.
 
+use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
@@ -35,6 +36,10 @@ pub struct Import {
     pub path: Vec<String>,
 }
 
+/// A `resolve` memo key: a record's address (stable once `records` stops
+/// growing) paired with the path it was asked to resolve.
+type ResolveCache = RefCell<BTreeMap<(usize, Vec<String>), Option<String>>>;
+
 /// The source inventory for one workspace read.
 #[derive(Default)]
 pub struct Index {
@@ -43,6 +48,11 @@ pub struct Index {
     dependencies: BTreeMap<String, BTreeMap<String, String>>,
     definitions: BTreeSet<String>,
     resolved: BTreeMap<(String, String), BTreeSet<String>>,
+    /// Memoized `resolve` results, keyed by a record's address (stable once
+    /// `records` stops growing) and its queried path. Several rules walk
+    /// overlapping subsets of the same index and re-resolve the same
+    /// reference; `resolve` is a pure function of its inputs, so this is safe.
+    resolve_cache: ResolveCache,
 }
 
 impl Index {
@@ -289,13 +299,19 @@ impl Index {
 
     /// Resolve a reference through local imports and cross-crate re-exports.
     pub fn resolve(&self, record: &Record, path: &[String]) -> Option<String> {
-        self.resolve_inner(
+        let key = (record as *const Record as usize, path.to_vec());
+        if let Some(cached) = self.resolve_cache.borrow().get(&key) {
+            return cached.clone();
+        }
+        let result = self.resolve_inner(
             &record.package,
             &record.module,
             path,
             &record.imports,
             &mut BTreeSet::new(),
-        )
+        );
+        self.resolve_cache.borrow_mut().insert(key, result.clone());
+        result
     }
 
     fn resolve_inner(
