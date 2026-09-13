@@ -1,7 +1,7 @@
 use super::Ports;
 use crate::{
     access_settings, adapters, feature_flags, file_storage, repository_sync, sandbox,
-    state::AppState, t3code, task_connections,
+    state::AppState, t3code,
 };
 use axum::{Json, Router};
 use moatless_core::{config::Config, feature_flags::FeatureFlags};
@@ -16,7 +16,6 @@ pub(crate) fn domain_routes(app_state: &AppState) -> (Router, utoipa::openapi::O
     let modules = vec![
         agent::routes::agent_router(app_state.clone()),
         task::routes::task_router(app_state.clone()),
-        task_connections::routes::task_connections_router(app_state.clone()),
         feedback::routes::feedback_router(app_state.clone()),
         message::routes::message_router(app_state.clone()),
         file_storage::routes::file_storage_router(app_state.clone()),

@@ -10,18 +10,15 @@
 //!
 //! These prove the two ports production composition supplies are wired to the
 //! same database the handlers used when they constructed `Pg*` repositories
-//! themselves: a binding written through `state.task_bindings` is the one
-//! `GET /api/v1/tasks/{task_id}/connections` returns.
+//! themselves.
 
 use crate::common;
 use moatless_types::adapter::AdapterKind;
 
 use chrono::Utc;
 use sqlx::PgPool;
-use tower::ServiceExt;
 
 use moatless_backend::state::AppState;
-use moatless_backend::task_connections::routes::task_connections_router;
 use moatless_loops::bindings::test_support::upsert_binding;
 use moatless_tasks::task::test_support as task_fixtures;
 use moatless_types::access_control::Scope;
@@ -29,10 +26,7 @@ use moatless_types::adapter::AdapterConnection;
 use moatless_types::adapter::TaskBinding;
 use moatless_workspaces::compose;
 
-use common::{
-    USER_1, authed_request, body_json, make_repository_row, make_task_row, seed_team,
-    test_app_state, user_scope,
-};
+use common::{USER_1, make_repository_row, make_task_row, seed_team, test_app_state, user_scope};
 
 /// Seed the team + repository a task's FKs require, then the task itself.
 async fn seed_task(pool: &PgPool, task_id: &str, user_id: &str) {
@@ -106,41 +100,6 @@ async fn is_active(pool: &PgPool, binding_id: &str) -> bool {
         .fetch_one(pool)
         .await
         .expect("read binding active flag")
-}
-
-/// The task-connections handler reads the binding that was written through
-/// `AppState`'s port — the port and the handler share one database.
-#[sqlx::test]
-async fn task_connections_handler_reads_bindings_written_through_the_port(pool: PgPool) {
-    seed_task(&pool, "task-conn-1", USER_1).await;
-    let state = test_app_state(pool.clone());
-    let connection_id = seed_connection(&state, "pc-1", USER_1).await;
-
-    upsert_binding(
-        &state.task_bindings,
-        &binding("tb-1", "task-conn-1", &connection_id, "acme/web#7"),
-    )
-    .await
-    .expect("upsert binding through the port");
-
-    // The endpoint lives in its own router, not the task router — the two are
-    // mounted side by side at startup and only share the `tasks` OpenAPI tag.
-    let (router, _api) = task_connections_router(state);
-    let resp = router
-        .oneshot(authed_request(
-            "GET",
-            "/api/v1/tasks/task-conn-1/connections",
-            USER_1,
-        ))
-        .await
-        .unwrap();
-    assert_eq!(resp.status(), axum::http::StatusCode::OK);
-
-    let body = body_json(resp).await;
-    let connections = body.as_array().expect("connections array");
-    assert_eq!(connections.len(), 1, "body: {body}");
-    assert_eq!(connections[0]["kind"], "github_pr");
-    assert_eq!(connections[0]["label"], "acme/web#7");
 }
 
 /// `deactivate_for_task` is scoped to one task and idempotent.

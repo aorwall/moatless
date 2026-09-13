@@ -237,15 +237,6 @@ impl ApiClient {
         self.get(&format!("/api/v1/tasks/{task_id}")).await
     }
 
-    /// GET `/api/v1/tasks/{task_id}/connections`
-    pub async fn get_task_connections(
-        &self,
-        task_id: &str,
-    ) -> Result<Vec<moatless_api_schemas::task_connections::Connection>, ApiError> {
-        self.get(&format!("/api/v1/tasks/{task_id}/connections"))
-            .await
-    }
-
     /// POST /api/v1/tasks
     pub async fn create_task(
         &self,

@@ -1,7 +1,6 @@
 import type {
   SendMessageRequest as ApiSendMessageRequest,
   CloseTaskRequest,
-  Connection,
   CreateTaskRequest,
   CreateTaskResponse,
   GetMessagesResponse,
@@ -26,7 +25,6 @@ import {
   closeTask as closeTaskHandler,
   createTask as createTaskHandler,
   deleteTask as deleteTaskHandler,
-  getTaskConnections as getTaskConnectionsHandler,
   getTask as getTaskHandler,
   listTasks as listTasksHandler,
   reopenTask as reopenTaskHandler,
@@ -127,15 +125,6 @@ export const tasksApi = {
 
   async getTaskMetadata(taskId: string): Promise<TaskResponse> {
     return await unwrapResponse(getTaskHandler(taskId))
-  },
-
-  async getTaskConnections(taskId: string, opts?: { refresh?: boolean }): Promise<Connection[]> {
-    const refresh = opts?.refresh
-    return await unwrapResponse(
-      getTaskConnectionsHandler(taskId, {
-        ...(refresh !== undefined && { refresh }),
-      }),
-    )
   },
 
   async getTaskStatistics(taskId: string): Promise<TaskStatisticsResponse> {

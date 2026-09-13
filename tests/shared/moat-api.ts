@@ -12,7 +12,6 @@
  */
 
 import type {
-  Connection,
   CreateFeedbackRequest,
   CreateRepositoryRequest,
   CreateTaskBindingRequest,
@@ -707,18 +706,6 @@ export class MoatApi {
     return this.expect<ListFeedbackResponse>(
       await this.moat.raw('GET', `/api/v1/tasks/${taskId}/feedback`),
     )
-  }
-
-  // =========================================================================
-  // Task connections
-  // =========================================================================
-
-  async getTaskConnections(taskId: string): Promise<Connection[]> {
-    return this.expect<Connection[]>(await this.getTaskConnectionsRaw(taskId))
-  }
-
-  async getTaskConnectionsRaw(taskId: string): Promise<RawResponse> {
-    return this.moat.raw('GET', `/api/v1/tasks/${taskId}/connections`)
   }
 
   // =========================================================================

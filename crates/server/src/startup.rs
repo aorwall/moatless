@@ -490,12 +490,13 @@ mod openapi_dump_tests {
     /// The `--dump-openapi` builder feeds CI's TS-client generation and is a
     /// second, independent assembly site from the runtime router. A router
     /// whose `ApiDoc` is not merged here compiles clean but silently drops its
-    /// endpoints from the generated client. Pin the task-connection endpoint,
-    /// which lives in its own `ApiDoc` rather than the task router's.
+    /// endpoints from the generated client. Pin the repository sync-config
+    /// endpoint, which lives in its own `ApiDoc` rather than the repository
+    /// router's.
     #[test]
-    fn dump_includes_the_task_connections_endpoint() {
+    fn dump_includes_the_repository_sync_endpoint() {
         let spec = serde_json::to_value(build_merged_openapi()).unwrap();
-        let p = "/api/v1/tasks/{task_id}/connections";
+        let p = "/api/v1/repositories/{repository_id}/sync-config";
         assert!(
             spec["paths"].get(p).is_some(),
             "build_merged_openapi() is missing {p}; its ApiDoc is not merged into the dump builder"

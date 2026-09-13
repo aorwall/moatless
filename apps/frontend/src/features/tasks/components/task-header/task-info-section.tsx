@@ -11,7 +11,6 @@ import {
   XCircle,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import { formatTimestamp } from '@/features/task-connections'
 import { useTaskId } from '@/features/tasks/contexts/task-providers'
 import { useTaskStatisticsQuery } from '@/features/tasks/hooks/use-task-queries'
 import {
@@ -23,6 +22,7 @@ import {
   useUpdateTaskVisibility,
 } from '@/features/tasks/hooks/use-tasks'
 import { formatRelativeTime } from '@/features/tasks/utils/format-relative-time'
+import { formatTimestamp } from '@/features/tasks/utils/format-timestamp'
 import { getIdleStopDeadlineMs } from '@/features/tasks/utils/task-ttl'
 import {
   AlertDialog,

@@ -8,8 +8,7 @@ use moatless_ports::task::EventSubject;
 
 use super::dao::MessageDao;
 use super::models::{
-    ConnectionMessageCount, InterruptedTurn, MessagePage, MessageType, TaskMessage,
-    TaskMessageContext, ToolCallRow,
+    InterruptedTurn, MessagePage, MessageType, TaskMessage, TaskMessageContext, ToolCallRow,
 };
 use crate::task_activities::mapping::{ActivityRow, ConversationWrite};
 
@@ -206,14 +205,6 @@ impl Messages {
         task_ids: &[String],
     ) -> Result<HashMap<String, DateTime<Utc>>, sqlx::Error> {
         self.store.get_latest_message_times(task_ids).await
-    }
-
-    /// See [`MessageDao::get_connection_message_counts`].
-    pub async fn get_connection_message_counts(
-        &self,
-        task_ids: &[String],
-    ) -> Result<Vec<ConnectionMessageCount>, sqlx::Error> {
-        self.store.get_connection_message_counts(task_ids).await
     }
 
     /// See [`MessageDao::set_external_source_metadata`].

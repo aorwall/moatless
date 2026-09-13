@@ -317,7 +317,7 @@ impl PgTaskBindingDao {
 
     /// Deactivate every active binding for a task — called when the task closes
     /// (a closed task is terminal, so its external listeners must stop routing
-    /// inbound events). Rows are kept for the task-connections view.
+    /// inbound events). Rows are kept — see [`TaskBinding::active`].
     /// Idempotent: the `active = TRUE` predicate makes re-runs no-ops. Returns
     /// the number of bindings deactivated.
     pub(crate) async fn deactivate_by_task(&self, task_id: &str) -> Result<u64, sqlx::Error> {
@@ -478,47 +478,5 @@ impl PgTaskBindingDao {
         .execute(&self.0)
         .await?;
         Ok(())
-    }
-
-    /// Batch-fetch full binding rows (including `destination_config` and the
-    /// `external_status*` columns) for a set of tasks. Drives the
-    /// task-connections view.
-    pub(crate) async fn find_by_task_ids(
-        &self,
-        task_ids: &[String],
-    ) -> Result<Vec<TaskBinding>, sqlx::Error> {
-        if task_ids.is_empty() {
-            return Ok(vec![]);
-        }
-        let rows = sqlx::query_as::<_, TaskBindingRow>(
-            r#"SELECT id,
-                      task_id,
-                      adapter_kind AS adapter_kind,
-                      subject_kind,
-                      subject_key,
-                      connection_id,
-                      loop_id,
-                      destination_config,
-                      metadata,
-                      last_external_event_id,
-                      origin,
-                      created_at,
-                      last_event_at,
-                      external_status,
-                      external_state_kind,
-                      external_status_raw,
-                      external_status_updated_at,
-                      external_review_decision,
-                      external_mergeable_state,
-                      active,
-                      deactivated_at
-               FROM task_bindings
-               WHERE task_id = ANY($1)
-               ORDER BY created_at ASC"#,
-        )
-        .bind(task_ids)
-        .fetch_all(&self.0)
-        .await?;
-        Ok(rows.into_iter().map(TaskBinding::from).collect())
     }
 }

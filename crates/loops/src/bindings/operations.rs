@@ -87,11 +87,6 @@ impl Bindings {
             .await
     }
 
-    /// Every Binding of a set of Tasks, oldest first.
-    pub async fn for_tasks(&self, task_ids: &[String]) -> Result<Vec<TaskBinding>, sqlx::Error> {
-        self.store.find_by_task_ids(task_ids).await
-    }
-
     /// The most recent Tasks a Loop spawned, each with its first Binding.
     pub(crate) async fn recent_for_loop(
         &self,

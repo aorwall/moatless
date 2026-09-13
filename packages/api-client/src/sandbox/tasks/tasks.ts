@@ -26,13 +26,11 @@ import type {
 
 import type {
   CloseTaskRequest,
-  Connection,
   CreateTaskRequest,
   CreateTaskResponse,
   ErrorBody,
   FollowTaskResponse,
   ForkTaskRequest,
-  GetTaskConnectionsParams,
   ListTasksParams,
   ListTasksResponse,
   SetTagsRequest,
@@ -836,110 +834,7 @@ export const prefetchCloseTaskQuery = async <TData = Awaited<ReturnType<typeof c
 
 
 
-export type getTaskConnectionsResponse200 = {
-  data: Connection[]
-  status: 200
-}
-
-export type getTaskConnectionsResponse404 = {
-  data: ErrorBody
-  status: 404
-}
-
-export type getTaskConnectionsResponseSuccess = (getTaskConnectionsResponse200) & {
-  headers: Headers;
-};
-export type getTaskConnectionsResponseError = (getTaskConnectionsResponse404) & {
-  headers: Headers;
-};
-
-export type getTaskConnectionsResponse = (getTaskConnectionsResponseSuccess | getTaskConnectionsResponseError)
-
-export const getGetTaskConnectionsUrl = (taskId: string,
-    params?: GetTaskConnectionsParams,) => {
-  const normalizedParams = new URLSearchParams();
-
-  Object.entries(params || {}).forEach(([key, value]) => {
-
-    if (value !== undefined) {
-      normalizedParams.append(key, value === null ? 'null' : String(value))
-    }
-  });
-
-  const stringifiedParams = normalizedParams.toString();
-
-  return stringifiedParams.length > 0 ? `/api/v1/tasks/${taskId}/connections?${stringifiedParams}` : `/api/v1/tasks/${taskId}/connections`
-}
-
-/**
- * Scope-checked like [`moatless_tasks::task::handlers::get_task`], so any user
- * who can see the task can see its connections.
- * @summary Get a single task's external connections, statuses, and message counts.
- */
-export const getTaskConnections = async (taskId: string,
-    params?: GetTaskConnectionsParams, options?: Parameters<typeof customInstance>[1]): Promise<getTaskConnectionsResponse> => {
-
-  return customInstance<getTaskConnectionsResponse>(getGetTaskConnectionsUrl(taskId,params),
-  {
-    ...options,
-    method: 'GET'
-
-
-  }
-);}
-
-
-
-
-
-export const getGetTaskConnectionsMutationKey = () => ['getTaskConnections'] as const;
-
-export const getGetTaskConnectionsMutationOptions = <TError = ErrorType<ErrorBody>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof getTaskConnections>>, TError,GetTaskConnectionsMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
-): UseMutationOptions<Awaited<ReturnType<typeof getTaskConnections>>, TError,GetTaskConnectionsMutationVariables, TContext> => {
-
-const mutationKey = getGetTaskConnectionsMutationKey();
-const {mutation: mutationOptions, request: requestOptions} = options ?
-      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
-      options
-      : {...options, mutation: {...options.mutation, mutationKey}}
-      : {mutation: { mutationKey, }, request: undefined};
-
-
-
-
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof getTaskConnections>>, GetTaskConnectionsMutationVariables> = (props) => {
-          const {taskId,params} = props ?? {};
-
-          return  getTaskConnections(taskId,params,requestOptions)
-        }
-
-
-
-
-
-
-  return  { mutationFn, ...mutationOptions }}
-
-    export type GetTaskConnectionsMutationResult = NonNullable<Awaited<ReturnType<typeof getTaskConnections>>>
-
-    export type GetTaskConnectionsMutationError = ErrorType<ErrorBody>
-    export type GetTaskConnectionsMutationVariables = {taskId: string;params?: GetTaskConnectionsParams}
-
-    /**
- * @summary Get a single task's external connections, statuses, and message counts.
- */
-export const useGetTaskConnections = <TError = ErrorType<ErrorBody>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof getTaskConnections>>, TError,GetTaskConnectionsMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
- , queryClient?: QueryClient): UseMutationResult<
-        Awaited<ReturnType<typeof getTaskConnections>>,
-        TError,
-        GetTaskConnectionsMutationVariables,
-        TContext
-      > => {
-      return useMutation(getGetTaskConnectionsMutationOptions(options), queryClient);
-    }
-    export type followTaskResponse200 = {
+export type followTaskResponse200 = {
   data: FollowTaskResponse
   status: 200
 }

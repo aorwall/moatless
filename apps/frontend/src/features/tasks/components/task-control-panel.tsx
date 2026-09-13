@@ -9,7 +9,6 @@ import { useTaskDetailQuery } from '@/features/tasks/hooks/use-task-queries'
 import { useUpdateTaskMetadata, useUpdateTaskTtl } from '@/features/tasks/hooks/use-tasks'
 import { Button } from '@/lib/components/ui/button'
 import { cn } from '@/lib/utils'
-import { TaskConnectionsSection } from './task-connections-section'
 import { EditTaskDialog } from './task-header/edit-task-dialog'
 import { TaskInfoSection } from './task-header/task-info-section'
 import { TaskRelationsSection } from './task-relations-section'
@@ -241,13 +240,6 @@ export function TaskControlPanel({ className }: TaskControlPanelProps) {
           commands={status?.commands ?? []}
           scheduledJobs={status?.scheduledJobs}
         />
-
-        <section className="rounded-md border">
-          <div className="px-3 py-2 text-xs font-medium text-muted-foreground border-b">
-            Connections
-          </div>
-          <TaskConnectionsSection taskId={taskId} />
-        </section>
 
         <section className="rounded-md border">
           <div className="px-3 py-2 text-xs font-medium text-muted-foreground border-b">

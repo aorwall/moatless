@@ -32,7 +32,6 @@ pub mod sandbox;
 pub mod setup;
 pub mod tag;
 pub mod task;
-pub mod task_connections;
 pub mod team;
 pub mod user;
 pub mod workspace;

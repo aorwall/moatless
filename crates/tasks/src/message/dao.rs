@@ -18,8 +18,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 
 use super::models::{
-    ConnectionMessageCount, InterruptedTurn, MessagePage, MessageType, TaskMessage,
-    TaskMessageContext, ToolCallRow,
+    InterruptedTurn, MessagePage, MessageType, TaskMessage, TaskMessageContext, ToolCallRow,
 };
 use crate::task::dao as task_dao;
 use crate::task_activities;
@@ -249,15 +248,6 @@ pub(crate) trait MessageDao: Send + Sync {
         &self,
         task_ids: &[String],
     ) -> Result<HashMap<String, DateTime<Utc>>, sqlx::Error>;
-
-    /// Per-connection inbound/outgoing message counts for the given tasks,
-    /// grouped by `(task_id, external_adapter, external_subject_key)`. Only
-    /// rows that carry an `external_adapter` (i.e. flowed through an adapter
-    /// binding) are counted.
-    async fn get_connection_message_counts(
-        &self,
-        task_ids: &[String],
-    ) -> Result<Vec<ConnectionMessageCount>, sqlx::Error>;
 
     async fn set_external_source_metadata<'a>(
         &self,
@@ -1164,29 +1154,6 @@ impl MessageDao for PgMessageDao {
         .await?;
 
         Ok(rows.into_iter().collect())
-    }
-
-    async fn get_connection_message_counts(
-        &self,
-        task_ids: &[String],
-    ) -> Result<Vec<ConnectionMessageCount>, sqlx::Error> {
-        if task_ids.is_empty() {
-            return Ok(vec![]);
-        }
-
-        sqlx::query_as::<_, ConnectionMessageCount>(
-            r#"SELECT task_id,
-                      external_adapter,
-                      external_subject_key,
-                      COUNT(*) FILTER (WHERE message_role = 'user')      AS incoming,
-                      COUNT(*) FILTER (WHERE message_role = 'assistant') AS outgoing
-               FROM task_messages
-               WHERE task_id = ANY($1) AND external_adapter IS NOT NULL
-               GROUP BY task_id, external_adapter, external_subject_key"#,
-        )
-        .bind(task_ids)
-        .fetch_all(&self.0)
-        .await
     }
 
     async fn set_external_source_metadata<'a>(

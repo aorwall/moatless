@@ -670,8 +670,8 @@ pub trait ThreadCommandSink: Send + Sync {
     ) -> Result<(), CommandRefusal>;
 
     /// Release a Thread's pull request. The Binding stops routing and is kept,
-    /// which is what `deactivate` means everywhere else on this table, so the
-    /// task-connections view still shows it. Idempotent in the same way
+    /// which is what `deactivate` means everywhere else on this table.
+    /// Idempotent in the same way
     /// [`ThreadCommandSink::link_pull_request`] is.
     async fn unlink_pull_request(
         &self,

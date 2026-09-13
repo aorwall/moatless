@@ -61,20 +61,6 @@ pub struct ToolCallRow {
     pub parent_message_uuid: String,
 }
 
-/// Per-connection inbound/outgoing message tally for a task, grouped by the
-/// external adapter + subject key the message was routed through. Drives the
-/// per-connection `↓in / ↑out` counts on the task-connections view.
-#[derive(Debug, Clone, sqlx::FromRow)]
-pub struct ConnectionMessageCount {
-    pub task_id: String,
-    pub external_adapter: Option<String>,
-    pub external_subject_key: Option<String>,
-    /// Inbound rows (`message_role = 'user'`).
-    pub incoming: i64,
-    /// Outbound rows (`message_role = 'assistant'`).
-    pub outgoing: i64,
-}
-
 /// One Task carrying unacknowledged user messages, the desired-state
 /// reconciler's message-wake input.
 ///

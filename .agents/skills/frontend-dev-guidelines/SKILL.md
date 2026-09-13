@@ -27,8 +27,8 @@ Repo-specific patterns for `apps/frontend`. Baseline conventions for type safety
 apps/frontend/src/
 ├── features/            # admin, agents, auth, events, feedback, files, integrations,
 │   │                    # navigation, plugins, preview, repositories, run-config, sandbox,
-│   │                    # secrets, settings, setup, skills, tags, task-connections,
-│   │                    # tasks, uploads, workspaces
+│   │                    # secrets, settings, setup, skills, tags, tasks, uploads,
+│   │                    # workspaces
 │   └── {name}/          # api/ components/ hooks/  (+ contexts/ layouts/ panels/ in tasks/)
 ├── lib/
 │   ├── api/             # client.ts, query-client.ts, query-keys.ts

@@ -39,7 +39,6 @@ export const queryKeys = {
     fileContent: (taskId: string, filePath: string | undefined, changes?: boolean) =>
       [...queryKeys.tasks.files(taskId), 'content', filePath, changes] as const,
     events: (taskId: string) => [...queryKeys.tasks.detail(taskId), 'events'] as const,
-    connections: (taskId: string) => [...queryKeys.tasks.detail(taskId), 'connections'] as const,
     statistics: (taskId: string) => [...queryKeys.tasks.detail(taskId), 'statistics'] as const,
   },
 
