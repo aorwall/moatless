@@ -35,15 +35,18 @@ fn a_checkpoint_per_turn_labelled_by_its_closing_bubble() {
     assert_eq!(checkpoints[1]["assistantMessageId"], "msg-4");
 }
 
-/// `rewind` refuses every cut while a turn is open — including one below it,
-/// unlike a fork — so offering any checkpoint would be offering a control
-/// that refuses when pressed.
+/// A turn still running has not completed, so it is no cut. The ones that
+/// ended below it are, and the client greys their control out while the thread
+/// works rather than hiding where a rewind would land.
 #[test]
-fn no_checkpoint_while_a_turn_is_in_flight() {
-    let mut message = message(1, MessageType::Assistant, "did it");
-    message.turn_number = Some(1);
-    let detail = detail(&transcript(vec![message], Vec::new()));
-    assert_eq!(detail["checkpoints"], json!([]));
+fn a_running_turn_withholds_itself_and_nothing_below_it() {
+    let mut done = message(1, MessageType::Assistant, "did it");
+    done.turn_number = Some(1);
+    let running = message(2, MessageType::Assistant, "doing it");
+    let detail = detail(&transcript(vec![done, running], Vec::new()));
+    let checkpoints = detail["checkpoints"].as_array().unwrap();
+    assert_eq!(checkpoints.len(), 1);
+    assert_eq!(checkpoints[0]["checkpointTurnCount"], json!(1));
 }
 
 /// `ready` with no files, never `missing`: the client defers on `missing`

@@ -79,12 +79,14 @@ pub(crate) fn thread_detail(
 /// against; a turn with no Message to read a label off reports a null
 /// `assistantMessageId` and the conversation's own instant.
 ///
-/// Empty while a turn is in flight: `rewind` refuses every cut while one is,
-/// including a cut below it, unlike a fork.
+/// The open turn is withheld while it runs, and the completed turns below it
+/// are offered like any other: the client disables its revert control for as
+/// long as the thread is working, so a person sees where a rewind would land
+/// and `rewind` receives no cut until the turn ends.
 pub(super) fn checkpoints(conversation: &Conversation, transcript: &Transcript) -> Vec<Value> {
-    if turn_is_open(conversation) {
-        return Vec::new();
-    }
+    let open_turn = turn_is_open(conversation)
+        .then_some(conversation.turn_number)
+        .flatten();
 
     // One pass rather than a scan per turn: each turn's last assistant bubble,
     // which is the one the client scans forward to when it labels the revert
@@ -110,6 +112,7 @@ pub(super) fn checkpoints(conversation: &Conversation, transcript: &Transcript) 
         .turns
         .iter()
         .copied()
+        .filter(|number| Some(*number) != open_turn)
         .map(|number| {
             let labelled = labels.get(&number);
             let closing = labelled.and_then(|(closing, _)| *closing);

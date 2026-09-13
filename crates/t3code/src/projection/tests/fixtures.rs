@@ -295,8 +295,8 @@ pub(super) fn detail(transcript: &Transcript) -> Value {
     detail_of(running_conversation("task-a", "ws-a"), transcript)
 }
 
-/// The same, with the fixture's turn finished — the only state that offers
-/// a checkpoint, since a rewind is refused while a turn is in flight.
+/// The same, with the fixture's turn finished, so turn 3 is a checkpoint like
+/// any other rather than the open turn `checkpoints` withholds.
 pub(super) fn quiet_detail(transcript: &Transcript) -> Value {
     let mut conversation = running_conversation("task-a", "ws-a");
     conversation.turn_status = Some("completed".to_string());
