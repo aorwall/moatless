@@ -5,14 +5,17 @@
 //! `Fatal` cancels everything and fails the process, handing the pod back to
 //! the kubelet; `Liveness` finishes the turn and reports not-live on `/livez`
 //! (opt-in via `K8S_SANDBOX_LIVENESS_ENABLED`); `Optional` logs and carries on.
-//! [`Registrar`] is cloneable: durability loops spawn from a supervised task.
+//! Only the policy and the channel-based registration front-end are local; the
+//! rest comes from `moatless_supervisor`.
 
 use std::collections::BTreeSet;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::Arc;
 use std::time::Duration;
 
+use moatless_supervisor::{Completion, ExitCause, Joined, Outcome, TaskExit, classify, drain, watch};
+pub use moatless_supervisor::SupervisorHealth;
 use tokio::sync::mpsc;
-use tokio::task::{JoinError, JoinHandle, JoinSet};
+use tokio::task::{JoinHandle, JoinSet};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 
@@ -41,89 +44,39 @@ pub enum Criticality {
     Optional,
 }
 
-/// Whether a supervised task is expected to return on its own before shutdown.
-/// Orthogonal to [`Criticality`]: initialization is fatal only when it panics,
-/// while a long-running server treats even a clean return as failure.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Completion {
-    /// The task runs until cancellation. Any termination before shutdown —
-    /// including a clean `return` — applies the declared [`Criticality`].
-    RunsUntilShutdown,
-    /// The task has a finite job. A clean return is success; only a panic or an
-    /// abort applies the declared [`Criticality`].
-    Finite,
-}
-
-/// Why a supervised task stopped.
-#[derive(Debug)]
-pub enum ExitCause {
-    /// The task's future returned on its own — e.g. a server's `serve` loop
-    /// ended, or a loop hit a guard clause and bailed out.
-    EarlyReturn,
-    /// The task panicked. Carries the panic message.
-    Panic(String),
-    /// The runtime aborted the task.
-    Aborted,
-}
-
-impl std::fmt::Display for ExitCause {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl moatless_supervisor::Policy for Criticality {
+    /// [`Fatal`](Self::Fatal) is `degraded` too, even though the process is
+    /// already on its way out: during the bounded shutdown join the HTTP
+    /// server is still answering probes, and answering them with 200 would
+    /// claim a liveness the process no longer has.
+    fn on_early_exit(self, name: &'static str, cause: &ExitCause) -> Outcome {
         match self {
-            Self::EarlyReturn => f.write_str("returned early"),
-            Self::Panic(message) => write!(f, "panicked: {message}"),
-            Self::Aborted => f.write_str("was aborted"),
+            Self::Fatal => {
+                error!(task = name, %cause, "Critical task terminated; shutting the process down");
+                Outcome {
+                    fatal: true,
+                    degraded: true,
+                }
+            }
+            Self::Liveness => {
+                error!(task = name, %cause, "Required task terminated; reporting the pod as not live");
+                Outcome {
+                    fatal: false,
+                    degraded: true,
+                }
+            }
+            Self::Optional => {
+                warn!(task = name, %cause, "Optional task terminated; continuing without it");
+                Outcome {
+                    fatal: false,
+                    degraded: false,
+                }
+            }
         }
     }
 }
 
-/// A supervised task terminated before shutdown was requested.
-///
-/// Returned by [`Supervisor::run`] for a [`Criticality::Fatal`] task, which
-/// makes it `main`'s error and so the process's non-zero exit.
-#[derive(Debug, thiserror::Error)]
-#[error("supervised task `{name}` terminated before shutdown: {cause}")]
-pub struct TaskExit {
-    /// Registration name of the task that stopped.
-    pub name: &'static str,
-    /// How it stopped.
-    pub cause: ExitCause,
-}
-
-/// Liveness view of supervised work, read by the `/livez` probe.
-///
-/// The set only grows: nothing here is restartable, so a pod that lost one
-/// stays degraded until replaced; [`Criticality::Fatal`] exits are recorded
-/// too, since `/livez` is still served during the bounded shutdown join.
-#[derive(Debug, Default)]
-pub struct SupervisorHealth {
-    failed: Mutex<BTreeSet<&'static str>>,
-}
-
-impl SupervisorHealth {
-    /// Names of supervised tasks that terminated early, in name order. Empty
-    /// means every registered task is still running (or stopped at shutdown).
-    pub fn failed_tasks(&self) -> Vec<&'static str> {
-        self.guard().iter().copied().collect()
-    }
-
-    fn record(&self, name: &'static str) {
-        self.guard().insert(name);
-    }
-
-    /// A poisoned lock only means a writer panicked mid-insert; the set is
-    /// still a valid liveness view, and reporting *less* failure than reality
-    /// is the wrong way to fail.
-    fn guard(&self) -> MutexGuard<'_, BTreeSet<&'static str>> {
-        self.failed.lock().unwrap_or_else(PoisonError::into_inner)
-    }
-}
-
-struct Supervised {
-    name: &'static str,
-    criticality: Criticality,
-    completion: Completion,
-    handle: JoinHandle<()>,
-}
+type Supervised = moatless_supervisor::Supervised<Criticality>;
 
 /// Cloneable registration handle for the root supervisor.
 ///
@@ -246,7 +199,7 @@ impl Supervisor {
         // never closes under a late registrar clone.
 
         let mut outstanding: BTreeSet<&'static str> = BTreeSet::new();
-        let mut watching: JoinSet<Joined> = JoinSet::new();
+        let mut watching: JoinSet<Joined<Criticality>> = JoinSet::new();
         let mut fatal: Option<TaskExit> = None;
 
         info!("Root supervisor running");
@@ -285,107 +238,11 @@ impl Supervisor {
             watch(task, &mut watching, &mut outstanding);
         }
 
-        let drain = async {
-            while let Some(joined) = watching.join_next().await {
-                classify(joined, true, &health, &mut outstanding);
-            }
-        };
-        if tokio::time::timeout(join_deadline, drain).await.is_err() {
-            warn!(
-                stragglers = ?outstanding,
-                deadline_secs = join_deadline.as_secs_f64(),
-                "Shutdown deadline exceeded; supervised tasks are still running"
-            );
-        } else {
-            info!("All supervised tasks joined");
-        }
+        drain(watching, &health, outstanding, join_deadline).await;
 
         match fatal {
             Some(exit) => Err(exit),
             None => Ok(()),
         }
-    }
-}
-
-type Joined = (&'static str, Criticality, Completion, Result<(), JoinError>);
-
-fn watch(
-    task: Supervised,
-    watching: &mut JoinSet<Joined>,
-    outstanding: &mut BTreeSet<&'static str>,
-) {
-    let Supervised {
-        name,
-        criticality,
-        completion,
-        handle,
-    } = task;
-    outstanding.insert(name);
-    watching.spawn(async move { (name, criticality, completion, handle.await) });
-}
-
-/// Apply a terminated task's declared policy, and report it as fatal when that
-/// policy says the process must stop.
-fn classify(
-    joined: Result<Joined, JoinError>,
-    shutting_down: bool,
-    health: &SupervisorHealth,
-    outstanding: &mut BTreeSet<&'static str>,
-) -> Option<TaskExit> {
-    // The wrapper future only awaits a handle, so it cannot fail on its own —
-    // reaching here means the whole supervisor was torn down mid-await.
-    let Ok((name, criticality, completion, result)) = joined else {
-        warn!("Supervisor lost track of a task while joining");
-        return None;
-    };
-    outstanding.remove(name);
-
-    let cause = match result {
-        Ok(()) => ExitCause::EarlyReturn,
-        Err(join_error) if join_error.is_panic() => ExitCause::Panic(panic_message(join_error)),
-        Err(_) => ExitCause::Aborted,
-    };
-
-    if shutting_down {
-        match cause {
-            ExitCause::EarlyReturn => info!(task = name, "Supervised task stopped"),
-            cause => warn!(task = name, %cause, "Supervised task ended abnormally during shutdown"),
-        }
-        return None;
-    }
-
-    // A finite task doing exactly what it was spawned to do is not a failure —
-    // only the abnormal endings carry its criticality.
-    if matches!(completion, Completion::Finite) && matches!(cause, ExitCause::EarlyReturn) {
-        info!(task = name, "Supervised task completed");
-        return None;
-    }
-
-    match criticality {
-        Criticality::Fatal => {
-            error!(task = name, %cause, "Critical task terminated; shutting the process down");
-            health.record(name);
-            Some(TaskExit { name, cause })
-        }
-        Criticality::Liveness => {
-            error!(task = name, %cause, "Required task terminated; reporting the pod as not live");
-            health.record(name);
-            None
-        }
-        Criticality::Optional => {
-            warn!(task = name, %cause, "Optional task terminated; continuing without it");
-            None
-        }
-    }
-}
-
-fn panic_message(join_error: JoinError) -> String {
-    let payload = join_error.into_panic();
-    if let Some(message) = payload.downcast_ref::<&'static str>() {
-        (*message).to_string()
-    } else if let Some(message) = payload.downcast_ref::<String>() {
-        message.clone()
-    } else {
-        "unknown panic payload".to_string()
     }
 }

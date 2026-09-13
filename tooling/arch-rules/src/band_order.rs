@@ -19,7 +19,12 @@ pub const BANDS: &[(&[&str], &str)] = &[
     ),
     (&["moatless-workspace-ports"], "Workspace contracts"),
     (
-        &["claude-agent-sdk", "sandbox-proto", "moatless-s3"],
+        &[
+            "claude-agent-sdk",
+            "sandbox-proto",
+            "moatless-s3",
+            "moatless-supervisor",
+        ],
         "leaf protocols and infrastructure",
     ),
     (

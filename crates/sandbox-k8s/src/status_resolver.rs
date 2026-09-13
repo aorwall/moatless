@@ -7,7 +7,7 @@
 use k8s_openapi::api::core::v1::Pod;
 use kube::api::{Api, ListParams};
 use std::sync::Arc;
-use tracing::{debug, warn};
+use tracing::warn;
 
 use super::client::K8sClient;
 use super::deployment;
@@ -17,38 +17,17 @@ use super::pod_status::{
 };
 use super::service;
 use moatless_core::config::Config;
-use moatless_sandbox_runtime::client::{
-    SandboxConnector, managed_command_from_proto, scheduled_job_info_from_proto,
-};
+use moatless_sandbox_runtime::client::{AgentStatusSnapshot, SandboxConnector, fetch_agent_status};
 use moatless_sandbox_runtime::container_status::{
     ContainerState, DEFAULT_SERVER_READINESS_TIMEOUT_SECS, PodPhase,
 };
-use moatless_sandbox_runtime::live_status::{AgentStatus, LiveStatus, derive_live_status};
+use moatless_sandbox_runtime::live_status::{LiveStatus, derive_live_status};
 use moatless_sandbox_runtime::provisioning::{allocated_port, server_capabilities_from_config};
 use moatless_sandbox_runtime::schemas::*;
 use moatless_types::sandbox::SandboxDesiredState;
 use moatless_types::sandbox::{SandboxStatus, ServerStatus};
 use moatless_types::task::TaskStatus;
 use moatless_workspace_types::workspace::ServerConfig;
-
-/// Snapshot of the agent's gRPC status response — state, scheduled jobs, and
-/// live background processes.
-struct AgentStatusSnapshot {
-    status: Option<AgentStatus>,
-    scheduled_jobs: Vec<ScheduledJobInfo>,
-    commands: Vec<ManagedCommand>,
-}
-
-impl AgentStatusSnapshot {
-    /// The ready Sandbox's Agent is unreachable, so no raw Agent signal exists.
-    fn unreachable() -> Self {
-        Self {
-            status: None,
-            scheduled_jobs: Vec::new(),
-            commands: Vec::new(),
-        }
-    }
-}
 
 /// Read-only domain service for resolving sandbox status from the K8s API.
 ///
@@ -123,7 +102,7 @@ impl StatusResolver {
                 status: agent_status,
                 scheduled_jobs,
                 commands,
-            } = self.fetch_agent_status(task_id, connector).await;
+            } = fetch_agent_status(task_id, connector).await;
 
             let live_status = derive_live_status(
                 task_status,
@@ -280,7 +259,7 @@ impl StatusResolver {
         // left a reader unable to see that `moat cmd` work was still running
         // behind an idle agent.
         let (agent_status, commands) = if sandbox_status == SandboxStatus::Ready {
-            let snapshot = self.fetch_agent_status(task_id, connector).await;
+            let snapshot = fetch_agent_status(task_id, connector).await;
             let commands = snapshot
                 .commands
                 .iter()
@@ -305,46 +284,8 @@ impl StatusResolver {
     // Private helpers
     // =========================================================================
 
-    /// Query the sandbox pod for current agent status via gRPC.
-    ///
-    /// Only called when the pod is running, so any gRPC error means the Agent
-    /// is unreachable rather than idle.
-    async fn fetch_agent_status(
-        &self,
-        task_id: &str,
-        connector: &dyn SandboxConnector,
-    ) -> AgentStatusSnapshot {
-        let client = match connector.sandbox_client(task_id).await {
-            Ok(c) => c,
-            Err(e) => {
-                debug!(task_id = %task_id, error = %e, "Failed to create gRPC client for agent status");
-                return AgentStatusSnapshot::unreachable();
-            }
-        };
-
-        match client.get_agent_status_for_task(Some(task_id)).await {
-            Ok(resp) => AgentStatusSnapshot {
-                status: Some(AgentStatus::from(resp.status.as_str())),
-                scheduled_jobs: resp
-                    .scheduled_jobs
-                    .into_iter()
-                    .filter_map(scheduled_job_info_from_proto)
-                    .collect(),
-                commands: resp
-                    .commands
-                    .into_iter()
-                    .map(managed_command_from_proto)
-                    .collect(),
-            },
-            Err(e) => {
-                debug!(task_id = %task_id, error = %e, "Failed to fetch agent status via gRPC");
-                AgentStatusSnapshot::unreachable()
-            }
-        }
-    }
-
-    /// Fetch container diagnostics for all containers in the pod, including
-    /// resource usage from the K8s Metrics API when available.
+    /// Fetch container diagnostics for all containers in the pod,
+    /// including resource usage from the K8s Metrics API when available.
     async fn fetch_container_diagnostics(
         &self,
         task_id: &str,

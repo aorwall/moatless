@@ -3979,6 +3979,7 @@ dependencies = [
  "moatless-sandbox-docker",
  "moatless-sandbox-k8s",
  "moatless-sandbox-runtime",
+ "moatless-supervisor",
  "moatless-t3code",
  "moatless-tasks",
  "moatless-types",
@@ -4199,6 +4200,7 @@ dependencies = [
  "hyper-util",
  "ignore",
  "moatless-s3",
+ "moatless-supervisor",
  "moatless-types",
  "moatless-workspace-types",
  "notify",
@@ -4333,6 +4335,15 @@ dependencies = [
  "tonic",
  "tracing",
  "utoipa",
+]
+
+[[package]]
+name = "moatless-supervisor"
+version = "0.1.0"
+dependencies = [
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

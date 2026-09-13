@@ -109,6 +109,7 @@ moatless-adapter-linear = { workspace = true }
 moatless-adapter-github-pr = { workspace = true }
 moatless-sandbox-runtime = { workspace = true }
 moatless-sandbox-control = { workspace = true }
+moatless-supervisor = { workspace = true }
 moatless-sandbox-k8s = { workspace = true }
 moatless-sandbox-docker = { workspace = true }
 moatless-t3code = { workspace = true }

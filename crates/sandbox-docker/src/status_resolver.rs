@@ -9,35 +9,15 @@ use tracing::{debug, warn};
 use super::client::DockerClient;
 use super::naming::{generate_container_name, generate_server_container_name};
 use moatless_core::config::Config;
-use moatless_sandbox_runtime::client::{
-    SandboxConnector, managed_command_from_proto, scheduled_job_info_from_proto,
-};
+use moatless_sandbox_runtime::client::{AgentStatusSnapshot, SandboxConnector, fetch_agent_status};
 use moatless_sandbox_runtime::container_status::DEFAULT_SERVER_READINESS_TIMEOUT_SECS;
-use moatless_sandbox_runtime::live_status::{AgentStatus, LiveStatus, derive_live_status};
+use moatless_sandbox_runtime::live_status::{LiveStatus, derive_live_status};
 use moatless_sandbox_runtime::provisioning::{allocated_port, server_capabilities_from_config};
 use moatless_sandbox_runtime::schemas::*;
 use moatless_types::sandbox::SandboxDesiredState;
 use moatless_types::sandbox::{SandboxStatus, ServerStatus};
 use moatless_types::task::TaskStatus;
 use moatless_workspace_types::workspace::ServerConfig;
-
-/// Snapshot of the agent's gRPC status response — state, scheduled jobs, and
-/// live background processes.
-struct AgentStatusSnapshot {
-    status: Option<AgentStatus>,
-    scheduled_jobs: Vec<ScheduledJobInfo>,
-    commands: Vec<ManagedCommand>,
-}
-
-impl AgentStatusSnapshot {
-    fn unreachable() -> Self {
-        Self {
-            status: None,
-            scheduled_jobs: Vec::new(),
-            commands: Vec::new(),
-        }
-    }
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DockerContainerState {
@@ -113,7 +93,7 @@ impl DockerStatusResolver {
                 status: agent_status,
                 scheduled_jobs,
                 commands,
-            } = self.fetch_agent_status(task_id, connector).await;
+            } = fetch_agent_status(task_id, connector).await;
             let servers = self
                 .resolve_server_entries(sandbox_id, server_configs)
                 .await;
@@ -204,7 +184,7 @@ impl DockerStatusResolver {
         // left a reader unable to see that `moat cmd` work was still running
         // behind an idle agent.
         let (agent_status, commands) = if sandbox_status == SandboxStatus::Ready {
-            let snapshot = self.fetch_agent_status(task_id, connector).await;
+            let snapshot = fetch_agent_status(task_id, connector).await;
             let commands = snapshot
                 .commands
                 .iter()
@@ -294,41 +274,6 @@ impl DockerStatusResolver {
             Err(e) => {
                 warn!(container = %container_name, error = %e, "Failed to inspect container");
                 (SandboxStatus::Error, None)
-            }
-        }
-    }
-
-    /// Query the sandbox container for current agent status via gRPC.
-    async fn fetch_agent_status(
-        &self,
-        task_id: &str,
-        connector: &dyn SandboxConnector,
-    ) -> AgentStatusSnapshot {
-        let client = match connector.sandbox_client(task_id).await {
-            Ok(c) => c,
-            Err(e) => {
-                debug!(task_id = %task_id, error = %e, "Failed to create gRPC client for agent status");
-                return AgentStatusSnapshot::unreachable();
-            }
-        };
-
-        match client.get_agent_status_for_task(Some(task_id)).await {
-            Ok(resp) => AgentStatusSnapshot {
-                status: Some(AgentStatus::from(resp.status.as_str())),
-                scheduled_jobs: resp
-                    .scheduled_jobs
-                    .into_iter()
-                    .filter_map(scheduled_job_info_from_proto)
-                    .collect(),
-                commands: resp
-                    .commands
-                    .into_iter()
-                    .map(managed_command_from_proto)
-                    .collect(),
-            },
-            Err(e) => {
-                debug!(task_id = %task_id, error = %e, "Failed to fetch agent status via gRPC");
-                AgentStatusSnapshot::unreachable()
             }
         }
     }

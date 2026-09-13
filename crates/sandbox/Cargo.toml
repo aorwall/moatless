@@ -55,6 +55,9 @@ chrono = { workspace = true, features = ["serde"] }
 # Shared type definitions
 moatless-types = { workspace = true }
 
+# Root-supervision primitives shared with the backend
+moatless-supervisor = { workspace = true }
+
 # gRPC (backend communication — replaces Redis + HTTP polling)
 sandbox-proto = { workspace = true }
 tonic = { workspace = true }

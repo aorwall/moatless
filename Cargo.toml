@@ -5,6 +5,7 @@ members = [
     "crates/claude-agent-sdk",
     "crates/sandbox-proto",
     "crates/sandbox-runtime",
+    "crates/supervisor",
     "crates/cli",
     "crates/api-client",
     "crates/api-schemas",
@@ -75,6 +76,7 @@ moatless-sandbox-control = { path = "crates/sandbox-control" }
 moatless-sandbox-docker = { path = "crates/sandbox-docker" }
 moatless-sandbox-k8s = { path = "crates/sandbox-k8s" }
 moatless-sandbox-runtime = { path = "crates/sandbox-runtime" }
+moatless-supervisor = { path = "crates/supervisor" }
 moatless-t3code = { path = "crates/t3code" }
 moatless-tasks = { path = "crates/tasks" }
 moatless-types = { path = "crates/types" }

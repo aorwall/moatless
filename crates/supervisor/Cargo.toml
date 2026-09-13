@@ -1,0 +1,17 @@
+[package]
+name = "moatless-supervisor"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "Generic root-supervision primitives for a process's long-lived tokio tasks"
+
+[dependencies]
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["rt", "time"] }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "test-util"] }
+
+[lints]
+workspace = true

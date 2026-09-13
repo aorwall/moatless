@@ -1,15 +1,80 @@
 //! Backend compatibility layer for the sandbox gRPC client.
 //!
 //! The client itself lives in `sandbox-proto`, with the protobuf service it
-//! speaks. The backend keeps only API-schema conversions here.
+//! speaks. This module holds the API-schema conversions, and the one status
+//! read ([`fetch_agent_status`]) both status resolvers share.
 
 pub use sandbox_proto::client::*;
 
+use tracing::debug;
+
+use super::live_status::AgentStatus;
 use super::schemas::{
     BackgroundWatchJobInfo as SchemaBackgroundWatchJobInfo, ManagedCommand as SchemaManagedCommand,
     ManagedCommandState as SchemaManagedCommandState, ScheduledJobInfo as SchemaScheduledJobInfo,
     ScheduledJobKind, WakeupJobInfo as SchemaWakeupJobInfo,
 };
+
+/// Snapshot of the agent's gRPC status response — state, scheduled jobs, and
+/// live background processes.
+///
+/// Identical between the Docker and Kubernetes status resolvers: both derive
+/// it from the same [`SandboxConnector`] call, with no provider-specific
+/// signal in it.
+#[derive(Debug)]
+pub struct AgentStatusSnapshot {
+    pub status: Option<AgentStatus>,
+    pub scheduled_jobs: Vec<SchemaScheduledJobInfo>,
+    pub commands: Vec<SchemaManagedCommand>,
+}
+
+impl AgentStatusSnapshot {
+    /// The Sandbox's Agent is unreachable, so no raw Agent signal exists.
+    fn unreachable() -> Self {
+        Self {
+            status: None,
+            scheduled_jobs: Vec::new(),
+            commands: Vec::new(),
+        }
+    }
+}
+
+/// Query the sandbox for current agent status via gRPC.
+///
+/// Only meaningful when the sandbox is running: any gRPC error (timeout,
+/// unavailable, etc.) means the Agent is unreachable rather than idle.
+pub async fn fetch_agent_status(
+    task_id: &str,
+    connector: &dyn SandboxConnector,
+) -> AgentStatusSnapshot {
+    let client = match connector.sandbox_client(task_id).await {
+        Ok(c) => c,
+        Err(e) => {
+            debug!(task_id = %task_id, error = %e, "Failed to create gRPC client for agent status");
+            return AgentStatusSnapshot::unreachable();
+        }
+    };
+
+    match client.get_agent_status_for_task(Some(task_id)).await {
+        Ok(resp) => AgentStatusSnapshot {
+            status: Some(AgentStatus::from(resp.status.as_str())),
+            scheduled_jobs: resp
+                .scheduled_jobs
+                .into_iter()
+                .filter_map(scheduled_job_info_from_proto)
+                .collect(),
+            commands: resp
+                .commands
+                .into_iter()
+                .map(managed_command_from_proto)
+                .collect(),
+        },
+        Err(e) => {
+            debug!(task_id = %task_id, error = %e, "Failed to fetch agent status via gRPC");
+            AgentStatusSnapshot::unreachable()
+        }
+    }
+}
 
 // The schema types are defined in `moatless-api-schemas`; `sandbox_proto` is a
 // separate crate, so these proto conversions cannot be inherent or `From` impls
