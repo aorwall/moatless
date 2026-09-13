@@ -19,8 +19,9 @@
 //! Branch state and refs. "Which branch is this, how far ahead of its upstream,
 //! what can I diff against" are questions about one repository's HEAD and one
 //! repository's ref namespace; merging several repositories' answers would
-//! invent a branch that does not exist. The diff spans the workspace because a
-//! reviewer reads changes, not repositories.
+//! invent a branch that does not exist. The diff spans the workspace, and so
+//! does the uncommitted-change tally beside it, because a reviewer reads
+//! changes, not repositories.
 
 use std::collections::HashMap;
 
@@ -287,8 +288,8 @@ fn prefix_args(repo_prefix: &str) -> Vec<String> {
 
 // ─── Branch state ────────────────────────────────────────────────
 
-/// The primary repository's branch state, with working-tree paths lifted into
-/// the workspace's path space.
+/// The primary repository's branch state, with the whole workspace's
+/// uncommitted changes beside it, at workspace-relative paths.
 pub async fn status(workspace_dir: &str, repo_dir: &str) -> RepoStatus {
     let porcelain = match capture(
         repo_dir,
@@ -338,8 +339,45 @@ pub async fn status(workspace_dir: &str, repo_dir: &str) -> RepoStatus {
             Some(base) => ahead_of_default_count(repo_dir, &base).await,
             None => 0,
         };
-    status.working_tree_files = working_tree_files(workspace_dir, repo_dir).await;
+    let (changed_elsewhere, files) = workspace_working_tree(workspace_dir, repo_dir).await;
+    status.has_working_tree_changes |= changed_elsewhere;
+    status.working_tree_files = files;
     status
+}
+
+/// Every repository's uncommitted changes, and whether one outside `primary_dir`
+/// has any.
+///
+/// The porcelain read in [`status`] answers for `primary_dir` alone, so each
+/// other repository in the workspace is asked on its own: a task that edits a
+/// secondary checkout and nothing else still has changes to review, and a
+/// reviewer offered only the branch scope there sees nothing at all.
+async fn workspace_working_tree(
+    workspace_dir: &str,
+    primary_dir: &str,
+) -> (bool, Vec<WorkingTreeFile>) {
+    let mut changed_elsewhere = false;
+    let mut files = working_tree_files(workspace_dir, primary_dir).await;
+    for repo in git::discover_git_repos(workspace_dir).await {
+        if repo.abs_path.trim_end_matches('/') == primary_dir.trim_end_matches('/') {
+            continue;
+        }
+        changed_elsewhere |= has_uncommitted_changes(&repo.abs_path).await;
+        files.extend(working_tree_files(workspace_dir, &repo.abs_path).await);
+    }
+    files.sort_by(|left, right| left.path.cmp(&right.path));
+    (changed_elsewhere, files)
+}
+
+/// Whether one repository holds anything uncommitted.
+///
+/// Read from the porcelain rather than from [`working_tree_files`], whose
+/// `--numstat` counts no untracked file — a repository holding only new files
+/// would otherwise read as clean.
+async fn has_uncommitted_changes(repo_dir: &str) -> bool {
+    capture(repo_dir, &["status", "--porcelain"], METADATA_TIMEOUT_SECS)
+        .await
+        .is_ok_and(|output| output.succeeded() && !output.stdout.trim().is_empty())
 }
 
 /// `+2 -3` as the pair a client counts with.
@@ -960,6 +998,69 @@ mod tests {
                 .find(|file| file.path == "repo/tracked.txt")
                 .expect("the edited file, at a workspace-relative path");
             assert_eq!((tracked.insertions, tracked.deletions), (1, 1));
+        }
+
+        /// A workspace holding two repositories on `main`, each with one
+        /// committed file and nothing uncommitted.
+        fn clean_workspace() -> TempDir {
+            let workspace = TempDir::new().expect("a temp dir");
+            for name in ["primary", "secondary"] {
+                let repo = workspace.path().join(name);
+                std::fs::create_dir(&repo).expect("the repo dir");
+                git(&repo, &["init", "--initial-branch=main", "-q"]);
+                std::fs::write(repo.join("tracked.txt"), "one\ntwo\n").expect("a tracked file");
+                git(&repo, &["add", "-A"]);
+                git(&repo, &["commit", "-qm", "init"]);
+            }
+            workspace
+        }
+
+        /// A task that stayed on the default branch has its whole diff in the
+        /// working-tree scope, and the client only opens that scope when the
+        /// status says there is one — so a change in a repository other than
+        /// the primary has to reach it.
+        #[tokio::test]
+        async fn a_second_repositorys_edit_is_a_working_tree_change() {
+            let workspace = clean_workspace();
+            std::fs::write(workspace.path().join("secondary/tracked.txt"), "one\nTWO\n")
+                .expect("an edit");
+            let primary = workspace.path().join("primary");
+
+            let status = status(root(&workspace), primary.to_str().expect("a utf-8 path")).await;
+
+            assert!(status.has_working_tree_changes);
+            // Branch state still describes the primary alone.
+            assert_eq!(status.ref_name.as_deref(), Some("main"));
+            assert!(status.is_default_ref);
+            let edited = status
+                .working_tree_files
+                .iter()
+                .find(|file| file.path == "secondary/tracked.txt")
+                .expect("the second repository's edit, at a workspace-relative path");
+            assert_eq!((edited.insertions, edited.deletions), (1, 1));
+        }
+
+        #[tokio::test]
+        async fn a_second_repositorys_untracked_file_is_a_working_tree_change() {
+            let workspace = clean_workspace();
+            std::fs::write(workspace.path().join("secondary/untracked.txt"), "fresh\n")
+                .expect("an untracked file");
+            let primary = workspace.path().join("primary");
+
+            let status = status(root(&workspace), primary.to_str().expect("a utf-8 path")).await;
+
+            assert!(status.has_working_tree_changes);
+        }
+
+        #[tokio::test]
+        async fn a_clean_workspace_reports_no_working_tree_changes() {
+            let workspace = clean_workspace();
+            let primary = workspace.path().join("primary");
+
+            let status = status(root(&workspace), primary.to_str().expect("a utf-8 path")).await;
+
+            assert!(!status.has_working_tree_changes);
+            assert!(status.working_tree_files.is_empty());
         }
 
         #[tokio::test]
