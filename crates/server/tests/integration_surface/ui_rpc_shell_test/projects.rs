@@ -2,16 +2,13 @@
 //! under, and what a project row says about its scripts.
 
 use super::contract::assert_decodable_thread;
-use super::harness::{
-    admin, mounted_dependencies, project, project_ids, ui_rpc_authed_request, viewer,
-};
+use super::harness::{admin, mounted_router, project, project_ids, ui_rpc_authed_request, viewer};
 use super::seeding::{seed_task, seed_workspaces};
 use crate::common::USER_1;
 use crate::common::body_json;
 use crate::common::make_workspace_row;
 use crate::common::run_config;
 use axum::http::StatusCode;
-use moatless_t3code::router_from_env;
 use moatless_workspaces::compose;
 use serde_json::json;
 use sqlx::PgPool;
@@ -140,13 +137,10 @@ async fn a_referenced_workspace_that_was_deleted_is_still_included(pool: PgPool)
     );
 }
 
-/// The whole path a client takes: the env-gated router as it is mounted in
-/// production, the session's identity, the database, and the JSON body.
+/// The whole path a client takes: the router as it is mounted in production,
+/// the session's identity, the database, and the JSON body.
 #[sqlx::test]
 async fn the_mounted_route_returns_the_viewers_projects(pool: PgPool) {
-    std::env::set_var("T3_UI_RPC_ENABLED", "true");
-    std::env::set_var("T3_UI_RPC_ALLOWED_ORIGINS", "http://localhost:5733");
-
     let mut ws = make_workspace_row("ws-http", USER_1);
     ws.name = "Checkout".into();
     compose::workspaces(pool.clone())
@@ -155,14 +149,7 @@ async fn the_mounted_route_returns_the_viewers_projects(pool: PgPool) {
         .unwrap();
     seed_task(&pool, "t-http", USER_1, Some("ws-http")).await;
 
-    let router = router_from_env(
-        &moatless_backend::t3code::t3_graph_over(&pool),
-        mounted_dependencies(&pool),
-    )
-    .await
-    .unwrap()
-    .expect("the compatibility routes are gated on")
-    .router;
+    let router = mounted_router(&pool).await;
 
     let response = router
         .oneshot(ui_rpc_authed_request(

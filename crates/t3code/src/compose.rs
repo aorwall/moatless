@@ -29,20 +29,18 @@ use moatless_ports::sandbox::SandboxPortPublisher;
 use moatless_ports::sandbox::SandboxStarter;
 use moatless_ports::sandbox::SandboxStopper;
 use moatless_ports::sandbox::WorkspaceSnapshotSource;
+use moatless_types::auth::AllowedOrigin;
 use sandbox_proto::client::SandboxConnector;
 use std::env;
 use std::sync::Arc;
 use tokio::task::JoinHandle;
 use tracing::info;
 
-/// Build the T3 compatibility router when its environment gate is enabled.
+/// Read `T3_UI_RPC_ENABLED` and `T3_UI_RPC_ALLOWED_ORIGINS`, and [`mount`] the
+/// T3 compatibility router when the gate is enabled.
 ///
 /// Configuration stays at this HTTP boundary rather than becoming part of
-/// sandbox or pod configuration. The global Moatless auth middleware protects
-/// every route except the public discovery descriptor.
-///
-/// The one thing here that is *not* configuration is the environment's
-/// identity, which is read from the database. See `environment_id`.
+/// sandbox or pod configuration.
 pub async fn router_from_env(
     graph: &T3Graph,
     dependencies: UiRpcDependencies,
@@ -50,7 +48,24 @@ pub async fn router_from_env(
     if !env_enabled("T3_UI_RPC_ENABLED")? {
         return Ok(None);
     }
+    let allowed_origins = moatless_types::auth::parse_allowed_origins(
+        &env::var("T3_UI_RPC_ALLOWED_ORIGINS").unwrap_or_default(),
+    );
+    mount(graph, dependencies, allowed_origins).await.map(Some)
+}
 
+/// Build the T3 compatibility router for `allowed_origins`.
+///
+/// The global Moatless auth middleware protects every route except the public
+/// discovery descriptor.
+///
+/// The one thing here that is *not* configuration is the environment's
+/// identity, which is read from the database. See `environment_id`.
+pub async fn mount(
+    graph: &T3Graph,
+    dependencies: UiRpcDependencies,
+    allowed_origins: Vec<AllowedOrigin>,
+) -> Result<UiRpc, UiRpcConfigError> {
     let UiRpcDependencies {
         session_cookie_name,
         session_jwt_secret,
@@ -85,9 +100,7 @@ pub async fn router_from_env(
         crate::usage_limit_sources::UsageLimitSources::from_env(reqwest::Client::new());
     let config = UiRpcConfig {
         environment_id: environment_id(&environment),
-        allowed_origins: moatless_types::auth::parse_allowed_origins(
-            &env::var("T3_UI_RPC_ALLOWED_ORIGINS").unwrap_or_default(),
-        ),
+        allowed_origins,
         otlp_traces_enabled,
         attachment_uploads: session_jwt_secret.is_some(),
         usage_limit_sources: usage_limit_sources.configured(),
@@ -170,11 +183,11 @@ pub async fn router_from_env(
         client_traces,
         usage_limit_sources,
     });
-    Ok(Some(UiRpc {
+    Ok(UiRpc {
         router,
         startup_scripts,
         preview_events,
-    }))
+    })
 }
 
 /// The T3 band's own persistence, built once at the composition root.

@@ -222,10 +222,22 @@ impl SandboxPortPublisher for NoSandboxes {
     }
 }
 
+/// The compatibility router as `main` mounts it, past the environment gate.
+pub(super) async fn mounted_router(pool: &PgPool) -> axum::Router {
+    moatless_t3code::mount(
+        &moatless_backend::t3code::t3_graph_over(pool),
+        mounted_dependencies(pool),
+        moatless_types::auth::parse_allowed_origins("http://localhost:5733"),
+    )
+    .await
+    .unwrap()
+    .router
+}
+
 /// The compatibility router's dependencies, as `main` assembles them. Pairing
 /// itself is asserted in `crates/identity/src/auth/pairing_dao_tests.rs`; here it
 /// is wired only because the router carries it.
-pub(super) fn mounted_dependencies(pool: &PgPool) -> UiRpcDependencies {
+fn mounted_dependencies(pool: &PgPool) -> UiRpcDependencies {
     UiRpcDependencies {
         session_cookie_name: "moatless_session".into(),
         session_jwt_secret: Some("test-secret".into()),

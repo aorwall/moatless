@@ -53,6 +53,7 @@ pub use checkout::Sources;
 pub use compose::T3Graph;
 pub use compose::UiRpc;
 pub use compose::UiRpcDependencies;
+pub use compose::mount;
 pub use compose::router_from_env;
 pub use compose::t3_graph;
 pub use config::AgentModelDefaults;

@@ -70,7 +70,7 @@ async fn coordinator_service_failed_execution_sets_error_on_agent_state() {
 /// publishes `retrying`, keeps the Run, and re-drives the same Turn — the
 /// retried attempt completes and the agent ends `Idle`. All events carry the
 /// one Run id (the retry reuses it), proving retry preserves Turn identity.
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn coordinator_service_retryable_failure_retries_then_completes() {
     use crate::agent::types::AgentStatus;
 
@@ -117,7 +117,8 @@ async fn coordinator_service_retryable_failure_retries_then_completes() {
     })
     .expect("channel open");
 
-    // The backoff for attempt 0 is ~5 s, so allow generous headroom.
+    // Paused time auto-advances through the ~5 s attempt-0 backoff, so this
+    // deadline is virtual.
     let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
     loop {
         flush(&events).await;

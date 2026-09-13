@@ -15,14 +15,13 @@
 
 use super::contract::{DESCRIPTOR_REQUIRED, assert_decodable_snapshot_item, assert_keys};
 use super::feed::{delivered, one_row, other_peoples_work, reconnect_to, start_turn, watching};
-use super::harness::{head, mounted_dependencies, reads, thread_ids, viewer};
+use super::harness::{head, mounted_router, reads, thread_ids, viewer};
 use super::seeding::{seed_live_project, seed_task};
 use crate::common::body_json;
 use axum::http::StatusCode;
 use moatless_t3code::listing::UiRpcEnvironmentIdentity;
 use moatless_t3code::listing::UiRpcResume;
 use moatless_t3code::listing::resume;
-use moatless_t3code::router_from_env;
 use serde_json::Value;
 use sqlx::AssertSqlSafe;
 use sqlx::PgPool;
@@ -577,16 +576,7 @@ async fn a_connected_client_whose_database_is_replaced_rebuilds_rather_than_stal
 
 /// The public descriptor, as a client reads it before any login.
 async fn descriptor(pool: &PgPool) -> Value {
-    std::env::set_var("T3_UI_RPC_ENABLED", "true");
-    std::env::set_var("T3_UI_RPC_ALLOWED_ORIGINS", "http://localhost:5733");
-    let router = router_from_env(
-        &moatless_backend::t3code::t3_graph_over(pool),
-        mounted_dependencies(pool),
-    )
-    .await
-    .unwrap()
-    .expect("the compatibility routes are gated on")
-    .router;
+    let router = mounted_router(pool).await;
     let response = router
         .oneshot(
             axum::http::Request::builder()
