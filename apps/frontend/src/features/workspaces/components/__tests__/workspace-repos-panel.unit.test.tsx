@@ -10,8 +10,18 @@ const setPrimaryMutate = vi.fn()
 vi.mock('@/features/repositories/hooks/use-repositories', () => ({
   useRepositoriesList: () => ({
     data: [
-      { id: 'repo-api', name: 'api', kind: 'remote', remoteUrl: 'git@github.com:acme/api.git' },
-      { id: 'repo-web', name: 'web', kind: 'remote', remoteUrl: 'https://github.com/acme/web.git' },
+      {
+        id: 'repo-api',
+        name: 'api',
+        kind: 'remote',
+        remote: { url: 'git@github.com:acme/api.git', usesSsh: true, hostRepo: null },
+      },
+      {
+        id: 'repo-web',
+        name: 'web',
+        kind: 'remote',
+        remote: { url: 'https://github.com/acme/web.git', usesSsh: false, hostRepo: null },
+      },
       { id: 'repo-tmpl', name: 'template-repo', kind: 'template' },
     ],
   }),

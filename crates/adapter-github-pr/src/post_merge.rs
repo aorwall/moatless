@@ -1,6 +1,6 @@
 //! Post-merge workflow-run parsing and delivery for the GitHub PR adapter.
 
-use moatless_types::repository::GitHostRepo;
+use moatless_workspace_types::repository::GitHostRepo;
 use std::fmt::Write;
 
 use tracing::{debug, info, warn};

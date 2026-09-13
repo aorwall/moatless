@@ -73,7 +73,7 @@ fn fargate_rejects_docker_access() {
 
 #[test]
 fn fargate_rejects_repo_storage_override() {
-    use moatless_types::workspace::ResourceConfig;
+    use moatless_workspace_types::workspace::ResourceConfig;
 
     let config = fargate_config();
     let mut plan = test_plan();
@@ -97,7 +97,7 @@ fn fargate_rejects_workspace_pvc() {
 
 #[test]
 fn fargate_rejects_per_repo_burstable_resources() {
-    use moatless_types::workspace::ResourceConfig;
+    use moatless_workspace_types::workspace::ResourceConfig;
 
     let config = fargate_config();
     let mut plan = test_plan();

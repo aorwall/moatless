@@ -6,6 +6,8 @@ description = "Sandbox-control band: provider-agnostic sandbox lifecycle, gRPC i
 
 authors.workspace = true
 [dependencies]
+moatless-workspace-types = { workspace = true, features = ["openapi"] }
+moatless-workspace-ports = { workspace = true }
 tokio-util = { workspace = true }
 async-trait = { workspace = true }
 axum = { workspace = true, features = ["macros"] }
@@ -48,6 +50,7 @@ db-tests = []
 workspace = true
 
 [dev-dependencies]
+moatless-workspace-ports = { workspace = true, features = ["test-support"] }
 http-body-util = { workspace = true }
 # Test-only. The orchestrator test that pins where a detached operation's span
 # hangs needs a registry it can read parents and links back out of.

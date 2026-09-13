@@ -5,7 +5,7 @@ use crate::client::{ClientError, MoatClient};
 use crate::commands::workspaces::format_scripts_list;
 use crate::output;
 use clap::Subcommand;
-use moatless_api_schemas::workspace::ScriptConfig;
+use moatless_workspace_types::schemas::workspace::ScriptConfig;
 
 #[derive(Subcommand)]
 pub enum TaskScriptAction {

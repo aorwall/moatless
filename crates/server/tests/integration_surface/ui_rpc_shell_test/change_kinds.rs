@@ -634,7 +634,7 @@ async fn creating_and_deleting_a_project_waits_for_the_next_snapshot(pool: PgPoo
 async fn tombstoning_a_git_declared_project_waits_for_the_next_snapshot(pool: PgPool) {
     let repo = compose::workspaces(pool.clone());
     let mut declared = make_workspace_row("ws-git", "user-1");
-    declared.source = moatless_types::workspace::WorkspaceSource::Git;
+    declared.source = moatless_workspace_types::workspace::WorkspaceSource::Git;
     declared.source_repository_id = Some("repo-1".to_string());
     declared.source_key = Some("api".to_string());
     repo.insert_workspace(&declared).await.unwrap();
@@ -667,7 +667,7 @@ async fn tombstoning_a_git_declared_project_waits_for_the_next_snapshot(pool: Pg
 async fn a_tombstoned_project_keeps_the_conversations_still_running_in_it(pool: PgPool) {
     let repo = compose::workspaces(pool.clone());
     let mut declared = make_workspace_row("ws-git", "user-1");
-    declared.source = moatless_types::workspace::WorkspaceSource::Git;
+    declared.source = moatless_workspace_types::workspace::WorkspaceSource::Git;
     declared.source_repository_id = Some("repo-1".to_string());
     declared.source_key = Some("api".to_string());
     repo.insert_workspace(&declared).await.unwrap();
@@ -711,7 +711,7 @@ async fn deleting_a_repository_does_not_advance_the_task_listing(pool: PgPool) {
     let workspaces = compose::workspaces(pool.clone());
     for key in ["api", "web"] {
         let mut declared = make_workspace_row(&format!("ws-{key}"), USER_1);
-        declared.source = moatless_types::workspace::WorkspaceSource::Git;
+        declared.source = moatless_workspace_types::workspace::WorkspaceSource::Git;
         declared.source_repository_id = Some("repo-gone".to_string());
         declared.source_key = Some(key.to_string());
         workspaces.insert_workspace(&declared).await.unwrap();

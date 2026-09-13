@@ -4,9 +4,9 @@ use super::models::TaskStatus;
 use super::operations::TaskCommands;
 use moatless_core::events::EventPublisher;
 use moatless_ports::sandbox::{PreflightPort, SandboxLifecycle};
-use moatless_ports::workspace::RepositoryReader;
 use moatless_types::access_control::ScopeContext;
 use moatless_types::sandbox::{SandboxEventPayload, SandboxStatus};
+use moatless_workspace_ports::RepositoryReader;
 use moatless_workspaces::workspace::git_sync::GitSyncService;
 
 /// Collaborators needed to validate and start a task.

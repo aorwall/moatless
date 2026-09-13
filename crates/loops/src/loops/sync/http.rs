@@ -3,7 +3,7 @@
 use super::{LoopSyncService, error::LoopError, models::ParsedLoop};
 use moatless_api_schemas::loops::LoopSyncSummary;
 use moatless_core::http_auth::AuthUser;
-use moatless_types::repository::Repository;
+use moatless_workspace_types::repository::Repository;
 
 impl LoopSyncService {
     pub async fn sync_repo_loops(

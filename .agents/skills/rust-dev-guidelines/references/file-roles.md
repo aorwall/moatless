@@ -58,7 +58,10 @@ Keep database transaction ownership intact when dividing an implementation.
 | Location | Responsibility |
 |---|---|
 | Domain `models.rs` | Local domain or persistence shapes and explicit re-exports. Distinguish row types from domain types by name. |
-| Domain `schemas.rs` | HTTP request/response definitions or re-exports from `api-schemas`. |
+| Domain `schemas.rs` | HTTP request/response definitions or re-exports from the owning schema crate. |
+| `workspace-types/src/{workspace,repository,plugin}.rs` | Workspace domain values. |
+| `workspace-types/src/schemas/` | Workspace request/response contracts, behind `schemas`. |
+| `workspace-ports/src/` | Workspace capabilities and supporting contract types. |
 | `types/src/<domain>.rs` | Pure shared domain values admitted by the repository's type rules. |
 | `api-schemas/src/<domain>.rs` | Shared API request/response contracts. |
 | `ports/src/<domain>/` | Cross-crate capability declarations and their supporting contract types. |
@@ -97,14 +100,18 @@ the five as independent criteria picks the wrong home: a response body is also
 domain data that several crates read, so question 4 would take it from
 question 1.
 
-1. Is it a request body or a response body itself? Put it in `api-schemas`.
+1. Is it a request body or a response body itself? Put Workspace, repository,
+   and plugin contracts in `workspace-types::schemas`, other domains in
+   `api-schemas`, and the common HTTP error body in `types::http`.
 2. Must a pluggable implementer satisfy it? Put it in `adapter-model` or
    `sandbox-runtime`, beside the trait it serves.
 3. Is it a cross-crate contract? Consult `tooling/arch-rules/src/port_admission.rs`
-   and put a supporting contract type with its trait, in `ports/src/<domain>/`.
+   and put a supporting contract type with its trait. Workspace contracts live
+   in `workspace-ports`; other domain contracts live in `ports/src/<domain>/`.
 4. Is it pure domain data? Consult `tooling/arch-rules/src/floor_type_admission.rs`
    and `tooling/arch-rules/src/closed_dependency_list.rs`, and put it in
-   `types/src/<domain>.rs`.
+   `workspace-types` for Workspace, repository, and plugin values, or
+   `types/src/<domain>.rs` for other domains.
 5. Does the process need it before any domain exists? Put it in `core`.
 
 ## Clear a duplicate-type-name violation

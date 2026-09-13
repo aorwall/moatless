@@ -4,10 +4,10 @@
 
 use std::sync::Arc;
 
-use moatless_ports::identity::{GitHostTokenError, GitHostTokenIssuer, PlainGitHost};
+use moatless_ports::identity::{GitHostTokenError, GitHostTokenIssuer};
 use moatless_types::access_control::{Actor, ScopeContext};
-use moatless_types::repository::{GitHostRepo, RepositoryProvider};
-use moatless_types::workspace::WorkspaceSource;
+use moatless_workspace_types::repository::RepositoryProvider;
+use moatless_workspace_types::workspace::WorkspaceSource;
 use sqlx::PgPool;
 
 use crate::test_support::{make_repository_row, make_workspace_row};
@@ -29,22 +29,14 @@ struct NoGitTokens;
 
 #[async_trait::async_trait]
 impl GitHostTokenIssuer for NoGitTokens {
-    async fn token(&self, actor: &Actor, repo: &GitHostRepo) -> Result<String, GitHostTokenError> {
-        Err(GitHostTokenError::NoCredential {
-            actor: actor.clone(),
-            provider: repo.provider(),
-            host: None,
-        })
-    }
-
-    async fn host_token(
+    async fn token(
         &self,
         actor: &Actor,
-        _host: PlainGitHost,
+        repo: &moatless_types::git_host::GitHostAccount,
     ) -> Result<String, GitHostTokenError> {
         Err(GitHostTokenError::NoCredential {
             actor: actor.clone(),
-            provider: RepositoryProvider::Github,
+            provider: repo.provider(),
             host: None,
         })
     }
@@ -64,7 +56,10 @@ async fn a_repository_shipping_no_workspaces_json_removes_nothing(pool: PgPool) 
     // without a provider call.
     let mut repo = make_repository_row("repo-1", USER);
     repo.provider = Some(RepositoryProvider::Gitness);
-    repo.remote_url = Some("https://gitness.example/acme/repo.git".to_string());
+    repo.remote = Some(crate::repository::remote::resolve_remote(
+        repo.provider,
+        "https://gitness.example/acme/repo.git".to_string(),
+    ));
     crate::compose::seed_repository(&pool, &repo)
         .await
         .expect("seed repo");

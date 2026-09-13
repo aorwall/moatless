@@ -19,7 +19,7 @@ pub mod service;
 pub use models::{WorkspaceCredential, WorkspaceCredentialMetadata, WorkspaceCredentialWrite};
 pub use service::WorkspaceCredentialService;
 
-pub use moatless_api_schemas::workspace::{
+pub use moatless_workspace_types::schemas::workspace::{
     SetWorkspaceCredentialRequest, WorkspaceCredentialResponse,
 };
-pub use moatless_types::workspace::WorkspaceCredentialProvider;
+pub use moatless_workspace_types::workspace::WorkspaceCredentialProvider;

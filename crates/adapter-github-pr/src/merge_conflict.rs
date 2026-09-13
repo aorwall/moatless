@@ -1,6 +1,6 @@
 //! Merge-conflict candidate derivation and durable execution.
 
-use moatless_types::repository::GitHostRepo;
+use moatless_workspace_types::repository::GitHostRepo;
 use tracing::{debug, info, warn};
 
 use moatless_adapter_model::error::AdapterError;

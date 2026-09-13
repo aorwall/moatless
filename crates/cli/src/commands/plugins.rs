@@ -2,7 +2,7 @@
 //! effective.
 
 use clap::{Subcommand, ValueEnum};
-use moatless_api_schemas::plugin::{
+use moatless_workspace_types::schemas::plugin::{
     ActivationReach, CreatePluginRequest, PluginResponse, SetActivationRequest,
 };
 

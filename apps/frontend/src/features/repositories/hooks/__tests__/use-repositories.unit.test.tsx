@@ -17,6 +17,7 @@ vi.mock('@/features/repositories/api/repositories', () => ({
 const syncResponse: SyncConfigResponse = {
   repository: {
     id: 'repo-1',
+    remote: null,
     kind: 'remote',
     name: 'Moatless',
     scope: 'user',

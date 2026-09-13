@@ -200,7 +200,7 @@ async fn seed_local_repository(pool: &PgPool) {
     seed_team(pool, &format!("personal-{USER_1}")).await;
     let mut repo = make_repository_row("repo-1", USER_1);
     repo.provider = None;
-    repo.remote_url = None;
+    repo.remote = None;
     compose::seed_repository(pool, &repo)
         .await
         .expect("seed repository");

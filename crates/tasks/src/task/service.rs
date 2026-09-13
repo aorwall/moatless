@@ -26,12 +26,12 @@ use moatless_core::config::Config;
 use moatless_core::events::EventPublisher;
 use moatless_ports::identity::UserResolver;
 use moatless_ports::sandbox::SandboxLifecycle;
-use moatless_ports::workspace::{RepositoryReader, WorkspaceResolver};
 use moatless_types::access_control::ensure_can_use_repository;
 use moatless_types::access_control::{ScopeContext, ScopedResource};
 use moatless_types::agent::AgentType;
-use moatless_types::repository::RepositoryKind;
 use moatless_types::task::Visibility;
+use moatless_workspace_ports::{RepositoryReader, WorkspaceResolver};
+use moatless_workspace_types::repository::RepositoryKind;
 
 /// A create request plus the two things only an internal caller supplies.
 pub struct CreateTaskIntent {

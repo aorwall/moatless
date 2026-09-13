@@ -3,7 +3,7 @@
 use moatless_adapter_model::binding::BindingContext;
 use moatless_adapter_model::capabilities::AdapterReactions;
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
-use moatless_types::repository::GitHostRepo;
+use moatless_workspace_types::repository::GitHostRepo;
 
 use super::adapter::GithubPrAdapter;
 use super::external_id::{self, CommentTarget};

@@ -6,6 +6,7 @@ description = "What a Moatless sandbox runtime implements and the machinery ever
 
 authors.workspace = true
 [dependencies]
+moatless-workspace-types = { workspace = true, features = ["schemas", "openapi"] }
 async-trait = { workspace = true }
 axum = { workspace = true, features = ["macros"] }
 chrono = { workspace = true, features = ["serde"] }

@@ -12,7 +12,8 @@ use moatless_sandbox_runtime::{
         UpdateServerConfigRequest,
     },
 };
-use moatless_types::{access_control::ScopeContext, workspace::ServerOverride};
+use moatless_types::access_control::ScopeContext;
+use moatless_workspace_types::workspace::ServerOverride;
 use tracing::info;
 
 /// List server config after caller authorization.

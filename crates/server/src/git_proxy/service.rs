@@ -5,10 +5,10 @@ use std::sync::Arc;
 
 use moatless_core::sandbox_jwt::verify_user_auth_token;
 use moatless_ports::identity::{CommitIdentity, GitHostTokenError, GitHostTokenIssuer};
-use moatless_ports::workspace::{RepositoryReader, WorkspaceResolver};
 use moatless_sandbox_control::secrets::resolve_task_actor;
 use moatless_types::access_control::{ScopeContext, ScopedResource};
-use moatless_types::repository::{GitHostRepo, Repository};
+use moatless_workspace_ports::{RepositoryReader, WorkspaceResolver};
+use moatless_workspace_types::repository::{GitHostRepo, Repository};
 use tracing::warn;
 
 use crate::sandbox::lifecycle::SandboxIngress;
@@ -163,7 +163,7 @@ impl GitProxy {
 
         let token = self
             .git_host_tokens
-            .token(&actor, &repo)
+            .token(&actor, &repo.credential_account())
             .await
             .map_err(|e| credential_error(&e, repo.host()))?;
         let host = repo.host().to_string();
@@ -214,8 +214,8 @@ async fn usable_repository(
 ///
 /// A row naming no provider, or a remote URL its provider's parser rejects, has
 /// no host to forward to.
-fn git_host_repo(repository: &Repository) -> Option<GitHostRepo> {
-    GitHostRepo::parse(repository.provider?, repository.remote_url.as_deref()?)
+fn git_host_repo(repository: &Repository) -> Option<&GitHostRepo> {
+    repository.remote.as_ref()?.host_repo.as_ref()
 }
 
 fn credential_error(error: &GitHostTokenError, host: &str) -> GitProxyError {
@@ -234,10 +234,10 @@ fn credential_error(error: &GitHostTokenError, host: &str) -> GitProxyError {
 mod tests {
     use super::*;
     use moatless_ports::identity::MockCommitIdentity;
-    use moatless_ports::workspace::MockRepositoryReader;
     use moatless_types::access_control::Scope;
-    use moatless_types::repository::{RepositoryKind, RepositoryProvider};
     use moatless_types::store::StoreError;
+    use moatless_workspace_ports::MockRepositoryReader;
+    use moatless_workspace_types::repository::{RepositoryKind, RepositoryProvider};
 
     const POD_USER: &str = "user-1";
 
@@ -246,7 +246,16 @@ mod tests {
             id: "repo-1".to_string(),
             name: "config-default".to_string(),
             kind: RepositoryKind::Git,
-            remote_url: Some("https://git.example.com/owner/config-default.git".to_string()),
+            remote: Some(moatless_workspace_types::repository::RepositoryRemote {
+                url: "https://git.example.com/owner/config-default.git".to_string(),
+                uses_ssh: false,
+                host_repo: Some(moatless_workspace_types::repository::GitHostRepo::new(
+                    RepositoryProvider::Forgejo,
+                    "git.example.com",
+                    "owner",
+                    "config-default",
+                )),
+            }),
             default_branch: None,
             description: None,
             provider: Some(RepositoryProvider::Forgejo),
@@ -324,7 +333,11 @@ mod tests {
 
         let mut github = repository(Scope::User, None);
         github.provider = Some(RepositoryProvider::Github);
-        github.remote_url = Some("https://github.com/owner/repo.git".to_string());
+        github.remote = Some(moatless_workspace_types::repository::RepositoryRemote {
+            url: "https://github.com/owner/repo.git".to_string(),
+            uses_ssh: false,
+            host_repo: Some(GitHostRepo::github("owner", "repo")),
+        });
         let repo = git_host_repo(&github).expect("a GitHub row resolves");
         assert_eq!(repo.host(), "github.com");
         assert_eq!(repo.owner(), "owner");
@@ -334,10 +347,15 @@ mod tests {
     fn a_row_with_no_provider_or_an_unparsable_remote_resolves_to_nothing() {
         let mut untagged = repository(Scope::User, None);
         untagged.provider = None;
+        untagged.remote.as_mut().unwrap().host_repo = None;
         assert!(git_host_repo(&untagged).is_none());
 
         let mut ssh = repository(Scope::User, None);
-        ssh.remote_url = Some("ssh://git@git.example.com:2222/owner/repo.git".to_string());
+        ssh.remote = Some(moatless_workspace_types::repository::RepositoryRemote {
+            url: "ssh://git@git.example.com:2222/owner/repo.git".to_string(),
+            uses_ssh: true,
+            host_repo: None,
+        });
         assert!(git_host_repo(&ssh).is_none());
     }
 }

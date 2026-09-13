@@ -6,11 +6,12 @@
 
 use clap::Subcommand;
 use moatless_api_schemas::enums::{RepositoryKind, RepositoryProvider, Scope};
-use moatless_api_schemas::repository::{
+use moatless_workspace_types::schemas::repository::{
     CreateRepositoryRequest, RepositoryResponse, UpdateRepositoryRequest,
 };
-use moatless_types::repository::{GitHostRepo, is_ssh_url, normalize_remote_url};
-use moatless_types::workspace::{derive_mount_name, proxy_clone_url, sanitize_mount_name};
+use moatless_workspace_types::workspace::{
+    derive_mount_name, proxy_clone_url, sanitize_mount_name,
+};
 
 use crate::client::{ClientError, MoatClient};
 use crate::output;
@@ -76,6 +77,8 @@ pub enum RepoAction {
     /// Update a repository
     Update {
         repo_id: String,
+        #[arg(long)]
+        provider: Option<String>,
         #[arg(long)]
         name: Option<String>,
         /// Change access scope: global or user
@@ -190,6 +193,7 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
         }
         RepoAction::Update {
             repo_id,
+            provider,
             name,
             scope,
             branch,
@@ -207,7 +211,16 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
                 },
                 None => None,
             };
+            let provider = provider
+                .as_deref()
+                .map(|provider| {
+                    parse_repo_provider(provider).ok_or_else(|| {
+                        ClientError::Other(format!("Invalid --provider '{provider}'"))
+                    })
+                })
+                .transpose()?;
             let req = UpdateRepositoryRequest {
+                provider,
                 name,
                 scope: parsed_scope,
                 default_branch: branch,
@@ -364,16 +377,16 @@ async fn resolve_repo(
 /// the pod's `credential.<backend>.helper`. An SSH remote clones from its own
 /// host instead, authenticating with the pod's `ssh_key` secret.
 fn clone_url(base_url: &str, repo: &RepositoryResponse) -> Result<String, ClientError> {
-    let remote_url = repo.remote_url.clone().ok_or_else(|| {
+    let remote = repo.remote.as_ref().ok_or_else(|| {
         ClientError::Other(format!(
             "Repository {} ({}) has no clone URL",
             repo.name, repo.id
         ))
     })?;
-    if repo.provider.is_some() && !is_ssh_url(&remote_url) {
+    if remote.host_repo.is_some() && !remote.uses_ssh {
         return Ok(proxy_clone_url(base_url, &repo.id));
     }
-    Ok(remote_url)
+    Ok(remote.url.clone())
 }
 
 /// The directory a clone lands in.
@@ -381,7 +394,7 @@ fn clone_url(base_url: &str, repo: &RepositoryResponse) -> Result<String, Client
 /// Derived from the remote, not the URL git is given — a proxied URL ends in
 /// the repository id, so git would otherwise name the checkout after a UUID.
 fn checkout_dir(repo: &RepositoryResponse) -> String {
-    match repo.remote_url.as_deref() {
+    match repo.remote.as_ref().map(|remote| remote.url.as_str()) {
         Some(remote_url) => derive_mount_name(remote_url),
         None => sanitize_mount_name(&repo.name).unwrap_or_else(|| "repo".to_string()),
     }
@@ -440,6 +453,7 @@ fn parse_scope(s: &str) -> Option<Scope> {
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct GhRepo {
+    name_with_owner: String,
     name: String,
     url: String,
     description: Option<String>,
@@ -477,19 +491,6 @@ pub struct ImportReport {
 /// `gh` caps a listing at 30 without `--limit`, which silently truncates an org
 /// this size and makes the import look complete.
 const GH_LIST_LIMIT: usize = 500;
-
-/// Key a repository by the identity no transport spelling changes.
-///
-/// `normalize_remote_url` only trims/lowercases, so `git@github.com:o/r.git`
-/// and `https://github.com/o/r` key apart under it and the import re-creates an
-/// existing repository; the fallback keeps a URL `parse_github` rejects
-/// (`ssh://git@github.com/o/r`) matching as it did.
-fn github_key(remote_url: &str) -> String {
-    GitHostRepo::parse(RepositoryProvider::Github, remote_url).map_or_else(
-        || normalize_remote_url(remote_url),
-        |parsed| format!("{}/{}", parsed.owner(), parsed.name()).to_ascii_lowercase(),
-    )
-}
 
 /// What the import does to one organization repository.
 #[derive(Debug, PartialEq, Eq)]
@@ -554,15 +555,25 @@ async fn import_org(
         Err(e) => return (report, Err(e.into())),
     };
 
-    let by_key: std::collections::HashMap<String, &RepositoryResponse> = existing
+    let by_key: std::collections::HashMap<_, _> = existing
         .iter()
-        .filter_map(|r| Some((github_key(r.remote_url.as_deref()?), r)))
+        .filter_map(|repo| {
+            let host = repo.remote.as_ref()?.host_repo.as_ref()?;
+            (host.provider == RepositoryProvider::Github).then(|| {
+                (
+                    format!("{}/{}", host.owner, host.name).to_ascii_lowercase(),
+                    repo,
+                )
+            })
+        })
         .collect();
     let names: std::collections::HashSet<String> =
         existing.iter().map(|r| r.name.to_lowercase()).collect();
 
     for repo in &remote {
-        let known = by_key.get(&github_key(&repo.url)).copied();
+        let known = by_key
+            .get(&repo.name_with_owner.to_ascii_lowercase())
+            .copied();
         let name_taken = known.is_none() && names.contains(&repo.name.to_lowercase());
         match plan_import(known, repo, include_archived, name_taken) {
             ImportPlan::SkipArchived => report.skipped_archived += 1,
@@ -638,7 +649,7 @@ fn fetch_org_repos(org: &str) -> Result<Vec<GhRepo>, ClientError> {
         "--limit",
         &GH_LIST_LIMIT.to_string(),
         "--json",
-        "name,url,description,isArchived,defaultBranchRef",
+        "name,nameWithOwner,url,description,isArchived,defaultBranchRef",
     ]
     .iter()
     .map(ToString::to_string)
@@ -747,7 +758,7 @@ impl RepoFilter {
         [
             Some(repo.name.as_str()),
             repo.description.as_deref(),
-            repo.remote_url.as_deref(),
+            repo.remote.as_ref().map(|remote| remote.url.as_str()),
         ]
         .into_iter()
         .flatten()
@@ -804,7 +815,10 @@ fn format_repo_detail(r: &RepositoryResponse) {
             .map_or("-".to_string(), ToString::to_string)
     );
     println!("Branch:   {}", r.default_branch.as_deref().unwrap_or("-"));
-    println!("Git URL:  {}", r.remote_url.as_deref().unwrap_or("-"));
+    println!(
+        "Git URL:  {}",
+        r.remote.as_ref().map_or("-", |remote| remote.url.as_str())
+    );
     if let Some(ref desc) = r.description {
         println!("Description: {desc}");
     }
@@ -817,6 +831,7 @@ fn format_repo_detail(r: &RepositoryResponse) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use moatless_workspace_types::schemas::repository::RepositoryRemoteResponse;
 
     const REPO_ID: &str = "6a12f676-2716-4de8-9bcc-8889e7f7fe3c";
     const BASE_URL: &str = "https://moatless.dev";
@@ -826,10 +841,21 @@ mod tests {
         remote_url: Option<&str>,
     ) -> RepositoryResponse {
         RepositoryResponse {
+            remote: remote_url.map(|url| RepositoryRemoteResponse {
+                url: url.to_string(),
+                uses_ssh: false,
+                host_repo: provider.map(|provider| {
+                    moatless_workspace_types::schemas::repository::GitHostRepoResponse {
+                        provider,
+                        host: "github.com".to_string(),
+                        owner: "soaplabs".to_string(),
+                        name: "foo".to_string(),
+                    }
+                }),
+            }),
             id: REPO_ID.to_string(),
             name: "config default".to_string(),
             kind: RepositoryKind::Git,
-            remote_url: remote_url.map(str::to_string),
             default_branch: None,
             description: None,
             provider,
@@ -866,7 +892,8 @@ mod tests {
     #[test]
     fn an_ssh_remote_clones_from_its_own_host() {
         let remote = "ssh://git@git.example.com:2222/owner/repo.git";
-        let repo = repository(Some(RepositoryProvider::Gitness), Some(remote));
+        let mut repo = repository(Some(RepositoryProvider::Gitness), Some(remote));
+        repo.remote.as_mut().unwrap().uses_ssh = true;
         assert_eq!(clone_url(BASE_URL, &repo).unwrap(), remote);
     }
 
@@ -949,30 +976,13 @@ mod tests {
 
     fn gh_repo(name: &str, description: Option<&str>, is_archived: bool) -> GhRepo {
         GhRepo {
+            name_with_owner: format!("soaplabs/{name}"),
             name: name.to_string(),
             url: format!("https://github.com/soaplabs/{name}"),
             description: description.map(str::to_string),
             is_archived,
             default_branch_ref: None,
         }
-    }
-
-    #[test]
-    fn every_spelling_of_one_github_repository_shares_a_key() {
-        let https = github_key("https://github.com/soaplabs/Foo");
-        assert_eq!(https, "soaplabs/foo");
-        assert_eq!(github_key("https://github.com/soaplabs/foo.git"), https);
-        assert_eq!(github_key("git@github.com:soaplabs/foo.git"), https);
-    }
-
-    #[test]
-    fn a_url_github_cannot_parse_still_keys_by_its_text() {
-        // `parse_github` rejects the `ssh://` form, so this falls back rather
-        // than dropping a row the URL key used to match.
-        assert_eq!(
-            github_key("ssh://git@github.com/soaplabs/foo.git/"),
-            "ssh://git@github.com/soaplabs/foo"
-        );
     }
 
     #[test]

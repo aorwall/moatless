@@ -6,8 +6,6 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use tracing::warn;
 
-use moatless_types::workspace::WorkspaceCredentialProvider;
-
 use super::models::SecretRecord;
 
 /// `secret_audit_events.scope_type` for a workspace credential. The table is
@@ -83,7 +81,7 @@ impl SecretAudit {
         actor_id: &str,
         action: CredentialAction,
         workspace_id: &str,
-        provider: WorkspaceCredentialProvider,
+        key: &str,
         outcome: AuditOutcome,
     ) {
         if let Err(e) = self
@@ -94,7 +92,7 @@ impl SecretAudit {
                 action: action.as_str(),
                 scope_type: WORKSPACE_SCOPE,
                 scope_id: Some(workspace_id),
-                key: provider.env_key(),
+                key,
                 result: outcome.as_str(),
             })
             .await
@@ -102,7 +100,7 @@ impl SecretAudit {
             warn!(
                 error = %e,
                 workspace_id,
-                provider = provider.as_str(),
+                key,
                 action = action.as_str(),
                 "Failed to record workspace credential audit event"
             );

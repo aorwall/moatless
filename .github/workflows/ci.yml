@@ -284,6 +284,9 @@ jobs:
           # never compiled here at all.
           cargo clippy --workspace --all-targets -- -D warnings
 
+      - name: Workspace contract feature isolation
+        run: bash .github/scripts/test-workspace-contracts.sh
+
       - name: Clippy feature/db extras (deny warnings)
         shell: bash
         env:

@@ -22,9 +22,11 @@ use moatless_sandbox_runtime::server_runner::build_server_start_script;
 use moatless_types::sandbox::SANDBOX_PREVIEW_PROXY_PORT;
 use moatless_types::sandbox::is_reserved_sandbox_port;
 #[cfg(test)]
-use moatless_types::workspace::Port;
-use moatless_types::workspace::{Cpu, Memory, ResourceConfig, ResourceQuantities, StorageMedium};
-use moatless_types::workspace::{RepoCheckout, WORKSPACE_REPOS_ENV};
+use moatless_workspace_types::workspace::Port;
+use moatless_workspace_types::workspace::{
+    Cpu, Memory, ResourceConfig, ResourceQuantities, StorageMedium,
+};
+use moatless_workspace_types::workspace::{RepoCheckout, WORKSPACE_REPOS_ENV};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap};
 use tracing::{debug, info, warn};
@@ -41,9 +43,9 @@ mod tokens;
 mod tests;
 
 pub use placement::resolve_sandbox_image;
+pub(crate) use placement::{pin_pod_to_node, retained_node_affinity};
 pub use pod::{
     POD_SPEC_HASH_ANNOTATION, build_pod, pod_spec_fingerprint, stamp_operation_generation,
 };
 pub use servers::{admitted_server_ports, build_servers_map};
 pub use tokens::{SandboxAuthTokens, mint_sandbox_tokens};
-pub(crate) use placement::{pin_pod_to_node, retained_node_affinity};

@@ -16,8 +16,8 @@ use serde::Deserialize;
 use tracing::{debug, warn};
 
 use super::error::SkillError;
-use moatless_types::repository::GitHostRepo;
-use moatless_types::repository::RepositoryProvider;
+use moatless_workspace_types::repository::RepositoryProvider;
+use moatless_workspace_types::repository::RepositoryRemote;
 
 /// Raw SKILL.md content plus its enclosing directory name, so callers can parse
 /// frontmatter themselves and fall back to the directory name when `name:` is
@@ -46,7 +46,7 @@ pub enum SkillLayout {
 pub trait SkillFetcher: Send + Sync {
     async fn fetch_skill_files(
         &self,
-        remote_url: &str,
+        remote: &RepositoryRemote,
         layout: SkillLayout,
         token: Option<&str>,
     ) -> Result<Vec<FetchedSkillFile>, SkillError>;
@@ -58,7 +58,7 @@ pub trait SkillFetcher: Send + Sync {
     /// cannot vouch for.
     async fn fetch_version(
         &self,
-        remote_url: &str,
+        remote: &RepositoryRemote,
         token: Option<&str>,
     ) -> Result<Option<String>, SkillError>;
 }
@@ -143,23 +143,17 @@ const PLUGIN_MARKETPLACE_PATHS: [&str; 2] = [
 impl SkillFetcher for GitHubSkillFetcher {
     async fn fetch_skill_files(
         &self,
-        remote_url: &str,
+        remote: &RepositoryRemote,
         layout: SkillLayout,
         token: Option<&str>,
     ) -> Result<Vec<FetchedSkillFile>, SkillError> {
-        let lower = remote_url.to_ascii_lowercase();
-        if !lower.contains("github.com") {
-            return Err(SkillError::UnsupportedProvider {
+        let remote_url = remote.url.as_str();
+        let parsed = remote
+            .host_repo
+            .as_ref()
+            .filter(|repo| repo.provider() == RepositoryProvider::Github)
+            .ok_or_else(|| SkillError::UnsupportedProvider {
                 git_url: remote_url.to_string(),
-            });
-        }
-
-        let parsed =
-            GitHostRepo::parse(RepositoryProvider::Github, remote_url).ok_or_else(|| {
-                SkillError::Fetch {
-                    git_url: remote_url.to_string(),
-                    message: "cannot parse owner/repo from URL".to_string(),
-                }
             })?;
         let (owner, repo) = (parsed.owner(), parsed.name());
 
@@ -216,14 +210,15 @@ impl SkillFetcher for GitHubSkillFetcher {
     /// `Accept: application/vnd.github.sha` — one request returning 40 bytes.
     async fn fetch_version(
         &self,
-        remote_url: &str,
+        remote: &RepositoryRemote,
         token: Option<&str>,
     ) -> Result<Option<String>, SkillError> {
-        let lower = remote_url.to_ascii_lowercase();
-        if !lower.contains("github.com") {
-            return Ok(None);
-        }
-        let Some(parsed) = GitHostRepo::parse(RepositoryProvider::Github, remote_url) else {
+        let remote_url = remote.url.as_str();
+        let Some(parsed) = remote
+            .host_repo
+            .as_ref()
+            .filter(|repo| repo.provider() == RepositoryProvider::Github)
+        else {
             return Ok(None);
         };
         let (owner, repo) = (parsed.owner(), parsed.name());
@@ -745,7 +740,7 @@ mod tests {
     impl SkillFetcher for StubFetcher {
         async fn fetch_skill_files(
             &self,
-            _remote_url: &str,
+            _remote: &RepositoryRemote,
             _layout: SkillLayout,
             _token: Option<&str>,
         ) -> Result<Vec<FetchedSkillFile>, SkillError> {
@@ -754,7 +749,7 @@ mod tests {
 
         async fn fetch_version(
             &self,
-            _remote_url: &str,
+            _remote: &RepositoryRemote,
             _token: Option<&str>,
         ) -> Result<Option<String>, SkillError> {
             Ok(None)
@@ -770,7 +765,14 @@ mod tests {
             }],
         };
         let files = stub
-            .fetch_skill_files("https://github.com/x/y.git", SkillLayout::Workspace, None)
+            .fetch_skill_files(
+                &crate::repository::remote::resolve_remote(
+                    Some(RepositoryProvider::Github),
+                    "https://github.com/x/y.git".to_string(),
+                ),
+                SkillLayout::Workspace,
+                None,
+            )
             .await
             .unwrap();
         assert_eq!(files.len(), 1);
@@ -800,7 +802,10 @@ mod tests {
         let fetcher = GitHubSkillFetcher::new(Client::new());
         let err = fetcher
             .fetch_skill_files(
-                "https://gitlab.com/foo/bar.git",
+                &crate::repository::remote::resolve_remote(
+                    Some(RepositoryProvider::Gitlab),
+                    "https://gitlab.com/foo/bar.git".to_string(),
+                ),
                 SkillLayout::Workspace,
                 None,
             )

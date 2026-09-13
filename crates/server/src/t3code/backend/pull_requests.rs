@@ -173,15 +173,16 @@ impl AppStateBoundPullRequests {
             .await
             .map_err(|error| PullRequestError::Failed(error.to_string()))?
             .ok_or(PullRequestError::NotFound)?;
-        let remote_url = repository.remote_url.ok_or(PullRequestError::NotFound)?;
-        moatless_types::repository::GitHostRepo::parse(
-            moatless_types::repository::RepositoryProvider::Github,
-            &remote_url,
-        )
-        .map(|repo| (repo.owner().to_string(), repo.name().to_string()))
-        .ok_or_else(|| {
-            PullRequestError::Unavailable("This repository has no GitHub remote.".to_string())
-        })
+        let remote = repository.remote.ok_or(PullRequestError::NotFound)?;
+        remote
+            .host_repo
+            .filter(|repo| {
+                repo.provider() == moatless_workspace_types::repository::RepositoryProvider::Github
+            })
+            .map(|repo| (repo.owner().to_string(), repo.name().to_string()))
+            .ok_or_else(|| {
+                PullRequestError::Unavailable("This repository has no GitHub remote.".to_string())
+            })
     }
 }
 
@@ -238,20 +239,19 @@ pub(super) async fn bind_thread_to_open_pr(
     else {
         return;
     };
-    let Some(remote_url) = state
+    let Some(remote) = state
         .repositories
         .find_by_id(&repository_id, viewer)
         .await
         .ok()
         .flatten()
-        .and_then(|repository| repository.remote_url)
+        .and_then(|repository| repository.remote)
     else {
         return;
     };
-    let Some(parsed) = moatless_types::repository::GitHostRepo::parse(
-        moatless_types::repository::RepositoryProvider::Github,
-        &remote_url,
-    ) else {
+    let Some(parsed) = remote.host_repo.filter(|repo| {
+        repo.provider() == moatless_workspace_types::repository::RepositoryProvider::Github
+    }) else {
         return;
     };
     let (owner, repo) = (parsed.owner(), parsed.name());

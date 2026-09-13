@@ -22,7 +22,11 @@ pub fn check(ws: &Workspace) -> Result<Vec<Violation>> {
     let index = ws.index()?;
     let mut out = Vec::new();
     for item in index.records.iter().filter(|r| {
-        r.package == "moatless-types"
+        matches!(
+            r.package.as_str(),
+            "moatless-types" | "moatless-workspace-types"
+        ) && !(r.module == "moatless_workspace_types::schemas"
+            || r.module.starts_with("moatless_workspace_types::schemas::"))
             && r.exported
             && matches!(
                 r.item,
@@ -35,7 +39,16 @@ pub fn check(ws: &Workspace) -> Result<Vec<Violation>> {
             .filter(|r| !r.test && r.package != item.package && index.names(r, &item.id))
             .map(|r| r.package.clone())
             .collect();
-        if !admitted(&consumers) && !annotations::permits(item, RULE) {
+        let shared_with_schema = item.package == "moatless-workspace-types"
+            && !consumers.is_empty()
+            && index.records.iter().any(|r| {
+                r.package == item.package
+                    && r.module.starts_with("moatless_workspace_types::schemas::")
+                    && r.exported
+                    && !r.test
+                    && index.names(r, &item.id)
+            });
+        if !admitted(&consumers) && !shared_with_schema && !annotations::permits(item, RULE) {
             out.push(Violation::at(
                 RULE,
                 format!(
@@ -52,7 +65,12 @@ pub fn check(ws: &Workspace) -> Result<Vec<Violation>> {
             ));
         }
     }
-    if let Some(member) = ws.member("moatless-types") {
+    for member in ws.members().filter(|m| {
+        matches!(
+            m.name.as_str(),
+            "moatless-types" | "moatless-workspace-types"
+        )
+    }) {
         let allowed: BTreeSet<String> = member
             .dependencies
             .iter()
@@ -62,10 +80,10 @@ pub fn check(ws: &Workspace) -> Result<Vec<Violation>> {
         let foreign: BTreeSet<String> = ws
             .members()
             .map(|m| m.name.replace('-', "_"))
-            .filter(|name| name != "moatless_types" && !allowed.contains(name))
+            .filter(|name| name != &member.name.replace('-', "_") && !allowed.contains(name))
             .collect();
         for item in index.records.iter().filter(|r| {
-            r.package == "moatless-types"
+            r.package == member.name
                 && !r.test
                 && matches!(
                     r.item,

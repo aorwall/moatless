@@ -6,7 +6,7 @@ use sqlx::AssertSqlSafe;
 use super::models::{Repository, RepositoryPatch, RepositoryRow};
 use moatless_core::db::DbPool;
 use moatless_types::access_control::{Scope, ScopeContext, ScopedEntity};
-use moatless_types::repository::RepositoryProvider;
+use moatless_workspace_types::repository::RepositoryProvider;
 
 /// DAO trait for repository persistence.
 #[cfg_attr(test, mockall::automock)]
@@ -30,7 +30,7 @@ pub(crate) trait RepositoryDao: Send + Sync {
     /// Find a non-deleted repository whose `remote_url` normalizes to
     /// `url_key`, scoped to the given scope+owner so resolution never crosses
     /// tenants. `url_key` must be pre-normalized by
-    /// [`moatless_types::repository::normalize_remote_url`].
+    /// [`crate::repository::remote::normalize_remote_url`].
     async fn find_by_normalized_remote_url(
         &self,
         url_key: &str,
@@ -110,7 +110,7 @@ impl RepositoryDao for PgRepositoryDao {
         .bind(&row.id)
         .bind(&row.name)
         .bind(row.kind.as_str())
-        .bind(&row.remote_url)
+        .bind(row.remote.as_ref().map(|remote| remote.url.as_str()))
         .bind(&row.default_branch)
         .bind(&row.description)
         .bind(row.provider.map(RepositoryProvider::as_str))

@@ -20,10 +20,10 @@ use moatless_api_schemas::loops::{
     CreateLoopRequest, UpdateLoopConfig, UpdateLoopRequest, UpdateLoopSource,
 };
 use moatless_ports::identity::UserResolver;
-use moatless_ports::workspace::{RepositoryReader, WorkspaceResolver};
 use moatless_tasks::agent::catalog;
 use moatless_types::access_control::ScopeContext;
 use moatless_types::loops::LoopKind as DomainLoopKind;
+use moatless_workspace_ports::{RepositoryReader, WorkspaceResolver};
 
 fn require_admin(ctx: &ScopeContext) -> Result<(), AdapterError> {
     if ctx.is_admin {

@@ -6,6 +6,7 @@ description = "GitHub PR Adapter: GitHub webhook handling, PR workflows, replies
 
 authors.workspace = true
 [dependencies]
+moatless-workspace-types = { workspace = true, features = ["openapi"] }
 async-trait = { workspace = true }
 axum = { workspace = true, features = ["macros"] }
 chrono = { workspace = true, features = ["serde"] }

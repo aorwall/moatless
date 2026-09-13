@@ -28,7 +28,7 @@ use crate::repository::models::Repository;
 use crate::workspace::dao::WorkspaceDao;
 use moatless_ports::identity::{GitHostTokenError, GitHostTokenIssuer};
 use moatless_types::access_control::{Actor, ScopeContext};
-use moatless_types::repository::{GitHostRepo, RepositoryKind};
+use moatless_workspace_types::repository::{RepositoryKind, RepositoryRemote};
 use uuid::Uuid;
 
 /// Orchestrates skill discovery across workspace + plugins.
@@ -126,7 +126,7 @@ impl SkillService {
         if repo.kind == RepositoryKind::Template {
             return Ok(Arc::new(Vec::new()));
         }
-        let Some(remote_url) = repo.remote_url.as_deref() else {
+        let Some(remote) = repo.remote.as_ref() else {
             return Ok(Arc::new(Vec::new()));
         };
 
@@ -139,11 +139,11 @@ impl SkillService {
             return Ok(cached);
         }
 
-        let token = self.workspace_token(actor, repo, remote_url).await?;
+        let token = self.workspace_token(actor, remote).await?;
 
         let files = self
             .fetcher
-            .fetch_skill_files(remote_url, SkillLayout::Workspace, token.as_deref())
+            .fetch_skill_files(remote, SkillLayout::Workspace, token.as_deref())
             .await?;
 
         let mut skills: Vec<Skill> = files
@@ -188,16 +188,16 @@ impl SkillService {
     async fn workspace_token(
         &self,
         actor: &Actor,
-        repo: &Repository,
-        remote_url: &str,
+        remote: &RepositoryRemote,
     ) -> Result<Option<String>, SkillError> {
-        let Some(provider) = repo.provider else {
+        let Some(host_repo) = remote.host_repo.as_ref() else {
             return Ok(None);
         };
-        let Some(host_repo) = GitHostRepo::parse(provider, remote_url) else {
-            return Ok(None);
-        };
-        match self.git_host_tokens.token(actor, &host_repo).await {
+        match self
+            .git_host_tokens
+            .token(actor, &host_repo.credential_account())
+            .await
+        {
             Ok(token) => Ok(Some(token)),
             Err(GitHostTokenError::NoCredential { .. }) => Ok(None),
             Err(e) => Err(SkillError::RepositoryToken(

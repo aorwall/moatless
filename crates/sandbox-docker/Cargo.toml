@@ -6,6 +6,7 @@ description = "Sandbox-docker band: the Docker Engine runtime provider behind th
 
 authors.workspace = true
 [dependencies]
+moatless-workspace-types = { workspace = true, features = ["openapi"] }
 async-trait = { workspace = true }
 # S3 client type for the transcript-archive cleanup path (held as Option<Arc<Client>>).
 aws-sdk-s3 = { workspace = true }

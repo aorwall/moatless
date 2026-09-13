@@ -16,7 +16,7 @@ use super::models::WorkspaceCredentialMetadata;
 use super::service::WorkspaceCredentialService;
 use crate::workspace::error::WorkspaceError;
 use crate::workspace::schemas::{SetWorkspaceCredentialRequest, WorkspaceCredentialResponse};
-use moatless_types::workspace::WorkspaceCredentialProvider;
+use moatless_workspace_types::workspace::WorkspaceCredentialProvider;
 
 pub(super) fn credential_response(
     metadata: WorkspaceCredentialMetadata,
@@ -44,7 +44,7 @@ fn parse_provider(provider: &str) -> Result<WorkspaceCredentialProvider, Workspa
     params(("workspace_id" = String, Path, description = "Workspace id")),
     responses(
         (status = 200, description = "Credential metadata (never values)", body = Vec<WorkspaceCredentialResponse>),
-        (status = 404, description = "Workspace not found", body = moatless_api_schemas::error::ErrorBody)
+        (status = 404, description = "Workspace not found", body = moatless_types::http::ErrorBody)
     )
 )]
 pub async fn list_workspace_credentials(
@@ -69,10 +69,10 @@ pub async fn list_workspace_credentials(
     request_body = SetWorkspaceCredentialRequest,
     responses(
         (status = 200, description = "Credential stored", body = WorkspaceCredentialResponse),
-        (status = 400, description = "Unknown provider or empty value", body = moatless_api_schemas::error::ErrorBody),
-        (status = 403, description = "No control access to the workspace", body = moatless_api_schemas::error::ErrorBody),
-        (status = 404, description = "Workspace not found", body = moatless_api_schemas::error::ErrorBody),
-        (status = 503, description = "Secret encryption is not configured", body = moatless_api_schemas::error::ErrorBody)
+        (status = 400, description = "Unknown provider or empty value", body = moatless_types::http::ErrorBody),
+        (status = 403, description = "No control access to the workspace", body = moatless_types::http::ErrorBody),
+        (status = 404, description = "Workspace not found", body = moatless_types::http::ErrorBody),
+        (status = 503, description = "Secret encryption is not configured", body = moatless_types::http::ErrorBody)
     )
 )]
 pub async fn set_workspace_credential(
@@ -98,9 +98,9 @@ pub async fn set_workspace_credential(
     ),
     responses(
         (status = 204, description = "Credential removed"),
-        (status = 400, description = "Unknown provider", body = moatless_api_schemas::error::ErrorBody),
-        (status = 403, description = "No control access to the workspace", body = moatless_api_schemas::error::ErrorBody),
-        (status = 404, description = "No such credential", body = moatless_api_schemas::error::ErrorBody)
+        (status = 400, description = "Unknown provider", body = moatless_types::http::ErrorBody),
+        (status = 403, description = "No control access to the workspace", body = moatless_types::http::ErrorBody),
+        (status = 404, description = "No such credential", body = moatless_types::http::ErrorBody)
     )
 )]
 pub async fn delete_workspace_credential(

@@ -1,6 +1,6 @@
 use async_trait::async_trait;
-use moatless_types::repository::Repository;
 use moatless_types::task::Task;
+use moatless_workspace_types::repository::Repository;
 
 /// Preflight seam: credential validation before a sandbox is provisioned.
 ///

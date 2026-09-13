@@ -2,7 +2,7 @@
 //! clients.
 
 use moatless_types::access_control::ScopeContext;
-use moatless_types::workspace::ScriptConfig;
+use moatless_workspace_types::workspace::ScriptConfig;
 
 use super::error::WorkspaceScriptsError;
 use super::operations::Workspaces;

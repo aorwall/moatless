@@ -14,6 +14,8 @@ members = [
     "crates/adapter-model",
     "crates/identity",
     "crates/workspaces",
+    "crates/workspace-types",
+    "crates/workspace-ports",
     "crates/tasks",
     "crates/loops",
     "crates/sandbox-control",
@@ -77,6 +79,8 @@ moatless-t3code = { path = "crates/t3code" }
 moatless-tasks = { path = "crates/tasks" }
 moatless-types = { path = "crates/types" }
 moatless-workspaces = { path = "crates/workspaces" }
+moatless-workspace-types = { path = "crates/workspace-types" }
+moatless-workspace-ports = { path = "crates/workspace-ports" }
 mockall = { version = "0.15" }
 moka = { version = "0.12" }
 prost = { version = "0.14" }

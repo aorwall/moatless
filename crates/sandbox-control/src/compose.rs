@@ -12,10 +12,10 @@ use moatless_core::db::DbPool;
 use moatless_core::events::EventPublisher;
 use moatless_ports::identity::CommitIdentity;
 use moatless_ports::task::PendingWorkReader;
-use moatless_ports::workspace::WorkspaceResolver;
 use moatless_sandbox_runtime::client::SandboxConnector;
 use moatless_sandbox_runtime::fleet::FleetObserver;
 use moatless_sandbox_runtime::runtime::SandboxRuntime;
+use moatless_workspace_ports::WorkspaceResolver;
 
 use crate::lifecycle::agent_stop::GrpcAgentStop;
 use crate::lifecycle::dao::{LifecycleDao, PgLifecycleDao};

@@ -19,9 +19,9 @@ use axum::routing::{get, post};
 use base64::Engine as _;
 use moatless_core::sandbox_jwt::generate_user_auth_token;
 use moatless_ports::identity::{MockCommitIdentity, MockGitHostTokenIssuer};
-use moatless_ports::workspace::{MockRepositoryReader, MockWorkspaceResolver, RepoPlacement};
 use moatless_types::access_control::Scope;
-use moatless_types::repository::{Repository, RepositoryKind, RepositoryProvider};
+use moatless_workspace_ports::{MockRepositoryReader, MockWorkspaceResolver, RepoPlacement};
+use moatless_workspace_types::repository::{Repository, RepositoryKind, RepositoryProvider};
 
 use super::handlers;
 use crate::git_proxy::service::GitProxy;
@@ -50,7 +50,10 @@ fn repository(id: &str, remote: &str) -> Repository {
         id: id.to_string(),
         name: "e2e".to_string(),
         kind: RepositoryKind::Git,
-        remote_url: Some(remote.to_string()),
+        remote: Some(moatless_workspaces::test_support::repository_remote(
+            Some(RepositoryProvider::Forgejo),
+            remote,
+        )),
         default_branch: None,
         description: None,
         provider: Some(RepositoryProvider::Forgejo),

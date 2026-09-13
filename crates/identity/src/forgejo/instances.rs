@@ -53,9 +53,6 @@ pub fn callback_url(frontend_url: &str) -> String {
 /// `host` as it is stored and compared: lowercased, with any scheme, path,
 /// query, fragment or trailing dot removed.
 ///
-/// Both writers normalise, since this is matched against
-/// [`moatless_types::repository::GitHostRepo::host`], which is already
-/// lowercase.
 pub fn normalize_host(host: &str) -> String {
     host.trim()
         .trim_start_matches("https://")

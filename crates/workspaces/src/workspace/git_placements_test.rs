@@ -139,7 +139,7 @@ async fn concurrent_replacements_commit_one_complete_set_with_one_primary() {
 async fn script_write_preserves_read_grant_and_rechecks_source_deletion_and_access() {
     use super::dao::{PgWorkspaceDao, WorkspaceDao};
     use moatless_types::access_control::ScopeContext;
-    use moatless_types::workspace::ScriptConfig;
+    use moatless_workspace_types::workspace::ScriptConfig;
 
     let (pool, admin, schema) = database().await;
     sqlx::raw_sql("ALTER TABLE workspaces ADD COLUMN source text NOT NULL DEFAULT 'manual', ADD COLUMN scope text NOT NULL DEFAULT 'global', ADD COLUMN owner_user_id text, ADD COLUMN created_by text, ADD COLUMN scripts jsonb; UPDATE workspaces SET owner_user_id = 'someone-else', scripts = '{}'::jsonb;")

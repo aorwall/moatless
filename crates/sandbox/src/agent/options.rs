@@ -659,7 +659,7 @@ mod tests {
     use super::*;
 
     use crate::config::test_support::minimal_config;
-    use moatless_types::workspace::RepoCheckout;
+    use moatless_workspace_types::workspace::RepoCheckout;
     use std::fs;
     use tempfile::tempdir;
 
@@ -1060,6 +1060,7 @@ mod tests {
         config.repo_dir = "/opt/moatless/workspace/api".to_string();
         config.repos = vec![
             RepoCheckout {
+                uses_ssh: false,
                 clone_url: "https://github.com/acme/api.git".into(),
                 repository_id: String::new(),
                 branch: None,
@@ -1068,6 +1069,7 @@ mod tests {
                 is_primary: true,
             },
             RepoCheckout {
+                uses_ssh: false,
                 clone_url: "https://github.com/acme/web.git".into(),
                 repository_id: String::new(),
                 branch: None,
@@ -1109,6 +1111,7 @@ mod tests {
 
     fn repo(mount_name: &str, is_primary: bool) -> RepoCheckout {
         RepoCheckout {
+            uses_ssh: false,
             clone_url: "https://example.com/repo.git".into(),
             repository_id: String::new(),
             branch: None,

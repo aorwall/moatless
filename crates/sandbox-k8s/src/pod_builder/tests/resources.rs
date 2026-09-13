@@ -48,7 +48,7 @@ fn sandbox_container_takes_upload_dir_from_file_mount_path() {
 
 #[test]
 fn sandbox_container_honors_per_repo_resource_override() {
-    use moatless_types::workspace::ResourceConfig;
+    use moatless_workspace_types::workspace::ResourceConfig;
 
     let config = test_config();
     let mut plan = test_plan();
@@ -67,7 +67,7 @@ fn sandbox_container_honors_per_repo_resource_override() {
 
 #[test]
 fn sandbox_container_keeps_defaults_for_keys_the_override_omits() {
-    use moatless_types::workspace::ResourceConfig;
+    use moatless_workspace_types::workspace::ResourceConfig;
 
     // A memory-only override must not drop the configured CPU request/limit.
     let config = test_config();
@@ -84,7 +84,7 @@ fn sandbox_container_keeps_defaults_for_keys_the_override_omits() {
 
 #[test]
 fn sandbox_container_stays_bounded_with_a_storage_only_override() {
-    use moatless_types::workspace::ResourceConfig;
+    use moatless_workspace_types::workspace::ResourceConfig;
 
     // `ResourceConfig` doubles as the storage config. A repo that sets only
     // storage fields must keep the global CPU/memory bounds — an empty

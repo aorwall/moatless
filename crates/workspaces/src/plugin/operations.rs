@@ -9,7 +9,7 @@ use super::dao::PluginDao;
 ///
 /// The store stays private to this crate; a peer band resolving what a Sandbox
 /// delivers takes
-/// [`moatless_ports::workspace::WorkspaceResolver::plugin_deliveries`] instead.
+/// [`moatless_workspace_ports::WorkspaceResolver::plugin_deliveries`] instead.
 pub struct Plugins {
     store: Arc<dyn PluginDao>,
 }

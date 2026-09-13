@@ -1,5 +1,6 @@
 use super::super::error::RepositoryError;
-use moatless_types::repository::{GitHostRepo, RepositoryProvider as GitHostProvider};
+use crate::repository::remote::require_host_repo;
+use moatless_workspace_types::repository::RepositoryRemote;
 use tracing::{debug, warn};
 
 pub(super) struct BranchFetchResult {
@@ -9,12 +10,10 @@ pub(super) struct BranchFetchResult {
 
 pub(super) async fn fetch_github_branches(
     client: &reqwest::Client,
-    remote_url: &str,
+    remote: &RepositoryRemote,
     token: &str,
 ) -> Result<BranchFetchResult, RepositoryError> {
-    let parsed = GitHostRepo::parse(GitHostProvider::Github, remote_url).ok_or_else(|| {
-        RepositoryError::BadRequest(format!("Cannot parse GitHub URL: {remote_url}"))
-    })?;
+    let parsed = require_host_repo(remote)?;
     let (owner, repo) = (parsed.owner(), parsed.name());
 
     // Fetch all branches (paginated)
@@ -129,21 +128,19 @@ pub(super) async fn fetch_github_branches(
 
 pub(super) async fn fetch_gitlab_branches(
     client: &reqwest::Client,
-    remote_url: &str,
+    remote: &RepositoryRemote,
     token: &str,
 ) -> Result<BranchFetchResult, RepositoryError> {
-    // For GitLab we need the project ID (URL-encoded path)
-    // https://gitlab.com/owner/repo → owner%2Frepo
-    let url = remote_url.trim_end_matches('/').trim_end_matches(".git");
+    let remote_url = remote.url.as_str();
+    let parsed = require_host_repo(remote)?;
+    if parsed.host() != "gitlab.com" || remote.uses_ssh {
+        return Err(RepositoryError::BadRequest(format!(
+            "Cannot fetch GitLab branches from {remote_url}"
+        )));
+    }
+    let project_path = parsed.to_string();
 
-    let project_path = url
-        .strip_prefix("https://gitlab.com/")
-        .or_else(|| url.strip_prefix("http://gitlab.com/"))
-        .ok_or_else(|| {
-            RepositoryError::BadRequest(format!("Cannot parse GitLab URL: {remote_url}"))
-        })?;
-
-    let encoded_path = urlencoding::encode(project_path);
+    let encoded_path = urlencoding::encode(&project_path);
 
     #[derive(serde::Deserialize)]
     struct GlBranch {
@@ -228,12 +225,10 @@ pub(super) async fn fetch_gitlab_branches(
 /// `token` travels over.
 pub(super) async fn fetch_forgejo_branches(
     client: &reqwest::Client,
-    remote_url: &str,
+    remote: &RepositoryRemote,
     token: &str,
 ) -> Result<BranchFetchResult, RepositoryError> {
-    let parsed = GitHostRepo::parse(GitHostProvider::Forgejo, remote_url).ok_or_else(|| {
-        RepositoryError::BadRequest(format!("Cannot parse Forgejo URL: {remote_url}"))
-    })?;
+    let parsed = require_host_repo(remote)?;
     let host = parsed.host();
     let (owner, repo) = (parsed.owner(), parsed.name());
     let repo_api = format!("https://{host}/api/v1/repos/{owner}/{repo}");
@@ -341,10 +336,11 @@ pub(super) async fn fetch_forgejo_branches(
 
 pub(super) async fn fetch_gitness_branches(
     client: &reqwest::Client,
-    remote_url: &str,
+    remote: &RepositoryRemote,
     token: &str,
     base_url: &str,
 ) -> Result<BranchFetchResult, RepositoryError> {
+    let remote_url = remote.url.as_str();
     // Extract the repo path by stripping the base URL prefix
     let url = remote_url.trim_end_matches('/').trim_end_matches(".git");
     let base = base_url.trim_end_matches('/');

@@ -52,7 +52,7 @@ function repository(overrides: Partial<RepositoryResponse> = {}): RepositoryResp
     id: 'repo-1',
     name: 'Repository',
     kind: 'remote',
-    remoteUrl: 'https://github.com/acme/repo.git',
+    remote: { url: 'https://github.com/acme/repo.git', usesSsh: false, hostRepo: null },
     provider: 'github',
     scope: 'user',
     ownerUserId: 'owner-1',

@@ -10,7 +10,7 @@ use moatless_identity::credentials::CredentialService;
 use moatless_identity::secret::audit::SecretAudit;
 use moatless_identity::secret::service::SecretCipher;
 use moatless_ports::identity::GitHostTokenIssuer;
-use moatless_ports::workspace::RepositoryReader;
+use moatless_workspace_ports::RepositoryReader;
 
 use crate::plugin::dao::PgPluginDao;
 use crate::plugin::operations::Plugins;

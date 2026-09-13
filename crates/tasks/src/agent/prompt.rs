@@ -9,8 +9,8 @@ use std::sync::Arc;
 use tracing::warn;
 
 use moatless_core::config::Config;
-use moatless_ports::workspace::WorkspaceResolver;
-use moatless_types::workspace::ServerConfig;
+use moatless_workspace_ports::WorkspaceResolver;
+use moatless_workspace_types::workspace::ServerConfig;
 
 use crate::task::models::Task;
 use crate::task::relations::TaskRelations;
@@ -401,7 +401,7 @@ fn build_parent_task_section(parent: ParentTask<'_>) -> String {
 
 #[cfg(test)]
 mod tests {
-    use moatless_types::workspace::Port;
+    use moatless_workspace_types::workspace::Port;
 
     use super::*;
 

@@ -15,7 +15,7 @@ use tracing::{info, warn};
 
 use crate::credentials::server_env::shell_single_quote;
 
-pub use moatless_types::workspace::ServerOverride;
+pub use moatless_workspace_types::workspace::ServerOverride;
 
 /// What a server's control directory currently holds.
 #[derive(Debug, Clone, PartialEq, Eq)]

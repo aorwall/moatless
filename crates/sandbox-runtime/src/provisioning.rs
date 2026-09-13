@@ -11,7 +11,7 @@ use tracing::warn;
 use utoipa::ToSchema;
 
 use moatless_types::sandbox::ServerCapabilities;
-use moatless_types::workspace::{Port, RepoCheckout, ServerConfig};
+use moatless_workspace_types::workspace::{Port, RepoCheckout, ServerConfig};
 
 /// Provision plan sent from TS backend
 #[derive(Debug, Clone, Deserialize, ToSchema)]
@@ -31,20 +31,14 @@ pub struct ProvisionPlan {
     pub git_clone_url: String,
     /// The primary repository's branch. Mirrors `repos[0].branch`.
     pub git_branch: Option<String>,
-    /// The primary repository's git provider (e.g. "github", "gitlab",
-    /// "gitness")
-    #[serde(default = "default_git_provider")]
+    /// The primary repository's git provider (e.g. "github", "gitlab", "gitness")
+    #[serde(default)]
     pub git_provider: String,
     /// Custom environment variables
     pub env_vars: Option<HashMap<String, String>>,
-    /// Every repository the task's workspace places in the sandbox, primary
-    /// first. Empty only when `git_clone_url` is the sole checkout.
+    /// Resolved sandbox checkouts, primary first; empty when no repository is configured.
     #[serde(default)]
     pub repos: Vec<RepoCheckout>,
-}
-
-fn default_git_provider() -> String {
-    "github".to_string()
 }
 
 /// Repository config for provisioning and sandbox environment
@@ -55,7 +49,7 @@ pub struct RepoConfig {
     /// Per-repository sandbox image override
     pub docker_image: Option<String>,
     /// Servers with allocated ports
-    #[schema(value_type = Vec<moatless_api_schemas::workspace::ServerConfig>)]
+    #[schema(value_type = Vec<moatless_workspace_types::schemas::workspace::ServerConfig>)]
     pub servers: Option<Vec<ServerConfig>>,
     // --- Pass-through fields for REPO_CONFIG env var ---
     /// System prompt for the agent
@@ -68,12 +62,12 @@ pub struct RepoConfig {
     pub preview_config: Option<serde_json::Value>,
     // --- K8s resource configuration (opt-in per-repo) ---
     /// Per-repo K8s resource requests/limits override for server containers.
-    #[schema(value_type = moatless_api_schemas::workspace::ResourceConfig)]
-    pub resources: Option<moatless_types::workspace::ResourceConfig>,
+    #[schema(value_type = moatless_workspace_types::schemas::workspace::ResourceConfig)]
+    pub resources: Option<moatless_workspace_types::workspace::ResourceConfig>,
     // --- Plugins (resolved from the task owner's activation records) ---
     /// The plugins this task's owner has turned on, each with the skills they
     /// picked. The sandbox clones each one and removes the skills not named.
-    pub plugins: Option<Vec<moatless_types::plugin::PluginDelivery>>,
+    pub plugins: Option<Vec<moatless_workspace_types::plugin::PluginDelivery>>,
     // --- Docker access (opt-in) ---
     /// Mount Docker socket inside sandbox container (default: false). Overrides
     /// global `DOCKER_ENABLE_SOCKET_MOUNT` when set.
@@ -101,7 +95,7 @@ pub struct RepoConfig {
     pub network_profile: Option<String>,
 }
 
-pub use moatless_types::workspace::ServerOverride;
+pub use moatless_workspace_types::workspace::ServerOverride;
 
 /// Derive capabilities from a `ServerConfig`.
 pub fn server_capabilities_from_config(config: &ServerConfig) -> ServerCapabilities {

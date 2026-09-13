@@ -8,11 +8,11 @@
 //! `secrets` table, and strips the migrated keys from the repo rows.
 
 use super::secret_migration_dao::{self, RepoEnvRow};
-use moatless_api_schemas::enums::Scope;
 use moatless_core::db::DbPool;
 use moatless_core::secret_keys::looks_like_secret_key;
 use moatless_identity::secret::schemas::PutSecretRequest;
 use moatless_identity::secret::service::SecretService;
+use moatless_types::access_control::Scope;
 use moatless_types::access_control::ScopeContext;
 use moatless_types::secret::SecretKind;
 use std::collections::BTreeMap;

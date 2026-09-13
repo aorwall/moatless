@@ -10,7 +10,7 @@ use super::handlers;
 use super::operations::FeedbackNotes;
 use crate::task::operations::TaskCommands;
 use moatless_core::http_auth::UserTokenVerifier;
-use moatless_ports::workspace::RepositoryReader;
+use moatless_workspace_ports::RepositoryReader;
 
 #[derive(OpenApi)]
 #[openapi(

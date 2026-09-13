@@ -15,7 +15,7 @@ use crate::workspace::dao::WorkspaceDao;
 use crate::workspace::error::WorkspaceError;
 use crate::workspace::models::Workspace;
 
-use moatless_types::workspace::WorkspaceCredentialProvider;
+use moatless_workspace_types::workspace::WorkspaceCredentialProvider;
 
 /// Reads, writes and resolves the provider credentials pinned to a Workspace.
 ///
@@ -108,7 +108,7 @@ impl WorkspaceCredentialService {
                 &ctx.user_id,
                 CredentialAction::Set,
                 workspace_id,
-                provider,
+                provider.env_key(),
                 AuditOutcome::Success,
             )
             .await;
@@ -153,7 +153,7 @@ impl WorkspaceCredentialService {
                 &ctx.user_id,
                 CredentialAction::Delete,
                 workspace_id,
-                provider,
+                provider.env_key(),
                 AuditOutcome::Success,
             )
             .await;
@@ -246,7 +246,7 @@ impl WorkspaceCredentialService {
                     &ctx.user_id,
                     action,
                     workspace_id,
-                    provider,
+                    provider.env_key(),
                     AuditOutcome::Denied,
                 )
                 .await;
@@ -398,7 +398,7 @@ mod tests {
             icon: None,
             default_model: None,
             default_effort: None,
-            kind: moatless_types::workspace::WorkspaceKind::Single,
+            kind: moatless_workspace_types::workspace::WorkspaceKind::Single,
             docker_image: None,
             docker_access: None,
             sandbox_service_account: None,
@@ -409,7 +409,7 @@ mod tests {
             scripts: None,
             resources: None,
             network_profile: None,
-            source: moatless_types::workspace::WorkspaceSource::Manual,
+            source: moatless_workspace_types::workspace::WorkspaceSource::Manual,
             source_repository_id: None,
             source_key: None,
             source_config_path: None,
@@ -488,10 +488,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_github_credential_resolves_to_the_slot_the_git_host_seam_reads() {
-        // `GitHostTokens` looks the pin up by this env key, so a task on the
-        // workspace opens pull requests as the pinned account as well as
-        // cloning as it.
+    async fn the_identity_override_selects_only_the_requested_git_provider() {
         let svc = service(cipher());
         svc.set(
             &ctx("owner"),
@@ -502,10 +499,25 @@ mod tests {
         .await
         .expect("owner may set");
 
-        let env = svc.resolve_env("ws_1").await.expect("resolves");
+        use moatless_identity::git_credential_overrides::GitCredentialOverrides;
+        use moatless_types::git_host::RepositoryProvider;
+
         assert_eq!(
-            env.get("GITHUB_TOKEN").map(String::as_str),
+            svc.token("ws_1", RepositoryProvider::Github)
+                .await
+                .unwrap()
+                .as_deref(),
             Some("ghp_workspace")
+        );
+        assert_eq!(
+            svc.token("ws_1", RepositoryProvider::Gitlab).await.unwrap(),
+            None
+        );
+        assert_eq!(
+            svc.token("another_workspace", RepositoryProvider::Github)
+                .await
+                .unwrap(),
+            None
         );
     }
 
@@ -684,5 +696,15 @@ mod tests {
             stale.resolve_env("ws_1").await,
             Err(WorkspaceError::Crypto)
         ));
+        assert!(
+            moatless_identity::git_credential_overrides::GitCredentialOverrides::token(
+                &stale,
+                "ws_1",
+                moatless_types::git_host::RepositoryProvider::Gitlab,
+            )
+            .await
+            .is_err(),
+            "an unreadable override must not become an absent credential",
+        );
     }
 }

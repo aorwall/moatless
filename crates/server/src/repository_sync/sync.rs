@@ -1,9 +1,9 @@
 //! Ordered, administrator-requested repository configuration synchronization.
 
 use moatless_api_schemas::loops::LoopSyncSummary;
-use moatless_api_schemas::workspace::WorkspaceSyncSummary;
 use moatless_loops::loops::sync::LoopSyncService;
 use moatless_types::access_control::ScopeContext;
+use moatless_workspace_types::schemas::workspace::WorkspaceSyncSummary;
 use moatless_workspaces::repository::{Repositories, error::RepositoryError, models::Repository};
 use moatless_workspaces::workspace::git_sync::{GitSyncService, SyncForce, log_workspace_sync_for};
 
@@ -52,7 +52,7 @@ async fn sync_repo_config(
     ctx: &ScopeContext,
     force: &SyncForce,
 ) -> Result<(Repository, LoopSyncSummary, WorkspaceSyncSummary), RepositoryError> {
-    if repo.remote_url.is_none() {
+    if repo.remote.is_none() {
         return Err(RepositoryError::BadRequest(
             "Repository has no remote URL".to_string(),
         ));
@@ -74,11 +74,9 @@ async fn sync_repo_config(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use moatless_ports::identity::{GitHostTokenError, GitHostTokenIssuer, PlainGitHost};
-    use moatless_types::{
-        access_control::{Actor, Scope},
-        repository::{GitHostRepo, RepositoryKind},
-    };
+    use moatless_ports::identity::{GitHostTokenError, GitHostTokenIssuer};
+    use moatless_types::access_control::{Actor, Scope};
+    use moatless_workspace_types::repository::RepositoryKind;
     use moatless_workspaces::compose;
     use std::sync::Arc;
 
@@ -86,13 +84,10 @@ mod tests {
 
     #[async_trait::async_trait]
     impl GitHostTokenIssuer for NoGitTokens {
-        async fn token(&self, _: &Actor, _: &GitHostRepo) -> Result<String, GitHostTokenError> {
-            panic!("sync was refused before credentials")
-        }
-        async fn host_token(
+        async fn token(
             &self,
             _: &Actor,
-            _: PlainGitHost,
+            _: &moatless_types::git_host::GitHostAccount,
         ) -> Result<String, GitHostTokenError> {
             panic!("sync was refused before credentials")
         }
@@ -145,7 +140,7 @@ mod tests {
             id: "repo".into(),
             name: "repo".into(),
             kind: RepositoryKind::Remote,
-            remote_url: None,
+            remote: None,
             default_branch: None,
             description: None,
             provider: None,

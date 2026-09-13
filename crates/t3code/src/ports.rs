@@ -7,10 +7,10 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use moatless_api_schemas::agent::AgentDescriptor;
-use moatless_api_schemas::repository::BranchListResponse;
 use moatless_types::access_control::ScopeContext;
 use moatless_types::store::StoreError;
 use moatless_types::task::{TaskRelationType, Visibility};
+use moatless_workspace_types::schemas::repository::BranchListResponse;
 use uuid::Uuid;
 
 use moatless_types::agent::AgentMode;
@@ -24,7 +24,7 @@ pub trait WorkspaceScriptCommands: Send + Sync {
         &self,
         viewer: &ScopeContext,
         workspace_id: &str,
-        scripts: &[moatless_types::workspace::ScriptConfig],
+        scripts: &[moatless_workspace_types::workspace::ScriptConfig],
     ) -> Result<(), crate::scripts::ScriptsWriteError>;
 }
 

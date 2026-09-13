@@ -6,9 +6,9 @@
 use std::env;
 
 use claude_agent_sdk::PermissionMode;
-use moatless_types::plugin::PluginDelivery;
-use moatless_types::workspace::{
-    PROXIED_PROVIDER, RepoCheckout, WORKSPACE_REPOS_ENV, derive_mount_name, proxy_clone_url,
+use moatless_workspace_types::plugin::PluginDelivery;
+use moatless_workspace_types::workspace::{
+    PROXIED_PROVIDER, RepoCheckout, WORKSPACE_REPOS_ENV, proxy_clone_url,
 };
 use serde::Deserialize;
 
@@ -220,10 +220,7 @@ pub struct Config {
     pub git_branch: Option<String>,
     /// Primary repo's git provider (github, gitlab, gitness)
     pub git_provider: String,
-    /// Every repository the task's workspace places in this sandbox, primary
-    /// first (env `WORKSPACE_REPOS`), each cloned into
-    /// `{workspace_dir}/{mount_name}`; falls back to the `GIT_*` trio when
-    /// absent.
+    /// Resolved checkouts supplied in `WORKSPACE_REPOS`, primary first.
     pub repos: Vec<RepoCheckout>,
     /// Raw `REPO_CONFIG` JSON (for entrypoint compat)
     pub repo_config_raw: Option<String>,
@@ -234,80 +231,45 @@ pub struct Config {
     pub plugins: Vec<PluginDelivery>,
 }
 
-/// Read the workspace's repository checkouts from `WORKSPACE_REPOS`.
-///
-/// Falls back to the `GIT_CLONE_URL`/`GIT_BRANCH`/`GIT_PROVIDER` trio when
-/// absent or unparseable; an unsafe mount name is rejected, not repaired.
+/// Read the resolved checkouts supplied by the backend.
 fn load_repo_checkouts(
     git_clone_url: Option<&str>,
-    git_branch: Option<&str>,
-    git_provider: &str,
     backend_api_url: Option<&str>,
-) -> Vec<RepoCheckout> {
+) -> Result<Vec<RepoCheckout>, String> {
     parse_repo_checkouts(
         env::var(WORKSPACE_REPOS_ENV).ok().as_deref(),
         git_clone_url,
-        git_branch,
-        git_provider,
         backend_api_url,
     )
 }
 
-/// The env-free half of [`load_repo_checkouts`].
+/// Decode resolved checkouts without consulting process environment.
 fn parse_repo_checkouts(
     raw: Option<&str>,
     git_clone_url: Option<&str>,
-    git_branch: Option<&str>,
-    git_provider: &str,
     backend_api_url: Option<&str>,
-) -> Vec<RepoCheckout> {
-    let legacy = || match git_clone_url {
-        Some(url) => vec![RepoCheckout {
-            clone_url: url.to_string(),
-            branch: git_branch.map(str::to_string),
-            // The legacy trio predates the multi-repo env and names no
-            // repository, so a proxied clone is not reachable from it.
-            repository_id: String::new(),
-            provider: git_provider.to_string(),
-            mount_name: derive_mount_name(url),
-            is_primary: true,
-        }],
-        None => Vec::new(),
+) -> Result<Vec<RepoCheckout>, String> {
+    let Some(raw) = raw.filter(|raw| !raw.trim().is_empty()) else {
+        return if git_clone_url.is_some() {
+            Err("WORKSPACE_REPOS metadata is missing; update the backend and reprovision the sandbox.".to_string())
+        } else {
+            Ok(Vec::new())
+        };
     };
-
-    let raw = match raw {
-        Some(raw) if !raw.trim().is_empty() => raw,
-        _ => return legacy(),
-    };
-    let parsed: Vec<RepoCheckout> = match serde_json::from_str(raw) {
-        Ok(parsed) => parsed,
-        Err(e) => {
-            tracing::error!(
-                error = %e,
-                "Failed to parse WORKSPACE_REPOS; falling back to the primary repo only"
-            );
-            return legacy();
-        }
-    };
-
-    let (mut usable, rejected): (Vec<_>, Vec<_>) = parsed
-        .into_iter()
-        .partition(|repo| is_safe_mount_name(&repo.mount_name) && !repo.clone_url.is_empty());
-    for repo in &rejected {
-        tracing::error!(
-            mount_name = %repo.mount_name,
-            "Skipping workspace repo with an unusable mount name or clone URL"
-        );
-    }
-    if usable.is_empty() {
-        return legacy();
-    }
-    for repo in &mut usable {
+    let mut repos: Vec<RepoCheckout> = serde_json::from_str(raw)
+        .map_err(|error| format!("Invalid WORKSPACE_REPOS metadata; update the backend and reprovision the sandbox: {error}"))?;
+    repos.retain(|repo| {
+        let usable = is_safe_mount_name(&repo.mount_name) && !repo.clone_url.is_empty();
+        if !usable { tracing::error!(mount_name = %repo.mount_name, "Skipping checkout with an unusable mount name or clone URL"); }
+        usable
+    });
+    for repo in &mut repos {
         if let Some(url) = proxied_clone_url(repo, backend_api_url) {
             repo.clone_url = url;
+            repo.uses_ssh = false;
         }
     }
-    usable
+    Ok(repos)
 }
 
 /// Split a URL into its scheme and its `host[:port]`, dropping any path.
@@ -413,9 +375,7 @@ fn env_flag_override(name: &str) -> Option<bool> {
 }
 
 impl Config {
-    /// Absolute checkout directory of every repository placed in this sandbox,
-    /// primary first; a legacy pod (no `WORKSPACE_REPOS`) falls back to
-    /// [`Self::repo_dir`]. Empty entries are dropped.
+    /// Absolute checkout directories, primary first, falling back to a nonempty `repo_dir`.
     pub fn repo_dirs(&self) -> Vec<String> {
         if self.repos.is_empty() {
             if self.repo_dir.is_empty() {
@@ -447,7 +407,7 @@ impl Config {
     }
 
     /// Load configuration from environment variables.
-    pub fn from_env() -> Self {
+    pub fn from_env() -> Result<Self, String> {
         let parsed = parse_repo_config();
 
         let home_dir = env::var("HOME").unwrap_or_else(|_| "/home/moatless".to_string());
@@ -469,20 +429,15 @@ impl Config {
         let workspace_dir = env::var("WORKSPACE_DIR").unwrap_or_else(|_| "/workspace".to_string());
         let git_clone_url = env::var("GIT_CLONE_URL").ok().filter(|u| !u.is_empty());
         let git_branch = env::var("GIT_BRANCH").ok();
-        let git_provider = env::var("GIT_PROVIDER").unwrap_or_else(|_| "github".to_string());
+        let git_provider = env::var("GIT_PROVIDER").unwrap_or_default();
         let backend_api_url = env::var("BACKEND_API_URL").ok();
-        let repos = load_repo_checkouts(
-            git_clone_url.as_deref(),
-            git_branch.as_deref(),
-            &git_provider,
-            backend_api_url.as_deref(),
-        );
+        let repos = load_repo_checkouts(git_clone_url.as_deref(), backend_api_url.as_deref())?;
         let repo_dir = primary_checkout(&repos)
             .map_or_else(|| workspace_dir.clone(), |repo| repo.dir(&workspace_dir));
         let upload_dir =
             env::var("UPLOAD_DIR").unwrap_or_else(|_| default_upload_dir(&workspace_dir));
 
-        Self {
+        Ok(Self {
             port: env::var("PORT")
                 .ok()
                 .and_then(|v| v.parse().ok())
@@ -571,7 +526,7 @@ impl Config {
             repo_config_raw: env::var("REPO_CONFIG").ok(),
             setup_commands: parsed.setup_commands,
             plugins: parsed.plugins,
-        }
+        })
     }
 
     /// Filesystem path where the long-lived user auth token is persisted after
@@ -866,6 +821,7 @@ mod tests {
 
     fn checkout(mount_name: &str, is_primary: bool) -> super::RepoCheckout {
         super::RepoCheckout {
+            uses_ssh: false,
             clone_url: "https://example.com/repo.git".into(),
             repository_id: String::new(),
             branch: None,
@@ -1031,48 +987,33 @@ mod tests {
         assert_eq!(parse_permission_mode("nonsense"), None);
     }
 
-    /// A pod provisioned before multi-repo support carries no
-    /// `WORKSPACE_REPOS`; it still derives a concrete primary checkout
-    /// directory from the clone URL.
     #[test]
-    fn absent_workspace_repos_falls_back_to_a_derived_single_checkout() {
-        let repos = parse_repo_checkouts(
-            None,
-            Some("https://github.com/owner/service.git"),
-            Some("main"),
-            "github",
-            None,
-        );
-        assert_eq!(repos.len(), 1);
-        assert_eq!(repos[0].mount_name, "service");
-        assert_eq!(repos[0].branch.as_deref(), Some("main"));
-        assert!(repos[0].is_primary);
-        assert_eq!(
-            primary_checkout(&repos)
-                .unwrap()
-                .dir("/opt/moatless/workspace"),
-            "/opt/moatless/workspace/service"
+    fn url_only_configuration_requires_reprovisioning() {
+        assert!(
+            parse_repo_checkouts(None, Some("https://github.com/owner/service.git"), None)
+                .unwrap_err()
+                .contains("reprovision")
         );
     }
 
     #[test]
     fn no_clone_url_at_all_yields_no_checkouts() {
-        assert!(parse_repo_checkouts(None, None, None, "github", None).is_empty());
+        assert!(parse_repo_checkouts(None, None, None).unwrap().is_empty());
+        assert!(
+            parse_repo_checkouts(Some("[]"), None, None)
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]
     fn workspace_repos_env_supplies_every_checkout() {
         let raw = r#"[
-            {"cloneUrl":"https://github.com/acme/api.git","branch":"main","provider":"github","mountName":"api","isPrimary":true},
-            {"cloneUrl":"https://gitlab.com/acme/shared.git","provider":"gitlab","mountName":"lib"}
+            {"usesSsh":false,"cloneUrl":"https://github.com/acme/api.git","branch":"main","provider":"github","mountName":"api","isPrimary":true},
+            {"usesSsh":false,"cloneUrl":"https://gitlab.com/acme/shared.git","provider":"gitlab","mountName":"lib"}
         ]"#;
-        let repos = parse_repo_checkouts(
-            Some(raw),
-            Some("https://github.com/acme/api.git"),
-            Some("main"),
-            "github",
-            None,
-        );
+        let repos =
+            parse_repo_checkouts(Some(raw), Some("https://github.com/acme/api.git"), None).unwrap();
         assert_eq!(repos.len(), 2);
         assert_eq!(
             primary_checkout(&repos)
@@ -1090,27 +1031,19 @@ mod tests {
     #[test]
     fn checkouts_with_unusable_mount_names_are_dropped() {
         let raw = r#"[
-            {"cloneUrl":"https://github.com/acme/api.git","provider":"github","mountName":"api","isPrimary":true},
-            {"cloneUrl":"https://github.com/acme/evil.git","provider":"github","mountName":"../escape"},
-            {"cloneUrl":"","provider":"github","mountName":"empty"}
+            {"usesSsh":false,"cloneUrl":"https://github.com/acme/api.git","provider":"github","mountName":"api","isPrimary":true},
+            {"usesSsh":false,"cloneUrl":"https://github.com/acme/evil.git","provider":"github","mountName":"../escape"},
+            {"usesSsh":false,"cloneUrl":"","provider":"github","mountName":"empty"}
         ]"#;
-        let repos = parse_repo_checkouts(Some(raw), None, None, "github", None);
+        let repos = parse_repo_checkouts(Some(raw), None, None).unwrap();
         assert_eq!(repos.len(), 1);
         assert_eq!(repos[0].mount_name, "api");
     }
 
-    /// Unparseable JSON must not strand the sandbox with nothing checked out.
     #[test]
-    fn malformed_workspace_repos_falls_back_to_the_primary() {
-        let repos = parse_repo_checkouts(
-            Some("not json"),
-            Some("https://github.com/owner/repo.git"),
-            None,
-            "github",
-            None,
-        );
-        assert_eq!(repos.len(), 1);
-        assert_eq!(repos[0].mount_name, "repo");
+    fn malformed_or_unclassified_checkouts_are_rejected() {
+        assert!(parse_repo_checkouts(Some("not json"), None, None).is_err());
+        assert!(parse_repo_checkouts(Some(r#"[{"cloneUrl":"git@github.com:acme/repo.git","provider":"github","mountName":"repo"}]"#), None, None).is_err());
     }
 
     /// A Forgejo token never reaches the pod, so its checkout clones from the
@@ -1118,17 +1051,12 @@ mod tests {
     #[test]
     fn a_forgejo_checkout_clones_through_the_backend_proxy() {
         let raw = r#"[
-            {"cloneUrl":"https://forge.example/acme/api.git","repositoryId":"repo_1","provider":"forgejo","mountName":"api","isPrimary":true},
-            {"cloneUrl":"https://github.com/acme/web.git","repositoryId":"repo_2","provider":"github","mountName":"web"}
+            {"usesSsh":true,"cloneUrl":"git@forge.example:acme/api.git","repositoryId":"repo_1","provider":"forgejo","mountName":"api","isPrimary":true},
+            {"usesSsh":false,"cloneUrl":"https://github.com/acme/web.git","repositoryId":"repo_2","provider":"github","mountName":"web"}
         ]"#;
-        let repos = parse_repo_checkouts(
-            Some(raw),
-            None,
-            None,
-            "forgejo",
-            Some("http://backend:8001/"),
-        );
+        let repos = parse_repo_checkouts(Some(raw), None, Some("http://backend:8001/")).unwrap();
         assert_eq!(repos[0].clone_url, "http://backend:8001/git/repo_1");
+        assert!(!repos[0].uses_ssh);
         assert_eq!(repos[1].clone_url, "https://github.com/acme/web.git");
     }
 
@@ -1137,15 +1065,15 @@ mod tests {
     /// report.
     #[test]
     fn a_forgejo_checkout_the_proxy_cannot_be_addressed_for_keeps_its_remote() {
-        let raw = r#"[{"cloneUrl":"https://forge.example/acme/api.git","repositoryId":"repo_1","provider":"forgejo","mountName":"api","isPrimary":true}]"#;
+        let raw = r#"[{"usesSsh":false,"cloneUrl":"https://forge.example/acme/api.git","repositoryId":"repo_1","provider":"forgejo","mountName":"api","isPrimary":true}]"#;
         assert_eq!(
-            parse_repo_checkouts(Some(raw), None, None, "forgejo", None)[0].clone_url,
+            parse_repo_checkouts(Some(raw), None, None).unwrap()[0].clone_url,
             "https://forge.example/acme/api.git"
         );
 
-        let no_id = r#"[{"cloneUrl":"https://forge.example/acme/api.git","provider":"forgejo","mountName":"api","isPrimary":true}]"#;
+        let no_id = r#"[{"usesSsh":false,"cloneUrl":"https://forge.example/acme/api.git","provider":"forgejo","mountName":"api","isPrimary":true}]"#;
         assert_eq!(
-            parse_repo_checkouts(Some(no_id), None, None, "forgejo", Some("http://backend:8001"))[0]
+            parse_repo_checkouts(Some(no_id), None, Some("http://backend:8001")).unwrap()[0]
                 .clone_url,
             "https://forge.example/acme/api.git"
         );
@@ -1159,7 +1087,10 @@ mod tests {
             config.backend_api_origin().as_deref(),
             Some("http://backend.svc:8001")
         );
-        assert_eq!(config.backend_api_host().as_deref(), Some("backend.svc:8001"));
+        assert_eq!(
+            config.backend_api_host().as_deref(),
+            Some("backend.svc:8001")
+        );
 
         config.backend_api_url = None;
         assert_eq!(config.backend_api_origin(), None);
@@ -1181,8 +1112,8 @@ mod tests {
     /// onto the workspace root.
     #[test]
     fn primary_checkout_falls_back_to_the_first_entry() {
-        let raw = r#"[{"cloneUrl":"https://github.com/acme/api.git","provider":"github","mountName":"api"}]"#;
-        let repos = parse_repo_checkouts(Some(raw), None, None, "github", None);
+        let raw = r#"[{"usesSsh":false,"cloneUrl":"https://github.com/acme/api.git","provider":"github","mountName":"api"}]"#;
+        let repos = parse_repo_checkouts(Some(raw), None, None).unwrap();
         assert_eq!(primary_checkout(&repos).unwrap().mount_name, "api");
         assert!(primary_checkout(&[]).is_none());
     }

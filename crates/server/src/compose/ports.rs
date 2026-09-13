@@ -73,7 +73,7 @@ pub struct Ports {
     pub feedback: Arc<FeedbackNotes>,
     pub repositories: Arc<Repositories>,
     /// The narrowed read the task and loop bands take, over the same store.
-    pub repository_reader: Arc<dyn moatless_ports::workspace::RepositoryReader>,
+    pub repository_reader: Arc<dyn moatless_workspace_ports::RepositoryReader>,
     /// Workspace composition + run-config (`workspaces` / `workspace_repos`).
     /// The `tasks` table behind the published `TaskReader` seam.
     pub task_reader: Arc<moatless_tasks::ports::TaskProjection>,

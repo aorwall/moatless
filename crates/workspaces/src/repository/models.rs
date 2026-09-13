@@ -1,6 +1,6 @@
 //! Persisted shapes for the repository band.
 //!
-//! The domain types live in `moatless_types::repository`. What is here is the
+//! The domain types live in `moatless_workspace_types::repository`. What is here is the
 //! shape the `repositories` table has — a nullable text `provider` column and a
 //! nullable `deleted` flag — plus the decode from one to the other.
 
@@ -9,9 +9,9 @@ use chrono::{DateTime, Utc};
 use moatless_types::access_control::Scope;
 // The repository band's vocabulary surface: call sites keep naming these
 // through `repository::models`, which is where a reader of this crate looks.
-pub use moatless_types::repository::{Repository, RepositoryKind, RepositoryProvider};
+pub use moatless_workspace_types::repository::{Repository, RepositoryKind, RepositoryProvider};
 
-pub use moatless_types::workspace::ScriptConfig;
+pub use moatless_workspace_types::workspace::ScriptConfig;
 
 /// Patch struct for partial updates.
 #[derive(Default)]
@@ -56,12 +56,27 @@ pub struct RepositoryRow {
 
 impl From<RepositoryRow> for Repository {
     fn from(row: RepositoryRow) -> Self {
+        let provider = decode_provider(&row.id, row.provider.as_deref());
+        let remote = row
+            .remote_url
+            .map(|url| super::remote::resolve_remote(provider, url));
+        if provider.is_some()
+            && remote
+                .as_ref()
+                .is_some_and(|remote| remote.host_repo.is_none())
+        {
+            tracing::warn!(
+                repository_id = %row.id,
+                ?provider,
+                "Declared provider has no supported repository host identity; git-host operations are unavailable"
+            );
+        }
         Self {
-            provider: decode_provider(&row.id, row.provider.as_deref()),
+            provider,
             id: row.id,
             name: row.name,
             kind: row.kind,
-            remote_url: row.remote_url,
+            remote,
             default_branch: row.default_branch,
             description: row.description,
             scope: row.scope,
@@ -85,5 +100,35 @@ fn decode_provider(repository_id: &str, raw: Option<&str>) -> Option<RepositoryP
             tracing::warn!(%repository_id, %error, "unreadable provider column");
             None
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_unknown_provider_keeps_its_remote_without_a_host_identity() {
+        let row = RepositoryRow {
+            id: "repo".to_string(),
+            name: "repo".to_string(),
+            kind: RepositoryKind::Git,
+            remote_url: Some("git@github.com:acme/repo.git".to_string()),
+            default_branch: None,
+            description: None,
+            provider: Some("unrecognized".to_string()),
+            scope: Scope::Global,
+            owner_user_id: None,
+            created_by: None,
+            deleted: None,
+            created_at: None,
+            updated_at: None,
+        };
+        let repository = Repository::from(row);
+        assert_eq!(repository.provider, None);
+        let remote = repository.remote.unwrap();
+        assert_eq!(remote.url, "git@github.com:acme/repo.git");
+        assert!(remote.uses_ssh);
+        assert!(remote.host_repo.is_none());
     }
 }

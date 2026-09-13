@@ -12812,6 +12812,30 @@
           }
         }
       },
+      "GitHostRepoResponse": {
+        "type": "object",
+        "description": "A repository's identity on its declared git host.",
+        "required": [
+          "provider",
+          "host",
+          "owner",
+          "name"
+        ],
+        "properties": {
+          "host": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "owner": {
+            "type": "string"
+          },
+          "provider": {
+            "$ref": "#/components/schemas/RepositoryProvider"
+          }
+        }
+      },
       "GitHubAppOption": {
         "type": "object",
         "required": [
@@ -15197,9 +15221,36 @@
           "forgejo"
         ]
       },
+      "RepositoryRemoteResponse": {
+        "type": "object",
+        "description": "Resolved facts about the repository's remote.",
+        "required": [
+          "url",
+          "usesSsh"
+        ],
+        "properties": {
+          "hostRepo": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/GitHostRepoResponse"
+              }
+            ]
+          },
+          "url": {
+            "type": "string"
+          },
+          "usesSsh": {
+            "type": "boolean"
+          }
+        }
+      },
       "RepositoryResponse": {
         "type": "object",
         "required": [
+          "remote",
           "id",
           "name",
           "kind",
@@ -15255,10 +15306,14 @@
               }
             ]
           },
-          "remoteUrl": {
-            "type": [
-              "string",
-              "null"
+          "remote": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RepositoryRemoteResponse"
+              }
             ]
           },
           "scope": {
@@ -19075,6 +19130,16 @@
             "type": [
               "string",
               "null"
+            ]
+          },
+          "provider": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RepositoryProvider"
+              }
             ]
           },
           "remoteUrl": {

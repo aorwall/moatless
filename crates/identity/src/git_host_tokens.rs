@@ -1,21 +1,18 @@
 //! Issuing a git-host token for one named identity.
 //!
-//! This is the issuing counterpart of [`crate::git_host_access`], which
-//! *administers* a credential — connect, disconnect, validate, status. This
-//! module answers one question instead: what token does this identity present
-//! to this host for this repository, right now.
+//! [`crate::git_host_access`] administers connections; this module resolves
+//! their credentials for a git-host account or instance.
 
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use tracing::warn;
 
+use crate::git_credential_overrides::GitCredentialOverrides;
 use moatless_core::secret_keys::{GITHUB_TOKEN, forgejo_token_key};
-use moatless_ports::identity::{GitHostTokenError, GitHostTokenIssuer, PlainGitHost};
-use moatless_ports::workspace::WorkspaceCredentialReader;
-use moatless_types::repository::RepositoryProvider;
+use moatless_ports::identity::{GitHostTokenError, GitHostTokenIssuer};
+use moatless_types::git_host::{GitHostAccount, RepositoryProvider};
 use moatless_types::store::StoreError;
-use moatless_types::workspace::WorkspaceCredentialProvider;
 
 use crate::auth::error::AuthError;
 use crate::auth::github::registry::GitHubAppRegistry;
@@ -33,7 +30,6 @@ use crate::forgejo::oauth::ForgejoOAuth;
 use crate::secret::service::SecretService;
 use moatless_types::access_control::Actor;
 use moatless_types::access_control::Scope;
-use moatless_types::repository::GitHostRepo;
 use moatless_types::secret::SecretKind;
 
 /// The one way to obtain a git-host token.
@@ -49,7 +45,7 @@ pub struct GitHostTokens {
     /// The credentials a Workspace pins. `None` in a deployment that wires no
     /// workspace credential store, which resolves every identity to its own
     /// credential.
-    workspace_credentials: Option<Arc<dyn WorkspaceCredentialReader>>,
+    credential_overrides: Option<Arc<dyn GitCredentialOverrides>>,
     /// `None` in a deployment that wires no Forgejo registry, which leaves a
     /// stored Forgejo credential to be presented until its host rejects it.
     forgejo: Option<ForgejoRefresh>,
@@ -76,18 +72,18 @@ impl GitHostTokens {
             github_app_service,
             github_apps,
             secrets,
-            workspace_credentials: None,
+            credential_overrides: None,
             forgejo: None,
         }
     }
 
     /// Wire the store that answers what a Workspace pins.
     #[must_use]
-    pub(crate) fn with_workspace_credentials(
+    pub(crate) fn with_credential_overrides(
         mut self,
-        workspace_credentials: Arc<dyn WorkspaceCredentialReader>,
+        credential_overrides: Arc<dyn GitCredentialOverrides>,
     ) -> Self {
-        self.workspace_credentials = Some(workspace_credentials);
+        self.credential_overrides = Some(credential_overrides);
         self
     }
 
@@ -113,31 +109,27 @@ impl GitHostTokens {
         provider: RepositoryProvider,
     ) -> Result<Option<String>, GitHostTokenError> {
         let (Some(store), Some(workspace_id)) =
-            (self.workspace_credentials.as_ref(), actor.workspace_id())
+            (self.credential_overrides.as_ref(), actor.workspace_id())
         else {
             return Ok(None);
         };
-        let env = store
-            .resolve_env(workspace_id)
+        let token = store
+            .token(workspace_id, provider)
             .await
-            .map_err(|e| GitHostTokenError::Broken {
+            .map_err(|source| GitHostTokenError::Broken {
                 actor: actor.clone(),
                 provider,
-                source: Box::new(AuthError::Config(format!(
-                    "Failed to read the credentials pinned to workspace '{workspace_id}': {e}"
-                ))),
+                source: Box::new(source),
             })?;
-        let key = WorkspaceCredentialProvider::from(provider).env_key();
-        Ok(env.get(key).filter(|token| !token.is_empty()).cloned())
+        Ok(token.filter(|token| !token.is_empty()))
     }
 
     /// The single stored value `actor` holds for a plain host.
     async fn stored_host_token(
         &self,
         actor: &Actor,
-        host: PlainGitHost,
+        provider: RepositoryProvider,
     ) -> Result<String, GitHostTokenError> {
-        let provider = host.provider();
         self.provider_tokens
             .find_provider_token(actor.user_id(), provider.as_str())
             .await
@@ -202,11 +194,7 @@ impl GitHostTokens {
     }
 
     /// GitHub dispatches on the row's `auth_method`.
-    async fn github_token(
-        &self,
-        actor: &Actor,
-        repo: &GitHostRepo,
-    ) -> Result<String, GitHostTokenError> {
+    async fn github_token(&self, actor: &Actor, owner: &str) -> Result<String, GitHostTokenError> {
         let Some(row) = self
             .provider_tokens
             .find_github_row(actor.user_id())
@@ -221,13 +209,21 @@ impl GitHostTokens {
         };
 
         let resolved = match row.auth_method.as_deref() {
-            Some(AUTH_METHOD_APP_INSTALLATION) => self.mint_installation_token(&row, repo).await,
+            Some(AUTH_METHOD_APP_INSTALLATION) => self.mint_installation_token(&row, owner).await,
             Some(AUTH_METHOD_SECRET_REF) => self.read_secret_ref_token(actor, GITHUB_TOKEN).await,
             Some(AUTH_METHOD_APP_USER) => Ok(self.refreshed_oauth_token(&row, actor).await),
             _ => Ok(row.access_token.clone()),
         };
 
-        resolved.map_err(|source| classify(actor, repo, source))
+        resolved.map_err(|source| {
+            classify(
+                actor,
+                GitHostAccount::Github {
+                    owner: owner.to_string(),
+                },
+                source,
+            )
+        })
     }
 
     /// An App-installation row mints an installation-wide token: it can reach
@@ -237,10 +233,10 @@ impl GitHostTokens {
     async fn mint_installation_token(
         &self,
         row: &ProviderToken,
-        repo: &GitHostRepo,
+        owner: &str,
     ) -> Result<String, AuthError> {
         let app = self.installation_app(row).await?;
-        let installation = app.resolve_installation_id(repo.owner()).await?;
+        let installation = app.resolve_installation_id(owner).await?;
         app.get_installation_token(installation).await
     }
 
@@ -314,14 +310,8 @@ impl GitHostTokens {
             })
     }
 
-    /// Forgejo dispatches on the row's `auth_method`, like GitHub, but every
-    /// lookup is keyed by the instance the repository names.
-    async fn forgejo_token(
-        &self,
-        actor: &Actor,
-        repo: &GitHostRepo,
-    ) -> Result<String, GitHostTokenError> {
-        let host = repo.host();
+    /// Resolve the credential stored for this Forgejo instance.
+    async fn forgejo_token(&self, actor: &Actor, host: &str) -> Result<String, GitHostTokenError> {
         let row = self
             .provider_tokens
             .find_provider_token_full(actor.user_id(), &forgejo_provider_key(host))
@@ -346,7 +336,15 @@ impl GitHostTokens {
             _ => Ok(row.access_token.clone()),
         };
 
-        resolved.map_err(|source| classify(actor, repo, source))
+        resolved.map_err(|source| {
+            classify(
+                actor,
+                GitHostAccount::Forgejo {
+                    host: host.to_string(),
+                },
+                source,
+            )
+        })
     }
 
     /// A Forgejo OAuth row refreshes near expiry. Every failure falls back to
@@ -435,7 +433,7 @@ impl GitHostTokens {
 /// Separate "the credential cannot reach this repository" from "the credential
 /// is broken". The remedies differ, and "connect GitHub" is wrong advice for
 /// someone already connected.
-fn classify(actor: &Actor, repo: &GitHostRepo, source: AuthError) -> GitHostTokenError {
+fn classify(actor: &Actor, account: GitHostAccount, source: AuthError) -> GitHostTokenError {
     let out_of_reach = match &source {
         AuthError::Forbidden => true,
         AuthError::Config(message) => message.contains("does not have access to repository"),
@@ -444,13 +442,13 @@ fn classify(actor: &Actor, repo: &GitHostRepo, source: AuthError) -> GitHostToke
     if out_of_reach {
         return GitHostTokenError::Forbidden {
             actor: actor.clone(),
-            repo: Box::new(repo.clone()),
+            account: Box::new(account),
             source: Box::new(source),
         };
     }
     GitHostTokenError::Broken {
         actor: actor.clone(),
-        provider: repo.provider(),
+        provider: account.provider(),
         source: Box::new(source),
     }
 }
@@ -480,30 +478,27 @@ pub fn seam_over(
 /// be cached.
 #[async_trait]
 impl GitHostTokenIssuer for GitHostTokens {
-    async fn token(&self, actor: &Actor, repo: &GitHostRepo) -> Result<String, GitHostTokenError> {
-        let provider = repo.provider();
+    async fn token(
+        &self,
+        actor: &Actor,
+        account: &GitHostAccount,
+    ) -> Result<String, GitHostTokenError> {
+        let provider = account.provider();
         if let Some(pinned) = self.pinned_token(actor, provider).await? {
             return Ok(pinned);
         }
-        match provider {
-            RepositoryProvider::Github => self.github_token(actor, repo).await,
-            RepositoryProvider::Gitlab => self.stored_host_token(actor, PlainGitHost::Gitlab).await,
-            RepositoryProvider::Gitness => {
-                self.stored_host_token(actor, PlainGitHost::Gitness).await
+        match account {
+            GitHostAccount::Github { owner } => self.github_token(actor, owner).await,
+            GitHostAccount::Gitlab => {
+                self.stored_host_token(actor, RepositoryProvider::Gitlab)
+                    .await
             }
-            RepositoryProvider::Forgejo => self.forgejo_token(actor, repo).await,
+            GitHostAccount::Gitness => {
+                self.stored_host_token(actor, RepositoryProvider::Gitness)
+                    .await
+            }
+            GitHostAccount::Forgejo { host } => self.forgejo_token(actor, host).await,
         }
-    }
-
-    async fn host_token(
-        &self,
-        actor: &Actor,
-        host: PlainGitHost,
-    ) -> Result<String, GitHostTokenError> {
-        if let Some(pinned) = self.pinned_token(actor, host.provider()).await? {
-            return Ok(pinned);
-        }
-        self.stored_host_token(actor, host).await
     }
 
     async fn github_is_usable(&self, actor: &Actor) -> Result<(), GitHostTokenError> {
@@ -514,16 +509,16 @@ impl GitHostTokenIssuer for GitHostTokens {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
 
     use crate::auth::provider_token_auth_dao::MockProviderTokenAuthDao;
     use crate::auth::provider_tokens::SECRET_REF_TOKEN_PLACEHOLDER;
     use crate::auth::test_support::{StubProviderTokens, github_row};
     use crate::secret::test_support::{secret, service_with};
 
-    fn github_repo() -> GitHostRepo {
-        GitHostRepo::parse(RepositoryProvider::Github, "https://github.com/acme/repo")
-            .expect("parses")
+    fn github_account() -> GitHostAccount {
+        GitHostAccount::Github {
+            owner: "acme".into(),
+        }
     }
 
     fn tokens(provider_tokens: StubProviderTokens, secrets: SecretService) -> GitHostTokens {
@@ -541,7 +536,7 @@ mod tests {
         secrets: SecretService,
     ) -> Result<String, GitHostTokenError> {
         tokens(StubProviderTokens::with_user_row(row), secrets)
-            .token(&Actor::of("u1"), &github_repo())
+            .token(&Actor::of("u1"), &github_account())
             .await
     }
 
@@ -646,7 +641,7 @@ mod tests {
         )
         .with_global_row(github_row("manual", "ghp_org"));
         let error = tokens(stub, service_with(vec![]))
-            .token(&Actor::of("u1"), &github_repo())
+            .token(&Actor::of("u1"), &github_account())
             .await
             .expect_err("u1 holds no row of their own");
         assert!(
@@ -780,7 +775,7 @@ mod tests {
         let stub = StubProviderTokens::with_user_row(Some(github_row("oauth", "gho_run_as_user")))
             .with_global_row(github_row("oauth", "gho_global_binding"));
         let token = tokens(stub, service_with(vec![]))
-            .token(&Actor::of("u1"), &github_repo())
+            .token(&Actor::of("u1"), &github_account())
             .await
             .expect("the actor's own row resolves");
         assert_eq!(token, "gho_run_as_user");
@@ -790,8 +785,7 @@ mod tests {
     async fn gitlab_reads_the_row_for_that_provider_only() {
         let mut row = github_row("manual", "glpat_mine");
         row.provider = "gitlab".to_string();
-        let repo = GitHostRepo::parse(RepositoryProvider::Gitlab, "https://gitlab.com/acme/repo")
-            .expect("parses");
+        let repo = GitHostAccount::Gitlab;
         let token = tokens(
             StubProviderTokens::with_user_row(Some(row)),
             service_with(vec![]),
@@ -804,8 +798,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_missing_gitlab_row_names_gitlab_and_not_github() {
-        let repo = GitHostRepo::parse(RepositoryProvider::Gitlab, "https://gitlab.com/acme/repo")
-            .expect("parses");
+        let repo = GitHostAccount::Gitlab;
         let error = tokens(StubProviderTokens::default(), service_with(vec![]))
             .token(&Actor::of("u1"), &repo)
             .await
@@ -813,51 +806,76 @@ mod tests {
         assert!(error.to_string().contains("gitlab"), "got {error}");
     }
 
+    #[tokio::test]
+    async fn forgejo_selects_the_named_instance_without_a_repository() {
+        let mut row = github_row("manual", "forgejo_token");
+        row.provider = "forgejo:git.acme.test".into();
+        let seam = tokens(
+            StubProviderTokens::with_user_row(Some(row)),
+            service_with(vec![]),
+        );
+        let account = GitHostAccount::Forgejo {
+            host: "git.acme.test".into(),
+        };
+        assert_eq!(
+            seam.token(&Actor::of("u1"), &account).await.unwrap(),
+            "forgejo_token"
+        );
+        let other = GitHostAccount::Forgejo {
+            host: "git.other.test".into(),
+        };
+        assert!(matches!(seam.token(&Actor::of("u1"), &other).await,
+            Err(GitHostTokenError::NoCredential { host: Some(host), .. }) if host == "git.other.test"));
+    }
+
     // --- the credential a workspace pins ------------------------------------
 
     /// A credential store answering one workspace, or failing for every read.
     struct PinnedCredentials {
         workspace_id: &'static str,
-        env: HashMap<String, String>,
+        provider: RepositoryProvider,
+        value: String,
         fails: bool,
     }
 
     impl PinnedCredentials {
         fn holding(
             workspace_id: &'static str,
-            key: &str,
+            provider: RepositoryProvider,
             value: &str,
-        ) -> Arc<dyn WorkspaceCredentialReader> {
+        ) -> Arc<dyn GitCredentialOverrides> {
             Arc::new(Self {
                 workspace_id,
-                env: HashMap::from([(key.to_string(), value.to_string())]),
+                provider,
+                value: value.to_string(),
                 fails: false,
             })
         }
 
-        fn unreadable() -> Arc<dyn WorkspaceCredentialReader> {
+        fn unreadable() -> Arc<dyn GitCredentialOverrides> {
             Arc::new(Self {
                 workspace_id: "ws_1",
-                env: HashMap::new(),
+                provider: RepositoryProvider::Github,
+                value: String::new(),
                 fails: true,
             })
         }
     }
 
     #[async_trait::async_trait]
-    impl WorkspaceCredentialReader for PinnedCredentials {
-        async fn resolve_env(
+    impl GitCredentialOverrides for PinnedCredentials {
+        async fn token(
             &self,
             workspace_id: &str,
-        ) -> Result<HashMap<String, String>, moatless_types::store::StoreError> {
+            provider: RepositoryProvider,
+        ) -> Result<Option<String>, moatless_types::store::StoreError> {
             if self.fails {
                 return Err(moatless_types::store::StoreError::new("unreadable"));
             }
-            Ok(if workspace_id == self.workspace_id {
-                self.env.clone()
-            } else {
-                HashMap::new()
-            })
+            Ok(
+                (workspace_id == self.workspace_id && provider == self.provider)
+                    .then(|| self.value.clone()),
+            )
         }
     }
 
@@ -869,14 +887,17 @@ mod tests {
             StubProviderTokens::with_user_row(Some(github_row("manual", "ghp_user"))),
             service_with(vec![]),
         )
-        .with_workspace_credentials(PinnedCredentials::holding(
+        .with_credential_overrides(PinnedCredentials::holding(
             "ws_1",
-            "GITHUB_TOKEN",
+            RepositoryProvider::Github,
             "ghp_workspace",
         ));
 
         let token = seam
-            .token(&Actor::of("u1").on_workspace(Some("ws_1")), &github_repo())
+            .token(
+                &Actor::of("u1").on_workspace(Some("ws_1")),
+                &github_account(),
+            )
             .await
             .expect("the pin resolves");
         assert_eq!(token, "ghp_workspace");
@@ -885,13 +906,15 @@ mod tests {
     #[tokio::test]
     async fn a_workspace_pin_answers_for_an_identity_holding_no_row_at_all() {
         let seam =
-            tokens(StubProviderTokens::default(), service_with(vec![])).with_workspace_credentials(
-                PinnedCredentials::holding("ws_1", "GITHUB_TOKEN", "ghp_workspace"),
+            tokens(StubProviderTokens::default(), service_with(vec![])).with_credential_overrides(
+                PinnedCredentials::holding("ws_1", RepositoryProvider::Github, "ghp_workspace"),
             );
         let actor = Actor::of("u1").on_workspace(Some("ws_1"));
 
         assert_eq!(
-            seam.token(&actor, &github_repo()).await.expect("resolves"),
+            seam.token(&actor, &github_account())
+                .await
+                .expect("resolves"),
             "ghp_workspace"
         );
         seam.github_is_usable(&actor)
@@ -907,14 +930,14 @@ mod tests {
             StubProviderTokens::with_user_row(Some(github_row("manual", "ghp_user"))),
             service_with(vec![]),
         )
-        .with_workspace_credentials(PinnedCredentials::holding(
+        .with_credential_overrides(PinnedCredentials::holding(
             "ws_1",
-            "GITHUB_TOKEN",
+            RepositoryProvider::Github,
             "ghp_workspace",
         ));
 
         let token = seam
-            .token(&Actor::of("u1"), &github_repo())
+            .token(&Actor::of("u1"), &github_account())
             .await
             .expect("the user's own row resolves");
         assert_eq!(token, "ghp_user");
@@ -926,14 +949,17 @@ mod tests {
             StubProviderTokens::with_user_row(Some(github_row("manual", "ghp_user"))),
             service_with(vec![]),
         )
-        .with_workspace_credentials(PinnedCredentials::holding(
+        .with_credential_overrides(PinnedCredentials::holding(
             "ws_1",
-            "OPENAI_API_KEY",
+            RepositoryProvider::Gitlab,
             "sk-workspace",
         ));
 
         let token = seam
-            .token(&Actor::of("u1").on_workspace(Some("ws_1")), &github_repo())
+            .token(
+                &Actor::of("u1").on_workspace(Some("ws_1")),
+                &github_account(),
+            )
             .await
             .expect("a pin for another provider is not a GitHub pin");
         assert_eq!(token, "ghp_user");
@@ -947,10 +973,13 @@ mod tests {
             StubProviderTokens::with_user_row(Some(github_row("manual", "ghp_user"))),
             service_with(vec![]),
         )
-        .with_workspace_credentials(PinnedCredentials::unreadable());
+        .with_credential_overrides(PinnedCredentials::unreadable());
 
         let error = seam
-            .token(&Actor::of("u1").on_workspace(Some("ws_1")), &github_repo())
+            .token(
+                &Actor::of("u1").on_workspace(Some("ws_1")),
+                &github_account(),
+            )
             .await
             .expect_err("an unreadable pin is not an absent pin");
         assert!(
@@ -961,26 +990,16 @@ mod tests {
 
     #[tokio::test]
     async fn a_workspace_pin_governs_gitlab_the_same_way() {
-        let repo = GitHostRepo::parse(RepositoryProvider::Gitlab, "https://gitlab.com/acme/repo")
-            .expect("parses");
+        let repo = GitHostAccount::Gitlab;
         let seam =
-            tokens(StubProviderTokens::default(), service_with(vec![])).with_workspace_credentials(
-                PinnedCredentials::holding("ws_1", "GITLAB_TOKEN", "glpat_workspace"),
+            tokens(StubProviderTokens::default(), service_with(vec![])).with_credential_overrides(
+                PinnedCredentials::holding("ws_1", RepositoryProvider::Gitlab, "glpat_workspace"),
             );
 
         assert_eq!(
             seam.token(&Actor::of("u1").on_workspace(Some("ws_1")), &repo)
                 .await
                 .expect("resolves"),
-            "glpat_workspace"
-        );
-        assert_eq!(
-            seam.host_token(
-                &Actor::of("u1").on_workspace(Some("ws_1")),
-                PlainGitHost::Gitlab
-            )
-            .await
-            .expect("the repository-free read resolves the same pin"),
             "glpat_workspace"
         );
     }

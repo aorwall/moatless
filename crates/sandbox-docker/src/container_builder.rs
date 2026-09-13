@@ -19,7 +19,7 @@ use moatless_core::config::Config;
 use moatless_sandbox_runtime::provisioning::ProvisionPlan;
 use moatless_sandbox_runtime::runtime::{OPERATION_GENERATION_LABEL, RuntimeOperationContext};
 use moatless_sandbox_runtime::server_runner::build_server_start_script;
-use moatless_types::workspace::{Memory, Port, ServerConfig, WORKSPACE_REPOS_ENV};
+use moatless_workspace_types::workspace::{Memory, Port, ServerConfig, WORKSPACE_REPOS_ENV};
 
 pub(crate) const CREATED_BY_LABEL: &str = "created-by";
 pub(crate) const CREATED_BY_VALUE: &str = "moatless";
@@ -740,7 +740,8 @@ mod tests {
         let config = test_config();
         let mut plan = test_plan();
         plan.repos = vec![
-            moatless_types::workspace::RepoCheckout {
+            moatless_workspace_types::workspace::RepoCheckout {
+                uses_ssh: false,
                 repository_id: "repo-1".into(),
                 clone_url: "https://github.com/test/repo.git".into(),
                 branch: Some("main".into()),
@@ -748,7 +749,8 @@ mod tests {
                 mount_name: "repo".into(),
                 is_primary: true,
             },
-            moatless_types::workspace::RepoCheckout {
+            moatless_workspace_types::workspace::RepoCheckout {
+                uses_ssh: false,
                 repository_id: "repo-2".into(),
                 clone_url: "https://github.com/test/shared.git".into(),
                 branch: None,
@@ -764,7 +766,7 @@ mod tests {
             .iter()
             .find_map(|e| e.strip_prefix(&format!("{WORKSPACE_REPOS_ENV}=")))
             .expect("WORKSPACE_REPOS present");
-        let parsed: Vec<moatless_types::workspace::RepoCheckout> =
+        let parsed: Vec<moatless_workspace_types::workspace::RepoCheckout> =
             serde_json::from_str(raw).unwrap();
         assert_eq!(parsed.len(), 2);
         assert_eq!(parsed[1].mount_name, "shared");
@@ -783,8 +785,8 @@ mod tests {
     fn container_config_applies_resource_limits_from_repo_config() {
         let config = test_config();
         let mut plan = test_plan();
-        plan.repo_config.resources = Some(moatless_types::workspace::ResourceConfig {
-            limits: moatless_types::workspace::ResourceQuantities {
+        plan.repo_config.resources = Some(moatless_workspace_types::workspace::ResourceConfig {
+            limits: moatless_workspace_types::workspace::ResourceQuantities {
                 cpu: Some("4".parse().expect("cpu")),
                 memory: Some("8Gi".parse().expect("memory")),
             },

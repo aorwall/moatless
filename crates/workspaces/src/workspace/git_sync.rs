@@ -18,21 +18,22 @@ use crate::repository::config_reader::fetch_provider_file;
 use crate::repository::dao::RepositoryDao;
 use crate::repository::error::{RepositoryError, is_remote_url_conflict};
 use crate::repository::models::Repository;
-use moatless_types::repository::normalize_remote_url;
+use crate::repository::remote::normalize_remote_url;
+use crate::repository::remote::require_host_repo;
 use crate::workspace::config_validation::validate_non_secret_env_vars;
 use crate::workspace::dao::WorkspaceDao;
 use crate::workspace::models::WorkspacePatch;
 use crate::workspace::models::{Workspace, WorkspaceKind, WorkspaceRepo, WorkspaceSource};
-use moatless_api_schemas::workspace::{WorkspaceSyncSkip, WorkspaceSyncSummary};
 use moatless_core::db::DbPool;
 use moatless_core::http_auth::AuthUser;
 use moatless_ports::identity::GitHostTokenIssuer;
 use moatless_types::access_control::Actor;
 use moatless_types::access_control::ScopeContext;
-use moatless_types::repository::GitHostRepo;
-use moatless_types::repository::{RepositoryKind, RepositoryProvider};
-use moatless_types::workspace::ScriptConfig;
-use moatless_types::workspace::{ResourceConfig, ServerConfig};
+use moatless_workspace_types::repository::RepositoryKind;
+use moatless_workspace_types::repository::{GitHostRepo, RepositoryRemote};
+use moatless_workspace_types::schemas::workspace::{WorkspaceSyncSkip, WorkspaceSyncSummary};
+use moatless_workspace_types::workspace::ScriptConfig;
+use moatless_workspace_types::workspace::{ResourceConfig, ServerConfig};
 
 // =============================================================================
 // `.moatless/` file schemas
@@ -94,19 +95,12 @@ pub struct MoatlessWorkspaceRepoRef {
 ///
 /// Returns `Ok(None)` when the file does not exist.
 pub async fn fetch_moatless_workspaces(
-    remote_url: &str,
+    remote: &RepositoryRemote,
     branch: Option<&str>,
     token: Option<&str>,
-    provider: RepositoryProvider,
 ) -> Result<Option<MoatlessWorkspacesFile>, RepositoryError> {
-    let Some(body) = fetch_provider_file(
-        remote_url,
-        ".moatless/workspaces.json",
-        branch,
-        token,
-        provider,
-    )
-    .await?
+    let Some(body) =
+        fetch_provider_file(remote, ".moatless/workspaces.json", branch, token).await?
     else {
         return Ok(None);
     };
@@ -192,17 +186,15 @@ impl GitSyncService {
     ) -> Result<WorkspaceSyncSummary, RepositoryError> {
         let mut summary = WorkspaceSyncSummary::default();
 
-        let Some(remote_url) = repo.remote_url.as_deref() else {
+        let Some(remote) = repo.remote.as_ref() else {
             return Ok(summary);
         };
-        let provider = repo.provider.unwrap_or(RepositoryProvider::Github);
-        let token = self.resolve_sync_token(scope, provider, remote_url).await;
+        let host_repo = require_host_repo(remote)?;
+        let token = self.resolve_sync_token(scope, host_repo).await;
         let token_str = token.as_deref();
         let branch = repo.default_branch.as_deref();
 
-        let Some(file) =
-            fetch_moatless_workspaces(remote_url, branch, token_str, provider).await?
-        else {
+        let Some(file) = fetch_moatless_workspaces(remote, branch, token_str).await? else {
             debug!(repository_id = %repo.id, "No .moatless/workspaces.json; nothing to sync");
             return Ok(summary);
         };
@@ -275,23 +267,21 @@ impl GitSyncService {
     /// logged and swallowed — this must never block or fail a task start. Loops
     /// are never synchronized as a side effect of task start.
     pub async fn sync_repo_config_on_start_for(&self, scope: &ScopeContext, repo: &Repository) {
-        let Some(remote_url) = repo.remote_url.as_deref() else {
+        let Some(remote) = repo.remote.as_ref() else {
             return;
         };
-        let provider = repo.provider.unwrap_or(RepositoryProvider::Github);
+        let Some(host_repo) = remote.host_repo.as_ref() else {
+            return;
+        };
 
         // Resolve a token for the existence probe; fall back to an unauthenticated
         // probe (works for public repos) if we can't load one.
-        let token = self.resolve_sync_token(scope, provider, remote_url).await;
+        let token = self.resolve_sync_token(scope, host_repo).await;
 
         let token_str = token.as_deref();
         let branch = repo.default_branch.as_deref();
 
-        if !crate::repository::config_reader::moatless_dir_exists(
-            remote_url, branch, token_str, provider,
-        )
-        .await
-        {
+        if !crate::repository::config_reader::moatless_dir_exists(remote, branch, token_str).await {
             debug!(repository_id = %repo.id, "Config auto-sync: no .moatless directory, skipping");
             return;
         }
@@ -608,7 +598,9 @@ impl GitSyncService {
         source_repo: &Repository,
         url: &str,
     ) -> Result<String, RepositoryError> {
-        let provider = source_repo.provider.unwrap_or(RepositoryProvider::Github);
+        let provider = source_repo.provider.ok_or_else(|| {
+            RepositoryError::BadRequest("Source repository has no declared git host".to_string())
+        })?;
         let key = normalize_remote_url(url);
 
         if let Some(existing) = self
@@ -629,7 +621,8 @@ impl GitSyncService {
             id: id.clone(),
             name: repo_name_from_url(url),
             kind: RepositoryKind::Remote,
-            remote_url: Some(url.to_string()),
+            remote: Some(url.to_string())
+                .map(|url| crate::repository::remote::resolve_remote(Some(provider), url)),
             default_branch: None,
             description: None,
             provider: Some(provider),
@@ -662,16 +655,10 @@ impl GitSyncService {
     ///
     /// One rule on every host: the person who asked for the sync is the person
     /// it runs as.
-    async fn resolve_sync_token(
-        &self,
-        scope: &ScopeContext,
-        provider: RepositoryProvider,
-        remote_url: &str,
-    ) -> Option<String> {
-        let repo = GitHostRepo::parse(provider, remote_url)?;
+    async fn resolve_sync_token(&self, scope: &ScopeContext, repo: &GitHostRepo) -> Option<String> {
         match self
             .git_host_tokens
-            .token(&Actor::caller(scope), &repo)
+            .token(&Actor::caller(scope), &repo.credential_account())
             .await
         {
             Ok(token) => Some(token),
@@ -783,7 +770,7 @@ pub async fn log_workspace_sync(
 
 #[cfg(test)]
 mod tests {
-    use moatless_types::workspace::Memory;
+    use moatless_workspace_types::workspace::Memory;
 
     use super::*;
 

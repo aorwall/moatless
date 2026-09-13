@@ -18,9 +18,9 @@ use crate::preview::{self, PreviewState};
 use crate::projection;
 use crate::terminal::{self, TerminalError, TerminalHub};
 use crate::workspace_dao::T3WorkspaceDao;
-use moatless_api_schemas::repository::ScriptConfig;
 use moatless_ports::sandbox::{SandboxError, SandboxPortPublisher};
 use moatless_types::access_control::ScopeContext;
+use moatless_workspace_types::schemas::repository::ScriptConfig;
 use sandbox_proto::client::SandboxConnector;
 
 /// Everything `scripts.run` reaches that the terminal path does not already

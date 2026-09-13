@@ -3,6 +3,31 @@
 use crate::fixtures::Fixture;
 
 #[test]
+fn workspaces_cannot_depend_directly_on_api_schemas() {
+    for declaration in [
+        "moatless-identity = { path = '../moatless-identity' }",
+        "schemas = { package = 'moatless-api-schemas', path = '../moatless-api-schemas', optional = true }",
+        "[target.'cfg(unix)'.dependencies]\nschemas = { package = 'moatless-api-schemas', path = '../moatless-api-schemas' }",
+    ] {
+        let mut f = Fixture::new();
+        f.member("moatless-api-schemas", "", "");
+        f.member(
+            "moatless-identity",
+            "moatless-api-schemas = { path = '../moatless-api-schemas' }",
+            "",
+        );
+        f.member("moatless-workspaces", declaration, "");
+        let found = crate::dependency_privacy::check(&f.load()).expect("dependency privacy");
+        if declaration.starts_with("moatless-identity") {
+            assert!(found.is_empty());
+        } else {
+            assert_eq!(found.len(), 1);
+            assert_eq!(found[0].key, "moatless-workspaces -> moatless-api-schemas");
+        }
+    }
+}
+
+#[test]
 fn band_edges_include_aliases_optional_and_target_dependencies() {
     for declaration in [
         "higher = { package = 'moatless-loops', path = '../moatless-loops', optional = true }",
@@ -149,5 +174,84 @@ fn a_generated_mock_definition_needs_an_exercised_constructor() {
                 .len(),
             usize::from(!used)
         );
+    }
+}
+
+#[test]
+fn workspace_contracts_cannot_add_runtime_dependencies() {
+    for package in ["moatless-workspace-types", "moatless-workspace-ports"] {
+        let mut f = Fixture::new();
+        f.member("sqlx", "", "");
+        f.member(
+            package,
+            "db = { package = 'sqlx', path = '../sqlx', optional = true }",
+            "",
+        );
+        let found = crate::closed_dependency_list::check(&f.load()).expect("dependency rule");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].key, format!("{package} -> sqlx"));
+    }
+}
+
+#[test]
+fn workspace_schema_aliases_cannot_enter_values_ports_or_drivers() {
+    for package in [
+        "moatless-workspace-types",
+        "moatless-workspace-ports",
+        "moatless-sandbox-k8s",
+        "moatless-sandbox-docker",
+    ] {
+        let mut f = Fixture::new();
+        let schemas = "pub mod schemas { pub struct Request; } pub use schemas::Request as Alias;";
+        if package == "moatless-workspace-types" {
+            f.member(package, "", &format!("{schemas} pub mod schemas_archive {{ pub struct Value {{ pub request: crate::Alias }} }}"));
+        } else {
+            f.member("moatless-workspace-types", "", schemas);
+            f.member(package, "values = { package = 'moatless-workspace-types', path = '../moatless-workspace-types' }", "use values::Alias as Hidden; pub struct Value { pub request: Hidden }");
+        }
+        let found = crate::dependency_privacy::check(&f.load()).expect("schema rule");
+        assert!(
+            found.iter().any(|v| v
+                .key
+                .contains("::Value names moatless_workspace_types::schemas::Request")),
+            "{package}"
+        );
+    }
+}
+
+#[test]
+fn workspace_port_support_is_admitted_but_unrelated_values_are_not() {
+    let mut f = Fixture::new();
+    f.member(
+        "moatless-workspace-ports",
+        "",
+        "pub struct Reply; pub struct Unrelated; pub trait Reader { fn read(&self) -> Reply; }",
+    );
+    for package in ["one", "two"] {
+        f.member(
+            package,
+            "moatless-workspace-ports = { path = '../moatless-workspace-ports' }",
+            "fn read(_: &dyn moatless_workspace_ports::Reader) {}",
+        );
+    }
+    let found = crate::port_admission::check(&f.load()).expect("port rule");
+    assert_eq!(found.len(), 1);
+    assert!(found[0].key.ends_with("::Unrelated"));
+}
+
+#[test]
+fn schema_shared_values_still_need_an_external_consumer() {
+    for consumed in [false, true] {
+        let mut f = Fixture::new();
+        f.member("moatless-workspace-types", "", "pub mod workspace { pub enum Kind { One } } pub mod schemas { pub mod workspace { pub struct Response { pub kind: crate::workspace::Kind } } }");
+        if consumed {
+            f.member(
+                "moatless-workspaces",
+                "moatless-workspace-types = { path = '../moatless-workspace-types' }",
+                "fn read(_: moatless_workspace_types::workspace::Kind) {}",
+            );
+        }
+        let found = crate::floor_type_admission::check(&f.load()).expect("value admission");
+        assert_eq!(found.is_empty(), consumed);
     }
 }

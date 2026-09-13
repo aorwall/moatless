@@ -696,7 +696,12 @@ mod tests {
             id: id.to_string(),
             name: id.to_string(),
             kind: RepositoryKind::Remote,
-            remote_url: Some(format!("https://github.com/acme/{id}")),
+            remote: Some(format!("https://github.com/acme/{id}")).map(|url| {
+                crate::repository::remote::resolve_remote(
+                    Some(moatless_workspace_types::repository::RepositoryProvider::Github),
+                    url,
+                )
+            }),
             default_branch: None,
             description: None,
             provider: None,
@@ -898,7 +903,10 @@ mod tests {
         let mut repositories = MockRepositoryDao::new();
         repositories.expect_find_by_id().returning(|id, _| {
             let mut existing = repository(id, Scope::User);
-            existing.remote_url = Some("https://github.com/acme/shared.git".to_string());
+            existing.remote = Some(crate::repository::remote::resolve_remote(
+                existing.provider,
+                "https://github.com/acme/shared.git".to_string(),
+            ));
             existing.owner_user_id = Some(if id == "r_mine" { "u1" } else { "u2" }.to_string());
             Ok(Some(existing))
         });

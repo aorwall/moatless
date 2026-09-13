@@ -10,10 +10,10 @@ use moatless_adapter_model::connections::ConnectionRouting;
 use moatless_api_schemas::loops::{LoopSyncSkip, LoopSyncSummary, LoopSyncWarning};
 use moatless_ports::identity::GitHostTokenIssuer;
 use moatless_ports::task::TagResolver;
-use moatless_ports::workspace::WorkspaceResolver;
 use moatless_tasks::agent::catalog;
 use moatless_types::access_control::ScopeContext;
-use moatless_types::repository::{Repository, RepositoryProvider};
+use moatless_workspace_ports::WorkspaceResolver;
+use moatless_workspace_types::repository::{Repository, RepositoryProvider};
 use std::collections::HashSet;
 use std::sync::Arc;
 use tracing::{debug, warn};
@@ -42,23 +42,23 @@ impl LoopSyncService {
         repo: &Repository,
         ctx: &ScopeContext,
     ) -> Result<LoopSyncSummary, LoopError> {
-        let Some(remote_url) = repo.remote_url.as_deref() else {
+        let Some(remote) = repo.remote.as_ref() else {
             return Ok(LoopSyncSummary::default());
         };
-        let provider = repo.provider.unwrap_or(RepositoryProvider::Github);
-        if provider != RepositoryProvider::Github {
+        let provider = repo.provider;
+        if provider != Some(RepositoryProvider::Github) {
             warn!(
                 repository_id = %repo.id,
-                provider = %provider.as_str(),
+                provider = ?provider,
                 "Loop sync only supports GitHub repos today — skipping"
             );
             return Ok(LoopSyncSummary::default());
         }
 
-        let token = self.resolve_github_token(ctx, remote_url).await;
+        let token = self.resolve_github_token(ctx, remote).await;
         let files = self
             .fetcher
-            .fetch_loop_files(remote_url, token.as_deref(), repo.default_branch.as_deref())
+            .fetch_loop_files(remote, token.as_deref(), repo.default_branch.as_deref())
             .await?;
 
         let present = files
@@ -93,27 +93,27 @@ impl LoopSyncService {
         ctx: &ScopeContext,
         source_key: &str,
     ) -> Result<bool, LoopError> {
-        let remote_url = repo.remote_url.as_deref().ok_or_else(|| LoopError::Fetch {
+        let remote = repo.remote.as_ref().ok_or_else(|| LoopError::Fetch {
             git_url: repo.id.clone(),
             message: "repository has no remote URL".to_string(),
         })?;
-        let provider = repo.provider.unwrap_or(RepositoryProvider::Github);
-        if provider != RepositoryProvider::Github {
+        let provider = repo.provider;
+        if provider != Some(RepositoryProvider::Github) {
             return Err(LoopError::Fetch {
-                git_url: remote_url.to_string(),
+                git_url: remote.url.clone(),
                 message: "Loop sync only supports GitHub repositories".to_string(),
             });
         }
-        let token = self.resolve_github_token(ctx, remote_url).await;
+        let token = self.resolve_github_token(ctx, remote).await;
         let files = self
             .fetcher
-            .fetch_loop_files(remote_url, token.as_deref(), repo.default_branch.as_deref())
+            .fetch_loop_files(remote, token.as_deref(), repo.default_branch.as_deref())
             .await?;
         let file = files
             .into_iter()
             .find(|file| file.dir_name == source_key)
             .ok_or_else(|| LoopError::Fetch {
-                git_url: remote_url.to_string(),
+                git_url: remote.url.clone(),
                 message: format!("Loop directory `{source_key}` no longer exists"),
             })?;
         let parsed = parse_loop(&file.content, source_key)

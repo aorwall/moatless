@@ -1,6 +1,6 @@
 use async_trait::async_trait;
-use moatless_api_schemas::workspace::ScriptConfig;
 use moatless_types::access_control::ScopeContext;
+use moatless_workspace_types::schemas::workspace::ScriptConfig;
 
 use crate::workspace::UiRpcListedWorkspace;
 

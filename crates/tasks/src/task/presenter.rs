@@ -21,7 +21,7 @@ use crate::task::dao::TaskDao;
 use crate::task::models::SandboxIntentView;
 use moatless_api_schemas::bindings::TaskBindingSummary;
 use moatless_ports::identity::UserDisplay;
-use moatless_ports::workspace::{RepositoryReader, WorkspaceResolver};
+use moatless_workspace_ports::{RepositoryReader, WorkspaceResolver};
 
 /// The eight ports a task response is assembled from. `enrich_task` reads all
 /// for one row; batch resolvers read subsets for a page. Assembled once at the

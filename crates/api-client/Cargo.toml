@@ -5,6 +5,7 @@ edition.workspace = true
 
 authors.workspace = true
 [dependencies]
+moatless-workspace-types = { workspace = true, features = ["schemas"] }
 moatless-api-schemas = { workspace = true }
 reqwest = { workspace = true, features = ["json", "rustls", "multipart"] }
 serde = { workspace = true, features = ["derive"] }

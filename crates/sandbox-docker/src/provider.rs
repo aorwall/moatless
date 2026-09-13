@@ -38,7 +38,7 @@ use moatless_sandbox_runtime::runtime::{
 use moatless_sandbox_runtime::schemas::*;
 use moatless_sandbox_runtime::status_reader::SandboxStatusReader;
 use moatless_types::sandbox::ArchiveRetention;
-use moatless_types::workspace::ServerConfig;
+use moatless_workspace_types::workspace::ServerConfig;
 
 /// Docker adapter for lifecycle mutation, observation, and connection.
 pub struct DockerSandboxAdapter {

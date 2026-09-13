@@ -26,10 +26,10 @@ use crate::task::relations::{
 };
 use crate::task::schemas::MessageContextInput;
 use moatless_core::events::EventPublisher;
-use moatless_ports::workspace::{RepositoryReader, WorkspaceResolver};
 use moatless_types::agent::{AgentMode, AgentType};
 use moatless_types::task::RelatedTask;
 use moatless_types::task::Visibility;
+use moatless_workspace_ports::{RepositoryReader, WorkspaceResolver};
 use moatless_workspaces::repository::models::Repository;
 
 /// Normalised task-creation input; every call path translates its domain input
@@ -569,9 +569,9 @@ mod tests {
     use moatless_ports::sandbox::{
         MockPreflightPort, MockSandboxJoiner, PreflightRejection, SandboxError,
     };
-    use moatless_ports::workspace::{MockRepositoryReader, MockWorkspaceResolver};
-    use moatless_types::repository::RepositoryKind;
     use moatless_types::task::CheckoutMode;
+    use moatless_workspace_ports::{MockRepositoryReader, MockWorkspaceResolver};
+    use moatless_workspace_types::repository::RepositoryKind;
     use moatless_workspaces::repository::models::Repository;
 
     mockall::mock! {
@@ -589,7 +589,7 @@ mod tests {
             id: "repo1".into(),
             name: "repo".into(),
             kind: RepositoryKind::Remote,
-            remote_url: None,
+            remote: None,
             default_branch: None,
             description: None,
             provider: None,
@@ -806,10 +806,7 @@ mod tests {
 
         let mut tasks = MockTaskDao::new();
         tasks.expect_exists_by_short_id().returning(|_| Ok(false));
-        tasks
-            .expect_insert_task()
-            .times(1)
-            .returning(|_| Ok(()));
+        tasks.expect_insert_task().times(1).returning(|_| Ok(()));
 
         let mut starter = MockStarter::new();
         let start_order = Arc::clone(&order);
@@ -937,10 +934,7 @@ mod tests {
             .times(1)
             .in_sequence(&mut seq)
             .returning(|_| Ok(false));
-        tasks
-            .expect_insert_task()
-            .times(1)
-            .returning(|_| Ok(()));
+        tasks.expect_insert_task().times(1).returning(|_| Ok(()));
         let mut starter = MockStarter::new();
         starter.expect_start().returning(|_| Ok(()));
 
@@ -1002,10 +996,7 @@ mod tests {
     async fn provisioning_is_skipped_when_the_request_does_not_ask_for_it() {
         let mut tasks = MockTaskDao::new();
         tasks.expect_exists_by_short_id().returning(|_| Ok(false));
-        tasks
-            .expect_insert_task()
-            .times(1)
-            .returning(|_| Ok(()));
+        tasks.expect_insert_task().times(1).returning(|_| Ok(()));
         let mut starter = MockStarter::new();
         starter.expect_start().never();
 
@@ -1102,10 +1093,7 @@ mod tests {
         let order = Arc::new(Mutex::new(Vec::new()));
         let mut tasks = MockTaskDao::new();
         tasks.expect_exists_by_short_id().returning(|_| Ok(false));
-        tasks
-            .expect_insert_task()
-            .times(1)
-            .returning(|_| Ok(()));
+        tasks.expect_insert_task().times(1).returning(|_| Ok(()));
         let cleanup_order = Arc::clone(&order);
         tasks
             .expect_delete_inserted_task_after_join_failure()
@@ -1120,12 +1108,15 @@ mod tests {
         starter.expect_start().never();
         let mut joiner = MockSandboxJoiner::new();
         let join_order = Arc::clone(&order);
-        joiner.expect_join_task().times(1).returning(move |_, _, _| {
-            join_order.lock().expect("order lock").push("join");
-            // A genuine join failure — not `NotReady`, which defers to a start
-            // (covered by `shared_sandbox_join_not_ready_starts_the_shared_sandbox`).
-            Err(SandboxError::GrpcClient("connection refused".to_string()))
-        });
+        joiner
+            .expect_join_task()
+            .times(1)
+            .returning(move |_, _, _| {
+                join_order.lock().expect("order lock").push("join");
+                // A genuine join failure — not `NotReady`, which defers to a start
+                // (covered by `shared_sandbox_join_not_ready_starts_the_shared_sandbox`).
+                Err(SandboxError::GrpcClient("connection refused".to_string()))
+            });
         let publisher = Arc::new(RecordingPublisher::new());
         let svc = service(tasks, starter, joiner, preflight_ok(), publisher);
 
@@ -1166,10 +1157,7 @@ mod tests {
         let order = Arc::new(Mutex::new(Vec::new()));
         let mut tasks = MockTaskDao::new();
         tasks.expect_exists_by_short_id().returning(|_| Ok(false));
-        tasks
-            .expect_insert_task()
-            .times(1)
-            .returning(|_| Ok(()));
+        tasks.expect_insert_task().times(1).returning(|_| Ok(()));
         // A deferred join never cleans up the inserted task.
         tasks
             .expect_delete_inserted_task_after_join_failure()
@@ -1183,10 +1171,13 @@ mod tests {
         });
         let mut joiner = MockSandboxJoiner::new();
         let join_order = Arc::clone(&order);
-        joiner.expect_join_task().times(1).returning(move |_, _, _| {
-            join_order.lock().expect("order lock").push("join");
-            Err(SandboxError::NotReady("Sandbox is stopped".to_string()))
-        });
+        joiner
+            .expect_join_task()
+            .times(1)
+            .returning(move |_, _, _| {
+                join_order.lock().expect("order lock").push("join");
+                Err(SandboxError::NotReady("Sandbox is stopped".to_string()))
+            });
         let publisher = Arc::new(RecordingPublisher::new());
         let svc = service(tasks, starter, joiner, preflight_ok(), publisher.clone());
 

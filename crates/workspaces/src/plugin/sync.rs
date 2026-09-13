@@ -20,8 +20,8 @@ use crate::skill::models::SkillSource;
 use crate::skill::scanner;
 use moatless_ports::identity::GitHostTokenIssuer;
 use moatless_types::access_control::Actor;
-use moatless_types::repository::GitHostRepo;
-use moatless_types::repository::RepositoryProvider;
+use moatless_workspace_types::repository::RepositoryProvider;
+use moatless_workspace_types::repository::RepositoryRemote;
 
 /// Syncs plugin content into stored skills, and reads them back.
 pub struct PluginSyncService {
@@ -93,11 +93,15 @@ impl PluginSyncService {
             .map_err(SkillError::Db)?
             .unwrap_or_else(|| plugin.clone());
 
-        let token = self.fetch_token(actor, &current.git_url).await;
+        let remote = crate::repository::remote::resolve_remote(
+            Some(RepositoryProvider::Github),
+            current.git_url.clone(),
+        );
+        let token = self.fetch_token(actor, &remote).await;
 
         let version = self
             .fetcher
-            .fetch_version(&current.git_url, token.as_deref())
+            .fetch_version(&remote, token.as_deref())
             .await?;
 
         if let (Some(fetched), Some(stored)) =
@@ -115,7 +119,7 @@ impl PluginSyncService {
 
         let files = self
             .fetcher
-            .fetch_skill_files(&current.git_url, SkillLayout::Plugin, token.as_deref())
+            .fetch_skill_files(&remote, SkillLayout::Plugin, token.as_deref())
             .await?;
 
         // A stored skill is keyed on its directory name, not the `name:` in its
@@ -156,13 +160,17 @@ impl PluginSyncService {
     /// `None` when unconnected or unmintable — a public plugin still fetches
     /// unauthenticated; a private one fails at the fetch naming authentication,
     /// not here.
-    async fn fetch_token(&self, actor: &Actor, git_url: &str) -> Option<String> {
-        let repo = GitHostRepo::parse(RepositoryProvider::Github, git_url)?;
-        match self.git_host_tokens.token(actor, &repo).await {
+    async fn fetch_token(&self, actor: &Actor, remote: &RepositoryRemote) -> Option<String> {
+        let repo = remote.host_repo.as_ref()?;
+        match self
+            .git_host_tokens
+            .token(actor, &repo.credential_account())
+            .await
+        {
             Ok(token) => Some(token),
             Err(e) => {
                 debug!(
-                    git_url,
+                    git_url = %remote.url,
                     %actor,
                     error = %e,
                     "No GitHub credential for plugin — fetching unauthenticated"
@@ -308,14 +316,14 @@ mod tests {
     impl SkillFetcher for CountingFetcher {
         async fn fetch_skill_files(
             &self,
-            remote_url: &str,
+            remote: &RepositoryRemote,
             _layout: SkillLayout,
             _token: Option<&str>,
         ) -> Result<Vec<FetchedSkillFile>, SkillError> {
             self.files_fetched.fetch_add(1, Ordering::SeqCst);
             if self.fail_fetch {
                 return Err(SkillError::Fetch {
-                    git_url: remote_url.to_string(),
+                    git_url: remote.url.clone(),
                     message: "boom".to_string(),
                 });
             }
@@ -330,7 +338,7 @@ mod tests {
 
         async fn fetch_version(
             &self,
-            _remote_url: &str,
+            _remote: &RepositoryRemote,
             _token: Option<&str>,
         ) -> Result<Option<String>, SkillError> {
             self.versions_probed.fetch_add(1, Ordering::SeqCst);

@@ -23,7 +23,7 @@ use moatless_ports::identity::UserDisplay;
 use moatless_ports::task::{
     ExternalEvent, TaskReader, TranscriptAppend, TranscriptEntry, TranscriptEntryKind, TurnCounter,
 };
-use moatless_ports::workspace::WorkspaceResolver;
+use moatless_workspace_ports::WorkspaceResolver;
 
 /// Whether this thread has already carried a provenance footer.
 ///

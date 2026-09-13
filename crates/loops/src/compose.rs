@@ -19,8 +19,8 @@ use moatless_ports::task::TagResolver;
 use moatless_ports::task::{
     MessageAcceptor, TaskOpener, TaskReader, TranscriptAppend, TurnCounter,
 };
-use moatless_ports::workspace::WorkspaceResolver;
 use moatless_types::auth::AuthConfig;
+use moatless_workspace_ports::WorkspaceResolver;
 
 use crate::adapters::delivery::AdapterDeliveryWorker;
 use crate::adapters::delivery::dao::AdapterDeliveryStore;

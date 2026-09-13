@@ -9,7 +9,9 @@ use chrono::{DateTime, Utc};
 use moatless_tasks::agent::catalog;
 use moatless_types::access_control::{Actor, ScopeContext};
 use moatless_types::loops::{LoopKind, RoutingMode};
-use moatless_types::repository::{GitHostRepo, Repository, RepositoryProvider as GitHostProvider};
+use moatless_workspace_types::repository::{
+    Repository, RepositoryProvider as GitHostProvider, RepositoryRemote,
+};
 use tracing::warn;
 
 /// Resolved values for one loop, ready to write to the loop tables.
@@ -126,14 +128,19 @@ impl LoopSyncService {
 
         let (kind, adapter, schedule) = match fm.on.trim() {
             "github_pr" => {
-                let Some(remote_url) = repo.remote_url.as_deref() else {
+                let Some(remote) = repo.remote.as_ref() else {
                     return Ok(ResolveOutcome::Skipped(
                         "repository has no remote URL".to_string(),
                     ));
                 };
-                let Some(parsed) = GitHostRepo::parse(GitHostProvider::Github, remote_url) else {
+                let Some(parsed) = remote
+                    .host_repo
+                    .as_ref()
+                    .filter(|repo| repo.provider() == GitHostProvider::Github)
+                else {
                     return Ok(ResolveOutcome::Skipped(format!(
-                        "cannot parse owner/repo from {remote_url}"
+                        "cannot resolve GitHub repository from {}",
+                        remote.url
                     )));
                 };
                 let (owner, repo_name) = (parsed.owner(), parsed.name());
@@ -393,10 +400,17 @@ impl LoopSyncService {
     pub(super) async fn resolve_github_token(
         &self,
         ctx: &ScopeContext,
-        remote_url: &str,
+        remote: &RepositoryRemote,
     ) -> Option<String> {
-        let repo = GitHostRepo::parse(GitHostProvider::Github, remote_url)?;
-        match self.git_host_tokens.token(&Actor::caller(ctx), &repo).await {
+        let repo = remote
+            .host_repo
+            .as_ref()
+            .filter(|repo| repo.provider() == GitHostProvider::Github)?;
+        match self
+            .git_host_tokens
+            .token(&Actor::caller(ctx), &repo.credential_account())
+            .await
+        {
             Ok(token) => Some(token),
             Err(e) => {
                 warn!(error = %e, "Loop sync: fetching unauthenticated");

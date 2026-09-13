@@ -20,7 +20,13 @@ pub fn check(ws: &Workspace) -> Result<Vec<Violation>> {
             for dep in &member.dependencies {
                 if dep.kind.is_none()
                     && dep.name == "sqlx"
-                    && (!dep.optional || matches!(member.name.as_str(), "moatless-ports"))
+                    && (!dep.optional
+                        || matches!(
+                            member.name.as_str(),
+                            "moatless-ports"
+                                | "moatless-workspace-ports"
+                                | "moatless-workspace-types"
+                        ))
                 {
                     out.push(Violation::at(
                         RULE,

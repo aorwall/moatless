@@ -1,6 +1,6 @@
 # Resources and recovery
 
-Use [ResourceConfig](../../../../crates/api-schemas/src/workspace.rs) for the API
+Use [ResourceConfig](../../../../crates/workspace-types/src/schemas/workspace.rs) for the API
 shape. Workspace `resources.requests` and `resources.limits` configure sandbox
 CPU/memory; server entries can override their own requests/limits. Repository git
 records do not own these settings.
@@ -17,7 +17,7 @@ Kubernetes workspace persistence has two independent switches:
 Omitted values inherit runtime defaults. A snapshot is only as recent as its last
 successful upload. `storage` sets capacity; `dockerStorage` and `dockerStorageMode`
 are Docker-specific controls. Read [storage.rs](../../../../crates/sandbox-runtime/src/storage.rs)
-for resolution and [workspace schema](../../../../crates/api-schemas/src/workspace.rs)
+for resolution and [workspace schema](../../../../crates/workspace-types/src/schemas/workspace.rs)
 for the accepted fields.
 
 An OOM termination and a disk-pressure eviction need different repairs. Before

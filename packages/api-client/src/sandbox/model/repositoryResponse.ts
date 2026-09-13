@@ -7,6 +7,7 @@
  */
 import type { RepositoryKind } from './repositoryKind';
 import type { RepositoryProvider } from './repositoryProvider';
+import type { RepositoryRemoteResponse } from './repositoryRemoteResponse';
 import type { Scope } from './scope';
 
 export interface RepositoryResponse {
@@ -24,8 +25,7 @@ export interface RepositoryResponse {
   /** @nullable */
   ownerUserId?: string | null;
   provider?: null | RepositoryProvider;
-  /** @nullable */
-  remoteUrl?: string | null;
+  remote: null | RepositoryRemoteResponse;
   scope: Scope;
   /** @nullable */
   updatedAt?: string | null;

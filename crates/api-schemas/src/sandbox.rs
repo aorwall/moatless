@@ -258,7 +258,7 @@ pub struct ServerStatusResponse {
     pub servers: Vec<ServerSnapshot>,
 }
 
-pub use moatless_types::workspace::ServerOverride;
+pub use moatless_workspace_types::workspace::ServerOverride;
 
 /// Update one preview server's live config.
 ///

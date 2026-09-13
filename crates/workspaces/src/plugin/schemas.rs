@@ -1,8 +1,8 @@
 //! Plugin response types.
 //!
-//! Re-exported from the `moatless-api-schemas` crate.
+//! Re-exported from the `moatless-workspace-types::schemas` module.
 
-pub use moatless_api_schemas::plugin::*;
+pub use moatless_workspace_types::schemas::plugin::*;
 
 #[derive(Debug, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]

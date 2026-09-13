@@ -42,12 +42,12 @@ pub struct HandlerDbPorts {
     pub credential_sync: Arc<CredentialSync>,
     /// Workspace projection: the primary repository, the run-as identity, and
     /// the `system_prompt` / `servers` an append prompt is built from.
-    pub workspace_resolver: Arc<dyn moatless_ports::workspace::WorkspaceResolver>,
+    pub workspace_resolver: Arc<dyn moatless_workspace_ports::WorkspaceResolver>,
     /// Sandbox lifecycle store, read for the Sandbox a task belongs to.
     pub sandboxes: Arc<SandboxIngress>,
     /// Provider credentials pinned to a workspace, the highest-precedence
     /// source in the set a sandbox is handed.
-    pub workspace_credentials: Arc<dyn moatless_ports::workspace::WorkspaceCredentialReader>,
+    pub workspace_credentials: Arc<dyn moatless_workspace_ports::WorkspaceCredentialReader>,
     /// The one way to a git-host token, for the identity the task acts as.
     pub git_host_tokens: Arc<dyn GitHostTokenIssuer>,
     /// File metadata repository, for `download_upload`'s filename and mime

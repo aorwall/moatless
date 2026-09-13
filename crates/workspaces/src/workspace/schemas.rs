@@ -1,11 +1,11 @@
 //! Workspace request/response types.
 //!
-//! Re-exported from the `moatless-api-schemas` crate, with local `From`
+//! Re-exported from the `moatless-workspace-types::schemas` module, with local `From`
 //! conversions from the DB row models.
 
-pub use moatless_api_schemas::workspace::*;
+pub use moatless_workspace_types::schemas::workspace::*;
 
-use moatless_types::workspace::{
+use moatless_workspace_types::workspace::{
     Cpu, EnvKey, EnvVars, Memory, Port, ResourceConfig as DomainResourceConfig,
     ResourceQuantities as DomainResourceQuantities, ServerConfig as DomainServerConfig,
 };
@@ -13,7 +13,7 @@ use moatless_types::workspace::{
 use super::error::WorkspaceError;
 
 use super::models::{Workspace, WorkspaceRepo, WorkspaceSource};
-use moatless_types::workspace::ScriptConfig as DomainScriptConfig;
+use moatless_workspace_types::workspace::ScriptConfig as DomainScriptConfig;
 
 /// Parse one wire quantity, naming the field in the rejection message.
 fn parse_quantity<T: std::str::FromStr>(

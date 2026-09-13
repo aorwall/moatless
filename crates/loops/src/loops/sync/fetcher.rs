@@ -12,11 +12,11 @@ use async_trait::async_trait;
 use futures::future::try_join_all;
 use reqwest::{Client, StatusCode};
 use serde::Deserialize;
-use tracing::{debug, warn};
+use tracing::debug;
 
 use super::error::LoopError;
-use moatless_types::repository::GitHostRepo;
-use moatless_types::repository::RepositoryProvider;
+use moatless_workspace_types::repository::RepositoryProvider;
+use moatless_workspace_types::repository::RepositoryRemote;
 
 /// Repo-relative directory that holds committed loops.
 const LOOPS_PREFIX: &str = ".moatless/loops";
@@ -36,7 +36,7 @@ pub struct FetchedLoopFile {
 pub trait LoopFetcher: Send + Sync {
     async fn fetch_loop_files(
         &self,
-        remote_url: &str,
+        remote: &RepositoryRemote,
         token: Option<&str>,
         branch: Option<&str>,
     ) -> Result<Vec<FetchedLoopFile>, LoopError>;
@@ -64,27 +64,18 @@ struct ContentEntry {
 impl LoopFetcher for GitHubLoopFetcher {
     async fn fetch_loop_files(
         &self,
-        remote_url: &str,
+        remote: &RepositoryRemote,
         token: Option<&str>,
         branch: Option<&str>,
     ) -> Result<Vec<FetchedLoopFile>, LoopError> {
-        let lower = remote_url.to_ascii_lowercase();
-        if !lower.contains("github.com") {
-            // GitHub-only for v1; other providers are a follow-up.
-            warn!(
-                git_url = %remote_url,
-                "Loop sync only supports GitHub today — skipping non-GitHub repo"
-            );
+        let remote_url = remote.url.as_str();
+        let parsed = remote.host_repo.as_ref().ok_or_else(|| LoopError::Fetch {
+            git_url: remote_url.to_string(),
+            message: "repository has no resolved GitHub host".to_string(),
+        })?;
+        if parsed.provider() != RepositoryProvider::Github {
             return Ok(Vec::new());
         }
-
-        let parsed =
-            GitHostRepo::parse(RepositoryProvider::Github, remote_url).ok_or_else(|| {
-                LoopError::Fetch {
-                    git_url: remote_url.to_string(),
-                    message: "cannot parse owner/repo from URL".to_string(),
-                }
-            })?;
         let (owner, repo) = (parsed.owner().to_string(), parsed.name().to_string());
 
         let reference = branch
@@ -244,7 +235,7 @@ mod tests {
     impl LoopFetcher for StubFetcher {
         async fn fetch_loop_files(
             &self,
-            _remote_url: &str,
+            _remote: &RepositoryRemote,
             _token: Option<&str>,
             _branch: Option<&str>,
         ) -> Result<Vec<FetchedLoopFile>, LoopError> {
@@ -261,7 +252,17 @@ mod tests {
             }],
         };
         let files = stub
-            .fetch_loop_files("https://github.com/x/y.git", None, Some("main"))
+            .fetch_loop_files(
+                &RepositoryRemote {
+                    url: "https://github.com/x/y.git".to_string(),
+                    uses_ssh: false,
+                    host_repo: Some(moatless_workspace_types::repository::GitHostRepo::github(
+                        "x", "y",
+                    )),
+                },
+                None,
+                Some("main"),
+            )
             .await
             .unwrap();
         assert_eq!(files.len(), 1);
@@ -272,7 +273,20 @@ mod tests {
     async fn non_github_url_returns_empty() {
         let fetcher = GitHubLoopFetcher::new(Client::new());
         let files = fetcher
-            .fetch_loop_files("https://gitlab.com/foo/bar.git", None, None)
+            .fetch_loop_files(
+                &RepositoryRemote {
+                    url: "https://gitlab.com/foo/bar.git".to_string(),
+                    uses_ssh: false,
+                    host_repo: Some(moatless_workspace_types::repository::GitHostRepo::new(
+                        RepositoryProvider::Gitlab,
+                        "gitlab.com",
+                        "foo",
+                        "bar",
+                    )),
+                },
+                None,
+                None,
+            )
             .await
             .unwrap();
         assert!(files.is_empty());

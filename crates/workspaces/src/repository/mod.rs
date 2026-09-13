@@ -18,3 +18,5 @@ pub mod secret_migration;
 mod secret_migration_dao;
 
 pub use operations::Repositories;
+
+pub(crate) mod remote;

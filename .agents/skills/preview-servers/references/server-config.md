@@ -1,6 +1,6 @@
 # Server configuration
 
-Read [ServerConfig and ResourceConfig](../../../../crates/api-schemas/src/workspace.rs)
+Read [ServerConfig and ResourceConfig](../../../../crates/workspace-types/src/schemas/workspace.rs)
 for field types and defaults. `name` identifies a server; `port` is optional in the
 schema, so read the resolved port and URL from task status. `startCommands`,
 `envVars`, `startupTimeoutSeconds`, image, and per-server resources configure its

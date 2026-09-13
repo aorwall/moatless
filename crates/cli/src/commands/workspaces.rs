@@ -2,7 +2,7 @@
 
 use clap::Subcommand;
 use moatless_api_schemas::enums::Scope;
-use moatless_api_schemas::workspace::{
+use moatless_workspace_types::schemas::workspace::{
     CreateWorkspaceRequest, ScriptConfig, UpdateWorkspaceRequest, WorkspaceRepoInput,
     WorkspaceResponse,
 };

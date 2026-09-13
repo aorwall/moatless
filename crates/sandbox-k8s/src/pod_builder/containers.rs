@@ -769,6 +769,7 @@ pub(super) fn build_workspace_repos_json(plan: &ProvisionPlan) -> Option<String>
         .repos
         .iter()
         .map(|repo| RepoCheckout {
+            uses_ssh: repo.uses_ssh,
             clone_url: redact_url_userinfo(&repo.clone_url),
             ..repo.clone()
         })

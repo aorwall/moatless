@@ -3758,6 +3758,7 @@ dependencies = [
  "moatless-loops",
  "moatless-ports",
  "moatless-types",
+ "moatless-workspace-types",
  "regex",
  "reqwest 0.13.4",
  "serde",
@@ -3908,6 +3909,7 @@ name = "moatless-api-client"
 version = "0.1.0"
 dependencies = [
  "moatless-api-schemas",
+ "moatless-workspace-types",
  "reqwest 0.13.4",
  "serde",
  "serde_json",
@@ -3920,6 +3922,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "moatless-types",
+ "moatless-workspace-types",
  "serde",
  "serde_json",
  "utoipa",
@@ -3979,6 +3982,8 @@ dependencies = [
  "moatless-t3code",
  "moatless-tasks",
  "moatless-types",
+ "moatless-workspace-ports",
+ "moatless-workspace-types",
  "moatless-workspaces",
  "mockall",
  "moka",
@@ -4022,6 +4027,7 @@ dependencies = [
  "moatless-api-client",
  "moatless-api-schemas",
  "moatless-types",
+ "moatless-workspace-types",
  "open",
  "rand 0.10.1",
  "reqwest 0.13.4",
@@ -4123,6 +4129,8 @@ dependencies = [
  "moatless-ports",
  "moatless-tasks",
  "moatless-types",
+ "moatless-workspace-ports",
+ "moatless-workspace-types",
  "moatless-workspaces",
  "moka",
  "reqwest 0.13.4",
@@ -4149,6 +4157,7 @@ dependencies = [
  "chrono",
  "futures",
  "moatless-types",
+ "moatless-workspace-types",
  "mockall",
  "serde",
  "serde_json",
@@ -4191,6 +4200,7 @@ dependencies = [
  "ignore",
  "moatless-s3",
  "moatless-types",
+ "moatless-workspace-types",
  "notify",
  "portable-pty",
  "reqwest 0.13.4",
@@ -4228,6 +4238,8 @@ dependencies = [
  "moatless-s3",
  "moatless-sandbox-runtime",
  "moatless-types",
+ "moatless-workspace-ports",
+ "moatless-workspace-types",
  "moatless-workspaces",
  "moka",
  "rustic_core",
@@ -4260,6 +4272,7 @@ dependencies = [
  "moatless-sandbox-control",
  "moatless-sandbox-runtime",
  "moatless-types",
+ "moatless-workspace-types",
  "serde_json",
  "tempfile",
  "tokio",
@@ -4287,6 +4300,7 @@ dependencies = [
  "moatless-sandbox-control",
  "moatless-sandbox-runtime",
  "moatless-types",
+ "moatless-workspace-types",
  "serde",
  "serde_json",
  "sha2 0.11.0",
@@ -4310,6 +4324,7 @@ dependencies = [
  "moatless-core",
  "moatless-ports",
  "moatless-types",
+ "moatless-workspace-types",
  "sandbox-proto",
  "serde",
  "serde_json",
@@ -4338,6 +4353,7 @@ dependencies = [
  "moatless-ports",
  "moatless-tasks",
  "moatless-types",
+ "moatless-workspace-types",
  "moatless-workspaces",
  "mockall",
  "opentelemetry",
@@ -4374,6 +4390,8 @@ dependencies = [
  "moatless-identity",
  "moatless-ports",
  "moatless-types",
+ "moatless-workspace-ports",
+ "moatless-workspace-types",
  "moatless-workspaces",
  "mockall",
  "nanoid",
@@ -4400,7 +4418,30 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.18",
  "tracing",
- "url",
+ "utoipa",
+ "uuid",
+]
+
+[[package]]
+name = "moatless-workspace-ports"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "moatless-types",
+ "moatless-workspace-types",
+ "mockall",
+ "uuid",
+]
+
+[[package]]
+name = "moatless-workspace-types"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "moatless-types",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
  "utoipa",
  "uuid",
 ]
@@ -4414,11 +4455,12 @@ dependencies = [
  "chrono",
  "futures",
  "http-body-util",
- "moatless-api-schemas",
  "moatless-core",
  "moatless-identity",
  "moatless-ports",
  "moatless-types",
+ "moatless-workspace-ports",
+ "moatless-workspace-types",
  "mockall",
  "moka",
  "reqwest 0.13.4",
@@ -4430,6 +4472,7 @@ dependencies = [
  "tokio",
  "tokio-test",
  "tracing",
+ "url",
  "urlencoding",
  "utoipa",
  "utoipa-axum",
@@ -6104,6 +6147,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "moatless-types",
+ "moatless-workspace-types",
  "prost",
  "protoc-bin-vendored",
  "thiserror 2.0.18",

@@ -25,7 +25,7 @@ use moatless_adapter_model::connections::AdapterConnections;
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_core::http_auth::AuthUser;
 use moatless_ports::identity::UserResolver;
-use moatless_ports::workspace::{RepositoryReader, WorkspaceResolver};
+use moatless_workspace_ports::{RepositoryReader, WorkspaceResolver};
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct RecentTasksQuery {

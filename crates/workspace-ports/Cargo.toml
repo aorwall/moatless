@@ -1,0 +1,21 @@
+[package]
+name = "moatless-workspace-ports"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "Workspace capabilities and their supporting contract values"
+
+[dependencies]
+moatless-types = { workspace = true }
+moatless-workspace-types = { workspace = true }
+async-trait = { workspace = true }
+mockall = { workspace = true, optional = true }
+uuid = { workspace = true, features = ["serde"] }
+
+[features]
+default = []
+openapi = ["moatless-workspace-types/openapi"]
+test-support = ["dep:mockall"]
+
+[lints]
+workspace = true

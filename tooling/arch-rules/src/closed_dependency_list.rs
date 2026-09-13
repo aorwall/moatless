@@ -18,12 +18,18 @@ pub const ALLOWED: &[&str] = &[
 ];
 
 pub fn check(ws: &Workspace) -> Result<Vec<Violation>> {
-    Ok(ws.member("moatless-types")
-        .into_iter()
+    Ok(ws
+        .members()
+        .filter(|m| {
+            matches!(
+                m.name.as_str(),
+                "moatless-types" | "moatless-workspace-types" | "moatless-workspace-ports"
+            )
+        })
         .flat_map(|m| {
             m.normal_deps
                 .iter()
-                .filter(|d| !ALLOWED.contains(&d.as_str()) && !permits_dependency(m, RULE, d))
+                .filter(|d| !allowed(&m.name, d) && !permits_dependency(m, RULE, d))
                 .map(|d| {
                     Violation::at(
                         RULE,
@@ -34,6 +40,16 @@ pub fn check(ws: &Workspace) -> Result<Vec<Violation>> {
                 })
         })
         .collect())
+}
+
+fn allowed(package: &str, dependency: &str) -> bool {
+    ALLOWED.contains(&dependency)
+        || (package == "moatless-workspace-types" && dependency == "moatless-types")
+        || (package == "moatless-workspace-ports"
+            && matches!(
+                dependency,
+                "moatless-types" | "moatless-workspace-types" | "async-trait" | "mockall"
+            ))
 }
 
 #[cfg(test)]

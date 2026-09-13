@@ -112,7 +112,7 @@ pub use sandbox_proto::SNAPSHOT_ROOT;
 mod tests {
     use super::*;
     use crate::provisioning::RepoConfig;
-    use moatless_types::workspace::ResourceConfig;
+    use moatless_workspace_types::workspace::ResourceConfig;
 
     /// Build a minimal plan whose repo sets each switch independently, so
     /// per-field default resolution can be exercised in isolation.

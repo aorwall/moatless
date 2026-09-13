@@ -3,11 +3,11 @@ use super::error::RepositoryError;
 use super::models::Repository;
 use super::models::RepositoryPatch;
 use super::schemas::{CreateRepositoryRequest, UpdateRepositoryRequest};
+use crate::repository::remote::normalize_remote_url;
 use crate::workspace::git_sync::{GitSyncService, SyncForce, log_workspace_sync_for};
 use moatless_core::db::DbPool;
 use moatless_types::access_control::{Scope, ScopeContext, resolve_scope_for_create};
-use moatless_types::repository::RepositoryKind;
-use moatless_types::repository::normalize_remote_url;
+use moatless_workspace_types::repository::RepositoryKind;
 use std::collections::HashSet;
 use tracing::warn;
 
@@ -67,7 +67,9 @@ pub async fn create_repository(
         id: id.clone(),
         name: req.name,
         kind: req.kind,
-        remote_url: req.remote_url,
+        remote: req
+            .remote_url
+            .map(|url| crate::repository::remote::resolve_remote(req.provider, url)),
         default_branch: req.default_branch,
         description: req.description,
         provider: req.provider,
@@ -79,10 +81,12 @@ pub async fn create_repository(
         updated_at: Some(now),
     };
 
-    repositories
-        .insert(&row)
-        .await
-        .map_err(|error| RepositoryError::from_write_error(error, row.remote_url.as_deref()))?;
+    repositories.insert(&row).await.map_err(|error| {
+        RepositoryError::from_write_error(
+            error,
+            row.remote.as_ref().map(|remote| remote.url.as_str()),
+        )
+    })?;
 
     // A repository is only a git connection; its run-config flows to the
     // workspace via the git sync below, not into repo columns.
@@ -91,7 +95,7 @@ pub async fn create_repository(
         .await?
         .unwrap_or(row);
 
-    if final_row.remote_url.is_some() {
+    if final_row.remote.is_some() {
         // Sync git-declared workspaces (`.moatless/workspaces.json`).
         // Loop sync is deliberately never automatic:
         // an administrator must invoke the explicit sync endpoint.
@@ -142,7 +146,7 @@ pub async fn update_repository(
     let target_remote_url = req
         .remote_url
         .clone()
-        .or_else(|| existing.remote_url.clone());
+        .or_else(|| existing.remote.as_ref().map(|remote| remote.url.clone()));
 
     ensure_unique_remote_url(
         repositories,
@@ -157,6 +161,7 @@ pub async fn update_repository(
         scope,
         owner_user_id,
         name: req.name,
+        provider: req.provider.map(Some),
         remote_url: req.remote_url.map(Some),
         default_branch: req.default_branch.map(Some),
         description: req.description.map(Some),
@@ -218,7 +223,7 @@ pub(crate) async fn promote_repositories_to_global(
         ensure_unique_remote_url(
             repositories,
             Some(repository_id),
-            existing.remote_url.as_deref(),
+            existing.remote.as_ref().map(|remote| remote.url.as_str()),
             Scope::Global,
             None,
         )
@@ -228,7 +233,7 @@ pub(crate) async fn promote_repositories_to_global(
         // two user-scoped rows may hold one URL under different owners, which
         // `repositories_active_owner_remote_url_uq` allows and dropping both
         // owners does not.
-        if let Some(remote_url) = existing.remote_url.as_deref() {
+        if let Some(remote_url) = existing.remote.as_ref().map(|remote| remote.url.as_str()) {
             if !claimed.insert(normalize_remote_url(remote_url)) {
                 return Err(RepositoryError::Conflict(remote_url.to_string()));
             }
@@ -247,7 +252,10 @@ pub(crate) async fn promote_repositories_to_global(
             .update(repository_id, &patch, ctx)
             .await
             .map_err(|error| {
-                RepositoryError::from_write_error(error, existing.remote_url.as_deref())
+                RepositoryError::from_write_error(
+                    error,
+                    existing.remote.as_ref().map(|remote| remote.url.as_str()),
+                )
             })?;
         if !applied {
             return Err(RepositoryError::NotFound(repository_id.clone()));

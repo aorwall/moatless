@@ -161,7 +161,10 @@ async fn canonical_url_is_unique_within_access_owner(pool: PgPool) {
     seed_team(&pool, "personal-user-1").await;
     let first = make_repository_row("repo-url-a", "user-1");
     let mut second = make_repository_row("repo-url-b", "user-1");
-    second.remote_url = Some("  HTTPS://GITHUB.COM/TEST/REPO-URL-A.git/  ".to_string());
+    second.remote = Some(crate::repository::remote::resolve_remote(
+        second.provider,
+        "  HTTPS://GITHUB.COM/TEST/REPO-URL-A.git/  ".to_string(),
+    ));
 
     PgRepositoryDao(pool.clone()).insert(&first).await.unwrap();
     let error = PgRepositoryDao(pool.clone())
@@ -185,7 +188,7 @@ async fn canonical_url_can_be_reused_by_a_different_access_owner(pool: PgPool) {
     global_repo.scope = Scope::Global;
     global_repo.owner_user_id = None;
     global_repo.created_by = Some("system".to_string());
-    global_repo.remote_url = user_repo.remote_url.clone();
+    global_repo.remote = user_repo.remote.clone();
 
     PgRepositoryDao(pool.clone())
         .insert(&user_repo)
@@ -202,7 +205,7 @@ async fn soft_delete_releases_canonical_url(pool: PgPool) {
     seed_team(&pool, "personal-user-1").await;
     let first = make_repository_row("repo-release-a", "user-1");
     let mut replacement = make_repository_row("repo-release-b", "user-1");
-    replacement.remote_url = first.remote_url.clone();
+    replacement.remote = first.remote.clone();
 
     PgRepositoryDao(pool.clone()).insert(&first).await.unwrap();
     PgRepositoryDao(pool.clone())
@@ -213,4 +216,41 @@ async fn soft_delete_releases_canonical_url(pool: PgPool) {
         .insert(&replacement)
         .await
         .unwrap();
+}
+
+#[sqlx::test(migrations = "../core/migrations")]
+async fn reading_after_a_remote_update_rebuilds_host_and_transport(pool: PgPool) {
+    use crate::repository::models::RepositoryProvider;
+    seed_team(&pool, "personal-user-1").await;
+    let dao = PgRepositoryDao(pool);
+    let initial = make_repository_row("repo-remote", "user-1");
+    dao.insert(&initial).await.unwrap();
+    dao.update(
+        "repo-remote",
+        &RepositoryPatch {
+            provider: Some(Some(RepositoryProvider::Forgejo)),
+            remote_url: Some(Some("git@git.internal:team/service.git".to_string())),
+            ..Default::default()
+        },
+        &scope_ctx("user-1"),
+    )
+    .await
+    .unwrap();
+    let updated = dao
+        .find_by_id("repo-remote", &scope_ctx("user-1"))
+        .await
+        .unwrap()
+        .unwrap();
+    let remote = updated.remote.unwrap();
+    assert_eq!(remote.url, "git@git.internal:team/service.git");
+    assert!(remote.uses_ssh);
+    let host = remote.host_repo.unwrap();
+    assert_eq!(host.provider(), RepositoryProvider::Forgejo);
+    assert_eq!(host.host(), "git.internal");
+    assert_eq!(host.owner(), "team");
+    assert_eq!(host.name(), "service");
+    assert_eq!(
+        initial.remote.unwrap().host_repo.unwrap().provider(),
+        RepositoryProvider::Github
+    );
 }

@@ -1,0 +1,23 @@
+[package]
+name = "moatless-workspace-types"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "Workspace domain values and optional wire contracts"
+
+[dependencies]
+moatless-types = { workspace = true }
+chrono = { workspace = true, features = ["serde"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+utoipa = { workspace = true, features = ["uuid"], optional = true }
+uuid = { workspace = true, features = ["serde"] }
+
+[features]
+default = []
+schemas = []
+openapi = ["dep:utoipa", "moatless-types/openapi"]
+
+[lints]
+workspace = true

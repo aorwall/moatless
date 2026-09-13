@@ -14,6 +14,11 @@ pub const BANDS: &[(&[&str], &str)] = &[
         "shared values and independent tooling",
     ),
     (
+        &["moatless-workspace-types"],
+        "Workspace values and optional schemas",
+    ),
+    (&["moatless-workspace-ports"], "Workspace contracts"),
+    (
         &["claude-agent-sdk", "sandbox-proto", "moatless-s3"],
         "leaf protocols and infrastructure",
     ),

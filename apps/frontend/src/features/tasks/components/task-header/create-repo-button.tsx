@@ -18,7 +18,7 @@ export function CreateRepoButton({ repository }: CreateRepoButtonProps) {
 
   // Show GitHub link for remote repositories
   if (repository.kind === 'remote') {
-    const githubUrl = repository.remoteUrl
+    const githubUrl = repository.remote?.url
 
     return (
       <Popover>

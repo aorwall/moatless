@@ -10,20 +10,18 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use tracing::warn;
 
 use crate::lifecycle::dao::SandboxShape;
 use crate::secrets::{resolve_task_actor, resolve_task_git_token, resolve_workspace_credentials};
 use moatless_ports::identity::CommitIdentity;
 use moatless_ports::identity::{GitHostTokenError, GitHostTokenIssuer};
 use moatless_ports::sandbox::{CodexCredentials, PreflightPort, PreflightRejection};
-use moatless_ports::workspace::{WorkspaceCredentialReader, WorkspaceResolver};
 use moatless_types::access_control::{Scope, ScopeContext, ScopedResource};
-use moatless_types::repository::GitHostRepo;
-use moatless_types::repository::Repository;
-use moatless_types::repository::RepositoryProvider as GitHostProvider;
-use moatless_types::repository::{RepositoryKind, RepositoryProvider};
 use moatless_types::task::Task;
+use moatless_workspace_ports::{WorkspaceCredentialReader, WorkspaceResolver};
+use moatless_workspace_types::repository::Repository;
+use moatless_workspace_types::repository::RepositoryProvider as GitHostProvider;
+use moatless_workspace_types::repository::{RepositoryKind, RepositoryProvider};
 
 /// The exact set of credential-resolution dependencies the preflight consumes.
 ///
@@ -280,25 +278,12 @@ pub async fn preflight_validate_git_credential(
         }
     };
 
-    let Some(remote_url) = repo.remote_url.as_deref() else {
-        return Ok(());
-    };
-
-    if !is_github_dot_com(remote_url) {
-        warn!(
-            remote_url,
-            task_id = %task.task_id,
-            "Preflight: skipping repo access check for non-github.com URL"
-        );
-        return Ok(());
-    }
-
-    let Some(parsed) = GitHostRepo::parse(GitHostProvider::Github, remote_url) else {
-        warn!(
-            remote_url,
-            task_id = %task.task_id,
-            "Preflight: failed to parse GitHub owner/repo from URL"
-        );
+    let Some(parsed) = repo
+        .remote
+        .as_ref()
+        .and_then(|remote| remote.host_repo.as_ref())
+        .filter(|repo| repo.provider() == GitHostProvider::Github)
+    else {
         return Ok(());
     };
 
@@ -331,10 +316,6 @@ fn requires_credential_preflight(repo: &Repository) -> Option<RepositoryProvider
         }
         _ => None,
     }
-}
-
-fn is_github_dot_com(url: &str) -> bool {
-    url.contains("github.com/") || url.contains("github.com:")
 }
 
 fn truncate(s: &str, max: usize) -> String {
@@ -577,7 +558,16 @@ mod tests {
             id: "r".into(),
             name: "r".into(),
             kind,
-            remote_url: Some("https://github.com/o/r".into()),
+            remote: Some(moatless_workspace_types::repository::RepositoryRemote {
+                url: "https://github.com/o/r".into(),
+                uses_ssh: false,
+                host_repo: Some(moatless_workspace_types::repository::GitHostRepo::new(
+                    RepositoryProvider::Github,
+                    "github.com",
+                    "o",
+                    "r",
+                )),
+            }),
             default_branch: None,
             description: None,
             provider,
@@ -621,14 +611,6 @@ mod tests {
                 requires_credential_preflight(&repo(RepositoryKind::Remote, provider)).is_none()
             );
         }
-    }
-
-    #[test]
-    fn is_github_dot_com_matches_https_and_ssh() {
-        assert!(is_github_dot_com("https://github.com/owner/repo"));
-        assert!(is_github_dot_com("git@github.com:owner/repo.git"));
-        assert!(!is_github_dot_com("https://gitlab.com/owner/repo"));
-        assert!(!is_github_dot_com("https://example.com/owner/repo"));
     }
 
     #[tokio::test]

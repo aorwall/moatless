@@ -4,9 +4,9 @@ use tracing::info;
 
 use super::dao::RepositoryDao;
 use super::models::Repository;
-use moatless_types::repository::normalize_remote_url;
+use crate::repository::remote::normalize_remote_url;
 use moatless_types::access_control::Scope;
-use moatless_types::repository::{RepositoryKind, RepositoryProvider};
+use moatless_workspace_types::repository::{RepositoryKind, RepositoryProvider};
 
 /// Insert default template repositories if they don't already exist.
 ///
@@ -42,7 +42,9 @@ async fn seed_moatable(repos: &dyn RepositoryDao) -> Result<(), sqlx::Error> {
         id: uuid::Uuid::new_v4().to_string(),
         name: "Moatable".to_string(),
         kind: RepositoryKind::Template,
-        remote_url: Some(MOATABLE_URL.to_string()),
+        remote: Some(MOATABLE_URL.to_string()).map(|url| {
+            crate::repository::remote::resolve_remote(Some(RepositoryProvider::Github), url)
+        }),
         default_branch: Some("main".to_string()),
         description: Some("React + TypeScript + Vite + Tailwind CSS starter template".to_string()),
         provider: Some(RepositoryProvider::Github),

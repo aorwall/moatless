@@ -29,10 +29,10 @@ use moatless_core::http_auth::AuthUser;
 use moatless_ports::identity::UserResolver;
 use moatless_ports::sandbox::PreflightPort;
 use moatless_ports::sandbox::SandboxLifecycle;
-use moatless_ports::workspace::{RepositoryReader, WorkspaceResolver};
 #[cfg(test)]
 use moatless_types::sandbox::ArchiveRetention;
 use moatless_types::task::TaskSubType;
+use moatless_workspace_ports::{RepositoryReader, WorkspaceResolver};
 use moatless_workspaces::workspace::git_sync::GitSyncService;
 use std::sync::{Arc, Mutex};
 

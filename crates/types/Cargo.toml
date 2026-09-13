@@ -11,9 +11,6 @@ serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
-# Value-parsing only: `url` parses a remote URL, `uuid` carries an id. Neither
-# does I/O, so the closed-list rule below still holds.
-url = "2"
 utoipa = { workspace = true, optional = true }
 uuid = { workspace = true, features = ["v4", "serde"] }
 

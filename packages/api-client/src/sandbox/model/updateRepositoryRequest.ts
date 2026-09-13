@@ -5,6 +5,7 @@
  * Sandbox orchestration and authentication for Moatless Vibe
  * OpenAPI spec version: 0.1.0
  */
+import type { RepositoryProvider } from './repositoryProvider';
 import type { Scope } from './scope';
 
 export interface UpdateRepositoryRequest {
@@ -14,6 +15,7 @@ export interface UpdateRepositoryRequest {
   description?: string | null;
   /** @nullable */
   name?: string | null;
+  provider?: null | RepositoryProvider;
   /** @nullable */
   remoteUrl?: string | null;
   scope?: null | Scope;

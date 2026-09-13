@@ -40,7 +40,7 @@ impl moatless_t3code::ports::WorkspaceScriptCommands for WorkspaceScripts {
         &self,
         viewer: &ScopeContext,
         workspace_id: &str,
-        scripts: &[moatless_types::workspace::ScriptConfig],
+        scripts: &[moatless_workspace_types::workspace::ScriptConfig],
     ) -> Result<(), moatless_t3code::scripts::ScriptsWriteError> {
         use moatless_t3code::scripts::ScriptsWriteError as Target;
         use moatless_workspaces::workspace::error::WorkspaceScriptsError as Source;
@@ -67,7 +67,8 @@ impl RepositoryBranchSource for AppStateBranches {
         viewer: &ScopeContext,
         repository_id: &str,
         workspace_id: Option<&str>,
-    ) -> Result<moatless_api_schemas::repository::BranchListResponse, BranchListError> {
+    ) -> Result<moatless_workspace_types::schemas::repository::BranchListResponse, BranchListError>
+    {
         self.0
             .repository_branches
             .list_branches(viewer, repository_id, workspace_id)

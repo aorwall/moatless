@@ -16,7 +16,7 @@ use moatless_ports::identity::UserDisplay;
 use moatless_ports::sandbox::{
     CredentialBroadcast, PreflightPort, SandboxJoiner, SandboxLifecycle, SandboxStarter,
 };
-use moatless_ports::workspace::{RepositoryReader, WorkspaceResolver};
+use moatless_workspace_ports::{RepositoryReader, WorkspaceResolver};
 
 use crate::credential_sync::CredentialSync;
 use crate::event_ingress::EventAdmission;

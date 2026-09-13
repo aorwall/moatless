@@ -91,8 +91,14 @@ pub fn check(ws: &Workspace) -> Result<Vec<Violation>> {
                 )),
                 Ok(Some(a)) => {
                     let applicable = match a.rule {
-                        "port-admission" => matches!(r.package.as_str(), "moatless-ports"),
-                        "floor-type-admission" => r.package == "moatless-types",
+                        "port-admission" => matches!(
+                            r.package.as_str(),
+                            "moatless-ports" | "moatless-workspace-ports"
+                        ),
+                        "floor-type-admission" => matches!(
+                            r.package.as_str(),
+                            "moatless-types" | "moatless-workspace-types"
+                        ),
                         "single-implementation-trait" => matches!(r.item, syn::Item::Trait(_)),
                         "composition-root"
                         | "declaration-only-roots"

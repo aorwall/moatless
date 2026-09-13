@@ -126,4 +126,4 @@ pub struct EffectivePluginResponse {
     pub frontload_skill_names: Vec<String>,
 }
 
-pub use moatless_types::plugin::PluginDelivery;
+pub use crate::plugin::PluginDelivery;

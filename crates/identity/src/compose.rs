@@ -23,6 +23,7 @@ use crate::auth::users_dao::PgUserDao;
 use crate::credentials::CredentialService;
 use crate::forgejo::access::ForgejoAccess;
 use crate::forgejo::instances::ForgejoInstances;
+use crate::git_credential_overrides::GitCredentialOverrides;
 use crate::git_host_access::{GitHostAccess, GitHostTokenValidator};
 use crate::git_host_tokens::GitHostTokens;
 use crate::ports::{HarnessTokens, UserDirectory};
@@ -31,7 +32,6 @@ use crate::secret::audit_dao::PgSecretAuditDao;
 use crate::secret::dao::PgSecretDao;
 use crate::secret::service::{SecretCipher, SecretService};
 use crate::team::dao::PgTeamDao;
-use moatless_ports::workspace::WorkspaceCredentialReader;
 
 /// The `users` and `provider_tokens` tables behind the identity ports peers
 /// read.
@@ -83,14 +83,14 @@ pub fn harness_credentials(db: DbPool) -> Arc<HarnessTokens> {
 /// The one way to a git-host token, over this crate's own provider-token
 /// stores.
 ///
-/// `workspace_credentials` is `None` in a deployment that wires no workspace
+/// `credential_overrides` is `None` in a deployment that wires no workspace
 /// credential store, which resolves every identity to its own credential.
 pub fn git_host_tokens(
     db: DbPool,
     github_app_service: Option<Arc<GitHubAppService>>,
     github_apps: Arc<GitHubAppRegistry>,
     secrets: Arc<SecretService>,
-    workspace_credentials: Option<Arc<dyn WorkspaceCredentialReader>>,
+    credential_overrides: Option<Arc<dyn GitCredentialOverrides>>,
     forgejo: Arc<ForgejoInstances>,
 ) -> Arc<GitHostTokens> {
     let tokens = GitHostTokens::new(
@@ -101,8 +101,8 @@ pub fn git_host_tokens(
         secrets,
     )
     .with_forgejo(forgejo);
-    Arc::new(match workspace_credentials {
-        Some(reader) => tokens.with_workspace_credentials(reader),
+    Arc::new(match credential_overrides {
+        Some(reader) => tokens.with_credential_overrides(reader),
         None => tokens,
     })
 }

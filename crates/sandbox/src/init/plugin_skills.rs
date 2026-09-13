@@ -9,7 +9,7 @@
 
 use std::path::{Path, PathBuf};
 
-use moatless_types::plugin::PluginDelivery;
+use moatless_workspace_types::plugin::PluginDelivery;
 use serde::Deserialize;
 use tracing::{debug, info, warn};
 

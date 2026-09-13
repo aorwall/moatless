@@ -321,12 +321,14 @@ mod tests {
     fn with_plugins(config: &mut Config, plugins: &[(&str, &[&str])]) {
         config.plugins = plugins
             .iter()
-            .map(|(name, frontload)| moatless_types::plugin::PluginDelivery {
-                name: (*name).to_string(),
-                git_url: format!("https://example.test/{name}.git"),
-                skill_names: frontload.iter().copied().map(String::from).collect(),
-                frontload_skill_names: frontload.iter().copied().map(String::from).collect(),
-            })
+            .map(
+                |(name, frontload)| moatless_workspace_types::plugin::PluginDelivery {
+                    name: (*name).to_string(),
+                    git_url: format!("https://example.test/{name}.git"),
+                    skill_names: frontload.iter().copied().map(String::from).collect(),
+                    frontload_skill_names: frontload.iter().copied().map(String::from).collect(),
+                },
+            )
             .collect();
     }
 

@@ -20,7 +20,7 @@ use chrono::{DateTime, Utc};
 use serde::de::{self, Deserializer};
 use serde::{Deserialize, Serialize};
 
-use crate::access_control::Scope;
+use moatless_types::access_control::Scope;
 
 // =============================================================================
 // Workspace
@@ -142,42 +142,30 @@ pub struct WorkspaceRepo {
     pub created_at: Option<DateTime<Utc>>,
 }
 
-/// Env var carrying the JSON-encoded [`RepoCheckout`] list the sandbox clones.
-///
-/// The backend writes it into the sandbox container spec; the sandbox reads it
-/// at boot. Absent on a pod provisioned before multi-repo support, where the
-/// legacy `GIT_CLONE_URL`/`GIT_BRANCH`/`GIT_PROVIDER` trio is the only
-/// checkout.
+/// Env var carrying the resolved [`RepoCheckout`] list supplied by the backend.
 pub const WORKSPACE_REPOS_ENV: &str = "WORKSPACE_REPOS";
 
-/// A [`WorkspaceRepo`] placement resolved for provisioning: what the backend
-/// hands a Sandbox in `WORKSPACE_REPOS`, one entry per checkout, primary first.
+/// A [`WorkspaceRepo`] placement resolved for sandbox provisioning.
 ///
-/// Each is cloned into `{WORKSPACE_DIR}/{mount_name}`; the primary's directory
-/// is the sandbox's `repo_dir` (git status/diff, file API, setup commands,
-/// preview servers). `mount_name`/`clone_url` are resolved here — still open on
-/// `WorkspaceRepo`.
+/// `WORKSPACE_REPOS` carries these primary first. Each is cloned into
+/// `{WORKSPACE_DIR}/{mount_name}`; the primary supplies the sandbox's `repo_dir`
+/// for git, files, setup commands, and preview servers.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct RepoCheckout {
+    /// Whether the resolved clone uses SSH authentication.
+    pub uses_ssh: bool,
     /// Remote URL to clone. Credential-free on K8s — the sandbox authenticates
     /// via the credential channel using [`Self::provider`].
     pub clone_url: String,
     /// Branch to check out. `None`/empty clones the remote's default.
     #[serde(default)]
     pub branch: Option<String>,
-    /// The `repositories` row [`Self::clone_url`] came from. Empty for a
-    /// template checkout (no row) or a pod provisioned before this field
-    /// existed.
-    ///
-    /// Carried so a proxied clone can name the repository back to the backend:
-    /// a Forgejo `clone_url` addresses `/git/{repository_id}` rather than the
-    /// git host, and the backend resolves the credential from this id.
+    /// Repository ID for credential resolution; empty for a template checkout.
     #[serde(default)]
     pub repository_id: String,
-    /// Git provider name (`github`, `gitlab`, `gitness`, `forgejo`) — selects
-    /// which provider token authenticates this clone.
+    /// Declared git provider for token selection; empty when no known provider is set.
     pub provider: String,
     /// Subdirectory under `WORKSPACE_DIR` this repo is cloned into. Always a
     /// single safe path segment (see [`sanitize_mount_name`]).
@@ -229,13 +217,10 @@ pub fn proxy_clone_repository_id<'a>(backend_api_url: &str, url: &'a str) -> Opt
     (!id.is_empty() && !id.contains('/')).then_some(id)
 }
 
-/// Derive a mount name from a clone URL: the last path segment with `.git` and
-/// slashes stripped, falling back to `"repo"`.
+/// Derive a mount name from a clone URL, falling back to `"repo"`.
 ///
-/// Handles `https://host/owner/repo(.git)` and `git@host:owner/repo(.git)`;
-/// this is the default when a placement has no explicit mount name, and must
-/// stay stable — an existing sandbox's primary checkout lives at this path on
-/// its persistent volume.
+/// This default must stay stable: an existing sandbox's primary checkout lives
+/// at this path on its persistent volume.
 pub fn derive_mount_name(clone_url: &str) -> String {
     let name = clone_url
         .trim_end_matches('/')
@@ -1147,6 +1132,7 @@ mod tests {
     #[test]
     fn checkout_dir_joins_workspace_dir() {
         let checkout = RepoCheckout {
+            uses_ssh: false,
             clone_url: "https://github.com/owner/service.git".into(),
             branch: None,
             repository_id: "repo_1".into(),

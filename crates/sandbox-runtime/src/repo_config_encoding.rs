@@ -3,7 +3,7 @@
 use serde_json::{Map, Value, json};
 
 use crate::provisioning::RepoConfig;
-use moatless_types::workspace::{Port, ServerConfig};
+use moatless_workspace_types::workspace::{Port, ServerConfig};
 
 /// Encode shared configuration with the runtime's additional server fields.
 pub fn encode_repo_config(

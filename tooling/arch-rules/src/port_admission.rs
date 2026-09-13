@@ -13,7 +13,12 @@ pub fn check(ws: &Workspace) -> Result<Vec<Violation>> {
     let ports: Vec<&Record> = index
         .records
         .iter()
-        .filter(|r| matches!(r.package.as_str(), "moatless-ports") && r.exported)
+        .filter(|r| {
+            matches!(
+                r.package.as_str(),
+                "moatless-ports" | "moatless-workspace-ports"
+            ) && r.exported
+        })
         .collect();
     let mut supporting = BTreeSet::new();
     for r in &ports {

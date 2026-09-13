@@ -8,13 +8,22 @@ use std::collections::{BTreeMap, HashMap};
 
 use serde::{Deserialize, Serialize};
 
-use crate::enums::Scope;
-use crate::patch::deserialize_optional_nullable_field;
+use moatless_types::access_control::Scope;
+#[allow(clippy::option_option)]
+fn deserialize_optional_nullable_field<'de, D, T>(
+    deserializer: D,
+) -> Result<Option<Option<T>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer).map(Some)
+}
 
 /// The glyph a client renders beside a Workspace name.
 ///
 /// The domain enum itself — same shape the column stores, no wire conversion.
-pub use moatless_types::workspace::WorkspaceIcon;
+pub use crate::workspace::WorkspaceIcon;
 
 // =============================================================================
 // ResourceConfig
@@ -23,7 +32,7 @@ pub use moatless_types::workspace::WorkspaceIcon;
 /// Where a node-local sandbox volume is backed.
 ///
 /// The domain enum itself — same type the provider reads, no wire conversion.
-pub use moatless_types::workspace::StorageMedium;
+pub use crate::workspace::StorageMedium;
 
 /// A container's CPU and memory for one direction (requests or limits), as
 /// Kubernetes quantity strings (`"250m"`, `"4Gi"`); each field overrides the
@@ -136,7 +145,7 @@ pub struct ServerConfig {
 ///
 /// `name` is the identity, since it must survive a git round trip; no id is
 /// allocated by the backend.
-pub use moatless_types::workspace::ScriptConfig;
+pub use crate::workspace::ScriptConfig;
 
 // =============================================================================
 // WorkspaceRepoInput — a repository placement in create/add requests
@@ -436,7 +445,7 @@ pub struct ResetGitWorkspaceResponse {
 /// Limited to single static env-var credentials; Codex and Claude OAuth are
 /// excluded since they refresh against the connected user's row, and a
 /// workspace-level copy would go stale with nothing to rotate it.
-pub use moatless_types::workspace::WorkspaceCredentialProvider;
+pub use crate::workspace::WorkspaceCredentialProvider;
 
 /// `PUT /api/v1/workspaces/{id}/credentials/{provider}` body.
 #[derive(Debug, Serialize, Deserialize)]

@@ -522,7 +522,8 @@ impl ApiClient {
     /// GET /api/v1/repositories
     pub async fn list_repositories(
         &self,
-    ) -> Result<Vec<moatless_api_schemas::repository::RepositoryResponse>, ApiError> {
+    ) -> Result<Vec<moatless_workspace_types::schemas::repository::RepositoryResponse>, ApiError>
+    {
         self.get("/api/v1/repositories").await
     }
 
@@ -530,15 +531,15 @@ impl ApiClient {
     pub async fn get_repository(
         &self,
         repo_id: &str,
-    ) -> Result<moatless_api_schemas::repository::RepositoryResponse, ApiError> {
+    ) -> Result<moatless_workspace_types::schemas::repository::RepositoryResponse, ApiError> {
         self.get(&format!("/api/v1/repositories/{repo_id}")).await
     }
 
     /// POST /api/v1/repositories
     pub async fn create_repository(
         &self,
-        req: &moatless_api_schemas::repository::CreateRepositoryRequest,
-    ) -> Result<moatless_api_schemas::repository::RepositoryResponse, ApiError> {
+        req: &moatless_workspace_types::schemas::repository::CreateRepositoryRequest,
+    ) -> Result<moatless_workspace_types::schemas::repository::RepositoryResponse, ApiError> {
         self.post("/api/v1/repositories", req).await
     }
 
@@ -546,8 +547,8 @@ impl ApiClient {
     pub async fn update_repository(
         &self,
         repo_id: &str,
-        req: &moatless_api_schemas::repository::UpdateRepositoryRequest,
-    ) -> Result<moatless_api_schemas::repository::RepositoryResponse, ApiError> {
+        req: &moatless_workspace_types::schemas::repository::UpdateRepositoryRequest,
+    ) -> Result<moatless_workspace_types::schemas::repository::RepositoryResponse, ApiError> {
         self.put(&format!("/api/v1/repositories/{repo_id}"), req)
             .await
     }
@@ -574,7 +575,8 @@ impl ApiClient {
     /// GET /api/v1/workspaces
     pub async fn list_workspaces(
         &self,
-    ) -> Result<Vec<moatless_api_schemas::workspace::WorkspaceResponse>, ApiError> {
+    ) -> Result<Vec<moatless_workspace_types::schemas::workspace::WorkspaceResponse>, ApiError>
+    {
         self.get("/api/v1/workspaces").await
     }
 
@@ -582,7 +584,7 @@ impl ApiClient {
     pub async fn get_workspace(
         &self,
         workspace_id: &str,
-    ) -> Result<moatless_api_schemas::workspace::WorkspaceResponse, ApiError> {
+    ) -> Result<moatless_workspace_types::schemas::workspace::WorkspaceResponse, ApiError> {
         self.get(&format!("/api/v1/workspaces/{workspace_id}"))
             .await
     }
@@ -590,8 +592,8 @@ impl ApiClient {
     /// POST /api/v1/workspaces
     pub async fn create_workspace(
         &self,
-        req: &moatless_api_schemas::workspace::CreateWorkspaceRequest,
-    ) -> Result<moatless_api_schemas::workspace::WorkspaceResponse, ApiError> {
+        req: &moatless_workspace_types::schemas::workspace::CreateWorkspaceRequest,
+    ) -> Result<moatless_workspace_types::schemas::workspace::WorkspaceResponse, ApiError> {
         self.post("/api/v1/workspaces", req).await
     }
 
@@ -599,8 +601,8 @@ impl ApiClient {
     pub async fn update_workspace(
         &self,
         workspace_id: &str,
-        req: &moatless_api_schemas::workspace::UpdateWorkspaceRequest,
-    ) -> Result<moatless_api_schemas::workspace::WorkspaceResponse, ApiError> {
+        req: &moatless_workspace_types::schemas::workspace::UpdateWorkspaceRequest,
+    ) -> Result<moatless_workspace_types::schemas::workspace::WorkspaceResponse, ApiError> {
         self.patch(&format!("/api/v1/workspaces/{workspace_id}"), req)
             .await
     }
@@ -618,8 +620,8 @@ impl ApiClient {
     pub async fn override_workspace(
         &self,
         workspace_id: &str,
-        req: &moatless_api_schemas::workspace::UpdateWorkspaceRequest,
-    ) -> Result<moatless_api_schemas::workspace::WorkspaceResponse, ApiError> {
+        req: &moatless_workspace_types::schemas::workspace::UpdateWorkspaceRequest,
+    ) -> Result<moatless_workspace_types::schemas::workspace::WorkspaceResponse, ApiError> {
         self.patch(&format!("/api/v1/workspaces/{workspace_id}/override"), req)
             .await
     }
@@ -631,7 +633,8 @@ impl ApiClient {
     pub async fn reset_git_workspace(
         &self,
         workspace_id: &str,
-    ) -> Result<moatless_api_schemas::workspace::ResetGitWorkspaceResponse, ApiError> {
+    ) -> Result<moatless_workspace_types::schemas::workspace::ResetGitWorkspaceResponse, ApiError>
+    {
         self.post_no_body(&format!("/api/v1/workspaces/{workspace_id}/reset-git"))
             .await
     }
@@ -642,7 +645,10 @@ impl ApiClient {
     pub async fn list_workspace_credentials(
         &self,
         workspace_id: &str,
-    ) -> Result<Vec<moatless_api_schemas::workspace::WorkspaceCredentialResponse>, ApiError> {
+    ) -> Result<
+        Vec<moatless_workspace_types::schemas::workspace::WorkspaceCredentialResponse>,
+        ApiError,
+    > {
         self.get(&format!("/api/v1/workspaces/{workspace_id}/credentials"))
             .await
     }
@@ -653,8 +659,9 @@ impl ApiClient {
         workspace_id: &str,
         provider: &str,
         value: &str,
-    ) -> Result<moatless_api_schemas::workspace::WorkspaceCredentialResponse, ApiError> {
-        let req = moatless_api_schemas::workspace::SetWorkspaceCredentialRequest {
+    ) -> Result<moatless_workspace_types::schemas::workspace::WorkspaceCredentialResponse, ApiError>
+    {
+        let req = moatless_workspace_types::schemas::workspace::SetWorkspaceCredentialRequest {
             value: value.to_string(),
         };
         self.put(
@@ -1145,15 +1152,15 @@ impl ApiClient {
     /// GET /api/v1/plugins
     pub async fn list_plugins(
         &self,
-    ) -> Result<Vec<moatless_api_schemas::plugin::PluginResponse>, ApiError> {
+    ) -> Result<Vec<moatless_workspace_types::schemas::plugin::PluginResponse>, ApiError> {
         self.get("/api/v1/plugins").await
     }
 
     /// POST /api/v1/plugins
     pub async fn create_plugin(
         &self,
-        req: &moatless_api_schemas::plugin::CreatePluginRequest,
-    ) -> Result<moatless_api_schemas::plugin::PluginResponse, ApiError> {
+        req: &moatless_workspace_types::schemas::plugin::CreatePluginRequest,
+    ) -> Result<moatless_workspace_types::schemas::plugin::PluginResponse, ApiError> {
         self.post("/api/v1/plugins", req).await
     }
 
@@ -1166,7 +1173,7 @@ impl ApiClient {
     pub async fn list_plugin_skills(
         &self,
         plugin_id: &str,
-    ) -> Result<Vec<moatless_api_schemas::plugin::PluginSkillResponse>, ApiError> {
+    ) -> Result<Vec<moatless_workspace_types::schemas::plugin::PluginSkillResponse>, ApiError> {
         self.get(&format!("/api/v1/plugins/{plugin_id}/skills"))
             .await
     }
@@ -1179,7 +1186,8 @@ impl ApiClient {
         &self,
         workspace_id: Option<&str>,
         user_id: Option<&str>,
-    ) -> Result<Vec<moatless_api_schemas::plugin::EffectivePluginResponse>, ApiError> {
+    ) -> Result<Vec<moatless_workspace_types::schemas::plugin::EffectivePluginResponse>, ApiError>
+    {
         let mut params: Vec<String> = Vec::new();
         if let Some(id) = workspace_id {
             params.push(format!("workspaceId={id}"));
@@ -1199,8 +1207,8 @@ impl ApiClient {
     pub async fn set_plugin_activation(
         &self,
         plugin_id: &str,
-        req: &moatless_api_schemas::plugin::SetActivationRequest,
-    ) -> Result<moatless_api_schemas::plugin::ActivationResponse, ApiError> {
+        req: &moatless_workspace_types::schemas::plugin::SetActivationRequest,
+    ) -> Result<moatless_workspace_types::schemas::plugin::ActivationResponse, ApiError> {
         self.put(&format!("/api/v1/plugins/{plugin_id}/activation"), req)
             .await
     }
@@ -1212,15 +1220,15 @@ impl ApiClient {
     pub async fn clear_plugin_activation(
         &self,
         plugin_id: &str,
-        reach: moatless_api_schemas::plugin::ActivationReach,
+        reach: moatless_workspace_types::schemas::plugin::ActivationReach,
         skill_name: Option<&str>,
         workspace_id: Option<&str>,
         user_id: Option<&str>,
     ) -> Result<(), ApiError> {
         let reach = match reach {
-            moatless_api_schemas::plugin::ActivationReach::Everyone => "everyone",
-            moatless_api_schemas::plugin::ActivationReach::Personal => "personal",
-            moatless_api_schemas::plugin::ActivationReach::Workspace => "workspace",
+            moatless_workspace_types::schemas::plugin::ActivationReach::Everyone => "everyone",
+            moatless_workspace_types::schemas::plugin::ActivationReach::Personal => "personal",
+            moatless_workspace_types::schemas::plugin::ActivationReach::Workspace => "workspace",
         };
         let skill_qs = skill_name
             .map(|skill| format!("&skillName={skill}"))

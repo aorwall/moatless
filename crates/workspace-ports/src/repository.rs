@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use moatless_types::access_control::ScopeContext;
-use moatless_types::repository::Repository;
 use moatless_types::store::StoreError;
+use moatless_workspace_types::repository::Repository;
 use std::collections::HashMap;
 
 /// The repository facts a peer band reads: one repository, or a batch of names.

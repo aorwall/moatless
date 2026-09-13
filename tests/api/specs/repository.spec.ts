@@ -70,7 +70,7 @@ test.describe('Chain: Repository CRUD', () => {
     expect(result.repositoryId).toBeTruthy()
     expect(result.repository.name).toBe(scopedName('E2E Test Repository'))
     expect(result.repository.kind).toBe('remote')
-    expect(result.repository.remoteUrl).toBe(repoUrl)
+    expect(result.repository.remote?.url).toBe(repoUrl)
 
     ctx.repositoryId = result.repositoryId
     ctx.repository = result.repository
@@ -93,7 +93,7 @@ test.describe('Chain: Repository CRUD', () => {
     expect(repo.id).toBe(ctx.repositoryId)
     expect(repo.name).toBeTruthy()
     expect(repo.kind).toBe('remote')
-    expect(repo.remoteUrl).toBeTruthy()
+    expect(repo.remote?.url).toBeTruthy()
     expect(repo.createdAt).toBeTruthy()
   })
 
@@ -217,7 +217,7 @@ test('REPO-12: Reject a URL collision during update', async ({ api }) => {
     })
     expect(response.status).toBe(409)
     const unchanged = await api.getRepository(second.repositoryId)
-    expect(unchanged.remoteUrl).toBe(`https://gitness.invalid/acme/${suffix}-other`)
+    expect(unchanged.remote?.url).toBe(`https://gitness.invalid/acme/${suffix}-other`)
   } finally {
     await api.deleteRepository(first.repositoryId)
     await api.deleteRepository(second.repositoryId)

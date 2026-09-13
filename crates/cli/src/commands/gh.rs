@@ -12,7 +12,7 @@ use moatless_api_schemas::github::{
     GithubBindPrRequest, GithubCommentRequest, GithubCreatePrRequest, GithubExternalEventRequest,
     GithubExternalEventSubject, GithubReplyRequest,
 };
-use moatless_types::workspace::proxy_clone_repository_id;
+use moatless_workspace_types::workspace::proxy_clone_repository_id;
 use std::collections::HashSet;
 use std::io::Write;
 
@@ -745,16 +745,20 @@ async fn proxied_repo(
     repository_id: &str,
 ) -> Result<(String, String), Box<dyn std::error::Error>> {
     let row = client.api().get_repository(repository_id).await?;
-    let Some(remote) = row.remote_url else {
-        return Err(format!("repository {repository_id} stores no remote URL").into());
-    };
-    parse_github_remote(&remote).ok_or_else(|| {
-        format!(
-            "repository {repository_id} has remote `{remote}`, which is not on GitHub — \
-             `moat gh` serves GitHub only"
-        )
-        .into()
-    })
+    let remote = row
+        .remote
+        .ok_or_else(|| format!("repository {repository_id} stores no remote URL"))?;
+    let host = remote
+        .host_repo
+        .filter(|host| {
+            host.provider == moatless_workspace_types::repository::RepositoryProvider::Github
+        })
+        .ok_or_else(|| {
+            format!(
+                "repository {repository_id} has no resolved GitHub host; moat gh serves GitHub only"
+            )
+        })?;
+    Ok((host.owner, host.name))
 }
 
 /// The `owner/repo` to hand a spawned `gh` as `GH_REPO`.
@@ -775,8 +779,10 @@ async fn proxied_gh_repo(client: &MoatClient) -> Option<String> {
             return None;
         }
     };
-    let (owner, repo) = parse_github_remote(row.remote_url.as_deref()?)?;
-    Some(format!("{owner}/{repo}"))
+    let host = row.remote?.host_repo.filter(|host| {
+        host.provider == moatless_workspace_types::repository::RepositoryProvider::Github
+    })?;
+    Some(format!("{}/{}", host.owner, host.name))
 }
 
 /// Parse a `-R` value: `owner/repo` shorthand or any GitHub remote URL form.

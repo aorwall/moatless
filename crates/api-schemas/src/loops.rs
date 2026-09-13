@@ -11,8 +11,8 @@ use serde::{Deserialize, Serialize};
 use crate::bindings::TaskBindingResponse;
 use crate::enums::{AdapterKind, RoutingMode, Scope, TaskStatus};
 use crate::patch::deserialize_optional_nullable_field;
-use crate::repository::RepositoryResponse;
-use crate::workspace::WorkspaceSyncSummary;
+use moatless_workspace_types::schemas::repository::RepositoryResponse;
+use moatless_workspace_types::schemas::workspace::WorkspaceSyncSummary;
 
 pub use moatless_types::loops::LoopKind;
 

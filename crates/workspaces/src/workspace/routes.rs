@@ -36,9 +36,9 @@ use moatless_ports::identity::UserResolver;
         credential_handlers::delete_workspace_credential,
     ),
     components(schemas(
-        moatless_api_schemas::workspace::WorkspaceCredentialProvider,
-        moatless_api_schemas::workspace::WorkspaceCredentialResponse,
-        moatless_api_schemas::workspace::SetWorkspaceCredentialRequest,
+        moatless_workspace_types::schemas::workspace::WorkspaceCredentialProvider,
+        moatless_workspace_types::schemas::workspace::WorkspaceCredentialResponse,
+        moatless_workspace_types::schemas::workspace::SetWorkspaceCredentialRequest,
     ))
 )]
 pub struct WorkspaceApiDoc;

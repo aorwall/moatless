@@ -1340,7 +1340,7 @@ impl K8sSandboxAdapter {
             .resources
             .as_ref()
             .and_then(|r| r.storage.as_ref())
-            .map(moatless_types::workspace::Memory::as_str);
+            .map(moatless_workspace_types::workspace::Memory::as_str);
 
         pvc::create_task_pvc(&self.k8s, &self.config, task_id, storage_override)
             .await

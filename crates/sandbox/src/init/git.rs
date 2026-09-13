@@ -7,8 +7,7 @@
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use moatless_types::repository::is_ssh_url;
-use moatless_types::workspace::{PROXIED_PROVIDER, RepoCheckout};
+use moatless_workspace_types::workspace::{PROXIED_PROVIDER, RepoCheckout};
 use tokio::net::TcpStream;
 use tokio::process::Command;
 use tracing::{info, warn};
@@ -18,7 +17,7 @@ use crate::config::Config;
 /// Configure git authentication: `gh auth setup-git` (plus `gh api user` for
 /// identity) on GitHub, a token-based credential helper on other providers.
 pub async fn configure_git(config: &Config) -> Result<(), String> {
-    let is_ssh = config.git_clone_url.as_deref().is_some_and(is_ssh_url);
+    let is_ssh = crate::config::primary_checkout(&config.repos).is_some_and(|repo| repo.uses_ssh);
     let is_github = config.git_provider == "github";
 
     // The broker answers the backend origin with the pod's task token. Wired
@@ -268,7 +267,7 @@ async fn failure_is_retryable(repo: &RepoCheckout, pod_provider: &str) -> bool {
             return true;
         }
     }
-    !host_reachable(&repo.clone_url).await
+    !host_reachable(&repo.clone_url, repo.uses_ssh).await
 }
 
 /// The status the repo's git smart-HTTP endpoint answers with, or `None` when
@@ -277,7 +276,7 @@ async fn repo_advertisement_status(
     repo: &RepoCheckout,
     pod_provider: &str,
 ) -> Option<reqwest::StatusCode> {
-    if is_ssh_url(&repo.clone_url) {
+    if repo.uses_ssh {
         return None;
     }
     let base = repo
@@ -300,8 +299,8 @@ async fn repo_advertisement_status(
 /// Probes the resolver and TCP directly since git exits 128 for every fatal
 /// error; a URL with no host to probe answers `true`, leaving the clone failure
 /// to stand on its own.
-async fn host_reachable(clone_url: &str) -> bool {
-    let Some((host, port)) = clone_host_port(clone_url) else {
+async fn host_reachable(clone_url: &str, uses_ssh: bool) -> bool {
+    let Some((host, port)) = clone_host_port(clone_url, uses_ssh) else {
         return true;
     };
     let probe = async {
@@ -324,7 +323,7 @@ async fn host_reachable(clone_url: &str) -> bool {
 
 /// Host and port to probe for a clone URL: the scheme's default port unless the
 /// URL names its own.
-fn clone_host_port(clone_url: &str) -> Option<(String, u16)> {
+fn clone_host_port(clone_url: &str, uses_ssh: bool) -> Option<(String, u16)> {
     let (rest, default_port) = if let Some(rest) = clone_url.strip_prefix("https://") {
         (rest, 443)
     } else if let Some(rest) = clone_url.strip_prefix("http://") {
@@ -333,7 +332,7 @@ fn clone_host_port(clone_url: &str) -> Option<(String, u16)> {
         (rest, 22)
     } else if let Some(rest) = clone_url.strip_prefix("git+ssh://") {
         (rest, 22)
-    } else if is_ssh_url(clone_url) {
+    } else if uses_ssh {
         // scp-like `user@host:path`, which carries no scheme.
         (clone_url, 22)
     } else {
@@ -363,7 +362,7 @@ fn clone_host_port(clone_url: &str) -> Option<(String, u16)> {
 /// providers use `git clone` with a token-authenticated HTTPS URL.
 async fn clone_checkout(repo: &RepoCheckout, dest: &str, pod_provider: &str) -> Result<(), String> {
     let clone_url = &repo.clone_url;
-    let is_ssh = is_ssh_url(clone_url);
+    let is_ssh = repo.uses_ssh;
     let is_github = repo.provider == "github";
 
     // Normalize empty branch to None
@@ -499,7 +498,8 @@ fn resolve_provider_git_token(
     let key = match provider {
         "gitlab" => "GITLAB_TOKEN",
         "gitness" => "GITNESS_TOKEN",
-        _ => "GITHUB_TOKEN",
+        "github" => "GITHUB_TOKEN",
+        _ => return None,
     };
     lookup(key).or_else(|| {
         if provider == pod_provider {
@@ -665,6 +665,7 @@ mod tests {
 
     fn checkout(mount: &str, provider: &str, is_primary: bool) -> RepoCheckout {
         RepoCheckout {
+            uses_ssh: false,
             clone_url: format!("https://{provider}.example/acme/{mount}.git"),
             repository_id: String::new(),
             branch: None,
@@ -742,6 +743,7 @@ mod tests {
         config.git_provider = "local".to_string();
         config.repos = vec![
             RepoCheckout {
+                uses_ssh: false,
                 clone_url: "https://example.test/acme/primary.git".to_string(),
                 repository_id: String::new(),
                 branch: None,
@@ -750,6 +752,7 @@ mod tests {
                 is_primary: true,
             },
             RepoCheckout {
+                uses_ssh: false,
                 clone_url: source.display().to_string(),
                 repository_id: String::new(),
                 branch: None,
@@ -813,10 +816,16 @@ mod tests {
     async fn probe_reports_reachable_and_unreachable_hosts() {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let live = listener.local_addr().unwrap().port();
-        assert!(host_reachable(&format!("https://127.0.0.1:{live}/acme/api.git")).await);
+        assert!(host_reachable(&format!("https://127.0.0.1:{live}/acme/api.git"), false).await);
 
         // Nothing is bound to `DEAD_PORT`, so the connect is refused outright.
-        assert!(!host_reachable(&format!("https://127.0.0.1:{DEAD_PORT}/acme/api.git")).await);
+        assert!(
+            !host_reachable(
+                &format!("https://127.0.0.1:{DEAD_PORT}/acme/api.git"),
+                false
+            )
+            .await
+        );
     }
 
     /// A multi-address host is reachable when *any* of its addresses connects.
@@ -827,7 +836,7 @@ mod tests {
     async fn probe_walks_every_resolved_address() {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
-        assert!(host_reachable(&format!("https://localhost:{port}/acme/api.git")).await);
+        assert!(host_reachable(&format!("https://localhost:{port}/acme/api.git"), false).await);
     }
 
     /// The retry loop must not sleep the budget away and then start an attempt
@@ -837,6 +846,7 @@ mod tests {
     async fn retry_stops_before_an_attempt_it_cannot_afford() {
         let tmp = tempfile::tempdir().unwrap();
         let repo = RepoCheckout {
+            uses_ssh: false,
             clone_url: format!("https://127.0.0.1:{DEAD_PORT}/acme/api.git"),
             repository_id: String::new(),
             branch: None,
@@ -888,6 +898,7 @@ mod tests {
 
     fn repo_at(port: u16) -> RepoCheckout {
         RepoCheckout {
+            uses_ssh: false,
             clone_url: format!("http://127.0.0.1:{port}/acme/api.git"),
             repository_id: String::new(),
             branch: None,
@@ -918,14 +929,14 @@ mod tests {
     /// the clone failure has to stand on its own and stay permanent.
     #[tokio::test]
     async fn hostless_url_counts_as_reachable() {
-        assert!(host_reachable("/srv/git/local-repo.git").await);
+        assert!(host_reachable("/srv/git/local-repo.git", false).await);
     }
 
     /// The probe targets the port the clone would actually use, and an injected
     /// token in the URL's userinfo must not be mistaken for the host.
     #[test]
     fn clone_urls_resolve_to_the_host_and_port_the_clone_uses() {
-        let port = |url: &str| clone_host_port(url);
+        let port = |url: &str| clone_host_port(url, false);
         assert_eq!(
             port("https://github.com/owner/repo.git"),
             Some(("github.com".into(), 443))
@@ -940,7 +951,7 @@ mod tests {
         );
         // scp-like: the ':' separates a path, not a port.
         assert_eq!(
-            port("git@github.com:owner/repo.git"),
+            clone_host_port("git@github.com:owner/repo.git", true),
             Some(("github.com".into(), 22))
         );
         assert_eq!(
@@ -963,6 +974,7 @@ mod tests {
     async fn exhausted_budget_against_an_unreachable_host_stays_retryable() {
         let tmp = tempfile::tempdir().unwrap();
         let repo = RepoCheckout {
+            uses_ssh: false,
             clone_url: format!("https://127.0.0.1:{DEAD_PORT}/acme/api.git"),
             repository_id: String::new(),
             branch: None,
@@ -991,6 +1003,7 @@ mod tests {
     async fn reachable_host_reports_the_failure_as_its_own() {
         let tmp = tempfile::tempdir().unwrap();
         let repo = RepoCheckout {
+            uses_ssh: false,
             // No host to probe, so the probe cannot excuse the failure.
             clone_url: tmp.path().join("does-not-exist").display().to_string(),
             repository_id: String::new(),

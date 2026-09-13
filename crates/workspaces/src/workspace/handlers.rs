@@ -42,8 +42,8 @@ async fn load_response(
     request_body = CreateWorkspaceRequest,
     responses(
         (status = 201, description = "Workspace created", body = WorkspaceResponse),
-        (status = 400, description = "Invalid request", body = moatless_api_schemas::error::ErrorBody),
-        (status = 403, description = "Forbidden", body = moatless_api_schemas::error::ErrorBody)
+        (status = 400, description = "Invalid request", body = moatless_types::http::ErrorBody),
+        (status = 403, description = "Forbidden", body = moatless_types::http::ErrorBody)
     )
 )]
 pub async fn create_workspace(
@@ -103,7 +103,7 @@ pub async fn list_workspaces(
     params(("workspace_id" = String, Path, description = "Workspace id")),
     responses(
         (status = 200, description = "Workspace", body = WorkspaceResponse),
-        (status = 404, description = "Not found", body = moatless_api_schemas::error::ErrorBody)
+        (status = 404, description = "Not found", body = moatless_types::http::ErrorBody)
     )
 )]
 pub async fn get_workspace(
@@ -123,8 +123,8 @@ pub async fn get_workspace(
     request_body = UpdateWorkspaceRequest,
     responses(
         (status = 200, description = "Workspace updated", body = WorkspaceResponse),
-        (status = 403, description = "Forbidden", body = moatless_api_schemas::error::ErrorBody),
-        (status = 404, description = "Not found", body = moatless_api_schemas::error::ErrorBody)
+        (status = 403, description = "Forbidden", body = moatless_types::http::ErrorBody),
+        (status = 404, description = "Not found", body = moatless_types::http::ErrorBody)
     )
 )]
 pub async fn update_workspace(
@@ -155,8 +155,8 @@ pub async fn update_workspace(
     params(("workspace_id" = String, Path, description = "Workspace id")),
     responses(
         (status = 204, description = "Workspace deleted"),
-        (status = 403, description = "Forbidden", body = moatless_api_schemas::error::ErrorBody),
-        (status = 404, description = "Not found", body = moatless_api_schemas::error::ErrorBody)
+        (status = 403, description = "Forbidden", body = moatless_types::http::ErrorBody),
+        (status = 404, description = "Not found", body = moatless_types::http::ErrorBody)
     )
 )]
 pub async fn delete_workspace(
@@ -177,8 +177,8 @@ pub async fn delete_workspace(
     request_body = UpdateWorkspaceRequest,
     responses(
         (status = 200, description = "Workspace overridden; source set to manual", body = WorkspaceResponse),
-        (status = 403, description = "Forbidden", body = moatless_api_schemas::error::ErrorBody),
-        (status = 404, description = "Not found", body = moatless_api_schemas::error::ErrorBody)
+        (status = 403, description = "Forbidden", body = moatless_types::http::ErrorBody),
+        (status = 404, description = "Not found", body = moatless_types::http::ErrorBody)
     )
 )]
 /// Override a git-synced workspace. Sets `source = "manual"` so that git sync
@@ -210,9 +210,9 @@ pub async fn override_workspace(
     params(("workspace_id" = String, Path, description = "Workspace id")),
     responses(
         (status = 200, description = "Re-sync attempted; `resynced` reports whether it took effect", body = ResetGitWorkspaceResponse),
-        (status = 400, description = "Workspace was never synced from git", body = moatless_api_schemas::error::ErrorBody),
-        (status = 403, description = "Forbidden", body = moatless_api_schemas::error::ErrorBody),
-        (status = 404, description = "Not found", body = moatless_api_schemas::error::ErrorBody)
+        (status = 400, description = "Workspace was never synced from git", body = moatless_types::http::ErrorBody),
+        (status = 403, description = "Forbidden", body = moatless_types::http::ErrorBody),
+        (status = 404, description = "Not found", body = moatless_types::http::ErrorBody)
     )
 )]
 /// Discard a workspace's local override and take its run-config from git again.
@@ -252,9 +252,9 @@ pub async fn reset_git_workspace(
     request_body = AddRepoRequest,
     responses(
         (status = 200, description = "Repo added", body = WorkspaceResponse),
-        (status = 400, description = "Invalid request", body = moatless_api_schemas::error::ErrorBody),
-        (status = 403, description = "Forbidden", body = moatless_api_schemas::error::ErrorBody),
-        (status = 404, description = "Not found", body = moatless_api_schemas::error::ErrorBody)
+        (status = 400, description = "Invalid request", body = moatless_types::http::ErrorBody),
+        (status = 403, description = "Forbidden", body = moatless_types::http::ErrorBody),
+        (status = 404, description = "Not found", body = moatless_types::http::ErrorBody)
     )
 )]
 pub async fn add_workspace_repo(
@@ -286,8 +286,8 @@ pub async fn add_workspace_repo(
     ),
     responses(
         (status = 200, description = "Repo removed", body = WorkspaceResponse),
-        (status = 403, description = "Forbidden", body = moatless_api_schemas::error::ErrorBody),
-        (status = 404, description = "Not found", body = moatless_api_schemas::error::ErrorBody)
+        (status = 403, description = "Forbidden", body = moatless_types::http::ErrorBody),
+        (status = 404, description = "Not found", body = moatless_types::http::ErrorBody)
     )
 )]
 pub async fn remove_workspace_repo(
@@ -316,8 +316,8 @@ pub async fn remove_workspace_repo(
     ),
     responses(
         (status = 200, description = "Primary set", body = WorkspaceResponse),
-        (status = 403, description = "Forbidden", body = moatless_api_schemas::error::ErrorBody),
-        (status = 404, description = "Not found", body = moatless_api_schemas::error::ErrorBody)
+        (status = 403, description = "Forbidden", body = moatless_types::http::ErrorBody),
+        (status = 404, description = "Not found", body = moatless_types::http::ErrorBody)
     )
 )]
 pub async fn set_workspace_primary_repo(

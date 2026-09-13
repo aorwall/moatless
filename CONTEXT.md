@@ -72,7 +72,7 @@ backend hands a Sandbox in the `WORKSPACE_REPOS` env var, one entry per checkout
 primary first, whose directory is the sandbox's checkout. Distinct from
 **WorkspaceRepo** (the placement) and **RepoPlacement** (the resolved read under
 Workspace ports), both of which leave `mount_name` open. `RepoCheckout` in
-`moatless_types::workspace`.
+`moatless_workspace_types::workspace`.
 
 **Workspace panel** (also **Workspace view**):
 The non-chat side of the task page — the pane that switches between the preview,
@@ -547,7 +547,7 @@ crate.
 _Avoid_: calling a `*Dao` a port, or a port a service.
 
 **Identity ports**:
-The ten seams `identity` publishes. **UserDisplay** — how a user is named to a
+The seams `identity` publishes. **UserDisplay** — how a user is named to a
 human or an external directory (display name, email). **UserResolver** — a user
 reference (the internal uuid or a legacy provider id) resolved to the canonical
 internal id. **CommitIdentity** — the git author identity an actor commits as,
@@ -561,10 +561,10 @@ because they are delivered differently: env-style values, and ssh keys written
 to `~/.ssh`. **SecretCatalog** — which secrets exist for a caller, by name
 alone, with nothing decrypted. **CodexScopeReader** — the Codex scopes a
 background refresh should sweep. **GitHostTokenIssuer** — the one way to a
-git-host token: an `Actor` — the identity the call is made as — plus either a
-repository, or a **PlainGitHost** (a host whose credential is one stored value
-and needs no repository). GitHub is absent from `PlainGitHost` by construction:
-its token is minted through the App resolved from the repository's owner.
+git-host token: an `Actor` — the identity the call is made as — plus a
+**GitHostAccount** selecting a GitHub owner, a Forgejo instance, GitLab, or
+Gitness. **GitCredentialOverrides** — the identity-owned interface through
+which Workspaces supply pinned credentials.
 _Note_: each secret read walks `user > global` and marks the records it used, so
 the audit trail is part of the read.
 _Note_: `GitHostTokenIssuer` never falls back. When an `Actor` holds no usable

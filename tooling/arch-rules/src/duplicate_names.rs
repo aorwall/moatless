@@ -23,6 +23,8 @@ pub const RULE: &str = "duplicate-type-name";
 /// a violation.
 const SHARED: &[&str] = &[
     "moatless-types",
+    "moatless-workspace-types",
+    "moatless-workspace-ports",
     "moatless-api-schemas",
     "moatless-core",
     "moatless-ports",

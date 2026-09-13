@@ -14,7 +14,7 @@ use crate::loops::sync::LoopSyncService;
 use moatless_adapter_model::connections::AdapterConnections;
 use moatless_core::http_auth::UserTokenVerifier;
 use moatless_ports::identity::UserResolver;
-use moatless_ports::workspace::{RepositoryReader, WorkspaceResolver};
+use moatless_workspace_ports::{RepositoryReader, WorkspaceResolver};
 
 #[derive(OpenApi)]
 #[openapi(

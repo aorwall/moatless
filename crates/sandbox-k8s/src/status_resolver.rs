@@ -16,20 +16,20 @@ use super::pod_status::{
     check_sandbox_permanent_failure, is_sandbox_container_ready, pick_best_pod,
 };
 use super::service;
-use moatless_types::sandbox::SandboxDesiredState;
-use moatless_types::task::TaskStatus;
-use moatless_types::workspace::ServerConfig;
-use moatless_sandbox_runtime::client::{
-    managed_command_from_proto, scheduled_job_info_from_proto, SandboxConnector,
-};
 use moatless_core::config::Config;
-use moatless_sandbox_runtime::live_status::{AgentStatus, LiveStatus, derive_live_status};
+use moatless_sandbox_runtime::client::{
+    SandboxConnector, managed_command_from_proto, scheduled_job_info_from_proto,
+};
 use moatless_sandbox_runtime::container_status::{
     ContainerState, DEFAULT_SERVER_READINESS_TIMEOUT_SECS, PodPhase,
 };
+use moatless_sandbox_runtime::live_status::{AgentStatus, LiveStatus, derive_live_status};
 use moatless_sandbox_runtime::provisioning::{allocated_port, server_capabilities_from_config};
 use moatless_sandbox_runtime::schemas::*;
+use moatless_types::sandbox::SandboxDesiredState;
 use moatless_types::sandbox::{SandboxStatus, ServerStatus};
+use moatless_types::task::TaskStatus;
+use moatless_workspace_types::workspace::ServerConfig;
 
 /// Snapshot of the agent's gRPC status response — state, scheduled jobs, and
 /// live background processes.
@@ -281,7 +281,11 @@ impl StatusResolver {
         // behind an idle agent.
         let (agent_status, commands) = if sandbox_status == SandboxStatus::Ready {
             let snapshot = self.fetch_agent_status(task_id, connector).await;
-            let commands = snapshot.commands.iter().map(ManagedCommand::summary).collect();
+            let commands = snapshot
+                .commands
+                .iter()
+                .map(ManagedCommand::summary)
+                .collect();
             (snapshot.status, commands)
         } else {
             (None, Vec::new())

@@ -1,7 +1,7 @@
 //! Contracts published by the workspace domain.
 
-pub use moatless_types::plugin::PluginDelivery;
-pub use moatless_types::repository::Repository;
+pub use moatless_workspace_types::plugin::PluginDelivery;
+pub use moatless_workspace_types::repository::Repository;
 
 mod resolution;
 #[cfg(feature = "test-support")]

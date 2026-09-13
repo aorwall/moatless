@@ -19,7 +19,7 @@ use std::sync::Arc;
     request_body = CreateRepositoryRequest,
     responses(
         (status = 201, description = "Repository created", body = RepositoryResponse),
-        (status = 409, description = "Repository already exists", body = moatless_api_schemas::error::ErrorBody)
+        (status = 409, description = "Repository already exists", body = moatless_types::http::ErrorBody)
     )
 )]
 pub async fn create_repository(
@@ -66,7 +66,7 @@ pub async fn list_repositories(
     ),
     responses(
         (status = 200, description = "Repository details", body = RepositoryResponse),
-        (status = 404, description = "Repository not found", body = moatless_api_schemas::error::ErrorBody)
+        (status = 404, description = "Repository not found", body = moatless_types::http::ErrorBody)
     )
 )]
 pub async fn get_repository(
@@ -94,8 +94,8 @@ pub async fn get_repository(
     request_body = UpdateRepositoryRequest,
     responses(
         (status = 200, description = "Repository updated", body = RepositoryResponse),
-        (status = 404, description = "Repository not found", body = moatless_api_schemas::error::ErrorBody),
-        (status = 409, description = "Repository URL already exists", body = moatless_api_schemas::error::ErrorBody)
+        (status = 404, description = "Repository not found", body = moatless_types::http::ErrorBody),
+        (status = 409, description = "Repository URL already exists", body = moatless_types::http::ErrorBody)
     )
 )]
 pub async fn update_repository(
@@ -124,7 +124,7 @@ pub async fn update_repository(
     ),
     responses(
         (status = 204, description = "Repository deleted"),
-        (status = 404, description = "Repository not found", body = moatless_api_schemas::error::ErrorBody)
+        (status = 404, description = "Repository not found", body = moatless_types::http::ErrorBody)
     )
 )]
 pub async fn delete_repository(
@@ -153,8 +153,8 @@ pub async fn delete_repository(
     ),
     responses(
         (status = 200, description = "Repository converted to template", body = RepositoryResponse),
-        (status = 400, description = "Cannot convert", body = moatless_api_schemas::error::ErrorBody),
-        (status = 404, description = "Repository not found", body = moatless_api_schemas::error::ErrorBody)
+        (status = 400, description = "Cannot convert", body = moatless_types::http::ErrorBody),
+        (status = 404, description = "Repository not found", body = moatless_types::http::ErrorBody)
     )
 )]
 pub async fn convert_to_template(
@@ -182,9 +182,9 @@ pub async fn convert_to_template(
     ),
     responses(
         (status = 200, description = "Branch list", body = BranchListResponse),
-        (status = 400, description = "Bad request", body = moatless_api_schemas::error::ErrorBody),
-        (status = 403, description = "Access denied - token lacks permissions", body = moatless_api_schemas::error::ErrorBody),
-        (status = 404, description = "Repository not found", body = moatless_api_schemas::error::ErrorBody)
+        (status = 400, description = "Bad request", body = moatless_types::http::ErrorBody),
+        (status = 403, description = "Access denied - token lacks permissions", body = moatless_types::http::ErrorBody),
+        (status = 404, description = "Repository not found", body = moatless_types::http::ErrorBody)
     )
 )]
 pub async fn get_branches(

@@ -8,32 +8,32 @@
 use tracing::{debug, warn};
 
 use super::error::RepositoryError;
-use moatless_types::repository::GitHostRepo;
-use moatless_types::repository::RepositoryProvider;
-use moatless_types::repository::RepositoryProvider as GitHostProvider;
+use crate::repository::remote::require_host_repo;
+use moatless_workspace_types::repository::RepositoryProvider;
+use moatless_workspace_types::repository::RepositoryRemote;
 
 /// Fetch a repository file's raw contents via the provider API.
 ///
 /// Returns `Ok(None)` on a 404 (file absent). Gitness is not wired (needs a
 /// `base_url`).
 pub(crate) async fn fetch_provider_file(
-    remote_url: &str,
+    remote: &RepositoryRemote,
     path: &str,
     branch: Option<&str>,
     token: Option<&str>,
-    provider: RepositoryProvider,
 ) -> Result<Option<String>, RepositoryError> {
+    let provider = require_host_repo(remote)?.provider();
     match provider {
-        RepositoryProvider::Github => fetch_github_file(remote_url, path, branch, token).await,
+        RepositoryProvider::Github => fetch_github_file(remote, path, branch, token).await,
         RepositoryProvider::Gitlab => {
             let token = token.ok_or_else(|| {
                 RepositoryError::BadRequest(
                     "GitLab requires an access token to fetch config".to_string(),
                 )
             })?;
-            fetch_gitlab_file(remote_url, path, branch, token).await
+            fetch_gitlab_file(remote, path, branch, token).await
         }
-        RepositoryProvider::Forgejo => fetch_forgejo_file(remote_url, path, branch, token).await,
+        RepositoryProvider::Forgejo => fetch_forgejo_file(remote, path, branch, token).await,
         RepositoryProvider::Gitness => {
             // Gitness needs a base_url; skip for now – callers can pass it later.
             Ok(None)
@@ -47,14 +47,16 @@ pub(crate) async fn fetch_provider_file(
 /// 404 returns `false`; any other error returns `true` so the caller still
 /// attempts the sync rather than silently skipping a repo that has config.
 pub async fn moatless_dir_exists(
-    remote_url: &str,
+    remote: &RepositoryRemote,
     branch: Option<&str>,
     token: Option<&str>,
-    provider: RepositoryProvider,
 ) -> bool {
-    match provider {
-        RepositoryProvider::Github => github_moatless_dir_exists(remote_url, branch, token).await,
-        RepositoryProvider::Forgejo => forgejo_moatless_dir_exists(remote_url, branch, token).await,
+    let Some(host) = remote.host_repo.as_ref() else {
+        return true;
+    };
+    match host.provider() {
+        RepositoryProvider::Github => github_moatless_dir_exists(remote, branch, token).await,
+        RepositoryProvider::Forgejo => forgejo_moatless_dir_exists(remote, branch, token).await,
         // GitLab and Gitness have no cheap check wired — don't skip them.
         RepositoryProvider::Gitlab | RepositoryProvider::Gitness => true,
     }
@@ -64,11 +66,11 @@ pub async fn moatless_dir_exists(
 /// /repos/{owner}/{repo}/contents/.moatless?ref={branch}`. Only a 404 is
 /// treated as "no directory"; everything else fails open to `true`.
 async fn github_moatless_dir_exists(
-    remote_url: &str,
+    remote: &RepositoryRemote,
     branch: Option<&str>,
     token: Option<&str>,
 ) -> bool {
-    let Some(parsed) = GitHostRepo::parse(GitHostProvider::Github, remote_url) else {
+    let Some(parsed) = remote.host_repo.as_ref() else {
         return true;
     };
     let (owner, repo) = (parsed.owner(), parsed.name());
@@ -102,11 +104,11 @@ async fn github_moatless_dir_exists(
 /// /api/v1/repos/{owner}/{repo}/contents/.moatless?ref={branch}`. Only a 404 is
 /// treated as "no directory"; everything else fails open to `true`.
 async fn forgejo_moatless_dir_exists(
-    remote_url: &str,
+    remote: &RepositoryRemote,
     branch: Option<&str>,
     token: Option<&str>,
 ) -> bool {
-    let Ok(url) = forgejo_api_url(remote_url, "contents/.moatless", branch) else {
+    let Ok(url) = forgejo_api_url(remote, "contents/.moatless", branch) else {
         return true;
     };
     let mut req = reqwest::Client::new().get(&url);
@@ -127,12 +129,13 @@ async fn forgejo_moatless_dir_exists(
 /// /api/v1/repos/{owner}/{repo}/raw/{path}?ref={branch}`. Returns the raw file
 /// body, or `Ok(None)` on 404.
 async fn fetch_forgejo_file(
-    remote_url: &str,
+    remote: &RepositoryRemote,
     path: &str,
     branch: Option<&str>,
     token: Option<&str>,
 ) -> Result<Option<String>, RepositoryError> {
-    let url = forgejo_api_url(remote_url, &format!("raw/{path}"), branch)?;
+    let remote_url = remote.url.as_str();
+    let url = forgejo_api_url(remote, &format!("raw/{path}"), branch)?;
     let mut req = reqwest::Client::new().get(&url);
     if let Some(token) = token {
         req = req.header("Authorization", format!("token {token}"));
@@ -167,13 +170,11 @@ async fn fetch_forgejo_file(
 /// that URL, and honouring its scheme would let one downgrade the connection
 /// the token below travels over.
 fn forgejo_api_url(
-    remote_url: &str,
+    remote: &RepositoryRemote,
     suffix: &str,
     branch: Option<&str>,
 ) -> Result<String, RepositoryError> {
-    let parsed = GitHostRepo::parse(GitHostProvider::Forgejo, remote_url).ok_or_else(|| {
-        RepositoryError::BadRequest(format!("Cannot parse Forgejo URL: {remote_url}"))
-    })?;
+    let parsed = require_host_repo(remote)?;
     let host = parsed.host();
     let (owner, repo) = (parsed.owner(), parsed.name());
     let mut url = format!("https://{host}/api/v1/repos/{owner}/{repo}/{suffix}");
@@ -188,14 +189,12 @@ fn forgejo_api_url(
 /// /repos/{owner}/{repo}/contents/{path}?ref={branch}`. Returns the raw file
 /// body, or `Ok(None)` on 404.
 async fn fetch_github_file(
-    remote_url: &str,
+    remote: &RepositoryRemote,
     path: &str,
     branch: Option<&str>,
     token: Option<&str>,
 ) -> Result<Option<String>, RepositoryError> {
-    let parsed = GitHostRepo::parse(GitHostProvider::Github, remote_url).ok_or_else(|| {
-        RepositoryError::BadRequest(format!("Cannot parse GitHub URL: {remote_url}"))
-    })?;
+    let parsed = require_host_repo(remote)?;
     let (owner, repo) = (parsed.owner(), parsed.name());
 
     let mut url = format!("https://api.github.com/repos/{owner}/{repo}/contents/{path}");
@@ -241,12 +240,19 @@ async fn fetch_github_file(
 /// /api/v4/projects/{id}/repository/files/{encoded_path}/raw?ref={branch}`.
 /// Returns the raw file body, or `Ok(None)` on 404.
 async fn fetch_gitlab_file(
-    remote_url: &str,
+    remote: &RepositoryRemote,
     path: &str,
     branch: Option<&str>,
     token: &str,
 ) -> Result<Option<String>, RepositoryError> {
-    let project_path = gitlab_project_path(remote_url)?;
+    let remote_url = remote.url.as_str();
+    let parsed = require_host_repo(remote)?;
+    if parsed.host() != "gitlab.com" || remote.uses_ssh {
+        return Err(RepositoryError::BadRequest(format!(
+            "Cannot fetch GitLab config from {remote_url}"
+        )));
+    }
+    let project_path = parsed.to_string();
 
     let encoded_path = urlencoding::encode(&project_path);
     let encoded_file = urlencoding::encode(path);
@@ -284,18 +290,6 @@ async fn fetch_gitlab_file(
     Ok(Some(body))
 }
 
-/// Parse the `owner/group/project` path out of a gitlab.com URL.
-fn gitlab_project_path(remote_url: &str) -> Result<String, RepositoryError> {
-    let url_trimmed = remote_url.trim_end_matches('/').trim_end_matches(".git");
-    url_trimmed
-        .strip_prefix("https://gitlab.com/")
-        .or_else(|| url_trimmed.strip_prefix("http://gitlab.com/"))
-        .map(str::to_string)
-        .ok_or_else(|| {
-            RepositoryError::BadRequest(format!("Cannot parse GitLab URL: {remote_url}"))
-        })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -306,10 +300,12 @@ mod tests {
         // skip them, so the check reports the directory as present.
         assert!(
             moatless_dir_exists(
-                "https://gitness.example.com/x/y.git",
+                &crate::repository::remote::resolve_remote(
+                    Some(RepositoryProvider::Gitness),
+                    "https://gitness.example.com/x/y.git".to_string()
+                ),
                 None,
                 None,
-                RepositoryProvider::Gitness
             )
             .await
         );

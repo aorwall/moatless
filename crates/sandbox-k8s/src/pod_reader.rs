@@ -19,7 +19,7 @@ use moatless_sandbox_runtime::container_status::{
     ContainerObservedStatus, ContainerState, PodPhase,
 };
 use moatless_sandbox_runtime::schemas::RuntimeEvent;
-use moatless_types::workspace::{Cpu, Memory};
+use moatless_workspace_types::workspace::{Cpu, Memory};
 
 /// Errors from log streaming, distinguishing "not ready yet" from other
 /// failures.

@@ -1,4 +1,4 @@
-//! Workspaces' side of the seams declared in `moatless_ports::workspace`.
+//! Workspace implementations of cross-crate capabilities.
 //!
 //! `WorkspaceProjection` folds the three stores a Sandbox plan reads — the
 //! workspace row, its repository placements, and the plugin activations — into
@@ -9,13 +9,13 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use moatless_ports::workspace::{
+use moatless_types::access_control::ScopeContext;
+use moatless_types::store::StoreError;
+use moatless_workspace_ports::{
     PluginDelivery, RepoPlacement, RepositoryReader, ResolvedWorkspace, WorkspaceCredentialReader,
     WorkspaceResolver,
 };
-use moatless_types::access_control::ScopeContext;
-use moatless_types::repository::Repository;
-use moatless_types::store::StoreError;
+use moatless_workspace_types::repository::Repository;
 use uuid::Uuid;
 
 use crate::plugin::Plugins;
@@ -225,5 +225,21 @@ impl WorkspaceCredentialReader for WorkspaceCredentialService {
                     e,
                 )
             })
+    }
+}
+
+#[async_trait]
+impl moatless_identity::git_credential_overrides::GitCredentialOverrides
+    for WorkspaceCredentialService
+{
+    async fn token(
+        &self,
+        workspace_id: &str,
+        provider: moatless_types::git_host::RepositoryProvider,
+    ) -> Result<Option<String>, StoreError> {
+        let key = moatless_workspace_types::workspace::WorkspaceCredentialProvider::from(provider)
+            .env_key();
+        let mut env = WorkspaceCredentialReader::resolve_env(self, workspace_id).await?;
+        Ok(env.remove(key).filter(|token| !token.is_empty()))
     }
 }

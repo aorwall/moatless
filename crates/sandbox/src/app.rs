@@ -40,7 +40,10 @@ pub fn initialize_logging() {
 /// Assemble and supervise the sandbox process.
 pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     // Load configuration
-    let config = Config::from_env();
+    let config = Config::from_env().map_err(|error| {
+        tracing::error!(%error, "Invalid checkout configuration");
+        crate::init::InitError::Permanent(error)
+    })?;
 
     info!(
         task_id = %config.task_id,

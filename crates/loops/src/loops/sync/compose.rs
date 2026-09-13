@@ -6,7 +6,7 @@ use crate::loops::dao::LoopDao;
 use moatless_adapter_model::connections::ConnectionRouting;
 use moatless_ports::identity::GitHostTokenIssuer;
 use moatless_ports::task::TagResolver;
-use moatless_ports::workspace::WorkspaceResolver;
+use moatless_workspace_ports::WorkspaceResolver;
 use std::sync::Arc;
 use tracing::warn;
 

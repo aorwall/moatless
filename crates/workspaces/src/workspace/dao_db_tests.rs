@@ -10,7 +10,7 @@
 use std::collections::HashMap;
 
 use moatless_types::access_control::{Scope, ScopeContext};
-use moatless_types::workspace::{ServerConfig, WorkspaceKind, WorkspaceSource};
+use moatless_workspace_types::workspace::{ServerConfig, WorkspaceKind, WorkspaceSource};
 use sqlx::PgPool;
 
 use crate::test_support::{make_workspace_repo_row, make_workspace_row, run_config};

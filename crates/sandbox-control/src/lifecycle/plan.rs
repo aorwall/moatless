@@ -8,9 +8,9 @@ use std::sync::Arc;
 
 use crate::auto_provision::{build_provision_request, get_server_configs_for_workspace};
 use moatless_ports::identity::CommitIdentity;
-use moatless_ports::workspace::WorkspaceResolver;
 use moatless_sandbox_runtime::provisioning::ProvisionRequest;
-use moatless_types::workspace::ServerConfig;
+use moatless_workspace_ports::WorkspaceResolver;
+use moatless_workspace_types::workspace::ServerConfig;
 
 use super::dao::LifecycleDao;
 use super::orchestrator::TaskIntent;

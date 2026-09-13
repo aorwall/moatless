@@ -6,7 +6,7 @@ use super::*;
 
 #[test]
 fn pvc_switch_off_mounts_capped_workspace_empty_dir() {
-    use moatless_types::workspace::ResourceConfig;
+    use moatless_workspace_types::workspace::ResourceConfig;
 
     // No PVC → workspace-data is a node-local emptyDir sized from the repo's
     // resources.storage, mounted at /opt/moatless everywhere.
@@ -84,7 +84,7 @@ fn pvc_switch_off_mounts_capped_workspace_empty_dir() {
 /// hostPath: the removed `node` workspace tier has no replacement.
 #[test]
 fn storage_switches_pick_volume_and_sync_env() {
-    use moatless_types::workspace::ResourceConfig;
+    use moatless_workspace_types::workspace::ResourceConfig;
 
     let config = test_config();
     for (pvc, s3) in [(true, true), (true, false), (false, true), (false, false)] {
@@ -149,7 +149,7 @@ fn storage_switches_pick_volume_and_sync_env() {
 /// needs both most.
 #[test]
 fn a_pvc_plan_without_a_pvc_is_not_treated_as_durable() {
-    use moatless_types::workspace::ResourceConfig;
+    use moatless_workspace_types::workspace::ResourceConfig;
 
     let config = test_config();
     let mut plan = test_plan();

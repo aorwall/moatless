@@ -26,7 +26,7 @@ use crate::workspace::Workspaces;
     tag = "plugins",
     responses(
         (status = 200, description = "List of plugins", body = Vec<PluginResponse>),
-        (status = 500, description = "Internal error", body = moatless_api_schemas::error::ErrorBody)
+        (status = 500, description = "Internal error", body = moatless_types::http::ErrorBody)
     )
 )]
 pub async fn list_plugins(
@@ -46,8 +46,8 @@ pub async fn list_plugins(
     request_body = CreatePluginRequest,
     responses(
         (status = 200, description = "Created plugin", body = PluginResponse),
-        (status = 409, description = "Name already exists", body = moatless_api_schemas::error::ErrorBody),
-        (status = 500, description = "Internal error", body = moatless_api_schemas::error::ErrorBody)
+        (status = 409, description = "Name already exists", body = moatless_types::http::ErrorBody),
+        (status = 500, description = "Internal error", body = moatless_types::http::ErrorBody)
     )
 )]
 pub async fn create_plugin(
@@ -67,8 +67,8 @@ pub async fn create_plugin(
     params(("id" = String, Path, description = "Plugin ID")),
     responses(
         (status = 204, description = "Deleted"),
-        (status = 404, description = "Not found", body = moatless_api_schemas::error::ErrorBody),
-        (status = 500, description = "Internal error", body = moatless_api_schemas::error::ErrorBody)
+        (status = 404, description = "Not found", body = moatless_types::http::ErrorBody),
+        (status = 500, description = "Internal error", body = moatless_types::http::ErrorBody)
     )
 )]
 pub async fn delete_plugin(
@@ -91,8 +91,8 @@ pub async fn delete_plugin(
     params(("id" = String, Path, description = "Plugin ID")),
     responses(
         (status = 200, description = "The plugin's skills", body = Vec<PluginSkillResponse>),
-        (status = 404, description = "Not found", body = moatless_api_schemas::error::ErrorBody),
-        (status = 500, description = "Internal error", body = moatless_api_schemas::error::ErrorBody)
+        (status = 404, description = "Not found", body = moatless_types::http::ErrorBody),
+        (status = 500, description = "Internal error", body = moatless_types::http::ErrorBody)
     )
 )]
 pub async fn list_plugin_skills(
@@ -137,9 +137,9 @@ pub async fn list_plugin_skills(
     ),
     responses(
         (status = 200, description = "The records that apply to that person", body = Vec<ActivationResponse>),
-        (status = 403, description = "Admin required for somebody else's records", body = moatless_api_schemas::error::ErrorBody),
-        (status = 404, description = "No such workspace", body = moatless_api_schemas::error::ErrorBody),
-        (status = 500, description = "Internal error", body = moatless_api_schemas::error::ErrorBody)
+        (status = 403, description = "Admin required for somebody else's records", body = moatless_types::http::ErrorBody),
+        (status = 404, description = "No such workspace", body = moatless_types::http::ErrorBody),
+        (status = 500, description = "Internal error", body = moatless_types::http::ErrorBody)
     )
 )]
 pub async fn list_plugin_activations(
@@ -202,10 +202,10 @@ pub use super::schemas::ActivationSubjectParams;
     request_body = SetActivationRequest,
     responses(
         (status = 200, description = "The stored record", body = ActivationResponse),
-        (status = 400, description = "A subject was named with a reach it does not belong to", body = moatless_api_schemas::error::ErrorBody),
-        (status = 403, description = "Admin required for the global default or somebody else's record; control of the Workspace required for a workspace one", body = moatless_api_schemas::error::ErrorBody),
-        (status = 404, description = "Not found", body = moatless_api_schemas::error::ErrorBody),
-        (status = 500, description = "Internal error", body = moatless_api_schemas::error::ErrorBody)
+        (status = 400, description = "A subject was named with a reach it does not belong to", body = moatless_types::http::ErrorBody),
+        (status = 403, description = "Admin required for the global default or somebody else's record; control of the Workspace required for a workspace one", body = moatless_types::http::ErrorBody),
+        (status = 404, description = "Not found", body = moatless_types::http::ErrorBody),
+        (status = 500, description = "Internal error", body = moatless_types::http::ErrorBody)
     )
 )]
 pub async fn set_plugin_activation(
@@ -243,10 +243,10 @@ pub async fn set_plugin_activation(
     ),
     responses(
         (status = 204, description = "Cleared"),
-        (status = 400, description = "A subject was named with a reach it does not belong to", body = moatless_api_schemas::error::ErrorBody),
-        (status = 403, description = "Admin required for the global default or somebody else's record; control of the Workspace required for a workspace one", body = moatless_api_schemas::error::ErrorBody),
-        (status = 404, description = "No such record", body = moatless_api_schemas::error::ErrorBody),
-        (status = 500, description = "Internal error", body = moatless_api_schemas::error::ErrorBody)
+        (status = 400, description = "A subject was named with a reach it does not belong to", body = moatless_types::http::ErrorBody),
+        (status = 403, description = "Admin required for the global default or somebody else's record; control of the Workspace required for a workspace one", body = moatless_types::http::ErrorBody),
+        (status = 404, description = "No such record", body = moatless_types::http::ErrorBody),
+        (status = 500, description = "Internal error", body = moatless_types::http::ErrorBody)
     )
 )]
 pub async fn clear_plugin_activation(
@@ -285,9 +285,9 @@ pub use super::schemas::ClearActivationParams;
     ),
     responses(
         (status = 200, description = "Plugins and skills that user receives", body = Vec<EffectivePluginResponse>),
-        (status = 403, description = "Admin required for somebody else's delivery", body = moatless_api_schemas::error::ErrorBody),
-        (status = 404, description = "No such workspace", body = moatless_api_schemas::error::ErrorBody),
-        (status = 500, description = "Internal error", body = moatless_api_schemas::error::ErrorBody)
+        (status = 403, description = "Admin required for somebody else's delivery", body = moatless_types::http::ErrorBody),
+        (status = 404, description = "No such workspace", body = moatless_types::http::ErrorBody),
+        (status = 500, description = "Internal error", body = moatless_types::http::ErrorBody)
     )
 )]
 pub async fn list_effective_plugins(

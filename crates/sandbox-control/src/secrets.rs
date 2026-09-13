@@ -11,18 +11,17 @@ use tracing::warn;
 
 use moatless_core::secret_keys::is_reserved_key;
 use moatless_types::access_control::Actor;
-use moatless_types::repository::GitHostRepo;
-use moatless_types::repository::RepositoryProvider as GitHostProvider;
+use moatless_workspace_types::repository::GitHostRepo;
+use moatless_workspace_types::repository::RepositoryProvider as GitHostProvider;
 
 use crate::lifecycle::ingress::SandboxIngress;
 use moatless_ports::identity::{
-    CommitIdentity, GitHostTokenError, GitHostTokenIssuer, HarnessCredentials, PlainGitHost,
-    SecretResolver,
+    CommitIdentity, GitHostTokenError, GitHostTokenIssuer, HarnessCredentials, SecretResolver,
 };
 use moatless_ports::sandbox::CodexCredentials;
-use moatless_ports::workspace::{WorkspaceCredentialReader, WorkspaceResolver};
-use moatless_types::repository::Repository;
 use moatless_types::store::StoreError;
+use moatless_workspace_ports::{WorkspaceCredentialReader, WorkspaceResolver};
+use moatless_workspace_types::repository::Repository;
 
 pub const GIT_USER_NAME: &str = "GIT_USER_NAME";
 pub const GIT_USER_EMAIL: &str = "GIT_USER_EMAIL";
@@ -126,7 +125,11 @@ pub async fn resolve_task_github_token(
     if repo.provider() != GitHostProvider::Github {
         return None;
     }
-    Some(git_host_tokens?.token(actor, &repo).await)
+    Some(
+        git_host_tokens?
+            .token(actor, &repo.credential_account())
+            .await,
+    )
 }
 
 /// Resolve the token a task's identity presents for `repository`, whatever
@@ -140,7 +143,11 @@ pub async fn resolve_task_git_token(
     repository: Option<&Repository>,
 ) -> Option<Result<String, GitHostTokenError>> {
     let repo = task_git_host_repo(repository)?;
-    Some(git_host_tokens?.token(actor, &repo).await)
+    Some(
+        git_host_tokens?
+            .token(actor, &repo.credential_account())
+            .await,
+    )
 }
 
 /// Merge scoped-secret values into `credentials` only for keys that aren't
@@ -417,10 +424,9 @@ async fn fill_provider_tokens(
 }
 
 /// The repository a task's git-host token is minted against.
-fn task_git_host_repo(repository: Option<&Repository>) -> Option<GitHostRepo> {
+fn task_git_host_repo(repository: Option<&Repository>) -> Option<&GitHostRepo> {
     let repository = repository?;
-    let provider = repository.provider?;
-    GitHostRepo::parse(provider, repository.remote_url.as_deref()?)
+    repository.remote.as_ref()?.host_repo.as_ref()
 }
 
 /// Resolve the git-host tokens this task's sandbox needs, from the actor's own
@@ -447,8 +453,14 @@ async fn fill_git_host_tokens(
     }
 
     for (host, key) in [
-        (PlainGitHost::Gitlab, GITLAB_TOKEN),
-        (PlainGitHost::Gitness, GITNESS_TOKEN),
+        (
+            moatless_types::git_host::GitHostAccount::Gitlab,
+            GITLAB_TOKEN,
+        ),
+        (
+            moatless_types::git_host::GitHostAccount::Gitness,
+            GITNESS_TOKEN,
+        ),
     ] {
         if credentials.contains_key(key) {
             continue;
@@ -457,7 +469,7 @@ async fn fill_git_host_tokens(
             credentials,
             key,
             actor,
-            git_host_tokens.host_token(actor, host).await,
+            git_host_tokens.token(actor, &host).await,
         );
     }
 }
@@ -699,11 +711,20 @@ mod tests {
         Repository {
             id: "repo-1".to_string(),
             name: "repo".to_string(),
-            kind: moatless_types::repository::RepositoryKind::Remote,
-            remote_url: Some("https://github.com/acme/repo.git".to_string()),
+            kind: moatless_workspace_types::repository::RepositoryKind::Remote,
+            remote: Some(moatless_workspace_types::repository::RepositoryRemote {
+                url: "https://github.com/acme/repo.git".to_string(),
+                uses_ssh: false,
+                host_repo: Some(moatless_workspace_types::repository::GitHostRepo::new(
+                    moatless_workspace_types::repository::RepositoryProvider::Github,
+                    "github.com",
+                    "acme",
+                    "repo",
+                )),
+            }),
             default_branch: None,
             description: None,
-            provider: Some(moatless_types::repository::RepositoryProvider::Github),
+            provider: Some(moatless_workspace_types::repository::RepositoryProvider::Github),
             scope,
             owner_user_id: Some("u1".to_string()),
             created_by: Some("u1".to_string()),
@@ -727,12 +748,10 @@ mod tests {
         let mut issuer = MockGitHostTokenIssuer::new();
         issuer.expect_token().returning(move |actor, repo| {
             token
+                .filter(|_| repo.provider() == GitHostProvider::Github)
                 .map(str::to_string)
                 .ok_or_else(|| no_credential(actor, repo.provider()))
         });
-        issuer
-            .expect_host_token()
-            .returning(|actor, host| Err(no_credential(actor, host.provider())));
         Arc::new(issuer)
     }
 
@@ -795,9 +814,9 @@ mod tests {
         env_vars: Option<HashMap<String, String>>,
     ) -> Arc<dyn WorkspaceResolver> {
         let run_as = run_as_user_id.map(str::to_string);
-        let mut resolver = moatless_ports::workspace::MockWorkspaceResolver::new();
+        let mut resolver = moatless_workspace_ports::MockWorkspaceResolver::new();
         resolver.expect_resolve().returning(move |id| {
-            Ok(Some(moatless_ports::workspace::ResolvedWorkspace {
+            Ok(Some(moatless_workspace_ports::ResolvedWorkspace {
                 id: id.to_string(),
                 name: "ws".to_string(),
                 docker_image: None,
@@ -1096,11 +1115,11 @@ mod tests {
         let mut mock = MockGitHostTokenIssuer::new();
         mock.expect_token()
             .returning(|actor, repo| match actor.workspace_id() {
-                Some("ws_1") => Ok("ghp_workspace".to_string()),
+                Some("ws_1") if repo.provider() == GitHostProvider::Github => {
+                    Ok("ghp_workspace".to_string())
+                }
                 _ => Err(no_credential(actor, repo.provider())),
             });
-        mock.expect_host_token()
-            .returning(|actor, host| Err(no_credential(actor, host.provider())));
         let git_host_tokens: Arc<dyn GitHostTokenIssuer> = Arc::new(mock);
         let actor = Actor::of("u1").on_workspace(Some("ws_1"));
 
@@ -1124,7 +1143,21 @@ mod tests {
         // `fill_git_host_tokens` must leave the seeded slot alone rather than
         // resolve over it.
         let repository = github_repository(moatless_types::access_control::Scope::User);
-        let pinned = HashMap::from([(GITHUB_TOKEN.to_string(), "ghp_workspace".to_string())]);
+        let mut reader = moatless_workspace_ports::MockWorkspaceCredentialReader::new();
+        reader
+            .expect_resolve_env()
+            .withf(|workspace_id| workspace_id == "ws_1")
+            .times(1)
+            .returning(|_| {
+                Ok(HashMap::from([(
+                    GITHUB_TOKEN.to_string(),
+                    "ghp_workspace".to_string(),
+                )]))
+            });
+        let reader: Arc<dyn WorkspaceCredentialReader> = Arc::new(reader);
+        let pinned = resolve_workspace_credentials(Some(&reader), Some("ws_1"))
+            .await
+            .unwrap();
         let actor = Actor::of("u1");
 
         let credentials = resolve_task_credentials(workspace_github_inputs(

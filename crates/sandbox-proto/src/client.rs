@@ -28,7 +28,7 @@ use tonic::Streaming;
 use tonic::transport::Channel;
 use tracing::debug;
 
-pub use moatless_types::workspace::ServerOverride;
+pub use moatless_workspace_types::workspace::ServerOverride;
 
 /// Raise from tonic's 4 MB default so binary files (audio, images) can
 /// round-trip.

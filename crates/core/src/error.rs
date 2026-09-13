@@ -1,8 +1,9 @@
 //! Shared error response helper for all API modules.
 
+use axum::Json;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use axum::Json;
+use moatless_types::http::ErrorBody;
 
 /// Render an error together with its full `source` chain as one line.
 ///
@@ -23,12 +24,15 @@ pub fn causal_chain(error: &dyn std::error::Error) -> String {
 
 /// Build a standard JSON error response: `{"error": "message"}`.
 ///
-/// Every module's `IntoResponse` impl must use this to keep a consistent shape;
-/// the body is inlined (this crate names no schema crate) but must stay
-/// identical to `moatless_api_schemas::error::ErrorBody`, the OpenAPI spec's
-/// documented shape.
+/// Every module's `IntoResponse` implementation must use this function.
 pub fn error_response(status: StatusCode, message: impl Into<String>) -> Response {
-    (status, Json(serde_json::json!({ "error": message.into() }))).into_response()
+    (
+        status,
+        Json(ErrorBody {
+            error: message.into(),
+        }),
+    )
+        .into_response()
 }
 
 #[cfg(test)]

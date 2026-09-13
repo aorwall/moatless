@@ -6,6 +6,8 @@ description = "Workspaces band: workspace sync, repository, skill, plugin, and c
 
 authors.workspace = true
 [dependencies]
+moatless-workspace-types = { workspace = true, features = ["schemas", "openapi"] }
+moatless-workspace-ports = { workspace = true }
 async-trait = { workspace = true }
 axum = { workspace = true, features = ["macros"] }
 chrono = { workspace = true, features = ["serde"] }
@@ -19,16 +21,16 @@ sqlx = { workspace = true, features = ["runtime-tokio", "tls-rustls", "postgres"
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tracing = { workspace = true }
+url = "2"
 urlencoding = { workspace = true }
 utoipa = { workspace = true, features = ["axum_extras"] }
 utoipa-axum = { workspace = true }
 uuid = { workspace = true, features = ["v4", "serde"] }
 
-moatless-api-schemas = { workspace = true, features = ["openapi"] }
 moatless-ports = { workspace = true, features = ["openapi"] }
 moatless-core = { workspace = true, features = ["openapi"] }
 moatless-identity = { workspace = true }
-moatless-types = { workspace = true }
+moatless-types = { workspace = true, features = ["openapi"] }
 
 [features]
 # Row factories a consumer's PostgreSQL tests seed through.

@@ -19,9 +19,9 @@ use super::ports::{
 };
 use super::workspace::{self, WorkspaceAccessError};
 use crate::workspace_dao::T3WorkspaceDao;
-use moatless_api_schemas::repository::{BranchEntry, BranchListResponse};
 use moatless_ports::sandbox::SandboxError;
 use moatless_types::access_control::ScopeContext;
+use moatless_workspace_types::schemas::repository::{BranchEntry, BranchListResponse};
 use sandbox_proto::client::{SandboxConnector, classify_grpc_error};
 use sandbox_proto::{GetGitDiffPreviewResponse, GetGitStatusResponse, ListGitRefsResponse};
 

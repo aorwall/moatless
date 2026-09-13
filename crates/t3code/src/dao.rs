@@ -25,7 +25,6 @@ use crate::task_dao::{T3TaskDao, TaskView};
 use crate::transcript_dao::Transcript;
 use crate::workspace::UiRpcListedWorkspace;
 use crate::workspace_dao::T3WorkspaceDao;
-use moatless_api_schemas::workspace::ScriptConfig;
 use moatless_core::change_feed::conversation::{ConversationChange, ConversationHead};
 use moatless_ports::activity::ActivitySource;
 use moatless_types::access_control::{ScopeContext, ScopedEntity};
@@ -33,6 +32,7 @@ use moatless_types::activity::{PLAN_TOOL, QUESTION_TOOL};
 use moatless_types::agent::AgentType;
 use moatless_types::sandbox::{SandboxDesiredState, SandboxStopReason};
 use moatless_types::task::{TaskStatus, Visibility};
+use moatless_workspace_types::schemas::workspace::ScriptConfig;
 
 /// One Task, with the derived values a sidebar row is assembled from.
 #[derive(Debug, Clone, sqlx::FromRow)]

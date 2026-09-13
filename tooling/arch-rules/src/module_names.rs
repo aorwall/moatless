@@ -10,8 +10,8 @@ use std::path::Path;
 
 use anyhow::Result;
 
-use crate::workspace::Workspace;
 use crate::Violation;
+use crate::workspace::Workspace;
 
 pub const RULE: &str = "generic-module-name";
 
@@ -21,7 +21,9 @@ const KIND: &[&str] = &["models", "schemas", "types", "data", "dto", "entities"]
 
 /// A junk drawer at any depth. Nothing names its domain, so nothing predicts
 /// its contents.
-const DRAWER: &[&str] = &["utils", "util", "helpers", "helper", "common", "misc", "shared"];
+const DRAWER: &[&str] = &[
+    "utils", "util", "helpers", "helper", "common", "misc", "shared",
+];
 
 pub fn check(ws: &Workspace) -> Result<Vec<Violation>> {
     let mut paths = Vec::new();
@@ -71,6 +73,13 @@ fn check_paths(paths: &[(String, String)]) -> Vec<Violation> {
             Some(format!("`{module}` is a junk drawer, not a domain"))
         } else if KIND.contains(&module.as_str())
             && parent.file_name().is_some_and(|dir| dir == "src")
+            && !(module == "schemas"
+                && parent
+                    .parent()
+                    .and_then(Path::file_name)
+                    .is_some_and(|name| {
+                        name == "workspace-types" || name == "moatless-workspace-types"
+                    }))
         {
             Some(format!(
                 "`{module}` sits at the crate root with no domain to qualify it"
@@ -158,7 +167,10 @@ mod tests {
     #[test]
     fn a_junk_drawer_is_flagged_at_any_depth() {
         assert_eq!(
-            keys(&["crates/x/src/a/b/common.rs", "crates/x/src/a/b/common/mod.rs"]),
+            keys(&[
+                "crates/x/src/a/b/common.rs",
+                "crates/x/src/a/b/common/mod.rs"
+            ]),
             vec!["crates/x/src/a/b/common", "crates/x/src/a/b/common"]
         );
     }
@@ -174,12 +186,14 @@ mod tests {
 
     #[test]
     fn a_domain_name_is_never_flagged() {
-        assert!(keys(&[
-            "crates/x/src/lib.rs",
-            "crates/x/src/task.rs",
-            "crates/x/src/task/mod.rs",
-            "crates/x/src/delivery/admission.rs",
-        ])
-        .is_empty());
+        assert!(
+            keys(&[
+                "crates/x/src/lib.rs",
+                "crates/x/src/task.rs",
+                "crates/x/src/task/mod.rs",
+                "crates/x/src/delivery/admission.rs",
+            ])
+            .is_empty()
+        );
     }
 }

@@ -36,7 +36,9 @@ pub fn make_repository_row(id: &str, user_id: &str) -> Repository {
         id: id.to_string(),
         name: format!("repo-{id}"),
         kind: RepositoryKind::Git,
-        remote_url: Some(format!("https://github.com/test/{id}.git")),
+        remote: Some(format!("https://github.com/test/{id}.git")).map(|url| {
+            crate::repository::remote::resolve_remote(Some(RepositoryProvider::Github), url)
+        }),
         default_branch: Some("main".to_string()),
         description: None,
         provider: Some(RepositoryProvider::Github),
@@ -63,7 +65,7 @@ pub fn make_workspace_row(id: &str, user_id: &str) -> Workspace {
         icon: None,
         default_model: None,
         default_effort: None,
-        kind: moatless_types::workspace::WorkspaceKind::Blank,
+        kind: moatless_workspace_types::workspace::WorkspaceKind::Blank,
         docker_image: None,
         docker_access: None,
         sandbox_service_account: None,
@@ -74,7 +76,7 @@ pub fn make_workspace_row(id: &str, user_id: &str) -> Workspace {
         scripts: None,
         resources: None,
         network_profile: None,
-        source: moatless_types::workspace::WorkspaceSource::Manual,
+        source: moatless_workspace_types::workspace::WorkspaceSource::Manual,
         source_repository_id: None,
         source_key: None,
         source_config_path: None,
@@ -112,4 +114,12 @@ pub fn make_workspace_repo_row(
         position,
         created_at: Some(chrono::Utc::now()),
     }
+}
+
+/// Resolve a remote for cross-crate repository fixtures.
+pub fn repository_remote(
+    provider: Option<RepositoryProvider>,
+    url: &str,
+) -> moatless_workspace_types::repository::RepositoryRemote {
+    crate::repository::remote::resolve_remote(provider, url.to_string())
 }

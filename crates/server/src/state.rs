@@ -205,7 +205,7 @@ pub struct AppState {
     pub repositories: Arc<Repositories>,
     pub repository_branches:
         Arc<moatless_workspaces::repository::branches::RepositoryBranchService>,
-    pub repository_reader: Arc<dyn moatless_ports::workspace::RepositoryReader>,
+    pub repository_reader: Arc<dyn moatless_workspace_ports::RepositoryReader>,
     /// The workspace, placement, and plugin stores behind the
     /// `WorkspaceResolver` port.
     pub workspace_resolver: Arc<moatless_workspaces::ports::WorkspaceProjection>,
@@ -352,13 +352,13 @@ impl axum::extract::FromRef<AppState> for Arc<Repositories> {
     }
 }
 
-impl axum::extract::FromRef<AppState> for Arc<dyn moatless_ports::workspace::RepositoryReader> {
+impl axum::extract::FromRef<AppState> for Arc<dyn moatless_workspace_ports::RepositoryReader> {
     fn from_ref(state: &AppState) -> Self {
         state.repository_reader.clone()
     }
 }
 
-impl axum::extract::FromRef<AppState> for Arc<dyn moatless_ports::workspace::WorkspaceResolver> {
+impl axum::extract::FromRef<AppState> for Arc<dyn moatless_workspace_ports::WorkspaceResolver> {
     fn from_ref(state: &AppState) -> Self {
         state.workspace_resolver.clone()
     }

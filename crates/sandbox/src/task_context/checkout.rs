@@ -1,6 +1,6 @@
 use super::models::CheckoutMode;
 use crate::config::Config;
-use moatless_types::workspace::sanitize_mount_name;
+use moatless_workspace_types::workspace::sanitize_mount_name;
 use std::path::Path;
 use tracing::warn;
 

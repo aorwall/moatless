@@ -22,6 +22,24 @@ struct Forbidden {
 /// Privacy constraints that dependency band order cannot express.
 const FORBIDDEN: &[Forbidden] = &[
     Forbidden {
+        source: "moatless-identity",
+        target: "moatless-workspace-types",
+        transitive: false,
+        why: "identity owns credential contracts; Workspace adapts its values to them",
+    },
+    Forbidden {
+        source: "moatless-identity",
+        target: "moatless-workspace-ports",
+        transitive: false,
+        why: "identity owns credential contracts; Workspace implements the override seam",
+    },
+    Forbidden {
+        source: "moatless-workspaces",
+        target: "moatless-api-schemas",
+        transitive: false,
+        why: "Workspace schemas and shared HTTP types have their own owners — .agents/skills/rust-dev-guidelines/references/file-roles.md",
+    },
+    Forbidden {
         source: "moatless-adapter-slack",
         target: "moatless-loops",
         transitive: true,
@@ -90,7 +108,7 @@ const FORBIDDEN: &[Forbidden] = &[
 ];
 
 pub fn check(ws: &Workspace) -> Result<Vec<Violation>> {
-    Ok(FORBIDDEN
+    let mut found: Vec<Violation> = FORBIDDEN
         .iter()
         .filter(|rule| {
             ws.member(rule.source)
@@ -123,5 +141,34 @@ pub fn check(ws: &Workspace) -> Result<Vec<Violation>> {
                 rule.source.trim_start_matches("moatless-")
             )],
         })
-        .collect())
+        .collect();
+    let index = ws.index()?;
+    for item in &index.records {
+        let restricted = matches!(
+            item.package.as_str(),
+            "moatless-workspace-ports" | "moatless-sandbox-docker" | "moatless-sandbox-k8s"
+        ) || (item.package == "moatless-workspace-types"
+            && !(item.module == "moatless_workspace_types::schemas"
+                || item
+                    .module
+                    .starts_with("moatless_workspace_types::schemas::")));
+        if restricted && !item.test {
+            for path in index
+                .paths(item)
+                .filter(|p| p.starts_with("moatless_workspace_types::schemas::"))
+            {
+                // A root may declare the optional namespace, but cannot forward its contents.
+                if matches!(item.item, syn::Item::Mod(_)) {
+                    continue;
+                }
+                found.push(Violation::at(
+                    RULE,
+                    format!("{} names {path}", item.id),
+                    "domain values, ports, and runtime drivers cannot name wire schemas",
+                    &item.file,
+                ));
+            }
+        }
+    }
+    Ok(found)
 }

@@ -1,6 +1,6 @@
 //! Persisted shapes for the workspace band.
 //!
-//! The domain types live in `moatless_types::workspace`. What is here is the
+//! The domain types live in `moatless_workspace_types::workspace`. What is here is the
 //! shape the `workspaces` and `workspace_repos` tables actually have — the
 //! run-config columns are JSONB, `kind` and `source` are text, and `deleted` is
 //! the soft-delete flag the DAO filters on — plus the decode from one to the
@@ -13,7 +13,7 @@ use tracing::error;
 use moatless_types::access_control::Scope;
 
 /// The workspace vocabulary a caller reaches through this module.
-pub use moatless_types::workspace::{
+pub use moatless_workspace_types::workspace::{
     ResourceConfig, ScriptConfig, ServerConfig, Workspace, WorkspaceIcon, WorkspaceKind,
     WorkspaceRepo, WorkspaceSource,
 };

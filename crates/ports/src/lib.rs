@@ -15,4 +15,3 @@ pub mod activity;
 pub mod identity;
 pub mod sandbox;
 pub mod task;
-pub mod workspace;

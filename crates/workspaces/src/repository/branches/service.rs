@@ -6,11 +6,12 @@ use super::super::schemas::{BranchEntry, BranchListResponse};
 use super::providers::{
     fetch_forgejo_branches, fetch_github_branches, fetch_gitlab_branches, fetch_gitness_branches,
 };
+use crate::repository::remote::require_host_repo;
 use crate::workspace::dao::WorkspaceDao;
 use moatless_identity::credentials::{CredentialError, CredentialService};
 use moatless_ports::identity::GitHostTokenIssuer;
 use moatless_types::access_control::{Actor, ScopeContext};
-use moatless_types::repository::{GitHostRepo, RepositoryProvider};
+use moatless_workspace_types::repository::RepositoryProvider;
 use std::sync::Arc;
 use tracing::{info, warn};
 
@@ -65,11 +66,12 @@ impl RepositoryBranchService {
             info!(repository_id = %repository_id, "No default branch set, fetching from provider");
         }
 
-        let remote_url = repo.remote_url.as_deref().ok_or_else(|| {
+        let remote = repo.remote.as_ref().ok_or_else(|| {
             RepositoryError::BadRequest("Repository has no remote URL".to_string())
         })?;
 
-        let provider = repo.provider.unwrap_or(RepositoryProvider::Github);
+        let host_repo = require_host_repo(remote)?;
+        let provider = host_repo.provider();
 
         // The viewer's own credential on every host, unless they named a workspace
         // that pins one. A repository someone else shared does not lend its owner's
@@ -77,19 +79,19 @@ impl RepositoryBranchService {
         // repositories on purpose, because that is the token its Tasks clone with.
         let actor = branch_listing_actor(workspaces, ctx, repository_id, workspace_id).await?;
         let access_token = git_host_tokens
-            .token(&actor, &git_host_repo(provider, remote_url)?)
+            .token(&actor, &host_repo.credential_account())
             .await
             .map_err(git_host_token_error)?;
 
         let result = match provider {
             RepositoryProvider::Github => {
-                fetch_github_branches(&self.http, remote_url, &access_token).await?
+                fetch_github_branches(&self.http, remote, &access_token).await?
             }
             RepositoryProvider::Gitlab => {
-                fetch_gitlab_branches(&self.http, remote_url, &access_token).await?
+                fetch_gitlab_branches(&self.http, remote, &access_token).await?
             }
             RepositoryProvider::Forgejo => {
-                fetch_forgejo_branches(&self.http, remote_url, &access_token).await?
+                fetch_forgejo_branches(&self.http, remote, &access_token).await?
             }
             RepositoryProvider::Gitness => {
                 let metadata = credentials
@@ -106,7 +108,7 @@ impl RepositoryBranchService {
                     )
                 })?
                 .to_string();
-                fetch_gitness_branches(&self.http, remote_url, &access_token, &base_url).await?
+                fetch_gitness_branches(&self.http, remote, &access_token, &base_url).await?
             }
         };
 
@@ -186,18 +188,6 @@ async fn branch_listing_actor(
     Ok(caller.on_workspace(Some(workspace_id)))
 }
 
-fn git_host_repo(
-    provider: RepositoryProvider,
-    remote_url: &str,
-) -> Result<GitHostRepo, RepositoryError> {
-    GitHostRepo::parse(provider, remote_url).ok_or_else(|| {
-        RepositoryError::BadRequest(format!(
-            "Cannot parse {} URL: {remote_url}",
-            provider.as_str()
-        ))
-    })
-}
-
 /// A credential read failure, mapped to the status the branch listing answers
 /// with. A store error stays a 500 through [`RepositoryError::Db`].
 fn credential_error(error: CredentialError) -> RepositoryError {
@@ -212,16 +202,17 @@ mod tests {
     use super::*;
     use crate::repository::models::Repository;
     use crate::repository::mutations::preserved_user_scope;
-    use moatless_types::repository::normalize_remote_url;
     use moatless_types::access_control::Scope;
-    use moatless_types::repository::RepositoryKind;
+    use moatless_workspace_types::repository::RepositoryKind;
 
     fn repository(scope: Scope, owner_user_id: Option<&str>) -> Repository {
         Repository {
             id: "repo-1".to_string(),
             name: "repo".to_string(),
             kind: RepositoryKind::Remote,
-            remote_url: Some("https://github.com/acme/repo.git".to_string()),
+            remote: Some("https://github.com/acme/repo.git".to_string()).map(|url| {
+                crate::repository::remote::resolve_remote(Some(RepositoryProvider::Github), url)
+            }),
             default_branch: None,
             description: None,
             provider: Some(RepositoryProvider::Github),
@@ -232,27 +223,6 @@ mod tests {
             created_at: None,
             updated_at: None,
         }
-    }
-
-    #[test]
-    fn normalize_remote_url_strips_and_lowercases() {
-        assert_eq!(
-            normalize_remote_url("https://github.com/Owner/Repo.git"),
-            "https://github.com/owner/repo"
-        );
-        assert_eq!(
-            normalize_remote_url("https://github.com/Owner/Repo/"),
-            "https://github.com/owner/repo"
-        );
-        assert_eq!(
-            normalize_remote_url("  https://GitHub.com/o/r.git/  "),
-            "https://github.com/o/r"
-        );
-        // Two URLs differing only by trailing `.git`/slash/case normalize equal.
-        assert_eq!(
-            normalize_remote_url("https://github.com/a/b"),
-            normalize_remote_url("https://github.com/A/B.git/")
-        );
     }
 
     #[test]
@@ -273,7 +243,9 @@ mod tests {
     // --- branch_listing_actor ----------------------------------------------
 
     use crate::workspace::dao::MockWorkspaceDao;
-    use moatless_types::workspace::{Workspace, WorkspaceKind, WorkspaceRepo, WorkspaceSource};
+    use moatless_workspace_types::workspace::{
+        Workspace, WorkspaceKind, WorkspaceRepo, WorkspaceSource,
+    };
 
     fn ctx() -> ScopeContext {
         ScopeContext {

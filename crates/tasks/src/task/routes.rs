@@ -24,7 +24,7 @@ use moatless_core::http_auth::UserTokenVerifier;
 use moatless_ports::identity::UserResolver;
 use moatless_ports::sandbox::PreflightPort;
 use moatless_ports::sandbox::SandboxLifecycle;
-use moatless_ports::workspace::{RepositoryReader, WorkspaceResolver};
+use moatless_workspace_ports::{RepositoryReader, WorkspaceResolver};
 use moatless_workspaces::workspace::git_sync::GitSyncService;
 
 #[derive(OpenApi)]

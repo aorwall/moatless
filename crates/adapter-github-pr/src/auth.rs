@@ -11,7 +11,7 @@ use moatless_ports::identity::{GitHostTokenError, GitHostTokenIssuer};
 use moatless_types::access_control::Actor;
 use moatless_types::adapter::TaskBinding;
 use moatless_types::loops::SubscriptionMatch;
-use moatless_types::repository::GitHostRepo;
+use moatless_workspace_types::repository::GitHostRepo;
 
 use super::adapter::GithubPrAdapter;
 use super::api::GithubPrApi;
@@ -117,7 +117,7 @@ impl GithubPrAuth {
     ) -> Result<GithubPrApi, AdapterError> {
         let token = self
             .git_host_tokens
-            .token(actor, repo)
+            .token(actor, &repo.credential_account())
             .await
             .map_err(|source| adapter_error(actor, source))?;
         Ok(self.client(&token))

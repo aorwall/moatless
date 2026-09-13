@@ -5,7 +5,7 @@ use super::env::{chrono_now_iso, env_var, redact_url_userinfo};
 use super::placement::cache_host_parent;
 use super::*;
 use moatless_sandbox_runtime::provisioning::RepoConfig;
-use moatless_types::workspace::ServerConfig;
+use moatless_workspace_types::workspace::ServerConfig;
 
 mod docker;
 mod env;

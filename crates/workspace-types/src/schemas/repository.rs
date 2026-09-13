@@ -2,15 +2,16 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::enums::{RepositoryKind, RepositoryProvider, Scope};
+use crate::repository::{RepositoryKind, RepositoryProvider};
+use moatless_types::access_control::Scope;
 
 // Workspace run configuration is defined in the Workspace wire module.
-#[deprecated(note = "use moatless_api_schemas::workspace::ResourceConfig")]
-pub use crate::workspace::ResourceConfig;
-#[deprecated(note = "use moatless_api_schemas::workspace::ScriptConfig")]
-pub use crate::workspace::ScriptConfig;
-#[deprecated(note = "use moatless_api_schemas::workspace::ServerConfig")]
-pub use crate::workspace::ServerConfig;
+#[deprecated(note = "use moatless_workspace_types::schemas::workspace::ResourceConfig")]
+pub use crate::schemas::workspace::ResourceConfig;
+#[deprecated(note = "use moatless_workspace_types::schemas::workspace::ScriptConfig")]
+pub use crate::schemas::workspace::ScriptConfig;
+#[deprecated(note = "use moatless_workspace_types::schemas::workspace::ServerConfig")]
+pub use crate::schemas::workspace::ServerConfig;
 
 // =============================================================================
 // CreateRepositoryRequest
@@ -39,6 +40,7 @@ pub struct CreateRepositoryRequest {
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateRepositoryRequest {
+    pub provider: Option<RepositoryProvider>,
     pub name: Option<String>,
     /// Change the repository's access scope (`global` or `user`); requires
     /// admin for `global`.
@@ -59,10 +61,12 @@ pub struct UpdateRepositoryRequest {
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct RepositoryResponse {
+    #[serde(deserialize_with = "Option::deserialize")]
+    #[cfg_attr(feature = "openapi", schema(required = true))]
+    pub remote: Option<RepositoryRemoteResponse>,
     pub id: String,
     pub name: String,
     pub kind: RepositoryKind,
-    pub remote_url: Option<String>,
     pub default_branch: Option<String>,
     pub description: Option<String>,
     pub provider: Option<RepositoryProvider>,
@@ -104,9 +108,30 @@ pub struct BranchEntry {
     pub is_default: bool,
 }
 
+/// Resolved facts about the repository's remote.
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct RepositoryRemoteResponse {
+    pub url: String,
+    pub uses_ssh: bool,
+    pub host_repo: Option<GitHostRepoResponse>,
+}
+
+/// A repository's identity on its declared git host.
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct GitHostRepoResponse {
+    pub provider: RepositoryProvider,
+    pub host: String,
+    pub owner: String,
+    pub name: String,
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::workspace::StorageMedium;
+    use crate::schemas::workspace::StorageMedium;
 
     use super::*;
 

@@ -8,7 +8,7 @@ use moatless_types::adapter::AdapterConnection;
 use moatless_types::adapter::TaskBinding;
 use moatless_types::loops::LoopContext;
 use moatless_types::loops::SubscriptionMatch;
-use moatless_types::repository::GitHostRepo;
+use moatless_workspace_types::repository::GitHostRepo;
 
 use super::adapter::GithubPrAdapter;
 use super::external_id::{self, CommentTarget};

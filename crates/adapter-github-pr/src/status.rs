@@ -1,6 +1,6 @@
 //! External status capability and display fields for GitHub PR bindings.
 
-use moatless_types::repository::GitHostRepo;
+use moatless_workspace_types::repository::GitHostRepo;
 use tracing::warn;
 
 use moatless_adapter_model::capabilities::AdapterBindingStatus;

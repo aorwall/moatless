@@ -111,7 +111,7 @@ export function RepositoryConfigEditSection({
     return {
       name: repository.name || '',
       description: repository.description || '',
-      remoteUrl: repository.remoteUrl || '',
+      remoteUrl: repository.remote?.url || '',
       scope: repository.scope,
     }
   })()
@@ -255,7 +255,7 @@ export function RepositoryConfigEditSection({
 
       <div className="flex justify-between gap-3 pt-6 border-t">
         <div className="flex gap-3">
-          {repository.remoteUrl && (
+          {repository.remote?.url && (
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button

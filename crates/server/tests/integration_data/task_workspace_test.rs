@@ -32,7 +32,7 @@ fn scope_ctx(user_id: &str) -> ScopeContext {
 async fn seed_local_repository(pool: &PgPool, repository_id: &str) {
     let mut repo = make_repository_row(repository_id, common::USER_1);
     repo.provider = None;
-    repo.remote_url = None;
+    repo.remote = None;
     moatless_workspaces::compose::seed_repository(pool, &repo)
         .await
         .unwrap();

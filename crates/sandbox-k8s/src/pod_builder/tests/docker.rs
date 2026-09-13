@@ -88,7 +88,7 @@ fn docker_storage_override_sizes_dind_empty_dir() {
     let config = test_config();
     let mut plan = test_plan();
     plan.repo_config.docker_access = Some(true);
-    plan.repo_config.resources = Some(moatless_types::workspace::ResourceConfig {
+    plan.repo_config.resources = Some(moatless_workspace_types::workspace::ResourceConfig {
         docker_storage: Some(memory("50Gi")),
         docker_storage_mode: Some(StorageMedium::EmptyDir),
         ..Default::default()
@@ -110,7 +110,7 @@ fn docker_storage_override_sizes_dind_empty_dir() {
     assert_eq!(ds_limit.as_deref(), Some("50Gi"));
 
     // EmptyDir mode with no override → global default from config.
-    plan.repo_config.resources = Some(moatless_types::workspace::ResourceConfig {
+    plan.repo_config.resources = Some(moatless_workspace_types::workspace::ResourceConfig {
         docker_storage_mode: Some(StorageMedium::EmptyDir),
         ..Default::default()
     });
@@ -140,7 +140,7 @@ fn docker_storage_remains_node_backed_without_archive_management() {
     config.sandbox.cache_host_root = "/mnt/cache".into();
     let mut plan = test_plan();
     plan.repo_config.docker_access = Some(true);
-    plan.repo_config.resources = Some(moatless_types::workspace::ResourceConfig {
+    plan.repo_config.resources = Some(moatless_workspace_types::workspace::ResourceConfig {
         docker_storage: Some(memory("50Gi")),
         ..Default::default()
     });

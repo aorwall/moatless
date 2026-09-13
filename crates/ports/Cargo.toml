@@ -6,6 +6,7 @@ description = "Shared backend policy, read vocabularies, and subsystem ports for
 
 authors.workspace = true
 [dependencies]
+moatless-workspace-types = { workspace = true }
 async-trait = { workspace = true }
 chrono = { workspace = true, features = ["serde"] }
 futures = { workspace = true }
@@ -24,7 +25,7 @@ tokio = { workspace = true, features = ["macros", "rt"] }
 
 [features]
 default = []
-openapi = ["moatless-types/openapi"]
+openapi = ["moatless-workspace-types/openapi", "moatless-types/openapi"]
 # Exposes `mockall` doubles of the sandbox ports to other crates' test builds.
 # `cfg(test)` does not fire across a crate boundary, so the ports carry
 # `#[cfg_attr(feature = "test-support", mockall::automock)]` instead. No shipping

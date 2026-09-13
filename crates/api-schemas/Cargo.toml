@@ -6,6 +6,7 @@ description = "Shared API request/response types for backend and CLI"
 
 authors.workspace = true
 [dependencies]
+moatless-workspace-types = { workspace = true, features = ["schemas"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 chrono = { workspace = true, features = ["serde"] }
@@ -17,4 +18,4 @@ moatless-types = { workspace = true }
 workspace = true
 
 [features]
-openapi = ["utoipa", "moatless-types/openapi"]
+openapi = ["moatless-workspace-types/openapi", "utoipa", "moatless-types/openapi"]

@@ -1,11 +1,4 @@
-//! Shared API request/response types for backend and CLI.
-//!
-//! Canonical DTOs used by both the Rust backend (with `utoipa` OpenAPI support)
-//! and the CLI client (serde-only).
-//!
-//! # Feature flags
-//!
-//! - `openapi` — enables `utoipa::ToSchema` / `utoipa::IntoParams` derives
+//! Shared wire contracts for domains outside the Workspace types crate.
 
 // reason: test code may unwrap/expect freely; production code keeps the workspace `deny`.
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
@@ -24,15 +17,12 @@ pub mod linear;
 pub mod loops;
 pub mod message;
 pub mod patch;
-pub mod plugin;
 pub mod provider_apps;
-pub mod repository;
 pub mod sandbox;
 pub mod setup;
 pub mod tag;
 pub mod task;
 pub mod team;
 pub mod user;
-pub mod workspace;
 
 pub mod webhook;

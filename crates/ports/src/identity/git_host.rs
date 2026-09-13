@@ -1,29 +1,7 @@
 use async_trait::async_trait;
 use moatless_types::access_control::Actor;
-use moatless_types::repository::GitHostRepo;
-use moatless_types::repository::RepositoryProvider;
+use moatless_types::git_host::{GitHostAccount, RepositoryProvider};
 use moatless_types::store::StoreError;
-
-/// A git host whose credential is a single stored value, readable without
-/// naming a repository.
-///
-/// GitHub and Forgejo are absent by construction: their tokens are resolved per
-/// repository through [`GitHostTokenIssuer::token`], not from a single stored
-/// value.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PlainGitHost {
-    Gitlab,
-    Gitness,
-}
-
-impl PlainGitHost {
-    pub fn provider(self) -> RepositoryProvider {
-        match self {
-            Self::Gitlab => RepositoryProvider::Gitlab,
-            Self::Gitness => RepositoryProvider::Gitness,
-        }
-    }
-}
 
 /// Why an identity has no usable token for a repository.
 ///
@@ -43,13 +21,10 @@ pub enum GitHostTokenError {
         host: Option<String>,
     },
 
-    /// `repo` is boxed to keep the whole enum small: an `Actor` carries both a
-    /// user id and a Workspace, and every fallible call through the port pays
-    /// this variant's size in its `Result`.
-    #[error("{actor}'s {} credential cannot reach {repo}", repo.provider())]
+    #[error("{actor}'s credential cannot access {account}")]
     Forbidden {
         actor: Actor,
-        repo: Box<GitHostRepo>,
+        account: Box<GitHostAccount>,
         #[source]
         source: Box<dyn std::error::Error + Send + Sync + 'static>,
     },
@@ -75,14 +50,11 @@ pub enum GitHostTokenError {
 #[cfg_attr(feature = "test-support", mockall::automock)]
 #[async_trait]
 pub trait GitHostTokenIssuer: Send + Sync {
-    /// The token `actor` presents to `repo`'s host right now.
-    async fn token(&self, actor: &Actor, repo: &GitHostRepo) -> Result<String, GitHostTokenError>;
-
-    /// The token `actor` holds for a host that needs no repository to answer.
-    async fn host_token(
+    /// The token `actor` presents for the selected account or instance.
+    async fn token(
         &self,
         actor: &Actor,
-        host: PlainGitHost,
+        account: &GitHostAccount,
     ) -> Result<String, GitHostTokenError>;
 
     /// Whether `actor`'s GitHub credential is usable, with no repository in

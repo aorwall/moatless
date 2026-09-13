@@ -35,6 +35,7 @@ cargo clippy -p moatless-ports --all-targets --all-features -- -D warnings
 cargo clippy -p moatless-ports --all-targets --no-default-features -- -D warnings
 cargo clippy -p moatless-backend --all-targets --features db-tests -- -D warnings
 cargo test -p <crate>                       # scope to the crate you changed, never --workspace
+bash .github/scripts/test-workspace-contracts.sh # isolated Workspace contract features
 task rust:gc                                # reclaim target/debug/incremental
 CLAUDE_SDK_E2E=1 cargo test -p moatless-sandbox --test agent_e2e -- --ignored --nocapture
 ```

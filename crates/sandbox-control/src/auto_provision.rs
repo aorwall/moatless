@@ -11,17 +11,16 @@ use serde_json::json;
 
 use tracing::{info, warn};
 
-use moatless_types::workspace::{Port, ResourceConfig, ServerConfig};
+use moatless_workspace_types::workspace::{Port, ResourceConfig, ServerConfig};
 
 use crate::lifecycle::dao::LifecycleDao;
 use crate::preflight::preflight_validate_sandbox_control;
 use crate::secrets::is_platform_owned_key;
 use moatless_ports::identity::CommitIdentity;
-use moatless_ports::workspace::{RepoPlacement, ResolvedWorkspace, WorkspaceResolver};
 use moatless_sandbox_runtime::error::SandboxError;
 use moatless_sandbox_runtime::provisioning::{ProvisionRequest, RepoConfig};
-use moatless_types::repository::RepositoryProvider;
-use moatless_types::workspace::{RepoCheckout, derive_mount_name, sanitize_mount_name};
+use moatless_workspace_ports::{RepoPlacement, ResolvedWorkspace, WorkspaceResolver};
+use moatless_workspace_types::workspace::{RepoCheckout, derive_mount_name, sanitize_mount_name};
 
 // Workspace-sourced run-config builders. A task's run-config comes from its
 // workspace (`build_repo_config_from_workspace` and friends); the repository row
@@ -184,9 +183,13 @@ pub(crate) async fn build_provision_request(
         return Err(SandboxError::Forbidden(e.user_message()));
     }
 
-    let git_provider = repo.provider.unwrap_or(RepositoryProvider::Github);
+    let git_provider = repo.provider.map_or("", |provider| provider.as_str());
 
-    let git_clone_url = repo.remote_url.clone().unwrap_or_default();
+    let git_clone_url = repo
+        .remote
+        .as_ref()
+        .map(|remote| remote.url.clone())
+        .unwrap_or_default();
     let git_branch = shape.branch.clone().or(repo.default_branch.clone());
     // The identity the pod authenticates back to the backend as — the one the
     // gRPC control gate checks, which is why it is the Sandbox's owner and not
@@ -207,7 +210,8 @@ pub(crate) async fn build_provision_request(
         &repository_id,
         &git_clone_url,
         git_branch.as_deref(),
-        git_provider.as_str(),
+        git_provider,
+        repo.remote.as_ref().is_some_and(|remote| remote.uses_ssh),
     );
     if repo_checkouts.len() > 1 {
         info!(
@@ -300,7 +304,7 @@ pub(crate) async fn build_provision_request(
         repo_config,
         git_clone_url,
         git_branch,
-        git_provider: git_provider.as_str().to_string(),
+        git_provider: git_provider.to_string(),
         env_vars,
         repos: repo_checkouts,
     };
@@ -317,6 +321,7 @@ pub(crate) async fn build_provision_request(
 struct ResolvedPlacement {
     repository_id: String,
     clone_url: String,
+    uses_ssh: bool,
     provider: String,
     /// The placement's branch override, else the repository's default branch.
     branch: Option<String>,
@@ -347,7 +352,11 @@ fn resolve_placements(
             );
             continue;
         };
-        let clone_url = repo.remote_url.clone().unwrap_or_default();
+        let clone_url = repo
+            .remote
+            .as_ref()
+            .map(|remote| remote.url.clone())
+            .unwrap_or_default();
         if clone_url.is_empty() {
             warn!(
                 sandbox_id = %sandbox_id,
@@ -359,10 +368,10 @@ fn resolve_placements(
         resolved.push(ResolvedPlacement {
             repository_id: placement.repository_id.clone(),
             clone_url,
+            uses_ssh: repo.remote.as_ref().is_some_and(|remote| remote.uses_ssh),
             provider: repo
                 .provider
-                .unwrap_or(RepositoryProvider::Github)
-                .as_str()
+                .map_or("", |provider| provider.as_str())
                 .to_string(),
             branch: placement.branch.clone().or(repo.default_branch.clone()),
             mount_name: placement.mount_name.clone(),
@@ -384,6 +393,7 @@ fn build_repo_checkouts(
     primary_clone_url: &str,
     primary_branch: Option<&str>,
     primary_provider: &str,
+    primary_uses_ssh: bool,
 ) -> Vec<RepoCheckout> {
     // The primary placement is the one flagged in the DB; when nothing is
     // flagged, `resolve_primary_repository_id` picked the task's repository, so
@@ -405,6 +415,7 @@ fn build_repo_checkouts(
         used.insert(mount_name.clone());
         checkouts.push(RepoCheckout {
             clone_url: primary_clone_url.to_string(),
+            uses_ssh: primary_uses_ssh,
             branch: primary_branch.map(str::to_string),
             repository_id: primary_repository_id.to_string(),
             provider: primary_provider.to_string(),
@@ -431,6 +442,7 @@ fn build_repo_checkouts(
         used.insert(mount_name.clone());
         checkouts.push(RepoCheckout {
             clone_url: placement.clone_url.clone(),
+            uses_ssh: placement.uses_ssh,
             branch: placement.branch.clone(),
             repository_id: placement.repository_id.clone(),
             provider: placement.provider.clone(),
@@ -515,6 +527,51 @@ async fn resolve_server_configs(
 mod tests {
     use super::*;
 
+    #[test]
+    fn checkouts_keep_declared_providers_when_host_identity_is_unresolved() {
+        use moatless_types::access_control::Scope;
+        use moatless_workspace_types::repository::{
+            Repository, RepositoryKind, RepositoryProvider, RepositoryRemote,
+        };
+
+        for (provider, expected) in [(Some(RepositoryProvider::Github), "github"), (None, "")] {
+            let placements = resolve_placements(
+                &[RepoPlacement {
+                    repository_id: "repo".to_string(),
+                    branch: None,
+                    mount_name: Some("repo".to_string()),
+                    is_primary: false,
+                    position: 1,
+                    repository: Some(Repository {
+                        id: "repo".to_string(),
+                        name: "repo".to_string(),
+                        kind: RepositoryKind::Git,
+                        remote: Some(RepositoryRemote {
+                            url: "ssh://git@github.com/acme/repo.git".to_string(),
+                            uses_ssh: true,
+                            host_repo: None,
+                        }),
+                        default_branch: None,
+                        description: None,
+                        provider,
+                        scope: Scope::Global,
+                        owner_user_id: None,
+                        created_by: None,
+                        deleted: false,
+                        created_at: None,
+                        updated_at: None,
+                    }),
+                }],
+                "sandbox",
+                "workspace",
+            );
+            let checkouts = build_repo_checkouts(&placements, "primary", "", None, "", false);
+            assert_eq!(checkouts.len(), 1);
+            assert_eq!(checkouts[0].provider, expected);
+            assert!(checkouts[0].uses_ssh);
+        }
+    }
+
     fn placement(
         repository_id: &str,
         clone_url: &str,
@@ -525,6 +582,7 @@ mod tests {
         ResolvedPlacement {
             repository_id: repository_id.to_string(),
             clone_url: clone_url.to_string(),
+            uses_ssh: false,
             provider: "github".to_string(),
             branch: Some("main".to_string()),
             mount_name: mount_name.map(str::to_string),
@@ -597,6 +655,7 @@ mod tests {
             "https://github.com/acme/api.git",
             Some("feature/x"),
             "github",
+            false,
         );
         assert_eq!(checkouts.len(), 1);
         assert_eq!(checkouts[0].mount_name, "api");
@@ -623,6 +682,7 @@ mod tests {
             "https://github.com/acme/api.git",
             Some("main"),
             "github",
+            false,
         );
         let mounts: Vec<&str> = checkouts.iter().map(|c| c.mount_name.as_str()).collect();
         assert_eq!(mounts, vec!["api", "lib", "web"]);
@@ -653,6 +713,7 @@ mod tests {
             "https://github.com/acme/api.git",
             Some("feature/x"),
             "github",
+            false,
         );
         assert_eq!(checkouts[1].branch.as_deref(), Some("release"));
         assert_eq!(checkouts[1].provider, "gitlab");
@@ -676,6 +737,7 @@ mod tests {
             "https://github.com/one/api.git",
             None,
             "github",
+            false,
         );
         let mounts: Vec<&str> = checkouts.iter().map(|c| c.mount_name.as_str()).collect();
         assert_eq!(mounts, vec!["api", "api-2", "api-3"]);
@@ -701,6 +763,7 @@ mod tests {
             "https://github.com/acme/api.git",
             None,
             "github",
+            false,
         );
         assert_eq!(checkouts[1].mount_name, "..-..-etc");
     }
@@ -727,6 +790,7 @@ mod tests {
             "https://github.com/acme/api.git",
             Some("main"),
             "github",
+            false,
         );
         assert_eq!(checkouts.len(), 2);
         assert_eq!(checkouts[1].mount_name, "api-release");
@@ -743,6 +807,7 @@ mod tests {
             "https://github.com/acme/api.git",
             Some("main"),
             "github",
+            false,
         );
         assert_eq!(checkouts.len(), 1);
         assert_eq!(checkouts[0].mount_name, "api");
@@ -753,7 +818,7 @@ mod tests {
     /// clone rather than a checkout with an empty URL.
     #[test]
     fn an_empty_primary_url_yields_no_checkouts() {
-        let checkouts = build_repo_checkouts(&[], "repo-a", "", None, "github");
+        let checkouts = build_repo_checkouts(&[], "repo-a", "", None, "github", false);
         assert!(checkouts.is_empty());
     }
 
@@ -771,6 +836,7 @@ mod tests {
             "https://github.com/acme/api.git",
             None,
             "github",
+            false,
         );
         let mounts: Vec<&str> = checkouts.iter().map(|c| c.mount_name.as_str()).collect();
         assert_eq!(mounts, vec!["api", "web"]);

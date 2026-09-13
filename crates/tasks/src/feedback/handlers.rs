@@ -9,7 +9,7 @@ use chrono::{DateTime, Utc};
 
 use crate::task::operations::TaskCommands;
 use moatless_core::http_auth::AuthUser;
-use moatless_ports::workspace::RepositoryReader;
+use moatless_workspace_ports::RepositoryReader;
 
 use super::error::{FeedbackError, UnknownFeedbackDiscriminant};
 use super::models::{Feedback, FeedbackFilter, FeedbackWithTask};

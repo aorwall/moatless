@@ -6,6 +6,8 @@ description = "Tasks band: task lifecycle, messages, tags, listing feed, activit
 
 authors.workspace = true
 [dependencies]
+moatless-workspace-types = { workspace = true, features = ["openapi"] }
+moatless-workspace-ports = { workspace = true }
 async-trait = { workspace = true }
 axum = { workspace = true, features = ["macros"] }
 chrono = { workspace = true, features = ["serde"] }
@@ -49,6 +51,7 @@ db-tests = []
 workspace = true
 
 [dev-dependencies]
+moatless-workspace-ports = { workspace = true, features = ["test-support"] }
 async-trait = { workspace = true }
 # `InMemoryTokens` / `credentials_over` (credential-sync tests) live with the
 # credential service in identity, off its `test-support` gate.

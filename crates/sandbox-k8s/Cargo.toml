@@ -6,6 +6,7 @@ description = "Sandbox-k8s band: the Kubernetes runtime provider behind the moat
 
 authors.workspace = true
 [dependencies]
+moatless-workspace-types = { workspace = true, features = ["openapi"] }
 async-stream = "0.3"
 async-trait = { workspace = true }
 # S3 client type for the node-archive upload path (held as Option<Arc<Client>>).

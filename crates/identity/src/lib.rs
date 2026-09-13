@@ -25,6 +25,7 @@ pub mod auth;
 pub mod compose;
 pub mod credentials;
 pub mod forgejo;
+pub mod git_credential_overrides;
 pub mod git_host_access;
 pub mod git_host_tokens;
 pub mod ports;

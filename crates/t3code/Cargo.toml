@@ -6,6 +6,7 @@ authors.workspace = true
 description = "T3 Code compatibility surface for Moatless Vibe"
 
 [dependencies]
+moatless-workspace-types = { workspace = true, features = ["schemas"] }
 async-trait = { workspace = true }
 axum = { workspace = true, features = ["macros", "ws"] }
 base64 = { workspace = true }

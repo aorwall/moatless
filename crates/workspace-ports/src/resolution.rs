@@ -1,11 +1,11 @@
 use async_trait::async_trait;
 use moatless_types::access_control::ScopeContext;
-use moatless_types::plugin::PluginDelivery;
-use moatless_types::repository::Repository;
 use moatless_types::store::StoreError;
-use moatless_types::workspace::ResourceConfig;
-use moatless_types::workspace::ServerConfig;
-use moatless_types::workspace::Workspace;
+use moatless_workspace_types::plugin::PluginDelivery;
+use moatless_workspace_types::repository::Repository;
+use moatless_workspace_types::workspace::ResourceConfig;
+use moatless_workspace_types::workspace::ServerConfig;
+use moatless_workspace_types::workspace::Workspace;
 use std::collections::HashMap;
 use uuid::Uuid;
 
