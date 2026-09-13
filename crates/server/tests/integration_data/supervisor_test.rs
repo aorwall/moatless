@@ -123,9 +123,7 @@ async fn ready_response_with_database(
     database: Option<sqlx::PgPool>,
     health: Arc<moatless_backend::supervisor::SupervisorHealth>,
 ) -> (StatusCode, serde_json::Value) {
-    // `events: None` isolates the supervisor's contribution to readiness from
-    // the Redis health check the probe also performs.
-    let response = readiness_router(database, None, health)
+    let response = readiness_router(database, health)
         .oneshot(
             Request::builder()
                 .uri("/ready")

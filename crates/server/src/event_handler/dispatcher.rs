@@ -1,14 +1,13 @@
-//! Redis stream consumer for agent events.
+//! Runs the handler side of every task event exactly once for the fleet.
 //!
-//! Reads `task-events:*` under a consumer group separate from the SSE
-//! consumer's, and processes `agent.*` and `task.metadata.updated` events. The
-//! stream plumbing both consumers share lives in [`crate::redis_stream`]; what
-//! stays here is the persistence, turn projection and dispatch an event gets.
+//! Claims a batch off the change feed's dispatch queue, runs the generic
+//! handlers and the subscribed Adapters, then clears the batch. A replica that
+//! dies mid-batch leaves its claim to age out, and another replica takes the
+//! same events — at-least-once, which the handlers are written for.
 
 use std::sync::Arc;
 
-use async_trait::async_trait;
-use redis::aio::ConnectionManager;
+use moatless_core::change_feed::events as feed;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 
@@ -19,7 +18,6 @@ use moatless_types::task::{TaskSubType, TaskTurnSubType};
 
 use moatless_loops::adapters::events::TaskEventSubscribers;
 
-use crate::redis_stream::{GroupStart, StreamConsumer, StreamHandler};
 use crate::state::AppState;
 use moatless_tasks::task_event::models::InsertTaskEvent;
 use moatless_tasks::task_turn::models::classify_turn_transition;
@@ -28,47 +26,113 @@ use super::agent_handlers;
 use moatless_tasks::agent_event::AgentEvent;
 use moatless_tasks::agent_event::EventKey;
 
-/// Consumer group name — separate from the SSE consumer group.
-const CONSUMER_GROUP: &str = "event-handler";
+/// How long the loop waits between claims that came back empty.
+const IDLE_POLL: std::time::Duration = std::time::Duration::from_millis(200);
 
-/// Processes agent lifecycle events off the shared stream plumbing.
-struct EventHandlerConsumer {
+/// How long the loop waits after a failed claim.
+const ERROR_BACKOFF: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// Runs the generic handlers and the subscribed Adapters over claimed events.
+pub struct EventDispatcher {
     state: AppState,
     /// The Adapters that react to a task's own events. Built at the composition
     /// root; this module never names a provider.
     subscribers: Arc<TaskEventSubscribers>,
+    cancel: CancellationToken,
 }
 
-#[async_trait]
-impl StreamHandler for EventHandlerConsumer {
-    async fn handle_payload(&mut self, entry_id: &str, payload: String) {
-        let Ok(event) = serde_json::from_str::<AgentEvent>(&payload) else {
-            // The entry is ACKed and gone from the PEL either way, so the id is
-            // the only handle left on it: `XRANGE task-events:<task> <id> <id>`.
-            warn!(
-                entry_id = %entry_id,
-                "Failed to parse event payload, ACKing to prevent redelivery"
-            );
-            return;
-        };
-        // Derived, UI-only `message.*` events are relayed to clients by the SSE
-        // consumer but must never be persisted to `task_events` (server-owned
-        // assembly).
-        if event.event_type == EventType::Message {
-            return;
+impl EventDispatcher {
+    pub fn new(
+        state: AppState,
+        subscribers: Arc<TaskEventSubscribers>,
+        cancel: CancellationToken,
+    ) -> Self {
+        Self {
+            state,
+            subscribers,
+            cancel,
         }
-        persist_event(&self.state, &event).await;
-        self.project_turn_state(&event).await;
-        self.dispatch_event(&event).await;
     }
-}
 
-impl EventHandlerConsumer {
+    /// Claim and dispatch batches until cancelled.
+    pub async fn run(self) {
+        info!("Event dispatcher started");
+        loop {
+            if self.cancel.is_cancelled() {
+                break;
+            }
+            match self.dispatch_batch().await {
+                Ok(0) => {
+                    if self.sleep(IDLE_POLL).await {
+                        break;
+                    }
+                }
+                Ok(_) => {}
+                Err(e) => {
+                    warn!(error = %e, "Event dispatch batch failed, backing off");
+                    if self.sleep(ERROR_BACKOFF).await {
+                        break;
+                    }
+                }
+            }
+        }
+        info!("Event dispatcher stopped");
+    }
+
+    /// Claim one batch, dispatch it, and clear it. Returns how many it took.
+    ///
+    /// The claim commits before any handler runs, so no Postgres transaction is
+    /// open across handler work. A replica that dies mid-batch leaves its claim
+    /// standing until it ages past [`feed::RECLAIM_AFTER`].
+    async fn dispatch_batch(&self) -> Result<usize, sqlx::Error> {
+        let claimed =
+            feed::claim_dispatch(&self.state.db, feed::DISPATCH_BATCH, feed::RECLAIM_AFTER).await?;
+        if claimed.is_empty() {
+            return Ok(0);
+        }
+
+        let mut positions = Vec::with_capacity(claimed.len());
+        for change in &claimed {
+            positions.push(change.position);
+            let Ok(event) = serde_json::from_str::<AgentEvent>(&change.event) else {
+                warn!(
+                    position = change.position,
+                    "Failed to parse event payload, clearing it to prevent redelivery"
+                );
+                continue;
+            };
+            // Derived, UI-only `message.*` events reach clients through the SSE
+            // feed but must never be persisted to `task_events` (server-owned
+            // assembly). Clear and skip.
+            if event.event_type == EventType::Message {
+                continue;
+            }
+            persist_event(&self.state, &event).await;
+            self.project_turn_state(&event).await;
+            self.dispatch_event(&event).await;
+        }
+
+        // Cleared whether or not the handlers succeeded, so one poisoned event
+        // cannot wedge the queue for the whole fleet. An `agent.message` whose
+        // handler failed is recovered by `IngressRelay` re-publishing it, which
+        // re-arms this row.
+        feed::release_dispatch(&self.state.db, &positions).await?;
+        Ok(positions.len())
+    }
+
+    /// Sleep, or return `true` if cancelled first.
+    async fn sleep(&self, duration: std::time::Duration) -> bool {
+        tokio::select! {
+            () = tokio::time::sleep(duration) => false,
+            () = self.cancel.cancelled() => true,
+        }
+    }
+
     /// Idempotent fallback projection of turn state into `task_turns`.
     ///
     /// The gRPC ingress writes turn state transactionally before publishing, so
     /// this is usually a no-op via `WHERE` guards; it's a backstop for the rare
-    /// event that reached Redis without that transactional write. Touches only
+    /// event published without that transactional write. Touches only
     /// `task_turns`.
     async fn project_turn_state(&self, event: &AgentEvent) {
         let Some(transition) = classify_turn_transition(event.event_type.as_str(), &event.sub_type)
@@ -258,7 +322,7 @@ impl EventHandlerConsumer {
 ///
 /// `agent.message` writes no row — `task_events` is lifecycle-only, and the
 /// conversation holds per-activity rows. Free rather than a method so a test
-/// can reach it with a pool and no Redis.
+/// can reach it with a pool and no dispatcher.
 pub async fn persist_event(state: &AppState, event: &AgentEvent) {
     if moatless_tasks::agent_event::is_agent_message(event.event_type.as_str(), &event.sub_type) {
         return;
@@ -284,31 +348,54 @@ pub async fn persist_event(state: &AppState, event: &AgentEvent) {
     }
 }
 
-/// Run the event consumer until cancellation.
+/// How often the pruner deletes what has fallen out of the retention window.
+const PRUNE_INTERVAL: std::time::Duration = std::time::Duration::from_mins(5);
+
+/// Keep `task_event_changes` bounded, on a timer until cancelled.
+///
+/// Lives beside the dispatcher because of the coupling between them: the prune
+/// skips anything still queued here, so a stalled dispatcher costs disk rather
+/// than the events it has not reached yet.
+pub fn spawn_change_pruner(
+    pool: moatless_core::db::DbPool,
+    cancel: CancellationToken,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(PRUNE_INTERVAL);
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            tokio::select! {
+                () = cancel.cancelled() => break,
+                _ = ticker.tick() => {
+                    match feed::prune_changes(&pool).await {
+                        Ok(0) => {}
+                        Ok(deleted) => debug!(
+                            deleted,
+                            retained = feed::RETAINED_CHANGES,
+                            "Pruned task events past the retention window"
+                        ),
+                        Err(error) => warn!(%error, "Failed to prune task events"),
+                    }
+                    // The prune skips whatever is queued, so this is what says a
+                    // stalled dispatcher is growing both tables without bound.
+                    match feed::dispatch_depth(&pool).await {
+                        Ok(depth) => {
+                            metrics::gauge!("task_event_dispatch_queue_depth").set(depth as f64);
+                        }
+                        Err(error) => warn!(%error, "Failed to read dispatch queue depth"),
+                    }
+                },
+            }
+        }
+        info!("Task event pruner stopped");
+    })
+}
+
+/// Run the event dispatcher until cancellation.
 pub async fn spawn_event_handler(
-    conn: ConnectionManager,
     state: AppState,
     subscribers: Arc<TaskEventSubscribers>,
     cancel: CancellationToken,
 ) {
-    let consumer_id = format!(
-        "event-handler-{}",
-        std::env::var("HOSTNAME").unwrap_or_else(|_| "local".to_string())
-    );
-
-    info!(consumer_id = %consumer_id, "Spawning event handler consumer");
-
-    StreamConsumer::new(
-        conn,
-        consumer_id,
-        CONSUMER_GROUP.to_string(),
-        // From new entries only: a shared group persists every event exactly
-        // once, so a restarting pod must not re-read what a peer already wrote.
-        GroupStart::New,
-        "event-handler",
-        EventHandlerConsumer { state, subscribers },
-        cancel,
-    )
-    .run()
-    .await;
+    EventDispatcher::new(state, subscribers, cancel).run().await;
 }

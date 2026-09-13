@@ -2,19 +2,18 @@
 
 ## Intended use
 
-This is a small shared or pilot Moatless installation for trusted repositories. It keeps operations simple by using EKS Fargate, S3 workspace synchronization, managed PostgreSQL, managed Valkey, and an ALB in front of an in-cluster Traefik proxy.
+This is a small shared or pilot Moatless installation for trusted repositories. It keeps operations simple by using EKS Fargate, S3 workspace synchronization, managed PostgreSQL, and an ALB in front of an in-cluster Traefik proxy.
 
-Do not use this preset for repositories that may be hostile. EKS Fargate does not support EKS VPC CNI Kubernetes NetworkPolicy enforcement. Security groups isolate the backend from RDS and Valkey, but they do not provide per-sandbox egress policy.
+Do not use this preset for repositories that may be hostile. EKS Fargate does not support EKS VPC CNI Kubernetes NetworkPolicy enforcement. Security groups isolate the backend from RDS, but they do not provide per-sandbox egress policy.
 
 ## Architecture
 
 - One VPC across two availability zones.
 - Public subnets for the ALB and one NAT gateway; private subnets for Fargate pods.
-- Separate private database and cache subnets.
+- Separate private database subnets.
 - EKS 1.35 with private and restricted-public API endpoints.
 - Fargate profiles for `kube-system`, the application namespace, and the sandbox namespace.
 - RDS PostgreSQL 17 on `db.t4g.micro`, encrypted storage, one-day backups, AWS-managed master password, and a final snapshot on deletion.
-- ElastiCache Valkey 8.2 on `cache.t4g.micro`, TLS in transit and encryption at rest.
 - A versioned, encrypted S3 workspace bucket retained on destroy.
 - AWS Load Balancer Controller chart 3.5.0 and Traefik chart 41.2.0.
 - ACM certificate for the application hostname and wildcard preview hostname. Route53 can be managed directly; external DNS receives explicit certificate-validation and ALB-routing handoffs.
@@ -42,7 +41,7 @@ Repository overrides cannot re-enable DinD, node/EBS storage, node caches, or bu
 ## Prerequisites
 
 - An AWS profile whose session is current and whose identity the user approves.
-- Permissions for EKS, EC2/VPC, IAM, CloudFormation when using the CLI path, RDS, ElastiCache, S3, ACM, Route53, Secrets Manager, and Elastic Load Balancing.
+- Permissions for EKS, EC2/VPC, IAM, CloudFormation when using the CLI path, RDS, S3, ACM, Route53, Secrets Manager, and Elastic Load Balancing.
 - A public DNS zone that contains both requested domains. Route53 is managed directly; external providers require manual CNAME records.
 - AWS CLI v2, kubectl 1.31+, Python 3.11+, and a Helm release compatible with Kubernetes 1.35: Helm 3.20+ or Helm 4.1+.
 - Terraform 1.14.x/1.15.x for the tested default path, or eksctl 0.229+ for the experimental CLI path.
@@ -50,9 +49,9 @@ Repository overrides cannot re-enable DinD, node/EBS storage, node caches, or bu
 
 ## Cost and availability choices
 
-The pilot preset uses a single NAT gateway, one database instance, one cache node, and one replica for most in-cluster components. This reduces cost but does not provide multi-AZ data-plane failover. Fargate pod cost scales with requested CPU and memory; sandbox defaults are deliberately large enough for the existing Moatless limit contract.
+The pilot preset uses a single NAT gateway, one database instance, and one replica for most in-cluster components. This reduces cost but does not provide multi-AZ data-plane failover. Fargate pod cost scales with requested CPU and memory; sandbox defaults are deliberately large enough for the existing Moatless limit contract.
 
-Before apply, call out at least: EKS control plane, NAT gateway and processing, Fargate CPU/memory, RDS, ElastiCache, ALB, S3, logs, and data transfer. Use the AWS Pricing Calculator for an estimate if the user needs a current number.
+Before apply, call out at least: EKS control plane, NAT gateway and processing, Fargate CPU/memory, RDS, ALB, S3, logs, and data transfer. Use the AWS Pricing Calculator for an estimate if the user needs a current number.
 
 ## Pinned infrastructure
 

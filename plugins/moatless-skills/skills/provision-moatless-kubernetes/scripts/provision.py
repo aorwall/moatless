@@ -366,7 +366,6 @@ def cmd_preflight(args: argparse.Namespace) -> None:
             "one NAT gateway plus data processing",
             "Fargate pod CPU and memory",
             "RDS db.t4g.micro PostgreSQL 17",
-            "ElastiCache cache.t4g.micro Valkey 8.2",
             "ALB, S3, logs, and data transfer",
         ],
         "securityNote": "Fargate does not enforce EKS VPC CNI NetworkPolicy; run trusted repositories only.",
@@ -526,7 +525,6 @@ def subnet_cidrs(vpc_cidr: str) -> dict[str, list[str]]:
         "private": [str(item) for item in private],
         "public": [str(small[index]) for index in (128, 129)],
         "database": [str(small[index]) for index in (160, 161)],
-        "cache": [str(small[index]) for index in (192, 193)],
     }
 
 
@@ -609,8 +607,6 @@ use_lockfile = true
             "PublicSubnet2Cidr": cidrs["public"][1],
             "DatabaseSubnet1Cidr": cidrs["database"][0],
             "DatabaseSubnet2Cidr": cidrs["database"][1],
-            "CacheSubnet1Cidr": cidrs["cache"][0],
-            "CacheSubnet2Cidr": cidrs["cache"][1],
             "HostedZoneId": config["route53_zone_id"],
             "AppDomain": config["app_domain"],
             "PreviewDomain": config["preview_domain"],
@@ -897,7 +893,6 @@ def cmd_apply(args: argparse.Namespace) -> None:
             "database_endpoint": foundation["DatabaseEndpoint"],
             "database_port": int(foundation["DatabasePort"]),
             "database_name": foundation["DatabaseName"],
-            "cache_endpoint": foundation["CacheEndpoint"],
             "vpc_id": foundation["VpcId"],
         }
         ensure_cli_roles(config, directory, {**foundation, **outputs})
@@ -967,7 +962,6 @@ def cmd_verify(args: argparse.Namespace) -> None:
         "databaseEndpoint": outputs["database_endpoint"],
         "databaseName": outputs["database_name"],
         "databasePort": outputs["database_port"],
-        "cacheEndpoint": outputs["cache_endpoint"],
         "provisioningMethod": config["provisioning_method"],
         "imageTag": config["image_tag"],
     }
@@ -987,7 +981,6 @@ def cmd_secrets_env(args: argparse.Namespace) -> None:
     database = urllib.parse.quote(outputs["database_name"], safe="")
     lines = [
         f"DATABASE_URL=postgresql://{username}:{password}@{outputs['database_endpoint']}:{outputs['database_port']}/{database}?sslmode=require",
-        f"REDIS_URL=rediss://{outputs['cache_endpoint']}:6379/0",
     ]
     output = Path(args.output)
     if output.exists() and not args.force:
@@ -1063,7 +1056,7 @@ def cmd_destroy_plan(args: argparse.Namespace) -> None:
     validate_remote_ownership(config)
     document = plan_document(config, "destroy")
     document.update({
-        "willDelete": ["EKS cluster", "Fargate profiles", "VPC and NAT gateway", "RDS instance after final snapshot", "Valkey cache", "ACM certificate", "controller IAM roles"],
+        "willDelete": ["EKS cluster", "Fargate profiles", "VPC and NAT gateway", "RDS instance after final snapshot", "ACM certificate", "controller IAM roles"],
         "willRetain": [config["state_bucket"], config["workspace_bucket"], "RDS final snapshot"],
     })
     if config["provisioning_method"] == "terraform":

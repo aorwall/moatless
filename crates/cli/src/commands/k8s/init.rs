@@ -428,7 +428,6 @@ fn build_values(input: &ValuesInput<'_>) -> serde_json::Value {
         },
         "auth": auth_block,
         "database": { "urlSecretKey": "DATABASE_URL" },
-        "redis": { "enabled": true },
         "kubernetes": {
             "enabled": true,
             "namespace": input.sandbox_namespace,
@@ -484,10 +483,6 @@ fn build_values(input: &ValuesInput<'_>) -> serde_json::Value {
                 "createSharedVolume": false,
             },
             "sandboxMountPath": "/opt/moatless/workspace/uploads",
-        });
-        values["redis"] = json!({
-            "enabled": false,
-            "urlSecretKey": "REDIS_URL",
         });
         values["kubernetes"] = json!({
             "enabled": true,
@@ -593,11 +588,6 @@ mod tests {
         assert_eq!(
             values.pointer("/kubernetes/sandboxStorage/defaultMode"),
             Some(&json!("s3"))
-        );
-        assert_eq!(values.pointer("/redis/enabled"), Some(&json!(false)));
-        assert_eq!(
-            values.pointer("/redis/urlSecretKey"),
-            Some(&json!("REDIS_URL"))
         );
         assert_eq!(values.pointer("/image/tag"), Some(&json!("latest")));
         assert_eq!(values.pointer("/sandboxImage/tag"), Some(&json!("latest")));

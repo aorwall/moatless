@@ -45,16 +45,6 @@ spec:
               protocol: TCP
             - port: "8080"
               protocol: TCP
-    {{- if .Values.redis.enabled }}
-    - toEndpoints:
-        - matchLabels:
-            k8s:io.kubernetes.pod.namespace: {{ $releaseNamespace }}
-            k8s:app.kubernetes.io/name: redis
-      toPorts:
-        - ports:
-            - port: "6379"
-              protocol: TCP
-    {{- end }}
     # External egress via FQDN
     {{- with .Values.networkPolicy.sandbox.cilium.fqdns }}
     - toFQDNs:

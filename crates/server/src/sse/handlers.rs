@@ -199,10 +199,10 @@ pub(crate) async fn sse_handler(
 /// Historical task events handler: returns stored events from the `task_events`
 /// Postgres table so the frontend can hydrate the Events tab on reload.
 ///
-/// Served from Postgres, not Redis `XRANGE`, since Redis is trimmed by `MAXLEN`
-/// and a 72h TTL. An event published between this call and opening the SSE
-/// stream can appear in both; each envelope carries its `eventId` so the client
-/// dedupes across the boundary.
+/// Served from `task_events`, not the change feed, which is pruned to a bounded
+/// tail. An event published between this call and opening the SSE stream can
+/// appear in both; each envelope carries its `eventId` so the client dedupes
+/// across the boundary.
 pub(crate) async fn task_events_handler(
     State(tasks): State<Arc<dyn TaskReader>>,
     State(task_events): State<Arc<TaskEvents>>,

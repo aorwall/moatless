@@ -58,7 +58,7 @@ mod tests {
     #[test]
     fn value_dependencies_exclude_transports() {
         assert!(ALLOWED.contains(&"serde"));
-        for dependency in ["sqlx", "reqwest", "axum", "redis", "moatless-core"] {
+        for dependency in ["sqlx", "reqwest", "axum", "moatless-core"] {
             assert!(!ALLOWED.contains(&dependency));
         }
     }

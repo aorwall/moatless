@@ -161,9 +161,6 @@ async fn gather_endpoints() -> Vec<EndpointStatus> {
         .await,
     );
 
-    // Redis PING
-    out.push(exec_probe("redis", &["exec", "moatless-redis", "redis-cli", "PING"]).await);
-
     out
 }
 

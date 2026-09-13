@@ -358,7 +358,7 @@ fn build_app_state(
             ports.user_directory.clone(),
         ),
         default_sandbox_image: "mock-sandbox:latest".into(),
-        // No Redis and no S3 in the handler tests, so no publication and no
+        // No publisher and no S3 in the handler tests, so no publication and no
         // cold transition.
         events: None,
         workspace_archive: None,

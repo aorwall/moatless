@@ -44,7 +44,7 @@ Preparation is complete when preflight passes, the Compose bundle exists, genera
    moat docker logs --service <name> --follow
    ```
 
-   Repair the reported cause and re-run install and status. Preserve Postgres and Redis volumes.
+   Repair the reported cause and re-run install and status. Preserve the Postgres volume.
 
 3. Verify the public frontend path:
 

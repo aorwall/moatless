@@ -448,7 +448,7 @@ The preview server feature uses a three-component architecture: a shell script m
 │       │                                                                      │
 │       ├─► Detects status changes                                            │
 │       ├─► Verifies PID is alive                                             │
-│       └─► Emits server events to Redis → Backend → SSE → Frontend          │
+│       └─► Emits server events → Backend → SSE → Frontend                   │
 │                                                                              │
 │  handleProxyRequest() (serves /preview/*)                                   │
 │       │                                                                      │
@@ -501,7 +501,7 @@ started → stopped (on stop or crash)
 
 **File**: `src/features/preview/services/preview-process-monitor.ts`
 
-`PreviewProcessMonitor` watches the status file and emits Redis events:
+`PreviewProcessMonitor` watches the status file and emits server events:
 
 ```typescript
 class PreviewProcessMonitor {
@@ -604,7 +604,7 @@ keyword-matching hook — write the `description` so it names the triggers.
 
 **File**: `src/events.rs` (`GrpcEventPublisher`)
 
-The `GrpcEventPublisher` publishes structured events to the backend via gRPC `PublishEvent` RPC. The backend then writes events to Redis Streams internally for SSE fan-out and event handler processing.
+The `GrpcEventPublisher` publishes structured events to the backend via gRPC `PublishEvent` RPC. The backend then records events on its Postgres task-event feed for SSE fan-out and event handler processing.
 
 ### Event Structure (gRPC)
 
@@ -619,7 +619,7 @@ Events are sent as `PublishEventRequest` messages with fields:
 
 ### Transport
 
-Events are published via gRPC `PublishEvent` to the backend's `BackendSandboxService`. The backend writes them to Redis Streams at key `task-events:{taskId}`, where existing SSE consumers and event handlers process them unchanged.
+Events are published via gRPC `PublishEvent` to the backend's `BackendSandboxService`. The backend records them in `task_event_changes`, where the SSE feed and the event dispatcher read them.
 
 ### Event Types Emitted
 
@@ -668,11 +668,11 @@ The sandbox calls the backend's gRPC server to publish events and fetch messages
 ```
 Sandbox (gRPC Client)                      Backend (gRPC Server :50051)
   │                                          │
-  ├─ PublishEvent(task_id, type, payload) ─►  │ → writes to Redis → SSE → Frontend
+  ├─ PublishEvent(task_id, type, payload) ─►  │ → records on the feed → SSE → Frontend
   └─ GetPendingMessages(task_id, token) ──►  │ → returns queued user messages
 ```
 
-**Event flow**: Sandbox publishes events via gRPC `PublishEvent`. The backend writes them to Redis Streams (internally), where existing SSE consumers and event handlers process them — unchanged from before.
+**Event flow**: Sandbox publishes events via gRPC `PublishEvent`. The backend records them on the Postgres task-event feed, where the SSE feed and the event dispatcher read them.
 
 **Message flow**: Sandbox polls for pending messages via gRPC `GetPendingMessages` (with Notify-based wakeup via `NotifyMessages`), replacing the previous HTTP polling.
 
@@ -694,8 +694,8 @@ Backend                                          Sandbox
   │  ◄─── PublishEvent(agent:message) ─────────────┤
   │  ◄─── PublishEvent(agent:completed) ───────────┤
   │                                                │
-  ├─ Redis XADD (internal)                         │
-  ├─ SSE consumers → broadcast to frontend         │
+  ├─ Records on the task-event feed (internal)     │
+  ├─ SSE feed → broadcast to frontend              │
   ├─ Event handler → DB writes, notifications      │
   │                                                │
 ```

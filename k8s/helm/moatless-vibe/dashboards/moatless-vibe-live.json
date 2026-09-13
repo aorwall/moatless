@@ -1274,7 +1274,7 @@
         "type": "prometheus",
         "uid": "${datasource}"
       },
-      "description": "Events published to Redis by type. Backend application metric. Populates once the backend /metrics scrape annotation ships (backend-deployment.yaml).",
+      "description": "Events published to the task-event feed by type. Backend application metric. Populates once the backend /metrics scrape annotation ships (backend-deployment.yaml).",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -1593,7 +1593,7 @@
         "type": "prometheus",
         "uid": "${datasource}"
       },
-      "description": "Redis publish failures and retries. Backend application metric. Populates once the backend /metrics scrape annotation ships (backend-deployment.yaml).",
+      "description": "Event publish failures and deduplicated re-publishes. Backend application metric. Populates once the backend /metrics scrape annotation ships (backend-deployment.yaml).",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -1662,7 +1662,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "retries"
+              "options": "deduped"
             },
             "properties": [
               {
@@ -1711,12 +1711,12 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(rate(events_publish_retries_total{namespace=\"moatless\"}[$__rate_interval]))",
+          "expr": "sum(rate(events_publish_deduped_total{namespace=\"moatless\"}[$__rate_interval]))",
           "refId": "B",
-          "legendFormat": "retries"
+          "legendFormat": "deduped"
         }
       ],
-      "title": "Event Publish Failures & Retries",
+      "title": "Event Publish Failures & Dedups",
       "type": "timeseries"
     },
     {

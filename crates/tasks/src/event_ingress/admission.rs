@@ -32,8 +32,8 @@ pub struct AdmissionRequest {
 
 /// The durability paths available to admission.
 ///
-/// Each is optional (some deployments run without a database or Redis); a
-/// missing path an event needs is a retryable failure, never a silent ack.
+/// Each is optional (a process may run without a database); a missing path an
+/// event needs is a retryable failure, never a silent ack.
 pub struct EventAdmission {
     task_turns: Option<Arc<dyn TaskTurnDao>>,
     task_events: Option<Arc<dyn TaskEventDao>>,
@@ -86,30 +86,7 @@ impl EventAdmission {
     pub async fn admit(&self, request: AdmissionRequest) -> Result<(), AdmissionError> {
         let needs_consumer = is_agent_message(request.event_type, &request.sub_type);
 
-        // Refuse before writing anything: spooling a payload whose only
-        // delivery path is switched off would acknowledge permanent loss.
-        //
-        // The predicate is the *transport*, not the consumer, because the
-        // transport is the only leg of the path this process owns. Whether a
-        // consumer exists is a deployment property: the consumer group is the
-        // shared constant `event-handler`, so `EVENT_HANDLER_ENABLED=false`
-        // means "not in this process" — it is the shadow-backend flag, and a
-        // shadow shares the primary's Redis and Postgres precisely so the
-        // primary consumes and commits on its behalf. Rejecting here would
-        // refuse admission in the one configuration the flag exists to support.
-        //
-        // A deployment where *nothing* consumes is a misconfiguration this
-        // process cannot detect at admission time. It surfaces instead as
-        // records the relay keeps re-publishing: the
-        // `event_ingress_outbox_stalled` gauge and its warning in
-        // `relay::IngressRelay::report_pending`.
-        if needs_consumer && self.publisher.is_none() {
-            return Err(AdmissionError::NoDeliveryPath {
-                what: "full agent.message content",
-            });
-        }
-
-        let payload_recoverable = self.commit(&request, needs_consumer).await?;
+        self.commit(&request, needs_consumer).await?;
 
         if let Some(publisher) = self.publisher.as_ref() {
             if let Err(e) = publisher
@@ -121,7 +98,6 @@ impl EventAdmission {
                     None,
                     request.turn_number,
                     request.payload,
-                    payload_recoverable,
                 )
                 .await
             {
@@ -139,16 +115,11 @@ impl EventAdmission {
     }
 
     /// Perform the durable write this event kind requires.
-    ///
-    /// Returns whether the published payload is recoverable from durable
-    /// storage — the signal letting the publisher swap an oversized payload for
-    /// a stub. `agent.message`'s wire copy must stay whole: the consumer
-    /// rebuilds `task_messages` from it.
     async fn commit(
         &self,
         request: &AdmissionRequest,
         needs_consumer: bool,
-    ) -> Result<bool, AdmissionError> {
+    ) -> Result<(), AdmissionError> {
         if needs_consumer {
             // An `agent.message` has one durable home on the way in: the
             // outbox. After the consumer commits, the conversation is the
@@ -178,7 +149,7 @@ impl EventAdmission {
                     source,
                 })?;
             metrics::counter!("event_ingress_admitted_total", "kind" => "outbox").increment(1);
-            return Ok(false);
+            return Ok(());
         }
 
         if let Some(state) = request.state.as_ref() {
@@ -195,12 +166,12 @@ impl EventAdmission {
                 }
             })?;
             metrics::counter!("event_ingress_admitted_total", "kind" => "state").increment(1);
-            return Ok(true);
+            return Ok(());
         }
 
         self.commit_event_row(request).await?;
         metrics::counter!("event_ingress_admitted_total", "kind" => "event_row").increment(1);
-        Ok(true)
+        Ok(())
     }
 
     /// Commit this event's `task_events` row, carrying its payload whole.

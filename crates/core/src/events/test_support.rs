@@ -11,7 +11,7 @@
 //! Gated `#[cfg(any(test, feature = "test-support"))]`, so it is compiled for
 //! this crate's own test build and, off the `test-support` feature, for the
 //! test builds of downstream crates (the tasks band and the backend) that need
-//! to assert what events a code path emitted without a live Redis. No shipping
+//! to assert what events a code path emitted without a database. No shipping
 //! build enables the feature, so it never reaches the released binary.
 
 use std::sync::{Arc, Mutex};
@@ -42,8 +42,6 @@ pub enum RecordedEvent {
 pub struct RawPublish {
     pub event_id: String,
     pub payload: Value,
-    /// The flag deciding whether an oversized payload may be truncated.
-    pub payload_recoverable: bool,
 }
 
 /// One `publish_task_event` call, captured in full.
@@ -60,7 +58,7 @@ pub struct TaskPublish {
 }
 
 /// [`EventPublisher`] double that records what it was asked to publish, so
-/// tests can assert the events a code path emitted without Redis.
+/// tests can assert the events a code path emitted without a database.
 ///
 /// The optional `order_log` appends `"publish"` on each raw publish, so
 /// ordering tests can assert a DB commit is logged first; `failing` simulates a
@@ -211,7 +209,6 @@ impl EventPublisher for RecordingPublisher {
         _: Option<&str>,
         _: Option<i32>,
         payload: Value,
-        payload_recoverable: bool,
     ) -> Result<(), PublishError> {
         self.push(RecordedEvent::Raw);
         if let Some(order_log) = &self.order_log {
@@ -222,11 +219,7 @@ impl EventPublisher for RecordingPublisher {
             if *remaining > 0 {
                 *remaining -= 1;
                 return Err(PublishError::Transport {
-                    attempts: 3,
-                    source: redis::RedisError::from((
-                        redis::ErrorKind::Io,
-                        "injected transport failure",
-                    )),
+                    source: sqlx::Error::PoolTimedOut,
                 });
             }
         }
@@ -236,11 +229,7 @@ impl EventPublisher for RecordingPublisher {
             .push(RawPublish {
                 event_id: event_id.to_string(),
                 payload,
-                payload_recoverable,
             });
-        Ok(())
-    }
-    async fn health_check(&self) -> Result<(), String> {
         Ok(())
     }
 }

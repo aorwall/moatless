@@ -16,5 +16,6 @@ mod t3_usage_port_test;
 mod tag_handler_test;
 mod task_bindings_port_test;
 mod task_handler_test;
+mod task_event_feed_test;
 mod task_listing_position_test;
 mod task_workspace_test;

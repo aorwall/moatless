@@ -1164,7 +1164,7 @@ async fn resolve_tool_label(state: &AppState, task_id: &str, tool_use_id: &str) 
 /// Resolve which turn a result/error/stopped row belongs to.
 ///
 /// The gRPC ingress stamps `event.turn_number` from the event's run id, so the
-/// fallback to the task's latest turn only covers events that reached Redis
+/// fallback to the task's latest turn only covers events that reached the feed
 /// without passing through that ingress.
 async fn resolve_turn_number(
     state: &AppState,

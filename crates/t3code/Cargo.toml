@@ -17,7 +17,6 @@ metrics = { workspace = true }
 # The T3 socket accepts a W3C traceparent per request and links each RPC span to
 # it, so the client's trace and this backend's are one trace in Tempo.
 opentelemetry = { version = "0.32", default-features = false, features = ["trace"] }
-redis = { workspace = true, features = ["tokio-rustls-comp", "connection-manager"] }
 # Forwards the T3 client's own OTLP/JSON span batches to a collector — see
 # `observability`. Bytes in, bytes out, so no `json` feature.
 reqwest = { workspace = true, features = ["rustls"] }
@@ -62,8 +61,7 @@ tower = { version = "0.5", features = ["util"] }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 
 [features]
-# Gate the tests that need a live backing service (REDIS_URL for the preview-tab
-# store). No shipping build enables it.
+# Gate the tests that need a live backing service. No shipping build enables it.
 db-tests = []
 live-sandbox-tests = []
 # Expose the read handles a caller outside this crate builds a failure case

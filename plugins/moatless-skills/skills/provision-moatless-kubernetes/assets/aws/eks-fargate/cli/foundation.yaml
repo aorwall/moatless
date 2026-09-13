@@ -22,10 +22,6 @@ Parameters:
     Type: String
   DatabaseSubnet2Cidr:
     Type: String
-  CacheSubnet1Cidr:
-    Type: String
-  CacheSubnet2Cidr:
-    Type: String
   HostedZoneId:
     Type: AWS::Route53::HostedZone::Id
   AppDomain:
@@ -142,18 +138,6 @@ Resources:
       AvailabilityZone: !Ref AvailabilityZone2
       CidrBlock: !Ref DatabaseSubnet2Cidr
       VpcId: !Ref Vpc
-  CacheSubnet1:
-    Type: AWS::EC2::Subnet
-    Properties:
-      AvailabilityZone: !Ref AvailabilityZone1
-      CidrBlock: !Ref CacheSubnet1Cidr
-      VpcId: !Ref Vpc
-  CacheSubnet2:
-    Type: AWS::EC2::Subnet
-    Properties:
-      AvailabilityZone: !Ref AvailabilityZone2
-      CidrBlock: !Ref CacheSubnet2Cidr
-      VpcId: !Ref Vpc
 
   PublicSubnet1RouteAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
@@ -174,12 +158,6 @@ Resources:
       DBSubnetGroupDescription: Moatless database subnets
       SubnetIds: [!Ref DatabaseSubnet1, !Ref DatabaseSubnet2]
 
-  CacheSubnetGroup:
-    Type: AWS::ElastiCache::SubnetGroup
-    Properties:
-      Description: Moatless cache subnets
-      SubnetIds: [!Ref CacheSubnet1, !Ref CacheSubnet2]
-
   BackendSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
@@ -195,17 +173,6 @@ Resources:
         - IpProtocol: tcp
           FromPort: 5432
           ToPort: 5432
-          SourceSecurityGroupId: !Ref BackendSecurityGroup
-
-  CacheSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupDescription: Valkey from Moatless backend pods
-      VpcId: !Ref Vpc
-      SecurityGroupIngress:
-        - IpProtocol: tcp
-          FromPort: 6379
-          ToPort: 6379
           SourceSecurityGroupId: !Ref BackendSecurityGroup
 
   Database:
@@ -229,22 +196,6 @@ Resources:
       DBSubnetGroupName: !Ref DatabaseSubnetGroup
       VPCSecurityGroups: [!Ref DatabaseSecurityGroup]
       BackupRetentionPeriod: 1
-
-  Cache:
-    Type: AWS::ElastiCache::ReplicationGroup
-    Properties:
-      ReplicationGroupId: !Ref Deployment
-      ReplicationGroupDescription: Moatless Valkey cache
-      Engine: valkey
-      EngineVersion: "8.2"
-      CacheNodeType: cache.t4g.micro
-      NumCacheClusters: 1
-      Port: 6379
-      TransitEncryptionEnabled: true
-      AtRestEncryptionEnabled: true
-      AutomaticFailoverEnabled: false
-      CacheSubnetGroupName: !Ref CacheSubnetGroup
-      SecurityGroupIds: [!Ref CacheSecurityGroup]
 
   Certificate:
     Type: AWS::CertificateManager::Certificate
@@ -284,6 +235,5 @@ Outputs:
   DatabaseEndpoint: {Value: !GetAtt Database.Endpoint.Address}
   DatabasePort: {Value: !GetAtt Database.Endpoint.Port}
   DatabaseName: {Value: moatless}
-  CacheEndpoint: {Value: !GetAtt Cache.PrimaryEndPoint.Address}
   CertificateArn: {Value: !Ref Certificate}
   WorkspacePolicyArn: {Value: !Ref WorkspacePolicy}

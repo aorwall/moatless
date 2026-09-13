@@ -1,7 +1,7 @@
 # Moatless Vibe on a local Kubernetes cluster
 
 Run Moatless Vibe on a single-node Kubernetes cluster on your machine, using
-locally built images and the chart's first-party Postgres and Redis. This is the
+locally built images and the chart's first-party Postgres. This is the
 supported local path — no Docker Hub pull, no SOAP registry mirror, no cloud.
 
 `values-local.yaml` in this directory is the committed local config. It contains
@@ -233,7 +233,7 @@ IngressRoute matches on. No API key — local auth resolves every request to
 | `auth.cookieDomain: moatless.localhost` | Scopes the session cookie to the app host **and** every preview subdomain (`*.preview.moatless.localhost`), so preview ForwardAuth receives it. |
 | `ingress.enabled: false`, `proxyIngress.enabled: false` | Both target a Service named `traefik:80` in-namespace — a cloud shape where an ALB fronts Traefik. Locally Traefik is the controller, so they are circular. |
 | `ingress.hosts` **kept despite `enabled: false`** | Trap: the IngressRoute templates read the app host from `ingress.hosts[0].host` regardless of the enable flag. Omit it and all 7 routes fall back to `moatless.example.com` and match nothing. |
-| `postgres.enabled: true`, `redis.enabled: true` | Uses the chart's first-party Postgres/Redis templates. |
+| `postgres.enabled: true` | Uses the chart's first-party Postgres template. |
 
 ## Notes
 

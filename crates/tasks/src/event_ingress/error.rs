@@ -23,12 +23,6 @@ pub enum AdmissionError {
         source: sqlx::Error,
     },
 
-    /// Retryable: this event's content only reaches its canonical table through
-    /// the consumer path, and no event transport is configured — the outbox
-    /// would spool a payload nothing can ever deliver.
-    #[error("event transport is disabled and {what} has no durable substitute")]
-    NoDeliveryPath { what: &'static str },
-
     /// Retryable: a concurrent request already owns admission for this event
     /// id. Answering `OK` would acknowledge an admission that may still fail;
     /// the retry converges on the winner's outcome.

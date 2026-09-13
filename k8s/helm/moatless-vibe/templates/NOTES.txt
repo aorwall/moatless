@@ -26,20 +26,6 @@ Sandbox pods will be created in namespace: {{ include "moatless-vibe.sandboxName
 Sandbox image: {{ include "moatless-vibe.sandboxImage" . }}
 {{- end }}
 
-{{- if .Values.redis.urlSecretKey }}
-
-Using external Redis from Secret key: {{ .Values.redis.urlSecretKey }}
-{{- else if .Values.redis.enabled }}
-
-Redis is deployed with the chart (development mode)
-Redis URL: {{ include "moatless-vibe.redisUrl" . }}
-For production, use a managed Redis service (AWS ElastiCache, Azure Cache, etc.)
-{{- else }}
-
-Using external Redis
-Redis URL: {{ include "moatless-vibe.redisUrl" . }}
-{{- end }}
-
 {{- if not .Values.externalSecrets.enabled }}
 {{- if not .Values.secrets.create }}
 

@@ -255,10 +255,8 @@ fn mounted_dependencies(pool: &PgPool) -> UiRpcDependencies {
         starter: Arc::new(NoSandboxes),
         stopper: Arc::new(NoSandboxes),
         operator: Arc::new(NoSandboxes),
-        // Nothing this suite drives opens a preview tab. With no Redis URL the
-        // builder holds the tabs in this process, which is a production path
-        // rather than a double — see the epoch note on `PreviewTabDao`.
-        redis_url: None,
+        // Nothing this suite drives opens a preview tab; the TTL only has to
+        // outlast the run.
         preview_tab_ttl: moatless_t3code::preview_tabs::PreviewTabTtl(Duration::from_hours(1)),
         // The write ports, wired exactly as `main` wires them. This suite drives
         // reads only; what they do is asserted in

@@ -1,5 +1,5 @@
 # Set all four image tags to the same release before deployment.
-# Requires external Postgres/Redis and the Traefik preview service/CRDs.
+# Requires an external Postgres and the Traefik preview service/CRDs.
 # Minimal AKS values for moatless-vibe.
 # Edit the domain/proxyDomain placeholders, then `moat k8s install`.
 image:
@@ -38,9 +38,6 @@ auth:
 
 postgres:
   enabled: false
-redis:
-  enabled: false
-  urlSecretKey: REDIS_URL
 
 kubernetes:
   sandboxStorage:

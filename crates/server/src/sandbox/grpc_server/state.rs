@@ -72,7 +72,7 @@ pub struct HandlerDbPorts {
 /// without the handler set.
 pub struct IngressPorts {
     /// The one durable write every inbound event goes through. Its turn,
-    /// task-status and event rows commit before the Redis publish.
+    /// task-status and event rows commit before the publish.
     pub admission: Arc<EventAdmission>,
     /// Turn attribution and resume state, read outside admission: which turn an
     /// event belongs to, and how the last turn closed.
@@ -124,7 +124,7 @@ pub struct BackendSandboxServiceImpl {
     /// `<prefix>/<task_id>/workspace.tar` in the same bucket.
     pub workspace_s3_prefix: String,
     /// The sandbox outbox delivers at-least-once, reusing the `event_id` on a
-    /// retry. This drops the duplicate before it reaches Redis.
+    /// retry. This drops the duplicate before it reaches the feed.
     pub event_dedup: Arc<crate::sandbox::event_dedup::EventDedup>,
 }
 

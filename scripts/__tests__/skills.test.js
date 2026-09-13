@@ -66,7 +66,6 @@ describe('repository skill metadata and references', () => {
       expect(values.sandboxImage.tag).toBe(values.image.tag)
       expect(values.t3.image.tag).toBe(values.image.tag)
       expect(values.postgres.enabled).toBe(false)
-      expect(values.redis.enabled).toBe(false)
       expect(values.database).toBeUndefined()
     }
   })

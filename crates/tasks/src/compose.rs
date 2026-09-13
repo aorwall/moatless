@@ -137,7 +137,7 @@ impl TaskGraph {
     /// Durable admission for sandbox-published events, over the turn, event and
     /// outbox stores and the `publisher` the fan-out reaches.
     ///
-    /// `publisher` is `None` without Redis, which is what makes an
+    /// `publisher` is `None` without a database, which is what makes an
     /// `agent.message` unadmittable — see [`EventAdmission::admit`].
     pub fn event_ingress(&self, publisher: Option<Arc<dyn EventPublisher>>) -> Arc<EventAdmission> {
         Arc::new(EventAdmission::new(

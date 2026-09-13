@@ -1,6 +1,6 @@
 //! gRPC event publisher for sandbox agent events.
 //!
-//! Publishes events to the backend via gRPC, which writes them to Redis Streams
+//! Publishes events to the backend via gRPC, which records them on the feed
 //! for SSE consumption. See [`GrpcEventPublisher`] for the enqueue-only,
 //! at-least-once delivery contract.
 

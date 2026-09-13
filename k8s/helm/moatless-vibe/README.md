@@ -8,24 +8,13 @@ A Helm chart for deploying Moatless Vibe — an AI-powered development platform.
 - Helm 3.0+
 - Traefik with its `IngressRoute` CRDs (the app routing and per-sandbox preview
   routes use them)
-- PostgreSQL 14+ and Redis 7+ — either the chart's bundled first-party instances
-  (dev/testing) or external managed services (production)
+- PostgreSQL 14+ — either the chart's bundled first-party instance (dev/testing)
+  or an external managed service (production)
 
 ## Data stores
 
-The chart can either stand up its own single-node Postgres and Redis, or point at
-external managed services.
-
-### Redis (required for event streaming)
-
-| Mode | Values |
-|---|---|
-| Bundled (default) | `redis.enabled: true`, `redis.url: ""` — deploys a first-party single-node Redis (`redis:7-alpine`, multi-arch) and resolves the backend's `REDIS_URL` to `redis://{release}-redis-master:6379`. |
-| External (production) | `redis.enabled: false` with either `redis.urlSecretKey: "REDIS_URL"` (preferred) or `redis.url: "redis://<host>:6379"` — no Redis is deployed. |
-
-The bundled Redis is single-node with an ephemeral data dir — fine for dev, not
-for production. For production use a managed Redis (AWS ElastiCache, Azure Cache
-for Redis, GCP Memorystore) and set `redis.url`.
+The chart can either stand up its own single-node Postgres, or point at an
+external managed service.
 
 ### Postgres (required)
 
@@ -80,7 +69,7 @@ kubectl create secret generic moatless-secrets \
 
 ## Installation
 
-### Dev / testing (bundled Postgres + Redis)
+### Dev / testing (bundled Postgres)
 
 ```bash
 # Create the app Secret (DATABASE_URL omitted — the bundled Postgres provides it)
@@ -90,11 +79,10 @@ kubectl create secret generic moatless-secrets \
 
 helm install moatless ./k8s/helm/moatless-vibe \
   --set postgres.enabled=true \
-  --set redis.enabled=true \
   --set ingress.hosts[0].host=moatless.example.com
 ```
 
-### Production (external Postgres + Redis)
+### Production (external Postgres)
 
 ```bash
 kubectl create secret generic vibe-secrets \
@@ -103,8 +91,6 @@ kubectl create secret generic vibe-secrets \
   --from-literal=TASK_TOKEN_SECRET="$(openssl rand -hex 32)"
 
 helm install moatless ./k8s/helm/moatless-vibe \
-  --set redis.enabled=false \
-  --set redis.url="redis://your-redis-endpoint:6379" \
   --set externalSecrets.enabled=true \
   --set externalSecrets.secretName=vibe-secrets \
   --set ingress.className=alb \
@@ -115,7 +101,7 @@ helm install moatless ./k8s/helm/moatless-vibe \
 ### Local single-node cluster
 
 For a full local bring-up on Docker Desktop Kubernetes (native arm64 images,
-first-party Postgres + Redis, `*.localhost` routing through Traefik), use the
+first-party Postgres, `*.localhost` routing through Traefik), use the
 committed config and runbook in [`k8s/local/`](../../local/README.md). Install
 with:
 
@@ -124,16 +110,6 @@ helm install moatless ./k8s/helm/moatless-vibe -n moatless -f k8s/local/values-l
 ```
 
 ## Configuration
-
-### Redis
-
-| Parameter | Description | Default |
-|-----------|-------------|---------|
-| `redis.enabled` | Deploy the bundled first-party Redis | `true` |
-| `redis.url` | External Redis URL stored in Helm values | `""` |
-| `redis.urlSecretKey` | Key in the external Secret holding the Redis URL (preferred when `enabled: false`) | `""` |
-| `redis.image` | Bundled Redis image | `redis:7-alpine` |
-| `redis.maxmemory` | `--maxmemory` cap (paired with `--maxmemory-policy noeviction`) | `768mb` |
 
 ### Postgres
 
@@ -746,15 +722,6 @@ this feature exists to remove.
 > regardless of `ingress.enabled`. Keep `ingress.hosts[0].host` set even when you
 > disable the Ingress object, or the routes fall back to `moatless.example.com`.
 
-## Redis Streams configuration
-
-The application uses Redis Streams for event delivery:
-
-- **Stream naming**: `task-events:{taskId}` (one stream per task)
-- **Consumer group**: `main-app-consumers` (configurable via `REDIS_CONSUMER_GROUP`)
-- **Stream trimming**: ~10,000 messages per stream (`REDIS_MAX_STREAM_LENGTH`)
-- **Blocking reads**: 5-second timeout (`REDIS_BLOCK_MS`)
-
 ## Monitoring
 
 Application metrics are exposed on the backend `metrics` port (9090) at `/metrics`
@@ -764,21 +731,13 @@ a Prometheus Operator).
 
 ## Troubleshooting
 
-### Redis connection issues
-
-Test connectivity from a throwaway pod:
-
-```bash
-kubectl run redis-test --rm -it --image=redis:7-alpine -- \
-  redis-cli -u "redis://<release>-redis-master:6379" PING
-```
-
 ### Event delivery issues
 
+Events are recorded in Postgres and polled from there; nothing else carries them.
+
 ```bash
-redis-cli KEYS "task-events:*"
-redis-cli XINFO GROUPS task-events:{taskId}
-redis-cli XPENDING task-events:{taskId} main-app-consumers
+psql "$DATABASE_URL" -c "SELECT position FROM task_event_position"
+psql "$DATABASE_URL" -c "SELECT count(*) FROM task_event_dispatch_queue"
 kubectl logs -l app.kubernetes.io/component=backend --tail=100
 ```
 

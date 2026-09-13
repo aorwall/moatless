@@ -1,7 +1,7 @@
 //! Application startup helpers.
 //!
 //! Each function initialises one infrastructure concern (logging, metrics,
-//! Redis, gRPC, SSE) so that `main()` reads as a short sequential recipe
+//! gRPC, SSE) so that `main()` reads as a short sequential recipe
 //! rather than a single monolithic function.
 
 use std::net::SocketAddr;
@@ -25,11 +25,10 @@ use tracing_subscriber::registry::LookupSpan;
 use tracing_subscriber::util::SubscriberInitExt;
 
 use crate::sandbox::grpc_server::BackendSandboxServiceImpl;
-use crate::sse::consumer::RedisStreamConsumer;
+use crate::sse::feed::EventFeed;
 use crate::sse::routes::SseState;
 use moatless_core::config::{Config, OtelConfig};
 use moatless_core::db::{self, DbPool};
-use moatless_core::events::EventPublisher;
 use moatless_core::metrics;
 use moatless_ports::task::TaskReader;
 
@@ -231,47 +230,33 @@ pub fn spawn_metrics_server(port: u16, cancel: CancellationToken) -> JoinHandle<
 // SSE
 // =========================================================================
 
-/// Create the SSE broadcast sender and optionally spawn the Redis consumer.
+/// Create the SSE broadcast sender and spawn this pod's change-feed poller.
 ///
-/// Redis feeds only the live tail; historical replay is served separately from
-/// `task_events` Postgres. Without `tasks`, per-tenant firehose filtering can't
+/// The feed carries only the live tail; historical replay is served separately
+/// from `task_events`. Without `tasks`, per-tenant firehose filtering can't
 /// authorize scoped users against their task.
-pub async fn init_sse(
+pub fn init_sse(
     config: &Config,
+    pool: Option<DbPool>,
     tasks: Option<Arc<dyn TaskReader>>,
     cancel: CancellationToken,
-) -> Result<(SseState, Option<JoinHandle<()>>), redis::RedisError> {
+) -> (SseState, Option<JoinHandle<()>>) {
     let (tx, _) = broadcast::channel::<String>(config.sse.broadcast_capacity);
 
-    let consumer_handle = if let Some(ref redis_url) = config.redis.url {
-        let client = redis::Client::open(redis_url.as_str())?;
-        let conn = redis::aio::ConnectionManager::new_with_config(
-            client,
-            moatless_core::events::redis_manager_config(),
-        )
-        .await?;
-        let consumer = RedisStreamConsumer::new(
-            conn,
-            config.sse.consumer_id.clone(),
-            tx.clone(),
-            cancel.clone(),
-        );
-        let handle = tokio::spawn(consumer.run());
-        info!(consumer_id = %config.sse.consumer_id, "SSE Redis consumer spawned");
-        Some(handle)
-    } else {
-        info!("REDIS_URL not set — SSE Redis consumer disabled");
-        None
-    };
+    let feed_handle = pool.map(|pool| {
+        let handle = tokio::spawn(EventFeed::new(pool, tx.clone(), cancel.clone()).run());
+        info!("SSE event feed spawned");
+        handle
+    });
 
-    Ok((
+    (
         SseState {
             broadcast: tx,
             cancel,
             tasks,
         },
-        consumer_handle,
-    ))
+        feed_handle,
+    )
 }
 
 // =========================================================================
@@ -352,20 +337,17 @@ async fn shutdown_signal() {
 
 /// Build the `/ready` readiness probe, distinct from `/health` (pure liveness).
 ///
-/// Reports unavailable when a readiness-critical supervised task has
-/// terminated, the DB pool can't serve a trivial query promptly, or Redis is
-/// unreachable (task creation would otherwise degrade silently), so Kubernetes
-/// sheds traffic to a healthier replica.
+/// Reports unavailable when a readiness-critical supervised task has terminated
+/// or the DB pool can't serve a trivial query promptly, so Kubernetes sheds
+/// traffic to a healthier replica.
 pub fn readiness_router(
     database: Option<DbPool>,
-    events: Option<Arc<dyn EventPublisher>>,
     supervisor: Arc<crate::supervisor::SupervisorHealth>,
 ) -> Router {
     Router::new().route(
         "/ready",
         axum::routing::get(move || {
             let database = database.clone();
-            let events = events.clone();
             let supervisor = Arc::clone(&supervisor);
             async move {
                 use axum::http::StatusCode;
@@ -426,32 +408,13 @@ pub fn readiness_router(
                     }
                 }
 
-                match events {
-                    Some(publisher) => match publisher.health_check().await {
-                        Ok(()) => (
-                            StatusCode::OK,
-                            axum::Json(serde_json::json!({"status": "ok"})),
-                        )
-                            .into_response(),
-                        Err(e) => {
-                            tracing::warn!(error = %e, "Readiness probe: event publisher unhealthy");
-                            (
-                                StatusCode::SERVICE_UNAVAILABLE,
-                                axum::Json(serde_json::json!({
-                                    "status": "unavailable",
-                                    "component": "events",
-                                    "error": e
-                                })),
-                            )
-                                .into_response()
-                        }
-                    },
-                    None => (
-                        StatusCode::OK,
-                        axum::Json(serde_json::json!({"status": "ok", "events": "disabled"})),
-                    )
-                        .into_response(),
-                }
+                // No separate event-transport probe: the change feed lives in
+                // the database this already checked.
+                (
+                    StatusCode::OK,
+                    axum::Json(serde_json::json!({"status": "ok"})),
+                )
+                    .into_response()
             }
         }),
     )

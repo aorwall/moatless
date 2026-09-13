@@ -9,10 +9,10 @@
 //! `--features db-tests`.
 //!
 //! Drives the real gRPC ingress, outbox, relay, and consumer so each case is
-//! asserted at the seam the sandbox and consumer meet: Redis
-//! disabled/recovered, a lost gRPC response, concurrent duplicates, and full
-//! message content reaching `task_messages` exactly once with state committed
-//! before fan-out.
+//! asserted at the seam the sandbox and consumer meet: a failed and recovered
+//! transport, a lost gRPC response, concurrent duplicates, and full message
+//! content reaching `task_messages` exactly once with state committed before
+//! fan-out.
 
 use crate::common;
 
@@ -24,7 +24,7 @@ use sqlx::PgPool;
 use tonic::Request;
 
 use moatless_backend::event_handler::agent_handlers::handle_agent_message;
-use moatless_backend::event_handler::consumer::persist_event;
+use moatless_backend::event_handler::dispatcher::persist_event;
 use moatless_backend::sandbox::grpc_server::{BackendSandboxServiceImpl, IngressPorts};
 use moatless_core::events::{EventPublisher, PublishError};
 use moatless_tasks::agent_event::AgentEvent;
@@ -42,10 +42,10 @@ use sandbox_proto::backend_sandbox_service_server::BackendSandboxService;
 use common::{make_repository_row, make_task_row, test_app_state};
 
 // =========================================================================
-// A Redis stand-in
+// A transport stand-in
 // =========================================================================
 
-/// Captures raw publishes and can be made to fail, standing in for Redis.
+/// Captures raw publishes and can be made to fail, standing in for the feed.
 #[derive(Default)]
 struct FakeTransport {
     published: Mutex<Vec<(String, String, Value)>>,
@@ -107,15 +107,13 @@ impl EventPublisher for FakeTransport {
         _agent_type: Option<&str>,
         _turn_number: Option<i32>,
         payload: Value,
-        _payload_recoverable: bool,
     ) -> Result<(), PublishError> {
         {
             let mut remaining = self.fail_next.lock().unwrap();
             if *remaining > 0 {
                 *remaining -= 1;
                 return Err(PublishError::Transport {
-                    attempts: 3,
-                    source: redis::RedisError::from((redis::ErrorKind::Io, "transport down")),
+                    source: sqlx::Error::PoolTimedOut,
                 });
             }
         }
@@ -123,9 +121,6 @@ impl EventPublisher for FakeTransport {
             .lock()
             .unwrap()
             .push((event_id.to_string(), sub_type.to_string(), payload));
-        Ok(())
-    }
-    async fn health_check(&self) -> Result<(), String> {
         Ok(())
     }
 }
@@ -147,7 +142,7 @@ fn task_graph(pool: &PgPool) -> TaskGraph {
 }
 
 /// The gRPC ingress wired to a real pool, with `transport` as its event
-/// transport (`None` models Redis being disabled entirely).
+/// transport (`None` models a process composed without one).
 fn ingress(pool: &PgPool, transport: Option<Arc<dyn EventPublisher>>) -> BackendSandboxServiceImpl {
     let graph = task_graph(pool);
     BackendSandboxServiceImpl::for_ingress_tests(
@@ -187,8 +182,8 @@ fn message_request(
     }
 }
 
-/// Rebuild the consumer's view of a published event, exactly as the Redis
-/// consumer would parse it off the stream.
+/// Rebuild the dispatcher's view of a published event, exactly as it would
+/// parse it off the feed.
 fn consumed(task_id: &str, event_id: &str, payload: &Value) -> AgentEvent {
     serde_json::from_value(serde_json::json!({
         "eventId": event_id,
@@ -358,7 +353,7 @@ async fn a_response_lost_after_admission_is_not_re_admitted(pool: PgPool) {
 
 /// A retry the dedup cache has forgotten (post-restart, record already consumed
 /// and deleted) still converges rather than duplicating, since the consumer's
-/// idempotency covers Redis's redelivery too.
+/// idempotency covers the feed's redelivery too.
 #[sqlx::test]
 async fn a_retry_that_outlives_the_dedup_cache_converges(pool: PgPool) {
     let task_id = "task-admit-2b";
@@ -428,26 +423,8 @@ async fn concurrent_duplicate_requests_fan_out_once(pool: PgPool) {
 }
 
 // =========================================================================
-// Transport unavailable
+// Transport failures
 // =========================================================================
-
-#[sqlx::test]
-async fn message_content_is_not_admitted_when_the_transport_is_disabled(pool: PgPool) {
-    let task_id = "task-admit-4";
-    seed_task(&pool, task_id).await;
-    let svc = ingress(&pool, None);
-
-    let status = svc
-        .publish_event(Request::new(message_request(task_id, "evt-1", 1, "hi")))
-        .await
-        .expect_err("Redis disabled leaves message content nowhere to go");
-
-    assert_eq!(status.code(), tonic::Code::Unavailable);
-    assert!(
-        outbox_event_ids(&pool).await.is_empty(),
-        "nothing may be spooled for a delivery path that does not exist"
-    );
-}
 
 #[sqlx::test]
 async fn a_state_bearing_event_is_admitted_without_a_transport(pool: PgPool) {
@@ -456,7 +433,7 @@ async fn a_state_bearing_event_is_admitted_without_a_transport(pool: PgPool) {
     let svc = ingress(&pool, None);
 
     // Its committed state is the durable substitute for the fan-out, so this
-    // one *is* admitted even with Redis disabled.
+    // one *is* admitted with no transport at all.
     svc.publish_event(Request::new(PublishEventRequest {
         task_id: task_id.to_string(),
         event_type: sandbox_proto::EventType::TaskTurn as i32,
@@ -491,7 +468,7 @@ async fn a_state_bearing_event_is_admitted_without_a_transport(pool: PgPool) {
 async fn a_failed_transport_recovers_through_the_relay(pool: PgPool) {
     let task_id = "task-admit-6";
     seed_task(&pool, task_id).await;
-    // Redis is down for the ingress publish, then recovers.
+    // The transport fails the ingress publish, then recovers.
     let transport = Arc::new(FakeTransport::failing(1));
     let svc = ingress(&pool, Some(transport.clone()));
 

@@ -1,8 +1,8 @@
 //! Task turn DAO — authoritative per-turn lifecycle persistence.
 //!
 //! [`TaskTurnDao::apply_ingress_event`] commits the event row, turn row, and
-//! task-status flip in ONE transaction before the gRPC handler publishes to
-//! Redis, so turn state is never lost to a dropped event; the Redis consumer
+//! task-status flip in ONE transaction before the gRPC handler publishes the
+//! event, so turn state is never lost to a dropped event; the event dispatcher
 //! re-applies it idempotently via [`TaskTurnDao::project_turn`] as a backstop.
 //!
 //! This is ordering, not an outbox: nothing here is spooled, relayed, or
@@ -72,7 +72,7 @@ fn turn_projection_query<'a>(
 
 /// Record that `task_id`'s Turn moved, on the transaction that moved it.
 ///
-/// Guarded by `rows_affected`, not transition kind, since the Redis consumer
+/// Guarded by `rows_affected`, not transition kind, since the dispatcher
 /// re-applies committed events; ordered conversation-first, listing-last per
 /// `record_change`'s rule.
 async fn record_turn_change(
@@ -95,12 +95,12 @@ pub trait TaskTurnDao: Send + Sync {
     ///
     /// Persists the event row (idempotent on `event_id`), projects the turn
     /// row, and reopens the task on a terminal transition unless it closed
-    /// mid-run — all committed before the caller publishes to Redis.
+    /// mid-run — all committed before the caller publishes the event.
     async fn apply_ingress_event(&self, ev: &TurnStateEvent) -> Result<(), sqlx::Error>;
 
-    /// Idempotent turn projection used by the Redis consumer as a fallback.
+    /// Idempotent turn projection used by the event dispatcher as a fallback.
     /// Touches only `task_turns` (the event row and task-status flip stay with
-    /// the consumer's existing writes). A no-op when the row is already
+    /// the dispatcher's existing writes). A no-op when the row is already
     /// current.
     async fn project_turn(
         &self,
@@ -245,9 +245,9 @@ impl TaskTurnDao for PgTaskTurnDao {
         let mut tx = self.0.begin().await?;
 
         // 1) Persist the event row (idempotent on event_id) so task_events
-        //    stays consistent with the turn/status write even if Redis never
-        //    round-trips it. Shares the caller's pre-generated event_id with
-        //    the Redis publish, so the consumer's insert dedups against this.
+        //    stays consistent with the turn/status write even if the feed
+        //    never round-trips it. Shares the caller's pre-generated event_id
+        //    with the publish, so the dispatcher's insert dedups against this.
         sqlx::query(
             r#"INSERT INTO task_events (
                    event_id, task_id, type, sub_type, is_error,

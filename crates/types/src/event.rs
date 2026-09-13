@@ -3,7 +3,7 @@
 //! discriminator.
 //!
 //! Crosses two boundaries: Sandbox → Backend (gRPC / sandbox-proto) and Backend
-//! → Redis → Frontend (SSE / NDJSON). Each domain owns its own sub-types and
+//! → event feed → Frontend (SSE / NDJSON). Each domain owns its own sub-types and
 //! payloads — see `sandbox`, `agent`, `task`, `message` — and all serialize to
 //! the exact strings the frontend expects.
 

@@ -423,11 +423,9 @@ async fn agent_message_is_spooled_before_fan_out_and_published_whole() {
     assert_eq!(outbox.event_ids(), ["evt-5"]);
 
     // The consumer rebuilds the conversation from the published payload, so it
-    // must never be eligible for truncation — and it must carry full content,
-    // not the relay skeleton.
+    // must carry full content, not the relay skeleton.
     let published = recorder.raw_publishes();
     assert_eq!(published.len(), 1);
-    assert!(!published[0].payload_recoverable);
     assert_eq!(
         published[0].payload["message"]["content"][0]["text"],
         "hello"
@@ -436,8 +434,9 @@ async fn agent_message_is_spooled_before_fan_out_and_published_whole() {
 
 #[tokio::test]
 async fn agent_message_is_admitted_when_the_transport_fails() {
-    // Redis down: the payload is durable in the outbox, so the sandbox is told
-    // the event is admitted and must not resend it. The relay owns delivery.
+    // The feed write failed: the payload is durable in the outbox, so the
+    // sandbox is told the event is admitted and must not resend it. The relay
+    // owns delivery.
     let outbox = Arc::new(FakeOutbox::default());
     let outbox_dyn: Arc<dyn IngressOutbox> = outbox.clone();
     let publisher: Arc<dyn EventPublisher> = Arc::new(RecordingPublisher::failing(1));
@@ -461,30 +460,12 @@ async fn agent_message_is_admitted_when_the_transport_fails() {
     );
 }
 
-#[tokio::test]
-async fn agent_message_without_a_transport_is_not_admitted() {
-    // Redis disabled entirely: full message content has no delivery path and no
-    // durable substitute, so the backend must not acknowledge it — and must not
-    // spool a payload nothing can ever deliver.
-    let outbox = Arc::new(FakeOutbox::default());
-    let outbox_dyn: Arc<dyn IngressOutbox> = outbox.clone();
-
-    let error = EventAdmission::new(None, None, Some(outbox_dyn.clone()), None)
-        .admit(message_request("evt-7"))
-        .await
-        .expect_err("no delivery path means no admission");
-
-    assert!(error.is_retryable());
-    assert!(outbox.event_ids().is_empty());
-}
-
-/// The delivery-path predicate is the transport, deliberately not the consumer.
+/// Admission turns on the durable spool, deliberately not on a consumer.
 ///
 /// `EVENT_HANDLER_ENABLED=false` means "not in *this* process", not "nothing
 /// will ever consume this": a shadow backend sets it because it shares the
-/// primary's Redis/Postgres, so the primary consumes on its behalf. Folding
-/// consumer presence into the predicate would refuse admission in the one
-/// configuration the flag exists to support.
+/// primary's database, so the primary consumes on its behalf. Refusing here
+/// would refuse admission in the one configuration the flag exists to support.
 #[tokio::test]
 async fn agent_message_is_admitted_when_no_consumer_runs_in_this_process() {
     let outbox = Arc::new(FakeOutbox::default());
@@ -592,9 +573,6 @@ fn invalid_requests_are_terminal_and_everything_else_retries() {
             what: "turn state",
             source: sqlx::Error::PoolClosed,
         },
-        AdmissionError::NoDeliveryPath {
-            what: "full agent.message content",
-        },
         AdmissionError::AdmissionInFlight,
     ] {
         assert!(retryable.is_retryable());
@@ -646,7 +624,6 @@ async fn relay_republishes_due_records_and_leaves_them_for_their_consumer() {
     let published = recorder.raw_publishes();
     assert_eq!(published.len(), 1);
     assert_eq!(published[0].event_id, "evt-relay");
-    assert!(!published[0].payload_recoverable);
 
     // Re-publication is not delivery: the record stays until the consumer
     // commits the message and deletes it.

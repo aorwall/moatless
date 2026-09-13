@@ -6,7 +6,7 @@ use crate::sandbox::grpc_server::BackendSandboxServiceImpl;
 use crate::sandbox::k8s::client::K8sClient;
 use moatless_core::config::Config;
 use moatless_core::db::{self, DbPool};
-use moatless_core::events::{EventPublisher, RedisEventPublisher};
+use moatless_core::events::{EventPublisher, FeedEventPublisher};
 use moatless_identity::secret::service::LocalEnvelopeSecretCipher;
 
 pub async fn init_database(
@@ -60,15 +60,14 @@ pub async fn init_database(
     Ok(None)
 }
 
-pub async fn init_event_publisher(config: &Config) -> Option<Arc<dyn EventPublisher>> {
-    if let Some(ref url) = config.redis.url {
-        RedisEventPublisher::connect(url, config.redis.max_stream_length)
-            .await
-            .map(|p| Arc::new(p) as Arc<dyn EventPublisher>)
-    } else {
-        info!("REDIS_URL not set — event publishing disabled");
-        None
-    }
+/// The event publisher, which is the database — `None` only where there is no
+/// database at all, which is also where nothing consumes events.
+pub fn init_event_publisher(pool: Option<&DbPool>) -> Option<Arc<dyn EventPublisher>> {
+    let Some(pool) = pool else {
+        info!("DATABASE_URL not set — event publishing disabled");
+        return None;
+    };
+    Some(Arc::new(FeedEventPublisher::new(pool.clone())))
 }
 
 pub async fn init_s3(config: &Config) -> Option<moatless_s3::S3Storage> {

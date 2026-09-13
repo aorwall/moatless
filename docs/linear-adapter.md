@@ -376,7 +376,7 @@ and then exits.
 ```mermaid
 sequenceDiagram
     autonumber
-    participant Consumer as event consumer (Redis Streams)
+    participant Consumer as event dispatcher (task-event feed)
     participant Hook as agent_handlers::handle_agent_completed
     participant DAO as MessageDao
     participant Notify as agent_runtime::notify_linear_status

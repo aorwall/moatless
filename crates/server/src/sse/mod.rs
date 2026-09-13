@@ -1,9 +1,9 @@
 //! SSE event streaming module.
 //!
-//! Consumes events from Redis Streams and fans them out to connected SSE
-//! clients via the shared SSE event bus.
+//! Reads the task-event change feed and fans it out to connected SSE clients
+//! via the shared SSE event bus.
 
-pub mod consumer;
+pub mod feed;
 pub mod handlers;
 pub mod routes;
 mod state;

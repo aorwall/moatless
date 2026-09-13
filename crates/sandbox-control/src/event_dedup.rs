@@ -5,7 +5,7 @@
 //!
 //! Real convergence is downstream — `ON CONFLICT` upserts on
 //! `task_events`/`task_messages`/`task_turns` — and every consumer must be
-//! idempotent anyway, since Redis Streams redeliver after a disconnect.
+//! idempotent anyway, since the event feed redelivers after a crash.
 
 use std::time::Duration;
 

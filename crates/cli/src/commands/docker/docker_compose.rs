@@ -328,8 +328,8 @@ pub(super) async fn run_compose_streaming(
     Ok(())
 }
 
-/// Run `docker <args>` directly (not compose). Used by `status` for
-/// `pg_isready` and `redis-cli PING` invocations on running containers.
+/// Run `docker <args>` directly (not compose). Used by `status` for the
+/// `pg_isready` invocation on a running container.
 pub(super) async fn run_docker(args: &[&str]) -> Result<CmdOutput, ClientError> {
     run("docker", args, None).await
 }

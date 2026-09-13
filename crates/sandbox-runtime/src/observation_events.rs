@@ -86,7 +86,6 @@ pub async fn publish_sandbox_observation(
                             None,
                             None,
                             payload,
-                            false,
                         )
                         .await
                     {

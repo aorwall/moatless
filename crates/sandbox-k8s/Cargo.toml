@@ -37,7 +37,7 @@ moatless-sandbox-control = { workspace = true }
 moatless-types = { workspace = true, features = ["openapi"] }
 
 [dev-dependencies]
-# RecordingPublisher, to assert the events the pod watcher emits without Redis.
+# RecordingPublisher, to assert the events the pod watcher emits without a database.
 moatless-core = { workspace = true, features = ["openapi", "test-support"] }
 
 [lints]

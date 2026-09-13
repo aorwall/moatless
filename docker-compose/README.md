@@ -1,6 +1,6 @@
 # Docker Compose Deployment Guide
 
-This guide covers deploying Moatless Vibe using Docker Compose with PostgreSQL, Redis, and Docker-based sandbox provisioning.
+This guide covers deploying Moatless Vibe using Docker Compose with PostgreSQL and Docker-based sandbox provisioning.
 
 ## Table of Contents
 
@@ -80,13 +80,13 @@ unchanged.
               │    :8080    │
               └──────┬──────┘
                      │
-              ┌──────┴──────┬──────────────┐
-              ▼             ▼              ▼
-        ┌──────────┐  ┌─────────┐   ┌──────────────┐
-        │PostgreSQL│  │  Redis  │   │Docker Socket │
-        │  :5432   │  │  :6379  │   │ (sibling     │
-        └──────────┘  └─────────┘   │  containers) │
-                                    └──────────────┘
+              ┌──────┴──────────────────┐
+              ▼                         ▼
+        ┌──────────┐            ┌──────────────┐
+        │PostgreSQL│            │Docker Socket │
+        │  :5432   │            │ (sibling     │
+        └──────────┘            │  containers) │
+                                └──────────────┘
                                            │
                                     ┌──────▼──────┐
                                     │  Sandbox    │
@@ -109,21 +109,14 @@ unchanged.
 - **Key Features**:
   - Docker socket access for sandbox provisioning
   - Automatic database migrations on startup
-  - Event streaming via Redis
+  - Event streaming from the Postgres task-event feed
   - gRPC communication with sandbox containers
 
 #### PostgreSQL
 - **Image**: postgres:17-alpine
-- **Purpose**: Primary database for tasks, messages, events, repositories
+- **Purpose**: Primary database for tasks, messages, events, repositories, and the event feed SSE reads from
 - **Port**: 5432 (configurable)
 - **Data**: Persisted in `postgres_data` volume
-
-#### Redis
-- **Image**: redis:7-alpine
-- **Purpose**: Event streaming transport using Redis Streams
-- **Port**: 6379 (configurable)
-- **Configuration**: 512MB memory limit with LRU eviction, AOF persistence
-- **Data**: Persisted in `redis_data` volume
 
 #### Dozzle
 - **Image**: amir20/dozzle:latest
@@ -135,16 +128,14 @@ unchanged.
 1. **Browser → Frontend (nginx)**: HTTP requests to `localhost:3000`
 2. **Frontend → Backend**: nginx proxies `/api/*` to `backend:8080`
 3. **Backend → PostgreSQL**: Database queries via service name `postgres:5432`
-4. **Backend → Redis**: Event streaming via service name `redis:6379`
-5. **Backend → Docker Socket**: Creates sibling sandbox containers via `/var/run/docker.sock`
-6. **Sandbox → Backend**: gRPC calls via `moatless-backend:50051`
+4. **Backend → Docker Socket**: Creates sibling sandbox containers via `/var/run/docker.sock`
+5. **Sandbox → Backend**: gRPC calls via `moatless-backend:50051`
 
 ### Volume Mounts
 
 | Volume | Container Path | Purpose |
 |--------|---------------|---------|
 | `postgres_data` | `/var/lib/postgresql/data` | PostgreSQL database files |
-| `redis_data` | `/data` | Redis persistence (AOF) |
 | `../data` | `/data` | Shared data for backend and sandboxes |
 | Docker socket | `/var/run/docker.sock` | Container management (read-only) |
 | `nginx.conf` | `/etc/nginx/conf.d/default.conf` | Frontend nginx configuration |
@@ -273,7 +264,6 @@ Customize ports to avoid conflicts:
 FRONTEND_PORT=3000
 BACKEND_PORT=8080
 POSTGRES_PORT=5432
-REDIS_PORT=6379
 ```
 
 ### Environment Variable Reference
@@ -447,22 +437,6 @@ docker compose -f docker-compose/docker-compose.yml logs postgres
 3. Check credentials match `POSTGRES_USER` and `POSTGRES_PASSWORD`
 4. Wait for database initialization (can take 10-30 seconds on first start)
 
-### Redis Connection Errors
-
-**Symptom**: "Redis connection failed" or event streaming not working
-
-**Diagnosis**:
-```bash
-docker compose -f docker-compose/docker-compose.yml \
-  exec redis redis-cli ping
-# Should return: PONG
-```
-
-**Solution**:
-1. Verify Redis is running and healthy
-2. Check `REDIS_URL` points to `redis://redis:6379`
-3. Restart backend to reconnect
-
 ### Port Already in Use
 
 **Symptom**: "bind: address already in use" error
@@ -480,7 +454,7 @@ Run comprehensive health check:
 docker-compose/docker-compose-verify.sh
 ```
 
-This checks PostgreSQL, Redis, backend API, frontend, Docker socket access, and database schema.
+This checks PostgreSQL, backend API, frontend, Docker socket access, and database schema.
 
 ## Production Deployment
 
@@ -488,7 +462,7 @@ This checks PostgreSQL, Redis, backend API, frontend, Docker socket access, and 
 
 1. **Docker Socket Access** — Consider using [Docker Socket Proxy](https://github.com/Tecnativa/docker-socket-proxy)
 2. **Environment Variables** — Use Docker secrets or external secret management; never commit `.env`; rotate `TASK_TOKEN_SECRET` regularly
-3. **Network Isolation** — Restrict database and Redis access to backend only
+3. **Network Isolation** — Restrict database access to backend only
 4. **Resource Limits** — Add memory and CPU limits to prevent resource exhaustion
 5. **TLS/SSL** — Use reverse proxy for HTTPS with Let's Encrypt certificates
 

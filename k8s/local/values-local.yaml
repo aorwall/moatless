@@ -34,8 +34,6 @@ sandboxImage:
 # --- Bundled data stores (first-party templates) -------------------------------
 postgres:
   enabled: true
-redis:
-  enabled: true
 
 # --- Kubernetes execution mode -------------------------------------------------
 kubernetes:

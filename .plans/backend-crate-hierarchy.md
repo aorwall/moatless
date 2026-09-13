@@ -331,9 +331,9 @@ cargo test -p moatless-t3code
 cargo test -p moatless-vibe-backend
 ```
 
-`backend/tests/ui_rpc_shell_test.rs`, `ui_rpc_command_test.rs`, `ui_rpc_thread_test.rs` and
-`ui_rpc_preview_tabs_redis_test.rs` are behind `#![cfg(feature = "db-tests")]`. A plain `cargo test` compiles none of
-them; the database-backed tier is outside this task's required verification in the implementation sandbox.
+`backend/tests/ui_rpc_shell_test.rs`, `ui_rpc_command_test.rs` and `ui_rpc_thread_test.rs` are behind
+`#![cfg(feature = "db-tests")]`. A plain `cargo test` compiles none of them; the database-backed tier is outside this
+task's required verification in the implementation sandbox.
 
 **Add to CI and AGENTS.md.** `.github/workflows/ci.yml:141` currently has no `moatless-backend-core` line. Add its
 clippy and test invocations there and to the Rust block in `AGENTS.md`, so the crate that everything now depends on is

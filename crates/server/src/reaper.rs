@@ -44,7 +44,7 @@ use sandbox_proto::client::SandboxConnector;
 /// Minimum age of a stuck `active` turn before the reaper reconciles it.
 ///
 /// Set above normal turn latency, so only a turn whose terminal event was
-/// genuinely lost (e.g. dropped during a Redis outage) gets force-closed.
+/// genuinely lost (e.g. dropped during a database outage) gets force-closed.
 const RECONCILE_STUCK_TURN_THRESHOLD_SECS: i64 = 5 * 60;
 
 /// The deployment-wide knobs one cycle runs against. Grouped because they are

@@ -358,7 +358,7 @@ backend:
     tag: "latest"
     pullPolicy: Always
   # -- Resource limits for backend service.
-  # The backend is Rust + Tokio and handles HTTP, gRPC, SSE, Redis streams,
+  # The backend is Rust + Tokio and handles HTTP, gRPC, SSE, the event feed,
   # and Kubernetes sandbox orchestration in a single process. Bumped from
   # cpu=1/mem=512Mi after production memory pressure under orchestration load.
   resources:
@@ -647,46 +647,6 @@ postgres:
   # -- Node selector for the bundled Postgres (falls back to top-level nodeSelector).
   nodeSelector: {}
   # -- Tolerations for the bundled Postgres (falls back to top-level tolerations).
-  tolerations: []
-
-# Redis configuration (required for event streaming)
-redis:
-  # -- Deploy the bundled first-party Redis (single-node, official redis image).
-  # Defaults to true so `helm install` works out of the box for dev/testing.
-  # For production, prefer an external Redis (AWS ElastiCache, Azure Cache, etc.):
-  # set redis.enabled=false and redis.url to the external connection string.
-  enabled: true
-  # -- Redis connection URL. Set this to use an external Redis; when empty and
-  # redis.enabled=true, moatless-vibe.redisUrl resolves to the bundled
-  # Service (redis://{release}-redis-master:6379).
-  # Examples:
-  #   AWS ElastiCache: "redis://my-cluster.abc123.use1.cache.amazonaws.com:6379"
-  #   Azure Cache: "redis://:password@my-cache.redis.cache.windows.net:6380"
-  #   Existing cluster: "redis://redis.default.svc.cluster.local:6379"
-  url: ""
-  # -- Key in the external Secret holding REDIS_URL. When set, the backend reads
-  # the connection URL from the Secret instead of storing it in Helm values.
-  # Set redis.enabled=false when using this option.
-  urlSecretKey: ""
-  # -- Bundled Redis image. Official multi-arch (amd64 + arm64).
-  image: "redis:7-alpine"
-  # -- Image pull policy for the bundled Redis.
-  pullPolicy: IfNotPresent
-  # -- `--maxmemory` caps RSS so Redis bounds itself. Paired with a fixed
-  # `--maxmemory-policy noeviction`: the event streams hold unconsumed terminal
-  # events, so eviction could silently drop them. Under noeviction, XADD fails
-  # loudly when full and the backend's turn reconciliation recovers.
-  maxmemory: "768mb"
-  # -- Resource requests/limits for the bundled Redis.
-  resources:
-    requests:
-      cpu: 100m
-      memory: 256Mi
-    limits:
-      memory: 1Gi
-  # -- Node selector for the bundled Redis (falls back to top-level nodeSelector).
-  nodeSelector: {}
-  # -- Tolerations for the bundled Redis (falls back to top-level tolerations).
   tolerations: []
 
 # Kubernetes execution mode for sandbox pods
@@ -1123,7 +1083,7 @@ autoscaling:
 #                         Pair with broadEgress=false + all categories=false so
 #                         the CNP is the single source of truth for external egress.
 #
-# In either tier, the in-cluster rules (kube-dns, backend gRPC/HTTP, Redis)
+# In either tier, the in-cluster rules (kube-dns, backend gRPC/HTTP)
 # are always applied.
 networkPolicy:
   sandbox:

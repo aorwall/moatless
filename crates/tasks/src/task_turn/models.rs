@@ -60,8 +60,8 @@ impl TurnTransition {
 /// Classify an event's `(event_type, sub_type)` into a turn transition.
 ///
 /// `None` for non-state-bearing events; the single source of truth for that
-/// question, shared by the transactional gRPC ingress and the idempotent Redis
-/// fallback.
+/// question, shared by the transactional gRPC ingress and the idempotent
+/// dispatcher fallback.
 pub fn classify_turn_transition(event_type: &str, sub_type: &str) -> Option<TurnTransition> {
     // The `(type, sub_type)` table itself lives on `TurnStatus::from_event`,
     // because the event publisher reads the same one to say whether an event
@@ -81,9 +81,8 @@ pub use crate::task_event::models::UnclosedTurn;
 
 /// A state-bearing event applied transactionally at the gRPC ingress.
 ///
-/// `event_id` is generated before the Redis publish so the written row and
-/// published event share one id, which the consumer's `ON CONFLICT DO NOTHING`
-/// dedups.
+/// `event_id` is generated before the publish so the written row and published
+/// event share one id, which the dispatcher's `ON CONFLICT DO NOTHING` dedups.
 #[derive(Debug, Clone)]
 pub struct TurnStateEvent {
     pub event_id: String,

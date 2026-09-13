@@ -36,7 +36,7 @@ while [[ $# -gt 0 ]]; do
       echo ""
       echo "Options:"
       echo "  -l, --level LEVEL    Filter by log level (debug, info, warn, error). Default: info"
-      echo "  -s, --service NAME   Show logs for specific service (backend, postgres, redis)"
+      echo "  -s, --service NAME   Show logs for specific service (backend, postgres)"
       echo "  -n, --tail LINES     Number of lines to show from the end (default: all)"
       echo "  -r, --raw            Show raw JSON logs without formatting (default: pretty)"
       echo "  -h, --help           Show this help message"
@@ -80,7 +80,7 @@ if [ -n "$SERVICE" ]; then
   COMPOSE_CMD="$COMPOSE_CMD $SERVICE"
 else
   # Default: skip frontend (nginx access logs are noise)
-  COMPOSE_CMD="$COMPOSE_CMD backend postgres redis"
+  COMPOSE_CMD="$COMPOSE_CMD backend postgres"
 fi
 
 if [ "$PRETTY" = "true" ]; then
@@ -125,7 +125,7 @@ filter_logs() {
           ;;
       esac
     else
-      # Non-JSON logs (postgres, redis startup messages) - always show
+      # Non-JSON logs (postgres startup messages) - always show
       echo "$line"
     fi
   done

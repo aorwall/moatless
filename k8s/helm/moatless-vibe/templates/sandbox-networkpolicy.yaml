@@ -101,19 +101,6 @@ spec:
           port: {{ .Values.backend.grpcPort }}
         - protocol: TCP
           port: 8080
-    # ---------------- In-cluster: Redis (only when redis.enabled) ----------------
-    {{- if .Values.redis.enabled }}
-    - to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: {{ $releaseNamespace }}
-          podSelector:
-            matchLabels:
-              app.kubernetes.io/name: redis
-      ports:
-        - protocol: TCP
-          port: 6379
-    {{- end }}
     {{- with .Values.networkPolicy.sandbox.extraInClusterEgress }}
     {{- toYaml . | nindent 4 }}
     {{- end }}

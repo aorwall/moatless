@@ -23,27 +23,6 @@ services:
     networks:
       - moatless
 
-  redis:
-    image: redis:7-alpine
-    container_name: moatless-redis
-    restart: unless-stopped
-    labels:
-      - "created-by=moatless"
-      - "moatless.service=redis"
-      - "moatless.ecosystem=core"
-    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
-    volumes:
-      - redis_data:/data
-    ports:
-      - "${REDIS_PORT:-6379}:6379"
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      - moatless
-
   backend:
     image: aorwall/moatless-backend:${APP_VERSION:-latest}
     container_name: moatless-backend
@@ -54,8 +33,6 @@ services:
       - "moatless.ecosystem=core"
     depends_on:
       postgres:
-        condition: service_healthy
-      redis:
         condition: service_healthy
     environment:
       # Server Configuration
@@ -77,10 +54,6 @@ services:
 
       # Database Configuration
       DATABASE_URL: postgresql://${POSTGRES_USER:-moatless}:${POSTGRES_PASSWORD:-moatless}@postgres:5432/${POSTGRES_DB:-moatless}
-
-      # Redis Configuration (for event transport)
-      REDIS_URL: redis://redis:6379
-      REDIS_MAX_STREAM_LENGTH: ${REDIS_MAX_STREAM_LENGTH:-10000}
 
       # Claude Authentication (at least one REQUIRED)
       CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
@@ -204,8 +177,6 @@ services:
 
 volumes:
   postgres_data:
-    driver: local
-  redis_data:
     driver: local
 
 networks:

@@ -27,7 +27,7 @@ pub(super) async fn run(args: UninstallArgs, json: bool) -> Result<(), ClientErr
 
     if args.purge && std::io::IsTerminal::is_terminal(&std::io::stdin()) {
         let confirmed = Confirm::with_theme(&ColorfulTheme::default())
-            .with_prompt("--purge drops postgres + redis volumes. Continue?")
+            .with_prompt("--purge drops the postgres volume. Continue?")
             .default(false)
             .interact()
             .map_err(|e| ClientError::Other(format!("Prompt failed: {e}")))?;

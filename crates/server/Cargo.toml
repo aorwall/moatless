@@ -42,9 +42,6 @@ tracing-opentelemetry = { version = "0.33", default-features = false }
 # Database
 sqlx = { workspace = true, features = ["runtime-tokio", "tls-rustls", "postgres", "json", "chrono", "uuid", "migrate"] }
 
-# Redis
-redis = { workspace = true, features = ["tokio-rustls-comp", "connection-manager"] }
-
 # UUID + timestamps
 uuid = { workspace = true, features = ["v4", "v5", "serde"] }
 chrono = { workspace = true, features = ["serde"] }

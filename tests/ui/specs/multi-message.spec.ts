@@ -6,7 +6,7 @@
  *
  * Prerequisites:
  *   Start docker-compose: BACKEND_PORT=8080 SANDBOX_IMAGE=aorwall/moatless-sandbox:latest \
- *     docker compose --env-file .env -f docker-compose/docker-compose.yml up -d postgres redis backend
+ *     docker compose --env-file .env -f docker-compose/docker-compose.yml up -d postgres backend
  *   Start frontend: bun run dev
  *   Run: BACKEND_PORT=8080 npx playwright test --config tests/ui/playwright.config.ts tests/ui/specs/multi-message.spec.ts
  */

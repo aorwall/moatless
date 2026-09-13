@@ -369,7 +369,7 @@ tasks:
   # ── Docker Compose (local development) ──────────────────────────
 
   compose:up:
-    desc: Start Docker Compose services (postgres, redis, backend, frontend)
+    desc: Start Docker Compose services (postgres, backend, frontend)
     cmds:
       - mkdir -p data
       - >-
@@ -384,7 +384,7 @@ tasks:
       - >-
         DATA_DIR=${DATA_DIR:-${HOME}/.moatless/data}
         docker compose -f docker-compose/docker-compose.yml
-        up -d postgres redis backend
+        up -d postgres backend
       - VITE_REMOTE_API=http://localhost:${BACKEND_PORT:-8080} bun run dev
 
   compose:refresh-backend:

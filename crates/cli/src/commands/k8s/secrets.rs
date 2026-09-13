@@ -165,13 +165,6 @@ const CORE_KEYS: &[KeySpec] = &[
     },
 ];
 
-const EXTERNAL_REDIS_KEY: KeySpec = KeySpec {
-    key: "REDIS_URL",
-    required: true,
-    hint: "External Redis URL (only when redis.enabled=false in values)",
-    secret: true,
-};
-
 const GITHUB_APP_AUTH_KEYS: &[KeySpec] = &[
     KeySpec {
         key: "GITHUB_APP_CLIENT_ID",
@@ -231,16 +224,6 @@ const OIDC_KEYS: &[KeySpec] = &[
 
 fn keys_for_values(values: Option<&serde_yaml::Value>) -> Vec<&'static KeySpec> {
     let mut keys: Vec<&'static KeySpec> = CORE_KEYS.iter().collect();
-
-    // External Redis → REDIS_URL required. Bundled Redis (the default) → no key needed.
-    let redis_enabled = values
-        .and_then(|v| v.get("redis"))
-        .and_then(|r| r.get("enabled"))
-        .and_then(serde_yaml::Value::as_bool)
-        .unwrap_or(true);
-    if !redis_enabled {
-        keys.push(&EXTERNAL_REDIS_KEY);
-    }
 
     let auth_provider = values
         .and_then(|v| v.get("auth"))
@@ -722,23 +705,5 @@ mod tests {
         assert!(keys.iter().any(|key| key.key == "OIDC_CLIENT_ID"));
         assert!(keys.iter().any(|key| key.key == "OIDC_CLIENT_SECRET"));
         assert!(!keys.iter().any(|key| key.key == "AUTH0_CLIENT_ID"));
-    }
-
-    #[test]
-    fn redis_url_only_when_external() {
-        let bundled: serde_yaml::Value = serde_yaml::from_str("redis:\n  enabled: true\n").unwrap();
-        assert!(
-            !keys_for_values(Some(&bundled))
-                .iter()
-                .any(|k| k.key == "REDIS_URL")
-        );
-
-        let external: serde_yaml::Value =
-            serde_yaml::from_str("redis:\n  enabled: false\n").unwrap();
-        assert!(
-            keys_for_values(Some(&external))
-                .iter()
-                .any(|k| k.key == "REDIS_URL")
-        );
     }
 }

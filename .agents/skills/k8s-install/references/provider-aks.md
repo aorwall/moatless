@@ -20,5 +20,5 @@ before a fresh install. The chart emits Ingress resources; adopting Gateway API
 requires a separate routing change, not just a different class name in this example.
 
 Use the cluster's verified CSI StorageClass for PVC-backed sandboxes. Confirm
-Postgres/Redis reachability from the workload network and use the appropriate
+Postgres reachability from the workload network and use the appropriate
 Azure workload identity or explicitly scoped object-store credentials.

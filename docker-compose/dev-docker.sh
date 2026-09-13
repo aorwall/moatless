@@ -84,7 +84,7 @@ fi
 
 echo ""
 echo "Removing Docker volumes for fresh start..."
-docker volume rm docker-compose_postgres_data docker-compose_redis_data 2>/dev/null || true
+docker volume rm docker-compose_postgres_data 2>/dev/null || true
 
 echo ""
 echo "=========================================="
@@ -147,7 +147,7 @@ filter_logs() {
           ;;
       esac
     else
-      # Non-JSON logs (postgres, redis startup messages) - always show
+      # Non-JSON logs (postgres startup messages) - always show
       echo "$line"
     fi
   done

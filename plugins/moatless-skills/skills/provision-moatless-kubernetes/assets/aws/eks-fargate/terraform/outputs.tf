@@ -52,10 +52,6 @@ output "database_name" {
   value = aws_db_instance.this.db_name
 }
 
-output "cache_endpoint" {
-  value = aws_elasticache_replication_group.this.primary_endpoint_address
-}
-
 output "vpc_id" {
   value = module.vpc.vpc_id
 }

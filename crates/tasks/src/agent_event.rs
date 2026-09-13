@@ -1,4 +1,4 @@
-//! Parsed agent-event vocabulary — the typed event a Redis stream payload
+//! Parsed agent-event vocabulary — the typed event a feed payload
 //! deserializes into, and the dispatch key derived from its type/sub-type.
 //!
 //! Consumed by the server-band event handler (which parses and dispatches) and
@@ -27,7 +27,7 @@ pub enum EventKey {
     Unknown(String, String),
 }
 
-/// Parsed agent event from Redis stream payload.
+/// Parsed agent event from a task-event feed payload.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentEvent {
@@ -59,7 +59,7 @@ impl AgentEvent {
                 .map_or_else(|_| self.unknown(), EventKey::Server),
             EventType::Resources => self.unknown(),
             // Derived, UI-only events are gated out before dispatch (see
-            // `EventHandlerConsumer::handle_payload`); never reached here.
+            // `EventDispatcher::dispatch_batch`); never reached here.
             EventType::Message => self.unknown(),
         }
     }

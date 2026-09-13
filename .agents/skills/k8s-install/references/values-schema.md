@@ -11,7 +11,6 @@ own the schema. `moat k8s init` generates the starting file; review it before ap
 | `proxyIngress` | Wildcard host and target Traefik service in the release namespace. |
 | `proxy.domain` | Matches the preview DNS suffix. |
 | `postgres.enabled` | False requires an external `DATABASE_URL`; true uses the bundled Postgres. |
-| `redis.enabled` | False requires `redis.url` or `redis.urlSecretKey`; set the latter to `REDIS_URL` to use the app Secret. True uses bundled Redis. |
 | `externalSecrets.enabled`, `externalSecrets.secretName` | Reference the prepared app Secret. |
 | `kubernetes.sandboxStorage` | Match the compute substrate, StorageClass, and namespace. |
 

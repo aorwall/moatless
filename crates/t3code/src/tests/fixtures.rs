@@ -605,7 +605,7 @@ pub(super) fn state_with_attachments(attachments: Arc<dyn ports::AttachmentStore
             workspaces: Arc::new(MockT3WorkspaceDao::new()),
             ports: Arc::new(UnreachableSandboxes),
             preview: PreviewState {
-                tabs: Arc::new(preview_tabs::InMemoryPreviewTabDao::new()),
+                tabs: Arc::new(preview_tabs::PreviewTabs::new(preview_tabs::PreviewTabTtl(std::time::Duration::from_hours(1)))),
                 tasks: Arc::new(MockT3TaskDao::new()),
             },
         },
@@ -623,7 +623,7 @@ pub(super) fn state_with_attachments(attachments: Arc<dyn ports::AttachmentStore
             conversations,
         },
         preview: PreviewState {
-            tabs: Arc::new(preview_tabs::InMemoryPreviewTabDao::new()),
+            tabs: Arc::new(preview_tabs::PreviewTabs::new(preview_tabs::PreviewTabTtl(std::time::Duration::from_hours(1)))),
             tasks: Arc::new(MockT3TaskDao::new()),
         },
         agents: Arc::new(StubAgents),

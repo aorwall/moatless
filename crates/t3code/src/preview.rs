@@ -15,14 +15,14 @@ use chrono::Utc;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use crate::preview_tabs::{PreviewTab, PreviewTabDao, PreviewTabError};
+use crate::preview_tabs::{PreviewTab, PreviewTabs};
 use crate::task_dao::T3TaskDao;
 use moatless_types::access_control::ScopeContext;
 
 /// Everything the `preview.*` handlers need.
 #[derive(Clone)]
 pub struct PreviewState {
-    pub tabs: Arc<dyn PreviewTabDao>,
+    pub tabs: Arc<PreviewTabs>,
     pub tasks: Arc<dyn T3TaskDao>,
 }
 
@@ -39,8 +39,6 @@ pub enum PreviewError {
     UnknownTab { thread_id: String, tab_id: String },
     #[error("the request did not carry the fields the contract requires")]
     Malformed(&'static str),
-    #[error("the preview tab store could not be reached")]
-    Store(#[from] PreviewTabError),
     #[error("the task could not be read")]
     Database(#[source] sqlx::Error),
 }
@@ -121,7 +119,7 @@ async fn commit(
     tab: PreviewTab,
     event_type: &str,
 ) -> Result<Value, PreviewError> {
-    let revision = state.tabs.put(&tab).await?;
+    let revision = state.tabs.put(&tab);
     let rendered = snapshot(&tab);
     let event = json!({
         "type": event_type,
@@ -132,9 +130,7 @@ async fn commit(
         "revision": revision,
         "snapshot": rendered,
     });
-    if let Err(error) = state.tabs.publish(event).await {
-        tracing::warn!(%error, tab_id = %tab.tab_id, "A preview event was not published");
-    }
+    state.tabs.publish(event);
     Ok(rendered)
 }
 
@@ -182,11 +178,7 @@ pub async fn open_at(
     url: &str,
 ) -> Result<Value, PreviewError> {
     authorize(state, viewer, task_id).await?;
-    let viewport = state
-        .tabs
-        .get(task_id, tab_id)
-        .await?
-        .and_then(|tab| tab.viewport);
+    let viewport = state.tabs.get(task_id, tab_id).and_then(|tab| tab.viewport);
     commit(
         state,
         PreviewTab {
@@ -301,7 +293,7 @@ pub async fn close(
         .and_then(Value::as_str)
         .filter(|id| !id.is_empty());
     authorize(state, viewer, task_id).await?;
-    let removal = state.tabs.remove(task_id, tab_id).await?;
+    let removal = state.tabs.remove(task_id, tab_id);
     let created_at = Utc::now().to_rfc3339();
     for tab_id in removal.tab_ids {
         // One event per tab, all at the revision the close landed at. The
@@ -315,9 +307,7 @@ pub async fn close(
             "serverEpoch": state.tabs.epoch(),
             "revision": removal.revision,
         });
-        if let Err(error) = state.tabs.publish(event).await {
-            tracing::warn!(%error, tab_id, "A preview close event was not published");
-        }
+        state.tabs.publish(event);
     }
     Ok(())
 }
@@ -334,7 +324,7 @@ pub async fn list(
 ) -> Result<Value, PreviewError> {
     let task_id = thread_id(payload)?;
     authorize(state, viewer, task_id).await?;
-    let listing = state.tabs.list(task_id).await?;
+    let listing = state.tabs.list(task_id);
     Ok(json!({
         "sessions": listing.tabs.iter().map(snapshot).collect::<Vec<_>>(),
         "serverEpoch": state.tabs.epoch(),
@@ -350,7 +340,6 @@ async fn require_tab(
     state
         .tabs
         .get(task_id, tab_id)
-        .await?
         .ok_or_else(|| PreviewError::UnknownTab {
             thread_id: task_id.to_string(),
             tab_id: tab_id.to_string(),
@@ -376,7 +365,7 @@ pub fn typed_error(error: &PreviewError) -> Option<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::preview_tabs::InMemoryPreviewTabDao;
+    use crate::preview_tabs::{PreviewTabTtl, PreviewTabs};
     use crate::task_dao::{MockT3TaskDao, TaskView};
 
     fn viewer() -> ScopeContext {
@@ -407,7 +396,7 @@ mod tests {
 
     fn state(readable: Option<&'static str>) -> PreviewState {
         PreviewState {
-            tabs: Arc::new(InMemoryPreviewTabDao::new()),
+            tabs: Arc::new(PreviewTabs::new(PreviewTabTtl(std::time::Duration::from_hours(1)))),
             tasks: tasks_readable(readable),
         }
     }

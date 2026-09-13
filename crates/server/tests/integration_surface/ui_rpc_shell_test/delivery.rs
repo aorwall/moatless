@@ -157,7 +157,7 @@ async fn a_caught_up_watcher_is_told_nothing(pool: PgPool) {
     one_row(&pool, &mut feed, &viewer).await;
 
     // Re-delivering the same event changes no row, so nothing is recorded and
-    // nothing is sent: the Redis consumer re-applies every event the ingress
+    // nothing is sent: the dispatcher re-applies every event the ingress
     // already committed, and a client that saw one row per re-application would
     // see the sidebar move for work that had already finished.
     ingress(&pool, "t-live", turn, "agent", "completed").await;

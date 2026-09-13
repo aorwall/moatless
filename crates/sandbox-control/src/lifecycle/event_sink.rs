@@ -1,6 +1,6 @@
 //! [`LifecycleEventSink`] over the commit-before-publication path.
 //!
-//! Publishes a derived lifecycle event to Redis under its deterministic id.
+//! Publishes a derived lifecycle event to the feed under its deterministic id.
 //! Completion facts are already committed to `task_events` by
 //! [`super::dao::LifecycleDao::commit_fact_and_clear_marker`], so they publish
 //! with `payload_persisted = true`; other facts are persisted by the event
@@ -18,7 +18,7 @@ use super::orchestrator::LifecycleEventSink;
 use moatless_sandbox_runtime::operation::{ObservedStatus, OperationGeneration};
 use moatless_sandbox_runtime::outcome::Diagnostics;
 
-/// Publishes lifecycle events through the existing Redis publication path.
+/// Publishes lifecycle events through the existing publication path.
 ///
 /// The publisher is optional: with no transport the sink no-ops. Completion
 /// facts stay durable regardless — the store commits them to `task_events`
@@ -58,7 +58,6 @@ impl LifecycleEventSink for OutboxEventSink {
                 None,
                 None,
                 payload,
-                event.persisted_as_completion(),
             )
             .await
         {
@@ -94,7 +93,6 @@ impl LifecycleEventSink for OutboxEventSink {
                             None,
                             None,
                             payload,
-                            false,
                         )
                         .await
                     {
@@ -127,7 +125,6 @@ impl LifecycleEventSink for OutboxEventSink {
                             None,
                             None,
                             payload,
-                            false,
                         )
                         .await
                     {

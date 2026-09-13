@@ -35,8 +35,7 @@ Moatless Rust :8080
   ├─ /api/orchestration/shell      authenticated shell snapshot
   └─ /ws                           authenticated JSON RPC
        │
-       ├─ PostgreSQL
-       └─ Redis
+       └─ PostgreSQL
 
 Moatless UI :3000 is used only to establish the normal local login session.
 ```
@@ -85,7 +84,7 @@ docker compose \
   --env-file .env.t3-rpc.local \
   -f docker-compose/docker-compose.yml \
   -f docker-compose/docker-compose.t3-rpc.yml \
-  up -d --build postgres redis backend frontend
+  up -d --build postgres backend frontend
 ```
 
 The overlay builds `docker/Dockerfile.backend` instead of pulling the published
@@ -256,7 +255,7 @@ docker compose \
   up -d --build backend
 ```
 
-Stop the environment without deleting PostgreSQL or Redis volumes:
+Stop the environment without deleting the PostgreSQL volume:
 
 ```bash
 docker compose \

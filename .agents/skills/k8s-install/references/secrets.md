@@ -11,7 +11,6 @@ Use `secrets list` with the same context/namespace to inspect names, not values.
 | `SECRETS_ENCRYPTION_KEY` | Always; base64 of 32 random bytes. Preserve it for an existing database. |
 | `TASK_TOKEN_SECRET` | Always; task-scoped authentication. |
 | `DATABASE_URL` | External Postgres (`postgres.enabled: false`). |
-| `REDIS_URL` | External Redis with `redis.enabled: false` and `redis.urlSecretKey: REDIS_URL`. |
 | GitHub App client ID/secret | GitHub App login is selected. |
 | Auth0 domain/client ID/client secret | Auth0 login is selected. |
 | Object-store bucket, region and credentials | Selected object-storage configuration requires them; use workload identity when configured. |

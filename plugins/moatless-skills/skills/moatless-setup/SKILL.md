@@ -71,7 +71,7 @@ Bring a fresh Docker Compose or Kubernetes installation to a healthy deployment,
 
 ## Boundaries
 
-- Preserve existing databases, Redis data, object storage, persistent volumes, and namespaces. Require explicit authorization before any purge, volume deletion, or reinstall that discards data.
+- Preserve existing databases, object storage, persistent volumes, and namespaces. Require explicit authorization before any purge, volume deletion, or reinstall that discards data.
 - Keep OIDC client secrets, local passwords, session keys, database credentials, registry tokens, agent credentials, CLI API keys, GitHub PATs, and GitHub App PEM keys out of chat, shell arguments, command output, logs, screenshots, deployment configuration, and commits. Enter secrets only through the intended masked prompt or authenticated browser form.
 - Use one deployment reference per run. Never mix `moat docker` state with Helm or `moat k8s` state.
 - For Kubernetes, pass the named target context to every `moat k8s`, Helm, and kubectl operation. A successful check against the current context does not authorize later commands to rely on it implicitly.

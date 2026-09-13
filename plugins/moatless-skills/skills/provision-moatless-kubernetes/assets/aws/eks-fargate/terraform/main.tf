@@ -2,7 +2,6 @@ locals {
   private_subnets     = [for index in range(2) : cidrsubnet(var.vpc_cidr, 4, index)]
   public_subnets      = [for index in range(2) : cidrsubnet(var.vpc_cidr, 8, index + 128)]
   database_subnets    = [for index in range(2) : cidrsubnet(var.vpc_cidr, 8, index + 160)]
-  elasticache_subnets = [for index in range(2) : cidrsubnet(var.vpc_cidr, 8, index + 192)]
 }
 
 data "aws_caller_identity" "current" {}
@@ -22,14 +21,12 @@ module "vpc" {
   private_subnets     = local.private_subnets
   public_subnets      = local.public_subnets
   database_subnets    = local.database_subnets
-  elasticache_subnets = local.elasticache_subnets
 
   enable_nat_gateway              = true
   single_nat_gateway              = true
   enable_dns_hostnames            = true
   enable_dns_support              = true
   create_database_subnet_group    = true
-  create_elasticache_subnet_group = true
 
   public_subnet_tags = {
     "kubernetes.io/role/elb" = "1"
@@ -118,20 +115,6 @@ resource "aws_vpc_security_group_ingress_rule" "database_from_backend" {
   ip_protocol                  = "tcp"
 }
 
-resource "aws_security_group" "cache" {
-  name        = "${var.deployment}-cache"
-  description = "Valkey from Moatless backend pods"
-  vpc_id      = module.vpc.vpc_id
-}
-
-resource "aws_vpc_security_group_ingress_rule" "cache_from_backend" {
-  security_group_id            = aws_security_group.cache.id
-  referenced_security_group_id = aws_security_group.backend.id
-  from_port                    = 6379
-  to_port                      = 6379
-  ip_protocol                  = "tcp"
-}
-
 resource "aws_db_instance" "this" {
   identifier                  = var.deployment
   engine                      = "postgres"
@@ -153,22 +136,6 @@ resource "aws_db_instance" "this" {
   final_snapshot_identifier   = "${var.deployment}-final"
   deletion_protection         = false
   apply_immediately           = true
-}
-
-resource "aws_elasticache_replication_group" "this" {
-  replication_group_id       = var.deployment
-  description                = "Moatless Valkey cache"
-  engine                     = "valkey"
-  engine_version             = "8.2"
-  node_type                  = "cache.t4g.micro"
-  num_cache_clusters         = 1
-  port                       = 6379
-  transit_encryption_enabled = true
-  at_rest_encryption_enabled = true
-  automatic_failover_enabled = false
-  subnet_group_name          = module.vpc.elasticache_subnet_group_name
-  security_group_ids         = [aws_security_group.cache.id]
-  apply_immediately          = true
 }
 
 resource "aws_acm_certificate" "this" {

@@ -58,7 +58,7 @@ moatless-types = { workspace = true }
 # Root-supervision primitives shared with the backend
 moatless-supervisor = { workspace = true }
 
-# gRPC (backend communication — replaces Redis + HTTP polling)
+# gRPC (backend communication — replaces HTTP polling)
 sandbox-proto = { workspace = true }
 tonic = { workspace = true }
 tokio-stream = "0.1"

@@ -83,7 +83,6 @@ pub(crate) async fn ui_rpc(
             starter: app_state.sandbox.clone(),
             stopper: app_state.sandbox.clone(),
             operator: app_state.sandbox.clone(),
-            redis_url: config.redis.url.clone(),
             preview_tab_ttl: moatless_t3code::preview_tabs::PreviewTabTtl(
                 std::time::Duration::from_secs(config.sandbox.idle_timeout_minutes * 60),
             ),

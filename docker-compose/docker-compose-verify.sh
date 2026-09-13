@@ -50,18 +50,6 @@ else
     echo "   Troubleshooting: $DOCKER_COMPOSE -f "$COMPOSE_FILE" --env-file ../.env logs postgres"
 fi
 
-# Check Redis
-echo ""
-echo "🔴 Redis health..."
-TOTAL_COUNT=$((TOTAL_COUNT + 1))
-if $DOCKER_COMPOSE -f "$COMPOSE_FILE" --env-file ../.env exec -T redis redis-cli ping 2>/dev/null | grep -q PONG; then
-    echo "   ✅ Redis is healthy"
-    HEALTHY_COUNT=$((HEALTHY_COUNT + 1))
-else
-    echo "   ❌ Redis is not responding"
-    echo "   Troubleshooting: $DOCKER_COMPOSE -f "$COMPOSE_FILE" --env-file ../.env logs redis"
-fi
-
 # Check Backend
 echo ""
 echo "🖥️  Backend health..."
@@ -116,14 +104,16 @@ else
     echo "   ❌ Database connection failed"
 fi
 
-# Check Redis streams
+# Check the task-event feed
 echo ""
-echo "📊 Redis event streams..."
-STREAM_INFO=$($DOCKER_COMPOSE -f "$COMPOSE_FILE" --env-file ../.env exec -T redis redis-cli INFO keyspace 2>/dev/null || echo "")
-if [ -n "$STREAM_INFO" ]; then
-    echo "   ✅ Redis is configured for event streaming"
+echo "📊 Task event feed..."
+FEED_INFO=$($DOCKER_COMPOSE -f "$COMPOSE_FILE" --env-file ../.env exec -T postgres \
+    psql -U "${POSTGRES_USER:-moatless}" -d "${POSTGRES_DB:-moatless}" -tAc \
+    "SELECT position FROM task_event_position" 2>/dev/null || echo "")
+if [ -n "$FEED_INFO" ]; then
+    echo "   ✅ Event feed is at position $FEED_INFO"
 else
-    echo "   ℹ️  No active event streams (will be created when tasks run)"
+    echo "   ❌ Event feed table is missing (migrations may not have run)"
 fi
 
 # Summary

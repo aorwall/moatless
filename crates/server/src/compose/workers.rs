@@ -25,34 +25,16 @@ pub(crate) fn leader(
     Arc::new(sandbox::k8s::leader_election::K8sLeaderGuard(election))
 }
 
-pub(crate) async fn event_connection(config: &Config) -> Option<redis::aio::ConnectionManager> {
-    if !config.redis.event_handler_enabled {
-        info!("Event handler consumer disabled (EVENT_HANDLER_ENABLED=false)");
-        return None;
+/// Whether this process runs the fleet's event handler.
+///
+/// A shadow backend sets `EVENT_HANDLER_ENABLED=false` and shares the primary's
+/// database, so the primary dispatches on its behalf.
+pub(crate) fn event_handler_enabled(config: &Config) -> bool {
+    if !config.event_handler_enabled {
+        info!("Event dispatcher disabled (EVENT_HANDLER_ENABLED=false)");
+        return false;
     }
-    let redis_url = config.redis.url.as_ref()?;
-
-    let client = match redis::Client::open(redis_url.as_str()) {
-        Ok(c) => c,
-        Err(e) => {
-            tracing::warn!(error = %e, "Failed to create Redis client for event handler");
-            return None;
-        }
-    };
-    let conn = match redis::aio::ConnectionManager::new_with_config(
-        client,
-        moatless_core::events::redis_manager_config(),
-    )
-    .await
-    {
-        Ok(c) => c,
-        Err(e) => {
-            tracing::warn!(error = %e, "Failed to connect Redis for event handler");
-            return None;
-        }
-    };
-
-    Some(conn)
+    true
 }
 
 pub(crate) fn task_reaper(

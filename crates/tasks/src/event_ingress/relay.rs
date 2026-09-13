@@ -2,7 +2,7 @@
 //!
 //! On the healthy path the consumer commits `task_messages` and deletes the
 //! record before the relay ever sees it. The relay exists for the other path —
-//! a failed publish, a Redis outage, a dead consumer — and re-publishes
+//! a failed publish, a database outage, a dead consumer — and re-publishes
 //! unconfirmed records until one lands.
 //!
 //! **Only confirmed delivery deletes a record**, via
@@ -75,8 +75,9 @@ impl IngressRelay {
         let mut pass = RelayPass::default();
         for record in due {
             let payload = record.payload;
-            // `false`: the consumer rebuilds `task_messages` from this payload,
-            // so it must go out whole even though a durable copy exists.
+            // Re-publishing under the admitted `event_id` is what makes this
+            // safe to repeat: the feed dedups on it, so a delivery that did
+            // land is not replayed to clients a second time.
             let published = self
                 .publisher
                 .publish_raw_event_with_id(
@@ -87,7 +88,6 @@ impl IngressRelay {
                     None,
                     payload.turn_number,
                     payload.payload,
-                    false,
                 )
                 .await;
 

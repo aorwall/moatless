@@ -27,9 +27,6 @@ moatless-s3 = { workspace = true }
 # Database
 sqlx = { workspace = true, features = ["runtime-tokio", "tls-rustls", "postgres", "json", "chrono", "uuid", "migrate"] }
 
-# Redis (event stream reconnect)
-redis = { workspace = true, features = ["tokio-rustls-comp", "connection-manager"] }
-
 # UUID + timestamps
 uuid = { workspace = true, features = ["v4", "v5", "serde"] }
 chrono = { workspace = true, features = ["serde"] }

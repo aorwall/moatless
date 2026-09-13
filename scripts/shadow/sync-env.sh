@@ -84,16 +84,12 @@ SYNCED_ENV="$(printf '%s' "$DEPLOY_JSON" | CONTAINER="$CONTAINER" SECRET_DIR="$S
   printf '%s\n' "$SYNCED_ENV"
 
   # ---- Dev-only overrides (keep the shadow from stepping on the real backend) ----
-  ID="shadow-$(hostname | tr -cd 'a-z0-9-' | cut -c1-32)"
   echo "# --- shadow overrides ---"
-  # Distinct Redis consumer group/id so we do NOT steal stream events from the
-  # real backend's consumer group (SSE + the generic Redis consumer honour these).
-  echo "export REDIS_CONSUMER_GROUP='${ID}'"
-  echo "export REDIS_CONSUMER_ID='${ID}'"
-  # The event-handler consumer group is a shared constant ("event-handler"), NOT
-  # derived from REDIS_CONSUMER_GROUP — a shadow joining it would split the real
-  # backend's event-handler workload (webhook->task triggers, message routing).
-  # A shadow is a dev/API instance and must not act on the global event stream.
+  # Every replica claims off one shared dispatch queue, so a shadow joining it
+  # would split the real backend's event-handler workload (webhook->task
+  # triggers, message routing). A shadow is a dev/API instance and must not act
+  # on the global event stream. Its SSE feed needs no fencing: that cursor is
+  # per-process and in memory, so it reads the feed without claiming from it.
   echo "export EVENT_HANDLER_ENABLED='false'"
   # Don't let the shadow's idle reaper stop/delete real sandboxes if it ever wins
   # the (leader-elected) reaper lease. Also skip the reconcile pass it hosts.

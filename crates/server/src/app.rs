@@ -104,18 +104,18 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
             async move { github_apps.carry_over_env_apps(&entries).await }
         });
     }
-    let event_publisher = crate::compose::infrastructure::init_event_publisher(&config).await;
-    let (sse_state, sse_consumer) = startup::init_sse(
+    let event_publisher = crate::compose::infrastructure::init_event_publisher(db_pool.as_ref());
+    let (sse_state, sse_feed) = startup::init_sse(
         &config,
+        db_pool.clone(),
         ports
             .as_ref()
             .map(|p| p.task_reader.clone() as Arc<dyn moatless_ports::task::TaskReader>),
         cancel.clone(),
-    )
-    .await?;
-    if let Some(handle) = sse_consumer {
+    );
+    if let Some(handle) = sse_feed {
         supervisor.supervise(
-            "sse-redis-consumer",
+            "sse-event-feed",
             // Readiness: without it the live SSE tail silently stops, so this
             // replica must stop receiving traffic.
             Criticality::Readiness,
@@ -208,13 +208,13 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
                 "Container lifecycle watcher spawned"
             );
         } else {
-            info!("Container lifecycle watcher disabled (requires Redis)");
+            info!("Container lifecycle watcher disabled (requires a database)");
         }
     }
 
     // Spawn the K8s pod lifecycle watcher now that the DB repos exist. Only runs
     // in K8s mode (reaper_k8s is None under Docker) and when an event publisher
-    // (Redis) is available.
+    // is available.
     match (reaper_k8s.as_ref(), event_publisher.as_ref()) {
         (Some(k8s), Some(publisher)) => {
             supervisor.supervise(
@@ -236,7 +236,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
                 "Pod lifecycle watcher spawned"
             );
         }
-        (Some(_), None) => info!("Pod lifecycle watcher disabled (requires Redis)"),
+        (Some(_), None) => info!("Pod lifecycle watcher disabled (requires a database)"),
         (None, _) => {} // Docker mode — container watcher already spawned above
     }
 
@@ -314,26 +314,15 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         {
             router = router.merge(t3code.router);
             startup_scripts = Some(t3code.startup_scripts);
-            if let Some(handle) = t3code.preview_events {
-                supervisor.supervise(
-                    "preview-event-subscriber",
-                    // Optional: without it this replica still serves every tab
-                    // read and write, and only stops hearing about tabs opened
-                    // on the other replica.
-                    Criticality::Optional,
-                    handle,
-                );
-            }
             device_pairing = true;
         }
         info!("Domain routes registered");
 
-        // Readiness probe — reports Redis connectivity and the root
-        // supervisor's view of readiness-critical background tasks, plus
-        // whether the main database pool can still serve work promptly.
+        // Readiness probe — reports the root supervisor's view of
+        // readiness-critical background tasks, plus whether the main database
+        // pool can still serve work promptly.
         router = router.merge(startup::readiness_router(
             Some(app_state.db.clone()),
-            app_state.events.clone(),
             supervisor.health(),
         ));
 
@@ -377,7 +366,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
         let event_subscribers = Arc::new(subscribers);
         if let Some(handle) =
-            spawn_event_handler(&config, &app_state, event_subscribers, cancel.clone()).await
+            spawn_event_handler(&config, &app_state, event_subscribers, cancel.clone())
         {
             supervisor.supervise(
                 "event-handler-consumer",
@@ -412,6 +401,15 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
                 app_state.db.clone(),
                 cancel.clone(),
             ),
+        );
+
+        // The same job for the event feed, Optional for the same reason: it
+        // skips anything the dispatcher has not cleared, so falling behind
+        // costs disk and never an event.
+        supervisor.supervise(
+            "task-event-pruner",
+            Criticality::Optional,
+            event_handler::spawn_change_pruner(app_state.db.clone(), cancel.clone()),
         );
 
         // Durable Adapter delivery. Webhook handlers admit into
@@ -631,26 +629,23 @@ fn spawn_ingress_relay(
 // Small private helpers (kept in main to avoid over-abstracting)
 // =========================================================================
 
-/// Spawn the Redis event-handler consumer if Redis is configured.
+/// Spawn the fleet's event dispatcher, unless this process is a shadow.
 ///
-/// `None` means no consumer started, whether the feature is off or Redis is
-/// unreachable at startup, so there is nothing for the supervisor to own.
-async fn spawn_event_handler(
+/// `None` means nothing started, so there is nothing for the supervisor to own.
+fn spawn_event_handler(
     config: &Config,
     app_state: &AppState,
     subscribers: Arc<TaskEventSubscribers>,
     cancel: CancellationToken,
 ) -> Option<tokio::task::JoinHandle<()>> {
-    let conn = crate::compose::workers::event_connection(config).await?;
-
+    if !crate::compose::workers::event_handler_enabled(config) {
+        return None;
+    }
     let state = app_state.clone();
     let handle = tokio::spawn(event_handler::spawn_event_handler(
-        conn,
-        state,
-        subscribers,
-        cancel,
+        state, subscribers, cancel,
     ));
-    info!("Event handler consumer spawned");
+    info!("Event dispatcher spawned");
     Some(handle)
 }
 

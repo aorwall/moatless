@@ -540,32 +540,11 @@ pub struct ProxyConfig {
     pub traefik_ingress_namespaces: Vec<String>,
 }
 
-/// Redis connection and stream settings.
-#[derive(Debug, Clone)]
-pub struct RedisConfig {
-    /// Redis connection URL. When set, enables event publishing and SSE
-    /// consumers.
-    pub url: Option<String>,
-    /// Maximum stream length for MAXLEN ~ trimming (default: 500).
-    ///
-    /// Sized for the live SSE tail; history lives in `task_events` in Postgres.
-    /// Bounds entry count only — per-entry bytes are capped in `events.rs`.
-    pub max_stream_length: usize,
-    /// Whether the event-handler consumer runs (default: true).
-    ///
-    /// Its Redis consumer group is a shared constant (`event-handler`), so a
-    /// second backend on the same Redis splits its workload — set
-    /// `EVENT_HANDLER_ENABLED=false` on a shadow/dev backend sharing it.
-    pub event_handler_enabled: bool,
-}
-
 /// SSE (Server-Sent Events) settings.
 #[derive(Debug, Clone)]
 pub struct SseConfig {
     /// Broadcast buffer capacity for SSE fan-out (default: 4096)
     pub broadcast_capacity: usize,
-    /// Consumer ID for the SSE Redis consumer group (default: "sse-{HOSTNAME}")
-    pub consumer_id: String,
 }
 
 /// S3 / file storage settings.
@@ -761,7 +740,12 @@ pub struct Config {
     /// PostgreSQL connection URL. When set, enables DB-backed features.
     pub database_url: Option<String>,
     pub database: DatabaseConfig,
-    pub redis: RedisConfig,
+    /// Whether this process runs the fleet's event dispatcher (default: true).
+    ///
+    /// Every replica claims off one shared queue, so a second backend on the
+    /// same database splits the fleet's workload — set
+    /// `EVENT_HANDLER_ENABLED=false` on a shadow/dev backend sharing it.
+    pub event_handler_enabled: bool,
     pub sse: SseConfig,
     pub auth: AuthConfig,
     pub s3: S3Config,
@@ -951,18 +935,10 @@ impl Config {
                 run_migrations: env_bool("RUN_MIGRATIONS", true),
             },
 
-            redis: RedisConfig {
-                url: env_opt("REDIS_URL"),
-                max_stream_length: env_or("REDIS_MAX_STREAM_LENGTH", 500),
-                event_handler_enabled: env_bool("EVENT_HANDLER_ENABLED", true),
-            },
+            event_handler_enabled: env_bool("EVENT_HANDLER_ENABLED", true),
 
             sse: SseConfig {
                 broadcast_capacity: env_or("SSE_BROADCAST_CAPACITY", 4096),
-                consumer_id: env::var("SSE_CONSUMER_ID").unwrap_or_else(|_| {
-                    let hostname = env_str("HOSTNAME", "local");
-                    format!("sse-{hostname}")
-                }),
             },
 
             auth: AuthConfig {
@@ -1385,14 +1361,9 @@ impl Config {
                 max_connections: 5,
                 run_migrations: true,
             },
-            redis: RedisConfig {
-                url: None,
-                max_stream_length: 100,
-                event_handler_enabled: true,
-            },
+            event_handler_enabled: true,
             sse: SseConfig {
                 broadcast_capacity: 16,
-                consumer_id: "test".into(),
             },
             auth: AuthConfig {
                 provider: AuthProvider::Local,

@@ -184,7 +184,7 @@ only pod-level failures are treated as dead.
   stops with `lifecycle_event: "idle_reaped"` so the UI can say
   "Stopped (idle)".
 
-Events flow: watcher → Redis Streams → SSE (frontend) + event handler
+Events flow: watcher → task-event feed → SSE (frontend) + event handler
 (DB `task_events`, channel adapters).
 
 ### Lifecycle failure facts

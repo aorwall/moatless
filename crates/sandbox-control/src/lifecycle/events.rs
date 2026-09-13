@@ -87,15 +87,6 @@ impl LifecycleEvent {
         matches!(self.fact, EventFact::Error | EventFact::RecoveryExhausted)
     }
 
-    /// Whether the store's completion transaction persists this fact.
-    ///
-    /// `Stopped`/`Removed` commit to `task_events` before publication (so
-    /// `payload_persisted = true`); other facts are persisted by the event
-    /// consumer.
-    pub fn persisted_as_completion(&self) -> bool {
-        matches!(self.fact, EventFact::Stopped | EventFact::Removed)
-    }
-
     /// The typed payload published and persisted for this event.
     ///
     /// A `Stopped` completion carries its reason tag; a failure fact carries
@@ -678,15 +669,8 @@ mod tests {
     }
 
     #[test]
-    fn completion_facts_are_marked_persisted_others_are_not() {
-        assert!(built(EventFact::Stopped, None).persisted_as_completion());
-        assert!(built(EventFact::Removed, None).persisted_as_completion());
-        assert!(!built(EventFact::Removing, None).persisted_as_completion());
-        assert!(!built(EventFact::Initializing, None).persisted_as_completion());
-        assert!(!built(EventFact::Error, None).persisted_as_completion());
-        assert!(!built(EventFact::RecoveryExhausted, None).persisted_as_completion());
-        // sub_type mirrors the SandboxStatus slug; the failure facts are the
-        // only is_error ones.
+    fn only_the_failure_facts_are_errors() {
+        // sub_type mirrors the SandboxStatus slug.
         assert_eq!(built(EventFact::Removed, None).sub_type(), "removed");
         assert!(built(EventFact::Error, None).is_error());
         assert!(built(EventFact::RecoveryExhausted, None).is_error());

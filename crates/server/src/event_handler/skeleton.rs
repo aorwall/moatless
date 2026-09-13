@@ -3,7 +3,7 @@
 //!
 //! A Message's content is written once, to the conversation. The full
 //! `agent.message` content is a **transient ingestion payload**: the Sandbox
-//! emits it to the Redis stream, the event-handler consumer reads it once to
+//! emits it to the event feed, the event-handler dispatcher reads it once to
 //! build the conversation, and it is never persisted at all — `task_events` is
 //! lifecycle-only and holds no message row, skeleton or otherwise. This
 //! projection produces the small metadata form that *is* relayed to clients:
@@ -17,7 +17,7 @@
 //! files-invalidation reaction reads (a field, not content).
 //!
 //! It is applied wherever the event is broadcast to clients, and **nowhere** on
-//! the Redis ingestion path the consumer reads to build the conversation.
+//! the ingestion path the dispatcher reads to build the conversation.
 
 use moatless_tasks::agent_event::is_agent_message;
 use serde_json::{Value, json};

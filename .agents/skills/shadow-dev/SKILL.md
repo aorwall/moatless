@@ -6,7 +6,7 @@ description: "Run and rebuild the Moatless backend and frontend inside a sandbox
 # Shadow development
 
 The shadow runs `moatless-backend` on port 8080 through
-[up.sh](../../../scripts/shadow/up.sh). It shares development Postgres, Redis, and
+[up.sh](../../../scripts/shadow/up.sh). It shares development Postgres and
 object storage. Use a dedicated workspace so normal repository tasks do not start
 an extra backend or inherit its elevated service account.
 
@@ -62,9 +62,9 @@ Frontend changes hot-reload. Read bounded backend logs for build errors; run
 Rust verification commands before calling a code change complete.
 
 [sync-env.sh](../../../scripts/shadow/sync-env.sh) imports deployment configuration
-and applies the isolation settings: distinct Redis consumer identity, disabled
-event handler, idle reaper, reconciliation actions, cron scheduler, Codex refresh,
-and migrations. It also adds localhost/127.0.0.1 port 5733 browser origins.
+and applies the isolation settings: disabled event handler, idle reaper,
+reconciliation actions, cron scheduler, Codex refresh, and migrations. It also
+adds localhost/127.0.0.1 port 5733 browser origins.
 These settings do not make shared database writes private.
 
 Additional overrides go in `/opt/moatless/data/shadow/overrides.env` as sourceable

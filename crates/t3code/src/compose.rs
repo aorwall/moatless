@@ -33,7 +33,6 @@ use moatless_types::auth::AllowedOrigin;
 use sandbox_proto::client::SandboxConnector;
 use std::env;
 use std::sync::Arc;
-use tokio::task::JoinHandle;
 use tracing::info;
 
 /// Read `T3_UI_RPC_ENABLED` and `T3_UI_RPC_ALLOWED_ORIGINS`, and [`mount`] the
@@ -80,7 +79,6 @@ pub async fn mount(
         starter,
         stopper,
         operator,
-        redis_url,
         preview_tab_ttl,
         model_defaults,
         agents,
@@ -116,12 +114,10 @@ pub async fn mount(
         client_traces_endpoint = client_traces.endpoint().unwrap_or("(none)"),
         "T3 UI RPC compatibility routes registered"
     );
-    let (tabs, preview_events) =
-        crate::preview_tabs::build(redis_url.as_deref(), preview_tab_ttl).await;
     // Built before the state literal because two of its fields hold it: a
     // Script with a port opens its own preview tab (`scripts::run`).
     let preview = PreviewState {
-        tabs,
+        tabs: Arc::new(crate::preview_tabs::PreviewTabs::new(preview_tab_ttl)),
         tasks: reads.tasks_arc(),
     };
     // Both held outside the state literal because the startup runner is handed
@@ -186,7 +182,6 @@ pub async fn mount(
     Ok(UiRpc {
         router,
         startup_scripts,
-        preview_events,
     })
 }
 
@@ -240,9 +235,6 @@ impl T3Graph {
 pub struct UiRpc {
     pub router: Router,
     pub startup_scripts: StartupScripts,
-    /// The preview-tab subscriber, for the root supervisor to own. `None` where
-    /// the tabs are held in this process and publish onto their own broadcast.
-    pub preview_events: Option<JoinHandle<()>>,
 }
 
 /// Everything the T3 compatibility routes need from the rest of the backend.
@@ -282,9 +274,6 @@ pub struct UiRpcDependencies {
     /// Restarts, redeploys and cleans up a Task's Sandbox, through the same
     /// lifecycle path as the REST API.
     pub operator: Arc<dyn SandboxOperator>,
-    /// Where preview tabs are shared across replicas. `None` holds them in this
-    /// process only.
-    pub redis_url: Option<String>,
     /// How long a Task's tabs outlive their last write.
     pub preview_tab_ttl: PreviewTabTtl,
     pub model_defaults: AgentModelDefaults,

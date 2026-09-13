@@ -22,7 +22,7 @@ Resume the failed phase. Do not delete retained data or create a second deployme
 - CoreDNS pending: confirm the `kube-system` Fargate profile and that CoreDNS is configured for Fargate compute.
 - Fargate pod pending: describe it and inspect resource combinations, namespace profile selection, subnet IP capacity, and Pod execution role events.
 - AWS Load Balancer Controller failure: inspect its service-account role annotation and controller logs before changing IAM.
-- Backend cannot reach RDS/Valkey: confirm the backend `SecurityGroupPolicy` selected the backend label and contains both the EKS cluster security group and backend security group.
+- Backend cannot reach RDS: confirm the backend `SecurityGroupPolicy` selected the backend label and contains both the EKS cluster security group and backend security group.
 
 ## Moatless install
 

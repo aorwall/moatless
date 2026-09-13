@@ -5,7 +5,7 @@ set -euo pipefail
 # the E2E suites in tests/api / tests/ui inside the e2e container, under the
 # `docker` profile.
 #
-#   build backend (+ frontend for ui/all) → start postgres/redis/backend[/frontend]
+#   build backend (+ frontend for ui/all) → start postgres/backend[/frontend]
 #   → wait for /health → docker compose run e2e → tear down
 #
 # The Playwright suites talk to the backend/frontend over the compose network,
@@ -131,7 +131,7 @@ COMPOSE_FILES="-f docker-compose/docker-compose.yml -f docker-compose/docker-com
 
 needs_frontend() { [[ "$SUITE" == "ui" || "$SUITE" == "all" ]]; }
 
-CORE_SERVICES="postgres redis backend"
+CORE_SERVICES="postgres backend"
 needs_frontend && CORE_SERVICES="$CORE_SERVICES frontend"
 
 # ── Build phase ────────────────────────────────────────────────────────────
@@ -166,7 +166,7 @@ fi
 # ── Cleanup ────────────────────────────────────────────────────────────────
 echo -e "${BLUE}=== Cleaning up previous run ===${NC}"
 docker compose $COMPOSE_FILES down --remove-orphans 2>/dev/null || true
-docker volume rm docker-compose_postgres_data docker-compose_redis_data 2>/dev/null || true
+docker volume rm docker-compose_postgres_data 2>/dev/null || true
 
 # ── Start phase ────────────────────────────────────────────────────────────
 echo -e "${BLUE}=== Starting stack: $CORE_SERVICES ===${NC}"
@@ -222,7 +222,7 @@ if [ "$KEEP_RUNNING" = true ]; then
 else
   echo -e "${BLUE}=== Tearing down ===${NC}"
   docker compose $COMPOSE_FILES down --remove-orphans 2>/dev/null || true
-  docker volume rm docker-compose_postgres_data docker-compose_redis_data 2>/dev/null || true
+  docker volume rm docker-compose_postgres_data 2>/dev/null || true
 fi
 
 if [ $TEST_EXIT_CODE -eq 0 ]; then

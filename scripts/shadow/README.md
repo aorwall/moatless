@@ -10,7 +10,7 @@ rest.
 
 | mirrord capability | Native equivalent here |
 | --- | --- |
-| Outgoing traffic + DNS (reach Postgres, `moatless-vibe-redis-replicas:6379`, K8s API, sandbox ClusterIPs) | **Free** — the sandbox is on the pod network already |
+| Outgoing traffic + DNS (reach Postgres, K8s API, sandbox ClusterIPs) | **Free** — the sandbox is on the pod network already |
 | Env / secret sync from the target | `sync-env.sh` reads the live `moatless-vibe-backend` Deployment env + resolves `moatless-secrets` |
 | Copy the target's ServiceAccount token (RBAC to create pods) | Helm `shadowDev` toggle (`templates/shadow-dev-rbac.yaml`) binds a `moatless-dev` SA to the backend's existing Roles |
 | Steal incoming traffic | Not needed for the frontend (vite proxies `/api` → `localhost:8080`); for sandbox gRPC callbacks the backend self-advertises its address (Phase 3) |
@@ -103,15 +103,13 @@ bash scripts/shadow/up.sh          # sync env -> build -> run backend on :8080, 
 - **Rebuild loop:** edit code, then `bash scripts/shadow/rebuild.sh`. `up.sh`
   watches a trigger file on the shared workspace and restarts the binary.
   Frontend edits hot-reload on their own.
-- **Isolation:** the shadow shares the dev Redis, so `sync-env.sh` fences off
+- **Isolation:** the shadow shares the dev Postgres, so `sync-env.sh` fences off
   every shared-state consumer it would otherwise contend on:
-  - `REDIS_CONSUMER_GROUP`/`REDIS_CONSUMER_ID` → `shadow-<host>` so the SSE and
-    generic Redis consumers don't steal the real backend's stream events.
-  - `EVENT_HANDLER_ENABLED=false` — the event-handler consumer group is a shared
-    constant (`event-handler`), not derived from `REDIS_CONSUMER_GROUP`, so a
-    shadow would otherwise split the real backend's event-handler workload
-    (webhook→task triggers, message routing). A dev shadow must not act on the
-    global event stream.
+  - `EVENT_HANDLER_ENABLED=false` — every replica claims off one shared dispatch
+    queue, so a shadow would otherwise split the real backend's event-handler
+    workload (webhook→task triggers, message routing). A dev shadow must not act
+    on the global event stream. Its SSE feed needs no such flag: that cursor is
+    per-process and in memory, so it reads the feed without claiming from it.
   - `SANDBOX_IDLE_REAPER_ENABLED=false` + `RECONCILE_*_ENABLED=false` so the
     shadow can never stop/delete/reprovision real sandboxes even if it won the
     (leader-elected) reaper lease.

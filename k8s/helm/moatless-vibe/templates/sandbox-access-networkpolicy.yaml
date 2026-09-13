@@ -4,8 +4,8 @@ sandbox can reach the kube-apiserver (and anything else that profile needs,
 e.g. a database).
 
 The base sandbox NetworkPolicy allows external egress as `0.0.0.0/0` minus the
-RFC1918 ranges, and its in-cluster rules cover only kube-dns, the backend and
-Redis. The kube-apiserver ClusterIP (`172.20.0.1` on a default-service-CIDR EKS
+RFC1918 ranges, and its in-cluster rules cover only kube-dns and the backend.
+The kube-apiserver ClusterIP (`172.20.0.1` on a default-service-CIDR EKS
 cluster) falls inside `172.16.0.0/12`, so it is excluded and `kubectl` hangs on
 connect until this policy adds it back. The same goes for an in-VPC database.
 

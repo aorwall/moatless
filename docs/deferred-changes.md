@@ -70,8 +70,7 @@ assertions that pin it are in `.plans/backend-ports-and-crates.md` under Step 5.
 that admits a type: pure data, named by three or more crates other than its
 owner, and neither its body nor its impls name a foreign crate. The crate depends
 on `serde`, `serde_json`, `chrono`, `thiserror`, `tracing`, `url`, `uuid`, and
-optionally `utoipa`, and on nothing else — no `sqlx`, no `axum`, no `reqwest`,
-no `redis`.
+optionally `utoipa`, and on nothing else — no `sqlx`, no `axum`, no `reqwest`.
 That last constraint is what keeps a change to a transport crate from rebuilding
 everything above it.
 
@@ -123,6 +122,11 @@ file.
 | `t3code` reads fifteen tables it does not own | `crates/t3code/src/dao.rs`, `listing/dao.rs`, and `usage/dao.rs` — read projections across `tasks`, `task_messages`, `task_turns`, `task_activities`, `task_follows`, `task_bindings`, `task_message_usage`, `task_message_contexts`, `workspaces`, `workspace_repos`, `users`, and the four listing/conversation change-feed tables. `tooling/arch-rules/src/table_ownership.rs::allowed` admits any read from `moatless-t3code`, hardcoded, and checks no write | When one of these reads has to become a write, or the T3 contract changes shape. Either needs the check narrowed and the read routed through the ports instead |
 | `adapter-telegram` pairing is mostly unreachable | `crates/adapter-telegram/src/pairing/` — `dao.rs::find_by_code`, `dao.rs::list_pending`, `dao.rs::prune_expired`, `approval.rs::list_pending_for_user` and `approval.rs::approve_request` have no caller anywhere in the workspace; only `request.rs::upsert_pairing_request` is reached (from `ingress.rs`) | When the Telegram pairing flow is next worked on. Deleting them now would be a behaviour question dressed as a cleanup — nothing says whether the flow is unfinished or abandoned |
 
+## Preview tabs are per-replica
+
+| Deferred | Anchor | Entry condition |
+|---|---|---|
+| The preview-tab store is in-process, so a tab written on one replica is invisible to a request served by another | `crates/t3code/src/preview_tabs.rs::PreviewTabs` — a `Mutex<HashMap>` plus a local `broadcast`. The backend runs 2 replicas (`k8s/helm/moatless-vibe/templates/backend-deployment.yaml`), and nothing routes a Task's T3 requests to one of them | When a user is observed losing tabs between requests, or when preview tabs need to survive a restart. The fix is a Postgres-backed DAO plus the change feed for the fan-out — the same shape `crates/core/src/change_feed/` already carries for messages, activities and events |
 
 ## Correctness
 

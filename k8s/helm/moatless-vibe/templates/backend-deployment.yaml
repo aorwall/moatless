@@ -278,22 +278,6 @@ spec:
                   name: {{ include "moatless-vibe.secretsName" . }}
                   key: SECRETS_ENCRYPTION_KEY
                   optional: true
-            - name: REDIS_URL
-            {{- if .Values.redis.urlSecretKey }}
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "moatless-vibe.secretsName" . }}
-                  key: {{ .Values.redis.urlSecretKey }}
-                  optional: false
-            {{- else }}
-              value: {{ include "moatless-vibe.redisUrl" . | quote }}
-            {{- end }}
-            - name: REDIS_CONSUMER_GROUP
-              value: "main-app-consumers"
-            - name: REDIS_CONSUMER_ID
-              valueFrom:
-                fieldRef:
-                  fieldPath: metadata.name
             {{- with .Values.backend.sharedStoragePvcName }}
             - name: SHARED_STORAGE_PVC_NAME
               value: {{ . | quote }}
@@ -531,9 +515,9 @@ spec:
             timeoutSeconds: 5
           readinessProbe:
             httpGet:
-              # /ready also pings Redis and returns 503 when the event
-              # publisher is unhealthy. Liveness stays on /health so the pod
-              # isn't restarted into a crash loop while Redis is recovering;
+              # /ready also checks the database and returns 503 when it is
+              # unreachable. Liveness stays on /health so the pod isn't
+              # restarted into a crash loop while the database is recovering;
               # readiness fails so the Service stops sending it traffic.
               path: /ready
               port: http

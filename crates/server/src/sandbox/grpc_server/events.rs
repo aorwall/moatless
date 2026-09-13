@@ -140,7 +140,7 @@ impl BackendSandboxServiceImpl {
         payload: Value,
     ) -> AdmissionRequest {
         // Resolve the turn for every event published from inside an agent run,
-        // not just the state-bearing ones: the Redis consumer then receives an
+        // not just the state-bearing ones: the dispatcher then receives an
         // explicit turn number on `agent.message` too and never has to guess.
         // Events from outside a run (sandbox/init/heartbeat) bear no turn.
         let mut turn_number = self
@@ -186,7 +186,7 @@ impl BackendSandboxServiceImpl {
     }
 }
 
-/// Admit an event from the sandbox and fan it out to Redis Streams.
+/// Admit an event from the sandbox and fan it out on the task-event feed.
 ///
 /// Anything short of durable admission is a retryable `UNAVAILABLE` resent
 /// under the same id (contract on [`AdmissionError`]); uses `authorize`, not
@@ -319,7 +319,7 @@ mod tests {
     use super::*;
 
     /// Pins the wire integer → dispatch string contract:
-    /// `classify_turn_transition` and the Redis consumer key off this exact
+    /// `classify_turn_transition` and the dispatcher key off this exact
     /// string, so a rename in the shared crate cannot silently re-route
     /// ingress.
     #[test]

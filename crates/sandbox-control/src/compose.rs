@@ -135,7 +135,7 @@ pub struct LifecycleInputs {
     pub connector: Arc<dyn SandboxConnector>,
     pub plan: ProvisionDeps,
     pub default_sandbox_image: String,
-    /// Event publication; `None` without Redis.
+    /// Event publication; `None` without a database.
     pub events: Option<Arc<dyn EventPublisher>>,
     /// The workspace-archive reader the cold transition proves itself against;
     /// `None` without S3, which leaves the transition off.

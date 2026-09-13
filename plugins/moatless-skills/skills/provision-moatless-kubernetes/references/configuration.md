@@ -47,7 +47,6 @@ External DNS has two explicit handoffs. After infrastructure apply, add the ACM 
   "databaseEndpoint": "...rds.amazonaws.com",
   "databaseName": "moatless",
   "databasePort": 5432,
-  "cacheEndpoint": "...cache.amazonaws.com",
   "provisioningMethod": "terraform",
   "imageTag": "latest"
 }
@@ -55,4 +54,4 @@ External DNS has two explicit handoffs. After infrastructure apply, add the ACM 
 
 The handoff contains identifiers and endpoints, not passwords. `moat k8s init --infrastructure-handoff` validates every field, checks the exact kubectl context, and generates the Fargate/S3 Helm preset with the recorded image tag.
 
-`secrets-env` reads the RDS-managed password locally and writes only `DATABASE_URL` and `REDIS_URL` to a mode-`0600` file. The Valkey URL uses `rediss://`; this pilot cache relies on network isolation and has no application auth token. Never print or commit the file.
+`secrets-env` reads the RDS-managed password locally and writes only `DATABASE_URL` to a mode-`0600` file. Never print or commit the file.

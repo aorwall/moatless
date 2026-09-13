@@ -128,7 +128,7 @@ pub struct LogsArgs {
     #[arg(long)]
     pub compose_dir: Option<PathBuf>,
 
-    /// Limit to one service (backend, frontend, postgres, redis, dozzle)
+    /// Limit to one service (backend, frontend, postgres, dozzle)
     #[arg(long)]
     pub service: Option<String>,
 
@@ -148,7 +148,7 @@ pub struct UninstallArgs {
     #[arg(long)]
     pub compose_dir: Option<PathBuf>,
 
-    /// Also drop compose volumes (wipes postgres + redis data)
+    /// Also drop compose volumes (wipes postgres data)
     #[arg(long)]
     pub purge: bool,
 

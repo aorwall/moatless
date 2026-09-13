@@ -1,7 +1,7 @@
 //! Persistent pod lifecycle watcher.
 //!
 //! Watches sandbox pods (`app.kubernetes.io/managed-by=moatless`) for crashes,
-//! evictions, and restarts, publishing to Redis Streams; only the leader (K8s
+//! evictions, and restarts, publishing to the task-event feed; only the leader (K8s
 //! Lease) runs it.
 //!
 //! Pod states key by `pod_name`, not `task_id`, so a rolling update tracks the
