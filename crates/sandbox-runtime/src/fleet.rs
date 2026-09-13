@@ -63,7 +63,9 @@ impl ObserveError {
     }
 }
 
-/// The reconciler's runtime-status source, batch-first.
+/// The reconciler's runtime-status source, batch-first. Both provider
+/// implementations delegate `observe`'s live-status read to
+/// `status_reader::confirm`.
 #[async_trait]
 pub trait FleetObserver: Send + Sync {
     /// One label-selector LIST per tick: coarse observed status for every Task

@@ -137,6 +137,9 @@ impl RuntimeOutcome {
 /// missing, heal network resources, and replace a terminal/error pod from the
 /// fresh plan. An existing failed pod is not reported as indefinitely
 /// Initializing.
+///
+/// Build every server container from `ServerConfig`. Do not hardcode a server
+/// name or a port outside its explicit config parsing.
 #[async_trait]
 pub trait SandboxRuntime: Send + Sync {
     /// Ensure the sandbox is running from a fresh plan (start / reconcile

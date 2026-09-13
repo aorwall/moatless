@@ -9,6 +9,12 @@
 # `#[allow(clippy::disallowed_methods)]` and a `// reason:` comment explaining
 # why the bypass is safe there. See `ScopeContext::system`'s doc comment for the
 # required form.
+#
+# The path below must resolve exactly. An unresolvable `disallowed-methods`
+# path fails silently — clippy reports no error — so moving or renaming
+# `ScopeContext::system` disarms this fence with nothing to catch it. Verify a
+# rename by adding a temporary unannotated call and confirming clippy refuses
+# it before relying on the new path.
 disallowed-methods = [
     { path = "moatless_types::access_control::ScopeContext::system", reason = "deliberate access-control bypass — annotate the call with #[allow(clippy::disallowed_methods)] and a // reason: comment (see ScopeContext::system docs)" },
 ]

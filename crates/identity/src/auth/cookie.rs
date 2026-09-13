@@ -45,6 +45,11 @@ pub fn get_all_cookie_values(headers: &HeaderMap, name: &str) -> Vec<String> {
 /// The shape every cookie here shares: root path, `Lax`, `Secure` in production,
 /// and `cookie_domain`. A clear must name the same domain and path as its set,
 /// or it writes a second cookie beside the live one instead of removing it.
+///
+/// A GitHub App has one registered callback URL, so a flow started from the T3
+/// client comes back on the frontend's host. Host-only, the callback host reads
+/// no `oauth_state` cookie and the CSRF check rejects the flow — a deployment
+/// spanning two hosts must set `cookie_domain` to a parent of both.
 fn build_cookie(
     config: &Config,
     name: &str,

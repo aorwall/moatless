@@ -15,13 +15,21 @@
 //! The two container runtimes (`sandbox-k8s`, `sandbox-docker`) live a band
 //! above and depend downward on this crate; nothing here names `kube` or
 //! `bollard`. The backend composes this crate through the permanent facade at
-//! `backend/src/sandbox/mod.rs`, which re-exports these modules so the higher
-//! bands still in the backend keep naming `crate::sandbox::…`, and keeps `k8s`
-//! and `docker` as backend-local modules that reach in through the facade. The
-//! facade is not transitional: the backend stays the composition root that
-//! wires these ports into `AppState`. Every router here is generic over the
-//! state `S` with `FromRef<S>` bounds, so this crate names no concrete
-//! `AppState` — the `FromRef` impls live in the backend.
+//! `crates/server/src/sandbox/mod.rs`, which re-exports these modules (`k8s`
+//! and `docker` as crate aliases) so the higher bands still in the backend
+//! keep naming `crate::sandbox::…`. The facade is not transitional: the
+//! backend stays the composition root that wires these ports into `AppState`.
+//! Every router here is generic over the state `S` with `FromRef<S>` bounds,
+//! so this crate names no concrete `AppState` — the `FromRef` impls live in
+//! the backend.
+//!
+//! Reach the workspace domain only through the ports `moatless-ports`
+//! declares, and identity only through `CommitIdentity`, `HarnessCredentials`,
+//! `SecretResolver` and `GitHostTokenIssuer`. Neither `moatless-identity` nor
+//! `moatless-workspaces` is a `[dependencies]` entry — adding either re-opens
+//! the edge those ports exist to close. `moatless-workspaces` is a
+//! dev-dependency, for the one `db-tests` test that assembles `ProvisionDeps`
+//! from a pool.
 
 pub mod auto_provision;
 pub mod compose;

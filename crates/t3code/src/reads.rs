@@ -11,7 +11,7 @@ use crate::workspace_dao::T3WorkspaceDao;
 /// The three projections and the pool behind them.
 ///
 /// Every statement reachable from here is a read; a caller that has to write
-/// asks through a port. See this crate's `AGENTS.md`.
+/// asks through a port.
 #[derive(Clone)]
 pub struct T3Reads {
     pool: UiRpcDbPool,

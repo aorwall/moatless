@@ -9,6 +9,11 @@
 //! ports. The backend composition root wires this provider into `AppState`;
 //! the crate names no concrete `AppState`. The sibling `moatless-sandbox-docker`
 //! crate is the same band and is never named from here.
+//!
+//! The `moatless.io/task-id` label is how almost every read finds a resource:
+//! `pod_reader`, `pvc`, `ingress`, `service`, `edge` and `deployment` all
+//! select on it. A resource created without it is invisible to cleanup and to
+//! status.
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
 pub mod client;

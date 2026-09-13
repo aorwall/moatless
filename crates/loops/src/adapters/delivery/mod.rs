@@ -9,6 +9,11 @@
 //! drops the delivery. Do not put an in-process dedup cache in front of
 //! admission: it would answer a redelivery whose admission failed with a 200 and
 //! nothing durable behind it.
+//!
+//! A handler still emits its own `record_webhook`
+//! (`moatless_adapter_model::metrics`): the delivery metric is low-cardinality
+//! at `{adapter, kind, outcome}` and cannot show one broken connection, while
+//! `record_webhook` carries `event_type`, `loop_id` and `connection_id`.
 
 mod metrics;
 mod models;

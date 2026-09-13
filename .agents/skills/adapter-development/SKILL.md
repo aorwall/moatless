@@ -5,8 +5,8 @@ description: "Build or change Rust adapters in crates/adapter-*. Use for webhook
 
 # Adapter development
 
-Read [crate ownership rules](../../../crates/AGENTS.md), the nearest crate's AGENTS.md,
-and [the domain glossary](../../../CONTEXT.md) before choosing a module.
+Read [where a type belongs](../rust-dev-guidelines/references/file-roles.md#choose-a-home-for-a-deduplicated-shared-type),
+the nearest crate's AGENTS.md, and [the domain glossary](../../../CONTEXT.md) before choosing a module.
 
 ## Ownership
 

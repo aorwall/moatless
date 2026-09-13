@@ -19,6 +19,11 @@
 //! event carries the task's state again — so there is nothing for a supervisor
 //! to own. Durable provider work belongs in `adapters::delivery`, not here.
 //!
+//! A subscriber that keeps per-task state, such as Linear's turn gate, owns
+//! the whole reaction including its ordering: emit the event and change the
+//! state in the order the provider needs. Split the two across bands and the
+//! gate closes before the activity it gates is emitted.
+//!
 //! # Faults are contained
 //!
 //! A subscriber has no way to fail the event: `on_task_event` returns nothing,

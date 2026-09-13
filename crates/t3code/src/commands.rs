@@ -564,9 +564,14 @@ async fn fork_thread(
         .await
 }
 
-/// The title a person's rename carries. A title asserted while the Task is
-/// still unnamed is the client's own auto-title, and the agent names a Task on
-/// its first turn — see this crate's `AGENTS.md`.
+/// The title a person's rename carries. Drops a `thread.meta.update` title
+/// unless the Task already has a name.
+///
+/// A Task created from T3 is created unnamed. The client's auto-title and a
+/// person's rename are identical on the wire, and only the auto-title arrives
+/// while the Task is still unnamed; letting it through would set `tasks.name`
+/// before the pod boots and suppress the `# Required First Actions` block that
+/// has the agent name the Task (`crates/tasks/src/agent/prompt.rs`).
 fn rename(conversation: &Conversation, command: &Value) -> Option<String> {
     let title = command.get("title").and_then(Value::as_str)?;
     conversation

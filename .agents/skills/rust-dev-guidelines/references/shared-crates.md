@@ -12,6 +12,16 @@ Apply this reference to Rust changes under `crates/`.
 - Prefer a narrower transport enum when the domain enum contains values the
   protocol cannot represent.
 
+## Domain Values vs Rows
+
+- An entity in a shared domain crate is the domain model, never the row. Use a
+  `DateTime<Utc>` and not a text timestamp, an enum and not the string a column
+  holds, a decoded blob and not a `serde_json::Value`. No `_raw` twin read
+  through an accessor, and no nullable flag standing in for a `bool`.
+- Decode a database row in the query's own crate, not in the shared domain
+  crate. Preserve each decoder's failure behavior and logging when you move its
+  domain type.
+
 ## Dependency and Runtime Boundaries
 
 - Keep `utoipa` and OpenAPI derives feature-gated so shared crates do not force

@@ -43,7 +43,8 @@ CLAUDE_SDK_E2E=1 cargo test -p moatless-sandbox --test agent_e2e -- --ignored --
 
 Run those clippy lines verbatim. Do not vary them. Do not add a `-p` line for
 the crate you touched. Never run `cargo check`. `crates/codex-sdk` is excluded
-from the workspace and carries its own line; see its `AGENTS.md`.
+from the workspace and carries its own build and clippy line in its
+`Cargo.toml`.
 
 In a sandbox the workspace volume is capped, and overflowing it evicts the pod.
 Check `df -h /opt/moatless` before the first full build and between commits, and

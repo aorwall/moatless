@@ -94,6 +94,10 @@ pub(super) fn start(
 /// Always redirects to the return URL, carrying the outcome as a query
 /// parameter: the browser is mid-flow on a page the person opened, and a JSON
 /// error body would strand them there.
+///
+/// Writes the credential row and stops: does not revoke or re-issue a
+/// session. Anything that changes who the caller is belongs in the login
+/// path, not here.
 pub(super) async fn finish(
     state: &AuthState,
     provider: &dyn OAuthProvider,

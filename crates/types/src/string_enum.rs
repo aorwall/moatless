@@ -3,6 +3,9 @@
 /// Generates the wire mapping (`as_str`, `Display`, `TryFrom<&str>`,
 /// `TryFrom<String>`) and nothing else. Reading one out of a database column
 /// belongs to the crate that owns the query, not here.
+///
+/// Keep this invocation name (`string_enum!`) stable: architecture analysis
+/// greps for it to find every domain enum.
 macro_rules! string_enum {
     (
         $(#[$meta:meta])*

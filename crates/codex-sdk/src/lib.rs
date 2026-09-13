@@ -6,6 +6,40 @@
 //! but backed by Codex's in-process app-server runtime for full protocol access
 //! (streaming deltas, approval handling, hook observation).
 //!
+//! The sandbox runtime does not use this crate: the sandbox runs Codex through
+//! the `codex app-server` CLI in `sandbox/src/agent/codex_app_server/`. This
+//! crate is a standalone in-process SDK.
+//!
+//! ## How it maps onto claude-agent-sdk
+//!
+//! `query()` and `query_streaming()` match. The rest maps like this:
+//!
+//! | codex-sdk | claude-agent-sdk |
+//! |---|---|
+//! | `CodexClient` | `ClaudeClient` |
+//! | `CodexMessage` | `SdkMessage` |
+//! | `CodexOptions` | `ClaudeOptions` |
+//! | `ApprovalHandler` | `PermissionHandler` |
+//! | `HookObserver` (read-only, because Codex hooks run server-side) | `HookHandler` |
+//!
+//! Codex has no equivalent of `SdkMcpServer` and its in-process MCP tools,
+//! `AgentDefinition` and sub-agents, the runtime `set_model()` and
+//! `set_permission_mode()`, or `max_budget_usd`. Codex adds four things of its
+//! own: `QueryHandle::steer()` to inject context mid-turn, rich sandbox
+//! policies for file and network isolation, three separate approval types
+//! (command, file change, permissions), and thread management (list, resume,
+//! fork).
+//!
+//! ## How the crate is wired
+//!
+//! - **Transport**: the in-process `InProcessAppServerClient`, from
+//!   `codex-app-server-client`.
+//! - **Orchestrator** (`runtime`): a background tokio task that maps a
+//!   `ServerNotification` to a `CodexMessage` and routes a `ServerRequest`
+//!   approval to `ApprovalHandler`.
+//! - **Dependencies**: path deps to the codex repo at
+//!   `~/repos/stuffs/codex/codex-rs/`.
+//!
 //! ## Quick Start
 //!
 //! ```no_run

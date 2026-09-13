@@ -1,6 +1,15 @@
-//! The two matches that name every method this surface serves.
+//! The two matches that name every method this surface serves. Neither holds
+//! a method body: one function per method, named for its tag, snake cased —
+//! `pullRequests.summary` is `pull_requests_summary`.
 //!
-//! Neither holds a method body; `crates/t3code/AGENTS.md` states the rule.
+//! Detach a read; keep a transition on the loop. A method that moves a named
+//! resource from one state to another — `terminal.*`, `projects.writeFile`,
+//! `sandbox.start`/`stop`, `scripts.run`, `orchestration.dispatchCommand`,
+//! `attachments.delete`, `git.runStackedAction`, the mutating `preview.*` —
+//! stays in [`ProtocolSession::handle_request`]. The loop is sequential, so a
+//! transition on it finishes before anything the client sent after it is
+//! dispatched; that is what a detached read is allowed to rely on, and
+//! detaching a transition would take it away.
 
 use super::orchestration::*;
 use super::preview::*;
@@ -201,11 +210,17 @@ enum Dispatch {
 /// Route one request, building it where it detaches.
 ///
 /// This match is the whole record of which methods answer off the frame loop: a
-/// tag absent from it reaches [`ProtocolSession::handle_request`].
-/// `crates/t3code/AGENTS.md` states which methods belong here.
+/// tag absent from it reaches [`ProtocolSession::handle_request`]. See the
+/// module doc for which methods belong here.
 ///
 /// A detached read may observe a transition the client sent *after* it, and
 /// answers in no particular order against the requests around it.
+///
+/// A detached method may not touch [`ProtocolSession`]: each one is a free
+/// function taking an owned [`Request`], and the compiler enforces it. State a
+/// detached method genuinely needs goes in `SharedSession` (`rpc/session.rs`)
+/// behind its own lock, held for a single read or write and never across an
+/// await.
 fn detach(request: Request) -> Dispatch {
     // Cloned so an arm can take `request`: a `match` holds its scrutinee
     // borrowed across every arm, and each arm here moves the request into the

@@ -8,7 +8,7 @@
 //!
 //! The `tag` label is a method name the client chose, so it is bounded by
 //! [`Outcome::tag_label`] rather than by trust: only an outcome that proves the
-//! dispatch matched an arm carries the raw tag. See `crates/t3code/AGENTS.md`.
+//! dispatch matched an arm carries the raw tag.
 
 use moatless_types::ui_rpc::UiRpcAuthIdentity;
 use serde_json::Value;

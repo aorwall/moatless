@@ -34,7 +34,9 @@ pub(in crate::auth) async fn complete_login(
     // Get user info
     let user_info = provider.get_user_info(&tokens).await?;
 
-    // Check required GitHub org membership
+    // Check required GitHub org membership. Login-only: a connect (see
+    // `github_connect::finish`) does not gate on this, because it never
+    // decides who the caller is.
     if let Some(ref required_org) = state.config.auth.github_required_org {
         let is_member = provider
             .check_org_membership(&tokens.access_token, required_org)

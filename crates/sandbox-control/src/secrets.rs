@@ -351,7 +351,7 @@ pub fn is_platform_owned_key(key: &str) -> bool {
 }
 
 /// `GH_TOKEN` and `GIT_TOKEN`: not secret-store keys, so they are not in
-/// `moatless_core::secret_keys`. `init::credentials` derives both inside the
+/// `moatless_core::secret_keys`. `credentials::fetch` derives both inside the
 /// pod from a resolved provider token — `GIT_TOKEN` so `init::git` has one env
 /// var to clone with whatever the pod's provider is, `GH_TOKEN` as the name
 /// `gh` reads. Named here because a Workspace must not be able to supply
@@ -363,7 +363,7 @@ const GIT_TOKEN: &str = "GIT_TOKEN";
 ///
 /// All five are minted for the task's run-as identity — the first three by
 /// [`fill_git_host_tokens`], against the task's own repository; the other two
-/// derived from those by `init::credentials` once inside the pod. None is
+/// derived from those by `credentials::fetch` once inside the pod. None is
 /// configuration, and a value a Workspace supplied under one of these names
 /// would be used as the clone/push credential:
 ///
@@ -371,8 +371,8 @@ const GIT_TOKEN: &str = "GIT_TOKEN";
 ///   Workspace-supplied provider token would not merely outrank the validated
 ///   resolver, it would suppress it. Preflight and runtime delivery would then
 ///   disagree about which token the sandbox holds.
-/// - `init::credentials` sets `GIT_TOKEN` in the process env only *if* a
-///   provider token resolved (`crates/sandbox/src/init/credentials.rs:190`). With
+/// - `credentials::fetch` sets `GIT_TOKEN` in the process env only *if* a
+///   provider token resolved (`crates/sandbox/src/credentials/fetch.rs:190`). With
 ///   none, a Workspace `GIT_TOKEN` that arrived in the pod spec is still
 ///   sitting there, and `init::git::provider_git_token` and `init::workspace`
 ///   read it straight out of the environment.

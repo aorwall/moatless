@@ -9,7 +9,21 @@
 //! Every lost event is counted and announced on the stream as an
 //! [`EVENTS_DROPPED_SUB_TYPE`] marker. Markers are drainer-generated and never
 //! enter the buffer, so a saturated buffer can still announce its saturation.
-//! `crates/sandbox/AGENTS.md` states the eviction and terminal-rejection policy.
+//!
+//! At capacity the outbox evicts the oldest evictable event and counts
+//! `dropped_overflow`. When only lifecycle events (`taskTurn.*` and terminal
+//! `agent.*`) remain, it refuses the incoming event and counts
+//! `rejected_saturated` instead. It always keeps one event, even when that
+//! event alone exceeds the byte cap. Lifecycle events are preferred but share
+//! the queue budget with every other event, so the outbox refuses the newest
+//! and keeps the oldest — the drainer is FIFO, and an older event is the
+//! prefix that keeps the later ones interpretable.
+//!
+//! Drop an event the backend *permanently* refuses; do not retry it. That
+//! event is at-most-once, because one in-order drainer would otherwise stall
+//! on it and take the task's whole remaining stream with it
+//! (`dropped_terminal`). `dropped_unrepresentable` is a bug in this process,
+//! not a load condition.
 
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU64, Ordering};

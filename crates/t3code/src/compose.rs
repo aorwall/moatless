@@ -204,7 +204,7 @@ pub struct T3Graph {
 /// Build the T3 read projections over `db`.
 ///
 /// `activities` is the Task band's activity rows, which this crate projects and
-/// does not own. See this crate's `AGENTS.md`.
+/// does not own.
 pub fn t3_graph(db: UiRpcDbPool, activities: Arc<dyn ActivitySource>) -> T3Graph {
     let conversations = Arc::new(PgConversationDao::new(db.clone(), activities));
     T3Graph {

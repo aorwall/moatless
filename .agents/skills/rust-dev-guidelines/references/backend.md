@@ -1,6 +1,6 @@
 # Backend Rust
 
-Apply this reference to backend Rust across `crates/`. Read [crate ownership](../../../../crates/AGENTS.md) and the owning crate's guidance before selecting a module; `crates/server` composes domain crates.
+Apply this reference to backend Rust across `crates/`. Read [where a type belongs](file-roles.md#choose-a-home-for-a-deduplicated-shared-type) and the owning crate's guidance before selecting a module; `crates/server` composes domain crates.
 
 ## Module and State Boundaries
 

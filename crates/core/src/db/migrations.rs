@@ -1,4 +1,5 @@
-//! Workspace database migrations.
+//! Workspace database migrations. No other crate declares a migration
+//! directory; this is the only one `run_migrations` runs.
 
 use super::DbPool;
 

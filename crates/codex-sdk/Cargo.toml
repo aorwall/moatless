@@ -8,7 +8,21 @@ description = "Rust SDK for the Codex coding agent — mirrors the Claude Agent 
 [workspace]
 # Standalone workspace — excluded from the parent moatless workspace because
 # the codex dependency graph requires its own [patch.crates-io] entries and
-# a pinned Rust toolchain (1.93+).
+# its own pinned Rust toolchain (rust-toolchain.toml).
+#
+# Check out the codex repo at ~/repos/stuffs/codex/ before building. Do not
+# delete Cargo.lock: it was seeded from the codex workspace for compatible
+# resolution.
+#
+# cd crates/codex-sdk && cargo build && cargo build --examples
+# cargo clippy --all-targets -- -D warnings   # run verbatim; the root floor line does not reach this crate
+# cargo test                                                    # unit tests, no API key
+# CODEX_SDK_E2E=1 cargo test --ignored -- --nocapture           # E2E, needs OPENAI_API_KEY/codex login, ~$0.01-0.05/test
+# CODEX_SDK_E2E=1 cargo test --test smoke -- --ignored --nocapture   # smoke: roundtrip + multi-turn + resume, ~30s
+#
+# E2E tests live in tests/e2e.rs, gated behind CODEX_SDK_E2E=1 and #[ignore].
+# The smoke resume test uses a custom 8MB-stack tokio runtime: the in-process
+# app-server's deep call chains overflow the default 2MB stack in a debug build.
 
 # Path to the codex repo relative to this crate.
 [dependencies]

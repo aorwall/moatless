@@ -1,8 +1,10 @@
 //! A module is named for its domain, not for the kind of thing it holds.
 //!
-//! The rule is stated in `crates/types/AGENTS.md`. Two shapes break it — a
-//! kind name at a crate root, with no domain above it to qualify it, and a
-//! junk drawer at any depth.
+//! Two shapes break it — a kind name at a crate root, with no domain above it
+//! to qualify it, and a junk drawer at any depth. `config`, `error`, `kind` and
+//! `delivery` are none of them a domain either, though this check does not
+//! catch them: the glossary's `_Avoid_` list carries bare "delivery", because
+//! the term is Adapter delivery.
 
 use std::path::Path;
 

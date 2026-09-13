@@ -1,8 +1,5 @@
 # claude-agent-sdk
 
-Two backends. The **subprocess** backend uses `--print` and NDJSON. The **tmux**
-backend drives the TUI and is hook-driven.
-
 ## Building and testing
 
 ```bash
@@ -38,67 +35,11 @@ child that owns its subject, and put anything two children need in `harness.rs`.
   Both of them live in `tui.rs`, which is where a test that drives the TUI
   across many turns belongs.
 
-The smoke test (`tests/smoke.rs`) asserts that the on-PATH `claude --version`
-matches the pin in `docker/Dockerfile.sandbox-base`. It then runs a roundtrip
-and a two-turn `--resume <session_id>`, which mirrors the sandbox's per-turn
-dispatch in `crates/sandbox/src/agent/options.rs`. Use it as a fast pre-release
-check.
-
-## What each module owns
-
-| Module | What it owns |
-|---|---|
-| `query.rs` | `query()`, `query_streaming()` and `QueryHandle` |
-| `client.rs` | `ClaudeClient`, the multi-turn client |
-| `error.rs` | `SdkError` |
-| `mcp/` | The in-process `SdkMcpServer` and its tools |
-| `api/` | Messages, content, options, control, permissions, hooks, mcp, agents |
-| `transport/` | The `Transport` and `StdinWriter` traits, `SubprocessTransport`, and the mocks |
-| `protocol/` | The orchestrator: background reader, message and MCP routing, permission and hook dispatch, and `request_tracker` for control-request ID correlation |
-| `tmux/` | The TUI backend |
-| `transcripts.rs` | Transcript paths, inventory and resume selection shared by both backends |
-
-## How the tmux backend starts and ends a turn
-
-The TUI lives behind a detached tmux session. Claude's hook system is the
-readiness signal and the turn-completion signal.
-
-1. `HookHarness::create` mkfifos
-   `$TMPDIR/claude-sdk-tmux-<pid>-<uuid>/events.fifo` and writes a relay shell
-   script.
-2. `--settings '<json>'` registers `SessionStart` and `Stop` hooks that pipe
-   their payloads into the FIFO, one `"<event>\t<payload>\n"` line each.
-3. A `spawn_blocking` reader opens the FIFO `O_RDWR | O_NONBLOCK`, so it never
-   sees EOF when the relay disconnects between events. It forwards each parsed
-   line over an unbounded mpsc.
-4. `spawn_hook_listener` drains that channel and republishes a higher-level
-   `HookState` on a `watch`: Pending, SessionStarted or TurnEnded.
-5. `tmux/startup.rs` awaits `SessionStarted` before `tmux/query.rs` pastes the prompt, under
-   `init_timeout` (60s by default). No step sleeps for a fixed time.
-   `startup_dialog_watcher` runs in parallel: it polls `tmux capture-pane`,
-   strips CSI, and answers the trust and bypass dialogs (`tmux/trust.rs`).
-6. `stop_fallback_loop` watches for a `Stop` event. Each one gives the tail loop
-   up to 2s (40 × 50ms) to emit a `Result` from the JSONL `turn_duration`
-   record. Past that it synthesizes `ResultSuccess` from the Stop payload's
-   `last_assistant_message`.
-
-`Stop`'s `transcript_path` also drives JSONL discovery. That matters for
-`--continue`, where claude appends to the existing transcript and no new file
-appears. Snapshot-diff stays as a defensive fallback for a Stop payload that
-omits the path.
-
 ## Rules
 
 - Deserialize `SdkMessage` with the custom `from_value()`, not `#[serde(tag)]`.
-- Keep stdin writes behind `Arc<dyn StdinWriter>`, and keep reads (`Transport`)
-  split from writes (`StdinWriter`). `MockTransport` and `MockStdinWriter` drive
-  the orchestrator tests.
-- Keep the orchestrator-to-consumer channel a bounded mpsc of 256.
 - Cancel through `tokio_util::sync::CancellationToken` inside `tokio::select!`.
 - Use `thiserror` only. This is a library crate and takes no `anyhow`.
-- Route an `McpMessage` control request to the named server's `handle_message()`.
-- Invoke `HookHandler` for a `HookCallback` control request, and auto-respond
-  with empty success when no handler is registered.
 
 ## Where the flags and the types come from
 

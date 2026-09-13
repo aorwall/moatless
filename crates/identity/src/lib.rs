@@ -14,6 +14,11 @@
 //! these paths, so call sites keep naming `crate::auth::…` etc. The facade is not
 //! transitional: the backend stays the composition root that wires identity into
 //! `AppState`.
+//!
+//! Adapter installation belongs to the provider crate: an Adapter resolves its
+//! stored credentials through `AdapterAppReader`, declared in
+//! `moatless-adapter-model`. Adding an Adapter must not edit this crate. User
+//! login and git-host credentials remain identity responsibilities.
 
 pub mod adapter_apps;
 pub mod auth;
