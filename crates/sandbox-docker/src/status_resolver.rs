@@ -3,12 +3,14 @@
 //! Maps Docker container states to `SandboxStatus` and resolves server sidecar
 //! container statuses via the Docker API.
 
+use async_trait::async_trait;
 use std::sync::Arc;
 use tracing::{debug, warn};
 
 use super::client::DockerClient;
 use super::naming::{generate_container_name, generate_server_container_name};
 use moatless_core::config::Config;
+use moatless_sandbox_control::status::StatusResolve;
 use moatless_sandbox_runtime::client::{AgentStatusSnapshot, SandboxConnector, fetch_agent_status};
 use moatless_sandbox_runtime::container_status::DEFAULT_SERVER_READINESS_TIMEOUT_SECS;
 use moatless_sandbox_runtime::live_status::{LiveStatus, derive_live_status};
@@ -69,12 +71,11 @@ impl DockerStatusResolver {
     pub fn new(client: DockerClient, config: Arc<Config>) -> Self {
         Self { client, config }
     }
+}
 
-    /// Full sandbox status (env + agent + servers) from Docker API.
-    ///
-    /// `server_configs` are the canonical server definitions from the DB; when
-    /// non-empty, Docker container statuses are inspected and overlaid.
-    pub async fn resolve_sandbox_status(
+#[async_trait]
+impl StatusResolve for DockerStatusResolver {
+    async fn resolve_sandbox_status(
         &self,
         task_id: &str,
         sandbox_id: &str,
@@ -169,8 +170,7 @@ impl DockerStatusResolver {
         }
     }
 
-    /// Resolve only the Task's live status, omitting servers and diagnostics.
-    pub async fn resolve_live_status(
+    async fn resolve_live_status(
         &self,
         task_id: &str,
         sandbox_id: &str,
@@ -204,7 +204,9 @@ impl DockerStatusResolver {
         )
         .with_commands(commands)
     }
+}
 
+impl DockerStatusResolver {
     /// Inspect the sandbox container and return the image it is running.
     ///
     /// Best-effort — returns `None` when the container is absent or its image

@@ -27,6 +27,7 @@ use super::status_resolver::StatusResolver;
 use moatless_core::config::Config;
 use moatless_ports::sandbox as core_sandbox;
 use moatless_sandbox_control::lifecycle::ProvisionDeps;
+use moatless_sandbox_control::status;
 use moatless_sandbox_runtime::client::SandboxClient;
 use moatless_sandbox_runtime::container_status::PodPhase;
 use moatless_sandbox_runtime::error::SandboxError;
@@ -974,24 +975,15 @@ impl SandboxStatusReader for K8sSandboxAdapter {
         task_status: moatless_types::task::TaskStatus,
         desired_state: moatless_types::sandbox::SandboxDesiredState,
     ) -> Result<SandboxStatusFullResponse, SandboxError> {
-        let sandbox_id = self.sandbox_id_for_task(task_id).await?;
-        let server_configs = if let Some(plan) = &self.plan {
-            plan.server_configs(task_id).await
-        } else {
-            warn!(task_id, "Sandbox plan repositories unavailable for status");
-            Vec::new()
-        };
-        Ok(self
-            .status_resolver
-            .resolve_sandbox_status(
-                task_id,
-                &sandbox_id,
-                &server_configs,
-                task_status,
-                desired_state,
-                self,
-            )
-            .await)
+        status::sandbox_status(
+            &self.status_resolver,
+            self.plan.as_ref(),
+            self,
+            task_id,
+            task_status,
+            desired_state,
+        )
+        .await
     }
 
     async fn live_status(
@@ -1000,11 +992,15 @@ impl SandboxStatusReader for K8sSandboxAdapter {
         task_status: moatless_types::task::TaskStatus,
         desired_state: moatless_types::sandbox::SandboxDesiredState,
     ) -> Result<moatless_sandbox_runtime::live_status::LiveStatus, SandboxError> {
-        let sandbox_id = self.sandbox_id_for_task(task_id).await?;
-        Ok(self
-            .status_resolver
-            .resolve_live_status(task_id, &sandbox_id, task_status, desired_state, self)
-            .await)
+        status::live_status(
+            &self.status_resolver,
+            self.plan.as_ref(),
+            self,
+            task_id,
+            task_status,
+            desired_state,
+        )
+        .await
     }
 
     async fn server_logs(
@@ -1100,13 +1096,7 @@ impl core_sandbox::SandboxPortPublisher for K8sSandboxAdapter {
 
 impl K8sSandboxAdapter {
     async fn sandbox_id_for_task(&self, task_id: &str) -> Result<String, SandboxError> {
-        match &self.plan {
-            Some(plan) => plan
-                .sandbox_id_for_task(task_id)
-                .await
-                .map_err(SandboxError::Runtime),
-            None => Ok(task_id.to_string()),
-        }
+        status::sandbox_id_for_task(self.plan.as_ref(), task_id).await
     }
 }
 

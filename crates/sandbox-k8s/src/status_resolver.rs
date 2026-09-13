@@ -4,6 +4,7 @@
 //! entries are built config-first (server configs passed by caller) with K8s
 //! container probe statuses overlaid.
 
+use async_trait::async_trait;
 use k8s_openapi::api::core::v1::Pod;
 use kube::api::{Api, ListParams};
 use std::sync::Arc;
@@ -17,6 +18,7 @@ use super::pod_status::{
 };
 use super::service;
 use moatless_core::config::Config;
+use moatless_sandbox_control::status::StatusResolve;
 use moatless_sandbox_runtime::client::{AgentStatusSnapshot, SandboxConnector, fetch_agent_status};
 use moatless_sandbox_runtime::container_status::{
     ContainerState, DEFAULT_SERVER_READINESS_TIMEOUT_SECS, PodPhase,
@@ -42,12 +44,11 @@ impl StatusResolver {
     pub fn new(k8s: K8sClient, config: Arc<Config>) -> Self {
         Self { k8s, config }
     }
+}
 
-    /// Full sandbox status (env + servers) from K8s API.
-    ///
-    /// `server_configs` are the canonical server definitions from the DB; K8s
-    /// container statuses are overlaid onto them.
-    pub async fn resolve_sandbox_status(
+#[async_trait]
+impl StatusResolve for StatusResolver {
+    async fn resolve_sandbox_status(
         &self,
         task_id: &str,
         sandbox_id: &str,
@@ -242,8 +243,7 @@ impl StatusResolver {
         }
     }
 
-    /// Resolve only the Task's live status, omitting servers and diagnostics.
-    pub async fn resolve_live_status(
+    async fn resolve_live_status(
         &self,
         task_id: &str,
         sandbox_id: &str,
@@ -279,7 +279,9 @@ impl StatusResolver {
         )
         .with_commands(commands)
     }
+}
 
+impl StatusResolver {
     // =========================================================================
     // Private helpers
     // =========================================================================

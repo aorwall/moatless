@@ -101,63 +101,6 @@ fn agent_send_idempotency_uuid(source_task_id: &str, task_id: &str, text: &str) 
     uuid::Uuid::new_v5(&AGENT_SEND_NAMESPACE, name.as_bytes()).to_string()
 }
 
-/// The queued user row every send path writes: no turn, no session, nothing
-/// acknowledged, and no origin. The run that consumes it decides which turn it
-/// belongs to. Each caller fills in what its own origin adds.
-fn pending_user_row(task_id: &str, uuid: String, text: String, timestamp: String) -> TaskMessage {
-    TaskMessage {
-        id: 0, // will be assigned by DB
-        task_id: task_id.to_string(),
-        uuid,
-        message_type: MessageType::User,
-        user_type: "human".to_string(),
-        parent_uuid: None,
-        is_sidechain: None,
-        cwd: None,
-        session_id: None,
-        turn_number: None,
-        version: None,
-        git_branch: None,
-        request_id: None,
-        timestamp,
-        message_role: MessageRole::User,
-        message_text: Some(text),
-        assistant_message_id: None,
-        assistant_message_type: None,
-        assistant_message_model: None,
-        assistant_stop_reason: None,
-        assistant_stop_sequence: None,
-        assistant_usage_input_tokens: None,
-        assistant_usage_output_tokens: None,
-        assistant_usage_cache_creation_input_tokens: None,
-        assistant_usage_cache_read_input_tokens: None,
-        assistant_usage: None,
-        tool_use_result: None,
-        tool_response: None,
-        sdk_metadata: None,
-        attachments: None,
-        agent_session_id: None, // Not yet acknowledged
-        will_not_resume: None,
-        run_metrics: None,
-        agent_mode_raw: None,
-        model: None,
-        effort: None,
-        skills: Vec::new(),
-        resume: false,
-        sent_at: None,
-        created_at: None,
-        external_event_id: None,
-        external_adapter: None,
-        external_subject_key: None,
-        external_source_name: None,
-        external_author: None,
-        external_sender_id: None,
-        source_task_id: None,
-        start_fresh: false,
-        sent_by: None,
-    }
-}
-
 /// Queue a user message a sandbox wrote for its own Task, so an interrupted
 /// turn recovers — `agent_handle.send` alone leaves no row for
 /// `find_interrupted_turn` to see.
@@ -198,7 +141,14 @@ pub async fn enqueue_sandbox_message(
     }
 
     let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
-    let row = pending_user_row(task_id, uuid, text.to_string(), now.clone());
+    let row = TaskMessage {
+        // Overrides the constructor's `resume: true`, deliberately: this is the
+        // last row of its batch, and `enricher::build_pending_deliveries` reads
+        // the last row's `resume` to decide whether the recovered turn rejoins
+        // the previous agent session.
+        resume: false,
+        ..TaskMessage::new_user_message(task_id.to_string(), uuid, text.to_string(), now.clone())
+    };
     messages
         .append(&row, &[], &ConversationWrite::default())
         .await
@@ -407,7 +357,12 @@ impl MessageSendService {
             source_task_id: origin.source_task_id.map(std::string::ToString::to_string),
             start_fresh,
             sent_by: sent_by.map(std::string::ToString::to_string),
-            ..pending_user_row(task_id, msg_uuid, effective_message, now.clone())
+            ..TaskMessage::new_user_message(
+                task_id.to_string(),
+                msg_uuid,
+                effective_message,
+                now.clone(),
+            )
         };
 
         // Persist contexts: sender-supplied (preview/element) + synthesised

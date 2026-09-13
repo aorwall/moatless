@@ -197,8 +197,11 @@ impl TaskMessage {
         self.agent_mode_raw.clone().map(AgentMode::from)
     }
 
-    /// Create a new user message with required fields, defaulting all optional
-    /// fields to `None`.
+    /// The queued user row every send path starts from: no turn, no session,
+    /// nothing acknowledged, and no origin. The run that consumes it decides
+    /// which turn it belongs to, and each caller fills in what its own origin
+    /// adds. Every optional field defaults to `None`; `resume` defaults to
+    /// `true`, so a caller queueing a row that must not resume sets it.
     pub fn new_user_message(
         task_id: String,
         uuid: String,

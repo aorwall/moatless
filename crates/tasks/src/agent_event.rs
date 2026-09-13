@@ -59,7 +59,7 @@ impl AgentEvent {
                 .map_or_else(|_| self.unknown(), EventKey::Server),
             EventType::Resources => self.unknown(),
             // Derived, UI-only events are gated out before dispatch (see
-            // `EventHandlerConsumer::process_response`); never reached here.
+            // `EventHandlerConsumer::handle_payload`); never reached here.
             EventType::Message => self.unknown(),
         }
     }

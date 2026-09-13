@@ -24,6 +24,7 @@ pub mod file_storage;
 pub mod git_proxy;
 mod http_trace;
 pub mod reaper;
+pub(crate) mod redis_stream;
 pub mod repository_sync;
 pub mod sandbox;
 pub mod secret_cli;
