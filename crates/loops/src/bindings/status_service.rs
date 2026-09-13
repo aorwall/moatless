@@ -84,8 +84,8 @@ fn cache() -> &'static Cache<String, ExternalStatus> {
 
 /// Fetch the live external status for a binding, caching the result and writing
 /// it through to the binding's persisted columns. Returns `None` when no live
-/// status can be obtained (adapter without live status, no adapter configured,
-/// no token, API error) — callers fall back to whatever is already persisted.
+/// status can be obtained: adapter without live status, no adapter configured,
+/// no token, API error.
 ///
 /// `created_by` is the owning task's creator, used by adapters that resolve a
 /// per-user token.
