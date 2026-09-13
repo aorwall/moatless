@@ -1,14 +1,17 @@
 /// A closed set of values persisted as text and carried on the wire as text.
 ///
-/// Generates the wire mapping (`as_str`, `Display`, `TryFrom<&str>`,
-/// `TryFrom<String>`) and nothing else. Reading one out of a database column
-/// belongs to the crate that owns the query, not here.
+/// Declares the enum, then delegates to [`string_enum_mapping!`] for the wire
+/// mapping. Reading one out of a database column belongs to the crate that
+/// owns the query, not here.
 ///
 /// Keep this invocation name (`string_enum!`) stable: architecture analysis
 /// greps for it to find every domain enum.
 ///
 /// One knob beyond the bare form: `Name [Hash, Default] { ... }` adds derives
-/// beyond the default set.
+/// beyond the default set. A type that must not carry this macro's serde
+/// derive and wire contract — e.g. one with no wire representation, or one
+/// that keeps its own smaller derive set — declares its own enum and invokes
+/// [`string_enum_mapping!`] directly instead of this macro.
 ///
 /// A variant's `$value` is what `as_str`/`Display`/serde use — each variant
 /// gets its own `#[serde(rename = $value)]`, so there is no `rename_all` to
@@ -52,17 +55,57 @@ macro_rules! string_enum {
             $($(#[$vmeta])* #[serde(rename = $value)] $(#[serde(alias = $alias)])* $variant),+
         }
 
+        $crate::string_enum_mapping!(
+            $name {
+                $($variant => $value $(| $alias)*),+
+            }
+        );
+    };
+}
+
+/// Generates `as_str`, `Display`, `FromStr`, `TryFrom`, and `const ALL` over
+/// an enum the caller already declared — for a type that wants its own derive
+/// list rather than [`string_enum!`]'s. Keep `string_enum` in this macro's
+/// name too: architecture analysis greps for it to find every domain enum.
+macro_rules! string_enum_mapping {
+    (
+        $name:ident {
+            $($variant:ident => $value:literal $(| $alias:literal)*),+ $(,)?
+        }
+    ) => {
         impl $name {
             pub fn as_str(self) -> &'static str {
                 match self {
                     $(Self::$variant => $value),+
                 }
             }
+
+            /// Every value, so a caller can assert a closed mapping names all of
+            /// them.
+            pub const ALL: &'static [Self] = &[
+                $(Self::$variant),+
+            ];
         }
 
         impl std::fmt::Display for $name {
+            // Matches `self` by reference directly, rather than through
+            // `as_str(self)`: a caller that keeps `as_str` taking `self` by
+            // value (the default, so it composes with `Option::map` and
+            // friends) but declares its own non-`Copy` enum still needs
+            // `Display` to work without moving out of the reference `fmt`
+            // receives.
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                f.write_str(self.as_str())
+                f.write_str(match self {
+                    $(Self::$variant => $value,)+
+                })
+            }
+        }
+
+        impl std::str::FromStr for $name {
+            type Err = String;
+
+            fn from_str(value: &str) -> Result<Self, String> {
+                Self::try_from(value)
             }
         }
 
@@ -88,3 +131,4 @@ macro_rules! string_enum {
 }
 
 pub(crate) use string_enum;
+pub(crate) use string_enum_mapping;

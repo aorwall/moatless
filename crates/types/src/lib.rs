@@ -15,7 +15,7 @@
 #![cfg_attr(test, allow(clippy::expect_used, clippy::unwrap_used))]
 
 mod string_enum;
-pub(crate) use string_enum::string_enum;
+pub(crate) use string_enum::{string_enum, string_enum_mapping};
 pub mod access_control;
 pub mod adapter;
 pub mod agent;

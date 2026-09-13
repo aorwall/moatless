@@ -296,15 +296,6 @@ crate::string_enum!(
 );
 
 impl WorkspaceCredentialProvider {
-    pub const ALL: &'static [Self] = &[
-        Self::Github,
-        Self::Gitlab,
-        Self::Gitness,
-        Self::Forgejo,
-        Self::Openai,
-        Self::Anthropic,
-    ];
-
     /// The git hosts among these.
     ///
     /// A pin for one is the token every call against that host presents, so
@@ -347,23 +338,6 @@ impl From<crate::repository::RepositoryProvider> for WorkspaceCredentialProvider
             Host::Gitness => Self::Gitness,
             Host::Forgejo => Self::Forgejo,
         }
-    }
-}
-
-impl std::str::FromStr for WorkspaceCredentialProvider {
-    type Err = String;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        Self::ALL
-            .iter()
-            .copied()
-            .find(|provider| provider.as_str() == value)
-            .ok_or_else(|| {
-                format!(
-                    "Unknown credential provider '{value}'. Must be one of: {}",
-                    Self::names()
-                )
-            })
     }
 }
 
@@ -563,11 +537,6 @@ crate::string_enum!(
         Node => "node",
     }
 );
-
-impl StorageMedium {
-    /// Every variant, so a conversion table cannot silently miss one.
-    pub const ALL: &'static [Self] = &[Self::EmptyDir, Self::Node];
-}
 
 // =============================================================================
 // EnvKey / EnvVars

@@ -31,53 +31,21 @@ pub enum ActivityKind {
     ContextWindowUpdated,
 }
 
-impl ActivityKind {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::ToolCall => "tool_call",
-            Self::Thinking => "thinking",
-            Self::SandboxStatus => "sandbox_status",
-            Self::SandboxWarning => "sandbox_warning",
-            Self::SandboxError => "sandbox_error",
-            Self::UserInputRequested => "user_input_requested",
-            Self::UserInputResolved => "user_input_resolved",
-            Self::PlanUpdated => "plan_updated",
-            Self::ContextWindowUpdated => "context_window_updated",
-        }
+// `ALL` is used by the SQL narrowing in `dao::known_kinds`, which a test
+// asserts names every kind.
+crate::string_enum_mapping!(
+    ActivityKind {
+        ToolCall => "tool_call",
+        Thinking => "thinking",
+        SandboxStatus => "sandbox_status",
+        SandboxWarning => "sandbox_warning",
+        SandboxError => "sandbox_error",
+        UserInputRequested => "user_input_requested",
+        UserInputResolved => "user_input_resolved",
+        PlanUpdated => "plan_updated",
+        ContextWindowUpdated => "context_window_updated",
     }
-
-    /// Every value, so a test can assert the SQL narrowing names all of them.
-    pub const ALL: &'static [Self] = &[
-        Self::ToolCall,
-        Self::Thinking,
-        Self::SandboxStatus,
-        Self::SandboxWarning,
-        Self::SandboxError,
-        Self::UserInputRequested,
-        Self::UserInputResolved,
-        Self::PlanUpdated,
-        Self::ContextWindowUpdated,
-    ];
-}
-
-impl std::str::FromStr for ActivityKind {
-    type Err = String;
-
-    fn from_str(raw: &str) -> Result<Self, Self::Err> {
-        match raw {
-            "tool_call" => Ok(Self::ToolCall),
-            "thinking" => Ok(Self::Thinking),
-            "sandbox_status" => Ok(Self::SandboxStatus),
-            "sandbox_warning" => Ok(Self::SandboxWarning),
-            "sandbox_error" => Ok(Self::SandboxError),
-            "user_input_requested" => Ok(Self::UserInputRequested),
-            "user_input_resolved" => Ok(Self::UserInputResolved),
-            "plan_updated" => Ok(Self::PlanUpdated),
-            "context_window_updated" => Ok(Self::ContextWindowUpdated),
-            other => Err(format!("unknown activity kind: {other:?}")),
-        }
-    }
-}
+);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// arch-allow(floor-type-admission): Status is part of the shared `Activity`

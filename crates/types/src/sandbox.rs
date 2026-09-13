@@ -114,49 +114,16 @@ crate::string_enum!(
     }
 );
 
-/// Matches TS `ServerStatusEnumSchema`: 'stopped' | 'installing' | 'starting' | 'started' | 'failed'
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "lowercase")]
-pub enum ServerStatus {
-    Stopped,
-    Installing,
-    Starting,
-    Started,
-    Failed,
-}
-
-impl ServerStatus {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Stopped => "stopped",
-            Self::Installing => "installing",
-            Self::Starting => "starting",
-            Self::Started => "started",
-            Self::Failed => "failed",
-        }
+crate::string_enum!(
+    /// Matches TS `ServerStatusEnumSchema`: 'stopped' | 'installing' | 'starting' | 'started' | 'failed'
+    ServerStatus {
+        Stopped => "stopped",
+        Installing => "installing",
+        Starting => "starting",
+        Started => "started",
+        Failed => "failed",
     }
-}
-
-impl std::fmt::Display for ServerStatus {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-
-impl From<&str> for ServerStatus {
-    /// Lenient: an unrecognised value reads as [`ServerStatus::Stopped`] rather
-    /// than failing.
-    fn from(s: &str) -> Self {
-        match s {
-            "installing" => Self::Installing,
-            "starting" => Self::Starting,
-            "started" => Self::Started,
-            "failed" => Self::Failed,
-            _ => Self::Stopped,
-        }
-    }
-}
+);
 
 /// Server capabilities (deterministic from server name)
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -189,48 +156,18 @@ pub struct ServerEntry {
     pub capabilities: ServerCapabilities,
 }
 
-/// Observed Agent lifecycle while its Sandbox is ready.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "lowercase")]
-pub enum AgentStatus {
-    Running,
-    /// Parked on a person: the run is open, and nothing is running until it is
-    /// answered.
-    Waiting,
-    Idle,
-    Unknown,
-}
-
-impl AgentStatus {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Running => "running",
-            Self::Waiting => "waiting",
-            Self::Idle => "idle",
-            Self::Unknown => "unknown",
-        }
+crate::string_enum!(
+    /// Observed Agent lifecycle while its Sandbox is ready.
+    AgentStatus {
+        Running => "running",
+        /// Parked on a person: the run is open, and nothing is running until it is
+        /// answered.
+        Waiting => "waiting",
+        // "stopped" is a legacy spelling already written to the database.
+        Idle => "idle" | "stopped",
+        Unknown => "unknown",
     }
-}
-
-impl std::fmt::Display for AgentStatus {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-
-impl From<&str> for AgentStatus {
-    /// Lenient: an unrecognised value reads as [`AgentStatus::Unknown`] rather
-    /// than failing, and legacy `"stopped"` reads as [`AgentStatus::Idle`].
-    fn from(s: &str) -> Self {
-        match s {
-            "running" => Self::Running,
-            "waiting" => Self::Waiting,
-            "idle" | "stopped" => Self::Idle,
-            _ => Self::Unknown,
-        }
-    }
-}
+);
 
 /// Lifecycle of a command registered through `moat cmd`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -458,8 +395,13 @@ mod tests {
             let parsed: AgentStatus =
                 serde_json::from_str(&json).unwrap_or_else(|e| panic!("{wire}: {e}"));
             assert_eq!(parsed.to_string(), wire);
-            assert_eq!(AgentStatus::from(wire), parsed);
+            assert_eq!(AgentStatus::try_from(wire), Ok(parsed));
         }
+    }
+
+    #[test]
+    fn agent_status_try_from_accepts_the_legacy_stopped_spelling() {
+        assert_eq!(AgentStatus::try_from("stopped"), Ok(AgentStatus::Idle));
     }
 
     #[test]
@@ -486,7 +428,7 @@ mod tests {
             let parsed: ServerStatus =
                 serde_json::from_str(&json).unwrap_or_else(|e| panic!("{wire}: {e}"));
             assert_eq!(parsed.to_string(), wire);
-            assert_eq!(ServerStatus::from(wire), parsed);
+            assert_eq!(ServerStatus::try_from(wire), Ok(parsed));
         }
     }
 
@@ -519,11 +461,6 @@ mod tests {
         ] {
             assert_eq!(status.to_string(), text);
         }
-    }
-
-    #[test]
-    fn server_status_from_unrecognized_is_stopped() {
-        assert_eq!(ServerStatus::from("nonsense"), ServerStatus::Stopped);
     }
 
     #[test]

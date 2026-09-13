@@ -548,13 +548,4 @@ mod workspace_credential_tests {
             );
         }
     }
-
-    #[test]
-    fn an_unknown_provider_names_the_supported_set() {
-        let err = WorkspaceCredentialProvider::from_str("codex")
-            .expect_err("codex is deliberately unsupported");
-        for provider in WorkspaceCredentialProvider::ALL {
-            assert!(err.contains(provider.as_str()), "{err}");
-        }
-    }
 }

@@ -4,7 +4,7 @@
 
 #[path = "../../types/src/string_enum.rs"]
 mod string_enum;
-pub(crate) use string_enum::string_enum;
+pub(crate) use string_enum::{string_enum, string_enum_mapping};
 
 pub mod plugin;
 pub mod repository;

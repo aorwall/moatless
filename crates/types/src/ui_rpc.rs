@@ -17,14 +17,12 @@ pub enum UserRole {
     User,
 }
 
-impl UserRole {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::Admin => "admin",
-            Self::User => "user",
-        }
+crate::string_enum_mapping!(
+    UserRole {
+        Admin => "admin",
+        User => "user",
     }
-}
+);
 
 #[derive(Debug, Clone)]
 pub struct UiRpcAuthIdentity {

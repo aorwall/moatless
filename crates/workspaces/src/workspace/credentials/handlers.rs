@@ -34,7 +34,27 @@ pub(super) fn credential_response(
 
 /// Parse the `{provider}` path segment, naming the supported set on a miss.
 fn parse_provider(provider: &str) -> Result<WorkspaceCredentialProvider, WorkspaceError> {
-    provider.parse().map_err(WorkspaceError::BadRequest)
+    WorkspaceCredentialProvider::try_from(provider).map_err(|_| {
+        WorkspaceError::BadRequest(format!(
+            "Unknown credential provider '{provider}'. Must be one of: {}",
+            WorkspaceCredentialProvider::names()
+        ))
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_provider;
+    use moatless_workspace_types::workspace::WorkspaceCredentialProvider;
+
+    #[test]
+    fn an_unknown_provider_names_the_supported_set() {
+        let err = parse_provider("codex").expect_err("codex is deliberately unsupported");
+        let message = err.to_string();
+        for provider in WorkspaceCredentialProvider::ALL {
+            assert!(message.contains(provider.as_str()), "{message}");
+        }
+    }
 }
 
 #[utoipa::path(

@@ -57,7 +57,9 @@ pub async fn fetch_agent_status(
 
     match client.get_agent_status_for_task(Some(task_id)).await {
         Ok(resp) => AgentStatusSnapshot {
-            status: Some(AgentStatus::from(resp.status.as_str())),
+            status: Some(
+                AgentStatus::try_from(resp.status.as_str()).unwrap_or(AgentStatus::Unknown),
+            ),
             scheduled_jobs: resp
                 .scheduled_jobs
                 .into_iter()
