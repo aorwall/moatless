@@ -1,6 +1,5 @@
 [
   "agents-md-budget::AGENTS.md",
-  "agents-md-budget::docker/AGENTS.md",
   "comment-block-size::crates/adapter-github-pr/src/delivery/registration.rs::module",
   "comment-block-size::crates/adapter-github-pr/src/external_id.rs::module",
   "comment-block-size::crates/adapter-github-pr/src/merged.rs::module",
