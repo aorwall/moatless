@@ -36,22 +36,23 @@ pub struct Import {
     pub path: Vec<String>,
 }
 
-/// A `resolve` memo key: a record's address (stable once `records` stops
-/// growing) paired with the path it was asked to resolve.
+/// A `resolve` memo key: a record's address paired with the queried path.
 type ResolveCache = RefCell<BTreeMap<(usize, Vec<String>), Option<String>>>;
 
 /// The source inventory for one workspace read.
 #[derive(Default)]
 pub struct Index {
+    /// Never pushed to after `read_members` returns: `resolve_cache` keys on
+    /// each record's address, and a reallocation hands cached results to
+    /// whatever lands at the old address.
     pub records: Vec<Record>,
     scopes: BTreeMap<String, Vec<Import>>,
     dependencies: BTreeMap<String, BTreeMap<String, String>>,
     definitions: BTreeSet<String>,
     resolved: BTreeMap<(String, String), BTreeSet<String>>,
-    /// Memoized `resolve` results, keyed by a record's address (stable once
-    /// `records` stops growing) and its queried path. Several rules walk
-    /// overlapping subsets of the same index and re-resolve the same
-    /// reference; `resolve` is a pure function of its inputs, so this is safe.
+    /// Memoized `resolve` results. Several rules walk overlapping subsets of
+    /// one index and re-resolve the same reference; `resolve` is a pure
+    /// function of its inputs.
     resolve_cache: ResolveCache,
 }
 
