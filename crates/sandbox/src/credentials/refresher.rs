@@ -98,7 +98,7 @@ mod tests {
     use crate::agent::agent_state::AgentState;
     use crate::agent::handle::spawn_agent;
     use crate::backend_client::BackendClient;
-    use crate::config::{AgentConfig, Config, ProxyConfig};
+    use crate::config::{Config, test_support::minimal_config};
     use crate::credentials::Dispatcher;
     use crate::credentials::recovery::CredentialFailureDetector;
     use crate::events::GrpcEventPublisher;
@@ -193,42 +193,18 @@ mod tests {
             grpc_port: 0,
             sandbox_id: "task-refresher".to_string(),
             task_id: "task-refresher".to_string(),
-            agent_type: None,
             workspace_dir: tmp.path().join("workspace").display().to_string(),
             repo_dir: tmp.path().join("workspace").display().to_string(),
             data_dir: tmp.path().join("data").display().to_string(),
             runtime_dir: tmp.path().join("run").display().to_string(),
             upload_dir: tmp.path().join("uploads").display().to_string(),
-            log_level: "info".to_string(),
             backend_grpc_url: "http://localhost:50051".to_string(),
-            backend_api_url: None,
-            user_auth_token: None,
-            bootstrap_token: None,
-            agent_config: AgentConfig::default(),
             claude_cli_path: "/usr/bin/claude".to_string(),
             codex_cli_path: "/usr/bin/codex".to_string(),
-            proxy: ProxyConfig::default(),
-            servers: vec![],
-            frontend_url: None,
-            use_tmux: false,
-            command_default_timeout_secs: crate::config::DEFAULT_COMMAND_TIMEOUT_SECS,
-            permission_mode: claude_agent_sdk::PermissionMode::BypassPermissions,
-            workspace_sync_enabled: false,
-            workspace_restore_if_empty: false,
-            headless: false,
-            default_model: None,
-            default_codex_model: None,
-            openai_base_url: None,
             home_dir: home.display().to_string(),
             codex_home_dir: home.join(".codex").display().to_string(),
             claude_config_dir: home.join(".claude").display().to_string(),
-            git_clone_url: None,
-            git_branch: None,
-            git_provider: "github".to_string(),
-            repos: Vec::new(),
-            repo_config_raw: None,
-            setup_commands: vec![],
-            plugins: vec![],
+            ..minimal_config()
         }
     }
 

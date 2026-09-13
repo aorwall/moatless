@@ -68,50 +68,21 @@ mod tests {
     use tempfile::TempDir;
 
     use super::{render_env_file, shell_single_quote, write_server_env_file};
-    use crate::config::{AgentConfig, Config, ProxyConfig};
+    use crate::config::{Config, test_support::minimal_config};
 
     fn test_config(tmp: &TempDir) -> Config {
         Config {
-            port: 8001,
-            grpc_port: 50052,
             sandbox_id: "task-1".to_string(),
             task_id: "task-1".to_string(),
-            agent_type: None,
             workspace_dir: tmp.path().join("workspace").display().to_string(),
             repo_dir: tmp.path().join("workspace").display().to_string(),
             data_dir: tmp.path().display().to_string(),
             runtime_dir: tmp.path().join("run").display().to_string(),
             upload_dir: tmp.path().join("uploads").display().to_string(),
-            log_level: "info".to_string(),
-            backend_grpc_url: "http://backend:50051".to_string(),
-            backend_api_url: None,
-            user_auth_token: None,
-            bootstrap_token: None,
-            agent_config: AgentConfig::default(),
-            claude_cli_path: "/usr/local/bin/claude".to_string(),
-            codex_cli_path: "/usr/local/bin/codex".to_string(),
-            proxy: ProxyConfig::default(),
-            servers: Vec::new(),
-            frontend_url: None,
-            use_tmux: false,
-            command_default_timeout_secs: crate::config::DEFAULT_COMMAND_TIMEOUT_SECS,
-            permission_mode: claude_agent_sdk::PermissionMode::BypassPermissions,
-            workspace_sync_enabled: false,
-            workspace_restore_if_empty: false,
-            headless: false,
-            default_model: None,
-            default_codex_model: None,
-            openai_base_url: None,
             home_dir: tmp.path().join("home").display().to_string(),
             codex_home_dir: tmp.path().join("home/.codex").display().to_string(),
             claude_config_dir: tmp.path().join("home/.claude").display().to_string(),
-            git_clone_url: None,
-            git_branch: None,
-            git_provider: "github".to_string(),
-            repos: Vec::new(),
-            repo_config_raw: None,
-            setup_commands: Vec::new(),
-            plugins: Vec::new(),
+            ..minimal_config()
         }
     }
 

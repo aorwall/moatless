@@ -110,48 +110,18 @@ mod tests {
     use super::*;
 
     fn test_config_with_codex_dir(codex_home_dir: String) -> Config {
-        use crate::config::{AgentConfig, ProxyConfig};
+        use crate::config::test_support::minimal_config;
         Config {
             port: 0,
             grpc_port: 0,
             sandbox_id: "task-test".to_string(),
             task_id: "task-test".to_string(),
-            agent_type: None,
-            workspace_dir: "/tmp/workspace".to_string(),
             repo_dir: "/tmp/workspace".to_string(),
-            data_dir: "/tmp/data".to_string(),
-            runtime_dir: "/tmp/run".to_string(),
-            upload_dir: "/tmp/uploads".to_string(),
-            log_level: "info".to_string(),
             backend_grpc_url: "http://localhost:50051".to_string(),
-            backend_api_url: None,
-            user_auth_token: None,
-            bootstrap_token: None,
-            agent_config: AgentConfig::default(),
             claude_cli_path: "/usr/bin/claude".to_string(),
             codex_cli_path: "/usr/bin/codex".to_string(),
-            proxy: ProxyConfig::default(),
-            servers: vec![],
-            frontend_url: None,
-            default_model: None,
-            default_codex_model: None,
-            openai_base_url: None,
-            use_tmux: false,
-            command_default_timeout_secs: crate::config::DEFAULT_COMMAND_TIMEOUT_SECS,
-            permission_mode: claude_agent_sdk::PermissionMode::BypassPermissions,
-            workspace_sync_enabled: false,
-            workspace_restore_if_empty: false,
-            headless: false,
-            home_dir: "/tmp/home".to_string(),
             codex_home_dir,
-            claude_config_dir: "/tmp/home/.claude".to_string(),
-            git_clone_url: None,
-            git_branch: None,
-            git_provider: "github".to_string(),
-            repos: Vec::new(),
-            repo_config_raw: None,
-            setup_commands: vec![],
-            plugins: vec![],
+            ..minimal_config()
         }
     }
 

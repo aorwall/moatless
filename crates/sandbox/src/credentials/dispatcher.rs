@@ -31,12 +31,6 @@ impl Dispatcher {
         self.sinks.insert(key.into(), sink);
     }
 
-    /// Number of registered sinks. Used by tests.
-    #[cfg(test)]
-    pub fn sink_count(&self) -> usize {
-        self.sinks.len()
-    }
-
     /// Apply a credential. Returns `Ok(true)` if a sink handled it,
     /// `Ok(false)` if no sink is registered for the key.
     pub async fn dispatch(&self, key: &str, value: &str) -> Result<bool, String> {

@@ -54,16 +54,10 @@ chrono = { workspace = true, features = ["serde"] }
 # Shared type definitions
 moatless-types = { workspace = true }
 
-# Typed API schemas (shared codex tool shapes)
-
 # gRPC (backend communication — replaces Redis + HTTP polling)
 sandbox-proto = { workspace = true }
 tonic = { workspace = true }
-prost = { workspace = true }
 tokio-stream = "0.1"
-
-# CORS + tracing middleware
-tower-http = { version = "0.7", features = ["cors", "trace"] }
 
 # Async streams + traits
 futures = { workspace = true }

@@ -4211,7 +4211,6 @@ dependencies = [
  "moatless-types",
  "notify",
  "portable-pty",
- "prost",
  "reqwest 0.13.4",
  "rustic_core",
  "sandbox-proto",
@@ -4224,7 +4223,6 @@ dependencies = [
  "tokio-stream",
  "tokio-util",
  "tonic",
- "tower-http 0.7.0",
  "tracing",
  "tracing-subscriber",
  "uuid",
@@ -7371,7 +7369,6 @@ dependencies = [
  "tokio-util",
  "tower-layer",
  "tower-service",
- "tracing",
 ]
 
 [[package]]

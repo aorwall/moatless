@@ -43,7 +43,6 @@
   "duplicate-type-name::ErrorClass in moatless-sandbox, moatless-sandbox-runtime",
   "duplicate-type-name::LogOptions in moatless-ports, moatless-sandbox-runtime",
   "duplicate-type-name::Outcome in moatless-adapter-model, moatless-sandbox",
-  "duplicate-type-name::ProxyConfig in moatless-core, moatless-sandbox",
   "duplicate-type-name::ResourceConfig in moatless-api-schemas, moatless-types",
   "duplicate-type-name::ResourceQuantities in moatless-api-schemas, moatless-types",
   "duplicate-type-name::SandboxError in moatless-sandbox, moatless-sandbox-runtime, moatless-types",

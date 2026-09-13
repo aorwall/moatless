@@ -201,7 +201,6 @@ fn test_config() -> Config {
         agent_config: moatless_sandbox::config::AgentConfig::default(),
         claude_cli_path: "/usr/bin/claude".to_string(),
         codex_cli_path: "/usr/bin/codex".to_string(),
-        proxy: moatless_sandbox::config::ProxyConfig::default(),
         servers: vec![],
         claude_config_dir: "/tmp/test-claude-config".to_string(),
         git_clone_url: None,

@@ -29,9 +29,7 @@ use moatless_sandbox::agent::agent_state::AgentState;
 use moatless_sandbox::agent::harness::{
     Cause, ClaudeConfig, CodexConfig, Harness, Input, Outcome, Rejection, Role, Signal,
 };
-use moatless_sandbox::config::{
-    AgentConfig, Config, DEFAULT_COMMAND_TIMEOUT_SECS, ProxyConfig,
-};
+use moatless_sandbox::config::{AgentConfig, Config, DEFAULT_COMMAND_TIMEOUT_SECS};
 use moatless_sandbox::credentials::recovery::CredentialFailureDetector;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -973,7 +971,6 @@ fn build_config(tmp: &TempDir, agent: EvalAgent) -> Config {
             .unwrap_or_else(|_| "/usr/local/bin/claude".to_string()),
         codex_cli_path: std::env::var("SANDBOX_CODEX_EXECUTABLE_PATH")
             .unwrap_or_else(|_| "/usr/local/bin/codex".to_string()),
-        proxy: ProxyConfig::default(),
         servers: Vec::new(),
         frontend_url: None,
         default_model: None,

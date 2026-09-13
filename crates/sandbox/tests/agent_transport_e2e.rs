@@ -53,7 +53,7 @@ use moatless_sandbox::agent::harness::{
 };
 use moatless_sandbox::agent::types::{AgentStatus, ResumeSession, StopSource};
 use moatless_sandbox::backend_client::BackendClient;
-use moatless_sandbox::config::{AgentConfig, Config, ProxyConfig};
+use moatless_sandbox::config::{AgentConfig, Config};
 use moatless_sandbox::credentials::Dispatcher;
 use moatless_sandbox::credentials::recovery::CredentialFailureDetector;
 use moatless_sandbox::events::GrpcEventPublisher;
@@ -251,7 +251,6 @@ fn test_config(tmp: &TempDir, use_tmux: bool, agent_type: &str) -> Config {
             .unwrap_or_else(|_| "/usr/local/bin/claude".to_string()),
         codex_cli_path: std::env::var("CODEX_CLI_PATH")
             .unwrap_or_else(|_| "/usr/local/bin/codex".to_string()),
-        proxy: ProxyConfig::default(),
         servers: vec![],
         frontend_url: None,
         default_model: None,

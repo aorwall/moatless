@@ -70,24 +70,6 @@ pub struct CodeExecutionConfig {
     pub setup_commands: Vec<String>,
 }
 
-/// Proxy configuration for constructing preview URLs.
-#[derive(Debug, Clone)]
-pub struct ProxyConfig {
-    /// Proxy domain (e.g., "preview.moatless.xyz")
-    pub domain: Option<String>,
-    /// Protocol (default: "https")
-    pub protocol: String,
-}
-
-impl Default for ProxyConfig {
-    fn default() -> Self {
-        Self {
-            domain: None,
-            protocol: "https".to_string(),
-        }
-    }
-}
-
 /// Server info parsed from `REPO_CONFIG`, used for system prompt.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -214,8 +196,6 @@ pub struct Config {
     pub claude_cli_path: String,
     /// Path to the Codex CLI binary
     pub codex_cli_path: String,
-    /// Proxy configuration for preview URLs
-    pub proxy: ProxyConfig,
     /// Server configurations parsed from `REPO_CONFIG`
     pub servers: Vec<ServerInfo>,
     /// Frontend URL for constructing task URLs (e.g., "<https://moatless.io>")
@@ -639,11 +619,6 @@ impl Config {
             codex_cli_path: env::var("SANDBOX_CODEX_EXECUTABLE_PATH")
                 .unwrap_or_else(|_| "/usr/local/bin/codex".to_string()),
 
-            proxy: ProxyConfig {
-                domain: env::var("PROXY_DOMAIN").ok(),
-                protocol: env::var("PROXY_PROTOCOL")
-                    .unwrap_or_else(|_| "https".to_string()),
-            },
             servers: parsed.servers,
             frontend_url: env::var("FRONTEND_URL").ok(),
             default_model: env::var("DEFAULT_CLAUDE_CODE_MODEL").ok(),
@@ -734,7 +709,7 @@ impl Config {
 /// Test-only helpers for constructing a [`Config`] without env vars.
 #[cfg(test)]
 pub(crate) mod test_support {
-    use super::{AgentConfig, Config, PermissionMode, ProxyConfig};
+    use super::{AgentConfig, Config, PermissionMode};
 
     /// A minimal [`Config`] with empty/default values, suitable for unit tests
     /// that only exercise a few fields. Callers override what they need.
@@ -758,7 +733,6 @@ pub(crate) mod test_support {
             agent_config: AgentConfig::default(),
             claude_cli_path: "/usr/local/bin/claude".to_string(),
             codex_cli_path: "/usr/local/bin/codex".to_string(),
-            proxy: ProxyConfig::default(),
             servers: Vec::new(),
             frontend_url: None,
             default_model: None,
