@@ -45,13 +45,6 @@ hkdf = { workspace = true }
 # Error handling
 thiserror = { workspace = true }
 
-# OpenAPI documentation — gated so non-API consumers of this shared crate do not
-# pull utoipa (shared-crates.md: keep utoipa/OpenAPI derives feature-gated).
-utoipa = { workspace = true, features = ["axum_extras"], optional = true }
-
-# Cancellation
-tokio-util = { workspace = true, features = ["rt"] }
-
 # Async traits
 async-trait = { workspace = true }
 
@@ -64,11 +57,9 @@ metrics-exporter-prometheus = "0.18"
 moatless-types = { workspace = true }
 
 [features]
-# OpenAPI surface: utoipa derives and the downstream `openapi` features of the
-# shared crates it composes. The backend (an API consumer) enables it; a non-API
-# consumer gets the config/db/event/scope types without utoipa.
+# Forwards to the downstream `openapi` features of the shared crates this crate
+# composes.
 openapi = [
-    "dep:utoipa",
     "moatless-types/openapi",
 ]
 # Hand-written test doubles a consumer can name: `file_storage::test_support`.

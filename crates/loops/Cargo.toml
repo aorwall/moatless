@@ -12,22 +12,15 @@ chrono = { workspace = true, features = ["serde"] }
 # Cron-expression parsing for loop schedules (loops/firing).
 cron = "0.17"
 futures = { workspace = true }
-hex = { workspace = true }
-# HMAC-SHA256 webhook-signature verification (adapters/signature).
-hmac = { workspace = true }
-http = "1"
 # Counter/gauge instrumentation (adapters/metrics, delivery, bindings, firing).
 metrics = { workspace = true }
 # In-memory caches (loops/sync fetcher, dedup).
 moka = { workspace = true, features = ["future"] }
-# Canonical `<@login>` mention matching (adapters/mentions).
-regex = { workspace = true }
 reqwest = { workspace = true, features = ["json", "query", "form", "rustls"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 # LOOP.md manifest parsing (loops/sync).
 serde_yaml = { workspace = true }
-sha2 = { workspace = true }
 sqlx = { workspace = true, features = ["runtime-tokio", "tls-rustls", "postgres", "json", "chrono", "uuid"] }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["full"] }

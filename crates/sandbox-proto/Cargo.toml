@@ -7,21 +7,20 @@ description = "gRPC proto definitions for sandbox ↔ backend communication"
 authors.workspace = true
 [dependencies]
 async-trait = { workspace = true }
-serde = { workspace = true, features = ["derive"] }
-serde_json = { workspace = true }
-flate2 = "1"
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["time"] }
 tonic = { workspace = true }
+# Not referenced by name in src/: `tonic::include_proto!` inlines generated code
+# that names `tonic_prost::ProstCodec` and `::prost::Message` directly, invisible
+# to a text scan of the tracked source.
 tonic-prost = "0.14"
 prost = { workspace = true }
 moatless-types = { workspace = true }
 tracing = { workspace = true }
-utoipa = { workspace = true, optional = true }
 
 [features]
 default = []
-openapi = ["utoipa", "moatless-types/openapi"]
+openapi = ["moatless-types/openapi"]
 
 [lints]
 workspace = true
@@ -31,3 +30,6 @@ tonic-prost-build = "0.14"
 # Ships prebuilt protoc binaries so the codegen above needs no system
 # protobuf-compiler. See the note in build.rs.
 protoc-bin-vendored = "3"
+
+[package.metadata.cargo-machete]
+ignored = ["tonic-prost", "prost"]

@@ -11,7 +11,6 @@ tokio = { workspace = true, features = ["full"] }
 
 # HTTP server + client
 axum = { workspace = true, features = ["macros", "ws"] }
-hyper-util = { version = "0.1", features = ["client", "client-legacy", "http1", "http2", "tokio"] }
 http-body-util = { workspace = true }
 
 # Caching
@@ -24,19 +23,11 @@ rustls = { version = "0.23", features = ["aws-lc-rs"] }
 # Serialization
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
-serde_yaml = { workspace = true }
-
-# JWT
-# jsonwebtoken 10's default features only enable `use_pem` — no crypto backend.
-# Without exactly one of `aws_lc_rs`/`rust_crypto`, it panics at runtime trying to
-# resolve a CryptoProvider. Enable aws_lc_rs to match the rest of the TLS stack.
-jsonwebtoken = { workspace = true, features = ["aws_lc_rs"] }
 
 # Observability
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
 metrics = { workspace = true }
-metrics-exporter-prometheus = "0.18"
 
 # OTel tracing, exported to Tempo (crates/server/src/startup.rs::init_tracing). Off
 # unless an OTLP endpoint is configured — see OtelConfig. Metrics/logs features
@@ -45,9 +36,6 @@ opentelemetry = { version = "0.32", default-features = false, features = ["trace
 opentelemetry_sdk = { version = "0.32", default-features = false, features = ["trace"] }
 opentelemetry-otlp = { version = "0.32", default-features = false, features = ["grpc-tonic", "trace"] }
 tracing-opentelemetry = { version = "0.33", default-features = false }
-
-# Config
-dotenvy = "0.15"
 
 # Database
 sqlx = { workspace = true, features = ["runtime-tokio", "tls-rustls", "postgres", "json", "chrono", "uuid", "migrate"] }
@@ -61,9 +49,6 @@ chrono = { workspace = true, features = ["serde"] }
 
 # HTTP client (OAuth token exchange)
 reqwest = { workspace = true, features = ["json", "query", "form", "rustls", "stream"] }
-
-# Crypto
-rand = { workspace = true }
 
 # Error handling
 thiserror = { workspace = true }
@@ -132,7 +117,6 @@ claude-agent-sdk = { workspace = true, features = ["openapi"] }
 # gRPC (sandbox ↔ backend communication)
 sandbox-proto = { workspace = true }
 tonic = { workspace = true }
-prost = { workspace = true }
 
 [features]
 # Gate integration tests that need a running PostgreSQL (DATABASE_URL). Forwards

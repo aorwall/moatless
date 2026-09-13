@@ -34,15 +34,12 @@ codex-arg0 = { path = "../../../../stuffs/codex/codex-rs/arg0" }
 codex-cloud-requirements = { path = "../../../../stuffs/codex/codex-rs/cloud-requirements" }
 codex-config = { path = "../../../../stuffs/codex/codex-rs/config" }
 codex-core = { path = "../../../../stuffs/codex/codex-rs/core" }
-codex-exec-server = { path = "../../../../stuffs/codex/codex-rs/exec-server" }
 codex-feedback = { path = "../../../../stuffs/codex/codex-rs/feedback" }
-codex-login = { path = "../../../../stuffs/codex/codex-rs/login" }
 codex-protocol = { path = "../../../../stuffs/codex/codex-rs/protocol" }
 codex-utils-absolute-path = { path = "../../../../stuffs/codex/codex-rs/utils/absolute-path" }
 
 # External
 async-trait = "0.1"
-serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }

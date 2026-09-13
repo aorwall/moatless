@@ -12,12 +12,6 @@ axum = { workspace = true, features = ["macros"] }
 base64 = { workspace = true }
 chrono = { workspace = true, features = ["serde"] }
 futures = { workspace = true }
-# JWT minting/verification for sandbox and user tokens. jsonwebtoken 10's default
-# features enable no crypto backend, so `aws_lc_rs` is explicit — matching the
-# backend and identity crates (see backend/Cargo.toml).
-jsonwebtoken = { workspace = true, features = ["aws_lc_rs"] }
-# Counter/histogram instrumentation for provision/restart durations.
-metrics = { workspace = true }
 # Event-dedup admission cache.
 moka = { workspace = true, features = ["future"] }
 serde = { workspace = true, features = ["derive"] }
@@ -25,8 +19,6 @@ serde_json = { workspace = true }
 sqlx = { workspace = true, features = ["runtime-tokio", "tls-rustls", "postgres", "json", "chrono", "uuid"] }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
-# gRPC server + status types for the sandbox ingress service.
-tonic = { workspace = true }
 tracing = { workspace = true }
 uuid = { workspace = true, features = ["v4", "serde"] }
 utoipa = { workspace = true, features = ["axum_extras"] }
