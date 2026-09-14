@@ -5,6 +5,8 @@ cargo run -p moatless-arch-rules --bin arch-report                      # the to
 cargo run -p moatless-arch-rules --bin arch-report -- --json            # stable IDs and locations
 cargo run -p moatless-arch-rules --bin arch-report -- --update-baseline # accept what is there now
 cargo run -p moatless-arch-rules --bin arch-report -- --persistence-inventory # rewrite the DAO migration inventory
+cargo run -p moatless-arch-rules --bin arch-report -- --comments               # every over-ceiling comment block
+cargo run -p moatless-arch-rules --bin arch-report -- --comments --since main  # only the ones this branch added; exits 1 on a hit
 cargo test -p moatless-arch-rules                                       # fails on new violations
 ARCH_STRICT=1 cargo test -p moatless-arch-rules                         # fails on any violation
 ```
@@ -64,11 +66,18 @@ reached zero.
   the entity from the wire shape. A rule that fights a convention is wrong about the
   convention until proven otherwise.
 
-## `comment-block-size` sits on the stated limit
+## `comment-block-size` is not a registered rule
 
-Its two constants are now the 5 and 8 root `AGENTS.md` asks for, so there is
-nothing left to ratchet. Do not raise one to absorb a long block: baseline that
-block instead, and name in the commit the kind that needs the length.
+It runs from `arch-report --comments`, and `--since <ref>` narrows it to the
+blocks a diff added — which is what the second step of CI's `architecture` job
+gates on, and the only check holding the ceiling anywhere. So it has no
+baseline and no `arch-allow`: an over-ceiling block in a change you are making
+has to be cut. Writing `arch-allow(comment-block-size)` makes things worse
+rather than not working, because `annotations.rs` validates the name against
+`RULES` and reports an unregistered one as its own violation.
+
+Its two constants are the 5 and 8 root `AGENTS.md` asks for. Do not raise one to
+absorb a long block.
 
 ## Reading the workspace and recording an exception
 

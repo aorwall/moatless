@@ -1,6 +1,6 @@
 # Arch-rules: adopt Bun's tooling patterns
 
-> **Status:** approved; item 1 shipped alongside this plan, items 2-5 open
+> **Status:** approved; items 1, 2 and 4 shipped, items 3 and 5 open
 > **Updated:** 2026-09-14
 > **Vocabulary:** CONTEXT.md
 
@@ -19,21 +19,19 @@ lint is off.
 
 | Anchor | What is there |
 |---|---|
-| `clippy.toml:18` | `disallowed-methods = [` — one entry today, `ScopeContext::system` |
-| `clippy.toml:13` | The comment recording that an unresolvable path fails silently |
-| `tooling/arch-rules/src/runner.rs:17` | `Rule::check` is `fn(&Workspace) -> Result<Vec<Violation>>` — no changed-line set anywhere in the interface |
-| `tooling/arch-rules/src/runner.rs:36` | `rules!(` — the single registration point, 27 rules |
+| `clippy.toml:13` | `disallowed-methods = [` — two entries, `ScopeContext::system` and `SystemTime::now` |
+| `clippy.toml:8` | The comment recording that an unresolvable path fails silently |
+| `tooling/arch-rules/src/runner.rs:16` | `Rule::check` is `fn(&Workspace) -> Result<Vec<Violation>>` — no changed-line set anywhere in the interface |
+| `tooling/arch-rules/src/runner.rs:35` | `rules!(` — the single registration point, 27 rules |
 | `tooling/arch-rules/src/comment_block_size.rs:17` | `RULE`; `DOC_CEILING = 5` at `:20`, `MODULE_DOC_CEILING = 8` at `:23` |
-| `tooling/arch-rules/src/comment_block_size.rs:104` | `check_file` — per-file and line-addressed |
-| `tooling/arch-rules/src/public_api.rs:73` | `exports` — driven by `ws.sources(member)`, so workspace members only |
-| `tooling/arch-rules/src/public_api.rs:464` | `inherent_signature` — collects the *type names* in a `pub` method's signature, never the method name |
-| `tooling/arch-rules/tests/architecture.rs:107` | `the_baseline_holds_no_fixed_violations` — the ratchet |
-| `tooling/arch-rules/tests/architecture.rs:126` | `every_registered_rule_is_enforced` — every registered rule must have no unbaselined violation |
-| `tooling/arch-rules/tests/architecture.rs:91` | `assert_rule(comment_block_size::RULE, …)` — goes vacuous under item 2 |
-| `tooling/arch-rules/arch-baseline.json` | 393 entries; 277 are `comment-block-size` |
-| `docs/deferred-changes.md:377` | The `crates/codex-sdk` entry item 2 invalidates |
+| `tooling/arch-rules/src/comment_block_size.rs:118` | `blocks_in_file` — per-file, and the span it returns is what `--since` intersects |
+| `tooling/arch-rules/src/public_api.rs:78` | `exports` — driven by `ws.sources(member)`, so workspace members only |
+| `tooling/arch-rules/src/public_api.rs:543` | `inherent_signature` — collects the *type names* in a `pub` method's signature, never the method name |
+| `tooling/arch-rules/tests/architecture.rs:102` | `the_baseline_holds_no_fixed_violations` — the ratchet |
+| `tooling/arch-rules/tests/architecture.rs:121` | `every_registered_rule_is_enforced` — every registered rule must have no unbaselined violation |
+| `tooling/arch-rules/arch-baseline.json` | 116 entries. Item 2 dropped the 277 `comment-block-size` ones |
 | `.github/workflows/ci.yml:165` | The `architecture` job, `timeout-minutes: 10` |
-| `.github/workflows/ci.yml:184` | The `plan-assertions` job — the grep-only shape item 2's CI step copies |
+| `.github/workflows/ci.yml:184` | The `architecture` job's second step — item 2's comment-block gate |
 | `rust-toolchain.toml` | `channel = "1.97.0"`, coupled to the sandbox image by `toolchain-drift` |
 
 <!-- plan-assert: contains clippy.toml disallowed-methods = [ -->
@@ -43,13 +41,15 @@ lint is off.
 <!-- plan-assert: contains tooling/arch-rules/src/public_api.rs fn inherent_signature -->
 <!-- plan-assert: contains rust-toolchain.toml channel = "1.97.0" -->
 
-Two numbers below gate a decision, so they are asserted rather than trusted:
-277 carries item 2's whole case, and 20 was why `SystemTime::now` was item 4's
-first candidate. Item 4 has since landed, so that assertion now pins what the
-fence left behind instead. The rest of item 4's table sizes nothing and is left
-unasserted, because those counts move with unrelated work.
+Two numbers below gated a decision: 277 carried item 2's whole case, and 20 was
+why `SystemTime::now` was item 4's first candidate. Both have landed, so each
+assertion now pins what the change left behind — a baseline holding no
+`comment-block-size` entry, and the four `SystemTime::now` calls the fence
+exempts. The rest of item 4's table sizes nothing and is left unasserted,
+because those counts move with unrelated work.
 
-<!-- plan-assert: count 277 tooling/arch-rules/arch-baseline.json comment-block-size:: -->
+<!-- plan-assert: absent tooling/arch-rules/arch-baseline.json comment-block-size:: -->
+<!-- plan-assert: contains .github/workflows/ci.yml --comments --since -->
 <!-- plan-assert: count 4 crates SystemTime::now -->
 
 ## Summary
@@ -176,6 +176,13 @@ lands as a gate or, like Bun's, as a comment.
   instruction at `:70`, which stops being true.
 - `docs/deferred-changes.md:377` is rewritten or dropped. It sizes its fix in
   baseline entries added, and after this there is no baseline to add to.
+
+**Item 2 is done, and it landed as a gate.** The prose above leaves the
+gate-or-comment call to a reviewer; the Acceptance list settles it by requiring
+a scratch six-line block to *fail* the step, so a gate is what shipped. Flipping
+it to advisory is one `continue-on-error: true` line on that step. It lives as a
+second step in the `architecture` job rather than a job of its own, because that
+job already compiles the crate.
 
 ## 3. Record why a rule is not registered
 

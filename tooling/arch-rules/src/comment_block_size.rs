@@ -52,11 +52,25 @@ fn block_hash(lines: &[&str]) -> String {
     format!("{:06x}", hash & 0xff_ffff)
 }
 
-pub fn check(ws: &Workspace) -> Result<Vec<Violation>> {
+/// An oversize block: what it breaches, and the 1-based line span it occupies.
+///
+/// `arch-report --comments --since` intersects that span with a diff. The
+/// violation's `locations` carries only the opening line, which cannot answer
+/// whether a change extended a block that already started above it.
+pub struct Block {
+    pub violation: Violation,
+    /// Workspace-relative path, which a diff is matched against by path.
+    pub path: String,
+    pub first_line: usize,
+    pub last_line: usize,
+}
+
+/// Every oversize block in the workspace, with the span each one occupies.
+pub fn blocks(ws: &Workspace) -> Result<Vec<Block>> {
     let mut out = Vec::new();
     for member in ws.members() {
         for (path, text) in ws.sources(member)? {
-            out.extend(check_file(&path, &text));
+            out.extend(blocks_in_file(&path, &text));
         }
     }
     Ok(out)
@@ -101,11 +115,11 @@ fn is_blank_doc_line(line: &str) -> bool {
 /// [`block_hash`], so one baseline entry never accepts two breaches. Two blocks
 /// whose text is byte-identical hash alike, and only there does an ordinal
 /// separate them — it renumbers nothing a hash could have told apart.
-fn check_file(path: &str, text: &str) -> Vec<Violation> {
+fn blocks_in_file(path: &str, text: &str) -> Vec<Block> {
     let found = collect_blocks(path, text);
     let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
-    for (violation, _) in &found {
-        *counts.entry(violation.key.as_str()).or_default() += 1;
+    for (block, _) in &found {
+        *counts.entry(block.violation.key.as_str()).or_default() += 1;
     }
     let shared: BTreeSet<String> = counts
         .into_iter()
@@ -114,22 +128,22 @@ fn check_file(path: &str, text: &str) -> Vec<Violation> {
         .collect();
     let mut seen: BTreeMap<String, usize> = BTreeMap::new();
     let mut out = Vec::with_capacity(found.len());
-    for (mut violation, hash) in found {
-        if shared.contains(&violation.key) {
-            violation.key = format!("{}@{hash}", violation.key);
+    for (mut block, hash) in found {
+        if shared.contains(&block.violation.key) {
+            block.violation.key = format!("{}@{hash}", block.violation.key);
         }
-        let nth = seen.entry(violation.key.clone()).or_default();
+        let nth = seen.entry(block.violation.key.clone()).or_default();
         *nth += 1;
         if *nth > 1 {
-            violation.key = format!("{}#{nth}", violation.key);
+            block.violation.key = format!("{}#{nth}", block.violation.key);
         }
-        out.push(violation);
+        out.push(block);
     }
     out
 }
 
 /// Every oversize block, paired with the hash that disambiguates a shared key.
-fn collect_blocks(path: &str, text: &str) -> Vec<(Violation, String)> {
+fn collect_blocks(path: &str, text: &str) -> Vec<(Block, String)> {
     let lines: Vec<&str> = text.lines().collect();
     let mut out = Vec::new();
     let mut i = 0;
@@ -144,13 +158,18 @@ fn collect_blocks(path: &str, text: &str) -> Vec<(Violation, String)> {
             let len = block_cost(&lines[start..=end]);
             if len > MODULE_DOC_CEILING {
                 out.push((
-                    Violation {
-                        rule: RULE,
-                        key: format!("{path}::module"),
-                        message: format!(
-                            "module doc block of {len} lines wrapped at {WRAP_WIDTH} exceeds the {MODULE_DOC_CEILING}-line ceiling"
-                        ),
-                        locations: vec![format!("{path}:{}", start + 1)],
+                    Block {
+                        violation: Violation {
+                            rule: RULE,
+                            key: format!("{path}::module"),
+                            message: format!(
+                                "module doc block of {len} lines wrapped at {WRAP_WIDTH} exceeds the {MODULE_DOC_CEILING}-line ceiling"
+                            ),
+                            locations: vec![format!("{path}:{}", start + 1)],
+                        },
+                        path: path.to_string(),
+                        first_line: start + 1,
+                        last_line: end + 1,
                     },
                     block_hash(&lines[start..=end]),
                 ));
@@ -173,13 +192,18 @@ fn collect_blocks(path: &str, text: &str) -> Vec<(Violation, String)> {
                     None => format!("{path}::doc@{hash}"),
                 };
                 out.push((
-                    Violation {
-                        rule: RULE,
-                        key,
-                        message: format!(
-                            "doc comment block of {len} lines wrapped at {WRAP_WIDTH} exceeds the {DOC_CEILING}-line ceiling"
-                        ),
-                        locations: vec![format!("{path}:{}", start + 1)],
+                    Block {
+                        violation: Violation {
+                            rule: RULE,
+                            key,
+                            message: format!(
+                                "doc comment block of {len} lines wrapped at {WRAP_WIDTH} exceeds the {DOC_CEILING}-line ceiling"
+                            ),
+                            locations: vec![format!("{path}:{}", start + 1)],
+                        },
+                        path: path.to_string(),
+                        first_line: start + 1,
+                        last_line: end + 1,
                     },
                     hash,
                 ));
@@ -313,7 +337,10 @@ mod tests {
     use super::*;
 
     fn keys(path: &str, text: &str) -> Vec<String> {
-        check_file(path, text).into_iter().map(|v| v.key).collect()
+        blocks_in_file(path, text)
+            .into_iter()
+            .map(|b| b.violation.key)
+            .collect()
     }
 
     #[test]
@@ -486,6 +513,20 @@ mod tests {
         let over = "/// line\n".repeat(DOC_CEILING + 1);
         let text = format!("{over}impl<T> Trait for Widget<T> {{\n}}\n");
         assert_eq!(keys("x.rs", &text), vec!["x.rs::Trait for Widget<T>"]);
+    }
+
+    /// The finding: `--comments --since` intersects the span with a diff, so a
+    /// span short by a line silently stops gating the line that pushed the
+    /// block over.
+    #[test]
+    fn the_span_covers_every_line_of_the_block() {
+        let over = "/// line\n".repeat(DOC_CEILING + 1);
+        let text = format!("fn before() {{}}\n{over}pub fn f() {{}}\n");
+        let found = blocks_in_file("x.rs", &text);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].first_line, 2);
+        assert_eq!(found[0].last_line, 2 + DOC_CEILING);
+        assert_eq!(found[0].path, "x.rs");
     }
 
     #[test]

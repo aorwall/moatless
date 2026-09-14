@@ -14,8 +14,8 @@ use std::collections::BTreeSet;
 
 use moatless_arch_rules::workspace::{Workspace, workspace_root};
 use moatless_arch_rules::{
-    Violation, agents_md_budget, baseline, comment_block_size, dependency_privacy,
-    duplicate_comment_prose, duplicate_names, module_names,
+    Violation, agents_md_budget, baseline, dependency_privacy, duplicate_comment_prose,
+    duplicate_names, module_names,
 };
 
 fn strict() -> bool {
@@ -84,11 +84,6 @@ fn no_crate_names_a_dependency_its_band_forbids() {
 #[test]
 fn a_module_is_named_for_its_domain() {
     assert_rule(module_names::RULE, cached_violations());
-}
-
-#[test]
-fn a_comment_block_stays_within_its_line_ceiling() {
-    assert_rule(comment_block_size::RULE, cached_violations());
 }
 
 #[test]

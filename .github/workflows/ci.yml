@@ -170,9 +170,25 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          # The comment-block step below diffs against the PR base, which needs
+          # that commit present. Depth 1 fetches neither it nor a merge base.
+          fetch-depth: 0
       # libtest, not nextest — tooling/arch-rules/AGENTS.md says why.
       - name: Check architecture independently of changed packages
         run: cargo test -p moatless-arch-rules --locked
+      # The only check holding the doc-comment ceiling: `comment-block-size` is
+      # not a registered rule, so the suite above does not run it. Scoped to the
+      # lines the PR added, because the workspace carries enough pre-existing
+      # blocks that a whole-tree check would fail on every branch.
+      - name: Comment blocks this change added stay within their ceiling
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          cargo run -q -p moatless-arch-rules --bin arch-report --locked -- \
+            --comments --since "$BASE_SHA"
 
   # Plan-claim invariant — a spec in .plans/ does not outlive the code it
   # asserts. The other checks ratchet counts and file sets; nothing re-validated

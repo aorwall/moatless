@@ -1,12 +1,11 @@
 use crate::workspace::Workspace;
 use crate::{
     Violation, adapter_boundaries, agents_md_budget, agents_symlink, annotations, band_order,
-    base_surface, clippy_fence, closed_dependency_list, comment_block_size, composition_root,
-    declaration_only_roots, dependency_privacy, duplicate_comment_prose, duplicate_names, file_size,
-    floor_type_admission, manifest_inheritance, module_names, persistence_export,
-    persistence_sql_location, port_admission, process_exit, route_registration,
-    row_stays_with_query, single_implementation_trait, store_privacy, table_ownership,
-    transport_direction,
+    base_surface, clippy_fence, closed_dependency_list, composition_root, declaration_only_roots,
+    dependency_privacy, duplicate_comment_prose, duplicate_names, file_size, floor_type_admission,
+    manifest_inheritance, module_names, persistence_export, persistence_sql_location,
+    port_admission, process_exit, route_registration, row_stays_with_query,
+    single_implementation_trait, store_privacy, table_ownership, transport_direction,
 };
 use anyhow::{Context, Result};
 
@@ -59,7 +58,6 @@ rules!(
     dependency_privacy => "A crate names a dependency its band forbids.",
     module_names => "A module is named for the kind of thing it holds rather than for its domain.",
     file_size => "A source file stays under the line limit.",
-    comment_block_size => "A `///` or `//!` block stays within its line ceiling.",
     agents_md_budget => "An AGENTS.md stays within its line budget.",
     duplicate_comment_prose => "Comment prose is not copied between files.",
 );

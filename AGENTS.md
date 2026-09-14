@@ -137,10 +137,12 @@ Past the one-line summary:
 
 **Enforcement.** `clippy::too_long_first_doc_paragraph` caps a public item's
 first paragraph at 200 characters and reads no private item. In `arch-rules`,
-`comment-block-size` holds the two ceilings above, `agents-md-budget` this
-file's own, and `duplicate-comment-prose` "state a design fact once", both
-across siblings and between an `AGENTS.md` and the rustdoc it describes. All
-three run on a baseline that only shrinks. Every other rule here is unchecked.
+`agents-md-budget` holds this file's own budget and `duplicate-comment-prose`
+"state a design fact once", both across siblings and between an `AGENTS.md` and
+the rustdoc it describes; both run on a baseline that only shrinks. The two
+ceilings above are held by `arch-report --comments`, which is not a registered
+rule and has no baseline: CI runs it over the diff, so a block your change adds
+has to be cut rather than accepted. Every other rule here is unchecked.
 
 ## Finding conventions
 
