@@ -4,8 +4,6 @@
 //! current ingress coordinator to project or admit. Sender-to-user resolution
 //! is the only I/O performed here.
 
-use std::fmt::Write;
-
 use tracing::{debug, info, warn};
 
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
@@ -19,8 +17,8 @@ use super::signals::ReviewDecision;
 use super::status::{WebhookStatusObservation, github_external_status};
 use super::subject::GithubPrSubject;
 use super::text::{
-    PrOpenedText, ReviewCommentText, issue_comment_text, pr_opened_text, pr_synchronized_text,
-    review_comment_text, review_text,
+    CheckRunFailedText, PrOpenedText, ReviewCommentText, check_run_failed_text, issue_comment_text,
+    pr_opened_text, pr_synchronized_text, review_comment_text, review_text,
 };
 
 /// Everything downstream workflows can derive from one raw webhook.
@@ -33,8 +31,13 @@ pub(super) struct NormalizedWebhook {
 }
 
 /// The primary durable effect, if any, of a webhook.
+#[derive(Debug)]
 pub(super) enum PrimaryWebhook {
     Message(Box<InboundMessage>),
+    /// A notice that still needs a GitHub read before it can be delivered, kept
+    /// apart from [`Self::Message`] so the read happens under the delivery
+    /// record's retries rather than inside the webhook request.
+    CheckRun(Box<super::check_run::Execution>),
     CloseTask(PrCloseInfo),
     Ignore(IgnoredWebhook),
 }
@@ -558,7 +561,6 @@ async fn normalize_review(
 /// group superseding the run, a sibling job failing first) and says nothing the
 /// task can act on.
 const CHECK_RUN_FAILURE_CONCLUSIONS: &[&str] = &["failure", "timed_out", "action_required"];
-const CHECK_RUN_SUMMARY_MAX_LEN: usize = 2000;
 
 async fn normalize_check_run(
     payload: &serde_json::Value,
@@ -597,56 +599,49 @@ async fn normalize_check_run(
         .get("html_url")
         .and_then(serde_json::Value::as_str)
         .unwrap_or("");
-    let head_sha = check_run
-        .get("head_sha")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or("");
-    let short_sha = &head_sha[..7.min(head_sha.len())];
-    let app_name = check_run
-        .pointer("/app/name")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or("CI");
-    let output_title = check_run
-        .pointer("/output/title")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or("");
-    let output_summary = check_run
-        .pointer("/output/summary")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or("");
-    let mut text = format!(
-        "## CI Check Failed: {name}\n\n\
-         **Conclusion:** {conclusion}\n\
-         **CI:** {app_name}\n\
-         **Commit:** `{short_sha}`\n",
-    );
-    if !html_url.is_empty() {
-        let _ = writeln!(text, "**Link:** {html_url}");
-    }
-    if !output_title.is_empty() || !output_summary.is_empty() {
-        text.push_str("\n### Output\n");
-        if !output_title.is_empty() {
-            let _ = writeln!(text, "**{output_title}**");
-        }
-        if !output_summary.is_empty() {
-            if output_summary.len() > CHECK_RUN_SUMMARY_MAX_LEN {
-                let truncated = &output_summary[..CHECK_RUN_SUMMARY_MAX_LEN];
-                let _ = write!(text, "{truncated}...");
-            } else {
-                let _ = write!(text, "{output_summary}");
-            }
-        }
-    }
-    Ok(PrimaryWebhook::Message(Box::new(
-        inbound_message(
-            context,
-            pr_number,
-            Some(pr_number.to_string()),
-            text,
-            Audience::SubjectProducer,
-            super::external_id::check_run(check_run_id),
-        )
-        .await,
+    let text = check_run_failed_text(&CheckRunFailedText {
+        name,
+        conclusion,
+        app_name: check_run
+            .pointer("/app/name")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("CI"),
+        head_sha: check_run
+            .get("head_sha")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or(""),
+        html_url,
+        output_title: check_run
+            .pointer("/output/title")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or(""),
+        output_summary: check_run
+            .pointer("/output/summary")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or(""),
+    });
+    // The count only: it says whether the text above is missing what
+    // `api::CheckAnnotation` documents, and the delivery does the read.
+    let annotations_count = check_run
+        .pointer("/output/annotations_count")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+    Ok(PrimaryWebhook::CheckRun(Box::new(
+        super::check_run::Execution {
+            owner: context.owner.to_string(),
+            repo: context.repo.to_string(),
+            check_run_id,
+            annotations_count,
+            message: inbound_message(
+                context,
+                pr_number,
+                Some(pr_number.to_string()),
+                text,
+                Audience::SubjectProducer,
+                super::external_id::check_run(check_run_id),
+            )
+            .await,
+        },
     )))
 }
 

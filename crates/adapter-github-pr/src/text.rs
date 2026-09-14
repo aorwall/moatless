@@ -2,6 +2,8 @@
 
 use std::fmt::Write;
 
+use super::api::CheckAnnotation;
+
 /// Inputs for [`pr_opened_text`] — grouped to keep the signature small.
 pub(super) struct PrOpenedText<'a> {
     pub(super) pr_number: u64,
@@ -162,6 +164,146 @@ pub(super) fn review_text(
     )
 }
 
+/// A check run's `output.summary`, which an app may fill with an entire test
+/// log.
+const CHECK_RUN_SUMMARY_MAX_LEN: usize = 2000;
+
+/// Annotations rendered into a check-run notice.
+const MAX_RENDERED_ANNOTATIONS: usize = 20;
+
+/// Per-annotation budget, so one runaway message cannot crowd out the
+/// annotations under it.
+const MAX_ANNOTATION_MESSAGE_LEN: usize = 400;
+
+/// Inputs for [`check_run_failed_text`] — grouped to keep the signature small.
+pub(super) struct CheckRunFailedText<'a> {
+    pub(super) name: &'a str,
+    pub(super) conclusion: &'a str,
+    pub(super) app_name: &'a str,
+    pub(super) head_sha: &'a str,
+    pub(super) html_url: &'a str,
+    pub(super) output_title: &'a str,
+    pub(super) output_summary: &'a str,
+}
+
+/// Task message for a check run that finished on a notifiable failure.
+///
+/// Ends on a newline so [`check_run_annotations_text`] can be appended to it
+/// without running its heading into whatever the summary left behind.
+pub(super) fn check_run_failed_text(p: &CheckRunFailedText<'_>) -> String {
+    let short_sha = truncate_on_char_boundary(p.head_sha, 7);
+    let mut text = format!(
+        "## CI Check Failed: {}\n\n\
+         **Conclusion:** {}\n\
+         **CI:** {}\n\
+         **Commit:** `{short_sha}`\n",
+        p.name, p.conclusion, p.app_name,
+    );
+
+    if !p.html_url.is_empty() {
+        let _ = writeln!(text, "**Link:** {}", p.html_url);
+    }
+
+    if !p.output_title.is_empty() || !p.output_summary.is_empty() {
+        text.push_str("\n### Output\n");
+        if !p.output_title.is_empty() {
+            let _ = writeln!(text, "**{}**", p.output_title);
+        }
+        if !p.output_summary.is_empty() {
+            let summary = truncate_on_char_boundary(p.output_summary, CHECK_RUN_SUMMARY_MAX_LEN);
+            let ellipsis = if summary.len() < p.output_summary.len() {
+                "..."
+            } else {
+                ""
+            };
+            let _ = writeln!(text, "{summary}{ellipsis}");
+        }
+    }
+
+    text
+}
+
+/// The failing files and lines of a check run, as a markdown list.
+///
+/// Sorted by level so a truncated list keeps the failures: a lint job reports
+/// its warnings through the same endpoint as the handful of errors that
+/// actually failed it.
+pub(super) fn check_run_annotations_text(annotations: &[CheckAnnotation]) -> String {
+    if annotations.is_empty() {
+        return String::new();
+    }
+
+    let mut ordered: Vec<&CheckAnnotation> = annotations.iter().collect();
+    ordered.sort_by_key(|annotation| severity_rank(annotation.annotation_level.as_deref()));
+
+    let mut text = String::from("\n### Annotations\n");
+    for annotation in ordered.iter().take(MAX_RENDERED_ANNOTATIONS) {
+        let _ = writeln!(text, "- {}", annotation_line(annotation));
+    }
+    let hidden = ordered.len().saturating_sub(MAX_RENDERED_ANNOTATIONS);
+    if hidden > 0 {
+        let _ = writeln!(text, "- _…and {hidden} more_");
+    }
+    text
+}
+
+/// `failure` before `warning` before everything else, for [`Vec::sort_by_key`],
+/// whose stability leaves GitHub's own order intact within a level.
+///
+/// A missing level ranks as a failure, matching what [`annotation_line`] calls
+/// it: ranking it below `warning` would make the cap drop the one thing the
+/// list would have rendered as a failure.
+fn severity_rank(level: Option<&str>) -> u8 {
+    match level {
+        Some("failure") | None => 0,
+        Some("warning") => 1,
+        _ => 2,
+    }
+}
+
+fn annotation_line(annotation: &CheckAnnotation) -> String {
+    let location = match (annotation.start_line, annotation.end_line) {
+        (Some(start), Some(end)) if end != start => {
+            format!("{}:{start}-{end}", annotation.path)
+        }
+        (Some(start), _) => format!("{}:{start}", annotation.path),
+        (None, _) => annotation.path.clone(),
+    };
+    let level = annotation.annotation_level.as_deref().unwrap_or("failure");
+
+    let full = annotation.message.as_deref().unwrap_or("").trim();
+    let clipped = truncate_on_char_boundary(full, MAX_ANNOTATION_MESSAGE_LEN);
+    let ellipsis = if clipped.len() < full.len() {
+        "…"
+    } else {
+        ""
+    };
+    // Continuation lines are indented into the bullet, so a compiler message
+    // that spans lines stays one list item.
+    let message = format!("{clipped}{ellipsis}").replace('\n', "\n  ");
+
+    if location.is_empty() {
+        format!("{level}: {message}")
+    } else {
+        format!("`{location}` — {level}: {message}")
+    }
+}
+
+/// Truncate to at most `max` bytes without splitting a UTF-8 character.
+///
+/// Every byte budget in this crate counts text anyone with write access can
+/// author, and slicing a `str` mid-character panics.
+pub(super) fn truncate_on_char_boundary(s: &str, max: usize) -> &str {
+    if s.len() <= max {
+        return s;
+    }
+    let mut idx = max;
+    while idx > 0 && !s.is_char_boundary(idx) {
+        idx -= 1;
+    }
+    &s[..idx]
+}
+
 /// Task message for a PR that GitHub reports as having merge conflicts
 /// (`mergeable_state == "dirty"`). Points the agent at the live diff and
 /// suggests the usual resolution path.
@@ -312,5 +454,135 @@ mod tests {
     fn merge_conflict_text_omits_link_when_url_missing() {
         let text = merge_conflict_text("o", "r", 7, "");
         assert!(!text.contains("**Link:**"));
+    }
+
+    fn annotation(path: &str, level: &str, message: &str) -> CheckAnnotation {
+        CheckAnnotation {
+            path: path.to_string(),
+            start_line: Some(10),
+            end_line: Some(10),
+            annotation_level: Some(level.to_string()),
+            message: Some(message.to_string()),
+        }
+    }
+
+    #[test]
+    fn check_run_failed_text_ends_on_a_newline_so_annotations_append_cleanly() {
+        let text = check_run_failed_text(&CheckRunFailedText {
+            name: "Rust architecture",
+            conclusion: "failure",
+            app_name: "GitHub Actions",
+            head_sha: "abcdef0123456789",
+            html_url: "https://github.com/o/r/runs/31",
+            output_title: "",
+            output_summary: "",
+        });
+        assert!(text.contains("## CI Check Failed: Rust architecture"));
+        assert!(text.contains("**Commit:** `abcdef0`"));
+        assert!(!text.contains("### Output"));
+        assert!(text.ends_with('\n'));
+    }
+
+    #[test]
+    fn check_run_failed_text_truncates_a_long_summary_on_a_char_boundary() {
+        let summary = "é".repeat(CHECK_RUN_SUMMARY_MAX_LEN);
+        let text = check_run_failed_text(&CheckRunFailedText {
+            name: "CI",
+            conclusion: "failure",
+            app_name: "GitHub Actions",
+            head_sha: "abc",
+            html_url: "",
+            output_title: "",
+            output_summary: &summary,
+        });
+        assert!(text.contains("..."));
+    }
+
+    #[test]
+    fn check_run_annotations_text_renders_failures_before_warnings() {
+        let text = check_run_annotations_text(&[
+            annotation("b.rs", "warning", "second"),
+            annotation("a.rs", "failure", "first"),
+        ]);
+        let first = text.find("a.rs").expect("failure rendered");
+        let second = text.find("b.rs").expect("warning rendered");
+        assert!(first < second);
+        assert!(text.starts_with("\n### Annotations\n"));
+        assert!(text.contains("- `a.rs:10` — failure: first"));
+    }
+
+    #[test]
+    fn check_run_annotations_text_caps_the_list_and_counts_the_rest() {
+        let many: Vec<CheckAnnotation> = (0..MAX_RENDERED_ANNOTATIONS + 3)
+            .map(|i| annotation(&format!("f{i}.rs"), "failure", "boom"))
+            .collect();
+        let text = check_run_annotations_text(&many);
+        assert_eq!(text.matches("- `f").count(), MAX_RENDERED_ANNOTATIONS);
+        assert!(text.contains("- _…and 3 more_"));
+    }
+
+    #[test]
+    fn check_run_annotations_text_keeps_a_multi_line_message_in_one_bullet() {
+        let text = check_run_annotations_text(&[annotation("a.rs", "failure", "one\ntwo")]);
+        assert!(text.contains("- `a.rs:10` — failure: one\n  two"));
+    }
+
+    #[test]
+    fn check_run_annotations_text_renders_a_line_range_and_a_pathless_finding() {
+        let mut ranged = annotation("a.rs", "failure", "boom");
+        ranged.end_line = Some(14);
+        let text = check_run_annotations_text(&[ranged]);
+        assert!(text.contains("- `a.rs:10-14` — failure: boom"));
+
+        let bare = CheckAnnotation {
+            path: String::new(),
+            start_line: None,
+            end_line: None,
+            annotation_level: None,
+            message: Some("step failed".to_string()),
+        };
+        let text = check_run_annotations_text(&[bare]);
+        assert!(text.contains("- failure: step failed"));
+    }
+
+    #[test]
+    fn check_run_annotations_text_truncates_a_long_message_on_a_char_boundary() {
+        let text = check_run_annotations_text(&[annotation(
+            "a.rs",
+            "failure",
+            &"é".repeat(MAX_ANNOTATION_MESSAGE_LEN),
+        )]);
+        assert!(text.contains('…'));
+    }
+
+    #[test]
+    fn check_run_annotations_text_is_empty_when_there_are_none() {
+        assert!(check_run_annotations_text(&[]).is_empty());
+    }
+
+    /// The rank and the rendered label must agree on a missing level, or the
+    /// cap drops what the list would have called a failure.
+    #[test]
+    fn check_run_annotations_text_ranks_a_level_less_finding_as_a_failure() {
+        let mut unknown = annotation("a.rs", "failure", "no level");
+        unknown.annotation_level = None;
+        let text = check_run_annotations_text(&[
+            annotation("b.rs", "warning", "warn"),
+            unknown,
+            annotation("c.rs", "failure", "fail"),
+        ]);
+        let warning = text.find("b.rs").expect("warning rendered");
+        assert!(text.find("a.rs").expect("unknown rendered") < warning);
+        assert!(text.find("c.rs").expect("failure rendered") < warning);
+        assert!(text.contains("- `a.rs:10` — failure: no level"));
+    }
+
+    #[test]
+    fn truncate_respects_char_boundaries() {
+        assert_eq!(truncate_on_char_boundary("hello", 10), "hello");
+        assert_eq!(truncate_on_char_boundary("hello", 3), "hel");
+        // 'é' is 2 bytes — truncating mid-char backs off to the boundary.
+        assert_eq!(truncate_on_char_boundary("é", 1), "");
+        assert_eq!(truncate_on_char_boundary("aé", 2), "a");
     }
 }

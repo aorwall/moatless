@@ -22,6 +22,7 @@ use super::api::MAX_COMMENT_LENGTH;
 use super::auth::resolve_github_api;
 use super::external_id;
 use super::subject::GithubPrSubject;
+use super::text::truncate_on_char_boundary;
 
 /// Provider label recorded on an external event, and the `external_adapter` an
 /// inbound event is matched under.
@@ -527,18 +528,6 @@ async fn body_with_task_footer(
     }
 }
 
-/// Truncate to at most `max` bytes without splitting a UTF-8 character.
-fn truncate_on_char_boundary(s: &str, max: usize) -> &str {
-    if s.len() <= max {
-        return s;
-    }
-    let mut idx = max;
-    while idx > 0 && !s.is_char_boundary(idx) {
-        idx -= 1;
-    }
-    &s[..idx]
-}
-
 /// Upsert the task↔PR binding. Failure is logged and swallowed — the PR /
 /// comment already exists on GitHub, so the mutation must still succeed
 /// (mirrors the post-persist hooks behavior).
@@ -587,15 +576,6 @@ async fn bind_task_to_pr(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn truncate_respects_char_boundaries() {
-        assert_eq!(truncate_on_char_boundary("hello", 10), "hello");
-        assert_eq!(truncate_on_char_boundary("hello", 3), "hel");
-        // 'é' is 2 bytes — truncating mid-char backs off to the boundary.
-        assert_eq!(truncate_on_char_boundary("é", 1), "");
-        assert_eq!(truncate_on_char_boundary("aé", 2), "a");
-    }
 
     #[test]
     fn pr_body_includes_footer_when_task_url_present() {

@@ -124,8 +124,18 @@ fn message(
 ) -> Box<moatless_types::adapter::InboundMessage> {
     match primary.expect("normalization should succeed") {
         PrimaryWebhook::Message(message) => message,
+        PrimaryWebhook::CheckRun(_) => panic!("expected message, got check run"),
         PrimaryWebhook::CloseTask(_) => panic!("expected message, got close"),
         PrimaryWebhook::Ignore(reason) => panic!("expected message, ignored as {reason:?}"),
+    }
+}
+
+fn check_run(
+    primary: Result<PrimaryWebhook, moatless_adapter_model::error::AdapterError>,
+) -> Box<crate::check_run::Execution> {
+    match primary.expect("normalization should succeed") {
+        PrimaryWebhook::CheckRun(execution) => execution,
+        other => panic!("expected check run, got {other:?}"),
     }
 }
 
@@ -455,14 +465,18 @@ async fn failed_check_run_preserves_producer_audience_and_external_id() {
             "html_url": "https://github.com/soaplabs/repo/runs/31",
             "head_sha": "abcdef012345",
             "pull_requests": [{"number": 42}],
-            "output": {"summary": "1 test failed"},
+            "output": {"summary": "1 test failed", "annotations_count": 4},
         }
     });
-    let message = message(
+    let execution = check_run(
         normalize_payload("check_run", &payload, &fake_rule())
             .await
             .primary,
     );
+    assert_eq!(execution.check_run_id, 31);
+    // Carried so the delivery knows a fetch is worth making.
+    assert_eq!(execution.annotations_count, 4);
+    let message = execution.message;
     assert_eq!(message.audience, Audience::SubjectProducer);
     assert_eq!(message.external_event_id.as_deref(), Some("github:cr:31"));
     assert!(message.text.contains("## CI Check Failed: CI"));

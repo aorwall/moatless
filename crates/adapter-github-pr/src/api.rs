@@ -109,6 +109,29 @@ impl CommitPr {
     }
 }
 
+/// One file-scoped finding attached to a check run, as returned by
+/// `GET /check-runs/{id}/annotations`.
+///
+/// A GitHub Actions job reports a failure here — via `::error file=…,line=…::`
+/// — and leaves `output.summary` empty, so the check run's webhook payload
+/// carries no trace of what failed beyond a count.
+#[derive(Debug, Clone, Deserialize)]
+pub(super) struct CheckAnnotation {
+    /// Repository-relative path, or `.github` when the failure is the step
+    /// itself rather than a line of code.
+    #[serde(default)]
+    pub(super) path: String,
+    #[serde(default)]
+    pub(super) start_line: Option<u64>,
+    #[serde(default)]
+    pub(super) end_line: Option<u64>,
+    /// `failure`, `warning`, or `notice`.
+    #[serde(default)]
+    pub(super) annotation_level: Option<String>,
+    #[serde(default)]
+    pub(super) message: Option<String>,
+}
+
 /// GitHub REST API client for PR operations.
 pub(super) struct GithubPrApi {
     client: Client,
@@ -158,12 +181,7 @@ impl GithubPrApi {
             self.base_url
         );
 
-        // Truncate if needed
-        let body = if body.len() > MAX_COMMENT_LENGTH {
-            &body[..MAX_COMMENT_LENGTH]
-        } else {
-            body
-        };
+        let body = crate::text::truncate_on_char_boundary(body, MAX_COMMENT_LENGTH);
 
         let resp = self
             .request(reqwest::Method::POST, &url)
@@ -307,6 +325,45 @@ impl GithubPrApi {
         })
     }
 
+    /// List the annotations a completed check run left on the diff.
+    ///
+    /// One page only: the caller renders far fewer than a page holds, and the
+    /// notice this feeds is a pointer at the failure rather than a full report.
+    pub(super) async fn get_check_run_annotations(
+        &self,
+        owner: &str,
+        repo: &str,
+        check_run_id: u64,
+    ) -> Result<Vec<CheckAnnotation>, AdapterError> {
+        let url = format!(
+            "{}/repos/{owner}/{repo}/check-runs/{check_run_id}/annotations",
+            self.base_url
+        );
+
+        let resp = self
+            .request(reqwest::Method::GET, &url)
+            .query(&[("per_page", "100")])
+            .send()
+            .await
+            .map_err(|e| {
+                SharedAdapterError::provider_unreachable("GitHub get_check_run_annotations", e)
+            })?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            return Err(SharedAdapterError::AdapterApi(format!(
+                "GitHub get_check_run_annotations returned {status}: {text}"
+            ))
+            .into());
+        }
+
+        resp.json::<Vec<CheckAnnotation>>().await.map_err(|e| {
+            SharedAdapterError::provider_response_invalid("GitHub get_check_run_annotations", e)
+                .into()
+        })
+    }
+
     /// The open pull request whose head branch is `head`, if any.
     ///
     /// GitHub filters `head` as `{owner}:{branch}`, so a fork's like-named
@@ -365,11 +422,7 @@ impl GithubPrApi {
             self.base_url
         );
 
-        let body = if body.len() > MAX_COMMENT_LENGTH {
-            &body[..MAX_COMMENT_LENGTH]
-        } else {
-            body
-        };
+        let body = crate::text::truncate_on_char_boundary(body, MAX_COMMENT_LENGTH);
 
         let resp = self
             .request(reqwest::Method::POST, &url)
@@ -916,5 +969,75 @@ mod serde_tests {
             serde_json::from_value(serde_json::json!({ "number": 7, "state": "open" }))
                 .expect("CommitPr parses without merged_at");
         assert!(!open.is_merged());
+    }
+}
+
+#[cfg(test)]
+mod check_annotation_tests {
+    use axum::http::StatusCode;
+
+    use super::*;
+    use crate::test_support::{StubResponse, start_github_api_stub};
+
+    #[tokio::test]
+    async fn annotations_are_read_from_the_check_run_endpoint() {
+        let stub = start_github_api_stub(|_method, path, uri| {
+            if path == "/repos/acme/widgets/check-runs/31/annotations" {
+                StubResponse::json(
+                    StatusCode::OK,
+                    serde_json::json!([{
+                        "path": "crates/core/src/lib.rs",
+                        "start_line": 10,
+                        "end_line": 12,
+                        "annotation_level": "failure",
+                        "message": "comment block is 7 lines",
+                    }]),
+                )
+            } else {
+                StubResponse::not_found(uri)
+            }
+        })
+        .await;
+        let api = GithubPrApi::with_base_url("ghp_test", stub.base_url().to_string());
+
+        let annotations = api
+            .get_check_run_annotations("acme", "widgets", 31)
+            .await
+            .expect("the stub answers with a list");
+
+        assert_eq!(annotations.len(), 1);
+        assert_eq!(annotations[0].path, "crates/core/src/lib.rs");
+        assert_eq!(annotations[0].start_line, Some(10));
+        assert_eq!(annotations[0].end_line, Some(12));
+        assert_eq!(annotations[0].annotation_level.as_deref(), Some("failure"));
+
+        let recorded = stub.recorded_requests().await;
+        assert_eq!(recorded.len(), 1);
+        assert!(
+            recorded[0].uri.contains("per_page=100"),
+            "got {}",
+            recorded[0].uri
+        );
+    }
+
+    #[tokio::test]
+    async fn a_rejected_annotations_read_is_an_error_not_an_empty_list() {
+        let stub = start_github_api_stub(|_method, _path, _uri| {
+            StubResponse::json(
+                StatusCode::FORBIDDEN,
+                serde_json::json!({"message": "Resource not accessible"}),
+            )
+        })
+        .await;
+        let api = GithubPrApi::with_base_url("ghp_test", stub.base_url().to_string());
+
+        let err = api
+            .get_check_run_annotations("acme", "widgets", 31)
+            .await
+            .expect_err("403 must not read as zero annotations");
+        assert!(
+            matches!(err, AdapterError::Shared(SharedAdapterError::AdapterApi(_))),
+            "got {err:?}"
+        );
     }
 }

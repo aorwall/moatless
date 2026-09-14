@@ -9,3 +9,5 @@ pub const PR_MERGED: &str = "github.pr_merged";
 pub const POST_MERGE: &str = "github.post_merge";
 /// Re-check a PR's mergeable state and announce a new conflict.
 pub const MERGE_CONFLICT: &str = "github.merge_conflict";
+/// Read a failed check run's annotations and announce it to the PR's tasks.
+pub const CHECK_RUN: &str = "github.check_run";

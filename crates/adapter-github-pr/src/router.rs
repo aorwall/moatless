@@ -26,7 +26,7 @@ use moatless_ports::task::{TaskReader, TranscriptAppend};
 use super::adapter::GithubPrAdapter;
 
 /// Constructed-once inbound-routing service for the GitHub PR adapter. Holds
-/// the downward ports the four delivery handlers read; see the module doc.
+/// the downward ports the delivery handlers read; see the module doc.
 pub struct GithubPrInboundRouter {
     /// Per-provider connection records — resolves a delivery to its connection.
     pub(super) adapter_connections: Arc<dyn ConnectionLookup>,
@@ -62,7 +62,7 @@ impl GithubPrInboundRouter {
     /// Wire the router from the composition root's ports.
     #[expect(
         clippy::too_many_arguments,
-        reason = "the inbound-routing substrate is genuinely wide — twelve downward ports the four delivery handlers read. Bundling them into a sub-struct would only shuffle the same fields behind a one-use type; the width is paid once here at construction rather than threaded through register, the four delivery closures, and every handler, which is the whole point of a constructed-once service."
+        reason = "the inbound-routing substrate is genuinely wide — twelve downward ports the delivery handlers read. Bundling them into a sub-struct would only shuffle the same fields behind a one-use type; the width is paid once here at construction rather than threaded through register, every delivery closure, and every handler, which is the whole point of a constructed-once service."
     )]
     pub fn new(
         adapter_connections: Arc<dyn ConnectionLookup>,

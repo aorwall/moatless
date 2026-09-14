@@ -246,6 +246,19 @@ pub(crate) async fn receive(
                 .map_err(ingress)?,
             );
         }
+        PrimaryWebhook::CheckRun(execution) => {
+            plan.push(
+                super::delivery::request(
+                    super::delivery::kind::CHECK_RUN,
+                    event_id.clone(),
+                    &super::delivery::CheckRunDelivery {
+                        context: delivery_context.clone(),
+                        execution: *execution,
+                    },
+                )
+                .map_err(ingress)?,
+            );
+        }
         PrimaryWebhook::CloseTask(info) => {
             // Auto-close only applies to trigger-created tasks; with no trigger
             // there is nothing to close. The merged-PR notice below is not

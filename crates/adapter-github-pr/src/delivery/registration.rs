@@ -56,6 +56,10 @@ pub fn register(handlers: &mut AdapterDeliveryHandlers, router: Arc<GithubPrInbo
         let router = router.clone();
         move |delivery, payload| execute_merge_conflict(router.clone(), delivery, payload)
     });
+    register_typed_delivery::<CheckRunDelivery, _, _>(handlers, kind::CHECK_RUN, {
+        let router = router.clone();
+        move |delivery, payload| execute_check_run(router.clone(), delivery, payload)
+    });
 }
 
 // =============================================================================
@@ -163,6 +167,15 @@ pub(crate) struct MergeConflictDelivery {
     pub(crate) context: DeliveryContext,
     #[serde(flatten)]
     pub(crate) execution: crate::merge_conflict::Execution,
+}
+
+/// Announce a failed check run, once its annotations have been read.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub(crate) struct CheckRunDelivery {
+    #[serde(flatten)]
+    pub(crate) context: DeliveryContext,
+    #[serde(flatten)]
+    pub(crate) execution: crate::check_run::Execution,
 }
 
 /// Failures this module raises on its own behalf, as opposed to those it
@@ -275,7 +288,19 @@ async fn execute_merge_conflict(
         .map_err(AdapterDeliveryFailure::from)
 }
 
-/// Log line shared by the four admission sites, so an operator can follow one
+async fn execute_check_run(
+    router: Arc<GithubPrInboundRouter>,
+    _delivery: moatless_adapter_model::delivery::AdapterDelivery,
+    payload: CheckRunDelivery,
+) -> Result<(), AdapterDeliveryFailure> {
+    let (connection, trigger) = payload.context.resolve(&router).await?;
+    router
+        .run_check_run(&connection, trigger.as_ref(), &payload.execution)
+        .await
+        .map_err(AdapterDeliveryFailure::from)
+}
+
+/// Log line shared by the admission sites, so an operator can follow one
 /// delivery from ingress into the queue.
 pub(crate) fn log_admission(
     kind: &'static str,
@@ -454,6 +479,30 @@ mod tests {
         assert_eq!(back.execution.sender_login, "octocat");
     }
 
+    #[test]
+    fn a_check_run_payload_survives_the_round_trip() {
+        let delivery = CheckRunDelivery {
+            context: context(),
+            execution: crate::check_run::Execution {
+                owner: "acme".to_string(),
+                repo: "widgets".to_string(),
+                check_run_id: 103_925_595_227,
+                annotations_count: 4,
+                message: message(),
+            },
+        };
+        let stored = serde_json::to_value(&delivery).expect("serialize");
+        let back: CheckRunDelivery = serde_json::from_value(stored.clone()).expect("deserialize");
+
+        assert_eq!(back.context.connection_id, "conn-1");
+        // A check-run id is a `u64` behind a `flatten`ed sibling, which routes
+        // through serde's buffering representation; assert it comes back
+        // unrounded.
+        assert_eq!(back.execution.check_run_id, 103_925_595_227);
+        assert_eq!(back.execution.annotations_count, 4);
+        assert_eq!(serde_json::to_value(&back).expect("serialize"), stored);
+    }
+
     /// A record's kind names its handler; the request must carry the kind and
     /// the sender's own key, not a generated one.
     #[test]
@@ -484,6 +533,7 @@ mod tests {
             kind::PR_MERGED,
             kind::POST_MERGE,
             kind::MERGE_CONFLICT,
+            kind::CHECK_RUN,
         ];
         let mut unique = kinds.to_vec();
         unique.sort_unstable();
