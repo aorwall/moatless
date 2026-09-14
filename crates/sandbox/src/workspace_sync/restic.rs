@@ -55,11 +55,13 @@ const GLOB_FILE: &str = "/tmp/moatless-workspace-globs.txt";
 /// vs 546ms for the same delta).
 const SNAPSHOT_LABEL: &str = "workspace";
 
-/// Snapshots kept when a stopping task prunes.
+/// Snapshots kept when a task prunes.
 ///
 /// Enough to step back past a bad turn, few enough that a long-lived task does
-/// not accumulate indefinitely.
-const KEEP_SNAPSHOTS: i32 = 10;
+/// not accumulate indefinitely. Scaled with `sync::DEFAULT_INTERVAL_SECS`: the
+/// periodic loop is what writes most of these, so a count is only worth as much
+/// history as the interval gives it.
+const KEEP_SNAPSHOTS: i32 = 50;
 
 /// One repository: where its files are and what decrypts them.
 #[derive(Clone)]
@@ -552,9 +554,9 @@ fn restore(access: &RepoAccess, workspace_dir: &Path) -> Result<Option<u64>, Str
 
 /// Drop all but the last [`KEEP_SNAPSHOTS`] snapshots and reclaim their packs.
 ///
-/// Pre-stop only, never per turn: a prune rewrites the index, work a turn
-/// boundary should not pay for. Best-effort — a repository that keeps a few too
-/// many still restores.
+/// Rewrites the index, so callers space it out — `sync::PRUNE_EVERY_SNAPSHOTS`
+/// and the pre-stop RPC. Best-effort — a repository that keeps a few too many
+/// still restores.
 pub(super) async fn forget_and_prune(
     config: &Config,
     backend_client: &dyn BackendClient,
@@ -598,9 +600,10 @@ fn prune(access: &RepoAccess) -> Result<usize, String> {
     }
 
     // `instant_delete`, because `PruneOptions` otherwise marks packs and removes
-    // them 23 h later — and a stopping task has no second run. Measured: with
-    // the default, 42 packs / 1.35 GB stayed; with this, 12 packs went and
-    // `check` returned to zero findings.
+    // them 23 h later, which a task stopping right after this never reaches.
+    // Measured: with the default, 42 packs / 1.35 GB stayed; with this, 12 packs
+    // went and `check` returned to zero findings. Callers hold the upload
+    // baseline across this, so no snapshot writes against the index it rewrites.
     let mut opts = PruneOptions::default();
     opts.instant_delete = true;
     let plan = repo

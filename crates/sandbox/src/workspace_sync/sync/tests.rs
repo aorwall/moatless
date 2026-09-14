@@ -28,6 +28,8 @@ struct CountingBackend {
     /// When a granted session expires, as RFC 3339. `None` grants nothing.
     repository_expiry: Option<String>,
     repository_access_calls: AtomicUsize,
+    /// Every `report_workspace_sync`, as `(format, error)`.
+    sync_reports: std::sync::Mutex<Vec<(String, Option<String>)>>,
 }
 
 /// Turns the URL mint into a valve: it announces each entry on `started` and
@@ -103,6 +105,10 @@ impl CountingBackend {
 
     fn repository_access_calls(&self) -> usize {
         self.repository_access_calls.load(Ordering::SeqCst)
+    }
+
+    fn sync_reports(&self) -> Vec<(String, Option<String>)> {
+        self.sync_reports.lock().unwrap().clone()
     }
 }
 
@@ -189,6 +195,20 @@ impl BackendClient for CountingBackend {
             });
         }
         Err(tonic::Status::failed_precondition("no S3 in tests"))
+    }
+    async fn report_workspace_sync(
+        &self,
+        _task_id: &str,
+        _direction: &str,
+        format: &str,
+        _bytes: u64,
+        _duration_ms: u64,
+        error: Option<&str>,
+    ) {
+        self.sync_reports
+            .lock()
+            .unwrap()
+            .push((format.to_string(), error.map(str::to_string)));
     }
     async fn get_workspace_repository_access(
         &self,
@@ -678,6 +698,52 @@ async fn a_sandbox_without_the_s3_switch_spawns_no_upload() {
         "the switch is off, so no upload is attempted"
     );
     assert_eq!(backend.attempts(), 0);
+}
+
+/// A flush that overruns its budget is the one loss no upload path reports: the
+/// cancelled future never reaches `report_workspace_sync`, and the pod log
+/// holding the `warn!` dies with the pod on the reclaim that caused it.
+#[tokio::test(start_paused = true)]
+async fn a_timed_out_shutdown_flush_reports_the_loss() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("repo");
+    init_repo(&repo);
+    std::fs::write(repo.join("a.txt"), "hello").unwrap();
+    git_add(&repo, &["a.txt"]);
+    git_commit(&repo, "init");
+
+    let config = sync_config(tmp.path(), true, false);
+    // Never released, so the flush cannot finish inside `SHUTDOWN_FLUSH_TIMEOUT`.
+    let (backend, _started) = CountingBackend::gated();
+    let tracker = WorkspaceSyncTracker::new();
+
+    flush_workspace(&config, backend.as_ref(), &tracker).await;
+
+    let reports = backend.sync_reports();
+    assert_eq!(reports.len(), 1, "exactly one report: {reports:?}");
+    let (format, error) = &reports[0];
+    assert_eq!(format, FORMAT_UNKNOWN);
+    assert!(
+        error.as_deref().is_some_and(|e| e.contains("budget")),
+        "the report carries the loss as an error: {error:?}"
+    );
+    assert_eq!(
+        tracker.baseline().await,
+        None,
+        "a flush that stored nothing leaves the next attempt to retry"
+    );
+}
+
+/// A pod killed by a node reclaim never answers the pre-stop RPC, so the first
+/// snapshot after a start is the only chance to reclaim what it left.
+#[test]
+fn the_prune_countdown_claims_the_first_snapshot_of_a_pod() {
+    let tracker = WorkspaceSyncTracker::new();
+    assert!(tracker.claim_prune(), "the first snapshot prunes");
+    for _ in 0..PRUNE_EVERY_SNAPSHOTS {
+        assert!(!tracker.claim_prune());
+    }
+    assert!(tracker.claim_prune(), "and every interval after it");
 }
 
 /// Init a git repo at `dir` with one committed file so `git ls-files` works.

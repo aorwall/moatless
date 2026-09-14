@@ -91,20 +91,23 @@ async fn finish_shutdown(lifecycle_cancel: &CancellationToken, state: Option<&Sa
         state.events.outbox().flush(OUTBOX_FLUSH_TIMEOUT).await;
     }
 
-    // Flush CLI session state AFTER the agent has stopped (so active JSONL
-    // files are flushed by the CLI) and BEFORE cancelling the lifecycle token
-    // (which stops the periodic sync). On a graceful kill — including a spot
-    // reclaim's 2-min drain → SIGTERM — this persists the final delta with no
-    // loss. Bounded internally so it can't blow the pod's 30s grace period.
+    // Both flushes run AFTER the agent has stopped (so the working tree is
+    // stable and the CLI has flushed its active JSONL files) and BEFORE
+    // cancelling the lifecycle token (which stops the periodic syncs). On a
+    // graceful kill — including a spot reclaim's 2-min drain → SIGTERM — this
+    // persists the final delta with no loss. Each is bounded internally so the
+    // pair fits the pod's 30s grace period.
     if let Some(state) = state {
-        crate::transcript_sync::flush_on_shutdown(state).await;
-
-        // For the `s3` storage backend, flush the git working tree too — this is
-        // the durability the node-local emptyDir doesn't provide. Same ordering
-        // rationale as the transcript flush; bounded internally.
+        // The working tree goes first, deliberately: for the `s3` storage
+        // backend it is the durability the node-local emptyDir doesn't provide,
+        // and a tree lost here is lost outright, while a transcript the flush
+        // below misses is still recoverable through `context_recovery_prompt`
+        // reading the task's messages back.
         if state.config.workspace_sync_enabled {
             crate::workspace_sync::flush_on_shutdown(state).await;
         }
+
+        crate::transcript_sync::flush_on_shutdown(state).await;
     }
 
     // Last, and only last. Every bounded step above depends on the task this

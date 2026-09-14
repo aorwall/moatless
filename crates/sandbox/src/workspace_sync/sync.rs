@@ -12,7 +12,7 @@ use std::hash::{Hash, Hasher};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
 use flate2::Compression;
@@ -31,17 +31,36 @@ use crate::state::SandboxState;
 /// `"restic"`.
 const FORMAT: &str = "tar";
 
-/// Default periodic-upload interval when `WORKSPACE_SYNC_INTERVAL_SECS` is
-/// unset.
+/// Default periodic-upload interval; `WORKSPACE_SYNC_INTERVAL_SECS` overrides.
 ///
-/// Bounds the loss from an involuntary mid-turn kill; turn completion and the
-/// shutdown flush are the primary durability points.
-const DEFAULT_INTERVAL_SECS: u64 = 300;
+/// Bounds the loss from an involuntary mid-turn kill, the one stop neither turn
+/// completion nor the shutdown flush covers. Affordable because a snapshot
+/// ships only the delta and an unchanged tree never leaves the gate in
+/// [`WorkspaceSyncTracker::upload_if_changed`].
+const DEFAULT_INTERVAL_SECS: u64 = 60;
+
+/// Snapshots between prunes, counted down from `0` so a pod's first one prunes.
+///
+/// A pod killed by a reclaim, an eviction or a SIGKILL never answers the
+/// pre-stop RPC, so its successor is the only thing that can reclaim what it
+/// left. Keeps the repository between `KEEP_SNAPSHOTS` and twice that.
+const PRUNE_EVERY_SNAPSHOTS: u32 = 50;
 
 /// Bound on the sync-on-shutdown flush so it stays within the pod's 30s grace
 /// period (shared with the transcript flush) — a stuck upload must never block
 /// the drain.
 const SHUTDOWN_FLUSH_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Bound on the one gRPC call [`flush_on_shutdown`] makes after its budget is
+/// already spent, so reporting the loss cannot itself overrun the grace period.
+const TIMEOUT_REPORT_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// The `format` a timed-out shutdown flush reports under.
+///
+/// The cancelled future never says whether the repository or the tar was in
+/// flight, and `record_workspace_sync` buckets an unrecognised label as
+/// `other`, keeping this out of both formats' success rates.
+const FORMAT_UNKNOWN: &str = "unknown";
 
 /// Leading bytes of a gzip member, used to tell a compressed archive from a
 /// plain tar on restore.
@@ -89,6 +108,9 @@ pub struct WorkspaceSyncTracker {
     /// Written by [`Self::hold_uploads`], read by [`Self::upload_if_changed`].
     uploads_held: Arc<AtomicBool>,
     turn_upload: Arc<TurnUpload>,
+    /// Snapshots this pod may still write before it prunes. See
+    /// [`PRUNE_EVERY_SNAPSHOTS`] for why `0` — the `Default` — is the start.
+    snapshots_until_prune: Arc<AtomicU32>,
 }
 
 /// Admission control for the turn-boundary upload, run off the agent's main
@@ -151,6 +173,7 @@ impl WorkspaceSyncTracker {
         &self,
         config: &Config,
         backend_client: &dyn BackendClient,
+        prune: Prune,
     ) -> SyncOutcome {
         if self.uploads_held.load(Ordering::Relaxed) {
             warn!(task_id = %config.task_id, "Upload held: the stored snapshot could not be read on start, and this tree would overwrite it");
@@ -178,7 +201,29 @@ impl WorkspaceSyncTracker {
         if stored.complete {
             *last = current;
         }
+        // Still under `last`, deliberately: `restic::prune` sets
+        // `instant_delete`, so a snapshot writing against the index a prune is
+        // rewriting can be left pointing at a pack that is already gone. Blocks
+        // only another upload in the same pod — including the next turn's, which
+        // `spawn_after_turn` already runs off the agent's main loop.
+        if prune == Prune::WhenDue && stored.snapshotted && self.claim_prune() {
+            restic::forget_and_prune(config, backend_client, &self.repository_access).await;
+        }
         stored.outcome
+    }
+
+    /// Whether this snapshot is the one that prunes, counting down from
+    /// [`PRUNE_EVERY_SNAPSHOTS`].
+    fn claim_prune(&self) -> bool {
+        self.snapshots_until_prune
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |left| {
+                Some(if left == 0 {
+                    PRUNE_EVERY_SNAPSHOTS
+                } else {
+                    left - 1
+                })
+            })
+            .is_ok_and(|left| left == 0)
     }
 
     /// Write the workspace as a `restic` snapshot, falling back to the tar.
@@ -191,8 +236,12 @@ impl WorkspaceSyncTracker {
         // outcome is what a caller sees.
         let mut stored = None;
         let mut missed = false;
+        let mut snapshotted = false;
         match restic::upload(config, backend_client, &self.repository_access).await {
-            Ok(outcome) => stored = Some(outcome),
+            Ok(outcome) => {
+                snapshotted = true;
+                stored = Some(outcome);
+            }
             Err(NotStored::Absent) => {}
             Err(NotStored::Failed) => {
                 missed = true;
@@ -214,8 +263,20 @@ impl WorkspaceSyncTracker {
         Stored {
             outcome: stored.unwrap_or_default(),
             complete: !missed,
+            snapshotted,
         }
     }
+}
+
+/// Whether an upload may also prune when the countdown comes due.
+///
+/// `Never` for the two paths already racing the pod's grace period: the
+/// shutdown flush, whose budget is the evidence its report stands on, and the
+/// pre-stop RPC, which prunes unconditionally once the upload returns.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Prune {
+    WhenDue,
+    Never,
 }
 
 /// What one pass over the formats produced.
@@ -225,6 +286,10 @@ struct Stored {
     /// Whether the repository holds this tree. Only `true` may move the upload
     /// baseline.
     complete: bool,
+    /// Whether this pass wrote a `restic` snapshot, so it is one the prune
+    /// countdown counts. Not `complete`, which a tar standing in for an absent
+    /// repository also satisfies.
+    snapshotted: bool,
 }
 
 /// Whether the periodic upload loop should run at all.
@@ -552,7 +617,11 @@ pub async fn download_on_start(state: &SandboxState) {
 pub async fn upload(state: &SandboxState) -> SyncOutcome {
     state
         .workspace_sync
-        .upload_if_changed(&state.config, state.backend_client.as_ref())
+        .upload_if_changed(
+            &state.config,
+            state.backend_client.as_ref(),
+            Prune::WhenDue,
+        )
         .await
 }
 
@@ -595,21 +664,26 @@ async fn upload_after_turn(
     tracker: &WorkspaceSyncTracker,
 ) {
     if config.workspace_sync_enabled {
-        tracker.upload_if_changed(config, backend_client).await;
+        tracker
+            .upload_if_changed(config, backend_client, Prune::WhenDue)
+            .await;
     }
 }
 
 /// Answer the backend's pre-stop `SyncWorkspace` before the pod is destroyed.
 ///
-/// The only place the repository is pruned: a prune rewrites the index, too
-/// costly for a turn boundary, and this is the one moment with no next turn to
-/// slow down.
+/// Prunes unconditionally rather than on the countdown, which the upload skips
+/// here: this is the one moment with no next turn for the index rewrite to slow
+/// down, and claiming the countdown too would rewrite it twice in a row.
 pub async fn sync_on_request(state: &SandboxState) -> SyncOutcome {
     if !state.config.workspace_sync_enabled {
         debug!(task_id = %state.config.task_id, "SyncWorkspace requested but workspace sync is off");
         return SyncOutcome::default();
     }
-    let outcome = upload(state).await;
+    let outcome = state
+        .workspace_sync
+        .upload_if_changed(&state.config, state.backend_client.as_ref(), Prune::Never)
+        .await;
     restic::forget_and_prune(
         &state.config,
         state.backend_client.as_ref(),
@@ -743,17 +817,51 @@ pub async fn run_workspace_sync(
 /// Flush the workspace on shutdown, bounded by [`SHUTDOWN_FLUSH_TIMEOUT`].
 ///
 /// Called after the agent has stopped (working tree stable) and before the
-/// lifecycle token is cancelled; a timeout is logged and swallowed so the drain
-/// proceeds.
+/// lifecycle token is cancelled; a timeout does not block the drain.
 pub async fn flush_on_shutdown(state: &SandboxState) {
-    if tokio::time::timeout(SHUTDOWN_FLUSH_TIMEOUT, upload(state))
-        .await
-        .is_ok()
+    flush_workspace(
+        &state.config,
+        state.backend_client.as_ref(),
+        &state.workspace_sync,
+    )
+    .await;
+}
+
+/// The body of [`flush_on_shutdown`], over what it actually needs.
+async fn flush_workspace(
+    config: &Config,
+    backend_client: &dyn BackendClient,
+    tracker: &WorkspaceSyncTracker,
+) {
+    let started = Instant::now();
+    if tokio::time::timeout(
+        SHUTDOWN_FLUSH_TIMEOUT,
+        tracker.upload_if_changed(config, backend_client, Prune::Never),
+    )
+    .await
+    .is_ok()
     {
         info!("Shutdown: flushed workspace to S3");
-    } else {
-        warn!("Shutdown: workspace flush timed out, continuing");
+        return;
     }
+
+    // The cancelled upload reported nothing — it never reached its own
+    // `report_workspace_sync` — so this is the only thing that tells the task
+    // its last turn's work is not stored. Without it the loss is visible only
+    // in a pod log that a node reclaim destroys with the pod.
+    warn!("Shutdown: workspace flush timed out, continuing");
+    let _ = tokio::time::timeout(
+        TIMEOUT_REPORT_TIMEOUT,
+        backend_client.report_workspace_sync(
+            &config.task_id,
+            "upload",
+            FORMAT_UNKNOWN,
+            0,
+            started.elapsed().as_millis() as u64,
+            Some("the shutdown flush exceeded its budget; the workspace was not stored"),
+        ),
+    )
+    .await;
 }
 
 /// True when a gRPC error means the workspace-sync feature is simply
