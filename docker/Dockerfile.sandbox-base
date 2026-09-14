@@ -65,7 +65,14 @@ ENV DEBIAN_FRONTEND=noninteractive
 # nodesource had not published it by that rebuild; this re-attempts it.
 # libexpat1 (CVE-2026-76641), libunbound8, libglib2.0 and libplexus-utils2-java
 # have no noble fix yet and clear on a later refresh.
-ARG APT_SECURITY_REFRESH=2026-09-07
+# 2026-09-14: pull patched p11-kit/libp11-kit0/libp11-kit-dev/p11-kit-modules >=
+# 0.25.3-4ubuntu2.2 (CVE-2026-18938) and re-attempt nodesource nodejs >= 22.23.2
+# (CVE-2026-58045, -56847, -58042, -58041, -56850, -58044, -58039) — upstream
+# released it but the scanned image still carries 22.23.1, OP-799. curl/libcurl
+# (CVE-2026-19931 CVSS 9.8, CVE-2026-18924 9.1, CVE-2026-82209, -80230, -13608),
+# libexpat1 (CVE-2026-76957), binutils (CVE-2026-15003) and tar (CVE-2026-18508,
+# -18477) are still unfixed in noble and clear on a later refresh.
+ARG APT_SECURITY_REFRESH=2026-09-14
 
 # Install essential system packages
 RUN echo "OS security refresh: ${APT_SECURITY_REFRESH}" \

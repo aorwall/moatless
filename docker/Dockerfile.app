@@ -15,7 +15,11 @@ FROM nginx:1.31-alpine
 # affecting curl 8.12.1-r1 shipped in the previous nginx:1.27-alpine base.
 # 2026-09-07: pull patched libssl3/libcrypto3 > 3.5.7-r0 (CVE-2026-63073 CVSS
 # 9.8, CVE-2026-75803 9.1) and libexpat >= 2.8.4-r0 (CVE-2026-76641 8.7), OP-760.
-ARG APK_SECURITY_REFRESH=2026-09-07
+# 2026-09-14: pull patched curl/libcurl >= 8.22.0-r0 (CVE-2026-19931 CVSS 9.8,
+# CVE-2026-18924 9.1, CVE-2026-82209 8.2, CVE-2026-80229, -80230, -80231,
+# -80255, -82208 7.5, CVE-2026-13608 7.4) and libexpat >= 2.8.4-r0
+# (CVE-2026-76956 7.5, CVE-2026-76957 7.8), OP-799.
+ARG APK_SECURITY_REFRESH=2026-09-14
 RUN echo "OS security refresh: ${APK_SECURITY_REFRESH}" \
     && apk upgrade --no-cache
 
