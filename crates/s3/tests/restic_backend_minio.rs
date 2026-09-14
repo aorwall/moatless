@@ -177,10 +177,7 @@ fn tempdir() -> std::path::PathBuf {
     let path = std::env::temp_dir().join(format!(
         "moatless-restic-{}-{:?}",
         std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
+        chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
     ));
     std::fs::create_dir_all(&path).unwrap();
     path

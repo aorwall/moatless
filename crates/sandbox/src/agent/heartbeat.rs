@@ -10,7 +10,9 @@
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
+
+use chrono::Utc;
 
 /// How stale the heartbeat may get while a turn is `Running` before the service
 /// is considered wedged. Chosen well above the service's own tick cadence so a
@@ -30,9 +32,7 @@ pub const HEARTBEAT_TICK_INTERVAL: Duration = Duration::from_secs(5);
 /// maximally stale — fails safe, since the handler still checks the command
 /// channel first.
 pub fn now_millis() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_millis() as u64)
+    u64::try_from(Utc::now().timestamp_millis()).unwrap_or(0)
 }
 
 /// Shared, cheaply-clonable liveness stamp bumped by the agent lifecycle task.

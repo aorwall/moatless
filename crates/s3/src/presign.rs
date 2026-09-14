@@ -138,6 +138,10 @@ async fn effective_presign_ttl(
         return Ok(requested_ttl);
     };
 
+    #[allow(
+        clippy::disallowed_methods,
+        reason = "`expiry` is an SDK-supplied `SystemTime`, so the comparison is made in that clock"
+    )]
     let remaining = expiry
         .duration_since(SystemTime::now())
         .map_err(|_| S3Error::CredentialsExpired)?;
@@ -167,6 +171,10 @@ mod tests {
 
     #[tokio::test]
     async fn effective_presign_ttl_is_capped_by_credential_expiry() {
+        #[allow(
+            clippy::disallowed_methods,
+            reason = "`Credentials::new` takes the expiry as a `SystemTime`"
+        )]
         let credentials = Credentials::new(
             "AKID",
             "SECRET",
@@ -186,6 +194,10 @@ mod tests {
 
     #[tokio::test]
     async fn effective_presign_ttl_rejects_credentials_expiring_inside_skew() {
+        #[allow(
+            clippy::disallowed_methods,
+            reason = "`Credentials::new` takes the expiry as a `SystemTime`"
+        )]
         let credentials = Credentials::new(
             "AKID",
             "SECRET",
@@ -204,6 +216,10 @@ mod tests {
 
     #[tokio::test]
     async fn effective_presign_ttl_rejects_expired_credentials() {
+        #[allow(
+            clippy::disallowed_methods,
+            reason = "`Credentials::new` takes the expiry as a `SystemTime`"
+        )]
         let credentials = Credentials::new(
             "AKID",
             "SECRET",

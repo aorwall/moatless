@@ -388,10 +388,7 @@ async fn test_exit_plan_mode_flow() {
         // Use a fresh temp dir each run to avoid stale files from previous tests
         let tmp = std::env::temp_dir().join(format!(
             "sandbox-e2e-plan-{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_millis()
+            chrono::Utc::now().timestamp_millis()
         ));
         let _ = std::fs::remove_dir_all(&tmp); // clean up if exists
         std::fs::create_dir_all(&tmp).expect("create temp dir");

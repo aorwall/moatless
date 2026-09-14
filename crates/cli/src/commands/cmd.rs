@@ -270,9 +270,7 @@ fn resolve_cwd(cwd: Option<String>, base: Option<PathBuf>) -> Option<String> {
 }
 
 fn now_unix_ms() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_millis() as i64)
+    chrono::Utc::now().timestamp_millis()
 }
 
 #[cfg(test)]

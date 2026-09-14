@@ -23,10 +23,7 @@ async fn seed_note(workspace_dir: &str, task_id: &str, text: &str) {
             text: text.to_string(),
             // A real note is minutes old at most, and `take` drops one that is
             // older than its bound.
-            recorded_at_unix_ms: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("clock")
-                .as_millis() as i64,
+            recorded_at_unix_ms: chrono::Utc::now().timestamp_millis(),
         },
     )]);
     tokio::fs::write(

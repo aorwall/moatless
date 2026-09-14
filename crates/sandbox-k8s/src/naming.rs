@@ -70,10 +70,7 @@ pub fn generate_preview_network_policy_name(task_id: &str) -> String {
 /// chars).
 pub fn generate_pvc_name(task_id: &str) -> String {
     let sanitized = sanitize_k8s_name(task_id, 30);
-    let timestamp = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis();
+    let timestamp = u128::try_from(chrono::Utc::now().timestamp_millis()).unwrap_or(0);
     let ts_str = radix_fmt(timestamp);
     truncate_k8s(format!("moatless-sandbox-{sanitized}-{ts_str}"))
 }
@@ -85,10 +82,7 @@ pub fn generate_pvc_name(task_id: &str) -> String {
 pub fn generate_pod_name(repository_name: &str, task_id: &str) -> String {
     let sanitized_repo = sanitize_k8s_name(repository_name, 20);
     let sanitized_task = sanitize_k8s_name(task_id, 20);
-    let timestamp = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis();
+    let timestamp = u128::try_from(chrono::Utc::now().timestamp_millis()).unwrap_or(0);
     let ts_str = format!("{timestamp:x}");
     truncate_k8s(format!(
         "moatless-{sanitized_repo}-{sanitized_task}-{ts_str}"

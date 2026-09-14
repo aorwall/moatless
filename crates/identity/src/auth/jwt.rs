@@ -61,6 +61,10 @@ impl SessionClaims {
     }
 }
 
+fn now_secs() -> u64 {
+    u64::try_from(chrono::Utc::now().timestamp()).unwrap_or(0)
+}
+
 /// Generate a session JWT.
 pub fn generate_session_jwt(
     user_id: Uuid,
@@ -71,10 +75,7 @@ pub fn generate_session_jwt(
     secret: &str,
     max_age_secs: u64,
 ) -> Result<String, jsonwebtoken::errors::Error> {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
+    let now = now_secs();
 
     let claims = SessionClaims {
         sub: user_id,
@@ -124,10 +125,7 @@ pub fn generate_ws_ticket_jwt(
     identity: &AuthIdentity,
     secret: &str,
 ) -> Result<String, jsonwebtoken::errors::Error> {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
+    let now = now_secs();
 
     let claims = SessionClaims {
         sub: identity.user_id,
@@ -240,10 +238,7 @@ mod tests {
     #[test]
     fn expired_token_fails() {
         // Manually create a token with exp in the past (beyond default leeway)
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
+        let now = now_secs();
 
         let claims = SessionClaims {
             sub: test_user_id(),

@@ -44,12 +44,13 @@ lint is off.
 <!-- plan-assert: contains rust-toolchain.toml channel = "1.97.0" -->
 
 Two numbers below gate a decision, so they are asserted rather than trusted:
-277 carries item 2's whole case, and 20 is why `SystemTime::now` is item 4's
-first candidate. The rest of item 4's table sizes nothing and is left
+277 carries item 2's whole case, and 20 was why `SystemTime::now` was item 4's
+first candidate. Item 4 has since landed, so that assertion now pins what the
+fence left behind instead. The rest of item 4's table sizes nothing and is left
 unasserted, because those counts move with unrelated work.
 
 <!-- plan-assert: count 277 tooling/arch-rules/arch-baseline.json comment-block-size:: -->
-<!-- plan-assert: count 20 crates SystemTime::now -->
+<!-- plan-assert: count 4 crates SystemTime::now -->
 
 ## Summary
 
@@ -232,6 +233,12 @@ all of it:
 None is a quick win, and no big-bang fence list should land. Each candidate is
 its own change: decide the replacement, migrate the call sites, then add the
 entry. `SystemTime::now` at 20 is the smallest first test of the process.
+
+**`SystemTime::now` is done.** Every wall-clock read moved to
+`chrono::Utc::now()`, and `clippy.toml` carries the entry. Four sites remain,
+all in `crates/s3/src/presign.rs`, where the AWS SDK requires a `SystemTime`
+value rather than a moment; each carries an annotated allow. The table above is
+the measurement that sized the work, and is not re-derived.
 
 Item 1 does not guard these, and does not need to — see the note closing that
 item.

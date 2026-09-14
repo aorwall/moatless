@@ -1,22 +1,33 @@
-# Access-control fence (Decision 3 of the access-scope redesign).
+# Fenced methods. Each entry's `reason` names the replacement; a site that needs
+# the fenced call anyway opts back in with `#[allow(clippy::disallowed_methods,
+# reason = "…")]` — or a bare `#[allow(…)]` under a `// reason:` line, which is
+# the form the access-control sites below already use — saying why it is right
+# there. Put it on the statement, not the module: `disallowed_methods` is one
+# lint for the whole table, so a module-level allow pre-exempts every path here.
 #
-# `ScopeContext::system()` returns a full-access, admin-everywhere context — a
-# deliberate bypass of the per-user scope filters. It is legitimate only for
-# internal callers with no authenticated user (reapers, event handlers, pod
-# watchers, adapter/webhook runtimes, sandbox-pod-facing requests already
-# authenticated by their own transport). To keep every use auditable, the call
-# is lint-disallowed: each site must opt back in with
-# `#[allow(clippy::disallowed_methods)]` and a `// reason:` comment explaining
-# why the bypass is safe there. See `ScopeContext::system`'s doc comment for the
-# required form.
-#
-# The path below must resolve exactly. An unresolvable `disallowed-methods`
-# path fails silently — clippy reports no error — so moving or renaming
-# `ScopeContext::system` disarms this fence with nothing to catch it. Verify a
-# rename by adding a temporary unannotated call and confirming clippy refuses
-# it before relying on the new path.
+# A path below must resolve exactly. An unresolvable `disallowed-methods` path
+# fails silently — clippy reports no error — so moving or renaming a fenced item
+# disarms its fence with nothing to catch it. Verify a rename by adding a
+# temporary unannotated call and confirming clippy refuses it before relying on
+# the new path.
 disallowed-methods = [
+    # Access-control fence (Decision 3 of the access-scope redesign).
+    #
+    # `ScopeContext::system()` returns a full-access, admin-everywhere context — a
+    # deliberate bypass of the per-user scope filters. It is legitimate only for
+    # internal callers with no authenticated user (reapers, event handlers, pod
+    # watchers, adapter/webhook runtimes, sandbox-pod-facing requests already
+    # authenticated by their own transport). To keep every use auditable, each
+    # site must opt back in. See `ScopeContext::system`'s doc comment for the
+    # required form.
     { path = "moatless_types::access_control::ScopeContext::system", reason = "deliberate access-control bypass — annotate the call with #[allow(clippy::disallowed_methods)] and a // reason: comment (see ScopeContext::system docs)" },
+
+    # Wall-clock fence. `chrono::Utc::now()` is how the rest of the workspace
+    # reads the clock, and a `Duration` since `UNIX_EPOCH` is a hand-rolled
+    # restatement of its `timestamp*` methods with a pre-epoch fallback to pick.
+    # `SystemTime` stays for a value an external API hands back, which has to be
+    # compared in its own clock.
+    { path = "std::time::SystemTime::now", reason = "read the wall clock with chrono::Utc::now() — timestamp(), timestamp_millis(), timestamp_nanos_opt() or timestamp_subsec_nanos()" },
 ]
 
 # Product names and acronym verbs that `doc_markdown` would otherwise ask to

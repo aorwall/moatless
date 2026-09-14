@@ -799,9 +799,7 @@ mod tests {
         let path = std::env::temp_dir().join(format!(
             "moatless-restic-{name}-{}-{}",
             std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map_or(0, |d| d.as_nanos())
+            chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
         ));
         std::fs::create_dir_all(&path).expect("scratch directory");
         path

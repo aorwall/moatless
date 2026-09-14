@@ -1,6 +1,6 @@
 //! Retry/backoff policy for coordinator-managed agent turns.
 
-use std::time::SystemTime;
+use chrono::Utc;
 
 use crate::agent::harness::{ErrorClass, HarnessError};
 
@@ -27,11 +27,8 @@ pub(crate) fn compute_backoff(attempt: u32) -> std::time::Duration {
     let base = BACKOFF_BASE_SECS * 2.0_f64.powi(attempt as i32);
     let capped = base.min(BACKOFF_CAP_SECS);
 
-    // Deterministic-ish jitter from system time nanos
-    let nanos = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap_or_default()
-        .subsec_nanos();
+    // Deterministic-ish jitter from wall-clock nanos
+    let nanos = Utc::now().timestamp_subsec_nanos();
     let jitter_norm = (nanos as f64 / u32::MAX as f64) * 2.0 - 1.0;
     let jitter = capped * JITTER_FACTOR * jitter_norm;
 
