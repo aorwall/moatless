@@ -391,6 +391,7 @@ mod tests {
                 "title": "Add the widget",
                 "html_url": "https://github.com/acme/widgets/pull/42",
                 "sender_login": "octocat",
+                "pr_author_login": "hubot",
             },
         });
         let delivery: CloseDelivery = serde_json::from_value(stored.clone()).expect("deserialize");
@@ -414,6 +415,7 @@ mod tests {
                 "title": "Add the widget",
                 "html_url": "https://github.com/acme/widgets/pull/42",
                 "merged_by": "octocat",
+                "pr_author_login": "hubot",
                 "base_ref": "main",
                 "head_ref": "feature",
                 "merge_commit_sha": "abcdef0123456789",

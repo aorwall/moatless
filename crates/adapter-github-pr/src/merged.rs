@@ -40,6 +40,8 @@ pub(super) struct MergedPr {
     /// Login GitHub names as having merged it, falling back to the webhook
     /// sender when `merged_by` is absent.
     pub(super) merged_by: String,
+    #[serde(default)]
+    pub(super) pr_author_login: Option<String>,
     pub(super) base_ref: String,
     pub(super) head_ref: String,
     pub(super) merge_commit_sha: String,
@@ -84,6 +86,7 @@ pub(super) fn candidate(event_type: &str, payload: &serde_json::Value) -> Option
         title: string_at(pr, "/title"),
         html_url: string_at(pr, "/html_url"),
         merged_by,
+        pr_author_login: super::webhook::pr_author_login(payload).map(str::to_string),
         base_ref: string_at(pr, "/base/ref"),
         head_ref: string_at(pr, "/head/ref"),
         merge_commit_sha: string_at(pr, "/merge_commit_sha"),
@@ -174,8 +177,13 @@ impl GithubPrInboundRouter {
             source_id: rule.source_matcher.clone(),
             thread_id: Some(merged.pr_number.to_string()),
             message_thread_id: merged.pr_number.to_string(),
-            user_id: super::auth::resolve_sender_user(&merged.merged_by, rule, self.users.as_ref())
-                .await,
+            user_id: super::auth::resolve_sender_user(
+                &merged.merged_by,
+                merged.pr_author_login.as_deref(),
+                rule,
+                self.users.as_ref(),
+            )
+            .await,
             author: moatless_types::adapter::author_handle(&merged.merged_by),
             sender_external_id: None,
             text: merged_text(merged, &execution.owner, &execution.repo),

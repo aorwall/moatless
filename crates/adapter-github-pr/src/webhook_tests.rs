@@ -112,6 +112,7 @@ async fn normalize_payload(
                 .pointer("/sender/login")
                 .and_then(serde_json::Value::as_str)
                 .unwrap_or("alice"),
+            pr_author_login: super::pr_author_login(payload),
             frontend_url: "https://app.example.com",
             users: &NoUsers,
         },
@@ -739,4 +740,23 @@ async fn configured_sender_and_title_filters_preserve_opt_out_behavior() {
             .primary,
         Ok(PrimaryWebhook::Message(_))
     ));
+}
+
+#[test]
+fn the_pull_request_author_is_read_from_whichever_row_the_event_carries() {
+    let review_comment = serde_json::json!({
+        "pull_request": {"number": 7, "user": {"login": "aorwall"}},
+        "comment": {"user": {"login": "github-actions[bot]"}},
+    });
+    assert_eq!(super::pr_author_login(&review_comment), Some("aorwall"));
+
+    let issue_comment = serde_json::json!({
+        "issue": {"number": 7, "user": {"login": "aorwall"}, "pull_request": {}},
+    });
+    assert_eq!(super::pr_author_login(&issue_comment), Some("aorwall"));
+
+    let check_run = serde_json::json!({
+        "check_run": {"id": 1, "pull_requests": [{"number": 7}]},
+    });
+    assert_eq!(super::pr_author_login(&check_run), None);
 }

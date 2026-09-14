@@ -65,6 +65,11 @@ impl GithubPrAuth {
         GithubPrApi::new(token)
     }
 
+    /// Mint a client for durable work `github_login` triggered.
+    ///
+    /// No pull request author to stand in: a merge-conflict check names a PR
+    /// whose author it has not read, and a post-merge workflow run happens on
+    /// the default branch, where there is no pull request at all.
     pub(super) async fn client_for_durable_work(
         &self,
         github_login: &str,
@@ -72,7 +77,7 @@ impl GithubPrAuth {
         users: &dyn ProviderIdentityLink,
         repo: &GitHostRepo,
     ) -> Result<AuthenticatedGithub, AdapterError> {
-        let user_id = resolve_sender_user(github_login, rule, users).await;
+        let user_id = resolve_sender_user(github_login, None, rule, users).await;
         let api = self.client_for(&Actor::of(&user_id), repo).await?;
         Ok(AuthenticatedGithub { user_id, api })
     }
@@ -172,22 +177,36 @@ fn reaction_actor(binding: &BindingContext) -> Result<Actor, AdapterError> {
         })
 }
 
+/// The moatless user an inbound event is attributed to, from the first login
+/// that has connected GitHub.
+///
+/// The pull request's author stands in for a sender that has not: nobody can
+/// link `github-actions[bot]`, and `sent_by` would otherwise credit the rule's
+/// run-as user, who had nothing to do with the event.
 pub(super) async fn resolve_sender_user(
     github_login: &str,
+    pr_author_login: Option<&str>,
     rule: &SubscriptionMatch,
     users: &dyn ProviderIdentityLink,
 ) -> String {
-    if let Ok(Some(user_id)) = users
-        .user_with_login(super::delivery::ADAPTER, github_login)
-        .await
+    for login in [Some(github_login), pr_author_login]
+        .into_iter()
+        .flatten()
+        .filter(|login| !login.is_empty())
     {
-        return user_id;
+        if let Ok(Some(user_id)) = users
+            .user_with_login(super::delivery::ADAPTER, login)
+            .await
+        {
+            return user_id;
+        }
     }
 
     debug!(
         github_login,
+        pr_author_login,
         fallback = %rule.effective_user_id(),
-        "GitHub user not mapped, using rule owner"
+        "Neither the sender nor the PR author is mapped, using rule owner"
     );
     rule.effective_user_id().to_string()
 }
@@ -342,6 +361,90 @@ mod tests {
         assert_eq!(
             outbound_user_id(None, &binding_with_filter(None), None),
             None
+        );
+    }
+
+    /// The GitHub logins that have connected, keyed to a user id by prefix.
+    /// Every other port method is scenery for the cases below.
+    struct LinkedLogins(&'static [&'static str]);
+
+    #[async_trait::async_trait]
+    impl moatless_ports::identity::ProviderIdentityLink for LinkedLogins {
+        async fn provider_id_for_login(
+            &self,
+            _provider: &str,
+            _login: &str,
+        ) -> Result<Option<String>, moatless_types::store::StoreError> {
+            Ok(None)
+        }
+
+        async fn user_at(
+            &self,
+            _provider: &str,
+            _provider_user_id: &str,
+        ) -> Result<Option<moatless_ports::identity::LinkedUser>, moatless_types::store::StoreError>
+        {
+            Ok(None)
+        }
+
+        async fn user_by_email(
+            &self,
+            _email: &str,
+        ) -> Result<Option<moatless_ports::identity::LinkedUser>, moatless_types::store::StoreError>
+        {
+            Ok(None)
+        }
+
+        async fn user_who_connected(
+            &self,
+            _provider: &str,
+            _provider_user_id: &str,
+        ) -> Result<Option<String>, moatless_types::store::StoreError> {
+            Ok(None)
+        }
+
+        async fn user_with_login(
+            &self,
+            _provider: &str,
+            login: &str,
+        ) -> Result<Option<String>, moatless_types::store::StoreError> {
+            Ok(self.0.contains(&login).then(|| format!("user:{login}")))
+        }
+
+        async fn link(
+            &self,
+            _user_id: &uuid::Uuid,
+            _provider: &str,
+            _provider_user_id: &str,
+        ) -> Result<bool, moatless_types::store::StoreError> {
+            Ok(false)
+        }
+    }
+
+    #[tokio::test]
+    async fn the_pull_request_author_stands_in_for_an_unmapped_sender() {
+        let rule = rule_with_run_as("run-as-user");
+        let users = LinkedLogins(&["aorwall", "jacobrask"]);
+        let bot = "github-actions[bot]";
+
+        assert_eq!(
+            resolve_sender_user(bot, Some("aorwall"), &rule, &users).await,
+            "user:aorwall"
+        );
+        assert_eq!(
+            resolve_sender_user("jacobrask", Some("aorwall"), &rule, &users).await,
+            "user:jacobrask",
+            "a sender that has connected outranks the author"
+        );
+        assert_eq!(
+            resolve_sender_user(bot, None, &rule, &users).await,
+            "run-as-user",
+            "a check run carries no pull request author"
+        );
+        assert_eq!(
+            resolve_sender_user(bot, Some("dependabot[bot]"), &rule, &users).await,
+            "run-as-user",
+            "an author that has not connected is no better than the sender"
         );
     }
 

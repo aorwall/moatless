@@ -209,6 +209,7 @@ pub(crate) async fn receive(
             owner,
             repo,
             sender_login,
+            pr_author_login: super::webhook::pr_author_login(&payload),
             frontend_url: github_provider.frontend_url(),
             users,
         },

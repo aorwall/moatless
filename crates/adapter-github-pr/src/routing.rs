@@ -69,7 +69,15 @@ pub(super) fn delivery_only_rule(
         task_name: None,
         tag_ids: Vec::new(),
         skills: Vec::new(),
-        run_as_user_id: connection.owner_user_id.clone(),
+        // Never `None`: an org connection owned by nobody would otherwise
+        // panic every reader of `SubscriptionMatch::effective_user_id`, which
+        // is where an unmapped sender lands. Whoever connected it, then.
+        run_as_user_id: Some(
+            connection
+                .owner_user_id
+                .clone()
+                .unwrap_or_else(|| connection.created_by.clone()),
+        ),
         agent_type: moatless_types::agent::AgentType(String::new()),
         model: None,
         inactive_ttl_days: None,
@@ -480,8 +488,13 @@ impl GithubPrInboundRouter {
         }
         text.push_str("\n_Task auto-closed because the PR was closed._");
 
-        let user_id =
-            super::auth::resolve_sender_user(&info.sender_login, rule, self.users.as_ref()).await;
+        let user_id = super::auth::resolve_sender_user(
+            &info.sender_login,
+            info.pr_author_login.as_deref(),
+            rule,
+            self.users.as_ref(),
+        )
+        .await;
 
         InboundMessage {
             adapter_kind: AdapterKind::GithubPr,
@@ -648,10 +661,9 @@ mod tests {
 
     use super::delivery_only_rule;
 
-    #[test]
-    fn a_delivery_only_rule_cannot_create_tasks() {
+    fn connection(owner_user_id: Option<&str>) -> AdapterConnection {
         let now = Utc::now();
-        let connection = AdapterConnection {
+        AdapterConnection {
             id: "pc_org".to_string(),
             adapter_kind: AdapterKind::Github,
             connection_kind: "org_webhook".to_string(),
@@ -659,14 +671,17 @@ mod tests {
             credential_ref: None,
             webhook_secret: Some("s3cr3t".to_string()),
             transport_config: serde_json::json!({}),
-            created_by: "u_owner".to_string(),
+            created_by: "u_installer".to_string(),
             scope: Scope::User,
-            owner_user_id: Some("u_owner".to_string()),
+            owner_user_id: owner_user_id.map(str::to_string),
             created_at: now,
             updated_at: now,
-        };
+        }
+    }
 
-        let rule = delivery_only_rule(&connection, "acme/widget");
+    #[test]
+    fn a_delivery_only_rule_cannot_create_tasks() {
+        let rule = delivery_only_rule(&connection(Some("u_owner")), "acme/widget");
 
         assert!(rule.active);
         assert!(rule.workspace_id.is_empty());
@@ -676,5 +691,16 @@ mod tests {
         assert_eq!(rule.source_matcher, "acme/widget");
         assert_eq!(rule.connection_id, "pc_org");
         assert_eq!(rule.run_as_user_id.as_deref(), Some("u_owner"));
+    }
+
+    #[test]
+    fn an_unowned_connection_still_names_a_run_as_user() {
+        let rule = delivery_only_rule(&connection(None), "acme/widget");
+
+        assert_eq!(
+            rule.effective_user_id(),
+            "u_installer",
+            "an org connection owned by nobody must not panic every reader"
+        );
     }
 }

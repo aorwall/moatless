@@ -82,6 +82,8 @@ pub(super) struct PrCloseInfo {
     pub(super) title: String,
     pub(super) html_url: String,
     pub(super) sender_login: String,
+    #[serde(default)]
+    pub(super) pr_author_login: Option<String>,
 }
 
 /// Facts already validated by ingress and configuration needed to normalize.
@@ -90,8 +92,23 @@ pub(super) struct NormalizeContext<'a> {
     pub(super) owner: &'a str,
     pub(super) repo: &'a str,
     pub(super) sender_login: &'a str,
+    /// Who opened the pull request, from [`pr_author_login`]. Stands in for a
+    /// sender with no moatless identity.
+    pub(super) pr_author_login: Option<&'a str>,
     pub(super) frontend_url: &'a str,
     pub(super) users: &'a dyn ProviderIdentityLink,
+}
+
+/// The login of whoever opened the pull request this event happened on.
+///
+/// A `pull_request`-family payload carries the pull request and an
+/// `issue_comment` the issue that is the same row; a `check_run` carries
+/// neither, so it has no author to fall back to.
+pub(super) fn pr_author_login(payload: &serde_json::Value) -> Option<&str> {
+    payload
+        .pointer("/pull_request/user/login")
+        .or_else(|| payload.pointer("/issue/user/login"))
+        .and_then(serde_json::Value::as_str)
 }
 
 impl NormalizeContext<'_> {
@@ -233,6 +250,7 @@ async fn normalize_pull_request(
                 title,
                 html_url,
                 sender_login: context.sender_login.to_string(),
+                pr_author_login: context.pr_author_login.map(str::to_string),
             }));
         }
         debug!("PR closed but close_task_on_close is disabled");
@@ -713,8 +731,13 @@ async fn inbound_message(
     audience: Audience,
     external_event_id: String,
 ) -> InboundMessage {
-    let user_id =
-        super::auth::resolve_sender_user(context.sender_login, context.rule, context.users).await;
+    let user_id = super::auth::resolve_sender_user(
+        context.sender_login,
+        context.pr_author_login,
+        context.rule,
+        context.users,
+    )
+    .await;
     InboundMessage {
         adapter_kind: AdapterKind::GithubPr,
         source_id: context.rule.source_matcher.clone(),
