@@ -37,6 +37,11 @@ pub struct Export {
     /// function args/returns, trait signatures, and `pub` inherent methods.
     /// Bodies are not read.
     pub signature: Vec<String>,
+    /// Names of the items reached through this one: its `pub` inherent methods,
+    /// consts and associated types, and every item a `pub` trait declares. This
+    /// is the trailing segment of a path like `ScopeContext::system`, which
+    /// [`Self::signature`] never carries.
+    pub associated: Vec<String>,
 }
 
 impl Export {
@@ -89,8 +94,10 @@ pub fn exports_in(
     let mut candidates: Vec<(Export, Vec<String>, bool)> = Vec::new();
     let mut written: Vec<Written> = Vec::new();
     let mut modules: BTreeSet<Vec<String>> = BTreeSet::new();
-    // (module, type name) -> the signatures of its inherent `pub` methods.
+    // (module, type name) -> the signatures of its inherent `pub` methods, and
+    // separately the names of those items.
     let mut inherent: BTreeMap<(Vec<String>, String), Vec<String>> = BTreeMap::new();
+    let mut associated: BTreeMap<(Vec<String>, String), Vec<String>> = BTreeMap::new();
 
     while let Some((file, module, reachable)) = queue.pop_front() {
         if !visited.insert(file.clone()) {
@@ -117,14 +124,20 @@ pub fn exports_in(
                     kind: found.kind,
                     path: found.at.clone(),
                     signature: found.signature,
+                    associated: found.associated,
                 },
                 found.at,
                 found.public,
             ));
         }
 
-        for (name, at, signature) in found.inherent {
-            inherent.entry((at, name)).or_default().extend(signature);
+        for block in found.inherent {
+            let at = (block.at, block.name);
+            inherent
+                .entry(at.clone())
+                .or_default()
+                .extend(block.signature);
+            associated.entry(at).or_default().extend(block.associated);
         }
 
         for (name, public) in found.mods {
@@ -173,10 +186,12 @@ pub fn exports_in(
     let candidates: Vec<(Export, Vec<String>, bool)> = candidates
         .into_iter()
         .map(|(export, at, public)| {
-            let signature = with_inherent(&inherent, &at, &export);
+            let signature = merged(&inherent, &at, &export, &export.signature);
+            let associated = merged(&associated, &at, &export, &export.associated);
             (
                 Export {
                     signature,
+                    associated,
                     ..export
                 },
                 at,
@@ -289,16 +304,21 @@ fn admit(
     grew
 }
 
-fn with_inherent(
-    inherent: &BTreeMap<(Vec<String>, String), Vec<String>>,
+/// `declared` plus whatever the inherent `impl` blocks beside the type add.
+///
+/// An inherent block is a separate item from the type it is written for, so its
+/// contribution is gathered under `(module, type name)` and joined here.
+fn merged(
+    from_impls: &BTreeMap<(Vec<String>, String), Vec<String>>,
     at: &[String],
     export: &Export,
+    declared: &[String],
 ) -> Vec<String> {
-    let mut signature = export.signature.clone();
-    if let Some(methods) = inherent.get(&(at.to_vec(), export.name.clone())) {
-        signature.extend(methods.iter().cloned());
+    let mut out = declared.to_vec();
+    if let Some(found) = from_impls.get(&(at.to_vec(), export.name.clone())) {
+        out.extend(found.iter().cloned());
     }
-    signature
+    out
 }
 
 /// A `pub use` as written, before its first segment is resolved.
@@ -341,18 +361,29 @@ struct Declared {
     name: String,
     kind: Kind,
     signature: Vec<String>,
+    associated: Vec<String>,
     /// The module path it sits at.
     at: Vec<String>,
     /// Whether every module enclosing it within this file is public.
     public: bool,
 }
 
+/// One inherent `impl` block's contribution to the type it is written for.
+struct Inherent {
+    /// The type the block is written for.
+    name: String,
+    /// The module the block sits in.
+    at: Vec<String>,
+    /// Type names in its `pub` items' signatures.
+    signature: Vec<String>,
+    /// The names of its `pub` items.
+    associated: Vec<String>,
+}
+
 #[derive(Default)]
 struct Scanned {
     types: Vec<Declared>,
-    /// An inherent impl's type name, its module path, and the signatures of its
-    /// `pub` methods.
-    inherent: Vec<(String, Vec<String>, Vec<String>)>,
+    inherent: Vec<Inherent>,
     /// A child module in another file, and whether it is declared `pub`.
     mods: Vec<(String, bool)>,
     /// Module paths declared inline in this file, at any visibility.
@@ -366,10 +397,16 @@ fn scan(items: &[syn::Item], module: &[String], public: bool, scope: Scope, out:
         if scope.hides(crate::source_index::attrs(item)) {
             continue;
         }
+        // Name, kind, the type names the declaration exposes, and the names of
+        // the items reached through it. Only a trait declares the latter inline;
+        // for every other kind they arrive from the inherent blocks below.
         let declared = match item {
-            syn::Item::Struct(s) if is_pub(&s.vis) => {
-                Some((s.ident.to_string(), Kind::Struct, fields(&s.fields)))
-            }
+            syn::Item::Struct(s) if is_pub(&s.vis) => Some((
+                s.ident.to_string(),
+                Kind::Struct,
+                fields(&s.fields),
+                Vec::new(),
+            )),
             syn::Item::Enum(e) if is_pub(&e.vis) => Some((
                 e.ident.to_string(),
                 Kind::Enum,
@@ -377,32 +414,39 @@ fn scan(items: &[syn::Item], module: &[String], public: bool, scope: Scope, out:
                     .iter()
                     .flat_map(|v| all_fields(&v.fields))
                     .collect(),
+                Vec::new(),
             )),
-            syn::Item::Trait(t) if is_pub(&t.vis) => {
-                Some((t.ident.to_string(), Kind::Trait, trait_signature(t)))
-            }
+            syn::Item::Trait(t) if is_pub(&t.vis) => Some((
+                t.ident.to_string(),
+                Kind::Trait,
+                trait_signature(t),
+                trait_items(t),
+            )),
             syn::Item::Type(t) if is_pub(&t.vis) => {
-                Some((t.ident.to_string(), Kind::Alias, named(&t.ty)))
+                Some((t.ident.to_string(), Kind::Alias, named(&t.ty), Vec::new()))
             }
-            syn::Item::Fn(f) if is_pub(&f.vis) => {
-                Some((f.sig.ident.to_string(), Kind::Function, signature(&f.sig)))
-            }
+            syn::Item::Fn(f) if is_pub(&f.vis) => Some((
+                f.sig.ident.to_string(),
+                Kind::Function,
+                signature(&f.sig),
+                Vec::new(),
+            )),
             syn::Item::Const(c) if is_pub(&c.vis) => {
-                Some((c.ident.to_string(), Kind::Value, named(&c.ty)))
+                Some((c.ident.to_string(), Kind::Value, named(&c.ty), Vec::new()))
             }
             syn::Item::Static(s) if is_pub(&s.vis) => {
-                Some((s.ident.to_string(), Kind::Value, named(&s.ty)))
+                Some((s.ident.to_string(), Kind::Value, named(&s.ty), Vec::new()))
             }
-            syn::Item::Macro(m) => {
-                string_enum_name(m).map(|ident| (ident.to_string(), Kind::Enum, Vec::new()))
-            }
+            syn::Item::Macro(m) => string_enum_name(m)
+                .map(|ident| (ident.to_string(), Kind::Enum, Vec::new(), Vec::new())),
             _ => None,
         };
-        if let Some((name, kind, signature)) = declared {
+        if let Some((name, kind, signature, associated)) = declared {
             out.types.push(Declared {
                 name,
                 kind,
                 signature,
+                associated,
                 at: module.to_vec(),
                 public,
             });
@@ -410,11 +454,12 @@ fn scan(items: &[syn::Item], module: &[String], public: bool, scope: Scope, out:
         match item {
             syn::Item::Impl(i) if i.trait_.is_none() => {
                 if let Some(name) = named(&i.self_ty).first() {
-                    out.inherent.push((
-                        name.clone(),
-                        module.to_vec(),
-                        inherent_signature(i, scope),
-                    ));
+                    out.inherent.push(Inherent {
+                        name: name.clone(),
+                        at: module.to_vec(),
+                        signature: inherent_signature(i, scope),
+                        associated: inherent_items(i, scope),
+                    });
                 }
             }
             syn::Item::Mod(m) => match &m.content {
@@ -459,6 +504,40 @@ fn trait_signature(t: &syn::ItemTrait) -> Vec<String> {
         }
     }
     out
+}
+
+/// The names a trait declares, which a caller writes after `Trait::`.
+///
+/// A trait item has no visibility of its own — the trait's covers it.
+fn trait_items(t: &syn::ItemTrait) -> Vec<String> {
+    t.items
+        .iter()
+        .filter_map(|item| match item {
+            syn::TraitItem::Fn(f) => Some(f.sig.ident.to_string()),
+            syn::TraitItem::Const(c) => Some(c.ident.to_string()),
+            syn::TraitItem::Type(ty) => Some(ty.ident.to_string()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The names an inherent block adds, which a caller writes after `Type::`.
+fn inherent_items(i: &syn::ItemImpl, scope: Scope) -> Vec<String> {
+    i.items
+        .iter()
+        .filter_map(|item| match item {
+            syn::ImplItem::Fn(f) if is_pub(&f.vis) && !scope.hides(&f.attrs) => {
+                Some(f.sig.ident.to_string())
+            }
+            syn::ImplItem::Const(c) if is_pub(&c.vis) && !scope.hides(&c.attrs) => {
+                Some(c.ident.to_string())
+            }
+            syn::ImplItem::Type(ty) if is_pub(&ty.vis) && !scope.hides(&ty.attrs) => {
+                Some(ty.ident.to_string())
+            }
+            _ => None,
+        })
+        .collect()
 }
 
 fn inherent_signature(i: &syn::ItemImpl, scope: Scope) -> Vec<String> {

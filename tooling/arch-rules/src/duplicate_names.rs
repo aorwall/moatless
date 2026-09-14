@@ -113,6 +113,7 @@ mod tests {
                         kind: Kind::Struct,
                         path: Vec::new(),
                         signature: Vec::new(),
+                        associated: Vec::new(),
                     })
                     .collect();
                 ((*crate_name).to_string(), exports)
@@ -163,6 +164,7 @@ mod tests {
                 kind: Kind::Struct,
                 path: Vec::new(),
                 signature: Vec::new(),
+                associated: Vec::new(),
             }],
         );
 

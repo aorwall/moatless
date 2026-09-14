@@ -1,7 +1,7 @@
 use crate::workspace::Workspace;
 use crate::{
     Violation, adapter_boundaries, agents_md_budget, agents_symlink, annotations, band_order,
-    base_surface, closed_dependency_list, comment_block_size, composition_root,
+    base_surface, clippy_fence, closed_dependency_list, comment_block_size, composition_root,
     declaration_only_roots, dependency_privacy, duplicate_comment_prose, duplicate_names, file_size,
     floor_type_admission, manifest_inheritance, module_names, persistence_export,
     persistence_sql_location, port_admission, process_exit, route_registration,
@@ -52,6 +52,7 @@ rules!(
     base_surface => "Adapter transport dependencies are feature gated.",
     closed_dependency_list => "Shared values declare only value-level dependencies.",
     annotations => "Exceptions name a registered, applicable rule and carry a reason.",
+    clippy_fence => "A clippy fence path into this workspace names an item that exists.",
     band_order => "Workspace dependencies point strictly down the band order.",
     manifest_inheritance => "Members inherit package identity and lints.",
     duplicate_names => "A public type name is defined in more than one shared-vocabulary crate.",

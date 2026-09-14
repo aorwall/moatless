@@ -11,6 +11,7 @@ pub mod annotations;
 pub mod band_order;
 pub mod base_surface;
 pub mod baseline;
+pub mod clippy_fence;
 pub mod closed_dependency_list;
 pub mod comment_block_size;
 pub mod composition_root;

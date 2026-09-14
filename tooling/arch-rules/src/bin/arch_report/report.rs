@@ -2,7 +2,8 @@ use std::collections::BTreeMap;
 
 use anyhow::Result;
 use moatless_arch_rules::{
-    RULES, baseline, persistence_export, run_all, workspace::Workspace, workspace::workspace_root,
+    RULES, baseline, clippy_fence, persistence_export, run_all, workspace::Workspace,
+    workspace::workspace_root,
 };
 
 pub(super) fn run(update: bool, json: bool, inventory: bool) -> Result<()> {
@@ -65,6 +66,24 @@ pub(super) fn run(update: bool, json: bool, inventory: bool) -> Result<()> {
             println!();
         }
     }
+
+    // Printed in full rather than only where a fence is broken: an entry this
+    // rule cannot judge is the one thing a reader must not mistake for a pass.
+    println!("── clippy fence ──");
+    for entry in clippy_fence::entries(&ws)? {
+        let state = match entry.state {
+            clippy_fence::State::Resolved => "resolves",
+            clippy_fence::State::Skipped => "skipped — names no workspace crate",
+            clippy_fence::State::Unresolved => "UNRESOLVED",
+        };
+        println!("   {} — {state}", entry.path);
+        // Only where the state is not a pass: a line per entry would bury the
+        // skip this section exists to make visible once the fence list grows.
+        if entry.state != clippy_fence::State::Resolved {
+            println!("           {}", entry.location);
+        }
+    }
+    println!();
 
     println!("── summary ──");
     println!("   {} violation(s) total", found.len());

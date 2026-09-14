@@ -150,6 +150,7 @@ enforce!(
     persistence_export,
     process_exit,
     annotations,
+    clippy_fence,
     row_stays_with_query,
     agents_symlink,
     floor_type_admission,
