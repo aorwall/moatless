@@ -159,7 +159,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     await browserCheck(
       chromium,
       {
-        host: values.get('--host') ?? 'moatless-t3.staging.moatless.xyz',
+        host: values.get('--host') ?? 'moatless.xyz',
         port: Number(values.get('--port') ?? 8444),
         screenshot: values.get('--screenshot') ?? path.join(scratch, 'browser-check.png'),
         executablePath: bakedChromium(),
