@@ -111,6 +111,25 @@ fn a_row_names_its_owner_only_when_the_listing_read_one() {
     );
 }
 
+/// Both tools park the run on a person, and the client reads one boolean for
+/// both: its sidebar status, its snooze rule and its awareness phase all key on
+/// `hasPendingUserInput`. `hasActionableProposedPlan` stays the narrower answer,
+/// naming which of the two is waiting.
+#[test]
+fn a_parked_plan_reads_as_pending_user_input_the_way_a_parked_question_does() {
+    let mut row = running_conversation("task-a", "ws-a");
+    assert_eq!(one_thread(&row)["hasPendingUserInput"], false);
+
+    row.pending_plan = true;
+    assert_eq!(one_thread(&row)["hasPendingUserInput"], true);
+    assert_eq!(one_thread(&row)["hasActionableProposedPlan"], true);
+
+    row.pending_plan = false;
+    row.pending_question = true;
+    assert_eq!(one_thread(&row)["hasPendingUserInput"], true);
+    assert_eq!(one_thread(&row)["hasActionableProposedPlan"], false);
+}
+
 #[test]
 fn a_running_moat_cmd_command_makes_the_row_read_as_working() {
     let thread = one_thread(&Conversation {

@@ -138,9 +138,13 @@ pub(super) fn thread(
     // The contract requires a definite answer and supplies no empty value.
     // Moatless has no approval queue, so the answer is always no.
     row.insert("hasPendingApprovals".into(), Value::Bool(false));
+    // A parked plan counts, not just a parked question: both stop the run on a
+    // person, and `task_activities::mapping` writes the same
+    // `user-input.requested` row for either, so a client that reads this as
+    // false contradicts the transcript it is about to render.
     row.insert(
         "hasPendingUserInput".into(),
-        Value::Bool(conversation.pending_question),
+        Value::Bool(conversation.pending_question || conversation.pending_plan),
     );
     row.insert(
         "hasActionableProposedPlan".into(),
