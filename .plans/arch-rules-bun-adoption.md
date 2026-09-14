@@ -1,6 +1,7 @@
 # Arch-rules: adopt Bun's tooling patterns
 
-> **Status:** approved; items 1, 2 and 4 shipped, items 3 and 5 open
+> **Status:** approved; items 1, 2 and 4 shipped, item 3 is this PR, and item 5
+> ran as a spike that concluded in no rule
 > **Updated:** 2026-09-14
 > **Vocabulary:** CONTEXT.md
 
@@ -206,10 +207,10 @@ entry is not a history note — it is "do not propose X", which is operational
 guidance to the next agent, and re-proposal is the exact failure it prevents.
 Each line states the instruction, not the deliberation.
 
-**Entry condition.** `tooling/arch-rules/AGENTS.md` is 83 lines against
-`agents-md-budget`'s ceiling of 120, and a section like this only grows. When
-it crowds the budget, the oldest entries get cut rather than the budget
-raised.
+**Entry condition.** `tooling/arch-rules/AGENTS.md` is 105 lines with the two
+seed entries in place, against `agents-md-budget`'s ceiling of 120, and a
+section like this only grows. When it crowds the budget, the oldest entries get
+cut rather than the budget raised.
 
 **Seed it with what items 2 and 5 conclude.** Not with the
 `generic-module-name` `task/models.rs` case at `AGENTS.md:62` — that is an
@@ -277,6 +278,13 @@ outcomes are a periodic manual sweep or nothing, unless the repo decides to
 carry a second pinned toolchain in CI — which is a larger decision than dead
 code justifies and should be taken on its own merits, not as a side effect.
 Record the outcome under item 3 if it is nothing.
+
+**The spike ran, and the outcome is nothing.** Hawk produced 3246 findings, of
+which 158 are `dead_public`. 122 of those are unreachable from the production
+binaries and 17 from the workspace tests, but only 8 from both — every one in
+prost-generated `sandbox.v1.rs`. No hand-written item is dead by hawk's own
+two-root analysis, so not even a periodic sweep is worth the setup. Item 3
+carries the line that stops the next agent proposing it.
 
 ## Not adopting: dylint
 

@@ -79,6 +79,19 @@ rather than not working, because `annotations.rs` validates the name against
 Its two constants are the 5 and 8 root `AGENTS.md` asks for. Do not raise one to
 absorb a long block.
 
+## Rules considered and declined
+
+Each entry is an instruction not to propose that rule again, and what made it
+not worth the volume. When this section crowds `agents-md-budget`'s ceiling,
+cut the oldest entry rather than raise the ceiling.
+
+- **A dead-`pub` sweep, whether through `cargo hawk` or a rule of our own.**
+  Hawk finds no hand-written dead item — the 8 it reaches are prost-generated —
+  and it needs its own pinned toolchain to run at all.
+- **A whole-workspace comment-block check with no baseline.** Hundreds of blocks
+  are already over the ceiling, so one that fails on any of them fails on every
+  branch. Scope such a check to the lines a diff added.
+
 ## Reading the workspace and recording an exception
 
 `Workspace` reads Cargo metadata and raw manifests. Its cached source index
