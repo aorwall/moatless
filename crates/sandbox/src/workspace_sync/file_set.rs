@@ -88,8 +88,120 @@ fn collect_dir(files: &mut Vec<PathBuf>, dir: &Path) {
         };
         if meta.is_dir() {
             collect_dir(files, &path);
-        } else if meta.is_file() {
+        } else if meta.is_file() && !is_git_lock(&path) {
             files.push(path);
         }
+    }
+}
+
+/// Whether `path` is one of the lock files under a repo's `.git`.
+///
+/// Every caller walks a `.git`, which is what makes matching any `*.lock`
+/// right: outside one `Cargo.lock` matches too, and dropping it restores as
+/// deleted. Git releases a lock by rename, so a stored one restores with no
+/// owner and every `git` there fails with `Unable to create ... .lock`.
+pub(super) fn is_git_lock(path: &Path) -> bool {
+    path.extension().is_some_and(|ext| ext == "lock")
+}
+
+/// Every git lock file under `workspace_dir`, for the restore to delete.
+///
+/// The inverse of what [`collect`] stores. A lock reaches a fresh pod from a
+/// snapshot written before [`is_git_lock`] excluded them, or from a volume the
+/// previous pod left it on; either way its owner is gone and it blocks `git`.
+pub(super) fn collect_git_locks(workspace_dir: &Path) -> Vec<PathBuf> {
+    let mut locks = Vec::new();
+    if workspace_dir.is_dir() {
+        collect_locks_tree(&mut locks, workspace_dir);
+    }
+    locks
+}
+
+/// A git repo root hands its `.git` to [`collect_locks_in`] and is not
+/// descended into; every other directory is walked.
+fn collect_locks_tree(locks: &mut Vec<PathBuf>, dir: &Path) {
+    if dir.join(".git").is_dir() {
+        collect_locks_in(locks, &dir.join(".git"));
+        return;
+    }
+    let Ok(dir_entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for path in dir_entries.flatten().map(|e| e.path()) {
+        // `symlink_metadata`, so a link back up the tree cannot loop the walk.
+        if std::fs::symlink_metadata(&path).is_ok_and(|meta| meta.is_dir()) {
+            collect_locks_tree(locks, &path);
+        }
+    }
+}
+
+/// Every lock under a `.git`.
+fn collect_locks_in(locks: &mut Vec<PathBuf>, dir: &Path) {
+    let Ok(dir_entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in dir_entries.flatten() {
+        let path = entry.path();
+        let Ok(meta) = std::fs::symlink_metadata(&path) else {
+            continue;
+        };
+        if meta.is_dir() {
+            collect_locks_in(locks, &path);
+        } else if meta.is_file() && is_git_lock(&path) {
+            locks.push(path);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_lock_held_during_the_walk_is_not_collected() {
+        let tmp = tempfile::tempdir().unwrap();
+        let git = tmp.path().join("repo/.git");
+        std::fs::create_dir_all(git.join("refs/heads")).unwrap();
+        std::fs::write(git.join("HEAD"), b"ref: refs/heads/main\n").unwrap();
+        std::fs::write(git.join("index"), b"").unwrap();
+        std::fs::write(git.join("index.lock"), b"").unwrap();
+        std::fs::write(git.join("refs/heads/main.lock"), b"").unwrap();
+
+        let names: Vec<String> = collect(tmp.path())
+            .iter()
+            .map(|path| path.display().to_string())
+            .collect();
+
+        assert!(names.iter().any(|name| name.ends_with("/.git/HEAD")));
+        assert!(names.iter().any(|name| name.ends_with("/.git/index")));
+        assert!(
+            !names
+                .iter()
+                .any(|name| name.ends_with("index.lock") || name.ends_with("main.lock")),
+            "{names:?}"
+        );
+    }
+
+    /// The restore deletes what this returns, so a working-tree lockfile — which
+    /// satisfies the same predicate — must never reach it.
+    #[test]
+    fn only_locks_under_git_are_swept() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path().join("repo");
+        std::fs::create_dir_all(repo.join(".git/refs/heads")).unwrap();
+        std::fs::write(repo.join(".git/index.lock"), b"").unwrap();
+        std::fs::write(repo.join(".git/refs/heads/main.lock"), b"").unwrap();
+        std::fs::write(repo.join("Cargo.lock"), b"").unwrap();
+        std::fs::write(repo.join("bun.lock"), b"").unwrap();
+
+        let mut locks: Vec<String> = collect_git_locks(tmp.path())
+            .iter()
+            .map(|path| path.display().to_string())
+            .collect();
+        locks.sort();
+
+        assert_eq!(locks.len(), 2, "{locks:?}");
+        assert!(locks[0].ends_with("/.git/index.lock"), "{locks:?}");
+        assert!(locks[1].ends_with("/.git/refs/heads/main.lock"), "{locks:?}");
     }
 }

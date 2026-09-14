@@ -746,6 +746,67 @@ fn the_prune_countdown_claims_the_first_snapshot_of_a_pod() {
     assert!(tracker.claim_prune(), "and every interval after it");
 }
 
+/// The tar is the durable copy wherever no `restic` repository is served, so a
+/// lock it archives is restored into the replacement exactly as a snapshot's is.
+#[test]
+fn a_git_lock_stays_out_of_the_tar() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("repo");
+    init_repo(&repo);
+    std::fs::write(repo.join("main.rs"), b"fn main() {}\n").unwrap();
+    git_add(&repo, &["main.rs"]);
+    git_commit(&repo, "init");
+    std::fs::write(repo.join(".git/index.lock"), b"").unwrap();
+    std::fs::write(repo.join(".git/refs/heads/main.lock"), b"").unwrap();
+
+    let mut builder = tar::Builder::new(Vec::new());
+    assert!(append_repo(&mut builder, &repo, "repo"));
+    let archived = builder.into_inner().unwrap();
+
+    let mut archive = tar::Archive::new(&archived[..]);
+    let names: Vec<String> = archive
+        .entries()
+        .unwrap()
+        .flatten()
+        .map(|entry| entry.path().unwrap().display().to_string())
+        .collect();
+    assert!(names.iter().any(|name| name == "repo/.git/HEAD"), "{names:?}");
+    assert!(names.iter().any(|name| name == "repo/main.rs"), "{names:?}");
+    // Why this walk replaces `append_dir_all` rather than wrapping it: a `.git`
+    // subdirectory holding no files still has to reach the archive.
+    assert!(
+        names
+            .iter()
+            .any(|name| name.trim_end_matches('/') == "repo/.git/refs/tags"),
+        "{names:?}"
+    );
+    assert!(
+        !names
+            .iter()
+            .any(|name| name.ends_with("index.lock") || name.ends_with("main.lock")),
+        "{names:?}"
+    );
+}
+
+/// A lock is not workspace content, so catching one must not spend an upload:
+/// the gate reads `.git` wholesale and a new file there would otherwise move it.
+#[tokio::test]
+async fn a_git_lock_does_not_move_the_change_gate() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("repo");
+    init_repo(&repo);
+    std::fs::write(repo.join("main.rs"), b"fn main() {}\n").unwrap();
+    git_add(&repo, &["main.rs"]);
+    git_commit(&repo, "init");
+
+    let before = workspace_fingerprint(tmp.path().to_path_buf()).await;
+    std::fs::write(repo.join(".git/index.lock"), b"").unwrap();
+    let after = workspace_fingerprint(tmp.path().to_path_buf()).await;
+
+    assert!(before.is_some());
+    assert_eq!(before, after);
+}
+
 /// Init a git repo at `dir` with one committed file so `git ls-files` works.
 fn init_repo(dir: &std::path::Path) {
     std::fs::create_dir_all(dir).unwrap();

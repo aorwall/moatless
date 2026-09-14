@@ -21,7 +21,7 @@ use flate2::write::GzEncoder;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
-use super::restic;
+use super::{file_set, restic};
 use crate::backend_client::BackendClient;
 use crate::config::Config;
 use crate::state::SandboxState;
@@ -418,6 +418,33 @@ fn hold_for_unread_snapshot(state: &SandboxState) -> RestoreDecision {
 /// returns [`RestoreDecision::Nothing`], so the caller clones and
 /// [`download_on_start`] overlays instead.
 pub async fn restore_on_start(state: &SandboxState) -> RestoreDecision {
+    let decision = restore_decision(state).await;
+    sweep_git_locks(PathBuf::from(&state.config.workspace_dir)).await;
+    decision
+}
+
+/// Delete every git lock the tree this pod starts on carries.
+///
+/// Excluding locks from a snapshot fixes only what is written next: one stored
+/// before that still restores here, as does whatever a reused volume kept. Runs
+/// on every decision — after a clone there is nothing to find, and `git` must
+/// work before the agent's first turn either way.
+async fn sweep_git_locks(workspace_dir: PathBuf) {
+    let removed = tokio::task::spawn_blocking(move || {
+        let locks = file_set::collect_git_locks(&workspace_dir);
+        locks
+            .iter()
+            .filter(|lock| std::fs::remove_file(lock).is_ok())
+            .count()
+    })
+    .await
+    .unwrap_or(0);
+    if removed > 0 {
+        info!(removed, "Removed git locks left by a pod that is gone");
+    }
+}
+
+async fn restore_decision(state: &SandboxState) -> RestoreDecision {
     let task_id = &state.config.task_id;
     let workspace_dir = PathBuf::from(&state.config.workspace_dir);
     let repo_dir = PathBuf::from(&state.config.repo_dir);
@@ -596,6 +623,9 @@ pub async fn download_on_start(state: &SandboxState) {
             Some(e.to_string())
         }
     };
+    // This overlay lands after [`restore_on_start`] already swept, and an older
+    // tar is exactly where a stored lock comes from.
+    sweep_git_locks(repo_dir).await;
     state
         .backend_client
         .report_workspace_sync(
@@ -1047,14 +1077,56 @@ fn append_repo<W: std::io::Write>(
     // if it fails, the archive degrades to a working-tree-only snapshot that
     // restore-on-start rejects, falling back to clone + overlay.
     let git_dir = repo_dir.join(".git");
-    if git_dir.is_dir()
-        && builder
-            .append_dir_all(join_prefix(prefix, ".git"), &git_dir)
-            .is_ok()
-    {
+    let git_prefix = PathBuf::from(join_prefix(prefix, ".git"));
+    if git_dir.is_dir() && append_git_dir(builder, &git_prefix, &git_dir) {
         any = true;
     }
 
+    any
+}
+
+/// Append everything under a repo's `.git` to `builder`, keyed at
+/// `<name_prefix>/…`. Returns whether anything was added.
+///
+/// `append_dir_all` cannot express the one exclusion [`file_set::is_git_lock`]
+/// describes; directory entries are kept so an empty one still restores. Names
+/// stay `Path`s because a git ref name is bytes, not UTF-8.
+fn append_git_dir<W: std::io::Write>(
+    builder: &mut tar::Builder<W>,
+    name_prefix: &Path,
+    dir: &Path,
+) -> bool {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return false;
+    };
+    // Collect + sort for deterministic archives (read_dir order is unspecified).
+    let mut paths: Vec<PathBuf> = entries.flatten().map(|e| e.path()).collect();
+    paths.sort();
+
+    let mut any = false;
+    for path in paths {
+        let Ok(meta) = std::fs::symlink_metadata(&path) else {
+            continue;
+        };
+        let Some(file_name) = path.file_name() else {
+            continue;
+        };
+        let name = name_prefix.join(file_name);
+        if meta.is_dir() {
+            if builder.append_path_with_name(&path, &name).is_ok() {
+                any = true;
+            }
+            if append_git_dir(builder, &name, &path) {
+                any = true;
+            }
+        } else if meta.is_file()
+            && !file_set::is_git_lock(&path)
+            && builder.append_path_with_name(&path, &name).is_ok()
+        {
+            any = true;
+        }
+        // symlinks / special files are intentionally skipped
+    }
     any
 }
 
@@ -1218,7 +1290,7 @@ fn fingerprint_dir(entries: &mut Vec<(String, u64, u128)>, name_prefix: &str, di
         let name = format!("{name_prefix}/{file_name}");
         if meta.is_dir() {
             fingerprint_dir(entries, &name, &path);
-        } else if meta.is_file() {
+        } else if meta.is_file() && !file_set::is_git_lock(&path) {
             entries.push((name, meta.len(), mtime_nanos(&meta)));
         }
     }
