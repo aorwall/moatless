@@ -807,6 +807,64 @@ async fn a_git_lock_does_not_move_the_change_gate() {
     assert_eq!(before, after);
 }
 
+/// The sweep reads whatever tree the pod booted on, so it has to work with no
+/// restore ahead of it — the `pvc` tier, whose volume crossed the kill intact.
+#[tokio::test]
+async fn the_sweep_clears_a_lock_a_dead_pod_left_on_its_volume() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("repo");
+    init_repo(&repo);
+    std::fs::write(repo.join(".git/index.lock"), b"").unwrap();
+    std::fs::write(repo.join("Cargo.lock"), b"").unwrap();
+
+    sweep_git_locks(tmp.path().to_path_buf()).await;
+
+    assert!(!repo.join(".git/index.lock").exists());
+    assert!(repo.join(".git/HEAD").exists());
+    assert!(repo.join("Cargo.lock").exists(), "not ours to delete");
+}
+
+/// A snapshot written before the exclusion still carries a lock, and extracting
+/// it puts that lock back on disk. That is what makes the restore, not the
+/// volume, the later of the two sources the sweep has to run after.
+#[tokio::test]
+async fn a_restored_snapshot_reintroduces_a_lock_for_the_sweep_to_clear() {
+    let mut archive = tar::Builder::new(Vec::new());
+    for (name, data) in [
+        ("soap-tm/.git/HEAD", &b"ref: refs/heads/main\n"[..]),
+        ("soap-tm/.git/index.lock", &b""[..]),
+    ] {
+        let mut header = tar::Header::new_gnu();
+        header.set_size(data.len() as u64);
+        header.set_mode(0o644);
+        header.set_cksum();
+        archive.append_data(&mut header, name, data).unwrap();
+    }
+    let stale_tar = archive.into_inner().unwrap();
+
+    let tmp = tempfile::TempDir::new().unwrap();
+    let ws = tmp.path().join("ws");
+    let repo_dir = ws.join("soap-tm");
+    tokio::fs::create_dir_all(&ws).await.unwrap();
+    let restored = extract_workspace(
+        stale_tar,
+        ws.clone(),
+        repo_dir.clone(),
+        "soap-tm".to_string(),
+    )
+    .await
+    .unwrap();
+
+    // `RestoredSnapshot`, so `download_on_start` and its own sweep are skipped.
+    assert!(restored);
+    assert!(repo_dir.join(".git/index.lock").exists(), "restore put it back");
+
+    sweep_git_locks(ws.clone()).await;
+
+    assert!(!repo_dir.join(".git/index.lock").exists());
+    assert!(repo_dir.join(".git/HEAD").exists());
+}
+
 /// Init a git repo at `dir` with one committed file so `git ls-files` works.
 fn init_repo(dir: &std::path::Path) {
     std::fs::create_dir_all(dir).unwrap();

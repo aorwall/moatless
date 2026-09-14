@@ -412,24 +412,13 @@ fn hold_for_unread_snapshot(state: &SandboxState) -> RestoreDecision {
     RestoreDecision::CloneOnly
 }
 
-/// Restore a full snapshot from S3 before the clone; see [`RestoreDecision`].
-///
-/// Runs after credentials and git auth, before the clone. Every failure path
-/// returns [`RestoreDecision::Nothing`], so the caller clones and
-/// [`download_on_start`] overlays instead.
-pub async fn restore_on_start(state: &SandboxState) -> RestoreDecision {
-    let decision = restore_decision(state).await;
-    sweep_git_locks(PathBuf::from(&state.config.workspace_dir)).await;
-    decision
-}
-
 /// Delete every git lock the tree this pod starts on carries.
 ///
-/// Excluding locks from a snapshot fixes only what is written next: one stored
-/// before that still restores here, as does whatever a reused volume kept. Runs
-/// on every decision — after a clone there is nothing to find, and `git` must
-/// work before the agent's first turn either way.
-async fn sweep_git_locks(workspace_dir: PathBuf) {
+/// A lock arrives from a snapshot older than the exclusion or from a volume
+/// the dead pod kept, so call after the restore and before the clone, off any
+/// sync switch: `pvc` never restores yet keeps its volume across a kill, and
+/// gating this would skip the one tier nothing else repairs.
+pub async fn sweep_git_locks(workspace_dir: PathBuf) {
     let removed = tokio::task::spawn_blocking(move || {
         let locks = file_set::collect_git_locks(&workspace_dir);
         locks
@@ -444,7 +433,12 @@ async fn sweep_git_locks(workspace_dir: PathBuf) {
     }
 }
 
-async fn restore_decision(state: &SandboxState) -> RestoreDecision {
+/// Restore a full snapshot from S3 before the clone; see [`RestoreDecision`].
+///
+/// Runs after credentials and git auth, before the clone. Every failure path
+/// returns [`RestoreDecision::Nothing`], so the caller clones and
+/// [`download_on_start`] overlays instead.
+pub async fn restore_on_start(state: &SandboxState) -> RestoreDecision {
     let task_id = &state.config.task_id;
     let workspace_dir = PathBuf::from(&state.config.workspace_dir);
     let repo_dir = PathBuf::from(&state.config.repo_dir);
@@ -623,8 +617,8 @@ pub async fn download_on_start(state: &SandboxState) {
             Some(e.to_string())
         }
     };
-    // This overlay lands after [`restore_on_start`] already swept, and an older
-    // tar is exactly where a stored lock comes from.
+    // This overlay lands after init already swept, and an older tar is exactly
+    // where a stored lock comes from.
     sweep_git_locks(repo_dir).await;
     state
         .backend_client

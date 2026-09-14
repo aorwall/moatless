@@ -216,6 +216,10 @@ async fn run_core_init(state: &SandboxState) -> Result<WorkspaceOrigin, InitErro
     };
     let restored_full_repo = restore_decision.restored_snapshot();
 
+    // Ungated and after the restore, so it sees both trees a lock arrives on;
+    // `workspace_sync::sweep_git_locks` owns why.
+    workspace_sync::sweep_git_locks(PathBuf::from(&state.config.workspace_dir)).await;
+
     // 5. Clone the workspace's repositories (fatal on failure). Runs even after
     //    an S3 restore: `clone_repositories` skips any repo whose directory
     //    already holds a `.git`, so this only fills in what the snapshot didn't
