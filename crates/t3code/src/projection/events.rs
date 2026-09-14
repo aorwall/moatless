@@ -2,6 +2,8 @@
 
 use serde_json::{Value, json};
 
+use super::detail::is_plan_call;
+use super::detail::proposed_plan;
 use super::origin::OriginContext;
 use super::scalar::created_at;
 use super::scalar::instant;
@@ -15,13 +17,13 @@ use super::turn::turn_reference;
 use crate::dao::Conversation;
 use crate::transcript_dao::Transcript;
 use moatless_core::change_feed::conversation::ConversationChange;
-use moatless_types::activity::Activity;
+use moatless_types::activity::{Activity, ActivityKind};
 
 /// Turns one recorded change into stream items, in the order a client applies
 /// them.
 ///
-/// Sequences are capped at [`EVENTS_PER_CHANGE`] per change; a Message outside
-/// `window` says nothing.
+/// Sequences are capped at [`EVENTS_PER_CHANGE`] per change, a Message outside
+/// `window` says nothing, and a plan also emits its card ([`plan_cards`]).
 pub(crate) fn change_events(
     conversation: &Conversation,
     change: &ConversationChange,
@@ -75,7 +77,7 @@ pub(crate) fn change_events(
             ));
         }
     }
-    for activity in activities {
+    for activity in &activities {
         let (turn, activity_at) = activity_anchor(conversation, window, activity);
         let (kind, payload) = activity_appended_payload(
             &conversation.task_id,
@@ -83,6 +85,16 @@ pub(crate) fn change_events(
         );
         let slot = usize::try_from(activity_slot(activity)).unwrap_or(usize::MAX);
         payloads.push((slot.saturating_add(1), kind, payload));
+    }
+    for (ordinal, call) in plan_cards(&activities, window) {
+        if let Some(plan) = proposed_plan(conversation, window, call) {
+            let slot = usize::try_from(plan_card_slot(ordinal)).unwrap_or(usize::MAX);
+            payloads.push((
+                slot.saturating_add(1),
+                PROPOSED_PLAN_UPSERTED,
+                proposed_plan_payload(&conversation.task_id, plan),
+            ));
+        }
     }
 
     // By slot, because a reader delivers an item only when its sequence is past
@@ -180,7 +192,55 @@ fn revert_event(
     ))
 }
 
+/// The plan calls this change carries a card for, each with the ordinal of the
+/// row that called for one.
+///
+/// The call itself when the agent proposes, the `UserInputResolved` row when an
+/// answer lands — that row never shares a change with the call it settles.
+fn plan_cards<'a>(activities: &[&'a Activity], window: &'a Transcript) -> Vec<(i32, &'a Activity)> {
+    let mut cards = Vec::new();
+    for activity in activities {
+        if is_plan_call(activity) {
+            cards.push((activity.ordinal, *activity));
+            continue;
+        }
+        if activity.kind != ActivityKind::UserInputResolved {
+            continue;
+        }
+        let request_id = activity.payload.get("requestId").and_then(Value::as_str);
+        let call = request_id.and_then(|request_id| {
+            window
+                .activities
+                .iter()
+                .find(|call| is_plan_call(call) && call.tool_use_id.as_deref() == Some(request_id))
+        });
+        if let Some(call) = call {
+            cards.push((activity.ordinal, call));
+        }
+    }
+    cards
+}
+
+/// The slot a plan card owns, from the ordinal of the row in this change it came
+/// from, so two cards cannot land on one slot.
+///
+/// Above the band [`activity_slot`] gives the answer panel, since a call, its
+/// panel and its card are three events off one row.
+fn plan_card_slot(ordinal: i32) -> i64 {
+    PLAN_CARD_SLOT_BASE + i64::from(ordinal)
+}
+
+/// Where a plan card's slots begin, and the ceiling on the band below it.
+const PLAN_CARD_SLOT_BASE: i64 = 768;
+
 const MESSAGE_SENT: &str = "thread.message-sent";
+const PROPOSED_PLAN_UPSERTED: &str = "thread.proposed-plan-upserted";
+
+/// One proposed plan as the event carrying it. The plan is the contract's own
+/// shape already, so this only names the conversation it belongs to.
+fn proposed_plan_payload(task_id: &str, plan: Value) -> Value {
+    json!({ "threadId": task_id, "proposedPlan": plan })
+}
 
 /// One work-log row as the event carrying it. The activity is the contract's
 /// own shape already, so this only names the conversation it belongs to.

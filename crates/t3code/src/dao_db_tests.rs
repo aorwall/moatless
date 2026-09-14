@@ -1,9 +1,10 @@
 //! What a batch of conversation changes is read as: a change names the row it
-//! is about, and reading exactly the named rows is complete.
+//! is about, and for an agent's own writes the named rows are complete.
 //!
 //! The `tool_result` case: it arrives on its own Message but settles the
 //! *call*'s activity on an earlier row, and the change is recorded against the
-//! calling Message — so no reader needs a run of Messages before it.
+//! calling Message. A person's answer does not: it lands on a Message of its
+//! own, so `changed_messages` recovers the call it settles.
 //!
 //! Held against a real database: a property of `append_activities` and
 //! `changed_messages` together.
@@ -23,6 +24,8 @@ use moatless_tasks::task_activities::mapping::ConversationWrite;
 use moatless_tasks::task_activities::mapping::context_window_updated;
 use moatless_tasks::task_activities::mapping::map_content;
 use moatless_tasks::task_activities::mapping::sandbox_activity;
+use moatless_tasks::task_activities::mapping::user_input_resolved;
+use moatless_tasks::task_activities::mapping::ToolOutcome;
 use moatless_tasks::task_activities::mapping::{ActivityKind, ActivityStatus};
 use moatless_types::access_control::ScopeContext;
 use moatless_types::sandbox::SandboxEventPayload;
@@ -89,7 +92,7 @@ fn tool_result(id: &str) -> serde_json::Value {
 ///
 /// No text of its own; it settles the call's activity and names the *calling*
 /// Message, so no run before it is needed.
-#[sqlx::test]
+#[sqlx::test(migrations = "../core/migrations")]
 async fn a_result_is_read_as_a_change_to_the_call_it_answers(pool: PgPool) {
     seed_task(&pool).await;
 
@@ -145,7 +148,7 @@ async fn a_result_is_read_as_a_change_to_the_call_it_answers(pool: PgPool) {
 ///
 /// Every change describes the row it names — no lookback, no row dragged along
 /// for context.
-#[sqlx::test]
+#[sqlx::test(migrations = "../core/migrations")]
 async fn a_batch_is_read_as_the_rows_it_names(pool: PgPool) {
     seed_task(&pool).await;
 
@@ -186,7 +189,7 @@ async fn a_batch_is_read_as_the_rows_it_names(pool: PgPool) {
 ///
 /// Both share one change, block and ordinal; the ordinal must survive a
 /// redelivery, and the read must return both in written order.
-#[sqlx::test]
+#[sqlx::test(migrations = "../core/migrations")]
 async fn a_question_is_stored_as_a_call_and_as_the_question_it_asked(pool: PgPool) {
     seed_task(&pool).await;
 
@@ -272,7 +275,7 @@ async fn a_question_is_stored_as_a_call_and_as_the_question_it_asked(pool: PgPoo
 /// The call is stored once (unique on `(task_id, tool_use_id)`); the panel row
 /// is rewritten on the new Message, so a client waiting on settlement needs
 /// this read to find it.
-#[sqlx::test]
+#[sqlx::test(migrations = "../core/migrations")]
 async fn a_re_presented_question_is_read_as_settled_without_its_call(pool: PgPool) {
     seed_task(&pool).await;
 
@@ -336,7 +339,7 @@ async fn a_re_presented_question_is_read_as_settled_without_its_call(pool: PgPoo
 ///
 /// A context-window reading is the live case: written through the standalone
 /// path, read back by activity id.
-#[sqlx::test]
+#[sqlx::test(migrations = "../core/migrations")]
 async fn a_standalone_activity_change_names_the_activity_and_reads_back(pool: PgPool) {
     seed_task(&pool).await;
 
@@ -373,7 +376,7 @@ async fn a_standalone_activity_change_names_the_activity_and_reads_back(pool: Pg
 /// A Sandbox status that restates the one before it writes nothing and spends
 /// no position: the collapse check runs before the allocation, so a restated
 /// status records no change for a subscriber to be woken by.
-#[sqlx::test]
+#[sqlx::test(migrations = "../core/migrations")]
 async fn a_restated_sandbox_status_records_no_change_and_spends_no_position(pool: PgPool) {
     seed_task(&pool).await;
     let ready = sandbox_activity(
@@ -420,7 +423,7 @@ async fn a_restated_sandbox_status_records_no_change_and_spends_no_position(pool
 ///
 /// Joined from `file` context rows only, scoped to this Message, each carrying
 /// the metadata a rendered attachment needs.
-#[sqlx::test]
+#[sqlx::test(migrations = "../core/migrations")]
 async fn a_message_carries_the_uploads_attached_to_it(pool: PgPool) {
     seed_task(&pool).await;
 
@@ -510,7 +513,7 @@ async fn tag_with(pool: &PgPool, task_id: &str, tags: &[&str]) {
 ///
 /// The browse drops only the *follow* rule — none of these Tasks is followed or
 /// owned by the viewer.
-#[sqlx::test]
+#[sqlx::test(migrations = "../core/migrations")]
 async fn a_browse_reaches_tasks_the_viewer_neither_follows_nor_owns(pool: PgPool) {
     let repo = make_repository_row("repo-1", USER_1);
     moatless_workspaces::compose::seed_repository(&pool, &repo)
@@ -575,7 +578,7 @@ async fn a_browse_reaches_tasks_the_viewer_neither_follows_nor_owns(pool: PgPool
 ///
 /// Closing is T3's archiving; a browse folds both halves into one read, and
 /// this flag picks which.
-#[sqlx::test]
+#[sqlx::test(migrations = "../core/migrations")]
 async fn a_browse_leaves_closed_tasks_out_until_it_is_asked_for_them(pool: PgPool) {
     let repo = make_repository_row("repo-1", USER_1);
     moatless_workspaces::compose::seed_repository(&pool, &repo)
@@ -620,7 +623,7 @@ async fn a_browse_leaves_closed_tasks_out_until_it_is_asked_for_them(pool: PgPoo
 
 /// A viewer who is not an administrator browses what they may read, which is
 /// what makes the filter safe to serve to everyone: the read rule is untouched.
-#[sqlx::test]
+#[sqlx::test(migrations = "../core/migrations")]
 async fn a_browse_by_a_non_administrator_reaches_only_what_they_may_read(pool: PgPool) {
     let repo = make_repository_row("repo-1", USER_1);
     moatless_workspaces::compose::seed_repository(&pool, &repo)
@@ -658,4 +661,89 @@ fn browsed_ids(conversations: &[crate::dao::Conversation]) -> Vec<String> {
         .collect();
     ids.sort();
     ids
+}
+
+/// The window a plan's answer names holds the call it answers, though that call
+/// is on an earlier Message that recorded no change of its own.
+///
+/// Without the call the projection has no plan to read, so a client is never
+/// told the plan was answered.
+#[sqlx::test(migrations = "../core/migrations")]
+async fn a_windowed_answer_reaches_the_plan_call_it_settles(pool: PgPool) {
+    seed_task(&pool).await;
+
+    append(
+        &pool,
+        "the-plan",
+        serde_json::json!([{
+            "type": "tool_use",
+            "id": "toolu_plan",
+            "name": "ExitPlanMode",
+            "input": { "plan": "1. Do the thing" }
+        }]),
+    )
+    .await;
+
+    // The answer, exactly as `message::send` writes one: the resolved row on a
+    // Message of its own, and an outcome that settles the call where it lives.
+    let answer = serde_json::json!([{ "answer": "Approve" }]);
+    let msg = make_message_row(TASK, "the-answer");
+    let conversation = ConversationWrite {
+        outcomes: vec![ToolOutcome {
+            task_id: TASK.to_string(),
+            tool_use_id: "toolu_plan".to_string(),
+            status: ActivityStatus::Completed,
+            result: answer.clone(),
+            typed_result: None,
+            is_error: false,
+        }],
+        activities: vec![user_input_resolved(
+            TASK,
+            "the-answer",
+            "toolu_plan",
+            &answer,
+        )],
+        ..Default::default()
+    };
+    message_fixtures::seed_message(&pool, &msg, &[], &conversation)
+        .await
+        .unwrap();
+
+    let dao = conversations_over(&pool);
+    let window = dao
+        .changed_messages(TASK, &["the-answer".to_string()], &[])
+        .await
+        .unwrap();
+
+    let call = window
+        .activities
+        .iter()
+        .find(|activity| activity.tool_use_id.as_deref() == Some("toolu_plan"))
+        .expect("the call the answer settles");
+    assert_eq!(call.summary, "ExitPlanMode");
+    assert_eq!(
+        call.tool_input()["plan"], "1. Do the thing",
+        "the plan the card renders came back with the call"
+    );
+    assert!(call.is_settled(), "the answer settled it");
+
+    // The call's own Message, which the card's `turnId` and `createdAt` are
+    // read off: without it the projection falls back to the conversation's
+    // newest Turn and the call's insert time, and a reload disagrees.
+    let anchor = call.message_uuid.as_deref().expect("the call's Message");
+    assert!(
+        window.messages.iter().any(|message| message.uuid == anchor),
+        "the call's Message came back with it, got {:?}",
+        window
+            .messages
+            .iter()
+            .map(|message| message.uuid.as_str())
+            .collect::<Vec<_>>()
+    );
+    assert!(
+        window.activities.windows(2).all(|pair| {
+            (pair[0].position, pair[0].ordinal) <= (pair[1].position, pair[1].ordinal)
+        }),
+        "the widened window is still oldest first"
+    );
 }

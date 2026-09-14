@@ -426,8 +426,8 @@ pub(super) fn activity_slot(activity: &Activity) -> i64 {
 }
 
 /// Where the derived rows' slots begin. Above any block count a Message
-/// reaches, and low enough that the band itself stays inside
-/// [`EVENTS_PER_CHANGE`].
+/// reaches, and below `PLAN_CARD_SLOT_BASE`, which is where the band stops: a
+/// Message holding 256 blocks or more puts a derived row on a plan card's slot.
 const DERIVED_SLOT_BASE: i64 = 512;
 
 /// When a Message happened.

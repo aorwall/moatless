@@ -9,8 +9,9 @@ use std::collections::{HashMap, HashSet};
 
 use chrono::{DateTime, Utc};
 use moatless_ports::activity::ActivitySource;
-use moatless_types::activity::Activity;
+use moatless_types::activity::{Activity, ActivityKind};
 use moatless_types::message::{MessageRole, MessageType};
+use serde_json::Value;
 use sqlx::AssertSqlSafe;
 
 use crate::UiRpcDbPool;
@@ -303,13 +304,48 @@ pub(crate) async fn changed_messages(
             subagent_usage: HashMap::new(),
         });
     }
-    // Just the named rows. A result no longer lands on a Message of its
-    // own: it settles the activity the call already wrote, and the change
-    // that records it names the Message that *made* the call
-    // (`agent_handlers::anchor_message_uuid`). So the row a change names is
-    // always the row the change is about, and the run of Messages this used
-    // to read before each result-carrying one is gone with the reason for
-    // it.
+    // By the named uuids, not by the Messages just read: a change can name
+    // a uuid that has no Message row at all — a turn that only called
+    // tools — and those activities are the whole of what it changed. The
+    // activities named directly by their own id — the ones on no Message —
+    // join the same set by a primary-key lookup.
+    let mut activities = activity_source
+        .for_messages(task_id, uuids)
+        .await
+        .map_err(store_read)?;
+    activities.extend(
+        activity_source
+            .for_ids(task_id, activity_ids)
+            .await
+            .map_err(store_read)?,
+    );
+    let recovered = answered_calls(activity_source, task_id, &activities).await?;
+
+    // The recovered calls' own Messages, so a call reaches the window with
+    // what `activity_anchor` anchors it on. Without them the call falls back
+    // to the conversation's newest Turn and its own insert time, and the card
+    // a change emits carries a `turnId` and `createdAt` a reload would
+    // disagree with.
+    let mut wanted: Vec<String> = uuids.to_vec();
+    wanted.extend(
+        recovered
+            .iter()
+            .filter_map(|call| call.message_uuid.clone())
+            .filter(|uuid| !uuids.contains(uuid)),
+    );
+    activities.extend(recovered);
+
+    // The DAO's own order, restored: `answered_calls` appends a call older
+    // than everything already here, and this read promises oldest first.
+    activities.sort_by(|left, right| {
+        (left.position, left.ordinal, &left.activity_id)
+            .cmp(&(right.position, right.ordinal, &right.activity_id))
+    });
+
+    // Named Messages plus those. A result no longer lands on a Message of
+    // its own: it settles the activity the call already wrote, and the
+    // change that records it names the Message that *made* the call
+    // (`agent_handlers::anchor_message_uuid`).
     //
     // `parent_uuid IS NULL` for the reason the transcript has it: subagent
     // rows are never rendered inline.
@@ -327,25 +363,10 @@ pub(crate) async fn changed_messages(
     );
     let messages = sqlx::query_as::<_, TranscriptMessage>(AssertSqlSafe(sql))
         .bind(task_id)
-        .bind(uuids)
+        .bind(&wanted)
         .fetch_all(pool)
         .await?;
 
-    // By the named uuids, not by the Messages just read: a change can name
-    // a uuid that has no Message row at all — a turn that only called
-    // tools — and those activities are the whole of what it changed. The
-    // activities named directly by their own id — the ones on no Message —
-    // join the same set by a primary-key lookup.
-    let mut activities = activity_source
-        .for_messages(task_id, uuids)
-        .await
-        .map_err(store_read)?;
-    activities.extend(
-        activity_source
-            .for_ids(task_id, activity_ids)
-            .await
-            .map_err(store_read)?,
-    );
     let settled_requests = activity_dao::settled_requests(pool, task_id, &activities).await?;
     let subagent_usage = activity_dao::subagent_usage(pool, task_id, &activities).await?;
 
@@ -357,4 +378,41 @@ pub(crate) async fn changed_messages(
         settled_requests,
         subagent_usage,
     })
+}
+
+/// The interactive calls the resolved rows in `activities` answer, where the
+/// window does not already hold them.
+///
+/// An answer settles its call in place on an earlier Message, which records no
+/// change, so a narrowed window holds the answer alone. Found by request id, as
+/// `settled_requests` is.
+async fn answered_calls(
+    activity_source: &dyn ActivitySource,
+    task_id: &str,
+    activities: &[Activity],
+) -> Result<Vec<Activity>, sqlx::Error> {
+    let held: HashSet<&str> = activities
+        .iter()
+        .filter_map(|activity| activity.tool_use_id.as_deref())
+        .collect();
+    let mut wanted: Vec<&str> = activities
+        .iter()
+        .filter(|activity| activity.kind == ActivityKind::UserInputResolved)
+        .filter_map(|activity| activity.payload.get("requestId").and_then(Value::as_str))
+        .filter(|request_id| !held.contains(request_id))
+        .collect();
+    wanted.sort_unstable();
+    wanted.dedup();
+
+    let mut calls = Vec::new();
+    for request_id in wanted {
+        if let Some(call) = activity_source
+            .tool_call(task_id, request_id)
+            .await
+            .map_err(store_read)?
+        {
+            calls.push(call);
+        }
+    }
+    Ok(calls)
 }

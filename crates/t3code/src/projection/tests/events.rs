@@ -431,3 +431,149 @@ fn an_activity_event_and_a_snapshot_activity_agree() {
         assert_eq!(event["payload"]["activity"], *activity);
     }
 }
+
+// ── the plan's card ─────────────────────────────────────────────────
+
+/// A page open while the agent proposes is sent the plan, not only the panel
+/// asking about it: `proposedPlans` rides no other event, so without this the
+/// client is asked to approve a plan it has never been sent.
+#[test]
+fn a_change_holding_a_plan_call_carries_the_plan_itself() {
+    let mut proposed = call(
+        "msg-2",
+        2,
+        0,
+        "call-1",
+        moatless_types::activity::PLAN_TOOL,
+        json!({ "plan": "1. Do the thing" }),
+    );
+    proposed.status = ActivityStatus::InProgress;
+
+    let mut panel = activity("msg-2", 2, 0, ActivityKind::UserInputRequested, "Question");
+    panel.activity_id = "msg-2:0:user-input".to_string();
+    panel.payload = json!({
+        "requestId": "call-1",
+        "questions": [{
+            "id": moatless_types::activity::PLAN_QUESTION,
+            "header": "Plan",
+            "question": moatless_types::activity::PLAN_QUESTION,
+            "multiSelect": false,
+            "options": [{ "label": moatless_types::activity::PLAN_APPROVE }]
+        }]
+    });
+
+    let window = transcript(Vec::new(), vec![proposed, panel]);
+    let emitted = events(&change(2, Some("msg-2")), &window);
+
+    let card = emitted
+        .iter()
+        .find(|event| event["type"] == "thread.proposed-plan-upserted")
+        .expect("the plan's card");
+    assert_eq!(card["payload"]["threadId"], "task-a");
+    assert_eq!(
+        card["payload"]["proposedPlan"]["planMarkdown"],
+        "1. Do the thing"
+    );
+    assert_eq!(card["payload"]["proposedPlan"]["id"], "msg-2:0");
+    assert_eq!(card["payload"]["proposedPlan"]["implementedAt"], Value::Null);
+    assert_eq!(card["sequence"], 2 * EVENTS_PER_CHANGE + 768 + 1);
+
+    // The call, its panel and its card are three events off one row, and the
+    // feed drops an item whose sequence it has already passed.
+    let sequences: Vec<i64> = emitted
+        .iter()
+        .map(|event| event["sequence"].as_i64().expect("a sequence"))
+        .collect();
+    let mut climbing = sequences.clone();
+    climbing.sort_unstable();
+    assert_eq!(sequences, climbing, "items must be emitted in sequence order");
+    let unique: HashSet<i64> = sequences.iter().copied().collect();
+    assert_eq!(
+        unique.len(),
+        sequences.len(),
+        "each row needs its own sequence, got {sequences:?}"
+    );
+}
+
+/// The answer re-sends the card, this time answered, which is what stops the
+/// client offering the plan.
+///
+/// It is written on a Message of its own and settles the call in place on the
+/// Message it was asked on, so this change holds the resolved row and not the
+/// call.
+#[test]
+fn a_change_answering_a_plan_carries_the_card_it_answered() {
+    let mut answered = call(
+        "msg-2",
+        2,
+        0,
+        "call-1",
+        moatless_types::activity::PLAN_TOOL,
+        json!({ "plan": "1. Do the thing" }),
+    );
+    answered.payload["result"] = json!({ "approved": true });
+    let mut resolved = activity("msg-3", 3, 0, ActivityKind::UserInputResolved, "Answered");
+    resolved.payload = json!({ "requestId": "call-1", "answers": [{ "answer": "Approve" }] });
+
+    let window = transcript(Vec::new(), vec![answered, resolved]);
+    let emitted = events(&change(3, Some("msg-3")), &window);
+
+    let card = emitted
+        .iter()
+        .find(|event| event["type"] == "thread.proposed-plan-upserted")
+        .expect("the plan's card");
+    // The card the client already holds, so the upsert lands on it.
+    assert_eq!(card["payload"]["proposedPlan"]["id"], "msg-2:0");
+    assert_eq!(
+        card["payload"]["proposedPlan"]["implementedAt"],
+        instant(at(103))
+    );
+    assert_eq!(card["sequence"], 3 * EVENTS_PER_CHANGE + 768 + 1);
+}
+
+/// The join is by `requestId`, and only an `ExitPlanMode` call has a plan to
+/// render.
+#[test]
+fn a_change_answering_a_question_carries_no_card() {
+    let mut asked = call(
+        "msg-2",
+        2,
+        0,
+        "call-1",
+        moatless_types::activity::QUESTION_TOOL,
+        json!({ "questions": [] }),
+    );
+    asked.payload["result"] = json!({ "answer": "Postgres" });
+    let mut resolved = activity("msg-3", 3, 0, ActivityKind::UserInputResolved, "Answered");
+    resolved.payload = json!({ "requestId": "call-1", "answers": [{ "answer": "Postgres" }] });
+
+    let window = transcript(Vec::new(), vec![asked, resolved]);
+    assert!(
+        events(&change(3, Some("msg-3")), &window)
+            .iter()
+            .all(|event| event["type"] != "thread.proposed-plan-upserted"),
+        "a question is not a plan"
+    );
+}
+
+/// A card rendering nothing is not sent.
+#[test]
+fn a_change_holding_a_plan_call_with_no_plan_carries_no_card() {
+    let mut proposed = call(
+        "msg-2",
+        2,
+        0,
+        "call-1",
+        moatless_types::activity::PLAN_TOOL,
+        json!({}),
+    );
+    proposed.status = ActivityStatus::InProgress;
+
+    let window = transcript(Vec::new(), vec![proposed]);
+    assert!(
+        events(&change(2, Some("msg-2")), &window)
+            .iter()
+            .all(|event| event["type"] != "thread.proposed-plan-upserted"),
+        "nothing to render, nothing to send"
+    );
+}

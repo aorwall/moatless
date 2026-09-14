@@ -128,29 +128,40 @@ fn proposed_plans(conversation: &Conversation, transcript: &Transcript) -> Vec<V
     transcript
         .activities
         .iter()
-        .filter(|activity| {
-            activity.kind == ActivityKind::ToolCall
-                && activity.summary == moatless_types::activity::PLAN_TOOL
-        })
-        .filter_map(|activity| {
-            let plan = activity
-                .tool_input()
-                .get("plan")
-                .and_then(Value::as_str)
-                .filter(|plan| !plan.trim().is_empty())?;
-            let (turn, at) = activity_anchor(conversation, transcript, activity);
-            let implemented_at = answered_at(transcript, activity);
-            Some(json!({
-                "id": activity.activity_id,
-                "turnId": turn,
-                "planMarkdown": plan,
-                "implementedAt": implemented_at,
-                "implementationThreadId": Value::Null,
-                "createdAt": at,
-                "updatedAt": implemented_at.as_deref().unwrap_or(at.as_str())
-            }))
-        })
+        .filter(|activity| is_plan_call(activity))
+        .filter_map(|activity| proposed_plan(conversation, transcript, activity))
         .collect()
+}
+
+/// Whether this row is the call a proposed plan is read off.
+pub(super) fn is_plan_call(activity: &Activity) -> bool {
+    activity.kind == ActivityKind::ToolCall
+        && activity.summary == moatless_types::activity::PLAN_TOOL
+}
+
+/// One `ExitPlanMode` call as the contract's proposed plan, or `None` for a call
+/// carrying nothing to render.
+pub(super) fn proposed_plan(
+    conversation: &Conversation,
+    window: &Transcript,
+    call: &Activity,
+) -> Option<Value> {
+    let plan = call
+        .tool_input()
+        .get("plan")
+        .and_then(Value::as_str)
+        .filter(|plan| !plan.trim().is_empty())?;
+    let (turn, at) = activity_anchor(conversation, window, call);
+    let implemented_at = answered_at(window, call);
+    Some(json!({
+        "id": call.activity_id,
+        "turnId": turn,
+        "planMarkdown": plan,
+        "implementedAt": implemented_at,
+        "implementationThreadId": Value::Null,
+        "createdAt": at,
+        "updatedAt": implemented_at.as_deref().unwrap_or(at.as_str())
+    }))
 }
 
 /// When the answer to a parked interactive call landed, or `None` while it is

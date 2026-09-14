@@ -435,16 +435,12 @@ pub trait ConversationDao: Send + Sync {
         limit: i64,
     ) -> Result<Vec<ConversationChange>, sqlx::Error>;
 
-    /// The rows a batch of changes names — Messages, activities under those
-    /// uuids, and activities named by their own id — oldest first.
+    /// The rows a batch of changes names, oldest first: Messages, the
+    /// activities under them or named by their own id, and the interactive
+    /// calls those answer, each with the Message it sits on.
     ///
-    /// A change names a Message uuid or an activity id, never both — an
-    /// activity on a Message rides its uuid, one on none (a Sandbox lifecycle
-    /// change, a context-window reading) is named by its own id; both land in
-    /// [`Transcript::activities`]. Returns a [`Transcript`] rather than a type
-    /// of its own since the same projection renders both, and nothing is elided
-    /// here, so [`Transcript::omitted`] is always zero. Unscoped for the reason
-    /// [`ConversationDao::transcript`] is.
+    /// Elides nothing, so [`Transcript::omitted`] is zero, and is unscoped for
+    /// the reason [`ConversationDao::transcript`] is.
     async fn changed_messages(
         &self,
         task_id: &str,
