@@ -1,7 +1,10 @@
 # Arch-rules: adopt Bun's tooling patterns
 
-> **Status:** approved; items 1, 2 and 4 shipped, item 3 is this PR, and item 5
-> ran as a spike that concluded in no rule
+> **Status:** approved; items 1-3 shipped, item 5 ran as a spike that concluded
+> in no rule, and item 4 stays open — its fence process landed, but only
+> `SystemTime::now` is migrated and each further candidate is its own change.
+> This plan stays out of `.plans/completed/` until that list is worked through.
+> Item 2's open gate-or-comment call is settled: comment
 > **Updated:** 2026-09-14
 > **Vocabulary:** CONTEXT.md
 
@@ -25,14 +28,14 @@ lint is off.
 | `tooling/arch-rules/src/runner.rs:16` | `Rule::check` is `fn(&Workspace) -> Result<Vec<Violation>>` — no changed-line set anywhere in the interface |
 | `tooling/arch-rules/src/runner.rs:35` | `rules!(` — the single registration point, 27 rules |
 | `tooling/arch-rules/src/comment_block_size.rs:17` | `RULE`; `DOC_CEILING = 5` at `:20`, `MODULE_DOC_CEILING = 8` at `:23` |
-| `tooling/arch-rules/src/comment_block_size.rs:118` | `blocks_in_file` — per-file, and the span it returns is what `--since` intersects |
+| `tooling/arch-rules/src/comment_block_size.rs:121` | `blocks_in_file` — per-file, and the span it returns is what `--since` intersects |
 | `tooling/arch-rules/src/public_api.rs:78` | `exports` — driven by `ws.sources(member)`, so workspace members only |
 | `tooling/arch-rules/src/public_api.rs:543` | `inherent_signature` — collects the *type names* in a `pub` method's signature, never the method name |
 | `tooling/arch-rules/tests/architecture.rs:102` | `the_baseline_holds_no_fixed_violations` — the ratchet |
 | `tooling/arch-rules/tests/architecture.rs:121` | `every_registered_rule_is_enforced` — every registered rule must have no unbaselined violation |
 | `tooling/arch-rules/arch-baseline.json` | 116 entries. Item 2 dropped the 277 `comment-block-size` ones |
 | `.github/workflows/ci.yml:165` | The `architecture` job, `timeout-minutes: 10` |
-| `.github/workflows/ci.yml:184` | The `architecture` job's second step — item 2's comment-block gate |
+| `.github/workflows/ci.yml:193` | The `architecture` job's comment-block steps — item 2's report at `:193`, and the `github-script` step that posts it at `:213` |
 | `rust-toolchain.toml` | `channel = "1.97.0"`, coupled to the sandbox image by `toolchain-drift` |
 
 <!-- plan-assert: contains clippy.toml disallowed-methods = [ -->
@@ -49,8 +52,13 @@ assertion now pins what the change left behind — a baseline holding no
 exempts. The rest of item 4's table sizes nothing and is left unasserted,
 because those counts move with unrelated work.
 
+The marker assert pins the dedupe key the posting step reads back out of an
+existing review comment. Rename it on one side only and every block is posted
+again on every push.
+
 <!-- plan-assert: absent tooling/arch-rules/arch-baseline.json comment-block-size:: -->
 <!-- plan-assert: contains .github/workflows/ci.yml --comments --since -->
+<!-- plan-assert: contains .github/workflows/ci.yml arch-comment: -->
 <!-- plan-assert: count 4 crates SystemTime::now -->
 
 ## Summary
@@ -171,19 +179,27 @@ lands as a gate or, like Bun's, as a comment.
   `pub mod comment_block_size;`, which the new entry point still needs.
 - `arch-report --comments` with no `--since` still lists all 277, so the rule
   stays usable as a cleanup list.
-- A scratch commit adding a six-line `///` block fails the CI step.
-- A scratch commit touching a file that already holds a long block passes.
+- A scratch commit adding a six-line `///` block draws a review comment on that
+  block's lines, and the CI step stays green.
+- A scratch commit touching a file that already holds a long block draws none.
 - `tooling/arch-rules/AGENTS.md` loses the "baseline that block instead"
   instruction at `:70`, which stops being true.
 - `docs/deferred-changes.md:377` is rewritten or dropped. It sizes its fix in
   baseline entries added, and after this there is no baseline to add to.
 
-**Item 2 is done, and it landed as a gate.** The prose above leaves the
-gate-or-comment call to a reviewer; the Acceptance list settles it by requiring
-a scratch six-line block to *fail* the step, so a gate is what shipped. Flipping
-it to advisory is one `continue-on-error: true` line on that step. It lives as a
-second step in the `architecture` job rather than a job of its own, because that
-job already compiles the crate.
+**Item 2 is done, and the gate-or-comment call went to comment.** It shipped as
+a gate first, because the Acceptance list above required a scratch six-line
+block to *fail* the step. The call the prose left to a reviewer was then taken
+the other way, so `arch-report --comments` exits 0 and a `github-script` step
+posts one review comment per block, deduped on a marker carrying the block's
+content hash — Bun's comment-cop, minus the `claude` label and the
+`pull_request_target` its fork PRs need and this private, fork-disabled repo
+does not. Both steps live in the `architecture` job rather than a job of their
+own, because that job already compiles the crate.
+
+**What holds the ceiling now: nothing.** The check reports and comments, and no
+job fails on a long block. That is the trade this makes knowingly — re-gating
+is restoring the non-zero exit at `arch-report.rs:26`.
 
 ## 3. Record why a rule is not registered
 

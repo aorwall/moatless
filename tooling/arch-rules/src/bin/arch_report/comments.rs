@@ -1,10 +1,10 @@
-//! `--comments [--since <ref>]`: the comment-block ceiling, on its own.
+//! `--comments [--since <ref>] [--findings <path>]`: the comment-block ceiling.
 //!
 //! `comment-block-size` is not in `runner::RULES`, so neither the baseline nor
-//! `every_registered_rule_is_enforced` holds this ceiling and this entry point
-//! is the only thing that does. With `--since` it reports only a block the diff
-//! touched, which is what makes a gate possible against a workspace that
-//! already holds hundreds of them.
+//! `every_registered_rule_is_enforced` reaches it, and reporting is all this
+//! does — nothing here fails. With `--since` it reports only a block the diff
+//! touched, which is what makes it usable against a workspace that already
+//! holds hundreds of them; `--findings` writes those for CI to comment with.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -16,8 +16,8 @@ use moatless_arch_rules::{
     workspace::{Workspace, workspace_root},
 };
 
-/// Prints the oversize blocks in scope; `true` when it printed any.
-pub(super) fn run(since: Option<&str>) -> Result<bool> {
+/// Prints the oversize blocks in scope, and writes them to `findings` if given.
+pub(super) fn run(since: Option<&str>, findings: Option<&Path>) -> Result<()> {
     let root = workspace_root();
     let ws = Workspace::load(&root)?;
     let mut found = comment_block_size::blocks(&ws)?;
@@ -29,13 +29,14 @@ pub(super) fn run(since: Option<&str>) -> Result<bool> {
 
     // An annotation flags the block on the diff line that added it, which only
     // GitHub renders. Off elsewhere, where it would double the length of the
-    // whole-workspace cleanup list for no gain.
+    // whole-workspace cleanup list for no gain. `warning`, not `error`: this
+    // exits 0, and a red annotation on a green step reads as a broken check.
     let annotate = std::env::var_os("GITHUB_ACTIONS").is_some();
 
     for block in &found {
         if annotate {
             println!(
-                "::error file={},line={}::{}",
+                "::warning file={},line={}::{}",
                 block.path, block.first_line, block.violation.message
             );
         }
@@ -43,6 +44,10 @@ pub(super) fn run(since: Option<&str>) -> Result<bool> {
             "{}:{} — {}",
             block.path, block.first_line, block.violation.key
         );
+    }
+
+    if let Some(path) = findings {
+        write_findings(path, &found)?;
     }
 
     match (since, found.len()) {
@@ -53,7 +58,28 @@ pub(super) fn run(since: Option<&str>) -> Result<bool> {
         ),
         (Some(since), n) => println!("\n{n} block(s) over the ceiling added since {since}."),
     }
-    Ok(!found.is_empty())
+    Ok(())
+}
+
+/// Writes one JSON object per line, for the CI step that posts a review
+/// comment per block. `key` identifies the block to whatever already commented
+/// on it, and carries [`Block::hash`] rather than `Violation::key`: that names
+/// the documented item, so a block rewritten and still over the ceiling would
+/// keep its key and draw no second comment.
+fn write_findings(path: &Path, found: &[Block]) -> Result<()> {
+    let mut out = String::new();
+    for block in found {
+        let line = serde_json::json!({
+            "path": block.path,
+            "start_line": block.first_line,
+            "line": block.last_line,
+            "key": format!("{}:{}", block.path, block.hash),
+            "message": block.violation.message,
+        });
+        out.push_str(&line.to_string());
+        out.push('\n');
+    }
+    std::fs::write(path, out).with_context(|| format!("write findings to {}", path.display()))
 }
 
 /// Whether any line of the block was added by the diff.
@@ -175,7 +201,30 @@ mod tests {
             path: path.to_string(),
             first_line: first,
             last_line: last,
+            hash: "abc123".to_string(),
         }
+    }
+
+    /// The finding: every name here is read by `ci.yml`'s posting step off an
+    /// untyped object, so a rename reaches it as `undefined`, 422s, and lands
+    /// in a `continue-on-error` step's warning where nothing goes red.
+    #[test]
+    fn a_finding_carries_the_fields_ci_posts_with() {
+        // Named for the process, so two `cargo test` runs over this crate do
+        // not write the same file.
+        let dir = std::env::temp_dir().join(format!("arch-findings-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("blocks.ndjson");
+        write_findings(&path, &[block("a.rs", 4, 9)]).unwrap();
+
+        let text = std::fs::read_to_string(&path).unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
+        let line: serde_json::Value = serde_json::from_str(text.trim()).unwrap();
+        assert_eq!(line["path"], "a.rs");
+        assert_eq!(line["start_line"], 4);
+        assert_eq!(line["line"], 9);
+        assert_eq!(line["key"], "a.rs:abc123");
+        assert_eq!(line["message"], "over");
     }
 
     #[test]

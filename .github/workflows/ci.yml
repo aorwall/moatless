@@ -168,6 +168,14 @@ jobs:
     container:
       image: rust:1.97-bookworm
     timeout-minutes: 10
+    # Job-level permissions replace the default wholesale, so `contents: read`
+    # is restated for checkout. The write is what lets the last step post, and
+    # it is safe only because this repo disables forking: the job compiles
+    # branch-supplied code while holding the token, so an outside contributor
+    # would reach the write. Enabling forks means revisiting this.
+    permissions:
+      contents: read
+      pull-requests: write
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
@@ -177,18 +185,102 @@ jobs:
       # libtest, not nextest — tooling/arch-rules/AGENTS.md says why.
       - name: Check architecture independently of changed packages
         run: cargo test -p moatless-arch-rules --locked
-      # The only check holding the doc-comment ceiling: `comment-block-size` is
-      # not a registered rule, so the suite above does not run it. Scoped to the
-      # lines the PR added, because the workspace carries enough pre-existing
-      # blocks that a whole-tree check would fail on every branch.
-      - name: Comment blocks this change added stay within their ceiling
+      # `comment-block-size` is not a registered rule, so the suite above does
+      # not run it. Advisory: this reports the blocks the PR added and exits 0,
+      # and the step below turns them into review comments. Scoped to the lines
+      # the PR added, because the workspace carries enough pre-existing blocks
+      # that a whole-tree report would name hundreds on every branch.
+      - name: Report comment blocks this change added
+        id: comment-blocks
         if: github.event_name == 'pull_request'
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          # Checkout leaves the job on refs/pull/N/merge, whose line numbers are
+          # the merge result's. A review comment has to carry a commit in the PR
+          # — the merge commit is not one — so posting merge-tree lines against
+          # the head SHA misplaces them wherever the base moved the same file.
+          # Detaching first makes the spans head-commit coordinates. The test
+          # step above still ran on the merge tree, which is what should be.
+          git checkout --detach "$HEAD_SHA"
           cargo run -q -p moatless-arch-rules --bin arch-report --locked -- \
-            --comments --since "$BASE_SHA"
+            --comments --since "$BASE_SHA" --findings "$RUNNER_TEMP/blocks.ndjson"
+      # One review comment per block, deduped so a push does not repeat them.
+      # `continue-on-error` because this is advisory: a token or API failure
+      # must not redden a PR that has nothing wrong with it.
+      - name: Comment on the blocks that went over
+        if: github.event_name == 'pull_request' && steps.comment-blocks.outcome == 'success'
+        continue-on-error: true
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        with:
+          script: |
+            const fs = require('fs')
+            const path = `${process.env.RUNNER_TEMP}/blocks.ndjson`
+            if (!fs.existsSync(path)) return
+            const findings = fs.readFileSync(path, 'utf8')
+              .split('\n').filter(Boolean).map((l) => JSON.parse(l))
+            if (findings.length === 0) return
+
+            const pull_number = context.payload.pull_request.number
+            const { owner, repo } = context.repo
+
+            // REST, not GraphQL: GITHUB_TOKEN's GraphQL quota is shared by every
+            // workflow run in the repo and is routinely exhausted, and the REST
+            // quota is separate.
+            const existing = await github.paginate(
+              github.rest.pulls.listReviewComments,
+              { owner, repo, pull_number, per_page: 100 },
+            )
+            const seen = new Set()
+            for (const comment of existing) {
+              const marker = /<!-- arch-comment:([^>\s]+) -->/.exec(comment.body ?? '')
+              if (marker) seen.add(marker[1])
+            }
+
+            for (const finding of findings) {
+              if (seen.has(finding.key)) continue
+              const body = `<!-- arch-comment:${finding.key} -->\n`
+                + `${finding.message}.\n\n`
+                + 'Root `AGENTS.md` caps a doc comment at 5 lines and a module '
+                + 'doc at 8. Cut it back, or name the kind of fact that needs '
+                + 'the length.'
+              const anchor = {
+                owner,
+                repo,
+                pull_number,
+                commit_id: context.payload.pull_request.head.sha,
+                path: finding.path,
+                body,
+                side: 'RIGHT',
+                line: finding.line,
+              }
+              // Both ends of the span have to sit inside the PR's diff, and a
+              // block the change only extended from below starts outside it —
+              // the case `touched` exists for. GitHub answers 422 there, so
+              // fall back to the last line, which the change did add.
+              const spans = finding.start_line < finding.line
+                ? [{ ...anchor, start_line: finding.start_line, start_side: 'RIGHT' }, anchor]
+                : [anchor]
+              // Only the last failure is reported, so a run where the fallback
+              // worked carries no annotation and the list keeps meaning that
+              // something went unreported.
+              let failure = null
+              for (const span of spans) {
+                try {
+                  await github.rest.pulls.createReviewComment(span)
+                  seen.add(finding.key)
+                  failure = null
+                  break
+                } catch (error) {
+                  failure = error
+                }
+              }
+              if (failure) {
+                core.warning(`${finding.path}:${finding.line}: ${failure.message}`)
+              }
+            }
 
   # Plan-claim invariant — a spec in .plans/ does not outlive the code it
   # asserts. The other checks ratchet counts and file sets; nothing re-validated

@@ -63,6 +63,9 @@ pub struct Block {
     pub path: String,
     pub first_line: usize,
     pub last_line: usize,
+    /// [`block_hash`] of this block's own text. Identifies the block across a
+    /// run to whatever has already reported it, and changes when the text does.
+    pub hash: String,
 }
 
 /// Every oversize block in the workspace, with the span each one occupies.
@@ -118,7 +121,7 @@ fn is_blank_doc_line(line: &str) -> bool {
 fn blocks_in_file(path: &str, text: &str) -> Vec<Block> {
     let found = collect_blocks(path, text);
     let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
-    for (block, _) in &found {
+    for block in &found {
         *counts.entry(block.violation.key.as_str()).or_default() += 1;
     }
     let shared: BTreeSet<String> = counts
@@ -128,9 +131,9 @@ fn blocks_in_file(path: &str, text: &str) -> Vec<Block> {
         .collect();
     let mut seen: BTreeMap<String, usize> = BTreeMap::new();
     let mut out = Vec::with_capacity(found.len());
-    for (mut block, hash) in found {
+    for mut block in found {
         if shared.contains(&block.violation.key) {
-            block.violation.key = format!("{}@{hash}", block.violation.key);
+            block.violation.key = format!("{}@{}", block.violation.key, block.hash);
         }
         let nth = seen.entry(block.violation.key.clone()).or_default();
         *nth += 1;
@@ -142,8 +145,8 @@ fn blocks_in_file(path: &str, text: &str) -> Vec<Block> {
     out
 }
 
-/// Every oversize block, paired with the hash that disambiguates a shared key.
-fn collect_blocks(path: &str, text: &str) -> Vec<(Block, String)> {
+/// Every oversize block, each carrying the hash of its own text.
+fn collect_blocks(path: &str, text: &str) -> Vec<Block> {
     let lines: Vec<&str> = text.lines().collect();
     let mut out = Vec::new();
     let mut i = 0;
@@ -157,22 +160,20 @@ fn collect_blocks(path: &str, text: &str) -> Vec<(Block, String)> {
             }
             let len = block_cost(&lines[start..=end]);
             if len > MODULE_DOC_CEILING {
-                out.push((
-                    Block {
-                        violation: Violation {
-                            rule: RULE,
-                            key: format!("{path}::module"),
-                            message: format!(
-                                "module doc block of {len} lines wrapped at {WRAP_WIDTH} exceeds the {MODULE_DOC_CEILING}-line ceiling"
-                            ),
-                            locations: vec![format!("{path}:{}", start + 1)],
-                        },
-                        path: path.to_string(),
-                        first_line: start + 1,
-                        last_line: end + 1,
+                out.push(Block {
+                    violation: Violation {
+                        rule: RULE,
+                        key: format!("{path}::module"),
+                        message: format!(
+                            "module doc block of {len} lines wrapped at {WRAP_WIDTH} exceeds the {MODULE_DOC_CEILING}-line ceiling"
+                        ),
+                        locations: vec![format!("{path}:{}", start + 1)],
                     },
-                    block_hash(&lines[start..=end]),
-                ));
+                    path: path.to_string(),
+                    first_line: start + 1,
+                    last_line: end + 1,
+                    hash: block_hash(&lines[start..=end]),
+                });
             }
             i = end + 1;
         } else if is_doc_line(trimmed) {
@@ -191,22 +192,20 @@ fn collect_blocks(path: &str, text: &str) -> Vec<(Block, String)> {
                     Some(name) => format!("{path}::{name}"),
                     None => format!("{path}::doc@{hash}"),
                 };
-                out.push((
-                    Block {
-                        violation: Violation {
-                            rule: RULE,
-                            key,
-                            message: format!(
-                                "doc comment block of {len} lines wrapped at {WRAP_WIDTH} exceeds the {DOC_CEILING}-line ceiling"
-                            ),
-                            locations: vec![format!("{path}:{}", start + 1)],
-                        },
-                        path: path.to_string(),
-                        first_line: start + 1,
-                        last_line: end + 1,
+                out.push(Block {
+                    violation: Violation {
+                        rule: RULE,
+                        key,
+                        message: format!(
+                            "doc comment block of {len} lines wrapped at {WRAP_WIDTH} exceeds the {DOC_CEILING}-line ceiling"
+                        ),
+                        locations: vec![format!("{path}:{}", start + 1)],
                     },
+                    path: path.to_string(),
+                    first_line: start + 1,
+                    last_line: end + 1,
                     hash,
-                ));
+                });
             }
             i = end + 1;
         } else {

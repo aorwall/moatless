@@ -6,7 +6,8 @@ cargo run -p moatless-arch-rules --bin arch-report -- --json            # stable
 cargo run -p moatless-arch-rules --bin arch-report -- --update-baseline # accept what is there now
 cargo run -p moatless-arch-rules --bin arch-report -- --persistence-inventory # rewrite the DAO migration inventory
 cargo run -p moatless-arch-rules --bin arch-report -- --comments               # every over-ceiling comment block
-cargo run -p moatless-arch-rules --bin arch-report -- --comments --since main  # only the ones this branch added; exits 1 on a hit
+cargo run -p moatless-arch-rules --bin arch-report -- --comments --since main  # only the ones this branch added
+cargo run -p moatless-arch-rules --bin arch-report -- --comments --findings b.ndjson # what CI comments with
 cargo test -p moatless-arch-rules                                       # fails on new violations
 ARCH_STRICT=1 cargo test -p moatless-arch-rules                         # fails on any violation
 ```
@@ -69,12 +70,12 @@ reached zero.
 ## `comment-block-size` is not a registered rule
 
 It runs from `arch-report --comments`, and `--since <ref>` narrows it to the
-blocks a diff added — which is what the second step of CI's `architecture` job
-gates on, and the only check holding the ceiling anywhere. So it has no
-baseline and no `arch-allow`: an over-ceiling block in a change you are making
-has to be cut. Writing `arch-allow(comment-block-size)` makes things worse
-rather than not working, because `annotations.rs` validates the name against
-`RULES` and reports an unregistered one as its own violation.
+blocks a diff added — which is what CI's `architecture` job reports on a pull
+request, posting a review comment per block. Nothing fails on one, so cut an
+over-ceiling block in a change you are making rather than wait to be asked. It
+has no baseline and no `arch-allow`: writing `arch-allow(comment-block-size)`
+makes things worse rather than not working, because `annotations.rs` validates
+the name against `RULES` and reports an unregistered one as its own violation.
 
 Its two constants are the 5 and 8 root `AGENTS.md` asks for. Do not raise one to
 absorb a long block.

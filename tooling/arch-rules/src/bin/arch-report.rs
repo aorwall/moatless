@@ -4,9 +4,9 @@
 
 //! Prints every architecture violation in the workspace; exits 0 regardless.
 //!
-//! `--comments` is the exception: it reports the comment-block ceiling, which
-//! is not a registered rule, and exits 1 on a hit so a CI step can gate on it.
-//! `tooling/arch-rules/AGENTS.md` spells out every flag.
+//! `--comments` reports the comment-block ceiling, which is not a registered
+//! rule and is held by nothing: CI turns its `--findings` file into a review
+//! comment. `tooling/arch-rules/AGENTS.md` spells out every flag.
 
 #[path = "arch_report/comments.rs"]
 mod comments;
@@ -24,10 +24,15 @@ fn main() -> anyhow::Result<()> {
     };
 
     if set("--comments") {
-        if comments::run(value("--since"))? {
-            std::process::exit(1);
-        }
-        return Ok(());
+        return comments::run(
+            value("--since"),
+            value("--findings").map(std::path::Path::new),
+        );
+    }
+    // Both flags only mean anything above, and a typo there writes no file
+    // rather than failing, which reaches CI as a bot that stopped commenting.
+    if set("--findings") || set("--since") {
+        anyhow::bail!("--findings and --since only apply to --comments");
     }
 
     report::run(
