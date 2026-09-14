@@ -1,11 +1,12 @@
-//! GitHub REST API-based fetcher for skill directories.
+//! Git-host REST fetcher for skill directories, over GitHub and Forgejo.
 //!
 //! Two layouts — see [`SkillLayout::Workspace`] and [`SkillLayout::Plugin`].
 //!
 //! Lists directories via `GET .../contents/{prefix}` and fetches each
 //! `SKILL.md` raw (a 404 on the parent means no skills). Symlinked entries —
-//! which GitHub refuses to traverse through directly — are resolved via their
-//! contents object's `target` field.
+//! which neither host traverses through directly — are resolved via their
+//! contents object's `target` field. [`RepoApi`] is the only thing here that
+//! knows which host it is addressing.
 
 use std::collections::HashSet;
 
@@ -41,7 +42,7 @@ pub enum SkillLayout {
     Plugin,
 }
 
-/// Abstraction over the GitHub API call so the orchestrating service can be
+/// Abstraction over the git-host API call so the orchestrating service can be
 /// unit-tested with a hand-rolled stub.
 #[async_trait]
 pub trait SkillFetcher: Send + Sync {
@@ -64,12 +65,12 @@ pub trait SkillFetcher: Send + Sync {
     ) -> Result<Option<String>, SkillError>;
 }
 
-/// GitHub REST API implementation of [`SkillFetcher`].
-pub struct GitHubSkillFetcher {
+/// REST implementation of [`SkillFetcher`], over every host [`RepoApi`] reads.
+pub struct GitHostSkillFetcher {
     client: Client,
 }
 
-impl GitHubSkillFetcher {
+impl GitHostSkillFetcher {
     pub fn new(client: Client) -> Self {
         Self { client }
     }
@@ -82,9 +83,8 @@ struct ContentEntry {
     entry_type: String,
 }
 
-/// Contents API object for a single symlink path (`Accept:
-/// application/vnd.github.object+json`). Only the link target is needed;
-/// directory listings include the field as `null`.
+/// Contents API object for a single symlink path. Only the link target is
+/// needed; directory listings include the field as `null`.
 #[derive(Debug, Deserialize)]
 struct SymlinkObject {
     #[serde(default)]
@@ -129,8 +129,254 @@ const PLUGIN_MARKETPLACE_PATHS: [&str; 2] = [
     ".claude-plugin/marketplace.json",
 ];
 
+/// One repository's REST surface, on whichever host it lives on.
+///
+/// GitHub and Forgejo answer the three reads a skill fetch needs — list a
+/// directory, read a symlink's target, read a file — in the same JSON shapes,
+/// under different roots, media types and authorization schemes. This type is
+/// where that difference is stated; the layouts above it are one code path.
+#[derive(Debug, Clone)]
+struct RepoApi {
+    host: SkillHost,
+    /// What an endpoint path is appended to, e.g.
+    /// `https://api.github.com/repos/{owner}/{name}`.
+    root: String,
+}
+
+/// A git host whose contents API this module reads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SkillHost {
+    Github,
+    Forgejo,
+}
+
+impl SkillHost {
+    /// The host's name, for a message whose reader has to act on it.
+    fn label(self) -> &'static str {
+        match self {
+            SkillHost::Github => "GitHub",
+            SkillHost::Forgejo => "Forgejo",
+        }
+    }
+
+    /// The scheme the host reads its own credential under. Forgejo takes a
+    /// personal access token under `token`, which is how every other Forgejo
+    /// call in this crate presents one.
+    fn authorization(self, token: &str) -> String {
+        match self {
+            SkillHost::Github => format!("Bearer {token}"),
+            SkillHost::Forgejo => format!("token {token}"),
+        }
+    }
+}
+
+impl RepoApi {
+    /// The API `remote` is read through, or [`SkillError::UnsupportedProvider`]
+    /// for a host with no contents surface wired here.
+    fn of(remote: &RepositoryRemote) -> Result<Self, SkillError> {
+        let unsupported = SkillError::UnsupportedProvider {
+            git_url: remote.url.clone(),
+        };
+        let Some(repo) = remote.host_repo.as_ref() else {
+            return Err(unsupported);
+        };
+        let (owner, name) = (repo.owner(), repo.name());
+        match repo.provider() {
+            RepositoryProvider::Github => Ok(Self {
+                host: SkillHost::Github,
+                root: format!("https://api.github.com/repos/{owner}/{name}"),
+            }),
+            RepositoryProvider::Forgejo => Ok(Self {
+                host: SkillHost::Forgejo,
+                root: crate::repository::remote::forgejo_repo_api(repo),
+            }),
+            RepositoryProvider::Gitlab | RepositoryProvider::Gitness => Err(unsupported),
+        }
+    }
+
+    /// One directory's entries, or `None` when the directory is absent.
+    async fn list_dir(
+        &self,
+        client: &Client,
+        path: &str,
+        token: Option<&str>,
+        git_url: &str,
+    ) -> Result<Option<Vec<ContentEntry>>, SkillError> {
+        let accept = match self.host {
+            SkillHost::Github => "application/vnd.github+json",
+            SkillHost::Forgejo => "application/json",
+        };
+        self.get_json(client, &self.contents_url(path), accept, token, git_url)
+            .await
+    }
+
+    /// What a symlinked entry points at — `None` when the entry is absent or
+    /// names no target.
+    async fn symlink_target(
+        &self,
+        client: &Client,
+        path: &str,
+        token: Option<&str>,
+        git_url: &str,
+    ) -> Result<Option<String>, SkillError> {
+        // GitHub serves a symlink's own object only under this media type: ask
+        // for the default one and it answers with the target file's content.
+        let accept = match self.host {
+            SkillHost::Github => "application/vnd.github.object+json",
+            SkillHost::Forgejo => "application/json",
+        };
+        let link: Option<SymlinkObject> = self
+            .get_json(client, &self.contents_url(path), accept, token, git_url)
+            .await?;
+        Ok(link.and_then(|link| link.target))
+    }
+
+    /// One file's contents as text, or `None` when it is absent.
+    async fn read_file(
+        &self,
+        client: &Client,
+        path: &str,
+        token: Option<&str>,
+        git_url: &str,
+    ) -> Result<Option<String>, SkillError> {
+        let (url, accept) = self.file_url(path);
+        self.get_text(client, &url, accept, token, git_url).await
+    }
+
+    /// The default branch's head commit SHA, from one request returning 40
+    /// bytes.
+    ///
+    /// GitHub only. `Ok(None)` is [`SkillFetcher::fetch_version`]'s "cannot be
+    /// asked cheaply": Forgejo answers a page of commit JSON rather than a bare
+    /// SHA, and plugin sync, the only caller, addresses GitHub.
+    async fn head_sha(
+        &self,
+        client: &Client,
+        token: Option<&str>,
+        git_url: &str,
+    ) -> Result<Option<String>, SkillError> {
+        if self.host != SkillHost::Github {
+            return Ok(None);
+        }
+        let sha = self
+            .get_text(
+                client,
+                &format!("{}/commits/HEAD", self.root),
+                "application/vnd.github.sha",
+                token,
+                git_url,
+            )
+            .await?;
+        Ok(sha
+            .map(|sha| sha.trim().to_string())
+            .filter(|sha| !sha.is_empty()))
+    }
+
+    fn contents_url(&self, path: &str) -> String {
+        format!("{}/contents/{path}", self.root)
+    }
+
+    /// Where one file's own bytes are served, and the `Accept` that asks for
+    /// them — the one endpoint the two hosts do not share.
+    fn file_url(&self, path: &str) -> (String, &'static str) {
+        match self.host {
+            SkillHost::Github => (self.contents_url(path), "application/vnd.github.raw+json"),
+            // Forgejo's contents object carries the file base64-encoded, so its
+            // raw endpoint is the one that answers with the file itself.
+            SkillHost::Forgejo => (format!("{}/raw/{path}", self.root), "*/*"),
+        }
+    }
+
+    /// GET a contents URL and parse the body as JSON.
+    ///
+    /// Returns `Ok(None)` on 404, `Err(SkillError::AuthRequired)` on 401/403,
+    /// `Err(SkillError::Fetch)` on any other non-success status or transport
+    /// failure.
+    async fn get_json<T: for<'de> Deserialize<'de>>(
+        &self,
+        client: &Client,
+        url: &str,
+        accept: &str,
+        token: Option<&str>,
+        git_url: &str,
+    ) -> Result<Option<T>, SkillError> {
+        let Some(resp) = self.send(client, url, accept, token, git_url).await? else {
+            return Ok(None);
+        };
+        let host = self.host.label();
+        let parsed = resp.json::<T>().await.map_err(|e| SkillError::Fetch {
+            git_url: git_url.to_string(),
+            message: format!("failed to decode {host} JSON response: {e}"),
+        })?;
+        Ok(Some(parsed))
+    }
+
+    /// GET a URL and return the body as text, or `None` on 404.
+    async fn get_text(
+        &self,
+        client: &Client,
+        url: &str,
+        accept: &str,
+        token: Option<&str>,
+        git_url: &str,
+    ) -> Result<Option<String>, SkillError> {
+        let Some(resp) = self.send(client, url, accept, token, git_url).await? else {
+            return Ok(None);
+        };
+        let host = self.host.label();
+        let body = resp.text().await.map_err(|e| SkillError::Fetch {
+            git_url: git_url.to_string(),
+            message: format!("failed to read {host} response body: {e}"),
+        })?;
+        Ok(Some(body))
+    }
+
+    /// The one request both readers make, with every status they agree on
+    /// already decided: `Ok(None)` is a 404.
+    async fn send(
+        &self,
+        client: &Client,
+        url: &str,
+        accept: &str,
+        token: Option<&str>,
+        git_url: &str,
+    ) -> Result<Option<reqwest::Response>, SkillError> {
+        let host = self.host.label();
+        let mut req = client
+            .get(url)
+            .header("User-Agent", moatless_core::USER_AGENT)
+            .header("Accept", accept);
+        if let Some(token) = token {
+            req = req.header("Authorization", self.host.authorization(token));
+        }
+
+        let resp = req.send().await.map_err(|e| SkillError::Fetch {
+            git_url: git_url.to_string(),
+            message: format!("{host} API request failed: {e}"),
+        })?;
+
+        let status = resp.status();
+        if status == StatusCode::NOT_FOUND {
+            return Ok(None);
+        }
+        if status == StatusCode::UNAUTHORIZED || status == StatusCode::FORBIDDEN {
+            return Err(SkillError::AuthRequired {
+                git_url: git_url.to_string(),
+            });
+        }
+        if !status.is_success() {
+            let body = resp.text().await.unwrap_or_default();
+            return Err(SkillError::Fetch {
+                git_url: git_url.to_string(),
+                message: format!("{host} API returned {status}: {body}"),
+            });
+        }
+        Ok(Some(resp))
+    }
+}
+
 #[async_trait]
-impl SkillFetcher for GitHubSkillFetcher {
+impl SkillFetcher for GitHostSkillFetcher {
     async fn fetch_skill_files(
         &self,
         remote: &RepositoryRemote,
@@ -138,21 +384,14 @@ impl SkillFetcher for GitHubSkillFetcher {
         token: Option<&str>,
     ) -> Result<Vec<FetchedSkillFile>, SkillError> {
         let remote_url = remote.url.as_str();
-        let parsed = remote
-            .host_repo
-            .as_ref()
-            .filter(|repo| repo.provider() == RepositoryProvider::Github)
-            .ok_or_else(|| SkillError::UnsupportedProvider {
-                git_url: remote_url.to_string(),
-            })?;
-        let (owner, repo) = (parsed.owner(), parsed.name());
+        let api = RepoApi::of(remote)?;
 
         match layout {
             SkillLayout::Workspace => {
                 let mut groups: Vec<Vec<FetchedSkillFile>> = Vec::new();
                 for prefix in WORKSPACE_SKILL_PREFIXES {
                     match self
-                        .fetch_skills_at_prefix(owner, repo, prefix, token, remote_url, true)
+                        .fetch_skills_at_prefix(&api, prefix, token, remote_url, true)
                         .await
                     {
                         Ok(Some(files)) => groups.push(files),
@@ -174,12 +413,11 @@ impl SkillFetcher for GitHubSkillFetcher {
             }
             SkillLayout::Plugin => {
                 let prefixes =
-                    resolve_plugin_skills_prefixes(&self.client, owner, repo, token, remote_url)
-                        .await?;
+                    resolve_plugin_skills_prefixes(&self.client, &api, token, remote_url).await?;
                 let mut groups: Vec<Vec<FetchedSkillFile>> = Vec::new();
                 for prefix in prefixes {
                     if let Some(files) = self
-                        .fetch_skills_at_prefix(owner, repo, &prefix, token, remote_url, false)
+                        .fetch_skills_at_prefix(&api, &prefix, token, remote_url, false)
                         .await?
                     {
                         groups.push(files);
@@ -196,61 +434,37 @@ impl SkillFetcher for GitHubSkillFetcher {
         }
     }
 
-    /// The default branch's head commit SHA, via the commits endpoint with
-    /// `Accept: application/vnd.github.sha` — one request returning 40 bytes.
+    /// See [`RepoApi::head_sha`] for which hosts answer this and which return
+    /// `Ok(None)`; a remote with no contents surface at all returns `Ok(None)`
+    /// too, leaving the fetch to fail where it can name the reason.
     async fn fetch_version(
         &self,
         remote: &RepositoryRemote,
         token: Option<&str>,
     ) -> Result<Option<String>, SkillError> {
-        let remote_url = remote.url.as_str();
-        let Some(parsed) = remote
-            .host_repo
-            .as_ref()
-            .filter(|repo| repo.provider() == RepositoryProvider::Github)
-        else {
+        let Ok(api) = RepoApi::of(remote) else {
             return Ok(None);
         };
-        let (owner, repo) = (parsed.owner(), parsed.name());
-
-        let url = format!("https://api.github.com/repos/{owner}/{repo}/commits/HEAD");
-        let sha = fetch_github_text(
-            &self.client,
-            &url,
-            "application/vnd.github.sha",
-            token,
-            remote_url,
-        )
-        .await?;
-
-        Ok(sha.map(|s| s.trim().to_string()).filter(|s| !s.is_empty()))
+        api.head_sha(&self.client, token, remote.url.as_str()).await
     }
 }
 
-impl GitHubSkillFetcher {
+impl GitHostSkillFetcher {
     /// List one skills root (`skills_prefix`) and fetch every skill's
     /// `SKILL.md`. Returns `Ok(None)` when the root directory itself is absent
     /// (404), so the caller can distinguish "no such root" from "root present
     /// but empty".
     async fn fetch_skills_at_prefix(
         &self,
-        owner: &str,
-        repo: &str,
+        api: &RepoApi,
         skills_prefix: &str,
         token: Option<&str>,
         remote_url: &str,
         skip_unreadable_entries: bool,
     ) -> Result<Option<Vec<FetchedSkillFile>>, SkillError> {
-        let list_url =
-            format!("https://api.github.com/repos/{owner}/{repo}/contents/{skills_prefix}");
-        let Some(entries) = send_github_json::<Vec<ContentEntry>>(
-            &self.client,
-            &list_url,
-            "application/vnd.github+json",
-            token,
-            remote_url,
-        )
-        .await?
+        let Some(entries) = api
+            .list_dir(&self.client, skills_prefix, token, remote_url)
+            .await?
         else {
             return Ok(None);
         };
@@ -259,8 +473,7 @@ impl GitHubSkillFetcher {
             .into_iter()
             .filter(|e| e.entry_type == "dir" || e.entry_type == "symlink")
             .map(|entry| {
-                let owner = owner.to_string();
-                let repo = repo.to_string();
+                let api = api.clone();
                 let remote_url = remote_url.to_string();
                 let client = self.client.clone();
                 let token = token.map(str::to_string);
@@ -271,8 +484,7 @@ impl GitHubSkillFetcher {
                     let dir_path = if is_symlink {
                         match resolve_symlink_dir(
                             &client,
-                            &owner,
-                            &repo,
+                            &api,
                             &skills_prefix,
                             &dir_name,
                             token.as_deref(),
@@ -301,39 +513,41 @@ impl GitHubSkillFetcher {
                     } else {
                         format!("{skills_prefix}/{dir_name}")
                     };
-                    let file_url = format!(
-                        "https://api.github.com/repos/{owner}/{repo}/contents/{dir_path}/SKILL.md"
-                    );
-                    let content =
-                        match fetch_github_raw(&client, &file_url, token.as_deref(), &remote_url)
-                            .await
+                    let content = match api
+                        .read_file(
+                            &client,
+                            &format!("{dir_path}/SKILL.md"),
+                            token.as_deref(),
+                            &remote_url,
+                        )
+                        .await
+                    {
+                        Ok(content) => content,
+                        Err(err)
+                            if should_skip_skill_entry_fetch_error(
+                                &err,
+                                skip_unreadable_entries,
+                            ) =>
                         {
-                            Ok(content) => content,
-                            Err(err)
-                                if should_skip_skill_entry_fetch_error(
-                                    &err,
-                                    skip_unreadable_entries,
-                                ) =>
-                            {
-                                if is_symlink {
-                                    debug!(
-                                        git_url = %remote_url,
-                                        dir_name = %dir_name,
-                                        error = %err,
-                                        "Skipping unreadable symlinked skill file"
-                                    );
-                                } else {
-                                    warn!(
-                                        git_url = %remote_url,
-                                        dir_name = %dir_name,
-                                        error = %err,
-                                        "Skipping unreadable skill file"
-                                    );
-                                }
-                                return Ok(None);
+                            if is_symlink {
+                                debug!(
+                                    git_url = %remote_url,
+                                    dir_name = %dir_name,
+                                    error = %err,
+                                    "Skipping unreadable symlinked skill file"
+                                );
+                            } else {
+                                warn!(
+                                    git_url = %remote_url,
+                                    dir_name = %dir_name,
+                                    error = %err,
+                                    "Skipping unreadable skill file"
+                                );
                             }
-                            Err(err) => return Err(err),
-                        };
+                            return Ok(None);
+                        }
+                        Err(err) => return Err(err),
+                    };
                     Ok::<Option<FetchedSkillFile>, SkillError>(
                         content.map(|content| FetchedSkillFile { dir_name, content }),
                     )
@@ -376,27 +590,16 @@ fn dedup_by_dir_name(groups: Vec<Vec<FetchedSkillFile>>) -> Vec<FetchedSkillFile
 /// absolute, or escapes the repo root.
 async fn resolve_symlink_dir(
     client: &Client,
-    owner: &str,
-    repo: &str,
+    api: &RepoApi,
     skills_prefix: &str,
     name: &str,
     token: Option<&str>,
     git_url: &str,
 ) -> Result<Option<String>, SkillError> {
-    let url =
-        format!("https://api.github.com/repos/{owner}/{repo}/contents/{skills_prefix}/{name}");
-    let Some(link) = send_github_json::<SymlinkObject>(
-        client,
-        &url,
-        "application/vnd.github.object+json",
-        token,
-        git_url,
-    )
-    .await?
+    let Some(target) = api
+        .symlink_target(client, &format!("{skills_prefix}/{name}"), token, git_url)
+        .await?
     else {
-        return Ok(None);
-    };
-    let Some(target) = link.target else {
         return Ok(None);
     };
     let resolved = resolve_relative_path(skills_prefix, &target);
@@ -442,19 +645,18 @@ fn resolve_relative_path(base_dir: &str, target: &str) -> Option<String> {
 /// Code's marketplace.json conventions.
 async fn resolve_plugin_skills_prefixes(
     client: &Client,
-    owner: &str,
-    repo: &str,
+    api: &RepoApi,
     token: Option<&str>,
     git_url: &str,
 ) -> Result<Vec<String>, SkillError> {
     if let Some(prefix) =
-        resolve_plugin_manifest_skills_prefix(client, owner, repo, "", token, git_url).await?
+        resolve_plugin_manifest_skills_prefix(client, api, "", token, git_url).await?
     {
         return Ok(vec![prefix]);
     }
 
     let Some((marketplace_path, raw)) =
-        fetch_first_marketplace(client, owner, repo, token, git_url).await?
+        fetch_first_marketplace(client, api, token, git_url).await?
     else {
         return Ok(vec!["skills".to_string()]);
     };
@@ -475,16 +677,10 @@ async fn resolve_plugin_skills_prefixes(
             message,
         })?;
         let plugin_root = plugin_root.trim_matches('/').to_string();
-        let prefix = resolve_plugin_manifest_skills_prefix(
-            client,
-            owner,
-            repo,
-            &plugin_root,
-            token,
-            git_url,
-        )
-        .await?
-        .unwrap_or_else(|| join_repo_paths(&plugin_root, "skills"));
+        let prefix =
+            resolve_plugin_manifest_skills_prefix(client, api, &plugin_root, token, git_url)
+                .await?
+                .unwrap_or_else(|| join_repo_paths(&plugin_root, "skills"));
         prefixes.push(prefix);
     }
 
@@ -497,15 +693,15 @@ async fn resolve_plugin_skills_prefixes(
 
 async fn fetch_first_marketplace(
     client: &Client,
-    owner: &str,
-    repo: &str,
+    api: &RepoApi,
     token: Option<&str>,
     git_url: &str,
 ) -> Result<Option<(&'static str, String)>, SkillError> {
     for marketplace_path in PLUGIN_MARKETPLACE_PATHS {
-        let marketplace_url =
-            format!("https://api.github.com/repos/{owner}/{repo}/contents/{marketplace_path}");
-        if let Some(raw) = fetch_github_raw(client, &marketplace_url, token, git_url).await? {
+        if let Some(raw) = api
+            .read_file(client, marketplace_path, token, git_url)
+            .await?
+        {
             return Ok(Some((marketplace_path, raw)));
         }
     }
@@ -514,17 +710,14 @@ async fn fetch_first_marketplace(
 
 async fn resolve_plugin_manifest_skills_prefix(
     client: &Client,
-    owner: &str,
-    repo: &str,
+    api: &RepoApi,
     plugin_root: &str,
     token: Option<&str>,
     git_url: &str,
 ) -> Result<Option<String>, SkillError> {
     for manifest_path in PLUGIN_MANIFEST_PATHS {
         let repo_path = join_repo_paths(plugin_root, manifest_path);
-        let manifest_url =
-            format!("https://api.github.com/repos/{owner}/{repo}/contents/{repo_path}");
-        let Some(raw) = fetch_github_raw(client, &manifest_url, token, git_url).await? else {
+        let Some(raw) = api.read_file(client, &repo_path, token, git_url).await? else {
             continue;
         };
         let manifest: PluginManifest =
@@ -543,7 +736,7 @@ async fn resolve_plugin_manifest_skills_prefix(
     Ok(None)
 }
 
-/// Normalize a `plugin.json` `skills` value into a repo-relative GitHub API
+/// Normalize a `plugin.json` `skills` value into a repo-relative contents API
 /// path segment — strips a leading `./` and trailing `/`, rejects absolute
 /// paths or any `..` segment.
 fn normalize_skills_path(raw: &str) -> Result<String, String> {
@@ -578,118 +771,6 @@ fn join_repo_paths(base: &str, child: &str) -> String {
         (false, true) => base.to_string(),
         (false, false) => format!("{base}/{child}"),
     }
-}
-
-/// GET a GitHub Contents API URL and parse the body as JSON.
-///
-/// Returns `Ok(None)` on 404, `Err(SkillError::AuthRequired)` on 401/403,
-/// `Err(SkillError::Fetch)` on any other non-success status or transport
-/// failure.
-async fn send_github_json<T: for<'de> Deserialize<'de>>(
-    client: &Client,
-    url: &str,
-    accept: &str,
-    token: Option<&str>,
-    git_url: &str,
-) -> Result<Option<T>, SkillError> {
-    let mut req = client
-        .get(url)
-        .header("User-Agent", "moatless-vibe-backend")
-        .header("Accept", accept);
-    if let Some(tok) = token {
-        req = req.header("Authorization", format!("Bearer {tok}"));
-    }
-
-    let resp = req.send().await.map_err(|e| SkillError::Fetch {
-        git_url: git_url.to_string(),
-        message: format!("GitHub API request failed: {e}"),
-    })?;
-
-    let status = resp.status();
-    if status == StatusCode::NOT_FOUND {
-        return Ok(None);
-    }
-    if status == StatusCode::UNAUTHORIZED || status == StatusCode::FORBIDDEN {
-        return Err(SkillError::AuthRequired {
-            git_url: git_url.to_string(),
-        });
-    }
-    if !status.is_success() {
-        let body = resp.text().await.unwrap_or_default();
-        return Err(SkillError::Fetch {
-            git_url: git_url.to_string(),
-            message: format!("GitHub API returned {status}: {body}"),
-        });
-    }
-
-    let parsed = resp.json::<T>().await.map_err(|e| SkillError::Fetch {
-        git_url: git_url.to_string(),
-        message: format!("failed to decode GitHub JSON response: {e}"),
-    })?;
-    Ok(Some(parsed))
-}
-
-/// GET a GitHub file with `Accept: application/vnd.github.raw+json` and return
-/// its body as a string. Returns `Ok(None)` on 404.
-async fn fetch_github_raw(
-    client: &Client,
-    url: &str,
-    token: Option<&str>,
-    git_url: &str,
-) -> Result<Option<String>, SkillError> {
-    fetch_github_text(
-        client,
-        url,
-        "application/vnd.github.raw+json",
-        token,
-        git_url,
-    )
-    .await
-}
-
-/// GET a GitHub URL and return the body as text, or `None` on 404.
-async fn fetch_github_text(
-    client: &Client,
-    url: &str,
-    accept: &str,
-    token: Option<&str>,
-    git_url: &str,
-) -> Result<Option<String>, SkillError> {
-    let mut req = client
-        .get(url)
-        .header("User-Agent", "moatless-vibe-backend")
-        .header("Accept", accept);
-    if let Some(tok) = token {
-        req = req.header("Authorization", format!("Bearer {tok}"));
-    }
-
-    let resp = req.send().await.map_err(|e| SkillError::Fetch {
-        git_url: git_url.to_string(),
-        message: format!("GitHub API request failed: {e}"),
-    })?;
-
-    let status = resp.status();
-    if status == StatusCode::NOT_FOUND {
-        return Ok(None);
-    }
-    if status == StatusCode::UNAUTHORIZED || status == StatusCode::FORBIDDEN {
-        return Err(SkillError::AuthRequired {
-            git_url: git_url.to_string(),
-        });
-    }
-    if !status.is_success() {
-        let body = resp.text().await.unwrap_or_default();
-        return Err(SkillError::Fetch {
-            git_url: git_url.to_string(),
-            message: format!("GitHub API returned {status}: {body}"),
-        });
-    }
-
-    let body = resp.text().await.map_err(|e| SkillError::Fetch {
-        git_url: git_url.to_string(),
-        message: format!("failed to read GitHub response body: {e}"),
-    })?;
-    Ok(Some(body))
 }
 
 #[cfg(test)]
@@ -762,8 +843,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn non_github_url_is_unsupported() {
-        let fetcher = GitHubSkillFetcher::new(Client::new());
+    async fn a_host_with_no_contents_surface_is_unsupported() {
+        let fetcher = GitHostSkillFetcher::new(Client::new());
         let err = fetcher
             .fetch_skill_files(
                 &crate::repository::remote::resolve_remote(
@@ -781,6 +862,76 @@ mod tests {
             }
             other => panic!("expected UnsupportedProvider, got {other:?}"),
         }
+    }
+
+    fn api_of(provider: RepositoryProvider, url: &str) -> RepoApi {
+        RepoApi::of(&crate::repository::remote::resolve_remote(
+            Some(provider),
+            url.to_string(),
+        ))
+        .expect("a supported host")
+    }
+
+    #[test]
+    fn a_forgejo_repository_is_addressed_on_the_host_its_remote_names() {
+        // The instance is whatever the remote URL carries — "Forgejo" names no
+        // single host the way `api.github.com` does.
+        let api = api_of(
+            RepositoryProvider::Forgejo,
+            "https://git.example.com/juni/config-juni-dev.git",
+        );
+
+        assert_eq!(api.host, SkillHost::Forgejo);
+        assert_eq!(
+            api.contents_url(".claude/skills"),
+            "https://git.example.com/api/v1/repos/juni/config-juni-dev/contents/.claude/skills"
+        );
+        // The one endpoint that is not GitHub's: a typo here 404s, and
+        // `should_skip_skill_entry_fetch_error` swallows that into no skills.
+        assert_eq!(
+            api.file_url(".claude/skills/deploy/SKILL.md").0,
+            "https://git.example.com/api/v1/repos/juni/config-juni-dev/raw/.claude/skills/deploy/SKILL.md"
+        );
+        assert_eq!(api.host.authorization("fj-token"), "token fj-token");
+    }
+
+    #[test]
+    fn a_forgejo_remote_on_http_is_still_read_over_https() {
+        let api = api_of(
+            RepositoryProvider::Forgejo,
+            "http://git.example.com/juni/config-juni-dev",
+        );
+
+        assert!(api.root.starts_with("https://git.example.com/api/v1/"));
+    }
+
+    #[test]
+    fn a_github_repository_keeps_its_own_api_root_and_bearer_token() {
+        let api = api_of(RepositoryProvider::Github, "https://github.com/x/y.git");
+
+        assert_eq!(api.host, SkillHost::Github);
+        assert_eq!(
+            api.contents_url(".agents/skills"),
+            "https://api.github.com/repos/x/y/contents/.agents/skills"
+        );
+        assert_eq!(
+            api.file_url(".agents/skills/deploy/SKILL.md").0,
+            "https://api.github.com/repos/x/y/contents/.agents/skills/deploy/SKILL.md"
+        );
+        assert_eq!(api.host.authorization("gh-token"), "Bearer gh-token");
+    }
+
+    #[tokio::test]
+    async fn only_github_answers_a_cheap_version_probe() {
+        let fetcher = GitHostSkillFetcher::new(Client::new());
+        let remote = crate::repository::remote::resolve_remote(
+            Some(RepositoryProvider::Forgejo),
+            "https://git.example.com/juni/config-juni-dev.git".to_string(),
+        );
+
+        // No request is made, so this passes without a reachable host: `None`
+        // tells plugin sync to fetch rather than trust a stored version.
+        assert_eq!(fetcher.fetch_version(&remote, None).await.unwrap(), None);
     }
 
     #[test]

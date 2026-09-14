@@ -18,7 +18,7 @@ use moatless_loops::compose::{ExternalReplyInputs, OutboundSenderInputs, Routing
 use moatless_ports::identity::GitHostTokenIssuer;
 use moatless_ports::sandbox::{PreflightPort, SandboxJoiner};
 use moatless_tasks::compose::{TaskOperations, TaskWorkflowInputs};
-use moatless_workspaces::skill::fetcher::GitHubSkillFetcher;
+use moatless_workspaces::skill::fetcher::GitHostSkillFetcher;
 use moatless_workspaces::skill::fetcher::SkillFetcher;
 use sandbox_proto::client::SandboxConnector;
 use std::sync::Arc;
@@ -139,7 +139,7 @@ impl AppState {
                 );
                 reqwest::Client::new()
             });
-        let skill_fetcher: Arc<dyn SkillFetcher> = Arc::new(GitHubSkillFetcher::new(skill_http));
+        let skill_fetcher: Arc<dyn SkillFetcher> = Arc::new(GitHostSkillFetcher::new(skill_http));
         let plugin_sync = moatless_workspaces::compose::plugin_sync(
             pool.clone(),
             skill_fetcher.clone(),

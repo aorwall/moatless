@@ -1,5 +1,5 @@
 use super::super::error::RepositoryError;
-use crate::repository::remote::require_host_repo;
+use crate::repository::remote::{forgejo_repo_api, require_host_repo};
 use moatless_workspace_types::repository::RepositoryRemote;
 use tracing::{debug, warn};
 
@@ -218,11 +218,6 @@ pub(super) async fn fetch_gitlab_branches(
     })
 }
 
-/// Forgejo's REST API v1, addressed at the host `remote_url` names.
-///
-/// HTTPS always, whatever scheme `remote_url` carries — a Workspace controls
-/// that URL, and honouring its scheme would let one downgrade the connection
-/// `token` travels over.
 pub(super) async fn fetch_forgejo_branches(
     client: &reqwest::Client,
     remote: &RepositoryRemote,
@@ -231,7 +226,7 @@ pub(super) async fn fetch_forgejo_branches(
     let parsed = require_host_repo(remote)?;
     let host = parsed.host();
     let (owner, repo) = (parsed.owner(), parsed.name());
-    let repo_api = format!("https://{host}/api/v1/repos/{owner}/{repo}");
+    let repo_api = forgejo_repo_api(parsed);
 
     #[derive(serde::Deserialize)]
     struct FjBranch {

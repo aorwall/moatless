@@ -26,6 +26,20 @@ fn parse_host_repo(provider: RepositoryProvider, remote_url: &str) -> Option<Git
     }
 }
 
+/// Forgejo's REST API v1 root for `repo`, on the host its remote named.
+///
+/// Every Forgejo call in this crate builds on this, so the scheme is decided
+/// once — by [`moatless_identity::forgejo::instances::base_url`], which owns
+/// why it is never the remote URL's.
+pub(crate) fn forgejo_repo_api(repo: &GitHostRepo) -> String {
+    format!(
+        "{}/api/v1/repos/{}/{}",
+        moatless_identity::forgejo::instances::base_url(repo.host()),
+        repo.owner(),
+        repo.name()
+    )
+}
+
 /// Normalize a remote URL for identity matching without changing persisted spelling.
 ///
 /// Two repositories are the same connection when this agrees on them, so the

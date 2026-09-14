@@ -16,7 +16,7 @@ pub enum SkillError {
     #[error("Authentication required to fetch {git_url}")]
     AuthRequired { git_url: String },
 
-    #[error("Unsupported git provider for {git_url} (only GitHub is supported)")]
+    #[error("Unsupported git provider for {git_url} (only GitHub and Forgejo are supported)")]
     UnsupportedProvider { git_url: String },
 
     #[error("Skill fetch failed for {git_url}: {message}")]
