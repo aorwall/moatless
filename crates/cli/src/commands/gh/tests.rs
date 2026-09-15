@@ -343,6 +343,26 @@ fn parse_github_remote_forms() {
     assert_eq!(parse_github_remote("https://gitlab.com/o/r.git"), None);
 }
 
+#[test]
+fn a_proxied_origin_is_recognized_whichever_url_names_the_backend() {
+    assert_eq!(
+        any_host_proxy_repository_id(
+            "http://moatless-vibe-backend.moatless.svc.cluster.local:8080/git/repo_1"
+        ),
+        Some("repo_1")
+    );
+    assert_eq!(
+        any_host_proxy_repository_id("https://moatless.example.com/git/repo_1.git"),
+        Some("repo_1")
+    );
+    assert_eq!(
+        any_host_proxy_repository_id("https://github.com/soaplabs/moatless.git"),
+        None,
+        "a real git host names an owner, not a repository id"
+    );
+    assert_eq!(any_host_proxy_repository_id("https://host/git/"), None);
+}
+
 // =======================================================================
 // `gh api` recognition
 // =======================================================================

@@ -733,10 +733,26 @@ async fn resolve_repo(
     if let Some(parsed) = parse_github_remote(url) {
         return Ok(parsed);
     }
-    if let Some(id) = proxy_clone_repository_id(client.base_url(), url) {
+    if let Some(id) = proxy_clone_repository_id(client.base_url(), url)
+        .or_else(|| any_host_proxy_repository_id(url))
+    {
         return proxied_repo(client, id).await;
     }
     Err(format!("origin remote `{url}` is not a GitHub repository — pass `-R owner/repo`").into())
+}
+
+/// The repository id in a `/git/{id}` remote served by any host.
+///
+/// The sandbox writes this remote from `BACKEND_API_URL` while the CLI matches
+/// it against whatever the login profile resolved to, so a deployment naming
+/// one backend two ways would otherwise reject its own proxied remote. Only the
+/// id comes from the URL; the row is still read from our own backend.
+fn any_host_proxy_repository_id(url: &str) -> Option<&str> {
+    let (_, rest) = url.split_once("://")?;
+    let (_, path) = rest.split_once("/git/")?;
+    let id = path.trim_end_matches('/');
+    let id = id.strip_suffix(".git").unwrap_or(id);
+    (!id.is_empty() && !id.contains('/')).then_some(id)
 }
 
 /// The `(owner, repo)` the repository row behind a proxied origin names.
@@ -748,16 +764,17 @@ async fn proxied_repo(
     let remote = row
         .remote
         .ok_or_else(|| format!("repository {repository_id} stores no remote URL"))?;
-    let host = remote
-        .host_repo
-        .filter(|host| {
-            host.provider == moatless_workspace_types::repository::RepositoryProvider::Github
-        })
-        .ok_or_else(|| {
-            format!(
-                "repository {repository_id} has no resolved GitHub host; moat gh serves GitHub only"
-            )
-        })?;
+    let host = remote.host_repo.ok_or_else(|| {
+        format!("repository {repository_id} has no resolved git host to address")
+    })?;
+    if host.provider != moatless_workspace_types::repository::RepositoryProvider::Github {
+        return Err(format!(
+            "repository {repository_id} is hosted on {}, and `moat gh` serves GitHub only — \
+             there is no pull-request path for it from a sandbox",
+            host.provider
+        )
+        .into());
+    }
     Ok((host.owner, host.name))
 }
 
