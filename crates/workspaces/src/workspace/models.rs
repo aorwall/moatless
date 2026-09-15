@@ -252,3 +252,22 @@ pub struct WorkspacePatch {
     pub source_key: Option<Option<String>>,
     pub source_config_path: Option<Option<String>>,
 }
+
+/// What applying a [`WorkspacePatch`] under the caller's control scope did.
+///
+/// A plain `bool` conflated `NoFields` with `NoMatch`, and every caller
+/// discarded it — so a caller who could read a Workspace but not control it got
+/// `200` and the unchanged row back. Keep the two apart: only `NoMatch` is a
+/// denial.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum UpdateOutcome {
+    /// A row matched the caller's control scope and was written.
+    Applied,
+    /// The patch named no fields, so no statement ran and nothing is denied.
+    NoFields,
+    /// No row matched: missing, deleted, or outside the caller's control.
+    ///
+    /// A caller answers this with `NotFound` rather than `Forbidden`, so a
+    /// denied write confirms no more than the read already did.
+    NoMatch,
+}

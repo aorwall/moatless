@@ -1,6 +1,6 @@
 use super::dao::WorkspaceDao;
 use super::error::WorkspaceError;
-use super::models::WorkspacePatch;
+use super::models::{UpdateOutcome, WorkspacePatch};
 use super::models::{Workspace, WorkspaceKind, WorkspaceRepo, WorkspaceSource};
 use super::schemas::{
     AddRepoRequest, CreateWorkspaceRequest, UpdateWorkspaceRequest, WorkspaceRepoInput,
@@ -326,7 +326,9 @@ pub async fn update_workspace(
         source_key: None,
         source_config_path: None,
     };
-    workspaces.update(&workspace_id, &patch, ctx).await?;
+    if workspaces.update(&workspace_id, &patch, ctx).await? == UpdateOutcome::NoMatch {
+        return Err(WorkspaceError::NotFound(workspace_id));
+    }
 
     Ok(())
 }
@@ -395,7 +397,9 @@ pub async fn override_workspace(
         source_key: None,
         source_config_path: None,
     };
-    workspaces.update(&workspace_id, &patch, ctx).await?;
+    if workspaces.update(&workspace_id, &patch, ctx).await? == UpdateOutcome::NoMatch {
+        return Err(WorkspaceError::NotFound(workspace_id));
+    }
 
     Ok(())
 }
@@ -732,7 +736,9 @@ mod tests {
         workspaces
             .expect_find_by_id()
             .returning(|_, _| Ok(Some(workspace_with_source(WorkspaceSource::Manual))));
-        workspaces.expect_update().returning(|_, _, _| Ok(true));
+        workspaces
+            .expect_update()
+            .returning(|_, _, _| Ok(UpdateOutcome::Applied));
         workspaces
     }
 
@@ -804,6 +810,33 @@ mod tests {
         )
         .await
         .unwrap();
+    }
+
+    /// A caller who may read a workspace but not control it is refused.
+    ///
+    /// The DAO's scope clause matches no row for them, which used to reach the
+    /// handler as success and answer `200` with the workspace unchanged.
+    #[tokio::test]
+    async fn an_update_outside_the_callers_control_scope_is_refused() {
+        let mut workspaces = MockWorkspaceDao::new();
+        workspaces
+            .expect_find_by_id()
+            .returning(|_, _| Ok(Some(workspace_with_source(WorkspaceSource::Manual))));
+        workspaces
+            .expect_update()
+            .returning(|_, _, _| Ok(UpdateOutcome::NoMatch));
+
+        let err = update_workspace(
+            &workspaces,
+            &MockRepositoryDao::new(),
+            &MockUserResolver::new(),
+            &ctx(true),
+            "ws_1".to_string(),
+            scope_request(Scope::User),
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(err, WorkspaceError::NotFound(id) if id == "ws_1"));
     }
 
     /// A repository whose remote URL is already registered globally blocks the

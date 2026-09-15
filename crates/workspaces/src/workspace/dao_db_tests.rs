@@ -15,7 +15,7 @@ use sqlx::PgPool;
 
 use crate::test_support::{make_workspace_repo_row, make_workspace_row, run_config};
 use crate::workspace::dao::{PgWorkspaceDao, WorkspaceDao};
-use crate::workspace::models::WorkspacePatch;
+use crate::workspace::models::{UpdateOutcome, WorkspacePatch};
 
 /// Non-admin `ScopeContext` for a given user.
 fn scope_ctx(user_id: &str) -> ScopeContext {
@@ -151,10 +151,11 @@ async fn update_mutates_present_fields_only(pool: PgPool) {
         description: Some(Some("a description".to_string())),
         ..Default::default()
     };
-    assert!(
+    assert_eq!(
         repo.update("ws-u", &patch, &scope_ctx("user-1"))
             .await
-            .unwrap()
+            .unwrap(),
+        UpdateOutcome::Applied
     );
 
     let found = repo
@@ -165,12 +166,21 @@ async fn update_mutates_present_fields_only(pool: PgPool) {
     assert_eq!(found.name, "renamed");
     assert_eq!(found.description.as_deref(), Some("a description"));
 
-    // An empty patch is a no-op (no columns to set).
-    assert!(
-        !repo
-            .update("ws-u", &WorkspacePatch::default(), &scope_ctx("user-1"))
+    // An empty patch is a no-op (no columns to set), which is not a denial.
+    assert_eq!(
+        repo.update("ws-u", &WorkspacePatch::default(), &scope_ctx("user-1"))
             .await
-            .unwrap()
+            .unwrap(),
+        UpdateOutcome::NoFields
+    );
+
+    // A caller outside the workspace's control scope matches no row, and says
+    // so distinctly from the empty patch above — the two used to share `false`.
+    assert_eq!(
+        repo.update("ws-u", &patch, &scope_ctx("user-2"))
+            .await
+            .unwrap(),
+        UpdateOutcome::NoMatch
     );
 }
 
@@ -191,10 +201,11 @@ async fn update_jsonb_run_config_round_trips(pool: PgPool) {
         env_vars: Some(Some(env_vars.clone())),
         ..Default::default()
     };
-    assert!(
+    assert_eq!(
         repo.update("ws-json", &patch, &scope_ctx("user-1"))
             .await
-            .unwrap()
+            .unwrap(),
+        UpdateOutcome::Applied
     );
 
     let found = repo

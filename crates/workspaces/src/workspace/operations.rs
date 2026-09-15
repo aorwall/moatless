@@ -7,7 +7,7 @@ use moatless_types::access_control::ScopeContext;
 use super::dao::WorkspaceDao;
 use super::models::{ListedWorkspace, WorkspaceRepo};
 #[cfg(any(test, feature = "test-support"))]
-use super::models::{Workspace, WorkspacePatch};
+use super::models::{UpdateOutcome, Workspace, WorkspacePatch};
 
 /// The `workspaces` and `workspace_repos` tables, as a host and this crate's
 /// own routes reach them.
@@ -82,7 +82,7 @@ impl Workspaces {
         id: &str,
         patch: &WorkspacePatch,
         ctx: &ScopeContext,
-    ) -> Result<bool, sqlx::Error> {
+    ) -> Result<UpdateOutcome, sqlx::Error> {
         self.store.update(id, patch, ctx).await
     }
 

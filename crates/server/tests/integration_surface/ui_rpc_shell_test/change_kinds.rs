@@ -34,6 +34,7 @@ use moatless_types::access_control::Scope;
 use moatless_types::access_control::ScopeContext;
 use moatless_workspaces::compose;
 use moatless_workspaces::repository::routes::repository_router;
+use moatless_workspaces::workspace::UpdateOutcome;
 use moatless_workspaces::workspace::models::WorkspacePatch;
 use serde_json::Value;
 use serde_json::json;
@@ -576,7 +577,7 @@ async fn renaming_a_project_waits_for_the_next_snapshot(pool: PgPool) {
     assert_eq!(held.projects, ["ws-live"]);
     let watched_from = head(&pool).await.position;
 
-    assert!(
+    assert_eq!(
         compose::workspaces(pool.clone())
             .update(
                 "ws-live",
@@ -587,7 +588,8 @@ async fn renaming_a_project_waits_for_the_next_snapshot(pool: PgPool) {
                 &viewer,
             )
             .await
-            .unwrap()
+            .unwrap(),
+        UpdateOutcome::Applied
     );
 
     assert_eq!(recorded_after(&pool, watched_from).await, 0);
@@ -767,7 +769,7 @@ async fn a_project_change_reaches_only_the_clients_holding_it(pool: PgPool) {
     );
     let watched_from = reads(&pool).listing_head().await.unwrap().position;
 
-    assert!(
+    assert_eq!(
         compose::workspaces(pool.clone())
             .update(
                 "ws-other",
@@ -778,7 +780,8 @@ async fn a_project_change_reaches_only_the_clients_holding_it(pool: PgPool) {
                 &viewer("user-2"),
             )
             .await
-            .unwrap()
+            .unwrap(),
+        UpdateOutcome::Applied
     );
     assert!(
         compose::workspaces(pool.clone())
@@ -812,7 +815,7 @@ async fn a_referenced_project_change_waits_for_the_next_snapshot(pool: PgPool) {
     follow(&pool, "user-1", "t-theirs").await;
     // Something for the narrowing to withhold: a `scripts` assertion against a
     // workspace with no scripts passes whatever the projection does.
-    assert!(
+    assert_eq!(
         compose::workspaces(pool.clone())
             .update(
                 "ws-other",
@@ -826,7 +829,8 @@ async fn a_referenced_project_change_waits_for_the_next_snapshot(pool: PgPool) {
                 &viewer("user-2"),
             )
             .await
-            .unwrap()
+            .unwrap(),
+        UpdateOutcome::Applied
     );
 
     let watcher_viewer = viewer("user-1");
@@ -837,7 +841,7 @@ async fn a_referenced_project_change_waits_for_the_next_snapshot(pool: PgPool) {
     );
     let watched_from = head(&pool).await.position;
 
-    assert!(
+    assert_eq!(
         compose::workspaces(pool.clone())
             .update(
                 "ws-other",
@@ -848,7 +852,8 @@ async fn a_referenced_project_change_waits_for_the_next_snapshot(pool: PgPool) {
                 &viewer("user-2"),
             )
             .await
-            .unwrap()
+            .unwrap(),
+        UpdateOutcome::Applied
     );
 
     assert!(

@@ -23,4 +23,5 @@ pub(crate) mod reset;
 
 pub(crate) mod config_validation;
 
+pub use models::UpdateOutcome;
 pub use operations::Workspaces;

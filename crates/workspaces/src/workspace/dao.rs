@@ -4,8 +4,8 @@ use async_trait::async_trait;
 use sqlx::AssertSqlSafe;
 
 use super::models::{
-    ListedWorkspace, ListedWorkspaceRow, ScriptConfig, Workspace, WorkspacePatch, WorkspaceRepo,
-    WorkspaceRepoRow, WorkspaceRow, WorkspaceScriptsTarget, encode_column,
+    ListedWorkspace, ListedWorkspaceRow, ScriptConfig, UpdateOutcome, Workspace, WorkspacePatch,
+    WorkspaceRepo, WorkspaceRepoRow, WorkspaceRow, WorkspaceScriptsTarget, encode_column,
 };
 use moatless_core::db::DbPool;
 use moatless_types::access_control::{ScopeContext, ScopedEntity};
@@ -98,14 +98,13 @@ pub(crate) trait WorkspaceDao: Send + Sync {
     /// Insert a workspace row.
     async fn insert_workspace(&self, row: &Workspace) -> Result<(), sqlx::Error>;
 
-    /// Apply a partial update, scoped to caller control. Returns `false` when
-    /// nothing changed, row is missing, or caller cannot control the row.
+    /// Apply a partial update, scoped to caller control.
     async fn update(
         &self,
         id: &str,
         patch: &WorkspacePatch,
         ctx: &ScopeContext,
-    ) -> Result<bool, sqlx::Error>;
+    ) -> Result<UpdateOutcome, sqlx::Error>;
 
     /// Soft-delete a workspace, scoped to caller control. Returns `false` when
     /// already deleted, missing, or caller cannot control the row.
@@ -410,7 +409,7 @@ impl WorkspaceDao for PgWorkspaceDao {
         id: &str,
         patch: &WorkspacePatch,
         ctx: &ScopeContext,
-    ) -> Result<bool, sqlx::Error> {
+    ) -> Result<UpdateOutcome, sqlx::Error> {
         let mut sets: Vec<String> = Vec::new();
         let mut idx = 2; // $1 is id
 
@@ -448,7 +447,7 @@ impl WorkspaceDao for PgWorkspaceDao {
         push_set!(source_config_path);
 
         if sets.is_empty() {
-            return Ok(false);
+            return Ok(UpdateOutcome::NoFields);
         }
 
         sets.push(format!("updated_at = ${idx}"));
@@ -516,7 +515,11 @@ impl WorkspaceDao for PgWorkspaceDao {
         q = q.bind(&ctx.user_id);
 
         let result = q.execute(&self.0).await?;
-        Ok(result.rows_affected() > 0)
+        if result.rows_affected() > 0 {
+            Ok(UpdateOutcome::Applied)
+        } else {
+            Ok(UpdateOutcome::NoMatch)
+        }
     }
 
     async fn soft_delete(&self, id: &str, ctx: &ScopeContext) -> Result<bool, sqlx::Error> {

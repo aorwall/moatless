@@ -42,6 +42,7 @@ use moatless_tasks::task_turn::models::TurnTransition;
 use moatless_tasks::task_turn::test_support as turn_fixtures;
 use moatless_types::access_control::ScopeContext;
 use moatless_workspaces::compose;
+use moatless_workspaces::workspace::UpdateOutcome;
 use moatless_workspaces::workspace::models::WorkspacePatch;
 use sqlx::PgPool;
 use sqlx::postgres::PgPoolOptions;
@@ -319,7 +320,7 @@ async fn workspace_mutations_do_not_advance_the_task_listing(pool: PgPool) {
         .insert_workspace(&make_workspace_row("ws-manual", USER_1))
         .await
         .unwrap();
-    assert!(
+    assert_eq!(
         workspaces
             .update(
                 "ws-manual",
@@ -330,7 +331,8 @@ async fn workspace_mutations_do_not_advance_the_task_listing(pool: PgPool) {
                 &viewer,
             )
             .await
-            .unwrap()
+            .unwrap(),
+        UpdateOutcome::Applied
     );
     assert!(workspaces.soft_delete("ws-manual", &viewer).await.unwrap());
 
