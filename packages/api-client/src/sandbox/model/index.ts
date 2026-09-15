@@ -130,6 +130,7 @@ export * from './githubExternalEventRequest';
 export * from './githubExternalEventResponse';
 export * from './githubExternalEventSubject';
 export * from './gitHubInstallationOption';
+export * from './gitHubInstallationOptionPermissions';
 export * from './gitHubProviderTokenStatusResponse';
 export * from './githubReplyRequest';
 export * from './gitnessProviderTokenStatusResponse';

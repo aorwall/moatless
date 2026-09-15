@@ -1,6 +1,6 @@
 //! Installation-wide Adapter and GitHub App administration.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 use crate::adapter_apps::dao::{AdapterAppDao, GitHubAppAuditEntry, GitHubAppRecord, NewGitHubApp};
@@ -58,6 +58,9 @@ pub struct GitHubInstallation {
     pub installation_id: u64,
     pub account_login: String,
     pub account_type: Option<String>,
+    /// What this installation is allowed to do, carried through unchanged from
+    /// [`Installation::permissions`](crate::auth::github::service::Installation).
+    pub permissions: BTreeMap<String, String>,
 }
 
 #[derive(Clone, Debug)]
@@ -229,6 +232,7 @@ impl AppAdministration {
                     installation_id: installation.id,
                     account_login: installation.account.login,
                     account_type: installation.account.account_type,
+                    permissions: installation.permissions,
                 })
                 .collect();
             let stored = stored_apps.get(&github_app_key);

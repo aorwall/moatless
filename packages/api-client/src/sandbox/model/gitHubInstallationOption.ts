@@ -5,6 +5,7 @@
  * Sandbox orchestration and authentication for Moatless Vibe
  * OpenAPI spec version: 0.1.0
  */
+import type { GitHubInstallationOptionPermissions } from './gitHubInstallationOptionPermissions';
 
 export interface GitHubInstallationOption {
   accountLogin: string;
@@ -12,4 +13,11 @@ export interface GitHubInstallationOption {
   accountType?: string | null;
   /** @minimum 0 */
   installationId: number;
+  /**
+     * Permission name to level (`read`/`write`) for this installation, as
+     * GitHub reports it. A permission the App was never granted is absent
+     * rather than `"none"`, so an operator reading this list sees a gap as a
+     * missing row.
+     */
+  permissions?: GitHubInstallationOptionPermissions;
 }

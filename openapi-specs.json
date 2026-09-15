@@ -12956,6 +12956,16 @@
             "type": "integer",
             "format": "int64",
             "minimum": 0
+          },
+          "permissions": {
+            "type": "object",
+            "description": "Permission name to level (`read`/`write`) for this installation, as\nGitHub reports it. A permission the App was never granted is absent\nrather than `\"none\"`, so an operator reading this list sees a gap as a\nmissing row.",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
           }
         }
       },

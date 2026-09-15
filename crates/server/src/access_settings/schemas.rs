@@ -45,6 +45,12 @@ pub struct GitHubInstallationOption {
     pub account_login: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub account_type: Option<String>,
+    /// Permission name to level (`read`/`write`) for this installation, as
+    /// GitHub reports it. A permission the App was never granted is absent
+    /// rather than `"none"`, so an operator reading this list sees a gap as a
+    /// missing row.
+    #[serde(default)]
+    pub permissions: std::collections::BTreeMap<String, String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]

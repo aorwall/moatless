@@ -6,7 +6,7 @@
 //! 3. **Bot identity discovery** — resolve `{slug}[bot]` login and noreply
 //!    email for use as git author / committer when running "act-as-App" mode.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
@@ -101,6 +101,13 @@ struct RefreshTokenResponse {
 pub struct Installation {
     pub id: u64,
     pub account: InstallationAccount,
+    /// Permission name to level (`read`/`write`), exactly as GitHub returns it.
+    ///
+    /// A permission the App was never granted is absent rather than `"none"`,
+    /// so a caller checking for one tests presence, not value. Ordered so two
+    /// installations can be compared line by line.
+    #[serde(default)]
+    pub permissions: BTreeMap<String, String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]

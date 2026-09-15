@@ -168,9 +168,52 @@ async fn list(moat: &MoatClient, json: bool) -> Result<(), ClientError> {
                 installation["accountLogin"].as_str().unwrap_or(""),
                 installation["installationId"].as_u64().unwrap_or(0),
             );
+            print_permissions(&installation["permissions"]);
         }
     }
     Ok(())
+}
+
+/// Print an installation's granted permissions, wrapped to stay readable.
+fn print_permissions(permissions: &serde_json::Value) {
+    for line in permission_lines(permissions) {
+        println!("  perms    {line}");
+    }
+}
+
+/// Width a permission list wraps at, leaving room for the `  perms    ` label.
+const PERMISSION_LINE_WIDTH: usize = 66;
+
+/// Render granted permissions as `name:level` entries wrapped across lines.
+///
+/// GitHub omits an ungranted permission rather than reporting it as `none`, so
+/// what is *missing* from these lines is the answer to "why did that call
+/// 403" — which is why an empty set says so in words instead of printing
+/// nothing.
+fn permission_lines(permissions: &serde_json::Value) -> Vec<String> {
+    if permissions.is_null() {
+        // No `permissions` key at all: the server predates the field, since it
+        // serializes a `BTreeMap` with no `skip_serializing_if`. Claiming
+        // "none granted" here would read as a diagnosis rather than a gap.
+        return vec!["not reported by this server".to_string()];
+    }
+    let Some(granted) = permissions.as_object().filter(|p| !p.is_empty()) else {
+        return vec!["none granted".to_string()];
+    };
+    let mut lines = Vec::new();
+    let mut line = String::new();
+    for (name, level) in granted {
+        let entry = format!("{name}:{}", level.as_str().unwrap_or("?"));
+        if !line.is_empty() && line.len() + entry.len() + 2 > PERMISSION_LINE_WIDTH {
+            lines.push(std::mem::take(&mut line));
+        }
+        if !line.is_empty() {
+            line.push_str(", ");
+        }
+        line.push_str(&entry);
+    }
+    lines.push(line);
+    lines
 }
 
 fn print_registration(resp: &serde_json::Value, json: bool, verb: &str) {
@@ -202,4 +245,48 @@ fn read_signing_key(path: &PathBuf) -> Result<String, ClientError> {
     }
     std::fs::read_to_string(path)
         .map_err(|e| ClientError::Other(format!("Could not read {}: {e}", path.display())))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_ungranted_permission_set_says_so_rather_than_printing_nothing() {
+        // A blank line here would read as "this command doesn't know", which is
+        // the opposite of what an empty set means.
+        assert_eq!(permission_lines(&serde_json::json!({})), ["none granted"]);
+    }
+
+    #[test]
+    fn a_server_too_old_to_report_permissions_is_not_read_as_a_denial() {
+        // A `moat` binary ahead of the backend it points at is routine, and an
+        // operator who reads "none granted" there goes looking for a grant that
+        // is already in place.
+        assert_eq!(
+            permission_lines(&serde_json::Value::Null),
+            ["not reported by this server"]
+        );
+    }
+
+    #[test]
+    fn permissions_render_sorted_and_wrapped() {
+        let lines = permission_lines(&serde_json::json!({
+            "workflows": "write",
+            "actions": "write",
+            "checks": "write",
+            "contents": "write",
+            "metadata": "read",
+            "packages": "read",
+            "pull_requests": "write",
+        }));
+
+        // Sorted, so two installations diff line by line rather than by eye.
+        assert!(lines[0].starts_with("actions:write, checks:write"));
+        assert!(lines.iter().all(|l| l.len() <= PERMISSION_LINE_WIDTH));
+        assert!(lines.len() > 1, "this set is wider than one line");
+        let joined = lines.join(", ");
+        assert!(joined.contains("workflows:write"));
+        assert!(!joined.contains("members"));
+    }
 }

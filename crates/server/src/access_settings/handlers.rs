@@ -970,6 +970,7 @@ fn github_app_option(app: GitHubAppView) -> GitHubAppOption {
                 installation_id: installation.installation_id,
                 account_login: installation.account_login,
                 account_type: installation.account_type,
+                permissions: installation.permissions,
             })
             .collect(),
         deployment_configured: app.deployment_configured,
