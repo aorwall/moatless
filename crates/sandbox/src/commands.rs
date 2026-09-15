@@ -125,8 +125,9 @@ struct Entry {
 
 /// A command that owed the agent an outcome, as recorded in the journal.
 ///
-/// Carries what a replacement pod can still say; the log is excluded, since it
-/// lives outside the workspace snapshot.
+/// Carries what a replacement pod can still say. The log file lives outside
+/// the workspace snapshot, deliberately, and does not survive, so its last
+/// lines ride along in `log_tail` rather than the file itself.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct JournaledCommand {
@@ -136,7 +137,29 @@ pub struct JournaledCommand {
     pub started_at_unix_ms: i64,
     pub state: CommandState,
     pub exit_code: Option<i32>,
+    /// Bounded to [`JOURNAL_LOG_LINES`]/[`JOURNAL_LOG_BYTES`] so the snapshot
+    /// stays small. Defaulted rather than required: a journal written by an
+    /// older pod has no tail, and must still deserialize.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub log_tail: Option<String>,
 }
+
+/// How much of a lost command's log rides the journal.
+///
+/// Small on purpose. This is the snapshot that crosses a pod replacement, and
+/// the question it answers is "how far did this get", not "what did it print" —
+/// the tail of a test run names the package it died on, which is what decides
+/// whether the work must be redone.
+const JOURNAL_LOG_LINES: usize = 20;
+const JOURNAL_LOG_BYTES: u64 = 4096;
+
+/// How often a running command refreshes its journaled tail.
+///
+/// A command only writes the journal when its state changes, so without this a
+/// command that was *running* when the pod died would carry the tail it had at
+/// registration, which is empty. Long enough not to matter against a build,
+/// short enough that the tail names the phase the eviction interrupted.
+const JOURNAL_HEARTBEAT: Duration = Duration::from_secs(30);
 
 /// The commands that still owe the agent an outcome. Both mirrors write this,
 /// and neither may narrow it: a command the agent has not been shown is owed
@@ -152,6 +175,9 @@ fn owed(entries: &HashMap<String, Entry>) -> Vec<JournaledCommand> {
             started_at_unix_ms: e.command.started_at_unix_ms,
             state: e.command.state,
             exit_code: e.command.exit_code,
+            // Bounded read of the log's last page, so this stays a cheap
+            // syscall under the caller's entries lock rather than a file slurp.
+            log_tail: log_tail(&e.command.log_path, JOURNAL_LOG_LINES, JOURNAL_LOG_BYTES),
         })
         .collect()
 }
@@ -639,23 +665,37 @@ async fn supervise(
         row_mirror,
         liveness,
     } = sinks;
-    let (state, exit_code) = tokio::select! {
-        status = child.wait() => match status {
-            Ok(status) => (CommandState::Exited, status.code()),
-            Err(error) => {
-                warn!(id = %id, %error, "Failed to wait on command");
-                (CommandState::Exited, None)
+    let deadline = tokio::time::Instant::now() + timeout;
+    // Heartbeat, not a poll: the command is still awaited on its own branch, and
+    // this branch only refreshes the journaled tail. A pod is destroyed without
+    // warning, so a tail written only on a state change is a tail the one case
+    // that needs it — a command running when the pod died — never gets.
+    let mut heartbeat = tokio::time::interval(JOURNAL_HEARTBEAT);
+    heartbeat.tick().await;
+
+    let (state, exit_code) = loop {
+        tokio::select! {
+            status = child.wait() => break match status {
+                Ok(status) => (CommandState::Exited, status.code()),
+                Err(error) => {
+                    warn!(id = %id, %error, "Failed to wait on command");
+                    (CommandState::Exited, None)
+                }
+            },
+            () = tokio::time::sleep_until(deadline) => {
+                warn!(id = %id, pid, timeout_secs = timeout.as_secs(), "Command hit its timeout; killing");
+                terminate(pid, &mut child).await;
+                break (CommandState::TimedOut, Some(TIMEOUT_EXIT_CODE));
             }
-        },
-        () = tokio::time::sleep(timeout) => {
-            warn!(id = %id, pid, timeout_secs = timeout.as_secs(), "Command hit its timeout; killing");
-            terminate(pid, &mut child).await;
-            (CommandState::TimedOut, Some(TIMEOUT_EXIT_CODE))
-        }
-        () = kill.cancelled() => {
-            info!(id = %id, pid, "Command killed on request");
-            terminate(pid, &mut child).await;
-            (CommandState::Killed, None)
+            () = kill.cancelled() => {
+                info!(id = %id, pid, "Command killed on request");
+                terminate(pid, &mut child).await;
+                break (CommandState::Killed, None);
+            }
+            _ = heartbeat.tick() => {
+                let entries = entries.read().await;
+                mirror(journal.as_ref(), row_mirror.as_ref(), &entries).await;
+            }
         }
     };
 
@@ -860,6 +900,7 @@ mod tests {
             started_at_unix_ms: 1,
             state: CommandState::Running,
             exit_code: None,
+            log_tail: None,
         };
         for (task_id, id) in [("task-a", "aaaaaaaa"), ("task-b", "bbbbbbbb")] {
             tokio::fs::write(

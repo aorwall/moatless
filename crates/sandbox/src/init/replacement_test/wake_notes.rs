@@ -107,6 +107,7 @@ async fn a_note_and_a_lost_command_open_one_turn() {
             started_at_unix_ms: 1,
             state: CommandState::Running,
             exit_code: None,
+            log_tail: None,
         }])
         .expect("encode"),
     )

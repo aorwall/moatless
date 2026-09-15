@@ -146,7 +146,8 @@ fn wrap_restart_note(parts: &[String]) -> String {
 
 /// What a restart destroyed, or `None` when no command was owed a wake. A
 /// `Running` command was cut off mid-flight; a terminal one finished but was
-/// never read. Neither log survives the restart.
+/// never read. No log file survives, so each command's last lines are quoted
+/// from the journal instead.
 fn lost_commands_body(lost: &[crate::commands::JournaledCommand]) -> Option<String> {
     use crate::commands::CommandState;
     if lost.is_empty() {
@@ -167,7 +168,21 @@ fn lost_commands_body(lost: &[crate::commands::JournaledCommand]) -> Option<Stri
                 CommandState::TimedOut => "had hit its timeout and been killed".to_string(),
                 CommandState::Killed => "had been killed".to_string(),
             };
-            format!("- `{}` ({}): {status}", c.id, c.label)
+            let head = format!("- `{}` ({}): {status}", c.id, c.label);
+            // Indented under its own bullet so several lost commands stay
+            // readable, and fenced so the agent does not read a log line that
+            // looks like an instruction as one.
+            match c.log_tail.as_deref() {
+                Some(tail) => {
+                    let quoted = tail
+                        .lines()
+                        .map(|line| format!("  {line}"))
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    format!("{head}\n  Its log ended:\n  ```\n{quoted}\n  ```")
+                }
+                None => head,
+            }
         })
         .collect();
     let noun = if lost.len() == 1 {
@@ -175,11 +190,19 @@ fn lost_commands_body(lost: &[crate::commands::JournaledCommand]) -> Option<Stri
     } else {
         "commands were"
     };
+    let any_tail = lost.iter().any(|c| c.log_tail.is_some());
+    let closing = if any_tail {
+        "The last lines of each log are quoted above — they are all that survived, \
+         and they are a record of where the command got to, not a result. Judge \
+         from them whether a command got far enough to trust, re-run the ones that \
+         did not, then continue the task."
+    } else {
+        "Re-run any of these you still need, then continue the task."
+    };
     Some(format!(
         "The sandbox was restarted and {} background {noun} lost with it. Each was \
-         started with `moat cmd`; its process and its log did not survive the \
-         restart, so there is nothing left to read back:\n{}\n\n\
-         Re-run any of these you still need, then continue the task.",
+         started with `moat cmd`; its process and its log file did not survive the \
+         restart:\n{}\n\n{closing}",
         lost.len(),
         lines.join("\n")
     ))
@@ -345,6 +368,7 @@ mod tests {
             started_at_unix_ms: 1,
             state,
             exit_code: None,
+            log_tail: None,
         }
     }
 
@@ -373,6 +397,35 @@ mod tests {
         // journal still names what the restart destroyed.
         let merged = merge_lost_commands(vec![], vec![lost("a", CommandState::Running)]);
         assert_eq!(merged, vec![lost("a", CommandState::Running)]);
+    }
+
+    #[test]
+    fn a_lost_command_quotes_the_log_tail_the_journal_carried() {
+        let mut running = lost("a", CommandState::Running);
+        running.log_tail = Some("PKG @t3tools/web PASS 132s\nPKG @t3tools/desktop FAIL(1)".into());
+
+        let body = lost_commands_body(&[running]).expect("a lost command owes a wake");
+
+        assert!(body.contains("PKG @t3tools/web PASS 132s"));
+        assert!(body.contains("PKG @t3tools/desktop FAIL(1)"));
+        // The whole point: an agent must be able to judge how far the command
+        // got, rather than being told only that the result is unknown.
+        assert!(body.contains("Its log ended:"));
+        assert!(
+            !body.contains("there is nothing left to read back"),
+            "the closing line must not contradict a quoted tail: {body}"
+        );
+    }
+
+    #[test]
+    fn a_lost_command_without_a_tail_still_reads_as_it_did() {
+        // An older pod's journal has no tail, and a command killed before it
+        // wrote a line has nothing to quote. Neither may grow an empty block.
+        let body = lost_commands_body(&[lost("a", CommandState::Running)])
+            .expect("a lost command owes a wake");
+
+        assert!(!body.contains("Its log ended:"));
+        assert!(body.contains("Re-run any of these you still need"));
     }
 
     #[test]
@@ -420,6 +473,7 @@ mod tests {
             started_at_unix_ms: 0,
             state,
             exit_code,
+            log_tail: None,
         }
     }
 

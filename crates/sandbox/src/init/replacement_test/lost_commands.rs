@@ -22,6 +22,7 @@ fn journalled(id: &str, label: &str, state: CommandState) -> JournaledCommand {
         started_at_unix_ms: 1,
         state,
         exit_code: None,
+        log_tail: None,
     }
 }
 

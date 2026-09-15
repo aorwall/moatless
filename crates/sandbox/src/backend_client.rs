@@ -669,5 +669,9 @@ fn journaled_command(entry: UnreportedCommand) -> JournaledCommand {
         started_at_unix_ms: entry.started_at_unix_ms,
         state: CommandState::from_wire(&entry.state),
         exit_code: entry.exit_code,
+        // The row mirror carries no log: it exists to survive a restore that
+        // skips the workspace, and log text does not belong on a backend row.
+        // `merge_lost_commands` prefers the journal, which does carry the tail.
+        log_tail: None,
     }
 }
