@@ -14,6 +14,7 @@ use moatless_api_schemas::github::{
 use super::pr_view::{self, PrViewArgs};
 use super::process::gh_command_output;
 use super::repo::{current_git_branch, resolve_repo};
+use super::run_logs::{self, RunLogArgs};
 use super::stack::{StackInvocation, strip_moat_task_flag};
 use super::token::github_token_for_gh;
 use crate::client::MoatClient;
@@ -117,6 +118,7 @@ pub(super) enum TypedInvocation {
     Comment(CommentArgs),
     PrReply(ReplyArgs),
     PrView(PrViewArgs),
+    RunLog(RunLogArgs),
     Stack(StackInvocation),
 }
 
@@ -141,6 +143,7 @@ pub(super) fn parse_typed(args: &[String]) -> Option<TypedInvocation> {
         // No demotion warning: a `pr view` this path declines is a read that
         // real `gh` answers correctly, and nothing is bound or footered here.
         ("pr", "view") => pr_view::parse(rest).map(TypedInvocation::PrView),
+        ("run", "view") => run_logs::parse(rest).map(TypedInvocation::RunLog),
         ("stack", _) => match strip_moat_task_flag(args) {
             Ok((args, task)) => Some(TypedInvocation::Stack(StackInvocation { args, task })),
             Err(_) => None,
