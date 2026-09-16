@@ -77,12 +77,10 @@ pub(super) fn classify(
 
 /// Which comment the caller meant, given what each id space said.
 ///
-/// A comment on the pull request they named wins over one elsewhere, whichever
-/// space it came from: an id that reaches this code was read off a message
-/// about that pull request. Only a space that answered decides anything. That a
-/// review comment carries the id proves one exists, not that the delivered id
-/// came from that space, so a lookup that failed leaves the reply unroutable
-/// rather than aiming it at the thread of a comment that merely collides.
+/// A comment on the pull request the caller named wins over one elsewhere,
+/// whichever space it came from. A review comment carrying the id proves one
+/// exists, not that the id came from that space, so a failed lookup leaves the
+/// reply unroutable rather than aiming it at a comment that merely collides.
 fn resolve(review: Lookup, issue: Lookup, pr_number: u64) -> ReplyTarget {
     use Lookup::{Failed, Missing, On};
     match (review, issue) {
