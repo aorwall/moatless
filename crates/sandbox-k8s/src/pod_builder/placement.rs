@@ -99,18 +99,3 @@ pub(super) fn resolve_dind_storage_size(config: &Config, plan: &ProvisionPlan) -
             Memory::to_string,
         )
 }
-
-/// Parent directory of the package-cache root (e.g. `/mnt` for `/mnt/cache`).
-///
-/// `nvme-setup` bind-mounts this parent with bidirectional propagation so the
-/// NVMe it mounts at `<parent>/<basename>` is visible to the sibling
-/// `pkg-cache` hostPath mount; falls back to `/` if the root has no parent
-/// component.
-pub(super) fn cache_host_parent(root: &str) -> &str {
-    let trimmed = root.trim_end_matches('/');
-    match trimmed.rsplit_once('/') {
-        Some(("", _)) => "/",
-        Some((parent, _)) => parent,
-        None => "/",
-    }
-}

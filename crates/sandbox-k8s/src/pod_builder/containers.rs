@@ -1,84 +1,10 @@
-//! The containers on the pod — sandbox, servers, Docker-in-Docker and the NVMe
-//! init — and the resource envelope each compute mode admits.
+//! The containers on the pod — sandbox, servers and Docker-in-Docker — and the
+//! resource envelope each compute mode admits.
 
 use super::env::{env_var, redact_url_userinfo};
 use super::placement::resolve_sandbox_image;
 use super::security::{app_security_context, privileged_security_context};
 use super::*;
-
-/// Build the privileged `nvme-setup` init container.
-///
-/// Formats (if unformatted) and mounts the node-local NVMe under the
-/// package-cache root via bidirectional propagation, so the host's sibling
-/// `pkg-cache` hostPath mounts see the NVMe-backed dirs; falls back gracefully
-/// to the node root disk when no NVMe device exists.
-pub(super) fn build_nvme_setup_container(config: &Config) -> Container {
-    // Inside the container the parent is bind-mounted at `/host-mnt`, so the
-    // NVMe mount target is `/host-mnt/<basename-of-cache-root>`.
-    let root = config.sandbox.cache_host_root.trim_end_matches('/');
-    let basename = root
-        .rsplit('/')
-        .next()
-        .filter(|s| !s.is_empty())
-        .unwrap_or("cache");
-    let cache_dir = format!("/host-mnt/{basename}");
-
-    // mkdir/chmod each cache subdir AFTER the mount block so it runs whether the
-    // cache landed on NVMe or the root-disk fallback.
-    let mkdirs = config
-        .sandbox
-        .cache_volumes
-        .iter()
-        .map(|c| {
-            format!(
-                "mkdir -p {cache_dir}/{name} && chmod 0777 {cache_dir}/{name}",
-                name = c.name
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
-    let script = format!(
-        "if [ -b /dev/nvme1n1 ]; then\n\
-         \x20 if ! blkid /dev/nvme1n1 >/dev/null 2>&1; then\n\
-         \x20   echo \"NVMe unformatted, creating ext4...\"\n\
-         \x20   mkfs.ext4 -F /dev/nvme1n1\n\
-         \x20 fi\n\
-         \x20 mkdir -p {cache_dir}\n\
-         \x20 mountpoint -q {cache_dir} || mount /dev/nvme1n1 {cache_dir}\n\
-         fi\n\
-         mkdir -p {cache_dir}\n\
-         {mkdirs}\n"
-    );
-
-    Container {
-        name: "nvme-setup".to_string(),
-        image: Some(config.sandbox.cache_init_image.clone()),
-        image_pull_policy: Some(config.sandbox.image_pull_policy.clone()),
-        command: Some(vec!["/bin/sh".to_string(), "-c".to_string()]),
-        args: Some(vec![script]),
-        security_context: Some(privileged_security_context()),
-        // Modest requests/limits so this short-lived, privileged init container is
-        // schedulable and bounded rather than BestEffort.
-        resources: Some(ResourceRequirements {
-            requests: Some(BTreeMap::from([
-                ("cpu".to_string(), Quantity("50m".to_string())),
-                ("memory".to_string(), Quantity("64Mi".to_string())),
-            ])),
-            limits: Some(BTreeMap::from([
-                ("cpu".to_string(), Quantity("200m".to_string())),
-                ("memory".to_string(), Quantity("256Mi".to_string())),
-            ])),
-            ..Default::default()
-        }),
-        volume_mounts: Some(vec![VolumeMount {
-            name: "host-mnt".to_string(),
-            mount_path: "/host-mnt".to_string(),
-            mount_propagation: Some("Bidirectional".to_string()),
-            ..Default::default()
-        }]),
-        ..Default::default()
-    }
-}
 
 /// Whether this repo opted into Docker access (privileged dind sidecar).
 ///
@@ -257,8 +183,8 @@ pub(super) fn validate_compute_mode(
     if pvc_name.is_some() {
         return Err("EKS Fargate does not support persistent workspace volume claims".to_string());
     }
-    if !config.sandbox.cache_volumes.is_empty() || config.sandbox.node_archive_enabled {
-        return Err("EKS Fargate does not support node-backed package cache volumes".to_string());
+    if config.sandbox.node_archive_enabled {
+        return Err("EKS Fargate does not support node-backed archives".to_string());
     }
     Ok(())
 }
@@ -419,14 +345,6 @@ pub(super) fn build_sandbox_container(
         }
     }
 
-    // Package-manager cache env — point each tool at its mounted cache dir
-    // (e.g. MAVEN_OPTS=-Dmaven.repo.local=/maven-cache, BUN_INSTALL_CACHE_DIR).
-    for cache in &config.sandbox.cache_volumes {
-        for (key, value) in &cache.env {
-            env.push(env_var(key, value));
-        }
-    }
-
     // Docker-in-Docker access (opt-in). Point the Docker CLI + Testcontainers at
     // the privileged `dind` sidecar over the shared pod network namespace, and
     // disable Ryuk — its socket-reaper doesn't play well with the dind topology
@@ -538,17 +456,6 @@ pub(super) fn build_sandbox_container(
             name: "workspace-data".to_string(),
             mount_path: "/opt/cargo/git".to_string(),
             sub_path: Some("cargo-git".to_string()),
-            ..Default::default()
-        });
-    }
-
-    // Package-manager cache mounts — each entry is a subPath (`<name>`) on the
-    // single shared `pkg-cache` hostPath volume, surfaced at its `mount_path`.
-    for cache in &config.sandbox.cache_volumes {
-        volume_mounts.push(VolumeMount {
-            name: "pkg-cache".to_string(),
-            mount_path: cache.mount_path.clone(),
-            sub_path: Some(cache.name.clone()),
             ..Default::default()
         });
     }

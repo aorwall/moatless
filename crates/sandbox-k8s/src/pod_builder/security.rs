@@ -39,8 +39,8 @@ pub(super) fn app_security_context(config: &Config) -> SecurityContext {
 ///
 /// Runs containers as non-root `moatless` (UID/GID 1000) with `RuntimeDefault`
 /// seccomp and `fsGroup: 1000` for volume writability; the privileged `dind`
-/// and `nvme-setup` containers override back to root at the container level
-/// (see [`privileged_security_context`]). Returns `None` when the flag is off,
+/// sidecar overrides back to root at the container level (see
+/// [`privileged_security_context`]). Returns `None` when the flag is off,
 /// leaving containers running as root.
 pub(super) fn pod_security_context(config: &Config) -> Option<PodSecurityContext> {
     config.sandbox.run_as_non_root.then(|| PodSecurityContext {
@@ -62,12 +62,11 @@ pub(super) fn pod_security_context(config: &Config) -> Option<PodSecurityContext
     })
 }
 
-/// Privileged security context for the `nvme-setup` init container and the
-/// `dind` sidecar.
+/// Privileged security context for the `dind` sidecar.
 ///
-/// Pins `runAsUser: 0`/`runAsNonRoot: false` so these stay root (needed for
-/// `mkfs.ext4`/`mount` and `dockerd`) even when the pod-level context enables
-/// `runAsNonRoot`, or the kubelet would reject them; used only here, never by
+/// Pins `runAsUser: 0`/`runAsNonRoot: false` so it stays root (needed for
+/// `dockerd`) even when the pod-level context enables `runAsNonRoot`, or the
+/// kubelet would reject it; used only here, never by
 /// [`app_security_context`]'s containers.
 pub(super) fn privileged_security_context() -> SecurityContext {
     SecurityContext {

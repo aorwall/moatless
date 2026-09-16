@@ -98,42 +98,6 @@ fn parse_extra_env(key: &str) -> Vec<(String, String)> {
     }
 }
 
-/// Parse the sandbox package-manager cache list from env var `key` (JSON:
-/// `[{"name":"maven","mountPath":"/maven-cache","env":{...}}]`).
-///
-/// `env` is sorted into a `Vec` for deterministic container specs; parse
-/// failure warns and returns an empty vec.
-fn parse_cache_volumes(key: &str) -> Vec<SandboxCacheVolume> {
-    let raw = match env::var(key) {
-        Ok(v) if !v.is_empty() => v,
-        _ => return vec![],
-    };
-
-    #[derive(serde::Deserialize)]
-    struct Entry {
-        name: String,
-        #[serde(rename = "mountPath")]
-        mount_path: String,
-        #[serde(default)]
-        env: std::collections::BTreeMap<String, String>,
-    }
-
-    match serde_json::from_str::<Vec<Entry>>(&raw) {
-        Ok(entries) => entries
-            .into_iter()
-            .map(|e| SandboxCacheVolume {
-                name: e.name,
-                mount_path: e.mount_path,
-                env: e.env.into_iter().collect(),
-            })
-            .collect(),
-        Err(e) => {
-            tracing::warn!(key, error = %e, "Failed to parse sandbox cache volumes JSON");
-            vec![]
-        }
-    }
-}
-
 /// Read an environment variable as `Option<String>`.
 fn env_opt(key: &str) -> Option<String> {
     env::var(key).ok()
@@ -208,22 +172,6 @@ pub struct ServerConfig {
     pub grpc_port: u16,
 }
 
-/// A node-local package-manager cache mounted into sandbox pods, one `subPath`
-/// (`<cache_host_root>/<name>`) per entry on the shared `pkg-cache` volume.
-///
-/// Caches each tool's download cache/store (maven repo, npm `_cacache`, pnpm
-/// store) — never per-project `node_modules`, which must not be shared across
-/// repos.
-#[derive(Debug, Clone)]
-pub struct SandboxCacheVolume {
-    /// Cache name → subdirectory under the shared cache root (e.g. `maven`).
-    pub name: String,
-    /// In-container mount path (e.g. `/maven-cache`).
-    pub mount_path: String,
-    /// Env vars that point the tool at the cache, sorted by key.
-    pub env: Vec<(String, String)>,
-}
-
 /// Kubernetes compute substrate used for dynamically created sandbox pods.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum KubernetesComputeMode {
@@ -296,7 +244,7 @@ pub struct SandboxConfig {
     /// Runs the sandbox and server containers as non-root via a pod
     /// securityContext (env `K8S_SANDBOX_RUN_AS_NON_ROOT`, default `false`).
     ///
-    /// The `dind` sidecar and `nvme-setup` init container still run as root.
+    /// The `dind` sidecar still runs as root.
     pub run_as_non_root: bool,
     /// Size cap for the `shared-data` emptyDir mounted at `/opt/moatless/data`;
     /// without it, growth is unbounded and can evict the node.
@@ -450,22 +398,12 @@ pub struct SandboxConfig {
     /// Extra env vars injected into every sandbox pod (parsed from
     /// `K8S_SANDBOX_EXTRA_ENV` JSON)
     pub extra_env: Vec<(String, String)>,
-    /// Generic package-manager caches mounted into sandbox pods (parsed from
-    /// `K8S_SANDBOX_CACHE_VOLUMES` JSON). Empty disables the feature entirely —
-    /// no extra volume, no init container. See [`SandboxCacheVolume`].
-    pub cache_volumes: Vec<SandboxCacheVolume>,
-    /// Host directory the shared `pkg-cache` volume is rooted at; the
-    /// `nvme-setup` init container formats/mounts the node-local NVMe here.
+    /// Host directory node-local sandbox storage is rooted at, holding
+    /// `workspaces/<task-id>` and `docker/<task-id>`.
     ///
-    /// Each cache lives in a `<root>/<name>` subdir. Env
-    /// `K8S_SANDBOX_CACHE_HOST_ROOT` (default `/mnt/cache`).
+    /// The node archive manager and the node-storage janitor both prune under
+    /// it. Env `K8S_SANDBOX_CACHE_HOST_ROOT` (default `/mnt/cache`).
     pub cache_host_root: String,
-    /// Image for the privileged `nvme-setup` init container that formats/mounts
-    /// the instance-store NVMe.
-    ///
-    /// Must be an allowlisted ref under the `restrict-image-registries` Kyverno
-    /// policy. Env `K8S_SANDBOX_CACHE_INIT_IMAGE`.
-    pub cache_init_image: String,
     /// Image for the privileged `dind` sidecar attached when a repo sets
     /// `dockerAccess: true`, letting Testcontainers-based tests run inside the
     /// sandbox.
@@ -861,12 +799,7 @@ impl Config {
                 default_model: env_opt("DEFAULT_CLAUDE_CODE_MODEL"),
                 default_codex_model: Some(env_str("DEFAULT_CODEX_MODEL", DEFAULT_CODEX_MODEL)),
                 extra_env: parse_extra_env("K8S_SANDBOX_EXTRA_ENV"),
-                cache_volumes: parse_cache_volumes("K8S_SANDBOX_CACHE_VOLUMES"),
                 cache_host_root: env_str("K8S_SANDBOX_CACHE_HOST_ROOT", "/mnt/cache"),
-                cache_init_image: env_str(
-                    "K8S_SANDBOX_CACHE_INIT_IMAGE",
-                    "111111111111.dkr.ecr.eu-north-1.amazonaws.com/mirror/docker.io/library/docker:29-dind",
-                ),
                 docker_dind_image: env_str(
                     "K8S_SANDBOX_DOCKER_DIND_IMAGE",
                     "111111111111.dkr.ecr.eu-north-1.amazonaws.com/mirror/docker.io/library/docker:29-dind",
@@ -1187,10 +1120,9 @@ impl Config {
                                 .into(),
                         ));
                     }
-                    if !self.sandbox.cache_volumes.is_empty() || self.sandbox.node_archive_enabled {
+                    if self.sandbox.node_archive_enabled {
                         return Err(ConfigError::Invalid(
-                            "K8S_COMPUTE_MODE=fargate does not support node-local cache volumes or archives"
-                                .into(),
+                            "K8S_COMPUTE_MODE=fargate does not support node-local archives".into(),
                         ));
                     }
                     for (request, limit, name) in [
@@ -1324,9 +1256,7 @@ impl Config {
                 default_model: None,
                 default_codex_model: Some(DEFAULT_CODEX_MODEL.to_string()),
                 extra_env: vec![],
-                cache_volumes: vec![],
                 cache_host_root: "/mnt/cache".into(),
-                cache_init_image: "docker:dind".into(),
                 docker_dind_image: "docker:dind".into(),
                 docker_dind_storage_size: "10Gi".into(),
                 docker_dind_cpu_request: "500m".into(),

@@ -730,9 +730,9 @@ kubernetes:
   inactivityTimeoutMinutes: 20
   # -- Run the sandbox + server containers as the non-root `moatless` user
   #    (UID/GID 1000) via a pod-level securityContext (runAsNonRoot, fsGroup: 1000,
-  #    seccompProfile: RuntimeDefault). The privileged `dind` sidecar and
-  #    `nvme-setup` init container keep running as root. Defaults to false so the
-  #    hardening can be rolled out per-environment — flip to true once the sandbox
+  #    seccompProfile: RuntimeDefault). The privileged `dind` sidecar keeps running
+  #    as root. Defaults to false so the hardening can be rolled out
+  #    per-environment — flip to true once the sandbox
   #    images (which chown all runtime paths to UID 1000) are deployed and user
   #    workloads are verified to work without root. Maps to K8S_SANDBOX_RUN_AS_NON_ROOT.
   sandboxRunAsNonRoot: false
@@ -876,37 +876,7 @@ kubernetes:
       value: "30"
     - name: net.ipv4.tcp_keepalive_probes
       value: "5"
-  # -- Generic node-local package-manager caches mounted into sandbox pods.
-  # Each entry shares ONE node-local NVMe-backed hostPath volume (rooted at
-  # /mnt/cache); a privileged `nvme-setup` init container formats/mounts the
-  # instance-store NVMe and creates a per-cache subdir. Each entry caches a
-  # tool's DOWNLOAD cache/store (maven local repo, npm _cacache, bun cache) —
-  # never per-project node_modules, which must not be shared across repos.
-  # Empty (default) keeps sandbox pods hardened: no privileged init container,
-  # no hostPath. Adding a new package manager is one more entry — no code change.
-  # Requires sandbox nodes with local NVMe (the moatless-egress pool pinned to a
-  # `d`-family instance, e.g. c5d).
-  # Only cache what no image already bakes. An entry whose `env` repoints a tool
-  # at an empty node-local dir makes the image's copy invisible and the first
-  # sandbox on each node re-download it — which is what a `playwright` entry
-  # setting PLAYWRIGHT_BROWSERS_PATH did: the sandbox image bakes the browsers
-  # at /opt/playwright-browsers (docker/Dockerfile.sandbox-base), so do not add
-  # one back. Example:
-  #   sandboxCacheVolumes:
-  #     - name: maven
-  #       mountPath: /maven-cache
-  #       env:
-  #         MAVEN_OPTS: "-Dmaven.repo.local=/maven-cache"
-  #     - name: bun
-  #       mountPath: /bun-cache
-  #       env:
-  #         BUN_INSTALL_CACHE_DIR: /bun-cache
-  #     - name: npm
-  #       mountPath: /npm-cache
-  #       env:
-  #         npm_config_cache: /npm-cache
-  sandboxCacheVolumes: []
-  # -- Host root for node-local sandbox caches and best-effort hostPath storage
+  # -- Host root for best-effort node-local sandbox storage
   # (`workspaces/<task-id>` and `docker/<task-id>`). When node archive
   # management is enabled, the janitor prunes old per-task directories here.
   sandboxCacheHostRoot: "/mnt/cache"
@@ -917,11 +887,6 @@ kubernetes:
   # ConfigMap/node-reader RBAC and allows the node-storage janitor to render.
   nodeArchive:
     enabled: false
-  # -- Image for the privileged `nvme-setup` init container (only used when
-  # sandboxCacheVolumes is non-empty). Must be allowlisted by the cluster's
-  # restrict-image-registries policy for initContainers (the ECR-mirrored dind
-  # ref). Leave empty to use the backend's built-in default.
-  sandboxCacheInitImage: ""
   # -- Janitor that bounds managed node-local hostPath storage growth. It renders
   # only when nodeArchive.enabled is also true, runs on sandbox nodes, and
   # deletes per-task workspace/docker directories older than

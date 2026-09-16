@@ -116,14 +116,7 @@ fn run_as_non_root_on_keeps_dind_root() {
 /// assert a guarantee the runtime does not honour.
 #[test]
 fn privileged_containers_have_no_selinux_options() {
-    use moatless_core::config::SandboxCacheVolume;
-
-    let mut config = test_config();
-    config.sandbox.cache_volumes = vec![SandboxCacheVolume {
-        name: "bun".into(),
-        mount_path: "/bun-cache".into(),
-        env: vec![("BUN_INSTALL_CACHE_DIR".into(), "/bun-cache".into())],
-    }];
+    let config = test_config();
     let mut plan = test_plan();
     plan.repo_config.docker_access = Some(true);
 
@@ -142,71 +135,5 @@ fn privileged_containers_have_no_selinux_options() {
             .se_linux_options
             .as_ref(),
         None
-    );
-
-    let nvme = spec
-        .init_containers
-        .as_ref()
-        .unwrap()
-        .iter()
-        .find(|c| c.name == "nvme-setup")
-        .expect("nvme-setup init container present");
-    assert_eq!(
-        nvme.security_context
-            .as_ref()
-            .unwrap()
-            .se_linux_options
-            .as_ref(),
-        None
-    );
-}
-
-/// The `nvme-setup` init container keeps its privileged root context and
-/// carries modest resource requests/limits.
-#[test]
-fn nvme_setup_init_container_is_root_and_has_resources() {
-    use moatless_core::config::SandboxCacheVolume;
-
-    let mut config = test_config();
-    config.sandbox.run_as_non_root = true;
-    config.sandbox.cache_volumes = vec![SandboxCacheVolume {
-        name: "bun".into(),
-        mount_path: "/bun-cache".into(),
-        env: vec![("BUN_INSTALL_CACHE_DIR".into(), "/bun-cache".into())],
-    }];
-    let plan = test_plan();
-
-    let pod = build_pod(&config, "task-1", &plan, None, None).unwrap();
-    let nvme = pod
-        .spec
-        .as_ref()
-        .unwrap()
-        .init_containers
-        .as_ref()
-        .unwrap()
-        .iter()
-        .find(|c| c.name == "nvme-setup")
-        .expect("nvme-setup init container present");
-
-    let sc = nvme.security_context.as_ref().unwrap();
-    assert_eq!(sc.privileged, Some(true));
-    assert_eq!(sc.run_as_user, Some(0));
-    assert_eq!(sc.run_as_non_root, Some(false));
-
-    let resources = nvme
-        .resources
-        .as_ref()
-        .expect("nvme-setup must declare resources");
-    assert!(
-        resources
-            .requests
-            .as_ref()
-            .is_some_and(|r| r.contains_key("cpu") && r.contains_key("memory"))
-    );
-    assert!(
-        resources
-            .limits
-            .as_ref()
-            .is_some_and(|l| l.contains_key("cpu") && l.contains_key("memory"))
     );
 }

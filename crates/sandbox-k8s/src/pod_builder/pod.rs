@@ -2,13 +2,13 @@
 //! rebuild is needed, and the generation stamped on it.
 
 use super::containers::{
-    build_dind_container, build_nvme_setup_container, build_sandbox_container,
-    build_server_containers, docker_access_enabled, validate_compute_mode,
+    build_dind_container, build_sandbox_container, build_server_containers, docker_access_enabled,
+    validate_compute_mode,
 };
 use super::env::{chrono_now_iso, redact_url_userinfo};
 use super::placement::{
-    cache_host_parent, node_docker_host_path, resolve_dind_storage_backend,
-    resolve_dind_storage_size, resolve_sandbox_size,
+    node_docker_host_path, resolve_dind_storage_backend, resolve_dind_storage_size,
+    resolve_sandbox_size,
 };
 use super::security::pod_security_context;
 use super::*;
@@ -134,39 +134,6 @@ pub fn build_pod(
         });
     }
 
-    // ── Package-manager caches (node-local NVMe) ────────────────────
-    //
-    // When `cache_volumes` is configured, all caches share ONE node-local
-    // hostPath volume rooted at `cache_host_root` (`/mnt/cache`), mounted
-    // per-entry via subPath in the sandbox container. A privileged `nvme-setup`
-    // init container formats and mounts the instance-store NVMe under it (and
-    // ensures a world-writable subdir per cache) — see `build_nvme_setup_container`.
-    // The whole block is gated on a non-empty list, so default sandboxes stay
-    // hardened (no privileged init container, no hostPath).
-    let mut init_containers: Vec<Container> = Vec::new();
-    if !config.sandbox.cache_volumes.is_empty() {
-        volumes.push(Volume {
-            name: "pkg-cache".to_string(),
-            host_path: Some(HostPathVolumeSource {
-                path: config.sandbox.cache_host_root.clone(),
-                type_: Some("DirectoryOrCreate".to_string()),
-            }),
-            ..Default::default()
-        });
-        // The init container needs the PARENT of the cache root so its NVMe
-        // mount propagates back to the host namespace (bidirectional), where
-        // the sibling `pkg-cache` hostPath mount then picks it up.
-        volumes.push(Volume {
-            name: "host-mnt".to_string(),
-            host_path: Some(HostPathVolumeSource {
-                path: cache_host_parent(&config.sandbox.cache_host_root).to_string(),
-                type_: Some("DirectoryOrCreate".to_string()),
-            }),
-            ..Default::default()
-        });
-        init_containers.push(build_nvme_setup_container(config));
-    }
-
     // ── Sandbox container ───────────────────────────────────────────
     let sandbox_container = build_sandbox_container(config, task_id, plan, tokens, pvc_name)?;
 
@@ -234,7 +201,6 @@ pub fn build_pod(
                 .and_then(|json| serde_json::from_str::<BTreeMap<String, String>>(json).ok());
             PodSpec {
                 containers: all_containers,
-                init_containers: (!init_containers.is_empty()).then_some(init_containers),
                 volumes: Some(volumes),
                 restart_policy: Some("Always".to_string()),
                 termination_grace_period_seconds: Some(30),

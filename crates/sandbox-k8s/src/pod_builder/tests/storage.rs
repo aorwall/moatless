@@ -202,152 +202,23 @@ fn pvc_less_workspace_size_falls_back_to_global_default() {
     );
 }
 
-/// Two cache entries → ONE shared `pkg-cache` hostPath volume + the `host-mnt`
-/// parent volume + a privileged `nvme-setup` init container + a per-entry
-/// subPath mount and per-entry env on the sandbox container.
+/// Hardened default: a sandbox that opts into nothing gets no init container
+/// and no hostPath volume. Only `dockerAccess` adds either.
 #[test]
-fn cache_volumes_wire_volume_mounts_env_and_init() {
-    use moatless_core::config::SandboxCacheVolume;
-
-    let mut config = test_config();
-    config.sandbox.cache_volumes = vec![
-        SandboxCacheVolume {
-            name: "maven".into(),
-            mount_path: "/maven-cache".into(),
-            env: vec![(
-                "MAVEN_OPTS".into(),
-                "-Dmaven.repo.local=/maven-cache".into(),
-            )],
-        },
-        SandboxCacheVolume {
-            name: "bun".into(),
-            mount_path: "/bun-cache".into(),
-            env: vec![("BUN_INSTALL_CACHE_DIR".into(), "/bun-cache".into())],
-        },
-    ];
+fn default_sandbox_pod_has_no_init_or_hostpath() {
+    let config = test_config();
     let plan = test_plan();
 
     let pod = build_pod(&config, "task-1", &plan, None, None).unwrap();
     let spec = pod.spec.as_ref().unwrap();
-
-    // Exactly one shared pkg-cache hostPath volume rooted at the cache root,
-    // plus the host-mnt parent volume for the init container.
-    let volumes = spec.volumes.as_ref().unwrap();
-    let pkg: Vec<_> = volumes.iter().filter(|v| v.name == "pkg-cache").collect();
-    assert_eq!(
-        pkg.len(),
-        1,
-        "exactly one shared pkg-cache volume for N caches"
-    );
-    let hp = pkg[0]
-        .host_path
-        .as_ref()
-        .expect("pkg-cache must be a hostPath volume");
-    assert_eq!(hp.path, "/mnt/cache");
-    assert_eq!(hp.type_.as_deref(), Some("DirectoryOrCreate"));
-    let host_mnt = volumes
-        .iter()
-        .find(|v| v.name == "host-mnt")
-        .expect("host-mnt parent volume present");
-    assert_eq!(host_mnt.host_path.as_ref().unwrap().path, "/mnt");
-
-    // Privileged nvme-setup init container with a bidirectional host-mnt mount
-    // and a script that formats the NVMe and creates each cache subdir.
-    let inits = spec
-        .init_containers
-        .as_ref()
-        .expect("init containers present when caches configured");
-    let nvme = inits
-        .iter()
-        .find(|c| c.name == "nvme-setup")
-        .expect("nvme-setup init container present");
-    assert_eq!(
-        nvme.security_context.as_ref().and_then(|s| s.privileged),
-        Some(true),
-        "nvme-setup must be privileged"
-    );
-    let init_mount = nvme
-        .volume_mounts
-        .as_ref()
-        .unwrap()
-        .iter()
-        .find(|m| m.name == "host-mnt")
-        .unwrap();
-    assert_eq!(
-        init_mount.mount_propagation.as_deref(),
-        Some("Bidirectional")
-    );
-    let init_script = nvme.args.as_ref().unwrap().join("\n");
-    assert!(init_script.contains("mkfs.ext4 -F /dev/nvme1n1"));
-    assert!(init_script.contains("/host-mnt/cache/maven"));
-    assert!(init_script.contains("/host-mnt/cache/bun"));
-
-    // Sandbox container: one subPath mount per cache + the matching env.
-    let container = build_sandbox_container(&config, "task-1", &plan, None, None).unwrap();
-    let mounts = container.volume_mounts.as_ref().unwrap();
-    assert!(
-        mounts.iter().any(|m| m.name == "pkg-cache"
-            && m.mount_path == "/maven-cache"
-            && m.sub_path.as_deref() == Some("maven")),
-        "maven cache must mount via subPath"
-    );
-    assert!(
-        mounts.iter().any(|m| m.name == "pkg-cache"
-            && m.mount_path == "/bun-cache"
-            && m.sub_path.as_deref() == Some("bun")),
-        "bun cache must mount via subPath"
-    );
-    let env = container.env.as_ref().unwrap();
-    assert!(
-        env.iter().any(|e| e.name == "MAVEN_OPTS"
-            && e.value.as_deref() == Some("-Dmaven.repo.local=/maven-cache"))
-    );
-    assert!(
-        env.iter()
-            .any(|e| e.name == "BUN_INSTALL_CACHE_DIR" && e.value.as_deref() == Some("/bun-cache"))
-    );
-
-    // Caches are scoped to the agent container — server containers must not
-    // mount the shared package cache.
-    let servers = build_server_containers(&config, "task-1", &plan).unwrap();
-    for s in &servers {
-        assert!(
-            s.volume_mounts
-                .as_ref()
-                .unwrap()
-                .iter()
-                .all(|m| m.name != "pkg-cache"),
-            "server containers must not mount pkg-cache"
-        );
-    }
-}
-
-/// No cache list → hardened default: no init container, no hostPath volume.
-#[test]
-fn no_cache_volumes_means_no_init_or_hostpath() {
-    let config = test_config(); // cache_volumes empty by default
-    let plan = test_plan();
-
-    let pod = build_pod(&config, "task-1", &plan, None, None).unwrap();
-    let spec = pod.spec.as_ref().unwrap();
-    assert!(
-        spec.init_containers.is_none(),
-        "no init containers without configured caches"
-    );
+    assert!(spec.init_containers.is_none(), "no init containers");
     assert!(
         spec.volumes
             .as_ref()
             .unwrap()
             .iter()
             .all(|v| v.host_path.is_none()),
-        "no hostPath volumes without configured caches"
+        "no hostPath volumes"
     );
 }
 
-#[test]
-fn cache_host_parent_derives_mount_propagation_root() {
-    assert_eq!(cache_host_parent("/mnt/cache"), "/mnt");
-    assert_eq!(cache_host_parent("/mnt/cache/"), "/mnt");
-    assert_eq!(cache_host_parent("/var/lib/pkg-cache"), "/var/lib");
-    assert_eq!(cache_host_parent("/mnt"), "/");
-}

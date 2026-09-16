@@ -501,7 +501,6 @@ fn build_values(input: &ValuesInput<'_>) -> serde_json::Value {
                 "defaultMode": "s3",
             },
             "imagePrepull": { "enabled": false },
-            "cacheVolumes": [],
             "nodeArchive": { "enabled": false },
         });
         values["networkPolicy"] = json!({ "sandbox": { "enabled": false } });

@@ -163,14 +163,13 @@ kubernetes:
     defaultMode: s3
   imagePrepull:
     enabled: false
-  cacheVolumes: []
   nodeArchive:
     enabled: false
 ```
 
 Fargate mode also requires equal CPU and memory requests/limits for sandbox and
 server containers and rejects per-repository DinD, EBS/node workspaces,
-node-local caches, and burstable resource overrides. The EKS VPC CNI does not
+node-local archives, and burstable resource overrides. The EKS VPC CNI does not
 enforce Kubernetes NetworkPolicy for Fargate pods, so use this preset only for
 trusted repositories.
 
