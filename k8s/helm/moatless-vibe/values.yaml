@@ -1316,17 +1316,19 @@ sandboxAccess:
     admin:
       # -- Create this profile's ServiceAccount, RBAC and egress NetworkPolicy.
       enabled: false
-      # -- RBAC preset: `namespace-admin` = Role + RoleBinding in the app and
-      # sandbox namespaces with full verbs. Namespaced on purpose — the blast
-      # radius stops at those two namespaces instead of the cluster.
+      # -- RBAC preset: `namespace-admin` = the cluster-read ClusterRole every
+      # profile gets, plus a Role + RoleBinding with full verbs in the app and
+      # sandbox namespaces. Only the write half is namespaced — the blast radius
+      # of anything destructive stops at those two namespaces.
       access: namespace-admin
       # -- ServiceAccount name (sandbox namespace). Put this in the workspace's
       # `sandboxServiceAccount`.
       serviceAccount: moatless-admin
       # -- Annotations for the SA (e.g. EKS Pod Identity / IRSA).
       serviceAccountAnnotations: {}
-      # -- Normally empty: the preset already grants everything in-namespace.
-      # A Role cannot carry cluster-scoped rules — use cluster-reader for those.
+      # -- Extra read-only rules for environment CRDs, appended to this profile's
+      # ClusterRole. Same shape as cluster-reader's — in-namespace rules are
+      # already covered by the preset's `["*"]` Role.
       extraRules: []
       # -- Extra egress appended verbatim (e.g. the database, to run psql).
       extraEgress: []

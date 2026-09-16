@@ -29,6 +29,8 @@ Choose the next read from the symptom:
 
 - [Decision tree](references/decision-tree.md): narrow a failure before changing state.
 - [Failure modes](references/failure-modes.md): resource and storage implications.
+- [Node disruption](references/node-disruption.md): the pod outlived by nothing —
+  spot reclaim, consolidation, drift.
 - [Commands](references/commands.md): bounded logs and history.
 - [Metrics](references/metrics.md): fleet health and adapter delivery.
 - [Code map](references/code-map.md): source owners for ambiguous classifications.

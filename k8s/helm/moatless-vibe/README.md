@@ -611,7 +611,11 @@ can improve them without every install pinning a stale copy in gitops.
 | Preset | Scope | Grants |
 |--------|-------|--------|
 | `cluster-read` | Cluster-wide ClusterRole | `get`/`list`/`watch`. **Secrets excluded by construction.** |
-| `namespace-admin` | Role + RoleBinding in the app **and** sandbox namespaces | Full verbs — read Secrets, delete, patch (`kubectl rollout restart`). Namespaced on purpose: the blast radius stops at those two namespaces. |
+| `namespace-admin` | The `cluster-read` ClusterRole, **plus** a Role + RoleBinding in the app **and** sandbox namespaces | Full verbs — read Secrets, delete, patch (`kubectl rollout restart`). Only the write half is namespaced: the blast radius of anything destructive stops at those two namespaces. |
+
+Every profile carries the `cluster-read` ClusterRole. A pod gets exactly one
+ServiceAccount, so a profile without it would leave `kubectl get nodes` Forbidden
+and no second identity to fall back to.
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
@@ -621,7 +625,7 @@ can improve them without every install pinning a stale copy in gitops.
 | `sandboxAccess.profiles.<key>.access` | `cluster-read` or `namespace-admin` | — |
 | `sandboxAccess.profiles.<key>.serviceAccount` | SA name, in the sandbox namespace | — |
 | `sandboxAccess.profiles.<key>.serviceAccountAnnotations` | SA annotations (EKS Pod Identity / IRSA) | `{}` |
-| `sandboxAccess.profiles.<key>.extraRules` | Extra RBAC rules appended verbatim (environment CRDs) | `[]` |
+| `sandboxAccess.profiles.<key>.extraRules` | Extra rules appended verbatim to the profile's ClusterRole (environment CRDs) | `[]` |
 | `sandboxAccess.profiles.<key>.extraEgress` | Extra egress appended verbatim (databases, other in-VPC destinations) | `[]` |
 
 ```yaml

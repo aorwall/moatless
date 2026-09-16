@@ -28,5 +28,9 @@ kubectl --context <context> -n <namespace> auth can-i get pods.metrics.k8s.io
 ```
 
 These commands test the current caller, not automatically the pod account. An
-impersonated check needs permission to impersonate. Missing metrics can mean
+impersonated check needs permission to impersonate. `can-i` also answers against
+the current namespace, so a namespaced Role granting `*` returns `yes` for a
+cluster-scoped resource such as `nodes` that the API server then refuses; the
+warning `resource 'nodes' is not namespace scoped` printed beside the answer is
+the only sign. Missing metrics can mean
 missing RBAC or metrics-server; it does not mean zero resource use.
