@@ -25,6 +25,8 @@ impl AdapterReactions for TelegramAdapter {
     async fn add_reaction(
         &self,
         binding: &BindingContext,
+        // Telegram acts as its own bot, so the caller's identity mints no token.
+        _acting_user_id: &str,
         target_external_id: &str,
         emoji: &str,
     ) -> Result<Option<String>, AdapterError> {
@@ -44,6 +46,7 @@ impl AdapterReactions for TelegramAdapter {
     async fn remove_reaction(
         &self,
         binding: &BindingContext,
+        _acting_user_id: &str,
         target_external_id: &str,
         _emoji: &str,
     ) -> Result<(), AdapterError> {

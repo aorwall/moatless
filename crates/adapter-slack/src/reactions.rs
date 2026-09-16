@@ -24,6 +24,8 @@ impl AdapterReactions for SlackAdapter {
     async fn add_reaction(
         &self,
         binding: &BindingContext,
+        // Slack acts as its own App, so the caller's identity mints no token here.
+        _acting_user_id: &str,
         target_external_id: &str,
         emoji: &str,
     ) -> Result<Option<String>, AdapterError> {
@@ -39,6 +41,7 @@ impl AdapterReactions for SlackAdapter {
     async fn remove_reaction(
         &self,
         binding: &BindingContext,
+        _acting_user_id: &str,
         target_external_id: &str,
         emoji: &str,
     ) -> Result<(), AdapterError> {
@@ -108,14 +111,14 @@ mod tests {
 
         assert_eq!(
             adapter
-                .add_reaction(&binding(), "slack:ts:1700000000.000100", ":eyes:")
+                .add_reaction(&binding(), "caller", "slack:ts:1700000000.000100", ":eyes:")
                 .await
                 .expect("the stub accepts the reaction"),
             None,
             "Slack reactions have no external id of their own"
         );
         adapter
-            .remove_reaction(&binding(), "slack:ts:1700000000.000100", "eyes")
+            .remove_reaction(&binding(), "caller", "slack:ts:1700000000.000100", "eyes")
             .await
             .expect("the stub accepts the removal");
 
@@ -145,7 +148,7 @@ mod tests {
 
         assert_eq!(
             adapter
-                .add_reaction(&binding(), "github:ic:42", "eyes")
+                .add_reaction(&binding(), "caller", "github:ic:42", "eyes")
                 .await
                 .unwrap_err()
                 .to_string(),
@@ -153,7 +156,7 @@ mod tests {
         );
         assert_eq!(
             adapter
-                .add_reaction(&binding(), "slack:ts:1700000000.000100", ":")
+                .add_reaction(&binding(), "caller", "slack:ts:1700000000.000100", ":")
                 .await
                 .unwrap_err()
                 .to_string(),

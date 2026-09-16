@@ -37,6 +37,7 @@ impl AdapterReactions for GithubPrAdapter {
     async fn add_reaction(
         &self,
         binding: &BindingContext,
+        acting_user_id: &str,
         target_external_id: &str,
         emoji: &str,
     ) -> Result<Option<String>, AdapterError> {
@@ -51,6 +52,7 @@ impl AdapterReactions for GithubPrAdapter {
             .auth()
             .client_for_reaction(
                 binding,
+                acting_user_id,
                 &GitHostRepo::github(repository.owner(), repository.repo()),
             )
             .await?;
@@ -80,6 +82,7 @@ impl AdapterReactions for GithubPrAdapter {
     async fn remove_reaction(
         &self,
         binding: &BindingContext,
+        acting_user_id: &str,
         target_external_id: &str,
         emoji: &str,
     ) -> Result<(), AdapterError> {
@@ -94,6 +97,7 @@ impl AdapterReactions for GithubPrAdapter {
             .auth()
             .client_for_reaction(
                 binding,
+                acting_user_id,
                 &GitHostRepo::github(repository.owner(), repository.repo()),
             )
             .await?;
@@ -209,14 +213,14 @@ mod tests {
 
         assert_eq!(
             provider
-                .add_reaction(&binding, "github:ic:77", "thumbsup")
+                .add_reaction(&binding, "caller", "github:ic:77", "thumbsup")
                 .await
                 .unwrap()
                 .as_deref(),
             Some("103")
         );
         provider
-            .remove_reaction(&binding, "github:rc:88", "thumbsup")
+            .remove_reaction(&binding, "caller", "github:rc:88", "thumbsup")
             .await
             .unwrap();
 

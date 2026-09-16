@@ -19,7 +19,9 @@ impl ExternalReplyService {
         })?;
         let adapter = providers.reactions_by_name(&provider_key)?;
         let binding_ctx = moatless_adapter_model::binding::binding_context(&binding);
-        let external_id = adapter.add_reaction(&binding_ctx, &ext_id, emoji).await?;
+        let external_id = adapter
+            .add_reaction(&binding_ctx, &ctx.user_id, &ext_id, emoji)
+            .await?;
         Ok(MessageReactionResponse {
             ok: true,
             external_id,
@@ -40,7 +42,7 @@ impl ExternalReplyService {
         let adapter = providers.reactions_by_name(&provider_key)?;
         let binding_ctx = moatless_adapter_model::binding::binding_context(&binding);
         adapter
-            .remove_reaction(&binding_ctx, &ext_id, emoji)
+            .remove_reaction(&binding_ctx, &ctx.user_id, &ext_id, emoji)
             .await?;
         Ok(MessageReactionResponse {
             ok: true,

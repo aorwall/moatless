@@ -96,10 +96,11 @@ impl GithubPrAuth {
     pub(super) async fn client_for_reaction(
         &self,
         binding: &BindingContext,
+        acting_user_id: &str,
         repo: &GitHostRepo,
     ) -> Result<GithubPrApi, AdapterError> {
-        let actor = reaction_actor(binding)?;
-        self.client_for(&actor, repo).await
+        self.client_for(&reaction_actor(binding, acting_user_id), repo)
+            .await
     }
 
     pub(super) async fn client_for_live_status(
@@ -160,21 +161,16 @@ fn outbound_actor(
         })
 }
 
-/// The identity a reaction acts as.
+/// The identity a reaction acts as: the binding's filter user, else the
+/// already-authorized caller.
 ///
-/// `BindingContext` carries no author or subscription, so precedence starts at
-/// the binding's filter user; there is no deployment-wide fallback below it.
-fn reaction_actor(binding: &BindingContext) -> Result<Actor, AdapterError> {
+/// `BindingContext` carries no author or subscription, so the filter user is
+/// the only identity the binding itself offers, and a binding created by an
+/// outbound send carries none. The caller stands in below it rather than
+/// failing, since authorization to react happened before this point.
+fn reaction_actor(binding: &BindingContext, acting_user_id: &str) -> Actor {
     binding_filter_user_id(&binding.destination_config, &binding.metadata)
-        .map(Actor::of)
-        .ok_or_else(|| {
-            SharedAdapterError::AdapterApi(
-                "Cannot resolve GitHub token for a reaction: the binding names no \
-                 filter_user_id"
-                    .into(),
-            )
-            .into()
-        })
+        .map_or_else(|| Actor::of(acting_user_id), Actor::of)
 }
 
 /// The moatless user an inbound event is attributed to, from the first login
@@ -467,16 +463,15 @@ mod tests {
     }
 
     #[test]
-    fn reaction_identity_is_the_binding_filter_user_and_nothing_below_it() {
+    fn reaction_identity_prefers_the_binding_filter_user_over_the_caller() {
         assert_eq!(
-            reaction_actor(&binding_context(Some("filter-user")))
-                .expect("a named filter user is an identity")
-                .user_id(),
+            reaction_actor(&binding_context(Some("filter-user")), "caller").user_id(),
             "filter-user"
         );
-        assert!(
-            reaction_actor(&binding_context(None)).is_err(),
-            "a binding naming nobody has no deployment-wide fallback to reach"
+        assert_eq!(
+            reaction_actor(&binding_context(None), "caller").user_id(),
+            "caller",
+            "a binding naming nobody reacts as whoever asked for the reaction"
         );
     }
 
@@ -489,6 +484,24 @@ mod tests {
         assert!(
             auth.client_for_reaction(
                 &binding_context(Some("filter-user")),
+                "caller",
+                &GitHostRepo::github("soaplabs", "repo"),
+            )
+            .await
+            .is_ok()
+        );
+    }
+
+    #[tokio::test]
+    async fn a_binding_without_a_filter_user_reacts_as_the_caller() {
+        let auth = auth_with_tokens(Arc::new(StubProviderTokens::with_user_row_for(
+            "caller",
+            github_row("manual", "caller-token"),
+        )));
+        assert!(
+            auth.client_for_reaction(
+                &binding_context(None),
+                "caller",
                 &GitHostRepo::github("soaplabs", "repo"),
             )
             .await

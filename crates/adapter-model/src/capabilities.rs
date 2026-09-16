@@ -187,9 +187,15 @@ pub trait AdapterPostBindingFollowup: Adapter {
 /// Reaction support for external messages.
 #[async_trait::async_trait]
 pub trait AdapterReactions: Adapter {
+    /// React as `acting_user_id`, the already-authorized caller.
+    ///
+    /// A provider that mints a per-user token needs an identity, and a binding
+    /// carries one only when a subscription filter put it there. Passing the
+    /// caller lets a binding without one still react.
     async fn add_reaction(
         &self,
         binding: &BindingContext,
+        acting_user_id: &str,
         target_external_id: &str,
         emoji: &str,
     ) -> Result<Option<String>, AdapterError>;
@@ -197,6 +203,7 @@ pub trait AdapterReactions: Adapter {
     async fn remove_reaction(
         &self,
         binding: &BindingContext,
+        acting_user_id: &str,
         target_external_id: &str,
         emoji: &str,
     ) -> Result<(), AdapterError>;
