@@ -1,4 +1,5 @@
-//! The gh subcommands `moat gh` models, and the three writes it proxies.
+//! The gh subcommands `moat gh` models: three writes it proxies, and the reads
+//! it serves from its own children.
 //!
 //! A successful parse here routes through `/api/v1/github/*` for task↔PR
 //! binding, the `Moatless task:` footer and webhook dedup. An unmodeled flag
@@ -10,6 +11,7 @@ use moatless_api_schemas::github::{
     GithubCommentRequest, GithubCreatePrRequest, GithubReplyRequest,
 };
 
+use super::pr_view::{self, PrViewArgs};
 use super::process::gh_command_output;
 use super::repo::{current_git_branch, resolve_repo};
 use super::stack::{StackInvocation, strip_moat_task_flag};
@@ -107,12 +109,14 @@ pub(super) struct ReplyArgs {
     json: bool,
 }
 
-/// A gh invocation we intercept and proxy through the backend.
+/// A gh invocation we intercept: a write proxied through the backend, or a read
+/// `moat` answers itself.
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum TypedInvocation {
     PrCreate(PrCreateArgs),
     Comment(CommentArgs),
     PrReply(ReplyArgs),
+    PrView(PrViewArgs),
     Stack(StackInvocation),
 }
 
@@ -134,6 +138,9 @@ pub(super) fn parse_typed(args: &[String]) -> Option<TypedInvocation> {
         }
         ("pr", "reply") => warn_on_demotion("pr reply", ReplyArgs::try_parse_from(rest))
             .map(TypedInvocation::PrReply),
+        // No demotion warning: a `pr view` this path declines is a read that
+        // real `gh` answers correctly, and nothing is bound or footered here.
+        ("pr", "view") => pr_view::parse(rest).map(TypedInvocation::PrView),
         ("stack", _) => match strip_moat_task_flag(args) {
             Ok((args, task)) => Some(TypedInvocation::Stack(StackInvocation { args, task })),
             Err(_) => None,
