@@ -128,3 +128,42 @@ fn an_origin_on_another_host_names_no_repository() {
         OriginUrl::Foreign
     ));
 }
+
+fn target(explicit: bool) -> RepoTarget {
+    RepoTarget {
+        owner: "soaplabs".to_string(),
+        repo: "moatless".to_string(),
+        explicit,
+    }
+}
+
+/// A 404 on its own reads as a pull request that does not exist. The repository
+/// the call addressed, and where that name came from, is what tells the caller
+/// the cwd is a different repository from the pull request's.
+#[test]
+fn a_failed_write_names_the_repository_it_addressed() {
+    let inferred = target(false).failed("#1318", "GitHub post_comment returned 404 Not Found");
+    let message = inferred.to_string();
+    assert!(
+        message.contains("GitHub post_comment returned 404"),
+        "{message}"
+    );
+    assert!(message.contains("soaplabs/moatless#1318"), "{message}");
+    assert!(
+        message.contains("inferred from the `origin` remote of the current directory"),
+        "{message}"
+    );
+
+    let named = target(true).failed("#1318", "boom").to_string();
+    assert!(named.contains("named by `-R`"), "{named}");
+}
+
+/// `pr create` names no number, so the repository stands alone in its message.
+#[test]
+fn a_failed_pr_create_names_the_repository_without_a_number() {
+    let message = target(false).failed("", "boom").to_string();
+    assert!(
+        message.contains("addressed soaplabs/moatless,"),
+        "{message}"
+    );
+}

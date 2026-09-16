@@ -12,6 +12,7 @@ mod api;
 mod dispatch;
 mod pr_view;
 mod process;
+mod reply_target;
 mod repo;
 mod run_logs;
 mod stack;

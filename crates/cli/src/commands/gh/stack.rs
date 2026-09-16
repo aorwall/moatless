@@ -8,7 +8,7 @@ use std::collections::HashSet;
 use moatless_api_schemas::github::GithubBindPrRequest;
 
 use super::process::{command_status, gh_command, gh_command_output};
-use super::repo::{PullRequestRef, parse_pull_request_url, resolve_repo};
+use super::repo::{PullRequestRef, RepoTarget, parse_pull_request_url, resolve_repo};
 use super::token::github_token_for_gh;
 use crate::client::MoatClient;
 use crate::config::Config;
@@ -96,7 +96,7 @@ async fn stack_prs_to_bind(
     gh_repo: Option<&str>,
 ) -> Result<Vec<PullRequestRef>, Box<dyn std::error::Error>> {
     let subcommand = args.get(1).map(String::as_str);
-    let (owner, repo) = resolve_repo(client, gh_repo).await?;
+    let RepoTarget { owner, repo, .. } = resolve_repo(client, gh_repo).await?;
     let mut refs = Vec::new();
 
     match subcommand {

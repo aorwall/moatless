@@ -65,11 +65,14 @@ replies route back here automatically):
 
 - `moat gh pr create --title \"<title>\" --body \"<body>\"`
 - `moat gh pr comment <number> --body \"<text>\"`
-- `moat gh pr reply <pr_number> <comment_id> --body \"<text>\"`
+- `moat gh pr reply <pr_number> <comment_id> --body \"<text>\"` (a comment id
+  naming a top-level conversation comment, which has no thread, is posted as a
+  new PR comment instead)
 - `moat gh issue comment <number> --body \"<text>\"`
 
 `-R owner/repo` and `--head` are inferred from the current git repository when
-omitted. Every other gh subcommand (`pr view`, `api`, `run watch`, …) passes
+omitted, so run these from the checkout of the PR's own repository or pass
+`-R`. Every other gh subcommand (`pr view`, `api`, `run watch`, …) passes
 through to the local authenticated `gh` CLI unchanged, so `moat gh <anything>`
 is always safe to use — and a `moat gh api` POST that creates a review comment,
 a review or an issue comment is recorded for this task on your behalf.";
@@ -140,7 +143,8 @@ Available `moat` commands:
   backend (binds the PR to this task; `-R`/`--head` inferred from the cwd repo)
 - `moat gh pr comment <n> --body \"<text>\"` — Comment on a PR via the backend
 - `moat gh pr reply <n> <comment_id> --body \"<text>\"` — Threaded reply to a PR
-  review comment via the backend (moat-only; ids appear in delivered messages)
+  review comment via the backend (moat-only; ids appear in delivered messages;
+  a conversation-comment id is posted as a new PR comment instead)
 - `moat gh issue comment <n> --body \"<text>\"` — Comment on an issue via the backend
 - `moat gh <any other gh args>` — Passthrough to the authenticated `gh` CLI
 - `moat tasks status $TASK_ID` — Show sandbox status including server states

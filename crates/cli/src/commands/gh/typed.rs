@@ -13,7 +13,8 @@ use moatless_api_schemas::github::{
 
 use super::pr_view::{self, PrViewArgs};
 use super::process::gh_command_output;
-use super::repo::{current_git_branch, resolve_repo};
+use super::reply_target::{self, ReplyTarget};
+use super::repo::{RepoTarget, current_git_branch, resolve_repo};
 use super::run_logs::{self, RunLogArgs};
 use super::stack::{StackInvocation, strip_moat_task_flag};
 use super::token::github_token_for_gh;
@@ -209,7 +210,7 @@ pub(super) async fn run_pr_create(
     json: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let json = json || args.json;
-    let (owner, repo) = resolve_repo(client, args.repo.as_deref()).await?;
+    let target = resolve_repo(client, args.repo.as_deref()).await?;
     let head = match args.head {
         Some(h) => h,
         None => current_git_branch()?,
@@ -224,9 +225,19 @@ pub(super) async fn run_pr_create(
         draft: if args.draft { Some(true) } else { None },
         task_id,
     };
-    let resp = client.api().github_create_pr(&owner, &repo, &req).await?;
+    let resp = client
+        .api()
+        .github_create_pr(&target.owner, &target.repo, &req)
+        .await
+        .map_err(|e| target.failed("", e))?;
     if !args.labels.is_empty() {
-        apply_labels(&owner, &repo, resp.number, &args.labels, &resp.html_url)?;
+        apply_labels(
+            &target.owner,
+            &target.repo,
+            resp.number,
+            &args.labels,
+            &resp.html_url,
+        )?;
     }
     if json {
         output::print_json_typed(&resp);
@@ -323,14 +334,26 @@ pub(super) async fn run_comment(
     json: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let json = json || args.json;
-    let (owner, repo) = resolve_repo(client, args.repo.as_deref()).await?;
+    let target = resolve_repo(client, args.repo.as_deref()).await?;
     let task_id = args.task.or_else(|| cfg.task_id().map(str::to_string));
     let body = required_body(args.body, args.body_file.as_deref())?;
+    post_issue_comment(client, &target, args.number, body, task_id, json).await
+}
+
+async fn post_issue_comment(
+    client: &MoatClient,
+    target: &RepoTarget,
+    number: u64,
+    body: String,
+    task_id: Option<String>,
+    json: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
     let req = GithubCommentRequest { body, task_id };
     let resp = client
         .api()
-        .github_post_issue_comment(&owner, &repo, args.number, &req)
-        .await?;
+        .github_post_issue_comment(&target.owner, &target.repo, number, &req)
+        .await
+        .map_err(|e| target.failed(&format!("#{number}"), e))?;
     if json {
         output::print_json_typed(&resp);
     } else {
@@ -349,14 +372,92 @@ pub(super) async fn run_pr_reply(
     json: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let json = json || args.json;
-    let (owner, repo) = resolve_repo(client, args.repo.as_deref()).await?;
+    let target = resolve_repo(client, args.repo.as_deref()).await?;
     let task_id = args.task.or_else(|| cfg.task_id().map(str::to_string));
     let body = required_body(args.body, args.body_file.as_deref())?;
+
+    // Classify before posting rather than after a failure: a fallback that ran
+    // on any error would post twice whenever the reply itself had succeeded.
+    // Its `git credential` and two `gh` reads block, so they run on a blocking
+    // thread instead of on the worker this future is polled by.
+    let classified = {
+        let (owner, repo) = (target.owner.clone(), target.repo.clone());
+        let (pr_number, comment_id) = (args.pr_number, args.comment_id);
+        tokio::task::spawn_blocking(move || {
+            reply_target::classify(
+                &owner,
+                &repo,
+                pr_number,
+                comment_id,
+                github_token_for_gh().as_deref(),
+            )
+        })
+        .await?
+    };
+    match classified {
+        ReplyTarget::ConversationComment => {
+            eprintln!(
+                "moat gh: comment {} is a top-level conversation comment, which has no thread \
+                 to reply in — posting a new comment on #{} instead (`moat gh pr comment`).",
+                args.comment_id, args.pr_number
+            );
+            return post_issue_comment(client, &target, args.pr_number, body, task_id, json).await;
+        }
+        ReplyTarget::Elsewhere(number) => {
+            return Err(format!(
+                "comment {} belongs to {}#{number}, not #{} — reply on the pull request the \
+                 comment is on, or pass `-R owner/repo`",
+                args.comment_id,
+                target.slug(),
+                args.pr_number
+            )
+            .into());
+        }
+        ReplyTarget::Ambiguous => {
+            return Err(format!(
+                "comment {id} names both a review comment and a conversation comment on \
+                 {}#{pr} — the two id spaces number independently and collided here. \
+                 Post the conversation reply with `moat gh pr comment {pr}`, or reply in \
+                 the review thread with `moat gh api \
+                 repos/{}/{}/pulls/{pr}/comments/{id}/replies -f body=…`.",
+                target.slug(),
+                target.owner,
+                target.repo,
+                id = args.comment_id,
+                pr = args.pr_number,
+            )
+            .into());
+        }
+        ReplyTarget::Unreadable => {
+            return Err(format!(
+                "could not read what comment {id} on {}#{pr} names (the failure is above), and \
+                 the id alone does not say: a review comment and a conversation comment can \
+                 carry it at once. Retry, or address the surface directly — \
+                 `moat gh pr comment {pr}` for a conversation comment, or `moat gh api \
+                 repos/{}/{}/pulls/{pr}/comments/{id}/replies -f body=…` for a review thread.",
+                target.slug(),
+                target.owner,
+                target.repo,
+                id = args.comment_id,
+                pr = args.pr_number,
+            )
+            .into());
+        }
+        ReplyTarget::ReviewComment | ReplyTarget::Unknown => {}
+    }
+
     let req = GithubReplyRequest { body, task_id };
     let resp = client
         .api()
-        .github_reply_review_comment(&owner, &repo, args.pr_number, args.comment_id, &req)
-        .await?;
+        .github_reply_review_comment(
+            &target.owner,
+            &target.repo,
+            args.pr_number,
+            args.comment_id,
+            &req,
+        )
+        .await
+        .map_err(|e| target.failed(&format!("#{}", args.pr_number), e))?;
     if json {
         output::print_json_typed(&resp);
     } else {

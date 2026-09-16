@@ -13,16 +13,66 @@ pub(super) struct PullRequestRef {
     pub(super) number: u64,
 }
 
-/// Resolve `(owner, repo)` from an explicit `-R` value or the cwd git repo.
+/// The repository a call addresses, and where that name came from.
+pub(super) struct RepoTarget {
+    pub(super) owner: String,
+    pub(super) repo: String,
+    /// `false` when the name came from the cwd's `origin` remote rather than
+    /// from `-R`, which is what [`RepoTarget::failed`] has to say out loud.
+    explicit: bool,
+}
+
+impl RepoTarget {
+    pub(super) fn slug(&self) -> String {
+        format!("{}/{}", self.owner, self.repo)
+    }
+
+    /// Name the repository a failed call addressed, and where that name came
+    /// from.
+    ///
+    /// GitHub answers a pull request in another repository with a 404, which on
+    /// its own reads as a pull request that does not exist; the commonest cause
+    /// is a working directory whose `origin` is not the pull request's repo.
+    pub(super) fn failed(
+        &self,
+        target: &str,
+        e: impl std::fmt::Display,
+    ) -> Box<dyn std::error::Error> {
+        let source = if self.explicit {
+            "named by `-R`"
+        } else {
+            "inferred from the `origin` remote of the current directory"
+        };
+        format!(
+            "{e}\nThis call addressed {}{target}, {source}. \
+             Pass `-R owner/repo` when the target is in another repository.",
+            self.slug()
+        )
+        .into()
+    }
+}
+
+/// Resolve the target repository from an explicit `-R` value or the cwd git
+/// repo.
 pub(super) async fn resolve_repo(
     client: &MoatClient,
     flag: Option<&str>,
-) -> Result<(String, String), Box<dyn std::error::Error>> {
+) -> Result<RepoTarget, Box<dyn std::error::Error>> {
     if let Some(value) = flag {
-        return parse_repo_arg(value)
-            .ok_or_else(|| format!("invalid repository `{value}` — expected owner/repo").into());
+        let (owner, repo) = parse_repo_arg(value)
+            .ok_or_else(|| format!("invalid repository `{value}` — expected owner/repo"))?;
+        return Ok(RepoTarget {
+            owner,
+            repo,
+            explicit: true,
+        });
     }
-    Ok(origin_repo(client).await?)
+    let (owner, repo) = origin_repo(client).await?;
+    Ok(RepoTarget {
+        owner,
+        repo,
+        explicit: false,
+    })
 }
 
 /// Why `origin` named no GitHub repository.
