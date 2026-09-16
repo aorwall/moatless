@@ -194,10 +194,10 @@ pub fn build_pod(
                 .tolerations_json
                 .as_deref()
                 .and_then(|json| serde_json::from_str::<Vec<Toleration>>(json).ok());
-            // The per-workspace/per-loop selector is merged over the global one,
-            // not substituted for it: the global labels are what pair with the
-            // global toleration, so dropping them strands the pod on a taint it
-            // no longer matches.
+            // Key by key, not wholesale: a global key the row does not name
+            // survives, and one it does name is replaced. Replacing `workload`
+            // is what reserves a dedicated pool, since a sandbox that keeps the
+            // global value still matches its nodes and tolerates its taint.
             let mut node_selector = config
                 .sandbox
                 .node_selector_json

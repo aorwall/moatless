@@ -94,10 +94,10 @@ pub struct RepoConfig {
     #[serde(default)]
     pub network_profile: Option<String>,
     // --- Node placement (opt-in per-workspace/per-loop) ---
-    /// Extra node labels the sandbox pod must match, merged over
-    /// `K8S_SANDBOX_NODE_SELECTOR` rather than replacing it — the global
-    /// selector is what pairs with the global toleration. Selects
-    /// platform-owned capacity; creates none. Ignored in Docker mode.
+    /// Extra node labels the sandbox pod must match, merged key by key over
+    /// `K8S_SANDBOX_NODE_SELECTOR`: a global key named here is replaced, one
+    /// left out survives. Selects platform-owned capacity; creates none.
+    /// Ignored in Docker mode.
     #[serde(default)]
     #[schema(value_type = Object)]
     pub node_selector: Option<std::collections::BTreeMap<String, String>>,

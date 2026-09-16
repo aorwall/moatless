@@ -23,9 +23,8 @@ fn a_cache_only_prefers_its_node() {
     );
 }
 
-/// The per-row selector merges over the global one instead of replacing it. The
-/// global labels pair with the global toleration, so a replacing selector would
-/// strand the pod on a taint it no longer matches.
+/// The merge is key by key: a global key the row leaves out survives, and one
+/// it names is replaced.
 #[test]
 fn a_row_selector_merges_over_the_global_one() {
     let mut config = test_config();

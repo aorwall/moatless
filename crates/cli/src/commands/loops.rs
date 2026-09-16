@@ -142,7 +142,7 @@ pub enum LoopsAction {
         #[arg(long)]
         clear_inactive_ttl_days: bool,
         /// Extra node labels for this loop's sandbox pods, as a JSON object,
-        /// e.g. `{"moatless.io/pool":"on-demand"}`.
+        /// e.g. `{"workload":"moatless-od"}`.
         #[arg(long, value_name = "JSON")]
         node_selector: Option<String>,
         /// Drop the node-selector override, so sandboxes fall back to the
@@ -264,7 +264,7 @@ pub struct CreateConfigArgs {
     #[arg(long)]
     inactive_ttl_days: Option<i32>,
     /// Extra node labels for this loop's sandbox pods, as a JSON object, e.g.
-    /// `{"moatless.io/pool":"on-demand"}`. Outranks the workspace's own value.
+    /// `{"workload":"moatless-od"}`. Outranks the workspace's own value.
     #[arg(long, value_name = "JSON")]
     node_selector: Option<String>,
     /// Stop this loop's sandbox as soon as the agent run finishes, instead of

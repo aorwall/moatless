@@ -2,9 +2,8 @@
 
 How a Workspace or a Loop puts its sandbox pods on dedicated capacity, and what
 the node pool behind that has to look like. The pool itself is not defined here:
-the NodePool and EC2NodeClass live in `soap-infra` /
-`soap-platform-gitops`, and the manifests below are the reference this
-repository's code was written against.
+the NodePool and its NodeClass live in `soap-infra`, and the tolerations that
+reach it in `soap-platform-gitops`.
 
 ## What the platform sends to Kubernetes
 
@@ -27,11 +26,18 @@ On top of that, two rows can add labels:
 - `loop_configs.node_selector` — every sandbox opened by that Loop. Outranks the
   Workspace's value.
 
-Both are **merged over** `sandboxNodeSelector`, never substituted for it: the
-deployment-wide labels are what pair with the deployment-wide toleration, so a
-pod that drops them no longer matches the taint it is meant to land on. The
-merge happens in `crates/sandbox-k8s/src/pod_builder/pod.rs`, and precedence is
-resolved once when the `sandboxes` row is written
+Both are **merged over** `sandboxNodeSelector` **key by key**, never substituted
+for it whole: a deployment-wide key the row leaves out survives, and one the row
+names is replaced. Replacing a key is the point — it is how a row reaches a pool
+the deployment-wide selector does not, and the section below turns on it.
+
+Tolerations are configured separately and are not derived from the selector, so
+changing a label neither removes nor alters what the pod tolerates: every
+sandbox carries every entry in `sandboxTolerations`. The pool a row selects
+still needs a matching entry there, which is why the list below asks for one.
+
+The merge happens in `crates/sandbox-k8s/src/pod_builder/pod.rs`, and precedence
+is resolved once when the `sandboxes` row is written
 (`crates/tasks/src/task/dao.rs`), so rebuilding a pod keeps the placement its
 Sandbox started with.
 
@@ -39,104 +45,49 @@ Both columns are admin-API-only. Neither `.moatless/workspaces.json` nor
 `LOOP.md` can set one — commit access would otherwise be enough to move a
 repository's work onto more expensive capacity.
 
+## The pool that exists today
+
+`moatless-egress-od` — on-demand, and otherwise the same NodeClass, instance
+shape and zone as `moatless-egress`, so an opted-in sandbox gets the same machine
+and the same IGW egress path. It is defined in `soap-infra`
+(`terraform/modules/eks-auto/nodepool.tf`, behind
+`enable_moatless_ondemand_nodepool`) and reached with
+`--node-selector '{"workload":"moatless-od"}'`.
+
 ## What a new pool has to carry
 
-A pool that sandbox pods can reach must have:
+1. **A distinguishing value on the `workload` key** — `workload: moatless-od`,
+   not a second label beside `workload: moatless`. Because the merge is
+   key-by-key, naming `workload` in a row's selector replaces the
+   deployment-wide value, and that replacement is the only thing keeping a
+   sandbox that did *not* opt in off the pool's nodes. A pool that keeps
+   `workload: moatless` and adds a second label is reachable but not reserved:
+   every other sandbox still matches it and can be bin-packed onto it.
+2. **The matching taint**, `workload=<value>:NoSchedule`, so nothing outside
+   moatless drifts onto it.
+3. **That taint in `kubernetes.sandboxTolerations`**
+   (`soap-platform-gitops apps/nonprod/moatless-vibe/values.yaml`). Tolerations
+   are deployment-wide and additive, and one places nothing on its own, so it is
+   safe to add before the pool exists — and it has to be there before any row
+   selects the pool, or those sandboxes sit Pending on the taint.
 
-1. **The deployment-wide label**, `workload: moatless` — the global selector
-   still applies.
-2. **The matching taint**, `workload=moatless:NoSchedule` — so nothing else
-   drifts onto it.
-3. **One distinguishing label** the per-Workspace/per-Loop selector names, e.g.
-   `moatless.io/pool: on-demand`.
+Capacity type stays out of the selector: it is a label on the pool rather than
+`karpenter.sh/capacity-type`, so instance families, disk and expiry stay an infra
+decision no application row restates.
 
-The distinguishing label is what the `--node-selector` value below matches. It is
-a label on the pool rather than `karpenter.sh/capacity-type`, so the pool's
-capacity type, instance families and disk stay an infra decision that no
-application row has to restate.
+### What a dedicated pool does not get
 
-## Reference manifests
-
-```yaml
-apiVersion: karpenter.sh/v1
-kind: NodePool
-metadata:
-  name: moatless-ondemand
-spec:
-  template:
-    metadata:
-      labels:
-        workload: moatless
-        moatless.io/pool: on-demand
-    spec:
-      taints:
-        - key: workload
-          value: moatless
-          effect: NoSchedule
-      requirements:
-        - key: karpenter.sh/capacity-type
-          operator: In
-          values: ["on-demand"]
-        - key: kubernetes.io/arch
-          operator: In
-          values: ["amd64"]
-        - key: karpenter.k8s.aws/instance-category
-          operator: In
-          values: ["c", "m", "r"]
-        - key: karpenter.k8s.aws/instance-cpu
-          operator: In
-          values: ["4", "8", "16"]
-      nodeClassRef:
-        group: karpenter.k8s.aws
-        kind: EC2NodeClass
-        name: moatless-ondemand
-      # An autonomous run can outlast a rotation window, and a drain mid-run is
-      # the interruption this pool exists to avoid.
-      expireAfter: Never
-  disruption:
-    # The pool is sized by what is running on it, so a node with no sandbox left
-    # is billed for nothing. Pairs with `stopWhenDone` below.
-    consolidationPolicy: WhenEmpty
-    consolidateAfter: 1m
-  limits:
-    cpu: "64"
----
-apiVersion: karpenter.k8s.aws/v1
-kind: EC2NodeClass
-metadata:
-  name: moatless-ondemand
-spec:
-  # Match the spot sandbox pool (`moatless-egress`) on everything but capacity
-  # type: same AMI family, role, subnets and security groups.
-  amiFamily: AL2023
-  amiSelectorTerms:
-    - alias: al2023@latest
-  role: <same node role as the spot sandbox pool>
-  subnetSelectorTerms:
-    - tags:
-        karpenter.sh/discovery: <cluster>
-  securityGroupSelectorTerms:
-    - tags:
-        karpenter.sh/discovery: <cluster>
-  blockDeviceMappings:
-    - deviceName: /dev/xvda
-      ebs:
-        volumeSize: 200Gi
-        volumeType: gp3
-        encrypted: true
-        deleteOnTermination: true
-  userData: |
-    #!/bin/bash
-    # Sandbox pods exhaust both defaults during frontend builds.
-    sysctl -w fs.inotify.max_user_watches=524288
-    sysctl -w vm.max_map_count=1048576
-```
+`image-prepull` and `node-storage-janitor` are DaemonSets that take
+`kubernetes.sandboxNodeSelector`, still `workload: moatless`, so neither lands on
+a pool with a different `workload` value. A fresh node there pulls the sandbox
+image cold on its first run and runs no hostPath janitor — see
+`docs/deferred-changes.md`.
 
 ## Putting a Loop on it
 
 ```bash
 moat loops update <loop-id> \
-  --node-selector '{"moatless.io/pool":"on-demand"}' \
+  --node-selector '{"workload":"moatless-od"}' \
   --stop-when-done true
 ```
 
@@ -144,11 +95,22 @@ Or for every sandbox in a Workspace:
 
 ```bash
 moat workspaces update <workspace-id> \
-  --node-selector-json '{"moatless.io/pool":"on-demand"}'
+  --node-selector-json '{"workload":"moatless-od"}'
 ```
 
 `--clear-node-selector` (loops) and `--node-selector-json '{}'` (workspaces)
 put the sandboxes back on whatever the deployment-wide selector resolves to.
+
+A Git-synced Loop rejects both flags, and `LOOP.md` has no field for a selector.
+The Workspace command above is the way out **only while that Workspace is
+`source: manual`** — `moat workspaces update` refuses a Git-synced one for the
+same reason (`ensure_workspace_mutable`). Check with
+`moat workspaces get <id> --json`.
+
+When both are Git-owned, nothing sets the selector without taking one of them
+off Git sync. Prefer `moat workspaces override`: it keeps the provenance fields
+and `moat workspaces reset-git` puts it back, whereas `moat loops override`
+freezes the Loop's prompt and schedule as well.
 
 ## `stopWhenDone`
 

@@ -54,7 +54,7 @@ pub enum WorkspaceAction {
         #[arg(long)]
         network_profile: Option<String>,
         /// Extra node labels for this workspace's sandbox pods, as a JSON
-        /// object, e.g. `{"moatless.io/pool":"on-demand"}`. Admin only. Pass
+        /// object, e.g. `{"workload":"moatless-od"}`. Admin only. Pass
         /// `{}` to clear it.
         #[arg(long)]
         node_selector_json: Option<String>,
@@ -98,7 +98,7 @@ pub enum WorkspaceAction {
         #[arg(long)]
         network_profile: Option<String>,
         /// Extra node labels for this workspace's sandbox pods, as a JSON
-        /// object, e.g. `{"moatless.io/pool":"on-demand"}`. Admin only. Pass
+        /// object, e.g. `{"workload":"moatless-od"}`. Admin only. Pass
         /// `{}` to clear it.
         #[arg(long)]
         node_selector_json: Option<String>,
@@ -137,7 +137,7 @@ pub enum WorkspaceAction {
         #[arg(long)]
         network_profile: Option<String>,
         /// Extra node labels for this workspace's sandbox pods, as a JSON
-        /// object, e.g. `{"moatless.io/pool":"on-demand"}`. Admin only. Pass
+        /// object, e.g. `{"workload":"moatless-od"}`. Admin only. Pass
         /// `{}` to clear it.
         #[arg(long)]
         node_selector_json: Option<String>,
