@@ -3,17 +3,22 @@
 
 use crate::client::MoatClient;
 
-/// Resolve the outbound message text from `--text` or stdin.
+/// Resolve text from the argument the caller passed, or stdin.
 ///
 /// If `text` is `Some`, returns it as-is; otherwise reads piped stdin, erroring
-/// when neither is available.
-pub fn read_text_or_stdin(text: Option<String>) -> Result<String, Box<dyn std::error::Error>> {
+/// when neither is available. `forms` names the argument spellings the command
+/// accepts, since they differ per command and the error is the only place a
+/// caller reads them.
+pub fn read_text_or_stdin(
+    text: Option<String>,
+    forms: &str,
+) -> Result<String, Box<dyn std::error::Error>> {
     if let Some(t) = text {
         return Ok(t);
     }
     use std::io::{IsTerminal, Read};
     if std::io::stdin().is_terminal() {
-        return Err("Provide --text or pipe message via stdin".into());
+        return Err(format!("{forms}, or pipe it on stdin").into());
     }
     let mut buf = String::new();
     std::io::stdin().read_to_string(&mut buf)?;

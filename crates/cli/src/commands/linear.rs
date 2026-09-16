@@ -68,8 +68,13 @@ pub enum IssueAction {
     Create {
         #[arg(long)]
         title: String,
-        #[arg(long)]
+        /// Issue description. `--body` is accepted for it, matching
+        /// `moat gh pr create`.
+        #[arg(long, alias = "body")]
         description: Option<String>,
+        /// Read the description from a file.
+        #[arg(long = "description-file", alias = "body-file", short = 'F')]
+        description_file: Option<std::path::PathBuf>,
         /// Team key (`SP`) or UUID. Defaults to the only accessible team.
         #[arg(long)]
         team: Option<String>,
@@ -131,8 +136,16 @@ pub enum IssueAction {
         id: String,
         #[arg(long)]
         title: Option<String>,
-        #[arg(long)]
+        /// Replacement description. An empty value is refused — use
+        /// `--clear-description` to blank one.
+        #[arg(long, alias = "body")]
         description: Option<String>,
+        /// Read the replacement description from a file.
+        #[arg(long = "description-file", alias = "body-file", short = 'F')]
+        description_file: Option<std::path::PathBuf>,
+        /// Erase the issue's description.
+        #[arg(long, conflicts_with_all = ["description", "description_file"])]
+        clear_description: bool,
         #[arg(long)]
         state: Option<String>,
         #[arg(long)]
@@ -169,7 +182,15 @@ pub enum IssueAction {
     Comment {
         id: String,
         /// Comment body. Reads from stdin if omitted.
+        #[arg(value_name = "BODY")]
         body: Option<String>,
+        /// The same body as the positional argument, spelled the way
+        /// `moat gh issue comment` spells it.
+        #[arg(long = "body", short = 'b')]
+        body_flag: Option<String>,
+        /// Read the body from a file.
+        #[arg(long = "body-file", short = 'F')]
+        body_file: Option<std::path::PathBuf>,
         /// Task to associate with (defaults to `$TASK_ID`). A comment on an
         /// already-bound issue refreshes its binding automatically.
         #[arg(long = "task")]
@@ -322,6 +343,7 @@ async fn run_issue(
         IssueAction::Create {
             title,
             description,
+            description_file,
             team,
             state,
             project,
@@ -340,6 +362,7 @@ async fn run_issue(
             connection,
         } => {
             let task_id = task.or_else(|| cfg.task_id().map(str::to_string));
+            let description = one_text("description", description, description_file.as_deref())?;
             let req = LinearIssueCreateRequest {
                 title,
                 description,
@@ -377,6 +400,8 @@ async fn run_issue(
             id,
             title,
             description,
+            description_file,
+            clear_description,
             state,
             project,
             assignee,
@@ -388,9 +413,11 @@ async fn run_issue(
             parent,
             connection,
         } => {
+            let description = one_text("description", description, description_file.as_deref())?;
             let req = LinearIssueUpdateRequest {
                 title,
                 description,
+                clear_description: clear_description.then_some(true),
                 state,
                 project,
                 assignee,
@@ -427,11 +454,13 @@ async fn run_issue(
         IssueAction::Comment {
             id,
             body,
+            body_flag,
+            body_file,
             task,
             bind,
             connection,
         } => {
-            let body = read_text_or_stdin(body)?;
+            let body = comment_body(body, body_flag, body_file.as_deref())?;
             let task_id = task.or_else(|| cfg.task_id().map(str::to_string));
             let req = LinearCommentCreateRequest {
                 body,
@@ -523,6 +552,67 @@ async fn run_issue(
             Ok(())
         }
     }
+}
+
+/// Every spelling `issue comment` accepts for its body, for the error a caller
+/// reads when they passed none of them or more than one.
+const BODY_FORMS: &str = "Pass the comment body once: as the positional argument, \
+                          `--body <text>`, or `--body-file <path>`";
+
+/// One text value from the inline flag or the file flag, or `None` when the
+/// caller passed neither.
+///
+/// An empty file is refused: `--description-file` over a path that no longer
+/// holds what it held is the same accident as `--description "$(cat gone)"`,
+/// and Linear reads an empty description as "erase it".
+fn one_text(
+    field: &str,
+    inline: Option<String>,
+    file: Option<&std::path::Path>,
+) -> Result<Option<String>, Box<dyn std::error::Error>> {
+    match (inline, file) {
+        (Some(_), Some(_)) => {
+            Err(format!("Pass the {field} once: `--{field} <text>` or `--{field}-file <path>`").into())
+        }
+        (Some(text), None) => Ok(Some(text)),
+        (None, Some(path)) => {
+            let text = std::fs::read_to_string(path)
+                .map_err(|e| format!("cannot read --{field}-file {}: {e}", path.display()))?;
+            if text.trim().is_empty() {
+                return Err(format!("--{field}-file {} is empty", path.display()).into());
+            }
+            Ok(Some(text))
+        }
+        (None, None) => Ok(None),
+    }
+}
+
+/// The comment body, from the positional argument, `--body`, `--body-file`, or
+/// stdin.
+///
+/// The positional came first and keeps working; `--body`/`--body-file` are what
+/// `moat gh issue comment` next door takes, which is what a caller reaches for.
+fn comment_body(
+    positional: Option<String>,
+    flag: Option<String>,
+    file: Option<&std::path::Path>,
+) -> Result<String, Box<dyn std::error::Error>> {
+    if [positional.is_some(), flag.is_some(), file.is_some()]
+        .into_iter()
+        .filter(|given| *given)
+        .count()
+        > 1
+    {
+        return Err(BODY_FORMS.into());
+    }
+    let body = match one_text("body", positional.or(flag), file)? {
+        Some(text) => text,
+        None => read_text_or_stdin(None, BODY_FORMS)?,
+    };
+    if body.trim().is_empty() {
+        return Err(format!("The comment body is empty. {BODY_FORMS}").into());
+    }
+    Ok(body)
 }
 
 /// One line per issue, for the listing. `print_issue` stays the detail view.
@@ -617,7 +707,7 @@ async fn run_graphql(
     connection: Option<&str>,
     json: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let query = read_text_or_stdin(query)?;
+    let query = read_text_or_stdin(query, "Pass the query as the positional argument")?;
     let variables = if vars.is_empty() {
         None
     } else {
@@ -699,5 +789,126 @@ fn print_issue(issue: &Value, json: bool) {
     }
     if !url.is_empty() {
         println!("  url:      {url}");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use clap::Parser;
+
+    use super::*;
+
+    /// A parser around [`IssueAction`] alone, so a case names the subcommand
+    /// and its flags and nothing else.
+    #[derive(Parser)]
+    struct TestCli {
+        #[command(subcommand)]
+        action: IssueAction,
+    }
+
+    fn parse(args: &[&str]) -> IssueAction {
+        TestCli::try_parse_from(std::iter::once("moat-linear").chain(args.iter().copied()))
+            .expect("the arguments parse")
+            .action
+    }
+
+    /// A path under the temp directory nothing else writes, named for the case.
+    fn temp_file(case: &str, contents: &str) -> std::path::PathBuf {
+        let path = std::env::temp_dir().join(format!("moat-linear-{case}-{}", std::process::id()));
+        std::fs::write(&path, contents).expect("the temp directory is writable");
+        path
+    }
+
+    #[test]
+    fn a_comment_takes_its_body_as_the_positional_argument() {
+        let body = comment_body(Some("the note".into()), None, None).expect("one form is enough");
+        assert_eq!(body, "the note");
+    }
+
+    /// The spelling `moat gh issue comment` takes, which is what a caller who
+    /// used that command next reaches for.
+    #[test]
+    fn a_comment_takes_its_body_from_the_flag() {
+        let body = comment_body(None, Some("the note".into()), None).expect("one form is enough");
+        assert_eq!(body, "the note");
+    }
+
+    #[test]
+    fn a_comment_takes_its_body_from_a_file() {
+        let path = temp_file("body", "the note");
+        let body = comment_body(None, None, Some(&path)).expect("the file is readable");
+        assert_eq!(body, "the note");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn two_body_forms_at_once_name_all_three() {
+        let err = comment_body(Some("one".into()), Some("two".into()), None)
+            .expect_err("two forms is one too many");
+        let message = err.to_string();
+        assert!(message.contains("positional"), "{message}");
+        assert!(message.contains("--body <text>"), "{message}");
+        assert!(message.contains("--body-file <path>"), "{message}");
+    }
+
+    #[test]
+    fn an_empty_comment_body_is_refused() {
+        let err = comment_body(Some("   ".into()), None, None)
+            .expect_err("an empty comment is not a comment");
+        assert!(err.to_string().contains("empty"), "{err}");
+    }
+
+    /// `--description-file` over a recycled path reads as nothing, which on an
+    /// update would erase the description it was meant to replace.
+    #[test]
+    fn an_empty_description_file_is_refused() {
+        let path = temp_file("empty", "\n");
+        let err = one_text("description", None, Some(&path)).expect_err("an empty file is refused");
+        assert!(err.to_string().contains("is empty"), "{err}");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn a_missing_description_file_names_the_path() {
+        let path = std::env::temp_dir().join("moat-linear-does-not-exist");
+        let err = one_text("description", None, Some(&path)).expect_err("the file is not there");
+        assert!(err.to_string().contains("--description-file"), "{err}");
+    }
+
+    #[test]
+    fn a_comment_accepts_both_spellings_of_its_body() {
+        assert!(matches!(
+            parse(&["comment", "SP-1", "the note"]),
+            IssueAction::Comment { body: Some(b), .. } if b == "the note"
+        ));
+        assert!(matches!(
+            parse(&["comment", "SP-1", "--body", "the note"]),
+            IssueAction::Comment { body_flag: Some(b), .. } if b == "the note"
+        ));
+    }
+
+    #[test]
+    fn create_and_update_accept_body_for_description() {
+        assert!(matches!(
+            parse(&["create", "--title", "t", "--body", "d"]),
+            IssueAction::Create { description: Some(d), .. } if d == "d"
+        ));
+        assert!(matches!(
+            parse(&["update", "SP-1", "--body", "d"]),
+            IssueAction::Update { description: Some(d), .. } if d == "d"
+        ));
+    }
+
+    #[test]
+    fn clearing_a_description_rules_out_writing_one() {
+        let parsed = TestCli::try_parse_from([
+            "moat-linear",
+            "update",
+            "SP-1",
+            "--clear-description",
+            "--description",
+            "d",
+        ]);
+        assert!(parsed.is_err(), "the two ask for different things");
     }
 }

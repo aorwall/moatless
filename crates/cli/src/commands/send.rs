@@ -73,7 +73,7 @@ pub async fn run(
     cfg: &Config,
     json: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let text = read_text_or_stdin(args.text)?;
+    let text = read_text_or_stdin(args.text, "Pass the message with `--text <text>`")?;
     let file_ids = upload_files(moat, &args.files).await?;
     let task_id_ctx: Option<String> = args
         .task_id

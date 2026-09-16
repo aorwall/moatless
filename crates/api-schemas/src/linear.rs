@@ -84,8 +84,15 @@ pub struct LinearIssueCreateRequest {
 pub struct LinearIssueUpdateRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
+    /// New description. An empty or whitespace-only string is rejected — a
+    /// command substitution over a file that no longer exists expands to one,
+    /// and Linear reads it as "erase the description".
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// Blank the description. The only way to erase one, so that erasing is
+    /// always something the caller asked for.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub clear_description: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub state: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

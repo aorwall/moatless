@@ -103,7 +103,7 @@ pub async fn run(
             files,
             rich,
         } => {
-            let text = read_text_or_stdin(text)?;
+            let text = read_text_or_stdin(text, "Pass the reply with `--text <text>`")?;
             let file_ids = upload_files(moat, &files).await?;
             let presentation = rich
                 .as_deref()

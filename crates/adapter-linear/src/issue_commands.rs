@@ -151,11 +151,11 @@ pub(crate) async fn create_issue(
     if let Some(p) = project_id {
         input["projectId"] = json!(p);
     }
-    if let Some(a) = assignee_id {
+    if let Some(a) = assignee_id.as_deref() {
         input["assigneeId"] = json!(a);
     }
-    if let Some(d) = delegate_id {
-        input["delegateId"] = d;
+    if let Some(d) = delegate_id.as_ref() {
+        input["delegateId"] = d.clone();
     }
     if let Some(p) = req.priority {
         input["priority"] = json!(p);
@@ -181,7 +181,15 @@ pub(crate) async fn create_issue(
 
     let issue = api.create_issue(input).await?;
     if let Some(requested) = state_id.as_deref() {
-        require_applied(&issue, "state", "/state", requested)?;
+        require_applied(&issue, "state", "/state", Some(requested), "")?;
+    }
+    // Only an assignee the caller named: the default from the caller's own
+    // identity is best-effort by design and must not fail the creation.
+    if let (Some(_), Some(requested)) = (req.assignee.as_deref(), assignee_id.as_deref()) {
+        require_applied(&issue, "assignee", "/assignee", Some(requested), DROPPED_ASSIGNEE)?;
+    }
+    if let Some(requested) = delegate_id.as_ref() {
+        require_applied(&issue, "delegate", "/delegate", requested.as_str(), "")?;
     }
 
     // Filing an issue records a traceability attachment but does not make it a
@@ -221,6 +229,8 @@ pub(crate) async fn update_issue(
     let linear = require_linear(linear)?;
     let (_connection, api) =
         resolve_linear_api(&linear, &ctx, params.connection_id.as_deref()).await?;
+
+    let description = description_to_write(req.description.as_deref(), req.clear_description)?;
 
     // State, project and cycle all resolve against the issue's own team, so one
     // fetch serves all three. Only a name reads it: each resolver returns a UUID
@@ -268,7 +278,7 @@ pub(crate) async fn update_issue(
     if let Some(t) = req.title {
         input["title"] = json!(t);
     }
-    if let Some(d) = req.description {
+    if let Some(d) = description {
         input["description"] = json!(d);
     }
     if let Some(s) = state_id.as_deref() {
@@ -277,11 +287,11 @@ pub(crate) async fn update_issue(
     if let Some(p) = project_id {
         input["projectId"] = json!(p);
     }
-    if let Some(a) = assignee_id {
+    if let Some(a) = assignee_id.as_deref() {
         input["assigneeId"] = json!(a);
     }
-    if let Some(d) = delegate_id {
-        input["delegateId"] = d;
+    if let Some(d) = delegate_id.as_ref() {
+        input["delegateId"] = d.clone();
     }
     if let Some(p) = req.priority {
         input["priority"] = json!(p);
@@ -308,7 +318,13 @@ pub(crate) async fn update_issue(
 
     let issue = api.update_issue(&id, input).await?;
     if let Some(requested) = state_id.as_deref() {
-        require_applied(&issue, "state", "/state", requested)?;
+        require_applied(&issue, "state", "/state", Some(requested), "")?;
+    }
+    if let Some(requested) = assignee_id.as_deref() {
+        require_applied(&issue, "assignee", "/assignee", Some(requested), DROPPED_ASSIGNEE)?;
+    }
+    if let Some(requested) = delegate_id.as_ref() {
+        require_applied(&issue, "delegate", "/delegate", requested.as_str(), "")?;
     }
     Ok(LinearIssueResponse {
         data: issue,
@@ -316,21 +332,58 @@ pub(crate) async fn update_issue(
     })
 }
 
-/// Fail when Linear reported success and the field did not land on the id
-/// asked for.
+/// What Linear does with an `assigneeId` it will not honour, for the error a
+/// dropped assignee raises.
+const DROPPED_ASSIGNEE: &str = " Linear accepts an `assigneeId` for a user who is not an \
+                                assignable member of the issue's team and then drops it, \
+                                which is what an OAuth app actor such as `moatless` is. \
+                                Hand work to an app agent with `delegate` instead.";
+
+/// The description an update writes, or an error rather than an accidental
+/// blanking.
+///
+/// `--description "$(cat some-file)"` expands to an empty string when the file
+/// is gone, and Linear reads that as "erase the description". Erasing needs
+/// `clear_description`, so it is never something a failed substitution does.
+fn description_to_write(
+    description: Option<&str>,
+    clear: Option<bool>,
+) -> Result<Option<String>, AdapterError> {
+    let clear = clear.unwrap_or(false);
+    match (description, clear) {
+        (Some(text), true) if !text.trim().is_empty() => Err(SharedAdapterError::BadRequest(
+            "`description` and `clearDescription` ask for different things — pass one".into(),
+        )
+        .into()),
+        (_, true) => Ok(Some(String::new())),
+        (Some(text), false) if text.trim().is_empty() => Err(SharedAdapterError::BadRequest(
+            "`description` was empty, which would erase the issue's description. \
+             Pass the text to write, or `clearDescription` to blank it on purpose."
+                .into(),
+        )
+        .into()),
+        (Some(text), false) => Ok(Some(text.to_string())),
+        (None, false) => Ok(None),
+    }
+}
+
+/// Fail when Linear reported success and the field did not land as asked —
+/// `requested` is the id to find there, or `None` to find it empty.
 ///
 /// `issueUpdate` answers `success: true` for an id it drops, so the issue it
-/// returns is the only proof. `subobject` points at the field in it, `/state`.
+/// returns is the only proof. `subobject` points at the field in it, `/state`;
+/// `hint` names a known cause.
 fn require_applied(
     issue: &Value,
     field: &str,
     subobject: &str,
-    requested: &str,
+    requested: Option<&str>,
+    hint: &str,
 ) -> Result<(), AdapterError> {
     let applied = issue
         .pointer(&format!("{subobject}/id"))
         .and_then(Value::as_str);
-    if applied == Some(requested) {
+    if applied == requested {
         return Ok(());
     }
     let identifier = issue
@@ -348,9 +401,13 @@ fn require_applied(
         }
         None => "nothing".to_string(),
     };
+    let detail = match requested {
+        Some(id) => format!("has {field} {now}, not the requested `{id}`"),
+        None => format!("still has {field} {now} after a request to clear it"),
+    };
     Err(SharedAdapterError::AdapterApi(format!(
-        "Linear reported success but {identifier} has {field} {now}, not the requested \
-         `{requested}`. Other fields in the same call may have been applied."
+        "Linear reported success but {identifier} {detail}.{hint} Other fields in the same \
+         call may have been applied."
     ))
     .into())
 }
@@ -711,7 +768,7 @@ mod tests {
     #[test]
     fn a_state_that_landed_passes() {
         let issue = issue_in_state(REQUESTED, "In Review");
-        require_applied(&issue, "state", "/state", REQUESTED).expect("the state landed");
+        require_applied(&issue, "state", "/state", Some(REQUESTED), "").expect("the state landed");
     }
 
     /// The corruption this check exists for: the issue came back in a state
@@ -720,7 +777,7 @@ mod tests {
     #[test]
     fn a_state_that_landed_elsewhere_fails_and_names_it() {
         let issue = issue_in_state(CANCELED, "Canceled");
-        let err = require_applied(&issue, "state", "/state", REQUESTED)
+        let err = require_applied(&issue, "state", "/state", Some(REQUESTED), "")
             .expect_err("a different state must not report success");
         let message = err.to_string();
         assert!(message.contains("SP-2982"), "{message}");
@@ -733,8 +790,90 @@ mod tests {
     #[test]
     fn a_dropped_field_fails() {
         let issue = json!({ "identifier": "SP-2982", "state": null });
-        let err = require_applied(&issue, "state", "/state", REQUESTED)
+        let err = require_applied(&issue, "state", "/state", Some(REQUESTED), "")
             .expect_err("a dropped id must not report success");
         assert!(err.to_string().contains("has state nothing"), "{err}");
+    }
+
+    /// `--assignee moatless` named the OAuth app actor, which Linear accepted
+    /// and dropped. The error has to say why, since retrying with the UUID
+    /// fails the same way.
+    #[test]
+    fn a_dropped_assignee_names_the_app_actor() {
+        let issue = json!({ "identifier": "SP-2982", "assignee": null });
+        let requested = Some(REQUESTED);
+        let err = require_applied(&issue, "assignee", "/assignee", requested, DROPPED_ASSIGNEE)
+            .expect_err("an unassigned issue must not report a successful assignment");
+        let message = err.to_string();
+        assert!(message.contains("OAuth app actor"), "{message}");
+        assert!(message.contains("delegate"), "{message}");
+    }
+
+    #[test]
+    fn an_assignee_that_landed_passes() {
+        let issue = json!({
+            "identifier": "SP-2982",
+            "assignee": { "id": REQUESTED, "displayName": "Albert" },
+        });
+        require_applied(&issue, "assignee", "/assignee", Some(REQUESTED), DROPPED_ASSIGNEE)
+            .expect("the assignee landed");
+    }
+
+    /// `--delegate null` releases a lane's claim, and a delegate Linear kept
+    /// is that claim still held — the one case where the field landing on no
+    /// id is the success.
+    #[test]
+    fn a_delegate_that_linear_kept_fails_the_clear() {
+        let issue = json!({
+            "identifier": "SP-2982",
+            "delegate": { "id": REQUESTED, "displayName": "moatless" },
+        });
+        let err = require_applied(&issue, "delegate", "/delegate", None, "")
+            .expect_err("a retained delegate must not report a successful clear");
+        let message = err.to_string();
+        assert!(message.contains("still has delegate"), "{message}");
+        assert!(message.contains("moatless"), "{message}");
+    }
+
+    #[test]
+    fn a_delegate_that_was_cleared_passes() {
+        let issue = json!({ "identifier": "SP-2982", "delegate": null });
+        require_applied(&issue, "delegate", "/delegate", None, "").expect("the delegate cleared");
+    }
+
+    #[test]
+    fn a_description_is_written_as_given() {
+        let written = description_to_write(Some("the writeup"), None).expect("text is writable");
+        assert_eq!(written.as_deref(), Some("the writeup"));
+    }
+
+    /// The loss this rejection exists for: `--description "$(cat /tmp/gone)"`
+    /// expands to an empty string and Linear erases the description.
+    #[test]
+    fn an_empty_description_is_refused() {
+        for empty in ["", "   ", "\n"] {
+            let err = description_to_write(Some(empty), None)
+                .expect_err("an empty description must not erase one");
+            assert!(err.to_string().contains("clearDescription"), "{err}");
+        }
+    }
+
+    #[test]
+    fn clearing_is_how_a_description_is_erased() {
+        let written = description_to_write(None, Some(true)).expect("clearing is allowed");
+        assert_eq!(written.as_deref(), Some(""));
+    }
+
+    #[test]
+    fn text_and_clearing_together_is_refused() {
+        let err = description_to_write(Some("the writeup"), Some(true))
+            .expect_err("the two ask for different things");
+        assert!(err.to_string().contains("pass one"), "{err}");
+    }
+
+    #[test]
+    fn no_description_leaves_the_field_alone() {
+        let written = description_to_write(None, None).expect("an absent field is not a change");
+        assert!(written.is_none());
     }
 }
