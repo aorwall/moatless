@@ -52,7 +52,16 @@ macro_rules! string_enum {
         #[derive(Debug, Clone, Copy, PartialEq, Eq, $($extra,)* serde::Serialize, serde::Deserialize)]
         #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
         pub enum $name {
-            $($(#[$vmeta])* #[serde(rename = $value)] $(#[serde(alias = $alias)])* $variant),+
+            $(
+                $(#[$vmeta])*
+                #[serde(rename = $value)]
+                $(#[serde(alias = $alias)])*
+                // utoipa reads no `serde(rename)` off a unit variant, so without
+                // this the dumped schema declares the Rust identifier and the
+                // client generated from it never matches a real response.
+                #[cfg_attr(feature = "openapi", schema(rename = $value))]
+                $variant
+            ),+
         }
 
         $crate::string_enum_mapping!(

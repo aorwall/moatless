@@ -429,7 +429,14 @@ mod tests {
 
     #[test]
     fn every_server_status_deserializes() {
-        for wire in ["stopped", "installing", "starting", "started", "failed"] {
+        for wire in [
+            "stopped",
+            "installing",
+            "starting",
+            "started",
+            "failed",
+            "disabled",
+        ] {
             let json = format!("\"{wire}\"");
             let parsed: ServerStatus =
                 serde_json::from_str(&json).unwrap_or_else(|e| panic!("{wire}: {e}"));

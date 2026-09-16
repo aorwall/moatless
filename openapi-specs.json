@@ -10016,12 +10016,12 @@
         "type": "string",
         "description": "Canonical external adapter identifier.",
         "enum": [
-          "Slack",
-          "Telegram",
-          "Github",
-          "GithubPr",
-          "Linear",
-          "Webhook"
+          "slack",
+          "telegram",
+          "github",
+          "github_pr",
+          "linear",
+          "webhook"
         ]
       },
       "AdapterSendRequest": {
@@ -10350,31 +10350,31 @@
         "type": "string",
         "description": "Observed Agent lifecycle while its Sandbox is ready.",
         "enum": [
-          "Running",
-          "Waiting",
-          "Idle",
-          "Unknown"
+          "running",
+          "waiting",
+          "idle",
+          "unknown"
         ]
       },
       "AgentSubType": {
         "type": "string",
         "description": "Agent sub-types.",
         "enum": [
-          "Started",
-          "Stopped",
-          "Message",
-          "Completed",
-          "Error",
-          "PendingResponse",
-          "SessionInit",
-          "Retrying",
-          "Scheduled",
-          "RecoveryStarted",
-          "RecoveryExhausted",
-          "SessionContextLost",
-          "Activity",
-          "ContextWindow",
-          "CommandsChanged"
+          "started",
+          "stopped",
+          "message",
+          "completed",
+          "error",
+          "pending_response",
+          "session_init",
+          "retrying",
+          "scheduled",
+          "recovery_started",
+          "recovery_exhausted",
+          "session_context_lost",
+          "activity",
+          "context_window",
+          "commands_changed"
         ]
       },
       "AgentType": {
@@ -10734,8 +10734,8 @@
         "type": "string",
         "description": "How a task's checkout relates to other members of the same Sandbox.",
         "enum": [
-          "Shared",
-          "Isolated"
+          "shared",
+          "isolated"
         ]
       },
       "CloseTaskRequest": {
@@ -12199,13 +12199,13 @@
         "type": "string",
         "description": "Top-level event types.\n\nSerializes to the exact strings the frontend `EventTypeSchema` expects.",
         "enum": [
-          "Task",
-          "TaskTurn",
-          "Sandbox",
-          "Agent",
-          "Server",
-          "Resources",
-          "Message"
+          "task",
+          "taskTurn",
+          "sandbox",
+          "agent",
+          "server",
+          "resources",
+          "message"
         ]
       },
       "ExitPlanModeInput": {
@@ -12276,10 +12276,10 @@
         "type": "string",
         "description": "What the note is about.\n\nOrthogonal to [`FeedbackSurface`] (where it was submitted from); a row\npredating the column, or with no submitter-named category, carries none.",
         "enum": [
-          "Environment",
-          "Codebase",
-          "Instruction",
-          "Other"
+          "environment",
+          "codebase",
+          "instruction",
+          "other"
         ]
       },
       "FeedbackListItem": {
@@ -12407,27 +12407,27 @@
         "type": "string",
         "description": "Submitter of a feedback row — derived from auth context on the server.",
         "enum": [
-          "User",
-          "Agent"
+          "user",
+          "agent"
         ]
       },
       "FeedbackStatus": {
         "type": "string",
         "description": "What a reader decided about a note.\n\nOrthogonal to [`FeedbackCategory`] (what the note is about). A submitter\nnever sets it: a row is written `Open` and only a reader working the\ninbox moves it.",
         "enum": [
-          "Open",
-          "Fixed",
-          "NotRelevant"
+          "open",
+          "fixed",
+          "not_relevant"
         ]
       },
       "FeedbackSurface": {
         "type": "string",
         "description": "Where in the UI/CLI the feedback originated.",
         "enum": [
-          "Task",
-          "Message",
-          "ToolCall",
-          "PreviewFailure"
+          "task",
+          "message",
+          "tool_call",
+          "preview_failure"
         ]
       },
       "FileContentResponse": {
@@ -14116,8 +14116,8 @@
         "type": "string",
         "description": "Authority from which the current Loop configuration was loaded.",
         "enum": [
-          "Git",
-          "Manual"
+          "git",
+          "manual"
         ]
       },
       "LoopExecutionState": {
@@ -14132,9 +14132,9 @@
         "type": "string",
         "description": "Kind of firing source owned by a Loop.",
         "enum": [
-          "AdapterEvent",
-          "Schedule",
-          "Manual"
+          "adapter_event",
+          "schedule",
+          "manual"
         ]
       },
       "LoopRecentTaskItem": {
@@ -14478,20 +14478,20 @@
         "type": "string",
         "description": "Role of the message sender.",
         "enum": [
-          "User",
-          "Assistant",
-          "System"
+          "user",
+          "assistant",
+          "system"
         ]
       },
       "MessageType": {
         "type": "string",
         "description": "Type of task message.",
         "enum": [
-          "Assistant",
-          "User",
-          "System",
-          "Result",
-          "Error"
+          "assistant",
+          "user",
+          "system",
+          "result",
+          "error"
         ]
       },
       "MoatlessToolName": {
@@ -15247,19 +15247,19 @@
         "type": "string",
         "description": "Kind of repository source.",
         "enum": [
-          "Git",
-          "Remote",
-          "Template"
+          "git",
+          "remote",
+          "template"
         ]
       },
       "RepositoryProvider": {
         "type": "string",
         "description": "Git hosting provider.",
         "enum": [
-          "Github",
-          "Gitlab",
-          "Gitness",
-          "Forgejo"
+          "github",
+          "gitlab",
+          "gitness",
+          "forgejo"
         ]
       },
       "RepositoryRemoteResponse": {
@@ -15688,8 +15688,8 @@
         "type": "string",
         "description": "Loop routing mode for message-to-task mapping.",
         "enum": [
-          "Ongoing",
-          "BySubject"
+          "ongoing",
+          "by_subject"
         ]
       },
       "RuntimeEvent": {
@@ -15736,9 +15736,9 @@
         "type": "string",
         "description": "Persisted application intent for a task's sandbox lifecycle.",
         "enum": [
-          "Running",
-          "Stopped",
-          "Removed"
+          "running",
+          "stopped",
+          "removed"
         ]
       },
       "SandboxEventPayload": {
@@ -15813,13 +15813,13 @@
         "type": "string",
         "description": "Sandbox status — valid status values for sandbox lifecycle events.\n\nThese match the frontend `SandboxStatus` values.",
         "enum": [
-          "NotCreated",
-          "Initializing",
-          "Ready",
-          "Stopped",
-          "Removing",
-          "Removed",
-          "Error"
+          "not_created",
+          "initializing",
+          "ready",
+          "stopped",
+          "removing",
+          "removed",
+          "error"
         ]
       },
       "SandboxStatusFullResponse": {
@@ -15936,11 +15936,11 @@
         "type": "string",
         "description": "Reason the persisted sandbox intent moved away from `running`.",
         "enum": [
-          "User",
-          "IdleReaper",
-          "Cleanup",
-          "System",
-          "Error"
+          "user",
+          "idle_reaper",
+          "cleanup",
+          "system",
+          "error"
         ]
       },
       "SaveAdapterAppRequest": {
@@ -16271,8 +16271,8 @@
         "type": "string",
         "description": "Access scope for repositories, tasks, integrations, and credentials.\n\n`global` is world-readable and admin-writable; `user` is owner-managed. A\npublic Task additionally grants read/interact and control, never write.",
         "enum": [
-          "Global",
-          "User"
+          "global",
+          "user"
         ]
       },
       "SearchByNameRequest": {
@@ -16328,12 +16328,12 @@
         "type": "string",
         "description": "Secret value category.",
         "enum": [
-          "Env",
-          "ProviderToken",
-          "RuntimeFile",
-          "Deployment",
-          "SshKey",
-          "Internal"
+          "env",
+          "provider_token",
+          "runtime_file",
+          "deployment",
+          "ssh_key",
+          "internal"
         ]
       },
       "SecretMetadataResponse": {
@@ -16409,8 +16409,8 @@
         "type": "string",
         "description": "Where a secret value is stored.",
         "enum": [
-          "InlineEncrypted",
-          "ExternalRef"
+          "inline_encrypted",
+          "external_ref"
         ]
       },
       "SendDmRequest": {
@@ -16970,12 +16970,12 @@
         "type": "string",
         "description": "Matches TS `ServerStatusEnumSchema`: 'stopped' | 'installing' | 'starting' | 'started' | 'failed' | 'disabled'",
         "enum": [
-          "Stopped",
-          "Installing",
-          "Starting",
-          "Started",
-          "Failed",
-          "Disabled"
+          "stopped",
+          "installing",
+          "starting",
+          "started",
+          "failed",
+          "disabled"
         ]
       },
       "ServerStatusResponse": {
@@ -16997,11 +16997,11 @@
         "type": "string",
         "description": "Server sub-types — server container lifecycle.\n\n`Failed` covers all error conditions (was: Failed, Error, Timeout — consolidated).",
         "enum": [
-          "Installing",
-          "Starting",
-          "Started",
-          "Stopped",
-          "Failed"
+          "installing",
+          "starting",
+          "started",
+          "stopped",
+          "failed"
         ]
       },
       "SessionResponse": {
@@ -17663,8 +17663,8 @@
         "type": "string",
         "description": "Where a node-local sandbox volume is backed.",
         "enum": [
-          "EmptyDir",
-          "Node"
+          "emptyDir",
+          "node"
         ]
       },
       "StreamEvent": {
@@ -18129,9 +18129,9 @@
         "type": "string",
         "description": "Type of a directional link between two tasks: the `from` task points at\nthe `to` task via this relation (e.g. a child `created_by` its parent).\n\n`CreatedBy` and `ForkedFrom` are both parent edges surfacing `from` as a\nchild, but only `CreatedBy` closes with its parent and reports agent\nerrors into the parent's conversation — a fork is often work that\ncontinued with nobody waiting on it.",
         "enum": [
-          "CreatedBy",
-          "RelatedTo",
-          "ForkedFrom"
+          "created_by",
+          "related_to",
+          "forked_from"
         ]
       },
       "TaskResponse": {
@@ -18456,20 +18456,20 @@
         "type": "string",
         "description": "Task lifecycle status.",
         "enum": [
-          "Open",
-          "Closed",
-          "Error"
+          "open",
+          "closed",
+          "error"
         ]
       },
       "TaskSubType": {
         "type": "string",
         "description": "Task sub-types.",
         "enum": [
-          "Created",
-          "Open",
-          "Closed",
-          "Updated",
-          "MetadataUpdated"
+          "created",
+          "open",
+          "closed",
+          "updated",
+          "metadata.updated"
         ]
       },
       "TaskTokenTotals": {
@@ -18546,11 +18546,11 @@
         "type": "string",
         "description": "`TaskTurn` sub-types.",
         "enum": [
-          "Active",
-          "Completed",
-          "Error",
-          "Stopped",
-          "Interrupted"
+          "active",
+          "completed",
+          "error",
+          "stopped",
+          "turn_interrupted"
         ]
       },
       "TeamMemberResponse": {
@@ -19820,16 +19820,16 @@
         "type": "string",
         "description": "Role assigned to a user.",
         "enum": [
-          "User",
-          "Admin"
+          "user",
+          "admin"
         ]
       },
       "UserStatus": {
         "type": "string",
         "description": "Whether a user may sign in and be routed work.",
         "enum": [
-          "Active",
-          "Disabled"
+          "active",
+          "disabled"
         ]
       },
       "ValidateSecretsRequest": {
@@ -19881,8 +19881,8 @@
         "type": "string",
         "description": "Task visibility level.",
         "enum": [
-          "Public",
-          "Private"
+          "public",
+          "private"
         ]
       },
       "WakeupJobInfo": {
@@ -19976,12 +19976,12 @@
         "type": "string",
         "description": "A provider whose credential can be pinned to a Workspace.\n\nOnly providers whose sandbox credential is a single static environment\nvariable are listed here. Codex and the Claude OAuth token are refreshed\nper-user, so a workspace-level copy would go stale with nothing to\nrotate it.",
         "enum": [
-          "Github",
-          "Gitlab",
-          "Gitness",
-          "Forgejo",
-          "Openai",
-          "Anthropic"
+          "github",
+          "gitlab",
+          "gitness",
+          "forgejo",
+          "openai",
+          "anthropic"
         ]
       },
       "WorkspaceCredentialResponse": {

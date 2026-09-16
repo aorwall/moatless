@@ -135,15 +135,11 @@ fn disabled_servers(configs: &[ServerConfig], task_id: &str) -> Vec<ServerEntry>
         .collect()
 }
 
-/// Refuse a log read for a server this Task is not running, saying which one it
-/// could read instead.
+/// Refuse a log read for a server this Task is not running, naming what it can.
 ///
-/// Without this the read reaches the container runtime, which rejects a
-/// container it does not have with an error the provider can only report as
-/// `Internal`. A 500 says nothing about either ordinary reason the name misses:
-/// the Sandbox is headless, so no sidecar was ever created, or the name belongs
-/// to no declared server. The `sandbox` container is not routed through here —
-/// it exists on every pod.
+/// Without this the read reaches the container runtime, whose missing-container
+/// error the provider can only report as `Internal` — a 500 naming neither
+/// ordinary cause. `sandbox` is not routed here: it exists on every pod.
 pub async fn require_running_server(
     plan: Option<&ProvisionDeps>,
     task_id: &str,
