@@ -38,7 +38,38 @@ rm -rf /var/lib/apt/lists/*
 
 # Stable path independent of the exact installed package-version string — same
 # convention as the old Dockerfile.sandbox-java / Dockerfile.sandbox-full.
-ln -sf /usr/lib/jvm/temurin-${JAVA_VERSION}-jdk-* /usr/lib/jvm/default-java
+jdk_dirs=(/usr/lib/jvm/temurin-"${JAVA_VERSION}"-jdk-*)
+jdk_home="${jdk_dirs[0]}"
+if [ ! -x "${jdk_home}/bin/javac" ]; then
+    echo "temurin-${JAVA_VERSION}-jdk installed no JDK under /usr/lib/jvm" >&2
+    exit 1
+fi
+
+# -n, deliberately: the base image ships default-java as a symlink to its own
+# openjdk tree, and without it `ln -sf` follows that link and writes the new
+# symlink *inside* the old JDK, leaving default-java pointing at 21.
+ln -sfn "${jdk_home}" /usr/lib/jvm/default-java
+
+# The base's openjdk and an Adoptium build of the same major register at the
+# same alternatives priority, so auto mode picks between them arbitrarily —
+# which is how `javac` came from one JDK and `java` from another.
+while read -r _ name path; do
+    update-alternatives --set "${name}" "${path}"
+done < <(grep -E "^[a-z]+ +[a-z]+ +${jdk_home}/bin/" "/usr/lib/jvm/.$(basename "${jdk_home}").jinfo")
+
+# Every route to a JVM must land on the requested major: JAVA_HOME and PATH
+# (feature.json's env) and /usr/bin through alternatives. A split between them
+# compiles class files the runtime then rejects with UnsupportedClassVersionError.
+for bin in /usr/lib/jvm/default-java/bin/java /usr/lib/jvm/default-java/bin/javac \
+           /usr/bin/java /usr/bin/javac; do
+    version="$("${bin}" -version 2>&1 | head -1)"
+    # `java -version` quotes the version and `javac -version` does not.
+    case "${version}" in
+        "openjdk version \"${JAVA_VERSION}."*) ;;
+        "javac ${JAVA_VERSION}."*) ;;
+        *) echo "${bin} reports '${version}', expected Java ${JAVA_VERSION}" >&2; exit 1 ;;
+    esac
+done
 
 # The real JAVA_HOME/PATH ENV is emitted into the generated Dockerfile from
 # this feature's feature.json "env" field (see generate-recipe.sh) — that's
