@@ -13,6 +13,7 @@ use moatless_api_schemas::github::{
     GithubExternalEventSubject, GithubReplyRequest,
 };
 use moatless_workspace_types::workspace::proxy_clone_repository_id;
+use std::borrow::Cow;
 use std::collections::HashSet;
 use std::io::Write;
 
@@ -751,6 +752,42 @@ enum OriginUrl<'a> {
     Foreign,
 }
 
+/// The `user:password@` span in an HTTP(S) URL, as `(start, end)` byte offsets
+/// around the credential itself.
+///
+/// Deliberately HTTP(S) only: `ssh://git@github.com/o/r` carries a username and
+/// no secret, which [`parse_github_remote`] needs in place.
+fn userinfo_span(url: &str) -> Option<(usize, usize)> {
+    let authority = url
+        .strip_prefix("https://")
+        .or_else(|| url.strip_prefix("http://"))
+        .map(|rest| url.len() - rest.len())?;
+    let end = url[authority..]
+        .find('/')
+        .map_or(url.len(), |i| authority + i);
+    let at = url[authority..end].rfind('@')? + authority;
+    Some((authority, at + 1))
+}
+
+/// `url` with any credential dropped, for matching.
+fn strip_userinfo(url: &str) -> Cow<'_, str> {
+    match userinfo_span(url) {
+        Some((start, end)) => Cow::Owned(format!("{}{}", &url[..start], &url[end..])),
+        None => Cow::Borrowed(url),
+    }
+}
+
+/// `url` with any credential masked, for printing.
+///
+/// Masked rather than dropped so the reader can tell the remote carries one —
+/// which is often itself the reason a command behaved unexpectedly.
+fn redact_userinfo(url: &str) -> Cow<'_, str> {
+    match userinfo_span(url) {
+        Some((start, end)) => Cow::Owned(format!("{}***@{}", &url[..start], &url[end..])),
+        None => Cow::Borrowed(url),
+    }
+}
+
 fn classify_origin<'a>(base_url: &str, url: &'a str) -> OriginUrl<'a> {
     if let Some((owner, name)) = parse_github_remote(url) {
         return OriginUrl::Github(owner, name);
@@ -773,12 +810,13 @@ async fn origin_repo(client: &MoatClient) -> Result<(String, String), OriginErro
             "could not infer the GitHub repository ({e}) — pass `-R owner/repo`"
         ))
     })?;
-    let url = url.trim();
-    match classify_origin(client.base_url(), url) {
+    let bare = strip_userinfo(url.trim());
+    match classify_origin(client.base_url(), &bare) {
         OriginUrl::Github(owner, name) => Ok((owner, name)),
         OriginUrl::Proxied(id) => proxied_repo(client, id).await,
         OriginUrl::Foreign => Err(OriginError::Unaddressable(format!(
-            "origin remote `{url}` is not a GitHub repository — pass `-R owner/repo`"
+            "origin remote `{}` is not a GitHub repository — pass `-R owner/repo`",
+            redact_userinfo(url.trim())
         ))),
     }
 }

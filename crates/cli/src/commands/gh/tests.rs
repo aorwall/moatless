@@ -363,6 +363,37 @@ fn a_proxied_origin_is_recognized_whichever_url_names_the_backend() {
     assert_eq!(any_host_proxy_repository_id("https://host/git/"), None);
 }
 
+/// A sandbox clones over HTTPS with its token in the remote, so this is what
+/// `git remote get-url origin` answers in most checkouts `moat gh` runs in.
+#[test]
+fn a_credential_in_the_remote_neither_blocks_the_match_nor_reaches_the_message() {
+    let cloned = "https://x-access-token:ghu_SECRET@github.com/soaplabs/soap-knowledge";
+    assert_eq!(
+        parse_github_remote(&strip_userinfo(cloned)),
+        Some(("soaplabs".into(), "soap-knowledge".into()))
+    );
+    assert_eq!(
+        redact_userinfo(cloned),
+        "https://***@github.com/soaplabs/soap-knowledge"
+    );
+    assert!(!redact_userinfo(cloned).contains("ghu_SECRET"));
+
+    assert_eq!(
+        strip_userinfo("ssh://git@github.com/o/r.git"),
+        "ssh://git@github.com/o/r.git",
+        "the ssh form's `git@` is a username, not a credential, and parse_github_remote wants it"
+    );
+    assert_eq!(
+        strip_userinfo("https://github.com/o/r.git"),
+        "https://github.com/o/r.git"
+    );
+    assert_eq!(
+        strip_userinfo("https://user:pw@host:8080/git/repo_1"),
+        "https://host:8080/git/repo_1",
+        "a port survives: the `@` is found within the authority, not past the first slash"
+    );
+}
+
 /// The backend a proxied origin is cloned from.
 const BACKEND: &str = "https://moatless.example.com";
 
