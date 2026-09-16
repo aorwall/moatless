@@ -23,8 +23,7 @@ fi
 # so in-task package installs resolve over the CodeArtifact VPC endpoints instead
 # of NAT (and resolve private @soaplabs / com.soaplabs packages with no GitHub
 # token). Gated on CODEARTIFACT_DOMAIN, so unset == no-op (local/dev unaffected).
-# Best-effort: a failed token mint warns and continues rather than aborting the
-# sandbox. Requires AWS creds (the moatless-sandbox Pod Identity) + AWS CLI v2.
+# Requires AWS creds (a Pod Identity association) + AWS CLI v2.
 if [ -n "$CODEARTIFACT_DOMAIN" ]; then
     ca_owner="${CODEARTIFACT_DOMAIN_OWNER:-222222222222}"
     ca_region="${AWS_REGION:-${AWS_DEFAULT_REGION:-eu-north-1}}"
@@ -36,13 +35,39 @@ if [ -n "$CODEARTIFACT_DOMAIN" ]; then
     if ! command -v aws >/dev/null 2>&1; then
         echo "[codeartifact] aws CLI not found — skipping registry bootstrap" >&2
     else
+        ca_stderr="$(mktemp)"
         ca_token="$(aws codeartifact get-authorization-token \
             --domain "$CODEARTIFACT_DOMAIN" --domain-owner "$ca_owner" --region "$ca_region" \
-            --query authorizationToken --output text 2>/dev/null || true)"
+            --query authorizationToken --output text 2>"$ca_stderr" || true)"
 
         if [ -z "$ca_token" ] || [ "$ca_token" = "None" ]; then
-            echo "[codeartifact] could not mint a token (no AWS creds?) — skipping" >&2
+            # CODEARTIFACT_DOMAIN is set, so this is a misconfigured deployment and
+            # not a local no-op. Name the denial here: the install that fails is
+            # minutes away and reports a 401 that points at the registry, not IAM.
+            ca_arn="$(aws sts get-caller-identity --query Arn --output text 2>/dev/null || true)"
+            echo "[codeartifact] ERROR: no token for domain ${CODEARTIFACT_DOMAIN} — npm, pip and maven are unconfigured." >&2
+            sed '/^[[:space:]]*$/d; s/^/[codeartifact]   /' "$ca_stderr" >&2
+            echo "[codeartifact]   identity: ${ca_arn:-none, no AWS credentials reached this sandbox}" >&2
+            echo "[codeartifact]   Every private @soaplabs / com.soaplabs install will 401 until the error" >&2
+            echo "[codeartifact]   above clears — a missing codeartifact:GetAuthorizationToken grant is one" >&2
+            echo "[codeartifact]   cause of it. A GitHub Packages token is not a fix for any of them." >&2
+
+            # The agent that hits the 401 reads ~/.npmrc, not this container's
+            # stderr. Leave the diagnosis where it will look: npm ignores `#`
+            # lines, so an otherwise empty file changes no resolution.
+            {
+                echo "# CodeArtifact bootstrap FAILED at sandbox start — there is no auth token."
+                echo "# get-authorization-token on domain ${CODEARTIFACT_DOMAIN} said:"
+                sed '/^[[:space:]]*$/d; s/^/#   /' "$ca_stderr"
+                echo "#   identity: ${ca_arn:-none, no AWS credentials reached this sandbox}"
+                echo "# No private @soaplabs package resolves until that call succeeds. The"
+                echo "# usual cause is a missing codeartifact:GetAuthorizationToken grant on"
+                echo "# that identity, but read the error above rather than assuming it."
+                echo "# Do not reach for a GitHub Packages token: nothing here publishes to one."
+            } > "$HOME/.npmrc"
+            rm -f "$ca_stderr"
         else
+            rm -f "$ca_stderr"
             # Export for repos whose own .npmrc / settings.xml reference
             # ${CODEARTIFACT_AUTH_TOKEN} (the documented contract). A project-level
             # .npmrc shadows ~/.npmrc for the same _authToken key, so writing
