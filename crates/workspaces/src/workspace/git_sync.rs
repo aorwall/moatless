@@ -7,7 +7,7 @@
 //! `override` flips a workspace to `source = 'manual'` so auto-sync leaves it
 //! alone; [`SyncForce`] decides which syncs reclaim an active override.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
 use chrono::Utc;
@@ -31,7 +31,9 @@ use moatless_types::access_control::Actor;
 use moatless_types::access_control::ScopeContext;
 use moatless_workspace_types::repository::RepositoryKind;
 use moatless_workspace_types::repository::{GitHostRepo, RepositoryRemote};
-use moatless_workspace_types::schemas::workspace::{WorkspaceSyncSkip, WorkspaceSyncSummary};
+use moatless_workspace_types::schemas::workspace::{
+    WorkspaceSyncSkip, WorkspaceSyncSummary, WorkspaceSyncWarning,
+};
 use moatless_workspace_types::workspace::ScriptConfig;
 use moatless_workspace_types::workspace::{ResourceConfig, ServerConfig};
 
@@ -39,11 +41,21 @@ use moatless_workspace_types::workspace::{ResourceConfig, ServerConfig};
 // `.moatless/` file schemas
 // =============================================================================
 
+/// The keys of one object in `.moatless/workspaces.json` that no field of its
+/// schema claims.
+///
+/// Serde routes what the named fields did not match into it, so a field added
+/// above drops out of here with no second list to keep in step — which is what
+/// lets [`unknown_key_warnings`] name a misspelled key rather than drop it.
+type UnknownKeys = BTreeMap<String, serde_json::Value>;
+
 /// Code execution settings.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CodeExecution {
     pub setup_commands: Option<Vec<String>>,
+    #[serde(flatten)]
+    pub unknown: UnknownKeys,
 }
 
 /// Top-level `.moatless/workspaces.json` schema — the default (non-legacy)
@@ -55,6 +67,8 @@ pub struct MoatlessWorkspacesFile {
     #[allow(dead_code)] // reserved for forward-compat; not yet branched on
     pub version: Option<u32>,
     pub workspaces: Vec<MoatlessWorkspaceEntry>,
+    #[serde(flatten)]
+    pub unknown: UnknownKeys,
 }
 
 /// One workspace entry in `.moatless/workspaces.json`.
@@ -78,6 +92,8 @@ pub struct MoatlessWorkspaceEntry {
     pub env_vars: Option<std::collections::HashMap<String, String>>,
     pub sandbox_service_account: Option<String>,
     pub network_profile: Option<String>,
+    #[serde(flatten)]
+    pub unknown: UnknownKeys,
 }
 
 /// A repository reference inside a `workspaces.json` entry.
@@ -89,6 +105,82 @@ pub struct MoatlessWorkspaceRepoRef {
     pub mount_name: Option<String>,
     #[serde(default)]
     pub primary: bool,
+    #[serde(flatten)]
+    pub unknown: UnknownKeys,
+}
+
+/// What the sync says about a key it read but did not apply.
+const UNKNOWN_KEY: &str = "unknown key, ignored: nothing in the sandbox reads it";
+
+/// The retired second git-declared form, kept only so a repo still carrying one
+/// is told the file is dead rather than left reading it as live config.
+const RETIRED_CONFIG_PATH: &str = ".moatless/config.json";
+
+/// Whether a repo with no `.moatless/workspaces.json` still ships the retired
+/// `.moatless/config.json`.
+///
+/// Probed only on that path, so an up-to-date repo pays nothing. A fetch
+/// failure answers `None`: the warning exists to explain an empty sync, and
+/// inventing one from an unreachable provider would explain the wrong thing.
+async fn retired_config_warning(
+    remote: &RepositoryRemote,
+    branch: Option<&str>,
+    token: Option<&str>,
+) -> Option<WorkspaceSyncWarning> {
+    fetch_provider_file(remote, RETIRED_CONFIG_PATH, branch, token)
+        .await
+        .ok()
+        .flatten()
+        .map(|_| WorkspaceSyncWarning {
+            path: RETIRED_CONFIG_PATH.to_string(),
+            message: "not read: declare workspaces in .moatless/workspaces.json instead"
+                .to_string(),
+        })
+}
+
+/// Every key in the file that no field of the schema claims, as JSON paths into
+/// the file.
+///
+/// A key serde does not recognise parses without error and is dropped, so a
+/// misspelled or obsolete one leaves a repo whose committed config reads as
+/// authoritative and is not.
+fn unknown_key_warnings(file: &MoatlessWorkspacesFile) -> Vec<WorkspaceSyncWarning> {
+    let mut warnings = Vec::new();
+    let mut ignored = |path: String| {
+        warnings.push(WorkspaceSyncWarning {
+            path,
+            message: UNKNOWN_KEY.to_string(),
+        });
+    };
+
+    for key in commentless(&file.unknown) {
+        ignored(key.clone());
+    }
+    for (i, entry) in file.workspaces.iter().enumerate() {
+        for key in commentless(&entry.unknown) {
+            ignored(format!("workspaces[{i}].{key}"));
+        }
+        if let Some(code_execution) = entry.code_execution.as_ref() {
+            for key in commentless(&code_execution.unknown) {
+                ignored(format!("workspaces[{i}].codeExecution.{key}"));
+            }
+        }
+        for (j, repo) in entry.repos.iter().enumerate() {
+            for key in commentless(&repo.unknown) {
+                ignored(format!("workspaces[{i}].repos[{j}].{key}"));
+            }
+        }
+    }
+    warnings
+}
+
+/// The unclaimed keys that are not a comment.
+///
+/// JSON has no comment syntax, so an author annotating a config uses a `"//"`
+/// key. Reporting those as mistakes would put a warning on every file that
+/// explains itself.
+fn commentless(unknown: &UnknownKeys) -> impl Iterator<Item = &String> {
+    unknown.keys().filter(|key| !key.starts_with("//"))
 }
 
 /// Fetch and parse `.moatless/workspaces.json` from a remote repository.
@@ -196,13 +288,33 @@ impl GitSyncService {
 
         let Some(file) = fetch_moatless_workspaces(remote, branch, token_str).await? else {
             debug!(repository_id = %repo.id, "No .moatless/workspaces.json; nothing to sync");
+            if let Some(warning) = retired_config_warning(remote, branch, token_str).await {
+                warn!(
+                    repository_id = %repo.id,
+                    path = %warning.path,
+                    "Repository declares its config in a file the sync no longer reads"
+                );
+                summary.warnings.push(warning);
+            }
             return Ok(summary);
         };
+
+        // Reported before anything is applied, so a repo whose committed config
+        // was parsed and partly dropped learns which keys went nowhere.
+        summary.warnings = unknown_key_warnings(&file);
+        for warning in &summary.warnings {
+            warn!(
+                repository_id = %repo.id,
+                source_config_path = ".moatless/workspaces.json",
+                path = %warning.path,
+                "Ignoring unknown key in git-declared workspace config"
+            );
+        }
 
         // source_keys present in git this round — reconcile-delete keeps only these.
         let mut present: HashSet<String> = HashSet::new();
         let mut seen_keys: HashSet<String> = HashSet::new();
-        for entry in &file.workspaces {
+        for (i, entry) in file.workspaces.iter().enumerate() {
             let source_key = source_key_for(entry);
             if !seen_keys.insert(source_key.clone()) {
                 // A duplicate source_key would violate workspaces_git_source_unique.
@@ -223,7 +335,13 @@ impl GitSyncService {
             }
 
             let mut run = run_config_from_entry(entry);
-            strip_git_declared_identity(&mut run, &repo.id, ".moatless/workspaces.json");
+            for field in strip_git_declared_identity(&mut run, &repo.id, ".moatless/workspaces.json")
+            {
+                summary.warnings.push(WorkspaceSyncWarning {
+                    path: format!("workspaces[{i}].{field}"),
+                    message: ADMIN_ONLY_IDENTITY.to_string(),
+                });
+            }
             let placements = self.resolve_placements(repo, &entry.repos).await?;
 
             present.insert(source_key.clone());
@@ -296,6 +414,7 @@ impl GitSyncService {
                     workspaces_created = workspaces.created,
                     workspaces_updated = workspaces.updated,
                     workspaces_overridden = workspaces.skipped.len(),
+                    workspaces_warnings = workspaces.warnings.len(),
                     "Workspace config auto-sync on task start complete"
                 );
             }
@@ -319,15 +438,20 @@ fn record_outcome(summary: &mut WorkspaceSyncSummary, outcome: UpsertOutcome, so
     }
 }
 
-/// Drop a privileged sandbox identity declared in repo config.
+/// What the sync says about an identity field it dropped.
+const ADMIN_ONLY_IDENTITY: &str = "ignored: a privileged sandbox identity is admin-only";
+
+/// Drop a privileged sandbox identity from repo config, naming what it took.
 ///
-/// `sandbox_service_account`/`network_profile` opt a sandbox into an elevated
-/// Kubernetes identity; honouring values committed to
-/// `.moatless/workspaces.json` (writable by anyone with commit access) would
-/// let any committer escalate to admin-gated Secrets access. Dropped, not
-/// rejected, so one stray field can't fail the sync — an admin can still
-/// elevate via the override endpoint, which carries the same gate.
-fn strip_git_declared_identity(run: &mut RunConfig, repository_id: &str, source_config_path: &str) {
+/// Honouring `sandbox_service_account`/`network_profile` from a file anyone
+/// with commit access can edit would escalate them to admin-gated Secrets.
+/// Dropped rather than rejected, so one stray field cannot fail the whole sync.
+fn strip_git_declared_identity(
+    run: &mut RunConfig,
+    repository_id: &str,
+    source_config_path: &str,
+) -> Vec<&'static str> {
+    let mut stripped = Vec::new();
     if let Some(account) = run.sandbox_service_account.take() {
         warn!(
             %repository_id,
@@ -335,6 +459,7 @@ fn strip_git_declared_identity(run: &mut RunConfig, repository_id: &str, source_
             declared = %account,
             "Ignoring repo-declared sandboxServiceAccount: a privileged sandbox identity is admin-only"
         );
+        stripped.push("sandboxServiceAccount");
     }
     if let Some(profile) = run.network_profile.take() {
         warn!(
@@ -343,7 +468,9 @@ fn strip_git_declared_identity(run: &mut RunConfig, repository_id: &str, source_
             declared = %profile,
             "Ignoring repo-declared networkProfile: a privileged sandbox identity is admin-only"
         );
+        stripped.push("networkProfile");
     }
+    stripped
 }
 
 /// The run-config fields a git-declared workspace carries.
@@ -851,8 +978,9 @@ mod tests {
         );
 
         let mut run = run_config_from_entry(&entry);
-        strip_git_declared_identity(&mut run, "repo-1", ".moatless/workspaces.json");
+        let stripped = strip_git_declared_identity(&mut run, "repo-1", ".moatless/workspaces.json");
 
+        assert_eq!(stripped, ["sandboxServiceAccount", "networkProfile"]);
         assert!(run.sandbox_service_account.is_none());
         assert!(run.network_profile.is_none());
         // Everything else the repo declares still syncs.
@@ -864,14 +992,15 @@ mod tests {
     }
 
     /// Stripping is unconditional, so a repo declaring neither is unaffected
-    /// and logs nothing.
+    /// and reports nothing.
     #[test]
     fn strip_is_a_noop_without_declared_identity() {
         let entry = parse_entry(r#"{ "name": "API", "repos": [] }"#);
 
         let mut run = run_config_from_entry(&entry);
-        strip_git_declared_identity(&mut run, "repo-1", ".moatless/workspaces.json");
+        let stripped = strip_git_declared_identity(&mut run, "repo-1", ".moatless/workspaces.json");
 
+        assert!(stripped.is_empty());
         assert!(run.sandbox_service_account.is_none());
         assert!(run.network_profile.is_none());
     }
@@ -976,6 +1105,64 @@ mod tests {
         assert!(web.key.is_none());
         assert_eq!(web.name, "Web Only");
         assert!(!web.repos[0].primary);
+        assert!(unknown_key_warnings(&file).is_empty());
+    }
+
+    /// The shape that cost two agents a session: `previewConfig` and
+    /// `codeExecution.envVars` parse without error, nothing reads them, and the
+    /// committed file reads as authoritative. Each one has to be named.
+    #[test]
+    fn unknown_keys_are_named_with_the_path_they_sit_at() {
+        let json = r#"{
+            "version": 1,
+            "previewConfig": { "serverStartCommands": ["bun run dev --turbo"] },
+            "workspaces": [
+                {
+                    "name": "Frontend",
+                    "repos": [{ "url": "https://github.com/acme/web", "revision": "main" }],
+                    "previewConfig": { "serverStartCommands": ["bun run dev"] },
+                    "codeExecution": { "envVars": { "VITE_BACKEND_URL": "https://api" } }
+                }
+            ]
+        }"#;
+        let file: MoatlessWorkspacesFile = serde_json::from_str(json).expect("parse");
+
+        let warnings = unknown_key_warnings(&file);
+        let paths: Vec<String> = warnings
+            .iter()
+            .map(|warning| warning.path.clone())
+            .collect();
+        assert_eq!(
+            paths,
+            [
+                "previewConfig",
+                "workspaces[0].previewConfig",
+                "workspaces[0].codeExecution.envVars",
+                "workspaces[0].repos[0].revision",
+            ]
+        );
+        assert!(warnings.iter().all(|w| w.message == UNKNOWN_KEY));
+    }
+
+    /// A key the schema does claim must never be reported: a warning on a
+    /// working config is the same misdirection as silence on a broken one. A
+    /// `"//"` comment is not a mistake either — `workspaces.shadow.json` is
+    /// written that way.
+    #[test]
+    fn a_recognised_key_or_a_comment_is_not_reported_as_unknown() {
+        let json = r#"{
+            "//": "the shadow workspace",
+            "workspaces": [{
+                "//1": "runs two servers",
+                "name": "Frontend",
+                "repos": [{ "url": "https://github.com/acme/web", "mountName": "web" }],
+                "codeExecution": { "setupCommands": ["bun install"] },
+                "envVars": { "LOG_LEVEL": "debug" }
+            }]
+        }"#;
+        let file: MoatlessWorkspacesFile = serde_json::from_str(json).expect("parse");
+
+        assert!(unknown_key_warnings(&file).is_empty());
     }
 }
 

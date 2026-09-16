@@ -12,7 +12,7 @@ an extra backend or inherit its elevated service account.
 
 ## Workspace setup
 
-Read [shadow configuration](../../../scripts/shadow/config.shadow.json) and
+Read [shadow configuration](../../../scripts/shadow/workspaces.shadow.json) and
 [the shadow runbook](../../../scripts/shadow/README.md), then create or update a
 workspace with the repository binding, backend server, and frontend server. Run
 configuration belongs to the workspace, not the repository git record.

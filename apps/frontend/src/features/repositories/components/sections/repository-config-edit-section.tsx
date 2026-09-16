@@ -65,6 +65,11 @@ function syncDescription(result: SyncConfigResponse): string {
     'reset to Git',
   )
   appendCount(messages, workspaces.skipped.length, 'workspace', 'workspaces', 'skipped')
+  // Spelled out rather than counted: a warning names a key in the committed
+  // file, and the count alone leaves the admin no way to find which one.
+  for (const warning of workspaces.warnings) {
+    messages.push(`${warning.path}: ${warning.message}`)
+  }
   return messages.join(' ')
 }
 
@@ -215,9 +220,13 @@ export function RepositoryConfigEditSection({
     syncRepositoryConfig.mutate(repositoryId, {
       onSuccess: (result) => {
         setShowSyncDialog(false)
-        toast.success('Repository configuration synced from Git', {
-          description: syncDescription(result),
-        })
+        const ignored = result.workspaces.warnings.length
+        const notify = ignored > 0 ? toast.warning : toast.success
+        const title =
+          ignored > 0
+            ? `Synced from Git, ignoring ${ignored} declared ${ignored === 1 ? 'key' : 'keys'}`
+            : 'Repository configuration synced from Git'
+        notify(title, { description: syncDescription(result) })
       },
       onError: (error) => {
         toast.error('Failed to sync repository configuration', {

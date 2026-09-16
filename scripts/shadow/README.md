@@ -28,8 +28,8 @@ A preview server is a **container in the sandbox pod**, generated from the repo'
 - Readiness = TCP probe on the port. All pod containers share the network
   namespace, so the frontend's vite `/api → localhost:8080` reaches a sibling
   backend container.
-- `servers` come from the repo DB record, synced from **`.moatless/config.json`**
-  (`repository/config_reader.rs`).
+- `servers` come from the workspace DB record, synced from
+  **`.moatless/workspaces.json`** (`workspace/git_sync.rs`).
 
 So the shadow backend should run **as a server** with
 `startCommands: ["bash scripts/shadow/up.sh"]`. Put it on a **dedicated
@@ -69,7 +69,8 @@ the one that takes a git-synced workspace, and it flips `source` to `manual` so
 git sync leaves it alone from then on. See
 [Phase 2](#phase-2--provisioning-powers-rbac-only) for the full caveat.
 
-`config.shadow.json` is the equivalent as a committed `.moatless/config.json` if
+`workspaces.shadow.json` is the equivalent as a committed
+`.moatless/workspaces.json` if
 you'd rather wire it via a shadow branch — for the servers and setup commands
 only; it cannot carry the SA. Provisioning a task on the shadow repo
 builds a `backend-server` container (visible in the sandbox view,
@@ -227,7 +228,7 @@ docker push aorwall/moatless-dev:<tag>
 Then point the shadow repo at it so provisioning uses the warm image — set
 `dockerImage` on the `moatless-vibe (shadow)` repo (via the API / `moat repo`
 config) or add `"dockerImage": "<ecr-registry>/moatless-dev:latest"` to
-`config.shadow.json`. Without it, everything still works — just with the cold
+`workspaces.shadow.json`. Without it, everything still works — just with the cold
 build. The `backend-server` container inherits the image's `CARGO_TARGET_DIR`
 (the curated server-container env doesn't override it), so no config wiring is
 needed beyond the image itself.
@@ -275,10 +276,10 @@ the cluster.)
 > (git-declared identity is never honoured) and you have to re-`override` to
 > restore it.
 
-> **Not settable from git.** `sandboxServiceAccount` in `.moatless/config.json`
-> or `.moatless/workspaces.json` is stripped on sync
-> (`git_sync.rs::strip_git_declared_identity`) and a warning naming the file is
-> logged. Repo files are writable by anyone with commit access, a wider set
+> **Not settable from git.** `sandboxServiceAccount` in
+> `.moatless/workspaces.json` is stripped on sync
+> (`git_sync.rs::strip_git_declared_identity`), logged, and reported in the
+> sync summary. Repo files are writable by anyone with commit access, a wider set
 > than "admin", so honouring them would bypass the gate. There is likewise no
 > `moat repos --sandbox-service-account` flag — the field lives on the
 > workspace, not the repository.
@@ -309,7 +310,7 @@ shadow. To fully act like the backend:
 - `sync-env.sh` — resolve live backend env + secrets → sourceable env file
 - `up.sh` — sync + build + run the backend, watch for rebuilds
 - `rebuild.sh` — compile + trigger a restart
-- `config.shadow.json` — preview-server config running both servers (copy to `.moatless/config.json`)
+- `workspaces.shadow.json` — workspace declaring both servers (copy to `.moatless/workspaces.json`)
 - `../../docker/Dockerfile.sandbox-dev` — precompiled image (published on demand
   as `moatless-dev:latest` by the `Build dev sandbox image` workflow) with warm
   caches so `up.sh` rebuilds fast (point the shadow repo's `dockerImage` at it)

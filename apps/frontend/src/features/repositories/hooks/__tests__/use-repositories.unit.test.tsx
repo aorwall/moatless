@@ -36,6 +36,7 @@ const syncResponse: SyncConfigResponse = {
     removed: 0,
     skipped: [],
     updated: 0,
+    warnings: [],
   },
 }
 

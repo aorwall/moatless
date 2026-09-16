@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { WorkspaceSyncSkip } from './workspaceSyncSkip';
+import type { WorkspaceSyncWarning } from './workspaceSyncWarning';
 
 /**
  * Summary of reconciling a repo's git-declared workspaces into `workspaces`.
@@ -34,4 +35,6 @@ export interface WorkspaceSyncSummary {
      * @minimum 0
      */
   updated: number;
+  /** Keys the file declared that the sync read but did not apply. */
+  warnings: WorkspaceSyncWarning[];
 }

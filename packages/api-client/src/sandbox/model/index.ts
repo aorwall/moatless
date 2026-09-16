@@ -406,4 +406,5 @@ export * from './workspaceResponse';
 export * from './workspaceResponseEnvVars';
 export * from './workspaceSyncSkip';
 export * from './workspaceSyncSummary';
+export * from './workspaceSyncWarning';
 export * from './writeFileRequestBody';

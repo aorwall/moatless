@@ -411,6 +411,22 @@ pub struct WorkspaceSyncSkip {
     pub reason: String,
 }
 
+/// Something the declaring file said that the sync did not act on.
+///
+/// An unknown key and a stripped admin-only field both parse without error and
+/// both leave the sandbox running something the file does not describe, so each
+/// is reported rather than only logged.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceSyncWarning {
+    /// Where the key sits in the declaring file, as a JSON path
+    /// (`workspaces[0].previewConfig`).
+    pub path: String,
+    /// What the sync did with it, and why.
+    pub message: String,
+}
+
 /// Summary of reconciling a repo's git-declared workspaces into `workspaces`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
@@ -427,6 +443,8 @@ pub struct WorkspaceSyncSummary {
     pub removed: u32,
     /// Workspaces that were declared but not synced, with reasons.
     pub skipped: Vec<WorkspaceSyncSkip>,
+    /// Keys the file declared that the sync read but did not apply.
+    pub warnings: Vec<WorkspaceSyncWarning>,
 }
 
 /// Response for `POST /api/v1/workspaces/{id}/reset-git`.

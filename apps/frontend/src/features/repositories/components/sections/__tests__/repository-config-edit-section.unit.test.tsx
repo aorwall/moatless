@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   syncMutate: vi.fn(),
   toastError: vi.fn(),
   toastSuccess: vi.fn(),
+  toastWarning: vi.fn(),
   updateMutate: vi.fn(),
 }))
 
@@ -25,6 +26,7 @@ vi.mock('sonner', () => ({
   toast: {
     error: mocks.toastError,
     success: mocks.toastSuccess,
+    warning: mocks.toastWarning,
   },
 }))
 
@@ -72,7 +74,7 @@ function syncResult(reclaimed = 0): SyncConfigResponse {
       updated: 0,
       warnings: [],
     },
-    workspaces: { created: 0, reclaimed, removed: 0, skipped: [], updated: 0 },
+    workspaces: { created: 0, reclaimed, removed: 0, skipped: [], updated: 0, warnings: [] },
   }
 }
 
@@ -175,6 +177,26 @@ describe('RepositoryConfigEditSection', () => {
       description:
         '1 Loop created. 2 Loops updated. 1 Loop removed. 1 Loop override preserved. 1 Loop skipped. 1 Loop warning reported.',
     })
+  })
+
+  it('reports the workspace keys the sync ignored, rather than plain success', async () => {
+    const user = userEvent.setup()
+    render(<RepositoryConfigEditSection repositoryId="repo-1" />)
+
+    await user.click(screen.getByRole('button', { name: 'Sync from Git' }))
+    await user.click(screen.getByRole('button', { name: 'Synchronize' }))
+
+    const result = syncResult()
+    result.workspaces.warnings = [
+      { path: 'workspaces[0].previewConfig', message: 'unknown key, ignored' },
+    ]
+    const callbacks = mocks.syncMutate.mock.calls[0]?.[1]
+    callbacks.onSuccess(result)
+
+    expect(mocks.toastWarning).toHaveBeenCalledWith('Synced from Git, ignoring 1 declared key', {
+      description: 'workspaces[0].previewConfig: unknown key, ignored',
+    })
+    expect(mocks.toastSuccess).not.toHaveBeenCalled()
   })
 
   it('disables the sync action while pending', () => {

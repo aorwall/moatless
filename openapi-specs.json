@@ -20377,7 +20377,8 @@
           "updated",
           "reclaimed",
           "removed",
-          "skipped"
+          "skipped",
+          "warnings"
         ],
         "properties": {
           "created": {
@@ -20410,6 +20411,31 @@
             "format": "int32",
             "description": "Existing git-synced workspaces updated in place.",
             "minimum": 0
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WorkspaceSyncWarning"
+            },
+            "description": "Keys the file declared that the sync read but did not apply."
+          }
+        }
+      },
+      "WorkspaceSyncWarning": {
+        "type": "object",
+        "description": "Something the declaring file said that the sync did not act on.\n\nAn unknown key and a stripped admin-only field both parse without error and\nboth leave the sandbox running something the file does not describe, so each\nis reported rather than only logged.",
+        "required": [
+          "path",
+          "message"
+        ],
+        "properties": {
+          "message": {
+            "type": "string",
+            "description": "What the sync did with it, and why."
+          },
+          "path": {
+            "type": "string",
+            "description": "Where the key sits in the declaring file, as a JSON path\n(`workspaces[0].previewConfig`)."
           }
         }
       },

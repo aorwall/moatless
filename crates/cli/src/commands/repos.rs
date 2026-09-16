@@ -288,6 +288,12 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
                         workspaces.reclaimed
                     );
                 }
+                for skip in &workspaces.skipped {
+                    println!("  skipped {}: {}", skip.source_key, skip.reason);
+                }
+                for warning in &workspaces.warnings {
+                    println!("  warning {}: {}", warning.path, warning.message);
+                }
             }
         }
         RepoAction::Delete { repo_id, yes } => {

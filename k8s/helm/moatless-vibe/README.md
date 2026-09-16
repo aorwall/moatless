@@ -516,7 +516,7 @@ Deployment and retained-archive ConfigMap are absent. When node archives are
 disabled, no janitor is deployed and stale hostPath directories require
 operator cleanup.
 
-Declaratively via `.moatless/config.json`, then sync:
+Declaratively via `.moatless/workspaces.json`, then sync:
 
 ```json
 {
@@ -579,9 +579,9 @@ moat workspaces update   <workspace-id> --sandbox-service-account moatless-dev
 Only that workspace's sandboxes run elevated. See `scripts/shadow/README.md`
 for the full flow.
 
-> `sandboxServiceAccount` declared in `.moatless/config.json` or
-> `.moatless/workspaces.json` is **ignored** — git-sync strips it and logs a
-> warning naming the file. Repo files are writable by anyone with commit
+> `sandboxServiceAccount` declared in `.moatless/workspaces.json` is
+> **ignored** — git-sync strips it, logs a warning naming the file, and
+> reports it in the sync summary. Repo files are writable by anyone with commit
 > access, which is a wider set than "admin", so honouring them would bypass the
 > gate. Set it through the API instead.
 
@@ -679,7 +679,7 @@ one workspace at it" would be advice rather than a control:
 | Path | Behaviour |
 |------|-----------|
 | `POST /workspaces`, `PATCH /workspaces/{id}`, `POST /workspaces/{id}/override` | 403 for non-admins, via `handlers.rs::ensure_privileged_sandbox_fields`. Only fires when the request carries a field, so ordinary non-admin edits are unaffected. |
-| Git sync — `.moatless/workspaces.json`, `.moatless/config.json` | Both fields stripped and a warning logged naming the file, via `git_sync.rs::strip_git_declared_identity`. Repo files are writable by anyone with commit access, a wider set than "admin". |
+| Git sync — `.moatless/workspaces.json` | Both fields stripped, and each one reported in the sync summary, via `git_sync.rs::strip_git_declared_identity`. Repo files are writable by anyone with commit access, a wider set than "admin". |
 
 Taking ownership of a git-synced workspace through `override` is deliberately
 not a way around this: that endpoint skips the mutability check but keeps the

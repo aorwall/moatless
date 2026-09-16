@@ -748,7 +748,7 @@ kubernetes:
     storageClass: ""
     # -- Default size of each task's workspace (the per-task PVC, or the
     #    node-local emptyDir when `defaultPvc` is off). Big repos can opt into
-    #    more via `.moatless/config.json` -> `resources.storage`.
+    #    more via `.moatless/workspaces.json` -> `resources.storage`.
     size: "3Gi"
     # Workspace storage is two independent switches, resolved per task from the
     # repo's `resources.pvcEnabled` / `resources.s3Enabled` (each falling back to
