@@ -700,3 +700,124 @@ fn the_credential_helper_answers_when_no_env_token_is_set() {
 fn a_failed_broker_read_falls_back_to_gh_s_own_resolution() {
     assert_eq!(resolve_gh_token(true, true, || None), None);
 }
+
+// =======================================================================
+// What a creating `gh api` call may not do to its own response
+// =======================================================================
+
+fn filtered_by(line: &str) -> Option<String> {
+    output_replacing_flag(&argv(&line.split_whitespace().collect::<Vec<_>>()))
+}
+
+/// The reported silent gap: `--jq .id` is the natural flag for an agent
+/// posting an inline comment, and it leaves nothing for the id to be read
+/// from.
+#[test]
+fn a_filter_over_the_response_is_recognised_in_every_spelling() {
+    let posting = "-X POST repos/o/r/pulls/42/comments";
+    assert_eq!(filtered_by(&format!("{posting} --jq .id")).as_deref(), Some("--jq"));
+    assert_eq!(filtered_by("--jq=.id repos/o/r/issues/42/comments").as_deref(), Some("--jq=.id"));
+    assert_eq!(filtered_by("-q .id repos/o/r/issues/42/comments").as_deref(), Some("-q"));
+    assert_eq!(filtered_by("-q.id repos/o/r/issues/42/comments").as_deref(), Some("-q.id"));
+    assert_eq!(filtered_by("--template {{.id}} x").as_deref(), Some("--template"));
+    assert_eq!(filtered_by("-t {{.id}} x").as_deref(), Some("-t"));
+    assert_eq!(filtered_by("--silent x").as_deref(), Some("--silent"));
+}
+
+#[test]
+fn an_unfiltered_call_is_left_alone() {
+    assert_eq!(filtered_by("-X POST repos/o/r/pulls/42/comments -f body=x"), None);
+    // A field value spelled like a filter is a value, not a flag.
+    assert_eq!(
+        output_replacing_flag(&argv(&[
+            "-X", "POST", "repos/o/r/issues/42/comments", "-f", "body=--jq", "-f", "line=-q",
+        ])),
+        None
+    );
+}
+
+#[test]
+fn the_refusal_names_the_flag_and_that_nothing_was_posted() {
+    let message = refuse_filtered_write("--jq", ApiCreated::ReviewComment);
+    assert!(message.contains("`--jq`"), "{message}");
+    assert!(message.contains("review comment"), "{message}");
+    assert!(message.contains("Nothing was posted"), "{message}");
+    assert!(message.contains("--no-record"), "{message}");
+}
+
+#[test]
+fn no_record_is_taken_out_before_gh_sees_it() {
+    let (args, skipped) = strip_no_record(&argv(&[
+        "api", "repos/o/r/issues/42/comments", "--method", "POST", "--no-record", "-f", "body=x",
+    ]));
+    assert!(skipped);
+    assert_eq!(
+        args,
+        argv(&["api", "repos/o/r/issues/42/comments", "--method", "POST", "-f", "body=x"])
+    );
+}
+
+#[test]
+fn a_body_that_reads_no_record_is_still_a_body() {
+    let original = argv(&[
+        "api", "repos/o/r/issues/42/comments", "-X", "POST", "-f", "body=--no-record",
+    ]);
+    let (args, skipped) = strip_no_record(&original);
+    assert!(!skipped);
+    assert_eq!(args, original);
+}
+
+// =======================================================================
+// `pr create --label`
+// =======================================================================
+
+/// `--label` used to be unknown to the parser, which demoted the call to
+/// plain `gh` — losing the task binding, and failing outright when the
+/// label did not exist.
+#[test]
+fn pr_create_takes_labels_on_the_typed_path() {
+    let parsed = parse_typed(&argv(&[
+        "pr", "create", "--title", "t", "--body", "b", "--label", "one", "-l", "two",
+    ]));
+    let Some(TypedInvocation::PrCreate(a)) = parsed else {
+        panic!("expected typed pr create, got {parsed:?}");
+    };
+    assert_eq!(a.labels, vec!["one".to_string(), "two".to_string()]);
+}
+
+#[test]
+fn a_label_github_lists_back_has_landed() {
+    let body = br#"[{"id":1,"name":"Bug"},{"id":2,"name":"agent-rule-enforcement"}]"#;
+    assert!(
+        labels_missing_from(body, &argv(&["bug", "agent-rule-enforcement"])).is_empty(),
+        "GitHub matches a label name case-insensitively"
+    );
+}
+
+#[test]
+fn a_label_absent_from_the_answer_is_reported_missing() {
+    let body = br#"[{"id":1,"name":"bug"}]"#;
+    assert_eq!(
+        labels_missing_from(body, &argv(&["bug", "needs-triage"])),
+        vec!["needs-triage".to_string()]
+    );
+    // An unreadable answer confirms nothing, so nothing counts as applied.
+    assert_eq!(
+        labels_missing_from(b"not json", &argv(&["bug"])),
+        vec!["bug".to_string()]
+    );
+}
+
+#[test]
+fn a_label_that_did_not_land_leaves_the_pr_url_in_the_error() {
+    let message = label_failure(
+        "https://github.com/o/r/pull/7",
+        7,
+        &argv(&["agent-rule-enforcement"]),
+        "gh said Not Found (HTTP 404)",
+    );
+    assert!(message.contains("https://github.com/o/r/pull/7"), "{message}");
+    assert!(message.contains("`agent-rule-enforcement`"), "{message}");
+    assert!(message.contains("moat gh pr edit 7 --add-label"), "{message}");
+    assert!(message.contains("moat gh label create"), "{message}");
+}

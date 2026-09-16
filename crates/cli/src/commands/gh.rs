@@ -42,6 +42,10 @@ struct PrCreateArgs {
     base: Option<String>,
     #[arg(long, short = 'd')]
     draft: bool,
+    /// Label to put on the new PR (repeatable). Applied after the PR is opened,
+    /// since the create endpoint takes none.
+    #[arg(long = "label", short = 'l')]
+    labels: Vec<String>,
     /// `owner/repo` (or a GitHub URL). Inferred from `git remote get-url
     /// origin` when omitted.
     #[arg(long = "repo", short = 'R')]
@@ -265,6 +269,9 @@ async fn run_pr_create(
         task_id,
     };
     let resp = client.api().github_create_pr(&owner, &repo, &req).await?;
+    if !args.labels.is_empty() {
+        apply_labels(&owner, &repo, resp.number, &args.labels, &resp.html_url)?;
+    }
     if json {
         output::print_json_typed(&resp);
     } else {
@@ -279,6 +286,78 @@ async fn run_pr_create(
         }
     }
     Ok(())
+}
+
+/// Put `labels` on the pull request just opened, or fail naming the ones that
+/// did not land.
+///
+/// The create endpoint carries no labels, so they go on in a second call; the
+/// response lists what the issue now has, and a label the repository does not
+/// define is a 404 there rather than a silent drop.
+fn apply_labels(
+    owner: &str,
+    repo: &str,
+    number: u64,
+    labels: &[String],
+    html_url: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut args = vec![
+        "api".to_string(),
+        format!("repos/{owner}/{repo}/issues/{number}/labels"),
+        "--method".to_string(),
+        "POST".to_string(),
+    ];
+    for label in labels {
+        args.push("-f".to_string());
+        args.push(format!("labels[]={label}"));
+    }
+    let token = github_token_for_gh();
+    match gh_command_output(&args, token.as_deref(), None) {
+        Ok(body) => match labels_missing_from(&body, labels) {
+            missing if missing.is_empty() => Ok(()),
+            missing => Err(label_failure(
+                html_url,
+                number,
+                &missing,
+                "the labels GitHub answered with do not include it",
+            )
+            .into()),
+        },
+        Err(e) => Err(label_failure(html_url, number, labels, &e.to_string()).into()),
+    }
+}
+
+/// The requested labels the issue does not carry, by name and case-insensitively
+/// as GitHub matches them. A body that does not parse yields every label asked
+/// for: an unreadable answer confirms nothing.
+fn labels_missing_from(body: &[u8], requested: &[String]) -> Vec<String> {
+    let applied: Vec<String> = match serde_json::from_slice::<serde_json::Value>(body) {
+        Ok(serde_json::Value::Array(items)) => items
+            .iter()
+            .filter_map(|item| item.get("name").and_then(serde_json::Value::as_str))
+            .map(str::to_ascii_lowercase)
+            .collect(),
+        _ => Vec::new(),
+    };
+    requested
+        .iter()
+        .filter(|label| !applied.contains(&label.to_ascii_lowercase()))
+        .cloned()
+        .collect()
+}
+
+fn label_failure(html_url: &str, number: u64, labels: &[String], cause: &str) -> String {
+    let named = labels
+        .iter()
+        .map(|label| format!("`{label}`"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!(
+        "PR opened and bound at {html_url}, but {named} did not land: {cause}. \
+         Put it on with `moat gh pr edit {number} --add-label <name>`; a label the \
+         repository does not define has to be created first with \
+         `moat gh label create <name>`."
+    )
 }
 
 async fn run_comment(
@@ -982,6 +1061,16 @@ impl ApiCreated {
         }
     }
 
+    /// What a call to this endpoint creates, for an error written before it
+    /// runs.
+    fn describe(self) -> &'static str {
+        match self {
+            Self::ReviewComment => "review comment",
+            Self::Review => "review",
+            Self::IssueComment => "comment",
+        }
+    }
+
     fn event_subject(self, id: u64) -> GithubExternalEventSubject {
         match self {
             Self::ReviewComment => GithubExternalEventSubject::ReviewComment(id),
@@ -1002,12 +1091,20 @@ async fn run_api(
     args: &[String],
     gh_repo: Option<&str>,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let (args, skip_record) = strip_no_record(args);
+    let args = args.as_slice();
     let Some(created) = parse_api_creation(&args[1..]) else {
         return passthrough(args, gh_repo);
     };
     let Some(task_id) = cfg.task_id().map(str::to_string) else {
         return passthrough(args, gh_repo);
     };
+    if skip_record {
+        return passthrough(args, gh_repo);
+    }
+    if let Some(flag) = output_replacing_flag(&args[1..]) {
+        return Err(refuse_filtered_write(&flag, created.kind).into());
+    }
 
     let token = github_token_for_gh();
     let output = gh_command(args, token.as_deref(), gh_repo)
@@ -1109,6 +1206,92 @@ fn ids_in_comment_list(body: &[u8]) -> Vec<u64> {
         .flatten()
         .filter_map(|item| item.get("id").and_then(serde_json::Value::as_u64))
         .collect()
+}
+
+/// `gh api` flags whose value is the following argument. Skipping that argument
+/// is what keeps a value spelled like a flag (`-f body=--jq`) from being read as
+/// one.
+const API_VALUE_FLAGS: &[&str] = &[
+    "-f",
+    "-F",
+    "--field",
+    "--raw-field",
+    "--input",
+    "-H",
+    "--header",
+    "--method",
+    "-X",
+    "-q",
+    "--jq",
+    "-t",
+    "--template",
+    "-p",
+    "--preview",
+    "--cache",
+    "--hostname",
+];
+
+/// The index of every argument that is a flag rather than a value one consumes.
+fn api_flag_indices(args: &[String]) -> Vec<usize> {
+    let mut indices = Vec::new();
+    let mut i = 0;
+    while i < args.len() {
+        let arg = args[i].as_str();
+        if arg.starts_with('-') {
+            indices.push(i);
+            if API_VALUE_FLAGS.contains(&arg) {
+                i += 1;
+            }
+        }
+        i += 1;
+    }
+    indices
+}
+
+/// The flag that would replace the response body, spelled as the caller wrote
+/// it.
+///
+/// `gh api` prints what the filter yields and nothing else, so the created id is
+/// gone before [`parse_created_id`] sees it.
+fn output_replacing_flag(args: &[String]) -> Option<String> {
+    api_flag_indices(args).into_iter().find_map(|i| {
+        let arg = args[i].as_str();
+        let long = arg.split('=').next().unwrap_or(arg);
+        // `-q.id` and `-t{{.id}}`: a short flag carries its value attached, so
+        // only the first two characters name it.
+        let short = arg.get(..2).unwrap_or(arg);
+        (matches!(long, "--jq" | "--template" | "--silent") || matches!(short, "-q" | "-t"))
+            .then(|| arg.to_string())
+    })
+}
+
+/// Take `--no-record` out of the argument list: it is moat's own, and `gh`
+/// rejects a flag it does not define.
+fn strip_no_record(args: &[String]) -> (Vec<String>, bool) {
+    let flags = api_flag_indices(args);
+    let mut kept = Vec::with_capacity(args.len());
+    let mut found = false;
+    for (i, arg) in args.iter().enumerate() {
+        if arg == "--no-record" && flags.contains(&i) {
+            found = true;
+            continue;
+        }
+        kept.push(arg.clone());
+    }
+    (kept, found)
+}
+
+/// Refuse a creating POST whose response this command cannot read back.
+fn refuse_filtered_write(flag: &str, kind: ApiCreated) -> String {
+    format!(
+        "`{flag}` replaces the response body, and the id of the {} this call \
+         creates is read from it — the {} would be posted and recorded against \
+         no task. Nothing was posted. Re-run without `{flag}` (the response is \
+         written through unchanged either way), or pass `--no-record` to post \
+         it unrecorded on purpose.",
+        kind.describe(),
+        kind.describe()
+    )
 }
 
 /// Detect a `gh api` argument list that creates a review comment, a review, or
