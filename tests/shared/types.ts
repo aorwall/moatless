@@ -94,7 +94,6 @@ export type {
   AgentStatus,
   CreatePluginRequest,
   CreateRepositoryRequest,
-  CreateVibeTaskRequest,
   EffectivePluginResponse,
   FileTreeNodeDto,
   FileTreeResponse,

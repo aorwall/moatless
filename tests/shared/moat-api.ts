@@ -15,7 +15,6 @@ import type {
   CreateFeedbackRequest,
   CreateRepositoryRequest,
   CreateTaskBindingRequest,
-  CreateVibeTaskRequest,
   CreateWorkspaceRequest,
   FeedbackResponse,
   GetMessagesResponse,
@@ -65,6 +64,18 @@ import type {
   TeamMemberResponse,
   TeamResponse,
 } from './types'
+
+/**
+ * Task creation keyed on a repository template.
+ *
+ * Hand-written because `CreateTaskRequest` declares no `templateId`, so the
+ * generated model no longer carries this shape. The specs below still send it.
+ */
+interface TemplateTaskRequest {
+  templateId: string
+  name?: string | null
+  message?: string | null
+}
 
 /** The shape `moat tasks create` prints. */
 interface CreatedTask {
@@ -298,7 +309,7 @@ export class MoatApi {
 
   /** Create a task against a repository. */
   async createVibeTask(
-    config: (CreateVibeTaskRequest | { workspaceId: string; name?: string; message?: string }) & {
+    config: (TemplateTaskRequest | { workspaceId: string; name?: string; message?: string }) & {
       /** Harness to run under. Omitted uses the test suite's standard agent. */
       agentType?: string
       model?: string
