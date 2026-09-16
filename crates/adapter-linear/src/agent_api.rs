@@ -825,9 +825,12 @@ impl LinearAgentApi {
             .unwrap_or_default())
     }
 
-    /// Resolve a human name to a Linear entity UUID (first case-insensitive
-    /// match, `None` if nothing matches). Pass `team_id` when in hand; unscoped
-    /// search is a guess for anything but a user or team.
+    /// Resolve a human name to a Linear entity UUID, or `None` when nothing
+    /// matches. Pass `team_id` when in hand; unscoped search is a guess for
+    /// anything but a user or team.
+    ///
+    /// A name matching two entities errors rather than picking one — see
+    /// [`select_lookup_match`].
     pub async fn lookup(
         &self,
         kind: LookupKind,
@@ -835,8 +838,16 @@ impl LinearAgentApi {
         team_id: Option<&str>,
     ) -> Result<Option<LookupResult>, AdapterError> {
         let (collection, filter_type, fields) = match kind {
-            LookupKind::State => ("workflowStates", "WorkflowStateFilter", "id name type"),
-            LookupKind::Label => ("issueLabels", "IssueLabelFilter", "id name color"),
+            LookupKind::State => (
+                "workflowStates",
+                "WorkflowStateFilter",
+                "id name type team { id key }",
+            ),
+            LookupKind::Label => (
+                "issueLabels",
+                "IssueLabelFilter",
+                "id name color team { id key }",
+            ),
             LookupKind::Project => ("projects", "ProjectFilter", "id name state"),
             LookupKind::User => ("users", "UserFilter", "id name displayName email"),
             LookupKind::Team => ("teams", "TeamFilter", "id name key"),
@@ -863,26 +874,102 @@ impl LinearAgentApi {
             .and_then(serde_json::Value::as_array)
             .cloned()
             .unwrap_or_default();
-        let Some(first) = nodes.into_iter().next() else {
-            return Ok(None);
-        };
-        let id = first
-            .get("id")
-            .and_then(serde_json::Value::as_str)
-            .ok_or_else(|| {
-                SharedAdapterError::AdapterApi(format!("Linear {collection} missing id"))
-            })?
-            .to_string();
-        let resolved_name = first
-            .get("name")
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or(name)
-            .to_string();
-        Ok(Some(LookupResult {
-            id,
-            name: resolved_name,
-            raw: first,
-        }))
+        select_lookup_match(kind, name, team_id, nodes)
+    }
+}
+
+/// Pick the single entity `name` resolves to, or refuse to guess.
+///
+/// A second distinct id is an error naming both candidates, deliberately rather
+/// than taking Linear's first: the caller is about to write it into an issue,
+/// and two matches are two objects, usually one name on two teams.
+fn select_lookup_match(
+    kind: LookupKind,
+    name: &str,
+    team_id: Option<&str>,
+    nodes: Vec<serde_json::Value>,
+) -> Result<Option<LookupResult>, AdapterError> {
+    // Linear filters on `eqIgnoreCase`, so nothing should fall out here. It is
+    // what stops a widened filter resolving `In Review` to `Canceled`.
+    let mut matches: Vec<serde_json::Value> = nodes
+        .into_iter()
+        .filter(|node| {
+            node.get("name")
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(|found| found.eq_ignore_ascii_case(name))
+        })
+        .collect();
+
+    // A team label shadows the workspace label of the same name: the label
+    // filter admits both, and the pair is one usable label, not two objects.
+    if matches!(kind, LookupKind::Label) {
+        if let Some(team_id) = team_id {
+            if matches.iter().any(|node| node_team_id(node) == Some(team_id)) {
+                matches.retain(|node| node_team_id(node) == Some(team_id));
+            }
+        }
+    }
+
+    let mut seen: Vec<String> = Vec::new();
+    matches.retain(|node| match node.get("id").and_then(serde_json::Value::as_str) {
+        Some(id) if !seen.iter().any(|kept| kept == id) => {
+            seen.push(id.to_string());
+            true
+        }
+        _ => false,
+    });
+
+    let kind_name = kind.as_str();
+    if matches.len() > 1 {
+        let candidates: Vec<String> = matches.iter().map(describe_candidate).collect();
+        return Err(SharedAdapterError::BadRequest(format!(
+            "Linear {kind_name} `{name}` is ambiguous — {} match: {}. \
+             Pass the UUID, or a team to resolve the name inside.",
+            candidates.len(),
+            candidates.join(", ")
+        ))
+        .into());
+    }
+
+    let Some(first) = matches.into_iter().next() else {
+        return Ok(None);
+    };
+    let id = first
+        .get("id")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| {
+            SharedAdapterError::AdapterApi(format!("Linear {kind_name} `{name}` is missing an id"))
+        })?
+        .to_string();
+    let resolved_name = first
+        .get("name")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or(name)
+        .to_string();
+    Ok(Some(LookupResult {
+        id,
+        name: resolved_name,
+        raw: first,
+    }))
+}
+
+/// The team a `workflowStates` or `issueLabels` node belongs to. `None` for a
+/// workspace-level label, which belongs to no team.
+fn node_team_id(node: &serde_json::Value) -> Option<&str> {
+    node.pointer("/team/id").and_then(serde_json::Value::as_str)
+}
+
+/// One ambiguous candidate, as the error names it: the id, plus the team key
+/// when the collection carries one — which is what tells the reader the two
+/// matches are the same name on different teams.
+fn describe_candidate(node: &serde_json::Value) -> String {
+    let id = node
+        .get("id")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("?");
+    match node.pointer("/team/key").and_then(serde_json::Value::as_str) {
+        Some(key) => format!("{id} (team {key})"),
+        None => id.to_string(),
     }
 }
 
@@ -916,6 +1003,18 @@ impl LookupKind {
                 serde_json::json!({ "some": { "id": { "eq": team_id } } }),
             )),
             Self::User | Self::Team => None,
+        }
+    }
+
+    /// The kind's name as a caller wrote it on the command line, for error
+    /// messages.
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::State => "state",
+            Self::Label => "label",
+            Self::Project => "project",
+            Self::User => "user",
+            Self::Team => "team",
         }
     }
 
@@ -1189,118 +1288,8 @@ mod tests {
     }
 }
 
-/// The filter each [`LookupKind`] sends. Every case here was run against the
-/// live API before it was written down: Linear rejects an unknown filter field
-/// outright, and a stub would happily accept one this crate invented.
 #[cfg(test)]
-mod lookup_scope_tests {
-    use moatless_adapter_model::test_support::ProviderStub;
-    use moatless_ports::identity::MockAppCredentials;
-    use serde_json::json;
-
-    use super::*;
-
-    const TEAM: &str = "3fa49663-046d-46db-9566-584753ff4b23";
-
-    /// The document and filter one lookup put on the wire.
-    async fn request_for(kind: LookupKind, team_id: Option<&str>) -> (String, serde_json::Value) {
-        let stub = ProviderStub::start(|_| json!({ "data": {} })).await;
-        let mut tokens = MockAppCredentials::new();
-        tokens.expect_app_token().returning(|_| {
-            Ok(Some(AppToken {
-                access_token: "lin_test".into(),
-                refresh_token: None,
-                token_type: None,
-                expires_at: Some(Utc::now() + chrono::Duration::days(1)),
-                metadata: None,
-            }))
-        });
-        let api = LinearAgentApi::with_base_url(
-            Client::new(),
-            Arc::new(tokens),
-            "test-org".to_string(),
-            None,
-            None,
-            stub.base_url(),
-        );
-
-        api.lookup(kind, "Canceled", team_id)
-            .await
-            .expect("the stub answers");
-
-        let body: serde_json::Value = serde_json::from_str(&stub.requests()[0].body)
-            .expect("the recorded body is the JSON we sent");
-        (
-            body["query"].as_str().expect("query is a string").into(),
-            body["variables"]["filter"].clone(),
-        )
-    }
-
-    #[tokio::test]
-    async fn a_state_lookup_narrows_to_the_team() {
-        let (query, filter) = request_for(LookupKind::State, Some(TEAM)).await;
-        assert!(
-            query.contains("query($filter: WorkflowStateFilter)"),
-            "{query}"
-        );
-        assert_eq!(
-            filter,
-            json!({
-                "name": { "eqIgnoreCase": "Canceled" },
-                "team": { "id": { "eq": TEAM } }
-            })
-        );
-    }
-
-    /// A workspace label has no team and stays usable on every issue, so the
-    /// team clause has to admit a null team alongside the match.
-    #[tokio::test]
-    async fn a_label_lookup_keeps_workspace_labels_in_reach() {
-        let (query, filter) = request_for(LookupKind::Label, Some(TEAM)).await;
-        assert!(query.contains("query($filter: IssueLabelFilter)"), "{query}");
-        assert_eq!(
-            filter,
-            json!({
-                "name": { "eqIgnoreCase": "Canceled" },
-                "or": [
-                    { "team": { "id": { "eq": TEAM } } },
-                    { "team": { "null": true } }
-                ]
-            })
-        );
-    }
-
-    /// A project is shared with teams rather than owned by one, so
-    /// `ProjectFilter` carries no `team` field to filter on.
-    #[tokio::test]
-    async fn a_project_lookup_narrows_through_accessible_teams() {
-        let (query, filter) = request_for(LookupKind::Project, Some(TEAM)).await;
-        assert!(query.contains("query($filter: ProjectFilter)"), "{query}");
-        assert_eq!(
-            filter,
-            json!({
-                "name": { "eqIgnoreCase": "Canceled" },
-                "accessibleTeams": { "some": { "id": { "eq": TEAM } } }
-            })
-        );
-    }
-
-    /// Users and teams are workspace-global: a team id passed anyway is dropped
-    /// rather than turned into a filter field neither collection has.
-    #[tokio::test]
-    async fn users_and_teams_ignore_a_team_scope() {
-        for kind in [LookupKind::User, LookupKind::Team] {
-            let (_, filter) = request_for(kind, Some(TEAM)).await;
-            assert_eq!(filter, json!({ "name": { "eqIgnoreCase": "Canceled" } }));
-        }
-    }
-
-    #[tokio::test]
-    async fn an_unscoped_lookup_filters_on_the_name_alone() {
-        let (_, filter) = request_for(LookupKind::State, None).await;
-        assert_eq!(filter, json!({ "name": { "eqIgnoreCase": "Canceled" } }));
-    }
-}
+mod lookup_tests;
 
 #[cfg(test)]
 mod error_source_tests {

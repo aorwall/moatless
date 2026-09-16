@@ -145,7 +145,7 @@ pub(crate) async fn create_issue(
     if let Some(r) = reporter.as_ref() {
         input["subscriberIds"] = json!([r.id]);
     }
-    if let Some(s) = state_id {
+    if let Some(s) = state_id.as_deref() {
         input["stateId"] = json!(s);
     }
     if let Some(p) = project_id {
@@ -180,6 +180,9 @@ pub(crate) async fn create_issue(
     }
 
     let issue = api.create_issue(input).await?;
+    if let Some(requested) = state_id.as_deref() {
+        require_applied(&issue, "state", "/state", requested)?;
+    }
 
     // Filing an issue records a traceability attachment but does not make it a
     // reply target unless the caller explicitly opts in with `bind = true`.
@@ -268,7 +271,7 @@ pub(crate) async fn update_issue(
     if let Some(d) = req.description {
         input["description"] = json!(d);
     }
-    if let Some(s) = state_id {
+    if let Some(s) = state_id.as_deref() {
         input["stateId"] = json!(s);
     }
     if let Some(p) = project_id {
@@ -304,10 +307,52 @@ pub(crate) async fn update_issue(
     }
 
     let issue = api.update_issue(&id, input).await?;
+    if let Some(requested) = state_id.as_deref() {
+        require_applied(&issue, "state", "/state", requested)?;
+    }
     Ok(LinearIssueResponse {
         data: issue,
         binding_id: None,
     })
+}
+
+/// Fail when Linear reported success and the field did not land on the id
+/// asked for.
+///
+/// `issueUpdate` answers `success: true` for an id it drops, so the issue it
+/// returns is the only proof. `subobject` points at the field in it, `/state`.
+fn require_applied(
+    issue: &Value,
+    field: &str,
+    subobject: &str,
+    requested: &str,
+) -> Result<(), AdapterError> {
+    let applied = issue
+        .pointer(&format!("{subobject}/id"))
+        .and_then(Value::as_str);
+    if applied == Some(requested) {
+        return Ok(());
+    }
+    let identifier = issue
+        .get("identifier")
+        .and_then(Value::as_str)
+        .unwrap_or("the issue");
+    let now = match applied {
+        Some(id) => {
+            let name = issue
+                .pointer(&format!("{subobject}/name"))
+                .or_else(|| issue.pointer(&format!("{subobject}/displayName")))
+                .and_then(Value::as_str)
+                .unwrap_or("?");
+            format!("`{name}` ({id})")
+        }
+        None => "nothing".to_string(),
+    };
+    Err(SharedAdapterError::AdapterApi(format!(
+        "Linear reported success but {identifier} has {field} {now}, not the requested \
+         `{requested}`. Other fields in the same call may have been applied."
+    ))
+    .into())
 }
 
 // ---------------------------------------------------------------------------
@@ -650,4 +695,46 @@ pub(crate) async fn attach_moatless_task(
         return;
     };
     super::task_links::attach_parent_task_link(config, tasks, api, issue_uuid, task_id).await;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const REQUESTED: &str = "96aece86-e8ab-40fb-a33b-fd9fabc7d679";
+    const CANCELED: &str = "23123317-0000-0000-0000-000000000000";
+
+    fn issue_in_state(id: &str, name: &str) -> Value {
+        json!({ "identifier": "SP-2982", "state": { "id": id, "name": name } })
+    }
+
+    #[test]
+    fn a_state_that_landed_passes() {
+        let issue = issue_in_state(REQUESTED, "In Review");
+        require_applied(&issue, "state", "/state", REQUESTED).expect("the state landed");
+    }
+
+    /// The corruption this check exists for: the issue came back in a state
+    /// nobody asked for, and the caller has to hear it rather than read a
+    /// success line.
+    #[test]
+    fn a_state_that_landed_elsewhere_fails_and_names_it() {
+        let issue = issue_in_state(CANCELED, "Canceled");
+        let err = require_applied(&issue, "state", "/state", REQUESTED)
+            .expect_err("a different state must not report success");
+        let message = err.to_string();
+        assert!(message.contains("SP-2982"), "{message}");
+        assert!(message.contains("Canceled"), "{message}");
+        assert!(message.contains(REQUESTED), "{message}");
+    }
+
+    /// Linear drops an id it will not apply and answers `success: true` with
+    /// the field still empty.
+    #[test]
+    fn a_dropped_field_fails() {
+        let issue = json!({ "identifier": "SP-2982", "state": null });
+        let err = require_applied(&issue, "state", "/state", REQUESTED)
+            .expect_err("a dropped id must not report success");
+        assert!(err.to_string().contains("has state nothing"), "{err}");
+    }
 }
