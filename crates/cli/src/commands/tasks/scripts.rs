@@ -76,36 +76,48 @@ pub(super) async fn run_task_script_action(
 /// `scripts.run` starts a Script or, when a session already holds its terminal
 /// id, attaches to that session and runs nothing. Reporting the second as
 /// `Started "<name>"` names a command this call did not run, over a port the
-/// live process need not be serving, so the two are worded apart.
+/// live process need not be serving — as does claiming either from a backend
+/// that reports neither, so all three are worded apart.
 fn run_report(name: &str, resp: &serde_json::Value) -> Vec<String> {
     let terminal_id = resp
         .get("terminalId")
         .and_then(serde_json::Value::as_str)
         .unwrap_or("?");
-    // A backend from before `started` never attached silently, so reading an
-    // absent field as a start leaves its output as it was.
-    let started = resp
-        .get("started")
-        .and_then(serde_json::Value::as_bool)
-        .unwrap_or(true);
+    // A backend from before `started` attached under exactly the same answer it
+    // gives a start, so reading the absent field as either one reports what this
+    // call cannot know.
+    let started = resp.get("started").and_then(serde_json::Value::as_bool);
     let command = resp.get("command").and_then(serde_json::Value::as_str);
 
     let mut lines = Vec::new();
-    if started {
-        lines.push(format!("Started \"{name}\" in terminal {terminal_id}."));
-        if let Some(command) = command {
-            lines.push(format!("  running: {command}"));
+    match started {
+        Some(true) => {
+            lines.push(format!("Started \"{name}\" in terminal {terminal_id}."));
+            if let Some(command) = command {
+                lines.push(format!("  running: {command}"));
+            }
         }
-    } else {
-        lines.push(format!(
-            "Attached to \"{name}\" in terminal {terminal_id}: it was already running, so nothing was started."
-        ));
-        lines.push(match command {
-            Some(command) => format!(
-                "  That session need not be running this script's command ({command}) — read the terminal in the T3 UI to see what it is running."
-            ),
-            None => "  Read the terminal in the T3 UI to see what it is running.".to_string(),
-        });
+        Some(false) => {
+            lines.push(format!(
+                "Attached to \"{name}\" in terminal {terminal_id}: it was already running, so nothing was started."
+            ));
+            lines.push(match command {
+                Some(command) => format!(
+                    "  That session need not be running this script's command ({command}) — read the terminal in the T3 UI to see what it is running."
+                ),
+                None => "  Read the terminal in the T3 UI to see what it is running.".to_string(),
+            });
+        }
+        None => {
+            lines.push(format!("Ran \"{name}\" in terminal {terminal_id}."));
+            lines.push(format!(
+                "  This backend does not say whether it started the script or attached to a session already under that id{}, so read the terminal in the T3 UI to see what it is running.",
+                match command {
+                    Some(command) => format!(" running something other than {command}"),
+                    None => String::new(),
+                }
+            ));
+        }
     }
 
     match resp.get("url").and_then(serde_json::Value::as_str) {
@@ -192,12 +204,15 @@ mod tests {
         assert!(lines.contains("need not be running"), "{lines}");
     }
 
-    /// The field is new; a backend without it never attached silently, so its
-    /// answer still reads as the start it was.
+    /// A backend without the field is the one that reported an attach as a
+    /// start, so claiming either from its answer reports what it never said.
     #[test]
-    fn a_response_without_the_field_still_reads_as_a_start() {
+    fn a_response_without_the_field_claims_neither_a_start_nor_an_attach() {
         let lines = report(json!({ "terminalId": "script-dev" }));
-        assert!(lines.contains("Started \"preview-static\""), "{lines}");
+        assert!(!lines.contains("Started"), "{lines}");
+        assert!(!lines.contains("Attached"), "{lines}");
+        assert!(lines.contains("Ran \"preview-static\""), "{lines}");
+        assert!(lines.contains("does not say whether"), "{lines}");
         assert!(lines.contains("No port declared"), "{lines}");
     }
 }
