@@ -143,11 +143,11 @@ pub async fn run(
         }
         Some(TypedInvocation::Stack(a)) => run_stack(client, cfg, a, json).await,
         None if args.first().is_some_and(|a| a == "api") => {
-            let gh_repo = proxied_gh_repo(client).await;
+            let gh_repo = origin_gh_repo(client).await;
             run_api(client, cfg, &args, gh_repo.as_deref()).await
         }
         None => {
-            let gh_repo = proxied_gh_repo(client).await;
+            let gh_repo = origin_gh_repo(client).await;
             passthrough(&args, gh_repo.as_deref())
         }
     }
@@ -337,7 +337,7 @@ async fn run_stack(
     json: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let token = github_token_for_gh();
-    let gh_repo = proxied_gh_repo(client).await;
+    let gh_repo = origin_gh_repo(client).await;
     let status = gh_command(&invocation.args, token.as_deref(), gh_repo.as_deref())
         .status()
         .map_err(|e| format!("failed to run gh: {e} (is the gh CLI installed?)"))?;
@@ -714,10 +714,6 @@ fn non_empty_task_id(task_id: Option<String>) -> Option<String> {
 // ---------------------------------------------------------------------------
 
 /// Resolve `(owner, repo)` from an explicit `-R` value or the cwd git repo.
-///
-/// `moat repos clone <repository_id>` leaves `origin` as the backend's
-/// `/git/{id}` path, which names no owner, so the id is read back through the
-/// API instead.
 async fn resolve_repo(
     client: &MoatClient,
     flag: Option<&str>,
@@ -726,19 +722,65 @@ async fn resolve_repo(
         return parse_repo_arg(value)
             .ok_or_else(|| format!("invalid repository `{value}` — expected owner/repo").into());
     }
+    Ok(origin_repo(client).await?)
+}
+
+/// Why `origin` named no GitHub repository.
+///
+/// The two callers differ on what a failure means: [`resolve_repo`] reports
+/// either, while a passthrough falls back to `gh`'s own resolution and
+/// announces only the variant that is not simply a checkout `moat gh` does not
+/// serve.
+#[derive(Debug, thiserror::Error)]
+enum OriginError {
+    /// `origin` is absent, or names a repository this command has no path to.
+    #[error("{0}")]
+    Unaddressable(String),
+    /// A proxied origin whose repository row could not be read.
+    #[error("{0}")]
+    Unreadable(String),
+}
+
+/// What an `origin` URL names, before anything is read back from the backend.
+enum OriginUrl<'a> {
+    /// A GitHub remote, in any of the URL forms.
+    Github(String, String),
+    /// A `moat repos clone` remote, which names a repository id and no owner.
+    Proxied(&'a str),
+    /// Neither, so `moat gh` cannot address it.
+    Foreign,
+}
+
+fn classify_origin<'a>(base_url: &str, url: &'a str) -> OriginUrl<'a> {
+    if let Some((owner, name)) = parse_github_remote(url) {
+        return OriginUrl::Github(owner, name);
+    }
+    match proxy_clone_repository_id(base_url, url).or_else(|| any_host_proxy_repository_id(url)) {
+        Some(id) => OriginUrl::Proxied(id),
+        None => OriginUrl::Foreign,
+    }
+}
+
+/// `(owner, repo)` for the cwd's `origin` remote — the one repository every
+/// `moat gh` call addresses, read or write.
+///
+/// Deliberately `origin` and not `gh`'s own pick, which prefers a remote named
+/// `upstream`: in a fork clone holding both, a read would answer about the
+/// upstream PR sharing the number while a write went to the fork.
+async fn origin_repo(client: &MoatClient) -> Result<(String, String), OriginError> {
     let url = git_stdout(&["remote", "get-url", "origin"]).map_err(|e| {
-        format!("could not infer the GitHub repository ({e}) — pass `-R owner/repo`")
+        OriginError::Unaddressable(format!(
+            "could not infer the GitHub repository ({e}) — pass `-R owner/repo`"
+        ))
     })?;
     let url = url.trim();
-    if let Some(parsed) = parse_github_remote(url) {
-        return Ok(parsed);
+    match classify_origin(client.base_url(), url) {
+        OriginUrl::Github(owner, name) => Ok((owner, name)),
+        OriginUrl::Proxied(id) => proxied_repo(client, id).await,
+        OriginUrl::Foreign => Err(OriginError::Unaddressable(format!(
+            "origin remote `{url}` is not a GitHub repository — pass `-R owner/repo`"
+        ))),
     }
-    if let Some(id) = proxy_clone_repository_id(client.base_url(), url)
-        .or_else(|| any_host_proxy_repository_id(url))
-    {
-        return proxied_repo(client, id).await;
-    }
-    Err(format!("origin remote `{url}` is not a GitHub repository — pass `-R owner/repo`").into())
 }
 
 /// The repository id in a `/git/{id}` remote served by any host.
@@ -759,47 +801,50 @@ fn any_host_proxy_repository_id(url: &str) -> Option<&str> {
 async fn proxied_repo(
     client: &MoatClient,
     repository_id: &str,
-) -> Result<(String, String), Box<dyn std::error::Error>> {
-    let row = client.api().get_repository(repository_id).await?;
-    let remote = row
-        .remote
-        .ok_or_else(|| format!("repository {repository_id} stores no remote URL"))?;
+) -> Result<(String, String), OriginError> {
+    let row = client
+        .api()
+        .get_repository(repository_id)
+        .await
+        .map_err(|e| {
+            OriginError::Unreadable(format!(
+                "could not read the proxied origin's repository ({e})"
+            ))
+        })?;
+    let remote = row.remote.ok_or_else(|| {
+        OriginError::Unaddressable(format!("repository {repository_id} stores no remote URL"))
+    })?;
     let host = remote.host_repo.ok_or_else(|| {
-        format!("repository {repository_id} has no resolved git host to address")
+        OriginError::Unaddressable(format!(
+            "repository {repository_id} has no resolved git host to address"
+        ))
     })?;
     if host.provider != moatless_workspace_types::repository::RepositoryProvider::Github {
-        return Err(format!(
+        return Err(OriginError::Unaddressable(format!(
             "repository {repository_id} is hosted on {}, and `moat gh` serves GitHub only — \
              there is no pull-request path for it from a sandbox",
             host.provider
-        )
-        .into());
+        )));
     }
     Ok((host.owner, host.name))
 }
 
-/// The `owner/repo` to hand a spawned `gh` as `GH_REPO`.
-///
-/// `gh` reads `origin` itself, and a proxied origin names no owner, so
-/// repo-scoped subcommands fail without this; only a failed read is announced,
-/// since a Forgejo checkout hits that on every invocation.
-async fn proxied_gh_repo(client: &MoatClient) -> Option<String> {
+/// The `owner/repo` to hand a spawned `gh` as `GH_REPO`, so a passthrough reads
+/// the repository [`origin_repo`] writes to.
+async fn origin_gh_repo(client: &MoatClient) -> Option<String> {
     if std::env::var_os("GH_REPO").is_some() {
         return None;
     }
-    let url = git_stdout(&["remote", "get-url", "origin"]).ok()?;
-    let id = proxy_clone_repository_id(client.base_url(), url.trim())?;
-    let row = match client.api().get_repository(id).await {
-        Ok(row) => row,
-        Err(e) => {
-            eprintln!("moat: could not read the proxied origin's repository ({e})");
-            return None;
+    match origin_repo(client).await {
+        Ok((owner, name)) => Some(format!("{owner}/{name}")),
+        // A checkout `moat gh` does not serve, a Forgejo one above all, hits
+        // this on every invocation, so it stays quiet and leaves `gh` to itself.
+        Err(OriginError::Unaddressable(_)) => None,
+        Err(e @ OriginError::Unreadable(_)) => {
+            eprintln!("moat: {e}");
+            None
         }
-    };
-    let host = row.remote?.host_repo.filter(|host| {
-        host.provider == moatless_workspace_types::repository::RepositoryProvider::Github
-    })?;
-    Some(format!("{}/{}", host.owner, host.name))
+    }
 }
 
 /// Parse a `-R` value: `owner/repo` shorthand or any GitHub remote URL form.

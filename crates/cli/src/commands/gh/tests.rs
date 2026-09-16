@@ -363,6 +363,36 @@ fn a_proxied_origin_is_recognized_whichever_url_names_the_backend() {
     assert_eq!(any_host_proxy_repository_id("https://host/git/"), None);
 }
 
+/// The backend a proxied origin is cloned from.
+const BACKEND: &str = "https://moatless.example.com";
+
+/// `gh` left to itself prefers a remote named `upstream`, so in a fork clone
+/// that has both, this is the difference between reading the fork's PR and
+/// reading whatever upstream PR shares its number.
+#[test]
+fn a_fork_s_origin_names_the_fork_whatever_else_it_has_a_remote_for() {
+    assert!(matches!(
+        classify_origin(BACKEND, "https://github.com/soaplabs/t3code.git"),
+        OriginUrl::Github(owner, name) if owner == "soaplabs" && name == "t3code"
+    ));
+}
+
+#[test]
+fn a_proxied_origin_names_the_id_to_read_back() {
+    assert!(matches!(
+        classify_origin(BACKEND, "https://moatless.example.com/git/repo_1"),
+        OriginUrl::Proxied("repo_1")
+    ));
+}
+
+#[test]
+fn an_origin_on_another_host_names_no_repository() {
+    assert!(matches!(
+        classify_origin(BACKEND, "https://forgejo.example.com/o/r.git"),
+        OriginUrl::Foreign
+    ));
+}
+
 // =======================================================================
 // `gh api` recognition
 // =======================================================================
@@ -610,10 +640,10 @@ fn gh_repo_env(gh_repo: Option<&str>) -> Option<String> {
         .map(|value| value.to_string_lossy().into_owned())
 }
 
-/// Without this, `gh` reads `origin` for itself and finds the backend's
-/// `/git/{id}` path, which names no owner.
+/// Without this, `gh` resolves the repository itself: it prefers an `upstream`
+/// remote over `origin`, and a proxied origin names no owner at all.
 #[test]
-fn a_proxied_checkout_names_its_repository_for_gh() {
+fn the_resolved_repository_reaches_gh_as_gh_repo() {
     assert_eq!(
         gh_repo_env(Some("owner/repo")).as_deref(),
         Some("owner/repo")
@@ -621,7 +651,7 @@ fn a_proxied_checkout_names_its_repository_for_gh() {
 }
 
 #[test]
-fn a_checkout_gh_can_read_itself_leaves_its_environment_alone() {
+fn an_origin_that_resolved_to_nothing_leaves_the_environment_alone() {
     assert_eq!(gh_repo_env(None), None);
 }
 
