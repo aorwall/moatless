@@ -116,6 +116,10 @@ pub fn public_script_list(scripts: &[ScriptConfig]) -> Vec<Value> {
 
 /// Start a Script and return the terminal it runs in, plus — when it serves a
 /// port — its preview URL and the browser tab now pointing at it.
+///
+/// `started` is false when a session already held this Script's terminal id and
+/// the call attached to it instead: nothing was run, and what that session is
+/// running need not be `command`.
 pub(crate) async fn run(
     state: &ScriptsState,
     conversations: &dyn ConversationDao,
@@ -206,6 +210,12 @@ pub(crate) async fn run(
 
     Ok(json!({
         "terminalId": terminal_id,
+        // False when this call attached to a session already under this id
+        // instead of starting anything. Without it a caller cannot tell the two
+        // apart, and reports a start for a process someone else's `command`
+        // started.
+        "started": is_new_process,
+        "command": script.command,
         "url": url,
         "previewTabId": preview_tab_id,
     }))

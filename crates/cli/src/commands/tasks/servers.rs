@@ -166,6 +166,13 @@ fn print_override(ov: &ServerOverride, indent: &str) {
 fn format_server_list(status: &ServerStatusResponse, overrides: Option<&ServerOverridesResponse>) {
     if status.servers.is_empty() {
         println!("No servers configured.");
+        // A script that declares a port publishes a route and serves on it, so
+        // a live preview with nothing listed here is the ordinary case rather
+        // than a contradiction. Scripts are not servers: nothing supervises
+        // them, and their output goes to the terminal they run in.
+        println!(
+            "A port opened by `moat tasks scripts run` is not listed here — see `moat tasks scripts list`."
+        );
         return;
     }
     for server in &status.servers {
