@@ -149,6 +149,29 @@ RUN ARCH=$(dpkg --print-architecture) && \
     chmod +x /usr/local/bin/yq && \
     yq --version
 
+# helm — pinned to the version soap-platform-gitops' validate.yml installs, so
+# `helm lint`/`helm template` here reproduces the required check rather than
+# approximating it.
+# renovate: datasource=github-releases depName=helm/helm
+ARG HELM_VERSION=v3.22.0
+RUN ARCH=$(dpkg --print-architecture) && \
+    curl -fsSL "https://get.helm.sh/helm-${HELM_VERSION}-linux-${ARCH}.tar.gz" -o /tmp/helm.tgz && \
+    tar -xzf /tmp/helm.tgz -C /tmp && \
+    install -m 0755 "/tmp/linux-${ARCH}/helm" /usr/local/bin/helm && \
+    rm -rf /tmp/helm.tgz "/tmp/linux-${ARCH}" && \
+    helm version --short
+
+# terraform — pinned to soap-infra's CI version. `terraform validate` needs the
+# same minor to agree with what plans there.
+# renovate: datasource=hashicorp depName=terraform
+ARG TERRAFORM_VERSION=1.10.5
+RUN ARCH=$(dpkg --print-architecture) && \
+    curl -fsSL "https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_${ARCH}.zip" -o /tmp/terraform.zip && \
+    unzip -q /tmp/terraform.zip -d /usr/local/bin && \
+    rm /tmp/terraform.zip && \
+    chmod +x /usr/local/bin/terraform && \
+    terraform version
+
 # Taskfile CLI (`task`) for repositories that use Taskfile.yml.
 COPY --from=task-builder /go/bin/task /usr/local/bin/task
 RUN chmod +x /usr/local/bin/task \
@@ -160,10 +183,17 @@ RUN chmod +x /usr/local/bin/task \
 # protobuf-compiler (`protoc`). This workspace no longer needs protoc —
 # crates/sandbox-proto vendors it — but it stays for the arbitrary Rust projects
 # agents build inside the sandbox.
+#
+# libsecret-1-dev carries the pkg-config file t3code's
+# apps/desktop/scripts/browser-secret-native.test.mjs probes; without it that
+# suite is the only red package in a full fork test pass, on every merge.
+# python3-yaml and python3-pip are for workflow and skill-frontmatter
+# validation scripts that import yaml directly.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libssl-dev zlib1g-dev libbz2-dev libreadline-dev libsqlite3-dev \
     libncursesw5-dev xz-utils tk-dev libxml2-dev libxmlsec1-dev libffi-dev liblzma-dev \
     pkg-config protobuf-compiler \
+    libsecret-1-dev python3-yaml python3-pip \
     && rm -rf /var/lib/apt/lists/*
 
 # Remove default ubuntu user (has UID/GID 1000 which we want for moatless)
