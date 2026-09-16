@@ -80,23 +80,37 @@ async fn ensure_repos_visible(
     Ok(())
 }
 
+/// Refuses the run-config fields that place a sandbox outside its default
+/// posture, to anyone but an admin.
+///
+/// An empty `node_selector` clears the field back to the deployment default, so
+/// it is not an elevation.
 fn ensure_privileged_sandbox_fields(
     ctx: &ScopeContext,
     sandbox_service_account: Option<&String>,
     network_profile: Option<&String>,
+    node_selector: Option<&std::collections::BTreeMap<String, String>>,
 ) -> Result<(), WorkspaceError> {
     if ctx.is_admin {
         return Ok(());
     }
-    let attempted = match (sandbox_service_account, network_profile) {
-        (Some(_), Some(_)) => "sandboxServiceAccount and networkProfile",
-        (Some(_), None) => "sandboxServiceAccount",
-        (None, Some(_)) => "networkProfile",
-        (None, None) => return Ok(()),
-    };
+    let mut attempted = Vec::new();
+    if sandbox_service_account.is_some() {
+        attempted.push("sandboxServiceAccount");
+    }
+    if network_profile.is_some() {
+        attempted.push("networkProfile");
+    }
+    if node_selector.is_some_and(|selector| !selector.is_empty()) {
+        attempted.push("nodeSelector");
+    }
+    if attempted.is_empty() {
+        return Ok(());
+    }
     Err(WorkspaceError::Forbidden(format!(
-        "{attempted} may only be set by an admin — these fields grant a sandbox \
-         elevated Kubernetes access"
+        "{} may only be set by an admin — these fields grant a sandbox \
+         elevated Kubernetes access or dedicated capacity",
+        attempted.join(", ")
     )))
 }
 
@@ -172,6 +186,7 @@ pub async fn create_workspace(
         ctx,
         req.sandbox_service_account.as_ref(),
         req.network_profile.as_ref(),
+        req.node_selector.as_ref(),
     )?;
     let run_as_user_id = resolve_run_as_user(ctx, users, req.run_as_user_id.as_ref())
         .await?
@@ -196,6 +211,7 @@ pub async fn create_workspace(
         scripts: req.scripts.map(script_configs_from_wire),
         resources: req.resources.map(resource_config_from_wire).transpose()?,
         network_profile: req.network_profile,
+        node_selector: req.node_selector,
         default_model: req.default_model,
         default_effort: req.default_effort,
         source: WorkspaceSource::Manual,
@@ -264,6 +280,7 @@ pub async fn update_workspace(
         ctx,
         req.sandbox_service_account.as_ref(),
         req.network_profile.as_ref(),
+        req.node_selector.as_ref(),
     )?;
     let run_as_user_id = resolve_run_as_user(ctx, users, req.run_as_user_id.as_ref()).await?;
 
@@ -315,6 +332,7 @@ pub async fn update_workspace(
             .map(|config| resource_config_from_wire(config).map(Some))
             .transpose()?,
         network_profile: req.network_profile.map(Some),
+        node_selector: req.node_selector.map(Some),
         icon: req.icon,
         default_model: req.default_model,
         default_effort: req.default_effort,
@@ -360,6 +378,7 @@ pub async fn override_workspace(
         ctx,
         req.sandbox_service_account.as_ref(),
         req.network_profile.as_ref(),
+        req.node_selector.as_ref(),
     )?;
     let run_as_user_id = resolve_run_as_user(ctx, users, req.run_as_user_id.as_ref()).await?;
 
@@ -384,6 +403,7 @@ pub async fn override_workspace(
             .map(|config| resource_config_from_wire(config).map(Some))
             .transpose()?,
         network_profile: req.network_profile.map(Some),
+        node_selector: req.node_selector.map(Some),
         icon: req.icon,
         default_model: req.default_model,
         default_effort: req.default_effort,
@@ -566,26 +586,33 @@ mod tests {
         }
     }
 
-    /// The two fields that opt a workspace into an elevated `sandboxAccess`
-    /// profile are admin-only, so enabling a profile in Helm values stays an
-    /// operator decision rather than becoming self-serve.
+    /// The fields that opt a workspace into an elevated `sandboxAccess` profile
+    /// or onto dedicated capacity are admin-only, so enabling a profile in Helm
+    /// values or standing up a node pool stays an operator decision rather than
+    /// becoming self-serve.
     #[test]
     fn privileged_sandbox_fields_are_admin_only() {
         let sa = "moatless-admin".to_string();
         let profile = "moatless-admin".to_string();
+        let selector: std::collections::BTreeMap<String, String> =
+            [("moatless.io/pool".to_string(), "on-demand".to_string())]
+                .into_iter()
+                .collect();
 
-        for (account, network) in [
-            (Some(&sa), None),
-            (None, Some(&profile)),
-            (Some(&sa), Some(&profile)),
+        for (account, network, node) in [
+            (Some(&sa), None, None),
+            (None, Some(&profile), None),
+            (None, None, Some(&selector)),
+            (Some(&sa), Some(&profile), Some(&selector)),
         ] {
-            let err = ensure_privileged_sandbox_fields(&ctx(false), account, network).unwrap_err();
+            let err =
+                ensure_privileged_sandbox_fields(&ctx(false), account, network, node).unwrap_err();
             assert!(
                 matches!(err, WorkspaceError::Forbidden(_)),
                 "non-admin must not select a privileged sandbox identity"
             );
             assert!(
-                ensure_privileged_sandbox_fields(&ctx(true), account, network).is_ok(),
+                ensure_privileged_sandbox_fields(&ctx(true), account, network, node).is_ok(),
                 "admin may select a privileged sandbox identity"
             );
         }
@@ -595,7 +622,15 @@ mod tests {
     /// a non-admin could not rename their own workspace.
     #[test]
     fn absent_privileged_fields_are_allowed_for_anyone() {
-        assert!(ensure_privileged_sandbox_fields(&ctx(false), None, None).is_ok());
+        assert!(ensure_privileged_sandbox_fields(&ctx(false), None, None, None).is_ok());
+    }
+
+    /// Clearing the selector back to the deployment default is not an
+    /// elevation, so it needs no admin.
+    #[test]
+    fn an_empty_node_selector_is_not_privileged() {
+        let empty = std::collections::BTreeMap::new();
+        assert!(ensure_privileged_sandbox_fields(&ctx(false), None, None, Some(&empty)).is_ok());
     }
 
     #[test]
@@ -625,6 +660,7 @@ mod tests {
             scripts: None,
             resources: None,
             network_profile: None,
+            node_selector: None,
             source,
             source_repository_id: None,
             source_key: None,

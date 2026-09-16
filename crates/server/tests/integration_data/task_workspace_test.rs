@@ -51,6 +51,8 @@ fn loop_task(workspace_id: &str) -> NewTask {
         append_system_prompt: None,
         ttl_minutes: 15,
         inactive_ttl_days: 7,
+        node_selector: None,
+        stop_when_done: false,
         tag_ids: Vec::new(),
         skills: Vec::new(),
         related_to: None,

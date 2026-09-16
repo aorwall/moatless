@@ -487,8 +487,10 @@ impl GitSyncService {
                     scope: repo.scope,
                     owner_user_id: repo.owner_user_id.clone(),
                     // Never declared in git: commit access to a repository
-                    // would otherwise name the account its Tasks act as.
+                    // would otherwise name the account its Tasks act as, or
+                    // move its sandboxes onto dedicated capacity.
                     run_as_user_id: None,
+                    node_selector: None,
                     created_by: repo.created_by.clone(),
                     deleted: false,
                     created_at: None,
@@ -511,6 +513,7 @@ impl GitSyncService {
             owner_user_id: Some(repo.owner_user_id.clone()),
             // Absent from the patch, so a reconcile leaves whatever an admin set.
             run_as_user_id: None,
+            node_selector: None,
             // Likewise: never declared in git, so a reconcile must not clear
             // what a user picked in the settings UI.
             icon: None,

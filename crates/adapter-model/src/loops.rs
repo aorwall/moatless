@@ -77,6 +77,8 @@ pub fn subscription_context(subscription: &SubscriptionMatch) -> LoopContext {
         agent_type: subscription.agent_type.clone(),
         model: subscription.model.clone(),
         inactive_ttl_days: subscription.inactive_ttl_days,
+        node_selector: subscription.node_selector.clone(),
+        stop_when_done: subscription.stop_when_done.unwrap_or(false),
         created_by: subscription.created_by.clone(),
         created_at: subscription.created_at,
         updated_at: subscription.updated_at,

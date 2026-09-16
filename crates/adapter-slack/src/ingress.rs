@@ -552,6 +552,8 @@ mod characterization {
             created_by: "user-1".into(),
             created_at: now,
             updated_at: now,
+            node_selector: None,
+            stop_when_done: false,
         }
     }
 

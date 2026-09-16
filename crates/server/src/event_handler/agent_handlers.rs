@@ -7,6 +7,7 @@ use moatless_core::events::EventPublisher;
 use moatless_types::access_control::ScopeContext;
 use moatless_types::task::{TaskRelationType, TaskSubType, TaskTurnSubType};
 
+use crate::sandbox::lifecycle::Lifecycle;
 use crate::state::AppState;
 use moatless_ports::sandbox::SandboxWaker;
 use moatless_tasks::message::models::MessageRole;
@@ -252,6 +253,47 @@ pub async fn handle_agent_completed(state: &AppState, event: &AgentEvent) {
                 )
                 .await;
         }
+    }
+
+    stop_sandbox_when_done(&state.tasks, &state.sandbox, &event.task_id).await;
+}
+
+/// Release the pod of a `stop_when_done` Sandbox now that its run has finished.
+///
+/// What makes dedicated capacity affordable for a Loop: the node is billed for
+/// the whole idle TTL otherwise, and nothing else scales it down until the
+/// reaper's next cycle. Only the success path calls this — an errored run keeps
+/// its pod for the idle TTL, which is what leaves a failure inspectable.
+async fn stop_sandbox_when_done(tasks: &TaskCommands, sandbox: &Lifecycle, task_id: &str) {
+    let sandbox_id = match tasks.sandbox_to_stop_when_done(task_id).await {
+        Ok(Some(sandbox_id)) => sandbox_id,
+        Ok(None) => return,
+        Err(e) => {
+            tracing::warn!(task_id = %task_id, error = %e, "Failed to read stop-when-done sandbox");
+            return;
+        }
+    };
+
+    tracing::info!(
+        task_id = %task_id,
+        sandbox_id = %sandbox_id,
+        "Agent run finished on a stop-when-done sandbox, stopping it"
+    );
+    if let Err(e) = sandbox
+        .stop(
+            &sandbox_id,
+            moatless_types::sandbox::SandboxStopReason::System,
+        )
+        .await
+    {
+        // The pod survives every failure path here, so the idle reaper is still
+        // the backstop that stops it.
+        tracing::warn!(
+            task_id = %task_id,
+            sandbox_id = %sandbox_id,
+            error = %e,
+            "Failed to stop a stop-when-done sandbox"
+        );
     }
 }
 

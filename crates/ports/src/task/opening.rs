@@ -27,6 +27,11 @@ pub struct NewTask {
     pub append_system_prompt: Option<String>,
     pub ttl_minutes: i32,
     pub inactive_ttl_days: i32,
+    /// See [`moatless_types::loops::LoopContext::node_selector`]. `None` leaves
+    /// the sandbox on whatever its Workspace declares.
+    pub node_selector: Option<std::collections::BTreeMap<String, String>>,
+    /// See [`moatless_types::loops::LoopContext::stop_when_done`].
+    pub stop_when_done: bool,
     pub tag_ids: Vec<String>,
     pub skills: Vec<String>,
     /// A peer Task to link this one to once it exists.

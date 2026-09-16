@@ -92,6 +92,8 @@ pub async fn create_task_from_loop(
             inactive_ttl_days: config
                 .inactive_ttl_days
                 .unwrap_or(moatless_tasks::task::models::DEFAULT_INACTIVE_TTL_DAYS),
+            node_selector: config.node_selector.clone(),
+            stop_when_done: config.stop_when_done,
             tag_ids: config.tag_ids.clone(),
             skills: config.skills.clone(),
             related_to: params.related_to,

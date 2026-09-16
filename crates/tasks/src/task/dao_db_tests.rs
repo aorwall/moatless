@@ -1,7 +1,7 @@
 //! PostgreSQL tests for the task store.
 
 use crate::task::dao::{TaskDao, store_over};
-use crate::task::models::{TaskFilter, TaskPatch};
+use crate::task::models::{SandboxPlacement, TaskFilter, TaskPatch};
 use crate::task::models::{TaskStatus, Visibility};
 use chrono::{DateTime, Duration, Utc};
 use moatless_types::access_control::ScopeContext;
@@ -819,7 +819,7 @@ async fn insert_task_refuses_a_task_with_no_workspace(pool: PgPool) {
     task.workspace_id = None;
 
     let error = store_over(&pool)
-        .insert_task(&task)
+        .insert_task(&task, &SandboxPlacement::default())
         .await
         .expect_err("a task with no workspace is refused");
     assert!(
@@ -837,7 +837,7 @@ async fn insert_task_refuses_a_workspace_that_does_not_exist(pool: PgPool) {
     task.workspace_id = Some("ws-absent".to_string());
 
     let error = store_over(&pool)
-        .insert_task(&task)
+        .insert_task(&task, &SandboxPlacement::default())
         .await
         .expect_err("a task naming an absent workspace is refused");
     assert!(

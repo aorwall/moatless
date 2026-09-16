@@ -26,6 +26,10 @@ pub struct LoopSpawnConfig {
     /// [`moatless_types::loops::LoopContext::model`].
     pub model: Option<String>,
     pub inactive_ttl_days: Option<i32>,
+    /// See [`moatless_types::loops::LoopContext::node_selector`].
+    pub node_selector: Option<std::collections::BTreeMap<String, String>>,
+    /// See [`moatless_types::loops::LoopContext::stop_when_done`].
+    pub stop_when_done: Option<bool>,
     pub scope: Scope,
     pub owner_user_id: Option<String>,
     pub created_by: String,
@@ -101,6 +105,10 @@ pub(crate) struct LoopConfigRow {
     pub agent_type: AgentType,
     pub model: Option<String>,
     pub inactive_ttl_days: Option<i32>,
+    /// See [`moatless_types::loops::LoopContext::node_selector`].
+    pub node_selector: Option<std::collections::BTreeMap<String, String>>,
+    /// See [`moatless_types::loops::LoopContext::stop_when_done`].
+    pub stop_when_done: Option<bool>,
 }
 
 #[derive(Debug, Clone)]
@@ -179,6 +187,10 @@ pub struct NewLoopConfig {
     pub agent_type: String,
     pub model: Option<String>,
     pub inactive_ttl_days: Option<i32>,
+    /// See [`moatless_types::loops::LoopContext::node_selector`].
+    pub node_selector: Option<std::collections::BTreeMap<String, String>>,
+    /// See [`moatless_types::loops::LoopContext::stop_when_done`].
+    pub stop_when_done: Option<bool>,
 }
 
 pub enum NewLoopSource {
@@ -252,6 +264,10 @@ pub struct ManagedLoopUpsert {
     pub agent_type: String,
     pub model: Option<String>,
     pub inactive_ttl_days: Option<i32>,
+    /// See [`moatless_types::loops::LoopContext::stop_when_done`]. Unlike
+    /// `node_selector`, this one is declarable in `LOOP.md`: it only shortens a
+    /// sandbox's life, so commit access buys no capacity.
+    pub stop_when_done: Option<bool>,
     pub adapter: Option<NewAdapterEventSource>,
     pub schedule: Option<NewScheduleSource>,
 }

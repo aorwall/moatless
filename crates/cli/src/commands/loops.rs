@@ -141,6 +141,18 @@ pub enum LoopsAction {
         inactive_ttl_days: Option<i32>,
         #[arg(long)]
         clear_inactive_ttl_days: bool,
+        /// Extra node labels for this loop's sandbox pods, as a JSON object,
+        /// e.g. `{"moatless.io/pool":"on-demand"}`.
+        #[arg(long, value_name = "JSON")]
+        node_selector: Option<String>,
+        /// Drop the node-selector override, so sandboxes fall back to the
+        /// workspace's own placement.
+        #[arg(long)]
+        clear_node_selector: bool,
+        /// Stop this loop's sandbox as soon as the agent run finishes, instead
+        /// of holding the pod for the idle TTL.
+        #[arg(long)]
+        stop_when_done: Option<bool>,
         #[arg(long)]
         connection_id: Option<String>,
         #[arg(long)]
@@ -251,6 +263,15 @@ pub struct CreateConfigArgs {
     /// the platform-wide default (`TASK_INACTIVE_TIMEOUT_DAYS`).
     #[arg(long)]
     inactive_ttl_days: Option<i32>,
+    /// Extra node labels for this loop's sandbox pods, as a JSON object, e.g.
+    /// `{"moatless.io/pool":"on-demand"}`. Outranks the workspace's own value.
+    #[arg(long, value_name = "JSON")]
+    node_selector: Option<String>,
+    /// Stop this loop's sandbox as soon as the agent run finishes, instead of
+    /// holding the pod for the idle TTL. Pairs with a dedicated node pool: the
+    /// node goes idle in seconds and can scale down.
+    #[arg(long)]
+    stop_when_done: Option<bool>,
 }
 
 pub async fn run_loops(
@@ -353,6 +374,9 @@ pub async fn run_loops(
             clear_model,
             inactive_ttl_days,
             clear_inactive_ttl_days,
+            node_selector,
+            clear_node_selector,
+            stop_when_done,
             connection_id,
             source_matcher,
             source_name,
@@ -404,6 +428,9 @@ pub async fn run_loops(
                 clear_model,
                 inactive_ttl_days,
                 clear_inactive_ttl_days,
+                node_selector,
+                clear_node_selector,
+                stop_when_done,
             )?;
             let source = update_source(
                 connection_id,
@@ -475,6 +502,16 @@ pub async fn run_loops(
     Ok(())
 }
 
+fn parse_node_selector(
+    raw: Option<&str>,
+) -> Result<Option<std::collections::BTreeMap<String, String>>, ClientError> {
+    raw.map(|s| {
+        serde_json::from_str(s)
+            .map_err(|e| ClientError::Other(format!("Invalid --node-selector: {e}")))
+    })
+    .transpose()
+}
+
 fn create_config(args: CreateConfigArgs) -> Result<CreateLoopConfig, ClientError> {
     Ok(CreateLoopConfig {
         workspace_id: args.workspace_id,
@@ -488,6 +525,8 @@ fn create_config(args: CreateConfigArgs) -> Result<CreateLoopConfig, ClientError
         agent_type: Some(args.agent_type),
         model: args.model,
         inactive_ttl_days: args.inactive_ttl_days,
+        node_selector: parse_node_selector(args.node_selector.as_deref())?,
+        stop_when_done: args.stop_when_done,
     })
 }
 
@@ -512,6 +551,9 @@ fn update_config(
     clear_model: bool,
     inactive_ttl_days: Option<i32>,
     clear_inactive_ttl_days: bool,
+    node_selector: Option<String>,
+    clear_node_selector: bool,
+    stop_when_done: Option<bool>,
 ) -> Result<Option<UpdateLoopConfig>, ClientError> {
     let tag_ids = fold_list(tag_ids, clear_tags, "tag", "clear-tags")?;
     let skills = fold_list(skills, clear_skills, "skill", "clear-skills")?;
@@ -530,6 +572,12 @@ fn update_config(
             clear_inactive_ttl_days,
             "inactive-ttl-days",
         )?,
+        node_selector: fold_clearable(
+            parse_node_selector(node_selector.as_deref())?,
+            clear_node_selector,
+            "node-selector",
+        )?,
+        stop_when_done,
     };
     if config.workspace_id.is_none()
         && config.routing_mode.is_none()
@@ -541,6 +589,8 @@ fn update_config(
         && config.agent_type.is_none()
         && config.model.is_none()
         && config.inactive_ttl_days.is_none()
+        && config.node_selector.is_none()
+        && config.stop_when_done.is_none()
     {
         Ok(None)
     } else {
@@ -928,6 +978,9 @@ mod tests {
             clear,
             None,
             false,
+            None,
+            false,
+            None,
         )
     }
 

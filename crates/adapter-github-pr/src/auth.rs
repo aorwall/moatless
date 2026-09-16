@@ -324,6 +324,8 @@ mod tests {
             agent_type: "claude-code".into(),
             model: None,
             inactive_ttl_days: None,
+            node_selector: None,
+            stop_when_done: None,
             allow_direct_send: false,
             created_by: "creator".into(),
             adapter_config: None,

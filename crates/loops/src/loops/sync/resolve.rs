@@ -28,6 +28,7 @@ pub(super) struct ResolvedLoop {
     tag_ids: Vec<String>,
     skills: Vec<String>,
     inactive_ttl_days: Option<i32>,
+    stop_when_done: Option<bool>,
     adapter: Option<ResolvedAdapterSource>,
     schedule: Option<ResolvedScheduleSource>,
 }
@@ -333,6 +334,7 @@ impl LoopSyncService {
             tag_ids,
             skills,
             inactive_ttl_days: fm.inactive_ttl_days,
+            stop_when_done: fm.stop_when_done,
             adapter,
             schedule,
         })))
@@ -386,6 +388,7 @@ pub(super) fn managed_loop_input(
         agent_type: resolved.agent_type.clone(),
         model: resolved.model.clone(),
         inactive_ttl_days: resolved.inactive_ttl_days,
+        stop_when_done: resolved.stop_when_done,
         adapter,
         schedule,
     }
@@ -504,6 +507,7 @@ mod tests {
             adapter_config,
             active: None,
             inactive_ttl_days: None,
+            stop_when_done: None,
             schedule: None,
         }
     }

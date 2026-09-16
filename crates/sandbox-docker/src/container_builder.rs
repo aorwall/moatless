@@ -492,6 +492,7 @@ mod tests {
                 docker_networks: None,
                 sandbox_service_account: None,
                 network_profile: None,
+                node_selector: None,
             },
             git_clone_url: "https://github.com/test/repo.git".into(),
             git_branch: Some("main".into()),

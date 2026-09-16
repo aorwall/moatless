@@ -181,6 +181,8 @@ async fn seed_rule(state: &AppState, pool: &PgPool) {
             agent_type: "claude-code".into(),
             model: None,
             inactive_ttl_days: None,
+            node_selector: None,
+            stop_when_done: None,
             allow_direct_send: false,
             close_task_on_close: false,
             adapter_config: None,

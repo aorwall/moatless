@@ -348,6 +348,10 @@ impl TaskOpener for crate::task::creation::TaskCreationService {
                     append_system_prompt: req.append_system_prompt,
                     ttl_minutes: req.ttl_minutes,
                     inactive_ttl_days: req.inactive_ttl_days,
+                    sandbox_placement: crate::task::models::SandboxPlacement {
+                        node_selector: req.node_selector,
+                        stop_when_done: req.stop_when_done,
+                    },
                     tag_ids: req.tag_ids,
                     skills: req.skills,
                     parent: None,

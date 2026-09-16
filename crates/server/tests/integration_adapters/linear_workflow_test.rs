@@ -249,6 +249,8 @@ async fn seed_rule_with_id(state: &AppState, id: &str, config: Option<serde_json
             agent_type: "claude-code".into(),
             model: None,
             inactive_ttl_days: None,
+            node_selector: None,
+            stop_when_done: None,
             allow_direct_send: false,
             // `close_task_on_close` is a scalar column on the Subscription, not
             // Linear config — mirrored out of the same literal so a test reads

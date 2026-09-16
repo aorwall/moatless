@@ -194,11 +194,20 @@ pub fn build_pod(
                 .tolerations_json
                 .as_deref()
                 .and_then(|json| serde_json::from_str::<Vec<Toleration>>(json).ok());
-            let node_selector = config
+            // The per-workspace/per-loop selector is merged over the global one,
+            // not substituted for it: the global labels are what pair with the
+            // global toleration, so dropping them strands the pod on a taint it
+            // no longer matches.
+            let mut node_selector = config
                 .sandbox
                 .node_selector_json
                 .as_deref()
                 .and_then(|json| serde_json::from_str::<BTreeMap<String, String>>(json).ok());
+            if let Some(extra) = plan.repo_config.node_selector.as_ref().filter(|s| !s.is_empty()) {
+                node_selector
+                    .get_or_insert_with(BTreeMap::new)
+                    .extend(extra.iter().map(|(k, v)| (k.clone(), v.clone())));
+            }
             PodSpec {
                 containers: all_containers,
                 volumes: Some(volumes),

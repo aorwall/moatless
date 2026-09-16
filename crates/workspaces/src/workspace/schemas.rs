@@ -183,6 +183,7 @@ pub fn workspace_response(w: Workspace, repos: Vec<WorkspaceRepo>) -> WorkspaceR
         scripts: w.scripts,
         resources: w.resources.map(resource_config_to_wire),
         network_profile: w.network_profile,
+        node_selector: w.node_selector,
         default_model: w.default_model,
         default_effort: w.default_effort,
         synced_from_git: w.source == WorkspaceSource::Git,

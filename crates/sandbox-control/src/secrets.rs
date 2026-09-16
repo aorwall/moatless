@@ -828,6 +828,7 @@ mod tests {
                 servers: None,
                 resources: None,
                 network_profile: None,
+                node_selector: None,
                 run_as_user_id: run_as.clone(),
                 deleted: false,
             }))

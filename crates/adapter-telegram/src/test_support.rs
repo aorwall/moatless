@@ -45,6 +45,8 @@ pub(super) fn test_rule(adapter_kind: moatless_types::adapter::AdapterKind, sour
         agent_type: "claude-code".into(),
         model: None,
         inactive_ttl_days: None,
+        node_selector: None,
+        stop_when_done: None,
         allow_direct_send: true,
         adapter_config: None,
         ongoing_task_id: None,
@@ -119,6 +121,8 @@ pub(super) fn test_loop_context(source_id: &str) -> LoopContext {
         created_by: "system".into(),
         created_at: now,
         updated_at: now,
+        node_selector: None,
+        stop_when_done: false,
     }
 }
 

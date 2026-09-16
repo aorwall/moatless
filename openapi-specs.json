@@ -287,7 +287,7 @@
         "tags": [
           "sandbox"
         ],
-        "summary": "See `sandbox::files::tree::get_file_tree_with_changes` for the file-tree contract.",
+        "summary": "See `sandbox::files::tree::get_file_tree_with_changes` for the file-tree\ncontract.",
         "operationId": "file_tree_handler",
         "parameters": [
           {
@@ -471,7 +471,7 @@
           "sandbox"
         ],
         "summary": "Provision a new sandbox for a task.",
-        "description": "Builds the provision request internally from DB state (task, repository,\ncredentials). No request body required.\n\nRequires control access: the Sandbox's owner, a platform admin, or any\nsigned-in caller when the Task is public.",
+        "description": "Builds the provision request internally from DB state (task, repository,\ncredentials); no request body required. Requires control access.",
         "operationId": "provision_handler",
         "parameters": [
           {
@@ -543,7 +543,7 @@
         "tags": [
           "sandbox"
         ],
-        "summary": "Redeploy a sandbox (delete Deployment/Service/IngressRoutes, recreate with fresh repo config).",
+        "summary": "Redeploy a sandbox (delete Deployment/Service/IngressRoutes, recreate with\nfresh repo config).",
         "description": "Preserves workspace data (PVC). Use after updating repo server configs.",
         "operationId": "redeploy_handler",
         "parameters": [
@@ -704,7 +704,7 @@
           "sandbox"
         ],
         "summary": "List the overrides currently in effect, read off the sandbox's workspace.",
-        "description": "Separate from `GET /servers` because it needs a live sandbox: there is no\npersisted copy to fall back on, so a stopped sandbox has no answer.",
+        "description": "Separate from `GET /servers` because it needs a live sandbox; there is no\npersisted copy to fall back on, so a stopped sandbox has no answer.",
         "operationId": "list_server_config_handler",
         "parameters": [
           {
@@ -838,7 +838,7 @@
           "sandbox"
         ],
         "summary": "Stream server logs via SSE.",
-        "description": "Returns a Server-Sent Events stream of log lines for the given server.\nPass `?previous=true` to fetch logs from a crashed/restarted container, and\n`?follow=false` to end the stream after the buffered lines instead of\nwaiting for more. The response body cannot be represented in OpenAPI (SSE\nstreaming).",
+        "description": "`?previous=true` fetches logs from a crashed/restarted container;\n`?follow=false` ends the stream after the buffered lines instead of\nwaiting for more. OpenAPI cannot represent an SSE response body.",
         "operationId": "server_logs_handler",
         "parameters": [
           {
@@ -1380,7 +1380,7 @@
           "adapters"
         ],
         "summary": "Take durable ownership of one inbound webhook delivery.",
-        "description": "Everything the caller is answered with is decided before any routing runs:\nthe delivery is verified, parsed, and written to the Adapter delivery seam,\nand only then acknowledged. A 200 therefore means the backend owns the delivery,\nnot that a Task exists — the Task is created later, by the worker, out of the\nrecord this wrote. Anything that failed to record reaches the caller as a\nfailure so its own retry is the recovery path.\n\nDeactivated loops are rejected before admission. A Loop can also be\npaused or resynced after admission; the worker rechecks runnable state and\nthen terminates the durable delivery without creating a Task.",
+        "description": "A 200 means the backend owns the delivery, not that a Task exists yet;\nanything that failed to record reaches the caller as a failure so its retry\nis the recovery path. Deactivated loops are rejected before admission; a\nloop paused or resynced after admission is handled by the worker without\ncreating a Task.",
         "operationId": "webhook_inbound",
         "parameters": [
           {
@@ -2285,7 +2285,7 @@
           "users"
         ],
         "summary": "Update the user an internal id names. Admin only.",
-        "description": "A login is not unique — the same handle exists once per provider — and\n`PATCH /api/v1/users/{login}` resolves one to its oldest row. Reach any\nnewer row of a shared login here, keyed on the `id` that `GET /api/v1/users`\nalready reports. The body is the one `PATCH /api/v1/users/{login}` takes.",
+        "description": "A login isn't unique — `PATCH /api/v1/users/{login}` resolves only the\noldest row of a shared login. Reach any other row here, keyed on the `id`\n`GET /api/v1/users` reports; takes the same body.",
         "operationId": "admin_update_user_handler",
         "parameters": [
           {
@@ -2449,7 +2449,7 @@
         "tags": [
           "agents"
         ],
-        "summary": "List supported agents with installed / credential status for the current user.",
+        "summary": "List supported agents with installed / credential status for the current\nuser.",
         "operationId": "list_agents_handler",
         "responses": {
           "200": {
@@ -2752,7 +2752,7 @@
           "auth"
         ],
         "summary": "Report how this deployment authenticates users.",
-        "description": "Public by design: the login page is anonymous, so this cannot live on\n`/auth/me` (which 401s without a session).",
+        "description": "Public by design: the login page is anonymous, so this can't live on\n`/auth/me`, which 401s without a session.",
         "operationId": "auth_mode_handler",
         "responses": {
           "200": {
@@ -2774,7 +2774,7 @@
           "auth"
         ],
         "summary": "Mint a one-time code that pairs a client on another device to this account.",
-        "description": "The code is the bootstrap half of pairing: the client exchanges it once, at\n`POST /oauth/token`, for the API key it then keeps. It is readable in this\nresponse and nowhere afterwards.",
+        "description": "The client exchanges it once, at `POST /oauth/token`, for the API key it\nkeeps; readable in this response and nowhere afterwards.",
         "operationId": "create_pairing_code_handler",
         "requestBody": {
           "content": {
@@ -2938,7 +2938,7 @@
           "auth"
         ],
         "summary": "Exchange a sandbox user auth token (JWT) for a session cookie.",
-        "description": "Sandbox pods carry a `USER_AUTH_TOKEN` JWT signed with `TASK_TOKEN_SECRET`.\nThis endpoint verifies that token and creates a session, allowing the CLI\nto call authenticated `/api/v1/*` endpoints.",
+        "description": "Sandbox pods carry a `USER_AUTH_TOKEN` JWT signed with `TASK_TOKEN_SECRET`;\nverifying it lets the CLI call authenticated `/api/v1/*` endpoints.",
         "operationId": "exchange_token_handler",
         "responses": {
           "200": {
@@ -2970,7 +2970,7 @@
           "auth"
         ],
         "summary": "Verify authentication via session cookie or API key (Traefik `ForwardAuth`).",
-        "description": "Returns 200/401 only — no response headers.\nFor preview URLs (hostname contains `--`), also checks task-based access.",
+        "description": "Returns 200/401 only, no response headers; for preview URLs (hostname\ncontains `--`), also checks task-based access.",
         "operationId": "verify_handler",
         "responses": {
           "200": {
@@ -3005,7 +3005,7 @@
           "feature-flags"
         ],
         "summary": "GET /api/v1/feature-flags",
-        "description": "Returns all feature flags and their current values.\nFlags are controlled by `FF_*` environment variables.",
+        "description": "Returns all feature flags and their current values, controlled by `FF_*`\nenvironment variables.",
         "operationId": "get_feature_flags",
         "responses": {
           "200": {
@@ -3026,7 +3026,8 @@
         "tags": [
           "feedback"
         ],
-        "summary": "List feedback across every task the caller may read, newest first. The\nper-task endpoint answers \"does this message have feedback\"; this one\nanswers \"what has the fleet been told\", which is why it filters by\nworkspace, repository, source, surface, category, submitter, and age.",
+        "summary": "List feedback across every task the caller may read, newest first.",
+        "description": "The per-task endpoint answers \"does this message have feedback\"; this one\nanswers \"what has the fleet been told\" — filterable by workspace,\nrepository, source, surface, category, submitter, and age.",
         "operationId": "list_all_feedback",
         "parameters": [
           {
@@ -3199,7 +3200,7 @@
         "tags": [
           "feedback"
         ],
-        "summary": "Create a new feedback row scoped to a task (and optionally a message\nor tool call within that task).",
+        "summary": "Create a new feedback row scoped to a task (and optionally a message or tool\ncall within that task).",
         "operationId": "create_feedback",
         "requestBody": {
           "content": {
@@ -3313,7 +3314,7 @@
           "github"
         ],
         "summary": "Record a GitHub event the caller produced outside the typed routes above.",
-        "description": "`moat gh api` reaches GitHub directly, because the endpoint surface of `gh\napi` is too wide to type, so the side effect the typed routes perform inline\nhas to be requested separately. The command that made the change is the one\nthat calls this, with the response in hand.",
+        "description": "`moat gh api` reaches GitHub directly (its endpoint surface is too wide to\ntype), so the caller must self-report the resulting event here instead of it\nbeing recorded inline.",
         "operationId": "record_external_event",
         "requestBody": {
           "content": {
@@ -3767,7 +3768,7 @@
           {
             "name": "query",
             "in": "query",
-            "description": "Free text matched against title, description and comments\n(Linear's `searchableContent`).",
+            "description": "Free text matched against title, description and comments (Linear's\n`searchableContent`).",
             "required": false,
             "schema": {
               "type": [
@@ -4970,8 +4971,8 @@
         "tags": [
           "plugins"
         ],
-        "summary": "What one person actually gets, once the global defaults, their own records\nand — when `workspaceId` names one — that Workspace's have been resolved\nagainst each other. The caller unless `userId` names another, which is an\nadministrator's call.",
-        "description": "The same read whoever it is asked about: an administrator setting a bot\nuser's records needs to see what those records add up to for the bot, not\nfor themselves, and resolution is the server's to do either way.",
+        "summary": "What one person actually gets, once global defaults, their own records, and\n— when `workspaceId` names one — that Workspace's are resolved against each\nother.",
+        "description": "The same read whoever it's asked about, so an administrator sees what a bot\nuser's records add up to for the bot, not for themselves.",
         "operationId": "list_effective_plugins",
         "parameters": [
           {
@@ -5092,7 +5093,7 @@
           "plugins"
         ],
         "summary": "Turn a plugin, or one skill inside it, on or off.",
-        "description": "Setting the default for everyone is an administrator's call; setting one's\nown is anybody's, and setting somebody else's — a bot user, which has no way\nto sign in and set its own — is an administrator's again. Setting a\nWorkspace's is whoever the Workspace resolves for, the same gate that\ngoverns its run configuration.\n\nEach reach wins over the one below it in both directions, so this same\nendpoint is how somebody escapes a plugin that arrived by default, and how a\nWorkspace adds one nobody turned on.",
+        "description": "The global default and somebody else's record need an administrator; one's\nown is anybody's; a Workspace's needs whoever the Workspace resolves for.\nEach reach wins over the one below it either direction, so this is how\nsomebody escapes a default and how a Workspace adds one nobody turned on.",
         "operationId": "set_plugin_activation",
         "parameters": [
           {
@@ -5173,7 +5174,7 @@
           "plugins"
         ],
         "summary": "Remove an activation record.",
-        "description": "Clearing a record is not the same as setting it to off: it hands the subject\nback to whatever the next reach down says.",
+        "description": "Not the same as setting it to off: clearing hands the subject back to\nwhatever the next reach down says.",
         "operationId": "clear_plugin_activation",
         "parameters": [
           {
@@ -5275,8 +5276,8 @@
         "tags": [
           "plugins"
         ],
-        "summary": "The activation records that bear on one person for one plugin: every global\nrecord plus theirs, and nobody else's — plus one Workspace's when `workspaceId`\nnames one. The person is the caller unless `userId` names another, which is\nan administrator's call.",
-        "description": "This is the read half of the two write endpoints below. Without it a control\ncan show what somebody *gets* but not which record put it there, so \"turn\noff my personal override\" and \"the default is already off\" look identical.",
+        "summary": "The activation records that bear on one person for one plugin — global,\ntheirs, and one Workspace's when `workspaceId` names one.",
+        "description": "The read half of the write endpoints below: without it, \"turn off my\noverride\" and \"the default is already off\" look identical.",
         "operationId": "list_plugin_activations",
         "parameters": [
           {
@@ -5361,7 +5362,7 @@
           "plugins"
         ],
         "summary": "List a plugin's skills, syncing from its source first.",
-        "description": "This is the admin view's read path, and it goes through the same sync as\ntask provisioning — so opening the page both shows current skills and\nleaves them stored for the next task that needs them.",
+        "description": "Goes through the same sync as task provisioning, so opening this admin view\nboth shows current skills and leaves them stored for the next task.",
         "operationId": "list_plugin_skills",
         "parameters": [
           {
@@ -5741,7 +5742,7 @@
           "skills"
         ],
         "summary": "List all skills discovered for a repository.",
-        "description": "Returns skills from the workspace repo's own `.claude/skills/` directory\nplus the plugin skills the caller's own activation records turn on,\ndeduplicated by name (workspace shadows plugin, first plugin wins on\nplugin-vs-plugin clash).\n\nThe plugin half is per-caller: this is the same list that will be delivered\ninto that caller's sandbox, so two people can see different skills for the\nsame repository.\n\n`workspaceId` narrows the plugin half by that Workspace's own activation\nrecords, which outrank both the global default and the caller's own. Pass\nthe Workspace the task runs in and the list is what its agent will have;\nomit it and the list is what the caller gets anywhere.",
+        "description": "Combines the repo's `.claude/skills/` with the caller's plugin activations\n(workspace shadows plugin, first plugin wins a clash) — the per-caller list\nalso delivered into their sandbox. `workspaceId` narrows the plugin half to\nthat Workspace's own records, which outrank the global default and the\ncaller's own.",
         "operationId": "list_repository_skills",
         "parameters": [
           {
@@ -6362,8 +6363,8 @@
         "tags": [
           "git-host-access"
         ],
-        "summary": "List every registered instance with the caller's own connection to each.",
-        "description": "Any signed-in caller reads this, unlike\n[`admin_list_forgejo_instances`]: a hostname is not a secret, and the\nsettings screen cannot offer a Connect button without one.",
+        "summary": "Lists every registered instance with the caller's own connection to each.",
+        "description": "Any signed-in caller may read this, unlike [`admin_list_forgejo_instances`],\nsince a hostname isn't a secret.",
         "operationId": "list_forgejo_connections",
         "responses": {
           "200": {
@@ -7304,7 +7305,7 @@
         "tags": [
           "tasks"
         ],
-        "summary": "Follow a task so it appears in the requesting user's personal task list.\nAny task the user can see may be followed. Idempotent.",
+        "summary": "Follow a task so it appears in the requesting user's personal task list. Any\ntask the user can see may be followed. Idempotent.",
         "operationId": "follow_task",
         "parameters": [
           {
@@ -7469,7 +7470,7 @@
           "messages"
         ],
         "summary": "Get a chronological page of messages for a task.",
-        "description": "Without query params returns the most recent `DEFAULT_MESSAGE_LIMIT` rows.\nPass `before_id=<oldest_in_previous_page>` to fetch older pages.",
+        "description": "Without query params returns the most recent `DEFAULT_MESSAGE_LIMIT` rows;\npass `before_id=<oldest_in_previous_page>` for older pages.",
         "operationId": "get_messages",
         "parameters": [
           {
@@ -7642,7 +7643,7 @@
         "tags": [
           "tasks"
         ],
-        "summary": "Mark a task's conversation as read for the requesting user, up to now.\nClears the unread indicator; safe to call repeatedly (the stored marker\nonly ever advances).",
+        "summary": "Mark a task's conversation as read for the requesting user, up to now.\nClears the unread indicator; safe to call repeatedly (the stored marker only\never advances).",
         "operationId": "mark_task_read",
         "parameters": [
           {
@@ -7677,8 +7678,7 @@
         "tags": [
           "tasks"
         ],
-        "summary": "Reopen a previously closed task.",
-        "description": "Flips a `Closed` task back to `Open` so it can be started and chatted with\nagain. No sandbox is provisioned here — that happens on the next `start` or\ninbound message, at which point the sandbox restores any retained S3 state\n(Claude transcript + `s3`-mode workspace) keyed by `task_id`. Whether that\nstate still exists depends on `SANDBOX_RETAIN_STORAGE_ON_CLOSE` having been\nset when the task was closed; if not, the task reopens with a fresh\nsandbox. External bindings deactivated on close are left inactive.",
+        "summary": "Reopen a closed task, flipping `Closed` to `Open`. No sandbox is provisioned\nhere — the next `start` restores retained S3 state if\n`SANDBOX_RETAIN_STORAGE_ON_CLOSE` was set; bindings stay inactive.",
         "operationId": "reopen_task",
         "parameters": [
           {
@@ -7999,7 +7999,7 @@
           "messages"
         ],
         "summary": "Get the assembled subagent transcript for a single `Agent` tool call.",
-        "description": "Runs the fold-resolving row-transform over the rows whose `parent_uuid`\nequals `tool_use_id`. Returned whole (no pagination) — bounded per call and\nfetched on demand when the collapsed `Agent` card is expanded.",
+        "description": "Runs the fold-resolving row-transform over rows whose `parent_uuid` equals\n`tool_use_id`; returned whole, since it's bounded per call and fetched on\ndemand when the `Agent` card expands.",
         "operationId": "get_subagent_transcript",
         "parameters": [
           {
@@ -8050,7 +8050,7 @@
         "tags": [
           "tasks"
         ],
-        "summary": "Update a task's TTLs. `ttl_minutes` is the idle TTL (`0` disables the idle\nreaper — the sandbox stays alive until explicitly stopped). `inactive_ttl_days`\nis the inactivity TTL (`0` disables auto-close). Both fields are optional;\nomit a field to leave that TTL unchanged. At least one must be provided.",
+        "summary": "Update a task's TTLs. `ttl_minutes` is idle TTL (`0` disables the reaper);\n`inactive_ttl_days` is inactivity TTL (`0` disables auto-close). Both\noptional; at least one required.",
         "operationId": "update_ttl",
         "parameters": [
           {
@@ -8614,7 +8614,7 @@
           "users"
         ],
         "summary": "Create a user. Admin only.",
-        "description": "With `isBot: true`, resolves the App's `{slug}[bot]` identity via\n`GitHubAppRegistry`, then inserts both the `users` row and a matching\n`provider_tokens` row with `auth_method = 'github_app_installation'` so\ncredential resolution transparently mints installation tokens for tasks\nthat `run_as_user_id = <bot id>`.\n\nWith `isBot: false`, creates a human user with a local password. Available\nonly under local password auth — OAuth deployments create users on callback.",
+        "description": "`isBot: true` mints a `{slug}[bot]` identity plus a `provider_tokens` row so\ncredential resolution issues installation tokens for it; `isBot: false`\ncreates a local-password human user (local auth only).",
         "operationId": "create_user_handler",
         "requestBody": {
           "content": {
@@ -8695,8 +8695,8 @@
         "tags": [
           "users"
         ],
-        "summary": "Update a user's profile (name and/or email).",
-        "description": "A user may update their own profile; updating another user requires the\nadmin role. Backs the `moat user set-email <login>` CLI command so emails\ncan be corrected without direct DB access. Only the fields present in the\nbody are changed.",
+        "summary": "Update a user's profile (name and/or email). Only the fields present in the\nbody are changed.",
+        "description": "A user may update their own profile; updating another user requires the\nadmin role.",
         "operationId": "update_user_handler",
         "parameters": [
           {
@@ -8829,7 +8829,7 @@
         "tags": [
           "users"
         ],
-        "summary": "Reset another user's password. Admin only — no current password required,\nso a forgotten password has a recovery path that isn't env surgery.",
+        "summary": "Reset another user's password. Admin only — no current password required, so\na forgotten password has a recovery path that isn't env surgery.",
         "operationId": "admin_reset_password_handler",
         "parameters": [
           {
@@ -9527,7 +9527,7 @@
         "tags": [
           "workspaces"
         ],
-        "summary": "Override a git-synced workspace. Sets `source = \"manual\"` so that git sync\nskips this workspace going forward. Provenance fields are preserved.\nUse `POST /{id}/reset-git` to re-enable git sync.",
+        "summary": "Override a git-synced workspace. Sets `source = \"manual\"` so that git sync\nskips this workspace going forward. Provenance fields are preserved. Use\n`POST /{id}/reset-git` to re-enable git sync.",
         "operationId": "override_workspace",
         "parameters": [
           {
@@ -9781,7 +9781,7 @@
           "workspaces"
         ],
         "summary": "Discard a workspace's local override and take its run-config from git again.",
-        "description": "Implemented as a re-sync of just this workspace rather than a flag flip, so\n`source` only returns to `\"git\"` when the repository still declares the\nentry — a workspace can never end up claiming git provenance while holding\nconfig git never produced.",
+        "description": "Implemented as a re-sync of just this workspace, not a flag flip, so\n`source` only returns to `\"git\"` when the repository still declares the\nentry — never claiming git provenance while holding config git never\nproduced.",
         "operationId": "reset_git_workspace",
         "parameters": [
           {
@@ -10016,17 +10016,17 @@
         "type": "string",
         "description": "Canonical external adapter identifier.",
         "enum": [
-          "slack",
-          "telegram",
-          "github",
-          "github_pr",
-          "linear",
-          "webhook"
+          "Slack",
+          "Telegram",
+          "Github",
+          "GithubPr",
+          "Linear",
+          "Webhook"
         ]
       },
       "AdapterSendRequest": {
         "type": "object",
-        "description": "Request body for `POST /api/v1/adapters/send` — generic adapter pass-through send.",
+        "description": "Request body for `POST /api/v1/adapters/send` — generic adapter pass-through\nsend.",
         "required": [
           "adapter",
           "destination",
@@ -10042,11 +10042,11 @@
               "string",
               "null"
             ],
-            "description": "Optional connection ID. When omitted, the backend picks the single\naccessible connection of `adapter` kind, or returns an error if zero\nor more than one match."
+            "description": "Optional connection ID. When omitted, the backend picks the single\naccessible connection of `adapter` kind, or returns an error if zero or\nmore than one match."
           },
           "destination": {
             "type": "string",
-            "description": "Adapter-specific destination string. Each adapter defines its own\nformat (e.g. Slack: `channel:C123` / `dm:D123` / `thread:C/ts`;\nLinear: `issue:LIN-123`)."
+            "description": "Adapter-specific destination string. Each adapter defines its own format\n(e.g. Slack: `channel:C123` / `dm:D123` / `thread:C/ts`; Linear:\n`issue:LIN-123`)."
           },
           "fileIds": {
             "type": "array",
@@ -10062,7 +10062,7 @@
               },
               {
                 "$ref": "#/components/schemas/OutboundPresentation",
-                "description": "Adapter-native rich rendering of the message body. The payload names\nthe adapter it addresses; one whose kind does not match the resolved\ndestination is rejected rather than dropped."
+                "description": "Adapter-native rich rendering of the message body. The payload names the\nadapter it addresses; one whose kind does not match the resolved\ndestination is rejected rather than dropped."
               }
             ]
           },
@@ -10071,7 +10071,7 @@
               "string",
               "null"
             ],
-            "description": "Optional task to bind this send to. When set, a `task_bindings` row\nis created so future `moat reply` calls thread under this destination."
+            "description": "Optional task to bind this send to. When set, a `task_bindings` row is\ncreated so future `moat reply` calls thread under this destination."
           },
           "text": {
             "type": "string",
@@ -10096,7 +10096,7 @@
           },
           "externalId": {
             "type": "string",
-            "description": "Adapter-specific external message ID (e.g. Slack `ts`, Linear comment ID)."
+            "description": "Adapter-specific external message ID (e.g. Slack `ts`, Linear comment\nID)."
           },
           "subjectKind": {
             "type": "string",
@@ -10113,7 +10113,7 @@
         "properties": {
           "emoji": {
             "type": "string",
-            "description": "Emoji name (e.g. \"thumbsup\", \"+1\", \"rocket\"). Platform-native names accepted."
+            "description": "Emoji name (e.g. \"thumbsup\", \"+1\", \"rocket\"). Platform-native names\naccepted."
           }
         }
       },
@@ -10191,7 +10191,7 @@
       },
       "AdminUpdateUserRequest": {
         "type": "object",
-        "description": "Body for PATCH /api/v1/users/{login}.\n\n`None` means the field was omitted and should remain unchanged.\n`Some(None)` means the caller explicitly sent `null` and the column should be cleared.",
+        "description": "Body for PATCH /api/v1/users/{login}.\n\n`None` leaves the field unchanged; `Some(None)` is an explicit `null` that\nclears the column.",
         "properties": {
           "email": {
             "type": [
@@ -10266,7 +10266,7 @@
       },
       "AgentEventPayload": {
         "type": "object",
-        "description": "Agent event payload — typed shape for `EventType::Agent` events.\n\nAgent payloads are pass-through from the sandbox (Claude CLI output).\nThis struct is primarily for OpenAPI schema generation; at runtime the\nbackend continues to forward `serde_json::Value` payloads.",
+        "description": "Agent event payload — typed shape for `EventType::Agent` events.\n\nPass-through from the sandbox; primarily for OpenAPI schema generation,\nsince the backend forwards raw `serde_json::Value` payloads at runtime.",
         "properties": {
           "agentSessionId": {
             "type": [
@@ -10350,31 +10350,31 @@
         "type": "string",
         "description": "Observed Agent lifecycle while its Sandbox is ready.",
         "enum": [
-          "running",
-          "waiting",
-          "idle",
-          "unknown"
+          "Running",
+          "Waiting",
+          "Idle",
+          "Unknown"
         ]
       },
       "AgentSubType": {
         "type": "string",
         "description": "Agent sub-types.",
         "enum": [
-          "started",
-          "stopped",
-          "message",
-          "completed",
-          "error",
-          "pending_response",
-          "session_init",
-          "retrying",
-          "scheduled",
-          "recovery_started",
-          "recovery_exhausted",
-          "session_context_lost",
-          "activity",
-          "context_window",
-          "commands_changed"
+          "Started",
+          "Stopped",
+          "Message",
+          "Completed",
+          "Error",
+          "PendingResponse",
+          "SessionInit",
+          "Retrying",
+          "Scheduled",
+          "RecoveryStarted",
+          "RecoveryExhausted",
+          "SessionContextLost",
+          "Activity",
+          "ContextWindow",
+          "CommandsChanged"
         ]
       },
       "AgentType": {
@@ -10629,7 +10629,7 @@
       },
       "AuthModeResponse": {
         "type": "object",
-        "description": "GET /api/v1/auth/mode response.\n\nA dedicated endpoint rather than a field on `SessionResponse`: `/auth/me`\n401s for anonymous callers, and the login page is anonymous by definition.",
+        "description": "GET /api/v1/auth/mode response.\n\nA dedicated endpoint rather than a field on `SessionResponse`, since\n`/auth/me` 401s for anonymous callers and the login page is anonymous by\ndefinition.",
         "required": [
           "mode",
           "provider"
@@ -10640,7 +10640,7 @@
               "string",
               "null"
             ],
-            "description": "Where to send the browser to start an OAuth login. `None` in password mode."
+            "description": "Where to send the browser to start an OAuth login. `None` in password\nmode."
           },
           "mode": {
             "$ref": "#/components/schemas/AuthMode"
@@ -10734,8 +10734,8 @@
         "type": "string",
         "description": "How a task's checkout relates to other members of the same Sandbox.",
         "enum": [
-          "shared",
-          "isolated"
+          "Shared",
+          "Isolated"
         ]
       },
       "CloseTaskRequest": {
@@ -10761,7 +10761,7 @@
               "string",
               "null"
             ],
-            "description": "\"`device_code`\" | \"`auth_json`\" | \"`api_key`\" — which save path produced the row."
+            "description": "\"`device_code`\" | \"`auth_json`\" | \"`api_key`\" — which save path produced\nthe row."
           },
           "connected": {
             "type": "boolean"
@@ -10771,14 +10771,14 @@
               "string",
               "null"
             ],
-            "description": "Email reported by ChatGPT account on the `id_token` (device-code flow only)."
+            "description": "Email reported by ChatGPT account on the `id_token` (device-code flow\nonly)."
           },
           "needsReconnect": {
             "type": [
               "boolean",
               "null"
             ],
-            "description": "True when the stored credential hit a permanent refresh failure and\nthe user must sign in again. Absent when no credential exists."
+            "description": "True when the stored credential hit a permanent refresh failure and the\nuser must sign in again. Absent when no credential exists."
           },
           "planType": {
             "type": [
@@ -10905,7 +10905,7 @@
       },
       "CommandSummary": {
         "type": "object",
-        "description": "A registered command, narrowed to what a status reader needs to say one is\nstill running and name it.\n\nThe full shape is `moatless_api_schemas::sandbox::ManagedCommand`, which the\nstatus-read response carries. This is the half of it that belongs on a\nstatus polled every couple of seconds: `pid`, the whole command line, and\nthe log path answer questions a status indicator does not ask.\n\nEvery time here is an instant, never an elapsed duration. A reader computes\n\"12m in\" from `started_at_unix_ms` itself, because a duration recomputed on\nthe producing side changes on every read, and a push that only sends changes\nwould then send one every poll forever.",
+        "description": "A registered command, narrowed to what a status reader needs to say one is\nstill running and name it (the full shape is\n`moatless_api_schemas::sandbox::ManagedCommand`).\n\nEvery time here is an instant, never an elapsed duration — a reader computes\n\"12m in\" from `started_at_unix_ms` itself, since a duration recomputed\nproducer-side would change (and re-push) on every poll.",
         "required": [
           "id",
           "label",
@@ -11224,7 +11224,7 @@
       },
       "ContentSource": {
         "type": "string",
-        "description": "Which copy of the workspace answered a file read.\n\nA stopped sandbox is still readable, out of the stored workspace\n(`sandbox-control::workspace_snapshot`), so a caller has to be able to tell\nlive content from content that stopped changing when the pod did.",
+        "description": "Which copy of the workspace answered a file read.\n\nA stopped sandbox is still readable from the stored workspace snapshot, so a\ncaller must be able to tell live content from content frozen when the pod\nstopped.",
         "enum": [
           "sandbox",
           "snapshot"
@@ -11386,6 +11386,13 @@
             ],
             "description": "See [`LoopConfig::model`]."
           },
+          "nodeSelector": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "See [`LoopConfig::node_selector`]."
+          },
           "ongoingTaskId": {
             "type": [
               "string",
@@ -11415,6 +11422,13 @@
             "items": {
               "type": "string"
             }
+          },
+          "stopWhenDone": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "See [`LoopConfig::stop_when_done`]."
           },
           "tagIds": {
             "type": [
@@ -11753,7 +11767,7 @@
               "string",
               "null"
             ],
-            "description": "Reasoning effort for the first turn, in the agent's own vocabulary\n(`low`/`medium`/`high`/`xhigh`/`max` for Claude,\n`minimal`/`low`/`medium`/`high` for Codex). Omit to leave the agent on\nits own default."
+            "description": "Reasoning effort for the first turn, in the agent's own vocabulary\n(`low`/`medium`/`high`/`xhigh`/`max` for Claude,\n`minimal`/`low`/`medium`/`high` for Codex).\n\nOmit to leave the agent on its own default."
           },
           "fileIds": {
             "type": "array",
@@ -11817,7 +11831,7 @@
             "items": {
               "type": "string"
             },
-            "description": "Skills to activate for the first turn. Names only — the sandbox resolves\neach one's `SKILL.md` on disk and frontloads its body ahead of the message."
+            "description": "Skills to activate for the first turn. Names only — the sandbox resolves\neach one's `SKILL.md` on disk and frontloads its body ahead of the\nmessage."
           },
           "workspaceId": {
             "type": [
@@ -11870,7 +11884,7 @@
       },
       "CreateUserRequest": {
         "type": "object",
-        "description": "POST /api/v1/users request.\n\nWith `isBot: true`, creates a bot user backed by a configured GitHub App:\nthe server resolves the App's `{slug}[bot]` identity from\n`GitHubAppRegistry` and writes both the `users` row and the matching\n`provider_tokens` row atomically. `githubAppKey` is required in this mode.\n\nWith `isBot: false`, creates a human user with a local password. Only\navailable when the server runs local password auth; `email`, `login`, and\n`password` are required in this mode.\n\n`Debug` is hand-written to redact `password`.",
+        "description": "POST /api/v1/users request.\n\n`Debug` is hand-written to redact `password`.",
         "required": [
           "isBot"
         ],
@@ -12029,6 +12043,19 @@
               "null"
             ]
           },
+          "nodeSelector": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Extra node labels sandbox pods must match, merged over the\ndeployment-wide selector. Admin-only, like the two fields above it.",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
           "repos": {
             "type": "array",
             "items": {
@@ -12170,15 +12197,15 @@
       },
       "EventType": {
         "type": "string",
-        "description": "Top-level event types.\n\nSerializes to the exact strings the frontend `EventTypeSchema` expects.\nRenamed: \"environment\" → \"sandbox\" to avoid confusion with K8s environments.",
+        "description": "Top-level event types.\n\nSerializes to the exact strings the frontend `EventTypeSchema` expects.",
         "enum": [
-          "task",
-          "taskTurn",
-          "sandbox",
-          "agent",
-          "server",
-          "resources",
-          "message"
+          "Task",
+          "TaskTurn",
+          "Sandbox",
+          "Agent",
+          "Server",
+          "Resources",
+          "Message"
         ]
       },
       "ExitPlanModeInput": {
@@ -12218,7 +12245,7 @@
         "properties": {
           "device_pairing": {
             "type": "boolean",
-            "description": "Whether the settings dialog offers to pair a device.\n\nNot an `FF_*` variable of its own: pairing is the bootstrap half of the\nT3 compatibility routes, and a code is worth nothing on a deployment\nthat does not mount them. So it reports whether *they* are on."
+            "description": "Whether the settings dialog offers to pair a device.\n\nNot an `FF_*` variable of its own: pairing is the bootstrap half of the\nT3 compatibility routes, so it reports whether those routes are mounted."
           },
           "forgejo_enabled": {
             "type": "boolean",
@@ -12241,18 +12268,18 @@
           },
           "workspace_settings": {
             "type": "boolean",
-            "description": "Whether a T3 project's settings page edits the Workspace behind it.\n\nOn, the page gains the Workspace's own description, repositories, image\nand defaults, and drops the three rows a Moatless Workspace does not\nhave (`defaultThreadEnvMode`, auto-pull, agent browser access)."
+            "description": "Whether a T3 project's settings page edits the Workspace behind it.\n\nOn, the page gains the Workspace description, repositories, image and\ndefaults, and drops `defaultThreadEnvMode`, auto-pull, and agent browser\naccess."
           }
         }
       },
       "FeedbackCategory": {
         "type": "string",
-        "description": "What the note is about — the axis a reader triages on, orthogonal to\n[`FeedbackSurface`], which says only where it was submitted from. A\nrow predating the column, or one whose submitter named none, carries\nno category.",
+        "description": "What the note is about.\n\nOrthogonal to [`FeedbackSurface`] (where it was submitted from); a row\npredating the column, or with no submitter-named category, carries none.",
         "enum": [
-          "environment",
-          "codebase",
-          "instruction",
-          "other"
+          "Environment",
+          "Codebase",
+          "Instruction",
+          "Other"
         ]
       },
       "FeedbackListItem": {
@@ -12380,27 +12407,27 @@
         "type": "string",
         "description": "Submitter of a feedback row — derived from auth context on the server.",
         "enum": [
-          "user",
-          "agent"
+          "User",
+          "Agent"
         ]
       },
       "FeedbackStatus": {
         "type": "string",
-        "description": "What a reader decided about a note, orthogonal to [`FeedbackCategory`],\nwhich says what the note is about. A submitter never sets it: a row is\nwritten `Open` and only a reader working the inbox moves it.",
+        "description": "What a reader decided about a note.\n\nOrthogonal to [`FeedbackCategory`] (what the note is about). A submitter\nnever sets it: a row is written `Open` and only a reader working the\ninbox moves it.",
         "enum": [
-          "open",
-          "fixed",
-          "not_relevant"
+          "Open",
+          "Fixed",
+          "NotRelevant"
         ]
       },
       "FeedbackSurface": {
         "type": "string",
         "description": "Where in the UI/CLI the feedback originated.",
         "enum": [
-          "task",
-          "message",
-          "tool_call",
-          "preview_failure"
+          "Task",
+          "Message",
+          "ToolCall",
+          "PreviewFailure"
         ]
       },
       "FileContentResponse": {
@@ -12459,7 +12486,7 @@
       },
       "FileContextData": {
         "type": "object",
-        "description": "Data for a file attachment context. Filled in by the backend at read\ntime from `file_metadata`; senders supply only `reference_id`.",
+        "description": "Data for a file attachment context. Filled in by the backend at read time\nfrom `file_metadata`; senders supply only `reference_id`.",
         "required": [
           "filename",
           "mimeType",
@@ -12592,7 +12619,7 @@
       },
       "ForgejoConnectionsResponse": {
         "type": "object",
-        "description": "Every registered instance, each carrying the caller's own connection to it.\n\nThis is not [`ForgejoInstancesResponse`]: that one is the admin view of the\nregistered OAuth2 applications, and it names a `client_id`.",
+        "description": "Every registered instance, each carrying the caller's own connection to it.\n\nNot [`ForgejoInstancesResponse`], the admin view that names a `client_id`.",
         "required": [
           "instances"
         ],
@@ -12640,7 +12667,7 @@
       },
       "ForgejoProviderTokenStatusResponse": {
         "type": "object",
-        "description": "One person's connection to one Forgejo instance.\n\nThere is no `login`, unlike every sibling here: a `read:repository` personal\naccess token cannot reach Forgejo's `user` endpoint, so validating one\nlearns only that it works. A screen names the `host`.",
+        "description": "One person's connection to one Forgejo instance.\n\nThere is no `login`, unlike every sibling here: a `read:repository` token\ncan't reach Forgejo's `user` endpoint, so validating one only learns that it\nworks.",
         "required": [
           "host",
           "connected",
@@ -12653,7 +12680,7 @@
               "string",
               "null"
             ],
-            "description": "How the stored credential resolves: `secret_ref` for a personal access\ntoken held in the secret store, `forgejo_oauth` for an OAuth2 credential."
+            "description": "How the stored credential resolves: `secret_ref` for a personal access\ntoken held in the secret store, `forgejo_oauth` for an OAuth2\ncredential."
           },
           "connected": {
             "type": "boolean"
@@ -12692,7 +12719,7 @@
       },
       "ForkTaskRequest": {
         "type": "object",
-        "description": "Branch a Task off another Task at one of its completed turns.\n\nEverything the fork runs against — repository, workspace, branch, agent,\nmodel — comes from the Task being forked; only what the fork is *for* is\nstated here.",
+        "description": "Branch a Task off another Task at one of its completed turns.\n\nEverything the fork runs against (repository, workspace, branch, agent,\nmodel) comes from the Task being forked; only what the fork is for is stated\nhere.",
         "properties": {
           "agentMode": {
             "oneOf": [
@@ -12773,7 +12800,7 @@
               "null"
             ],
             "format": "int32",
-            "description": "Cursor for fetching the next older page; `None` when no older rows remain."
+            "description": "Cursor for fetching the next older page; `None` when no older rows\nremain."
           },
           "totalCount": {
             "type": "integer",
@@ -12870,7 +12897,7 @@
               "string",
               "null"
             ],
-            "description": "Short digest of the stored signing key. Enough to tell two keys apart;\nthe key itself is never returned. Absent for the login App, whose key\nis not stored."
+            "description": "Short digest of the stored signing key. Enough to tell two keys apart;\nthe key itself is never returned. Absent for the login App, whose key is\nnot stored."
           },
           "name": {
             "type": "string"
@@ -12969,7 +12996,7 @@
         "properties": {
           "appConnectAvailable": {
             "type": "boolean",
-            "description": "Whether `GET /auth/github-app/connect` can run on this deployment.\nFalse leaves a Personal Access Token as the only way to connect."
+            "description": "Whether `GET /auth/github-app/connect` can run on this deployment. False\nleaves a Personal Access Token as the only way to connect."
           },
           "authMethod": {
             "type": [
@@ -13079,7 +13106,7 @@
       },
       "GithubCommentRequest": {
         "type": "object",
-        "description": "`POST /api/v1/github/repos/{owner}/{repo}/issues/{number}/comments` —\npost a comment on a PR or issue (GitHub's issues API covers both).",
+        "description": "`POST /api/v1/github/repos/{owner}/{repo}/issues/{number}/comments` — post a\ncomment on a PR or issue (GitHub's issues API covers both).",
         "required": [
           "body"
         ],
@@ -13150,14 +13177,14 @@
           },
           "head": {
             "type": "string",
-            "description": "Head branch the PR is created from. The CLI infers this from the\ncurrent git branch when the agent omits `--head`."
+            "description": "Head branch the PR is created from. The CLI infers this from the current\ngit branch when the agent omits `--head`."
           },
           "taskId": {
             "type": [
               "string",
               "null"
             ],
-            "description": "Task to bind the created PR to. When provided, a `task_bindings` row\nis upserted so inbound PR comments route back to this task, and a\n`Moatless task: <url>` footer is appended to the PR body."
+            "description": "Task to bind the created PR to. When provided, a `task_bindings` row is\nupserted so inbound PR comments route back to this task, and a `Moatless\ntask: <url>` footer is appended to the PR body."
           },
           "title": {
             "type": "string"
@@ -13242,7 +13269,7 @@
         "oneOf": [
           {
             "type": "object",
-            "description": "An inline review comment, from either\n`POST repos/{owner}/{repo}/pulls/{n}/comments` or one of the comments a\n`POST …/pulls/{n}/reviews` carried.",
+            "description": "An inline review comment, from either `POST\nrepos/{owner}/{repo}/pulls/{n}/comments` or one of the comments a `POST\n…/pulls/{n}/reviews` carried.",
             "required": [
               "value",
               "kind"
@@ -13257,7 +13284,7 @@
               "value": {
                 "type": "integer",
                 "format": "int64",
-                "description": "An inline review comment, from either\n`POST repos/{owner}/{repo}/pulls/{n}/comments` or one of the comments a\n`POST …/pulls/{n}/reviews` carried.",
+                "description": "An inline review comment, from either `POST\nrepos/{owner}/{repo}/pulls/{n}/comments` or one of the comments a `POST\n…/pulls/{n}/reviews` carried.",
                 "minimum": 0
               }
             }
@@ -13307,11 +13334,11 @@
             }
           }
         ],
-        "description": "What a `moat` command created on GitHub outside the typed API.\n\nNamed by *what was created*, not by an external event id: the id format is\nthe Adapter's vocabulary and the caller does not have to know it. Each shape\ncarries the numeric id GitHub returned for the object it made."
+        "description": "What a `moat` command created on GitHub outside the typed API.\n\nNamed by what was created, not by an external event id — that id format is\nthe Adapter's vocabulary. Each shape carries the numeric id GitHub returned."
       },
       "GithubReplyRequest": {
         "type": "object",
-        "description": "`POST /api/v1/github/repos/{owner}/{repo}/pulls/{number}/comments/{comment_id}/replies`\n— threaded reply to a PR review (inline) comment.",
+        "description": "`POST\n/api/v1/github/repos/{owner}/{repo}/pulls/{number}/comments/{comment_id}/replies`\n— threaded reply to a PR review (inline) comment.",
         "required": [
           "body"
         ],
@@ -13324,7 +13351,7 @@
               "string",
               "null"
             ],
-            "description": "Task to bind the PR to and dedup the reply's webhook echo against.\nSee [`GithubCreatePrRequest::task_id`]."
+            "description": "Task to bind the PR to and dedup the reply's webhook echo against. See\n[`GithubCreatePrRequest::task_id`]."
           }
         }
       },
@@ -13392,7 +13419,7 @@
               "boolean",
               "null"
             ],
-            "description": "Force the parent issue into a reply target even when no binding exists\nyet. A comment on an already-bound issue refreshes its binding\nregardless; this flag covers a proactive comment on an unbound issue.\nDefaults to `false`. See [`LinearIssueCreateRequest::bind`]."
+            "description": "Force the parent issue into a reply target even when no binding exists\nyet.\n\nA comment on an already-bound issue refreshes its binding regardless;\nthis flag covers a proactive comment on an unbound issue. Defaults to\n`false`."
           },
           "body": {
             "type": "string"
@@ -13436,14 +13463,14 @@
               "string",
               "null"
             ],
-            "description": "Assignee: a Moatless login, an email, a display name, or a UUID. `\"me\"`\nresolves to the authenticated agent (the workspace OAuth viewer). A\nMoatless login resolves through the Linear user id stored for that user\n(`moat user set-provider-id <login> --provider linear --id <uuid>`), and\noutranks an email or display-name match.\n\nOmitted on create, this defaults to the caller — their stored Linear\nid, or their moat email matched against Linear's members. Both missing\nleaves the issue unassigned.\n\nLinear rejects an app user here and routes it to `delegate` instead:\npass an app agent as [`Self::delegate`] so the read-back is meaningful."
+            "description": "Assignee: a Moatless login, email, display name, or UUID; `\"me\"`\nresolves to the authenticated agent. Omitted on create, defaults to the\ncaller.\n\nLinear rejects an app user here — pass an app agent as\n[`Self::delegate`] instead."
           },
           "bind": {
             "type": [
               "boolean",
               "null"
             ],
-            "description": "Opt the created issue into being a reply target: when `true` (and\n`task_id` is set) a `task_bindings` row with `subject_kind =\n\"linear_issue\"` is inserted so future comments on the issue route back\nto the task and `moat messages reply` can post here. Filing alone does\nNOT bind — this defaults to `false`."
+            "description": "Opt the created issue into a reply target: with `task_id` set and\n`true`, inserts a `task_bindings` row so replies route back to the task.\n\nFiling alone does NOT bind — this defaults to `false`."
           },
           "cycle": {
             "type": [
@@ -13535,7 +13562,7 @@
               "string",
               "null"
             ],
-            "description": "Team key (e.g. `SP`) or UUID. Optional — defaults to the only team\nthe connection's user can see when omitted."
+            "description": "Team key (e.g. `SP`) or UUID. Optional — defaults to the only team the\nconnection's user can see when omitted."
           },
           "templateId": {
             "type": [
@@ -13582,7 +13609,7 @@
       },
       "LinearIssueResponse": {
         "type": "object",
-        "description": "Common envelope for all typed responses. `data` is the raw Linear\nsubobject (e.g. issue, comment); `binding_id` is set only when the\nrequest included a `task_id` and a `task_bindings` row was inserted.",
+        "description": "Envelope for all typed responses.\n\n`data` is the raw Linear subobject (e.g. issue, comment); `binding_id` is\nset only when the request included a `task_id` and a `task_bindings` row was\ninserted.",
         "required": [
           "data"
         ],
@@ -13646,7 +13673,7 @@
               "string",
               "null"
             ],
-            "description": "Parent issue identifier or UUID. Pass `\"null\"` (literal string) or\nthe JSON `null` value to clear the parent."
+            "description": "Parent issue identifier or UUID. Pass `\"null\"` (literal string) or the\nJSON `null` value to clear the parent."
           },
           "priority": {
             "type": [
@@ -13896,7 +13923,7 @@
             "items": {
               "$ref": "#/components/schemas/CommandSummary"
             },
-            "description": "Commands registered through `moat cmd`, running and recently finished.\n\nThe agent reports `idle` while one of these runs — its turn ended and\nthe sandbox is carrying the work — so a reader with the agent status\nalone cannot tell a finished Task from one that is mid-build. Empty\nwhenever the sandbox is not `Ready`, or when nothing is registered."
+            "description": "Commands registered through `moat cmd`, running and recently finished.\n\nThe agent reports `idle` while one runs (turn ended, sandbox carrying\nthe work), so agent status alone can't tell finished from mid-build.\nEmpty unless the sandbox is `Ready` with something registered."
           },
           "sandboxError": {
             "type": [
@@ -14016,14 +14043,21 @@
               "null"
             ],
             "format": "int32",
-            "description": "Per-Loop inactivity TTL in days. `None` means \"inherit the global\ndefault\" (`TASK_INACTIVE_TIMEOUT_DAYS`). Flows into `tasks.inactive_ttl_days`\nwhen this Loop spawns a task."
+            "description": "Per-Loop inactivity TTL in days. `None` means \"inherit the global\ndefault\" (`TASK_INACTIVE_TIMEOUT_DAYS`). Flows into\n`tasks.inactive_ttl_days` when this Loop spawns a task."
           },
           "model": {
             "type": [
               "string",
               "null"
             ],
-            "description": "Model the spawned Tasks run on, from the `agent_type` entry's catalog\nmodels. `None` means \"inherit the platform default the sandbox resolves\nfor `agent_type`\". Flows into `tasks.model` when this Loop spawns a task."
+            "description": "Model the spawned Tasks run on, from the `agent_type` entry's catalog\nmodels. `None` means \"inherit the platform default the sandbox resolves\nfor `agent_type`\". Flows into `tasks.model` when this Loop spawns a\ntask."
+          },
+          "nodeSelector": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Extra node labels for the sandboxes this Loop spawns, merged over the\ndeployment-wide selector and outranking the Workspace's own value.\nAdmin-only, and never declared in `LOOP.md`."
           },
           "ongoingTaskId": {
             "type": [
@@ -14051,7 +14085,14 @@
             "items": {
               "type": "string"
             },
-            "description": "Skills every task this Loop spawns activates on each fresh agent session."
+            "description": "Skills every task this Loop spawns activates on each fresh agent\nsession."
+          },
+          "stopWhenDone": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Stop this Loop's sandbox as soon as its agent run finishes, rather than\nholding the pod for the idle TTL."
           },
           "tagIds": {
             "type": "array",
@@ -14075,8 +14116,8 @@
         "type": "string",
         "description": "Authority from which the current Loop configuration was loaded.",
         "enum": [
-          "git",
-          "manual"
+          "Git",
+          "Manual"
         ]
       },
       "LoopExecutionState": {
@@ -14091,9 +14132,9 @@
         "type": "string",
         "description": "Kind of firing source owned by a Loop.",
         "enum": [
-          "adapter_event",
-          "schedule",
-          "manual"
+          "AdapterEvent",
+          "Schedule",
+          "Manual"
         ]
       },
       "LoopRecentTaskItem": {
@@ -14162,7 +14203,7 @@
       },
       "LoopSyncSkip": {
         "type": "object",
-        "description": "One loop that was skipped during a sync, with a human-readable reason\n(e.g. \"no github connection for org acme\").",
+        "description": "One loop that was skipped during a sync, with a human-readable reason (e.g.\n\"no github connection for org acme\").",
         "required": [
           "loopName",
           "reason"
@@ -14199,7 +14240,7 @@
           "overridesSkipped": {
             "type": "integer",
             "format": "int32",
-            "description": "Manual overrides or deletion tombstones preserved during repository sync.",
+            "description": "Manual overrides or deletion tombstones preserved during repository\nsync.",
             "minimum": 0
           },
           "removed": {
@@ -14251,7 +14292,7 @@
       },
       "ManagedCommand": {
         "type": "object",
-        "description": "One long-running command the agent registered through `moat cmd`. The\nsandbox owns the process, so it is the only work that defers the idle\nreaper — a process forked any other way never appears here.",
+        "description": "One long-running command the agent registered through `moat cmd`. The\nsandbox owns the process, so it is the only work that defers the idle reaper\n— a process forked any other way never appears here.",
         "required": [
           "id",
           "command",
@@ -14414,7 +14455,7 @@
               "string",
               "null"
             ],
-            "description": "Provider-specific reaction id, when the API returns one\n(e.g. GitHub reaction id, Linear reaction UUID)."
+            "description": "Provider-specific reaction id, when the API returns one (e.g. GitHub\nreaction id, Linear reaction UUID)."
           },
           "ok": {
             "type": "boolean"
@@ -14437,20 +14478,20 @@
         "type": "string",
         "description": "Role of the message sender.",
         "enum": [
-          "user",
-          "assistant",
-          "system"
+          "User",
+          "Assistant",
+          "System"
         ]
       },
       "MessageType": {
         "type": "string",
         "description": "Type of task message.",
         "enum": [
-          "assistant",
-          "user",
-          "system",
-          "result",
-          "error"
+          "Assistant",
+          "User",
+          "System",
+          "Result",
+          "Error"
         ]
       },
       "MoatlessToolName": {
@@ -14550,7 +14591,7 @@
             }
           }
         ],
-        "description": "Adapter-native rich rendering of an outbound message body.\n\nThe portable reply text stays mandatory and portable: every adapter sends it,\nSlack uses it for the notification, and the binding layer records it as the\ntask-timeline entry. A presentation is the optional richer form, for the\nadapters that have one. An adapter ignores a presentation addressed to\nanother kind, the way Slack already ignores `footer`."
+        "description": "Adapter-native rich rendering of an outbound message body.\n\nThe portable reply text stays mandatory — every adapter sends it, recorded\nas the task-timeline entry; this is the optional richer form, ignored by an\nadapter it isn't addressed to."
       },
       "PaginationResponse": {
         "type": "object",
@@ -14580,7 +14621,7 @@
       },
       "PairingCodeResponse": {
         "type": "object",
-        "description": "POST /api/v1/auth/pairing-codes response.\n\nThe code is readable here and nowhere else — only its hash is stored — so a\ncaller that loses this response asks for another code rather than recovering\nthis one.",
+        "description": "POST /api/v1/auth/pairing-codes response.\n\nThe code is readable only here — only its hash is stored — so a caller that\nloses it must request a new code.",
         "required": [
           "id",
           "code",
@@ -14935,7 +14976,7 @@
       },
       "ProviderConnection": {
         "type": "object",
-        "description": "Connection state for an external provider (OAuth app, GitHub App, PAT, …).\n\n`connected = false` indicates the frontend should prompt the user to\nreconnect: either no token is stored, or the most recent refresh attempt\nfailed.",
+        "description": "Connection state for an external provider (OAuth app, GitHub App, PAT, …).\n\n`connected = false` means the frontend should prompt reconnect: no token is\nstored, or the most recent refresh failed.",
         "required": [
           "provider",
           "connected"
@@ -15122,7 +15163,7 @@
             "items": {
               "type": "string"
             },
-            "description": "Bot users that named this App and can no longer obtain a token. They\nare left in place so past work stays attributed, and named here so the\nconsequence is not silent."
+            "description": "Bot users that named this App and can no longer obtain a token. They are\nleft in place so past work stays attributed, and named here so the\nconsequence is not silent."
           }
         }
       },
@@ -15138,7 +15179,7 @@
         "properties": {
           "flagHint": {
             "type": "string",
-            "description": "CLI flag the caller should add to disambiguate, e.g. `\"--binding bind_xyz\"`."
+            "description": "CLI flag the caller should add to disambiguate, e.g. `\"--binding\nbind_xyz\"`."
           },
           "id": {
             "type": "string",
@@ -15150,7 +15191,7 @@
           },
           "label": {
             "type": "string",
-            "description": "Human-readable label such as `\"slack source:C123\"` or `\"github pr:owner/repo#42\"`."
+            "description": "Human-readable label such as `\"slack source:C123\"` or `\"github\npr:owner/repo#42\"`."
           }
         }
       },
@@ -15174,7 +15215,7 @@
               },
               {
                 "$ref": "#/components/schemas/OutboundPresentation",
-                "description": "Adapter-native rich rendering of the message body. The payload names\nthe adapter it addresses; one whose kind does not match the resolved\ndestination is rejected rather than dropped."
+                "description": "Adapter-native rich rendering of the message body. The payload names the\nadapter it addresses; one whose kind does not match the resolved\ndestination is rejected rather than dropped."
               }
             ]
           },
@@ -15195,7 +15236,7 @@
               "string",
               "null"
             ],
-            "description": "Provider-specific external id of the reply we posted, when the API returns one."
+            "description": "Provider-specific external id of the reply we posted, when the API\nreturns one."
           },
           "ok": {
             "type": "boolean"
@@ -15206,19 +15247,19 @@
         "type": "string",
         "description": "Kind of repository source.",
         "enum": [
-          "git",
-          "remote",
-          "template"
+          "Git",
+          "Remote",
+          "Template"
         ]
       },
       "RepositoryProvider": {
         "type": "string",
         "description": "Git hosting provider.",
         "enum": [
-          "github",
-          "gitlab",
-          "gitness",
-          "forgejo"
+          "Github",
+          "Gitlab",
+          "Gitness",
+          "Forgejo"
         ]
       },
       "RepositoryRemoteResponse": {
@@ -15350,7 +15391,7 @@
       },
       "ResetGitWorkspaceResponse": {
         "type": "object",
-        "description": "Response for `POST /api/v1/workspaces/{id}/reset-git`.\n\nThe workspace only returns to `source = \"git\"` when the re-sync actually\nfound it still declared in the repository, so `resynced` reports whether the\nreset took effect.",
+        "description": "Response for `POST /api/v1/workspaces/{id}/reset-git`.\n\n`resynced` reports whether the re-sync found the workspace still declared in\ngit; only then does `source` return to `\"git\"`.",
         "required": [
           "workspace",
           "resynced"
@@ -15381,7 +15422,7 @@
               "string",
               "null"
             ],
-            "description": "Per-repository size cap for the `dind` sidecar's `/var/lib/docker`\nemptyDir (e.g. \"50Gi\"). Only meaningful for repos with `dockerAccess`\nand `dockerStorageMode: \"emptyDir\"`. Exceeding the cap gets the pod\n**evicted** by the kubelet, wiping all dind container data. When unset,\nthe global `K8S_SANDBOX_DOCKER_DIND_STORAGE_SIZE` default applies."
+            "description": "Per-repository size cap for the `dind` sidecar's `/var/lib/docker`\nemptyDir.\n\nOnly meaningful with `dockerAccess` + `dockerStorageMode: \"emptyDir\"`.\nExceeding it gets the pod evicted, wiping all dind data. Defaults to\n`K8S_SANDBOX_DOCKER_DIND_STORAGE_SIZE`."
           },
           "dockerStorageMode": {
             "oneOf": [
@@ -15390,7 +15431,7 @@
               },
               {
                 "$ref": "#/components/schemas/StorageMedium",
-                "description": "Storage backend for the `dind` sidecar's `/var/lib/docker`:\n- `\"node\"` (default) — best-effort node-local hostPath. Docker layers,\n  images, and volumes survive stop/start only on the same node.\n- `\"emptyDir\"` — node-local emptyDir capped by `dockerStorage`."
+                "description": "Storage backend for the `dind` sidecar's `/var/lib/docker`.\n\n`\"node\"` (default): best-effort hostPath, survives stop/start only on\nthe same node. `\"emptyDir\"`: capped by `dockerStorage`."
               }
             ]
           },
@@ -15402,7 +15443,7 @@
               "boolean",
               "null"
             ],
-            "description": "Whether this repo's sandbox gets a per-task PVC mounted at\n`/opt/moatless`. The PVC is owned by the Deployment: it survives pod\nrestarts and is deleted when the sandbox is removed. When `false`, the\nworkspace is a node-local emptyDir that dies with the pod.\n\nWhen unset, the deployment-wide default applies (`K8S_SANDBOX_DEFAULT_PVC`).\nThe global `K8S_SANDBOX_STORAGE_ENABLED` kill switch still wins over both."
+            "description": "Whether this repo's sandbox gets a per-task PVC at `/opt/moatless`.\n\nSurvives pod restarts, unlike the emptyDir fallback. Defaults to\n`K8S_SANDBOX_DEFAULT_PVC`; `K8S_SANDBOX_STORAGE_ENABLED` overrides both."
           },
           "requests": {
             "$ref": "#/components/schemas/ResourceQuantities"
@@ -15412,14 +15453,14 @@
               "boolean",
               "null"
             ],
-            "description": "Whether this repo's sandbox snapshots its workspace to S3 — the copy that\noutlives the Deployment. Pushed before a stop or remove, and pulled back\non start when the volume holds nothing usable (a fresh PVC, a redeploy, or\na fallback after the PVC could not attach).\n\nIndependent of [`Self::pvc_enabled`]: with a PVC the volume is the live\ncopy and S3 is read only when it is empty or broken; without one, S3 is\nthe only persistence and is read on every start.\n\nWhen unset, the deployment-wide default applies (`K8S_SANDBOX_DEFAULT_S3`)."
+            "description": "Whether this repo's sandbox snapshots its workspace to S3.\n\nThe copy that outlives the Deployment: pushed before stop/remove, pulled\nback on start when the volume holds nothing usable. Defaults to\n`K8S_SANDBOX_DEFAULT_S3`."
           },
           "storage": {
             "type": [
               "string",
               "null"
             ],
-            "description": "Per-repository workspace storage size override (e.g. \"8Gi\"). Sizes the\nper-task PVC when `pvc_enabled`, and the node-local emptyDir otherwise.\nWhen unset, the global `K8S_SANDBOX_STORAGE_SIZE` default applies. Never\ncopied into container resource specs."
+            "description": "Per-repository workspace storage size override (e.g. \"8Gi\").\n\nSizes the per-task PVC when `pvc_enabled`, else the node-local emptyDir.\nDefaults to `K8S_SANDBOX_STORAGE_SIZE`; never copied into container\nresource specs."
           }
         }
       },
@@ -15469,7 +15510,7 @@
       },
       "ResourceQuantities": {
         "type": "object",
-        "description": "A container's CPU and memory for one direction (requests or limits), as\nKubernetes quantity strings (`\"250m\"`, `\"4Gi\"`).\n\nEach field overrides the deployment default independently: a block that\nnames only `memory` keeps the configured CPU default.",
+        "description": "A container's CPU and memory for one direction (requests or limits), as\nKubernetes quantity strings (`\"250m\"`, `\"4Gi\"`); each field overrides the\ndeployment default independently.",
         "properties": {
           "cpu": {
             "type": [
@@ -15647,13 +15688,13 @@
         "type": "string",
         "description": "Loop routing mode for message-to-task mapping.",
         "enum": [
-          "ongoing",
-          "by_subject"
+          "Ongoing",
+          "BySubject"
         ]
       },
       "RuntimeEvent": {
         "type": "object",
-        "description": "A provider-agnostic runtime event associated with a sandbox.\n\nIn K8s mode, these are sourced from K8s Event objects (`FailedScheduling`,\n`BackOff`, Pulling, etc.). Docker mode can populate from `docker events`.",
+        "description": "A provider-agnostic runtime event associated with a sandbox.\n\nK8s mode sources these from K8s Event objects (`FailedScheduling`,\n`BackOff`, Pulling); Docker mode populates from `docker events`.",
         "required": [
           "reason",
           "message"
@@ -15680,7 +15721,7 @@
           },
           "reason": {
             "type": "string",
-            "description": "Event reason (e.g. \"`BackOff`\", \"`FailedScheduling`\", \"Pulling\", \"`OOMKilled`\")"
+            "description": "Event reason (e.g. \"`BackOff`\", \"`FailedScheduling`\", \"Pulling\",\n\"`OOMKilled`\")"
           },
           "severity": {
             "type": [
@@ -15695,21 +15736,21 @@
         "type": "string",
         "description": "Persisted application intent for a task's sandbox lifecycle.",
         "enum": [
-          "running",
-          "stopped",
-          "removed"
+          "Running",
+          "Stopped",
+          "Removed"
         ]
       },
       "SandboxEventPayload": {
         "type": "object",
-        "description": "Sandbox event payload — typed payload for sandbox lifecycle events.\n\nUsed by the pod watcher and provider to publish structured events\ninstead of raw `serde_json::Value`.",
+        "description": "Sandbox event payload — typed payload for sandbox lifecycle events.\n\nUsed by the pod watcher and provider to publish structured events instead of\nraw `serde_json::Value`.",
         "properties": {
           "disruptionReason": {
             "type": [
               "string",
               "null"
             ],
-            "description": "Why the pod was disrupted, from\n`pod.status.conditions[DisruptionTarget].reason` (`PreemptionByScheduler` |\n`DeletionByTaintManager` | `TerminationByKubelet` | `EvictionByEvictionAPI` |\n`DeletionByPodGC`), falling back to `pod.status.reason`."
+            "description": "Why the pod was disrupted, from\n`pod.status.conditions[DisruptionTarget].reason`, falling back to\n`pod.status.reason`."
           },
           "error": {
             "type": [
@@ -15724,7 +15765,7 @@
               "null"
             ],
             "format": "int32",
-            "description": "Exit code of the terminated sandbox container, when known.\n\nLets consumers distinguish OOM (137) from an application crash (1) or a\ngraceful SIGTERM (143). `#[serde(default)]` keeps old events readable."
+            "description": "Exit code of the terminated sandbox container, when known.\n\nLets consumers distinguish OOM (137) from an application crash (1) or a\ngraceful SIGTERM (143); `#[serde(default)]` keeps old events readable."
           },
           "initiator": {
             "type": [
@@ -15757,7 +15798,7 @@
               "null"
             ],
             "format": "int64",
-            "description": "Seconds the pod spent `Pending` before it was scheduled onto a node.\nAttached to `pod_scheduled` events so slow scheduling is readable directly."
+            "description": "Seconds the pod spent `Pending` before it was scheduled onto a node.\nAttached to `pod_scheduled` events so slow scheduling is readable\ndirectly."
           },
           "terminatedReason": {
             "type": [
@@ -15772,18 +15813,18 @@
         "type": "string",
         "description": "Sandbox status — valid status values for sandbox lifecycle events.\n\nThese match the frontend `SandboxStatus` values.",
         "enum": [
-          "not_created",
-          "initializing",
-          "ready",
-          "stopped",
-          "removing",
-          "removed",
-          "error"
+          "NotCreated",
+          "Initializing",
+          "Ready",
+          "Stopped",
+          "Removing",
+          "Removed",
+          "Error"
         ]
       },
       "SandboxStatusFullResponse": {
         "type": "object",
-        "description": "Full sandbox status response to frontend (matches TS `SandboxStatusFullResponse`)",
+        "description": "Full sandbox status response to frontend (matches TS\n`SandboxStatusFullResponse`)",
         "required": [
           "sandboxStatus",
           "sandboxError",
@@ -15836,7 +15877,7 @@
               "string",
               "null"
             ],
-            "description": "Image a fresh (re)deploy would use for the sandbox container: the\nper-repo `docker_image` override when set, otherwise the configured\ndefault. Compare against `current_sandbox_image` to know whether a\nredeploy would change the image."
+            "description": "Image a fresh (re)deploy would use: the per-repo `docker_image` override\nwhen set, otherwise the configured default.\n\nCompare against `current_sandbox_image` to know whether a redeploy would\nchange the image."
           },
           "resources": {
             "oneOf": [
@@ -15895,11 +15936,11 @@
         "type": "string",
         "description": "Reason the persisted sandbox intent moved away from `running`.",
         "enum": [
-          "user",
-          "idle_reaper",
-          "cleanup",
-          "system",
-          "error"
+          "User",
+          "IdleReaper",
+          "Cleanup",
+          "System",
+          "Error"
         ]
       },
       "SaveAdapterAppRequest": {
@@ -16060,7 +16101,7 @@
       },
       "SaveProviderAppRequest": {
         "type": "object",
-        "description": "`PUT /api/v1/admin/settings/apps/{provider}/{key}`.\n\nEvery value is a field named by the provider's spec, and an unknown name is\nrejected rather than dropped: a mistyped secret would otherwise register an\napp that authenticates against nothing.",
+        "description": "`PUT /api/v1/admin/settings/apps/{provider}/{key}`.\n\nEvery value is a field named by the provider's spec; an unknown name is\nrejected rather than dropped, so a mistyped secret cannot register an app\nthat authenticates against nothing.",
         "required": [
           "fields"
         ],
@@ -16228,10 +16269,10 @@
       },
       "Scope": {
         "type": "string",
-        "description": "Access scope for repositories, tasks, integrations, and credentials.\n\nReads: `global` is readable by every authenticated user; `user` only by\nits owner (and admins). Writes: `global` is admin-managed; `user` is\nowner-managed. Task `visibility = 'public'` additionally grants\nread/interact and control on tasks — never write.",
+        "description": "Access scope for repositories, tasks, integrations, and credentials.\n\n`global` is world-readable and admin-writable; `user` is owner-managed. A\npublic Task additionally grants read/interact and control, never write.",
         "enum": [
-          "global",
-          "user"
+          "Global",
+          "User"
         ]
       },
       "SearchByNameRequest": {
@@ -16287,12 +16328,12 @@
         "type": "string",
         "description": "Secret value category.",
         "enum": [
-          "env",
-          "provider_token",
-          "runtime_file",
-          "deployment",
-          "ssh_key",
-          "internal"
+          "Env",
+          "ProviderToken",
+          "RuntimeFile",
+          "Deployment",
+          "SshKey",
+          "Internal"
         ]
       },
       "SecretMetadataResponse": {
@@ -16368,8 +16409,8 @@
         "type": "string",
         "description": "Where a secret value is stored.",
         "enum": [
-          "inline_encrypted",
-          "external_ref"
+          "InlineEncrypted",
+          "ExternalRef"
         ]
       },
       "SendDmRequest": {
@@ -16447,7 +16488,7 @@
               "string",
               "null"
             ],
-            "description": "Reasoning effort for the turn, in the agent's own vocabulary\n(`low`/`medium`/`high`/`xhigh`/`max` for Claude,\n`minimal`/`low`/`medium`/`high` for Codex). Omit to leave the agent on\nits own default."
+            "description": "Reasoning effort for the turn, in the agent's own vocabulary\n(`low`/`medium`/`high`/`xhigh`/`max` for Claude,\n`minimal`/`low`/`medium`/`high` for Codex).\n\nOmit to leave the agent on its own default."
           },
           "fileIds": {
             "type": "array",
@@ -16482,14 +16523,14 @@
               "string",
               "null"
             ],
-            "description": "Task ID of the sender (set automatically when sent from within a sandbox)."
+            "description": "Task ID of the sender (set automatically when sent from within a\nsandbox)."
           },
           "startFresh": {
             "type": [
               "boolean",
               "null"
             ],
-            "description": "When true, the next agent run starts a fresh session instead of resuming.\nPer-message and cleared after send."
+            "description": "When true, the next agent run starts a fresh session instead of\nresuming. Per-message and cleared after send."
           },
           "toolName": {
             "type": [
@@ -16558,7 +16599,7 @@
               },
               {
                 "$ref": "#/components/schemas/OutboundPresentation",
-                "description": "Adapter-native rich rendering of the message body. The payload names\nthe adapter it addresses; one whose kind does not match the resolved\ndestination is rejected rather than dropped."
+                "description": "Adapter-native rich rendering of the message body. The payload names the\nadapter it addresses; one whose kind does not match the resolved\ndestination is rejected rather than dropped."
               }
             ]
           },
@@ -16793,7 +16834,7 @@
         "properties": {
           "message": {
             "type": "string",
-            "description": "Human-readable contextual detail (e.g. \"`ContainerCreating`\", \"`CrashLoopBackOff`\").\nAlways set by the publisher. `#[serde(default)]` handles old events without this field."
+            "description": "Human-readable contextual detail (e.g. \"`ContainerCreating`\",\n\"`CrashLoopBackOff`\"). Always set by the publisher. `#[serde(default)]`\nhandles old events without this field."
           },
           "serverName": {
             "type": "string"
@@ -16805,7 +16846,7 @@
       },
       "ServerOverride": {
         "type": "object",
-        "description": "A live override of one preview server's start command and env.\nCallers send the complete state; the sandbox replaces it without merging.",
+        "description": "A live override of one preview server's start command and env. Callers send\nthe complete state; the sandbox replaces it without merging.",
         "properties": {
           "env": {
             "type": "object",
@@ -16822,14 +16863,14 @@
               "string",
               "null"
             ],
-            "description": "Replaces the configured start command; `None` uses the workspace command."
+            "description": "Replaces the configured start command; `None` uses the workspace\ncommand."
           },
           "unsetEnv": {
             "type": "array",
             "items": {
               "type": "string"
             },
-            "description": "Removes variables injected through the container spec; sourcing an env file cannot unset them."
+            "description": "Removes variables injected through the container spec; sourcing an env\nfile cannot unset them."
           }
         }
       },
@@ -16858,7 +16899,7 @@
       },
       "ServerOverridesResponse": {
         "type": "object",
-        "description": "Every override in effect on a task. Servers with no override are omitted.\n\nRead from the sandbox's workspace volume, which is the only place an\noverride exists — a stopped sandbox cannot answer this.",
+        "description": "Every override in effect on a task. Servers with no override are omitted.\n\nRead from the sandbox's workspace volume, the only place an override exists\n— a stopped sandbox cannot answer this.",
         "required": [
           "overrides"
         ],
@@ -16922,11 +16963,11 @@
         "type": "string",
         "description": "Matches TS `ServerStatusEnumSchema`: 'stopped' | 'installing' | 'starting' | 'started' | 'failed'",
         "enum": [
-          "stopped",
-          "installing",
-          "starting",
-          "started",
-          "failed"
+          "Stopped",
+          "Installing",
+          "Starting",
+          "Started",
+          "Failed"
         ]
       },
       "ServerStatusResponse": {
@@ -16948,11 +16989,11 @@
         "type": "string",
         "description": "Server sub-types — server container lifecycle.\n\n`Failed` covers all error conditions (was: Failed, Error, Timeout — consolidated).",
         "enum": [
-          "installing",
-          "starting",
-          "started",
-          "stopped",
-          "failed"
+          "Installing",
+          "Starting",
+          "Started",
+          "Stopped",
+          "Failed"
         ]
       },
       "SessionResponse": {
@@ -17008,7 +17049,7 @@
               "boolean",
               "null"
             ],
-            "description": "Lift this record above every record that is not `always`, whatever\nreach either of them carries — so what is turned on for everyone or for\none person keeps arriving in a Workspace that says nothing about it, and\nin one that turns it off. Omit to leave whatever the record already\nsays, so a control that knows only about on and off cannot clear it."
+            "description": "Lift this record above every other record regardless of reach, so it\nkeeps applying even in a Workspace that overrides or disables it.\n\nOmit to leave the existing value — a control that only knows on/off\ncannot clear it."
           },
           "enabled": {
             "type": "boolean"
@@ -17036,14 +17077,14 @@
               "null"
             ],
             "format": "uuid",
-            "description": "Whose record, with `personal` reach: the caller's own when omitted, and\nsomebody else's only for an administrator — which is how a bot user,\nwho never signs in to set its own, gets one. Rejected with `everyone`,\nwhere naming a person would read as a record for them and write the\ndeployment-wide default instead."
+            "description": "Whose record, with `personal` reach: the caller's own when omitted, or\n(admin only) somebody else's — how a bot user gets one set.\n\nRejected with `everyone`, where naming a person would misleadingly write\nthe deployment-wide default."
           },
           "workspaceId": {
             "type": [
               "string",
               "null"
             ],
-            "description": "Which Workspace's record, with `workspace` reach. Required there and\nrejected with any other reach, where it would read as a record scoped\nto that Workspace and write a broader one instead."
+            "description": "Which Workspace's record, with `workspace` reach. Required there and\nrejected with any other reach, where it would read as a record scoped to\nthat Workspace and write a broader one instead."
           }
         }
       },
@@ -17089,7 +17130,7 @@
       },
       "SetupAction": {
         "type": "object",
-        "description": "A remediation step the frontend can offer. `target` is machine-readable:\na settings-section id, an in-app route, or an absolute URL, per `kind`.",
+        "description": "A remediation step the frontend can offer. `target` is machine-readable: a\nsettings-section id, an in-app route, or an absolute URL, per `kind`.",
         "required": [
           "kind",
           "target"
@@ -17149,7 +17190,7 @@
       },
       "SetupRequirementStatus": {
         "type": "string",
-        "description": "Tri-state because \"configured but unusable\" needs different copy from\n\"never configured\": a `secret_ref` row whose secret is gone is `Broken`,\nand telling that user to \"connect GitHub\" would be wrong.",
+        "description": "Tri-state because \"configured but unusable\" needs different copy from \"never\nconfigured\": a `secret_ref` row whose secret is gone is `Broken`, and\ntelling that user to \"connect GitHub\" would be wrong.",
         "enum": [
           "satisfied",
           "missing",
@@ -17158,7 +17199,7 @@
       },
       "SetupSeverity": {
         "type": "string",
-        "description": "A closed vocabulary: a new value here is a real contract change the\nfrontend should fail to compile against rather than silently ignore.",
+        "description": "A closed vocabulary: a new value here is a real contract change the frontend\nshould fail to compile against rather than silently ignore.",
         "enum": [
           "required",
           "recommended"
@@ -17382,7 +17423,7 @@
             }
           }
         ],
-        "description": "One Slack Block Kit block.\n\nTyped rather than a raw `Value` so a malformed payload fails where it is\nentered, with a field path, instead of reaching Slack and returning a bare\n`invalid_blocks` with the message silently unposted."
+        "description": "One Slack Block Kit block.\n\nTyped rather than a raw `Value` so a malformed payload fails where entered,\nwith a field path, instead of reaching Slack as a bare `invalid_blocks`."
       },
       "SlackPlainText": {
         "oneOf": [
@@ -17614,13 +17655,13 @@
         "type": "string",
         "description": "Where a node-local sandbox volume is backed.",
         "enum": [
-          "emptyDir",
-          "node"
+          "EmptyDir",
+          "Node"
         ]
       },
       "StreamEvent": {
         "type": "object",
-        "description": "SSE event envelope — the shape of events streamed to the frontend.\n\nThis is the canonical wire format for all SSE events. The frontend\nreceives this shape and dispatches on `event_type` + `sub_type`.",
+        "description": "SSE event envelope — the shape of events streamed to the frontend.\n\nThe canonical wire format for all SSE events; the frontend dispatches on\n`event_type` + `sub_type`.",
         "required": [
           "eventId",
           "type",
@@ -17642,7 +17683,7 @@
               "boolean",
               "null"
             ],
-            "description": "What this event says about whether the agent is working, if anything.\n\nAbsent means *this event does not say*, so the client leaves whatever it\nlast knew alone. It never means \"not working\". See [`agent_working`]."
+            "description": "What this event says about whether the agent is working, if anything.\n\nAbsent means *this event does not say* (client keeps its last known\nvalue), never \"not working\". See [`agent_working`]."
           },
           "eventId": {
             "type": "string"
@@ -17683,7 +17724,7 @@
       },
       "SubagentSummary": {
         "type": "object",
-        "description": "Derived aggregate metadata for a spawned subagent, carried on the `Agent`\ntool-use content block. Not content — the collapsed `Agent` card renders as\na pure read of this. Shared shape between the read path and the live\n`subagentProgress` event (absolute values).",
+        "description": "Derived aggregate metadata for a spawned subagent.\n\nCarried on the `Agent` tool-use content block, not as content; shared shape\nbetween the read path and the live `subagentProgress` event (absolute\nvalues).",
         "required": [
           "messageCount",
           "tokens",
@@ -17702,7 +17743,7 @@
           "tokens": {
             "type": "integer",
             "format": "int32",
-            "description": "`SUM(input_tokens + output_tokens)` across the subagent's assistant rows.",
+            "description": "`SUM(input_tokens + output_tokens)` across the subagent's assistant\nrows.",
             "minimum": 0
           }
         }
@@ -17771,7 +17812,7 @@
       },
       "SyncConfigResponse": {
         "type": "object",
-        "description": "Response for `POST /api/v1/repositories/{id}/sync-config`.\n\nWraps the updated repository plus the loop and workspace reconciliation\nsummaries. This endpoint is the explicit, user-initiated sync, so it also\nreclaims workspaces that were manually overridden — see\n[`WorkspaceSyncSummary::reclaimed`].",
+        "description": "Response for `POST /api/v1/repositories/{id}/sync-config`.\n\nWraps the updated repository plus reconciliation summaries; this explicit\nsync also reclaims manually overridden workspaces — see\n[`WorkspaceSyncSummary::reclaimed`].",
         "required": [
           "repository",
           "loops",
@@ -17926,7 +17967,7 @@
               "string",
               "null"
             ],
-            "description": "Adapter-specific subject key such as `owner/repo#123` for GitHub PR bindings."
+            "description": "Adapter-specific subject key such as `owner/repo#123` for GitHub PR\nbindings."
           },
           "threadId": {
             "type": [
@@ -18078,11 +18119,11 @@
       },
       "TaskRelationType": {
         "type": "string",
-        "description": "Type of a directional link between two tasks. The `from` task points at the\n`to` task via this relation (e.g. a child `created_by` its parent).\n\n`CreatedBy` and `ForkedFrom` are both parent edges and both surface the\n`from` task as a child. They differ in what else follows: only\n`CreatedBy` closes with its parent and reports its agent errors into the\nparent's conversation, because a fork is often the work that continued\nand nobody is waiting on its result.",
+        "description": "Type of a directional link between two tasks: the `from` task points at\nthe `to` task via this relation (e.g. a child `created_by` its parent).\n\n`CreatedBy` and `ForkedFrom` are both parent edges surfacing `from` as a\nchild, but only `CreatedBy` closes with its parent and reports agent\nerrors into the parent's conversation — a fork is often work that\ncontinued with nobody waiting on it.",
         "enum": [
-          "created_by",
-          "related_to",
-          "forked_from"
+          "CreatedBy",
+          "RelatedTo",
+          "ForkedFrom"
         ]
       },
       "TaskResponse": {
@@ -18214,7 +18255,7 @@
               "string",
               "null"
             ],
-            "description": "Derived from whichever parent relation in `relations` makes this task a\nchild — `created_by` or `forked_from`. Kept for backward compatibility\nwith clients that pre-date the relations field. Read `forked_from` to\ntell the two apart."
+            "description": "Derived from whichever parent relation in `relations` makes this task a\nchild (`created_by` or `forked_from`).\n\nKept for backward compatibility with clients that pre-date `relations`;\nread `forked_from` to tell the two apart."
           },
           "relations": {
             "type": "array",
@@ -18399,7 +18440,7 @@
           },
           "toolCallsAvailable": {
             "type": "boolean",
-            "description": "Whether this Task has a tool-call record at all.\n\nA Task that ran before tool calls were stored as their own rows has none,\nand an empty `tool_calls` from that Task means \"not recorded\", not \"made\nno calls\". The client has to be able to tell those apart — reporting zero\nis a wrong answer, not a missing one.\n\nDefaults to `true` so a client reading an older response, or a response\nfrom a deployment that predates the field, is not told every Task is\nunrecorded."
+            "description": "Whether this Task has a tool-call record at all.\n\nAn empty `tool_calls` from a Task older than this storage means \"not\nrecorded\", not \"made no calls\" — the client must tell those apart.\nDefaults to `true` so older or pre-field responses aren't read as\nunrecorded."
           }
         }
       },
@@ -18407,20 +18448,20 @@
         "type": "string",
         "description": "Task lifecycle status.",
         "enum": [
-          "open",
-          "closed",
-          "error"
+          "Open",
+          "Closed",
+          "Error"
         ]
       },
       "TaskSubType": {
         "type": "string",
         "description": "Task sub-types.",
         "enum": [
-          "created",
-          "open",
-          "closed",
-          "updated",
-          "metadata.updated"
+          "Created",
+          "Open",
+          "Closed",
+          "Updated",
+          "MetadataUpdated"
         ]
       },
       "TaskTokenTotals": {
@@ -18497,11 +18538,11 @@
         "type": "string",
         "description": "`TaskTurn` sub-types.",
         "enum": [
-          "active",
-          "completed",
-          "error",
-          "stopped",
-          "turn_interrupted"
+          "Active",
+          "Completed",
+          "Error",
+          "Stopped",
+          "Interrupted"
         ]
       },
       "TeamMemberResponse": {
@@ -18858,14 +18899,14 @@
               "string",
               "null"
             ],
-            "description": "Stable, type-namespaced external id (e.g. \"github:ic:12345\",\n\"slack:ts:1700000.000123\"). Present when the row was tagged by an\ninbound webhook or by the outbound dedup fix; absent for legacy\nrows written before the prefix scheme."
+            "description": "Stable, type-namespaced external id (e.g. \"github:ic:12345\",\n\"slack:ts:1700000.000123\").\n\nPresent when tagged by an inbound webhook or the outbound dedup fix;\nabsent for legacy rows written before the prefix scheme."
           },
           "externalLabel": {
             "type": [
               "string",
               "null"
             ],
-            "description": "Human-readable rendering of `external_id` (e.g. \"Comment #12345\",\n\"PR #42 opened\", \"ts 1700000.000123\"). Falls back to the raw\n`external_id` for legacy or unknown prefix shapes."
+            "description": "Human-readable rendering of `external_id` (e.g. \"Comment #12345\", \"PR\n#42 opened\", \"ts 1700000.000123\"). Falls back to the raw `external_id`\nfor legacy or unknown prefix shapes."
           },
           "sourceName": {
             "type": [
@@ -18921,7 +18962,7 @@
               "object",
               "null"
             ],
-            "description": "Typed tool result from SDK (e.g., `BashToolUseResult`, `ReadToolUseResult`)."
+            "description": "Typed tool result from SDK (e.g., `BashToolUseResult`,\n`ReadToolUseResult`)."
           }
         }
       },
@@ -19001,6 +19042,13 @@
             ],
             "description": "See [`LoopConfig::model`]. `Some(None)` clears the override."
           },
+          "nodeSelector": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "See [`LoopConfig::node_selector`]. `Some(None)` clears the override."
+          },
           "ongoingTaskId": {
             "type": [
               "string",
@@ -19031,6 +19079,13 @@
             "items": {
               "type": "string"
             }
+          },
+          "stopWhenDone": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "See [`LoopConfig::stop_when_done`]."
           },
           "tagIds": {
             "type": [
@@ -19074,7 +19129,7 @@
               "string",
               "null"
             ],
-            "description": "Rename the Loop. Omit to keep the current name; a name cannot be cleared."
+            "description": "Rename the Loop. Omit to keep the current name; a name cannot be\ncleared."
           },
           "scope": {
             "oneOf": [
@@ -19155,7 +19210,7 @@
               },
               {
                 "$ref": "#/components/schemas/Scope",
-                "description": "Change the repository's access scope (`global` or `user`).\nRe-submitting `user` preserves the repository's existing immutable owner.\nAn ownerless repository cannot move to `user`.\nRequesting `global` requires admin."
+                "description": "Change the repository's access scope (`global` or `user`); requires\nadmin for `global`.\n\nRe-submitting `user` preserves the existing immutable owner; an\nownerless repository cannot move to `user`."
               }
             ]
           }
@@ -19187,7 +19242,7 @@
       },
       "UpdateServerConfigRequest": {
         "type": "object",
-        "description": "Update one preview server's live config.\n\nOnly fields that a sidecar can pick up on an in-place restart are accepted.\n`port` and `dockerImage` are declared so a caller that sends them gets an\nexplicit \"redeploy required\" instead of a silent no-op.",
+        "description": "Update one preview server's live config.\n\nOnly fields a sidecar can pick up on an in-place restart are accepted;\n`port` and `dockerImage` are declared so sending them errors \"redeploy\nrequired\" instead of silently no-op.",
         "properties": {
           "dockerImage": {
             "type": [
@@ -19452,6 +19507,19 @@
               "null"
             ]
           },
+          "nodeSelector": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Extra node labels sandbox pods must match, merged over the\ndeployment-wide selector. Send `{}` to clear.",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
           "resources": {
             "oneOf": [
               {
@@ -19482,7 +19550,7 @@
               },
               {
                 "$ref": "#/components/schemas/Scope",
-                "description": "Change the workspace's access scope (`global` or `user`). When set,\n`owner_user_id` is re-resolved from the new scope. Requesting `global`\nrequires admin, and this write promotes every repository the workspace\nplaces at the time to `global` as well — a repository placed afterwards\nkeeps its own scope. Returning to `user` leaves those repositories global."
+                "description": "Change the workspace's access scope (`global` requires admin).\n\nPromotes every repository already placed to `global` too — repos added\nlater keep their own scope — and returning to `user` does not demote\nthem back."
               }
             ]
           },
@@ -19744,16 +19812,16 @@
         "type": "string",
         "description": "Role assigned to a user.",
         "enum": [
-          "user",
-          "admin"
+          "User",
+          "Admin"
         ]
       },
       "UserStatus": {
         "type": "string",
         "description": "Whether a user may sign in and be routed work.",
         "enum": [
-          "active",
-          "disabled"
+          "Active",
+          "Disabled"
         ]
       },
       "ValidateSecretsRequest": {
@@ -19805,8 +19873,8 @@
         "type": "string",
         "description": "Task visibility level.",
         "enum": [
-          "public",
-          "private"
+          "Public",
+          "Private"
         ]
       },
       "WakeupJobInfo": {
@@ -19832,7 +19900,7 @@
       },
       "WebhookAccepted": {
         "type": "object",
-        "description": "The answer to an accepted delivery.\n\nIt names the delivery, not a Task: routing has not run when this is written,\nso no Task exists to name yet.",
+        "description": "The answer to an accepted delivery.\n\nNames the delivery, not a Task — routing hasn't run yet, so no Task exists.",
         "required": [
           "deliveryId",
           "status"
@@ -19867,7 +19935,7 @@
               "string",
               "null"
             ],
-            "description": "Caller-assigned identity for this delivery. Optional, and what it buys\ndiffers sharply by whether it is supplied:\n\n- **Supplied.** Two requests carrying the same `deliveryId` are one\n  delivery. The second is recognised as a duplicate and does no further\n  work — on any replica, and after any restart.\n- **Absent.** A fresh identity is minted per request, so sending the same\n  body twice is two deliveries and the work is done twice.\n\nEither way the response means the backend owns the delivery. Only the\ndeduplication is at the caller's discretion.\n\nIt is read from the request body rather than a header because the\nsignature covers the body only: an identifier carried outside the signed\ncontent could be altered in transit without invalidating the signature,\nwhich would either replay work as new or collapse two distinct\ndeliveries into one."
+            "description": "Caller-assigned identity for this delivery, used for deduplication.\n\nSupplied: repeated `deliveryId` values collapse into one delivery, done\nonce. Absent: each request is a new delivery. Read from the body, not a\nheader, since only the body is signed."
           },
           "metadata": {
             "type": [
@@ -19898,14 +19966,14 @@
       },
       "WorkspaceCredentialProvider": {
         "type": "string",
-        "description": "A provider whose credential can be pinned to a Workspace.\n\nOnly providers whose sandbox credential is a single static environment\nvariable are here. Codex (`CODEX_AUTH_JSON`) and the Claude OAuth token are\nrefreshed and written back against the connected user's own row, so a\nworkspace-level copy of either would go stale with nothing to rotate it.",
+        "description": "A provider whose credential can be pinned to a Workspace.\n\nOnly providers whose sandbox credential is a single static environment\nvariable are listed here. Codex and the Claude OAuth token are refreshed\nper-user, so a workspace-level copy would go stale with nothing to\nrotate it.",
         "enum": [
-          "github",
-          "gitlab",
-          "gitness",
-          "forgejo",
-          "openai",
-          "anthropic"
+          "Github",
+          "Gitlab",
+          "Gitness",
+          "Forgejo",
+          "Openai",
+          "Anthropic"
         ]
       },
       "WorkspaceCredentialResponse": {
@@ -19988,7 +20056,7 @@
             }
           }
         ],
-        "description": "The glyph a client renders beside a Workspace name.\n\nMirrors the T3 client's `ProjectIconOverride`: it is the only surface that\npicks one, and its own schema enumerates the legal glyph names and colours.\nNeither vocabulary is restated here — both would drift from the client's."
+        "description": "The glyph a client renders beside a Workspace name.\n\nMirrors the T3 client's `ProjectIconOverride`, the only surface that picks\none; its own schema enumerates legal glyph names and colours, not restated\nhere to avoid drift."
       },
       "WorkspaceRepoInput": {
         "type": "object",
@@ -20114,7 +20182,7 @@
           },
           "deleted": {
             "type": "boolean",
-            "description": "Soft-deleted workspaces are normally hidden. Git-origin tombstones remain\nvisible in admin so users can restore them from git without automatic\nsync recreating them behind their back."
+            "description": "Soft-deleted workspaces are normally hidden. Git-origin tombstones\nremain visible in admin so users can restore them from git without\nautomatic sync recreating them behind their back."
           },
           "description": {
             "type": [
@@ -20161,7 +20229,7 @@
           },
           "kind": {
             "type": "string",
-            "description": "Derived from the placement count: `blank` (0), `single` (1), `multi` (n)."
+            "description": "Derived from the placement count: `blank` (0), `single` (1), `multi`\n(n)."
           },
           "name": {
             "type": "string"
@@ -20171,6 +20239,18 @@
               "string",
               "null"
             ]
+          },
+          "nodeSelector": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
           },
           "ownerUserId": {
             "type": [
@@ -20251,7 +20331,7 @@
               "string",
               "null"
             ],
-            "description": "The repository whose git tree declared this workspace (`source == \"git\"`)."
+            "description": "The repository whose git tree declared this workspace (`source ==\n\"git\"`)."
           },
           "syncedFromGit": {
             "type": "boolean",

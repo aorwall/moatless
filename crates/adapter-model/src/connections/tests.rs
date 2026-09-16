@@ -44,6 +44,8 @@ fn subscription(id: &str, connection_id: &str, source_matcher: &str) -> Subscrip
         agent_type: "claude-code".into(),
         model: None,
         inactive_ttl_days: None,
+        node_selector: None,
+        stop_when_done: None,
         allow_direct_send: true,
         adapter_config: None,
         ongoing_task_id: None,

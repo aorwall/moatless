@@ -60,6 +60,7 @@ fn project(workspace: Workspace) -> ResolvedWorkspace {
         servers: workspace.servers,
         resources: workspace.resources,
         network_profile: workspace.network_profile,
+        node_selector: workspace.node_selector,
         run_as_user_id: workspace.run_as_user_id,
         deleted: workspace.deleted,
     }

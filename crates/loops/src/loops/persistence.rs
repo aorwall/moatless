@@ -2,6 +2,7 @@
 
 use crate::loops::models::{LoopSpawnConfig, Schedule};
 use chrono::{DateTime, Utc};
+use std::collections::BTreeMap;
 use moatless_types::access_control::Scope;
 use moatless_types::adapter::AdapterKind;
 use moatless_types::agent::AgentType;
@@ -23,6 +24,8 @@ pub struct LoopSpawnConfigRow {
     pub agent_type: String,
     pub model: Option<String>,
     pub inactive_ttl_days: Option<i32>,
+    pub node_selector: Option<sqlx::types::Json<BTreeMap<String, String>>>,
+    pub stop_when_done: Option<bool>,
     #[sqlx(try_from = "String")]
     pub scope: Scope,
     pub owner_user_id: Option<String>,
@@ -46,6 +49,8 @@ impl From<LoopSpawnConfigRow> for LoopSpawnConfig {
             skills: row.skills,
             run_as_user_id: row.run_as_user_id,
             inactive_ttl_days: row.inactive_ttl_days,
+            node_selector: row.node_selector.map(|json| json.0),
+            stop_when_done: row.stop_when_done,
             scope: row.scope,
             owner_user_id: row.owner_user_id,
             created_by: row.created_by,
@@ -76,6 +81,8 @@ pub struct SubscriptionMatchRow {
     pub agent_type: String,
     pub model: Option<String>,
     pub inactive_ttl_days: Option<i32>,
+    pub node_selector: Option<sqlx::types::Json<BTreeMap<String, String>>>,
+    pub stop_when_done: Option<bool>,
     pub allow_direct_send: bool,
     pub adapter_config: Option<serde_json::Value>,
     pub ongoing_task_id: Option<String>,
@@ -110,6 +117,8 @@ impl From<SubscriptionMatchRow> for SubscriptionMatch {
             skills: row.skills,
             run_as_user_id: row.run_as_user_id,
             inactive_ttl_days: row.inactive_ttl_days,
+            node_selector: row.node_selector.map(|json| json.0),
+            stop_when_done: row.stop_when_done,
             allow_direct_send: row.allow_direct_send,
             adapter_config: row.adapter_config,
             ongoing_task_id: row.ongoing_task_id,

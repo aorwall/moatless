@@ -4,6 +4,7 @@
 use super::*;
 use crate::task::test_support::seed_bare_task;
 use sqlx::PgPool;
+use std::collections::BTreeMap;
 
 async fn seed_sandbox_member(pool: &PgPool, task_id: &str, sandbox_id: &str) {
     sqlx::query(
@@ -102,7 +103,7 @@ async fn insert_task_writes_the_sandbox_row_from_the_task(pool: PgPool) {
     let mut row = task_row("t1");
     row.branch = Some("feature/x".to_string());
     row.headless = true;
-    store_over(&pool).insert_task(&row).await.unwrap();
+    store_over(&pool).insert_task(&row, &SandboxPlacement::default()).await.unwrap();
 
     let shape = sandbox_shape(&pool, "t1").await.expect("sandbox row");
     assert_eq!(shape.workspace_id, "ws_repo-x");
@@ -126,7 +127,7 @@ async fn the_workspace_run_as_account_outranks_the_task_owner(pool: PgPool) {
     seed_bare_task(&pool, "seed", "open").await;
     let dao = store_over(&pool);
 
-    dao.insert_task(&task_row("t1")).await.unwrap();
+    dao.insert_task(&task_row("t1"), &SandboxPlacement::default()).await.unwrap();
     assert_eq!(
         sandbox_shape(&pool, "t1")
             .await
@@ -141,7 +142,7 @@ async fn the_workspace_run_as_account_outranks_the_task_owner(pool: PgPool) {
         .execute(&pool)
         .await
         .unwrap();
-    dao.insert_task(&task_row("t2")).await.unwrap();
+    dao.insert_task(&task_row("t2"), &SandboxPlacement::default()).await.unwrap();
     assert_eq!(
         sandbox_shape(&pool, "t2")
             .await
@@ -167,7 +168,7 @@ async fn the_task_run_as_account_outranks_the_workspace(pool: PgPool) {
 
     let mut row = task_row("t1");
     row.run_as_user_id = Some("bot-3".to_string());
-    dao.insert_task(&row).await.unwrap();
+    dao.insert_task(&row, &SandboxPlacement::default()).await.unwrap();
 
     assert_eq!(
         sandbox_shape(&pool, "t1")
@@ -180,18 +181,196 @@ async fn the_task_run_as_account_outranks_the_workspace(pool: PgPool) {
     );
 }
 
+async fn sandbox_placement(
+    pool: &PgPool,
+    sandbox_id: &str,
+) -> (Option<serde_json::Value>, bool) {
+    sqlx::query_as("SELECT node_selector, stop_when_done FROM sandboxes WHERE sandbox_id = $1")
+        .bind(sandbox_id)
+        .fetch_one(pool)
+        .await
+        .expect("read placement")
+}
+
+/// A Loop's placement reaches the Sandbox row, and its selector outranks the
+/// Workspace's. Resolved here at creation rather than read back at pod build,
+/// so a later rebuild keeps the placement the Sandbox started with.
+#[sqlx::test]
+async fn the_loop_placement_outranks_the_workspace_selector(pool: PgPool) {
+    seed_bare_task(&pool, "seed", "open").await;
+    let dao = store_over(&pool);
+    sqlx::query(
+        r#"UPDATE workspaces SET node_selector = '{"moatless.io/pool":"spot"}'::jsonb
+           WHERE id = 'ws_repo-x'"#,
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    dao.insert_task(&task_row("t1"), &SandboxPlacement::default())
+        .await
+        .unwrap();
+    let (selector, stop_when_done) = sandbox_placement(&pool, "t1").await;
+    assert_eq!(
+        selector,
+        Some(serde_json::json!({"moatless.io/pool": "spot"})),
+        "no Loop selector: the Workspace's"
+    );
+    assert!(!stop_when_done);
+
+    let placement = SandboxPlacement {
+        node_selector: Some(BTreeMap::from([(
+            "moatless.io/pool".to_string(),
+            "on-demand".to_string(),
+        )])),
+        stop_when_done: true,
+    };
+    dao.insert_task(&task_row("t2"), &placement).await.unwrap();
+    let (selector, stop_when_done) = sandbox_placement(&pool, "t2").await;
+    assert_eq!(
+        selector,
+        Some(serde_json::json!({"moatless.io/pool": "on-demand"})),
+        "the Loop's selector wins over the Workspace's"
+    );
+    assert!(stop_when_done);
+}
+
+async fn seed_stop_when_done(pool: &PgPool, task_id: &str) {
+    seed_bare_task(pool, task_id, "open").await;
+    sqlx::query("UPDATE sandboxes SET stop_when_done = true WHERE sandbox_id = $1")
+        .bind(task_id)
+        .execute(pool)
+        .await
+        .expect("mark stop_when_done");
+}
+
+/// `secs` seconds before this test started.
+fn ago(secs: i64) -> DateTime<Utc> {
+    Utc::now() - chrono::Duration::seconds(secs)
+}
+
+async fn seed_turn(
+    pool: &PgPool,
+    task_id: &str,
+    number: i32,
+    status: &str,
+    ended_at: Option<DateTime<Utc>>,
+) {
+    sqlx::query(
+        r#"INSERT INTO task_turns (task_id, turn_number, status, ended_at)
+           VALUES ($1, $2, $3, $4)"#,
+    )
+    .bind(task_id)
+    .bind(number)
+    .bind(status)
+    .bind(ended_at)
+    .execute(pool)
+    .await
+    .expect("seed turn");
+}
+
+async fn seed_user_message(pool: &PgPool, task_id: &str, created_at: DateTime<Utc>) {
+    sqlx::query(
+        r#"INSERT INTO task_messages (task_id, uuid, message_type, user_type,
+                                      timestamp, message_role, created_at)
+           VALUES ($1, $2, 'user', 'human', NOW()::text, 'user', $3)"#,
+    )
+    .bind(task_id)
+    .bind(format!("{task_id}-{}", created_at.timestamp_millis()))
+    .bind(created_at)
+    .execute(pool)
+    .await
+    .expect("seed message");
+}
+
+/// The shape a Loop sandbox is in when its run finishes: the last turn is
+/// terminal, the person asked before it, and nothing is registered.
+#[sqlx::test]
+async fn a_settled_stop_when_done_sandbox_is_offered(pool: PgPool) {
+    seed_stop_when_done(&pool, "t1").await;
+    seed_user_message(&pool, "t1", ago(120)).await;
+    seed_turn(&pool, "t1", 1, "completed", Some(ago(60))).await;
+
+    let sandbox = store_over(&pool)
+        .sandbox_to_stop_when_done("t1")
+        .await
+        .unwrap();
+    assert_eq!(sandbox.as_deref(), Some("t1"));
+}
+
+/// Agent events are at-least-once, so a redelivered completion can arrive after
+/// the next turn has opened. That turn's pod is not this event's to stop.
+#[sqlx::test]
+async fn an_open_turn_keeps_the_sandbox(pool: PgPool) {
+    seed_stop_when_done(&pool, "t1").await;
+    seed_turn(&pool, "t1", 1, "completed", Some(ago(60))).await;
+    seed_turn(&pool, "t1", 2, "active", None).await;
+
+    let sandbox = store_over(&pool)
+        .sandbox_to_stop_when_done("t1")
+        .await
+        .unwrap();
+    assert_eq!(sandbox, None);
+}
+
+/// A turn opens on `taskTurn.active`, published from inside the Sandbox, so a
+/// queued message sits behind a terminal turn until then. Stopping the pod in
+/// that window strands the turn the person is already waiting for.
+#[sqlx::test]
+async fn a_message_newer_than_the_last_turn_keeps_the_sandbox(pool: PgPool) {
+    seed_stop_when_done(&pool, "t1").await;
+    seed_turn(&pool, "t1", 1, "completed", Some(ago(60))).await;
+    seed_user_message(&pool, "t1", ago(10)).await;
+
+    let sandbox = store_over(&pool)
+        .sandbox_to_stop_when_done("t1")
+        .await
+        .unwrap();
+    assert_eq!(sandbox, None);
+}
+
+/// A terminal turn that never recorded an end is settled, not owed — the same
+/// reading `turn_is_owed` gives it. Treating it as owed would leave the Sandbox
+/// to the idle TTL every time, which is what `stop_when_done` exists to skip.
+#[sqlx::test]
+async fn a_terminal_turn_with_no_recorded_end_is_settled(pool: PgPool) {
+    seed_stop_when_done(&pool, "t1").await;
+    seed_turn(&pool, "t1", 1, "completed", None).await;
+    seed_user_message(&pool, "t1", ago(10)).await;
+
+    let sandbox = store_over(&pool)
+        .sandbox_to_stop_when_done("t1")
+        .await
+        .unwrap();
+    assert_eq!(sandbox.as_deref(), Some("t1"));
+}
+
+/// A Task whose first turn never opened still owes it, so a message with no
+/// turn row at all behind it keeps the Sandbox.
+#[sqlx::test]
+async fn a_message_on_a_task_that_never_ran_keeps_the_sandbox(pool: PgPool) {
+    seed_stop_when_done(&pool, "t1").await;
+    seed_user_message(&pool, "t1", ago(10)).await;
+
+    let sandbox = store_over(&pool)
+        .sandbox_to_stop_when_done("t1")
+        .await
+        .unwrap();
+    assert_eq!(sandbox, None);
+}
+
 /// Joining an existing Sandbox writes no second row: the joiner adopts the
 /// shape the initial member gave it.
 #[sqlx::test]
 async fn joining_a_sandbox_writes_no_second_row(pool: PgPool) {
     seed_bare_task(&pool, "seed", "open").await;
     let dao = store_over(&pool);
-    dao.insert_task(&task_row("t1")).await.unwrap();
+    dao.insert_task(&task_row("t1"), &SandboxPlacement::default()).await.unwrap();
 
     let mut joiner = task_row("t2");
     joiner.sandbox_id = Some("t1".to_string());
     joiner.checkout_mode = Some(CheckoutMode::Shared);
-    dao.insert_task(&joiner).await.unwrap();
+    dao.insert_task(&joiner, &SandboxPlacement::default()).await.unwrap();
 
     assert!(sandbox_shape(&pool, "t2").await.is_none(), "no second row");
     let bound: Option<String> =

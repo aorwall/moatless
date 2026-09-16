@@ -81,6 +81,8 @@ pub(super) fn delivery_only_rule(
         agent_type: moatless_types::agent::AgentType(String::new()),
         model: None,
         inactive_ttl_days: None,
+        node_selector: None,
+        stop_when_done: None,
         allow_direct_send: false,
         adapter_config: None,
         ongoing_task_id: None,

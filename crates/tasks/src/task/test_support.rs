@@ -98,7 +98,9 @@ pub async fn seed_task(pool: &DbPool, row: &Task) -> Result<(), sqlx::Error> {
         .execute(pool)
         .await?;
     }
-    tasks(pool).insert_task(row).await
+    tasks(pool)
+        .insert_task(row, &crate::task::models::SandboxPlacement::default())
+        .await
 }
 
 /// Read one Task back, scoped to `ctx`.

@@ -53,6 +53,11 @@ pub enum WorkspaceAction {
         resources_json: Option<String>,
         #[arg(long)]
         network_profile: Option<String>,
+        /// Extra node labels for this workspace's sandbox pods, as a JSON
+        /// object, e.g. `{"moatless.io/pool":"on-demand"}`. Admin only. Pass
+        /// `{}` to clear it.
+        #[arg(long)]
+        node_selector_json: Option<String>,
         /// Identity every task on this workspace acts as on a git host. Admin
         /// only. Pass an empty string to clear it.
         #[arg(long)]
@@ -92,6 +97,11 @@ pub enum WorkspaceAction {
         resources_json: Option<String>,
         #[arg(long)]
         network_profile: Option<String>,
+        /// Extra node labels for this workspace's sandbox pods, as a JSON
+        /// object, e.g. `{"moatless.io/pool":"on-demand"}`. Admin only. Pass
+        /// `{}` to clear it.
+        #[arg(long)]
+        node_selector_json: Option<String>,
         /// Identity every task on this workspace acts as on a git host. Admin
         /// only. Pass an empty string to clear it.
         #[arg(long)]
@@ -126,6 +136,11 @@ pub enum WorkspaceAction {
         resources_json: Option<String>,
         #[arg(long)]
         network_profile: Option<String>,
+        /// Extra node labels for this workspace's sandbox pods, as a JSON
+        /// object, e.g. `{"moatless.io/pool":"on-demand"}`. Admin only. Pass
+        /// `{}` to clear it.
+        #[arg(long)]
+        node_selector_json: Option<String>,
         /// Identity every task on this workspace acts as on a git host. Admin
         /// only. Pass an empty string to clear it.
         #[arg(long)]
@@ -290,6 +305,7 @@ pub async fn run(
             scripts_json,
             resources_json,
             network_profile,
+            node_selector_json,
             run_as_user_id,
             repos_json,
         } => {
@@ -317,6 +333,7 @@ pub async fn run(
                 scripts: parse_json_opt(&scripts_json, "--scripts-json")?,
                 resources: parse_json_opt(&resources_json, "--resources-json")?,
                 network_profile,
+                node_selector: parse_json_opt(&node_selector_json, "--node-selector-json")?,
                 run_as_user_id,
                 repos,
             };
@@ -342,6 +359,7 @@ pub async fn run(
             scripts_json,
             resources_json,
             network_profile,
+            node_selector_json,
             run_as_user_id,
         } => {
             let parsed_scope = parse_scope_arg(scope.as_deref())?;
@@ -363,6 +381,7 @@ pub async fn run(
                 scripts: parse_json_opt(&scripts_json, "--scripts-json")?,
                 resources: parse_json_opt(&resources_json, "--resources-json")?,
                 network_profile,
+                node_selector: parse_json_opt(&node_selector_json, "--node-selector-json")?,
                 run_as_user_id,
             };
             let updated = client.api().update_workspace(&workspace_id, &req).await?;
@@ -386,6 +405,7 @@ pub async fn run(
             scripts_json,
             resources_json,
             network_profile,
+            node_selector_json,
             run_as_user_id,
         } => {
             let req = UpdateWorkspaceRequest {
@@ -406,6 +426,7 @@ pub async fn run(
                 scripts: parse_json_opt(&scripts_json, "--scripts-json")?,
                 resources: parse_json_opt(&resources_json, "--resources-json")?,
                 network_profile,
+                node_selector: parse_json_opt(&node_selector_json, "--node-selector-json")?,
                 run_as_user_id,
             };
             let updated = client.api().override_workspace(&workspace_id, &req).await?;
@@ -873,6 +894,10 @@ fn format_workspace_detail(w: &WorkspaceResponse) {
     }
     if let Some(ref profile) = w.network_profile {
         println!("Network profile: {profile}");
+    }
+    if let Some(labels) = w.node_selector.as_ref().filter(|s| !s.is_empty()) {
+        let rendered: Vec<String> = labels.iter().map(|(k, v)| format!("{k}={v}")).collect();
+        println!("Node selector: {}", rendered.join(","));
     }
     if let Some(ref prompt) = w.system_prompt {
         let preview: String = prompt.chars().take(80).collect();

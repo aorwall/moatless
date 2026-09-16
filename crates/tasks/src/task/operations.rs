@@ -31,8 +31,12 @@ impl TaskCommands {
     }
 
     /// See [`TaskDao::insert_task`].
-    pub async fn insert_task(&self, row: &Task) -> Result<(), sqlx::Error> {
-        self.store.insert_task(row).await
+    pub async fn insert_task(
+        &self,
+        row: &Task,
+        placement: &super::models::SandboxPlacement,
+    ) -> Result<(), sqlx::Error> {
+        self.store.insert_task(row, placement).await
     }
 
     /// See [`TaskDao::delete_inserted_task_after_join_failure`].
@@ -159,6 +163,14 @@ impl TaskCommands {
         sandbox_ids: &[String],
     ) -> Result<Vec<(String, String)>, sqlx::Error> {
         self.store.list_sandbox_members(sandbox_ids).await
+    }
+
+    /// See [`TaskDao::sandbox_to_stop_when_done`].
+    pub async fn sandbox_to_stop_when_done(
+        &self,
+        task_id: &str,
+    ) -> Result<Option<String>, sqlx::Error> {
+        self.store.sandbox_to_stop_when_done(task_id).await
     }
 
     /// See [`TaskDao::mark_task_read`].

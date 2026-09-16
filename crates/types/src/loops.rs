@@ -3,6 +3,8 @@
 //!
 //! The module is plural because `loop` is a Rust keyword.
 
+use std::collections::BTreeMap;
+
 use chrono::{DateTime, Utc};
 
 use crate::access_control::Scope;
@@ -58,6 +60,14 @@ pub struct LoopContext {
     /// back to the platform-wide default (`TASK_INACTIVE_TIMEOUT_DAYS`). Flows
     /// into `tasks.inactive_ttl_days` at task creation time.
     pub inactive_ttl_days: Option<i32>,
+    /// Extra node labels for the sandboxes this Loop spawns, merged over the
+    /// deployment-wide selector. Outranks the Workspace's own value, and `None`
+    /// falls back to it.
+    pub node_selector: Option<BTreeMap<String, String>>,
+    /// Stop this Loop's sandbox as soon as its agent run finishes, rather than
+    /// holding the pod for the idle TTL. Keeps a long autonomous run on
+    /// dedicated capacity from outliving the work it was started for.
+    pub stop_when_done: bool,
     pub created_by: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -122,6 +132,11 @@ pub struct SubscriptionMatch {
     /// Per-Loop model override. See [`LoopContext::model`].
     pub model: Option<String>,
     pub inactive_ttl_days: Option<i32>,
+    /// See [`LoopContext::node_selector`].
+    pub node_selector: Option<BTreeMap<String, String>>,
+    /// See [`LoopContext::stop_when_done`]. `None` is the Loop declaring
+    /// nothing, which resolves to `false`.
+    pub stop_when_done: Option<bool>,
     pub allow_direct_send: bool,
     pub adapter_config: Option<serde_json::Value>,
     pub ongoing_task_id: Option<String>,

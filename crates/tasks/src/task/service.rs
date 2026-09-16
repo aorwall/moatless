@@ -291,6 +291,9 @@ pub async fn normalize(
     }
 
     Ok(NewTaskRequest {
+        // The HTTP path has no Loop behind it, so the Sandbox takes whatever
+        // its Workspace declares.
+        sandbox_placement: crate::task::models::SandboxPlacement::default(),
         repository_id: repository_id.clone(),
         agent_type,
         name: req.name.clone(),

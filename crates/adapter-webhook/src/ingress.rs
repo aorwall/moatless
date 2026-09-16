@@ -221,6 +221,8 @@ mod tests {
             created_by: "default-user".into(),
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
+            node_selector: None,
+            stop_when_done: false,
         }
     }
 

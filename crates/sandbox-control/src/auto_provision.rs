@@ -53,6 +53,7 @@ pub fn build_repo_config_from_workspace(ws: &ResolvedWorkspace) -> RepoConfig {
         docker_networks: None,
         sandbox_service_account: ws.sandbox_service_account.clone(),
         network_profile: ws.network_profile.clone(),
+        node_selector: ws.node_selector.clone(),
     }
 }
 
@@ -235,6 +236,14 @@ pub(crate) async fn build_provision_request(
         );
         (minimal_repo_config(&repo.name), None)
     };
+
+    // The Sandbox row already holds the Loop-over-Workspace resolution made when
+    // it was created, so a Loop's placement survives a pod rebuild even if the
+    // Workspace changed since. A row written before this column existed is NULL
+    // and falls through to the Workspace's own value, set just above.
+    if let Some(selector) = shape.node_selector.as_ref() {
+        repo_config.node_selector = Some(selector.0.clone());
+    }
 
     // The Agent harness is fixed for the Sandbox lifetime: pass it at
     // construction so the sandbox resolves it once. Inserted after the workspace
@@ -487,6 +496,7 @@ fn minimal_repo_config(name: &str) -> RepoConfig {
         docker_networks: None,
         sandbox_service_account: None,
         network_profile: None,
+        node_selector: None,
     }
 }
 
@@ -604,6 +614,7 @@ mod tests {
             servers: None,
             resources: None,
             network_profile: None,
+            node_selector: None,
             run_as_user_id: None,
             deleted: false,
         }

@@ -97,6 +97,8 @@ impl AdapterBindingReply for TelegramAdapter {
                 created_by: "system".to_string(),
                 created_at: binding.created_at,
                 updated_at: binding.last_event_at,
+                node_selector: None,
+                stop_when_done: false,
             },
             moatless_adapter_model::loops::subscription_context,
         );

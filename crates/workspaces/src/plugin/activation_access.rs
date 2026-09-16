@@ -415,6 +415,7 @@ mod tests {
             scripts: None,
             resources: None,
             network_profile: None,
+            node_selector: None,
             source: WorkspaceSource::Manual,
             source_repository_id: None,
             source_key: None,

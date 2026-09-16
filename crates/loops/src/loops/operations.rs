@@ -271,6 +271,8 @@ impl Loops {
                     agent_type,
                     model: req.config.model.clone(),
                     inactive_ttl_days: req.config.inactive_ttl_days,
+                    node_selector: req.config.node_selector.clone(),
+                    stop_when_done: req.config.stop_when_done,
                 },
                 source,
             })
@@ -617,6 +619,10 @@ fn next_config(
         inactive_ttl_days: rule
             .inactive_ttl_days
             .unwrap_or(current.config.inactive_ttl_days),
+        node_selector: rule
+            .node_selector
+            .unwrap_or_else(|| current.config.node_selector.clone()),
+        stop_when_done: rule.stop_when_done.or(current.config.stop_when_done),
     })
 }
 
@@ -685,6 +691,8 @@ mod tests {
                 agent_type: moatless_types::agent::AgentType(agent_type.into()),
                 model: model.map(ToString::to_string),
                 inactive_ttl_days: None,
+                node_selector: None,
+                stop_when_done: None,
             },
             source: LoopSourceRow::Manual,
         }

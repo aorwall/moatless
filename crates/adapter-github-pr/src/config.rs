@@ -227,6 +227,8 @@ mod tests {
             agent_type: "claude-code".into(),
             model: None,
             inactive_ttl_days: None,
+            node_selector: None,
+            stop_when_done: None,
             allow_direct_send: false,
             adapter_config,
             ongoing_task_id: None,

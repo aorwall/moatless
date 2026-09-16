@@ -92,6 +92,11 @@ pub struct Workspace {
     /// on its own, and the set of valid names is deployment configuration, so
     /// this stays an open string.
     pub network_profile: Option<String>,
+    /// Extra node labels a sandbox pod must match, merged over the
+    /// deployment-wide selector rather than replacing it — dropping the global
+    /// labels would strand the pod on the taint they pair with. Selects
+    /// platform-owned capacity; provisions none.
+    pub node_selector: Option<BTreeMap<String, String>>,
     // --- Task defaults ---
     /// Model catalog id (`opus`, `sonnet`) a new Task on this Workspace starts
     /// with. An open string: the catalog is deployment configuration.

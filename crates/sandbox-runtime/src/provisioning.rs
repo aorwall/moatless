@@ -93,6 +93,14 @@ pub struct RepoConfig {
     /// Selects a policy only; grants nothing on its own.
     #[serde(default)]
     pub network_profile: Option<String>,
+    // --- Node placement (opt-in per-workspace/per-loop) ---
+    /// Extra node labels the sandbox pod must match, merged over
+    /// `K8S_SANDBOX_NODE_SELECTOR` rather than replacing it — the global
+    /// selector is what pairs with the global toleration. Selects
+    /// platform-owned capacity; creates none. Ignored in Docker mode.
+    #[serde(default)]
+    #[schema(value_type = Object)]
+    pub node_selector: Option<std::collections::BTreeMap<String, String>>,
 }
 
 pub use moatless_workspace_types::workspace::ServerOverride;

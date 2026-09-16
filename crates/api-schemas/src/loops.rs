@@ -53,6 +53,14 @@ pub struct LoopConfig {
     /// default" (`TASK_INACTIVE_TIMEOUT_DAYS`). Flows into
     /// `tasks.inactive_ttl_days` when this Loop spawns a task.
     pub inactive_ttl_days: Option<i32>,
+    /// Extra node labels for the sandboxes this Loop spawns, merged over the
+    /// deployment-wide selector and outranking the Workspace's own value.
+    /// Admin-only, and never declared in `LOOP.md`.
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<Object>))]
+    pub node_selector: Option<std::collections::BTreeMap<String, String>>,
+    /// Stop this Loop's sandbox as soon as its agent run finishes, rather than
+    /// holding the pod for the idle TTL.
+    pub stop_when_done: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -72,6 +80,11 @@ pub struct CreateLoopConfig {
     /// See [`LoopConfig::model`].
     pub model: Option<String>,
     pub inactive_ttl_days: Option<i32>,
+    /// See [`LoopConfig::node_selector`].
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<Object>))]
+    pub node_selector: Option<std::collections::BTreeMap<String, String>>,
+    /// See [`LoopConfig::stop_when_done`].
+    pub stop_when_done: Option<bool>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -95,6 +108,16 @@ pub struct UpdateLoopConfig {
     )]
     pub model: Option<Option<String>>,
     pub inactive_ttl_days: Option<Option<i32>>,
+    /// See [`LoopConfig::node_selector`]. `Some(None)` clears the override.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_nullable_field"
+    )]
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<Object>))]
+    pub node_selector: Option<Option<std::collections::BTreeMap<String, String>>>,
+    /// See [`LoopConfig::stop_when_done`].
+    pub stop_when_done: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

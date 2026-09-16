@@ -7,8 +7,8 @@ use chrono::{DateTime, Utc};
 use sqlx::AssertSqlSafe;
 
 use super::models::{
-    CheckoutMode, SandboxDesiredState, SandboxIntentView, Task, TaskFilter, TaskPatch, TaskRow,
-    TaskStatus, Visibility, sandbox_intent_epoch,
+    CheckoutMode, SandboxDesiredState, SandboxIntentView, SandboxPlacement, Task, TaskFilter,
+    TaskPatch, TaskRow, TaskStatus, Visibility, sandbox_intent_epoch,
 };
 use moatless_core::db::DbPool;
 use moatless_core::db_enum::decode_optional;
@@ -78,7 +78,11 @@ pub(crate) trait TaskDao: Send + Sync {
     ) -> Result<Option<Task>, sqlx::Error>;
     /// Insert a task. `row.workspace_id` must be set: every Task runs in a
     /// Workspace, and the Sandbox row written alongside it is keyed on that id.
-    async fn insert_task(&self, row: &Task) -> Result<(), sqlx::Error>;
+    async fn insert_task(
+        &self,
+        row: &Task,
+        placement: &SandboxPlacement,
+    ) -> Result<(), sqlx::Error>;
     /// Compensate a shared-sandbox join failure after `insert_task`: removes
     /// the just-created Task and its rows, never the Sandbox row — it belongs
     /// to the members the Task tried to join.
@@ -166,6 +170,15 @@ pub(crate) trait TaskDao: Send + Sync {
         &self,
         sandbox_ids: &[String],
     ) -> Result<Vec<(String, String)>, sqlx::Error>;
+
+    /// The Sandbox to stop now that `task_id`'s agent run has finished, when it
+    /// asked to be stopped that way (`sandboxes.stop_when_done`) and nothing
+    /// else is still using it.
+    ///
+    /// `None` on every other shape — still busy, or a turn owed — leaves the
+    /// pod to the idle reaper, the only other thing that stops it.
+    async fn sandbox_to_stop_when_done(&self, task_id: &str)
+    -> Result<Option<String>, sqlx::Error>;
 
     /// Upsert a user's read marker for a task. Monotonic — never moves the
     /// stored `last_read_at` backwards, so out-of-order calls are safe.
@@ -280,7 +293,11 @@ impl TaskDao for PgTaskDao {
         row.map(Task::try_from).transpose()
     }
 
-    async fn insert_task(&self, row: &Task) -> Result<(), sqlx::Error> {
+    async fn insert_task(
+        &self,
+        row: &Task,
+        placement: &SandboxPlacement,
+    ) -> Result<(), sqlx::Error> {
         // The column is nullable for rows written before workspaces existed, so
         // the invariant is enforced here rather than by the schema.
         let workspace_id = row.workspace_id.clone().ok_or_else(|| {
@@ -312,11 +329,13 @@ impl TaskDao for PgTaskDao {
             let inserted = sqlx::query(
                 r#"INSERT INTO sandboxes (
                        sandbox_id, workspace_id, scope, owner_user_id, run_as_user_id,
-                       branch, headless, agent_type, use_tmux, storage_reclaimed_at
+                       branch, headless, agent_type, use_tmux, storage_reclaimed_at,
+                       node_selector, stop_when_done
                    )
                    SELECT $1, w.id, $2, $3,
                           COALESCE(NULLIF($9, ''), NULLIF(w.run_as_user_id, ''), $3),
-                          $4, $5, $6, $7, NOW()
+                          $4, $5, $6, $7, NOW(),
+                          COALESCE($10, w.node_selector), $11
                    FROM workspaces w
                    WHERE w.id = $8"#,
             )
@@ -331,6 +350,8 @@ impl TaskDao for PgTaskDao {
             .bind(crate::agent::catalog::use_tmux_for(row.agent_type.as_str()))
             .bind(&workspace_id)
             .bind(&row.run_as_user_id)
+            .bind(placement.node_selector.as_ref().map(sqlx::types::Json))
+            .bind(placement.stop_when_done)
             .execute(&mut *tx)
             .await?;
             if inserted.rows_affected() == 0 {
@@ -1073,6 +1094,63 @@ impl TaskDao for PgTaskDao {
         )
         .bind(sandbox_ids)
         .fetch_all(&self.pool)
+        .await
+    }
+
+    async fn sandbox_to_stop_when_done(
+        &self,
+        task_id: &str,
+    ) -> Result<Option<String>, sqlx::Error> {
+        // Three busy axes, read in one statement so none of them can open
+        // between checks: `running_commands` is what the idle reaper defers on,
+        // an `active` turn is a redelivered completion racing a newer run, and a
+        // user message past the last turn's `ended_at` is a turn owed but not
+        // yet opened — `moatless_types::running::turn_is_owed` owns that rule.
+        sqlx::query_scalar(
+            r#"
+            SELECT s.sandbox_id
+            FROM tasks t
+            JOIN sandboxes s ON s.sandbox_id = t.sandbox_id
+            WHERE t.task_id = $1
+              AND s.stop_when_done
+              AND s.running_commands = 0
+              AND NOT EXISTS (
+                    SELECT 1
+                    FROM task_turns tt
+                    WHERE tt.task_id = t.task_id
+                      AND tt.status IN ('active', 'interrupted')
+              )
+              AND NOT EXISTS (
+                    SELECT 1
+                    FROM task_messages m
+                    WHERE m.task_id = t.task_id
+                      AND m.message_type = 'user'
+                      AND (
+                            NOT EXISTS (
+                                  SELECT 1
+                                  FROM task_turns tt
+                                  WHERE tt.task_id = t.task_id
+                            )
+                            OR m.created_at > (
+                                  SELECT tt.ended_at
+                                  FROM task_turns tt
+                                  WHERE tt.task_id = t.task_id
+                                  ORDER BY tt.turn_number DESC
+                                  LIMIT 1
+                            )
+                      )
+              )
+              AND NOT EXISTS (
+                    SELECT 1
+                    FROM tasks peer
+                    WHERE peer.sandbox_id = s.sandbox_id
+                      AND peer.task_id <> t.task_id
+                      AND peer.status IN ('open', 'error')
+              )
+            "#,
+        )
+        .bind(task_id)
+        .fetch_optional(&self.pool)
         .await
     }
 

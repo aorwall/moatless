@@ -89,6 +89,14 @@ pub struct LoopFrontmatter {
     /// `None` inherits the platform default (`TASK_INACTIVE_TIMEOUT_DAYS`).
     #[serde(default)]
     pub inactive_ttl_days: Option<i32>,
+    /// Stop the loop's sandbox as soon as the agent run finishes, rather than
+    /// holding the pod for the idle TTL
+    /// ([`moatless_types::loops::LoopContext::stop_when_done`]).
+    ///
+    /// `node_selector` has no Git field beside this one: commit access would
+    /// otherwise move a repository's loops onto dedicated capacity.
+    #[serde(default)]
+    pub stop_when_done: Option<bool>,
     /// Schedule settings — only meaningful when `on: schedule`.
     #[serde(default)]
     pub schedule: Option<LoopSchedule>,

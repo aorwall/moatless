@@ -249,6 +249,21 @@ impl TaskPatch {
     }
 }
 
+/// What a Loop imposes on the Sandbox row written beside a new Task.
+///
+/// Both fields are resolved once here, at creation, so a later pod rebuild
+/// keeps the placement the Sandbox started with even if its Loop or Workspace
+/// changed since. Defaults are the Workspace's own values.
+#[derive(Debug, Clone, Default)]
+pub struct SandboxPlacement {
+    /// See [`moatless_types::loops::LoopContext::node_selector`]. `None` falls
+    /// through to `workspaces.node_selector` in the insert's `COALESCE`, which
+    /// is what makes a Loop outrank its Workspace without a second read.
+    pub node_selector: Option<std::collections::BTreeMap<String, String>>,
+    /// See [`moatless_types::loops::LoopContext::stop_when_done`].
+    pub stop_when_done: bool,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

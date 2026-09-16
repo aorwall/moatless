@@ -144,6 +144,8 @@ mod tests {
             created_by: "owner".into(),
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
+            node_selector: None,
+            stop_when_done: false,
         };
 
         let cfg = SlackAdapterConfig::from_config(&config);

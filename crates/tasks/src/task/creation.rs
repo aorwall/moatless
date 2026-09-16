@@ -60,6 +60,9 @@ pub struct NewTaskRequest {
     pub append_system_prompt: Option<String>,
     pub ttl_minutes: i32,
     pub inactive_ttl_days: i32,
+    /// What the firing Loop imposes on the Sandbox row written alongside the
+    /// Task. Default on every path but a Loop firing.
+    pub sandbox_placement: crate::task::models::SandboxPlacement,
     /// Pre-resolved tag ids to attach (adapters pass their Loop's tag ids; the
     /// HTTP path passes none).
     pub tag_ids: Vec<String>,
@@ -327,13 +330,13 @@ impl TaskCreationService {
         if let Err(e) = self.preflight.validate(&row, &repo).await {
             tracing::warn!(task_id = %task_id, error = %e, "Task creation preflight failed");
             row.status = TaskStatus::Error;
-            self.tasks.insert_task(&row).await?;
+            self.tasks.insert_task(&row, &req.sandbox_placement).await?;
             self.publish_sandbox_error(&task_id, &e.user_message, &e.detail, "preflight_failed")
                 .await;
             return Err(TaskCreationError::Preflight(e.user_message));
         }
 
-        self.tasks.insert_task(&row).await?;
+        self.tasks.insert_task(&row, &req.sandbox_placement).await?;
         // `insert_task` writes the Sandbox row for a request that named none,
         // under the task's own id. Carry it back onto the in-memory row: the
         // create response and the `task.created` event are built from this row,
@@ -604,6 +607,7 @@ mod tests {
 
     fn sample_request() -> NewTaskRequest {
         NewTaskRequest {
+            sandbox_placement: crate::task::models::SandboxPlacement::default(),
             repository_id: "repo1".into(),
             agent_type: AgentType(AgentType::CLAUDE_CODE.into()),
             name: Some("t".into()),
@@ -689,9 +693,9 @@ mod tests {
         tasks.expect_exists_by_short_id().returning(|_| Ok(false));
         tasks
             .expect_insert_task()
-            .withf(|row| row.status == TaskStatus::Open)
+            .withf(|row, _| row.status == TaskStatus::Open)
             .times(1)
-            .returning(|_| Ok(()));
+            .returning(|_, _| Ok(()));
         let mut starter = MockStarter::new();
         starter.expect_start().times(1).returning(|_| Ok(()));
 
@@ -723,9 +727,9 @@ mod tests {
         tasks.expect_exists_by_short_id().returning(|_| Ok(false));
         tasks
             .expect_insert_task()
-            .withf(|row| row.workspace_id.as_deref() == Some(WORKSPACE))
+            .withf(|row, _| row.workspace_id.as_deref() == Some(WORKSPACE))
             .times(1)
-            .returning(|_| Ok(()));
+            .returning(|_, _| Ok(()));
         let mut starter = MockStarter::new();
         starter.expect_start().returning(|_| Ok(()));
 
@@ -755,9 +759,11 @@ mod tests {
         tasks.expect_exists_by_short_id().returning(|_| Ok(false));
         tasks
             .expect_insert_task()
-            .withf(|row| row.scope == Scope::User && row.owner_user_id.as_deref() == Some("bot1"))
+            .withf(|row, _| {
+                row.scope == Scope::User && row.owner_user_id.as_deref() == Some("bot1")
+            })
             .times(1)
-            .returning(|_| Ok(()));
+            .returning(|_, _| Ok(()));
         let mut starter = MockStarter::new();
         starter.expect_start().returning(|_| Ok(()));
 
@@ -781,9 +787,9 @@ mod tests {
         tasks.expect_exists_by_short_id().returning(|_| Ok(false));
         tasks
             .expect_insert_task()
-            .withf(|row| row.model.as_deref() == Some("claude-opus-4-6"))
+            .withf(|row, _| row.model.as_deref() == Some("claude-opus-4-6"))
             .times(1)
-            .returning(|_| Ok(()));
+            .returning(|_, _| Ok(()));
         let mut starter = MockStarter::new();
         starter.expect_start().returning(|_| Ok(()));
 
@@ -806,7 +812,7 @@ mod tests {
 
         let mut tasks = MockTaskDao::new();
         tasks.expect_exists_by_short_id().returning(|_| Ok(false));
-        tasks.expect_insert_task().times(1).returning(|_| Ok(()));
+        tasks.expect_insert_task().times(1).returning(|_, _| Ok(()));
 
         let mut starter = MockStarter::new();
         let start_order = Arc::clone(&order);
@@ -853,9 +859,9 @@ mod tests {
         tasks.expect_exists_by_short_id().returning(|_| Ok(false));
         tasks
             .expect_insert_task()
-            .withf(|row| row.status == TaskStatus::Error)
+            .withf(|row, _| row.status == TaskStatus::Error)
             .times(1)
-            .returning(|_| Ok(()));
+            .returning(|_, _| Ok(()));
         let mut starter = MockStarter::new();
         starter.expect_start().never();
 
@@ -892,9 +898,9 @@ mod tests {
         tasks.expect_exists_by_short_id().returning(|_| Ok(false));
         tasks
             .expect_insert_task()
-            .withf(|row| row.status == TaskStatus::Open)
+            .withf(|row, _| row.status == TaskStatus::Open)
             .times(1)
-            .returning(|_| Ok(()));
+            .returning(|_, _| Ok(()));
         let mut starter = MockStarter::new();
         starter
             .expect_start()
@@ -934,7 +940,7 @@ mod tests {
             .times(1)
             .in_sequence(&mut seq)
             .returning(|_| Ok(false));
-        tasks.expect_insert_task().times(1).returning(|_| Ok(()));
+        tasks.expect_insert_task().times(1).returning(|_, _| Ok(()));
         let mut starter = MockStarter::new();
         starter.expect_start().returning(|_| Ok(()));
 
@@ -964,9 +970,9 @@ mod tests {
         tasks.expect_exists_by_short_id().returning(|_| Ok(false));
         tasks
             .expect_insert_task()
-            .withf(|row| row.task_id == "3f1c9d42-0a7e-4b19-8c55-11d2ab6e7f30")
+            .withf(|row, _| row.task_id == "3f1c9d42-0a7e-4b19-8c55-11d2ab6e7f30")
             .times(1)
-            .returning(|_| Ok(()));
+            .returning(|_, _| Ok(()));
         let mut starter = MockStarter::new();
         starter.expect_start().returning(|_| Ok(()));
 
@@ -996,7 +1002,7 @@ mod tests {
     async fn provisioning_is_skipped_when_the_request_does_not_ask_for_it() {
         let mut tasks = MockTaskDao::new();
         tasks.expect_exists_by_short_id().returning(|_| Ok(false));
-        tasks.expect_insert_task().times(1).returning(|_| Ok(()));
+        tasks.expect_insert_task().times(1).returning(|_, _| Ok(()));
         let mut starter = MockStarter::new();
         starter.expect_start().never();
 
@@ -1028,12 +1034,12 @@ mod tests {
         tasks.expect_exists_by_short_id().returning(|_| Ok(false));
         tasks
             .expect_insert_task()
-            .withf(|row| {
+            .withf(|row, _| {
                 row.sandbox_id.as_deref() == Some("sandbox-1")
                     && row.checkout_mode == Some(CheckoutMode::Shared)
             })
             .times(1)
-            .returning(|_| Ok(()));
+            .returning(|_, _| Ok(()));
 
         let mut starter = MockStarter::new();
         starter.expect_start().never();
@@ -1093,7 +1099,7 @@ mod tests {
         let order = Arc::new(Mutex::new(Vec::new()));
         let mut tasks = MockTaskDao::new();
         tasks.expect_exists_by_short_id().returning(|_| Ok(false));
-        tasks.expect_insert_task().times(1).returning(|_| Ok(()));
+        tasks.expect_insert_task().times(1).returning(|_, _| Ok(()));
         let cleanup_order = Arc::clone(&order);
         tasks
             .expect_delete_inserted_task_after_join_failure()
@@ -1157,7 +1163,7 @@ mod tests {
         let order = Arc::new(Mutex::new(Vec::new()));
         let mut tasks = MockTaskDao::new();
         tasks.expect_exists_by_short_id().returning(|_| Ok(false));
-        tasks.expect_insert_task().times(1).returning(|_| Ok(()));
+        tasks.expect_insert_task().times(1).returning(|_, _| Ok(()));
         // A deferred join never cleans up the inserted task.
         tasks
             .expect_delete_inserted_task_after_join_failure()

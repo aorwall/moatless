@@ -43,6 +43,7 @@ pub struct WorkspaceRow {
     pub scripts: Option<serde_json::Value>,
     pub resources: Option<serde_json::Value>,
     pub network_profile: Option<String>,
+    pub node_selector: Option<serde_json::Value>,
     // --- Task defaults ---
     pub default_model: Option<String>,
     pub default_effort: Option<String>,
@@ -77,6 +78,7 @@ impl TryFrom<WorkspaceRow> for Workspace {
             servers: decode_column(row.servers, &id, "servers"),
             scripts: decode_column(row.scripts, &id, "scripts"),
             resources: decode_column(row.resources, &id, "resources"),
+            node_selector: decode_column(row.node_selector, &id, "node_selector"),
             icon: decode_column(row.icon, &id, "icon"),
             id,
             name: row.name,
@@ -245,6 +247,7 @@ pub struct WorkspacePatch {
     pub scripts: Option<Option<Vec<ScriptConfig>>>,
     pub resources: Option<Option<ResourceConfig>>,
     pub network_profile: Option<Option<String>>,
+    pub node_selector: Option<Option<std::collections::BTreeMap<String, String>>>,
     pub default_model: Option<Option<String>>,
     pub default_effort: Option<Option<String>>,
     pub source: Option<WorkspaceSource>,

@@ -7,6 +7,8 @@
 //! the marker in one transaction, so the deterministic event id is never live
 //! without its persisted fact.
 
+use std::collections::BTreeMap;
+
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 
@@ -39,6 +41,12 @@ pub struct SandboxShape {
     pub headless: bool,
     pub agent_type: Option<String>,
     pub use_tmux: bool,
+    /// Extra node labels for the pod, already resolved Loop-over-Workspace at
+    /// Sandbox creation so a pod rebuild keeps the placement it started with.
+    pub node_selector: Option<sqlx::types::Json<BTreeMap<String, String>>>,
+    /// Stop as soon as the agent run finishes, instead of holding the pod for
+    /// the idle TTL. Set from the Loop that opened the Sandbox.
+    pub stop_when_done: bool,
 }
 
 /// One Sandbox the reconciler should look at, named by the Task that represents
@@ -379,7 +387,8 @@ impl LifecycleDao for PgLifecycleDao {
     async fn sandbox_shape(&self, sandbox_id: &str) -> Result<Option<SandboxShape>, StoreError> {
         sqlx::query_as(
             r#"SELECT workspace_id, scope, owner_user_id, run_as_user_id,
-                      branch, headless, agent_type, use_tmux
+                      branch, headless, agent_type, use_tmux,
+                      node_selector, stop_when_done
                FROM sandboxes
                WHERE sandbox_id = $1"#,
         )

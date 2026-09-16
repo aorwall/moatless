@@ -26,6 +26,9 @@ pub struct ResolvedWorkspace {
     pub servers: Option<Vec<ServerConfig>>,
     pub resources: Option<ResourceConfig>,
     pub network_profile: Option<String>,
+    /// Extra node labels sandbox pods must match, merged over the
+    /// deployment-wide selector.
+    pub node_selector: Option<std::collections::BTreeMap<String, String>>,
     /// The identity every Task on this Workspace acts as on a git host. When
     /// set it outranks the Task's own owner.
     pub run_as_user_id: Option<String>,

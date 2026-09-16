@@ -212,6 +212,10 @@ pub struct CreateWorkspaceRequest {
     pub resources: Option<ResourceConfig>,
     #[serde(default)]
     pub network_profile: Option<String>,
+    /// Extra node labels sandbox pods must match, merged over the
+    /// deployment-wide selector. Admin-only, like the two fields above it.
+    #[serde(default)]
+    pub node_selector: Option<BTreeMap<String, String>>,
     // --- Task defaults ---
     #[serde(default)]
     pub default_model: Option<String>,
@@ -253,6 +257,9 @@ pub struct UpdateWorkspaceRequest {
     pub scripts: Option<Vec<ScriptConfig>>,
     pub resources: Option<ResourceConfig>,
     pub network_profile: Option<String>,
+    /// Extra node labels sandbox pods must match, merged over the
+    /// deployment-wide selector. Send `{}` to clear.
+    pub node_selector: Option<BTreeMap<String, String>>,
     /// Omit to leave the icon unchanged; send `null` to clear it back to the
     /// client's automatic glyph. The same holds for the two fields below.
     #[serde(
@@ -343,6 +350,8 @@ pub struct WorkspaceResponse {
     pub resources: Option<ResourceConfig>,
     #[serde(default)]
     pub network_profile: Option<String>,
+    #[serde(default)]
+    pub node_selector: Option<BTreeMap<String, String>>,
     /// Model catalog id a new Task on this Workspace starts with. An open
     /// string: the catalog is deployment configuration.
     #[serde(default)]
