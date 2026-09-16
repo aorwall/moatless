@@ -206,17 +206,17 @@ pub(super) async fn delete_user_provider_id(
     })
 }
 
-/// List user provider ids under the authenticated account policy.
+/// List user provider ids for any authenticated caller.
+///
+/// Deliberately not self-or-admin, unlike the setters above: an agent routing a
+/// ticket has to map a GitHub login to a Linear user, and it is neither the
+/// subject nor an admin. The mapping is a directory of public handles the same
+/// caller can already read from GitHub, Slack or Linear directly.
 pub(super) async fn list_user_provider_ids(
     state: &AuthState,
-    identity: &AuthIdentity,
     login: String,
 ) -> Result<Vec<UserProviderIdItem>, AuthError> {
     let user_id = resolve_login_to_user_id(state, &login).await?;
-
-    if identity.user_id != user_id && identity.role != UserRole::Admin {
-        return Err(AuthError::Forbidden);
-    }
 
     let accounts = state.users.list_provider_ids(&user_id).await?;
     let items: Vec<UserProviderIdItem> = accounts

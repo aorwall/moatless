@@ -978,11 +978,6 @@ export type listUserProviderIdsHandlerResponse401 = {
   status: 401
 }
 
-export type listUserProviderIdsHandlerResponse403 = {
-  data: ErrorBody
-  status: 403
-}
-
 export type listUserProviderIdsHandlerResponse404 = {
   data: ErrorBody
   status: 404
@@ -991,7 +986,7 @@ export type listUserProviderIdsHandlerResponse404 = {
 export type listUserProviderIdsHandlerResponseSuccess = (listUserProviderIdsHandlerResponse200) & {
   headers: Headers;
 };
-export type listUserProviderIdsHandlerResponseError = (listUserProviderIdsHandlerResponse401 | listUserProviderIdsHandlerResponse403 | listUserProviderIdsHandlerResponse404) & {
+export type listUserProviderIdsHandlerResponseError = (listUserProviderIdsHandlerResponse401 | listUserProviderIdsHandlerResponse404) & {
   headers: Headers;
 };
 
@@ -1006,7 +1001,7 @@ export const getListUserProviderIdsHandlerUrl = (login: string,) => {
 }
 
 /**
- * Only the user themselves or an admin may call this.
+ * Any authenticated caller may read these; writing one is still self-or-admin.
  * @summary List all provider ID mappings for a moatless user.
  */
 export const listUserProviderIdsHandler = async (login: string, options?: Parameters<typeof customInstance>[1]): Promise<listUserProviderIdsHandlerResponse> => {

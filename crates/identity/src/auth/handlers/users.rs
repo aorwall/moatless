@@ -272,7 +272,7 @@ pub(in crate::auth) async fn delete_user_provider_id_handler(
 
 /// List all provider ID mappings for a moatless user.
 ///
-/// Only the user themselves or an admin may call this.
+/// Any authenticated caller may read these; writing one is still self-or-admin.
 #[utoipa::path(
     get,
     path = "/api/v1/users/{login}/provider-ids",
@@ -283,7 +283,6 @@ pub(in crate::auth) async fn delete_user_provider_id_handler(
     responses(
         (status = 200, description = "List of provider ID mappings", body = Vec<UserProviderIdItem>),
         (status = 401, description = "Not authenticated", body = ErrorBody),
-        (status = 403, description = "Access denied", body = ErrorBody),
         (status = 404, description = "User not found", body = ErrorBody)
     )
 )]
@@ -292,8 +291,8 @@ pub(in crate::auth) async fn list_user_provider_ids_handler(
     headers: HeaderMap,
     Path(login): Path<String>,
 ) -> Result<Json<Vec<UserProviderIdItem>>, AuthError> {
-    let identity = authenticate_request(&state, &headers).await?;
+    authenticate_request(&state, &headers).await?;
     Ok(Json(
-        crate::auth::accounts::list_user_provider_ids(&state, &identity, login).await?,
+        crate::auth::accounts::list_user_provider_ids(&state, login).await?,
     ))
 }

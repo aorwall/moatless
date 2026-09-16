@@ -8912,7 +8912,7 @@
           "users"
         ],
         "summary": "List all provider ID mappings for a moatless user.",
-        "description": "Only the user themselves or an admin may call this.",
+        "description": "Any authenticated caller may read these; writing one is still self-or-admin.",
         "operationId": "list_user_provider_ids_handler",
         "parameters": [
           {
@@ -8941,16 +8941,6 @@
           },
           "401": {
             "description": "Not authenticated",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Access denied",
             "content": {
               "application/json": {
                 "schema": {
