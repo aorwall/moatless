@@ -31,6 +31,10 @@ pub struct ServerSnapshot {
     pub enable_inspector: bool,
     pub status: ServerStatus,
     pub error: Option<String>,
+    /// Why the server is in this status, when the status alone does not say
+    /// — a `disabled` server names the headless Task that never started it.
+    #[serde(default)]
+    pub detail: Option<String>,
     pub pid: Option<u32>,
 }
 

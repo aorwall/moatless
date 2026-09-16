@@ -115,13 +115,18 @@ crate::string_enum!(
 );
 
 crate::string_enum!(
-    /// Matches TS `ServerStatusEnumSchema`: 'stopped' | 'installing' | 'starting' | 'started' | 'failed'
+    /// Matches TS `ServerStatusEnumSchema`: 'stopped' | 'installing' | 'starting' | 'started' | 'failed' | 'disabled'
     ServerStatus {
         Stopped => "stopped",
         Installing => "installing",
         Starting => "starting",
         Started => "started",
         Failed => "failed",
+        /// Declared by the Workspace and never started, because the Sandbox
+        /// runs headless. Distinct from `Stopped`, which is a server that
+        /// starting would bring up; nothing starts this one short of recreating
+        /// the Task.
+        Disabled => "disabled",
     }
 );
 

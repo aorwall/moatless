@@ -211,6 +211,7 @@ loader for tagging and have no injection hook; treat them as not yet supported.
 | Symptom | Most likely | Next move |
 |---|---|---|
 | `stopped`, never starts | server not in the workspace's `servers[]`, or auto-disabled after 5 crashes | `moat tasks servers $TASK_ID list`; check `moat events list $TASK_ID --types server` |
+| `disabled`, and `logs` answers 404 | the task is headless, so provisioning dropped every server the workspace declares and created no sidecar | nothing to debug in the server; recreate the task with `--headless false` |
 | `failed` right after provisioning | start command exits, or never binds the port within `startupTimeoutSeconds` | `logs --previous`; bind `0.0.0.0`, not `127.0.0.1` |
 | `started` but the page is blank / 502 | bound the wrong interface or port | `curl localhost:$PORT`; compare the port in `servers list` with what the logs say it bound |
 | Restart count climbing | crash loop | `logs --previous` for the exit reason; `OOMKilled` ⇒ raise the server's `resources.limits` (redeploy) |

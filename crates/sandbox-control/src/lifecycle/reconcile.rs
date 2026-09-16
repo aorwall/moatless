@@ -123,6 +123,7 @@ mod tests {
             owner_user_id: Some("user-1".to_string()),
             sandbox_id: "t1".to_string(),
             workspace_id: "ws_repo-x".to_string(),
+            headless: false,
             desired_state,
             stop_reason: None,
             retention,

@@ -34,6 +34,7 @@ function StatusDot({ status }: { status: ServerEntry['status'] }) {
     installing: 'bg-amber-500',
     failed: 'bg-red-500',
     stopped: 'bg-muted-foreground/40',
+    disabled: 'bg-muted-foreground/40',
   }[status]
 
   const isLoading = status === 'starting' || status === 'installing'

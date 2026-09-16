@@ -4,7 +4,13 @@ import { AlertCircle, Loader2, XCircle } from 'lucide-react'
 export function ServerStatusView({
   server,
 }: {
-  server: { status: string; label: string; name: string; error?: string | null }
+  server: {
+    status: string
+    label: string
+    name: string
+    error?: string | null
+    detail?: string | null
+  }
 }) {
   return (
     <div className="flex flex-col items-center justify-center h-full text-center space-y-4 p-8">
@@ -25,6 +31,16 @@ export function ServerStatusView({
           <h3 className="text-lg font-semibold">Server Failed</h3>
           <p className="text-sm text-muted-foreground max-w-md">
             {server.error || 'The server encountered an error'}
+          </p>
+        </>
+      )}
+      {server.status === 'disabled' && (
+        <>
+          <AlertCircle className="h-12 w-12 text-muted-foreground" />
+          <h3 className="text-lg font-semibold">Server Not Started</h3>
+          <p className="text-sm text-muted-foreground max-w-md">
+            {server.detail ||
+              `${server.label || 'The server'} is declared by the workspace but this task is headless, so it was never started`}
           </p>
         </>
       )}

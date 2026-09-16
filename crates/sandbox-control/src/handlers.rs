@@ -436,6 +436,7 @@ pub async fn server_status_handler(
             enable_inspector: server.capabilities.inspector,
             status: server.status,
             error: server.error,
+            detail: server.detail,
             pid: None,
         })
         .collect();

@@ -212,6 +212,9 @@ fn server_entry(entry: crate::sandbox::schemas::ServerEntry) -> core_sandbox::Se
             moatless_types::sandbox::ServerStatus::Starting => core_sandbox::ServerStatus::Starting,
             moatless_types::sandbox::ServerStatus::Started => core_sandbox::ServerStatus::Started,
             moatless_types::sandbox::ServerStatus::Failed => core_sandbox::ServerStatus::Failed,
+            moatless_types::sandbox::ServerStatus::Disabled => {
+                core_sandbox::ServerStatus::Disabled
+            }
         },
         url: entry.url,
         error: entry.error,

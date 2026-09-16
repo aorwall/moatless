@@ -16926,6 +16926,13 @@
           "default": {
             "type": "boolean"
           },
+          "detail": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why the server is in this status, when the status alone does not say\n— a `disabled` server names the headless Task that never started it."
+          },
           "enable_inspector": {
             "type": "boolean"
           },
@@ -16961,13 +16968,14 @@
       },
       "ServerStatus": {
         "type": "string",
-        "description": "Matches TS `ServerStatusEnumSchema`: 'stopped' | 'installing' | 'starting' | 'started' | 'failed'",
+        "description": "Matches TS `ServerStatusEnumSchema`: 'stopped' | 'installing' | 'starting' | 'started' | 'failed' | 'disabled'",
         "enum": [
           "Stopped",
           "Installing",
           "Starting",
           "Started",
-          "Failed"
+          "Failed",
+          "Disabled"
         ]
       },
       "ServerStatusResponse": {

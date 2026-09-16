@@ -72,5 +72,5 @@ pub use reconciler::{MemberRegistryPort, NotifyPort, Reconciler, ReconcilerConfi
 // The provisioning knowledge the band-7 provider crates read, and the S3
 // archive the backend builds over its own bucket configuration and hands to
 // `crate::compose`.
-pub use plan::ProvisionDeps;
+pub use plan::{ProvisionDeps, TaskServers};
 pub use workspace_archive::S3WorkspaceArchive;

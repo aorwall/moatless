@@ -1,6 +1,13 @@
 import { z } from 'zod'
 
-export const ServerStatusSchema = z.enum(['stopped', 'installing', 'starting', 'started', 'failed'])
+export const ServerStatusSchema = z.enum([
+  'stopped',
+  'installing',
+  'starting',
+  'started',
+  'failed',
+  'disabled',
+])
 
 export type ServerStatus = z.infer<typeof ServerStatusSchema>
 

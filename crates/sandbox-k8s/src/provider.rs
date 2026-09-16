@@ -1012,6 +1012,7 @@ impl SandboxStatusReader for K8sSandboxAdapter {
         let container_name = if server_name == "sandbox" {
             "sandbox".to_string()
         } else {
+            status::require_running_server(self.plan.as_ref(), task_id, server_name).await?;
             format!("{server_name}-server")
         };
         let sandbox_id = self.sandbox_id_for_task(task_id).await?;

@@ -17,6 +17,18 @@ use super::orchestrator::TaskIntent;
 use moatless_sandbox_runtime::runtime::RuntimeError;
 use moatless_sandbox_runtime::runtime::map_sandbox_error;
 
+/// The servers a Task's Workspace declares, and whether its Sandbox runs any.
+///
+/// A headless Sandbox starts none of them: [`build_provision_request`] drops
+/// `servers` from the plan, so no sidecar container is ever created. The two
+/// travel together because the configs alone say what a Workspace wants, not
+/// what its pod is running.
+#[derive(Default)]
+pub struct TaskServers {
+    pub configs: Vec<ServerConfig>,
+    pub headless: bool,
+}
+
 /// The three seams a fresh runtime plan is assembled from.
 ///
 /// `sandboxes` is the sole source of a pod's shape, `workspaces` supplies run
@@ -57,11 +69,18 @@ impl ProvisionDeps {
         Ok(self.intent(task_id).await?.sandbox_id)
     }
 
-    pub async fn server_configs(&self, task_id: &str) -> Vec<ServerConfig> {
+    pub async fn task_servers(&self, task_id: &str) -> TaskServers {
         let Ok(intent) = self.intent(task_id).await else {
-            return Vec::new();
+            return TaskServers::default();
         };
-        get_server_configs_for_workspace(self.workspaces.as_ref(), &intent.workspace_id).await
+        TaskServers {
+            configs: get_server_configs_for_workspace(
+                self.workspaces.as_ref(),
+                &intent.workspace_id,
+            )
+            .await,
+            headless: intent.headless,
+        }
     }
 
     pub async fn expected_sandbox_image(

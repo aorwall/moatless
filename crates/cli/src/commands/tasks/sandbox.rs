@@ -331,6 +331,9 @@ pub(super) async fn run_diagnose(
                 if let Some(err) = s.get("error").and_then(serde_json::Value::as_str) {
                     println!("    Error: {err}");
                 }
+                if let Some(detail) = s.get("detail").and_then(serde_json::Value::as_str) {
+                    println!("    Detail: {detail}");
+                }
             }
         }
     }

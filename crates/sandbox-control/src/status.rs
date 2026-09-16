@@ -7,12 +7,13 @@
 use async_trait::async_trait;
 use tracing::warn;
 
-use crate::lifecycle::ProvisionDeps;
+use crate::lifecycle::{ProvisionDeps, TaskServers};
 use moatless_sandbox_runtime::client::SandboxConnector;
 use moatless_sandbox_runtime::error::SandboxError;
 use moatless_sandbox_runtime::live_status::LiveStatus;
-use moatless_sandbox_runtime::schemas::SandboxStatusFullResponse;
-use moatless_types::sandbox::SandboxDesiredState;
+use moatless_sandbox_runtime::provisioning::{allocated_port, server_capabilities_from_config};
+use moatless_sandbox_runtime::schemas::{SandboxStatusFullResponse, ServerEntry};
+use moatless_types::sandbox::{SandboxDesiredState, ServerStatus};
 use moatless_types::task::TaskStatus;
 use moatless_workspace_types::workspace::ServerConfig;
 
@@ -75,22 +76,117 @@ pub async fn sandbox_status(
     desired_state: SandboxDesiredState,
 ) -> Result<SandboxStatusFullResponse, SandboxError> {
     let sandbox_id = sandbox_id_for_task(plan, task_id).await?;
-    let server_configs = if let Some(plan) = plan {
-        plan.server_configs(task_id).await
+    let servers = if let Some(plan) = plan {
+        plan.task_servers(task_id).await
     } else {
         warn!(task_id, "Sandbox plan repositories unavailable for status");
-        Vec::new()
+        TaskServers::default()
     };
-    Ok(resolver
+
+    // A headless Sandbox has no sidecars to observe, so the runtime resolver is
+    // given nothing to overlay: handed the declared configs it would find no
+    // container for any of them and report every one as `Starting`, forever,
+    // behind a preview URL nothing is listening on.
+    let observable: &[ServerConfig] = if servers.headless {
+        &[]
+    } else {
+        &servers.configs
+    };
+    let mut status = resolver
         .resolve_sandbox_status(
             task_id,
             &sandbox_id,
-            &server_configs,
+            observable,
             task_status,
             desired_state,
             connector,
         )
-        .await)
+        .await;
+    if servers.headless {
+        status.servers = disabled_servers(&servers.configs, task_id);
+    }
+    Ok(status)
+}
+
+/// Why a headless Sandbox is running none of its Workspace's servers, and what
+/// to do about it.
+const HEADLESS_DETAIL: &str = "This task is headless, so no preview server container was created. \
+     Recreate the task with `--headless false` to run it.";
+
+/// The Workspace's declared servers as a headless Sandbox leaves them: named,
+/// so a reader sees what the Workspace declares, and `Disabled` with no URL, so
+/// nothing waits on a port that was never opened.
+fn disabled_servers(configs: &[ServerConfig], task_id: &str) -> Vec<ServerEntry> {
+    configs
+        .iter()
+        .filter_map(|config| {
+            Some(ServerEntry {
+                name: config.name.clone(),
+                label: config.label.clone().unwrap_or_else(|| config.name.clone()),
+                port: allocated_port(config, task_id)?,
+                status: ServerStatus::Disabled,
+                url: None,
+                error: None,
+                detail: Some(HEADLESS_DETAIL.to_string()),
+                default: config.default,
+                capabilities: server_capabilities_from_config(config),
+            })
+        })
+        .collect()
+}
+
+/// Refuse a log read for a server this Task is not running, saying which one it
+/// could read instead.
+///
+/// Without this the read reaches the container runtime, which rejects a
+/// container it does not have with an error the provider can only report as
+/// `Internal`. A 500 says nothing about either ordinary reason the name misses:
+/// the Sandbox is headless, so no sidecar was ever created, or the name belongs
+/// to no declared server. The `sandbox` container is not routed through here —
+/// it exists on every pod.
+pub async fn require_running_server(
+    plan: Option<&ProvisionDeps>,
+    task_id: &str,
+    server_name: &str,
+) -> Result<(), SandboxError> {
+    let Some(plan) = plan else {
+        return Ok(());
+    };
+    match log_read_refusal(&plan.task_servers(task_id).await, task_id, server_name) {
+        Some(error) => Err(error),
+        None => Ok(()),
+    }
+}
+
+/// The reason a named server has no container to read logs from, or `None` when
+/// one is running under that name.
+fn log_read_refusal(
+    servers: &TaskServers,
+    task_id: &str,
+    server_name: &str,
+) -> Option<SandboxError> {
+    if servers.headless {
+        return Some(SandboxError::NotFound(format!(
+            "Task {task_id} is headless, so no preview server container was created and \
+             '{server_name}' has no logs. Recreate the task with `--headless false` to run \
+             the servers its workspace declares."
+        )));
+    }
+    if servers.configs.iter().any(|c| c.name == server_name) {
+        return None;
+    }
+    let declared: Vec<&str> = servers.configs.iter().map(|c| c.name.as_str()).collect();
+    let alternatives = if declared.is_empty() {
+        "Its workspace declares none. A port opened by `moat tasks scripts run` is not a \
+         server: its output goes to the terminal the script runs in."
+            .to_string()
+    } else {
+        format!("Declared servers: {}.", declared.join(", "))
+    };
+    Some(SandboxError::NotFound(format!(
+        "Task {task_id} has no server named '{server_name}'. {alternatives} \
+         Use `--server sandbox` for the sandbox container's own logs."
+    )))
 }
 
 /// Display status only — no server config read, so no workspace round-trip.
@@ -106,4 +202,83 @@ pub async fn live_status(
     Ok(resolver
         .resolve_live_status(task_id, &sandbox_id, task_status, desired_state, connector)
         .await)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use moatless_workspace_types::workspace::Port;
+
+    fn server(name: &str, port: u16) -> ServerConfig {
+        ServerConfig {
+            name: name.to_string(),
+            port: Port::new(port),
+            ..Default::default()
+        }
+    }
+
+    fn headless(configs: Vec<ServerConfig>) -> TaskServers {
+        TaskServers {
+            configs,
+            headless: true,
+        }
+    }
+
+    #[test]
+    fn a_headless_task_reports_its_servers_as_disabled_with_no_url() {
+        let entries = disabled_servers(&[server("preview", 3200)], "t1");
+        let [entry] = &entries[..] else {
+            panic!("one declared server, one entry: {entries:?}");
+        };
+        assert_eq!(entry.name, "preview");
+        assert_eq!(entry.port, 3200);
+        assert_eq!(entry.status, ServerStatus::Disabled);
+        assert_eq!(entry.url, None, "nothing is listening on the port");
+        assert_eq!(entry.detail.as_deref(), Some(HEADLESS_DETAIL));
+    }
+
+    #[test]
+    fn a_headless_log_read_is_refused_by_name_with_the_reason() {
+        let refusal = log_read_refusal(&headless(vec![server("preview", 3200)]), "t1", "preview")
+            .expect("headless runs no server container");
+        let SandboxError::NotFound(message) = refusal else {
+            panic!("a container that was never created is not found: {refusal:?}");
+        };
+        assert!(message.contains("headless"), "{message}");
+        assert!(message.contains("--headless false"), "{message}");
+    }
+
+    #[test]
+    fn an_unknown_server_is_refused_with_the_names_that_would_work() {
+        let servers = TaskServers {
+            configs: vec![server("dev", 3000), server("api", 8080)],
+            headless: false,
+        };
+        assert!(
+            log_read_refusal(&servers, "t1", "dev").is_none(),
+            "a declared server on a running sandbox reads its own logs"
+        );
+        let refusal =
+            log_read_refusal(&servers, "t1", "preview").expect("no server is named 'preview'");
+        let SandboxError::NotFound(message) = refusal else {
+            panic!("an undeclared name is not found: {refusal:?}");
+        };
+        assert!(message.contains("dev, api"), "{message}");
+    }
+
+    #[test]
+    fn a_workspace_declaring_no_servers_says_so_rather_than_listing_none() {
+        let refusal = log_read_refusal(&TaskServers::default(), "t1", "preview")
+            .expect("no server is named 'preview'");
+        let SandboxError::NotFound(message) = refusal else {
+            panic!("an undeclared name is not found: {refusal:?}");
+        };
+        assert!(message.contains("declares none"), "{message}");
+        assert!(message.contains("scripts run"), "{message}");
+    }
+
+    #[test]
+    fn a_server_with_no_allocated_port_is_left_out_rather_than_reported_on_port_zero() {
+        assert!(disabled_servers(&[server("preview", 0)], "t1").is_empty());
+    }
 }

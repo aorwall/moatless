@@ -311,13 +311,21 @@ mod tests {
     /// union accepts, or a client silently drops the row it cannot decode.
     #[test]
     fn every_status_projects_to_a_value_the_contract_declares() {
-        let declared = ["stopped", "installing", "starting", "started", "failed"];
+        let declared = [
+            "stopped",
+            "installing",
+            "starting",
+            "started",
+            "failed",
+            "disabled",
+        ];
         for status in [
             ServerStatus::Stopped,
             ServerStatus::Installing,
             ServerStatus::Starting,
             ServerStatus::Started,
             ServerStatus::Failed,
+            ServerStatus::Disabled,
         ] {
             let projected = project_server(&entry(status));
             let projected = projected["status"].as_str().unwrap().to_string();

@@ -243,6 +243,7 @@ impl LifecycleDao for PgLifecycleDao {
             Option<String>,
             String,
             String,
+            Option<bool>,
             Option<String>,
             Option<String>,
             Option<String>,
@@ -258,6 +259,7 @@ impl LifecycleDao for PgLifecycleDao {
                 s.owner_user_id,
                 COALESCE(t.sandbox_id, t.task_id) AS sandbox_id,
                 COALESCE(t.workspace_id, 'ws_' || t.repository_id) AS workspace_id,
+                s.headless,
                 s.desired_state,
                 s.stop_reason,
                 s.archive_retention,
@@ -282,6 +284,7 @@ impl LifecycleDao for PgLifecycleDao {
                 owner_user_id,
                 sandbox_id,
                 workspace_id,
+                headless,
                 desired_state,
                 stop_reason,
                 retention,
@@ -299,6 +302,9 @@ impl LifecycleDao for PgLifecycleDao {
                     owner_user_id,
                     sandbox_id,
                     workspace_id,
+                    // No Sandbox row is a Sandbox that was never created, which
+                    // has started no servers either way.
+                    headless: headless.unwrap_or(false),
                     desired_state: decode_optional("desired_state", desired_state)?
                         .unwrap_or(SandboxDesiredState::Stopped),
                     stop_reason: decode_optional("stop_reason", stop_reason)?,

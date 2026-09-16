@@ -173,6 +173,9 @@ fn format_server_list(status: &ServerStatusResponse, overrides: Option<&ServerOv
         if let Some(error) = &server.error {
             println!("  error: {error}");
         }
+        if let Some(detail) = &server.detail {
+            println!("  detail: {detail}");
+        }
         match overrides {
             None => println!("  override: unknown (sandbox not reachable)"),
             Some(list) => match list.overrides.iter().find(|o| o.server_name == server.name) {

@@ -149,6 +149,7 @@ mod authz_tests {
             owner_user_id: owner_user_id.map(|u| uid(u).to_string()),
             sandbox_id: "task-1".to_string(),
             workspace_id: "ws-1".to_string(),
+            headless: false,
             desired_state: SandboxDesiredState::Stopped,
             stop_reason: None,
             retention: None::<ArchiveRetention>,

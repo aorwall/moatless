@@ -122,6 +122,7 @@ const DESCRIPTORS: Record<string, Descriptor> = {
   installing: { label: 'Installing', tone: 'recovering' },
   started: { label: 'Started', tone: 'ok' },
   failed: { label: 'Failed', tone: 'error' },
+  disabled: { label: 'Disabled (headless task)', tone: 'neutral' },
   // Task-turn facts.
   turn_interrupted: { label: 'Turn interrupted', tone: 'recovering' },
   active: { label: 'Turn started', tone: 'neutral' },

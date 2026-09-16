@@ -50,6 +50,11 @@ pub struct TaskIntent {
     pub owner_user_id: Option<String>,
     pub sandbox_id: String,
     pub workspace_id: String,
+    /// Whether the Sandbox runs without a browser on it. A headless Sandbox
+    /// starts none of the Workspace's preview servers — `build_provision_request`
+    /// drops them from the plan — so every reader of the Workspace's `servers`
+    /// has to consult this to know whether they were started.
+    pub headless: bool,
     pub desired_state: SandboxDesiredState,
     pub stop_reason: Option<SandboxStopReason>,
     /// Retention persisted alongside a `Removed` intent so a crashed remove is

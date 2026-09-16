@@ -13,6 +13,8 @@ import type { ServerStatus } from './serverStatus';
 export interface ServerSnapshot {
   builtin?: boolean;
   default?: boolean;
+  /** @nullable */
+  detail?: string | null;
   enable_inspector?: boolean;
   /** @nullable */
   error?: string | null;

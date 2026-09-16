@@ -498,6 +498,7 @@ mod tests {
             enable_inspector: true,
             status: ServerStatus::Started,
             error: None,
+            detail: None,
             pid: None,
         };
         let caps = server_capabilities_from_snapshot(&snapshot);
