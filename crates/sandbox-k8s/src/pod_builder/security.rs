@@ -35,13 +35,11 @@ pub(super) fn app_security_context(config: &Config) -> SecurityContext {
 }
 
 /// Pod-level securityContext, populated only when `K8S_SANDBOX_RUN_AS_NON_ROOT`
-/// is enabled.
+/// is enabled; `None` leaves containers running as root.
 ///
 /// Runs containers as non-root `moatless` (UID/GID 1000) with `RuntimeDefault`
-/// seccomp and `fsGroup: 1000` for volume writability; the privileged `dind`
-/// sidecar overrides back to root at the container level (see
-/// [`privileged_security_context`]). Returns `None` when the flag is off,
-/// leaving containers running as root.
+/// seccomp and `fsGroup: 1000`; the privileged `dind` sidecar overrides back to
+/// root at the container level (see [`privileged_security_context`]).
 pub(super) fn pod_security_context(config: &Config) -> Option<PodSecurityContext> {
     config.sandbox.run_as_non_root.then(|| PodSecurityContext {
         run_as_user: Some(1000),
