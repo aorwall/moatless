@@ -132,13 +132,18 @@ fn home_skills_dir(config: &Config) -> PathBuf {
     Path::new(home).join("skills")
 }
 
-/// The first root holding `<name>/SKILL.md`, as `(label, body)`.
+/// The first root holding `<name>/SKILL.md`, as `(label, markdown body)`.
+///
+/// The body is the file past its frontmatter; see [`strip_frontmatter`].
 async fn read_skill(roots: &[SkillRoot], name: &str) -> Option<(String, String)> {
     for root in roots {
         let path = root.dir.join(name).join("SKILL.md");
         match tokio::fs::read_to_string(&path).await {
-            Ok(body) => {
-                return Some((format!("{}/{name}", root.label_prefix), body));
+            Ok(contents) => {
+                return Some((
+                    format!("{}/{name}", root.label_prefix),
+                    strip_frontmatter(&contents).to_string(),
+                ));
             }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
             Err(e) => warn!(path = %path.display(), error = %e, "Failed to read SKILL.md"),
@@ -156,6 +161,32 @@ fn is_safe_skill_name(name: &str) -> bool {
         && !name.contains('/')
         && !name.contains('\\')
         && !name.contains('\0')
+}
+
+/// A SKILL.md past a leading YAML frontmatter block, or the whole file when
+/// it opens with anything else. Frontmatter configures the harness, so in a
+/// prompt it reads as an instruction to the agent. Only a first-line block
+/// closed by a `---` line goes: a horizontal rule further down survives, and
+/// an unclosed block is left alone rather than swallowing the body.
+fn strip_frontmatter(contents: &str) -> &str {
+    // Tolerate a leading UTF-8 BOM and CRLF, like the skill scanner in
+    // `moatless-workspaces` that parses these same files.
+    let trimmed = contents.strip_prefix('\u{feff}').unwrap_or(contents);
+    let Some(rest) = trimmed
+        .strip_prefix("---\n")
+        .or_else(|| trimmed.strip_prefix("---\r\n"))
+    else {
+        return contents;
+    };
+
+    let mut cursor = 0usize;
+    for line in rest.split_inclusive('\n') {
+        if line.trim_end_matches(['\n', '\r']) == "---" {
+            return rest[cursor + line.len()..].trim_start_matches(['\n', '\r']);
+        }
+        cursor += line.len();
+    }
+    contents
 }
 
 /// A self-contained block ending in a blank line, so several concatenate and
@@ -211,6 +242,96 @@ mod tests {
             out,
             "Activated .agents/skills/e2e-testing:\n\n# E2E\nRun the suite.\n\ngo"
         );
+    }
+
+    /// Harness keys must not reach the prompt: an agent handed
+    /// `disable-model-invocation: true` reads it as a rule forbidding the work
+    /// the body describes.
+    #[tokio::test]
+    async fn frontmatter_is_stripped_from_the_frontloaded_body() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let config = config_in(tmp.path(), "claude-code");
+        write_skill(
+            &tmp.path().join("workspace/repo/.agents/skills"),
+            "pr-review",
+            "---\nname: pr-review\ndescription: The PR review workflow\n\
+             disable-model-invocation: true\nallowed-tools: Bash(git:*)\n---\n\n\
+             # PR Review Workflow\nReview it.",
+        );
+
+        let out = frontload_skills(&config, &["pr-review".to_string()], "go").await;
+        assert_eq!(
+            out,
+            "Activated .agents/skills/pr-review:\n\n# PR Review Workflow\nReview it.\n\ngo"
+        );
+    }
+
+    /// A `---` rule in the body is content, not a delimiter, so everything
+    /// after it has to survive.
+    #[tokio::test]
+    async fn a_horizontal_rule_in_the_body_survives() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let config = config_in(tmp.path(), "claude-code");
+        write_skill(
+            &tmp.path().join("workspace/repo/.agents/skills"),
+            "ruled",
+            "---\nname: ruled\n---\n\n# Steps\n\n---\n\n## More\nKeep this.",
+        );
+
+        let out = frontload_skills(&config, &["ruled".to_string()], "go").await;
+        assert_eq!(
+            out,
+            "Activated .agents/skills/ruled:\n\n# Steps\n\n---\n\n## More\nKeep this.\n\ngo"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_skill_without_frontmatter_is_frontloaded_unchanged() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let config = config_in(tmp.path(), "claude-code");
+        let skills = tmp.path().join("workspace/repo/.agents/skills");
+        write_skill(&skills, "plain", "# Plain\n\n---\n\nStill here.");
+        // An unclosed block is body too: with no closing `---` there is no way
+        // to tell where the frontmatter would have ended.
+        write_skill(&skills, "unclosed", "---\nname: unclosed\n\n# Body");
+
+        let out = frontload_skills(&config, &["plain".to_string()], "go").await;
+        assert_eq!(
+            out,
+            "Activated .agents/skills/plain:\n\n# Plain\n\n---\n\nStill here.\n\ngo"
+        );
+
+        let out = frontload_skills(&config, &["unclosed".to_string()], "go").await;
+        assert_eq!(
+            out,
+            "Activated .agents/skills/unclosed:\n\n---\nname: unclosed\n\n# Body\n\ngo"
+        );
+    }
+
+    /// Nothing but frontmatter leaves an empty body rather than a panic or a
+    /// leaked key.
+    #[tokio::test]
+    async fn a_skill_that_is_only_frontmatter_frontloads_nothing() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let config = config_in(tmp.path(), "claude-code");
+        let skills = tmp.path().join("workspace/repo/.agents/skills");
+        write_skill(
+            &skills,
+            "empty",
+            "---\ndisable-model-invocation: true\n---\n",
+        );
+        // Same file without the final newline: the closing `---` is the last
+        // line, so the slice past it must stay in bounds.
+        write_skill(
+            &skills,
+            "unterminated",
+            "---\ndisable-model-invocation: true\n---",
+        );
+
+        for name in ["empty", "unterminated"] {
+            let out = frontload_skills(&config, &[name.to_string()], "go").await;
+            assert_eq!(out, format!("Activated .agents/skills/{name}:\n\n\n\ngo"));
+        }
     }
 
     /// Both roots are searched, and `.claude/skills` is the one that names the
