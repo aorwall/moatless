@@ -39,13 +39,13 @@ impl TaskCommands {
         self.store.insert_task(row, placement).await
     }
 
-    /// See [`TaskDao::delete_inserted_task_after_join_failure`].
-    pub async fn delete_inserted_task_after_join_failure(
+    /// See [`TaskDao::delete_inserted_task`].
+    pub async fn delete_inserted_task(
         &self,
         task_id: &str,
     ) -> Result<bool, sqlx::Error> {
         self.store
-            .delete_inserted_task_after_join_failure(task_id)
+            .delete_inserted_task(task_id)
             .await
     }
 

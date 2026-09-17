@@ -1,8 +1,8 @@
-//! What `create` refuses before it asks the server, and the message contexts
+//! What `create` refuses before it asks the server, and the uploads
 //! `--context-file` turns into.
 
-use crate::client::ClientError;
-use moatless_api_schemas::task::{FileContextData, MessageContextInput};
+use crate::client::{ClientError, MoatClient};
+use crate::commands::input::upload_files;
 
 /// Refuses a create when no Workspace source is named: `--workspace`, a joined
 /// sandbox, or a `--parent` to inherit from.
@@ -38,52 +38,21 @@ pub(super) fn validate_context_files_have_message(
     Ok(())
 }
 
-pub(super) fn context_files_to_contexts(paths: &[String]) -> Vec<MessageContextInput> {
-    paths
-        .iter()
-        .map(|path| {
-            let reference_id = normalize_context_file_path(path);
-            let path_ref = std::path::Path::new(path);
-            let filename = path_ref
-                .file_name()
-                .and_then(|name| name.to_str())
-                .unwrap_or(reference_id.as_str())
-                .to_string();
-            let mime_type = mime_guess::from_path(path_ref)
-                .first_or_octet_stream()
-                .to_string();
-            let size = std::fs::metadata(path_ref)
-                .map(|metadata| metadata.len().min(i64::MAX as u64) as i64)
-                .unwrap_or_default();
-
-            MessageContextInput::File {
-                reference_id,
-                data: FileContextData {
-                    filename,
-                    mime_type,
-                    size,
-                },
-            }
-        })
-        .collect()
-}
-
-fn normalize_context_file_path(path: &str) -> String {
-    let path_ref = std::path::Path::new(path);
-    let relative = if path_ref.is_absolute() {
-        std::env::current_dir()
-            .ok()
-            .and_then(|cwd| path_ref.strip_prefix(cwd).ok())
-            .unwrap_or(path_ref)
-    } else {
-        path_ref
-    };
-
-    let normalized = relative.to_string_lossy().replace('\\', "/");
-    normalized
-        .strip_prefix("./")
-        .unwrap_or(normalized.as_str())
-        .to_string()
+/// Upload each `--context-file` and return the file ids to attach.
+///
+/// The bytes travel, deliberately: a file id is what the new Task's sandbox
+/// fetches over gRPC before its agent runs, and a path is not one — the child
+/// task would report `File metadata not found` and receive nothing.
+pub(super) async fn upload_context_files(
+    client: &MoatClient,
+    paths: &[String],
+) -> Result<Vec<String>, ClientError> {
+    if paths.is_empty() {
+        return Ok(Vec::new());
+    }
+    upload_files(client, paths)
+        .await
+        .map_err(|e| ClientError::Other(e.to_string()))
 }
 
 #[cfg(test)]
@@ -97,29 +66,6 @@ mod tests {
         // check as one.
         require_a_workspace_source(Some("ws_1"), None).expect("named outright");
         require_a_workspace_source(None, Some("parent-1")).expect("inherited from the parent");
-    }
-
-    #[test]
-    fn normalizes_relative_context_file_path() {
-        assert_eq!(
-            normalize_context_file_path("./crates/cli/src/commands/tasks.rs"),
-            "crates/cli/src/commands/tasks.rs"
-        );
-    }
-
-    #[test]
-    fn context_files_become_file_contexts() {
-        let contexts = context_files_to_contexts(&["CONTEXT.md".to_string()]);
-
-        assert_eq!(contexts.len(), 1);
-        match &contexts[0] {
-            MessageContextInput::File { reference_id, data } => {
-                assert_eq!(reference_id, "CONTEXT.md");
-                assert_eq!(data.filename, "CONTEXT.md");
-                assert_eq!(data.mime_type, "text/markdown");
-            }
-            _ => panic!("expected file context"),
-        }
     }
 
     #[test]

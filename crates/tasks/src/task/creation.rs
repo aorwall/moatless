@@ -15,6 +15,7 @@ use moatless_types::access_control::{Scope, ScopeContext};
 use moatless_types::sandbox::{SandboxEventPayload, SandboxStatus};
 use moatless_types::task::TaskSubType;
 
+use crate::message::error::MessageError;
 use crate::tag::dao::TagDao;
 use crate::task::dao::TaskDao;
 use crate::task::error::TaskError;
@@ -78,7 +79,8 @@ pub struct NewTaskRequest {
     /// Optional `related_to` peer relation to record after insert.
     pub related_to: Option<RelatedTask>,
     /// Optional first message; when present the service invokes the caller's
-    /// send callback after provisioning.
+    /// send callback before provisioning, and a send that fails takes the whole
+    /// create down with it — see [`TaskCreationError::FirstMessage`].
     pub first_message: Option<FirstMessage>,
     /// The task's id, when the caller owns it.
     ///
@@ -161,6 +163,12 @@ pub enum TaskCreationError {
     SandboxJoin(String),
     #[error("failed to join sandbox and cleanup inserted task: join={join}; cleanup={cleanup}")]
     SandboxJoinCleanup { join: String, cleanup: String },
+    /// The first message was refused or could not be persisted. The inserted
+    /// Task is deleted before this is returned — it had no brief to run.
+    #[error(transparent)]
+    FirstMessage(MessageError),
+    #[error("failed to send first message and cleanup inserted task: send={message}; cleanup={cleanup}")]
+    FirstMessageCleanup { message: String, cleanup: String },
     #[error("{0}")]
     Preflight(String),
     #[error("failed to generate a unique short id")]
@@ -181,6 +189,10 @@ impl From<TaskCreationError> for TaskError {
             TaskCreationError::SandboxJoin(msg) => TaskError::Internal(msg),
             TaskCreationError::SandboxJoinCleanup { join, cleanup } => {
                 TaskError::Internal(format!("{join}; cleanup failed: {cleanup}"))
+            }
+            TaskCreationError::FirstMessage(e) => TaskError::FirstMessage(e),
+            TaskCreationError::FirstMessageCleanup { message, cleanup } => {
+                TaskError::Internal(format!("{message}; cleanup failed: {cleanup}"))
             }
             TaskCreationError::Preflight(msg) => TaskError::Forbidden(msg),
             TaskCreationError::ShortId => {
@@ -252,7 +264,7 @@ impl TaskCreationService {
     ) -> Result<TaskCreationOutcome, TaskCreationError>
     where
         EvFut: Future<Output = serde_json::Value> + Send,
-        MsgFut: Future<Output = ()> + Send,
+        MsgFut: Future<Output = Result<(), MessageError>> + Send,
     {
         let task_id = req
             .task_id
@@ -433,7 +445,7 @@ impl TaskCreationService {
                     let join_error = map_join_error(error);
                     if let Err(cleanup_error) = self
                         .tasks
-                        .delete_inserted_task_after_join_failure(&task_id)
+                        .delete_inserted_task(&task_id)
                         .await
                     {
                         tracing::error!(
@@ -452,12 +464,25 @@ impl TaskCreationService {
             }
         }
 
-        // Optional first message (best-effort; the caller's callback logs).
-        // Persist it before provisioning so the sandbox's authoritative startup
-        // dispatch cannot race ahead of the initial prompt and find no pending
-        // input.
+        // Persist the first message before provisioning, so the sandbox's
+        // authoritative startup dispatch cannot race ahead of the initial
+        // prompt and find no pending input.
+        //
+        // A Task whose brief did not persist has nothing to run and no second
+        // chance to deliver it, so the create fails rather than provisioning
+        // one — see [`Self::first_message_failed`] for what it leaves behind.
         if let Some(first_message) = req.first_message {
-            send_first_message(task_id.clone(), first_message).await;
+            if let Err(error) = send_first_message(task_id.clone(), first_message).await {
+                tracing::warn!(
+                    task_id = %task_id,
+                    error = %moatless_core::error::causal_chain(&error),
+                    "First message failed during task creation"
+                );
+                // A join that deferred registered nothing on a pod, so it holds
+                // the insert down no more than no join at all does.
+                let join_landed = join_checkout_mode.is_some() && !join_deferred_to_start;
+                return Err(self.first_message_failed(&task_id, error, join_landed).await);
+            }
         }
 
         // Provision (best-effort). Failure publishes a sandbox error event so
@@ -523,6 +548,58 @@ impl TaskCreationService {
             }
         }
         Err(TaskCreationError::ShortId)
+    }
+
+    /// Undo a Task whose first message never landed, or record it as `Error`.
+    ///
+    /// Deleting the row is only honest when the send wrote nothing and no pod
+    /// registered this Task: `task_messages` has no foreign key to `tasks`, and
+    /// a shared-sandbox join has no undo. Anything left behind names a Task
+    /// that survives the failed create, errored and unprovisioned.
+    async fn first_message_failed(
+        &self,
+        task_id: &str,
+        error: MessageError,
+        joined: bool,
+    ) -> TaskCreationError {
+        if !joined && error.wrote_nothing() {
+            if let Err(cleanup_error) = self.tasks.delete_inserted_task(task_id).await {
+                tracing::error!(
+                    task_id = %task_id,
+                    error = %cleanup_error,
+                    "Failed to cleanup task after first-message failure"
+                );
+                return TaskCreationError::FirstMessageCleanup {
+                    message: error.to_string(),
+                    cleanup: cleanup_error.to_string(),
+                };
+            }
+            return TaskCreationError::FirstMessage(error);
+        }
+
+        // reason: creation owns this status transition; the caller's authority
+        // was already checked to reach here.
+        #[allow(clippy::disallowed_methods)]
+        let sys_ctx = ScopeContext::system();
+        if let Err(status_error) = self
+            .tasks
+            .update_status_if_not_closed(task_id, TaskStatus::Error, &sys_ctx)
+            .await
+        {
+            tracing::error!(
+                task_id = %task_id,
+                error = %status_error,
+                "Failed to mark task errored after first-message failure"
+            );
+        }
+        self.publish_sandbox_error(
+            task_id,
+            "The task's first message could not be delivered",
+            &moatless_core::error::causal_chain(&error),
+            "first_message_failed",
+        )
+        .await;
+        TaskCreationError::FirstMessage(error)
     }
 
     async fn publish_sandbox_error(
@@ -651,7 +728,23 @@ mod tests {
         serde_json::json!({})
     }
 
-    async fn no_message(_: String, _: FirstMessage) {}
+    async fn no_message(_: String, _: FirstMessage) -> Result<(), MessageError> {
+        Ok(())
+    }
+
+    fn first_message() -> FirstMessage {
+        FirstMessage {
+            text: "hello".into(),
+            model: None,
+            agent_mode: None,
+            effort: None,
+            file_ids: vec!["file-1".into()],
+            contexts: vec![],
+            sent_by: Some("user1".into()),
+            message_uuid: None,
+            skills: vec![],
+        }
+    }
 
     fn service(
         tasks: MockTaskDao,
@@ -842,6 +935,7 @@ mod tests {
             let message_order = Arc::clone(&message_order);
             async move {
                 message_order.lock().expect("order lock").push("message");
+                Ok(())
             }
         })
         .await
@@ -851,6 +945,157 @@ mod tests {
             order.lock().expect("order lock").as_slice(),
             ["message", "start"]
         );
+    }
+
+    #[tokio::test]
+    async fn a_refused_first_message_deletes_the_task_and_never_provisions() {
+        let mut tasks = MockTaskDao::new();
+        tasks.expect_exists_by_short_id().returning(|_| Ok(false));
+        tasks.expect_insert_task().times(1).returning(|_, _| Ok(()));
+        tasks
+            .expect_delete_inserted_task()
+            .times(1)
+            .returning(|_| Ok(true));
+
+        let mut starter = MockStarter::new();
+        starter.expect_start().never();
+
+        let publisher = Arc::new(RecordingPublisher::new());
+        let svc = service(tasks, starter, joiner_never(), preflight_ok(), publisher);
+
+        let mut req = sample_request();
+        req.first_message = Some(first_message());
+
+        let err = svc
+            .create(req, empty_payload, |_, _| async {
+                Err(MessageError::BadRequest("No uploaded file for file-1".into()))
+            })
+            .await
+            .expect_err("a task with no brief is not created");
+
+        assert!(matches!(
+            TaskError::from(err),
+            TaskError::FirstMessage(MessageError::BadRequest(_))
+        ));
+    }
+
+    /// The message row is committed by the time the clock advance fails, and
+    /// `task_messages` has no foreign key to `tasks` — so deleting the Task here
+    /// would leave it behind with nothing naming it.
+    #[tokio::test]
+    async fn a_first_message_that_failed_after_persisting_marks_the_task_errored() {
+        let mut tasks = MockTaskDao::new();
+        tasks.expect_exists_by_short_id().returning(|_| Ok(false));
+        tasks.expect_insert_task().times(1).returning(|_, _| Ok(()));
+        tasks.expect_delete_inserted_task().never();
+        tasks
+            .expect_update_status_if_not_closed()
+            .withf(|_, status, _| *status == TaskStatus::Error)
+            .times(1)
+            .returning(|_, _, _| Ok(true));
+
+        let mut starter = MockStarter::new();
+        starter.expect_start().never();
+
+        let publisher = Arc::new(RecordingPublisher::new());
+        let svc = service(
+            tasks,
+            starter,
+            joiner_never(),
+            preflight_ok(),
+            publisher.clone(),
+        );
+
+        let mut req = sample_request();
+        req.first_message = Some(first_message());
+
+        let err = svc
+            .create(req, empty_payload, |_, _| async {
+                Err(MessageError::AdvanceTaskClock(sqlx::Error::PoolClosed))
+            })
+            .await
+            .expect_err("a task whose brief did not land is not created");
+
+        assert!(matches!(err, TaskCreationError::FirstMessage(_)));
+        assert_eq!(publisher.sandbox_statuses(), vec![SandboxStatus::Error]);
+    }
+
+    /// A `NotReady` join left no pod holding this Task, so a refusal after it
+    /// undoes the insert as cleanly as one with no join at all.
+    #[tokio::test]
+    async fn a_refused_first_message_after_a_deferred_join_still_deletes_the_task() {
+        let mut tasks = MockTaskDao::new();
+        tasks.expect_exists_by_short_id().returning(|_| Ok(false));
+        tasks.expect_insert_task().times(1).returning(|_, _| Ok(()));
+        tasks
+            .expect_delete_inserted_task()
+            .times(1)
+            .returning(|_| Ok(true));
+        tasks.expect_update_status_if_not_closed().never();
+
+        let mut starter = MockStarter::new();
+        starter.expect_start().never();
+        let mut joiner = MockSandboxJoiner::new();
+        joiner
+            .expect_join_task()
+            .times(1)
+            .returning(|_, _, _| Err(SandboxError::NotReady("Sandbox is stopped".to_string())));
+
+        let publisher = Arc::new(RecordingPublisher::new());
+        let svc = service(tasks, starter, joiner, preflight_ok(), publisher);
+
+        let mut req = sample_request();
+        req.sandbox_id = Some("sandbox-1".to_string());
+        req.first_message = Some(first_message());
+
+        let err = svc
+            .create(req, empty_payload, |_, _| async {
+                Err(MessageError::BadRequest("No uploaded file for file-1".into()))
+            })
+            .await
+            .expect_err("a task with no brief is not created");
+
+        assert!(matches!(err, TaskCreationError::FirstMessage(_)));
+    }
+
+    /// The shared pod registered this Task's checkout when the join landed, and
+    /// nothing unregisters it — so the Task stays, errored, rather than the API
+    /// reporting a Task that never existed while the pod still runs its context.
+    #[tokio::test]
+    async fn a_refused_first_message_after_a_join_marks_the_task_errored() {
+        let mut tasks = MockTaskDao::new();
+        tasks.expect_exists_by_short_id().returning(|_| Ok(false));
+        tasks.expect_insert_task().times(1).returning(|_, _| Ok(()));
+        tasks.expect_delete_inserted_task().never();
+        tasks
+            .expect_update_status_if_not_closed()
+            .withf(|_, status, _| *status == TaskStatus::Error)
+            .times(1)
+            .returning(|_, _, _| Ok(true));
+
+        let mut starter = MockStarter::new();
+        starter.expect_start().never();
+        let mut joiner = MockSandboxJoiner::new();
+        joiner
+            .expect_join_task()
+            .times(1)
+            .returning(|_, _, _| Ok(()));
+
+        let publisher = Arc::new(RecordingPublisher::new());
+        let svc = service(tasks, starter, joiner, preflight_ok(), publisher);
+
+        let mut req = sample_request();
+        req.sandbox_id = Some("sandbox-1".to_string());
+        req.first_message = Some(first_message());
+
+        let err = svc
+            .create(req, empty_payload, |_, _| async {
+                Err(MessageError::BadRequest("No uploaded file for file-1".into()))
+            })
+            .await
+            .expect_err("a task with no brief is not created");
+
+        assert!(matches!(err, TaskCreationError::FirstMessage(_)));
     }
 
     #[tokio::test]
@@ -1081,6 +1326,7 @@ mod tests {
                 let message_order = Arc::clone(&message_order);
                 async move {
                     message_order.lock().expect("order lock").push("message");
+                    Ok(())
                 }
             })
             .await
@@ -1102,7 +1348,7 @@ mod tests {
         tasks.expect_insert_task().times(1).returning(|_, _| Ok(()));
         let cleanup_order = Arc::clone(&order);
         tasks
-            .expect_delete_inserted_task_after_join_failure()
+            .expect_delete_inserted_task()
             .withf(|task_id| !task_id.is_empty())
             .times(1)
             .returning(move |_| {
@@ -1166,7 +1412,7 @@ mod tests {
         tasks.expect_insert_task().times(1).returning(|_, _| Ok(()));
         // A deferred join never cleans up the inserted task.
         tasks
-            .expect_delete_inserted_task_after_join_failure()
+            .expect_delete_inserted_task()
             .never();
 
         let mut starter = MockStarter::new();
@@ -1207,6 +1453,7 @@ mod tests {
                 let message_order = Arc::clone(&message_order);
                 async move {
                     message_order.lock().expect("order lock").push("message");
+                    Ok(())
                 }
             })
             .await

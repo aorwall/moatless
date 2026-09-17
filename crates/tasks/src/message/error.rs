@@ -37,10 +37,41 @@ pub enum MessageError {
     #[error("Task conversation clock could not be advanced")]
     AdvanceTaskClock(#[source] sqlx::Error),
 
+    /// The attached files could not be looked up, so the send cannot tell an
+    /// id with no upload behind it from one it failed to read.
+    #[error("Attachment metadata could not be read")]
+    AttachmentMetadata(#[source] moatless_core::file_storage::FileStorageError),
+
     /// An invariant this module synthesizes, with no underlying failure to
     /// carry — kept distinct from the wrapping variants above.
     #[error("Internal error: {0}")]
     Internal(String),
+}
+
+impl MessageError {
+    /// Whether the send failed with nothing of it written down.
+    ///
+    /// A Task deleted after its message persisted orphans it: `task_messages`
+    /// has no foreign key to `tasks`. Only a variant raised after the append
+    /// answers `false`.
+    pub(crate) fn wrote_nothing(&self) -> bool {
+        match self {
+            // Raised before `MessageDao::append`, or by it — and its single
+            // transaction commits only once every row has landed.
+            MessageError::NotFound(_)
+            | MessageError::BadRequest(_)
+            | MessageError::TaskClosed(_)
+            | MessageError::DedupCheck(_)
+            | MessageError::AttachmentMetadata(_)
+            | MessageError::PersistMessage(_)
+            | MessageError::PersistToolResponse(_) => true,
+            // The message row is committed by the time the clock advance runs,
+            // and these two name no point in the sequence at all.
+            MessageError::AdvanceTaskClock(_)
+            | MessageError::Db(_)
+            | MessageError::Internal(_) => false,
+        }
+    }
 }
 
 impl IntoResponse for MessageError {
@@ -53,7 +84,8 @@ impl IntoResponse for MessageError {
             | MessageError::DedupCheck(_)
             | MessageError::PersistMessage(_)
             | MessageError::PersistToolResponse(_)
-            | MessageError::AdvanceTaskClock(_) => {
+            | MessageError::AdvanceTaskClock(_)
+            | MessageError::AttachmentMetadata(_) => {
                 // One log line at the boundary carries the whole chain,
                 // including the SQL error the client must never see.
                 tracing::error!(
@@ -115,6 +147,16 @@ mod tests {
                 "source lost for {err:?}"
             );
         }
+    }
+
+    #[test]
+    fn a_refusal_wrote_nothing_and_a_failed_clock_advance_did_not() {
+        assert!(MessageError::BadRequest("no uploaded file".to_string()).wrote_nothing());
+        assert!(MessageError::TaskClosed("task-1".to_string()).wrote_nothing());
+        // The append's own transaction rolled back.
+        assert!(MessageError::PersistMessage(sql_error()).wrote_nothing());
+        // The message row is already committed by the time this one is raised.
+        assert!(!MessageError::AdvanceTaskClock(sql_error()).wrote_nothing());
     }
 
     #[test]

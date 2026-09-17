@@ -73,11 +73,10 @@ pub(super) async fn run_task_script_action(
 
 /// What `run` did, as lines to print.
 ///
-/// `scripts.run` starts a Script or, when a session already holds its terminal
-/// id, attaches to that session and runs nothing. Reporting the second as
-/// `Started "<name>"` names a command this call did not run, over a port the
-/// live process need not be serving — as does claiming either from a backend
-/// that reports neither, so all three are worded apart.
+/// `scripts.run` starts a Script or attaches to a session already holding its
+/// terminal id, running nothing. Reporting an attach as `Started "<name>"`
+/// names a command this call did not run, over a port the live process need
+/// not be serving — as does claiming either when the backend reports neither.
 fn run_report(name: &str, resp: &serde_json::Value) -> Vec<String> {
     let terminal_id = resp
         .get("terminalId")

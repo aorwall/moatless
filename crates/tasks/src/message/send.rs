@@ -1,6 +1,7 @@
 //! Message sending orchestration — `send_message_flow` and
 //! `send_tool_response_flow`.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use super::models::{TaskMessage, TaskMessageContext};
@@ -13,7 +14,7 @@ use crate::task::operations::TaskCommands;
 use crate::task::schemas::{FileContextData, MessageContextInput};
 use crate::task_activities::mapping::{ActivityStatus, ConversationWrite, ToolOutcome};
 use crate::task_turn::dao::TaskTurnDao;
-use moatless_core::file_storage::Files;
+use moatless_core::file_storage::{FileInfo, Files};
 use moatless_types::access_control::ScopeContext;
 use moatless_types::agent::AgentMode;
 
@@ -192,7 +193,64 @@ fn attached_file_ids(file_ids: &[String], contexts: &[MessageContextInput]) -> V
     attached
 }
 
+/// Pair each attached id with what the store holds for it, refusing the whole
+/// send when it holds nothing for one: a message that reached the sandbox with
+/// an id short of its bytes would name an attachment nothing can open.
+fn attachments_or_refusal(
+    attached: Vec<String>,
+    known: &HashMap<String, FileInfo>,
+) -> Result<Vec<(String, FileContextData)>, MessageError> {
+    let missing: Vec<&str> = attached
+        .iter()
+        .filter(|id| !known.contains_key(*id))
+        .map(String::as_str)
+        .collect();
+    if !missing.is_empty() {
+        return Err(MessageError::BadRequest(format!(
+            "No uploaded file for {}. An attachment is an upload id, not a path: upload \
+             the file first, then attach the id the upload returns.",
+            missing.join(", ")
+        )));
+    }
+
+    Ok(attached
+        .into_iter()
+        .filter_map(|id| {
+            let meta = known.get(&id)?;
+            let data = FileContextData {
+                filename: meta.filename.clone(),
+                mime_type: meta.mime_type.clone(),
+                size: meta.size,
+            };
+            Some((id, data))
+        })
+        .collect())
+}
+
 impl MessageSendService {
+    /// What each attached file is, in the order the send attaches them, or the
+    /// refusal that names the ids the file store does not hold.
+    ///
+    /// The sandbox fetches every id over gRPC before the agent runs, so an id
+    /// with no upload behind it arrives there as `File metadata not found` with
+    /// nothing written — after the call that took it reported a send.
+    pub async fn attachment_metadata(
+        &self,
+        file_ids: &[String],
+        contexts: &[MessageContextInput],
+    ) -> Result<Vec<(String, FileContextData)>, MessageError> {
+        let attached = attached_file_ids(file_ids, contexts);
+        if attached.is_empty() {
+            return Ok(Vec::new());
+        }
+        let known = self
+            .files
+            .metadata_for(&attached)
+            .await
+            .map_err(MessageError::AttachmentMetadata)?;
+        attachments_or_refusal(attached, &known)
+    }
+
     /// The main message flow — called by message handlers, task creation, and
     /// external inbound.
     #[allow(clippy::too_many_arguments)]
@@ -327,7 +385,9 @@ impl MessageSendService {
 
         let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
         let msg_uuid = message_uuid.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-        let normalized_file_ids = attached_file_ids(file_ids, contexts);
+        let attachments_meta = self.attachment_metadata(file_ids, contexts).await?;
+        let normalized_file_ids: Vec<String> =
+            attachments_meta.iter().map(|(id, _)| id.clone()).collect();
 
         // Persist the attached file IDs so the sandbox can fetch them via gRPC
         // before invoking the agent.
@@ -374,27 +434,9 @@ impl MessageSendService {
             .filter(|context| !matches!(context, MessageContextInput::File { .. }))
             .cloned()
             .collect();
-        for file_id in &normalized_file_ids {
-            let data = match self.files.metadata(file_id).await {
-                Ok(Some(meta)) => FileContextData {
-                    filename: meta.filename,
-                    mime_type: meta.mime_type,
-                    size: meta.size,
-                },
-                Ok(None) => {
-                    tracing::warn!(
-                        file_id,
-                        "File metadata not found when synthesising File context"
-                    );
-                    FileContextData::default()
-                }
-                Err(e) => {
-                    tracing::warn!(file_id, error = %e, "Failed to load file metadata for File context");
-                    FileContextData::default()
-                }
-            };
+        for (file_id, data) in attachments_meta {
             all_contexts.push(MessageContextInput::File {
-                reference_id: file_id.clone(),
+                reference_id: file_id,
                 data,
             });
         }
@@ -840,6 +882,56 @@ mod tests {
             agent_send_idempotency_uuid("a", "bc", "d"),
             agent_send_idempotency_uuid("ab", "c", "d")
         );
+    }
+
+    fn upload(file_id: &str, filename: &str) -> (String, FileInfo) {
+        (
+            file_id.to_string(),
+            FileInfo {
+                file_id: file_id.to_string(),
+                filename: filename.to_string(),
+                mime_type: "text/markdown".to_string(),
+                size: 42,
+            },
+        )
+    }
+
+    #[test]
+    fn an_attachment_is_described_by_what_the_store_holds_for_it() {
+        let known = HashMap::from([upload("file-1", "brief.md")]);
+
+        let described = attachments_or_refusal(vec!["file-1".to_string()], &known)
+            .expect("the store holds this one");
+
+        assert_eq!(described.len(), 1);
+        assert_eq!(described[0].0, "file-1");
+        assert_eq!(described[0].1.filename, "brief.md");
+        assert_eq!(described[0].1.size, 42);
+    }
+
+    /// `--context-file` passed a repo path as an attachment id, and the send
+    /// took it: the child task reported `File metadata not found` and got
+    /// nothing, long after the create that accepted the flag reported success.
+    #[test]
+    fn an_attachment_with_no_upload_behind_it_is_refused_by_name() {
+        let known = HashMap::from([upload("file-1", "brief.md")]);
+
+        let error = attachments_or_refusal(
+            vec![
+                "file-1".to_string(),
+                "docs/implementation-context.md".to_string(),
+            ],
+            &known,
+        )
+        .expect_err("a path is not an upload id");
+
+        match error {
+            MessageError::BadRequest(reason) => {
+                assert!(reason.contains("docs/implementation-context.md"), "{reason}");
+                assert!(!reason.contains("file-1"), "{reason}");
+            }
+            other => panic!("expected a refusal the caller can act on, got {other:?}"),
+        }
     }
 
     #[test]

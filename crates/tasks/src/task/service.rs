@@ -71,25 +71,24 @@ where
 {
     let outcome = task_creation
         .create(new_task, build_event_payload, move |task_id, fm| async move {
-            if let Err(e) = message_send.send_message_flow(
-                &task_id,
-                &fm.text,
-                fm.model.as_deref(),
-                fm.agent_mode.as_ref(),
-                fm.effort.as_deref(),
-                &fm.file_ids,
-                &fm.contexts,
-                true,
-                moatless_types::task::ExternalOrigin::none(),
-                false,
-                fm.sent_by.as_deref(),
-                &fm.skills,
-                fm.message_uuid,
-            )
-            .await
-            {
-                tracing::warn!(task_id = %task_id, error = %e, "Failed to send initial message");
-            }
+            message_send
+                .send_message_flow(
+                    &task_id,
+                    &fm.text,
+                    fm.model.as_deref(),
+                    fm.agent_mode.as_ref(),
+                    fm.effort.as_deref(),
+                    &fm.file_ids,
+                    &fm.contexts,
+                    true,
+                    moatless_types::task::ExternalOrigin::none(),
+                    false,
+                    fm.sent_by.as_deref(),
+                    &fm.skills,
+                    fm.message_uuid,
+                )
+                .await
+                .map(|_| ())
         })
         .await?;
 

@@ -2,7 +2,7 @@
 //! below.
 
 use super::create::{
-    context_files_to_contexts, require_a_workspace_source, validate_context_files_have_message,
+    require_a_workspace_source, upload_context_files, validate_context_files_have_message,
 };
 use super::files::{FileAction, run_file_action};
 use super::format::{format_task_detail, format_task_list, parse_task_status};
@@ -108,7 +108,8 @@ pub enum TaskAction {
         run_as: Option<String>,
         #[arg(long)]
         message: Option<String>,
-        /// Relevant repo file path to attach as a message context. Repeatable.
+        /// File to upload and attach to `--message`. Repeatable. The new task's
+        /// sandbox writes it in before its agent runs.
         #[arg(long = "context-file", alias = "relevant-file", value_name = "PATH")]
         context_files: Vec<String>,
         #[arg(long)]
@@ -339,7 +340,7 @@ pub async fn run(
 
             validate_context_files_have_message(&message, &context_files)?;
             let has_message = message.is_some();
-            let contexts = context_files_to_contexts(&context_files);
+            let file_ids = upload_context_files(client, &context_files).await?;
             let req = CreateTaskRequest {
                 repository_id,
                 workspace_id,
@@ -357,9 +358,9 @@ pub async fn run(
                 // The CLI always drives the agent in edit mode; plan mode is a UI affordance.
                 agent_mode: Some(AgentMode("edit".to_string())),
                 agent_type: Some(AgentType(agent_type)),
-                contexts,
+                contexts: Vec::new(),
                 description: None,
-                file_ids: Vec::new(),
+                file_ids,
                 model,
                 effort: None,
                 headless: Some(headless),

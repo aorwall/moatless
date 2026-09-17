@@ -83,10 +83,10 @@ pub(crate) trait TaskDao: Send + Sync {
         row: &Task,
         placement: &SandboxPlacement,
     ) -> Result<(), sqlx::Error>;
-    /// Compensate a shared-sandbox join failure after `insert_task`: removes
-    /// the just-created Task and its rows, never the Sandbox row — it belongs
-    /// to the members the Task tried to join.
-    async fn delete_inserted_task_after_join_failure(
+    /// Undo an `insert_task` whose creation then failed: removes the
+    /// just-created Task and its rows, never the Sandbox row — it belongs to
+    /// the members the Task tried to join.
+    async fn delete_inserted_task(
         &self,
         task_id: &str,
     ) -> Result<bool, sqlx::Error>;
@@ -440,7 +440,7 @@ impl TaskDao for PgTaskDao {
         Ok(())
     }
 
-    async fn delete_inserted_task_after_join_failure(
+    async fn delete_inserted_task(
         &self,
         task_id: &str,
     ) -> Result<bool, sqlx::Error> {

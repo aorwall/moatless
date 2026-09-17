@@ -28,6 +28,12 @@ pub enum TaskError {
     #[error("Internal error: {0}")]
     Internal(String),
 
+    /// The Task's first message could not be delivered. Creation undoes its
+    /// insert before raising this, so it answers for a Task that no longer
+    /// exists — and answers with the send's own status, not a blanket 500.
+    #[error("{0}")]
+    FirstMessage(#[source] crate::message::error::MessageError),
+
     #[error("Forbidden: {0}")]
     Forbidden(String),
 
@@ -61,10 +67,14 @@ impl From<AccessControlError> for TaskError {
 
 impl IntoResponse for TaskError {
     fn into_response(self) -> Response {
-        let (status, message) = match &self {
-            TaskError::NotFound(_) => (StatusCode::NOT_FOUND, self.to_string()),
-            TaskError::RepoNotFound(_) => (StatusCode::NOT_FOUND, self.to_string()),
-            TaskError::BadRequest(_) => (StatusCode::BAD_REQUEST, self.to_string()),
+        let text = self.to_string();
+        let (status, message) = match self {
+            // The send classifies its own failures, so a refused attachment
+            // answers 400 with what was wrong rather than a 500 naming nothing.
+            TaskError::FirstMessage(e) => return e.into_response(),
+            TaskError::NotFound(_) => (StatusCode::NOT_FOUND, text),
+            TaskError::RepoNotFound(_) => (StatusCode::NOT_FOUND, text),
+            TaskError::BadRequest(_) => (StatusCode::BAD_REQUEST, text),
             TaskError::Db(e) => {
                 tracing::error!(error = %e, "Database error in task handler");
                 (
@@ -74,7 +84,7 @@ impl IntoResponse for TaskError {
             }
             TaskError::Store(e) => {
                 tracing::error!(
-                    error = %moatless_core::error::causal_chain(e),
+                    error = %moatless_core::error::causal_chain(&e),
                     "Store error in task handler"
                 );
                 (
@@ -82,15 +92,15 @@ impl IntoResponse for TaskError {
                     "Internal server error".to_string(),
                 )
             }
-            TaskError::Internal(ref msg) => {
+            TaskError::Internal(msg) => {
                 tracing::error!(error = %msg, "Internal error in task handler");
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "Internal server error".to_string(),
                 )
             }
-            TaskError::Forbidden(_) => (StatusCode::FORBIDDEN, self.to_string()),
-            TaskError::Conflict(_) => (StatusCode::CONFLICT, self.to_string()),
+            TaskError::Forbidden(_) => (StatusCode::FORBIDDEN, text),
+            TaskError::Conflict(_) => (StatusCode::CONFLICT, text),
         };
 
         error_response(status, message)

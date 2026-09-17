@@ -365,7 +365,7 @@ impl TaskOpener for crate::task::creation::TaskCreationService {
                     repository: None,
                 },
                 move |_task| async move { metadata },
-                |_task_id, _first: crate::task::creation::FirstMessage| async move {},
+                |_task_id, _first: crate::task::creation::FirstMessage| async move { Ok(()) },
             )
             .await
             .map_err(open_error)?;
