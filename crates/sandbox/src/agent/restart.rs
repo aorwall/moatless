@@ -216,10 +216,15 @@ pub enum WorkspaceOrigin {
     /// default, since most starts need no restart note.
     #[default]
     Persisted,
-    /// Restored from an S3 snapshot: git history and non-gitignored changes are
-    /// intact, but gitignored build artifacts were not in the snapshot and are
-    /// gone.
-    RestoredFromSnapshot,
+    /// Restored from an S3 snapshot: the tree is whatever the last snapshot
+    /// that committed held, so a write that landed after it started may be
+    /// missing, and gitignored build artifacts were never in it at all.
+    RestoredFromSnapshot {
+        /// When that snapshot started — the tree's age, which the note quotes so
+        /// the agent knows which of its own writes to re-check, and not a bound
+        /// on what reached it. `None` when the restore could not date it.
+        taken_at: Option<chrono::DateTime<chrono::Utc>>,
+    },
     /// Rebuilt from a fresh `git clone` — all ephemeral pre-restart state
     /// (incl. unpushed commits and uncommitted changes) may be gone.
     Recloned,
@@ -231,30 +236,50 @@ impl WorkspaceOrigin {
     fn restart_note(self, workspace_dir: &str) -> Option<String> {
         match self {
             Self::Persisted => None,
-            Self::RestoredFromSnapshot => Some(workspace_restored_note(workspace_dir)),
+            Self::RestoredFromSnapshot { taken_at } => {
+                Some(workspace_restored_note(workspace_dir, taken_at))
+            }
             Self::Recloned => Some(workspace_recloned_note(workspace_dir)),
         }
     }
 }
 
 /// Note prepended to a resumed turn when the workspace was restored from an S3
-/// snapshot (pod replaced, or evicted for exceeding its volume size limit).
+/// snapshot (pod replaced, reclaimed with the node, or evicted).
 ///
-/// The git tree is intact, but gitignored build artifacts weren't in the
-/// snapshot and were wiped.
-fn workspace_restored_note(workspace_dir: &str) -> String {
+/// Dates the tree and promises nothing: `snapshot` lists paths before
+/// `to_snapshot` stamps the time, so no instant bounds what reached one. Hence
+/// the stamp, not `summary.backup_end`: a stronger-sounding promise, no truer.
+fn workspace_restored_note(
+    workspace_dir: &str,
+    taken_at: Option<chrono::DateTime<chrono::Utc>>,
+) -> String {
+    let age = match taken_at {
+        Some(at) => format!(
+            "That snapshot began at {}, which dates the tree rather than \
+             guaranteeing it: anything you wrote around or after that time — \
+             edits, local commits, new files — may be missing.",
+            at.format("%Y-%m-%d %H:%M:%S UTC")
+        ),
+        None => "The restore could not date that snapshot, so treat its age as \
+                 unknown: work from your last turns may not have reached it."
+            .to_string(),
+    };
     format!(
         "<sandbox-restart-note>\n\
-         This sandbox was restarted — the pod was replaced or evicted (a common \
-         cause is the workspace volume exceeding its size limit, e.g. from large \
-         build outputs) — and the repository at {workspace_dir} was restored from \
-         a snapshot. Your committed history and uncommitted, non-gitignored \
-         changes are intact and present. However, gitignored build artifacts and \
-         dependencies inside git repos (e.g. target, node_modules, dist, .venv) \
-         were NOT part of the snapshot and have been wiped. Re-run install/build \
-         steps (e.g. `cargo build`, `bun install`) before relying on compiled \
-         output. To avoid another eviction, keep build artifacts from growing \
-         without bound — clean stale targets if the workspace gets large.\n\
+         This sandbox was restarted — the pod was replaced, reclaimed with its \
+         node, or evicted — and the workspace at {workspace_dir} was restored \
+         from its last completed snapshot. {age} Check what actually came \
+         back before you build on it: `git status` and `git diff` in each repo, \
+         against what you believe you wrote. Redo what is missing rather than \
+         assuming it is there.\n\
+         Gitignored build artifacts and dependencies (e.g. target, node_modules, \
+         dist, .venv) are never snapshotted and are gone regardless — re-run \
+         install/build steps (e.g. `cargo build`, `bun install`) before relying \
+         on compiled output. Everything else under {workspace_dir} is \
+         snapshotted, including repos beside the primary one and loose files, so \
+         it is the place to keep anything that must survive the next restart; \
+         `/tmp` is not.\n\
          </sandbox-restart-note>\n\n"
     )
 }
@@ -433,20 +458,48 @@ mod tests {
         assert_eq!(WorkspaceOrigin::Persisted.restart_note(WS), None);
     }
 
+    /// The note is the only thing that tells a resuming agent the tree may be
+    /// behind its own last writes, so it must name when the snapshot started
+    /// and send the agent to `git status` rather than assert the tree is intact.
     #[test]
-    fn snapshot_restore_warns_about_wiped_build_artifacts_only() {
-        let note = WorkspaceOrigin::RestoredFromSnapshot
-            .restart_note(WS)
-            .expect("snapshot restore must warn the agent");
+    fn a_dated_snapshot_restore_names_its_start_and_sends_the_agent_to_check() {
+        let taken_at = chrono::DateTime::from_timestamp(1_757_000_000, 0).expect("a valid instant");
+        let note = WorkspaceOrigin::RestoredFromSnapshot {
+            taken_at: Some(taken_at),
+        }
+        .restart_note(WS)
+        .expect("snapshot restore must warn the agent");
+
         assert!(note.contains("<sandbox-restart-note>"));
         assert!(note.contains(WS));
-        // Must tell the agent the git tree survived but build artifacts did not.
-        assert!(note.contains("restored from"));
-        assert!(note.contains("target"));
+        assert!(note.contains("restored"));
         assert!(note.contains("evicted"));
-        // Must NOT scare the agent about losing uncommitted work — the S3
-        // snapshot preserves the non-gitignored working tree.
-        assert!(!note.contains("never pushed may also be missing"));
+        // The tree's age, so the agent knows which writes to re-check.
+        assert!(note.contains("began at 2025-09-04 15:33:20 UTC"), "{note}");
+        // No instant bounds what reached a snapshot, so the note claims none.
+        assert!(note.contains("rather than guaranteeing it"), "{note}");
+        assert!(
+            note.contains("around or after that time") && note.contains("may be missing"),
+            "{note}"
+        );
+        assert!(note.contains("git status"), "{note}");
+        // Build artifacts are still called out: they are gone on every restore.
+        assert!(note.contains("target"));
+        // Asserting the tree is intact is what stops an agent checking.
+        assert!(!note.contains("intact and present"), "{note}");
+    }
+
+    /// An undatable snapshot must read as unknown, never as current — the
+    /// rescue tar carries no time and is the older copy by construction.
+    #[test]
+    fn an_undated_snapshot_restore_says_unknown_rather_than_current() {
+        let note = WorkspaceOrigin::RestoredFromSnapshot { taken_at: None }
+            .restart_note(WS)
+            .expect("snapshot restore must warn the agent");
+
+        assert!(note.contains("age as unknown"), "{note}");
+        assert!(note.contains("git status"), "{note}");
+        assert!(!note.contains("intact and present"), "{note}");
     }
 
     #[test]

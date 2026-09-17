@@ -57,7 +57,11 @@ async fn a_command_lost_to_the_restart_wakes_the_agent() {
     let backend = ReplayBackend::new(Ok(vec![]), None);
     let (state, recorder) = recording_state_with_config(config, InitPhase::Starting, backend);
 
-    open_for_work(&state, WorkspaceOrigin::RestoredFromSnapshot).await;
+    open_for_work(
+        &state,
+        WorkspaceOrigin::RestoredFromSnapshot { taken_at: None },
+    )
+    .await;
 
     let inputs = recorded_inputs(&recorder, 1).await;
     assert_eq!(
@@ -94,7 +98,11 @@ async fn the_wake_fires_once_across_repeated_restarts() {
 
     let backend = ReplayBackend::new(Ok(vec![]), None);
     let (state, recorder) = recording_state_with_config(config, InitPhase::Starting, backend);
-    open_for_work(&state, WorkspaceOrigin::RestoredFromSnapshot).await;
+    open_for_work(
+        &state,
+        WorkspaceOrigin::RestoredFromSnapshot { taken_at: None },
+    )
+    .await;
     assert_eq!(recorded_inputs(&recorder, 1).await.len(), 1);
 
     assert!(
@@ -106,7 +114,11 @@ async fn the_wake_fires_once_across_repeated_restarts() {
     let backend = ReplayBackend::new(Ok(vec![]), None);
     let config = tmp_config("claude-code", &tmp);
     let (state, recorder) = recording_state_with_config(config, InitPhase::Starting, backend);
-    open_for_work(&state, WorkspaceOrigin::RestoredFromSnapshot).await;
+    open_for_work(
+        &state,
+        WorkspaceOrigin::RestoredFromSnapshot { taken_at: None },
+    )
+    .await;
     assert!(
         settled_inputs(&recorder).await.is_empty(),
         "a restart owing nothing must not open a turn"
@@ -140,7 +152,11 @@ async fn consuming_a_journal_leaves_the_workspace_owing_an_upload() {
     let backend = ReplayBackend::new(Ok(vec![]), None);
     let (state, _recorder) = recording_state_with_config(config, InitPhase::Starting, backend);
 
-    open_for_work(&state, WorkspaceOrigin::RestoredFromSnapshot).await;
+    open_for_work(
+        &state,
+        WorkspaceOrigin::RestoredFromSnapshot { taken_at: None },
+    )
+    .await;
 
     assert!(
         state.workspace_sync.baseline().await.is_none(),
@@ -167,7 +183,11 @@ async fn a_restart_with_no_journal_still_adopts_the_upload_baseline() {
     let backend = ReplayBackend::new(Ok(vec![]), None);
     let (state, _recorder) = recording_state_with_config(config, InitPhase::Starting, backend);
 
-    open_for_work(&state, WorkspaceOrigin::RestoredFromSnapshot).await;
+    open_for_work(
+        &state,
+        WorkspaceOrigin::RestoredFromSnapshot { taken_at: None },
+    )
+    .await;
 
     assert!(
         state.workspace_sync.baseline().await.is_some(),
@@ -188,7 +208,11 @@ async fn a_restart_with_no_journal_opens_no_turn() {
     let backend = ReplayBackend::new(Ok(vec![]), None);
     let (state, recorder) = recording_state_with_config(config, InitPhase::Starting, backend);
 
-    open_for_work(&state, WorkspaceOrigin::RestoredFromSnapshot).await;
+    open_for_work(
+        &state,
+        WorkspaceOrigin::RestoredFromSnapshot { taken_at: None },
+    )
+    .await;
 
     assert!(settled_inputs(&recorder).await.is_empty());
 }
@@ -215,7 +239,11 @@ async fn a_pending_message_does_not_swallow_the_lost_command_wake() {
     let (state, recorder) =
         recording_state_with_config(config, InitPhase::Starting, Arc::clone(&backend) as _);
 
-    open_for_work(&state, WorkspaceOrigin::RestoredFromSnapshot).await;
+    open_for_work(
+        &state,
+        WorkspaceOrigin::RestoredFromSnapshot { taken_at: None },
+    )
+    .await;
 
     let inputs = recorded_inputs(&recorder, 2).await;
     assert_eq!(inputs.len(), 2, "both the message and the wake must run");

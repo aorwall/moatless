@@ -98,7 +98,11 @@ async fn a_member_joining_before_ready_is_recovered_once_by_init() {
         "registering before Ready must leave recovery to init"
     );
 
-    open_for_work(&state, WorkspaceOrigin::RestoredFromSnapshot).await;
+    open_for_work(
+        &state,
+        WorkspaceOrigin::RestoredFromSnapshot { taken_at: None },
+    )
+    .await;
 
     let mut recovered = backend.recovered_task_ids();
     recovered.sort();
@@ -110,7 +114,7 @@ async fn a_member_joining_before_ready_is_recovered_once_by_init() {
     );
     assert_eq!(
         *state.workspace_origin.read().await,
-        WorkspaceOrigin::RestoredFromSnapshot,
+        WorkspaceOrigin::RestoredFromSnapshot { taken_at: None },
         "init must publish the origin for a Member that joins after Ready"
     );
 }
@@ -137,8 +141,12 @@ async fn a_joined_members_restart_note_names_its_own_checkout() {
     joined.task_id = "joined-task".to_string();
     joined.checkout_dir = JOINED_CHECKOUT.to_string();
 
-    recover_interrupted_run_unless_pending(&state, &joined, WorkspaceOrigin::RestoredFromSnapshot)
-        .await;
+    recover_interrupted_run_unless_pending(
+        &state,
+        &joined,
+        WorkspaceOrigin::RestoredFromSnapshot { taken_at: None },
+    )
+    .await;
 
     let inputs = recorded_inputs(&recorder, 1).await;
     assert_eq!(inputs.len(), 1, "the joined Member's run is replayed");

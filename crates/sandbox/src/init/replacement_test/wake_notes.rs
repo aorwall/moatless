@@ -45,7 +45,11 @@ async fn a_recorded_note_wakes_the_agent() {
     let backend = ReplayBackend::new(Ok(vec![]), None);
     let (state, recorder) = recording_state_with_config(config, InitPhase::Starting, backend);
 
-    open_for_work(&state, WorkspaceOrigin::RestoredFromSnapshot).await;
+    open_for_work(
+        &state,
+        WorkspaceOrigin::RestoredFromSnapshot { taken_at: None },
+    )
+    .await;
 
     let inputs = recorded_inputs(&recorder, 1).await;
     assert_eq!(inputs.len(), 1, "the note must open exactly one turn");
@@ -72,7 +76,11 @@ async fn the_wake_fires_once_across_repeated_restarts() {
 
     let backend = ReplayBackend::new(Ok(vec![]), None);
     let (state, recorder) = recording_state_with_config(config, InitPhase::Starting, backend);
-    open_for_work(&state, WorkspaceOrigin::RestoredFromSnapshot).await;
+    open_for_work(
+        &state,
+        WorkspaceOrigin::RestoredFromSnapshot { taken_at: None },
+    )
+    .await;
     assert_eq!(recorded_inputs(&recorder, 1).await.len(), 1);
 
     assert!(
@@ -83,7 +91,11 @@ async fn the_wake_fires_once_across_repeated_restarts() {
     let backend = ReplayBackend::new(Ok(vec![]), None);
     let config = tmp_config("claude-code", &tmp);
     let (state, recorder) = recording_state_with_config(config, InitPhase::Starting, backend);
-    open_for_work(&state, WorkspaceOrigin::RestoredFromSnapshot).await;
+    open_for_work(
+        &state,
+        WorkspaceOrigin::RestoredFromSnapshot { taken_at: None },
+    )
+    .await;
     assert!(
         settled_inputs(&recorder).await.is_empty(),
         "a restart owing nothing must not open a turn"
@@ -117,7 +129,11 @@ async fn a_note_and_a_lost_command_open_one_turn() {
     let backend = ReplayBackend::new(Ok(vec![]), None);
     let (state, recorder) = recording_state_with_config(config, InitPhase::Starting, backend);
 
-    open_for_work(&state, WorkspaceOrigin::RestoredFromSnapshot).await;
+    open_for_work(
+        &state,
+        WorkspaceOrigin::RestoredFromSnapshot { taken_at: None },
+    )
+    .await;
 
     let inputs = recorded_inputs(&recorder, 1).await;
     assert_eq!(inputs.len(), 1, "two facts, one turn: {inputs:?}");
@@ -144,7 +160,11 @@ async fn consuming_a_note_leaves_the_workspace_owing_an_upload() {
     let backend = ReplayBackend::new(Ok(vec![]), None);
     let (state, _recorder) = recording_state_with_config(config, InitPhase::Starting, backend);
 
-    open_for_work(&state, WorkspaceOrigin::RestoredFromSnapshot).await;
+    open_for_work(
+        &state,
+        WorkspaceOrigin::RestoredFromSnapshot { taken_at: None },
+    )
+    .await;
 
     assert!(
         state.workspace_sync.baseline().await.is_none(),

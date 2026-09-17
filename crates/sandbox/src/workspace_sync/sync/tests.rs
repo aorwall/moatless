@@ -298,7 +298,7 @@ async fn an_empty_or_broken_repo_is_not_usable() {
 /// reached a snapshot.
 #[test]
 fn only_a_bare_decision_still_owes_the_overlay() {
-    assert!(RestoreDecision::RestoredSnapshot.skips_overlay());
+    assert!(RestoreDecision::RestoredSnapshot { taken_at: None }.skips_overlay());
     assert!(RestoreDecision::UseExistingVolume.skips_overlay());
     assert!(!RestoreDecision::Nothing.skips_overlay());
     // The overlay extracts the rescue tar. A walk that refused to descend to
@@ -307,7 +307,7 @@ fn only_a_bare_decision_still_owes_the_overlay() {
 
     // Only a real extraction counts as a snapshot origin; keeping the volume
     // lost nothing, so it is not reported as a restore.
-    assert!(RestoreDecision::RestoredSnapshot.restored_snapshot());
+    assert!(RestoreDecision::RestoredSnapshot { taken_at: None }.restored_snapshot());
     assert!(!RestoreDecision::UseExistingVolume.restored_snapshot());
     assert!(!RestoreDecision::Nothing.restored_snapshot());
     assert!(!RestoreDecision::CloneOnly.restored_snapshot());

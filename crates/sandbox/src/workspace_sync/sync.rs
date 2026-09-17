@@ -330,7 +330,12 @@ pub(super) async fn primary_repo_is_usable(repo_dir: &Path) -> bool {
 pub enum RestoreDecision {
     /// A full snapshot (carrying `.git`) was extracted. Skip the clone, skip
     /// the overlay — the snapshot *is* the working tree.
-    RestoredSnapshot,
+    RestoredSnapshot {
+        /// When the restored snapshot started, so the restart note can date the
+        /// tree. `None` when the format carries no timestamp (the rescue tar),
+        /// which reads as "unknown", not "current".
+        taken_at: Option<chrono::DateTime<chrono::Utc>>,
+    },
     /// The durable volume already holds a usable primary repo. Nothing was
     /// fetched; the volume is the live copy. Skip the overlay — it is the older
     /// copy and would revert the volume.
@@ -348,7 +353,18 @@ impl RestoreDecision {
     /// Whether a full snapshot was extracted — the only case that reports
     /// `RepositoryRestored` and counts as a snapshot origin.
     pub fn restored_snapshot(self) -> bool {
-        matches!(self, Self::RestoredSnapshot)
+        matches!(self, Self::RestoredSnapshot { .. })
+    }
+
+    /// When the restored snapshot was taken, for the restart note. `None` both
+    /// for a decision that restored nothing and for a format that carries no
+    /// timestamp; the note words those the same way, since neither lets an
+    /// agent date the tree it is looking at.
+    pub fn snapshot_taken_at(self) -> Option<chrono::DateTime<chrono::Utc>> {
+        match self {
+            Self::RestoredSnapshot { taken_at } => taken_at,
+            _ => None,
+        }
     }
 
     /// Whether the workspace already holds the authoritative copy, so
@@ -357,7 +373,7 @@ impl RestoreDecision {
     pub fn skips_overlay(self) -> bool {
         matches!(
             self,
-            Self::RestoredSnapshot | Self::UseExistingVolume | Self::CloneOnly
+            Self::RestoredSnapshot { .. } | Self::UseExistingVolume | Self::CloneOnly
         )
     }
 }
@@ -552,7 +568,9 @@ pub async fn restore_on_start(state: &SandboxState) -> RestoreDecision {
                     None,
                 )
                 .await;
-            RestoreDecision::RestoredSnapshot
+            // The tar carries no snapshot time, so the note says "unknown"
+            // rather than dating the tree from this pod's own clock.
+            RestoreDecision::RestoredSnapshot { taken_at: None }
         }
         Ok(false) => {
             debug!(task_id = %task_id, "Snapshot has no primary .git (legacy); will clone then overlay");
@@ -664,11 +682,7 @@ pub async fn download_on_start(state: &SandboxState) {
 pub async fn upload(state: &SandboxState) -> SyncOutcome {
     state
         .workspace_sync
-        .upload_if_changed(
-            &state.config,
-            state.backend_client.as_ref(),
-            Prune::WhenDue,
-        )
+        .upload_if_changed(&state.config, state.backend_client.as_ref(), Prune::WhenDue)
         .await
 }
 

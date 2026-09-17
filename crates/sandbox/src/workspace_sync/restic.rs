@@ -40,7 +40,8 @@ pub(super) const FORMAT: &str = "restic";
 ///
 /// Must be `/tmp`, never `no_cache` (`rustic_core` then issues one GET per
 /// blob), `WORKSPACE_DIR` (feeds on itself), `/opt/moatless/data` (capped), or
-/// `/run/moatless` (1Mi); shares `pod_builder.rs`'s unbounded `/tmp` budget.
+/// `/run/moatless` (1Mi). `/tmp` is a `subPath` of the capped `workspace-data`
+/// volume, so this spends the workspace's own eviction headroom.
 const CACHE_DIR: &str = "/tmp/rustic-cache";
 
 /// Where the whitelist of paths to snapshot is written.
@@ -433,6 +434,10 @@ struct Restored {
     /// time is inside the object that will not read, so whether it was newer
     /// than the snapshot restored here is not knowable.
     skipped_unreadable: bool,
+    /// When the restored snapshot started — the tree's age, not a bound on what
+    /// reached it. `None` only when the snapshot's own time will not convert,
+    /// which the restart note words as unknown, not as current.
+    taken_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 /// Restore the whole workspace from the latest snapshot.
@@ -494,7 +499,9 @@ pub(super) async fn restore_on_start(state: &SandboxState) -> RestoreAttempt {
             // A snapshot that turned out not to carry the primary repo is not
             // one a clone can be skipped after.
             if primary_repo_is_usable(&repo_dir).await {
-                RestoreAttempt::Restored(RestoreDecision::RestoredSnapshot)
+                RestoreAttempt::Restored(RestoreDecision::RestoredSnapshot {
+                    taken_at: restored.taken_at,
+                })
             } else {
                 debug!(task_id = %task_id, "Restored tree has no usable primary repo; will clone");
                 RestoreAttempt::Absent
@@ -663,6 +670,7 @@ fn restore_from(
         }
     };
 
+    let taken_at = snapshot_taken_at(&snapshot);
     let node = repo
         .node_from_snapshot_and_path(&snapshot, SNAPSHOT_ROOT)
         .map_err(|e| format!("snapshot {} carries no `{SNAPSHOT_ROOT}`: {e}", snapshot.id))?;
@@ -682,7 +690,21 @@ fn restore_from(
     Ok(Some(Restored {
         bytes,
         skipped_unreadable,
+        taken_at,
     }))
+}
+
+/// When a snapshot started, as UTC — its age, not a bound on what reached it.
+///
+/// `SnapshotFile::time` is stamped by `to_snapshot` after [`snapshot`] has
+/// already enumerated paths, so it is the start and not `summary.backup_end`.
+/// `jiff` is `rustic_core`'s clock type and `chrono` is this crate's, so the
+/// conversion goes through the epoch rather than a formatted string.
+fn snapshot_taken_at(
+    snapshot: &rustic_core::repofile::SnapshotFile,
+) -> Option<chrono::DateTime<chrono::Utc>> {
+    let timestamp = snapshot.time.timestamp();
+    chrono::DateTime::from_timestamp(timestamp.as_second(), timestamp.subsec_nanosecond() as u32)
 }
 
 /// Drop all but the last [`KEEP_SNAPSHOTS`] snapshots and reclaim their packs.
@@ -1377,7 +1399,12 @@ mod tests {
         let backend = map_repo();
 
         write_tree(&source, "first");
+        let before_readable = chrono::Utc::now();
         _ = map_snapshot(&backend, &source);
+        let after_readable = chrono::Utc::now();
+        // Two `Zoned::now()` stamps have to land apart for the window below to
+        // separate the restored generation from the skipped one.
+        std::thread::sleep(std::time::Duration::from_millis(20));
         write_tree(&source, "second");
         backend.make_unreadable(map_snapshot(&backend, &source));
 
@@ -1393,6 +1420,15 @@ mod tests {
             std::fs::read_to_string(into.join("a.txt")).expect("restored file"),
             "first",
             "the generation before the unreadable one is what is left to restore"
+        );
+        // The restart note quotes this time, so it has to date the tree that is
+        // actually on disk. The skipped snapshot is newer, so reporting its time
+        // would tell the agent work reached a tree it never reached.
+        let taken_at = restored.taken_at.expect("the restored snapshot is dated");
+        assert!(
+            taken_at >= before_readable && taken_at <= after_readable,
+            "{taken_at} must fall in the restored generation's window \
+             {before_readable}..{after_readable}, not the skipped newer one's"
         );
     }
 

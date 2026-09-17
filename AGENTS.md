@@ -43,10 +43,14 @@ CLAUDE_SDK_E2E=1 cargo test -p moatless-sandbox --test agent_e2e -- --ignored --
 Run those clippy lines verbatim; add no `-p` line for the crate you touched, and
 never run `cargo check`. `crates/codex-sdk` sits outside the workspace and
 carries its own build and clippy line in its `Cargo.toml`. Read
-`rust-dev-guidelines` before you change a cargo invocation. The sandbox
-workspace volume is capped and overflowing it evicts the pod, so check
-`df -h /opt/moatless` before a full build and run `task rust:gc` when free space
-falls.
+`rust-dev-guidelines` before you change a cargo invocation. A full build is
+bounded by memory before disk — a cold floor line peaks around 6.0 GiB of the
+sandbox's 8 GiB cgroup cap, against 3.5 GiB of a 20 GiB volume — so read
+`/sys/fs/cgroup/memory.peak` after a build, and lower `CARGO_BUILD_JOBS` when it
+nears `memory.max`. Do not use `df` for either number: the workspace volume is
+an `emptyDir` with a `sizeLimit` the kubelet meters separately, and `df` reports
+the node's device. Measure it with `du -sx /opt/moatless`, and run `task rust:gc`
+when that approaches the cap.
 
 ### Building, deploying and releasing
 ```bash
