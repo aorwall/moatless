@@ -31,6 +31,36 @@ fn per_repo_sandbox_service_account_overrides_global() {
     );
 }
 
+/// A repo with no `sandboxServiceAccount` refuses the `ServiceAccount` token
+/// outright, and one that opted in leaves the field unset so that its own SA
+/// decides — a global default SA alone earns no token either way.
+#[test]
+fn a_repo_that_did_not_opt_in_mounts_no_service_account_token() {
+    let automounts = |config: &_, plan: &_| {
+        build_pod(config, "task-1", plan, None, None)
+            .unwrap()
+            .spec
+            .unwrap()
+            .automount_service_account_token
+    };
+
+    let mut config = test_config();
+    config.sandbox.service_account_name = Some("global-default-sa".to_string());
+    assert_eq!(
+        automounts(&config, &test_plan()),
+        Some(false),
+        "the global default SA carries no token"
+    );
+
+    let mut plan = test_plan();
+    plan.repo_config.sandbox_service_account = Some("moatless-cluster-reader".to_string());
+    assert_eq!(
+        automounts(&config, &plan),
+        None,
+        "an opted-in repo defers to its ServiceAccount rather than forcing the token on"
+    );
+}
+
 /// Per-repo `networkProfile` adds the `moatless.io/network-profile` pod label
 /// (which a static `NetworkPolicy` selects); unset/blank adds no label.
 #[test]

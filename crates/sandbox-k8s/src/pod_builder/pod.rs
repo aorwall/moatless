@@ -223,6 +223,17 @@ pub fn build_pod(
                     .sandbox_service_account
                     .clone()
                     .or_else(|| config.sandbox.service_account_name.clone()),
+                // The global default SA exists for pod identity, not cluster
+                // access, but a cluster is free to bind RBAC to it — and a
+                // mounted token hands that to every agent in every sandbox.
+                // An opted-in repo leaves the field unset rather than `true`,
+                // so its SA can still refuse the token. AWS pod identity
+                // projects its own and is unaffected either way.
+                automount_service_account_token: plan
+                    .repo_config
+                    .sandbox_service_account
+                    .is_none()
+                    .then_some(false),
                 security_context: pod_security_context(config),
                 ..Default::default()
             }

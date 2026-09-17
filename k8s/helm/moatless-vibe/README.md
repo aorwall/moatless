@@ -598,6 +598,14 @@ independent reasons — and a workspace needs **both** lifted:
 | Network | The kube-apiserver ClusterIP (e.g. `172.20.0.1`) is inside `172.16.0.0/12`, which the base sandbox policy lists under `except:`. `kubectl` hangs on connect. | `networkProfile` = the profile's **map key** |
 | RBAC | The Roles in `rbac.yaml` bind the *backend* SA, not the sandbox one — so `kubectl get ns` would 403 even with a network path. | `sandboxServiceAccount` = the profile's `serviceAccount` |
 
+The RBAC gate holds even where something outside the chart binds a Role to the
+default SA: a sandbox pod is built with `automountServiceAccountToken: false`
+unless `sandboxServiceAccount` is set, so there is no token for `kubectl` to
+present and the opt-in stays the only path in. When it is set the pod leaves the
+field unset rather than forcing it true, so a ServiceAccount carrying
+`automountServiceAccountToken: false` still wins. AWS Pod Identity and IRSA
+project their own token volumes and are unaffected either way.
+
 Without this, cluster-audit tasks reconstruct state from
 Prometheus/kube-state-metrics, which exposes **neither NetworkPolicy objects nor
 namespace labels**.
