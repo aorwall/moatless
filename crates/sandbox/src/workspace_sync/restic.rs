@@ -27,7 +27,7 @@ use tracing::{debug, info, warn};
 use super::file_set;
 use super::sync::{
     NotStored, RestoreAttempt, RestoreDecision, SyncOutcome, clear_dir_contents,
-    is_feature_disabled, primary_repo_is_usable,
+    is_feature_disabled, primary_repo_is_usable, report_skipped_unreadable_snapshot,
 };
 use crate::backend_client::BackendClient;
 use crate::config::Config;
@@ -416,6 +416,25 @@ pub(super) const RESTORE_ATTEMPTS: u32 = 3;
 /// costs the task every byte it produces afterwards.
 const RESTORE_RETRY_BACKOFF: Duration = Duration::from_secs(2);
 
+/// What one attempt does about a stored snapshot object it cannot read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum UnreadableSnapshot {
+    /// Fail the attempt, so the retry re-tests what is usually a blip.
+    Refuse,
+    /// Restore the newest generation that does read, and say so.
+    PassOver,
+}
+
+/// A restored workspace.
+#[derive(Debug)]
+struct Restored {
+    bytes: u64,
+    /// A stored snapshot object would not read and was left out of the pick. Its
+    /// time is inside the object that will not read, so whether it was newer
+    /// than the snapshot restored here is not knowable.
+    skipped_unreadable: bool,
+}
+
 /// Restore the whole workspace from the latest snapshot.
 ///
 /// [`RestoreAttempt::Restored`] means the caller can skip the clone: a snapshot
@@ -431,7 +450,15 @@ pub(super) async fn restore_on_start(state: &SandboxState) -> RestoreAttempt {
     let mut attempts_left = RESTORE_ATTEMPTS;
     let restored = loop {
         attempts_left -= 1;
-        match restore_once(state).await {
+        // The last attempt passes over a snapshot object that still will not
+        // read, so a repository holding one restores its newest readable
+        // generation rather than ending the task's durability.
+        let unreadable = if attempts_left == 0 {
+            UnreadableSnapshot::PassOver
+        } else {
+            UnreadableSnapshot::Refuse
+        };
+        match restore_once(state, unreadable).await {
             Ok(restored) => break Ok(restored),
             Err(error) => {
                 // A snapshot carries the whole workspace — every repo,
@@ -455,12 +482,15 @@ pub(super) async fn restore_on_start(state: &SandboxState) -> RestoreAttempt {
     let elapsed = started.elapsed().as_millis() as u64;
 
     match restored {
-        Ok(Some(bytes)) => {
-            info!(task_id = %task_id, bytes, dir = %workspace_dir.display(), "Restored repos from the workspace repository (skipping clone)");
+        Ok(Some(restored)) => {
+            info!(task_id = %task_id, bytes = restored.bytes, dir = %workspace_dir.display(), "Restored repos from the workspace repository (skipping clone)");
             state
                 .backend_client
-                .report_workspace_sync(&task_id, "download", FORMAT, bytes, elapsed, None)
+                .report_workspace_sync(&task_id, "download", FORMAT, restored.bytes, elapsed, None)
                 .await;
+            if restored.skipped_unreadable {
+                report_skipped_unreadable_snapshot(state);
+            }
             // A snapshot that turned out not to carry the primary repo is not
             // one a clone can be skipped after.
             if primary_repo_is_usable(&repo_dir).await {
@@ -487,7 +517,10 @@ pub(super) async fn restore_on_start(state: &SandboxState) -> RestoreAttempt {
 
 /// One restore attempt: `Ok(None)` means this task has no snapshot to restore,
 /// which no retry can change.
-async fn restore_once(state: &SandboxState) -> Result<Option<u64>, String> {
+async fn restore_once(
+    state: &SandboxState,
+    unreadable: UnreadableSnapshot,
+) -> Result<Option<Restored>, String> {
     let task_id = state.config.task_id.clone();
     let workspace_dir = PathBuf::from(&state.config.workspace_dir);
 
@@ -509,7 +542,11 @@ async fn restore_once(state: &SandboxState) -> Result<Option<u64>, String> {
         Err(status) => return Err(format!("repository access could not be minted: {status}")),
     };
 
-    match tokio::task::spawn_blocking(move || restore_own_or_source(&access, &workspace_dir)).await {
+    match tokio::task::spawn_blocking(move || {
+        restore_own_or_source(&access, &workspace_dir, unreadable)
+    })
+    .await
+    {
         Ok(restored) => restored,
         Err(error) => Err(format!("restore panicked: {error}")),
     }
@@ -519,13 +556,17 @@ async fn restore_once(state: &SandboxState) -> Result<Option<u64>, String> {
 /// when the task's own holds no snapshot.
 ///
 /// Safe: the read-only source can't be damaged by a wrongly-fired fallback.
-fn restore_own_or_source(access: &Access, workspace_dir: &Path) -> Result<Option<u64>, String> {
-    match restore(&access.own, workspace_dir)? {
-        Some(bytes) => Ok(Some(bytes)),
+fn restore_own_or_source(
+    access: &Access,
+    workspace_dir: &Path,
+    unreadable: UnreadableSnapshot,
+) -> Result<Option<Restored>, String> {
+    match restore(&access.own, workspace_dir, unreadable)? {
+        Some(restored) => Ok(Some(restored)),
         None => match access.source.as_ref() {
             Some(source) => {
                 info!("Restoring from the fork source's workspace repository");
-                restore(source, workspace_dir)
+                restore(source, workspace_dir, unreadable)
             }
             None => Ok(None),
         },
@@ -533,11 +574,32 @@ fn restore_own_or_source(access: &Access, workspace_dir: &Path) -> Result<Option
 }
 
 /// Restore the latest snapshot onto `workspace_dir`, or `Ok(None)` when the
-/// repository holds none. Returns the bytes written.
-fn restore(access: &RepoAccess, workspace_dir: &Path) -> Result<Option<u64>, String> {
+/// repository holds none.
+fn restore(
+    access: &RepoAccess,
+    workspace_dir: &Path,
+    unreadable: UnreadableSnapshot,
+) -> Result<Option<Restored>, String> {
     let backends = RepositoryBackends::new(Arc::new(access.backend.clone()), None);
-    let credentials = RepoCredentials::password(&access.password);
-    let repo = Repository::new(&options(), &backends)
+    restore_from(
+        &options(),
+        &backends,
+        &access.password,
+        workspace_dir,
+        unreadable,
+    )
+}
+
+/// [`restore`] over any backend, so a test can drive it without S3.
+fn restore_from(
+    options: &RepositoryOptions,
+    backends: &RepositoryBackends,
+    password: &str,
+    workspace_dir: &Path,
+    unreadable: UnreadableSnapshot,
+) -> Result<Option<Restored>, String> {
+    let credentials = RepoCredentials::password(password);
+    let repo = Repository::new(options, backends)
         .map_err(|e| format!("repository is unusable: {e}"))?;
     if repo
         .config_id()
@@ -552,27 +614,58 @@ fn restore(access: &RepoAccess, workspace_dir: &Path) -> Result<Option<u64>, Str
         .to_indexed()
         .map_err(|e| format!("repository index is unusable: {e}"))?;
 
-    let node = match repo.node_from_snapshot_path(&format!("latest:{SNAPSHOT_ROOT}"), |_| true) {
-        Ok(node) => node,
+    // `get_all_snapshots` fails on a snapshot object it cannot read, where
+    // resolving `latest` logs and drops it (`snapshotfile.rs:892`). Only the
+    // strict read tells an empty repository from one a blip hid a generation
+    // of, so the newest is picked here rather than by `latest:`.
+    let (snapshot, skipped_unreadable) = match repo.get_all_snapshots() {
+        Ok(stored) => {
+            let Some(snapshot) = stored.into_iter().max_by(|a, b| a.time.cmp(&b.time)) else {
+                debug!("Workspace repository holds no snapshot yet");
+                return Ok(None);
+            };
+            (snapshot, false)
+        }
+        Err(error) if unreadable == UnreadableSnapshot::Refuse => {
+            return Err(format!("a stored snapshot could not be read: {error}"));
+        }
         Err(error) => {
-            // `rustic_core` logs a snapshot it cannot read or decode and drops
-            // it while resolving `latest`, so a failure here does not mean the
-            // repository holds none — only the listing, which decodes nothing,
-            // tells an empty repository from one whose snapshots did not
-            // resolve.
+            // The listing decodes nothing and the filter runs once per object
+            // that did decode, so the two counts say whether the tolerant read
+            // dropped anything — the failure above may have been one bad read
+            // that this second pass gets. Which object it dropped stays unknown.
             let stored = repo
                 .list::<SnapshotId>()
                 .map_err(|e| format!("snapshots are unlistable: {e}"))?
                 .count();
-            if stored > 0 {
-                return Err(format!(
-                    "{stored} snapshots stored, but latest could not be resolved: {error}"
-                ));
+            // `get_all_snapshots` lists before it decodes anything
+            // (`update_from_backend`), so its failure may be the listing rather
+            // than an object. A repository this one proves empty is an absence:
+            // `latest` would call it a failure, which holds every upload the
+            // pod goes on to make.
+            if stored == 0 {
+                debug!(%error, "Workspace repository holds no snapshot yet");
+                return Ok(None);
             }
-            debug!(%error, "Workspace repository holds no snapshot yet");
-            return Ok(None);
+            let mut decoded = 0_usize;
+            let snapshot = repo
+                .get_snapshot_from_str("latest", |_| {
+                    decoded += 1;
+                    true
+                })
+                .map_err(|e| format!("no stored snapshot could be read: {e}"))?;
+            if decoded < stored {
+                warn!(%error, stored, decoded, "A stored snapshot will not read; restoring the newest that will");
+            } else {
+                info!(%error, "A stored snapshot failed one read and read on the retry");
+            }
+            (snapshot, decoded < stored)
         }
     };
+
+    let node = repo
+        .node_from_snapshot_and_path(&snapshot, SNAPSHOT_ROOT)
+        .map_err(|e| format!("snapshot {} carries no `{SNAPSHOT_ROOT}`: {e}", snapshot.id))?;
 
     let destination = LocalDestination::new(&format!("{}/", workspace_dir.display()), true, false)
         .map_err(|e| format!("workspace is not writable: {e}"))?;
@@ -586,7 +679,10 @@ fn restore(access: &RepoAccess, workspace_dir: &Path) -> Result<Option<u64>, Str
     let bytes = plan.restore_size;
     repo.restore(plan, &restore_opts, streamer, &destination)
         .map_err(|e| format!("restore failed: {e}"))?;
-    Ok(Some(bytes))
+    Ok(Some(Restored {
+        bytes,
+        skipped_unreadable,
+    }))
 }
 
 /// Drop all but the last [`KEEP_SNAPSHOTS`] snapshots and reclaim their packs.
@@ -654,6 +750,7 @@ fn prune(access: &RepoAccess) -> Result<usize, String> {
 #[cfg(test)]
 mod tests {
     use aws_sdk_s3::config::retry::RetryMode;
+    use bytes::Bytes;
 
     use super::*;
 
@@ -748,7 +845,8 @@ mod tests {
             let restored = restored.clone();
             move || {
                 let added = snapshot(&access, &source)?;
-                let bytes = restore(&access, &restored)?;
+                let bytes = restore(&access, &restored, UnreadableSnapshot::Refuse)?
+                    .map(|restored| restored.bytes);
                 Ok::<_, String>((added, bytes))
             }
         })
@@ -961,12 +1059,14 @@ mod tests {
                     own: fork.own.clone(),
                     source: None,
                 };
-                assert_eq!(
-                    restore_own_or_source(&own_only, &restored).expect("the fork's own repository"),
-                    None,
+                assert!(
+                    restore_own_or_source(&own_only, &restored, UnreadableSnapshot::Refuse)
+                        .expect("the fork's own repository")
+                        .is_none(),
                     "the fork's own prefix holds no snapshot to fall back from"
                 );
-                restore_own_or_source(&fork, &restored).expect("the fork restored");
+                restore_own_or_source(&fork, &restored, UnreadableSnapshot::Refuse)
+                    .expect("the fork restored");
             }
         })
         .await
@@ -998,6 +1098,384 @@ mod tests {
         RepoAccess {
             backend: ResticS3Backend::new(client, "moatless-restic-test", prefix),
             password: "fidelity".to_string(),
+        }
+    }
+
+    /// A backend over a map, counting how many further reads of an object — and
+    /// how many further snapshot listings — it refuses. Lets the tests below
+    /// drive the real [`restore_from`] with no endpoint.
+    #[derive(Default, Clone)]
+    struct MapBackend {
+        objects: Arc<std::sync::Mutex<std::collections::HashMap<(String, rustic_core::Id), Bytes>>>,
+        refusals: Arc<std::sync::Mutex<std::collections::HashMap<rustic_core::Id, usize>>>,
+        refused_lists: Arc<std::sync::Mutex<usize>>,
+    }
+
+    impl MapBackend {
+        /// Refuse every later read of `id`, as a corrupt object does.
+        fn make_unreadable(&self, id: rustic_core::Id) {
+            self.refuse_reads(id, usize::MAX);
+        }
+
+        /// Refuse the next `count` reads of `id`, as a stream breaking mid-body
+        /// does — the shape a later read clears.
+        fn refuse_reads(&self, id: rustic_core::Id, count: usize) {
+            _ = self
+                .refusals
+                .lock()
+                .expect("map lock")
+                .insert(id, count);
+        }
+
+        /// Refuse the next `count` snapshot listings. Snapshots only: opening the
+        /// repository and loading the index list their own types first.
+        fn refuse_snapshot_lists(&self, count: usize) {
+            *self.refused_lists.lock().expect("map lock") = count;
+        }
+
+        /// Whether this read is refused, spending one of `id`'s refusals.
+        fn refuses(&self, id: &rustic_core::Id) -> bool {
+            let mut refusals = self.refusals.lock().expect("map lock");
+            match refusals.get_mut(id) {
+                Some(left) if *left > 0 => {
+                    *left -= 1;
+                    true
+                }
+                _ => false,
+            }
+        }
+    }
+
+    impl rustic_core::ReadBackend for MapBackend {
+        fn location(&self) -> String {
+            "map:".to_string()
+        }
+
+        fn list_with_size(
+            &self,
+            tpe: rustic_core::FileType,
+        ) -> rustic_core::RusticResult<Vec<(rustic_core::Id, u32)>> {
+            if tpe == rustic_core::FileType::Snapshot {
+                let mut left = self.refused_lists.lock().expect("map lock");
+                if *left > 0 {
+                    *left -= 1;
+                    return Err(rustic_core::RusticError::new(
+                        rustic_core::ErrorKind::Backend,
+                        "listing will not complete",
+                    ));
+                }
+            }
+            let dir = tpe.to_string();
+            let objects = self.objects.lock().expect("map lock");
+            Ok(objects
+                .iter()
+                .filter(|((t, _), _)| *t == dir)
+                .map(|((_, id), body)| (*id, body.len() as u32))
+                .collect())
+        }
+
+        fn read_full(
+            &self,
+            tpe: rustic_core::FileType,
+            id: &rustic_core::Id,
+        ) -> rustic_core::RusticResult<Bytes> {
+            if self.refuses(id) {
+                return Err(rustic_core::RusticError::new(
+                    rustic_core::ErrorKind::Backend,
+                    "object will not read",
+                ));
+            }
+            let objects = self.objects.lock().expect("map lock");
+            objects.get(&(tpe.to_string(), *id)).cloned().ok_or_else(|| {
+                rustic_core::RusticError::new(rustic_core::ErrorKind::Backend, "no such object")
+            })
+        }
+
+        fn read_partial(
+            &self,
+            tpe: rustic_core::FileType,
+            id: &rustic_core::Id,
+            _cacheable: bool,
+            offset: u32,
+            length: u32,
+        ) -> rustic_core::RusticResult<Bytes> {
+            let body = self.read_full(tpe, id)?;
+            let start = offset as usize;
+            Ok(body.slice(start..start + length as usize))
+        }
+
+        fn warmup_path(&self, tpe: rustic_core::FileType, id: &rustic_core::Id) -> String {
+            format!("{tpe}/{id}")
+        }
+    }
+
+    impl rustic_core::WriteBackend for MapBackend {
+        fn write_bytes(
+            &self,
+            tpe: rustic_core::FileType,
+            id: &rustic_core::Id,
+            _cacheable: bool,
+            content: rustic_core::BytesList,
+        ) -> rustic_core::RusticResult<()> {
+            let mut body = Vec::with_capacity(content.size());
+            for chunk in content.slice() {
+                body.extend_from_slice(chunk);
+            }
+            let mut objects = self.objects.lock().expect("map lock");
+            _ = objects.insert((tpe.to_string(), *id), Bytes::from(body));
+            Ok(())
+        }
+
+        fn remove(
+            &self,
+            tpe: rustic_core::FileType,
+            id: &rustic_core::Id,
+            _cacheable: bool,
+        ) -> rustic_core::RusticResult<()> {
+            let mut objects = self.objects.lock().expect("map lock");
+            _ = objects.remove(&(tpe.to_string(), *id));
+            Ok(())
+        }
+    }
+
+    const MAP_PASSWORD: &str = "test-password";
+
+    /// Caching off: a cached snapshot answers the read the backend refuses,
+    /// which is the refusal every test below is about.
+    fn map_options() -> RepositoryOptions {
+        RepositoryOptions::default().no_cache(true)
+    }
+
+    fn map_backends(backend: &MapBackend) -> RepositoryBackends {
+        RepositoryBackends::new(Arc::new(backend.clone()), None)
+    }
+
+    /// An initialized repository holding no snapshot.
+    fn map_repo() -> MapBackend {
+        let backend = MapBackend::default();
+        _ = Repository::new(&map_options(), &map_backends(&backend))
+            .expect("repository")
+            .init(
+                &RepoCredentials::password(MAP_PASSWORD),
+                &Default::default(),
+                &Default::default(),
+            )
+            .expect("init");
+        backend
+    }
+
+    /// Snapshot `dir` into the repository and return the snapshot's id.
+    fn map_snapshot(backend: &MapBackend, dir: &Path) -> rustic_core::Id {
+        let repo = Repository::new(&map_options(), &map_backends(backend))
+            .expect("repository")
+            .open(&RepoCredentials::password(MAP_PASSWORD))
+            .expect("open")
+            .to_indexed_ids()
+            .expect("index");
+
+        let mut backup = BackupOptions::default();
+        backup.as_path = Some(PathBuf::from(SNAPSHOT_ROOT));
+        backup.parent_opts.force = true;
+
+        let paths = PathList::from_string(&dir.to_string_lossy()).expect("paths");
+        let snapshot = SnapshotOptions::default().to_snapshot().expect("metadata");
+        *repo.backup(&backup, &paths, snapshot).expect("backup").id
+    }
+
+    fn write_tree(root: &Path, body: &str) {
+        std::fs::create_dir_all(root).expect("mkdir");
+        std::fs::write(root.join("a.txt"), body).expect("write");
+    }
+
+    fn map_restore(
+        backend: &MapBackend,
+        into: &Path,
+        unreadable: UnreadableSnapshot,
+    ) -> Result<Option<Restored>, String> {
+        std::fs::create_dir_all(into).expect("mkdir");
+        restore_from(
+            &map_options(),
+            &map_backends(backend),
+            MAP_PASSWORD,
+            into,
+            unreadable,
+        )
+    }
+
+    /// An empty repository is an absence, so the caller may descend to the tar.
+    #[test]
+    fn a_repository_holding_no_snapshot_is_an_absence() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let backend = map_repo();
+
+        let restored = map_restore(
+            &backend,
+            &tmp.path().join("into"),
+            UnreadableSnapshot::Refuse,
+        )
+        .expect("an empty repository is not a failure");
+
+        assert!(restored.is_none(), "nothing stored, so nothing to restore");
+    }
+
+    /// A strict read fails on a listing before it decodes anything, so a listing
+    /// that clears and proves the repository empty is still an absence. Reporting
+    /// failure here would hold every upload the pod goes on to make.
+    #[test]
+    fn a_listing_that_clears_on_an_empty_repository_is_an_absence() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let backend = map_repo();
+
+        backend.refuse_snapshot_lists(1);
+
+        let restored = map_restore(
+            &backend,
+            &tmp.path().join("into"),
+            UnreadableSnapshot::PassOver,
+        )
+        .expect("a listing that clears must not fail the attempt");
+
+        assert!(
+            restored.is_none(),
+            "nothing is stored, so the caller clones with uploads flowing"
+        );
+    }
+
+    /// The incident's shape at the snapshot level. `rustic_core` logs a snapshot
+    /// object it cannot read and drops it while resolving `latest`, so without
+    /// the strict read this restores the generation before it and says nothing.
+    #[test]
+    fn an_unreadable_newest_snapshot_fails_the_attempt() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let source = tmp.path().join("source");
+        let backend = map_repo();
+
+        write_tree(&source, "first");
+        _ = map_snapshot(&backend, &source);
+        write_tree(&source, "second");
+        backend.make_unreadable(map_snapshot(&backend, &source));
+
+        let refused = map_restore(
+            &backend,
+            &tmp.path().join("into"),
+            UnreadableSnapshot::Refuse,
+        );
+
+        assert!(
+            refused.is_err(),
+            "a snapshot that will not read must reach the retry, not pass as an absence: {refused:?}"
+        );
+    }
+
+    /// The last attempt, where refusing ends the task's durability for the pod's
+    /// life. It restores the newest generation that does read, and says it did.
+    #[test]
+    fn the_last_attempt_skips_an_unreadable_snapshot_and_reports_it() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let source = tmp.path().join("source");
+        let into = tmp.path().join("into");
+        let backend = map_repo();
+
+        write_tree(&source, "first");
+        _ = map_snapshot(&backend, &source);
+        write_tree(&source, "second");
+        backend.make_unreadable(map_snapshot(&backend, &source));
+
+        let restored = map_restore(&backend, &into, UnreadableSnapshot::PassOver)
+            .expect("the readable generation is still restorable")
+            .expect("a repository holding two snapshots is not an absence");
+
+        assert!(
+            restored.skipped_unreadable,
+            "skipping a snapshot is the whole reason the task is told anything"
+        );
+        assert_eq!(
+            std::fs::read_to_string(into.join("a.txt")).expect("restored file"),
+            "first",
+            "the generation before the unreadable one is what is left to restore"
+        );
+    }
+
+    /// An unreadable *older* generation costs the task nothing: the newest still
+    /// reads and is what gets restored. Reported all the same, because which
+    /// generation would not read is not knowable — hence the wording of
+    /// `report_skipped_unreadable_snapshot`, which claims no loss.
+    #[test]
+    fn an_unreadable_older_snapshot_still_restores_the_newest() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let source = tmp.path().join("source");
+        let into = tmp.path().join("into");
+        let backend = map_repo();
+
+        write_tree(&source, "first");
+        let oldest = map_snapshot(&backend, &source);
+        write_tree(&source, "second");
+        _ = map_snapshot(&backend, &source);
+        backend.make_unreadable(oldest);
+
+        let restored = map_restore(&backend, &into, UnreadableSnapshot::PassOver)
+            .expect("the newest generation still reads")
+            .expect("a repository holding two snapshots is not an absence");
+
+        assert_eq!(
+            std::fs::read_to_string(into.join("a.txt")).expect("restored file"),
+            "second",
+            "the newest generation reads, so nothing older may be restored over it"
+        );
+        assert!(
+            restored.skipped_unreadable,
+            "an object that will not read is still reported, without claiming loss"
+        );
+    }
+
+    /// A read that breaks once and then works is the incident's own shape, and
+    /// the strict read fails on it. Nothing was skipped, so nothing is reported.
+    #[test]
+    fn a_read_that_clears_on_the_second_pass_reports_nothing() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let source = tmp.path().join("source");
+        let into = tmp.path().join("into");
+        let backend = map_repo();
+
+        write_tree(&source, "first");
+        _ = map_snapshot(&backend, &source);
+        write_tree(&source, "second");
+        backend.refuse_reads(map_snapshot(&backend, &source), 1);
+
+        let restored = map_restore(&backend, &into, UnreadableSnapshot::PassOver)
+            .expect("the second read of the newest snapshot works")
+            .expect("a repository holding two snapshots is not an absence");
+
+        assert!(
+            !restored.skipped_unreadable,
+            "every stored snapshot read, so the task lost nothing to report"
+        );
+        assert_eq!(
+            std::fs::read_to_string(into.join("a.txt")).expect("restored file"),
+            "second",
+            "the newest generation is what a cleared read restores"
+        );
+    }
+
+    /// Nothing was skipped, so nothing is reported: no false report to make the
+    /// real ones easy to dismiss.
+    #[test]
+    fn a_repository_that_reads_whole_reports_nothing() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let source = tmp.path().join("source");
+        let backend = map_repo();
+
+        write_tree(&source, "first");
+        _ = map_snapshot(&backend, &source);
+
+        for unreadable in [UnreadableSnapshot::Refuse, UnreadableSnapshot::PassOver] {
+            let restored = map_restore(&backend, &tmp.path().join("into"), unreadable)
+                .expect("a whole repository restores")
+                .expect("a stored snapshot is not an absence");
+            assert!(
+                !restored.skipped_unreadable,
+                "{unreadable:?} restored the newest snapshot, so the task lost nothing"
+            );
         }
     }
 }

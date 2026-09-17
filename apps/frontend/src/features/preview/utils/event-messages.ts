@@ -106,6 +106,9 @@ const DESCRIPTORS: Record<string, Descriptor> = {
   // stopped storing anything — so the tone has to come from here. It is the one
   // row saying this task's work will not survive the pod.
   workspace_uploads_held: { label: 'Workspace not being saved', tone: 'error' },
+  // Also isError false. The label claims no loss, because whether the skipped
+  // snapshot was the newer one is not knowable — the message states that.
+  workspace_snapshot_unreadable: { label: 'Workspace snapshot unreadable', tone: 'error' },
   // Lifecycle failure causes (`lifecycleEvent` on an `error` sandbox
   // event). The operation and the underlying reason are in the message; these
   // are the bounded cause vocabulary the backend publishes.
