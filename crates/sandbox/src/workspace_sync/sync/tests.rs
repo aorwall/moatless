@@ -298,7 +298,13 @@ async fn an_empty_or_broken_repo_is_not_usable() {
 /// reached a snapshot.
 #[test]
 fn only_a_bare_decision_still_owes_the_overlay() {
-    assert!(RestoreDecision::RestoredSnapshot { taken_at: None }.skips_overlay());
+    assert!(
+        RestoreDecision::RestoredSnapshot {
+            taken_at: None,
+            final_flush: false
+        }
+        .skips_overlay()
+    );
     assert!(RestoreDecision::UseExistingVolume.skips_overlay());
     assert!(!RestoreDecision::Nothing.skips_overlay());
     // The overlay extracts the rescue tar. A walk that refused to descend to
@@ -307,10 +313,102 @@ fn only_a_bare_decision_still_owes_the_overlay() {
 
     // Only a real extraction counts as a snapshot origin; keeping the volume
     // lost nothing, so it is not reported as a restore.
-    assert!(RestoreDecision::RestoredSnapshot { taken_at: None }.restored_snapshot());
+    assert!(
+        RestoreDecision::RestoredSnapshot {
+            taken_at: None,
+            final_flush: false
+        }
+        .restored_snapshot()
+    );
     assert!(!RestoreDecision::UseExistingVolume.restored_snapshot());
     assert!(!RestoreDecision::Nothing.restored_snapshot());
     assert!(!RestoreDecision::CloneOnly.restored_snapshot());
+}
+
+/// Whether a writer could still start is the first thing the capture asks, and
+/// the answer is no only once admission has closed and drained. An open
+/// workspace is one a command can be admitted into while the backup runs.
+#[tokio::test]
+async fn a_capture_over_an_open_workspace_certifies_nothing() {
+    let state = quiet_state();
+    assert!(!registered_writers_are_quiet(&state).await);
+
+    state
+        .writer_admission
+        .close_and_drain(Duration::from_secs(5))
+        .await;
+
+    assert!(registered_writers_are_quiet(&state).await);
+}
+
+/// The registries name only the writers this pod started through them. A test
+/// binary shares its namespace with the processes that launched it, which is the
+/// same shape as an agent tool's own child outliving the agent: every registry
+/// is quiet and a writer is still live.
+#[tokio::test]
+async fn a_live_process_no_registry_lists_certifies_nothing() {
+    let state = quiet_state();
+    state
+        .writer_admission
+        .close_and_drain(Duration::from_secs(5))
+        .await;
+    assert!(registered_writers_are_quiet(&state).await);
+
+    let live = crate::pod_processes::foreign_live_processes().expect("/proc is readable");
+    assert!(
+        !live.is_empty(),
+        "this test binary runs beside the processes that launched it"
+    );
+    assert!(!workspace_writers_are_quiet(&state).await);
+}
+
+/// A request admitted before the close and still unfinished at the end of the
+/// drain has yet to register the writer the reads below look for, so the
+/// capture cannot report the tree whole.
+#[tokio::test(start_paused = true)]
+async fn a_writer_the_drain_could_not_wait_out_certifies_nothing() {
+    let state = quiet_state();
+    let _admitted = state.writer_admission.admit().expect("open");
+
+    state
+        .writer_admission
+        .close_and_drain(Duration::from_millis(50))
+        .await;
+
+    assert!(!registered_writers_are_quiet(&state).await);
+}
+
+/// A state whose every other writer check already passes, so a test reads only
+/// the one it sets.
+fn quiet_state() -> crate::state::SandboxState {
+    let tmp = tempfile::tempdir().unwrap();
+    crate::state::test_support::state_with(
+        sync_config(tmp.path(), false, false),
+        Arc::new(CountingBackend::default()) as Arc<dyn BackendClient>,
+    )
+}
+
+/// Only the tag reports a whole tree. Every other decision — including a
+/// snapshot restore without it — leaves the agent the note that says to check.
+#[test]
+fn an_untagged_restore_never_reports_the_tree_whole() {
+    assert!(
+        RestoreDecision::RestoredSnapshot {
+            taken_at: None,
+            final_flush: true,
+        }
+        .restored_final_flush()
+    );
+    assert!(
+        !RestoreDecision::RestoredSnapshot {
+            taken_at: None,
+            final_flush: false,
+        }
+        .restored_final_flush()
+    );
+    assert!(!RestoreDecision::UseExistingVolume.restored_final_flush());
+    assert!(!RestoreDecision::Nothing.restored_final_flush());
+    assert!(!RestoreDecision::CloneOnly.restored_final_flush());
 }
 
 /// The walk itself: a repository that cannot read what it stores neither
@@ -722,7 +820,7 @@ async fn a_timed_out_shutdown_flush_reports_the_loss() {
     let (backend, _started) = CountingBackend::gated();
     let tracker = WorkspaceSyncTracker::new();
 
-    flush_workspace(&config, backend.as_ref(), &tracker).await;
+    flush_workspace(&config, backend.as_ref(), &tracker, true).await;
 
     let reports = backend.sync_reports();
     assert_eq!(reports.len(), 1, "exactly one report: {reports:?}");
@@ -737,6 +835,63 @@ async fn a_timed_out_shutdown_flush_reports_the_loss() {
         None,
         "a flush that stored nothing leaves the next attempt to retry"
     );
+}
+
+/// The one upload that runs whatever the fingerprint says.
+///
+/// Skipping an unchanged tree here would leave the shutdown tag absent exactly
+/// when nothing was lost, and the replacement would warn about a loss that
+/// never happened — the opposite of what the tag is for.
+#[tokio::test]
+async fn the_shutdown_flush_stores_a_tree_the_turn_upload_skips() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("repo");
+    init_repo(&repo);
+    std::fs::write(repo.join("a.txt"), "hello").unwrap();
+    git_add(&repo, &["a.txt"]);
+    git_commit(&repo, "init");
+
+    let config = sync_config(tmp.path(), true, true);
+    let backend = CountingBackend::minting();
+    let tracker = WorkspaceSyncTracker::new();
+
+    tracker.adopt_current(&config).await;
+    upload_after_turn(&config, &backend, &tracker).await;
+    assert_eq!(backend.attempts(), 0, "the turn upload skips it");
+
+    // False, so this also pins that a flush with a writer still live stores the
+    // tree and only declines to certify it.
+    flush_workspace(&config, &backend, &tracker, false).await;
+    assert_eq!(backend.attempts(), 1, "the shutdown flush stores it anyway");
+}
+
+/// The tag is a claim about the whole workspace, so it must answer to every
+/// writer that outlives the agent, not to the agent alone.
+#[test]
+fn a_flush_with_a_live_writer_stores_the_tree_and_certifies_nothing() {
+    assert!(
+        Capture::ShutdownFlush {
+            writers_quiet: true
+        }
+        .may_certify_final_tree()
+    );
+    assert!(
+        !Capture::ShutdownFlush {
+            writers_quiet: false
+        }
+        .may_certify_final_tree()
+    );
+    assert!(!Capture::Periodic.may_certify_final_tree());
+
+    // Both shutdown captures bypass the fingerprint gate: a live command is a
+    // reason to withhold the tag, never a reason to skip storing the tree.
+    assert!(
+        Capture::ShutdownFlush {
+            writers_quiet: false
+        }
+        .is_shutdown_flush()
+    );
+    assert!(!Capture::Periodic.is_shutdown_flush());
 }
 
 /// A pod killed by a node reclaim never answers the pre-stop RPC, so the first
@@ -775,7 +930,10 @@ fn a_git_lock_stays_out_of_the_tar() {
         .flatten()
         .map(|entry| entry.path().unwrap().display().to_string())
         .collect();
-    assert!(names.iter().any(|name| name == "repo/.git/HEAD"), "{names:?}");
+    assert!(
+        names.iter().any(|name| name == "repo/.git/HEAD"),
+        "{names:?}"
+    );
     assert!(names.iter().any(|name| name == "repo/main.rs"), "{names:?}");
     // Why this walk replaces `append_dir_all` rather than wrapping it: a `.git`
     // subdirectory holding no files still has to reach the archive.
@@ -862,7 +1020,10 @@ async fn a_restored_snapshot_reintroduces_a_lock_for_the_sweep_to_clear() {
 
     // `RestoredSnapshot`, so `download_on_start` and its own sweep are skipped.
     assert!(restored);
-    assert!(repo_dir.join(".git/index.lock").exists(), "restore put it back");
+    assert!(
+        repo_dir.join(".git/index.lock").exists(),
+        "restore put it back"
+    );
 
     sweep_git_locks(ws.clone()).await;
 

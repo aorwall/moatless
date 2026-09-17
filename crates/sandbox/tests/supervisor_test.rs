@@ -663,6 +663,7 @@ fn test_state(backend: Arc<dyn BackendClient>, dir: &tempfile::TempDir) -> Sandb
 
     SandboxState {
         workspace_sync: Default::default(),
+        writer_admission: Default::default(),
         config,
         events,
         task_contexts,

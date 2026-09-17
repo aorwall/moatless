@@ -4,12 +4,14 @@
 //! `grpc_server::notify_messages()`, and `init::run_init()` after
 //! `InitPhase::Ready`.
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use tracing::{error, info, warn};
 
 use crate::files::uploads::fetch_uploads_for_messages;
 use crate::state::{SandboxState, TaskContext};
+use crate::writer_admission::WriterPermit;
 
 use super::prompt::{PromptResponse, PromptToolName};
 use super::types::AgentStatus;
@@ -38,27 +40,41 @@ pub(crate) fn spawn_supervised(
 /// (AskUserQuestion/ExitPlanMode); otherwise sends text to the agent lifecycle
 /// task.
 pub async fn dispatch_pending_messages(state: SandboxState) {
-    let Some(context) = context_for(&state, None).await else {
+    let Some(admitted) = context_for(&state, None).await else {
         return;
     };
-    dispatch_pending_messages_for_context(state, context).await;
+    dispatch_pending_messages_for_context(state, admitted.context, Some(admitted.permit)).await;
 }
 
 pub async fn dispatch_pending_messages_for_task(state: SandboxState, task_id: String) {
-    let Some(context) = context_for(&state, Some(&task_id)).await else {
+    let Some(admitted) = context_for(&state, Some(&task_id)).await else {
         return;
     };
-    dispatch_pending_messages_for_context(state, context).await;
+    dispatch_pending_messages_for_context(state, admitted.context, Some(admitted.permit)).await;
 }
 
-/// The context this pod's work runs against. `None` names the sole registered
-/// task.
-async fn context_for(
-    state: &SandboxState,
-    task_id: Option<&str>,
-) -> Option<std::sync::Arc<TaskContext>> {
+/// A task context, and the admission of the turn about to be opened against it.
+struct AdmittedContext {
+    context: Arc<TaskContext>,
+    /// Held until the harness accepts the turn, not until it is enqueued:
+    /// teardown's drain must not complete before the turn reaches the agent its
+    /// stop pass then has to cancel.
+    permit: WriterPermit,
+}
+
+/// The context this pod's work runs against, if a turn may still be opened
+/// against it. `None` names the sole registered task.
+///
+/// Every producer of a turn resolves its context here — the two RPCs, a
+/// scheduled job's injector, a wake note, `run_init` — so this is where
+/// teardown's closed admission reaches all of them.
+async fn context_for(state: &SandboxState, task_id: Option<&str>) -> Option<AdmittedContext> {
+    let Some(permit) = state.writer_admission.admit() else {
+        info!(?task_id, "Dispatch skipped: the sandbox is shutting down");
+        return None;
+    };
     match state.task_context(task_id).await {
-        Ok(context) => Some(context),
+        Ok(context) => Some(AdmittedContext { context, permit }),
         Err(e) => {
             warn!(error = %e, ?task_id, "Task context unavailable; nothing was delivered");
             None
@@ -104,16 +120,36 @@ pub(crate) async fn queue_and_dispatch(
 /// Hand `text` straight to the agent, opening a turn no `user` row backs. Only
 /// [`queue_and_dispatch`] calls this, when the backend refused the queue.
 async fn send_directly(state: &SandboxState, task_id: &str, text: String) {
-    let Some(context) = context_for(state, Some(task_id)).await else {
+    let Some(admitted) = context_for(state, Some(task_id)).await else {
         return;
     };
-    // The caller has nothing to ack; drop the receiver so the lifecycle task
-    // does not wait on one.
-    drop(
-        context
-            .agent_handle
-            .send(text, None, None, None, None, None, false, None),
-    );
+    // Nothing to ack here, but the permit still waits on acceptance: the
+    // lifecycle task takes this command off an unbounded channel, so the turn
+    // starts after the send returns.
+    let ack_rx = admitted
+        .context
+        .agent_handle
+        .send(text, None, None, None, None, None, false, None);
+    hold_until_accepted(state.clone(), admitted.permit, ack_rx);
+}
+
+/// Hold `permit` until the harness accepts the turn, or the pod stops.
+///
+/// [`crate::agent::handle::AgentHandle::send`] only enqueues, so a permit
+/// released when it returns lets teardown's drain finish ahead of the turn — one
+/// the stop pass has already gone past.
+fn hold_until_accepted(
+    state: SandboxState,
+    permit: WriterPermit,
+    ack_rx: tokio::sync::oneshot::Receiver<crate::agent::handle::RunAck>,
+) {
+    spawn_supervised("dispatch-admission", async move {
+        let _permit = permit;
+        tokio::select! {
+            _ = ack_rx => {}
+            () = state.lifecycle_cancel.cancelled() => {}
+        }
+    });
 }
 
 /// Dispatch a row this pod queued for itself (`uuid` from
@@ -123,17 +159,25 @@ async fn send_directly(state: &SandboxState, task_id: &str, text: String) {
 /// `AskUserQuestion`/`ExitPlanMode` never consumes it as the person's answer;
 /// `resolve_pending_prompt` leaves it pending and opens its own turn instead.
 pub(crate) async fn dispatch_self_queued(state: SandboxState, task_id: String, uuid: String) {
-    let Some(context) = context_for(&state, Some(&task_id)).await else {
+    let Some(admitted) = context_for(&state, Some(&task_id)).await else {
         return;
     };
-    context.mark_self_queued(uuid).await;
-    dispatch_pending_messages_for_context(state, context).await;
+    admitted.context.mark_self_queued(uuid).await;
+    dispatch_pending_messages_for_context(state, admitted.context, Some(admitted.permit)).await;
 }
 
+/// `permit` is `None` where the caller waited before coming back here — a
+/// redispatch, or a prompt the agent consumed — and those admit themselves
+/// below rather than carrying an admission granted before the wait.
 async fn dispatch_pending_messages_for_context(
     state: SandboxState,
     context: std::sync::Arc<TaskContext>,
+    permit: Option<WriterPermit>,
 ) {
+    let Some(permit) = permit.or_else(|| state.writer_admission.admit()) else {
+        info!("Dispatch skipped: the sandbox is shutting down");
+        return;
+    };
     // The pod is shutting down (SIGTERM mid-boot or between notifications) —
     // don't start a new turn that would just be torn down. The lifecycle token
     // is cancelled by the shutdown driver.
@@ -303,13 +347,21 @@ async fn dispatch_pending_messages_for_context(
         fork,
     );
 
-    if !uuids.is_empty() {
+    if uuids.is_empty() {
+        // No rows to ack, but the same turn: the admission still has to outlive
+        // the enqueue.
+        hold_until_accepted(state, permit, ack_rx);
+    } else {
         let redelivery_state = state.clone();
         let redelivery_context = std::sync::Arc::clone(&context);
         spawn_supervised("dispatch-ack", async move {
             // Held from the fetch above until the ack below prunes the rows.
             // Released before any re-dispatch, which re-acquires the same lock.
             let dispatch_guard = dispatch_guard;
+            // Held until the harness accepts the turn: `send` only enqueues it,
+            // so an admission released here would let teardown's drain finish
+            // ahead of a turn its stop pass has already gone past.
+            let permit = permit;
             // Bound the wait for harness acceptance against shutdown, so a
             // stopping pod that never reports acceptance does not pin the guard.
             let ack = tokio::select! {
@@ -322,10 +374,12 @@ async fn dispatch_pending_messages_for_context(
             };
             let Ok(ack) = ack else {
                 warn!("Agent ack channel dropped — messages not acknowledged");
+                drop(permit);
                 drop(dispatch_guard);
                 schedule_redispatch(redelivery_state, redelivery_context).await;
                 return;
             };
+            drop(permit);
             // Taken as ordinary input, which is what a self-queued row is here
             // for. Marked until acceptance and not before: every path above
             // leaves the row pending, and one that came back unmarked could
@@ -429,7 +483,7 @@ fn schedule_redispatch(
             info!("Skipping pending-message re-dispatch after backoff — agent is stopped");
             return;
         }
-        dispatch_pending_messages_for_context(state, context).await;
+        dispatch_pending_messages_for_context(state, context, None).await;
     })
 }
 
@@ -580,7 +634,7 @@ fn schedule_dispatch(
     context: std::sync::Arc<TaskContext>,
 ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'static>> {
     Box::pin(async move {
-        dispatch_pending_messages_for_context(state, context).await;
+        dispatch_pending_messages_for_context(state, context, None).await;
     })
 }
 
@@ -643,6 +697,36 @@ async fn acknowledge_until_settled(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A turn is enqueued onto an unbounded channel, so the send returns before
+    /// the lifecycle has taken it. An admission released there lets the drain
+    /// finish, and the stop pass then runs against a turn that has not started.
+    #[tokio::test]
+    async fn an_enqueued_turn_holds_the_drain_open_until_the_harness_accepts_it() {
+        let state = crate::state::test_support::state_for_test();
+        let permit = state.writer_admission.admit().expect("open");
+        let (ack_tx, ack_rx) = tokio::sync::oneshot::channel();
+        hold_until_accepted(state.clone(), permit, ack_rx);
+
+        let draining = tokio::spawn({
+            let admission = Arc::clone(&state.writer_admission);
+            async move { admission.close_and_drain(Duration::from_secs(30)).await }
+        });
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert!(
+            !draining.is_finished(),
+            "the drain finished while a turn was still only enqueued"
+        );
+
+        let _ = ack_tx.send(crate::agent::handle::RunAck {
+            session_id: "session-1".to_string(),
+            run_id: "run-1".to_string(),
+        });
+        assert_eq!(
+            draining.await.expect("join"),
+            crate::writer_admission::Drain::Complete
+        );
+    }
 
     fn answer(
         answers: &[(&str, &str)],

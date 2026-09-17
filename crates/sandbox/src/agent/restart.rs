@@ -216,6 +216,10 @@ pub enum WorkspaceOrigin {
     /// default, since most starts need no restart note.
     #[default]
     Persisted,
+    /// Restored from the snapshot the previous pod's shutdown flush wrote with
+    /// every workspace writer already stopped: each tracked or untracked file
+    /// survived, and the gitignored ones were never snapshotted.
+    RestoredFromFinalFlush,
     /// Restored from an S3 snapshot: the tree is whatever the last snapshot
     /// that committed held, so a write that landed after it started may be
     /// missing, and gitignored build artifacts were never in it at all.
@@ -236,12 +240,33 @@ impl WorkspaceOrigin {
     fn restart_note(self, workspace_dir: &str) -> Option<String> {
         match self {
             Self::Persisted => None,
+            Self::RestoredFromFinalFlush => Some(workspace_intact_note(workspace_dir)),
             Self::RestoredFromSnapshot { taken_at } => {
                 Some(workspace_restored_note(workspace_dir, taken_at))
             }
             Self::Recloned => Some(workspace_recloned_note(workspace_dir)),
         }
     }
+}
+
+/// Note prepended to a resumed turn when the shutdown flush wrote the restored
+/// snapshot.
+///
+/// The claim reaches exactly the snapshotted file set and no further, so it
+/// exempts every gitignored path rather than the build artifacts alone.
+fn workspace_intact_note(workspace_dir: &str) -> String {
+    format!(
+        "<sandbox-restart-note>\n\
+         This sandbox was restarted, and the workspace at {workspace_dir} was \
+         restored from the snapshot the previous pod took once the agent and \
+         every background command had stopped. Every file git tracks or would \
+         report as untracked came back: continue without auditing the tree.\n\
+         Gitignored paths were never snapshotted and are gone — build artifacts \
+         and dependencies (target, node_modules, dist, .venv), and anything else \
+         your ignore rules cover, such as a .env you wrote. Re-run install/build \
+         steps and re-create any ignored file you rely on.\n\
+         </sandbox-restart-note>\n\n"
+    )
 }
 
 /// Note prepended to a resumed turn when the workspace was restored from an S3
@@ -257,29 +282,27 @@ fn workspace_restored_note(
     let age = match taken_at {
         Some(at) => format!(
             "That snapshot began at {}, which dates the tree rather than \
-             guaranteeing it: anything you wrote around or after that time — \
-             edits, local commits, new files — may be missing.",
+             guaranteeing it: edits, local commits and new files from around or \
+             after then may be missing.",
             at.format("%Y-%m-%d %H:%M:%S UTC")
         ),
-        None => "The restore could not date that snapshot, so treat its age as \
-                 unknown: work from your last turns may not have reached it."
+        None => "The restore could not date that snapshot, so work from your \
+                 last turns may not have reached it."
             .to_string(),
     };
     format!(
         "<sandbox-restart-note>\n\
-         This sandbox was restarted — the pod was replaced, reclaimed with its \
-         node, or evicted — and the workspace at {workspace_dir} was restored \
-         from its last completed snapshot. {age} Check what actually came \
-         back before you build on it: `git status` and `git diff` in each repo, \
-         against what you believe you wrote. Redo what is missing rather than \
-         assuming it is there.\n\
-         Gitignored build artifacts and dependencies (e.g. target, node_modules, \
-         dist, .venv) are never snapshotted and are gone regardless — re-run \
-         install/build steps (e.g. `cargo build`, `bun install`) before relying \
-         on compiled output. Everything else under {workspace_dir} is \
-         snapshotted, including repos beside the primary one and loose files, so \
-         it is the place to keep anything that must survive the next restart; \
-         `/tmp` is not.\n\
+         This sandbox was restarted, and the workspace at {workspace_dir} was \
+         restored from its last completed snapshot. {age} Run `git status` and \
+         `git diff` in each repo against what you believe you wrote, and redo \
+         what is missing rather than assuming it is there.\n\
+         Gitignored paths are never snapshotted and are gone regardless — build \
+         artifacts and dependencies (target, node_modules, dist, .venv), and \
+         anything else your ignore rules cover, such as a .env you wrote. Re-run \
+         install/build steps and re-create any ignored file you rely on. \
+         Everything else under {workspace_dir} is snapshotted, including repos \
+         beside the primary one and loose files, so keep whatever must survive \
+         the next restart there and not in `/tmp`.\n\
          </sandbox-restart-note>\n\n"
     )
 }
@@ -473,13 +496,12 @@ mod tests {
         assert!(note.contains("<sandbox-restart-note>"));
         assert!(note.contains(WS));
         assert!(note.contains("restored"));
-        assert!(note.contains("evicted"));
         // The tree's age, so the agent knows which writes to re-check.
         assert!(note.contains("began at 2025-09-04 15:33:20 UTC"), "{note}");
         // No instant bounds what reached a snapshot, so the note claims none.
         assert!(note.contains("rather than guaranteeing it"), "{note}");
         assert!(
-            note.contains("around or after that time") && note.contains("may be missing"),
+            note.contains("around or after then") && note.contains("may be missing"),
             "{note}"
         );
         assert!(note.contains("git status"), "{note}");
@@ -497,9 +519,44 @@ mod tests {
             .restart_note(WS)
             .expect("snapshot restore must warn the agent");
 
-        assert!(note.contains("age as unknown"), "{note}");
+        assert!(note.contains("could not date that snapshot"), "{note}");
         assert!(note.contains("git status"), "{note}");
         assert!(!note.contains("intact and present"), "{note}");
+    }
+
+    /// The point of the tag: a flushed tree is reported as whole, so the agent
+    /// resumes instead of spending a turn re-checking files nothing touched.
+    #[test]
+    fn a_final_flush_restore_reports_the_tree_whole_and_asks_for_no_audit() {
+        let note = WorkspaceOrigin::RestoredFromFinalFlush
+            .restart_note(WS)
+            .expect("a restart still owes the agent a note");
+
+        assert!(note.contains("<sandbox-restart-note>"));
+        assert!(note.contains(WS));
+        assert!(note.contains("Every file git tracks"), "{note}");
+        assert!(note.contains("without auditing"), "{note}");
+        // The two hedges the dated note carries have no place here, and an
+        // agent that reads either still burns the turn this note exists to save.
+        assert!(!note.contains("may be missing"), "{note}");
+        assert!(!note.contains("git status"), "{note}");
+        // The exemption is every ignored path, not the build artifacts alone:
+        // an agent that wrote a `.env` gets no all-clear on it.
+        assert!(note.contains("target") && note.contains("Re-run"), "{note}");
+        assert!(note.contains(".env"), "{note}");
+    }
+
+    /// Both restore notes describe the same file set, so neither may name only
+    /// the build directories and leave an agent's ignored `.env` unaccounted.
+    #[test]
+    fn neither_restore_note_limits_the_exemption_to_build_output() {
+        for origin in [
+            WorkspaceOrigin::RestoredFromFinalFlush,
+            WorkspaceOrigin::RestoredFromSnapshot { taken_at: None },
+        ] {
+            let note = origin.restart_note(WS).expect("a restore owes a note");
+            assert!(note.contains(".env"), "{origin:?}: {note}");
+        }
     }
 
     #[test]

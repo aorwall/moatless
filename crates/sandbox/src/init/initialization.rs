@@ -216,6 +216,7 @@ async fn run_core_init(state: &SandboxState) -> Result<WorkspaceOrigin, InitErro
     };
     let restored_full_repo = restore_decision.restored_snapshot();
     let snapshot_taken_at = restore_decision.snapshot_taken_at();
+    let restored_final_flush = restore_decision.restored_final_flush();
 
     // Ungated and after the restore, so it sees both trees a lock arrives on;
     // `workspace_sync::sweep_git_locks` owns why.
@@ -342,9 +343,12 @@ async fn run_core_init(state: &SandboxState) -> Result<WorkspaceOrigin, InitErro
 
     // Report how the workspace was reconstituted so a resuming agent gets the
     // right restart note. A full S3 restore returns the tree as of the snapshot
-    // it took, which the note dates; a fresh clone drops all ephemeral state; a
-    // pre-existing volume (or fresh task) lost nothing.
-    let origin = if restored_full_repo {
+    // it took, which the note dates unless the previous pod's shutdown flush
+    // wrote that snapshot and so stored its final tree; a fresh clone drops all
+    // ephemeral state; a pre-existing volume (or fresh task) lost nothing.
+    let origin = if restored_final_flush {
+        WorkspaceOrigin::RestoredFromFinalFlush
+    } else if restored_full_repo {
         WorkspaceOrigin::RestoredFromSnapshot {
             taken_at: snapshot_taken_at,
         }

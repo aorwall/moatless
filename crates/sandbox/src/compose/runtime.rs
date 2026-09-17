@@ -120,6 +120,7 @@ pub(crate) async fn compose_runtime(config: &Config) -> (SandboxState, Superviso
             config.repo_dir.clone(),
         ),
         workspace_sync,
+        writer_admission: Default::default(),
     };
 
     let context = super::compose_task_context(

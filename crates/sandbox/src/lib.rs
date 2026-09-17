@@ -22,10 +22,11 @@ pub mod credentials;
 pub mod error;
 pub mod events;
 pub mod files;
-pub mod grpc_server;
 mod git_push_watcher;
+pub mod grpc_server;
 pub mod init;
 pub mod outbox;
+pub mod pod_processes;
 pub mod preview_proxy;
 pub mod server_control;
 pub mod shutdown;
@@ -35,6 +36,7 @@ pub mod terminal;
 
 pub(crate) mod transcript_sync;
 pub mod workspace_sync;
+pub mod writer_admission;
 
 pub mod app;
 mod compose;

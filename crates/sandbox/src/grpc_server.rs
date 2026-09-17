@@ -42,6 +42,7 @@ use crate::commands::{CommandError, CommandRecord, CommandSpec, CommandState};
 use crate::files;
 use crate::server_control;
 use crate::state::{RegisterTaskContextError, SandboxState, TaskContext, TaskContextLookupError};
+use crate::writer_admission::WriterPermit;
 
 /// gRPC server for sandbox commands.
 pub struct SandboxServiceImpl {
@@ -49,6 +50,19 @@ pub struct SandboxServiceImpl {
 }
 
 impl SandboxServiceImpl {
+    /// Admit an RPC that is itself the only owner of its write, refusing it
+    /// once teardown has begun.
+    ///
+    /// Hold the permit until the write is done or its writer is registered. A
+    /// turn is admitted in [`crate::agent::dispatcher`], which every non-gRPC
+    /// producer of one also reaches.
+    fn admit_workspace_writer(&self) -> Result<WriterPermit, Status> {
+        self.state
+            .writer_admission
+            .admit()
+            .ok_or_else(|| Status::unavailable("sandbox is shutting down"))
+    }
+
     async fn resolve_member_context(
         &self,
         task_id: Option<&str>,
@@ -74,6 +88,7 @@ impl SandboxService for SandboxServiceImpl {
         &self,
         request: Request<sandbox_proto::JoinTaskRequest>,
     ) -> Result<Response<sandbox_proto::JoinTaskResponse>, Status> {
+        let _permit = self.admit_workspace_writer()?;
         let req = request.into_inner();
         let context = self
             .state
@@ -108,6 +123,7 @@ impl SandboxService for SandboxServiceImpl {
         &self,
         request: Request<ExecuteAgentRequest>,
     ) -> Result<Response<ExecuteAgentResponse>, Status> {
+        let _permit = self.admit_workspace_writer()?;
         let context = self
             .resolve_member_context(request.get_ref().task_id.as_deref())
             .await?;
@@ -258,6 +274,7 @@ impl SandboxService for SandboxServiceImpl {
         &self,
         request: Request<RunCommandRequest>,
     ) -> Result<Response<RunCommandResponse>, Status> {
+        let _permit = self.admit_workspace_writer()?;
         let req = request.into_inner();
         let context = self.resolve_member_context(req.task_id.as_deref()).await?;
         if req.command.trim().is_empty() {
@@ -323,6 +340,7 @@ impl SandboxService for SandboxServiceImpl {
         &self,
         request: Request<RecordWakeNoteRequest>,
     ) -> Result<Response<RecordWakeNoteResponse>, Status> {
+        let _permit = self.admit_workspace_writer()?;
         let req = request.into_inner();
         let context = self.resolve_member_context(req.task_id.as_deref()).await?;
         if req.text.trim().is_empty() {
@@ -344,6 +362,7 @@ impl SandboxService for SandboxServiceImpl {
         &self,
         request: Request<CancelWakeNoteRequest>,
     ) -> Result<Response<CancelWakeNoteResponse>, Status> {
+        let _permit = self.admit_workspace_writer()?;
         let req = request.into_inner();
         let context = self.resolve_member_context(req.task_id.as_deref()).await?;
         wake_note::cancel(
@@ -360,6 +379,7 @@ impl SandboxService for SandboxServiceImpl {
         &self,
         request: Request<NotifyMessagesRequest>,
     ) -> Result<Response<NotifyMessagesResponse>, Status> {
+        let _permit = self.admit_workspace_writer()?;
         let context = self
             .resolve_member_context(request.get_ref().task_id.as_deref())
             .await?;
@@ -409,6 +429,7 @@ impl SandboxService for SandboxServiceImpl {
         &self,
         request: Request<ApplyServerConfigRequest>,
     ) -> Result<Response<ApplyServerConfigResponse>, Status> {
+        let _permit = self.admit_workspace_writer()?;
         let req = request.into_inner();
         info!(
             server = %req.server_name,
@@ -476,6 +497,7 @@ impl SandboxService for SandboxServiceImpl {
         &self,
         request: Request<TerminalOpenRequest>,
     ) -> Result<Response<TerminalSessionSnapshot>, Status> {
+        let _permit = self.admit_workspace_writer()?;
         let snapshot = self
             .state
             .terminals
@@ -489,6 +511,7 @@ impl SandboxService for SandboxServiceImpl {
         &self,
         request: Request<TerminalAttachRequest>,
     ) -> Result<Response<Self::TerminalAttachStream>, Status> {
+        let _permit = self.admit_workspace_writer()?;
         let attached = self
             .state
             .terminals
@@ -534,6 +557,7 @@ impl SandboxService for SandboxServiceImpl {
         &self,
         request: Request<TerminalWriteRequest>,
     ) -> Result<Response<TerminalWriteResponse>, Status> {
+        let _permit = self.admit_workspace_writer()?;
         self.state
             .terminals
             .write(request.into_inner().into())
@@ -570,6 +594,7 @@ impl SandboxService for SandboxServiceImpl {
         &self,
         request: Request<TerminalRestartRequest>,
     ) -> Result<Response<TerminalSessionSnapshot>, Status> {
+        let _permit = self.admit_workspace_writer()?;
         let snapshot = self
             .state
             .terminals
@@ -676,6 +701,7 @@ impl SandboxService for SandboxServiceImpl {
         &self,
         request: Request<WriteFileRequest>,
     ) -> Result<Response<WriteFileResponse>, Status> {
+        let _permit = self.admit_workspace_writer()?;
         let req = request.into_inner();
         let context = self.resolve_member_context(req.task_id.as_deref()).await?;
         let root_dir = &context.workspace_dir;
@@ -894,6 +920,98 @@ fn file_error_to_status(e: files::FileError) -> Status {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The shutdown flush reads the tree once; a writer started after that read
+    /// outlives this process and changes what the tagged snapshot claims. Each
+    /// request here is otherwise invalid, so the refusal also pins that the
+    /// closure is answered before the arguments are.
+    #[tokio::test]
+    async fn a_closed_workspace_admits_no_further_writer() {
+        let service = SandboxServiceImpl {
+            state: crate::state::test_support::state_for_test(),
+        };
+        service
+            .state
+            .writer_admission
+            .close_and_drain(std::time::Duration::from_secs(5))
+            .await;
+
+        let refusals = [
+            service
+                .join_task(Request::new(sandbox_proto::JoinTaskRequest::default()))
+                .await
+                .err(),
+            service
+                .notify_messages(Request::new(NotifyMessagesRequest::default()))
+                .await
+                .err(),
+            service
+                .record_wake_note(Request::new(RecordWakeNoteRequest::default()))
+                .await
+                .err(),
+            service
+                .cancel_wake_note(Request::new(CancelWakeNoteRequest::default()))
+                .await
+                .err(),
+            service
+                .run_command(Request::new(RunCommandRequest::default()))
+                .await
+                .err(),
+            service
+                .terminal_open(Request::new(TerminalOpenRequest::default()))
+                .await
+                .err(),
+            service
+                .terminal_write(Request::new(TerminalWriteRequest::default()))
+                .await
+                .err(),
+            service
+                .terminal_restart(Request::new(TerminalRestartRequest::default()))
+                .await
+                .err(),
+            service
+                .write_file(Request::new(WriteFileRequest::default()))
+                .await
+                .err(),
+            service
+                .execute_agent(Request::new(ExecuteAgentRequest::default()))
+                .await
+                .err(),
+            service
+                .apply_server_config(Request::new(ApplyServerConfigRequest::default()))
+                .await
+                .err(),
+        ];
+
+        for refusal in refusals {
+            assert_eq!(
+                refusal.map(|status| status.code()),
+                Some(tonic::Code::Unavailable),
+                "a writer was admitted after the workspace was closed to writers"
+            );
+        }
+    }
+
+    /// The same calls before the closure are answered on their merits, so the
+    /// guard above is what refuses them and not the empty request.
+    #[tokio::test]
+    async fn an_open_workspace_answers_a_writer_on_its_merits() {
+        let service = SandboxServiceImpl {
+            state: crate::state::test_support::state_for_test(),
+        };
+
+        let status = service
+            .run_command(Request::new(RunCommandRequest::default()))
+            .await
+            .expect_err("an empty command is rejected");
+        assert_eq!(status.code(), tonic::Code::InvalidArgument);
+
+        let status = service
+            .apply_server_config(Request::new(ApplyServerConfigRequest::default()))
+            .await
+            .expect_err("an empty server name is rejected");
+        assert_eq!(status.code(), tonic::Code::InvalidArgument);
+    }
 
     /// Both domain node types are representable on the wire, and the mapping is
     /// what the backend decodes back into `"file"` / `"directory"`. Nested

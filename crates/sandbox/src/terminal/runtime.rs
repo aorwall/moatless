@@ -128,6 +128,21 @@ impl TerminalManager {
         }
     }
 
+    /// Whether any session still holds a shell that can write the workspace;
+    /// `workspace_sync::sync` reads this on shutdown.
+    ///
+    /// A session stays in the map with no `writer` once it exits, so status is
+    /// what distinguishes a live shell from a record of one. `Starting` counts:
+    /// its shell exists by the time an answer here is acted on.
+    pub async fn has_live_sessions(&self) -> bool {
+        self.inner.lock().await.sessions.values().any(|session| {
+            matches!(
+                session.status,
+                TerminalSessionStatus::Starting | TerminalSessionStatus::Running
+            )
+        })
+    }
+
     pub async fn open(
         &self,
         request: TerminalOpenRequest,
@@ -838,6 +853,68 @@ mod tests {
             .expect("session remains registered");
         assert_eq!(session.cols, 120);
         assert_eq!(session.rows, 30);
+    }
+
+    /// A session outlives its shell in this map, so counting records rather
+    /// than live shells would leave one finished terminal denying every later
+    /// shutdown its final-tree tag for the pod's whole life.
+    #[tokio::test]
+    async fn a_session_that_has_exited_is_no_longer_a_workspace_writer() {
+        let tmp = tempfile::tempdir().expect("temp dir");
+        let manager = TerminalManager::new(tmp.path());
+        let (events, _) = broadcast::channel(TERMINAL_EVENT_BUFFER);
+
+        let insert = async |status: TerminalSessionStatus| {
+            let mut inner = manager.inner.lock().await;
+            inner.sessions.clear();
+            inner.sessions.insert(
+                SessionKey {
+                    thread_id: "thread-1".to_string(),
+                    terminal_id: "term-1".to_string(),
+                },
+                Session {
+                    thread_id: "thread-1".to_string(),
+                    terminal_id: "term-1".to_string(),
+                    requested_cwd: ".".to_string(),
+                    worktree_path: None,
+                    status,
+                    pid: None,
+                    history: String::new(),
+                    exit_code: None,
+                    exit_signal: None,
+                    updated_at: "2026-08-02T00:00:00.000Z".to_string(),
+                    sequence: 1,
+                    cols: 80,
+                    rows: 24,
+                    env: HashMap::new(),
+                    writer: None,
+                    master: None,
+                    killer: None,
+                    events: events.clone(),
+                    reader_task: None,
+                    wait_task: None,
+                },
+            );
+        };
+
+        assert!(!manager.has_live_sessions().await, "no session at all");
+        for gone in [TerminalSessionStatus::Exited, TerminalSessionStatus::Error] {
+            insert(gone).await;
+            assert!(
+                !manager.has_live_sessions().await,
+                "{gone:?} holds no shell"
+            );
+        }
+        for live in [
+            TerminalSessionStatus::Starting,
+            TerminalSessionStatus::Running,
+        ] {
+            insert(live).await;
+            assert!(
+                manager.has_live_sessions().await,
+                "{live:?} can still write"
+            );
+        }
     }
 
     #[tokio::test]

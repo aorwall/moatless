@@ -11,9 +11,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use tokio_util::sync::CancellationToken;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 use crate::agent::agent_state::AgentState;
+use crate::agent::types::AgentStatus;
 use crate::state::SandboxState;
 
 /// 5s budget for draining the event send buffer on shutdown — one of several
@@ -22,6 +23,22 @@ use crate::state::SandboxState;
 /// On timeout the drainer keeps retrying in the background until the process
 /// exits, best-effort only.
 const OUTBOX_FLUSH_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// 2s budget for the writers admitted before teardown began to finish starting.
+///
+/// Overrunning it costs the pod its final-tree tag, not its flush, so this is
+/// deliberately small against the ~22s the two flushes below already budget.
+const WRITER_DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// 3s budget for a cancelled agent's harness to wind down.
+///
+/// Same trade as the drain above: overrunning it costs the tag, since
+/// `workspace_writers_are_quiet` reads the agent that is still running.
+const AGENT_QUIESCE_TIMEOUT: Duration = Duration::from_secs(3);
+
+/// How often the wait re-reads the agent's status, which has no change signal to
+/// subscribe to.
+const AGENT_QUIESCE_POLL: Duration = Duration::from_millis(25);
 
 /// Stops the running agent (best-effort), flushes CLI session state to S3, then
 /// cancels the lifecycle token so background tasks and both servers wind down.
@@ -33,13 +50,28 @@ pub async fn perform_shutdown(
     lifecycle_cancel: &CancellationToken,
     state: Option<&SandboxState>,
 ) {
-    stop_agent(agent).await;
+    if let Some(state) = state {
+        close_writer_admission(state).await;
+    }
+    stop_agent_and_wait(agent).await;
     finish_shutdown(lifecycle_cancel, state).await;
+}
+
+/// Refuse every new workspace writer, then wait out the admitted ones.
+///
+/// First, ahead of stopping any agent: a turn dispatched after that stop pass
+/// is one nothing ends, and it writes past the flush that reads the tree.
+async fn close_writer_admission(state: &SandboxState) {
+    state
+        .writer_admission
+        .close_and_drain(WRITER_DRAIN_TIMEOUT)
+        .await;
 }
 
 /// Variant used by the sandbox runtime, which owns all registered task contexts
 /// and therefore stops every member agent on process teardown.
 pub async fn perform_shutdown_for_state(state: &SandboxState) {
+    close_writer_admission(state).await;
     let agents: Vec<Arc<AgentState>> = state
         .task_contexts_snapshot()
         .await
@@ -47,9 +79,31 @@ pub async fn perform_shutdown_for_state(state: &SandboxState) {
         .map(|context| Arc::clone(&context.agent))
         .collect();
     for agent in agents {
-        stop_agent(&agent).await;
+        stop_agent_and_wait(&agent).await;
     }
     finish_shutdown(&state.lifecycle_cancel, Some(state)).await;
+}
+
+/// Cancel the agent's turn, then wait for the harness to report it has wound
+/// down.
+///
+/// `AgentState::stop` only cancels the token: the coordinator still has to end
+/// the run and kill the harness, and a tree captured before that is a tree the
+/// harness is still writing to.
+async fn stop_agent_and_wait(agent: &AgentState) {
+    stop_agent(agent).await;
+    let quiesced = tokio::time::timeout(AGENT_QUIESCE_TIMEOUT, async {
+        while matches!(
+            agent.status().await,
+            AgentStatus::Running | AgentStatus::Waiting
+        ) {
+            tokio::time::sleep(AGENT_QUIESCE_POLL).await;
+        }
+    })
+    .await;
+    if quiesced.is_err() {
+        warn!("Shutdown: the agent was still running when its budget ran out");
+    }
 }
 
 async fn stop_agent(agent: &AgentState) {
@@ -174,6 +228,8 @@ pub fn spawn_shutdown_driver(state: SandboxState) -> tokio::task::JoinHandle<()>
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicBool, Ordering};
+
     use super::*;
 
     #[tokio::test]
@@ -188,12 +244,73 @@ mod tests {
         assert!(token.is_cancelled());
     }
 
+    /// Stopping the agents is one pass. A turn dispatched after it runs is one
+    /// nothing ends, and it writes past the flush that reads the tree, so
+    /// admission has to be closed before the first agent is stopped.
+    #[tokio::test]
+    async fn shutdown_closes_writer_admission_before_it_stops_an_agent() {
+        let state = crate::state::test_support::state_for_test();
+        let agent = Arc::new(AgentState::new());
+        let agent_cancel = CancellationToken::new();
+        agent.set_running(agent_cancel.clone()).await;
+
+        let admission = Arc::clone(&state.writer_admission);
+        let winding_down = Arc::clone(&agent);
+        let when_stopped = tokio::spawn(async move {
+            agent_cancel.cancelled().await;
+            let closed = admission.is_closed();
+            // Stands in for the coordinator, which is what ends the run.
+            winding_down.set_stopped().await;
+            closed
+        });
+
+        perform_shutdown(&agent, &CancellationToken::new(), Some(&state)).await;
+
+        assert!(
+            when_stopped.await.expect("join"),
+            "the agent was stopped while a further turn could still be admitted"
+        );
+    }
+
+    /// `AgentState::stop` only cancels the token. The harness winds down after
+    /// that, and a capture taken in between reads a tree it is still writing.
+    #[tokio::test]
+    async fn shutdown_waits_for_the_stopped_agent_to_wind_down() {
+        let agent = Arc::new(AgentState::new());
+        let agent_cancel = CancellationToken::new();
+        agent.set_running(agent_cancel.clone()).await;
+
+        let wound_down = Arc::new(AtomicBool::new(false));
+        let winding_down = Arc::clone(&agent);
+        let reported = Arc::clone(&wound_down);
+        tokio::spawn(async move {
+            agent_cancel.cancelled().await;
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            reported.store(true, Ordering::SeqCst);
+            winding_down.set_stopped().await;
+        });
+
+        perform_shutdown(&agent, &CancellationToken::new(), None).await;
+
+        assert!(
+            wound_down.load(Ordering::SeqCst),
+            "shutdown returned while the harness was still winding down"
+        );
+    }
+
     #[tokio::test]
     async fn perform_shutdown_stops_running_agent_and_cancels_token() {
-        let agent = AgentState::new();
+        let agent = Arc::new(AgentState::new());
         let agent_cancel = CancellationToken::new();
         agent.set_running(agent_cancel.clone()).await;
         assert!(!agent_cancel.is_cancelled());
+
+        let winding_down = Arc::clone(&agent);
+        let cancelled = agent_cancel.clone();
+        tokio::spawn(async move {
+            cancelled.cancelled().await;
+            winding_down.set_stopped().await;
+        });
 
         let token = CancellationToken::new();
         perform_shutdown(&agent, &token, None).await;

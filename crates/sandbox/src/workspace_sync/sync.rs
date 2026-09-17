@@ -22,8 +22,10 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
 use super::{file_set, restic};
+use crate::agent::types::AgentStatus;
 use crate::backend_client::BackendClient;
 use crate::config::Config;
+use crate::init::InitPhase;
 use crate::state::SandboxState;
 
 /// The `format` label every transfer this module makes is reported under: it
@@ -174,6 +176,7 @@ impl WorkspaceSyncTracker {
         config: &Config,
         backend_client: &dyn BackendClient,
         prune: Prune,
+        capture: Capture,
     ) -> SyncOutcome {
         if self.uploads_held.load(Ordering::Relaxed) {
             warn!(task_id = %config.task_id, "Upload held: the stored snapshot could not be read on start, and this tree would overwrite it");
@@ -192,12 +195,16 @@ impl WorkspaceSyncTracker {
             debug!(task_id = %config.task_id, "Workspace is empty; nothing to upload");
             return SyncOutcome::default();
         }
-        if current == *last {
+        // The shutdown flush snapshots an unchanged tree anyway, so that a
+        // missing tag means the flush did not finish and never means it had
+        // nothing to do. Costs one empty delta per pod, against telling an
+        // agent its intact tree may have lost work.
+        if current == *last && !capture.is_shutdown_flush() {
             debug!(task_id = %config.task_id, "Workspace unchanged; skipping upload");
             return SyncOutcome::default();
         }
 
-        let stored = self.store_current(config, backend_client).await;
+        let stored = self.store_current(config, backend_client, capture).await;
         if stored.complete {
             *last = current;
         }
@@ -231,13 +238,18 @@ impl WorkspaceSyncTracker {
     /// A repository failure holds the baseline back even when the tar stored
     /// the tree: the repository is read first on restart and never compared for
     /// generations, so a stale one is still what the restart gets.
-    async fn store_current(&self, config: &Config, backend_client: &dyn BackendClient) -> Stored {
+    async fn store_current(
+        &self,
+        config: &Config,
+        backend_client: &dyn BackendClient,
+        capture: Capture,
+    ) -> Stored {
         // The repository is incremental and atomic, so it runs first and its
         // outcome is what a caller sees.
         let mut stored = None;
         let mut missed = false;
         let mut snapshotted = false;
-        match restic::upload(config, backend_client, &self.repository_access).await {
+        match restic::upload(config, backend_client, &self.repository_access, capture).await {
             Ok(outcome) => {
                 snapshotted = true;
                 stored = Some(outcome);
@@ -277,6 +289,38 @@ impl WorkspaceSyncTracker {
 enum Prune {
     WhenDue,
     Never,
+}
+
+/// Which upload this is, and for the shutdown flush whether any writer this pod
+/// can observe was live when it began.
+///
+/// `writers_quiet` is half of what the tag claims. The capture earns the other
+/// half by finding the tree unchanged across it, which covers a writer admitted
+/// after this was read and one in a container this pod cannot see.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum Capture {
+    Periodic,
+    ShutdownFlush { writers_quiet: bool },
+}
+
+impl Capture {
+    /// Whether this is the shutdown flush, which stores an unchanged tree that
+    /// [`WorkspaceSyncTracker::upload_if_changed`] would otherwise skip.
+    fn is_shutdown_flush(self) -> bool {
+        matches!(self, Self::ShutdownFlush { .. })
+    }
+
+    /// Whether this capture may earn the final-tree tag. `restic::snapshot`
+    /// writes it only if the tree also holds still from the first byte read to
+    /// the last.
+    pub(super) fn may_certify_final_tree(self) -> bool {
+        matches!(
+            self,
+            Self::ShutdownFlush {
+                writers_quiet: true
+            }
+        )
+    }
 }
 
 /// What one pass over the formats produced.
@@ -335,6 +379,10 @@ pub enum RestoreDecision {
         /// tree. `None` when the format carries no timestamp (the rescue tar),
         /// which reads as "unknown", not "current".
         taken_at: Option<chrono::DateTime<chrono::Utc>>,
+        /// Whether [`Capture::ShutdownFlush`] wrote this snapshot, which makes
+        /// the tree the previous pod's final state. `false` means unknown, not
+        /// lost: the rescue tar carries no tag either.
+        final_flush: bool,
     },
     /// The durable volume already holds a usable primary repo. Nothing was
     /// fetched; the volume is the live copy. Skip the overlay — it is the older
@@ -362,9 +410,21 @@ impl RestoreDecision {
     /// agent date the tree it is looking at.
     pub fn snapshot_taken_at(self) -> Option<chrono::DateTime<chrono::Utc>> {
         match self {
-            Self::RestoredSnapshot { taken_at } => taken_at,
+            Self::RestoredSnapshot { taken_at, .. } => taken_at,
             _ => None,
         }
+    }
+
+    /// Whether the shutdown flush wrote the restored snapshot, so the restart
+    /// note can tell the agent its tree is intact rather than dating it.
+    pub fn restored_final_flush(self) -> bool {
+        matches!(
+            self,
+            Self::RestoredSnapshot {
+                final_flush: true,
+                ..
+            }
+        )
     }
 
     /// Whether the workspace already holds the authoritative copy, so
@@ -570,7 +630,10 @@ pub async fn restore_on_start(state: &SandboxState) -> RestoreDecision {
                 .await;
             // The tar carries no snapshot time, so the note says "unknown"
             // rather than dating the tree from this pod's own clock.
-            RestoreDecision::RestoredSnapshot { taken_at: None }
+            RestoreDecision::RestoredSnapshot {
+                taken_at: None,
+                final_flush: false,
+            }
         }
         Ok(false) => {
             debug!(task_id = %task_id, "Snapshot has no primary .git (legacy); will clone then overlay");
@@ -682,7 +745,12 @@ pub async fn download_on_start(state: &SandboxState) {
 pub async fn upload(state: &SandboxState) -> SyncOutcome {
     state
         .workspace_sync
-        .upload_if_changed(&state.config, state.backend_client.as_ref(), Prune::WhenDue)
+        .upload_if_changed(
+            &state.config,
+            state.backend_client.as_ref(),
+            Prune::WhenDue,
+            Capture::Periodic,
+        )
         .await
 }
 
@@ -726,7 +794,7 @@ async fn upload_after_turn(
 ) {
     if config.workspace_sync_enabled {
         tracker
-            .upload_if_changed(config, backend_client, Prune::WhenDue)
+            .upload_if_changed(config, backend_client, Prune::WhenDue, Capture::Periodic)
             .await;
     }
 }
@@ -743,7 +811,14 @@ pub async fn sync_on_request(state: &SandboxState) -> SyncOutcome {
     }
     let outcome = state
         .workspace_sync
-        .upload_if_changed(&state.config, state.backend_client.as_ref(), Prune::Never)
+        .upload_if_changed(
+            &state.config,
+            state.backend_client.as_ref(),
+            Prune::Never,
+            // Not `ShutdownFlush`: the backend asks for this while the agent is
+            // still free to write, so the tree it stores is not a final one.
+            Capture::Periodic,
+        )
         .await;
     restic::forget_and_prune(
         &state.config,
@@ -877,15 +952,78 @@ pub async fn run_workspace_sync(
 
 /// Flush the workspace on shutdown, bounded by [`SHUTDOWN_FLUSH_TIMEOUT`].
 ///
-/// Called after the agent has stopped (working tree stable) and before the
-/// lifecycle token is cancelled; a timeout does not block the drain.
+/// Called after the agent has stopped and before the lifecycle token is
+/// cancelled; a timeout does not block the drain.
 pub async fn flush_on_shutdown(state: &SandboxState) {
     flush_workspace(
         &state.config,
         state.backend_client.as_ref(),
         &state.workspace_sync,
+        workspace_writers_are_quiet(state).await,
     )
     .await;
+}
+
+/// Whether no writer this pod can observe was live when the flush began.
+///
+/// Two halves: what this pod registered, then what it did not. The second reads
+/// the PID namespace, so it answers `false` anywhere this process shares one
+/// with processes it did not start.
+async fn workspace_writers_are_quiet(state: &SandboxState) -> bool {
+    if !registered_writers_are_quiet(state).await {
+        return false;
+    }
+    // The writers nothing above registers: an agent tool's own child, a process
+    // orphaned by a command that exited, one detached with `setsid`.
+    match crate::pod_processes::foreign_live_processes() {
+        Some(live) if live.is_empty() => true,
+        Some(live) => {
+            info!(
+                ?live,
+                "Final-tree tag withheld: the pod still has live writers"
+            );
+            false
+        }
+        None => false,
+    }
+}
+
+/// Whether every writer this pod has a registry for has finished.
+///
+/// Each check names a writer that outlives `agent.stop()`. A preview server is
+/// a sibling container this pod can neither see nor outlive, so its presence
+/// alone denies the claim rather than being checked.
+async fn registered_writers_are_quiet(state: &SandboxState) -> bool {
+    if !state.config.servers.is_empty() {
+        return false;
+    }
+    // A writer admitted before the close but not finished by the end of the
+    // drain is one no registry below lists yet.
+    if !state.writer_admission.is_drained() {
+        return false;
+    }
+    if !matches!(*state.init_phase.read().await, InitPhase::Ready) {
+        return false;
+    }
+    // Registered but not yet spawned: a session or command whose process the
+    // scan below cannot see yet still writes once it starts.
+    if state.terminals.has_live_sessions().await {
+        return false;
+    }
+    for context in state.task_contexts.read().await.values() {
+        if context.commands.busy().await {
+            return false;
+        }
+        // A cancelled agent whose harness has not wound down yet is still
+        // writing, and `AgentState::stop` only asks it to stop.
+        if !matches!(
+            context.agent.status().await,
+            AgentStatus::Idle | AgentStatus::Stopped
+        ) {
+            return false;
+        }
+    }
+    true
 }
 
 /// The body of [`flush_on_shutdown`], over what it actually needs.
@@ -893,11 +1031,17 @@ async fn flush_workspace(
     config: &Config,
     backend_client: &dyn BackendClient,
     tracker: &WorkspaceSyncTracker,
+    writers_quiet: bool,
 ) {
     let started = Instant::now();
     if tokio::time::timeout(
         SHUTDOWN_FLUSH_TIMEOUT,
-        tracker.upload_if_changed(config, backend_client, Prune::Never),
+        tracker.upload_if_changed(
+            config,
+            backend_client,
+            Prune::Never,
+            Capture::ShutdownFlush { writers_quiet },
+        ),
     )
     .await
     .is_ok()
@@ -1220,23 +1364,27 @@ fn decompress_if_gzip(bytes: Vec<u8>) -> std::io::Result<Vec<u8>> {
 /// mtime)` for each; `.gitignore`d artifacts are excluded, so build churn
 /// doesn't move the fingerprint. `None` when there's nothing to archive.
 async fn workspace_fingerprint(workspace_dir: PathBuf) -> Option<u64> {
-    tokio::task::spawn_blocking(move || {
-        if !workspace_dir.is_dir() {
-            return None;
-        }
-        let mut entries: Vec<(String, u64, u128)> = Vec::new();
-        fingerprint_tree(&mut entries, &workspace_dir, &workspace_dir);
-        if entries.is_empty() {
-            return None;
-        }
-        entries.sort();
-        let mut hasher = DefaultHasher::new();
-        entries.hash(&mut hasher);
-        Some(hasher.finish())
-    })
-    .await
-    .ok()
-    .flatten()
+    tokio::task::spawn_blocking(move || fingerprint_now(&workspace_dir))
+        .await
+        .ok()
+        .flatten()
+}
+
+/// [`workspace_fingerprint`] for a caller already on a blocking thread, which
+/// is how `restic::snapshot` reads the same tree either side of one capture.
+pub(super) fn fingerprint_now(workspace_dir: &Path) -> Option<u64> {
+    if !workspace_dir.is_dir() {
+        return None;
+    }
+    let mut entries: Vec<(String, u64, u128)> = Vec::new();
+    fingerprint_tree(&mut entries, workspace_dir, workspace_dir);
+    if entries.is_empty() {
+        return None;
+    }
+    entries.sort();
+    let mut hasher = DefaultHasher::new();
+    entries.hash(&mut hasher);
+    Some(hasher.finish())
 }
 
 /// Metadata twin of [`append_tree`]: a git repo root is enumerated via

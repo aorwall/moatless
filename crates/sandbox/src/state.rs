@@ -17,6 +17,7 @@ use crate::init::{InitPhase, WorkspaceOrigin};
 use crate::supervisor::SupervisorHealth;
 use crate::terminal::TerminalManager;
 use crate::workspace_sync::WorkspaceSyncTracker;
+use crate::writer_admission::WriterAdmission;
 
 pub use crate::task_context::{
     CheckoutMode, RegisterTaskContextError, TaskContext, TaskContextLookupError,
@@ -83,6 +84,9 @@ pub struct SandboxState {
     /// `SyncWorkspace`, the shutdown flush, the periodic loop) so none re-ships
     /// a tar another already shipped.
     pub workspace_sync: WorkspaceSyncTracker,
+    /// Admission for every workspace writer this pod can start, closed once by
+    /// [`crate::shutdown::perform_shutdown_for_state`].
+    pub writer_admission: Arc<WriterAdmission>,
 }
 
 impl SandboxState {
@@ -186,77 +190,15 @@ pub(crate) mod test_support {
     use crate::agent::handle::AgentHandle;
     use crate::agent::scheduled_job::{LateInjector, ScheduledJobRegistry};
     use crate::commands::CommandRegistry;
+    use crate::config::test_support::minimal_config;
     use crate::credentials::recovery::CredentialFailureDetector;
     use crate::outbox::EventOutbox;
-
-    pub(crate) fn state_with(
-        config: Config,
-        backend_client: Arc<dyn BackendClient>,
-    ) -> SandboxState {
-        let config = Arc::new(config);
-        let lifecycle_cancel = CancellationToken::new();
-        let (outbox, _drainer) = EventOutbox::spawn(
-            Arc::clone(&backend_client),
-            config.task_id.clone(),
-            lifecycle_cancel.clone(),
-        );
-        let events = GrpcEventPublisher::new(outbox);
-        let (agent_handle, _rx) = AgentHandle::test_channel();
-        let initial_context = Arc::new(TaskContext::new(
-            config.task_id.clone(),
-            config.workspace_dir.clone(),
-            config.repo_dir.clone(),
-            CheckoutMode::Shared,
-            config.agent_type.clone(),
-            Arc::new(AgentState::new()),
-            agent_handle,
-            Arc::new(ScheduledJobRegistry::new(Arc::new(LateInjector::new()))),
-            Arc::new(CommandRegistry::for_test()),
-            CredentialFailureDetector::default(),
-            Arc::new(RwLock::new(None)),
-        ));
-
-        SandboxState {
-            config,
-            events,
-            task_contexts: Arc::new(RwLock::new(HashMap::from([(
-                initial_context.task_id.clone(),
-                initial_context,
-            )]))),
-            task_context_registration: Arc::new(Mutex::new(())),
-            heartbeat: Heartbeat::new(),
-            backend_client,
-            init_phase: Arc::new(RwLock::new(InitPhase::Ready)),
-            workspace_origin: Default::default(),
-            credentials: Arc::new(RwLock::new(HashMap::new())),
-            lifecycle_cancel,
-            credential_dispatcher: Arc::new(Dispatcher::new()),
-            codex_watcher_handle: Arc::new(RwLock::new(None)),
-            supervisor_health: Default::default(),
-            terminals: TerminalManager::new("/tmp/workspace".to_string()),
-            workspace_sync: Default::default(),
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::agent::agent_state::AgentState;
-    use crate::agent::handle::AgentHandle;
-    use crate::agent::scheduled_job::{LateInjector, ScheduledJobRegistry};
-    use crate::commands::CommandRegistry;
-    use crate::credentials::recovery::CredentialFailureDetector;
-
     use sandbox_proto::{
         DownloadUploadResponse, GetCredentialsResponse, InterruptedTurn, PendingAgentDelivery,
         PublishEventRequest,
     };
 
-    use crate::config::test_support::minimal_config;
-    use crate::outbox::EventOutbox;
-
-    struct NoopBackend;
+    pub(crate) struct NoopBackend;
 
     #[async_trait::async_trait]
     impl BackendClient for NoopBackend {
@@ -330,7 +272,9 @@ mod tests {
         }
     }
 
-    fn test_state() -> SandboxState {
+    /// [`state_with`] over a backend that stores nothing and answers every call
+    /// successfully.
+    pub(crate) fn state_for_test() -> SandboxState {
         let mut config = minimal_config();
         config.task_id = "task-1".to_string();
         config.sandbox_id = "sandbox-1".to_string();
@@ -338,8 +282,14 @@ mod tests {
         config.agent_type = Some("claude-code".to_string());
         config.claude_cli_path = "/missing/claude".to_string();
         config.codex_cli_path = "/missing/codex".to_string();
+        state_with(config, Arc::new(NoopBackend))
+    }
+
+    pub(crate) fn state_with(
+        config: Config,
+        backend_client: Arc<dyn BackendClient>,
+    ) -> SandboxState {
         let config = Arc::new(config);
-        let backend_client: Arc<dyn BackendClient> = Arc::new(NoopBackend);
         let lifecycle_cancel = CancellationToken::new();
         let (outbox, _drainer) = EventOutbox::spawn(
             Arc::clone(&backend_client),
@@ -381,8 +331,15 @@ mod tests {
             supervisor_health: Default::default(),
             terminals: TerminalManager::new("/tmp/workspace".to_string()),
             workspace_sync: Default::default(),
+            writer_admission: Default::default(),
         }
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::test_support::state_for_test as test_state;
+    use super::*;
 
     #[tokio::test]
     async fn register_task_context_adds_a_joined_member() {
@@ -433,7 +390,10 @@ mod tests {
 
         assert_eq!(joined.agent_type.as_deref(), Some("codex"));
         // The boot Member keeps its own.
-        let boot = state.task_context(Some("task-1")).await.expect("boot member");
+        let boot = state
+            .task_context(Some("task-1"))
+            .await
+            .expect("boot member");
         assert_eq!(boot.agent_type.as_deref(), Some("claude-code"));
     }
 

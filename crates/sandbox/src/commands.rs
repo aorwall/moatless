@@ -962,6 +962,40 @@ mod tests {
         assert_eq!(log.trim(), "fork-task", "log was {log:?}");
     }
 
+    /// The writer a registry entry stops naming: a command that backgrounds a
+    /// process and exits leaves it running, which is why certification reads the
+    /// pod's live processes and not this registry.
+    #[tokio::test]
+    async fn a_process_the_command_orphaned_outlives_the_registry_entry() {
+        let reg = registry(Duration::from_mins(1));
+        let cmd = reg
+            .run(CommandSpec {
+                command: "(sleep 30 & echo $!) ; exit 0".into(),
+                cwd: None,
+                timeout: None,
+                label: None,
+            })
+            .await
+            .expect("spawn");
+        let done = wait_terminal(&reg, &cmd.id).await;
+        assert_eq!(done.exit_code, Some(0));
+        let orphan: u32 = tokio::fs::read_to_string(&cmd.log_path)
+            .await
+            .expect("command log")
+            .trim()
+            .parse()
+            .expect("the backgrounded pid");
+
+        assert!(!reg.busy().await, "the command's own entry went terminal");
+        let live = crate::pod_processes::foreign_live_processes().expect("/proc is readable");
+        assert!(
+            live.iter().any(|p| p.pid == orphan),
+            "the orphaned process is missing from {live:?}"
+        );
+
+        signal_group(orphan, "KILL").await;
+    }
+
     #[tokio::test]
     async fn publishes_the_running_count_when_a_command_starts_and_finishes() {
         let (reg, backend, cancel) = with_capture(Duration::from_mins(1));

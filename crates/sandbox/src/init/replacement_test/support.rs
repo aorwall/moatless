@@ -69,6 +69,7 @@ fn build_state(
         heartbeat: Heartbeat::new(),
         backend_client: backend,
         workspace_sync: Default::default(),
+        writer_admission: Default::default(),
         init_phase: Arc::new(RwLock::new(phase)),
         workspace_origin: Default::default(),
         credentials: Arc::new(RwLock::new(HashMap::new())),

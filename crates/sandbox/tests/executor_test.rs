@@ -286,6 +286,7 @@ fn test_state_with_config(backend: Arc<dyn BackendClient>, config: Config) -> Sa
 
     SandboxState {
         workspace_sync: Default::default(),
+        writer_admission: Default::default(),
         config,
         events,
         task_contexts,

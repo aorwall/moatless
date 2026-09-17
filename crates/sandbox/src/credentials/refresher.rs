@@ -277,6 +277,7 @@ mod tests {
             credential_dispatcher,
             codex_watcher_handle: Arc::new(RwLock::new(None)),
             workspace_sync: Default::default(),
+            writer_admission: Default::default(),
             supervisor_health: Default::default(),
             terminals,
         }
