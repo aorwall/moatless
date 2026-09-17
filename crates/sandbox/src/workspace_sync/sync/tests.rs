@@ -356,6 +356,11 @@ async fn a_repository_that_cannot_be_read_neither_descends_nor_overlays() {
         0,
         "the tar is an older copy, so the walk stops before it"
     );
+    assert_eq!(
+        backend.repository_access_calls(),
+        restic::RESTORE_ATTEMPTS as usize,
+        "a blip must be re-tested before it ends the task's durability"
+    );
 }
 
 /// A restore that failed against a snapshot that exists leaves this pod holding

@@ -16,12 +16,15 @@
 //! Both traits are synchronous and `aws-sdk-s3` is async, so every call blocks
 //! on a runtime this module owns. See [`runtime`].
 
+use std::future::Future;
 use std::sync::OnceLock;
+use std::time::Duration;
 
 use bytes::Bytes;
 use rustic_core::{
     BytesList, ErrorKind, FileType, Id, ReadBackend, RusticError, RusticResult, WriteBackend,
 };
+use tracing::warn;
 
 use crate::error::S3Error;
 use crate::objects::{
@@ -92,11 +95,55 @@ impl ResticS3Backend {
     }
 }
 
+/// How many times one read is attempted before the operation carrying it
+/// fails.
+///
+/// `aws-sdk-s3` answers `Ok` once the headers arrive, so the client's own
+/// retry covers the request and not the response body: a stream breaking
+/// part-way through reaches the caller as [`S3Error::ReadBody`], unretried.
+const READ_ATTEMPTS: usize = 4;
+
+/// Wait before re-reading, doubled per attempt, so the attempts span ~1.75s.
+const READ_RETRY_BACKOFF: Duration = Duration::from_millis(250);
+
 /// Turn an S3 failure into the shape `rustic_core` reports.
 fn backend_error(op: &'static str, key: String, err: S3Error) -> Box<RusticError> {
     RusticError::with_source(ErrorKind::Backend, "S3 `{op}` failed for `{key}`.", err)
         .attach_context("op", op)
         .attach_context("key", key)
+}
+
+/// Run one read on the backend's runtime, re-reading a body that broke
+/// mid-stream up to [`READ_ATTEMPTS`] times.
+///
+/// Only [`S3Error::ReadBody`] is repeated: every other failure is the
+/// request's own answer, already retried, and a repository object is immutable.
+fn read_retrying<T, Fut>(
+    op: &'static str,
+    key: &str,
+    mut attempt: impl FnMut() -> Fut,
+) -> RusticResult<T>
+where
+    Fut: Future<Output = Result<T, S3Error>>,
+{
+    runtime().block_on(async {
+        let mut backoff = READ_RETRY_BACKOFF;
+        let mut attempts_left = READ_ATTEMPTS;
+        loop {
+            attempts_left -= 1;
+            match attempt().await {
+                Ok(value) => return Ok(value),
+                Err(err) if attempts_left == 0 || !matches!(err, S3Error::ReadBody(_)) => {
+                    return Err(backend_error(op, key.to_string(), err));
+                }
+                Err(err) => {
+                    warn!(op, key, error = %err, attempts_left, "S3 response body broke mid-stream; re-reading");
+                    tokio::time::sleep(backoff).await;
+                    backoff *= 2;
+                }
+            }
+        }
+    })
 }
 
 impl ReadBackend for ResticS3Backend {
@@ -119,9 +166,9 @@ impl ReadBackend for ResticS3Backend {
         }
 
         let prefix = self.type_prefix(tpe);
-        let objects = runtime()
-            .block_on(list_objects_with_size(&self.client, &self.bucket, &prefix))
-            .map_err(|err| backend_error("list", prefix, err))?;
+        let objects = read_retrying("list", &prefix, || {
+            list_objects_with_size(&self.client, &self.bucket, &prefix)
+        })?;
 
         Ok(objects
             .into_iter()
@@ -138,9 +185,11 @@ impl ReadBackend for ResticS3Backend {
 
     fn read_full(&self, tpe: FileType, id: &Id) -> RusticResult<Bytes> {
         let key = self.key(tpe, id);
-        let (bytes, _) = runtime()
-            .block_on(get_object(&self.client, &self.bucket, &key))
-            .map_err(|err| backend_error("get", key, err))?;
+        let bytes = read_retrying("get", &key, || async {
+            get_object(&self.client, &self.bucket, &key)
+                .await
+                .map(|(bytes, _)| bytes)
+        })?;
         Ok(Bytes::from(bytes))
     }
 
@@ -153,15 +202,15 @@ impl ReadBackend for ResticS3Backend {
         length: u32,
     ) -> RusticResult<Bytes> {
         let key = self.key(tpe, id);
-        let bytes = runtime()
-            .block_on(get_object_range(
+        let bytes = read_retrying("get-range", &key, || {
+            get_object_range(
                 &self.client,
                 &self.bucket,
                 &key,
                 u64::from(offset),
                 u64::from(length),
-            ))
-            .map_err(|err| backend_error("get-range", key, err))?;
+            )
+        })?;
         Ok(Bytes::from(bytes))
     }
 

@@ -8,7 +8,7 @@ description = "S3 object operations and presigning — a leaf over aws-sdk-s3, n
 [features]
 # The `rustic_core` backend adapter. Optional so the crate stays a thin leaf for
 # every caller that only moves objects.
-restic-backend = ["dep:rustic_core", "dep:bytes", "dep:tokio"]
+restic-backend = ["dep:rustic_core", "dep:bytes", "dep:tokio", "dep:tracing"]
 # Minting an STS session scoped to one key prefix. Only the backend hands access
 # out, so nothing else pays for the STS client.
 sts = ["dep:aws-sdk-sts", "dep:serde_json"]
@@ -20,7 +20,9 @@ thiserror = { workspace = true }
 chrono = { workspace = true }
 rustic_core = { workspace = true, optional = true }
 bytes = { version = "1", optional = true }
-tokio = { workspace = true, features = ["rt-multi-thread"], optional = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "time"], optional = true }
+# Only the backend logs, and only to report a body it had to re-read.
+tracing = { workspace = true, optional = true }
 aws-sdk-sts = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
 

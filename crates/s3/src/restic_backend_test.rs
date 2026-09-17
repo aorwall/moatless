@@ -159,6 +159,58 @@ fn a_listing_stops_when_the_continuation_token_does_not_advance() {
     );
 }
 
+/// A body that stops short of its `Content-Length`, which is what a connection
+/// dropped mid-transfer looks like to the client.
+fn truncated(body: &str) -> String {
+    format!(
+        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        body.len() + 64
+    )
+}
+
+/// One pack read that breaks mid-stream must not fail the restore carrying it.
+/// The client retries the request and not the body, so without the backend's
+/// own retry this reaches `rustic_core` as an unreadable repository — and the
+/// sandbox then holds every upload for the rest of the pod's life.
+#[test]
+fn a_body_that_breaks_mid_stream_is_read_again() {
+    let id: Id = ID.parse().unwrap();
+    let (_server, backend) = harness(vec![
+        (
+            "get /bucket/workspaces/task-7/data/ab/",
+            truncated("pack-b"),
+        ),
+        (
+            "get /bucket/workspaces/task-7/data/ab/",
+            response("200 OK", "pack-body"),
+        ),
+    ]);
+    assert_eq!(
+        backend.read_full(FileType::Pack, &id).unwrap(),
+        b"pack-body".as_slice()
+    );
+}
+
+/// Only a broken body is re-read. A refusal is the request's own answer, which
+/// the client already retried to its limit, so repeating it here would spend a
+/// restore's budget on an answer that cannot change.
+#[test]
+fn a_refused_read_is_not_attempted_again() {
+    let id: Id = ID.parse().unwrap();
+    let (_server, backend) = harness(vec![
+        (
+            "get /bucket/workspaces/task-7/data/ab/",
+            response("403 Forbidden", "<Error><Code>AccessDenied</Code></Error>"),
+        ),
+        // Never reached: a second attempt would answer this and pass.
+        (
+            "get /bucket/workspaces/task-7/data/ab/",
+            response("200 OK", "pack-body"),
+        ),
+    ]);
+    assert!(backend.read_full(FileType::Pack, &id).is_err());
+}
+
 #[test]
 fn a_partial_read_asks_for_an_inclusive_byte_range() {
     let id: Id = ID.parse().unwrap();

@@ -15,6 +15,7 @@ use aws_sdk_s3::config::retry::RetryConfig;
 use aws_sdk_s3::config::timeout::TimeoutConfig;
 use aws_sdk_s3::config::{Credentials, Region};
 use moatless_s3::ResticS3Backend;
+use rustic_core::repofile::SnapshotId;
 use rustic_core::{
     BackupOptions, Credentials as RepoCredentials, ForgetGroups, Grouped, KeepOptions,
     LocalDestination, LsOptions, PathList, PruneOptions, Repository, RepositoryBackends,
@@ -401,6 +402,20 @@ fn open(access: &RepoAccess) -> Result<Repository<rustic_core::OpenStatus>, Stri
         .map_err(|e| format!("repository will not open: {e}"))
 }
 
+/// How many times the whole restore is attempted before the snapshot is
+/// called unreadable.
+///
+/// [`RestoreAttempt::Failed`] ends the task's durability for the pod's life,
+/// so nothing transient may reach it. Covers what a per-read retry cannot:
+/// a cancelled grant, an outage spanning seconds.
+pub(super) const RESTORE_ATTEMPTS: u32 = 3;
+
+/// Wait before the next whole-restore attempt, doubled per attempt.
+///
+/// Spent on the startup path and only after a failure, against a hold that
+/// costs the task every byte it produces afterwards.
+const RESTORE_RETRY_BACKOFF: Duration = Duration::from_secs(2);
+
 /// Restore the whole workspace from the latest snapshot.
 ///
 /// [`RestoreAttempt::Restored`] means the caller can skip the clone: a snapshot
@@ -411,37 +426,36 @@ pub(super) async fn restore_on_start(state: &SandboxState) -> RestoreAttempt {
     let workspace_dir = PathBuf::from(&state.config.workspace_dir);
     let repo_dir = PathBuf::from(&state.config.repo_dir);
 
-    let access = match state
-        .workspace_sync
-        .repository_access
-        .get(&task_id, state.backend_client.as_ref())
-        .await
-    {
-        Ok(access) => access,
-        // Only the backend saying it mints no repository access at all is an
-        // absence. A blip here carries no verdict about whether this task has a
-        // repository, and reading one as "none" is what sends a restic-only
-        // task to the rescue tar.
-        Err(status) if is_feature_disabled(&status) => {
-            debug!(task_id = %task_id, %status, "No workspace repository access; will try the mirror");
-            return RestoreAttempt::Absent;
-        }
-        Err(status) => {
-            warn!(task_id = %task_id, %status, "Workspace repository access could not be minted");
-            return RestoreAttempt::Failed;
+    let started = Instant::now();
+    let mut backoff = RESTORE_RETRY_BACKOFF;
+    let mut attempts_left = RESTORE_ATTEMPTS;
+    let restored = loop {
+        attempts_left -= 1;
+        match restore_once(state).await {
+            Ok(restored) => break Ok(restored),
+            Err(error) => {
+                // A snapshot carries the whole workspace — every repo,
+                // `uploads/`, loose directories — so a half-finished restore
+                // leaves partial files across all of it, not only under
+                // `repo_dir`, and the next attempt must not read them.
+                clear_dir_contents(&workspace_dir).await;
+                // The grant is one of the things that can fail an attempt and it
+                // is held for an hour, so a retry keeping it would repeat the
+                // failure rather than test it.
+                state.workspace_sync.repository_access.invalidate().await;
+                if attempts_left == 0 {
+                    break Err(error);
+                }
+                warn!(task_id = %task_id, %error, attempts_left, "Restoring the workspace repository failed; retrying");
+                tokio::time::sleep(backoff).await;
+                backoff *= 2;
+            }
         }
     };
-
-    let started = Instant::now();
-    let restored = tokio::task::spawn_blocking({
-        let workspace_dir = workspace_dir.clone();
-        move || restore_own_or_source(&access, &workspace_dir)
-    })
-    .await;
     let elapsed = started.elapsed().as_millis() as u64;
 
-    let attempt = match restored {
-        Ok(Ok(Some(bytes))) => {
+    match restored {
+        Ok(Some(bytes)) => {
             info!(task_id = %task_id, bytes, dir = %workspace_dir.display(), "Restored repos from the workspace repository (skipping clone)");
             state
                 .backend_client
@@ -456,38 +470,49 @@ pub(super) async fn restore_on_start(state: &SandboxState) -> RestoreAttempt {
                 RestoreAttempt::Absent
             }
         }
-        Ok(Ok(None)) => {
+        Ok(None) => {
             debug!(task_id = %task_id, "No stored workspace snapshot; will try the mirror");
             RestoreAttempt::Absent
         }
-        Ok(Err(error)) => {
-            warn!(task_id = %task_id, %error, "Restoring the workspace repository failed (non-fatal); clearing partial state");
-            // A snapshot carries the whole workspace — every repo, `uploads/`,
-            // loose directories — so a half-finished restore leaves partial
-            // files across all of it, not only under `repo_dir`.
-            clear_dir_contents(&workspace_dir).await;
-            state
-                .backend_client
-                .report_workspace_sync(&task_id, "download", FORMAT, 0, elapsed, Some(&error))
-                .await;
-            RestoreAttempt::Failed
-        }
         Err(error) => {
-            let error = format!("restore panicked: {error}");
-            warn!(task_id = %task_id, %error, "Workspace restore panicked (non-fatal); clearing partial state");
-            clear_dir_contents(&workspace_dir).await;
+            warn!(task_id = %task_id, %error, attempts = RESTORE_ATTEMPTS, "Restoring the workspace repository failed (non-fatal); partial state cleared");
             state
                 .backend_client
                 .report_workspace_sync(&task_id, "download", FORMAT, 0, elapsed, Some(&error))
                 .await;
             RestoreAttempt::Failed
         }
+    }
+}
+
+/// One restore attempt: `Ok(None)` means this task has no snapshot to restore,
+/// which no retry can change.
+async fn restore_once(state: &SandboxState) -> Result<Option<u64>, String> {
+    let task_id = state.config.task_id.clone();
+    let workspace_dir = PathBuf::from(&state.config.workspace_dir);
+
+    let access = match state
+        .workspace_sync
+        .repository_access
+        .get(&task_id, state.backend_client.as_ref())
+        .await
+    {
+        Ok(access) => access,
+        // Only the backend saying it mints no repository access at all is an
+        // absence. A blip here carries no verdict about whether this task has a
+        // repository, and reading one as "none" is what sends a restic-only
+        // task to the rescue tar.
+        Err(status) if is_feature_disabled(&status) => {
+            debug!(task_id = %task_id, %status, "No workspace repository access; will try the mirror");
+            return Ok(None);
+        }
+        Err(status) => return Err(format!("repository access could not be minted: {status}")),
     };
 
-    if matches!(attempt, RestoreAttempt::Failed) {
-        state.workspace_sync.repository_access.invalidate().await;
+    match tokio::task::spawn_blocking(move || restore_own_or_source(&access, &workspace_dir)).await {
+        Ok(restored) => restored,
+        Err(error) => Err(format!("restore panicked: {error}")),
     }
-    attempt
 }
 
 /// Restore from the task's own repository, falling back to the fork source's
@@ -529,9 +554,21 @@ fn restore(access: &RepoAccess, workspace_dir: &Path) -> Result<Option<u64>, Str
 
     let node = match repo.node_from_snapshot_path(&format!("latest:{SNAPSHOT_ROOT}"), |_| true) {
         Ok(node) => node,
-        // A repository with a config but no snapshot is a sandbox that created
-        // it and was stopped before its first sync.
         Err(error) => {
+            // `rustic_core` logs a snapshot it cannot read or decode and drops
+            // it while resolving `latest`, so a failure here does not mean the
+            // repository holds none — only the listing, which decodes nothing,
+            // tells an empty repository from one whose snapshots did not
+            // resolve.
+            let stored = repo
+                .list::<SnapshotId>()
+                .map_err(|e| format!("snapshots are unlistable: {e}"))?
+                .count();
+            if stored > 0 {
+                return Err(format!(
+                    "{stored} snapshots stored, but latest could not be resolved: {error}"
+                ));
+            }
             debug!(%error, "Workspace repository holds no snapshot yet");
             return Ok(None);
         }
