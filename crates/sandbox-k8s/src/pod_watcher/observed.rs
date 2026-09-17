@@ -387,12 +387,33 @@ pub(super) fn format_sandbox_lifecycle_message(
         },
         "pod_failed" => "Pod failed".to_string(),
         "pod_evicted" => "Pod evicted".to_string(),
-        "node_reclaimed" => {
-            "Node reclaimed — rescheduling onto a new node (work preserved)".to_string()
-        }
+        "node_reclaimed" => match error {
+            Some(reason) => format!("Node reclaimed ({reason}) — rescheduling onto a new node"),
+            None => "Node reclaimed — rescheduling onto a new node".to_string(),
+        },
         "pod_scheduled" => "Scheduled onto a node".to_string(),
         "pod_succeeded" | "sandbox_completed" => "Completed".to_string(),
         "pod_deleted" => "Pod deleted".to_string(),
         other => other.replace('_', " "),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::format_sandbox_lifecycle_message;
+
+    /// The reason reaches the reader, and the message stays storage-neutral: this
+    /// formatter cannot tell a PVC-backed replacement that keeps the live tree from an
+    /// S3 restore that lags the loss, or from a sandbox with neither.
+    #[test]
+    fn node_reclaim_names_the_reason_and_promises_nothing() {
+        assert_eq!(
+            format_sandbox_lifecycle_message("node_reclaimed", Some("DeletionByPodGC")),
+            "Node reclaimed (DeletionByPodGC) — rescheduling onto a new node"
+        );
+        assert_eq!(
+            format_sandbox_lifecycle_message("node_reclaimed", None),
+            "Node reclaimed — rescheduling onto a new node"
+        );
     }
 }

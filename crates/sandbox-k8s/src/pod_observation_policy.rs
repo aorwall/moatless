@@ -359,14 +359,21 @@ fn detect_transitions(
                         .is_some_and(|r| r.contains("Evict"));
                 let resource_pressure_eviction = is_evicted
                     && !eviction_is_node_lifecycle(current.pod_status_message.as_deref());
-                let is_node_removal = current
-                    .pod_status_reason
+                // Keep the reason, do not just test it: `NodeShutdown`/`Terminated`
+                // mean the kubelet drained the pod, `DeletionByPodGC`/`NodeLost` mean
+                // the node went with the pod still bound and no SIGTERM. Read
+                // `disruption_reason` first, so this agrees with the precedence
+                // `extract_pod_observed_state` already applies to the same two fields.
+                let node_removal_reason = current
+                    .disruption_reason
                     .as_deref()
-                    .is_some_and(is_node_removal_reason)
-                    || current
-                        .disruption_reason
-                        .as_deref()
-                        .is_some_and(is_node_removal_reason);
+                    .filter(|reason| is_node_removal_reason(reason))
+                    .or_else(|| {
+                        current
+                            .pod_status_reason
+                            .as_deref()
+                            .filter(|reason| is_node_removal_reason(reason))
+                    });
 
                 let evicted_message = || {
                     current.pod_status_message.as_deref().map_or_else(
@@ -377,8 +384,8 @@ fn detect_transitions(
 
                 if resource_pressure_eviction {
                     events.push(("pod_evicted".to_string(), Some(evicted_message())));
-                } else if is_node_removal {
-                    events.push(("node_reclaimed".to_string(), None));
+                } else if let Some(reason) = node_removal_reason {
+                    events.push(("node_reclaimed".to_string(), Some(reason.to_string())));
                 } else if clean_exit {
                 } else if is_evicted {
                     events.push(("pod_evicted".to_string(), Some(evicted_message())));
@@ -466,6 +473,13 @@ mod tests {
             .iter()
             .map(|transition| transition.sub_type.as_str())
             .collect()
+    }
+
+    fn transition_error<'a>(plan: &'a ObservationPlan, sub_type: &str) -> Option<&'a str> {
+        plan.sandbox_transitions
+            .iter()
+            .find(|transition| transition.sub_type == sub_type)
+            .and_then(|transition| transition.error.as_deref())
     }
 
     #[test]
@@ -580,6 +594,11 @@ mod tests {
             lifecycle_sub_type_to_sandbox_status("node_reclaimed"),
             SandboxStatus::Initializing
         );
+        assert_eq!(
+            transition_error(&plan, "node_reclaimed"),
+            Some("DeletionByPodGC"),
+            "the reason must survive: it is what separates a drained pod from a lost one"
+        );
     }
 
     #[test]
@@ -613,6 +632,40 @@ mod tests {
         assert!(
             subs.contains(&"node_reclaimed"),
             "condition-sourced node removal must surface node_reclaimed: {subs:?}"
+        );
+        assert_eq!(
+            transition_error(&plan, "node_reclaimed"),
+            Some("DeletionByTaintManager"),
+            "the disruption condition is the only carrier of the reason here"
+        );
+    }
+
+    /// With both carriers populated the structured `DisruptionTarget` condition wins,
+    /// matching `extract_pod_observed_state`. Reversing it would publish one reason in
+    /// this event and another in the payload's `disruption_reason`.
+    #[test]
+    fn the_disruption_condition_outranks_the_pod_status_reason() {
+        use k8s_openapi::api::core::v1::PodCondition;
+
+        let mut pod = pod_with_phase_and_containers(
+            "Failed",
+            vec![terminated_container("sandbox", "Error", 137)],
+        );
+        let status = pod.status.as_mut().expect("test pod has status");
+        status.reason = Some("NodeLost".to_string());
+        status.conditions = Some(vec![PodCondition {
+            type_: "DisruptionTarget".to_string(),
+            reason: Some("DeletionByTaintManager".to_string()),
+            ..Default::default()
+        }]);
+
+        let state = super::super::pod_watcher::extract_pod_observed_state(&pod, "pod-1", "task-1");
+        let plan = plan_for(&state);
+
+        assert_eq!(
+            transition_error(&plan, "node_reclaimed"),
+            Some("DeletionByTaintManager"),
+            "the coarser status.reason must not outrank the structured condition"
         );
     }
 
