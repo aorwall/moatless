@@ -1,8 +1,9 @@
 use super::Transport;
 use async_trait::async_trait;
 use serde_json::{Map, Value};
+use std::collections::HashSet;
 use std::fmt::Write;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex as StdMutex, OnceLock};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Lines};
 use tokio::process::{Child, ChildStdin, ChildStdout};
 use tokio::sync::Mutex;
@@ -566,16 +567,32 @@ fn log_stdout_message(msg: &RawStdoutMessage) {
             trace!("CLI stdout: keep_alive");
         }
         RawStdoutMessage::Unknown(value) => {
-            // The CLI reports a run it handled locally through a frame this SDK
-            // does not model (`conversation_reset` for `/clear`), and then returns
-            // a result with no turns. The type is the only record of the cause.
-            // Keep the body out of the WARN: an unparsed `control_request` lands
-            // here too, and its `request` holds tool input.
+            // The CLI emits far more `system` subtypes than
+            // `SdkMessage::from_value` models, so an unknown shape is ordinary
+            // protocol drift. Type and subtype name which one to model. Keep the
+            // rest of the body out of the WARN: an unparsed `control_request`
+            // lands here too, and its `request` holds tool input.
             let type_str = value.get("type").and_then(|v| v.as_str()).unwrap_or("?");
-            warn!("CLI stdout: unknown type={}", type_str);
-            debug!(raw = %value, "CLI stdout: unknown type={} body", type_str);
+            let subtype = value.get("subtype").and_then(|v| v.as_str()).unwrap_or("-");
+            if first_unknown_frame(type_str, subtype) {
+                warn!("CLI stdout: unknown type={} subtype={}", type_str, subtype);
+            }
+            debug!(raw = %value, "CLI stdout: unknown type={} subtype={} body", type_str, subtype);
         }
     }
+}
+
+/// True the first time this process sees an unmodelled frame of this shape.
+///
+/// Once the CLI ships a frame the SDK does not model it emits one per turn, and
+/// every line carries the same one actionable fact: model this type/subtype.
+fn first_unknown_frame(type_str: &str, subtype: &str) -> bool {
+    static SEEN: OnceLock<StdMutex<HashSet<(String, String)>>> = OnceLock::new();
+    SEEN.get_or_init(StdMutex::default)
+        .lock()
+        .map_or(true, |mut seen| {
+            seen.insert((type_str.to_string(), subtype.to_string()))
+        })
 }
 
 fn log_sdk_message(msg: &SdkMessage) {

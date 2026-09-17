@@ -555,12 +555,19 @@ async fn has_primary_remote(repo_dir: &str) -> bool {
 /// `origin/HEAD` is what the remote itself says, so it is asked first; the
 /// conventional names are only a fallback for a clone that never recorded one.
 async fn default_branch(repo_dir: &str) -> Option<String> {
-    let symbolic = quiet(
+    // `capture` rather than `quiet`: a clone that recorded no `origin/HEAD`
+    // exits 128 here, and the candidates below are the answer for it, so a
+    // warning per call would report a working path as a fault.
+    let symbolic = capture(
         repo_dir,
-        &["symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
+        &["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"],
         METADATA_TIMEOUT_SECS,
     )
-    .await;
+    .await
+    .ok()
+    .filter(git::GitOutput::succeeded)
+    .map(|output| output.stdout)
+    .unwrap_or_default();
     if let Some(branch) = symbolic.trim().strip_prefix("origin/") {
         if !branch.is_empty() {
             return Some(branch.to_string());

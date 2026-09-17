@@ -22,9 +22,16 @@ pub fn initialize_logging() {
 
     // Initialize logging
     tracing_subscriber::fmt()
-        .with_env_filter(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(&log_level)),
-        )
+        .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+            // `rustic_core` WARNs once per restored entry whose extended
+            // attributes it cannot apply, and the workspace volume accepts
+            // none of them: 2.7M expected lines a day across staging, with no
+            // knob on `RestoreOptions` to turn them off. `RUST_LOG` overrides
+            // this whole filter and brings them back.
+            EnvFilter::new(format!(
+                "{log_level},rustic_core::commands::restore=error"
+            ))
+        }))
         .json()
         // Lift event fields (incl. `message`) to the JSON root so Loki's
         // `| json | message=…` works directly instead of `fields_message`.

@@ -2,6 +2,12 @@
 
 # Minimal runtime image — binary is cross-compiled on the host
 FROM gcr.io/distroless/cc-debian13
+
+# distroless ships a tzdb but no /etc/localtime, so jiff finds no system zone
+# and WARNs on every lookup — 72k lines a day in staging. Naming the zone here
+# resolves it from the bundled tzdb instead.
+ENV TZ="UTC"
+
 COPY --from=binary /moatless-backend /
 EXPOSE 8080 9090
 CMD ["/moatless-backend"]

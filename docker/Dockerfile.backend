@@ -78,6 +78,11 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 
 # --- Runtime stage (target platform) ---
 FROM gcr.io/distroless/cc-debian13
+
+# Keep in step with Dockerfile.backend-cross: distroless has no /etc/localtime,
+# and without a zone jiff WARNs on every lookup.
+ENV TZ="UTC"
+
 COPY --from=builder /app/moatless-backend /
 EXPOSE 8080 9090
 CMD ["/moatless-backend"]
