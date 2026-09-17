@@ -399,6 +399,19 @@ RUN cd /tmp/inspector-build/packages/inspector \
     && test -f /opt/node_modules/@moatless/inspector/dist/client.js \
     && test -f /opt/node_modules/@moatless/inspector/dist/annotation-client.js
 
+# ast-grep — structural search and rewrite by AST pattern, which repo skills
+# invoke as `ast-grep`. The archive's second binary is named `sg` and is left
+# unpacked: on PATH it would shadow util-linux's `sg`.
+# renovate: datasource=github-releases depName=ast-grep/ast-grep
+ARG AST_GREP_VERSION=0.45.3
+RUN ARCH=$(dpkg --print-architecture) && \
+    AG_ARCH=$([ "$ARCH" = "amd64" ] && echo "x86_64" || echo "aarch64") && \
+    curl -fsSL "https://github.com/ast-grep/ast-grep/releases/download/${AST_GREP_VERSION}/app-${AG_ARCH}-unknown-linux-gnu.zip" -o /tmp/ast-grep.zip && \
+    unzip -q -j /tmp/ast-grep.zip ast-grep -d /usr/local/bin && \
+    rm /tmp/ast-grep.zip && \
+    chmod +x /usr/local/bin/ast-grep && \
+    ast-grep --version
+
 # Claude/Codex CLIs. Version source of truth is docker/cli-versions.env, passed
 # in as --build-arg by every build path (ci.yml, build-sandbox.sh); the defaults
 # below are inert fallbacks for a bare `docker build`.
