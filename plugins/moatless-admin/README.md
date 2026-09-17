@@ -1,7 +1,7 @@
 # Moatless Admin
 
 Operational skills for running the Moatless platform itself — sizing sandboxes,
-reading the cluster's resource metrics, and applying the result.
+reading the cluster's resource metrics and logs, and reporting what they say.
 
 These are packaged as a plugin rather than left in the repository-level
 `.agents/skills` because operating the platform happens from wherever the
@@ -13,6 +13,7 @@ operator is: another machine, a sandbox, a cluster shell. A plugin travels;
 | Skill | Use it when |
 |---|---|
 | `workspace-resource-tuning` | Deciding which workspaces need more memory, why the sandbox pool is running more nodes than it should, or how to reclaim reserved-but-unused CPU and memory. |
+| `daily-health-report` | Reporting one day of the platform — tasks, cost, Kubernetes warning events, logs and feedback — as an HTML page a person reads. The `daily-health-check` Loop runs it on a schedule. |
 
 ## Scope
 

@@ -1,0 +1,346 @@
+        <div class="space-y-4 max-w-3xl text-[15px] leading-relaxed">
+          <p>
+            Every item was filed by an agent from a tool call; no human filed feedback
+            yesterday. 15 were <code>environment</code>, 9 <code>instruction</code>, 7
+            <code>codebase</code>. 26 are still open, against an all-time backlog of 235
+            open, 292 fixed and 92 not relevant.
+          </p>
+          <p>
+            Only one problem repeats more than twice: four soap-backend PR-review tasks each
+            reported the missing <code>ast-grep</code> binary. Everything else is a long tail
+            of separate causes, and several items are multi-problem lists — the three filed at
+            15:13 carry fifteen between them. Every distinct problem is listed below, so a
+            cluster's row count is what it would take to close it, not how many agents happened
+            to mention it.
+          </p>
+          <p>
+            Install <code>ast-grep</code> in the sandbox image or delete the requirement from
+            AGENTS.md. It cost four agents a discovery round on one repository in four hours
+            and is a one-line fix either way.
+          </p>
+        </div>
+
+        <div class="grid md:grid-cols-3 gap-4">
+          <div class="card p-5">
+            <h3 class="font-semibold mb-3">By category</h3>
+            <div class="space-y-1">
+              <div class="hbar-row" style="grid-template-columns:96px 1fr 34px">
+                <span class="text-sm">environment</span>
+                <div class="hbar-track"><div class="hbar" style="width:100%;background:var(--s1)"></div></div>
+                <span class="text-sm tnum">15</span></div>
+              <div class="hbar-row" style="grid-template-columns:96px 1fr 34px">
+                <span class="text-sm">instruction</span>
+                <div class="hbar-track"><div class="hbar" style="width:60%;background:var(--s1)"></div></div>
+                <span class="text-sm tnum">9</span></div>
+              <div class="hbar-row" style="grid-template-columns:96px 1fr 34px">
+                <span class="text-sm">codebase</span>
+                <div class="hbar-track"><div class="hbar" style="width:46.7%;background:var(--s1)"></div></div>
+                <span class="text-sm tnum">7</span></div>
+            </div>
+            <p class="text-xs muted mt-4">26 open &middot; 5 already fixed</p>
+          </div>
+
+          <div class="card p-5 md:col-span-2">
+            <h3 class="font-semibold mb-3">Clusters, by distinct problems</h3>
+            <div class="space-y-1">
+              <div class="hbar-row" style="grid-template-columns:210px 1fr 34px">
+                <span class="text-sm">Instructions point wrong</span>
+                <div class="hbar-track"><div class="hbar" style="width:100%;background:var(--s2)"></div></div>
+                <span class="text-sm tnum">9</span></div>
+              <div class="hbar-row" style="grid-template-columns:210px 1fr 34px">
+                <span class="text-sm">Repo tooling &amp; CLI defects</span>
+                <div class="hbar-track"><div class="hbar" style="width:100%;background:var(--s2)"></div></div>
+                <span class="text-sm tnum">9</span></div>
+              <div class="hbar-row" style="grid-template-columns:210px 1fr 34px">
+                <span class="text-sm">Sandbox missing something</span>
+                <div class="hbar-track"><div class="hbar" style="width:77.8%;background:var(--s1)"></div></div>
+                <span class="text-sm tnum">7</span></div>
+              <div class="hbar-row" style="grid-template-columns:210px 1fr 34px">
+                <span class="text-sm">Verification impossible</span>
+                <div class="hbar-track"><div class="hbar" style="width:55.6%;background:var(--critical)"></div></div>
+                <span class="text-sm tnum">5</span></div>
+              <div class="hbar-row" style="grid-template-columns:210px 1fr 34px">
+                <span class="text-sm">Eviction &amp; restore lost work</span>
+                <div class="hbar-track"><div class="hbar" style="width:55.6%;background:var(--critical)"></div></div>
+                <span class="text-sm tnum">5</span></div>
+              <div class="hbar-row" style="grid-template-columns:210px 1fr 34px">
+                <span class="text-sm">Access short of the recipe</span>
+                <div class="hbar-track"><div class="hbar" style="width:33.3%;background:var(--s1)"></div></div>
+                <span class="text-sm tnum">3</span></div>
+              <div class="hbar-row" style="grid-template-columns:210px 1fr 34px">
+                <span class="text-sm">Git plumbing in the clone</span>
+                <div class="hbar-track"><div class="hbar" style="width:22.2%;background:var(--s1)"></div></div>
+                <span class="text-sm tnum">2</span></div>
+            </div>
+            <p class="text-xs muted mt-4">
+              40 distinct problems across 31 items &middot; one problem was reported 4&times;,
+              one 2&times;, the other 38 once each
+            </p>
+          </div>
+        </div>
+
+        <!-- ---------- cluster 1 ---------- -->
+        <div class="card p-5">
+          <div class="flex items-baseline justify-between mb-1">
+            <h3 class="font-semibold">The sandbox lacks something the instructions assume is there</h3>
+            <span class="text-xs muted tnum">7 problems &middot; 6 items</span>
+          </div>
+          <p class="text-[13px] ink2 mb-3">Each one is an image or default-config change, not a code change.</p>
+          <table>
+            <thead><tr><th>Problem</th><th class="n">Items</th><th>Times</th></tr></thead>
+            <tbody>
+              <tr><td><code>ast-grep</code> absent; AGENTS.md requires it for structural Java search, and
+                      <code>/usr/bin/sg</code> is the unrelated util-linux group-switch command</td>
+                  <td class="n">4</td><td class="ink2 tnum">07:19, 10:46, 11:11, 11:28</td></tr>
+              <tr><td><code>libsecret-1-dev</code> absent, so
+                      <code>browser-secret-native.test.mjs</code> cannot pass and every t3code merge
+                      re-derives the same environmental caveat
+                      <span style="color:var(--good)">&middot; fixed</span></td>
+                  <td class="n">1</td><td class="ink2 tnum">06:18</td></tr>
+              <tr><td>Playwright browsers absent unless <code>PLAYWRIGHT_BROWSERS_PATH</code> is set</td>
+                  <td class="n">1</td><td class="ink2 tnum">15:13</td></tr>
+              <tr><td>JDK 25 is installed but is not the default JVM</td>
+                  <td class="n">1</td><td class="ink2 tnum">15:13</td></tr>
+              <tr><td>Node 22.23.2 has no <code>Intl.DurationFormat</code>, so 4 duration-formatter
+                      tests fail and read as a code defect</td>
+                  <td class="n">1</td><td class="ink2 tnum">15:13</td></tr>
+              <tr><td><code>bun install</code> fails <code>AccessDenied</code> because bun's cache is
+                      root-owned; needs <code>BUN_INSTALL_CACHE_DIR</code> and <code>TMPDIR</code></td>
+                  <td class="n">1</td><td class="ink2 tnum">15:13</td></tr>
+              <tr><td><code>bun run lint</code> OOMs at the default ~2 GB Node heap (exit 134); needs
+                      <code>NODE_OPTIONS=--max-old-space-size=8192</code></td>
+                  <td class="n">1</td><td class="ink2 tnum">15:13</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- ---------- cluster 2 ---------- -->
+        <div class="card p-5">
+          <div class="flex items-baseline justify-between mb-1">
+            <h3 class="font-semibold">Verification impossible — five different reasons</h3>
+            <span class="text-xs muted tnum">5 problems &middot; 3 items</span>
+          </div>
+          <p class="text-[13px] ink2 mb-3">
+            These were one row in the previous draft. They share only their consequence: the agent
+            shipped a change it could not run. Each needs its own fix.
+          </p>
+          <table>
+            <thead><tr><th>Problem</th><th class="n">Items</th><th>Times</th></tr></thead>
+            <tbody>
+              <tr><td>Testcontainers cannot start: docker volume creation fails
+                      <code>failed to set xattr "security.selinux" … permission denied</code>, so every
+                      <code>*IntegrationTest</code> dies at <code>initializationError</code></td>
+                  <td class="n">1</td><td class="ink2 tnum">15:13</td></tr>
+              <tr><td>No way to execute a db-test: CI only type-checks the tier
+                      (<code>ci.yml:610</code>), the sandbox has no Postgres, and no crate carries a
+                      migrations dir for <code>sqlx::test</code></td>
+                  <td class="n">1</td><td class="ink2 tnum">12:25</td></tr>
+              <tr><td>Maven cannot resolve anything on soap-screening-service:
+                      <code>.mvn/maven.config</code> forces the CodeArtifact mirror and the sandbox has
+                      no AWS credentials for account 222222222222 — 401 on
+                      <code>spring-boot-starter-parent</code></td>
+                  <td class="n">1</td><td class="ink2 tnum">19:11</td></tr>
+              <tr><td><code>task ca-login</code> exits 2: <code>Taskfile.yml:27</code> wraps the token
+                      fetch in <code>( umask 077; … )</code> and this shell has no <code>umask</code>
+                      builtin; the working form is undocumented</td>
+                  <td class="n">1</td><td class="ink2 tnum">15:13</td></tr>
+              <tr><td><code>./mvnw -o</code> fails with <code>UnresolvableModelException</code>, and
+                      <code>./mvnw -pl &lt;module&gt;</code> without <code>-am</code> fails in a fresh
+                      workspace — so no build without a live CodeArtifact token</td>
+                  <td class="n">1</td><td class="ink2 tnum">15:13</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- ---------- cluster 3 ---------- -->
+        <div class="card p-5">
+          <div class="flex items-baseline justify-between mb-1">
+            <h3 class="font-semibold">Eviction and snapshot restore destroyed finished work</h3>
+            <span class="text-xs muted tnum">5 problems &middot; 4 items</span>
+          </div>
+          <p class="text-[13px] ink2 mb-3">
+            The day's most expensive cluster, and the one the scheduling section above explains.
+          </p>
+          <table>
+            <thead><tr><th>Problem</th><th class="n">Items</th><th>Times</th></tr></thead>
+            <tbody>
+              <tr><td>Six t3code merge passes lost to eviction: the 12 GB pod is read correctly by
+                      <code>verify.mjs</code>, but the parallel test step peaks past it and an eviction
+                      takes <code>node_modules</code>, the <code>moat cmd</code> log and the whole pass</td>
+                  <td class="n">1</td><td class="ink2 tnum">06:18</td></tr>
+              <tr><td>soap-frontend evicted 4&times; in one task, and restore rolled back the
+                      immediately-preceding turn's uncommitted edits 3&times; — the restart note claims
+                      they are intact, but the snapshot lagged the working tree</td>
+                  <td class="n">1</td><td class="ink2 tnum">08:28</td></tr>
+              <tr><td>Restore left <code>node_modules</code> half-populated rather than wiped:
+                      <code>bun install</code> failed <code>FileNotFound</code>, and
+                      <code>rm -rf node_modules</code> itself failed <code>Directory not empty</code>
+                      for 2–5 retries</td>
+                  <td class="n">1</td><td class="ink2 tnum">08:28</td></tr>
+              <tr><td><code>preview-create.sh</code> writes <code>.preview-proxy</code> only after its
+                      10-minute wait, so a restart mid-wait leaves a healthy preview with no pin and no
+                      dirty markers; the only recovery is a ~12-minute recreate under a new ID
+                      <span style="color:var(--good)">&middot; fixed</span></td>
+                  <td class="n">1</td><td class="ink2 tnum">09:23</td></tr>
+              <tr><td>A restart wipes build output, so the one-time
+                      <code>./mvnw install -pl &lt;m&gt; -am -DskipTests</code> has to be repeated
+                      before any module build works again</td>
+                  <td class="n">1</td><td class="ink2 tnum">15:13</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- ---------- cluster 4 ---------- -->
+        <div class="card p-5">
+          <div class="flex items-baseline justify-between mb-1">
+            <h3 class="font-semibold">Git plumbing in the sandbox clone</h3>
+            <span class="text-xs muted tnum">2 problems &middot; 3 items</span>
+          </div>
+          <table>
+            <thead><tr><th>Problem</th><th class="n">Items</th><th>Times</th></tr></thead>
+            <tbody>
+              <tr><td>The clone's only fetch refspec is
+                      <code>+refs/heads/main:refs/remotes/origin/main</code>, so a feature branch never
+                      gets a remote-tracking ref and <code>git push --force-with-lease</code> fails
+                      <code>stale info</code> on every amend-and-repush — ~12 force-pushes across one
+                      four-PR stack, each hand-rolled as
+                      <code>--force-with-lease=&lt;branch&gt;:&lt;sha&gt;</code></td>
+                  <td class="n">2</td><td class="ink2 tnum">06:26, 15:56</td></tr>
+              <tr><td>A stale <code>.git/index.lock</code> blocked add, <code>commit --amend</code> and
+                      rebase while no git process was alive — likely a Bash-tool git call killed at the
+                      ~10-minute cap</td>
+                  <td class="n">1</td><td class="ink2 tnum">15:56</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- ---------- cluster 5 ---------- -->
+        <div class="card p-5">
+          <div class="flex items-baseline justify-between mb-1">
+            <h3 class="font-semibold">Access short of what the documented recipe needs</h3>
+            <span class="text-xs muted tnum">3 problems &middot; 3 items</span>
+          </div>
+          <table>
+            <thead><tr><th>Problem</th><th class="n">Items</th><th>Times</th></tr></thead>
+            <tbody>
+              <tr><td><code>dev-troubleshooter</code> documents DB access as a pg-proxy pod plus
+                      <code>kubectl port-forward</code>, but the mounted SA
+                      <code>moatless-cluster-reader</code> cannot create pods, configmaps, exec or
+                      port-forward; the Aurora cluster is directly reachable instead
+                      <span style="color:var(--good)">&middot; fixed</span></td>
+                  <td class="n">1</td><td class="ink2 tnum">05:30</td></tr>
+              <tr><td>Confirming a sandbox node was a reclaimed spot instance needs cluster-scoped
+                      node and Karpenter nodeclaim reads; the SA is namespace-scoped and there are no
+                      AWS credentials, so <code>sandbox-troubleshooting</code>'s own question can only
+                      be inferred <span style="color:var(--good)">&middot; fixed</span></td>
+                  <td class="n">1</td><td class="ink2 tnum">06:22</td></tr>
+              <tr><td>The bare <code>gh</code> token expires mid-run, so
+                      <code>moat cmd run "gh run watch"</code> dies on HTTP 401 after several minutes
+                      and its nonzero exit reads as a CI failure; <code>moat gh</code> re-auths and the
+                      inherited <code>gh</code> does not</td>
+                  <td class="n">1</td><td class="ink2 tnum">18:29</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- ---------- cluster 6 ---------- -->
+        <div class="card p-5">
+          <div class="flex items-baseline justify-between mb-1">
+            <h3 class="font-semibold">Instructions that pointed the wrong way</h3>
+            <span class="text-xs muted tnum">9 problems &middot; 8 items</span>
+          </div>
+          <p class="text-[13px] ink2 mb-3">
+            The largest cluster, and the cheapest: every row is an edit to a file that already exists.
+          </p>
+          <table>
+            <thead><tr><th>Problem</th><th class="n">Items</th><th>Times</th></tr></thead>
+            <tbody>
+              <tr><td><code>alert-triage</code> Step 4 keys its repeat test on Slack thread history,
+                      which nothing in the skill or the CLI can read — a nightly alert reuses a
+                      24h-old thread from a previous task's run, so the monitor has to guess</td>
+                  <td class="n">1</td><td class="ink2 tnum">02:13</td></tr>
+              <tr><td><code>fork-upstream-merge</code> never says a <code>*.log</code> scratch ledger
+                      is gitignored and therefore outside the snapshot; one was lost to a restart</td>
+                  <td class="n">1</td><td class="ink2 tnum">06:18</td></tr>
+              <tr><td><code>fork-upstream-merge</code>'s lockfile guidance covers only the conflict
+                      case, so the merge where <code>pnpm-lock.yaml</code> auto-merges is the dangerous
+                      one — it dropped the fork's edges and broke main
+                      <span style="color:var(--good)">&middot; fixed in #173</span></td>
+                  <td class="n">1</td><td class="ink2 tnum">06:26</td></tr>
+              <tr><td>soap-permissions and soap-feature-flags READMEs documented GitHub Packages long
+                      after both moved to CodeArtifact; six September reports went that way
+                      <span style="color:var(--good)">&middot; fixed</span></td>
+                  <td class="n">1</td><td class="ink2 tnum">11:19</td></tr>
+              <tr><td>soap-infra's comment-cop exempts a <code># ---</code> header, but every file in
+                      <code>terraform/nonprod/staging/moatless</code> uses a <code># =====</code>
+                      banner — matching the siblings earns a review comment</td>
+                  <td class="n">1</td><td class="ink2 tnum">12:10</td></tr>
+              <tr><td>Root AGENTS.md names one db-tests clippy line, but <code>ci.yml:435</code>
+                      discovers and lints every package declaring the feature — nine today. Same block
+                      never mentions
+                      <code>cargo test -p moatless-arch-rules -- --test-threads=1</code></td>
+                  <td class="n">1</td><td class="ink2 tnum">12:25</td></tr>
+              <tr><td>The comment-budget check CI enforces is documented only in
+                      <code>tooling/arch-rules/AGENTS.md</code>; root AGENTS.md names
+                      <code>arch-report --comments</code> but never its invocation, costing a
+                      push/review/amend round trip</td>
+                  <td class="n">1</td><td class="ink2 tnum">15:56</td></tr>
+              <tr><td><code>java-testing</code>'s test-naming reference omits the <code>_Always_</code>
+                      segment that soap-reviewer enforces and the repo uses 24 times; soap-backend
+                      CLAUDE.md's module table omits soap-reports and soap-reports-config</td>
+                  <td class="n">1</td><td class="ink2 tnum">15:13</td></tr>
+              <tr><td>soap-backend CLAUDE.md recommends <code>./mvnw test -Dtest=ClassName</code>,
+                      which silently runs zero tests against an <code>@Nested</code> class, and
+                      <code>./mvnw test -pl &lt;module&gt;</code> without <code>-am</code></td>
+                  <td class="n">1</td><td class="ink2 tnum">15:13</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- ---------- cluster 7 ---------- -->
+        <div class="card p-5">
+          <div class="flex items-baseline justify-between mb-1">
+            <h3 class="font-semibold">Repo tooling and CLI defects</h3>
+            <span class="text-xs muted tnum">9 problems &middot; 6 items</span>
+          </div>
+          <table>
+            <thead><tr><th>Problem</th><th class="n">Items</th><th>Times</th></tr></thead>
+            <tbody>
+              <tr><td><code>verify.mjs</code> does not say whether a failing package is a registered
+                      known-bad in <code>docs/fork/gaps.md</code>, so the register only works if you
+                      remember to open it. The 04:07 item supersedes the 04:05 design with a safe one:
+                      match a structured <code>**Package:**</code> slot, gate on a runnable predicate,
+                      fail closed</td>
+                  <td class="n">2</td><td class="ink2 tnum">04:05, 04:07</td></tr>
+              <tr><td><code>duplicate-adds.mjs</code> trims whitespace before comparing, so two
+                      genuinely distinct tests sharing decode boilerplate collide and take
+                      <code>verify.mjs</code> red; <code>unsupported-methods.mjs</code> already has the
+                      escape-hatch pattern it needs</td>
+                  <td class="n">1</td><td class="ink2 tnum">06:18</td></tr>
+              <tr><td>No <code>rustfmt.toml</code>: the tree is <code>style_edition 2024</code> against
+                      Cargo edition 2021, so plain <code>cargo fmt</code> silently rewrites ~158
+                      unrelated files and no CI fmt check catches it</td>
+                  <td class="n">1</td><td class="ink2 tnum">10:52</td></tr>
+              <tr><td><code>moat workspaces credentials set --help</code> omits forgejo though
+                      <code>WorkspaceCredentialProvider</code> includes it and the backend accepts it —
+                      a valid remedy looked unavailable mid-diagnosis</td>
+                  <td class="n">1</td><td class="ink2 tnum">12:58</td></tr>
+              <tr><td><code>spotless:apply</code> is missing from soap-backend CLAUDE.md's Task
+                      Completion Checklist, so every agent learns it from a red build</td>
+                  <td class="n">1</td><td class="ink2 tnum">15:13</td></tr>
+              <tr><td><code>soap-reports-openapi.json</code> is tracked but build-generated, so it goes
+                      stale in the working tree and every diff has to decide whether to touch it</td>
+                  <td class="n">1</td><td class="ink2 tnum">15:13</td></tr>
+              <tr><td>comment-cop and the <code>java-comments</code> rule pull in opposite directions
+                      by design — the named-actor sentence pushes a javadoc past one line, which cop
+                      then flags — and neither check knows about the other</td>
+                  <td class="n">1</td><td class="ink2 tnum">15:13</td></tr>
+              <tr><td>soap-frontend master pins <code>@soaplabs/soap-reports-api</code> to a
+                      prerelease branch build</td>
+                  <td class="n">1</td><td class="ink2 tnum">15:13</td></tr>
+              <tr><td><code>moat linear issue get SP-N</code> prints no description unless
+                      <code>--json</code> is passed, which the help output does not say</td>
+                  <td class="n">1</td><td class="ink2 tnum">15:13</td></tr>
+            </tbody>
+          </table>
+        </div>
