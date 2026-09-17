@@ -316,35 +316,19 @@ RUN curl -fsSL https://vite.plus | VP_VERSION="${VITE_PLUS_VERSION}" VP_NODE_MAN
     && echo 'export VP_HOME=/opt/vite-plus' >> /etc/profile \
     && echo 'export PATH="$VP_HOME/bin:$PATH"' >> /etc/profile
 
-# Install Playwright browsers (~650MB) plus xvfb/dbus so headed-mode debugging
-# works in a headless container. Browsers are owned by moatless and
-# world-readable+executable so root and other users can also use them.
-#
-# Two Playwright versions are pinned here, independently, for two different jobs:
-#
-# - PLAYWRIGHT_VERSION is the browser a *consuming repo's own e2e suite*
-#   resolves (`playwright` in that repo's package.json / bun.lock). Playwright
-#   keys its browsers by its own build number, so an unpinned
-#   `npx playwright install` bakes whatever is latest at image-build time and
-#   the suite then downloads its own copy anyway: measured in a live sandbox,
-#   the image carried chromium-1234 (playwright 1.62.1) while the suite wanted
-#   chromium-1194 (playwright 1.56.1). Keep this ARG in step with each
-#   consuming repo's own `playwright` pin, except when a chromium security fix
-#   lands above every consumer's pin: the browser this bakes is a security
-#   floor first, so it moves ahead and the consuming repos catch up. This
-#   repo's own runner image pins Playwright separately in
-#   `docker/Dockerfile.e2e`, against `@playwright/test` in package.json — it
-#   moves with that pin, not with this floor.
-# - PLAYWRIGHT_CLI_VERSION is what the `playwright-cli` wrapper below runs, for
-#   interactive/agentic browsing (goto/snapshot/click-by-ref) — unrelated to
-#   any repo's test suite. It needs Playwright 1.62.0 or later: that release
-#   added the agent-facing `cli` subcommand the wrapper calls (absent from
-#   `npx playwright@1.61.1 --help`, present from `1.62.0` on). Pinning it apart
-#   from PLAYWRIGHT_VERSION means a consuming repo's older test-suite pin can
-#   never starve the interactive CLI of the subcommand it needs, and a bump
-#   here never fights that repo's own pin.
+# Install Playwright browsers plus xvfb/dbus so headed-mode debugging works in a
+# headless container. Install each pin from a package tree under
+# /opt/playwright-packages, never through `npx`: `playwright install` deletes any
+# build whose `.links` entry no longer loads, and an npx cache path under /root
+# is unreadable to moatless, so a repo's own first install wiped the bake.
+# The floor — the newest build the image offers, full chromium and shell.
 # renovate: datasource=npm depName=playwright
 ARG PLAYWRIGHT_VERSION=1.63.0
+# Older builds named consumers still resolve, headless shell only. Drop an entry
+# once its holder reaches the floor: `1.62.1` holds soap-frontend and soap-tm,
+# `1.58.1` holds soap-specs.
+ARG PLAYWRIGHT_COMPAT_VERSIONS="1.62.1 1.58.1"
+# Drives `playwright-cli`; `1.62.0` added the `cli` subcommand it calls.
 # renovate: datasource=npm depName=playwright
 ARG PLAYWRIGHT_CLI_VERSION=1.63.0
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers
@@ -352,15 +336,46 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends xvfb dbus \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir -p /usr/share/moatless-plugins \
-    && npx playwright@${PLAYWRIGHT_VERSION} install --with-deps chromium \
-    && PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-cli-browsers npx playwright@${PLAYWRIGHT_CLI_VERSION} install --with-deps chromium \
-    && chown -R $USERNAME:$USERNAME /opt/playwright-browsers /opt/playwright-cli-browsers /usr/share/moatless-skills /usr/share/moatless-plugins \
-    && chmod -R o+rx /opt/playwright-browsers /opt/playwright-cli-browsers
+    && for v in ${PLAYWRIGHT_VERSION} ${PLAYWRIGHT_CLI_VERSION} ${PLAYWRIGHT_COMPAT_VERSIONS}; do \
+           [ -d "/opt/playwright-packages/$v" ] \
+               || npm install --no-audit --no-fund --prefix "/opt/playwright-packages/$v" "playwright@$v" \
+               || exit 1; \
+       done \
+    && /opt/playwright-packages/${PLAYWRIGHT_VERSION}/node_modules/.bin/playwright install --with-deps chromium \
+    && /opt/playwright-packages/${PLAYWRIGHT_CLI_VERSION}/node_modules/.bin/playwright install chromium \
+    && for v in ${PLAYWRIGHT_COMPAT_VERSIONS}; do \
+           "/opt/playwright-packages/$v/node_modules/.bin/playwright" install chromium-headless-shell \
+               || exit 1; \
+       done \
+    && chown -R $USERNAME:$USERNAME /opt/playwright-browsers /opt/playwright-packages /usr/share/moatless-skills /usr/share/moatless-plugins \
+    && chmod -R o+rx /opt/playwright-browsers /opt/playwright-packages
 
-# The wrapper reads the pin at runtime, so it stays a plain script on disk.
+# The wrapper stays a plain script on disk and runs the baked tree, so it needs
+# no registry and the pin lives here alone.
 ENV PLAYWRIGHT_CLI_VERSION=${PLAYWRIGHT_CLI_VERSION}
+ENV PLAYWRIGHT_CLI_BIN=/opt/playwright-packages/${PLAYWRIGHT_CLI_VERSION}/node_modules/.bin/playwright
 COPY docker/playwright-cli.sh /usr/local/bin/playwright-cli
 RUN chmod +x /usr/local/bin/playwright-cli
+
+# Launch each pinned build from its own playwright-core, as the user that runs
+# tests. A miss here is the "Executable doesn't exist" the sandbox reports, and
+# it is also how a prune regression in the layer above surfaces.
+USER $USERNAME
+RUN set -eu; \
+    test -x "$PLAYWRIGHT_CLI_BIN"; \
+    launch() { \
+        node -e 'require(process.argv[1]).chromium \
+            .launch({ channel: process.argv[2], args: ["--no-sandbox", "--disable-dev-shm-usage"] }) \
+            .then((b) => b.close()) \
+            .then(() => console.log("launched " + process.argv[2] + " from " + process.argv[1])) \
+            .catch((e) => { console.error(String(e)); process.exit(1); })' \
+            "/opt/playwright-packages/$1/node_modules/playwright-core" "$2"; \
+    }; \
+    for v in ${PLAYWRIGHT_VERSION} ${PLAYWRIGHT_CLI_VERSION} ${PLAYWRIGHT_COMPAT_VERSIONS}; do \
+        launch "$v" chromium-headless-shell; \
+    done; \
+    launch "${PLAYWRIGHT_VERSION}" chromium
+USER root
 
 # Bake @moatless/inspector so a previewed project can use it without installing
 # it — no npm reach-out, no lockfile churn, and the version is the one the image

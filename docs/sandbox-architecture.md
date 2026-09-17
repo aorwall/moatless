@@ -728,8 +728,8 @@ Extends base with:
 | pnpm, yarn | Latest | Via corepack |
 | TypeScript, tsx | Latest | TypeScript execution |
 | Vite+ (`vp`) | 0.2.7 | Unified JS toolchain at `VP_HOME=/opt/vite-plus` |
-| Playwright | Latest | Browser automation |
-| Chromium | Shared | At `/opt/playwright-browsers` |
+| Playwright | Pinned | One package tree per pin under `/opt/playwright-packages` |
+| Chromium | Shared | One build per pin at `/opt/playwright-browsers` |
 
 ### Rust Toolchain
 
@@ -789,4 +789,5 @@ Runs as non-root user `moatless` (UID 1000) with home at `/home/moatless`.
 | `/opt/moatless/bin/preview-server` | Preview server shell script |
 | `/usr/share/moatless-skills` | Skills (baked into image) |
 | `/opt/playwright-browsers` | Shared Playwright browser binaries |
+| `/opt/playwright-packages` | Playwright package tree per pin; keeps the browsers above from being pruned |
 | `/usr/local/bin/docker-entrypoint-sandbox.sh` | Container entrypoint |

@@ -6,7 +6,12 @@
 # /opt/google/chrome/chrome, which this image does not install, so `open` must
 # carry the flag and nothing else may.
 
-export PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-cli-browsers
+: "${PLAYWRIGHT_CLI_BIN:=/opt/playwright-packages/${PLAYWRIGHT_CLI_VERSION}/node_modules/.bin/playwright}"
+
+if [ ! -x "$PLAYWRIGHT_CLI_BIN" ]; then
+    echo "playwright-cli: no Playwright at $PLAYWRIGHT_CLI_BIN" >&2
+    exit 127
+fi
 
 subcommand=
 for arg in "$@"; do
@@ -26,4 +31,4 @@ if [ "$subcommand" = open ]; then
     esac
 fi
 
-exec xvfb-run --auto-servernum npx "playwright@${PLAYWRIGHT_CLI_VERSION}" cli "$@"
+exec xvfb-run --auto-servernum "$PLAYWRIGHT_CLI_BIN" cli "$@"
