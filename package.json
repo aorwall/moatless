@@ -35,19 +35,16 @@
   ],
   "scripts": {
     "postinstall": "turbo run build --filter='./packages/*'",
-    "dev": "cd apps/frontend && bun dev",
     "build": "turbo run build",
     "build:dev": "turbo run build:dev",
     "build:package": "bun run build && node scripts/prepare-package.js",
     "prepublishOnly": "bun run build:package",
     "test": "turbo run test",
     "test:unit": "turbo run test:unit",
-    "test:integration": "turbo run test:integration",
     "test:coverage": "turbo run test:coverage",
     "type:check": "./scripts/type-check-filtered.sh",
     "type:check:e2e": "tsc -p tests/tsconfig.json --noEmit",
     "test:e2e": "playwright test --config tests/api/playwright.config.ts",
-    "test:e2e:ui": "playwright test --config tests/ui/playwright.config.ts",
     "biome:check": "biome check --diagnostic-level=error",
     "biome:fix": "./scripts/biome-fix.sh",
     "lint:ratchet": "bun scripts/biome-ratchet.ts",
@@ -62,8 +59,6 @@
     "knip": "knip",
     "knip:production": "knip --production",
     "prepare": "husky",
-    "storybook": "cd apps/frontend && bun run storybook",
-    "build-storybook": "cd apps/frontend && bun run build-storybook",
     "generate:api": "task generate"
   },
   "devDependencies": {
@@ -91,6 +86,7 @@
     "concurrently": "^9.2.1",
     "esbuild": "^0.28.0",
     "husky": "^9.1.7",
+    "js-yaml": "^4.1.0",
     "knip": "^6.17.1",
     "likec4": "^1.43.0",
     "lint-staged": "^17.0.7",
@@ -110,7 +106,6 @@
     "class-variance-authority": "^0.7.1"
   },
   "workspaces": [
-    "apps/*",
     "packages/*"
   ],
   "overrides": {

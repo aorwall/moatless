@@ -17,8 +17,8 @@ adapterConfig:
 # Moatless Vibe — Full-Repo Code Review
 
 Review this pull request against the project's conventions and general code quality.
-This repo is multi-domain: a React 19 + TypeScript frontend, a Rust backend and
-sandbox, shared Rust crates, Helm charts, and Docker. One review covers all of it —
+This repo is multi-domain: a Rust backend and sandbox, shared Rust crates, shared
+TypeScript packages, Helm charts, and Docker. One review covers all of it —
 classify the changed files, load the matching guidelines, and review each domain by
 its own rules.
 
@@ -111,13 +111,14 @@ Classify each changed file, load the matching guideline, and apply its checks.
 
 | Path pattern | Domain | Read for conventions | Key checks |
 |--------------|--------|----------------------|------------|
-| `apps/frontend/src/**/*.{ts,tsx}`, `packages/**/*.ts` | Frontend React/TS | `.agents/skills/frontend-dev-guidelines/SKILL.md` (+ `resources/`) | strict TS (no `any` → use `unknown`; no `import type`); server state in TanStack Query only (never duplicated in `useState`); centralized query keys (`src/lib/api/query-keys.ts`); derived state during render, not `useEffect`+`setState`; feature-based structure (`src/features/<f>/{api,components,hooks,stores}`); handle `isLoading`/`error`; composition over configuration; Tailwind v4 + shadcn/ui |
+| `apps/frontend/**` | Retired Moatless UI | root `AGENTS.md` | flag any change: the UI is T3 Code, and nothing builds or checks this code |
+| `packages/**/*.ts` | TypeScript packages | root `AGENTS.md` | strict TS (no `any` → use `unknown`) |
 | `backend/src/**/*.rs`, `crates/**/*.rs` (except `crates/cli`) | Rust backend | **`AGENTS.md` → "Critical Development Rules → Rust Safety" + "Backend Module Pattern"** | clippy-clean (`-D warnings`, no `unwrap`/`expect`/`panic!` on runtime paths); `thiserror` enums, not string errors; `Arc` for state shared across async tasks; `CancellationToken` for graceful shutdown; layered `routes → handlers → services → dao`; module layout (`mod/models/dao/schemas/handlers/routes/error.rs`); utoipa OpenAPI annotations on routes; `IntoResponse` for module errors; parameterized SQLx queries |
 | `crates/sandbox/src/**/*.rs` | Rust sandbox | same Rust rules (`AGENTS.md`) | plus gRPC / Claude-agent orchestration correctness; no blocking calls in async; graceful shutdown; state-machine transitions |
 | `crates/cli/src/**/*.rs` | moat CLI | `.agents/skills/moat-cli/SKILL.md` (+ `references/command-reference.md`) | clap command/flag semantics consistent with the docs; `--json` output; error handling |
 | `crates/sandbox-proto/**`, `**/*.proto` | gRPC contract | — | field changes are backward-compatible (no renumbering/repurposing tags); regenerate implications noted |
 | `**/*.test.{ts,tsx}`, `**/*.integration.test.ts`, `tests/**`, `**/tests/*.rs` | Tests | `.agents/skills/testing-guidelines/SKILL.md`; `.agents/skills/e2e-testing/SKILL.md` | test behavior, not implementation; mock only external deps (never your own code); tier-appropriate coverage. Rust tests are `cargo test` (`#[cfg(test)] mod tests`, `tests/`, env-gated E2E like `CLAUDE_SDK_E2E=1` / `SANDBOX_E2E=1`) — **not Vitest**. `any` is allowed in TS test files. |
-| `k8s/helm/moatless-vibe/**` | Helm / K8s | `.agents/skills/k8s-install/references/values-schema.md`; `.agents/skills/sandbox-troubleshooting/SKILL.md` | `values.yaml` ↔ template consistency; pod/container security contexts (frontend and backend); sandbox isolation set (networkpolicy incl. Cilium, resourcequota, limitrange, per-task namespace/SA); RBAC least-privilege; **no hardcoded secrets** (use `secrets`/`externalSecrets`); probe / PDB / HPA sanity; bump `Chart.yaml` `version` when templates change |
+| `k8s/helm/moatless-vibe/**` | Helm / K8s | `.agents/skills/k8s-install/references/values-schema.md`; `.agents/skills/sandbox-troubleshooting/SKILL.md` | `values.yaml` ↔ template consistency; pod/container security contexts (backend and T3); sandbox isolation set (networkpolicy incl. Cilium, resourcequota, limitrange, per-task namespace/SA); RBAC least-privilege; **no hardcoded secrets** (use `secrets`/`externalSecrets`); probe / PDB / HPA sanity; bump `Chart.yaml` `version` when templates change |
 | `docker/**`, `docker-compose/**`, `Dockerfile*` | Docker | `.agents/skills/docker-testing/SKILL.md`; `.agents/skills/docker-install/SKILL.md` | multi-stage build correctness; no secrets baked into layers; pinned base images |
 | `Cargo.toml`, `Cargo.lock`, `package.json`, `bun.lock`, `drizzle/**` | Build / deps / migrations | — | suspicious or major version bumps; migration file naming and forward-safety |
 | anything else | General | root `AGENTS.md` | general code quality (below) |
@@ -126,8 +127,8 @@ Classify each changed file, load the matching guideline, and apply its checks.
 > describes a TypeScript/Hono/InversifyJS/Drizzle backend under `apps/backend/**`,
 > which does not exist in this repo. The real backend is Rust (Axum/Tonic/SQLx) under
 > `backend/`, `sandbox/`, and `crates/`. For those, the authoritative rules are in the
-> root `AGENTS.md`. `frontend-dev-guidelines` and `testing-guidelines` do match the
-> code and are used as written.
+> root `AGENTS.md`. `testing-guidelines` does match the code and is used as
+> written.
 
 ## General Code Quality
 
@@ -138,25 +139,20 @@ Apply to every changed file, on top of the domain rules.
   collections, loading/error states).
 - **Rust:** `unwrap()`/`expect()`/`panic!` on runtime paths; un-`await`ed futures;
   `Result`/`Option` swallowed; `.clone()` masking a borrow problem.
-- **TS:** missing `key` on mapped lists; `useEffect` deriving state or mirroring props;
-  `??` vs `||` on falsy-but-valid values (`0`, `""`, `false`); missing `await`.
+- **TS:** `??` vs `||` on falsy-but-valid values (`0`, `""`, `false`); missing `await`.
 
 ### Performance
-- N+1 query patterns (SQLx in a loop; unbounded TanStack Query on growable endpoints).
+- N+1 query patterns (SQLx in a loop).
 - Blocking calls inside async/reactive code.
-- Unnecessary allocation in hot paths; heavy work in a React render body that belongs
-  in `useMemo`.
+- Unnecessary allocation in hot paths.
 
 ### Security
 - Exposed secrets/credentials in code, config, Helm values, or Docker layers.
 - SQL built by string concatenation (require parameterized queries).
 - Missing authorization on new endpoints; PII in logs or error responses.
-- **Frontend:** non-`VITE_`-prefixed `import.meta.env` reads (resolve to `undefined`);
-  sensitive values placed in a `VITE_` var (ship public in the bundle);
-  `dangerouslySetInnerHTML` without sanitization.
 
 ### Readability & Maintainability
-- Functions/components far past their domain's norm — suggest extraction.
+- Functions far past their domain's norm — suggest extraction.
 - Nesting deeper than ~3 levels — suggest early returns.
 - Dead code, unclear names, copy-paste duplication.
 
@@ -173,7 +169,7 @@ moat gh run view <RUN_ID> --log-failed                  # pull the failed-step l
 ```
 
 CI enforces the repo's mandatory workflow: `bun run type:check`, `bun run biome:check`
-(frontend); `cargo clippy -p <crate> -- -D warnings`, `cargo test -p <crate>`
+(TypeScript); `cargo clippy -p <crate> -- -D warnings`, `cargo test -p <crate>`
 (Rust); and commitlint (conventional-commit header ≤ 100 chars, scopes limited to
 `components/layout/routes/styles/utils/hooks` or none).
 
@@ -236,11 +232,8 @@ compliant or not applicable; `[ ]` = issue, with a `file:line` reference in ital
 
 ### Compliance Checklist
 
-#### Frontend  <!-- only if apps/frontend or packages changed -->
-- [x] TypeScript — no `any`, no `import type`, narrow with `unknown`
-- [x] Server state in TanStack Query; derived state during render
-- [x] Feature-based structure; loading/error states handled
-- [x] Styling — Tailwind v4 + shadcn, no hardcoded env-sensitive values
+#### TypeScript  <!-- only if packages changed -->
+- [x] No `any`; narrow with `unknown`
 
 #### Rust (backend / sandbox / crates)  <!-- only if *.rs changed -->
 - [x] Clippy-clean intent — no `unwrap`/`expect`/`panic!` on runtime paths
@@ -266,7 +259,7 @@ compliant or not applicable; `[ ]` = issue, with a `file:line` reference in ital
 #### Performance
 - <N+1, unbounded queries, blocking-in-async, allocation>
 #### Security
-- <secrets, injection, missing auth, PII, VITE_ env issues>
+- <secrets, injection, missing auth, PII>
 #### Suggestions
 - <minor nitpicks not worth an inline comment>
 

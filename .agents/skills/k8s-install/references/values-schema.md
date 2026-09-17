@@ -5,8 +5,8 @@ own the schema. `moat k8s init` generates the starting file; review it before ap
 
 | Setting | Check |
 |---|---|
-| `image.tag`, `backend.image.tag`, `sandboxImage.tag`, `t3.image.tag` | Use the same selected release; do not upgrade only two images. |
-| `t3.enabled`, `t3.host` | T3 enabled with an empty host owns the app hostname. Disable T3 for the Moatless frontend, or assign a separate T3 host for both. |
+| `backend.image.tag`, `sandboxImage.tag`, `t3.image.tag` | Use the same selected release; do not upgrade only some of them. |
+| `t3.enabled`, `t3.host` | Keep T3 enabled with an empty host, so T3 Code serves the app hostname. |
 | `ingress` | Installed class, correct hosts, TLS termination, provider annotations. |
 | `proxyIngress` | Wildcard host and target Traefik service in the release namespace. |
 | `proxy.domain` | Matches the preview DNS suffix. |

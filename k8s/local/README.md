@@ -31,21 +31,21 @@ supported local path — no Docker Hub pull, no SOAP registry mirror, no cloud.
 
 ```bash
 task build:backend TAG=dev                                    # backend
-./docker/build-app.sh --local --tag dev                       # frontend
 ./docker/build-sandbox.sh --local --tag dev \                 # sandbox (base + tools + runtime)
   --dev-browser-dir "$(cd ../.. && pwd)/stuffs/dev-browser"
 ```
 
 Use `docker/build-*.sh --local` (single-arch, loads into the local store), **not**
-`task build:frontend` / `task build:sandbox` — those build multi-arch and *push*,
-which never lands the image locally. `build-sandbox.sh --local` builds the base,
+`task build:sandbox` — it builds multi-arch and *pushes*, which never lands the
+image locally. `build-sandbox.sh --local` builds the base,
 the sandbox-tools image, and the runtime image in one pass, all tagged `:dev`.
 
 Docker Desktop's kubeadm mode shares the image store, so nothing needs pushing.
 
-> The images `values-local.yaml` expects: `aorwall/moatless-frontend:dev`,
-> `aorwall/moatless-backend:dev`, `aorwall/moatless-sandbox:dev`. `pullPolicy` is
-> `IfNotPresent` for all three, so Kubernetes uses the local build.
+> The images `values-local.yaml` expects: `aorwall/moatless-backend:dev` and
+> `aorwall/moatless-sandbox:dev`. `pullPolicy` is `IfNotPresent` for both, so
+> Kubernetes uses the local build. The T3 Code UI image, `aorwall/moatless-t3`,
+> comes from Docker Hub.
 
 ## 2. Traefik + namespace
 
@@ -202,20 +202,6 @@ The digest assertion at the end is not ceremony — `pullPolicy: IfNotPresent`
 with a re-used `:dev` tag fails *silently*, leaving the previous image running.
 It compares against pods in the newest ReplicaSet only, since `rollout status`
 returns before the previous revision's pods finish terminating.
-
-### Frontend against the cluster
-
-Run the Vite dev server (hot reload) while the backend, DB, and sandboxes stay
-in the cluster — set `apps/frontend/.env.local`:
-
-```
-VITE_REMOTE_API=http://moatless.localhost
-```
-
-then `bun run dev` and open `http://localhost:3000`. The dev server proxies
-`/api` to Traefik; `changeOrigin` supplies the `Host: moatless.localhost` header the
-IngressRoute matches on. No API key — local auth resolves every request to
-`local-user`/`admin`.
 
 ## Why these settings (gotchas)
 

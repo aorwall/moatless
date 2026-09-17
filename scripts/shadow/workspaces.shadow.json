@@ -1,6 +1,6 @@
 {
-  "//": "Shadow-dev variant of .moatless/workspaces.json. Runs BOTH the frontend dev",
-  "//1": "server and a shadow backend as sidecars in one sandbox pod. Point a",
+  "//": "Shadow-dev variant of .moatless/workspaces.json. Runs a shadow backend as a",
+  "//1": "sidecar in the sandbox pod. Point a",
   "//2": "dedicated 'moatless-vibe (shadow)' repo/branch at this, or copy it over",
   "//3": "workspaces.json for a dev task. Do NOT make this the default for agent tasks —",
   "//4": "the backend sidecar compiles Rust on start, which is heavy.",
@@ -19,7 +19,7 @@
     {
       "key": "shadow",
       "name": "moatless-vibe (shadow)",
-      "description": "Frontend dev server plus a shadow backend in one sandbox",
+      "description": "A shadow backend in one sandbox",
       "repos": [{ "url": "https://github.com/soaplabs/moatless", "primary": true }],
       "codeExecution": {
         "setupCommands": [
@@ -37,16 +37,6 @@
       },
       "servers": [
         {
-          "name": "dev",
-          "label": "Frontend (dev)",
-          "port": 3000,
-          "startCommands": ["/opt/moatless/data/.bun/bin/bun run dev -- --host 0.0.0.0"],
-          "startupTimeoutSeconds": 120,
-          "autoReload": true,
-          "enableInspector": true,
-          "default": true
-        },
-        {
           "name": "backend",
           "label": "Shadow Backend",
           "port": 8080,
@@ -54,7 +44,7 @@
           "startupTimeoutSeconds": 600,
           "autoReload": false,
           "enableInspector": false,
-          "default": false
+          "default": true
         }
       ]
     }

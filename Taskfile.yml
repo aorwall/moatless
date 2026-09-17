@@ -66,12 +66,6 @@ tasks:
 
   # ── Build targets ──────────────────────────────────────────────
 
-  build:frontend:
-    desc: Build frontend Docker image
-    deps: [generate:client:ts]
-    cmds:
-      - ./docker/build-app.sh --tag {{.TAG}} --platform {{.PLATFORM}}
-
   build:backend:
     desc: Build backend Docker image (native arch, load locally)
     # PROFILE doubles as the target subdirectory name — true for `release` and
@@ -94,16 +88,10 @@ tasks:
       - ./docker/build-sandbox.sh --tag {{.TAG}} --platform {{.PLATFORM}}
 
   build:
-    desc: Build frontend and sandbox Docker images
-    deps: [build:frontend, build:sandbox]
+    desc: Build backend and sandbox Docker images
+    deps: [build:backend, build:sandbox]
 
   # ── Push targets ───────────────────────────────────────────────
-
-  push:frontend:
-    desc: Build and push frontend image
-    deps: [generate:client:ts]
-    cmds:
-      - ./docker/build-app.sh --tag {{.TAG}} --platform {{.PLATFORM}} --push
 
   push:backend:
     desc: Build and push backend image
@@ -124,18 +112,9 @@ tasks:
 
   push:
     desc: Build and push all images
-    deps: [push:frontend, push:backend, push:sandbox]
+    deps: [push:backend, push:sandbox]
 
   # ── Deploy targets ─────────────────────────────────────────────
-
-  deploy:frontend:
-    desc: Build, push, and deploy frontend only
-    cmds:
-      - task: push:frontend
-      - echo "==> Restarting frontend deployment..."
-      - kubectl rollout restart deployment/{{.RELEASE_NAME}} -n {{.NAMESPACE}}
-      - kubectl rollout status deployment/{{.RELEASE_NAME}} -n {{.NAMESPACE}} --timeout=300s
-      - echo "==> Frontend deployed successfully!"
 
   deploy:backend:
     desc: Build, push, and deploy backend only
@@ -155,17 +134,14 @@ tasks:
   deploy:
     desc: Build, push all images, and upgrade Helm release
     cmds:
-      - task: push:frontend
       - task: push:backend
       - task: push:sandbox
       - echo "==> Upgrading Helm release..."
       - >-
         helm upgrade {{.RELEASE_NAME}} {{.HELM_CHART}}
         --namespace {{.NAMESPACE}}
-        --set image.tag={{.TAG}}
         --set backend.image.tag={{.TAG}}
         --set sandboxImage.tag={{.TAG}}
-      - kubectl rollout status deployment/{{.RELEASE_NAME}} -n {{.NAMESPACE}} --timeout=300s
       - kubectl rollout status deployment/{{.RELEASE_NAME}}-backend -n {{.NAMESPACE}} --timeout=300s
       - echo "==> Deployment complete!"
 
@@ -225,51 +201,6 @@ tasks:
         if [ "$built" = "$running" ]; then echo "==> OK: cluster is running the image just built";
         else echo "==> MISMATCH: cluster is not running the new build"; exit 1; fi'
 
-  dev:frontend:
-    desc: "Local loop: rebuild the frontend and roll it out on the Docker Desktop cluster"
-    vars:
-      DEV_TAG: '{{.DEV_TAG | default "dev"}}'
-      DEV_NS: '{{.DEV_NS | default "moatless"}}'
-      KC: 'KUBECONFIG=$HOME/.kube/config kubectl --context docker-desktop -n {{.DEV_NS}}'
-    cmds:
-      # `--local` builds a native single-arch image into the local Docker store
-      # (no registry push) — docker-desktop's kubelet shares that store.
-      - ./docker/build-app.sh --local --tag {{.DEV_TAG}}
-      - echo "==> Rolling out {{.RELEASE_NAME}} to docker-desktop/{{.DEV_NS}}..."
-      - '{{.KC}} rollout restart deployment/{{.RELEASE_NAME}}'
-      - '{{.KC}} rollout status deployment/{{.RELEASE_NAME}} --timeout=180s'
-      - task: dev:verify:frontend
-        vars:
-          DEV_TAG: '{{.DEV_TAG}}'
-          DEV_NS: '{{.DEV_NS}}'
-
-  dev:verify:frontend:
-    desc: Assert the cluster is running the frontend image that was just built
-    vars:
-      DEV_TAG: '{{.DEV_TAG | default "dev"}}'
-      DEV_NS: '{{.DEV_NS | default "moatless"}}'
-    cmds:
-      # `IfNotPresent` + a re-used `:dev` tag makes "stale image silently kept"
-      # the failure mode to guard against, so compare the digests explicitly.
-      # Pods are scoped to the newest ReplicaSet: `rollout status` returns before
-      # the previous revision's pods finish terminating, and those still report
-      # the old digest.
-      - >-
-        bash -c 'set -euo pipefail;
-        export KUBECONFIG=$HOME/.kube/config;
-        built=$(docker images --no-trunc --quiet {{.REGISTRY_ORG}}/moatless-frontend:{{.DEV_TAG}});
-        hash=$(kubectl --context docker-desktop -n {{.DEV_NS}} get rs
-        -l app.kubernetes.io/component=app --sort-by=.metadata.creationTimestamp
-        -o jsonpath="{.items[-1:].metadata.labels.pod-template-hash}");
-        running=$(kubectl --context docker-desktop -n {{.DEV_NS}} get pods
-        -l app.kubernetes.io/component=app,pod-template-hash=$hash
-        -o jsonpath="{.items[*].status.containerStatuses[0].imageID}"
-        | tr " " "\n" | sed "s|.*@||" | sort -u);
-        echo "  built  : $built";
-        echo "  running: $running";
-        if [ "$built" = "$running" ]; then echo "==> OK: cluster is running the image just built";
-        else echo "==> MISMATCH: cluster is not running the new build"; exit 1; fi'
-
   dev:sandbox:
     desc: "Local loop: build the sandbox image into the local Docker store (no push, no rollout)"
     vars:
@@ -286,11 +217,11 @@ tasks:
   # ── Kubernetes operations ──────────────────────────────────────
 
   restart:
-    desc: Restart the app deployment (pull latest image)
+    desc: Restart the backend deployment (pull latest image)
     cmds:
       - echo "==> Restarting deployment..."
-      - kubectl rollout restart deployment/{{.RELEASE_NAME}} -n {{.NAMESPACE}}
-      - kubectl rollout status deployment/{{.RELEASE_NAME}} -n {{.NAMESPACE}} --timeout=300s
+      - kubectl rollout restart deployment/{{.RELEASE_NAME}}-backend -n {{.NAMESPACE}}
+      - kubectl rollout status deployment/{{.RELEASE_NAME}}-backend -n {{.NAMESPACE}} --timeout=300s
 
   status:
     desc: Show deployment status
@@ -305,9 +236,9 @@ tasks:
       - kubectl get pods -n {{.NAMESPACE}} -l app.kubernetes.io/component=worker 2>/dev/null || echo "No worker pods running"
 
   logs:
-    desc: Show app logs
+    desc: Show backend logs
     cmds:
-      - kubectl logs -n {{.NAMESPACE}} deployment/{{.RELEASE_NAME}} --tail=100 -f
+      - kubectl logs -n {{.NAMESPACE}} deployment/{{.RELEASE_NAME}}-backend --tail=100 -f
 
   logs:worker:
     desc: Show logs for all worker pods
@@ -322,10 +253,10 @@ tasks:
   # ── Database ───────────────────────────────────────────────────
 
   db:migrate:
-    desc: Run database migrations (via app restart)
+    desc: Run database migrations (via backend restart)
     cmds:
-      - echo "==> Migrations run automatically on app startup"
-      - echo "Restarting app to trigger migrations..."
+      - echo "==> Migrations run automatically on backend startup"
+      - echo "Restarting backend to trigger migrations..."
       - task: restart
 
   # ── Rust build cache ───────────────────────────────────────────
@@ -352,11 +283,6 @@ tasks:
     cmds:
       - npx playwright test --config tests/api/playwright.config.ts tests/api/specs/{{.CLI_ARGS}}.spec.ts
 
-  test:ui:
-    desc: Run UI E2E tests (Playwright, Chromium)
-    cmds:
-      - npx playwright test --config tests/ui/playwright.config.ts {{.CLI_ARGS}}
-
   # The sandbox's gRPC surface, exercised directly in a container rather than
   # through the backend. Self-skipping when Docker or the image is absent.
   test:sandbox:docker:
@@ -376,16 +302,6 @@ tasks:
         DATA_DIR=${DATA_DIR:-${HOME}/.moatless/data}
         docker compose -f docker-compose/docker-compose.yml
         up -d
-
-  dev:
-    desc: Start Docker Compose backend services + frontend dev server (hot-reload)
-    cmds:
-      - mkdir -p data
-      - >-
-        DATA_DIR=${DATA_DIR:-${HOME}/.moatless/data}
-        docker compose -f docker-compose/docker-compose.yml
-        up -d postgres backend
-      - VITE_REMOTE_API=http://localhost:${BACKEND_PORT:-8080} bun run dev
 
   compose:refresh-backend:
     desc: Rebuild backend image and restart the container

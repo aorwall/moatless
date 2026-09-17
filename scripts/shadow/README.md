@@ -1,6 +1,6 @@
 # Shadow backend — mirrord-style dev, without mirrord
 
-Run the moatless-vibe **backend + frontend inside a moatless sandbox** and use it
+Run the moatless-vibe **backend inside a moatless sandbox** and use it
 like the real backend. mirrord exists to bridge a laptop *into* a cluster; a
 sandbox is **already a pod in the dev cluster**, so the hard parts (outgoing
 traffic, DNS, cluster identity) are free or native. This harness reproduces the
@@ -13,7 +13,7 @@ rest.
 | Outgoing traffic + DNS (reach Postgres, K8s API, sandbox ClusterIPs) | **Free** — the sandbox is on the pod network already |
 | Env / secret sync from the target | `sync-env.sh` reads the live `moatless-vibe-backend` Deployment env + resolves `moatless-secrets` |
 | Copy the target's ServiceAccount token (RBAC to create pods) | Helm `shadowDev` toggle (`templates/shadow-dev-rbac.yaml`) binds a `moatless-dev` SA to the backend's existing Roles |
-| Steal incoming traffic | Not needed for the frontend (vite proxies `/api` → `localhost:8080`); for sandbox gRPC callbacks the backend self-advertises its address (Phase 3) |
+| Steal incoming traffic | Not needed for HTTP: the backend has its own `--8080` preview URL, and sibling containers reach `localhost:8080`; for sandbox gRPC callbacks the backend self-advertises its address (Phase 3) |
 
 ## How a preview server actually runs (mechanism)
 
@@ -24,10 +24,9 @@ A preview server is a **container in the sandbox pod**, generated from the repo'
   `{name}-server` container per `ServerConfig`, running its `startCommands` after
   the workspace-ready sentinel.
 - Each server port gets a Traefik IngressRoute `{task_id}--{port}.{proxy_domain}`
-  (`k8s/ingress.rs`) — the `…--3000.preview…` URL. Backend on 8080 → `…--8080…`.
+  (`k8s/ingress.rs`) — the backend on 8080 gets the `…--8080.preview…` URL.
 - Readiness = TCP probe on the port. All pod containers share the network
-  namespace, so the frontend's vite `/api → localhost:8080` reaches a sibling
-  backend container.
+  namespace, so a sibling container reaches the backend on `localhost:8080`.
 - `servers` come from the workspace DB record, synced from
   **`.moatless/workspaces.json`** (`workspace/git_sync.rs`).
 
@@ -46,9 +45,7 @@ moat repos create --name "moatless-vibe (shadow)" \
   --setup-command 'curl -fsSL https://bun.sh/install | BUN_INSTALL=/opt/moatless/data/.bun bash' \
   --setup-command '/opt/moatless/data/.bun/bin/bun install' \
   --servers-json '[
-    {"name":"dev","port":3000,"default":true,"autoReload":true,"enableInspector":true,
-     "startCommands":["/opt/moatless/data/.bun/bin/bun run dev -- --host 0.0.0.0"],"startupTimeoutSeconds":120},
-    {"name":"backend","label":"Shadow Backend","port":8080,
+    {"name":"backend","label":"Shadow Backend","port":8080,"default":true,
      "startCommands":["bash scripts/shadow/up.sh"],"startupTimeoutSeconds":600}]'
 ```
 
@@ -74,8 +71,8 @@ git sync leaves it alone from then on. See
 you'd rather wire it via a shadow branch — for the servers and setup commands
 only; it cannot carry the SA. Provisioning a task on the shadow repo
 builds a `backend-server` container (visible in the sandbox view,
-`moat tasks logs $TASK_ID --server backend`) alongside the `dev` frontend. Open
-the `--3000` preview URL; the frontend proxies `/api` to the sibling backend.
+`moat tasks logs $TASK_ID --server backend`). Its API answers on the `--8080`
+preview URL.
 
 > Put the `backend` server on the global repo by mistake? Revert with
 > `moat repos sync-config <repo_id>` (restores `servers` from `main`), and clear
@@ -97,13 +94,11 @@ No cluster changes. The sandbox SA can already `get deployments` and
 bash scripts/shadow/up.sh          # sync env -> build -> run backend on :8080, watch for rebuilds
 ```
 
-- The **frontend dev server** (`bun run dev`, port 3000) already proxies `/api`
-  to `http://localhost:8080` (`apps/frontend/vite.config.ts`). Sidecar servers
-  share the pod's localhost, so the running frontend talks to the shadow backend
-  with **zero config**. Point your browser at the port-3000 preview URL.
+- **Browser client:** T3 Code is the UI. Its dev server proxies `/api` and `/ws`
+  to the shadow backend on `localhost:8080`; the `t3-development` skill covers
+  that paired setup.
 - **Rebuild loop:** edit code, then `bash scripts/shadow/rebuild.sh`. `up.sh`
   watches a trigger file on the shared workspace and restarts the binary.
-  Frontend edits hot-reload on their own.
 - **Isolation:** the shadow shares the dev Postgres, so `sync-env.sh` fences off
   every shared-state consumer it would otherwise contend on:
   - `EVENT_HANDLER_ENABLED=false` — every replica claims off one shared dispatch
@@ -192,8 +187,7 @@ the `/opt/moatless` mount so they survive as image layers:
   compile even with a warm target.
 - `/opt/bun-cache` — bun's global install cache (the image sets
   `BUN_INSTALL_CACHE_DIR` here). The provision-time `bun install` setup command
-  then links `node_modules` from cache offline instead of downloading, so the
-  frontend dev server comes up fast.
+  then links `node_modules` from cache offline instead of downloading.
 
 Why it works across a fresh clone: registry crates are keyed by
 version/features/rustc/source, **not** by workspace path, so deps compiled at
@@ -310,7 +304,7 @@ shadow. To fully act like the backend:
 - `sync-env.sh` — resolve live backend env + secrets → sourceable env file
 - `up.sh` — sync + build + run the backend, watch for rebuilds
 - `rebuild.sh` — compile + trigger a restart
-- `workspaces.shadow.json` — workspace declaring both servers (copy to `.moatless/workspaces.json`)
+- `workspaces.shadow.json` — workspace declaring the backend server (copy to `.moatless/workspaces.json`)
 - `../../docker/Dockerfile.sandbox-dev` — precompiled image (published on demand
   as `moatless-dev:latest` by the `Build dev sandbox image` workflow) with warm
   caches so `up.sh` rebuilds fast (point the shadow repo's `dockerImage` at it)

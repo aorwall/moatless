@@ -172,8 +172,8 @@ the workspace row, and a fresh sandbox reaches `started` without it.
 
 ## Making a preview inspectable
 
-Element selection in the Moatless UI, and element picking from T3 Code, both
-need `@moatless/inspector`'s client script to be *in* the previewed page. A
+Element picking from T3 Code needs `@moatless/inspector`'s client script to be
+*in* the previewed page. A
 cross-origin frame cannot be injected into from outside, so the page has to load
 it — nothing in the ingress adds it.
 

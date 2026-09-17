@@ -2,15 +2,15 @@
 set -euo pipefail
 
 # Full-stack Playwright E2E runner. Brings up the docker-compose stack and runs
-# the E2E suites in tests/api / tests/ui inside the e2e container, under the
-# `docker` profile.
+# the E2E suite in tests/api inside the e2e container, under the `docker`
+# profile.
 #
-#   build backend (+ frontend for ui/all) → start postgres/backend[/frontend]
+#   build backend → start postgres/backend
 #   → wait for /health → docker compose run e2e → tear down
 #
-# The Playwright suites talk to the backend/frontend over the compose network,
-# so the browser and gh/docker CLIs all live in the e2e image — nothing but
-# Docker is required on the host.
+# The Playwright suite talks to the backend over the compose network, so the
+# gh/docker CLIs live in the e2e image — nothing but Docker is required on the
+# host.
 #
 # Two host-supplied binaries change how much of that work happens here:
 #
@@ -39,10 +39,10 @@ usage() {
   cat <<EOF
 Usage: $(basename "$0") [OPTIONS] [-- <playwright args>]
 
-Start the docker-compose stack and run the Playwright E2E suites in a container.
+Start the docker-compose stack and run the Playwright E2E suite in a container.
 
 Options:
-  --suite <api|ui|all>   Which suite to run (default: api)
+  --suite <api>          Which suite to run (default: api)
   --skip-build           Reuse existing Docker images
   --keep-running         Don't tear down after tests (for debugging)
   -h, --help             Show this help message
@@ -54,15 +54,14 @@ Environment variables (passthrough):
                          (default: ci-admin-password-1234, matching docker-compose.ci.yml)
   TASK_TOKEN_SECRET      Auto-generated if unset
   DATA_DIR               Default: \$HOME/.moatless/data
-  DOCKER_COMPOSE_URL     Override the target URL (default: per-suite in-network)
+  DOCKER_COMPOSE_URL     Override the target URL (default: in-network backend)
   BACKEND_BINARY         Prebuilt moatless-backend; skips compiling in Docker
   MOAT_BIN_SRC           Prebuilt moat CLI the suites drive the product through
-  E2E_WORKERS            Playwright workers (default: 1 under CI, per-suite locally)
+  E2E_WORKERS            Playwright workers (default: 1 under CI, 3 locally)
 
 Examples:
-  $(basename "$0")                                   # API suite (fastest, no browser)
-  $(basename "$0") --suite ui                        # Browser suite (builds frontend)
-  $(basename "$0") --suite all --skip-build          # Both suites, reuse images
+  $(basename "$0")                                   # API suite
+  $(basename "$0") --skip-build --keep-running       # Reuse images, keep the stack
   $(basename "$0") --suite api -- tests/api/specs/task-crud.spec.ts   # single chain
 EOF
   exit 0
@@ -80,8 +79,8 @@ while [[ $# -gt 0 ]]; do
 done
 
 case $SUITE in
-  api|ui|all) ;;
-  *) echo -e "${RED}Invalid suite: $SUITE (must be api, ui, or all)${NC}"; exit 1 ;;
+  api) ;;
+  *) echo -e "${RED}Invalid suite: $SUITE (must be api)${NC}"; exit 1 ;;
 esac
 
 cd "$(dirname "$0")/.."
@@ -107,9 +106,6 @@ if [ -z "${GITHUB_PAT:-}" ]; then
 fi
 
 export APP_IMAGE="aorwall/moatless-backend:latest"
-# Must match docker/build-app.sh's output image (${REGISTRY_ORG:-aorwall}/moatless-frontend)
-# so `--suite ui` runs the freshly built frontend, not a stale published tag.
-export FRONTEND_IMAGE="${FRONTEND_IMAGE:-${REGISTRY_ORG:-aorwall}/moatless-frontend:latest}"
 export SANDBOX_IMAGE="${SANDBOX_IMAGE:-aorwall/moatless-sandbox:latest}"
 export E2E_SUITE="$SUITE"
 export E2E_WORKERS="${E2E_WORKERS:-}"
@@ -129,10 +125,7 @@ fi
 
 COMPOSE_FILES="-f docker-compose/docker-compose.yml -f docker-compose/docker-compose.ci.yml -f docker-compose/docker-compose.e2e.yml"
 
-needs_frontend() { [[ "$SUITE" == "ui" || "$SUITE" == "all" ]]; }
-
 CORE_SERVICES="postgres backend"
-needs_frontend && CORE_SERVICES="$CORE_SERVICES frontend"
 
 # ── Build phase ────────────────────────────────────────────────────────────
 if [ "$SKIP_BUILD" = false ]; then
@@ -152,10 +145,6 @@ if [ "$SKIP_BUILD" = false ]; then
   else
     echo -e "${BLUE}=== Building backend image ===${NC}"
     docker build -t "$APP_IMAGE" -f docker/Dockerfile.backend .
-  fi
-  if needs_frontend; then
-    echo -e "${BLUE}=== Building frontend image ===${NC}"
-    docker/build-app.sh --local
   fi
   echo -e "${BLUE}=== Building e2e runner image ===${NC}"
   docker compose $COMPOSE_FILES build e2e

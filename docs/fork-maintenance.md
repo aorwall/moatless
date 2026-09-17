@@ -135,7 +135,6 @@ the same org as an OCI artifact. The deployment pulls from there —
 
 | Image | Dockerfile | Trigger |
 |---|---|---|
-| `moatless-frontend` | `docker/Dockerfile.app` | push main, paths filter |
 | `moatless-backend` | `docker/Dockerfile.backend-cross` | push main, paths filter |
 | `moatless-sandbox` (+ `-js` alias) | `docker/Dockerfile.sandbox` | push main, paths filter |
 | `moatless-sandbox-base` | `docker/Dockerfile.sandbox-base` | push main, paths filter |

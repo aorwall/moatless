@@ -3,8 +3,7 @@
 #
 # Run this after editing crates/server/ (or a shared crate). It compiles in your
 # terminal for fast feedback, then bumps the trigger file that up.sh watches so
-# the running backend restarts with the new binary. Frontend changes need no
-# action — the bun dev server hot-reloads them already.
+# the running backend restarts with the new binary.
 set -euo pipefail
 
 cd "$(dirname "$0")/../.."

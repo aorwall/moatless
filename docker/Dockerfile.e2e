@@ -1,5 +1,5 @@
-# Playwright E2E runner image for the full-stack backend+frontend suites in
-# tests/api (API-only chains) and tests/ui (browser). This is a TOOLING image:
+# Playwright E2E runner image for the full-stack suite in tests/api (API-only
+# chains). This is a TOOLING image:
 # the repo itself is bind-mounted at /workspace by docker-compose.e2e.yml (the
 # root .dockerignore is a strict whitelist that excludes tests/, so baking the
 # suites in would be brittle). The image only adds what the base Playwright

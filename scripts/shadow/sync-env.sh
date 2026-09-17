@@ -120,7 +120,7 @@ SYNCED_ENV="$(printf '%s' "$DEPLOY_JSON" | CONTAINER="$CONTAINER" SECRET_DIR="$S
   else
     echo "export T3_UI_RPC_ALLOWED_ORIGINS='${LOCAL_ORIGINS}'"
   fi
-  # Bind the same ports the frontend dev server already proxies to (vite -> :8080).
+  # Bind the ports the T3 dev server proxies to (vite -> :8080).
   echo "export PORT='8080'"
   echo "export GRPC_PORT='50051'"
   echo "export METRICS_PORT='9090'"

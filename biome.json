@@ -8,12 +8,7 @@
   },
   "files": {
     "ignoreUnknown": false,
-    "includes": [
-      "apps/frontend/src/**",
-      "packages/*/src/**",
-      "tests/**/*.ts",
-      "!tests/**/node_modules"
-    ]
+    "includes": ["packages/*/src/**", "tests/**/*.ts", "!tests/**/node_modules"]
   },
   "formatter": {
     "enabled": true,
@@ -295,35 +290,6 @@
   },
   "overrides": [
     {
-      "includes": ["apps/frontend/src/features/preview/**", "apps/frontend/src/features/files/**"],
-      "linter": {
-        "rules": {
-          "style": {
-            "noRestrictedImports": {
-              "level": "error",
-              "options": {
-                "paths": {
-                  "@/features/tasks": "features/preview and features/files must not import features/tasks. Composition flows one way: features/tasks composes these features, not the reverse. Move shared code to lib/ or invert via props."
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    {
-      "includes": ["apps/frontend/src/routeTree.gen.ts"],
-      "linter": {
-        "enabled": false
-      },
-      "formatter": {
-        "enabled": false
-      },
-      "assist": {
-        "enabled": false
-      }
-    },
-    {
       "includes": ["packages/api-client/src/sandbox/**"],
       "linter": {
         "enabled": false
@@ -341,30 +307,6 @@
         "rules": {
           "suspicious": {
             "noConsole": "off"
-          }
-        }
-      }
-    },
-    {
-      "includes": ["**/*.stories.tsx", "**/*.stories.ts"],
-      "linter": {
-        "rules": {
-          "suspicious": {
-            "noArrayIndexKey": "off",
-            "noExplicitAny": "off"
-          },
-          "complexity": {
-            "noExcessiveCognitiveComplexity": "off"
-          }
-        }
-      }
-    },
-    {
-      "includes": ["apps/frontend/src/routes/__root.tsx"],
-      "linter": {
-        "rules": {
-          "style": {
-            "useFilenamingConvention": "off"
           }
         }
       }

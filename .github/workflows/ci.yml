@@ -34,7 +34,6 @@ env:
   # (Settings → Secrets and variables → Actions → Variables). Defaults to
   # `aorwall` so upstream CI keeps working with no configuration.
   REGISTRY_ORG: ${{ vars.REGISTRY_ORG || 'aorwall' }}
-  IMAGE_NAME: ${{ vars.REGISTRY_ORG || 'aorwall' }}/moatless-frontend
   BACKEND_IMAGE_NAME: ${{ vars.REGISTRY_ORG || 'aorwall' }}/moatless-backend
   SANDBOX_TOOLS_IMAGE: ${{ vars.REGISTRY_ORG || 'aorwall' }}/moatless-sandbox-tools
   # Stable base — only rebuilds on CLI version bumps. All sandbox leaf images
@@ -65,7 +64,7 @@ jobs:
     runs-on: staging-runners
     # Only workflow_dispatch bypasses change detection. On a PR paths-filter
     # diffs against the base ref, so a docs-only PR runs no clippy and no
-    # frontend build.
+    # TypeScript type-check.
     if: github.event_name != 'workflow_dispatch'
     # paths-filter reads the PR's changed-file list over the API rather than
     # diffing locally, so it needs this even though checkout only needs contents.
@@ -74,9 +73,8 @@ jobs:
       pull-requests: read
     outputs:
       rust: ${{ steps.filter.outputs.rust }}
-      frontend: ${{ steps.filter.outputs.frontend }}
+      typescript: ${{ steps.filter.outputs.typescript }}
       skill-scripts: ${{ steps.filter.outputs.skill-scripts }}
-      docker-frontend: ${{ steps.filter.outputs.docker-frontend }}
       docker-backend: ${{ steps.filter.outputs.docker-backend }}
       sandbox-binaries: ${{ steps.filter.outputs.sandbox-binaries }}
       sandbox-tools: ${{ steps.filter.outputs.sandbox-tools }}
@@ -118,13 +116,9 @@ jobs:
               - 'package.json'
               - 'bun.lock'
               - '.moatless/loops/code-review/LOOP.md'
-            frontend:
-              - 'apps/frontend/**'
+            typescript:
               - 'packages/**'
-            docker-frontend:
-              - 'apps/frontend/**'
-              - 'packages/**'
-              - 'docker/Dockerfile.app'
+              - 'tests/**'
             docker-backend:
               - 'crates/server/**'
               - 'crates/**'
@@ -673,8 +667,8 @@ jobs:
   #
   # Off on PRs: nothing a PR gates on consumes these binaries. `rust-checks`
   # already compiles the workspace under clippy and tests, and the TS client
-  # generated from `--dump-openapi` is committed, so the frontend type-checks
-  # without it. The cost is that a PR changing API types without re-running
+  # generated from `--dump-openapi` is committed, so the TypeScript type-check
+  # runs without it. The cost is that a PR changing API types without re-running
   # `cd packages/api-client && bun run generate:client` fails on main, not on
   # the PR.
   #
@@ -877,7 +871,7 @@ jobs:
       - name: Generate TypeScript API client
         run: cd packages/api-client && bun run generate:client
 
-      - name: Cache generated client for build-frontend
+      - name: Cache generated client for type-check
         uses: actions/cache/save@1bd1e32a3bdc45362d1e726936510720a7c30a57 # v4.2.0
         with:
           path: |
@@ -885,16 +879,15 @@ jobs:
             packages/api-client/src/
           key: generated-client-${{ github.sha }}
 
-  # ── Lint frontend (no deps, runs immediately) ──
-  lint-frontend:
-    name: Lint frontend
+  # ── Lint TypeScript (no deps, runs immediately) ──
+  lint-typescript:
+    name: Lint TypeScript
     needs: detect-changes
     if: >-
       always() &&
       (
-        needs.detect-changes.outputs.frontend == 'true' ||
+        needs.detect-changes.outputs.typescript == 'true' ||
         needs.detect-changes.outputs.skill-scripts == 'true' ||
-        needs.detect-changes.outputs.docker-frontend == 'true' ||
         (github.event_name == 'workflow_dispatch' && ! inputs.prune_rust_caches_dry_run)
       )
     runs-on: staging-runners
@@ -929,34 +922,19 @@ jobs:
       - name: Repository script and skill tests
         run: bun run test:scripts
 
-  # ── Build & type-check frontend, then publish its image on main ──
-  #
-  # The image build lives here rather than in a job of its own so the dist it
-  # needs is simply on disk. Splitting them meant a 5 MB frontend-dist artifact
-  # round trip plus a second runner and checkout, and the two can't be merged
-  # the other way round: the image job only runs on main pushes, while the
-  # type-check and build have to run on any PR that touches the frontend.
-  build-frontend:
-    name: Build frontend
-    needs: [detect-changes, lint-frontend, generate-ts-client]
+  # ── Type-check the TypeScript packages and the E2E suite ──
+  type-check:
+    name: Type check TypeScript
+    needs: [detect-changes, generate-ts-client]
     if: >-
       always() &&
       needs.generate-ts-client.result != 'failure' &&
       (
-        needs.detect-changes.outputs.frontend == 'true' ||
-        needs.detect-changes.outputs.docker-frontend == 'true' ||
+        needs.detect-changes.outputs.typescript == 'true' ||
         (github.event_name == 'push' && needs.detect-changes.outputs.rust == 'true') ||
         (github.event_name == 'workflow_dispatch' && ! inputs.prune_rust_caches_dry_run)
       )
     runs-on: staging-runners-large
-    env:
-      # Gate for the publish steps below — the old build-frontend-image `if`,
-      # verbatim. lint-frontend is in `needs` only to be readable here; it never
-      # delays this job, which already waits on the longer build-rust chain.
-      PUBLISH_IMAGE: >-
-        ${{ ((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && ! inputs.prune_rust_caches_dry_run)) &&
-        (needs.detect-changes.outputs.docker-frontend == 'true' || (github.event_name == 'workflow_dispatch' && ! inputs.prune_rust_caches_dry_run)) &&
-        (needs.lint-frontend.result == 'success' || needs.lint-frontend.result == 'skipped') }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
@@ -987,50 +965,11 @@ jobs:
       - name: Type check E2E suite
         run: bun run type:check:e2e
 
-      # Leaves the bundle at apps/frontend/dist, which is exactly where
-      # docker/Dockerfile.app expects it — no artifact hop needed.
-      - name: Build frontend
-        run: bun run build
-
-      - name: Compute short SHA
-        if: env.PUBLISH_IMAGE == 'true'
-        id: sha
-        run: echo "short=${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
-
-      - name: Set up Docker Buildx
-        if: env.PUBLISH_IMAGE == 'true'
-        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
-
-      - name: Login to Docker Hub
-        if: env.PUBLISH_IMAGE == 'true'
-        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Build and push frontend image
-        if: env.PUBLISH_IMAGE == 'true'
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
-        with:
-          context: .
-          file: docker/Dockerfile.app
-          platforms: linux/amd64
-          push: true
-          tags: |
-            ${{ env.IMAGE_NAME }}:latest
-            ${{ env.IMAGE_NAME }}:sha-${{ steps.sha.outputs.short }}
-          # Registry, not `type=gha`: see docker/AGENTS.md. These builds are all
-          # under a minute, so this is about the 10 GB Actions-cache budget, not
-          # about their own speed — buildkit blobs held 7.29 GB of it and starved
-          # the Rust target-dir caches that actually gate PR wall clock.
-          cache-from: type=registry,ref=${{ env.IMAGE_NAME }}:buildcache
-          cache-to: type=registry,ref=${{ env.IMAGE_NAME }}:buildcache,mode=min,image-manifest=true,oci-mediatypes=true
-
   # ── Backend image (push to main + manual dispatch, conditional on changed files) ──
   #
-  # Not folded into build-rust the way the frontend image is: that job runs
-  # inside a rust:bookworm container, which has no route to the DinD sidecar's
-  # daemon, so buildx can't run there. Hence the cached binary handoff.
+  # Not folded into build-rust: that job runs inside a rust:bookworm container,
+  # which has no route to the DinD sidecar's daemon, so buildx can't run there.
+  # Hence the cached binary handoff.
   build-backend-image:
     name: Build & push backend image
     needs: [detect-changes, build-rust]
@@ -1278,7 +1217,7 @@ jobs:
   # ── Publish dev Helm chart (push to main + manual dispatch) ──
   publish-helm-dev:
     name: Publish dev Helm chart
-    needs: [detect-changes, build-frontend, build-backend-image]
+    needs: [detect-changes, build-backend-image]
     if: >-
       always() &&
       ((github.event_name == 'push' && github.ref == 'refs/heads/main') ||
@@ -1287,7 +1226,6 @@ jobs:
       (
         (github.event_name == 'workflow_dispatch' && ! inputs.prune_rust_caches_dry_run) ||
         needs.detect-changes.outputs.helm == 'true' ||
-        (needs.build-frontend.result == 'success' && needs.detect-changes.outputs.docker-frontend == 'true') ||
         needs.build-backend-image.result == 'success'
       )
     runs-on: staging-runners
@@ -1326,7 +1264,7 @@ jobs:
     needs:
       - build-rust
       - generate-ts-client
-      - build-frontend
+      - type-check
       - build-backend-image
       - build-sandbox-tools
       - build-sandbox

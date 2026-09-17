@@ -1,6 +1,6 @@
 ---
 name: e2e-testing
-description: Run and write the Moatless Vibe E2E suite (tests/api chains + tests/ui browser specs). One suite, two profiles — docker and k8s — driven through the moat CLI. Use when running tests, writing new chains, setting up the test environment, sweeping leftovers, or debugging failures.
+description: Run and write the Moatless Vibe E2E suite (tests/api chains). One suite, two profiles — docker and k8s — driven through the moat CLI. Use when running tests, writing new chains, setting up the test environment, sweeping leftovers, or debugging failures.
 ---
 
 # E2E Testing
@@ -66,8 +66,7 @@ Whole stack, built and torn down for you (this is the per-PR gate):
 
 ```bash
 task test:compose:e2e                       # api suite
-task test:compose:e2e -- --suite ui         # browser suite (builds the frontend)
-task test:compose:e2e -- --suite all --skip-build --keep-running
+task test:compose:e2e -- --skip-build --keep-running
 task test:compose:e2e -- --suite api -- tests/api/specs/task-crud.spec.ts   # one chain
 ```
 
@@ -79,7 +78,6 @@ Against a stack that is already running:
 
 ```bash
 bun run test:e2e                            # tests/api
-bun run test:e2e:ui                         # tests/ui
 bunx playwright test --config tests/api/playwright.config.ts tests/api/specs/task-crud.spec.ts
 ```
 
@@ -158,7 +156,6 @@ tests/
     fixtures/         # `api`, `events`, and the auth fixtures (alice/bob)
     context/          # ChainContext, chainEvents() — what one test hands the next
     reporters/        # the run summary
-  ui/specs/*.spec.ts  # browser workflows
   sweep.ts            # the standalone sweeper
 ```
 

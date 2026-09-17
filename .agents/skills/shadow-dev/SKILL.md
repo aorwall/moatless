@@ -1,6 +1,6 @@
 ---
 name: shadow-dev
-description: "Run and rebuild the Moatless backend and frontend inside a sandbox using scripts/shadow. Use for a local shadow backend against shared development services and managed preview servers."
+description: "Run and rebuild the Moatless backend inside a sandbox using scripts/shadow. Use for a local shadow backend against shared development services and its managed preview server."
 ---
 
 # Shadow development
@@ -14,8 +14,8 @@ an extra backend or inherit its elevated service account.
 
 Read [shadow configuration](../../../scripts/shadow/workspaces.shadow.json) and
 [the shadow runbook](../../../scripts/shadow/README.md), then create or update a
-workspace with the repository binding, backend server, and frontend server. Run
-configuration belongs to the workspace, not the repository git record.
+workspace with the repository binding and the backend server. Run configuration
+belongs to the workspace, not the repository git record.
 
 - Backend start command: `bash scripts/shadow/up.sh`, port 8080, and a startup
   classification timeout large enough for a cold build (the example uses 600s).
@@ -40,7 +40,7 @@ moat tasks logs <task-id> --server backend --no-follow --tail 2000
 curl --fail --max-time 10 http://localhost:8080/health
 ```
 
-Open the returned frontend preview URL. Do not derive it from task ID: shared
+Use the returned backend preview URL. Do not derive it from task ID: shared
 sandbox tasks can have a different sandbox identity. Authenticated API checks
 need the API key even when `/health` succeeds publicly.
 
@@ -57,7 +57,7 @@ bash scripts/shadow/rebuild.sh
 curl --fail --max-time 10 http://localhost:8080/health
 ```
 
-Frontend changes hot-reload. Read bounded backend logs for build errors; run
+Read bounded backend logs for build errors; run
 `cargo build -p moatless-backend` for a direct dev build if needed. Follow root
 Rust verification commands before calling a code change complete.
 
@@ -72,4 +72,4 @@ Additional overrides go in `/opt/moatless/data/shadow/overrides.env` as sourceab
 database before enabling migrations for a schema experiment. Do not repair
 workspace service-account configuration by updating repository columns in SQL.
 
-For the T3 client pair, read [t3-development](../t3-development/SKILL.md).
+For the T3 Code UI against this backend, read [t3-development](../t3-development/SKILL.md).

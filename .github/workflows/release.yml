@@ -14,7 +14,6 @@ env:
   # (Settings → Secrets and variables → Actions → Variables). Defaults to
   # `aorwall` so upstream CI keeps working with no configuration.
   REGISTRY_ORG: ${{ vars.REGISTRY_ORG || 'aorwall' }}
-  IMAGE_NAME: ${{ vars.REGISTRY_ORG || 'aorwall' }}/moatless-frontend
   SANDBOX_BASE_IMAGE: ${{ vars.REGISTRY_ORG || 'aorwall' }}/moatless-sandbox
   SANDBOX_JS_IMAGE: ${{ vars.REGISTRY_ORG || 'aorwall' }}/moatless-sandbox-js
   BACKEND_IMAGE_NAME: ${{ vars.REGISTRY_ORG || 'aorwall' }}/moatless-backend
@@ -60,7 +59,6 @@ jobs:
           VERSION="${{ needs.version.outputs.version }}"
 
           for IMAGE in \
-            "${{ env.IMAGE_NAME }}" \
             "${{ env.BACKEND_IMAGE_NAME }}" \
             "${{ env.SANDBOX_BASE_IMAGE }}" \
             "${{ env.SANDBOX_JS_IMAGE }}"; do
@@ -121,7 +119,6 @@ jobs:
           echo "## Release v${{ needs.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Docker Images" >> $GITHUB_STEP_SUMMARY
-          echo "- **App:** \`${{ env.IMAGE_NAME }}:${{ needs.version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
           echo "- **Sandbox Base:** \`${{ env.SANDBOX_BASE_IMAGE }}:${{ needs.version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
           echo "- **Sandbox JS:** \`${{ env.SANDBOX_JS_IMAGE }}:${{ needs.version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
           echo "- **Backend:** \`${{ env.BACKEND_IMAGE_NAME }}:${{ needs.version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY

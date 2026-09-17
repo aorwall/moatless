@@ -3,9 +3,14 @@
 Moatless Vibe runs coding agents (Claude Code, Codex) inside on-demand sandboxes
 against git repositories. People drive an agent directly, or a Loop runs one on
 a schedule. `CONTEXT.md` is the glossary, and it names every term this repo
-uses. The workspace holds the TypeScript frontend (`apps/`, `packages/`), the
+uses. The workspace holds the shared TypeScript packages (`packages/`), the
 Rust backend and sandbox (`crates/`), the E2E suite (`tests/`) and the
 deployment definitions (`docker/`, `docker-compose/`, `k8s/`).
+
+The UI is T3 Code, built from the separate `soaplabs/t3code` repository. It
+talks to the backend over UI-RPC (`crates/t3code`); `t3-development` covers
+working on the pair. `apps/frontend` is the retired Moatless UI: it sits outside
+the bun workspace, and nothing builds, checks or deploys it. Do not change it.
 
 ## Running builds, tests and linters
 
@@ -14,13 +19,12 @@ the Turbo filter trap. `e2e-testing` owns the E2E suite in `tests/`, which
 exercises the whole stack: its commands, both profiles, and the sweeper that
 clears what a killed run left behind.
 
-### Frontend (bun 1.2.19+)
+### TypeScript packages (bun 1.2.19+)
 ```bash
 bun install
-bun run dev              # dev server (vite, in apps/frontend)
 bun run build
 bun run test             # excludes E2E
-bun run type:check       # frontend + shared packages
+bun run type:check       # shared packages
 bun run biome:check      # lint/format (biome:fix to auto-fix)
 bun run check:turbo      # all checks (fastest full validation)
 ```
@@ -54,7 +58,7 @@ when that approaches the cap.
 
 ### Building, deploying and releasing
 ```bash
-task deploy [TAG=v2.0.0]                                        # also deploy:frontend, status, logs, restart
+task deploy [TAG=v2.0.0]                                        # also deploy:backend, status, logs, restart
 git tag v0.1.21 && git push origin v0.1.21                      # triggers release.yml
 ```
 
@@ -64,7 +68,7 @@ Mandatory after every change.
 
 - **Rust:** the floor line, plus any `-p` line above naming the crate you
   touched, verbatim. Then `cargo test -p <crate>`.
-- **Frontend:** `bun run type:check` and `bun run biome:check`, or
+- **TypeScript:** `bun run type:check` and `bun run biome:check`, or
   `bun run post-edit-hook` for a quick loop.
 - **Lint ratchet:** `noFloatingPromises`, `noMisusedPromises` and
   `useExhaustiveSwitchCases` are baselined per file in `biome-baseline.json`.
@@ -137,7 +141,7 @@ Past the one-line summary:
   commit or PR; a `legacy`/`deprecated` status word is a design fact stated
   once.
 
-`rust-dev-guidelines`/`frontend-dev-guidelines` hold per-language specifics.
+`rust-dev-guidelines` holds the Rust specifics.
 
 **Enforcement.** `clippy::too_long_first_doc_paragraph` caps a public item's
 first paragraph at 200 characters and reads no private item. In `arch-rules`,

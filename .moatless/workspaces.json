@@ -24,46 +24,9 @@
       "servers": []
     },
     {
-      "key": "moatless-preview",
-      "name": "Moatless Preview",
-      "description": "Agent sandbox plus the Vite dev server on port 3000.",
-      "repos": [
-        { "url": "https://github.com/soaplabs/moatless.git", "primary": true }
-      ],
-      "codeExecution": {
-        "setupCommands": ["bun install"]
-      },
-      "envVars": {
-        "CARGO_BUILD_JOBS": "2",
-        "CARGO_PROFILE_DEV_DEBUG": "0",
-        "CARGO_PROFILE_TEST_DEBUG": "0"
-      },
-      "resources": {
-        "requests": { "cpu": "250m", "memory": "4Gi" },
-        "limits": { "cpu": "4", "memory": "8Gi" },
-        "storage": "20Gi"
-      },
-      "servers": [
-        {
-          "name": "dev",
-          "label": "Dev Server",
-          "port": 3000,
-          "startCommands": ["bun run dev -- --host 0.0.0.0"],
-          "startupTimeoutSeconds": 30,
-          "autoReload": true,
-          "enableInspector": true,
-          "default": true,
-          "resources": {
-            "requests": { "cpu": "200m", "memory": "1Gi" },
-            "limits": { "cpu": "1", "memory": "2Gi" }
-          }
-        }
-      ]
-    },
-    {
       "key": "moatless-fullstack",
       "name": "Moatless Fullstack",
-      "description": "Shadow dev — runs the moatless-vibe backend (:8080) and frontend Vite dev server (:3000) as sidecars on the precompiled moatless-dev image.",
+      "description": "Shadow dev — runs the moatless-vibe backend (:8080) as a sidecar on the precompiled moatless-dev image.",
       "repos": [
         { "url": "https://github.com/soaplabs/moatless.git", "primary": true }
       ],
@@ -91,48 +54,11 @@
       },
       "servers": [
         {
-          "name": "dev",
-          "label": "Frontend (dev)",
-          "port": 3000,
-          "startCommands": ["/opt/moatless/data/.bun/bin/bun run dev -- --host 0.0.0.0"],
-          "startupTimeoutSeconds": 120,
-          "autoReload": true,
-          "enableInspector": true,
-          "default": true,
-          "resources": {
-            "requests": { "cpu": "200m", "memory": "1Gi" },
-            "limits": { "cpu": "1", "memory": "2Gi" }
-          }
-        },
-        {
           "name": "backend",
           "label": "Shadow Backend",
           "port": 8080,
           "startCommands": ["bash scripts/shadow/up.sh"],
           "startupTimeoutSeconds": 600,
-          "autoReload": false,
-          "enableInspector": false,
-          "default": false
-        }
-      ]
-    },
-    {
-      "key": "moatless-storybook",
-      "name": "Moatless Storybook",
-      "description": "Storybook component explorer on port 6006.",
-      "repos": [
-        { "url": "https://github.com/soaplabs/moatless.git", "primary": true }
-      ],
-      "codeExecution": {
-        "setupCommands": ["bun install"]
-      },
-      "servers": [
-        {
-          "name": "storybook",
-          "label": "Storybook",
-          "port": 6006,
-          "startCommands": ["bun run storybook -- -p 6006 --host 0.0.0.0 --no-open"],
-          "startupTimeoutSeconds": 60,
           "autoReload": false,
           "enableInspector": false,
           "default": true

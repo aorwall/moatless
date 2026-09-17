@@ -29,7 +29,6 @@
 		},
 		"//#lint:ratchet": {
 			"inputs": [
-				"apps/frontend/src/**",
 				"packages/*/src/**",
 				"biome.json",
 				"biome-baseline.json",

@@ -6,8 +6,8 @@
 #                  -f docker-compose/docker-compose.e2e.yml \
 #                  run --rm e2e
 #
-# The e2e service joins the `moatless` network (reaches `backend`/`frontend` by
-# name), mounts the repo for the Playwright sources, and mounts the docker
+# The e2e service joins the `moatless` network (reaches `backend` by name),
+# mounts the repo for the Playwright sources, and mounts the docker
 # socket so tests/api/helpers/db-reset.ts can `docker exec moatless-postgres`.
 
 services:
@@ -24,9 +24,9 @@ services:
     depends_on:
       - backend
     environment:
-      # Suite selector (api|ui|all) — see docker/e2e-entrypoint.sh
+      # Suite selector (api) — see docker/e2e-entrypoint.sh
       E2E_SUITE: ${E2E_SUITE:-api}
-      # In-network URLs; the entrypoint fills per-suite defaults when unset.
+      # In-network URL; the entrypoint fills the default when unset.
       DOCKER_COMPOSE_URL: ${DOCKER_COMPOSE_URL:-}
       BACKEND_PORT: "8080"
       # tests/api/global-setup.ts + db-reset.ts

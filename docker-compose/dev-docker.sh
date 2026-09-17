@@ -109,7 +109,6 @@ docker compose -f docker-compose/docker-compose.yml \
 echo ""
 echo "=========================================="
 echo "Done! Backend running at http://localhost:8080"
-echo "Run 'bun run dev' to start the frontend dev server."
 echo "=========================================="
 
 # Filter function for log levels

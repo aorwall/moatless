@@ -13,8 +13,8 @@ name: Build sandboxes
 # Deliberately does NOT gate on workflow_run.conclusion == 'success': ci.yml's
 # publish jobs (build-sandbox-base, build-sandbox) already self-gate on
 # `(push && ref == main)` and run independently of unrelated jobs elsewhere
-# in that same workflow (lints, the cross-crate census baseline, frontend
-# build, ...). Requiring the *whole* CI run to be green here meant one
+# in that same workflow (lints, the cross-crate census baseline, the
+# TypeScript type-check, ...). Requiring the *whole* CI run to be green here meant one
 # unrelated failing job silently blocked every recipe rebuild indefinitely,
 # even on a run where the base/sandbox images published fine. If a publish
 # job itself fails, generate-recipe.sh's imagetools-inspect just resolves the

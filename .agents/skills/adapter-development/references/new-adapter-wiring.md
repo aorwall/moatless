@@ -5,8 +5,7 @@ provider through these owners; do not put provider construction in the shared re
 
 1. Add domain vocabulary in [types](../../../../crates/types/src/adapter.rs).
    Follow [where a type belongs](../../rust-dev-guidelines/references/file-roles.md#choose-a-home-for-a-deduplicated-shared-type)
-   for wire DTOs, persistence, and ports. Regenerate the API client when the public schema changes,
-   and implement the corresponding frontend behavior within the feature scope.
+   for wire DTOs, persistence, and ports. Regenerate the API client when the public schema changes.
 2. Implement Sender-specific code in a `crates/adapter-*` crate. Export only the
    constructors, capability registration, routes, and delivery handlers composition needs.
 3. Implement supported traits from

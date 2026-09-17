@@ -3,7 +3,6 @@
 ## Building an image locally
 
 ```bash
-./docker/build-app.sh        # frontend nginx image
 ./docker/build-backend.sh
 ./docker/build-sandbox.sh    # on Apple Silicon: --local --only base
 ```
@@ -22,7 +21,6 @@ Dockerfile.sandbox-base ──> aorwall/moatless-sandbox-base ──┬─> Dock
                                     aorwall/moatless-sandbox ──> Dockerfile.sandbox-dev  (build-dev-image.yml, manual)
 Dockerfile.sandbox-tools ─> entrypoint + moatless-git-cred, consumed by COPY --from
 Dockerfile.sandbox-crash ─> ubuntu:24.04 direct, in no subtree
-Dockerfile.app ──────────> moatless-frontend
 Dockerfile.backend-cross ─> moatless-backend
 ```
 

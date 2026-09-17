@@ -31,8 +31,8 @@ export const RATCHET_RULES = [
   'useExhaustiveSwitchCases',
 ] as const
 
-/** Paths biome lints for the ratchet (mirrors biome.json's frontend surface). */
-const LINT_PATHS = ['apps/frontend/src', 'packages']
+/** Paths biome lints for the ratchet (mirrors biome.json's TypeScript surface). */
+const LINT_PATHS = ['packages']
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const BASELINE_PATH = join(REPO_ROOT, 'biome-baseline.json')

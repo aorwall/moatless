@@ -278,8 +278,6 @@ See `.env.example` for complete list with descriptions.
 docker compose -f docker-compose/docker-compose.yml up -d
 ```
 
-For frontend development with hot-reload, also run `bun run dev` and use `http://localhost:5173` instead of `http://localhost:3000`. Vite proxies `/api/` to the backend automatically.
-
 ### View Logs
 
 All services:

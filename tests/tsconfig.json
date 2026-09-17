@@ -15,6 +15,6 @@
 		"noUnusedParameters": true,
 		"noImplicitReturns": true
 	},
-	"include": ["api/**/*.ts", "ui/**/*.ts", "shared/**/*.ts"],
+	"include": ["api/**/*.ts", "shared/**/*.ts"],
 	"exclude": ["sandbox-docker/**"]
 }

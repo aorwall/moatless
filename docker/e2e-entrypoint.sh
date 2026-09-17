@@ -5,12 +5,8 @@
 # /workspace. Installs workspace deps (once), then runs the requested suite.
 #
 #   E2E_SUITE=api   → tests/api  (API-only chains; needs GITHUB_PAT + backend)
-#   E2E_SUITE=ui    → tests/ui   (browser; needs the frontend SPA)
-#   E2E_SUITE=all   → api then ui
 #
-# DOCKER_COMPOSE_URL defaults per-suite when unset:
-#   api → http://backend:8080   (API served directly by the backend)
-#   ui  → http://frontend:80    (SPA + /api proxy served by nginx)
+# DOCKER_COMPOSE_URL defaults to http://backend:8080 when unset.
 #
 # Any extra args are forwarded to `playwright test` (e.g. a spec filter).
 set -euo pipefail
@@ -34,8 +30,7 @@ run_suite() {
     local config default_url
     case "$suite" in
         api) config="tests/api/playwright.config.ts"; default_url="http://backend:8080" ;;
-        ui)  config="tests/ui/playwright.config.ts";  default_url="http://frontend:80" ;;
-        *) echo "[e2e] Unknown suite: $suite (use api|ui|all)"; exit 1 ;;
+        *) echo "[e2e] Unknown suite: $suite (use api)"; exit 1 ;;
     esac
     echo ""
     echo "=== Running $suite E2E suite ($config) ==="
@@ -45,10 +40,5 @@ run_suite() {
 
 case "$SUITE" in
     api) run_suite api "$@" ;;
-    ui)  run_suite ui "$@" ;;
-    all)
-        run_suite api "$@"
-        run_suite ui "$@"
-        ;;
-    *) echo "[e2e] Unknown E2E_SUITE: $SUITE (use api|ui|all)"; exit 1 ;;
+    *) echo "[e2e] Unknown E2E_SUITE: $SUITE (use api)"; exit 1 ;;
 esac

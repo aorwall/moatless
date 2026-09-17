@@ -21,23 +21,6 @@
 				"!**/__tests__/**"
 			]
 		},
-		"apps/frontend": {
-			"entry": [
-				"src/main.tsx",
-				"src/routes/**/*.tsx",
-				"src/features/**/index.ts",
-				"src/features/**/index.tsx",
-				".storybook/main.ts",
-				"**/*.stories.tsx"
-			],
-			"project": [
-				"src/**/*.{ts,tsx}",
-				"!src/**/*.test.{ts,tsx}",
-				"!src/**/*.integration.test.{ts,tsx}",
-				"!src/**/__tests__/**",
-				"!src/routeTree.gen.ts"
-			]
-		},
 		"packages/types": {
 			"entry": "src/index.ts",
 			"project": ["src/**/*.ts", "!src/**/*.test.ts", "!src/**/__tests__/**"]
@@ -105,12 +88,5 @@
 	],
 	"vitest": {
 		"config": ["apps/*/vitest.config.ts", "packages/*/vitest.config.ts"]
-	},
-	"storybook": {
-		"config": [".storybook/main.ts", "apps/frontend/.storybook/main.ts"],
-		"entry": ["**/*.stories.tsx"]
-	},
-	"vite": {
-		"config": ["apps/frontend/vite.config.ts"]
 	}
 }

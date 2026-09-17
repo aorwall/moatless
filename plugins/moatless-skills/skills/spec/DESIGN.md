@@ -137,8 +137,8 @@ Rules for the diagram itself:
 
 | Consumer | The interface it depends on | What it can rely on | Status |
 |---|---|---|---|
-| `apps/frontend` conversation view | `ConversationPayload.activities` — `api-schemas/src/message.rs:32` | Every tool call and Sandbox status as its own item, with `kind` and `summary` renderable without parsing content blocks | **New** |
-| `apps/frontend` conversation view | `ConversationPayload.content` | Role and message text. No `tool_use` blocks | **Breaking** on deploy |
+| `moat` CLI message listing | `ConversationPayload.activities` — `api-schemas/src/message.rs:32` | Every tool call and Sandbox status as its own item, with `kind` and `summary` renderable without parsing content blocks | **New** |
+| `moat` CLI message listing | `ConversationPayload.content` | Role and message text. No `tool_use` blocks | **Breaking** on deploy |
 | The paired T3 client | `ui_rpc/projection.rs` — `messages`, `activities` | The same shapes it reads today | Unchanged |
 | Any live client | `SSE /api/tasks/{id}/events` | Lifecycle types only. `agent.message` is never emitted again; the variant stays so old rows replay | Changed, compatibly |
 | An operator | `moat tasks rebuild <id>` | One conversation rebuilt from the block log, and a refusal naming the gap when the log does not cover all of it | **New** |

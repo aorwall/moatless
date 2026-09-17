@@ -76,8 +76,8 @@ Workspace ports), both of which leave `mount_name` open. `RepoCheckout` in
 
 **Workspace panel** (also **Workspace view**):
 The non-chat side of the task page — the pane that switches between the preview,
-the file explorer, and the sandbox diagnostics for a Task. A frontend UI concept
-only, distinct from the Workspace entity; always carry the `panel`/`view` suffix
+the file explorer, and the sandbox diagnostics for a Task. A UI concept only,
+distinct from the Workspace entity; always carry the `panel`/`view` suffix
 to keep them apart.
 
 ### Tasks & lifecycle
@@ -399,7 +399,7 @@ inbound/outbound message (Adapter transport), the `agent.message` event, and a
 Slack channel (external, provider-scoped).
 
 **Chat**:
-The frontend view that renders a Task's Messages. A UI concept only — there is no
+The UI view that renders a Task's Messages. A UI concept only — there is no
 "chat" or "channel" entity on the wire.
 
 **Message upsert**:
@@ -486,7 +486,7 @@ _Avoid_: conflating with `OAuth scope` (a permission grant) — always qualify t
 **Follow**:
 A user's durable interest in a Task (`task_follows`), acquired by creating it,
 writing to it, or asking explicitly, and dropped by asking. It is what a personal
-sidebar listing is built from, in both the Moatless UI and T3 Code.
+sidebar listing is built from in T3 Code.
 _Note_: a Follow **narrows** a listing and never widens one — it grants no access.
 Scope still applies underneath, because a Follow outlives the access that produced
 it: a Task can be made private or change hands long after someone wrote to it.

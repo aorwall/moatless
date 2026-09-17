@@ -5,10 +5,6 @@
 # sandbox is already a pod in the dev cluster, outgoing traffic + DNS are free,
 # so we only need to (1) sync the real backend env and (2) run the binary.
 #
-# The frontend dev server (bun run dev, port 3000) already proxies `/api` to
-# http://localhost:8080 (see apps/frontend/vite.config.ts), and sidecar servers
-# share the pod's localhost — so nothing on the frontend side needs changing.
-#
 # Rebuild loop: edit code, then run `scripts/shadow/rebuild.sh`. This process
 # watches a trigger file on the shared workspace and restarts the binary.
 set -euo pipefail

@@ -4,19 +4,16 @@
 ```bash
 docker compose -f docker-compose/docker-compose.yml up -d
 ```
-- Frontend (nginx + SPA): http://localhost:3000
-- Backend API, proxied via the frontend at /api/
+- Backend API, through the `frontend` nginx proxy: http://localhost:3000/api/
 - Backend, direct: http://localhost:8080
 
-## Running the frontend with hot reload
-Also run `bun run dev` and use http://localhost:5173 instead. Vite proxies
-`/api/` to the backend automatically.
+The `frontend` service runs the retired Moatless UI image at its last published
+tag. The stack has no T3 Code service; see `docs/deferred-changes.md`.
 
 ## Building the backend locally
 ```bash
 docker-compose/dev-docker.sh   # or `bun run dev:docker`; builds the backend
                                # image, then starts every service
-bun run dev                    # optional: frontend with hot-reload
 ```
 `docker/AGENTS.md` covers the other image builds.
 

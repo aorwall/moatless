@@ -1,12 +1,10 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
-import { createRequire } from 'node:module'
 import path from 'node:path'
+import { load } from 'js-yaml'
 import { describe, expect, it } from 'vitest'
 
 const root = path.resolve(import.meta.dirname, '../..')
 const skills = path.join(root, '.agents/skills')
-// Use the frontend's declared YAML dependency, which also parses skill content.
-const { load } = createRequire(path.join(root, 'apps/frontend/package.json'))('js-yaml')
 const directories = readdirSync(skills, { withFileTypes: true }).filter((entry) =>
   entry.isDirectory(),
 )
@@ -62,9 +60,8 @@ describe('repository skill metadata and references', () => {
     for (const filename of filesIn(skills).filter((file) => /\.ya?ml$/.test(file))) {
       const values = load(readFileSync(filename, 'utf8'))
       if (!path.basename(filename).startsWith('values-')) continue
-      expect(values.backend.image.tag).toBe(values.image.tag)
-      expect(values.sandboxImage.tag).toBe(values.image.tag)
-      expect(values.t3.image.tag).toBe(values.image.tag)
+      expect(values.sandboxImage.tag).toBe(values.backend.image.tag)
+      expect(values.t3.image.tag).toBe(values.backend.image.tag)
       expect(values.postgres.enabled).toBe(false)
       expect(values.database).toBeUndefined()
     }

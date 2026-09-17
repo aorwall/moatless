@@ -34,10 +34,10 @@ on:
   workflow_dispatch:
     inputs:
       playwright_suite:
-        description: 'E2E suite (tests/api, tests/ui)'
+        description: 'E2E suite (tests/api)'
         type: choice
         default: 'api'
-        options: ['none', 'api', 'ui', 'all']
+        options: ['none', 'api']
       workers:
         description: 'Playwright workers (chains are independent; 1 serialises)'
         type: string
