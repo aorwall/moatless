@@ -17,7 +17,7 @@
         "CARGO_PROFILE_TEST_DEBUG": "0"
       },
       "resources": {
-        "requests": { "cpu": "2", "memory": "4Gi" },
+        "requests": { "cpu": "250m", "memory": "4Gi" },
         "limits": { "cpu": "4", "memory": "8Gi" },
         "storage": "60Gi"
       },
@@ -39,7 +39,7 @@
         "CARGO_PROFILE_TEST_DEBUG": "0"
       },
       "resources": {
-        "requests": { "cpu": "2", "memory": "4Gi" },
+        "requests": { "cpu": "250m", "memory": "4Gi" },
         "limits": { "cpu": "4", "memory": "8Gi" },
         "storage": "20Gi"
       },
@@ -83,7 +83,7 @@
         "CARGO_PROFILE_TEST_DEBUG": "0"
       },
       "resources": {
-        "requests": { "cpu": "2", "memory": "4Gi" },
+        "requests": { "cpu": "250m", "memory": "4Gi" },
         "limits": { "cpu": "4", "memory": "8Gi" },
         "storage": "20Gi",
         "dockerStorageMode": "node",
