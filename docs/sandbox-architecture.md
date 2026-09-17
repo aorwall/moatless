@@ -790,4 +790,5 @@ Runs as non-root user `moatless` (UID 1000) with home at `/home/moatless`.
 | `/usr/share/moatless-skills` | Skills (baked into image) |
 | `/opt/playwright-browsers` | Shared Playwright browser binaries |
 | `/opt/playwright-packages` | Playwright package tree per pin; keeps the browsers above from being pruned |
+| `/usr/local/bin/playwright-cli` | Agent-facing Playwright wrapper; runs the baked package, so it reaches no npm registry |
 | `/usr/local/bin/docker-entrypoint-sandbox.sh` | Container entrypoint |
