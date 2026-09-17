@@ -68,9 +68,9 @@ With cluster access from outside, the kubectl playbook is in
 [sandbox-troubleshooting](../sandbox-troubleshooting/references/kubectl.md).
 
 **Completion criterion:** you can name the server's status, its restart count and
-last exit reason, the command it is actually running (`servers list` shows the
-override; absent means the workspace default), and whether the port returns
-bytes.
+last exit reason, the command it is actually running (`servers list` prints the
+workspace's declared command and any override that replaces it), and whether the
+port returns bytes.
 
 ## 2. Override
 
@@ -218,6 +218,7 @@ loader for tagging and have no injection hook; treat them as not yet supported.
 | Env var missing in the app | workspace-level `envVars` never reach sidecars — a known gap | set it per-server, or live via `servers set --env` |
 | Change to a `package.json` script had no effect | the repo mount is shared, but the running process isn't re-read | `moat tasks servers $TASK_ID restart <name>` |
 | Wrong start command running | a stale override from earlier debugging | `servers list`, then `servers reset` |
+| The command running isn't the one the repo's config declares | the workspace is `source=manual` and no longer follows the file, or the file used a key the loader ignores | `servers list` prints the workspace command beside the override; a repository sync names the keys it ignored |
 | Preview loads, but element selection is unavailable | the project never added `inspectorPlugin()` — nothing injects it for you | [Making a preview inspectable](#making-a-preview-inspectable) |
 
 For anything wider than the server container — pod evictions, OOM of the sandbox

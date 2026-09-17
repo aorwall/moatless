@@ -9,11 +9,13 @@ use moatless_api_schemas::sandbox::{
     ServerConfigResponse, ServerOverride, ServerOverridesResponse, ServerStatusResponse,
     UpdateServerConfigRequest,
 };
+use moatless_workspace_types::schemas::workspace::ServerConfig;
 use std::collections::BTreeMap;
 
 #[derive(Subcommand)]
 pub enum ServerAction {
-    /// List servers with their status and any live config override
+    /// List servers with their status, what the workspace declares they run,
+    /// and any live config override
     List,
     /// Set a server's start command and/or environment, then restart it
     Set {
@@ -68,13 +70,15 @@ pub(super) async fn run_server_action(
             // Report them as unknown rather than as "none" when unreachable —
             // "none" would be a lie the user would act on.
             let overrides = client.api().list_server_config(task_id).await.ok();
+            let declared = declared_servers(client, task_id).await;
             if json {
                 output::print_json_typed(&serde_json::json!({
                     "servers": status.servers,
                     "overrides": overrides.as_ref().map(|o| &o.overrides),
+                    "declared": declared,
                 }));
             } else {
-                format_server_list(&status, overrides.as_ref());
+                format_server_list(&status, overrides.as_ref(), declared.as_deref());
             }
         }
         ServerAction::Set {
@@ -163,7 +167,47 @@ fn print_override(ov: &ServerOverride, indent: &str) {
     }
 }
 
-fn format_server_list(status: &ServerStatusResponse, overrides: Option<&ServerOverridesResponse>) {
+/// What this task's Workspace declares each server should run.
+///
+/// `None` when the Workspace could not be read, so the caller says so rather
+/// than printing a list that would read as "declares nothing".
+async fn declared_servers(client: &MoatClient, task_id: &str) -> Option<Vec<ServerConfig>> {
+    let workspace_id = client.api().get_task(task_id).await.ok()?.workspace_id?;
+    let workspace = client.api().get_workspace(&workspace_id).await.ok()?;
+    // A Workspace whose `servers` is absent declares none, which is an empty
+    // list: `None` here is reserved for the read that did not answer, and a
+    // config that dropped its servers must not read as an unreadable workspace.
+    Some(workspace.servers.unwrap_or_default())
+}
+
+/// What the Workspace declares one server runs, as lines to print under it.
+///
+/// A reader comparing a server against the config that declared it cannot read
+/// that config from the pod, and an override replaces the command rather than
+/// adding to it — so both are printed, labelled apart.
+fn declared_report(server_name: &str, declared: Option<&[ServerConfig]>) -> Vec<String> {
+    let Some(configs) = declared else {
+        return vec!["  workspace command: unknown (workspace not readable)".to_string()];
+    };
+    let Some(config) = configs.iter().find(|c| c.name == server_name) else {
+        return vec!["  workspace command: none (this server is not declared)".to_string()];
+    };
+
+    let mut lines = vec![match config.start_commands.as_slice() {
+        [] => "  workspace command: (none declared)".to_string(),
+        commands => format!("  workspace command: {}", commands.join(" && ")),
+    }];
+    for (key, value) in &config.env_vars {
+        lines.push(format!("  workspace env {key}={value}"));
+    }
+    lines
+}
+
+fn format_server_list(
+    status: &ServerStatusResponse,
+    overrides: Option<&ServerOverridesResponse>,
+    declared: Option<&[ServerConfig]>,
+) {
     if status.servers.is_empty() {
         println!("No servers configured.");
         // A script that declares a port publishes a route and serves on it, so
@@ -182,6 +226,9 @@ fn format_server_list(status: &ServerStatusResponse, overrides: Option<&ServerOv
         }
         if let Some(detail) = &server.detail {
             println!("  detail: {detail}");
+        }
+        for line in declared_report(&server.name, declared) {
+            println!("{line}");
         }
         match overrides {
             None => println!("  override: unknown (sandbox not reachable)"),
@@ -256,4 +303,64 @@ pub(super) async fn stream_logs(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn frontend() -> ServerConfig {
+        ServerConfig {
+            name: "frontend".to_string(),
+            start_commands: vec!["bun run dev --host 0.0.0.0".to_string()],
+            env_vars: BTreeMap::from([(
+                "VITE_BACKEND_URL".to_string(),
+                "http://localhost:8000".to_string(),
+            )]),
+            ..ServerConfig::default()
+        }
+    }
+
+    /// A start command that came from a committed config is not readable on the
+    /// pod, so a task prompt naming a different one had nothing to check it
+    /// against — which is how `bun run dev --turbo` was read as what ran.
+    #[test]
+    fn a_server_names_the_command_and_env_its_workspace_declares() {
+        let lines = declared_report("frontend", Some(&[frontend()])).join("\n");
+
+        assert!(
+            lines.contains("workspace command: bun run dev --host 0.0.0.0"),
+            "{lines}"
+        );
+        assert!(
+            lines.contains("workspace env VITE_BACKEND_URL=http://localhost:8000"),
+            "{lines}"
+        );
+    }
+
+    #[test]
+    fn a_workspace_that_could_not_be_read_says_so_rather_than_declaring_nothing() {
+        let lines = declared_report("frontend", None).join("\n");
+
+        assert!(lines.contains("unknown"), "{lines}");
+        assert!(!lines.contains("none"), "{lines}");
+    }
+
+    #[test]
+    fn a_running_server_its_workspace_does_not_declare_is_named_as_undeclared() {
+        let lines = declared_report("preview", Some(&[frontend()])).join("\n");
+
+        assert!(lines.contains("not declared"), "{lines}");
+    }
+
+    /// What a config that removed its `servers[]` reports while the sandbox it
+    /// provisioned still runs the old sidecar — `declared_servers` reads that
+    /// Workspace as declaring an empty list, not as one it could not read.
+    #[test]
+    fn a_workspace_declaring_no_servers_names_the_running_one_as_undeclared() {
+        let lines = declared_report("frontend", Some(&[])).join("\n");
+
+        assert!(lines.contains("not declared"), "{lines}");
+        assert!(!lines.contains("not readable"), "{lines}");
+    }
 }
