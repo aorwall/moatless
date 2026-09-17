@@ -2,10 +2,11 @@
 //!
 //! Runs before provisioning, so a pod that could never authenticate fails fast
 //! as one `sandbox.error`, not buried in the pod watcher's log. Checks task
-//! write access, then probes `GET /repos/{owner}/{repo}` for GitHub credentials
-//! when the repo is `github.com`. Token resolution mirrors
-//! `resolve_task_credentials`: a persisted repository scope selects one
-//! credential row; a scoped `GITHUB_TOKEN` is never a fallback.
+//! write access, then asks the repository's own host whether the resolved
+//! credential can read it. Token resolution goes through
+//! [`resolve_task_git_token`], the same function `GitProxy::resolve` answers a
+//! proxied clone with, so a credential the preflight accepts is the one the
+//! clone presents.
 
 use std::sync::Arc;
 
@@ -19,8 +20,8 @@ use moatless_ports::sandbox::{CodexCredentials, PreflightPort, PreflightRejectio
 use moatless_types::access_control::{Scope, ScopeContext, ScopedResource};
 use moatless_types::task::Task;
 use moatless_workspace_ports::{WorkspaceCredentialReader, WorkspaceResolver};
-use moatless_workspace_types::repository::Repository;
 use moatless_workspace_types::repository::RepositoryProvider as GitHostProvider;
+use moatless_workspace_types::repository::{GitHostRepo, Repository};
 use moatless_workspace_types::repository::{RepositoryKind, RepositoryProvider};
 
 /// The exact set of credential-resolution dependencies the preflight consumes.
@@ -54,10 +55,14 @@ pub enum PreflightError {
         owner: Option<String>,
     },
 
-    #[error("{provider} account not connected for user {user_id}")]
+    #[error("{provider} account not connected for user {user_id}{}", host.as_deref().map_or(String::new(), |h| format!(" at {h}")))]
     NoGitCredential {
         user_id: String,
         provider: RepositoryProvider,
+        /// Which instance of a self-hostable `provider` is unconnected, and
+        /// `None` for a repository whose remote names no host this seam can
+        /// parse — the other way to reach this variant.
+        host: Option<String>,
     },
 
     #[error("workspace {workspace_id} credentials could not be read: {reason}")]
@@ -72,8 +77,10 @@ pub enum PreflightError {
         reason: String,
     },
 
-    #[error("No access to GitHub repository {owner}/{repo}: {reason}")]
+    #[error("No access to {provider} repository {owner}/{repo} on {host}: {reason}")]
     NoRepoAccess {
+        provider: RepositoryProvider,
+        host: String,
         owner: String,
         repo: String,
         reason: String,
@@ -90,6 +97,14 @@ impl PreflightError {
                 "The sandbox runs as {user_id}, who cannot control this {scope}-scoped task. \
                 Recreate the task so it is owned by the user it runs as."
             ),
+            Self::NoGitCredential {
+                provider,
+                host: Some(host),
+                ..
+            } => format!(
+                "{provider} access to {host} is not configured for this repository scope. \
+                Configure it before starting this task."
+            ),
             Self::NoGitCredential { provider, .. } => format!(
                 "{provider} access is not configured for this repository scope. \
                 Configure it before starting this task."
@@ -102,31 +117,60 @@ impl PreflightError {
             Self::InvalidGitCredential { provider, reason } => {
                 format!("{provider} token is invalid or expired: {reason}")
             }
-            Self::NoRepoAccess { owner, repo, .. } => format!(
-                "GitHub token has no access to repository {owner}/{repo}. \
-                Reconnect GitHub or grant the token access to this repo."
+            Self::NoRepoAccess {
+                provider,
+                host,
+                owner,
+                repo,
+                ..
+            } => format!(
+                "The {provider} token has no access to repository {owner}/{repo} on {host}. \
+                Reconnect {provider} or grant the token access to this repo."
             ),
         }
     }
 }
 
-/// Abstraction over the two `api.github.com` calls the preflight makes, so unit
-/// tests can exercise the logic without hitting the network.
+/// Abstraction over the git-host call the preflight makes, so unit tests can
+/// exercise the logic without hitting the network.
 #[async_trait]
-pub trait GithubValidator: Send + Sync {
-    /// `GET /repos/{owner}/{repo}` — returns `Ok(())` on 2xx.
-    async fn check_repo_access(&self, token: &str, owner: &str, repo: &str) -> Result<(), String>;
+pub trait GitHostValidator: Send + Sync {
+    /// Whether `token` can read `repo` on the host its remote named — GitHub's
+    /// `GET /repos/{owner}/{repo}`, Forgejo's `GET /api/v1/repos/{owner}/{repo}`.
+    /// `Ok(())` on 2xx.
+    async fn check_repo_access(&self, token: &str, repo: &GitHostRepo) -> Result<(), String>;
 }
 
-/// Production validator — delegates to the helpers in `github_client`.
-pub struct RealGithubValidator;
+/// Production validator — delegates to the per-provider clients in
+/// `moatless_core`.
+pub struct RealGitHostValidator;
 
 #[async_trait]
-impl GithubValidator for RealGithubValidator {
-    async fn check_repo_access(&self, token: &str, owner: &str, repo: &str) -> Result<(), String> {
-        moatless_core::github_client::check_github_repo_access(token, owner, repo)
-            .await
-            .map_err(|e| e.to_string())
+impl GitHostValidator for RealGitHostValidator {
+    async fn check_repo_access(&self, token: &str, repo: &GitHostRepo) -> Result<(), String> {
+        match repo.provider() {
+            GitHostProvider::Github => {
+                moatless_core::github_client::check_github_repo_access(
+                    token,
+                    repo.owner(),
+                    repo.name(),
+                )
+                .await
+            }
+            GitHostProvider::Forgejo => {
+                moatless_core::forgejo_client::check_forgejo_repo_access(
+                    repo.host(),
+                    token,
+                    repo.owner(),
+                    repo.name(),
+                )
+                .await
+            }
+            // No probe is defined for a provider `requires_credential_preflight`
+            // exempts: resolving its credential is the whole check.
+            GitHostProvider::Gitlab | GitHostProvider::Gitness => Ok(()),
+        }
+        .map_err(|e| e.to_string())
     }
 }
 
@@ -137,11 +181,11 @@ impl GithubValidator for RealGithubValidator {
 /// to [`PreflightRejection`], message and detail precomputed.
 pub struct RealPreflight {
     creds: PreflightCredentials,
-    validator: Arc<dyn GithubValidator>,
+    validator: Arc<dyn GitHostValidator>,
 }
 
 impl RealPreflight {
-    pub fn new(creds: PreflightCredentials, validator: Arc<dyn GithubValidator>) -> Self {
+    pub fn new(creds: PreflightCredentials, validator: Arc<dyn GitHostValidator>) -> Self {
         Self { creds, validator }
     }
 
@@ -222,21 +266,25 @@ async fn is_platform_admin(users: &dyn CommitIdentity, user_id: &str) -> bool {
     users.is_platform_admin(user_id).await.unwrap_or(false)
 }
 
-/// Verify the git credential, and for `github.com` the repo access, before
-/// provisioning.
+/// Verify the git credential, then the repo access, before provisioning.
 ///
-/// `Ok(())` for no credential on this provider, or no remote URL; only
-/// `github.com` gets the repo-access check, elsewhere resolution alone is the
-/// check, and in-pod clone failure reports the rest.
+/// `Ok(())` for a repository whose provider `requires_credential_preflight`
+/// exempts. Every other repository must resolve a credential *and* have the
+/// host confirm that credential reaches it, so neither half is left to the
+/// in-pod clone.
 pub async fn preflight_validate_git_credential(
     creds: &PreflightCredentials,
     task: &Task,
     repo: &Repository,
-    validator: &dyn GithubValidator,
+    validator: &dyn GitHostValidator,
 ) -> Result<(), PreflightError> {
     let Some(provider) = requires_credential_preflight(repo) else {
         return Ok(());
     };
+    let host_repo = repo
+        .remote
+        .as_ref()
+        .and_then(|remote| remote.host_repo.as_ref());
 
     let actor = resolve_task_actor(
         Some(&creds.workspaces),
@@ -266,7 +314,11 @@ pub async fn preflight_validate_git_credential(
         // remote this seam can reach. Either way there is no token, and the
         // sandbox must not start with somebody else's.
         Some(Err(GitHostTokenError::NoCredential { .. })) | None => {
-            return Err(PreflightError::NoGitCredential { user_id, provider });
+            return Err(PreflightError::NoGitCredential {
+                user_id,
+                provider,
+                host: host_repo.map(|repo| repo.host().to_string()),
+            });
         }
         // A credential that exists and does not work is a different problem
         // with a different remedy, so it keeps the resolver's own message.
@@ -278,20 +330,16 @@ pub async fn preflight_validate_git_credential(
         }
     };
 
-    let Some(parsed) = repo
-        .remote
-        .as_ref()
-        .and_then(|remote| remote.host_repo.as_ref())
-        .filter(|repo| repo.provider() == GitHostProvider::Github)
-    else {
+    // Unreachable with `None`: a repository naming no host repo resolves no
+    // token above.
+    let Some(parsed) = host_repo else {
         return Ok(());
     };
 
-    if let Err(e) = validator
-        .check_repo_access(&token, parsed.owner(), parsed.name())
-        .await
-    {
+    if let Err(e) = validator.check_repo_access(&token, parsed).await {
         return Err(PreflightError::NoRepoAccess {
+            provider: parsed.provider(),
+            host: parsed.host().to_string(),
             owner: parsed.owner().to_string(),
             repo: parsed.name().to_string(),
             reason: truncate(&e, 200),
@@ -335,11 +383,15 @@ mod tests {
 
     use std::sync::atomic::{AtomicUsize, Ordering};
 
+    use moatless_ports::identity::MockGitHostTokenIssuer;
+    use moatless_types::git_host::GitHostAccount;
+
     /// Mock validator with configurable responses + call counters so tests can
-    /// assert which branch was taken.
+    /// assert which branch was taken, and which repository was probed.
     struct MockValidator {
         repo_result: std::sync::Mutex<Result<(), String>>,
         repo_calls: AtomicUsize,
+        probed: std::sync::Mutex<Option<GitHostRepo>>,
     }
 
     impl Default for MockValidator {
@@ -347,6 +399,7 @@ mod tests {
             Self {
                 repo_result: std::sync::Mutex::new(Ok(())),
                 repo_calls: AtomicUsize::new(0),
+                probed: std::sync::Mutex::new(None),
             }
         }
     }
@@ -355,17 +408,17 @@ mod tests {
         fn set_repo_err(&self, err: &str) {
             *self.repo_result.lock().unwrap() = Err(err.to_string());
         }
+
+        fn calls(&self) -> usize {
+            self.repo_calls.load(Ordering::SeqCst)
+        }
     }
 
     #[async_trait]
-    impl GithubValidator for MockValidator {
-        async fn check_repo_access(
-            &self,
-            _token: &str,
-            _owner: &str,
-            _repo: &str,
-        ) -> Result<(), String> {
+    impl GitHostValidator for MockValidator {
+        async fn check_repo_access(&self, _token: &str, repo: &GitHostRepo) -> Result<(), String> {
             self.repo_calls.fetch_add(1, Ordering::SeqCst);
+            *self.probed.lock().unwrap() = Some(repo.clone());
             self.repo_result.lock().unwrap().clone()
         }
     }
@@ -521,18 +574,22 @@ mod tests {
         let no_token = PreflightError::NoGitCredential {
             user_id: "u".to_string(),
             provider: RepositoryProvider::Forgejo,
+            host: Some("git.example.com".to_string()),
         };
         let invalid = PreflightError::InvalidGitCredential {
             provider: RepositoryProvider::Github,
             reason: "401".to_string(),
         };
         let no_access = PreflightError::NoRepoAccess {
+            provider: RepositoryProvider::Github,
+            host: "github.com".to_string(),
             owner: "o".to_string(),
             repo: "r".to_string(),
             reason: "404".to_string(),
         };
         assert!(no_control.user_message().contains("cannot control"));
         assert!(no_token.user_message().contains("not configured"));
+        assert!(no_token.user_message().contains("git.example.com"));
         assert!(invalid.user_message().contains("invalid or expired"));
         assert!(no_access.user_message().contains("o/r"));
     }
@@ -552,21 +609,30 @@ mod tests {
         assert_eq!(truncate("short", 100), "short");
     }
 
+    /// The host a fixture's provider is reached on. Self-hosted providers carry
+    /// whatever their remote named, which is the fact the Forgejo cases turn on.
+    fn host_of(provider: RepositoryProvider) -> &'static str {
+        match provider {
+            RepositoryProvider::Github => "github.com",
+            _ => "git.example.com",
+        }
+    }
+
     /// Minimal repo carrying only the fields the preflight gate reads.
+    ///
+    /// The remote is parsed for the row's own provider, as
+    /// `workspaces::repository::remote::resolve_remote` does — a row naming no
+    /// provider has no host repo either.
     fn repo(kind: RepositoryKind, provider: Option<RepositoryProvider>) -> Repository {
+        let host = provider.map_or("github.com", host_of);
         Repository {
             id: "r".into(),
             name: "r".into(),
             kind,
             remote: Some(moatless_workspace_types::repository::RepositoryRemote {
-                url: "https://github.com/o/r".into(),
+                url: format!("https://{host}/o/r"),
                 uses_ssh: false,
-                host_repo: Some(moatless_workspace_types::repository::GitHostRepo::new(
-                    RepositoryProvider::Github,
-                    "github.com",
-                    "o",
-                    "r",
-                )),
+                host_repo: provider.map(|provider| GitHostRepo::new(provider, host, "o", "r")),
             }),
             default_branch: None,
             description: None,
@@ -613,11 +679,194 @@ mod tests {
         }
     }
 
+    /// Never reached: the git-credential preflight reads no Codex credential.
+    struct NoCodexCredentials;
+
+    #[async_trait]
+    impl CodexCredentials for NoCodexCredentials {
+        async fn ensure_fresh_codex_for(
+            &self,
+            _user_id: &str,
+            _except_task_id: Option<&str>,
+        ) -> Result<Option<String>, String> {
+            Ok(None)
+        }
+    }
+
+    /// The preflight's dependencies over `tokens`, with the rest inert: the task
+    /// fixture names no Workspace, so nothing below is consulted and a mock that
+    /// is called at all fails the test.
+    fn creds(tokens: MockGitHostTokenIssuer) -> PreflightCredentials {
+        PreflightCredentials {
+            git_host_tokens: Arc::new(tokens),
+            users: Arc::new(moatless_ports::identity::MockCommitIdentity::new()),
+            workspaces: Arc::new(moatless_workspace_ports::MockWorkspaceResolver::new()),
+            credential_sync: Arc::new(NoCodexCredentials),
+            workspace_credentials: Arc::new(
+                moatless_workspace_ports::MockWorkspaceCredentialReader::new(),
+            ),
+        }
+    }
+
+    /// An issuer holding a credential for `held` and nothing else, recording
+    /// every account it was asked for.
+    fn issuer_for(
+        held: Option<RepositoryProvider>,
+    ) -> (
+        MockGitHostTokenIssuer,
+        Arc<std::sync::Mutex<Vec<GitHostAccount>>>,
+    ) {
+        let asked = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let recorded = asked.clone();
+        let mut tokens = MockGitHostTokenIssuer::new();
+        tokens.expect_token().returning(move |actor, account| {
+            recorded.lock().unwrap().push(account.clone());
+            if held == Some(account.provider()) {
+                return Ok("a-token".to_string());
+            }
+            Err(GitHostTokenError::NoCredential {
+                actor: actor.clone(),
+                provider: account.provider(),
+                host: match account {
+                    GitHostAccount::Forgejo { host } => Some(host.clone()),
+                    _ => None,
+                },
+            })
+        });
+        (tokens, asked)
+    }
+
+    fn alice() -> Task {
+        task(Scope::User, Some("alice"), Some("alice"))
+    }
+
+    /// The failure this gate exists for on a self-hosted host: with no
+    /// credential for the instance, the clone can only fail in-pod through the
+    /// git proxy, minutes and two pod provisions later.
     #[tokio::test]
-    async fn validator_checks_repository_directly() {
-        let v = MockValidator::default();
-        v.set_repo_err("You do not have access...");
-        assert!(v.check_repo_access("ghs_x", "o", "r").await.is_err());
-        assert_eq!(v.repo_calls.load(Ordering::SeqCst), 1);
+    async fn a_forgejo_repository_with_no_forgejo_credential_is_rejected() {
+        let (tokens, _) = issuer_for(None);
+        let validator = MockValidator::default();
+
+        let err = preflight_validate_git_credential(
+            &creds(tokens),
+            &alice(),
+            &repo(RepositoryKind::Remote, Some(RepositoryProvider::Forgejo)),
+            &validator,
+        )
+        .await
+        .expect_err("a Forgejo repo with no Forgejo credential cannot be cloned");
+
+        assert!(matches!(
+            err,
+            PreflightError::NoGitCredential {
+                provider: RepositoryProvider::Forgejo,
+                ..
+            }
+        ));
+        assert!(err.user_message().contains("git.example.com"));
+        // There is nothing to probe with, so the host is never called.
+        assert_eq!(validator.calls(), 0);
+    }
+
+    /// A credential is per account, so the GitHub row an identity does hold is
+    /// not an answer for a Forgejo instance it has not connected.
+    #[tokio::test]
+    async fn a_credential_for_another_provider_does_not_satisfy_a_forgejo_repository() {
+        let (tokens, _) = issuer_for(Some(RepositoryProvider::Github));
+        let validator = MockValidator::default();
+
+        let err = preflight_validate_git_credential(
+            &creds(tokens),
+            &alice(),
+            &repo(RepositoryKind::Remote, Some(RepositoryProvider::Forgejo)),
+            &validator,
+        )
+        .await
+        .expect_err("a GitHub credential reaches no Forgejo instance");
+
+        assert!(matches!(
+            err,
+            PreflightError::NoGitCredential {
+                provider: RepositoryProvider::Forgejo,
+                ..
+            }
+        ));
+        assert_eq!(validator.calls(), 0);
+    }
+
+    /// Pins the preflight to the account `GitProxy::resolve` presents for the
+    /// same repository. Both resolve through
+    /// [`crate::secrets::resolve_task_git_token`]; this is what would break if
+    /// either grew a lookup of its own.
+    #[tokio::test]
+    async fn the_account_resolved_is_the_one_the_git_proxy_presents() {
+        for provider in [RepositoryProvider::Github, RepositoryProvider::Forgejo] {
+            let (tokens, asked) = issuer_for(Some(provider));
+            let repository = repo(RepositoryKind::Remote, Some(provider));
+
+            preflight_validate_git_credential(
+                &creds(tokens),
+                &alice(),
+                &repository,
+                &MockValidator::default(),
+            )
+            .await
+            .expect("the identity holds this provider's credential");
+
+            let host_repo = repository
+                .remote
+                .as_ref()
+                .and_then(|remote| remote.host_repo.as_ref())
+                .expect("the fixture parses a host repo");
+            assert_eq!(
+                asked.lock().unwrap().as_slice(),
+                [host_repo.credential_account()]
+            );
+        }
+    }
+
+    /// The second half of the check, on both probed hosts: a credential that
+    /// exists and cannot reach this repository is refused before a pod exists.
+    #[tokio::test]
+    async fn a_repository_the_credential_cannot_reach_is_rejected() {
+        for provider in [RepositoryProvider::Github, RepositoryProvider::Forgejo] {
+            let (tokens, _) = issuer_for(Some(provider));
+            let validator = MockValidator::default();
+            validator.set_repo_err("404 Not Found");
+
+            let err = preflight_validate_git_credential(
+                &creds(tokens),
+                &alice(),
+                &repo(RepositoryKind::Remote, Some(provider)),
+                &validator,
+            )
+            .await
+            .expect_err("the host refused the probe");
+
+            assert!(matches!(
+                &err,
+                PreflightError::NoRepoAccess { provider: probed, host, .. }
+                    if *probed == provider && host == host_of(provider)
+            ));
+            assert_eq!(validator.calls(), 1);
+        }
+    }
+
+    #[tokio::test]
+    async fn a_forgejo_repository_the_credential_reaches_passes() {
+        let (tokens, _) = issuer_for(Some(RepositoryProvider::Forgejo));
+        let validator = MockValidator::default();
+
+        preflight_validate_git_credential(
+            &creds(tokens),
+            &alice(),
+            &repo(RepositoryKind::Remote, Some(RepositoryProvider::Forgejo)),
+            &validator,
+        )
+        .await
+        .expect("a connected instance that answers for the repo provisions");
+
+        assert_eq!(validator.calls(), 1);
     }
 }

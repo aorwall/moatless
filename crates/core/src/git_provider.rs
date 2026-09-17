@@ -1,7 +1,7 @@
 //! The shared failure type for the HTTP git-provider credential clients
-//! (`github_client`, `identity::git_host_access`).
+//! (`github_client`, `forgejo_client`, `identity::git_host_access`).
 
-/// Failure from a git-provider credential check (GitHub or Gitness).
+/// Failure from a git-provider credential check (GitHub, Forgejo or Gitness).
 ///
 /// Classification matters to the caller: a token the provider *rejected* is the
 /// user's problem, a provider we could not *reach* is ours; both keep the
@@ -28,10 +28,14 @@ pub enum GitProviderError {
 
     /// The token authenticates but has no access to the requested repository.
     #[error(
-        "You do not have access to the GitHub repository {owner}/{repo}. \
+        "You do not have access to the repository {owner}/{repo} on {host}. \
          Please check your permissions."
     )]
-    RepositoryForbidden { owner: String, repo: String },
+    RepositoryForbidden {
+        host: String,
+        owner: String,
+        repo: String,
+    },
 
     /// The provider answered, but the body is not decodable JSON.
     #[error("Failed to parse {operation} response: {source}")]

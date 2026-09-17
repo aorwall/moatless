@@ -19,6 +19,7 @@ pub mod error;
 pub mod events;
 pub mod feature_flags;
 pub mod file_storage;
+pub mod forgejo_client;
 pub mod git_provider;
 pub mod github_client;
 pub mod http_auth;

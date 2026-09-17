@@ -143,7 +143,8 @@ change that found it.
 | A git-synced Workspace's read-only refusal names a file that cannot hold the field | `crates/workspaces/src/workspace/mutations.rs::ensure_workspace_mutable` — "edit .moatless/workspaces.json to change it" is the right advice for the fields `DesiredWorkspace` declares, and no advice at all for `run_as_user_id`, `icon`, `default_model` and `default_effort`, which git never declares and a reconcile never touches. Choosing a glyph on a git-synced project therefore costs an `override_workspace`, which stops git sync entirely. The T3 settings page locks every control and offers the override explicitly, so nobody's save fails — the cost is the override, not an error | When someone asks to set one of the four on a git-synced Workspace without severing sync. A fix either admits a patch touching only those four through the guard, which makes the guard read the request rather than the row, or publishes a per-field editable flag beside `scriptsEditable` for the client to hide them by |
 | Control-scoped writes discard the bool that denies them | `crates/workspaces/src/workspace/handlers.rs` — `create_workspace`, `update_workspace`, `override_workspace`, `add_workspace_repo`, `remove_workspace_repo`, `set_workspace_primary_repo` (nine call sites) | Needs a design decision plus a new test; see below |
 | The docker preview-server readiness timeout never fires | `sandbox/docker/status_resolver.rs::inspect_server_container` | Tracked by the `test.fixme` on SERVER-02 in `tests/api/specs/sandbox-errors.spec.ts` |
-| The GitHub preflight never runs on a restart | `crates/sandbox-control/src/auto_provision.rs::build_provision_request` runs only `preflight::preflight_validate_sandbox_control`; `RealPreflight`'s repo-access probe reaches only creation and task start | When `SandboxRuntime::ensure_running` no longer builds a plan on the reuse path; see below |
+| The git-host preflight never runs on a restart | `crates/sandbox-control/src/auto_provision.rs::build_provision_request` runs only `preflight::preflight_validate_sandbox_control`; `RealPreflight`'s credential resolution and repo-access probe reach only creation and task start, so a task whose creation preflight already refused it is still provisioned when a message wakes it | When a task persisted `Error` by the credential preflight is next observed getting a pod, or when `SandboxRuntime::ensure_running` no longer builds a plan on the reuse path; see below |
+| A Member joining an existing Sandbox is preflighted as the wrong identity | `crates/sandbox-control/src/preflight.rs::preflight_validate_git_credential` resolves the actor from the Task (`created_by`, `run_as_user_id`), while `crates/server/src/git_proxy/service.rs::GitProxy::resolve` resolves it from the Sandbox row the pod's token names. `crates/tasks/src/task/dao.rs::insert_task` writes a `sandboxes` row only for a creation that names none, so a Task created with `sandbox_id` is validated against its creator's credential and then clones as the first Task's owner. The two agree for a Task that owns its Sandbox, which is every Task outside the shared-warm path | When a shared Sandbox is observed cloning as an identity nobody preflighted, or when `.plans/shared-warm-sandbox.md` next touches Member creation. The fix reads the joined Sandbox's own owner and run-as in `TaskCreationService::create`, which needs a Sandbox read the creation path does not do today |
 | Resolving a Workspace's primary repository reads every repository it places | `crates/tasks/src/task/service.rs::primary_repository_id` keeps only the first placement's `repository_id`, while `crates/workspaces/src/ports.rs::placements` fills `RepoPlacement::repository` with one `find_by_id` per placement — so a read that needs a string the `workspace_repos` row already carries pays a repository read per placement, on every task creation and every Loop firing | When a Workspace places enough repositories for the reads to show in a trace, or when something else needs placements without their repositories. A `WorkspaceResolver` method answering from `find_repos` alone is the shape; it is one more trait method for a saving nobody has measured |
 | Cold-storage reclamation decides per Task over a volume the Sandbox owns | `crates/server/src/reaper.rs::reclaim_cold_storage` reads `cold_map` and `stopped_since` by Task id, and `sandbox_control::lifecycle::dao.rs::stopped_with_storage` joins `tasks` to `sandboxes`, so every Member of one stopped Sandbox gets a row carrying the same `desired_state_updated_at`. The Member with the shortest `cold_after_hours` reclaims the shared volume, and two Members passing in one cycle count `stats.reclaimed` twice. The idle stop folds its Members; this branch does not | When a shared Sandbox holds Members whose `cold_after_hours` differ, or when the double count next misleads a reader of the metric. `.plans/shared-warm-sandbox.md` asks for it as "`cold_after_hours` reclamation is per Sandbox" — the fix is a third fold over `RunningSandbox`, and it belongs with that plan's other half rather than beside an idle-stop change |
 | The pod's `Config` names one Member, and three sites read it as if it named every Member | `crates/sandbox/src/config.rs::Config` — `task_id` and `workspace_dir` name the Member the pod booted with, and `task_context::registration::register` clones the struct per Member to override them. `transcript_sync::upload_on_stop` and `download_on_start` key `transcript_dir` on `state.config`, so an isolated Member's transcripts sit under `projects/-<workspace>-.moatless-members-<id>` and no replacement restores them; `app.rs::spawn_git_push_watcher` claims every checkout's push for `state.config.task_id`, and watches no isolated Member's checkout; 29 `#[tracing::instrument]` attributes in `crates/sandbox/src` label a Member's span with the boot Member's id | When a shared sandbox runs two Members that both push, or when a Member's lost transcript costs a resume. The fix is the `PodConfig` / `MemberConfig` split in `docs/ideas/sandbox-member-seams.md`: `Config` carries ~50 fields over 63 read sites, so it is a pass of its own and not a rider on a defect fix |
@@ -280,19 +281,34 @@ The doc comment on that function is accurate — it scopes its guarantee to
 `running` — so this is a design gap, not a stale comment; update it when the
 behaviour widens.
 
-**The GitHub half of the preflight on the provision path.** A task whose GitHub
-token has been revoked since it was created still gets a pod on restart, and
-fails in-pod at clone time rather than as one `sandbox.error` before any
-infrastructure exists — the same shape the control check now closes.
+**The credential half of the preflight on the provision path.** A task whose
+GitHub or Forgejo credential has been revoked since it was created still gets a
+pod on restart, and fails in-pod at clone time rather than as one
+`sandbox.error` before any infrastructure exists — the same shape the control
+check now closes.
+
+The sharper case is not a credential that expired but one that was never
+accepted. Task `456af459-7c64-4fbe-b36a-c95da8151d55` failed its creation
+preflight on a Forgejo account the actor had not connected, was persisted
+`Error`, and was provisioned six minutes later when a message woke it:
+`SandboxWakeService::wake` guards only `Closed`, and the pod then failed the
+clone with the error the preflight had already produced.
+
+Refusing to provision a task in `Error` status is the cheap fix and the wrong
+one — `notify.rs` keeps `Error` resumable deliberately, matching `start_task`,
+which permits starting an `Error` task and re-runs the full preflight first.
+The gate that matches is the credential resolution alone, on the identity the
+`SandboxShape` names, which is the identity `GitProxy::resolve` presents at
+clone time.
 
 The gate cannot simply widen to the full `PreflightPort`, which is why this is
 recorded rather than done. `K8sSandboxAdapter::ensure_running` and
 `DockerSandboxAdapter::ensure_running` call `ProvisionDeps::build_request`
 unconditionally, before their ready-container reuse paths, and every message
-wake of a running task goes through it. A `GET /repos/{owner}/{repo}` there
-would put message delivery behind GitHub's availability and bill a call per
-message, and the rejection class is permanent — a GitHub 5xx would fail the
-wake outright. The control check is one indexed read and carries none of that.
+wake of a running task goes through it. A repo-access probe there would put
+message delivery behind the git host's availability and bill a call per
+message, and the rejection class is permanent — a host 5xx would fail the wake
+outright. The control check is one indexed read and carries none of that.
 
 Widen it when `ensure_running` can tell "reuse a live sandbox" from "create or
 start one" without building the plan first; the probe then belongs on the

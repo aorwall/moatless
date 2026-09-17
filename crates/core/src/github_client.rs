@@ -73,6 +73,9 @@ pub async fn check_github_repo_access(
         || resp.status() == reqwest::StatusCode::FORBIDDEN
     {
         Err(GitProviderError::RepositoryForbidden {
+            // The only host `parse_github` accepts, whatever API base this
+            // deployment calls.
+            host: "github.com".to_string(),
             owner: owner.to_string(),
             repo: repo.to_string(),
         })

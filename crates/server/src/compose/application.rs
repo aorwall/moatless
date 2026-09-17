@@ -7,7 +7,7 @@ use crate::app_administration::ProviderGitHubAppProver;
 use crate::compose::Ports;
 use crate::sandbox::join::ConnectorSandboxJoiner;
 use crate::sandbox::lifecycle::{Lifecycle, NotifyPort};
-use crate::sandbox::preflight::{PreflightCredentials, RealGithubValidator, RealPreflight};
+use crate::sandbox::preflight::{PreflightCredentials, RealGitHostValidator, RealPreflight};
 use crate::state::AppState;
 use moatless_core::config::Config;
 use moatless_core::events::EventPublisher;
@@ -153,7 +153,7 @@ impl AppState {
             std::time::Duration::from_secs(config.skill.cache_ttl_secs),
         );
 
-        // Wire GitHub-token preflight once here so every task-creation path
+        // Wire the git-host credential preflight once here so every task-creation path
         // (HTTP, loops, adapters) runs the same check. Held on `AppState` as the
         // `PreflightPort` so the task-start handler calls the same port
         // `task_creation` does rather than reassembling the check per request.
@@ -165,7 +165,7 @@ impl AppState {
                 credential_sync: credential_sync.clone(),
                 workspace_credentials: workspace_credentials.clone(),
             },
-            Arc::new(RealGithubValidator),
+            Arc::new(RealGitHostValidator),
         ));
 
         let sandbox_joiner: Arc<dyn SandboxJoiner> =

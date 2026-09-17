@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use moatless_core::sandbox_jwt::verify_user_auth_token;
 use moatless_ports::identity::{CommitIdentity, GitHostTokenError, GitHostTokenIssuer};
-use moatless_sandbox_control::secrets::resolve_task_actor;
+use moatless_sandbox_control::secrets::{resolve_task_actor, resolve_task_git_token};
 use moatless_types::access_control::{ScopeContext, ScopedResource};
 use moatless_workspace_ports::{RepositoryReader, WorkspaceResolver};
 use moatless_workspace_types::repository::{GitHostRepo, Repository};
@@ -161,11 +161,19 @@ impl GitProxy {
         )
         .await;
 
-        let token = self
-            .git_host_tokens
-            .token(&actor, &repo.credential_account())
-            .await
-            .map_err(|e| credential_error(&e, repo.host()))?;
+        // Through the resolver the pre-provision preflight uses, so a clone this
+        // proxy refuses is one `preflight_validate_git_credential` would have
+        // refused before any pod existed.
+        let token =
+            match resolve_task_git_token(Some(&self.git_host_tokens), &actor, Some(&repository))
+                .await
+            {
+                Some(Ok(token)) => token,
+                Some(Err(e)) => return Err(credential_error(&e, repo.host())),
+                // Unreachable: `git_host_repo` above answered for this same
+                // repository, and this is the condition it maps to `NotFound`.
+                None => return Err(GitProxyError::NotFound),
+            };
         let host = repo.host().to_string();
         Ok(Upstream {
             base_url: format!("https://{host}/{}/{}.git", repo.owner(), repo.name()),

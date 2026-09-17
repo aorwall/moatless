@@ -101,7 +101,6 @@
   "single-implementation-trait::moatless_identity::setup::evaluator::SetupRequirementCheck implemented by moatless_identity::setup::github::GithubTokenRequirement",
   "single-implementation-trait::moatless_ports::identity::credentials::CodexScopeReader implemented by moatless_identity::ports::HarnessTokens",
   "single-implementation-trait::moatless_ports::identity::secret::SecretCatalog implemented by moatless_identity::secret::service::SecretService",
-  "single-implementation-trait::moatless_ports::sandbox::credentials::CodexCredentials implemented by moatless_tasks::credential_sync::service::CredentialSync",
   "single-implementation-trait::moatless_ports::task::closing::TaskFinisher implemented by moatless_tasks::task::closer::TaskCloser",
   "single-implementation-trait::moatless_ports::task::message::MessageAcceptor implemented by moatless_tasks::message::send::MessageSendService",
   "single-implementation-trait::moatless_ports::task::relations::RelationRecorder implemented by moatless_tasks::task::relations::TaskRelations",

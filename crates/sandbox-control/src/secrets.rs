@@ -135,8 +135,10 @@ pub async fn resolve_task_github_token(
 /// Resolve the token a task's identity presents for `repository`, whatever
 /// provider hosts it; `None` when the repository names no parseable remote.
 ///
-/// Unlike [`resolve_task_github_token`], answers for every provider — callers
-/// only prove a credential resolves and never hand one to a pod.
+/// Unlike [`resolve_task_github_token`], answers for every provider: callers
+/// prove a credential resolves and never hand one to a pod.
+///
+/// The preflight and the git proxy both resolve here, so they cannot disagree.
 pub async fn resolve_task_git_token(
     git_host_tokens: Option<&Arc<dyn GitHostTokenIssuer>>,
     actor: &Actor,
