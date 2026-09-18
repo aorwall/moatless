@@ -46,24 +46,24 @@ pub enum UserAction {
     },
     /// Associate a provider-specific user ID with a moatless user
     SetProviderId {
-        /// Moatless username (login)
-        login: String,
+        /// Moatless username (login), or the user id as `user list` reports it
+        user: String,
         /// Provider name (e.g. "slack")
         #[arg(long)]
         provider: String,
         /// Provider-specific user ID (e.g. Slack user ID "U0000000002")
-        #[arg(long)]
-        id: String,
+        #[arg(long = "id", value_name = "PROVIDER_USER_ID")]
+        provider_user_id: String,
     },
     /// List all provider ID mappings for a user
     GetProviderIds {
-        /// Moatless username (login)
-        login: String,
+        /// Moatless username (login), or the user id as `user list` reports it
+        user: String,
     },
     /// Remove a provider ID mapping
     DeleteProviderId {
-        /// Moatless username (login)
-        login: String,
+        /// Moatless username (login), or the user id as `user list` reports it
+        user: String,
         /// Provider name (e.g. "slack")
         #[arg(long)]
         provider: String,
@@ -133,16 +133,13 @@ pub async fn run(moat: &MoatClient, action: UserAction, json: bool) -> Result<()
         }
 
         UserAction::SetProviderId {
-            login,
+            user,
             provider,
-            id,
+            provider_user_id,
         } => {
-            let body = serde_json::json!({ "provider_user_id": id });
+            let body = serde_json::json!({ "provider_user_id": provider_user_id });
             let resp = moat
-                .raw_put(
-                    &format!("/api/v1/users/{login}/provider-ids/{provider}"),
-                    &body,
-                )
+                .raw_put(&provider_ids_path(&user, Some(&provider)), &body)
                 .await?;
             if json {
                 output::print_json_typed(&resp);
@@ -151,16 +148,14 @@ pub async fn run(moat: &MoatClient, action: UserAction, json: bool) -> Result<()
             }
         }
 
-        UserAction::GetProviderIds { login } => {
-            let resp = moat
-                .raw_get(&format!("/api/v1/users/{login}/provider-ids"))
-                .await?;
+        UserAction::GetProviderIds { user } => {
+            let resp = moat.raw_get(&provider_ids_path(&user, None)).await?;
             if json {
                 output::print_json_typed(&resp);
             } else {
                 let items = resp.as_array().cloned().unwrap_or_default();
                 if items.is_empty() {
-                    println!("No provider ID mappings found for '{login}'.");
+                    println!("No provider ID mappings found for '{user}'.");
                 } else {
                     println!("{:<12} {:<38} CREATED AT", "PROVIDER", "PROVIDER USER ID");
                     for item in &items {
@@ -175,9 +170,9 @@ pub async fn run(moat: &MoatClient, action: UserAction, json: bool) -> Result<()
             }
         }
 
-        UserAction::DeleteProviderId { login, provider } => {
+        UserAction::DeleteProviderId { user, provider } => {
             let resp = moat
-                .raw_delete(&format!("/api/v1/users/{login}/provider-ids/{provider}"))
+                .raw_delete(&provider_ids_path(&user, Some(&provider)))
                 .await?;
             if json {
                 output::print_json_typed(&resp);
@@ -222,6 +217,23 @@ async fn patch_user(
     moat.raw_patch(&path, body).await
 }
 
+/// The provider-ids path for `target`, by id when it parses as a uuid.
+///
+/// Same rule as [`patch_user`]: a uuid-shaped target is always read as an id,
+/// so a login of that shape is unreachable here. Not an `/admin/` path, unlike
+/// `patch_user`'s — these three keep the login route's self-or-admin policy.
+/// `provider` names one mapping; `None` is the collection.
+fn provider_ids_path(target: &str, provider: Option<&str>) -> String {
+    let base = match uuid::Uuid::parse_str(target) {
+        Ok(id) => format!("/api/v1/users/by-id/{id}/provider-ids"),
+        Err(_) => format!("/api/v1/users/{target}/provider-ids"),
+    };
+    match provider {
+        Some(provider) => format!("{base}/{provider}"),
+        None => base,
+    }
+}
+
 /// Name the account a PATCH landed on, as `'login' (id)`.
 ///
 /// A login alone is ambiguous in exactly the case the id-keyed path exists for.
@@ -230,5 +242,33 @@ fn describe(resp: &serde_json::Value, target: &str) -> String {
     match resp.get("id").and_then(|v| v.as_str()) {
         Some(id) => format!("'{login}' ({id})"),
         None => format!("'{login}'"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::provider_ids_path;
+
+    /// A login is not unique, and the login route always resolves the oldest
+    /// row of a shared one — so a duplicate's mappings are only reachable by id.
+    #[test]
+    fn a_uuid_target_routes_to_the_id_keyed_provider_ids() {
+        let id = "0f4f9c4e-7d3a-4a0e-9b6f-0f0c7a1b2c3d";
+        assert_eq!(
+            provider_ids_path(id, Some("slack")),
+            format!("/api/v1/users/by-id/{id}/provider-ids/slack")
+        );
+        assert_eq!(
+            provider_ids_path(id, None),
+            format!("/api/v1/users/by-id/{id}/provider-ids")
+        );
+        assert_eq!(
+            provider_ids_path("alice", Some("slack")),
+            "/api/v1/users/alice/provider-ids/slack"
+        );
+        assert_eq!(
+            provider_ids_path("alice", None),
+            "/api/v1/users/alice/provider-ids"
+        );
     }
 }

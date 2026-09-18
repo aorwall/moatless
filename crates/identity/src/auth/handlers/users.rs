@@ -241,6 +241,97 @@ pub(in crate::auth) async fn set_user_provider_id_handler(
     ))
 }
 
+/// Set (upsert) a provider-specific user ID, keyed on the internal user id.
+///
+/// A login isn't unique — `PUT /api/v1/users/{login}/provider-ids/{provider}`
+/// resolves only the oldest row of a shared login. Reach any other row here,
+/// keyed on the `id` `GET /api/v1/users` reports; same body, same policy.
+#[utoipa::path(
+    put,
+    path = "/api/v1/users/by-id/{user_id}/provider-ids/{provider}",
+    tag = "users",
+    params(
+        ("user_id" = uuid::Uuid, Path, description = "Target user id"),
+        ("provider" = String, Path, description = "Provider name, e.g. 'slack'")
+    ),
+    request_body = SetProviderIdRequest,
+    responses(
+        (status = 200, description = "Provider ID set", body = MessageResponse),
+        (status = 401, description = "Not authenticated", body = ErrorBody),
+        (status = 403, description = "Access denied", body = ErrorBody),
+        (status = 404, description = "User not found", body = ErrorBody)
+    )
+)]
+pub(in crate::auth) async fn set_user_provider_id_by_id_handler(
+    State(state): State<AuthState>,
+    headers: HeaderMap,
+    Path((user_id, provider)): Path<(uuid::Uuid, String)>,
+    Json(body): Json<SetProviderIdRequest>,
+) -> Result<Json<MessageResponse>, AuthError> {
+    let identity = authenticate_request(&state, &headers).await?;
+    Ok(Json(
+        crate::auth::accounts::set_user_provider_id_by_id(
+            &state, &identity, user_id, provider, body,
+        )
+        .await?,
+    ))
+}
+
+/// Delete a provider ID mapping, keyed on the internal user id.
+///
+/// See [`set_user_provider_id_by_id_handler`] for why a login is not enough.
+#[utoipa::path(
+    delete,
+    path = "/api/v1/users/by-id/{user_id}/provider-ids/{provider}",
+    tag = "users",
+    params(
+        ("user_id" = uuid::Uuid, Path, description = "Target user id"),
+        ("provider" = String, Path, description = "Provider name, e.g. 'slack'")
+    ),
+    responses(
+        (status = 200, description = "Provider ID deleted", body = MessageResponse),
+        (status = 401, description = "Not authenticated", body = ErrorBody),
+        (status = 403, description = "Access denied", body = ErrorBody),
+        (status = 404, description = "User or mapping not found", body = ErrorBody)
+    )
+)]
+pub(in crate::auth) async fn delete_user_provider_id_by_id_handler(
+    State(state): State<AuthState>,
+    headers: HeaderMap,
+    Path((user_id, provider)): Path<(uuid::Uuid, String)>,
+) -> Result<Json<MessageResponse>, AuthError> {
+    let identity = authenticate_request(&state, &headers).await?;
+    Ok(Json(
+        crate::auth::accounts::delete_user_provider_id_by_id(&state, &identity, user_id, provider)
+            .await?,
+    ))
+}
+
+/// List all provider ID mappings, keyed on the internal user id.
+///
+/// See [`set_user_provider_id_by_id_handler`] for why a login is not enough.
+#[utoipa::path(
+    get,
+    path = "/api/v1/users/by-id/{user_id}/provider-ids",
+    tag = "users",
+    params(("user_id" = uuid::Uuid, Path, description = "Target user id")),
+    responses(
+        (status = 200, description = "List of provider ID mappings", body = Vec<UserProviderIdItem>),
+        (status = 401, description = "Not authenticated", body = ErrorBody),
+        (status = 404, description = "User not found", body = ErrorBody)
+    )
+)]
+pub(in crate::auth) async fn list_user_provider_ids_by_id_handler(
+    State(state): State<AuthState>,
+    headers: HeaderMap,
+    Path(user_id): Path<uuid::Uuid>,
+) -> Result<Json<Vec<UserProviderIdItem>>, AuthError> {
+    authenticate_request(&state, &headers).await?;
+    Ok(Json(
+        crate::auth::accounts::list_user_provider_ids_by_id(&state, user_id).await?,
+    ))
+}
+
 /// Delete a provider ID mapping for a moatless user.
 ///
 /// Only the user themselves or an admin may call this.

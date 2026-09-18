@@ -409,6 +409,122 @@ async fn id_keyed_update_refuses_a_non_admin_and_a_self_disable(pool: PgPool) {
     assert_eq!(user_status(&pool, alice).await, "active");
 }
 
+/// The login route maps a provider handle onto the older `alice`; only the
+/// id-keyed route reaches the newer one, which is what it exists for.
+#[sqlx::test]
+async fn id_keyed_provider_ids_reach_the_duplicate_a_shared_login_hides(pool: PgPool) {
+    seed_user(&pool, "alice", UserRole::User).await;
+    let duplicate = seed_newer_duplicate(&pool, "alice", "alice@github.example.com").await;
+    seed_user(&pool, "admin", UserRole::Admin).await;
+    let app = router(&pool);
+    let cookie = session_cookie(&login(&app, "admin", PASSWORD).await);
+
+    for (path, handle) in [
+        (
+            "/api/v1/users/alice/provider-ids/slack".to_string(),
+            "U-OLD",
+        ),
+        (
+            format!("/api/v1/users/by-id/{duplicate}/provider-ids/slack"),
+            "U-NEW",
+        ),
+    ] {
+        assert_eq!(
+            request(
+                &app,
+                "PUT",
+                &path,
+                json!({"provider_user_id": handle}),
+                Some(&cookie)
+            )
+            .await
+            .status(),
+            StatusCode::OK
+        );
+    }
+
+    // The login route still answers for the older row, so the two mappings are
+    // distinct rows and not one overwritten twice.
+    let by_login = request(
+        &app,
+        "GET",
+        "/api/v1/users/alice/provider-ids",
+        Value::Null,
+        Some(&cookie),
+    )
+    .await;
+    assert_eq!(by_login.status(), StatusCode::OK);
+    assert_eq!(body_json(by_login).await[0]["provider_user_id"], "U-OLD");
+
+    let by_id = request(
+        &app,
+        "GET",
+        &format!("/api/v1/users/by-id/{duplicate}/provider-ids"),
+        Value::Null,
+        Some(&cookie),
+    )
+    .await;
+    assert_eq!(by_id.status(), StatusCode::OK);
+    assert_eq!(body_json(by_id).await[0]["provider_user_id"], "U-NEW");
+
+    assert_eq!(
+        request(
+            &app,
+            "DELETE",
+            &format!("/api/v1/users/by-id/{duplicate}/provider-ids/slack"),
+            Value::Null,
+            Some(&cookie)
+        )
+        .await
+        .status(),
+        StatusCode::OK
+    );
+}
+
+/// The id-keyed routes carry the login routes' policy, not the admin-only one
+/// the sibling `PATCH /api/v1/admin/users/{user_id}` enforces.
+#[sqlx::test]
+async fn id_keyed_provider_ids_keep_the_login_routes_policy(pool: PgPool) {
+    let alice = seed_user(&pool, "alice", UserRole::User).await;
+    let bob = seed_user(&pool, "bob", UserRole::User).await;
+    let app = router(&pool);
+    let cookie = session_cookie(&login(&app, "alice", PASSWORD).await);
+    let body = json!({"provider_user_id": "U-ALICE"});
+
+    for (user, expected) in [(alice, StatusCode::OK), (bob, StatusCode::FORBIDDEN)] {
+        assert_eq!(
+            request(
+                &app,
+                "PUT",
+                &format!("/api/v1/users/by-id/{user}/provider-ids/slack"),
+                body.clone(),
+                Some(&cookie)
+            )
+            .await
+            .status(),
+            expected
+        );
+    }
+
+    // A uuid no user carries is the mistyped-target case, and must not reach
+    // the foreign key as a 500.
+    let missing = Uuid::new_v4();
+    for (method, path) in [
+        (
+            "PUT",
+            format!("/api/v1/users/by-id/{missing}/provider-ids/slack"),
+        ),
+        ("GET", format!("/api/v1/users/by-id/{missing}/provider-ids")),
+    ] {
+        assert_eq!(
+            request(&app, method, &path, body.clone(), Some(&cookie))
+                .await
+                .status(),
+            StatusCode::NOT_FOUND
+        );
+    }
+}
+
 #[sqlx::test]
 async fn oauth_rejects_missing_and_mismatched_state_before_provider_exchange(pool: PgPool) {
     let app = router(&pool);

@@ -9,8 +9,9 @@ use clap::Subcommand;
 use moatless_api_schemas::enums::{AdapterKind, RoutingMode, Scope};
 use moatless_api_schemas::loops::{
     ActivateLoopRequest, CreateLoopConfig, CreateLoopRequest, CreateLoopSource, CreateSchedule,
-    CreateSubscription, Loop, LoopConfigSource, LoopExecutionState, LoopKind, LoopSource,
-    UpdateLoopConfig, UpdateLoopRequest, UpdateLoopSource, UpdateSchedule, UpdateSubscription,
+    CreateSubscription, Loop, LoopConfigSource, LoopExecutionState, LoopKind, LoopRecentTaskItem,
+    LoopSource, UpdateLoopConfig, UpdateLoopRequest, UpdateLoopSource, UpdateSchedule,
+    UpdateSubscription,
 };
 
 use super::adapters::{parse_adapter_kind, parse_json_opt, print_or_json};
@@ -25,6 +26,14 @@ pub enum LoopsAction {
         kind: Option<String>,
         #[arg(long)]
         adapter: Option<String>,
+    },
+    /// List the tasks a loop most recently spawned, newest first
+    Tasks {
+        #[arg(long)]
+        id: String,
+        /// Max rows, default 10, capped at 50 by the server
+        #[arg(long)]
+        limit: Option<u32>,
     },
     /// Create a subscription loop (fired by adapter events).
     ///
@@ -305,6 +314,14 @@ pub async fn run_loops(
                 output::print_json_typed(&items);
             } else {
                 format_loop_list(&items);
+            }
+        }
+        LoopsAction::Tasks { id, limit } => {
+            let items = client.api().list_loop_recent_tasks(&id, limit).await?;
+            if json {
+                output::print_json_typed(&items);
+            } else {
+                format_loop_task_list(&items);
             }
         }
         LoopsAction::CreateSubscription {
@@ -917,6 +934,32 @@ fn format_loop_list(loops: &[Loop]) {
     }
 }
 
+/// The return channel a spawned task answers on, or `-` when it has none —
+/// see [`LoopRecentTaskItem::binding`]. `-` is a task nothing routes back, not
+/// a task with an unnamed channel.
+fn binding_cell(item: &LoopRecentTaskItem) -> String {
+    item.binding.as_ref().map_or_else(
+        || "-".to_string(),
+        |b| format!("{}:{}", b.adapter_kind.as_str(), b.subject_key),
+    )
+}
+
+fn format_loop_task_list(items: &[LoopRecentTaskItem]) {
+    let rows: Vec<Vec<String>> = items
+        .iter()
+        .map(|item| {
+            vec![
+                item.task.task_id.clone(),
+                item.task.status.as_str().to_string(),
+                item.task.created_at.clone(),
+                binding_cell(item),
+                item.task.title.clone(),
+            ]
+        })
+        .collect();
+    output::print_table(&["TASK ID", "STATUS", "CREATED", "BINDING", "TITLE"], &rows);
+}
+
 fn parse_scope(value: &str) -> Result<Scope, ClientError> {
     match value {
         "global" => Ok(Scope::Global),
@@ -1087,6 +1130,37 @@ mod tests {
 
         assert!(model_update(Some("fable"), true).is_err());
         assert!(model_update(None, false).unwrap().is_none());
+    }
+
+    /// An absent binding renders `-`, and must not fail to parse: the field is
+    /// `null` on the wire, not omitted.
+    #[test]
+    fn a_task_with_no_binding_names_no_channel() {
+        let items: Vec<LoopRecentTaskItem> = serde_json::from_value(serde_json::json!([
+            {
+                "task": {
+                    "taskId": "t-1", "shortId": "t1", "title": "Review PR",
+                    "status": "open", "createdAt": "2026-09-18T06:05:07Z"
+                },
+                "binding": {
+                    "id": "b-1", "taskId": "t-1", "adapterKind": "github_pr",
+                    "connectionId": "c-1", "loopId": "l-1", "subjectKind": "pull_request",
+                    "subjectKey": "soaplabs/moatless#959", "destinationConfig": {},
+                    "metadata": {}, "lastExternalEventId": null, "origin": "adapter_event",
+                    "createdAt": "2026-09-18T06:00:00Z", "lastEventAt": "2026-09-18T06:05:00Z"
+                }
+            },
+            {
+                "task": {
+                    "taskId": "t-2", "shortId": null, "title": "Nightly sweep",
+                    "status": "closed", "createdAt": "2026-09-17T02:00:00Z"
+                },
+                "binding": null
+            }
+        ]))
+        .expect("the wire shape the CLI reads");
+        assert_eq!(binding_cell(&items[0]), "github_pr:soaplabs/moatless#959");
+        assert_eq!(binding_cell(&items[1]), "-");
     }
 
     #[tokio::test]

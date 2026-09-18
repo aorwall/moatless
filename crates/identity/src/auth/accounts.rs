@@ -166,7 +166,46 @@ pub(super) async fn set_user_provider_id(
     body: SetProviderIdRequest,
 ) -> Result<MessageResponse, AuthError> {
     let user_id = resolve_login_to_user_id(state, &login).await?;
+    set_provider_id_for(state, identity, user_id, provider, body).await
+}
 
+/// Set the provider id of the user `user_id` names, under the same policy.
+///
+/// The `by-id` twin of [`set_user_provider_id`]: two rows can share a login,
+/// and [`resolve_login_to_user_id`] only ever reaches the oldest, so this is
+/// the only way to map a provider handle onto either of the others.
+pub(super) async fn set_user_provider_id_by_id(
+    state: &AuthState,
+    identity: &AuthIdentity,
+    user_id: uuid::Uuid,
+    provider: String,
+    body: SetProviderIdRequest,
+) -> Result<MessageResponse, AuthError> {
+    ensure_user_exists(state, user_id).await?;
+    set_provider_id_for(state, identity, user_id, provider, body).await
+}
+
+/// 404 an id no user has, which the login routes get from
+/// [`resolve_login_to_user_id`].
+///
+/// Without it a mistyped uuid writes into `user_provider_ids_user_id_fkey` and
+/// surfaces as a 500, or reads back an empty list as if the account had none.
+async fn ensure_user_exists(state: &AuthState, user_id: uuid::Uuid) -> Result<(), AuthError> {
+    state
+        .users
+        .get_user(&user_id)
+        .await?
+        .ok_or_else(|| AuthError::NotFound(format!("User '{user_id}' not found")))?;
+    Ok(())
+}
+
+async fn set_provider_id_for(
+    state: &AuthState,
+    identity: &AuthIdentity,
+    user_id: uuid::Uuid,
+    provider: String,
+    body: SetProviderIdRequest,
+) -> Result<MessageResponse, AuthError> {
     if identity.user_id != user_id && identity.role != UserRole::Admin {
         return Err(AuthError::Forbidden);
     }
@@ -189,13 +228,7 @@ pub(super) async fn delete_user_provider_id(
     provider: String,
 ) -> Result<MessageResponse, AuthError> {
     let user_id = resolve_login_to_user_id(state, &login).await?;
-
-    if identity.user_id != user_id && identity.role != UserRole::Admin {
-        return Err(AuthError::Forbidden);
-    }
-
-    let deleted = state.users.delete_provider_id(&user_id, &provider).await?;
-    if !deleted {
+    if !delete_provider_id_for(state, identity, user_id, &provider).await? {
         return Err(AuthError::NotFound(format!(
             "No '{provider}' provider ID found for user '{login}'"
         )));
@@ -204,6 +237,40 @@ pub(super) async fn delete_user_provider_id(
     Ok(MessageResponse {
         message: format!("Provider ID for '{provider}' deleted"),
     })
+}
+
+/// Delete the provider id of the user `user_id` names, under the same policy.
+///
+/// See [`set_user_provider_id_by_id`] for why a login is not enough.
+pub(super) async fn delete_user_provider_id_by_id(
+    state: &AuthState,
+    identity: &AuthIdentity,
+    user_id: uuid::Uuid,
+    provider: String,
+) -> Result<MessageResponse, AuthError> {
+    if !delete_provider_id_for(state, identity, user_id, &provider).await? {
+        return Err(AuthError::NotFound(format!(
+            "No '{provider}' provider ID found for user '{user_id}'"
+        )));
+    }
+
+    Ok(MessageResponse {
+        message: format!("Provider ID for '{provider}' deleted"),
+    })
+}
+
+/// Whether a mapping was removed; the caller names the target it asked about.
+async fn delete_provider_id_for(
+    state: &AuthState,
+    identity: &AuthIdentity,
+    user_id: uuid::Uuid,
+    provider: &str,
+) -> Result<bool, AuthError> {
+    if identity.user_id != user_id && identity.role != UserRole::Admin {
+        return Err(AuthError::Forbidden);
+    }
+
+    Ok(state.users.delete_provider_id(&user_id, provider).await?)
 }
 
 /// List user provider ids for any authenticated caller.
@@ -217,7 +284,25 @@ pub(super) async fn list_user_provider_ids(
     login: String,
 ) -> Result<Vec<UserProviderIdItem>, AuthError> {
     let user_id = resolve_login_to_user_id(state, &login).await?;
+    list_provider_ids_for(state, user_id).await
+}
 
+/// List the provider ids of the user `user_id` names.
+///
+/// See [`set_user_provider_id_by_id`] for why a login is not enough; reading
+/// stays open to any authenticated caller, as it is on the login route.
+pub(super) async fn list_user_provider_ids_by_id(
+    state: &AuthState,
+    user_id: uuid::Uuid,
+) -> Result<Vec<UserProviderIdItem>, AuthError> {
+    ensure_user_exists(state, user_id).await?;
+    list_provider_ids_for(state, user_id).await
+}
+
+async fn list_provider_ids_for(
+    state: &AuthState,
+    user_id: uuid::Uuid,
+) -> Result<Vec<UserProviderIdItem>, AuthError> {
     let accounts = state.users.list_provider_ids(&user_id).await?;
     let items: Vec<UserProviderIdItem> = accounts
         .into_iter()
