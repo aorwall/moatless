@@ -116,6 +116,7 @@ pub async fn list_plugin_skills(
             .map(|s| PluginSkillResponse {
                 name: s.name,
                 description: s.description,
+                path: s.path,
             })
             .collect(),
     ))

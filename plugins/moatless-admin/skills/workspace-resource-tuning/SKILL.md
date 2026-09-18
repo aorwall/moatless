@@ -89,6 +89,7 @@ with different numbers, that is the signal the join is keyed wrongly.
 | Observation | Action |
 |---|---|
 | peak > 85% of limit | Raise the limit (headroom is free; an OOM mid-turn is not) |
+| median RSS > request | Raise the request to the median — the scheduler is packing this node on a number the workspace exceeds continuously |
 | request > ~4× median RSS | Lower the request toward the 512Mi floor |
 | limit ≫ peak on a light workspace | Leave it — limits cost nothing |
 | throttle ratio < ~5% | CPU limit is fine, don't touch it |
@@ -148,5 +149,11 @@ usually asleep — redeploying those is free and disrupts nobody. That window
 closes as people start working, so it's worth doing promptly.
 
 After redeploying, confirm on the cluster rather than in config: node count,
-`Allocated resources` on the remaining nodes, and that new pods carry the
-expected requests.
+requests reserved per node, and that new pods carry the expected requests.
+
+**Confirm that through Prometheus, not `kubectl get nodes`.** The
+`moatless-admin` service account cannot list nodes cluster-wide, so
+`kubectl get nodes` and `kubectl describe node` both fail with a forbidden
+error; `kube_node_status_allocatable`, `kube_pod_container_resource_requests`
+and `kube_node_labels` carry the same numbers and do work from here. See
+[Node allocation](references/queries.md#node-allocation).

@@ -25,6 +25,9 @@ pub struct PluginSkill {
     pub plugin_id: String,
     pub name: String,
     pub description: String,
+    /// Plugin-relative path of the `SKILL.md`. Empty for a row written before
+    /// the column existed, until the plugin next syncs.
+    pub path: String,
 }
 
 /// Row from the `plugin_activations` table.

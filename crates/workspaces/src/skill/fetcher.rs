@@ -27,6 +27,10 @@ use moatless_workspace_types::repository::RepositoryRemote;
 #[derive(Debug, Clone)]
 pub struct FetchedSkillFile {
     pub dir_name: String,
+    /// Repo-relative path of the `SKILL.md` itself, resolved through a symlink
+    /// so it names the directory holding the file rather than the link. This is
+    /// the only editable copy; every other one a pod holds is regenerated.
+    pub path: String,
     pub content: String,
 }
 
@@ -513,13 +517,9 @@ impl GitHostSkillFetcher {
                     } else {
                         format!("{skills_prefix}/{dir_name}")
                     };
+                    let path = format!("{dir_path}/SKILL.md");
                     let content = match api
-                        .read_file(
-                            &client,
-                            &format!("{dir_path}/SKILL.md"),
-                            token.as_deref(),
-                            &remote_url,
-                        )
+                        .read_file(&client, &path, token.as_deref(), &remote_url)
                         .await
                     {
                         Ok(content) => content,
@@ -548,9 +548,13 @@ impl GitHostSkillFetcher {
                         }
                         Err(err) => return Err(err),
                     };
-                    Ok::<Option<FetchedSkillFile>, SkillError>(
-                        content.map(|content| FetchedSkillFile { dir_name, content }),
-                    )
+                    Ok::<Option<FetchedSkillFile>, SkillError>(content.map(|content| {
+                        FetchedSkillFile {
+                            dir_name,
+                            path,
+                            content,
+                        }
+                    }))
                 }
             });
 
@@ -806,6 +810,7 @@ mod tests {
         let stub = StubFetcher {
             files: vec![FetchedSkillFile {
                 dir_name: "alpha".into(),
+                path: ".claude/skills/alpha/SKILL.md".into(),
                 content: "---\nname: alpha\ndescription: A\n---\n".into(),
             }],
         };
@@ -828,6 +833,7 @@ mod tests {
     fn dedup_by_dir_name_merges_claude_and_agents_prefixes() {
         let file = |dir: &str, body: &str| FetchedSkillFile {
             dir_name: dir.into(),
+            path: format!(".claude/skills/{dir}/SKILL.md"),
             content: body.into(),
         };
         // `.claude/skills` first (wins on conflict), then `.agents/skills`.

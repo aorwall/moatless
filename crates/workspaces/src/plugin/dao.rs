@@ -97,7 +97,7 @@ impl PluginDao for PgPluginDao {
 
     async fn list_skills(&self, plugin_id: &str) -> Result<Vec<PluginSkill>, sqlx::Error> {
         sqlx::query_as::<_, PluginSkill>(
-            "SELECT plugin_id, name, description FROM plugin_skills WHERE plugin_id = $1 ORDER BY name ASC",
+            "SELECT plugin_id, name, description, path FROM plugin_skills WHERE plugin_id = $1 ORDER BY name ASC",
         )
         .bind(plugin_id)
         .fetch_all(&self.0)
@@ -119,11 +119,12 @@ impl PluginDao for PgPluginDao {
 
         for skill in skills {
             sqlx::query(
-                "INSERT INTO plugin_skills (plugin_id, name, description) VALUES ($1, $2, $3)",
+                "INSERT INTO plugin_skills (plugin_id, name, description, path) VALUES ($1, $2, $3, $4)",
             )
             .bind(plugin_id)
             .bind(&skill.name)
             .bind(&skill.description)
+            .bind(&skill.path)
             .execute(&mut *tx)
             .await?;
         }
@@ -139,7 +140,7 @@ impl PluginDao for PgPluginDao {
 
     async fn list_all_skills(&self) -> Result<Vec<PluginSkill>, sqlx::Error> {
         sqlx::query_as::<_, PluginSkill>(
-            "SELECT plugin_id, name, description FROM plugin_skills ORDER BY plugin_id, name",
+            "SELECT plugin_id, name, description, path FROM plugin_skills ORDER BY plugin_id, name",
         )
         .fetch_all(&self.0)
         .await

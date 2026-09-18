@@ -102,14 +102,33 @@ q 'avg(avg_over_time((container_memory_rss{namespace="moatless",container="sandb
 ## Node allocation
 
 Requests reserved versus capacity — the direct read on whether requests are
-driving node count:
+driving node count.
+
+**Use these Prometheus queries, not `kubectl get nodes`.** The `moatless-admin`
+service account holds no cluster-wide node permission, so `kubectl get nodes`
+and `kubectl describe node` both fail with a forbidden error. `kube-state-metrics`
+publishes the same numbers:
 
 ```bash
-kubectl get nodes -l workload=moatless \
-  -o custom-columns='NODE:.metadata.name,TYPE:.metadata.labels.node\.kubernetes\.io/instance-type,CPU:.status.allocatable.cpu,MEM:.status.allocatable.memory'
+q 'count(kube_node_labels{label_workload="moatless"})'                  # pool size
 
-kubectl describe node <node> | awk '/Allocated resources/,/Events/'
+q 'kube_node_status_allocatable{resource="memory"}
+   * on(node) group_left() kube_node_labels{label_workload="moatless"}' # capacity
+
+q 'sum by (node) (kube_pod_container_resource_requests{namespace="moatless",resource="memory"})'
+q 'sum by (node) (kube_pod_container_resource_requests{namespace="moatless",resource="cpu"})'
 ```
+
+The reserved fraction — what `kubectl describe node` prints under `Allocated
+resources`:
+
+```bash
+q 'sum by (node) (kube_pod_container_resource_requests{namespace="moatless",resource="memory"})
+ / on(node) group_left() kube_node_status_allocatable{resource="memory"}'
+```
+
+`kube_node_status_allocatable` carries one series per `resource`, so filter it —
+unfiltered, the division matches `cpu` against `memory` and returns nonsense.
 
 A node showing high CPU-requested with few sandboxes on it is the signature of
 stale templates carrying inflated CPU requests.

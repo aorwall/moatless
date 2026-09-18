@@ -347,7 +347,10 @@ fn build_managed_command_note(config: &Config) -> Option<String> {
          The Bash tool kills any command that runs past ~10 minutes, and this \
          session cannot background one. For work that outlives a single Bash \
          call — a slow build or test suite, a dev server — start it with `moat \
-         cmd run \"<command>\"` instead of blocking a turn on `sleep` polling. \
+         cmd run --cwd <dir> \"<command>\"` instead of blocking a turn on \
+         `sleep` polling. Pass `--cwd`: the command does not inherit your shell's \
+         working directory, and a `cd <dir> && ` prefix is one you have to \
+         remember every time. \
          The sandbox owns the process: it keeps the sandbox awake while the \
          command runs and wakes you the moment it finishes. End your turn once \
          it is started — that wake is guaranteed, including when the command \
@@ -1081,7 +1084,7 @@ mod tests {
     fn managed_command_note_present_in_subprocess_mode_only() {
         let subprocess = build_prompt_append(&test_config(false), &test_request());
         assert!(subprocess.contains("## Long-running commands"));
-        assert!(subprocess.contains("moat cmd run"));
+        assert!(subprocess.contains("moat cmd run --cwd <dir>"));
         assert!(subprocess.contains("that wake is guaranteed"));
 
         let tmux = build_prompt_append(&test_config(true), &test_request());

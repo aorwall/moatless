@@ -266,6 +266,15 @@ tasks:
     cmds:
       - ./scripts/cargo-gc.sh
 
+  # ── Rust lint extras ───────────────────────────────────────────
+
+  # Pass --isolated to lint each package on its own, the way CI does on a
+  # cargo manifest change.
+  rust:clippy:db-tests:
+    desc: Clippy every package declaring the db-tests feature, discovered from cargo metadata
+    cmds:
+      - ./scripts/clippy-db-tests.sh {{.CLI_ARGS}}
+
   # ── Testing ────────────────────────────────────────────────────
 
   test:integration:

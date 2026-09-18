@@ -1,6 +1,6 @@
 ---
 name: rust-dev-guidelines
-description: Rust development and responsibility-review conventions for Moatless backend, sandbox, and shared crates. Use when planning, writing, reviewing, restructuring, or changing Rust under crates/ or tooling/.
+description: Rust development and responsibility-review conventions for Moatless backend, sandbox, and shared crates. Use before running cargo fmt, rustfmt, cargo clippy, cargo build, cargo test, cargo check, cargo add or cargo nextest in this workspace, and when planning, writing, reviewing, restructuring, or changing Rust under crates/ or tooling/.
 ---
 
 # Rust Development Guidelines
@@ -17,8 +17,9 @@ new conventions without checking that they remain sound.
    - `crates/server/` → [backend.md](references/backend.md)
    - `crates/sandbox/` → [sandbox.md](references/sandbox.md)
    - `crates/` → [shared-crates.md](references/shared-crates.md)
-   - adding, varying, or removing a cargo invocation, or configuring an editor
-     against this workspace → [build-costs.md](references/build-costs.md)
+   - running, adding, varying, or removing a cargo invocation — including
+     `cargo fmt`, which is destructive here — or configuring an editor against
+     this workspace → [build-costs.md](references/build-costs.md)
 3. Define a failing test or reproducible check before implementation.
 4. For a new or materially changed module, interface, or dependency seam, use
    the `codebase-design` skill before settling the design.
@@ -113,12 +114,12 @@ The comment rules in the root `AGENTS.md` apply. Rust specifics:
 
 ### Format single files, never the crate
 
-Do not run `cargo fmt -p <crate>`. No crate here has a `rustfmt.toml`, and
-`backend`, `sandbox` and every crate under `crates/` except `codex-sdk` declare
-`edition = "2021"` — so `cargo fmt` formats them to the 2021 style edition,
-while newer modules inside them are written in the 2024 one. The two disagree on
-import ordering, so a crate-wide run rewrites unrelated files underneath your
-change. On `moatless-backend` today that is 249 diff hunks; one refactor
+Do not run `cargo fmt -p <crate>`, and never `cargo fmt --all`. `backend`,
+`sandbox` and every crate under `crates/` except `codex-sdk` declare
+`edition = "2021"`, while newer modules inside them are written in the 2024
+style edition. The two disagree on import ordering, so a crate-wide run
+rewrites unrelated files underneath your change. On `moatless-backend` today
+that is 249 diff hunks and `--all` is 229 across the workspace; one refactor
 lost real time unpicking 72 rewritten files out of its diff.
 
 `crates/codex-sdk` is already `edition = "2024"` and does not have this split.
@@ -126,8 +127,12 @@ lost real time unpicking 72 rewritten files out of its diff.
 Format the files you actually touched:
 
 ```bash
-rustfmt --edition 2021 --style-edition 2024 <file>...
+rustfmt <file>...
 ```
+
+`rustfmt.toml` at the repository root pins both flags, so that line and an
+editor's format-on-save agree. Without it rustfmt resolves no
+`edition.workspace = true` and aborts with `E0670` on the first `async fn`.
 
 That is a no-op on already-2024 modules such as
 `crates/adapter-github-pr/src/`, which is the shape to match.

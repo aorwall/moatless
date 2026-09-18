@@ -21,6 +21,10 @@ pub enum SkillSource {
 pub struct SkillResponse {
     pub name: String,
     pub description: String,
+    /// Where to edit this skill: the `SKILL.md` path inside the repository or
+    /// plugin it was read from. A sandbox's own `<home>/skills` copy is
+    /// regenerated on every init, so an edit there reaches nothing.
+    pub path: String,
     pub source: SkillSource,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub plugin_id: Option<String>,
@@ -40,6 +44,7 @@ impl From<Skill> for SkillResponse {
         Self {
             name: skill.name,
             description: skill.description,
+            path: skill.path,
             source: skill.source,
             plugin_id: skill.plugin_id,
             plugin_name: skill.plugin_name,

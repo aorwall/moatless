@@ -337,7 +337,11 @@ async fn run_issue(
                 .api()
                 .linear_get_issue(&id, connection.as_deref())
                 .await?;
-            print_issue(&resp.data, json);
+            if json {
+                output::print_json_typed(&resp);
+            } else {
+                print_issue(&resp.data);
+            }
             Ok(())
         }
         IssueAction::Create {
@@ -389,7 +393,7 @@ async fn run_issue(
             if json {
                 output::print_json_typed(&resp);
             } else {
-                print_issue(&resp.data, false);
+                print_issue(&resp.data);
                 if let Some(bid) = resp.binding_id {
                     println!("\nBound to task via: {bid}");
                 }
@@ -432,7 +436,11 @@ async fn run_issue(
                 .api()
                 .linear_update_issue(&id, &req, connection.as_deref())
                 .await?;
-            print_issue(&resp.data, json);
+            if json {
+                output::print_json_typed(&resp);
+            } else {
+                print_issue(&resp.data);
+            }
             Ok(())
         }
         IssueAction::Move {
@@ -448,7 +456,11 @@ async fn run_issue(
                 .api()
                 .linear_update_issue(&id, &req, connection.as_deref())
                 .await?;
-            print_issue(&resp.data, json);
+            if json {
+                output::print_json_typed(&resp);
+            } else {
+                print_issue(&resp.data);
+            }
             Ok(())
         }
         IssueAction::Comment {
@@ -730,13 +742,12 @@ async fn run_graphql(
     Ok(())
 }
 
-/// Pretty-print an issue payload. JSON mode prints the raw value; human mode
-/// prints the key fields.
-fn print_issue(issue: &Value, json: bool) {
-    if json {
-        output::print_json_typed(&issue);
-        return;
-    }
+/// Pretty-print an issue payload's key fields.
+///
+/// Every caller renders the `{"data": …}` envelope itself in `--json` mode, so
+/// that one shape is what a script extracting the new issue's id sees from
+/// `get`, `create`, `update` and `move` alike.
+fn print_issue(issue: &Value) {
     let identifier = issue
         .get("identifier")
         .and_then(Value::as_str)
@@ -774,6 +785,11 @@ fn print_issue(issue: &Value, json: bool) {
         })
         .unwrap_or_default();
     let url = issue.get("url").and_then(Value::as_str).unwrap_or("");
+    let description = issue
+        .get("description")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim_end();
 
     println!("{identifier}  {title}");
     println!("  state:    {state}");
@@ -789,6 +805,10 @@ fn print_issue(issue: &Value, json: bool) {
     }
     if !url.is_empty() {
         println!("  url:      {url}");
+    }
+    if !description.is_empty() {
+        println!();
+        println!("{description}");
     }
 }
 

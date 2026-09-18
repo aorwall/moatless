@@ -67,19 +67,22 @@ remove or re-default a model. Ask the new CLI directly rather than guessing —
 `model/list` over the app-server is the authority.
 
 ```bash
-mkdir -p /tmp/codex-probe && cd /tmp/codex-probe
-npm i "@openai/codex@<new-version>" --no-audit --no-fund
-BIN=$PWD/node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/bin/codex
-chmod +x "$BIN"
-{ printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"probe","title":"probe","version":"0.0.0"}}}'
-  sleep 3
-  printf '%s\n' '{"jsonrpc":"2.0","id":2,"method":"model/list","params":{}}'
-  sleep 6
-} | timeout 25 "$BIN" app-server 2>/dev/null | grep '"id":2' > /tmp/model-list.json
+scripts/codex-model-probe.sh <old-version> <new-version>
 ```
 
-Read `id`, `displayName`, `hidden`, `isDefault` and `supportedReasoningEfforts`
-off each entry, then reconcile four places against it:
+That prints both catalogs and the diff between them, and the diff is what you
+reconcile: it names exactly the models added, removed and re-defaulted, so a
+run where nothing moved reports `(no catalog change)` and needs no further
+reading.
+
+**Do not probe with this pod's own `CODEX_HOME`.** The script clears it per
+probe because the pod's config routes Codex through the Moatless proxy, and
+`model/list` then answers with the proxy's catalog — Claude model ids, and
+`gpt-5.6-sol` marked default. Those ids are what would land in the tables below,
+and no Codex task can run one.
+
+Each line is `id`, `displayName`, `hidden`, `isDefault` and the reasoning
+efforts. Reconcile four places against them:
 
 - `crates/tasks/src/agent/catalog.rs` — `CODEX.models`, in the order `model/list`
   returns them, after the `"default"` entry. Skip a `hidden` model.

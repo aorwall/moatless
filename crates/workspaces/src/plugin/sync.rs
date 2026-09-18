@@ -130,13 +130,20 @@ impl PluginSyncService {
         let mut skills: Vec<PluginSkill> = files
             .into_iter()
             .filter_map(|f| {
-                scanner::parse_skill(&f.content, &f.dir_name, SkillSource::Plugin, None, None).map(
-                    |s| PluginSkill {
-                        plugin_id: current.id.clone(),
-                        name: f.dir_name,
-                        description: s.description,
-                    },
+                scanner::parse_skill(
+                    &f.content,
+                    &f.dir_name,
+                    &f.path,
+                    SkillSource::Plugin,
+                    None,
+                    None,
                 )
+                .map(|s| PluginSkill {
+                    plugin_id: current.id.clone(),
+                    name: f.dir_name,
+                    description: s.description,
+                    path: s.path,
+                })
             })
             .collect();
         skills.sort_by(|a, b| a.name.cmp(&b.name));
@@ -332,6 +339,7 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(50)).await;
             Ok(vec![FetchedSkillFile {
                 dir_name: "sample-skill".to_string(),
+                path: "skills/sample-skill/SKILL.md".to_string(),
                 content: SKILL_MD.to_string(),
             }])
         }
@@ -456,6 +464,7 @@ mod tests {
             plugin_id: "p1".to_string(),
             name: "code-review".to_string(),
             description: "Reviews code".to_string(),
+            path: "skills/code-review/SKILL.md".to_string(),
         }];
         let plugins =
             Arc::new(StubPlugins::with(plugin(Some("sha-old"))).seed_skills(previous.clone()));

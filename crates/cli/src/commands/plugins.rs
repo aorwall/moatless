@@ -151,9 +151,9 @@ pub async fn run(client: &MoatClient, action: PluginAction, json: bool) -> Resul
             } else {
                 let rows: Vec<Vec<String>> = skills
                     .iter()
-                    .map(|s| vec![s.name.clone(), s.description.clone()])
+                    .map(|s| vec![s.name.clone(), s.path.clone(), s.description.clone()])
                     .collect();
-                output::print_table(&["NAME", "DESCRIPTION"], &rows);
+                output::print_table(&["NAME", "PATH", "DESCRIPTION"], &rows);
             }
         }
         PluginAction::Enable {

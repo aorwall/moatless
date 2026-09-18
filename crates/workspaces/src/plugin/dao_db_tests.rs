@@ -44,6 +44,7 @@ fn skill(plugin_id: &str, name: &str) -> PluginSkill {
         plugin_id: plugin_id.to_string(),
         name: name.to_string(),
         description: format!("does {name}"),
+        path: format!("skills/{name}/SKILL.md"),
     }
 }
 
@@ -69,6 +70,11 @@ async fn stored_skills_outlive_the_reader_that_fetched_them(pool: PgPool) {
         stored.iter().map(|s| s.name.as_str()).collect::<Vec<_>>(),
         vec!["build-check", "code-review"],
         "skills come back by name, from storage rather than from git"
+    );
+    assert_eq!(
+        stored.iter().map(|s| s.path.as_str()).collect::<Vec<_>>(),
+        vec!["skills/build-check/SKILL.md", "skills/code-review/SKILL.md"],
+        "the path is what a listing points an edit at, so it has to survive the process too"
     );
     assert_eq!(
         reader

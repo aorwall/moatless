@@ -149,7 +149,14 @@ impl SkillService {
         let mut skills: Vec<Skill> = files
             .into_iter()
             .filter_map(|f| {
-                scanner::parse_skill(&f.content, &f.dir_name, SkillSource::Workspace, None, None)
+                scanner::parse_skill(
+                    &f.content,
+                    &f.dir_name,
+                    &f.path,
+                    SkillSource::Workspace,
+                    None,
+                    None,
+                )
             })
             .collect();
         skills.sort_by(|a, b| a.name.cmp(&b.name));
@@ -173,6 +180,7 @@ impl SkillService {
             .map(|s| Skill {
                 name: s.name,
                 description: s.description,
+                path: s.path,
                 source: SkillSource::Plugin,
                 plugin_id: Some(plugin.id.clone()),
                 plugin_name: Some(plugin.name.clone()),
@@ -247,6 +255,7 @@ mod tests {
         Skill {
             name: name.to_string(),
             description: format!("{name} description"),
+            path: format!(".claude/skills/{name}/SKILL.md"),
             source: SkillSource::Workspace,
             plugin_id: None,
             plugin_name: None,
@@ -257,6 +266,7 @@ mod tests {
         Skill {
             name: name.to_string(),
             description: format!("{name} description"),
+            path: format!("skills/{name}/SKILL.md"),
             source: SkillSource::Plugin,
             plugin_id: Some(format!("{plugin}-id")),
             plugin_name: Some(plugin.to_string()),

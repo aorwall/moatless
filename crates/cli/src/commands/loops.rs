@@ -9,8 +9,8 @@ use clap::Subcommand;
 use moatless_api_schemas::enums::{AdapterKind, RoutingMode, Scope};
 use moatless_api_schemas::loops::{
     ActivateLoopRequest, CreateLoopConfig, CreateLoopRequest, CreateLoopSource, CreateSchedule,
-    CreateSubscription, LoopKind, LoopSource, UpdateLoopConfig, UpdateLoopRequest,
-    UpdateLoopSource, UpdateSchedule, UpdateSubscription,
+    CreateSubscription, Loop, LoopConfigSource, LoopKind, LoopSource, UpdateLoopConfig,
+    UpdateLoopRequest, UpdateLoopSource, UpdateSchedule, UpdateSubscription,
 };
 
 use super::adapters::{parse_adapter_kind, parse_json_opt, print_or_json};
@@ -304,7 +304,11 @@ pub async fn run_loops(
                     adapter.map(AdapterKind::as_str),
                 )
                 .await?;
-            print_or_json(&items, json);
+            if json {
+                output::print_json_typed(&items);
+            } else {
+                format_loop_list(&items);
+            }
         }
         LoopsAction::CreateSubscription {
             adapter,
@@ -854,6 +858,52 @@ fn fold_list(
         (false, false) => Ok(Some(values)),
         (true, true) => Ok(Some(vec![])),
         (true, false) => Ok(None),
+    }
+}
+
+/// How a row's stored configuration relates to its Git declaration.
+///
+/// An overridden Loop keeps `sourceConfigPath` and stops reading it, so editing
+/// that `LOOP.md` and merging the pull request changes nothing that runs. That
+/// state is what `overridden` names, and the only exit from it is
+/// `moat loops reset-git`.
+fn config_source_cell(l: &Loop) -> &'static str {
+    match l.config_source {
+        LoopConfigSource::Git => "git",
+        LoopConfigSource::Manual if l.source_config_path.is_some() => "manual (overridden)",
+        LoopConfigSource::Manual => "manual",
+    }
+}
+
+fn format_loop_list(loops: &[Loop]) {
+    let rows: Vec<Vec<String>> = loops
+        .iter()
+        .map(|l| {
+            vec![
+                l.id.clone(),
+                l.name.clone(),
+                l.kind.as_str().to_string(),
+                if l.active { "yes" } else { "no" }.to_string(),
+                config_source_cell(l).to_string(),
+            ]
+        })
+        .collect();
+    output::print_table(&["ID", "NAME", "KIND", "ACTIVE", "CONFIG"], &rows);
+
+    let overridden: Vec<&Loop> = loops
+        .iter()
+        .filter(|l| config_source_cell(l) == "manual (overridden)")
+        .collect();
+    if !overridden.is_empty() {
+        println!();
+        println!(
+            "{} loop(s) ignore their Git declaration until `moat loops reset-git --id <id>`:",
+            overridden.len()
+        );
+        for l in overridden {
+            let path = l.source_config_path.as_deref().unwrap_or("?");
+            println!("  {}  {}  (declared in {path})", l.id, l.name);
+        }
     }
 }
 

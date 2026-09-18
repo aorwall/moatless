@@ -37,7 +37,7 @@ cargo clippy -p moatless-core --all-targets --features openapi -- -D warnings
 cargo clippy -p moatless-core --all-targets -- -D warnings
 cargo clippy -p moatless-ports --all-targets --all-features -- -D warnings
 cargo clippy -p moatless-ports --all-targets --no-default-features -- -D warnings
-cargo clippy -p moatless-backend --all-targets --features db-tests -- -D warnings
+task rust:clippy:db-tests                   # every package declaring db-tests, nine today
 cargo test -p <crate>                       # scope to the crate you changed, never --workspace
 bash .github/scripts/test-workspace-contracts.sh # isolated Workspace contract features
 task rust:gc                                # reclaim target/debug/incremental
@@ -67,7 +67,11 @@ git tag v0.1.21 && git push origin v0.1.21                      # triggers relea
 Mandatory after every change.
 
 - **Rust:** the floor line, plus any `-p` line above naming the crate you
-  touched, verbatim. Then `cargo test -p <crate>`.
+  touched, verbatim. Then `cargo test -p <crate>`, then
+  `cargo test -p moatless-arch-rules` (its own CI job, and the one a new trait
+  impl, a moved type or a dropped crate edge breaks — with `cargo test`, never
+  `cargo nextest run`) and `cargo run -p moatless-arch-rules --bin arch-report
+  -- --comments --since main` for the comment ceilings above.
 - **TypeScript:** `bun run type:check` and `bun run biome:check`, or
   `bun run post-edit-hook` for a quick loop.
 - **Lint ratchet:** `noFloatingPromises`, `noMisusedPromises` and

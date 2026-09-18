@@ -87,10 +87,17 @@ Notes:
   and goes stale the moment the channel changes.
 - Synced loops are tracked with `config_source = 'git'`, keyed by
   `(repository, loop dir name)`. Re-running `sync-config` upserts them and removes
-  loops whose directory was deleted. Manually-created loops are never touched, and
-  neither is a synced loop an administrator has **overridden** (`moat loops
-  override --id <id>`, or Override in the UI) — it keeps its local edits until someone
-  explicitly resets it to Git.
+  loops whose directory was deleted. Manually-created loops are never touched.
+- **An overridden loop stops reading its `LOOP.md`, and editing that file then
+  changes nothing that runs.** `moat loops override --id <id>` (or Override in
+  the UI) detaches a synced loop so an administrator's local edits survive the
+  next `sync-config`. The loop keeps its `sourceConfigPath`, so the file still
+  looks like the loop's configuration while sync skips it. `moat loops list`
+  prints a CONFIG column — `git`, `manual`, or `manual (overridden)` — and names
+  the overridden rows with their paths below the table. Check it before you edit
+  a `LOOP.md`, and re-attach with `moat loops reset-git --id <id>`, which
+  discards the local edits and takes the file again. `reset-git` also restores a
+  loop an administrator tombstoned.
 - `github_pr` loops need a pre-existing GitHub **connection** for the org (it
   holds the webhook secret and can't be committed to git). With no connection the
   loop is **skipped** with a reason, not errored. Schedule loops need no connection.

@@ -33,6 +33,9 @@ pub struct PluginResponse {
 pub struct PluginSkillResponse {
     pub name: String,
     pub description: String,
+    /// Path of the `SKILL.md` inside the plugin repository — the copy an edit
+    /// has to land in, since every copy a sandbox holds is regenerated.
+    pub path: String,
 }
 
 /// Who an activation applies to: everyone, one person, or one Workspace.

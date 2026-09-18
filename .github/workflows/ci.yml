@@ -424,39 +424,18 @@ jobs:
           apt-get update
           apt-get install -y --no-install-recommends jq
 
-          mapfile -t DB_TEST_PACKAGES < <(
-            cargo metadata --no-deps --format-version 1 \
-              | jq -r '.packages[] | select(.features["db-tests"] != null) | .name' \
-              | sort
-          )
-          echo "Discovered ${#DB_TEST_PACKAGES[@]} db-tests packages: ${DB_TEST_PACKAGES[*]}"
-          if [ "${#DB_TEST_PACKAGES[@]}" -eq 0 ]; then
-            echo "::error::cargo metadata found no packages declaring db-tests"
-            exit 1
-          fi
-          # The isolated per-package loop costs 4m24; one unified pass links
-          # the overlapping graph once instead. The loop buys one thing:
-          # unified sibling features mask a crate that only links when another
-          # package enables test-support. That is a feature-wiring break, which
-          # a manifest edit causes — the same gate this step already applies to
-          # `moatless-ports --no-default-features`.
+          # The sweep itself lives in scripts/clippy-db-tests.sh so that
+          # `task rust:clippy:db-tests` runs exactly what this job runs. The
+          # isolated per-package loop costs 4m24; the script's default unified
+          # pass links the overlapping graph once instead. The loop buys one
+          # thing: unified sibling features mask a crate that only links when
+          # another package enables test-support. That is a feature-wiring
+          # break, which a manifest edit causes — the same gate this step
+          # already applies to `moatless-ports --no-default-features`.
           if [ "$CARGO_MANIFEST_CHANGED" = true ]; then
-            for package in "${DB_TEST_PACKAGES[@]}"; do
-              cargo clippy -p "$package" --all-targets --features db-tests -- -D warnings
-            done
+            scripts/clippy-db-tests.sh --isolated
           else
-            DB_TEST_ARGS=""
-            DB_TEST_FEATURES=""
-            for package in "${DB_TEST_PACKAGES[@]}"; do
-              DB_TEST_ARGS="$DB_TEST_ARGS -p $package"
-              if [ -n "$DB_TEST_FEATURES" ]; then
-                DB_TEST_FEATURES="$DB_TEST_FEATURES,$package/db-tests"
-              else
-                DB_TEST_FEATURES="$package/db-tests"
-              fi
-            done
-            # shellcheck disable=SC2086
-            cargo clippy --all-targets $DB_TEST_ARGS --features "$DB_TEST_FEATURES" -- -D warnings
+            scripts/clippy-db-tests.sh
           fi
 
       - name: sccache stats

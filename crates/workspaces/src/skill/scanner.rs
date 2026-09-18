@@ -26,6 +26,7 @@ struct SkillFrontmatter {
 pub fn parse_skill(
     content: &str,
     dir_name: &str,
+    path: &str,
     source: SkillSource,
     plugin_id: Option<&str>,
     plugin_name: Option<&str>,
@@ -47,6 +48,7 @@ pub fn parse_skill(
     Some(Skill {
         name,
         description,
+        path: path.to_string(),
         source,
         plugin_id: plugin_id.map(String::from),
         plugin_name: plugin_name.map(String::from),
@@ -88,6 +90,7 @@ mod tests {
         let skill = parse_skill(
             "---\nname: backend\ndescription: Backend dev patterns\n---\n\n# Body\n",
             "backend",
+            ".claude/skills/backend/SKILL.md",
             SkillSource::Workspace,
             None,
             None,
@@ -96,6 +99,7 @@ mod tests {
         assert_eq!(skill.name, "backend");
         assert_eq!(skill.description, "Backend dev patterns");
         assert_eq!(skill.source, SkillSource::Workspace);
+        assert_eq!(skill.path, ".claude/skills/backend/SKILL.md");
     }
 
     #[test]
@@ -103,6 +107,7 @@ mod tests {
         let skill = parse_skill(
             "---\ndescription: No explicit name here\n---\n",
             "my-skill",
+            ".claude/skills/my-skill/SKILL.md",
             SkillSource::Workspace,
             None,
             None,
@@ -116,6 +121,7 @@ mod tests {
         let skill = parse_skill(
             "---\nname: broken\n---\n",
             "broken",
+            ".claude/skills/broken/SKILL.md",
             SkillSource::Workspace,
             None,
             None,
@@ -128,6 +134,7 @@ mod tests {
         let skill = parse_skill(
             "# Just a markdown file with no frontmatter\n",
             "no-fm",
+            ".claude/skills/no-fm/SKILL.md",
             SkillSource::Workspace,
             None,
             None,
@@ -140,6 +147,7 @@ mod tests {
         let skill = parse_skill(
             "---\nname: deploy\ndescription: Deploy stuff\n---\n",
             "deploy",
+            "skills/deploy/SKILL.md",
             SkillSource::Plugin,
             Some("plugin-123"),
             Some("ops-plugin"),
@@ -155,6 +163,7 @@ mod tests {
         let skill = parse_skill(
             "---\nname: extra\ndescription: Has extras\nallowed-tools: Bash(git:*)\ncolor: red\n---\n",
             "extra",
+            ".claude/skills/extra/SKILL.md",
             SkillSource::Workspace,
             None,
             None,
@@ -166,8 +175,15 @@ mod tests {
     #[test]
     fn tolerates_bom_and_crlf() {
         let body = "\u{feff}---\r\nname: bom\r\ndescription: BOM handled\r\n---\r\n";
-        let skill =
-            parse_skill(body, "bom", SkillSource::Workspace, None, None).expect("bom+crlf parses");
+        let skill = parse_skill(
+            body,
+            "bom",
+            ".claude/skills/bom/SKILL.md",
+            SkillSource::Workspace,
+            None,
+            None,
+        )
+        .expect("bom+crlf parses");
         assert_eq!(skill.name, "bom");
     }
 }
