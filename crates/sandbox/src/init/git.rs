@@ -356,6 +356,30 @@ fn clone_host_port(clone_url: &str, uses_ssh: bool) -> Option<(String, u16)> {
     }
 }
 
+/// Fetch blobs on demand instead of shallowing the clone.
+///
+/// Deliberately not `--depth 1`, which implies `--single-branch`: the
+/// `remote.origin.fetch` that writes covers the clone branch alone, so a
+/// feature branch gets no remote-tracking ref (`git push --force-with-lease`
+/// is rejected `stale info`) and `origin/main...HEAD` has no merge base.
+const CLONE_FILTER: &str = "--filter=blob:none";
+
+/// `git clone` arguments for one checkout, blobless and with every branch.
+///
+/// `--` closes the option list: nothing validates a stored `remote_url`, so a
+/// row starting one with `-` would otherwise arrive here as a flag.
+fn git_clone_args<'a>(url: &'a str, dest: &'a str, branch: Option<&'a str>) -> Vec<&'a str> {
+    let mut args = vec!["clone", CLONE_FILTER];
+    if let Some(branch) = branch {
+        args.push("--branch");
+        args.push(branch);
+    }
+    args.push("--");
+    args.push(url);
+    args.push(dest);
+    args
+}
+
 /// Clone one repository into `dest`.
 ///
 /// GitHub repos try `gh repo clone` first, falling back to `git clone`; other
@@ -385,16 +409,7 @@ async fn clone_checkout(repo: &RepoCheckout, dest: &str, pod_provider: &str) -> 
     // at clone time (e.g. the persisted user token lives under it), and git
     // refuses to clone into a non-empty directory.
     if is_ssh {
-        let mut git_args = vec!["clone", "--depth", "1"];
-        if let Some(b) = branch {
-            git_args.push("--branch");
-            git_args.push(b);
-        }
-        // `--` closes the option list: nothing validates a stored `remote_url`,
-        // so a row starting one with `-` would otherwise arrive here as a flag.
-        git_args.push("--");
-        git_args.push(clone_url);
-        git_args.push(dest);
+        let git_args = git_clone_args(clone_url, dest, branch);
         return match run_command("git", &git_args).await {
             Ok(()) => {
                 info!("Repository cloned successfully over SSH");
@@ -408,8 +423,7 @@ async fn clone_checkout(repo: &RepoCheckout, dest: &str, pod_provider: &str) -> 
     if is_github {
         let repo_path = extract_github_repo_path(clone_url);
         let mut args = vec!["repo", "clone", &repo_path, dest, "--"];
-        args.push("--depth");
-        args.push("1");
+        args.push(CLONE_FILTER);
 
         if let Some(b) = branch {
             args.push("--branch");
@@ -433,14 +447,7 @@ async fn clone_checkout(repo: &RepoCheckout, dest: &str, pod_provider: &str) -> 
     // authenticates each with the right credential.
     if let Some(token) = provider_git_token(&repo.provider, pod_provider) {
         let auth_url = inject_token_into_url(clone_url, &token);
-        let mut git_args = vec!["clone", "--depth", "1"];
-        if let Some(b) = branch {
-            git_args.push("--branch");
-            git_args.push(b);
-        }
-        git_args.push("--");
-        git_args.push(&auth_url);
-        git_args.push(dest);
+        let git_args = git_clone_args(&auth_url, dest, branch);
         match run_command("git", &git_args).await {
             Ok(()) => {
                 info!("Repository cloned successfully with token auth");
@@ -454,14 +461,7 @@ async fn clone_checkout(repo: &RepoCheckout, dest: &str, pod_provider: &str) -> 
     }
 
     // Last resort: plain git clone (works for public repos)
-    let mut git_args = vec!["clone", "--depth", "1"];
-    if let Some(b) = branch {
-        git_args.push("--branch");
-        git_args.push(b);
-    }
-    git_args.push("--");
-    git_args.push(clone_url);
-    git_args.push(dest);
+    let git_args = git_clone_args(clone_url, dest, branch);
     match run_command("git", &git_args).await {
         Ok(()) => {
             info!("Repository cloned successfully (plain git clone)");
@@ -768,6 +768,74 @@ mod tests {
         assert!(!summary.primary_recloned);
         assert!(workspace.join("secondary").join(".git").is_dir());
         assert!(workspace.join("secondary").join("README.md").is_file());
+    }
+
+    #[test]
+    fn a_clone_is_blobless_rather_than_shallow() {
+        assert_eq!(
+            git_clone_args("https://example.test/acme/api.git", "/w/api", Some("dev")),
+            vec![
+                "clone",
+                "--filter=blob:none",
+                "--branch",
+                "dev",
+                "--",
+                "https://example.test/acme/api.git",
+                "/w/api",
+            ],
+        );
+        // `--depth` back at any site restores the single-branch refspec that
+        // breaks `--force-with-lease` and `origin/main...HEAD`.
+        assert!(!git_clone_args("u", "d", None).contains(&"--depth"));
+    }
+
+    /// The three things a `--depth 1` clone took away: a branch other than the
+    /// clone branch, a lease-eligible tracking ref, and a merge base.
+    #[tokio::test]
+    async fn a_cloned_repo_carries_every_branch_and_a_merge_base() {
+        let tmp = tempfile::tempdir().unwrap();
+        let workspace = tmp.path().join("workspace");
+        let source = tmp.path().join("source");
+        init_local_source_repo(&source);
+        run_git_sync(&source, &["branch", "feature"]);
+
+        let workspace_str = workspace.display().to_string();
+        let mut config = minimal_config();
+        config.workspace_dir = workspace_str.clone();
+        config.repo_dir = workspace.join("api").display().to_string();
+        config.git_provider = "local".to_string();
+        config.repos = vec![RepoCheckout {
+            uses_ssh: false,
+            clone_url: source.display().to_string(),
+            repository_id: String::new(),
+            branch: Some("main".to_string()),
+            provider: "local".to_string(),
+            mount_name: "api".to_string(),
+            is_primary: true,
+        }];
+
+        clone_repositories(&config).await.unwrap();
+
+        let clone = workspace.join("api");
+        let read = |args: &[&str]| {
+            let out = std::process::Command::new("git")
+                .current_dir(&clone)
+                .args(args)
+                .output()
+                .expect("git command runs");
+            assert!(out.status.success(), "git {args:?} failed");
+            String::from_utf8_lossy(&out.stdout).trim().to_string()
+        };
+
+        assert_eq!(read(&["rev-parse", "--is-shallow-repository"]), "false");
+        assert_eq!(
+            read(&["config", "--get-all", "remote.origin.fetch"]),
+            "+refs/heads/*:refs/remotes/origin/*"
+        );
+        // A branch the clone did not check out still has a tracking ref, which
+        // is what a bare `--force-with-lease` leases against.
+        read(&["rev-parse", "--verify", "refs/remotes/origin/feature"]);
+        read(&["merge-base", "origin/main", "HEAD"]);
     }
 
     /// Each checkout authenticates with its own provider's token; the pod's
