@@ -344,12 +344,6 @@ async fn a_capture_over_an_open_workspace_certifies_nothing() {
 /// The registries name only the writers this pod started through them. An
 /// unregistered process is the same shape as an agent tool's own child
 /// outliving the agent: every registry is quiet and a writer is still live.
-///
-/// The test spawns that process itself rather than reading whoever launched the
-/// binary. `self_and_ancestors` excludes the launch chain, so under `moat cmd
-/// run` — where the build descends from the sandbox supervisor and an idle pod
-/// has nothing else running — `/proc` holds nothing foreign and the assertion
-/// fired on the environment instead of the behaviour.
 #[tokio::test]
 async fn a_live_process_no_registry_lists_certifies_nothing() {
     let state = quiet_state();
@@ -359,6 +353,10 @@ async fn a_live_process_no_registry_lists_certifies_nothing() {
         .await;
     assert!(registered_writers_are_quiet(&state).await);
 
+    // Spawn the foreign process rather than reading whoever launched the
+    // binary: `self_and_ancestors` excludes the launch chain, so a pod with
+    // nothing else running holds nothing foreign and the assertion below would
+    // report the environment.
     let mut foreign = std::process::Command::new("sleep")
         .arg("30")
         .spawn()
