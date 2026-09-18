@@ -214,7 +214,8 @@ pub enum SlackBlock {
     Markdown {
         text: String,
     },
-    /// Tabular data. Cells are rich text, so they can carry live links.
+    /// Tabular data. Cells are rich text, so they can carry live links and
+    /// mentions that notify.
     Table {
         rows: Vec<Vec<SlackTableCell>>,
     },
@@ -289,6 +290,12 @@ pub enum SlackRichTextElement {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         style: Option<SlackTextStyle>,
     },
+    /// A mention that notifies. Rich text carries no mrkdwn, so `<@U…>` typed
+    /// into a [`SlackRichTextElement::Text`] renders as literal characters; a
+    /// table cell can only ping through this variant. No `style`: Slack takes a
+    /// different set here than on the other two leaves, and a mention that
+    /// renders plainly is the whole point.
+    User { user_id: String },
 }
 
 /// Inline styling for a rich-text leaf.
@@ -515,6 +522,39 @@ mod tests {
                 }]]
             })
         );
+    }
+
+    /// The `Assignee` column of a report table pings only through this leaf:
+    /// `<@U0000000002>` in a `text` leaf reaches Slack verbatim, angle
+    /// brackets and all.
+    #[test]
+    fn a_table_cell_carries_a_mention_that_notifies() {
+        let block = SlackBlock::Table {
+            rows: vec![vec![SlackTableCell::RichText {
+                elements: vec![SlackRichTextSection::RichTextSection {
+                    elements: vec![SlackRichTextElement::User {
+                        user_id: "U0000000002".into(),
+                    }],
+                }],
+            }]],
+        };
+        let wire = serde_json::json!({
+            "type": "table",
+            "rows": [[{
+                "type": "rich_text",
+                "elements": [{
+                    "type": "rich_text_section",
+                    "elements": [{ "type": "user", "user_id": "U0000000002" }]
+                }]
+            }]]
+        });
+
+        assert_eq!(
+            serde_json::to_value(&block).expect("a table block serialises"),
+            wire
+        );
+        let parsed: SlackBlock = serde_json::from_value(wire).expect("it parses back");
+        assert_eq!(parsed, block);
     }
 
     #[test]

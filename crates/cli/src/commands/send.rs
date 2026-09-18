@@ -42,7 +42,11 @@ pub struct SendArgs {
     /// Adapter-native rich payload, inline JSON or `@file`, for use with
     /// `--to`. The payload names the adapter it addresses, e.g.
     /// `{"kind":"slack","blocks":[...]}`. `--text` is still sent.
-    #[arg(long)]
+    ///
+    /// `--to` is the only request that carries a presentation, so pairing this
+    /// with `--task` or `--user` would post the `--text` fallback and report
+    /// success. To DM rich blocks, address the person's `dm:<id>`.
+    #[arg(long, requires = "to")]
     pub rich: Option<String>,
 
     /// Adapter selector. For `--user`: provider ID type to look up (slack |
