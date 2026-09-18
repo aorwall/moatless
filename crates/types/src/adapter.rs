@@ -290,11 +290,9 @@ pub enum SlackRichTextElement {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         style: Option<SlackTextStyle>,
     },
-    /// A mention that notifies. Rich text carries no mrkdwn, so `<@U…>` typed
-    /// into a [`SlackRichTextElement::Text`] renders as literal characters; a
-    /// table cell can only ping through this variant. No `style`: Slack takes a
-    /// different set here than on the other two leaves, and a mention that
-    /// renders plainly is the whole point.
+    /// A mention that notifies, naming its person by moatless login or by Slack
+    /// member id. No `style`: Slack takes a different set here than on the other
+    /// two leaves, and a mention that renders plainly is the whole point.
     User { user_id: String },
 }
 

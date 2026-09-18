@@ -79,16 +79,21 @@ fn wanted_provenance<'a>(
 }
 
 /// The blocks to post for this reply, or `None` when it carries no Slack
-/// presentation and the text path applies unchanged.
+/// presentation and the text path applies unchanged. Mentions resolve here the
+/// way [`outbound_text`] resolves them in the body.
 ///
 /// `provenance` is an argument, not read off `message`, so the decision sits
 /// where [`text::with_task_link`] already makes it.
-fn reply_blocks(
+async fn reply_blocks(
+    adapter: &SlackAdapter,
     message: &OutboundReply,
     provenance: Option<&TaskProvenance>,
 ) -> Option<Vec<SlackBlock>> {
     let OutboundPresentation::Slack { blocks } = message.presentation.as_ref()?;
     let mut blocks = blocks.clone();
+    if let Some(users) = adapter.users() {
+        blocks = super::presentation::render_block_mentions(users, blocks).await;
+    }
     if let Some(p) = provenance {
         // The mrkdwn footer in `text` is not displayed once blocks are present,
         // so it is rendered again as the block Slack greys out.
@@ -124,7 +129,7 @@ impl AdapterBindingReply for SlackAdapter {
 
         let provenance = wanted_provenance(message, config);
         let text = outbound_text(self, message, provenance).await;
-        let blocks = reply_blocks(message, provenance);
+        let blocks = reply_blocks(self, message, provenance).await;
 
         let ts = app
             .api
@@ -195,7 +200,7 @@ impl AdapterBindingReply for SlackAdapter {
 
         let provenance = wanted_provenance(message, &config);
         let text = outbound_text(self, message, provenance).await;
-        let blocks = reply_blocks(message, provenance);
+        let blocks = reply_blocks(self, message, provenance).await;
         let ts = app
             .api
             .post_message_with(PostMessage {
@@ -243,7 +248,7 @@ impl AdapterDirectDestination for SlackAdapter {
         // readable; the caller decides by setting `provenance` or not.
         let provenance = message.provenance.as_ref();
         let text = outbound_text(self, message, provenance).await;
-        let blocks = reply_blocks(message, provenance);
+        let blocks = reply_blocks(self, message, provenance).await;
         let ts = app
             .api
             .post_message_with(PostMessage {
@@ -301,7 +306,10 @@ mod tests {
     };
     use moatless_adapter_model::test_support::ProviderStub;
     use moatless_types::access_control::Scope;
-    use moatless_types::adapter::{OutboundPresentation, SlackBlock, SlackPlainText};
+    use moatless_types::adapter::{
+        OutboundPresentation, SlackBlock, SlackPlainText, SlackRichTextElement,
+        SlackRichTextSection, SlackTableCell, SlackText,
+    };
     use moatless_types::loops::{LoopContext, RoutingMode};
 
     use crate::adapter::SlackAdapter;
@@ -604,8 +612,9 @@ mod tests {
         assert_eq!(posted["text"], "all done");
     }
 
-    /// Blocks go out untouched, and the task link moves into a block — the
-    /// mrkdwn link in `text` is not displayed once blocks are present.
+    /// This adapter has no directory, so the blocks carry no mention to resolve
+    /// and go out as written. The task link moves into a block — the mrkdwn link
+    /// in `text` is not displayed once blocks are present.
     #[tokio::test]
     async fn a_presentation_posts_its_blocks_and_appends_the_task_link_as_a_block() {
         let stub = slack_stub().await;
@@ -969,5 +978,68 @@ mod tests {
                 .expect("a message was posted"),
         );
         assert_eq!(posted["text"], "<@aorwall> take a look");
+    }
+
+    /// The wiring, on the request Slack receives: the presentation is resolved
+    /// through the directory on the way out, and the footer is appended after,
+    /// so the block the adapter writes itself is never walked for mentions.
+    #[tokio::test]
+    async fn a_presentations_mentions_are_resolved_before_the_footer_is_appended() {
+        let stub = slack_stub().await;
+        let blocks = vec![
+            SlackBlock::Section {
+                text: Some(SlackText::Mrkdwn {
+                    text: "<@aorwall> owns it".into(),
+                }),
+                fields: None,
+            },
+            SlackBlock::Table {
+                rows: vec![vec![SlackTableCell::RichText {
+                    elements: vec![SlackRichTextSection::RichTextSection {
+                        elements: vec![SlackRichTextElement::User {
+                            user_id: "aorwall".into(),
+                        }],
+                    }],
+                }]],
+            },
+        ];
+
+        adapter(&stub)
+            .with_users(std::sync::Arc::new(LinkedLogins))
+            .post_to_destination(
+                "channel:C1",
+                &reply_with_blocks("owned", Some("https://example.test/t/1"), blocks),
+            )
+            .await
+            .expect("the stub accepts the post");
+
+        let posted = body(
+            stub.requests()
+                .iter()
+                .find(|r| r.path == "/chat.postMessage")
+                .expect("a message was posted"),
+        );
+        assert_eq!(
+            posted["blocks"],
+            serde_json::json!([
+                { "type": "section", "text": { "type": "mrkdwn", "text": "<@U0AAQ> owns it" } },
+                {
+                    "type": "table",
+                    "rows": [[{
+                        "type": "rich_text",
+                        "elements": [{
+                            "type": "rich_text_section",
+                            "elements": [{ "type": "user", "user_id": "U0AAQ" }],
+                        }],
+                    }]],
+                },
+                {
+                    "type": "context",
+                    "elements": [
+                        { "type": "mrkdwn", "text": "<https://example.test/t/1|View task>" }
+                    ]
+                }
+            ])
+        );
     }
 }

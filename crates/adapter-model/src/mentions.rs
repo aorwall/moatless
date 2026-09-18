@@ -8,6 +8,7 @@
 //! An Adapter's own mention passes through untouched, so a person the Adapter
 //! can address but Moatless has never seen is still reachable by raw id.
 
+use std::collections::HashMap;
 use std::sync::LazyLock;
 
 use moatless_ports::identity::ProviderIdentityLink;
@@ -21,13 +22,90 @@ use tracing::warn;
 static MENTION: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"<@([A-Za-z0-9._\-]+)>").expect("valid regex"));
 
-/// Rewrite every `<@…>` in `text` into what `provider` can address.
+/// A run of `text` handed back by [`split_mentions`], either a mention's token
+/// or the plain text between two of them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MentionPiece<'a> {
+    Literal(&'a str),
+    Token(&'a str),
+}
+
+/// Split `text` into its mention tokens and the literals around them, in order.
+/// Concatenating the pieces back with `<@…>` around each token rebuilds `text`.
 ///
-/// Three outcomes per token: the Adapter's own id passes through unresolved; a
-/// Moatless login linked at `provider` renders from the linked id; anything
-/// else renders as plain `@token`, naming who was meant without pinging anyone.
-/// A failed lookup is treated as unlinked, since a reply must never be held up
-/// or ping the wrong person.
+/// For an Adapter whose surface is not one string: a rich-text leaf resolves
+/// each token into an element of its own rather than splicing a rendered
+/// mention back into the leaf.
+pub fn split_mentions(text: &str) -> impl Iterator<Item = MentionPiece<'_>> {
+    let mut pieces = Vec::new();
+    let mut cut = 0;
+    for found in MENTION.find_iter(text) {
+        if found.start() > cut {
+            pieces.push(MentionPiece::Literal(&text[cut..found.start()]));
+        }
+        // `<@` and `>` are one byte each, so the token is the span inside them.
+        pieces.push(MentionPiece::Token(&text[found.start() + 2..found.end() - 1]));
+        cut = found.end();
+    }
+    if cut < text.len() {
+        pieces.push(MentionPiece::Literal(&text[cut..]));
+    }
+    pieces.into_iter()
+}
+
+/// What one token resolves to, before an Adapter renders it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Mention {
+    /// An id the Adapter can address. Notifies.
+    Native(String),
+    /// A name to print, for someone the Adapter cannot address. Notifies
+    /// nobody, and names who was meant.
+    Plain(String),
+}
+
+impl Mention {
+    /// The text this becomes on a surface that takes the Adapter's own mention
+    /// syntax.
+    pub fn render(&self, render_native: impl Fn(&str) -> String) -> String {
+        match self {
+            Self::Native(id) => render_native(id),
+            Self::Plain(name) => format!("@{name}"),
+        }
+    }
+}
+
+/// Resolve one token against `provider`'s directory.
+///
+/// The Adapter's own id passes through unresolved; a Moatless login linked at
+/// `provider` resolves to the linked id; anything else stays plain. A failed
+/// lookup is treated as unlinked, since a reply must never be held up or ping
+/// the wrong person.
+pub async fn resolve_mention(
+    users: &dyn ProviderIdentityLink,
+    provider: &str,
+    token: &str,
+    is_native_id: impl Fn(&str) -> bool,
+) -> Mention {
+    if is_native_id(token) {
+        return Mention::Native(token.to_string());
+    }
+    match users.provider_id_for_login(provider, token).await {
+        Ok(Some(provider_user_id)) => Mention::Native(provider_user_id),
+        Ok(None) => Mention::Plain(token.to_string()),
+        Err(e) => {
+            warn!(
+                provider,
+                login = %token,
+                error = %e,
+                "Mention left as plain text: the provider-id lookup failed"
+            );
+            Mention::Plain(token.to_string())
+        }
+    }
+}
+
+/// Rewrite every `<@…>` in `text` into what `provider` can address, per
+/// [`resolve_mention`].
 pub async fn render_mentions(
     users: &dyn ProviderIdentityLink,
     provider: &str,
@@ -37,36 +115,35 @@ pub async fn render_mentions(
 ) -> String {
     // Resolve first, then splice: the rewrite itself is sync, and the lookups
     // are per distinct token rather than per occurrence.
-    let mut rendered: Vec<(String, String)> = Vec::new();
-    for capture in MENTION.captures_iter(text) {
-        let token = capture[1].to_string();
-        if rendered.iter().any(|(seen, _)| seen == &token) {
-            continue;
-        }
+    let pieces: Vec<MentionPiece<'_>> = split_mentions(text).collect();
+    let mut tokens: Vec<&str> = pieces
+        .iter()
+        .filter_map(|piece| match piece {
+            MentionPiece::Token(token) => Some(*token),
+            MentionPiece::Literal(_) => None,
+        })
+        .collect();
+    tokens.sort_unstable();
+    tokens.dedup();
 
-        let replacement = if is_native_id(&token) {
-            render_native(&token)
-        } else {
-            match users.provider_id_for_login(provider, &token).await {
-                Ok(Some(provider_user_id)) => render_native(&provider_user_id),
-                Ok(None) => format!("@{token}"),
-                Err(e) => {
-                    warn!(
-                        provider,
-                        login = %token,
-                        error = %e,
-                        "Mention left as plain text: the provider-id lookup failed"
-                    );
-                    format!("@{token}")
-                }
-            }
-        };
-        rendered.push((token, replacement));
+    let mut resolved: HashMap<&str, Mention> = HashMap::with_capacity(tokens.len());
+    for token in tokens {
+        resolved.insert(
+            token,
+            resolve_mention(users, provider, token, &is_native_id).await,
+        );
     }
 
-    let mut out = text.to_string();
-    for (token, replacement) in rendered {
-        out = out.replace(&format!("<@{token}>"), &replacement);
+    let mut out = String::with_capacity(text.len());
+    for piece in pieces {
+        match piece {
+            MentionPiece::Literal(literal) => out.push_str(literal),
+            MentionPiece::Token(token) => out.push_str(
+                &resolved
+                    .get(token)
+                    .map_or_else(|| format!("@{token}"), |m| m.render(&render_native)),
+            ),
+        }
     }
     out
 }
@@ -78,7 +155,7 @@ mod tests {
     use moatless_types::store::StoreError;
     use uuid::Uuid;
 
-    use super::render_mentions;
+    use super::{render_mentions, resolve_mention, split_mentions, Mention, MentionPiece};
 
     /// Knows one link: `aorwall` is `U0000000001` on Slack.
     struct OneLink {
@@ -174,5 +251,57 @@ mod tests {
             render("<@aorwall> and <@aorwall> and <@martin>", false).await,
             "<@U0000000001> and <@U0000000001> and @martin"
         );
+    }
+
+    #[test]
+    fn a_split_alternates_literals_and_tokens_and_drops_nothing() {
+        let pieces: Vec<_> = split_mentions("hi <@aorwall>, ping <@martin> now").collect();
+        assert_eq!(
+            pieces,
+            [
+                MentionPiece::Literal("hi "),
+                MentionPiece::Token("aorwall"),
+                MentionPiece::Literal(", ping "),
+                MentionPiece::Token("martin"),
+                MentionPiece::Literal(" now"),
+            ]
+        );
+    }
+
+    /// A leaf that is nothing but a mention yields no empty literal on either
+    /// side, so an Adapter building one element per piece emits exactly one.
+    #[test]
+    fn a_token_alone_splits_into_one_piece() {
+        let pieces: Vec<_> = split_mentions("<@aorwall>").collect();
+        assert_eq!(pieces, [MentionPiece::Token("aorwall")]);
+    }
+
+    #[test]
+    fn text_with_no_mention_splits_into_one_literal() {
+        let pieces: Vec<_> = split_mentions("mail ops@host").collect();
+        assert_eq!(pieces, [MentionPiece::Literal("mail ops@host")]);
+    }
+
+    #[tokio::test]
+    async fn resolving_one_token_names_the_three_outcomes() {
+        let link = OneLink { fail: false };
+        assert_eq!(
+            resolve_mention(&link, "slack", "aorwall", slack_id).await,
+            Mention::Native("U0000000001".to_string())
+        );
+        assert_eq!(
+            resolve_mention(&link, "slack", "U0NEVERSEEN", slack_id).await,
+            Mention::Native("U0NEVERSEEN".to_string())
+        );
+        assert_eq!(
+            resolve_mention(&link, "slack", "martin", slack_id).await,
+            Mention::Plain("martin".to_string())
+        );
+    }
+
+    #[test]
+    fn a_plain_mention_renders_without_consulting_the_adapter() {
+        let rendered = Mention::Plain("martin".to_string()).render(|_| unreachable!());
+        assert_eq!(rendered, "@martin");
     }
 }

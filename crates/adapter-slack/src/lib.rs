@@ -19,6 +19,7 @@ mod format;
 pub mod handlers;
 mod ingress;
 mod outbound;
+mod presentation;
 mod reactions;
 mod signature;
 mod subject;

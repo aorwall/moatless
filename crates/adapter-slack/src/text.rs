@@ -48,6 +48,13 @@ and notifies nobody. A raw Slack id also works, `<@U01ABC2DEFG>`, which is how \
 you mention someone who has no moatless account. Only write a mention when you \
 mean to notify that person; naming someone in passing does not need one.
 
+The same `<@login>` works inside a rich payload, in every block that renders a \
+mention at all: `section` and `context` text written as `mrkdwn`, a `markdown` \
+block, and a table cell. A `header`, or any `plain_text` object, cannot render \
+one, so a mention there is written out as `@login` and notifies nobody. A table cell's `user` element takes a login too — \
+`{\"type\": \"user\", \"user_id\": \"login\"}` — so you never have to look up a \
+Slack member id yourself.
+
 ### Telling threads apart
 Each inbound message also carries a `<thread>...</thread>` header identifying \
 the Slack thread it belongs to. Messages sharing the same `<thread>` value are \
