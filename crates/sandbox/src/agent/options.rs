@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use claude_agent_sdk::api::options::{PluginConfig, SystemPrompt};
 use claude_agent_sdk::{ClaudeOptions, PermissionMode};
+use moatless_types::agent::claude_model_id;
 use moatless_workspace_types::plugin::{PluginMarketplaceSource, marketplace_local_path};
 use serde::Deserialize;
 use tokio_util::sync::CancellationToken;
@@ -28,7 +29,7 @@ pub const CLAUDE_ENV_DEFAULTS: &[(&str, &str)] = &[
     ("CLAUDE_CODE_AUTO_COMPACT_WINDOW", "300000"),
     ("CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING", "1"),
     ("CLAUDE_CODE_DISABLE_AUTO_MEMORY", "1"),
-    ("CLAUDE_CODE_SUBAGENT_MODEL", "sonnet"),
+    ("CLAUDE_CODE_SUBAGENT_MODEL", "claude-sonnet-5"),
     // No telemetry leaves the pod. The first two also stop feature-flag
     // fetching, which holds every flag at its code default.
     ("DISABLE_TELEMETRY", "1"),
@@ -55,6 +56,20 @@ pub const CLAUDE_ENV_DEFAULTS: &[(&str, &str)] = &[
     ("DISABLE_UPGRADE_COMMAND", "1"),
 ];
 
+/// The `--model` value one model choice resolves to, or `None` when it names no
+/// model and the next choice should be tried.
+///
+/// `default` is the catalog's "whatever this install runs" entry rather than a
+/// model, so it names nothing; an alias resolves through
+/// [`claude_model_id`] and anything else is already an id.
+fn claude_model(choice: Option<String>) -> Option<String> {
+    let model = choice.map(|m| m.trim().to_string())?;
+    if model.is_empty() || model == "default" {
+        return None;
+    }
+    Some(claude_model_id(&model).map_or(model, str::to_string))
+}
+
 /// Build `ClaudeOptions` from config + per-request overrides.
 pub fn build_options(
     config: &Config,
@@ -64,12 +79,16 @@ pub fn build_options(
     env: Option<HashMap<String, String>>,
     events: Option<GrpcEventPublisher>,
 ) -> ClaudeOptions {
-    // Determine model: request > agentConfig > DEFAULT_CLAUDE_CODE_MODEL env
-    let model = request
-        .model
-        .clone()
-        .or_else(|| config.agent_config.model.clone())
-        .or_else(|| config.default_model.clone());
+    // Determine model: request > agentConfig > DEFAULT_CLAUDE_CODE_MODEL env.
+    // Each choice resolves on its own, so a task carrying the catalog's
+    // `default` falls through to the install's rather than ending the chain.
+    let model = [
+        request.model.clone(),
+        config.agent_config.model.clone(),
+        config.default_model.clone(),
+    ]
+    .into_iter()
+    .find_map(claude_model);
 
     // Build system prompt
     let system_prompt = build_system_prompt(config, request);
@@ -126,6 +145,12 @@ pub fn build_options(
         for (key, value) in CLAUDE_ENV_DEFAULTS {
             env.entry((*key).to_string())
                 .or_insert_with(|| (*value).to_string());
+        }
+        // The CLI reads this one as a model, so an alias delivered here fails a
+        // subagent turn the way `--model opus` fails the root one.
+        if let Some(subagent) = env.get_mut("CLAUDE_CODE_SUBAGENT_MODEL") {
+            let model = subagent.trim();
+            *subagent = claude_model_id(model).unwrap_or(model).to_string();
         }
         env
     });
@@ -870,7 +895,10 @@ mod tests {
     fn a_resolved_value_outranks_the_env_default() {
         let resolved = HashMap::from([
             ("DISABLE_TELEMETRY".to_string(), "0".to_string()),
-            ("CLAUDE_CODE_SUBAGENT_MODEL".to_string(), "opus".to_string()),
+            (
+                "CLAUDE_CODE_SUBAGENT_MODEL".to_string(),
+                "claude-opus-5".to_string(),
+            ),
         ]);
         let options = build_options(
             &test_config(false),
@@ -885,10 +913,94 @@ mod tests {
         assert_eq!(env.get("DISABLE_TELEMETRY").map(String::as_str), Some("0"));
         assert_eq!(
             env.get("CLAUDE_CODE_SUBAGENT_MODEL").map(String::as_str),
-            Some("opus")
+            Some("claude-opus-5")
         );
         // Untouched keys still get their default.
         assert_eq!(env.get("DO_NOT_TRACK").map(String::as_str), Some("1"));
+    }
+
+    /// What the picker offers is the alias; what leaves for the CLI is the id
+    /// the proxy routes on, spelled out here rather than read back off the
+    /// table that produced it.
+    #[test]
+    fn a_requested_alias_reaches_the_cli_as_a_model_id() {
+        let expected = [
+            ("opus", "claude-opus-5"),
+            ("sonnet", "claude-sonnet-5"),
+            ("haiku", "claude-haiku-4-5-20251001"),
+            ("fable", "claude-fable-5-1"),
+        ];
+        for (alias, id) in expected {
+            let mut request = test_request();
+            request.model = Some(alias.to_string());
+            let options = build_options(
+                &test_config(false),
+                &request,
+                CancellationToken::new(),
+                Arc::new(AgentState::new()),
+                None,
+                None,
+            );
+            assert_eq!(options.model.as_deref(), Some(id), "{alias}");
+        }
+    }
+
+    /// A subagent model is an env key, not a `--model` argument, and the CLI
+    /// reads it the same way.
+    #[test]
+    fn a_subagent_alias_delivered_as_env_reaches_the_cli_as_an_id() {
+        let resolved = HashMap::from([(
+            "CLAUDE_CODE_SUBAGENT_MODEL".to_string(),
+            "haiku".to_string(),
+        )]);
+        let options = build_options(
+            &test_config(false),
+            &test_request(),
+            CancellationToken::new(),
+            Arc::new(AgentState::new()),
+            Some(resolved),
+            None,
+        );
+
+        assert_eq!(
+            options.env.unwrap().get("CLAUDE_CODE_SUBAGENT_MODEL"),
+            Some(&"claude-haiku-4-5-20251001".to_string())
+        );
+    }
+
+    /// A task left on the catalog's `default` names no model, so the install's
+    /// own default still decides — the choice does not end the chain.
+    #[test]
+    fn the_default_entry_falls_through_to_the_install_default() {
+        let mut config = test_config(false);
+        config.default_model = Some("claude-opus-5".to_string());
+        let mut request = test_request();
+        request.model = Some("default".to_string());
+        let options = build_options(
+            &config,
+            &request,
+            CancellationToken::new(),
+            Arc::new(AgentState::new()),
+            None,
+            None,
+        );
+
+        assert_eq!(options.model.as_deref(), Some("claude-opus-5"));
+    }
+
+    #[test]
+    fn claude_model_passes_an_id_through_and_drops_the_default_entry() {
+        assert_eq!(
+            claude_model(Some("claude-opus-4-6".to_string())).as_deref(),
+            Some("claude-opus-4-6")
+        );
+        assert_eq!(
+            claude_model(Some("  opus ".to_string())).as_deref(),
+            Some("claude-opus-5")
+        );
+        assert_eq!(claude_model(Some("default".to_string())), None);
+        assert_eq!(claude_model(Some("   ".to_string())), None);
+        assert_eq!(claude_model(None), None);
     }
 
     #[test]

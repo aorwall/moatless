@@ -9,6 +9,12 @@
 export interface UpdateTaskMetadataRequest {
   /** @nullable */
   description?: string | null;
+  /**
+     * Model for the task's later turns. Each delivery falls back to it, so a
+     * change takes effect from the next turn and leaves the running one alone.
+     * @nullable
+     */
+  model?: string | null;
   /** @nullable */
   name?: string | null;
 }

@@ -16,6 +16,7 @@ pub async fn set_name(
     let req = UpdateTaskMetadataRequest {
         name: Some(name.clone()),
         description: None,
+        model: None,
     };
     let task = moat.api().update_task_metadata(&task_id, &req).await?;
     if json {

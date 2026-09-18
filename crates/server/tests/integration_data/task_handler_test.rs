@@ -191,6 +191,40 @@ async fn update_task_metadata(pool: PgPool) {
     assert_eq!(body["name"], "Updated Title");
 }
 
+/// The model a later turn falls back to is the task row's, so a patch has to
+/// reach it — and has to be checked against the agent the way creation is.
+#[sqlx::test]
+async fn update_task_metadata_sets_the_model_and_refuses_another_agents(pool: PgPool) {
+    seed_repo(&pool).await;
+    let row = make_task_row("task-model", USER_1);
+    task_fixtures::seed_task(&pool, &row).await.unwrap();
+
+    let app = build_router(pool);
+    let req = authed_json_request(
+        "PATCH",
+        "/api/v1/tasks/task-model",
+        USER_1,
+        serde_json::json!({"model": "opus"}),
+    );
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    assert_eq!(body_json(resp).await["model"], "opus");
+
+    // `gpt-6-astra` is a Codex model, and this task runs claude-code.
+    let req = authed_json_request(
+        "PATCH",
+        "/api/v1/tasks/task-model",
+        USER_1,
+        serde_json::json!({"model": "gpt-6-astra"}),
+    );
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+
+    let req = authed_request("GET", "/api/v1/tasks/task-model", USER_1);
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(body_json(resp).await["model"], "opus");
+}
+
 #[sqlx::test]
 async fn delete_task_handler(pool: PgPool) {
     seed_repo(&pool).await;

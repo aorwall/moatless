@@ -152,6 +152,37 @@ pub struct AgentEventPayload {
     pub agent_session_id: Option<String>,
 }
 
+/// The Anthropic model id each Claude catalog alias names.
+///
+/// What the Sandbox passes to the Claude CLI, since a proxy routing on the id
+/// answers an alias with `unknown provider for model opus`. These are ids such
+/// an API accepts, not the slugs T3 publishes — `haiku` is the one that
+/// differs, since `claude-haiku-4-5` is refused.
+const CLAUDE_MODEL_IDS: &[(&str, &str)] = &[
+    ("opus", "claude-opus-5"),
+    ("sonnet", "claude-sonnet-5"),
+    ("haiku", "claude-haiku-4-5-20251001"),
+    ("fable", "claude-fable-5-1"),
+];
+
+/// The model id a Claude catalog alias names, or `None` for anything that is
+/// not an alias — an id already, or a choice naming no model.
+pub fn claude_model_id(alias: &str) -> Option<&'static str> {
+    CLAUDE_MODEL_IDS
+        .iter()
+        .find(|(name, _)| *name == alias)
+        .map(|(_, id)| *id)
+}
+
+/// The Claude catalog alias a model id belongs to, or `None` for an id no
+/// catalog entry names.
+pub fn claude_model_alias(model_id: &str) -> Option<&'static str> {
+    CLAUDE_MODEL_IDS
+        .iter()
+        .find(|(_, id)| *id == model_id)
+        .map(|(alias, _)| *alias)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

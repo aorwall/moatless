@@ -7,6 +7,7 @@
 //! Publishes T3's canonical slugs and names (its alias table maps only towards
 //! them); the `default` sentinel, naming no model, is never published.
 
+use moatless_types::agent::{claude_model_alias, claude_model_id};
 use serde_json::{Value, json};
 
 use crate::AgentModelDefaults;
@@ -130,7 +131,8 @@ fn capabilities(instance: &str, catalog_model: &str) -> Value {
 /// `(catalog id, published slug, published name)` for the Claude instance.
 ///
 /// Slugs and names are both T3's own, copied from its Claude driver, so a model
-/// reads the same here as in a standalone T3.
+/// reads the same here as in a standalone T3. A slug is not always the id the
+/// model answers to — [`published_slug_for_reported`] translates one back.
 const CLAUDE_MODELS: &[(&str, &str, &str)] = &[
     ("opus", "claude-opus-5", "Claude Opus 5"),
     ("sonnet", "claude-sonnet-5", "Claude Sonnet 5"),
@@ -146,6 +148,21 @@ fn published_slug(instance: &str, catalog_model: &str) -> String {
         }
     }
     catalog_model.to_string()
+}
+
+/// The slug to publish for a model id an agent reported running.
+///
+/// The Sandbox runs the id [`claude_model_id`] resolves, which is not the slug
+/// for `haiku`; reporting it verbatim would leave T3 a selection it matches
+/// against nothing, and it substitutes its default silently rather than saying
+/// so. Anything already in T3's vocabulary passes through.
+pub fn published_slug_for_reported(instance: &str, reported: &str) -> String {
+    if instance == CLAUDE_INSTANCE {
+        if let Some(alias) = claude_model_alias(reported) {
+            return published_slug(instance, alias);
+        }
+    }
+    reported.to_string()
 }
 
 /// The display name we publish for a catalog model id.
@@ -165,11 +182,15 @@ fn published_name(instance: &str, catalog_model: &str, catalog_label: &str) -> S
 /// published it.
 ///
 /// `None` is a refusal, not a fallback cue — substituting an unchosen model is
-/// exactly the failure this translation exists to avoid.
+/// exactly the failure this translation exists to avoid. The id a turn runs
+/// under is accepted beside the slug, so a stored one still resolves.
 pub fn catalog_model_for(agents: &[AgentDescriptor], instance: &str, slug: &str) -> Option<String> {
     models_for(agents, instance)
         .into_iter()
-        .find(|(id, _)| published_slug(instance, id) == slug)
+        .find(|(id, _)| {
+            published_slug(instance, id) == slug
+                || (instance == CLAUDE_INSTANCE && claude_model_id(id) == Some(slug))
+        })
         .map(|(id, _)| id)
 }
 
@@ -499,6 +520,45 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// The Sandbox runs `claude-haiku-4-5-20251001`, so a client that saw that
+    /// id — reported by a turn projected before `model_name` translated it —
+    /// must not be refused the model it is still on.
+    #[test]
+    fn a_model_id_resolves_beside_the_slug_published_for_it() {
+        let agents = agents(true);
+        assert_eq!(
+            catalog_model_for(&agents, CLAUDE_INSTANCE, "claude-haiku-4-5-20251001").as_deref(),
+            Some("haiku")
+        );
+        assert_eq!(
+            catalog_model_for(&agents, CLAUDE_INSTANCE, "claude-haiku-4-5").as_deref(),
+            Some("haiku")
+        );
+    }
+
+    /// What a turn reports is the API id; what T3 matches a selection against
+    /// is the slug. `haiku` is the pair where the two differ.
+    #[test]
+    fn a_reported_model_id_is_published_under_t3s_slug() {
+        assert_eq!(
+            published_slug_for_reported(CLAUDE_INSTANCE, "claude-haiku-4-5-20251001"),
+            "claude-haiku-4-5"
+        );
+        assert_eq!(
+            published_slug_for_reported(CLAUDE_INSTANCE, "claude-opus-5"),
+            "claude-opus-5"
+        );
+        // Not an id this catalog names — reported as it arrived.
+        assert_eq!(
+            published_slug_for_reported(CLAUDE_INSTANCE, "claude-opus-4-8"),
+            "claude-opus-4-8"
+        );
+        assert_eq!(
+            published_slug_for_reported(CODEX_INSTANCE, "gpt-6-astra"),
+            "gpt-6-astra"
+        );
     }
 
     #[test]

@@ -6992,7 +6992,7 @@
         "tags": [
           "tasks"
         ],
-        "summary": "Update task name and description.",
+        "summary": "Update a task's name, description or model.",
         "operationId": "update_task_metadata",
         "parameters": [
           {
@@ -7022,6 +7022,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/TaskResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Model belongs to another agentType",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
                 }
               }
             }
@@ -19425,6 +19435,13 @@
               "string",
               "null"
             ]
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Model for the task's later turns. Each delivery falls back to it, so a\nchange takes effect from the next turn and leaves the running one alone."
           },
           "name": {
             "type": [

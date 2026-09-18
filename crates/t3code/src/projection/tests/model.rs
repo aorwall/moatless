@@ -35,6 +35,22 @@ fn the_model_chain_ends_in_an_answer() {
     assert_eq!(model_name(&row, &defaults), "claude-opus-4-5-20260115");
 }
 
+/// A haiku turn reports `claude-haiku-4-5-20251001`, which T3 matches against
+/// nothing and silently replaces with its default, so it is reported under the
+/// slug the picker published instead.
+#[test]
+fn a_reported_model_id_is_named_by_the_slug_t3_knows() {
+    let defaults = AgentModelDefaults::default();
+    let mut row = conversation("task-a", "ws-a");
+
+    row.assistant_model = Some("claude-haiku-4-5-20251001".to_string());
+    assert_eq!(model_name(&row, &defaults), "claude-haiku-4-5");
+
+    // An id no catalog entry names is still what the agent said it ran.
+    row.assistant_model = Some("claude-opus-4-5-20260115".to_string());
+    assert_eq!(model_name(&row, &defaults), "claude-opus-4-5-20260115");
+}
+
 #[test]
 fn a_deployment_that_configures_no_default_still_reports_a_model() {
     let row = conversation("task-a", "ws-a");

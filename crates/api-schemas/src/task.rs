@@ -168,6 +168,9 @@ pub enum MessageContextInput {
 pub struct UpdateTaskMetadataRequest {
     pub name: Option<String>,
     pub description: Option<String>,
+    /// Model for the task's later turns. Each delivery falls back to it, so a
+    /// change takes effect from the next turn and leaves the running one alone.
+    pub model: Option<String>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]

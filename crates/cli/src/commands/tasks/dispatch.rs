@@ -161,13 +161,17 @@ pub enum TaskAction {
     },
     /// Reopen a closed task
     Reopen { task_id: String },
-    /// Update task name and/or description
+    /// Update a task's name, description and/or model
     Update {
         task_id: String,
         #[arg(long)]
         name: Option<String>,
         #[arg(long)]
         description: Option<String>,
+        /// Model for the task's later turns, as `moat agents models` lists it.
+        /// Takes effect from the next turn; the running one keeps its model.
+        #[arg(long)]
+        model: Option<String>,
     },
     /// Update a task's TTLs (idle sandbox stop and/or inactivity auto-close)
     Ttl {
@@ -494,15 +498,20 @@ pub async fn run(
             task_id,
             name,
             description,
+            model,
         } => {
             let task_id = resolve_task_id(client, &task_id).await?;
-            if name.is_none() && description.is_none() {
+            if name.is_none() && description.is_none() && model.is_none() {
                 return Err(ClientError::Api {
                     status: 400,
-                    body: "Provide --name and/or --description".to_string(),
+                    body: "Provide --name, --description and/or --model".to_string(),
                 });
             }
-            let req = UpdateTaskMetadataRequest { name, description };
+            let req = UpdateTaskMetadataRequest {
+                name,
+                description,
+                model,
+            };
             let updated = client.api().update_task_metadata(&task_id, &req).await?;
             if json {
                 output::print_json_typed(&updated);
