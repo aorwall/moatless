@@ -50,7 +50,8 @@ pub fn check(ws: &Workspace) -> Result<Vec<Violation>> {
         if let Some(m) = ws.member(name) {
             for (file, text) in ws.sources(m)? {
                 if text.contains("moatless_loops")
-                    && !(name == "moatless-adapter-telegram" && file.ends_with("/src/pairing/approval.rs"))
+                    && !(name == "moatless-adapter-telegram"
+                        && file.ends_with("/src/pairing/approval.rs"))
                 {
                     out.push(Violation::at(
                         RULE,

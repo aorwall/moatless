@@ -21,11 +21,11 @@ use moatless_tasks::tag::test_support as tag_fixtures;
 use moatless_tasks::task::test_support::make_task_row;
 use moatless_tasks::task_activities::mapping::BlockContext;
 use moatless_tasks::task_activities::mapping::ConversationWrite;
+use moatless_tasks::task_activities::mapping::ToolOutcome;
 use moatless_tasks::task_activities::mapping::context_window_updated;
 use moatless_tasks::task_activities::mapping::map_content;
 use moatless_tasks::task_activities::mapping::sandbox_activity;
 use moatless_tasks::task_activities::mapping::user_input_resolved;
-use moatless_tasks::task_activities::mapping::ToolOutcome;
 use moatless_tasks::task_activities::mapping::{ActivityKind, ActivityStatus};
 use moatless_types::access_control::ScopeContext;
 use moatless_types::sandbox::SandboxEventPayload;
@@ -558,12 +558,8 @@ async fn a_browse_reaches_tasks_the_viewer_neither_follows_nor_owns(pool: PgPool
     let by_both = dao
         .list_browsable(
             &viewer,
-            &ConversationBrowse::new(
-                Some(USER_1.to_string()),
-                Some("backend".to_string()),
-                false,
-            )
-            .expect("a filter"),
+            &ConversationBrowse::new(Some(USER_1.to_string()), Some("backend".to_string()), false)
+                .expect("a filter"),
         )
         .await
         .unwrap();
@@ -722,7 +718,8 @@ async fn a_windowed_answer_reaches_the_plan_call_it_settles(pool: PgPool) {
         .expect("the call the answer settles");
     assert_eq!(call.summary, "ExitPlanMode");
     assert_eq!(
-        call.tool_input()["plan"], "1. Do the thing",
+        call.tool_input()["plan"],
+        "1. Do the thing",
         "the plan the card renders came back with the call"
     );
     assert!(call.is_settled(), "the answer settled it");

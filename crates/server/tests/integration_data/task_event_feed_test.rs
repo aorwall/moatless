@@ -19,7 +19,9 @@ const NO_RECLAIM: Duration = Duration::from_hours(1);
 
 async fn record(pool: &PgPool, event_id: &str, event: &str) -> Option<i64> {
     let mut tx = pool.begin().await.unwrap();
-    let position = record_event(&mut tx, event_id, "task-a", event).await.unwrap();
+    let position = record_event(&mut tx, event_id, "task-a", event)
+        .await
+        .unwrap();
     tx.commit().await.unwrap();
     position
 }

@@ -14,8 +14,8 @@ use claude_agent_sdk::api::hooks::SyncHookOutput;
 use claude_agent_sdk::api::messages::ResultMessage;
 use claude_agent_sdk::api::permissions::PermissionContext;
 use claude_agent_sdk::{
-    query, ClaudeOptions, ContentBlock, HookHandler, HookOutput, PermissionHandler, PermissionMode,
-    PermissionResult, SdkMessage,
+    ClaudeOptions, ContentBlock, HookHandler, HookOutput, PermissionHandler, PermissionMode,
+    PermissionResult, SdkMessage, query,
 };
 
 /// A permission handler that only allows read-only tools.

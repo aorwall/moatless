@@ -202,6 +202,9 @@ mod tests {
 
         assert_eq!(locks.len(), 2, "{locks:?}");
         assert!(locks[0].ends_with("/.git/index.lock"), "{locks:?}");
-        assert!(locks[1].ends_with("/.git/refs/heads/main.lock"), "{locks:?}");
+        assert!(
+            locks[1].ends_with("/.git/refs/heads/main.lock"),
+            "{locks:?}"
+        );
     }
 }

@@ -5,9 +5,6 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
-use crate::error::{Result, SdkError};
-use crate::mcp::SdkMcpServer;
-use crate::transport::{StdinWriter, Transport};
 use crate::api::control::{
     ControlResponseEnvelope, ControlResponseInner, ControlResponsePayload,
     IncomingControlRequestInner, RawStdoutMessage,
@@ -15,6 +12,9 @@ use crate::api::control::{
 use crate::api::hooks::{HookHandler, HookOutput};
 use crate::api::messages::SdkMessage;
 use crate::api::permissions::{PermissionContext, PermissionHandler, PermissionResult};
+use crate::error::{Result, SdkError};
+use crate::mcp::SdkMcpServer;
+use crate::transport::{StdinWriter, Transport};
 
 use super::request_tracker::{ControlErrorInfo, RequestTracker};
 

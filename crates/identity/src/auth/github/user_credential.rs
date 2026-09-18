@@ -64,8 +64,8 @@ pub async fn persist(
             "github",
             &stashed(tokens, now),
         )
-            .await
-            .map_err(|e| AuthError::Internal(format!("stash the GitHub App token: {e}")))?;
+        .await
+        .map_err(|e| AuthError::Internal(format!("stash the GitHub App token: {e}")))?;
         info!(
             user_id = %user_id,
             login = %user_info.login,
@@ -189,10 +189,11 @@ mod tests {
         // it is what removing the override hands back. The refresh token and
         // the expiry are part of that — an access token restored alone dies at
         // its own expiry with nothing able to renew it.
-        let stashed = crate::auth::credentials::read_oauth_stash(&secrets, "u1", GITHUB_OAUTH_STASH_KEY)
-            .await
-            .expect("read the stash")
-            .expect("a stashed credential");
+        let stashed =
+            crate::auth::credentials::read_oauth_stash(&secrets, "u1", GITHUB_OAUTH_STASH_KEY)
+                .await
+                .expect("read the stash")
+                .expect("a stashed credential");
         assert_eq!(stashed.access_token, "ghu_fresh");
         assert_eq!(stashed.refresh_token.as_deref(), Some("ghr_refresh"));
         assert!(stashed.expires_at.is_some());

@@ -221,10 +221,7 @@ mod tests {
         let tail_b: Vec<String> = (0..10).map(|i| format!("b{i}")).collect();
         let text_a = format!("// {} {}\n", shared_words.join(" "), tail_a.join(" "));
         let text_b = format!("// {} {}\n", shared_words.join(" "), tail_b.join(" "));
-        let corpus = vec![
-            ("a.rs".to_string(), text_a),
-            ("b.rs".to_string(), text_b),
-        ];
+        let corpus = vec![("a.rs".to_string(), text_a), ("b.rs".to_string(), text_b)];
         // 67 shared words yield 61 shared shingles: over the 60 threshold.
         let found = find_pairs(&corpus);
         assert_eq!(found.len(), 1);

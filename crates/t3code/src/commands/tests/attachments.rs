@@ -208,8 +208,7 @@ fn a_data_url_is_read_only_where_it_is_base64() {
     assert!(decode_data_url("https://example.com/a.png").is_none());
     assert!(decode_data_url("data:image/png;base64").is_none());
 
-    let (mime_type, bytes) =
-        decode_data_url("data:image/PNG;base64,aGVs\n bG8=").expect("decoded");
+    let (mime_type, bytes) = decode_data_url("data:image/PNG;base64,aGVs\n bG8=").expect("decoded");
     assert_eq!(mime_type, "image/png");
     assert_eq!(bytes, b"hello");
 }

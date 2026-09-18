@@ -29,11 +29,11 @@ use crate::agent::harness::process::{AgentProcess, ProcessEvent, ProcessTerminat
 use crate::agent::harness::signal::{Cause, Input, InputId, Outcome, Signal};
 use crate::agent::harness::source::{Role, SourceEvent};
 
-mod fixtures;
-mod normalization;
-mod threads;
-mod usage;
 mod classification;
-mod steering;
 mod driver;
 mod e2e;
+mod fixtures;
+mod normalization;
+mod steering;
+mod threads;
+mod usage;

@@ -192,13 +192,7 @@ async fn only_an_explicit_update_moves_the_status(pool: PgPool) {
 
     // A name change carries `status: None` and must not move it either.
     let renamed = repo
-        .update_user_profile_and_role(
-            &uid,
-            Some(Some("Departed Person".into())),
-            None,
-            None,
-            None,
-        )
+        .update_user_profile_and_role(&uid, Some(Some("Departed Person".into())), None, None, None)
         .await
         .unwrap()
         .expect("the row is there");

@@ -396,7 +396,9 @@ mod tests {
 
     fn state(readable: Option<&'static str>) -> PreviewState {
         PreviewState {
-            tabs: Arc::new(PreviewTabs::new(PreviewTabTtl(std::time::Duration::from_hours(1)))),
+            tabs: Arc::new(PreviewTabs::new(PreviewTabTtl(
+                std::time::Duration::from_hours(1),
+            ))),
             tasks: tasks_readable(readable),
         }
     }

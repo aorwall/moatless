@@ -15,8 +15,8 @@ use thiserror::Error;
 
 use crate::error::SandboxError;
 
-use crate::outcome::Diagnostics;
 use crate::operation::{ObservedStatus, OperationGeneration, RuntimeEffect};
+use crate::outcome::Diagnostics;
 use moatless_types::sandbox::ArchiveRetention;
 
 /// Runtime-resource label carrying lifecycle's operation identity.

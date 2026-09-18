@@ -836,9 +836,13 @@ mod tests {
     /// containers leaves the key out rather than sending an empty array.
     #[tokio::test]
     async fn a_sandbox_with_nothing_to_report_omits_every_runtime_section() {
-        let payload = detail(&watched_state(Arc::new(MovingStatus::at(false))), &viewer(), "t")
-            .await
-            .expect("a readable task");
+        let payload = detail(
+            &watched_state(Arc::new(MovingStatus::at(false))),
+            &viewer(),
+            "t",
+        )
+        .await
+        .expect("a readable task");
 
         assert_eq!(payload["desiredState"], "running");
         assert_eq!(payload["idleTimeoutMinutes"], 15);
@@ -852,9 +856,13 @@ mod tests {
     /// Redeploy-gating comparison is only right when both arrive.
     #[tokio::test]
     async fn a_running_sandbox_reports_both_images_and_compares_them() {
-        let payload = detail(&watched_state(Arc::new(MovingStatus::at(true))), &viewer(), "t")
-            .await
-            .expect("a readable task");
+        let payload = detail(
+            &watched_state(Arc::new(MovingStatus::at(true))),
+            &viewer(),
+            "t",
+        )
+        .await
+        .expect("a readable task");
 
         assert_eq!(payload["image"]["current"], "moatless/sandbox:1");
         assert_eq!(payload["image"]["latest"], "moatless/sandbox:2");
@@ -868,9 +876,13 @@ mod tests {
     /// different answer from "there is nothing to say".
     #[tokio::test]
     async fn an_unprovisioned_sandbox_still_reports_the_expected_image() {
-        let payload = detail(&watched_state(Arc::new(MovingStatus::at(false))), &viewer(), "t")
-            .await
-            .expect("a readable task");
+        let payload = detail(
+            &watched_state(Arc::new(MovingStatus::at(false))),
+            &viewer(),
+            "t",
+        )
+        .await
+        .expect("a readable task");
 
         assert!(payload["image"]["current"].is_null());
         assert_eq!(payload["image"]["latest"], "moatless/sandbox:2");

@@ -38,8 +38,7 @@ fn is_forbidden(error: &kube::Error) -> bool {
 }
 
 /// Shared operator-facing hint for the 403 warnings.
-const MISSING_RBAC_HINT: &str =
-    "backend ServiceAccount lacks networking.k8s.io/networkpolicies — upgrade the chart \
+const MISSING_RBAC_HINT: &str = "backend ServiceAccount lacks networking.k8s.io/networkpolicies — upgrade the chart \
      (pod-manager Role) to enable preview NetworkPolicies";
 
 /// Pure — no cluster I/O — so the selector/port/peer shape is unit-testable.

@@ -122,7 +122,11 @@ async fn patch_service_port(
 
     let patch = script_service_port_patch(port);
     services
-        .patch(&service_name, &PatchParams::default(), &Patch::Strategic(&patch))
+        .patch(
+            &service_name,
+            &PatchParams::default(),
+            &Patch::Strategic(&patch),
+        )
         .await?;
     info!(task_id, port, service_name = %service_name, "Service port published");
     Ok(owners)
@@ -141,9 +145,10 @@ fn needs_proxy_patch(ports: &[ServicePort], port: u16) -> bool {
     if existing.name.as_deref() != Some(script_port_name(port).as_str()) {
         return false;
     }
-    !existing.target_port.as_ref().is_some_and(|target| {
-        *target == IntOrString::Int(i32::from(SANDBOX_PREVIEW_PROXY_PORT))
-    })
+    !existing
+        .target_port
+        .as_ref()
+        .is_some_and(|target| *target == IntOrString::Int(i32::from(SANDBOX_PREVIEW_PROXY_PORT)))
 }
 
 /// The one-entry `spec.ports` strategic merge patch that publishes `port`.

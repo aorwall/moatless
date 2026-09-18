@@ -5,11 +5,6 @@ mod tests {
     use tokio::sync::{Mutex, mpsc};
     use tokio_util::sync::CancellationToken;
 
-    use crate::error::Result;
-    use crate::mcp::SdkMcpServer;
-    use crate::protocol::orchestrator::Orchestrator;
-    use crate::protocol::request_tracker::RequestTracker;
-    use crate::transport::mock::{MockStdinWriter, MockTransport};
     use crate::api::control::{
         ControlResponseInner, IncomingControlRequestInner, RawStdoutMessage,
     };
@@ -18,6 +13,11 @@ mod tests {
     use crate::api::permissions::{
         PermissionContext, PermissionHandler, PermissionResult, PermissionUpdate,
     };
+    use crate::error::Result;
+    use crate::mcp::SdkMcpServer;
+    use crate::protocol::orchestrator::Orchestrator;
+    use crate::protocol::request_tracker::RequestTracker;
+    use crate::transport::mock::{MockStdinWriter, MockTransport};
 
     /// Helper to spawn an orchestrator with mock transport and return the
     /// pieces.

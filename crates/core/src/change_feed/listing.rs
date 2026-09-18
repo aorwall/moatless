@@ -2,5 +2,8 @@
 
 mod dao;
 mod position;
-pub use dao::{record_change, current_head, current_position, changes_after, prune_changes};
-pub use position::{RESUME_WINDOW, RETAINED_CHANGES, EnvironmentIdentity, ListingHead, Resume, resume, ListingChange};
+pub use dao::{changes_after, current_head, current_position, prune_changes, record_change};
+pub use position::{
+    EnvironmentIdentity, ListingChange, ListingHead, RESUME_WINDOW, RETAINED_CHANGES, Resume,
+    resume,
+};

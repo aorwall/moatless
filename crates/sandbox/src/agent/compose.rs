@@ -173,13 +173,13 @@ pub fn spawn_agent(
 mod tests {
     use std::sync::Arc;
 
+    use super::{
+        AGENT_TYPE_CLAUDE_CODE, AGENT_TYPE_CODEX, build_harness, resolve_agent_harness, spawn_agent,
+    };
     use crate::agent::agent_state::AgentState;
     use crate::agent::harness::ErrorClass;
     use crate::agent::heartbeat::Heartbeat;
     use crate::agent::scheduled_job::{LateInjector, ScheduledJobRegistry};
-    use super::{
-        AGENT_TYPE_CLAUDE_CODE, AGENT_TYPE_CODEX, build_harness, resolve_agent_harness, spawn_agent,
-    };
     use crate::backend_client::BackendClient;
     use crate::config::{Config, test_support::minimal_config};
     use crate::credentials::Dispatcher;

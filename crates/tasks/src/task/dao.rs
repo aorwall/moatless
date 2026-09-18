@@ -86,10 +86,7 @@ pub(crate) trait TaskDao: Send + Sync {
     /// Undo an `insert_task` whose creation then failed: removes the
     /// just-created Task and its rows, never the Sandbox row — it belongs to
     /// the members the Task tried to join.
-    async fn delete_inserted_task(
-        &self,
-        task_id: &str,
-    ) -> Result<bool, sqlx::Error>;
+    async fn delete_inserted_task(&self, task_id: &str) -> Result<bool, sqlx::Error>;
     /// Free the id of a Task that errored before anything was said, reporting
     /// whether one existed. The `Error`/no-messages/`ctx`-owned check runs
     /// atomically in `WHERE`; deletes all rows under the id.
@@ -440,10 +437,7 @@ impl TaskDao for PgTaskDao {
         Ok(())
     }
 
-    async fn delete_inserted_task(
-        &self,
-        task_id: &str,
-    ) -> Result<bool, sqlx::Error> {
+    async fn delete_inserted_task(&self, task_id: &str) -> Result<bool, sqlx::Error> {
         let mut tx = self.pool.begin().await?;
         sqlx::query("DELETE FROM task_tags WHERE task_id = $1")
             .bind(task_id)

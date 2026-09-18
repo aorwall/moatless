@@ -6,8 +6,8 @@ use clap::{ArgGroup, Args};
 use moatless_api_schemas::adapters::AdapterSendRequest;
 use moatless_api_schemas::enums::AdapterKind;
 use moatless_api_schemas::message::SendMessageRequest;
-use moatless_types::agent::AgentMode;
 use moatless_api_schemas::user::SendDmRequest;
+use moatless_types::agent::AgentMode;
 
 use crate::client::MoatClient;
 use crate::commands::input::{read_json_arg, read_text_or_stdin, upload_files};

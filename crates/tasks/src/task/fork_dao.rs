@@ -50,10 +50,7 @@ pub(crate) async fn record_rewind_anchor(
 /// Drop a Task's anchors, for a rewind leaving no session to branch from. Same
 /// transaction rule as [`record_rewind_anchor`]: a stale row would cut the next
 /// turn into a transcript this Task lacks.
-pub(crate) async fn clear_anchors(
-    tx: &mut PgConnection,
-    task_id: &str,
-) -> Result<(), sqlx::Error> {
+pub(crate) async fn clear_anchors(tx: &mut PgConnection, task_id: &str) -> Result<(), sqlx::Error> {
     sqlx::query("DELETE FROM task_forks WHERE task_id = $1")
         .bind(task_id)
         .execute(tx)

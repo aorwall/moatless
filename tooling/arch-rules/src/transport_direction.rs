@@ -169,11 +169,24 @@ mod tests {
     fn transport_facades_do_not_hide_operation_dependencies() {
         let mut f = Fixture::new();
         f.member("sample", "", "mod handlers; pub mod provider; mod service;");
-        f.write("sample/src/handlers.rs", "use axum::Json; pub fn response() -> Json<()> { Json(()) }");
-        f.write("sample/src/provider.rs", "pub use crate::handlers::response;");
-        f.write("sample/src/service.rs", "pub fn run() { crate::provider::response(); }");
+        f.write(
+            "sample/src/handlers.rs",
+            "use axum::Json; pub fn response() -> Json<()> { Json(()) }",
+        );
+        f.write(
+            "sample/src/provider.rs",
+            "pub use crate::handlers::response;",
+        );
+        f.write(
+            "sample/src/service.rs",
+            "pub fn run() { crate::provider::response(); }",
+        );
         let found = check(&f.load()).expect("check");
         assert!(!found.is_empty());
-        assert!(found.iter().all(|v| v.locations[0].contains("/service.rs:")));
+        assert!(
+            found
+                .iter()
+                .all(|v| v.locations[0].contains("/service.rs:"))
+        );
     }
 }

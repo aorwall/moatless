@@ -1,4 +1,9 @@
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::print_stdout, clippy::print_stderr)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::print_stdout,
+    clippy::print_stderr
+)]
 //! End-to-end integration tests for codex-sdk.
 //!
 //! These tests boot the real in-process Codex runtime and make actual API
@@ -22,15 +27,15 @@ use async_trait::async_trait;
 use tokio::sync::Mutex;
 use tokio::time::timeout;
 
-use codex_sdk::{
-    query, AskForApproval, CodexClient, CodexMessage, CodexOptions, CommandExecutionApprovalDecision,
-    CommandExecutionRequestApprovalParams, FileChangeApprovalDecision,
-    FileChangeRequestApprovalParams, ApprovalHandler,
+use codex_app_server_protocol::{
+    HookCompletedNotification, HookStartedNotification, PermissionsRequestApprovalParams,
+    PermissionsRequestApprovalResponse,
 };
 use codex_sdk::hooks::HookObserver;
-use codex_app_server_protocol::{
-    HookStartedNotification, HookCompletedNotification, PermissionsRequestApprovalParams,
-    PermissionsRequestApprovalResponse,
+use codex_sdk::{
+    ApprovalHandler, AskForApproval, CodexClient, CodexMessage, CodexOptions,
+    CommandExecutionApprovalDecision, CommandExecutionRequestApprovalParams,
+    FileChangeApprovalDecision, FileChangeRequestApprovalParams, query,
 };
 
 // ---------------------------------------------------------------------------
@@ -46,10 +51,7 @@ const TEST_MODEL: &str = "gpt-5.6-sol";
 /// Model for E2E tests. Uses CODEX_TEST_MODEL env var if set, otherwise falls
 /// back to TEST_MODEL.
 fn test_model() -> Option<String> {
-    Some(
-        std::env::var("CODEX_TEST_MODEL")
-            .unwrap_or_else(|_| TEST_MODEL.to_string()),
-    )
+    Some(std::env::var("CODEX_TEST_MODEL").unwrap_or_else(|_| TEST_MODEL.to_string()))
 }
 
 /// Skip test unless CODEX_SDK_E2E=1 is set.
@@ -216,10 +218,7 @@ async fn test_thread_id_is_valid() {
 
         // Drain messages to completion
         let messages = collect_messages(&mut handle.messages).await;
-        assert!(
-            !messages.is_empty(),
-            "Expected at least one message"
-        );
+        assert!(!messages.is_empty(), "Expected at least one message");
 
         handle.cancel();
     })
@@ -504,17 +503,11 @@ struct CapturingHookObserver {
 
 impl HookObserver for CapturingHookObserver {
     fn on_hook_started(&self, params: &HookStartedNotification) {
-        self.started
-            .lock()
-            .unwrap()
-            .push(params.run.id.clone());
+        self.started.lock().unwrap().push(params.run.id.clone());
     }
 
     fn on_hook_completed(&self, params: &HookCompletedNotification) {
-        self.completed
-            .lock()
-            .unwrap()
-            .push(params.run.id.clone());
+        self.completed.lock().unwrap().push(params.run.id.clone());
     }
 }
 
@@ -539,12 +532,9 @@ async fn test_hook_observer_receives_events() {
             ..Default::default()
         };
 
-        let mut handle = query(
-            "List the files in the current directory using ls.",
-            options,
-        )
-        .await
-        .expect("Failed to start query");
+        let mut handle = query("List the files in the current directory using ls.", options)
+            .await
+            .expect("Failed to start query");
 
         let messages = collect_messages(&mut handle.messages).await;
 
@@ -561,7 +551,12 @@ async fn test_hook_observer_receives_events() {
         // Also check if any HookStarted/HookCompleted messages came through the stream
         let hook_messages = messages
             .iter()
-            .filter(|m| matches!(m, CodexMessage::HookStarted(_) | CodexMessage::HookCompleted(_)))
+            .filter(|m| {
+                matches!(
+                    m,
+                    CodexMessage::HookStarted(_) | CodexMessage::HookCompleted(_)
+                )
+            })
             .count();
 
         eprintln!("Hook messages in stream: {hook_messages}");
@@ -609,10 +604,7 @@ async fn test_ephemeral_thread() {
         // Check for ThreadStarted notification if present
         for msg in &messages {
             if let CodexMessage::ThreadStarted(ts) = msg {
-                assert!(
-                    ts.thread.ephemeral,
-                    "Expected thread to be ephemeral"
-                );
+                assert!(ts.thread.ephemeral, "Expected thread to be ephemeral");
                 eprintln!("ThreadStarted confirms ephemeral=true");
             }
         }
@@ -652,90 +644,94 @@ fn test_resume_session() {
         .unwrap();
 
     rt.block_on(async {
-    let result = timeout(Duration::from_secs(120), async {
-        // Session 1: non-ephemeral so the thread is persisted to disk.
-        let options1 = CodexOptions {
-            model: test_model(),
-            ephemeral: Some(false),
-            approval_policy: Some(AskForApproval::Never),
-            config_overrides: vec![(
-                "model_reasoning_effort".to_string(),
-                toml::Value::String("high".to_string()),
-            )],
-            ..Default::default()
-        };
+        let result = timeout(Duration::from_secs(120), async {
+            // Session 1: non-ephemeral so the thread is persisted to disk.
+            let options1 = CodexOptions {
+                model: test_model(),
+                ephemeral: Some(false),
+                approval_policy: Some(AskForApproval::Never),
+                config_overrides: vec![(
+                    "model_reasoning_effort".to_string(),
+                    toml::Value::String("high".to_string()),
+                )],
+                ..Default::default()
+            };
 
-        let mut handle1 = query(
-            "Remember: the secret word is 'pineapple'. Confirm with OK.",
-            options1,
-        )
-        .await
-        .expect("Failed to start session 1");
+            let mut handle1 = query(
+                "Remember: the secret word is 'pineapple'. Confirm with OK.",
+                options1,
+            )
+            .await
+            .expect("Failed to start session 1");
 
-        let thread_id = handle1.thread_id().to_string();
-        eprintln!("Session 1 thread_id: {thread_id}");
+            let thread_id = handle1.thread_id().to_string();
+            eprintln!("Session 1 thread_id: {thread_id}");
 
-        // Drain to completion
-        let msgs1 = collect_messages(&mut handle1.messages).await;
-        for msg in &msgs1 {
-            match msg {
-                CodexMessage::AgentMessageDelta(d) => eprintln!("  S1 [AgentDelta] '{}'", d.delta),
-                CodexMessage::TurnCompleted(_) => eprintln!("  S1 [TurnCompleted]"),
-                CodexMessage::Error(e) => eprintln!("  S1 [Error] {}", e.error.message),
-                other => eprintln!("  S1 [{:?}]", std::mem::discriminant(other)),
+            // Drain to completion
+            let msgs1 = collect_messages(&mut handle1.messages).await;
+            for msg in &msgs1 {
+                match msg {
+                    CodexMessage::AgentMessageDelta(d) => {
+                        eprintln!("  S1 [AgentDelta] '{}'", d.delta)
+                    }
+                    CodexMessage::TurnCompleted(_) => eprintln!("  S1 [TurnCompleted]"),
+                    CodexMessage::Error(e) => eprintln!("  S1 [Error] {}", e.error.message),
+                    other => eprintln!("  S1 [{:?}]", std::mem::discriminant(other)),
+                }
             }
-        }
-        assert!(
-            msgs1.iter().any(|m| matches!(m, CodexMessage::TurnCompleted(_))),
-            "Session 1 should complete"
-        );
-        let text1 = extract_agent_text(&msgs1);
-        eprintln!("Session 1 agent text: '{text1}'");
+            assert!(
+                msgs1
+                    .iter()
+                    .any(|m| matches!(m, CodexMessage::TurnCompleted(_))),
+                "Session 1 should complete"
+            );
+            let text1 = extract_agent_text(&msgs1);
+            eprintln!("Session 1 agent text: '{text1}'");
 
-        // Give the app-server a moment to persist the thread to disk,
-        // then shut down session 1 fully before starting session 2.
-        tokio::time::sleep(Duration::from_secs(1)).await;
-        handle1.shutdown().await;
+            // Give the app-server a moment to persist the thread to disk,
+            // then shut down session 1 fully before starting session 2.
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            handle1.shutdown().await;
 
-        // Session 2: resume the same thread, ask for the secret word.
-        let options2 = CodexOptions {
-            model: test_model(),
-            ephemeral: Some(false),
-            resume_thread_id: Some(thread_id.clone()),
-            approval_policy: Some(AskForApproval::Never),
-            config_overrides: vec![(
-                "model_reasoning_effort".to_string(),
-                toml::Value::String("high".to_string()),
-            )],
-            ..Default::default()
-        };
+            // Session 2: resume the same thread, ask for the secret word.
+            let options2 = CodexOptions {
+                model: test_model(),
+                ephemeral: Some(false),
+                resume_thread_id: Some(thread_id.clone()),
+                approval_policy: Some(AskForApproval::Never),
+                config_overrides: vec![(
+                    "model_reasoning_effort".to_string(),
+                    toml::Value::String("high".to_string()),
+                )],
+                ..Default::default()
+            };
 
-        let mut handle2 = query(
-            "What is the secret word I told you earlier? Reply with only the word.",
-            options2,
-        )
-        .await
-        .expect("Failed to start session 2 (resume)");
+            let mut handle2 = query(
+                "What is the secret word I told you earlier? Reply with only the word.",
+                options2,
+            )
+            .await
+            .expect("Failed to start session 2 (resume)");
 
-        eprintln!(
-            "Session 2 thread_id: {} (original: {thread_id})",
-            handle2.thread_id()
-        );
+            eprintln!(
+                "Session 2 thread_id: {} (original: {thread_id})",
+                handle2.thread_id()
+            );
 
-        let msgs2 = collect_messages(&mut handle2.messages).await;
-        let text2 = extract_agent_text(&msgs2);
-        eprintln!("Session 2 response: {text2}");
+            let msgs2 = collect_messages(&mut handle2.messages).await;
+            let text2 = extract_agent_text(&msgs2);
+            eprintln!("Session 2 response: {text2}");
 
-        assert!(
-            text2.to_lowercase().contains("pineapple"),
-            "Expected resumed session to recall 'pineapple', got: {text2}"
-        );
+            assert!(
+                text2.to_lowercase().contains("pineapple"),
+                "Expected resumed session to recall 'pineapple', got: {text2}"
+            );
 
-        handle2.cancel();
-    })
-    .await;
+            handle2.cancel();
+        })
+        .await;
 
-    result.expect("Test timed out");
+        result.expect("Test timed out");
     }); // rt.block_on
 }
 
@@ -750,12 +746,9 @@ async fn test_steer_mid_turn() {
     init_tracing();
 
     let result = timeout(TEST_TIMEOUT, async {
-        let mut handle = query(
-            "Write a short paragraph about the weather.",
-            e2e_options(),
-        )
-        .await
-        .expect("Failed to start query");
+        let mut handle = query("Write a short paragraph about the weather.", e2e_options())
+            .await
+            .expect("Failed to start query");
 
         // Wait for the first AgentMessageDelta to confirm the turn is running
         let mut saw_delta = false;
@@ -788,14 +781,23 @@ async fn test_steer_mid_turn() {
             }
         }
 
-        assert!(saw_delta, "Expected at least one AgentMessageDelta before steer");
         assert!(
-            all_messages.iter().any(|m| matches!(m, CodexMessage::TurnCompleted(_))),
+            saw_delta,
+            "Expected at least one AgentMessageDelta before steer"
+        );
+        assert!(
+            all_messages
+                .iter()
+                .any(|m| matches!(m, CodexMessage::TurnCompleted(_))),
             "Expected TurnCompleted after steer"
         );
 
         let text = extract_agent_text(&all_messages);
-        eprintln!("Final agent text ({} chars): {}...", text.len(), &text[..text.len().min(200)]);
+        eprintln!(
+            "Final agent text ({} chars): {}...",
+            text.len(),
+            &text[..text.len().min(200)]
+        );
 
         handle.cancel();
     })

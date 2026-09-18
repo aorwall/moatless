@@ -103,7 +103,10 @@ async fn insert_task_writes_the_sandbox_row_from_the_task(pool: PgPool) {
     let mut row = task_row("t1");
     row.branch = Some("feature/x".to_string());
     row.headless = true;
-    store_over(&pool).insert_task(&row, &SandboxPlacement::default()).await.unwrap();
+    store_over(&pool)
+        .insert_task(&row, &SandboxPlacement::default())
+        .await
+        .unwrap();
 
     let shape = sandbox_shape(&pool, "t1").await.expect("sandbox row");
     assert_eq!(shape.workspace_id, "ws_repo-x");
@@ -127,7 +130,9 @@ async fn the_workspace_run_as_account_outranks_the_task_owner(pool: PgPool) {
     seed_bare_task(&pool, "seed", "open").await;
     let dao = store_over(&pool);
 
-    dao.insert_task(&task_row("t1"), &SandboxPlacement::default()).await.unwrap();
+    dao.insert_task(&task_row("t1"), &SandboxPlacement::default())
+        .await
+        .unwrap();
     assert_eq!(
         sandbox_shape(&pool, "t1")
             .await
@@ -142,7 +147,9 @@ async fn the_workspace_run_as_account_outranks_the_task_owner(pool: PgPool) {
         .execute(&pool)
         .await
         .unwrap();
-    dao.insert_task(&task_row("t2"), &SandboxPlacement::default()).await.unwrap();
+    dao.insert_task(&task_row("t2"), &SandboxPlacement::default())
+        .await
+        .unwrap();
     assert_eq!(
         sandbox_shape(&pool, "t2")
             .await
@@ -168,7 +175,9 @@ async fn the_task_run_as_account_outranks_the_workspace(pool: PgPool) {
 
     let mut row = task_row("t1");
     row.run_as_user_id = Some("bot-3".to_string());
-    dao.insert_task(&row, &SandboxPlacement::default()).await.unwrap();
+    dao.insert_task(&row, &SandboxPlacement::default())
+        .await
+        .unwrap();
 
     assert_eq!(
         sandbox_shape(&pool, "t1")
@@ -181,10 +190,7 @@ async fn the_task_run_as_account_outranks_the_workspace(pool: PgPool) {
     );
 }
 
-async fn sandbox_placement(
-    pool: &PgPool,
-    sandbox_id: &str,
-) -> (Option<serde_json::Value>, bool) {
+async fn sandbox_placement(pool: &PgPool, sandbox_id: &str) -> (Option<serde_json::Value>, bool) {
     sqlx::query_as("SELECT node_selector, stop_when_done FROM sandboxes WHERE sandbox_id = $1")
         .bind(sandbox_id)
         .fetch_one(pool)
@@ -365,12 +371,16 @@ async fn a_message_on_a_task_that_never_ran_keeps_the_sandbox(pool: PgPool) {
 async fn joining_a_sandbox_writes_no_second_row(pool: PgPool) {
     seed_bare_task(&pool, "seed", "open").await;
     let dao = store_over(&pool);
-    dao.insert_task(&task_row("t1"), &SandboxPlacement::default()).await.unwrap();
+    dao.insert_task(&task_row("t1"), &SandboxPlacement::default())
+        .await
+        .unwrap();
 
     let mut joiner = task_row("t2");
     joiner.sandbox_id = Some("t1".to_string());
     joiner.checkout_mode = Some(CheckoutMode::Shared);
-    dao.insert_task(&joiner, &SandboxPlacement::default()).await.unwrap();
+    dao.insert_task(&joiner, &SandboxPlacement::default())
+        .await
+        .unwrap();
 
     assert!(sandbox_shape(&pool, "t2").await.is_none(), "no second row");
     let bound: Option<String> =

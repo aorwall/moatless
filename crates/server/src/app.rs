@@ -657,7 +657,9 @@ fn spawn_event_handler(
     }
     let state = app_state.clone();
     let handle = tokio::spawn(event_handler::spawn_event_handler(
-        state, subscribers, cancel,
+        state,
+        subscribers,
+        cancel,
     ));
     info!("Event dispatcher spawned");
     Some(handle)

@@ -67,8 +67,7 @@ async fn a_fork_carries_at_turn_same_sandbox_and_message_but_not_branch() {
 #[tokio::test]
 async fn a_fork_carries_a_translated_model_override() {
     let mut command = fork_command();
-    command["modelSelection"] =
-        json!({ "instanceId": "claudeAgent", "model": "claude-haiku-4-5" });
+    command["modelSelection"] = json!({ "instanceId": "claudeAgent", "model": "claude-haiku-4-5" });
     let (result, calls) = run(command).await;
     assert!(result.is_ok());
     assert!(matches!(

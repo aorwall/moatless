@@ -55,7 +55,6 @@ impl LinearOAuthProvider {
             http,
         })
     }
-
 }
 
 #[derive(serde::Deserialize)]

@@ -266,10 +266,7 @@ mod tests {
 
     #[tokio::test]
     async fn reply_instructions_cover_reply_paths_and_completion_behavior() {
-        let notes = provider()
-            .reply_instructions()
-            .await
-            .expect("instructions");
+        let notes = provider().reply_instructions().await.expect("instructions");
         assert!(notes.contains("## GitHub PR Agent Notes"));
         assert!(notes.contains("moat gh pr reply <pr_number> <comment_id>"));
         assert!(notes.contains("moat gh pr comment <pr_number>"));

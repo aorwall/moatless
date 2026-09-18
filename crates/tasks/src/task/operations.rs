@@ -40,13 +40,8 @@ impl TaskCommands {
     }
 
     /// See [`TaskDao::delete_inserted_task`].
-    pub async fn delete_inserted_task(
-        &self,
-        task_id: &str,
-    ) -> Result<bool, sqlx::Error> {
-        self.store
-            .delete_inserted_task(task_id)
-            .await
+    pub async fn delete_inserted_task(&self, task_id: &str) -> Result<bool, sqlx::Error> {
+        self.store.delete_inserted_task(task_id).await
     }
 
     /// See [`TaskDao::delete_errored_empty_task`].

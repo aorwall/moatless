@@ -20,7 +20,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use claude_agent_sdk::api::messages::ResultMessage;
-use claude_agent_sdk::{query, ClaudeOptions, PermissionMode, SdkMessage};
+use claude_agent_sdk::{ClaudeOptions, PermissionMode, SdkMessage, query};
 use tokio_util::sync::CancellationToken;
 
 use moatless_sandbox::agent::agent_state::AgentState;
@@ -58,11 +58,7 @@ fn auth_env() -> Option<HashMap<String, String>> {
     if let Ok(key) = std::env::var("ANTHROPIC_API_KEY") {
         env.insert("ANTHROPIC_API_KEY".to_string(), key);
     }
-    if env.is_empty() {
-        None
-    } else {
-        Some(env)
-    }
+    if env.is_empty() { None } else { Some(env) }
 }
 
 /// Initialize tracing for test output (idempotent).

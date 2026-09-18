@@ -560,7 +560,12 @@ async fn default_branch(repo_dir: &str) -> Option<String> {
     // warning per call would report a working path as a fault.
     let symbolic = capture(
         repo_dir,
-        &["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"],
+        &[
+            "symbolic-ref",
+            "--quiet",
+            "--short",
+            "refs/remotes/origin/HEAD",
+        ],
         METADATA_TIMEOUT_SECS,
     )
     .await

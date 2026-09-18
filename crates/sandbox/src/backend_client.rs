@@ -12,12 +12,11 @@ use sandbox_proto::{
     AcknowledgeMessagesRequest, DownloadTranscriptRequest, DownloadUploadRequest,
     DownloadUploadResponse, EnqueueSandboxMessageRequest, GetCredentialsRequest,
     GetCredentialsResponse, GetPendingMessagesRequest, GetSystemPromptRequest,
-    GetWorkspaceRepositoryAccessRequest,
-    GetWorkspaceRepositoryAccessResponse, GetWorkspaceSyncUrlsRequest,
-    GetWorkspaceSyncUrlsResponse, InterruptedTurn, PendingAgentDelivery, PublishEventRequest,
-    RecordGitPushRequest, RecordUnreportedCommandsRequest, RecoverInterruptedRunRequest,
-    ReportWorkspaceSyncRequest, TakeUnreportedCommandsRequest, TranscriptChunk, UnreportedCommand,
-    UpdateCredentialRequest,
+    GetWorkspaceRepositoryAccessRequest, GetWorkspaceRepositoryAccessResponse,
+    GetWorkspaceSyncUrlsRequest, GetWorkspaceSyncUrlsResponse, InterruptedTurn,
+    PendingAgentDelivery, PublishEventRequest, RecordGitPushRequest,
+    RecordUnreportedCommandsRequest, RecoverInterruptedRunRequest, ReportWorkspaceSyncRequest,
+    TakeUnreportedCommandsRequest, TranscriptChunk, UnreportedCommand, UpdateCredentialRequest,
 };
 
 use crate::commands::{CommandState, JournaledCommand};

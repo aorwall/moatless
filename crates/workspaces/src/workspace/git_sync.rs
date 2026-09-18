@@ -335,7 +335,8 @@ impl GitSyncService {
             }
 
             let mut run = run_config_from_entry(entry);
-            for field in strip_git_declared_identity(&mut run, &repo.id, ".moatless/workspaces.json")
+            for field in
+                strip_git_declared_identity(&mut run, &repo.id, ".moatless/workspaces.json")
             {
                 summary.warnings.push(WorkspaceSyncWarning {
                     path: format!("workspaces[{i}].{field}"),

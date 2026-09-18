@@ -140,7 +140,8 @@ impl PgAdapterConnectionDao {
                 .map_err(|e| StoreError::with_source("list adapter connections", e))?;
             return Ok(rows.into_iter().map(AdapterConnection::from).collect());
         }
-        let access = moatless_core::db::access_control::access_filter(ScopedEntity::Resource, "", 1);
+        let access =
+            moatless_core::db::access_control::access_filter(ScopedEntity::Resource, "", 1);
         let sql = format!(
             "{PROVIDER_CONNECTION_SELECT} \
              WHERE {} \

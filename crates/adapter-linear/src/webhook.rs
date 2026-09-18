@@ -208,7 +208,9 @@ fn issue_event(
     // with different webhook timestamps, so `updatedAt` is the preferred clock
     // and `webhookTimestamp` is only the fallback.
     let Some(transition_id) = super::ingress::issue_state_transition_id(envelope) else {
-        return Err(IngressError::Unidentifiable("updatedAt or webhookTimestamp"));
+        return Err(IngressError::Unidentifiable(
+            "updatedAt or webhookTimestamp",
+        ));
     };
 
     Ok(admit(super::delivery::issue_update_request(

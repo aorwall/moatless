@@ -475,7 +475,10 @@ fn a_change_holding_a_plan_call_carries_the_plan_itself() {
         "1. Do the thing"
     );
     assert_eq!(card["payload"]["proposedPlan"]["id"], "msg-2:0");
-    assert_eq!(card["payload"]["proposedPlan"]["implementedAt"], Value::Null);
+    assert_eq!(
+        card["payload"]["proposedPlan"]["implementedAt"],
+        Value::Null
+    );
     assert_eq!(card["sequence"], 2 * EVENTS_PER_CHANGE + 768 + 1);
 
     // The call, its panel and its card are three events off one row, and the
@@ -486,7 +489,10 @@ fn a_change_holding_a_plan_call_carries_the_plan_itself() {
         .collect();
     let mut climbing = sequences.clone();
     climbing.sort_unstable();
-    assert_eq!(sequences, climbing, "items must be emitted in sequence order");
+    assert_eq!(
+        sequences, climbing,
+        "items must be emitted in sequence order"
+    );
     let unique: HashSet<i64> = sequences.iter().copied().collect();
     assert_eq!(
         unique.len(),

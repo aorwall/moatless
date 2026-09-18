@@ -20,7 +20,9 @@ use async_trait::async_trait;
 use serde_json::Value;
 
 use moatless_types::agent::AgentSubType;
-use moatless_types::sandbox::{SandboxEventPayload, SandboxStatus, ServerEventPayload, ServerSubType};
+use moatless_types::sandbox::{
+    SandboxEventPayload, SandboxStatus, ServerEventPayload, ServerSubType,
+};
 use moatless_types::task::{TaskSubType, TaskTurnSubType};
 
 use crate::events::{EventPublisher, PublishError};

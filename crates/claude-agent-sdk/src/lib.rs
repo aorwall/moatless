@@ -45,24 +45,19 @@
 //! # }
 //! ```
 
+pub mod api;
 pub mod client;
 pub mod config_dir;
 pub mod error;
 pub mod mcp;
 pub mod query;
 pub mod tmux;
-pub mod api;
 
 mod protocol;
-mod transport;
 mod transcripts;
+mod transport;
 
 // Top-level re-exports for convenience
-pub use client::ClaudeClient;
-pub use config_dir::resolve_claude_config_dir;
-pub use error::{Result, SdkError};
-pub use query::{QueryHandle, query, query_streaming};
-pub use tmux::{has_resumable_transcript, query_tmux, query_tmux_streaming, transcript_dir};
 pub use api::agents::AgentDefinition;
 pub use api::content::{ApiMessage, ContentBlock};
 pub use api::hooks::{HookDefinition, HookEvent, HookHandler, HookOutput, SyncHookOutput};
@@ -70,3 +65,8 @@ pub use api::mcp::{McpConnectionStatus, McpServerConfig, McpServerStatus, McpSet
 pub use api::messages::{MessagePriority, SdkMessage};
 pub use api::options::ClaudeOptions;
 pub use api::permissions::{PermissionHandler, PermissionMode, PermissionResult};
+pub use client::ClaudeClient;
+pub use config_dir::resolve_claude_config_dir;
+pub use error::{Result, SdkError};
+pub use query::{QueryHandle, query, query_streaming};
+pub use tmux::{has_resumable_transcript, query_tmux, query_tmux_streaming, transcript_dir};

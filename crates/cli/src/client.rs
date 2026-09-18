@@ -3,7 +3,7 @@
 //! Wraps `moatless_api_client::ApiClient` with auth header injection.
 
 use moatless_api_client::{ApiClient, ApiError};
-use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, COOKIE};
+use reqwest::header::{AUTHORIZATION, COOKIE, HeaderMap, HeaderValue};
 use thiserror::Error;
 
 use crate::config::{AuthMode, Config};

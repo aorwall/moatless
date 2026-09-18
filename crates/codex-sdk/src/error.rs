@@ -40,11 +40,7 @@ mod tests {
             std::io::ErrorKind::NotFound,
             "not found",
         ));
-        assert!(
-            err.to_string().contains("startup failed"),
-            "got: {}",
-            err
-        );
+        assert!(err.to_string().contains("startup failed"), "got: {}", err);
     }
 
     #[test]

@@ -186,7 +186,13 @@ pub(crate) async fn create_issue(
     // Only an assignee the caller named: the default from the caller's own
     // identity is best-effort by design and must not fail the creation.
     if let (Some(_), Some(requested)) = (req.assignee.as_deref(), assignee_id.as_deref()) {
-        require_applied(&issue, "assignee", "/assignee", Some(requested), DROPPED_ASSIGNEE)?;
+        require_applied(
+            &issue,
+            "assignee",
+            "/assignee",
+            Some(requested),
+            DROPPED_ASSIGNEE,
+        )?;
     }
     if let Some(requested) = delegate_id.as_ref() {
         require_applied(&issue, "delegate", "/delegate", requested.as_str(), "")?;
@@ -321,7 +327,13 @@ pub(crate) async fn update_issue(
         require_applied(&issue, "state", "/state", Some(requested), "")?;
     }
     if let Some(requested) = assignee_id.as_deref() {
-        require_applied(&issue, "assignee", "/assignee", Some(requested), DROPPED_ASSIGNEE)?;
+        require_applied(
+            &issue,
+            "assignee",
+            "/assignee",
+            Some(requested),
+            DROPPED_ASSIGNEE,
+        )?;
     }
     if let Some(requested) = delegate_id.as_ref() {
         require_applied(&issue, "delegate", "/delegate", requested.as_str(), "")?;
@@ -589,8 +601,7 @@ pub(crate) async fn list_issues(
     // one filter object — two `insert`s under the same key would drop the first.
     let mut state_filter = serde_json::Map::new();
     if let Some(state) = params.state.as_deref() {
-        let state_id =
-            resolve_required(&api, LookupKind::State, state, team_id.as_deref()).await?;
+        let state_id = resolve_required(&api, LookupKind::State, state, team_id.as_deref()).await?;
         state_filter.insert("id".into(), json!({ "eq": state_id }));
     }
     // `open_only` filters on the state's *type*, not its name: every team names
@@ -602,8 +613,7 @@ pub(crate) async fn list_issues(
         filter.insert("state".into(), Value::Object(state_filter));
     }
     if let Some(label) = params.label.as_deref() {
-        let label_id =
-            resolve_required(&api, LookupKind::Label, label, team_id.as_deref()).await?;
+        let label_id = resolve_required(&api, LookupKind::Label, label, team_id.as_deref()).await?;
         filter.insert("labels".into(), json!({ "id": { "eq": label_id } }));
     }
     if let Some(assignee) = params.assignee.as_deref() {
@@ -815,8 +825,14 @@ mod tests {
             "identifier": "SP-2982",
             "assignee": { "id": REQUESTED, "displayName": "Albert" },
         });
-        require_applied(&issue, "assignee", "/assignee", Some(REQUESTED), DROPPED_ASSIGNEE)
-            .expect("the assignee landed");
+        require_applied(
+            &issue,
+            "assignee",
+            "/assignee",
+            Some(REQUESTED),
+            DROPPED_ASSIGNEE,
+        )
+        .expect("the assignee landed");
     }
 
     /// `--delegate null` releases a lane's claim, and a delegate Linear kept

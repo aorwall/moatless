@@ -56,10 +56,9 @@ pub fn mentioned_user_ids(text: &str) -> Vec<String> {
 pub fn name_mentions(text: &str, names: &std::collections::HashMap<String, String>) -> String {
     BARE_USER_ID
         .replace_all(text, |caps: &regex::Captures| {
-            names.get(&caps[1]).map_or_else(
-                || caps[0].to_string(),
-                |name| format!("@{name}"),
-            )
+            names
+                .get(&caps[1])
+                .map_or_else(|| caps[0].to_string(), |name| format!("@{name}"))
         })
         .into_owned()
 }
@@ -115,11 +114,12 @@ pub fn extract_text_from_blocks(blocks: &[serde_json::Value]) -> String {
             "table" => {
                 if let Some(rows) = block.get("rows").and_then(|r| r.as_array()) {
                     for row in rows {
-                        let Some(cells) = row.as_array() else { continue };
+                        let Some(cells) = row.as_array() else {
+                            continue;
+                        };
                         let mut cell_parts: Vec<String> = Vec::new();
                         for cell in cells {
-                            if let Some(elements) =
-                                cell.get("elements").and_then(|e| e.as_array())
+                            if let Some(elements) = cell.get("elements").and_then(|e| e.as_array())
                             {
                                 for element in elements {
                                     extract_rich_text_element(element, &mut cell_parts);

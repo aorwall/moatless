@@ -34,8 +34,9 @@ pub fn read_json_arg<T: serde::de::DeserializeOwned>(
     arg: &str,
 ) -> Result<T, Box<dyn std::error::Error>> {
     let raw = match arg.strip_prefix('@') {
-        Some(path) => std::fs::read_to_string(path)
-            .map_err(|e| format!("{flag}: cannot read {path}: {e}"))?,
+        Some(path) => {
+            std::fs::read_to_string(path).map_err(|e| format!("{flag}: cannot read {path}: {e}"))?
+        }
         None => arg.to_string(),
     };
     serde_json::from_str(&raw).map_err(|e| format!("{flag}: {e}").into())

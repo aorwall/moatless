@@ -70,7 +70,10 @@ async fn a_state_lookup_narrows_to_the_team() {
 #[tokio::test]
 async fn a_label_lookup_keeps_workspace_labels_in_reach() {
     let (query, filter) = request_for(LookupKind::Label, Some(TEAM)).await;
-    assert!(query.contains("query($filter: IssueLabelFilter)"), "{query}");
+    assert!(
+        query.contains("query($filter: IssueLabelFilter)"),
+        "{query}"
+    );
     assert_eq!(
         filter,
         json!({
@@ -175,7 +178,11 @@ fn a_differently_named_state_is_not_a_match() {
         LookupKind::State,
         "In Review",
         Some(TEAM),
-        vec![state("23123317-0000-0000-0000-000000000000", "Canceled", "SP")],
+        vec![state(
+            "23123317-0000-0000-0000-000000000000",
+            "Canceled",
+            "SP",
+        )],
     )
     .expect("one node is not ambiguous");
     assert!(found.is_none(), "a state named Canceled is not `In Review`");

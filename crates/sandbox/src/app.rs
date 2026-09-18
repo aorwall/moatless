@@ -28,9 +28,7 @@ pub fn initialize_logging() {
             // none of them: 2.7M expected lines a day across staging, with no
             // knob on `RestoreOptions` to turn them off. `RUST_LOG` overrides
             // this whole filter and brings them back.
-            EnvFilter::new(format!(
-                "{log_level},rustic_core::commands::restore=error"
-            ))
+            EnvFilter::new(format!("{log_level},rustic_core::commands::restore=error"))
         }))
         .json()
         // Lift event fields (incl. `message`) to the JSON root so Loki's

@@ -196,11 +196,11 @@ pub fn rules_need_issue_fetch(rules: &[SubscriptionMatch]) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use moatless_types::adapter::AdapterKind;
     use super::*;
-    use moatless_types::loops::RoutingMode;
     use chrono::Utc;
     use moatless_types::access_control::Scope;
+    use moatless_types::adapter::AdapterKind;
+    use moatless_types::loops::RoutingMode;
 
     fn rule_with(
         adapter_config: serde_json::Value,

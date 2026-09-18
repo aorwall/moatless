@@ -70,7 +70,10 @@ mod tests {
 
     #[test]
     fn github_pr_buffers_for_a_minute_and_other_adapters_do_not() {
-        assert_eq!(builtin_window(AdapterKind::GithubPr), Duration::from_mins(1));
+        assert_eq!(
+            builtin_window(AdapterKind::GithubPr),
+            Duration::from_mins(1)
+        );
         assert_eq!(builtin_window(AdapterKind::Slack), Duration::ZERO);
         assert_eq!(builtin_window(AdapterKind::Linear), Duration::ZERO);
     }

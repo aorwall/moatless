@@ -25,9 +25,7 @@ use super::client::K8sClient;
 use super::naming::sanitize_k8s_name;
 use moatless_core::config::Config;
 use moatless_sandbox_runtime::runtime::RuntimeError;
-use moatless_sandbox_runtime::runtime::{
-    OPERATION_GENERATION_LABEL, generation_from_label,
-};
+use moatless_sandbox_runtime::runtime::{OPERATION_GENERATION_LABEL, generation_from_label};
 
 const CLEANUP_MOUNT_PATH: &str = "/host-cache";
 const CLEANUP_TIMEOUT: Duration = Duration::from_mins(5);

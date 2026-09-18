@@ -328,7 +328,11 @@ fn parse_field_or_variant(line: &str) -> Option<String> {
         || after.starts_with(',')
         || after.starts_with('=')
         || after.is_empty();
-    if shaped_like_a_member { Some(ident) } else { None }
+    if shaped_like_a_member {
+        Some(ident)
+    } else {
+        None
+    }
 }
 
 #[cfg(test)]

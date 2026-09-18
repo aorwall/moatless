@@ -6,7 +6,9 @@ pub type DbPool = sqlx::PgPool;
 
 /// Check whether the pool can execute a database round trip.
 pub async fn probe(pool: &DbPool) -> Result<i32, sqlx::Error> {
-    sqlx::query_scalar::<_, i32>("SELECT 1").fetch_one(pool).await
+    sqlx::query_scalar::<_, i32>("SELECT 1")
+        .fetch_one(pool)
+        .await
 }
 
 const POOL_CONNECTIONS: &str = "moatless_database_pool_connections";

@@ -14,11 +14,11 @@ pub(crate) mod plugin_skills;
 mod replacement_test;
 mod workspace;
 
-pub use error::InitError;
-pub(crate) use initialization::initialize;
-pub use models::InitPhase;
 /// Re-exported beside [`InitPhase`]: both are init outcomes `SandboxState`
 /// carries, and `agent::restart` is not public.
 pub use crate::agent::restart::WorkspaceOrigin;
 #[cfg(test)]
 pub(crate) use crate::agent::restart::{open_for_work, recover_interrupted_run_unless_pending};
+pub use error::InitError;
+pub(crate) use initialization::initialize;
+pub use models::InitPhase;

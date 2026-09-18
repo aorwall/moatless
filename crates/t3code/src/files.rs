@@ -86,8 +86,8 @@ fn share_cap(files: &[String], cap: usize) -> Vec<&str> {
         start = end;
     }
 
-    let (dotted, plain): (Vec<usize>, Vec<usize>) = (0..groups.len())
-        .partition(|&group| groups[group][0].starts_with('.'));
+    let (dotted, plain): (Vec<usize>, Vec<usize>) =
+        (0..groups.len()).partition(|&group| groups[group][0].starts_with('.'));
     let mut taken = vec![0usize; groups.len()];
     let mut budget = cap;
     for mut round in [plain, dotted] {
@@ -129,10 +129,7 @@ fn shallowest<'a>(group: &[&'a str], share: usize) -> Vec<&'a str> {
 /// How many directories `path` hangs under. A trailing slash marks a directory
 /// and does not count as one of them.
 fn depth(path: &str) -> usize {
-    path.strip_suffix('/')
-        .unwrap_or(path)
-        .matches('/')
-        .count()
+    path.strip_suffix('/').unwrap_or(path).matches('/').count()
 }
 
 /// The first segment of `path`, which is the entry the workspace root holds it

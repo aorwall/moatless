@@ -44,7 +44,9 @@ pub fn split_mentions(text: &str) -> impl Iterator<Item = MentionPiece<'_>> {
             pieces.push(MentionPiece::Literal(&text[cut..found.start()]));
         }
         // `<@` and `>` are one byte each, so the token is the span inside them.
-        pieces.push(MentionPiece::Token(&text[found.start() + 2..found.end() - 1]));
+        pieces.push(MentionPiece::Token(
+            &text[found.start() + 2..found.end() - 1],
+        ));
         cut = found.end();
     }
     if cut < text.len() {
@@ -155,7 +157,7 @@ mod tests {
     use moatless_types::store::StoreError;
     use uuid::Uuid;
 
-    use super::{render_mentions, resolve_mention, split_mentions, Mention, MentionPiece};
+    use super::{Mention, MentionPiece, render_mentions, resolve_mention, split_mentions};
 
     /// Knows one link: `aorwall` is `U0000000001` on Slack.
     struct OneLink {

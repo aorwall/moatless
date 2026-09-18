@@ -256,9 +256,7 @@ impl From<AccessControlError> for AdapterError {
 impl IntoResponse for AdapterError {
     fn into_response(self) -> Response {
         let (status, message) = match &self {
-            AdapterError::UpstreamCredential { .. } => {
-                (StatusCode::BAD_GATEWAY, self.to_string())
-            }
+            AdapterError::UpstreamCredential { .. } => (StatusCode::BAD_GATEWAY, self.to_string()),
             AdapterError::TaskHandoff { context, .. } => {
                 tracing::error!(
                     error = %moatless_core::error::causal_chain(&self),

@@ -79,11 +79,7 @@ fn agent_model_rows(resp: &ListAgentsResponse) -> Vec<Vec<String>> {
 }
 
 fn installed_label(installed: bool) -> &'static str {
-    if installed {
-        "yes"
-    } else {
-        "no"
-    }
+    if installed { "yes" } else { "no" }
 }
 
 #[cfg(test)]

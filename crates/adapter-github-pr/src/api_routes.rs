@@ -1,19 +1,19 @@
 //! Typed provider HTTP extraction, response adaptation, and OpenAPI metadata.
 
-use std::sync::Arc;
+use super::adapter::GithubPrAdapter;
 use axum::Json;
 use axum::extract::{Path, State};
-use moatless_core::http_auth::AuthUser;
 use moatless_adapter_model::error::AdapterError;
-use moatless_ports::task::TaskReader;
 use moatless_api_schemas::github::{
     GithubBindPrRequest, GithubBindPrResponse, GithubCommentRequest, GithubCommentResponse,
     GithubCreatePrRequest, GithubCreatePrResponse, GithubExternalEventRequest,
     GithubExternalEventResponse, GithubReplyRequest,
 };
+use moatless_core::http_auth::AuthUser;
 use moatless_loops::bindings::recently_sent::RecentlySent;
+use moatless_ports::task::TaskReader;
 use moatless_ports::task::TranscriptAppend;
-use super::adapter::GithubPrAdapter;
+use std::sync::Arc;
 
 #[utoipa::path(
     post,
@@ -31,7 +31,10 @@ use super::adapter::GithubPrAdapter;
         (status = 502, description = "GitHub API error / no usable GitHub token", body = moatless_api_schemas::error::ErrorBody),
     )
 )]
-#[expect(clippy::too_many_arguments, reason = "the authorized mutation receives separate provider, binding, transcript, task, and caller dependencies")]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the authorized mutation receives separate provider, binding, transcript, task, and caller dependencies"
+)]
 pub async fn create_pr(
     State(connector): State<Option<Arc<moatless_loops::loops::firing::listen::Connector>>>,
     State(github_pr_provider): State<Option<Arc<GithubPrAdapter>>>,
@@ -73,7 +76,10 @@ pub async fn create_pr(
         (status = 502, description = "GitHub API error / no usable GitHub token", body = moatless_api_schemas::error::ErrorBody),
     )
 )]
-#[expect(clippy::too_many_arguments, reason = "the authorized mutation receives separate provider, binding, transcript, task, and caller dependencies")]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the authorized mutation receives separate provider, binding, transcript, task, and caller dependencies"
+)]
 pub async fn post_comment(
     State(connector): State<Option<Arc<moatless_loops::loops::firing::listen::Connector>>>,
     State(github_pr_provider): State<Option<Arc<GithubPrAdapter>>>,
@@ -116,7 +122,10 @@ pub async fn post_comment(
         (status = 502, description = "GitHub API error / no usable GitHub token", body = moatless_api_schemas::error::ErrorBody),
     )
 )]
-#[expect(clippy::too_many_arguments, reason = "the authorized mutation receives separate provider, binding, transcript, task, and caller dependencies")]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the authorized mutation receives separate provider, binding, transcript, task, and caller dependencies"
+)]
 pub async fn reply_to_review_comment(
     State(connector): State<Option<Arc<moatless_loops::loops::firing::listen::Connector>>>,
     State(github_pr_provider): State<Option<Arc<GithubPrAdapter>>>,
@@ -178,7 +187,7 @@ pub async fn bind_pr(
 }
 
 pub use super::pull_request_lookup::{
-    find_open_pull_request_for_head, resolve_reference_for_dialog, DialogPullRequest,
+    DialogPullRequest, find_open_pull_request_for_head, resolve_reference_for_dialog,
 };
 
 #[utoipa::path(
@@ -204,5 +213,13 @@ pub async fn record_external_event(
     auth: AuthUser,
     Json(req): Json<GithubExternalEventRequest>,
 ) -> Result<Json<GithubExternalEventResponse>, AdapterError> {
-    super::mutations::record_external_event(tasks, recently_sent, messages, auth.scope_context(), req).await.map(Json)
+    super::mutations::record_external_event(
+        tasks,
+        recently_sent,
+        messages,
+        auth.scope_context(),
+        req,
+    )
+    .await
+    .map(Json)
 }

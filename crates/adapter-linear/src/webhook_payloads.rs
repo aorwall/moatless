@@ -586,10 +586,9 @@ mod tests {
     }
 }
 
-
 #[cfg(test)]
 mod actor_tests {
-    use super::{actor_handle, LinearActor};
+    use super::{LinearActor, actor_handle};
 
     fn actor(name: &str) -> LinearActor {
         LinearActor {

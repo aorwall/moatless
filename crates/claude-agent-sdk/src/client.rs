@@ -1,9 +1,9 @@
-use crate::error::Result;
-use crate::query::{QueryHandle, query_streaming};
-use crate::tmux::query_tmux_streaming;
 use crate::api::content::{ApiMessage, ContentBlock};
 use crate::api::messages::{MessagePriority, SdkMessage, UserMessage};
 use crate::api::options::ClaudeOptions;
+use crate::error::Result;
+use crate::query::{QueryHandle, query_streaming};
+use crate::tmux::query_tmux_streaming;
 
 /// A multi-turn Claude client that manages a persistent session.
 ///

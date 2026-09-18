@@ -1,7 +1,7 @@
 use super::agent_api::{LinearAgentApi, LookupKind};
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_ports::identity::{ProviderIdentityLink, UserDisplay};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tracing::warn;
 
 /// The `provider` a Linear user id is stored under in `user_provider_ids`.
@@ -427,7 +427,7 @@ mod tests {
 
     use super::super::agent_api::LinearAgentApi;
     use super::{
-        default_assignee_from_caller, linear_id_for_login, resolve_user_opt, LINEAR_PROVIDER,
+        LINEAR_PROVIDER, default_assignee_from_caller, linear_id_for_login, resolve_user_opt,
     };
 
     /// The Linear id stored against the login, and the answer the precedence

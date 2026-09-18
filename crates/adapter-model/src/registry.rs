@@ -182,10 +182,7 @@ impl Adapters {
             .ok_or_else(|| unsupported_reactions(adapter_kind))
     }
 
-    pub fn reactions_by_name(
-        &self,
-        name: &str,
-    ) -> Result<&dyn AdapterReactions, AdapterError> {
+    pub fn reactions_by_name(&self, name: &str) -> Result<&dyn AdapterReactions, AdapterError> {
         let adapter_kind = self
             .adapter_kind_for_name(name)
             .ok_or_else(|| SharedAdapterError::BadRequest(format!("Unknown adapter `{name}`")))?;

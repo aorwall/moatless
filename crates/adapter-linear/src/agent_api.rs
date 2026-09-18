@@ -904,20 +904,25 @@ fn select_lookup_match(
     // filter admits both, and the pair is one usable label, not two objects.
     if matches!(kind, LookupKind::Label) {
         if let Some(team_id) = team_id {
-            if matches.iter().any(|node| node_team_id(node) == Some(team_id)) {
+            if matches
+                .iter()
+                .any(|node| node_team_id(node) == Some(team_id))
+            {
                 matches.retain(|node| node_team_id(node) == Some(team_id));
             }
         }
     }
 
     let mut seen: Vec<String> = Vec::new();
-    matches.retain(|node| match node.get("id").and_then(serde_json::Value::as_str) {
-        Some(id) if !seen.iter().any(|kept| kept == id) => {
-            seen.push(id.to_string());
-            true
-        }
-        _ => false,
-    });
+    matches.retain(
+        |node| match node.get("id").and_then(serde_json::Value::as_str) {
+            Some(id) if !seen.iter().any(|kept| kept == id) => {
+                seen.push(id.to_string());
+                true
+            }
+            _ => false,
+        },
+    );
 
     let kind_name = kind.as_str();
     if matches.len() > 1 {
@@ -967,7 +972,10 @@ fn describe_candidate(node: &serde_json::Value) -> String {
         .get("id")
         .and_then(serde_json::Value::as_str)
         .unwrap_or("?");
-    match node.pointer("/team/key").and_then(serde_json::Value::as_str) {
+    match node
+        .pointer("/team/key")
+        .and_then(serde_json::Value::as_str)
+    {
         Some(key) => format!("{id} (team {key})"),
         None => id.to_string(),
     }

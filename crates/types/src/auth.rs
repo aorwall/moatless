@@ -249,7 +249,10 @@ impl fmt::Debug for GitHubAppConfig {
 pub enum AllowedOrigin {
     Exact(String),
     /// `prefix` is `<scheme>://`, `suffix` is `.<domain>`.
-    Subdomain { prefix: String, suffix: String },
+    Subdomain {
+        prefix: String,
+        suffix: String,
+    },
 }
 
 impl AllowedOrigin {

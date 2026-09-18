@@ -8,8 +8,8 @@
 //! session on drop, so the lock dies with it even if the unlock never runs.
 
 use async_trait::async_trait;
-use sqlx::pool::PoolConnection;
 use sqlx::Postgres;
+use sqlx::pool::PoolConnection;
 
 use moatless_core::db::DbPool;
 

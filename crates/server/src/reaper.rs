@@ -671,7 +671,10 @@ impl TaskReaper {
                 }
                 ReapDecision::Keep => {}
                 ReapDecision::Stop => {
-                    if self.stop_idle_sandbox(sandbox, ttl_minutes, latest_at).await {
+                    if self
+                        .stop_idle_sandbox(sandbox, ttl_minutes, latest_at)
+                        .await
+                    {
                         stats.stopped += 1;
                     }
                 }

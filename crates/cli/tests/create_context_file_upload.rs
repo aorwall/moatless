@@ -125,7 +125,10 @@ async fn a_context_file_is_uploaded_and_its_id_is_what_create_attaches() {
 
     let recorded = recorded.lock().expect("recorder");
     let [upload] = recorded.uploads.as_slice() else {
-        panic!("expected exactly one upload, got {}", recorded.uploads.len());
+        panic!(
+            "expected exactly one upload, got {}",
+            recorded.uploads.len()
+        );
     };
     assert!(
         upload.contains("implementation-context.md") && upload.contains("# brief"),
@@ -133,7 +136,10 @@ async fn a_context_file_is_uploaded_and_its_id_is_what_create_attaches() {
     );
 
     let [create] = recorded.creates.as_slice() else {
-        panic!("expected exactly one create, got {}", recorded.creates.len());
+        panic!(
+            "expected exactly one create, got {}",
+            recorded.creates.len()
+        );
     };
     assert_eq!(
         create.get("fileIds"),

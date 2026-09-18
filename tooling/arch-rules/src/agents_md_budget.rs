@@ -59,10 +59,7 @@ mod tests {
 
     #[test]
     fn one_line_over_the_ceiling_fails() {
-        assert_eq!(
-            keys(&[("AGENTS.md", LINE_CEILING + 1)]),
-            vec!["AGENTS.md"]
-        );
+        assert_eq!(keys(&[("AGENTS.md", LINE_CEILING + 1)]), vec!["AGENTS.md"]);
     }
 
     #[test]

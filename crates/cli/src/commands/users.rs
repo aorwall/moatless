@@ -132,7 +132,11 @@ pub async fn run(moat: &MoatClient, action: UserAction, json: bool) -> Result<()
             set_status(moat, &user, UserStatus::Disabled, json).await?;
         }
 
-        UserAction::SetProviderId { login, provider, id } => {
+        UserAction::SetProviderId {
+            login,
+            provider,
+            id,
+        } => {
             let body = serde_json::json!({ "provider_user_id": id });
             let resp = moat
                 .raw_put(

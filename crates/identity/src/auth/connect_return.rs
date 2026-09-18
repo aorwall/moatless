@@ -160,7 +160,11 @@ mod tests {
             "https://t3.example/s?githubConnect=connected#git"
         );
         assert_eq!(
-            with_outcome("https://t3.example/s?tab=git#top", "forgejoConnect", "denied"),
+            with_outcome(
+                "https://t3.example/s?tab=git#top",
+                "forgejoConnect",
+                "denied"
+            ),
             "https://t3.example/s?tab=git&forgejoConnect=denied#top"
         );
     }

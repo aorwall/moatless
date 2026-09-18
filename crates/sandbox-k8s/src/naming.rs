@@ -63,7 +63,6 @@ pub fn generate_preview_network_policy_name(task_id: &str) -> String {
     truncate_k8s(format!("{prefix}{sanitized}{suffix}"))
 }
 
-
 /// Generate a unique PVC name for a task.
 ///
 /// Format: `moatless-sandbox-{sanitized_task_id}-{base36_timestamp}` (max 63
@@ -190,7 +189,6 @@ mod tests {
         assert!(!long.ends_with('-'));
         assert!(long.ends_with("-preview-ingress"));
     }
-
 
     #[test]
     fn test_generate_pvc_name_format() {

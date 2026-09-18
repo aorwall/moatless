@@ -41,5 +41,5 @@ mod writer;
 mod query;
 mod startup;
 
-pub use query::{query_tmux, query_tmux_streaming};
 pub use crate::transcripts::{has_resumable_transcript, transcript_dir};
+pub use query::{query_tmux, query_tmux_streaming};

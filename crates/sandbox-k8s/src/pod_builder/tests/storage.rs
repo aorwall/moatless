@@ -221,4 +221,3 @@ fn default_sandbox_pod_has_no_init_or_hostpath() {
         "no hostPath volumes"
     );
 }
-

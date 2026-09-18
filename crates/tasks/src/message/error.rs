@@ -67,9 +67,9 @@ impl MessageError {
             | MessageError::PersistToolResponse(_) => true,
             // The message row is committed by the time the clock advance runs,
             // and these two name no point in the sequence at all.
-            MessageError::AdvanceTaskClock(_)
-            | MessageError::Db(_)
-            | MessageError::Internal(_) => false,
+            MessageError::AdvanceTaskClock(_) | MessageError::Db(_) | MessageError::Internal(_) => {
+                false
+            }
         }
     }
 }

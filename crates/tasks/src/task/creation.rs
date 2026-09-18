@@ -167,7 +167,9 @@ pub enum TaskCreationError {
     /// Task is deleted before this is returned — it had no brief to run.
     #[error(transparent)]
     FirstMessage(MessageError),
-    #[error("failed to send first message and cleanup inserted task: send={message}; cleanup={cleanup}")]
+    #[error(
+        "failed to send first message and cleanup inserted task: send={message}; cleanup={cleanup}"
+    )]
     FirstMessageCleanup { message: String, cleanup: String },
     #[error("{0}")]
     Preflight(String),
@@ -443,11 +445,7 @@ impl TaskCreationService {
                         "Sandbox join failed during task creation"
                     );
                     let join_error = map_join_error(error);
-                    if let Err(cleanup_error) = self
-                        .tasks
-                        .delete_inserted_task(&task_id)
-                        .await
-                    {
+                    if let Err(cleanup_error) = self.tasks.delete_inserted_task(&task_id).await {
                         tracing::error!(
                             task_id = %task_id,
                             sandbox_id = ?row.sandbox_id,
@@ -481,7 +479,9 @@ impl TaskCreationService {
                 // A join that deferred registered nothing on a pod, so it holds
                 // the insert down no more than no join at all does.
                 let join_landed = join_checkout_mode.is_some() && !join_deferred_to_start;
-                return Err(self.first_message_failed(&task_id, error, join_landed).await);
+                return Err(self
+                    .first_message_failed(&task_id, error, join_landed)
+                    .await);
             }
         }
 
@@ -968,7 +968,9 @@ mod tests {
 
         let err = svc
             .create(req, empty_payload, |_, _| async {
-                Err(MessageError::BadRequest("No uploaded file for file-1".into()))
+                Err(MessageError::BadRequest(
+                    "No uploaded file for file-1".into(),
+                ))
             })
             .await
             .expect_err("a task with no brief is not created");
@@ -1050,7 +1052,9 @@ mod tests {
 
         let err = svc
             .create(req, empty_payload, |_, _| async {
-                Err(MessageError::BadRequest("No uploaded file for file-1".into()))
+                Err(MessageError::BadRequest(
+                    "No uploaded file for file-1".into(),
+                ))
             })
             .await
             .expect_err("a task with no brief is not created");
@@ -1090,7 +1094,9 @@ mod tests {
 
         let err = svc
             .create(req, empty_payload, |_, _| async {
-                Err(MessageError::BadRequest("No uploaded file for file-1".into()))
+                Err(MessageError::BadRequest(
+                    "No uploaded file for file-1".into(),
+                ))
             })
             .await
             .expect_err("a task with no brief is not created");
@@ -1411,9 +1417,7 @@ mod tests {
         tasks.expect_exists_by_short_id().returning(|_| Ok(false));
         tasks.expect_insert_task().times(1).returning(|_, _| Ok(()));
         // A deferred join never cleans up the inserted task.
-        tasks
-            .expect_delete_inserted_task()
-            .never();
+        tasks.expect_delete_inserted_task().never();
 
         let mut starter = MockStarter::new();
         let start_order = Arc::clone(&order);

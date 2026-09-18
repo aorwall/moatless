@@ -73,10 +73,7 @@ pub(crate) trait WorkspaceDao: Send + Sync {
     ///
     /// Not scope-filtered, and tombstones excluded: this answers "where can
     /// work on this repository run", which no deleted row can.
-    async fn find_by_repository(
-        &self,
-        repository_id: &str,
-    ) -> Result<Vec<Workspace>, sqlx::Error>;
+    async fn find_by_repository(&self, repository_id: &str) -> Result<Vec<Workspace>, sqlx::Error>;
 
     /// List a workspace's repo placements, primary first then by `position`.
     async fn find_repos(&self, workspace_id: &str) -> Result<Vec<WorkspaceRepo>, sqlx::Error>;
@@ -227,10 +224,7 @@ impl WorkspaceDao for PgWorkspaceDao {
         row.map(Workspace::try_from).transpose()
     }
 
-    async fn find_by_repository(
-        &self,
-        repository_id: &str,
-    ) -> Result<Vec<Workspace>, sqlx::Error> {
+    async fn find_by_repository(&self, repository_id: &str) -> Result<Vec<Workspace>, sqlx::Error> {
         let rows: Vec<WorkspaceRow> = sqlx::query_as(
             // Grouped, not a plain join: only `mount_name` and `is_primary` are
             // unique per workspace, so a workspace placing this repository at
@@ -790,4 +784,3 @@ pub(crate) async fn replace_git_placements(
 #[cfg(all(test, feature = "db-tests"))]
 #[path = "dao_db_tests.rs"]
 mod db_tests;
-

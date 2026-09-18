@@ -98,7 +98,10 @@ pub async fn drain<C: Policy>(
             classify(joined, true, health, &mut outstanding);
         }
     };
-    if tokio::time::timeout(join_deadline, join_remaining).await.is_err() {
+    if tokio::time::timeout(join_deadline, join_remaining)
+        .await
+        .is_err()
+    {
         warn!(
             stragglers = ?outstanding,
             deadline_secs = join_deadline.as_secs_f64(),
@@ -146,7 +149,13 @@ mod tests {
         let mut outstanding = BTreeSet::from(["task"]);
         let health = SupervisorHealth::default();
         assert!(
-            classify(Ok(joined(Completion::Finite)), false, &health, &mut outstanding).is_none()
+            classify(
+                Ok(joined(Completion::Finite)),
+                false,
+                &health,
+                &mut outstanding
+            )
+            .is_none()
         );
         assert!(outstanding.is_empty());
     }

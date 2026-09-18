@@ -6,4 +6,6 @@ mod pool;
 pub use pool::probe;
 
 pub use migrations::run_migrations;
-pub use pool::{DbPool, PoolKind, create_pool, create_pool_kind, record_pool_metrics, record_readiness_failure};
+pub use pool::{
+    DbPool, PoolKind, create_pool, create_pool_kind, record_pool_metrics, record_readiness_failure,
+};

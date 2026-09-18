@@ -183,7 +183,10 @@ mod tests {
             "previewTabId": "script-preview-static",
         }));
         assert!(lines.contains("Started \"preview-static\""), "{lines}");
-        assert!(lines.contains("running: bunx serve dist -l 3001"), "{lines}");
+        assert!(
+            lines.contains("running: bunx serve dist -l 3001"),
+            "{lines}"
+        );
     }
 
     /// Reporting an attach as a start is what sent a reader looking for

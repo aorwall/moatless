@@ -161,11 +161,7 @@ impl ThreadCommandSink for RecordingSink {
         });
         Ok(())
     }
-    async fn fork(
-        &self,
-        _viewer: &ScopeContext,
-        fork: ForkThread,
-    ) -> Result<(), CommandRefusal> {
+    async fn fork(&self, _viewer: &ScopeContext, fork: ForkThread) -> Result<(), CommandRefusal> {
         self.0.lock().unwrap().push(Call::Fork {
             new_task_id: fork.new_task_id,
             source_task_id: fork.source_task_id,
@@ -202,11 +198,7 @@ impl ThreadCommandSink for RecordingSink {
         });
         Ok(())
     }
-    async fn interrupt(
-        &self,
-        _viewer: &ScopeContext,
-        task_id: &str,
-    ) -> Result<(), CommandRefusal> {
+    async fn interrupt(&self, _viewer: &ScopeContext, task_id: &str) -> Result<(), CommandRefusal> {
         self.0.lock().unwrap().push(Call::Interrupt {
             task_id: task_id.to_string(),
         });
@@ -226,61 +218,37 @@ impl ThreadCommandSink for RecordingSink {
     ) -> Result<(), CommandRefusal> {
         unreachable!("no `thread.*` command changes an idle timeout")
     }
-    async fn archive(
-        &self,
-        _viewer: &ScopeContext,
-        task_id: &str,
-    ) -> Result<(), CommandRefusal> {
+    async fn archive(&self, _viewer: &ScopeContext, task_id: &str) -> Result<(), CommandRefusal> {
         self.0.lock().unwrap().push(Call::Archive {
             task_id: task_id.to_string(),
         });
         Ok(())
     }
-    async fn unarchive(
-        &self,
-        _viewer: &ScopeContext,
-        task_id: &str,
-    ) -> Result<(), CommandRefusal> {
+    async fn unarchive(&self, _viewer: &ScopeContext, task_id: &str) -> Result<(), CommandRefusal> {
         self.0.lock().unwrap().push(Call::Unarchive {
             task_id: task_id.to_string(),
         });
         Ok(())
     }
-    async fn follow(
-        &self,
-        _viewer: &ScopeContext,
-        task_id: &str,
-    ) -> Result<(), CommandRefusal> {
+    async fn follow(&self, _viewer: &ScopeContext, task_id: &str) -> Result<(), CommandRefusal> {
         self.0.lock().unwrap().push(Call::Follow {
             task_id: task_id.to_string(),
         });
         Ok(())
     }
-    async fn unfollow(
-        &self,
-        _viewer: &ScopeContext,
-        task_id: &str,
-    ) -> Result<(), CommandRefusal> {
+    async fn unfollow(&self, _viewer: &ScopeContext, task_id: &str) -> Result<(), CommandRefusal> {
         self.0.lock().unwrap().push(Call::Unfollow {
             task_id: task_id.to_string(),
         });
         Ok(())
     }
-    async fn settle(
-        &self,
-        _viewer: &ScopeContext,
-        task_id: &str,
-    ) -> Result<(), CommandRefusal> {
+    async fn settle(&self, _viewer: &ScopeContext, task_id: &str) -> Result<(), CommandRefusal> {
         self.0.lock().unwrap().push(Call::Settle {
             task_id: task_id.to_string(),
         });
         Ok(())
     }
-    async fn unsettle(
-        &self,
-        _viewer: &ScopeContext,
-        task_id: &str,
-    ) -> Result<(), CommandRefusal> {
+    async fn unsettle(&self, _viewer: &ScopeContext, task_id: &str) -> Result<(), CommandRefusal> {
         self.0.lock().unwrap().push(Call::Unsettle {
             task_id: task_id.to_string(),
         });
@@ -298,11 +266,7 @@ impl ThreadCommandSink for RecordingSink {
         });
         Ok(())
     }
-    async fn unsnooze(
-        &self,
-        _viewer: &ScopeContext,
-        task_id: &str,
-    ) -> Result<(), CommandRefusal> {
+    async fn unsnooze(&self, _viewer: &ScopeContext, task_id: &str) -> Result<(), CommandRefusal> {
         self.0.lock().unwrap().push(Call::Unsnooze {
             task_id: task_id.to_string(),
         });
@@ -393,10 +357,7 @@ struct StubAgents;
 
 #[async_trait]
 impl AgentCatalogSource for StubAgents {
-    async fn list(
-        &self,
-        _viewer: &ScopeContext,
-    ) -> Vec<crate::agent::schemas::AgentDescriptor> {
+    async fn list(&self, _viewer: &ScopeContext) -> Vec<crate::agent::schemas::AgentDescriptor> {
         catalog::catalog()
             .iter()
             .map(|entry| crate::agent::schemas::AgentDescriptor {

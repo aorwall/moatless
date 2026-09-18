@@ -1,9 +1,9 @@
 mod contracts;
-mod stdin;
-pub(crate) mod subprocess;
 #[cfg(test)]
 pub(crate) mod mock;
+mod stdin;
+pub(crate) mod subprocess;
 
-pub(crate) use contracts::{Transport, StdinWriter};
+pub(crate) use contracts::{StdinWriter, Transport};
 pub(crate) use stdin::ChildStdinWriter;
 pub(crate) use subprocess::SubprocessTransport;

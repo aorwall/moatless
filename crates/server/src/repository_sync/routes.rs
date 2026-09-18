@@ -13,11 +13,7 @@ use super::handlers;
 use crate::state::AppState;
 
 #[derive(OpenApi)]
-#[openapi(
-    paths(
-        handlers::sync_config,
-    )
-)]
+#[openapi(paths(handlers::sync_config,))]
 pub struct RepositorySyncApiDoc;
 
 /// Build the repository config-sync router with OpenAPI metadata.

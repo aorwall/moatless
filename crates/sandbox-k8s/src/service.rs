@@ -203,10 +203,7 @@ pub async fn wait_for_sandbox_service_deleted(
 mod tests {
     use super::*;
 
-    fn entries(
-        servers: &[(&str, u16)],
-        scripts: &[u16],
-    ) -> Vec<serde_json::Value> {
+    fn entries(servers: &[(&str, u16)], scripts: &[u16]) -> Vec<serde_json::Value> {
         let servers = servers
             .iter()
             .map(|(name, port)| ((*name).to_string(), *port))
@@ -262,7 +259,10 @@ mod tests {
         let ports = entries(&[("web", 3000)], &[3100]);
 
         assert_eq!(find(&ports, "web")["targetPort"], 3000);
-        assert_eq!(find(&ports, "scr-3100")["targetPort"], SANDBOX_PREVIEW_PROXY_PORT);
+        assert_eq!(
+            find(&ports, "scr-3100")["targetPort"],
+            SANDBOX_PREVIEW_PROXY_PORT
+        );
         assert_eq!(ports.len(), 4);
     }
 }

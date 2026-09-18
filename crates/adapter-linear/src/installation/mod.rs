@@ -1,9 +1,9 @@
 //! Linear workspace OAuth installation.
 mod client;
 mod handlers;
+mod routes;
 mod service;
 mod state;
-mod routes;
 
-pub use state::Installation;
 pub use routes::router;
+pub use state::Installation;

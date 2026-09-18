@@ -12,9 +12,9 @@
 
 use std::collections::HashMap;
 
-use claude_agent_sdk::mcp::{SdkMcpServer, SdkMcpTool, ToolResult};
 use claude_agent_sdk::api::messages::ResultMessage;
-use claude_agent_sdk::{query, ClaudeOptions, ContentBlock, SdkMessage};
+use claude_agent_sdk::mcp::{SdkMcpServer, SdkMcpTool, ToolResult};
+use claude_agent_sdk::{ClaudeOptions, ContentBlock, SdkMessage, query};
 
 #[tokio::main]
 async fn main() -> claude_agent_sdk::Result<()> {

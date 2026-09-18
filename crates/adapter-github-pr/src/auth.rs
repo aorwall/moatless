@@ -190,10 +190,7 @@ pub(super) async fn resolve_sender_user(
         .flatten()
         .filter(|login| !login.is_empty())
     {
-        if let Ok(Some(user_id)) = users
-            .user_with_login(super::delivery::ADAPTER, login)
-            .await
-        {
+        if let Ok(Some(user_id)) = users.user_with_login(super::delivery::ADAPTER, login).await {
             return user_id;
         }
     }

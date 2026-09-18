@@ -287,7 +287,7 @@ fn resolve_value(
 
 #[cfg(test)]
 mod tests {
-    use super::{scope_context, owner_for};
+    use super::{owner_for, scope_context};
     use moatless_api_schemas::enums::Scope;
     use moatless_types::access_control::resolve_scope_for_create;
 

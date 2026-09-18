@@ -12,8 +12,10 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 use std::time::Duration;
 
-use moatless_supervisor::{Completion, ExitCause, Joined, Outcome, TaskExit, classify, drain, watch};
 pub use moatless_supervisor::SupervisorHealth;
+use moatless_supervisor::{
+    Completion, ExitCause, Joined, Outcome, TaskExit, classify, drain, watch,
+};
 use tokio::sync::mpsc;
 use tokio::task::{JoinHandle, JoinSet};
 use tokio_util::sync::CancellationToken;

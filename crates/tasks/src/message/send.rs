@@ -927,7 +927,10 @@ mod tests {
 
         match error {
             MessageError::BadRequest(reason) => {
-                assert!(reason.contains("docs/implementation-context.md"), "{reason}");
+                assert!(
+                    reason.contains("docs/implementation-context.md"),
+                    "{reason}"
+                );
                 assert!(!reason.contains("file-1"), "{reason}");
             }
             other => panic!("expected a refusal the caller can act on, got {other:?}"),

@@ -3,7 +3,7 @@
 use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
-use axum::{routing::post, Router};
+use axum::{Router, routing::post};
 
 use super::handlers;
 use super::providers::{github_pr, linear, slack, telegram, webhook};

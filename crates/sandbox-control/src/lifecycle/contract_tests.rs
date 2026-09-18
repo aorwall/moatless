@@ -21,9 +21,7 @@ use super::dao::LifecycleDao;
 use super::dao::PgLifecycleDao;
 use super::db::lock::PgLifecycleLock;
 use super::events::LifecycleEvent;
-use super::orchestrator::{
-    AgentStopPort, LifecycleEventSink, OutstandingCommand, SystemWallClock,
-};
+use super::orchestrator::{AgentStopPort, LifecycleEventSink, OutstandingCommand, SystemWallClock};
 use super::test_support::seed_task_with as seed;
 use moatless_sandbox_runtime::observation_events::EventFact;
 use moatless_sandbox_runtime::operation::{ObservedStatus, OperationKind};

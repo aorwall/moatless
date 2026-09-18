@@ -127,9 +127,10 @@ pub async fn task_pvc_is_bound(k8s: &K8sClient, task_id: &str) -> bool {
     let lp = ListParams::default().labels(&format!("moatless.io/task-id={task_id}"));
 
     match pvcs.list(&lp).await {
-        Ok(list) => list.items.iter().any(|pvc| {
-            pvc.status.as_ref().and_then(|s| s.phase.as_deref()) == Some("Bound")
-        }),
+        Ok(list) => list
+            .items
+            .iter()
+            .any(|pvc| pvc.status.as_ref().and_then(|s| s.phase.as_deref()) == Some("Bound")),
         Err(e) => {
             warn!(task_id, error = %e, "Failed to read task PVC phase; treating as bound");
             true

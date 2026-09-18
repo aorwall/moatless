@@ -7,7 +7,7 @@
 
 use std::collections::HashMap;
 
-use moatless_adapter_model::mentions::{resolve_mention, split_mentions, Mention, MentionPiece};
+use moatless_adapter_model::mentions::{Mention, MentionPiece, resolve_mention, split_mentions};
 use moatless_ports::identity::ProviderIdentityLink;
 use moatless_types::adapter::{
     SlackBlock, SlackPlainText, SlackRichTextElement, SlackRichTextSection, SlackTableCell,
@@ -336,7 +336,11 @@ mod tests {
         let SlackBlock::Table { rows } = block else {
             panic!("expected a table, got {block:?}");
         };
-        rows.iter().flatten().flat_map(cell_elements).cloned().collect()
+        rows.iter()
+            .flatten()
+            .flat_map(cell_elements)
+            .cloned()
+            .collect()
     }
 
     fn text_of(block: &SlackBlock) -> String {
@@ -350,7 +354,9 @@ mod tests {
                 text: SlackPlainText::PlainText { text, .. },
             } => text.clone(),
             SlackBlock::Context { elements } => match elements.first() {
-                Some(SlackText::Mrkdwn { text } | SlackText::PlainText { text, .. }) => text.clone(),
+                Some(SlackText::Mrkdwn { text } | SlackText::PlainText { text, .. }) => {
+                    text.clone()
+                }
                 None => String::new(),
             },
             other => panic!("no single text on {other:?}"),
@@ -379,7 +385,10 @@ mod tests {
         let SlackBlock::Section { fields, .. } = &rendered[0] else {
             panic!("expected a section");
         };
-        assert_eq!(fields.as_deref(), Some([md("owner <@U0000000001>")].as_slice()));
+        assert_eq!(
+            fields.as_deref(),
+            Some([md("owner <@U0000000001>")].as_slice())
+        );
     }
 
     #[tokio::test]

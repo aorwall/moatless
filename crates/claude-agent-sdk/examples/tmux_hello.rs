@@ -12,7 +12,7 @@
 //! ```
 
 use claude_agent_sdk::api::messages::ResultMessage;
-use claude_agent_sdk::{query_tmux, ClaudeOptions, ContentBlock, SdkMessage};
+use claude_agent_sdk::{ClaudeOptions, ContentBlock, SdkMessage, query_tmux};
 
 #[tokio::main]
 async fn main() -> claude_agent_sdk::Result<()> {

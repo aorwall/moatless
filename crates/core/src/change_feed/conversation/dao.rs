@@ -1,8 +1,6 @@
 //! Transactional change-feed persistence.
 
-use super::position::{
-    ConversationChange, ConversationHead, RETAINED_CHANGES,
-};
+use super::position::{ConversationChange, ConversationHead, RETAINED_CHANGES};
 use sqlx::{PgConnection, PgPool};
 
 // ── The conversation's position counter and change log ──────────────────────

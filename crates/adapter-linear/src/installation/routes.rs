@@ -1,5 +1,5 @@
-use super::{handlers, Installation};
-use axum::{routing::get, Router};
+use super::{Installation, handlers};
+use axum::{Router, routing::get};
 use std::sync::Arc;
 
 /// Browser-only workspace installation endpoints.

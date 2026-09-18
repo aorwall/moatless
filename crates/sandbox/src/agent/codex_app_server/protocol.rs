@@ -411,11 +411,21 @@ pub(crate) enum CodexErrorInfo {
     ThreadRollbackFailed,
     SandboxError,
     Other,
-    HttpConnectionFailed { http_status_code: Option<u16> },
-    ResponseStreamConnectionFailed { http_status_code: Option<u16> },
-    ResponseStreamDisconnected { http_status_code: Option<u16> },
-    ResponseTooManyFailedAttempts { http_status_code: Option<u16> },
-    ActiveTurnNotSteerable { turn_kind: NonSteerableTurnKind },
+    HttpConnectionFailed {
+        http_status_code: Option<u16>,
+    },
+    ResponseStreamConnectionFailed {
+        http_status_code: Option<u16>,
+    },
+    ResponseStreamDisconnected {
+        http_status_code: Option<u16>,
+    },
+    ResponseTooManyFailedAttempts {
+        http_status_code: Option<u16>,
+    },
+    ActiveTurnNotSteerable {
+        turn_kind: NonSteerableTurnKind,
+    },
     /// Unknown values land here with the raw JSON, so a new upstream code
     /// stays visible instead of collapsing into the default class.
     Unrecognized(serde_json::Value),

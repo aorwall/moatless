@@ -583,9 +583,10 @@ fn one_text(
     file: Option<&std::path::Path>,
 ) -> Result<Option<String>, Box<dyn std::error::Error>> {
     match (inline, file) {
-        (Some(_), Some(_)) => {
-            Err(format!("Pass the {field} once: `--{field} <text>` or `--{field}-file <path>`").into())
-        }
+        (Some(_), Some(_)) => Err(format!(
+            "Pass the {field} once: `--{field} <text>` or `--{field}-file <path>`"
+        )
+        .into()),
         (Some(text), None) => Ok(Some(text)),
         (None, Some(path)) => {
             let text = std::fs::read_to_string(path)

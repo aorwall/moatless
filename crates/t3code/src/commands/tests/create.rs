@@ -112,6 +112,9 @@ async fn a_standalone_create_can_ask_for_a_sandbox() {
     assert!(result.is_ok());
     assert!(matches!(
         calls.as_slice(),
-        [Call::CreateThread { provision: true, .. }]
+        [Call::CreateThread {
+            provision: true,
+            ..
+        }]
     ));
 }

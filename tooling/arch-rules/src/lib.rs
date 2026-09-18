@@ -16,32 +16,32 @@ pub mod closed_dependency_list;
 pub mod comment_block_size;
 pub mod composition_root;
 pub mod declaration_only_roots;
-pub mod duplicate_comment_prose;
-pub mod route_registration;
-pub mod transport_direction;
-pub mod persistence_export;
-pub mod persistence_sql_location;
-pub mod process_exit;
 pub mod dependency_privacy;
+pub mod duplicate_comment_prose;
 pub mod duplicate_names;
 pub mod file_size;
 pub mod floor_type_admission;
 pub mod manifest_inheritance;
 pub mod module_names;
+pub mod persistence_export;
+pub mod persistence_sql_location;
 pub mod port_admission;
+pub mod process_exit;
 mod public_api;
+pub mod route_registration;
 pub mod row_stays_with_query;
 pub mod single_implementation_trait;
 mod source_index;
 mod sql;
 pub mod store_privacy;
 pub mod table_ownership;
+pub mod transport_direction;
 pub mod workspace;
 
-mod violation;
 mod runner;
-pub use violation::Violation;
+mod violation;
 pub use runner::{RULES, Rule, run_all};
+pub use violation::Violation;
 
 #[cfg(test)]
 #[allow(clippy::expect_used, reason = "fixture I/O must succeed")]

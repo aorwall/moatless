@@ -63,7 +63,10 @@ mod wire_contract {
         ] {
             assert_eq!(value.as_str(), wire);
             assert_eq!(MessageType::try_from(wire), Ok(value));
-            assert_eq!(serde_json::to_string(&value).unwrap(), format!("\"{wire}\""));
+            assert_eq!(
+                serde_json::to_string(&value).unwrap(),
+                format!("\"{wire}\"")
+            );
         }
         for (value, wire) in [
             (MessageRole::User, "user"),
@@ -72,7 +75,10 @@ mod wire_contract {
         ] {
             assert_eq!(value.as_str(), wire);
             assert_eq!(MessageRole::try_from(wire), Ok(value));
-            assert_eq!(serde_json::to_string(&value).unwrap(), format!("\"{wire}\""));
+            assert_eq!(
+                serde_json::to_string(&value).unwrap(),
+                format!("\"{wire}\"")
+            );
         }
     }
 }

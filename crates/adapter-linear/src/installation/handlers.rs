@@ -1,11 +1,11 @@
 //! Browser redirects and OAuth cookie adaptation for Linear installation.
 use super::state::Installation;
 use axum::extract::State;
-use axum::http::{header, HeaderMap, StatusCode};
+use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use moatless_identity::auth::{cookie, error::AuthError, oauth::provider::OAuthProvider};
-use std::sync::Arc;
 use rand::RngExt;
+use std::sync::Arc;
 use tracing::warn;
 
 /// Initiate the Linear workspace install flow.

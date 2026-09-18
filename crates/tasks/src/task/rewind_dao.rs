@@ -51,14 +51,13 @@ pub(crate) async fn truncate_conversation(
     // happened to the Sandbox, and the Sandbox is not rewound — its working
     // copy is still what those rows describe. `fork_dao::copy_conversation`
     // takes them by `position` because a fork's Sandbox never saw them.
-    let activities = sqlx::query(
-        "DELETE FROM task_activities WHERE task_id = $1 AND message_uuid = ANY($2)",
-    )
-    .bind(task_id)
-    .bind(&doomed)
-    .execute(&mut *tx)
-    .await?
-    .rows_affected();
+    let activities =
+        sqlx::query("DELETE FROM task_activities WHERE task_id = $1 AND message_uuid = ANY($2)")
+            .bind(task_id)
+            .bind(&doomed)
+            .execute(&mut *tx)
+            .await?
+            .rows_affected();
 
     sqlx::query("DELETE FROM task_message_usage WHERE task_id = $1 AND message_uuid = ANY($2)")
         .bind(task_id)

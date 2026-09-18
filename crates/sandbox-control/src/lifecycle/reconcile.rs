@@ -11,10 +11,12 @@ use chrono::{DateTime, Utc};
 
 use moatless_types::sandbox::SandboxDesiredState;
 
-use moatless_sandbox_runtime::convergence::{ReconcileAction, SandboxObservedStatus, reconcile_action};
 use super::orchestrator::TaskIntent;
-use moatless_sandbox_runtime::operation::OperationKind;
 use super::wake::{WakeIntent, message_supersedes_intent};
+use moatless_sandbox_runtime::convergence::{
+    ReconcileAction, SandboxObservedStatus, reconcile_action,
+};
+use moatless_sandbox_runtime::operation::OperationKind;
 
 /// One Task's reconcile inputs: persisted intent, observed runtime status, and
 /// the newest unacknowledged user message (the pending-message query's output,

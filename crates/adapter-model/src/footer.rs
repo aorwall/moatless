@@ -101,8 +101,7 @@ mod tests {
 
     #[test]
     fn parses_task_id_from_markdown_link_form() {
-        let body =
-            "Looks good.\n\n---\nMoatless task: [Fix the bug](https://app.example.com/tasks/abc-123)";
+        let body = "Looks good.\n\n---\nMoatless task: [Fix the bug](https://app.example.com/tasks/abc-123)";
         assert_eq!(
             parse_task_id_from_body("https://app.example.com", body),
             Some("abc-123".to_string())

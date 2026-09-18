@@ -290,7 +290,10 @@ mod tests {
     #[test]
     fn a_relative_cwd_resolves_against_the_callers_directory() {
         assert_eq!(
-            resolve_cwd(Some("apps/frontend".into()), Some(PathBuf::from("/ws/repo"))),
+            resolve_cwd(
+                Some("apps/frontend".into()),
+                Some(PathBuf::from("/ws/repo"))
+            ),
             Some("/ws/repo/apps/frontend".to_string())
         );
     }
@@ -307,7 +310,10 @@ mod tests {
     /// against; the sandbox still falls back to the workspace dir.
     #[test]
     fn an_unreadable_current_directory_passes_the_value_through() {
-        assert_eq!(resolve_cwd(Some("apps".into()), None), Some("apps".to_string()));
+        assert_eq!(
+            resolve_cwd(Some("apps".into()), None),
+            Some("apps".to_string())
+        );
         assert_eq!(resolve_cwd(None, None), None);
     }
 }

@@ -246,7 +246,10 @@ async fn the_anchor_is_written_with_the_cut(pool: PgPool) {
     .fetch_one(&pool)
     .await
     .expect("read the anchor");
-    assert_eq!(row, ("task-1".to_string(), Some(1), Some("msg-1".to_string())));
+    assert_eq!(
+        row,
+        ("task-1".to_string(), Some(1), Some("msg-1".to_string()))
+    );
 }
 
 /// An emptied Task has no session left to branch, so whatever anchored it goes

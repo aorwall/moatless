@@ -8,7 +8,7 @@ use moatless_api_schemas::github::{
     GithubCreatePrRequest, GithubCreatePrResponse, GithubExternalEventRequest,
     GithubExternalEventResponse, GithubExternalEventSubject, GithubReplyRequest,
 };
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tracing::{info, warn};
 
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
@@ -34,7 +34,10 @@ fn require_provider(
     provider.ok_or_else(|| SharedAdapterError::AdapterNotConfigured("github_pr".into()).into())
 }
 
-#[expect(clippy::too_many_arguments, reason = "the authorized mutation receives separate provider, binding, transcript, task, and caller dependencies")]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the authorized mutation receives separate provider, binding, transcript, task, and caller dependencies"
+)]
 pub(crate) async fn create_pr(
     connector: Option<Arc<moatless_loops::loops::firing::listen::Connector>>,
     github_pr_provider: Option<Arc<GithubPrAdapter>>,
@@ -176,7 +179,10 @@ impl CreatedPr {
     }
 }
 
-#[expect(clippy::too_many_arguments, reason = "the authorized mutation receives separate provider, binding, transcript, task, and caller dependencies")]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the authorized mutation receives separate provider, binding, transcript, task, and caller dependencies"
+)]
 pub(crate) async fn post_comment(
     connector: Option<Arc<moatless_loops::loops::firing::listen::Connector>>,
     github_pr_provider: Option<Arc<GithubPrAdapter>>,
@@ -245,7 +251,10 @@ pub(crate) async fn post_comment(
     })
 }
 
-#[expect(clippy::too_many_arguments, reason = "the authorized mutation receives separate provider, binding, transcript, task, and caller dependencies")]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the authorized mutation receives separate provider, binding, transcript, task, and caller dependencies"
+)]
 pub(crate) async fn reply_to_review_comment(
     connector: Option<Arc<moatless_loops::loops::firing::listen::Connector>>,
     github_pr_provider: Option<Arc<GithubPrAdapter>>,

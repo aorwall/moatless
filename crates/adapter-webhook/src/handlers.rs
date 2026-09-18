@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
+use axum::Json;
 use axum::body::Bytes;
 use axum::extract::{Path, State};
 use axum::http::HeaderMap;
-use axum::Json;
 
 use moatless_adapter_model::delivery::DeliveryAdmission;
 use moatless_adapter_model::error::AdapterError;
@@ -53,15 +53,15 @@ pub async fn webhook_inbound(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::delivery::INBOUND_MESSAGE;
     use crate::adapter::WebhookAdmission;
+    use crate::delivery::INBOUND_MESSAGE;
 
     use async_trait::async_trait;
     use axum::http::StatusCode;
     use axum::response::IntoResponse;
 
     use moatless_adapter_model::test_support::{
-        response_snapshot, FakeAdmission, FakeAdmissionAnswer,
+        FakeAdmission, FakeAdmissionAnswer, response_snapshot,
     };
     use moatless_types::access_control::Scope;
     use moatless_types::adapter::AdapterKind;

@@ -156,8 +156,6 @@ pub fn host_from_url(url: &str) -> String {
         .to_string()
 }
 
-
-
 impl Config {
     /// The task named by this invocation's environment.
     pub fn require_task_id(&self) -> Result<String, Box<dyn std::error::Error>> {

@@ -4,8 +4,8 @@
 //! [`LinearAdapter`](super::adapter::LinearAdapter) (which needs a database
 //! pool). The `Adapter` trait methods delegate here.
 
-use moatless_types::adapter::TaskBinding;
 use moatless_types::adapter::ExternalStatus;
+use moatless_types::adapter::TaskBinding;
 
 /// Linear `state.type` values that mean the issue is finished. A reactivated
 /// issue leaves this set, but only a webhook can tell us so.
@@ -100,8 +100,8 @@ fn config_str(cfg: &serde_json::Value, key: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use moatless_types::adapter::AdapterKind;
     use super::*;
+    use moatless_types::adapter::AdapterKind;
 
     fn binding_with_config(config: serde_json::Value) -> TaskBinding {
         let now = chrono::Utc::now();

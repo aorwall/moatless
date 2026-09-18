@@ -10,7 +10,9 @@ use crate::change_feed::events as feed;
 use async_trait::async_trait;
 use moatless_types::agent::AgentSubType;
 use moatless_types::event::{EventType, StreamEvent, SubType};
-use moatless_types::sandbox::{SandboxEventPayload, SandboxStatus, ServerEventPayload, ServerSubType};
+use moatless_types::sandbox::{
+    SandboxEventPayload, SandboxStatus, ServerEventPayload, ServerSubType,
+};
 use moatless_types::task::{TaskSubType, TaskTurnSubType};
 use sqlx::PgPool;
 use tracing::{debug, warn};
@@ -459,10 +461,13 @@ impl EventPublisher for FeedEventPublisher {
 
 #[cfg(test)]
 mod tests {
-    use super::{build_envelope, PublishError};
+    use super::{PublishError, build_envelope};
     use moatless_types::event::EventType;
 
-    fn envelope(event_type: &str, sub_type: &str) -> Result<moatless_types::event::StreamEvent, PublishError> {
+    fn envelope(
+        event_type: &str,
+        sub_type: &str,
+    ) -> Result<moatless_types::event::StreamEvent, PublishError> {
         build_envelope(
             "evt-1".to_string(),
             "task-1",

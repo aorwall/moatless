@@ -190,10 +190,10 @@ pub(super) fn ignored_title_patterns(adapter_config: Option<&serde_json::Value>)
 
 #[cfg(test)]
 mod tests {
-    use moatless_types::adapter::AdapterKind;
     use super::*;
     use chrono::Utc;
     use moatless_types::access_control::Scope;
+    use moatless_types::adapter::AdapterKind;
 
     fn rule_with(
         events_filter: serde_json::Value,

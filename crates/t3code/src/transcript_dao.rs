@@ -338,8 +338,11 @@ pub(crate) async fn changed_messages(
     // The DAO's own order, restored: `answered_calls` appends a call older
     // than everything already here, and this read promises oldest first.
     activities.sort_by(|left, right| {
-        (left.position, left.ordinal, &left.activity_id)
-            .cmp(&(right.position, right.ordinal, &right.activity_id))
+        (left.position, left.ordinal, &left.activity_id).cmp(&(
+            right.position,
+            right.ordinal,
+            &right.activity_id,
+        ))
     });
 
     // Named Messages plus those. A result no longer lands on a Message of

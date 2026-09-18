@@ -1,10 +1,10 @@
 //! Verify webhook inputs and admit durable inbound work.
 use crate::delivery::{ADAPTER, INBOUND_MESSAGE, SUBJECT_KIND};
-use moatless_api_schemas::webhook::{WebhookAccepted, WebhookPayload};
-use moatless_adapter_model::delivery::{inbound_delivery_request, DeliveryAdmission};
+use moatless_adapter_model::delivery::{DeliveryAdmission, inbound_delivery_request};
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_adapter_model::ingress::admit_delivery;
 use moatless_adapter_model::loops::LoopReader;
+use moatless_api_schemas::webhook::{WebhookAccepted, WebhookPayload};
 use moatless_types::adapter::{AdapterKind, Audience, InboundDeliveryPayload, InboundMessage};
 use moatless_types::loops::LoopContext;
 use tracing::{debug, info};
@@ -187,8 +187,12 @@ fn admission_status(
     admission: moatless_adapter_model::delivery::Admission,
 ) -> moatless_api_schemas::webhook::WebhookAdmission {
     match admission {
-        moatless_adapter_model::delivery::Admission::Admitted => moatless_api_schemas::webhook::WebhookAdmission::Admitted,
-        moatless_adapter_model::delivery::Admission::Duplicate => moatless_api_schemas::webhook::WebhookAdmission::Duplicate,
+        moatless_adapter_model::delivery::Admission::Admitted => {
+            moatless_api_schemas::webhook::WebhookAdmission::Admitted
+        }
+        moatless_adapter_model::delivery::Admission::Duplicate => {
+            moatless_api_schemas::webhook::WebhookAdmission::Duplicate
+        }
     }
 }
 

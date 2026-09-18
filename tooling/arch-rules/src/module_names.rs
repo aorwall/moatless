@@ -177,11 +177,13 @@ mod tests {
 
     #[test]
     fn a_shared_integration_test_helper_is_not_flagged() {
-        assert!(keys(&[
-            "crates/x/tests/common/mod.rs",
-            "crates/x/benches/shared/mod.rs",
-        ])
-        .is_empty());
+        assert!(
+            keys(&[
+                "crates/x/tests/common/mod.rs",
+                "crates/x/benches/shared/mod.rs",
+            ])
+            .is_empty()
+        );
     }
 
     #[test]

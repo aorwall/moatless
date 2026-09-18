@@ -24,7 +24,8 @@ fn missing(manifest: &toml::Table) -> Vec<&'static str> {
 }
 
 pub fn check(ws: &Workspace) -> Result<Vec<Violation>> {
-    Ok(ws.members()
+    Ok(ws
+        .members()
         .flat_map(|m| {
             missing(&m.manifest).into_iter().map(move |key| {
                 Violation::at(

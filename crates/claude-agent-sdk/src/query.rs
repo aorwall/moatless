@@ -5,16 +5,16 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 
-use crate::error::{Result, SdkError};
-use crate::mcp::SdkMcpServer;
-use crate::protocol::orchestrator::Orchestrator;
-use crate::protocol::request_tracker::RequestTracker;
-use crate::transport::{ChildStdinWriter, StdinWriter, SubprocessTransport};
 use crate::api::control::{ControlRequestEnvelope, OutgoingControlRequest};
 use crate::api::mcp::McpServerConfig;
 use crate::api::messages::{SdkMessage, UserMessage};
 use crate::api::options::ClaudeOptions;
 use crate::api::permissions::PermissionMode;
+use crate::error::{Result, SdkError};
+use crate::mcp::SdkMcpServer;
+use crate::protocol::orchestrator::Orchestrator;
+use crate::protocol::request_tracker::RequestTracker;
+use crate::transport::{ChildStdinWriter, StdinWriter, SubprocessTransport};
 
 /// Channel capacity for the message stream.
 const CHANNEL_CAPACITY: usize = 256;

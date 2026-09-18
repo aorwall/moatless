@@ -203,7 +203,12 @@ pub fn build_pod(
                 .node_selector_json
                 .as_deref()
                 .and_then(|json| serde_json::from_str::<BTreeMap<String, String>>(json).ok());
-            if let Some(extra) = plan.repo_config.node_selector.as_ref().filter(|s| !s.is_empty()) {
+            if let Some(extra) = plan
+                .repo_config
+                .node_selector
+                .as_ref()
+                .filter(|s| !s.is_empty())
+            {
                 node_selector
                     .get_or_insert_with(BTreeMap::new)
                     .extend(extra.iter().map(|(k, v)| (k.clone(), v.clone())));

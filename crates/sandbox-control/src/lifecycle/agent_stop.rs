@@ -10,8 +10,8 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use sandbox_proto::AgentStopSource;
 
-use moatless_types::sandbox::SandboxStopReason;
 use moatless_sandbox_runtime::client::SandboxConnector;
+use moatless_types::sandbox::SandboxStopReason;
 
 use super::orchestrator::AgentStopPort;
 
