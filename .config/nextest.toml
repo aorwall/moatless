@@ -17,3 +17,15 @@ failure-output = "immediate-final"
 
 [profile.ci.junit]
 path = "junit.xml"
+
+# The db-tests tier, which runs in the same job as `ci` and would otherwise
+# overwrite its JUnit file. A profile inherits from `default`, never from
+# another profile, so the four settings above are restated rather than reused.
+[profile.ci-db-tests]
+fail-fast = false
+status-level = "fail"
+final-status-level = "slow"
+failure-output = "immediate-final"
+
+[profile.ci-db-tests.junit]
+path = "junit.xml"

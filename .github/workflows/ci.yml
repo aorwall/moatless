@@ -80,6 +80,8 @@ jobs:
       sandbox-tools: ${{ steps.filter.outputs.sandbox-tools }}
       sandbox-base: ${{ steps.filter.outputs.sandbox-base }}
       sandbox-image: ${{ steps.filter.outputs.sandbox-image }}
+      dockerfile-e2e: ${{ steps.filter.outputs.dockerfile-e2e }}
+      dockerfile-sandbox-base: ${{ steps.filter.outputs.dockerfile-sandbox-base }}
       helm: ${{ steps.filter.outputs.helm }}
       cargo-manifest: ${{ steps.filter.outputs.cargo-manifest }}
       # Narrows rust-test's package set; no deep fetch needed.
@@ -154,6 +156,22 @@ jobs:
             sandbox-image:
               - 'docker/Dockerfile.sandbox'
               - '.github/workflows/ci.yml'
+            # Gate the no-push PR builds below. Narrower than the publish
+            # filters above: only the Dockerfile itself and what it copies in,
+            # because a PR build validates the Dockerfile, not a republish
+            # decision. Notably no `ci.yml`, which the publish filters carry and
+            # which would rebuild every image on any workflow edit.
+            dockerfile-e2e:
+              - 'docker/Dockerfile.e2e'
+              - 'docker/e2e-entrypoint.sh'
+              - '.github/scripts/apt-https-mirrors.sh'
+            dockerfile-sandbox-base:
+              - 'docker/Dockerfile.sandbox-base'
+              - 'docker/playwright-cli.sh'
+              - 'docker/cli-versions.env'
+              - '.github/scripts/install-mold.sh'
+              - 'packages/inspector/**'
+              - 'tsconfig.json'
             helm:
               - 'k8s/helm/**'
 
@@ -476,6 +494,21 @@ jobs:
     runs-on: staging-runners-large
     container:
       image: rust:1.97-bookworm
+    # `#[sqlx::test]` creates and drops a database per test, so the role it
+    # connects as needs CREATEDB — hence the superuser the image bootstraps.
+    # The job is itself a container, so the service is reachable by its label.
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
     timeout-minutes: 30
     env:
       # Smaller target dir, faster links.
@@ -602,9 +635,9 @@ jobs:
             echo "No selected package has a doctestable target — skipping doctests."
           fi
 
-          # Clippy type-checks the db-tests tier; this links it. No DB needed.
-          # Keep the package set data-driven: a selected package that declares
-          # the feature gets linked, and unselected packages stay narrowed out.
+          # Clippy type-checks the db-tests tier; this runs it against the
+          # `postgres` service. Keep the package set data-driven: a selected
+          # package that declares the feature runs, unselected ones stay out.
           DB_TEST_PACKAGES=$(cargo metadata --no-deps --format-version 1 \
             | jq -r '.packages[] | select(.features["db-tests"] != null) | .name')
           DB_TEST_ARGS=""
@@ -620,30 +653,78 @@ jobs:
                 fi
                 ;;
               *)
-                echo "::notice::Skipping ${package} db-tests no-run — package not selected"
+                echo "::notice::Skipping ${package} db-tests — package not selected"
                 ;;
             esac
           done
           if [ -n "$DB_TEST_ARGS" ]; then
-            # One unified pass links the overlapping graph once. The isolated
+            # Exported here rather than on the job, so the tiers above run
+            # against no database and cannot come to depend on one.
+            export DATABASE_URL=postgres://postgres:postgres@postgres:5432/postgres
+            # One unified pass builds the overlapping graph once. The isolated
             # loop runs only on a manifest change, which is what can break the
             # feature wiring it guards — unified sibling features mask a crate
             # that only links when another package enables test-support. Same
             # gate as the clippy job's db-tests tier.
+            # `ci-db-tests` rather than `ci`: same fail-fast=false, and its own
+            # JUnit path, which the `ci` run in this job already holds.
+            # `--no-tests=warn` for the same reason the main tier carries it: a
+            # package can declare the feature and gate no test behind it.
+            DB_TESTS_STATUS=0
+            DB_TESTS_HARD=0
+            # Split by exit code, deliberately, rather than collapsed to a
+            # boolean: nextest exits 100 for failing tests, which the ceiling
+            # below is allowed to hold, and any other nonzero is a build or
+            # setup failure, which it is not. Without the split, one package
+            # failing to compile while another writes a report reads as green.
+            run_db_tests() {
+              local code=0
+              "$@" || code=$?
+              [ "$code" -eq 0 ] && return 0
+              DB_TESTS_STATUS=1
+              [ "$code" -ne 100 ] && DB_TESTS_HARD=$code
+              return 0
+            }
+            # `target/` is restored from cache, so a report this run did not
+            # write would otherwise be counted against the ceiling below.
+            rm -f target/nextest/ci-db-tests/junit*.xml
             if [ "$CARGO_MANIFEST_CHANGED" = true ]; then
+              # A bare run would stop the loop at the first red package and
+              # leave the rest unreported, which is the fail-fast this tier
+              # exists to remove. The `rm -f` and `mv` name each report after
+              # the package that wrote it: the profile writes one fixed path,
+              # so without them every package reads the first one's.
               for package in $DB_TEST_PACKAGES; do
                 case " $PKGS " in
                   *" -p ${package} "*)
-                    cargo nextest run -p "$package" --features db-tests --no-run
+                    rm -f target/nextest/ci-db-tests/junit.xml
+                    run_db_tests cargo nextest run --profile ci-db-tests \
+                      -p "$package" --features db-tests --no-tests=warn
+                    if [ -f target/nextest/ci-db-tests/junit.xml ]; then
+                      mv target/nextest/ci-db-tests/junit.xml \
+                        "target/nextest/ci-db-tests/junit-${package}.xml"
+                    fi
                     ;;
                 esac
               done
             else
               # shellcheck disable=SC2086
-              cargo nextest run $DB_TEST_ARGS --features "$DB_TEST_FEATURES" --no-run
+              run_db_tests cargo nextest run --profile ci-db-tests $DB_TEST_ARGS \
+                --features "$DB_TEST_FEATURES" --no-tests=warn
             fi
+            if [ "$DB_TESTS_HARD" -ne 0 ]; then
+              echo "::error::The db-tests tier exited ${DB_TESTS_HARD}, which is not a test result — nextest reports failing tests as 100. Read the log above; the ceiling covers fixtures, not a build or setup failure."
+              exit 1
+            fi
+            # A ceiling rather than a pass/fail: the fixtures it holds carry
+            # debt this branch did not create, so a binary is red only when its
+            # own count rises. Per binary rather than one total, because the run
+            # is a per-PR package subset. The script owns the table and what it
+            # refuses; `docs/deferred-changes.md` owns the enumeration.
+            bash .github/scripts/db-tests-ceiling.sh \
+              target/nextest/ci-db-tests "$DB_TESTS_STATUS"
           else
-            echo "No selected package declares db-tests — skipping db-tests no-run."
+            echo "No selected package declares db-tests — skipping db-tests."
           fi
 
       - name: Upload test results
@@ -651,7 +732,9 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: nextest-results
-          path: target/nextest/ci/junit.xml
+          # Both profiles: `ci` for the main tier, `ci-db-tests` for the
+          # database one, whose isolated loop also writes a per-package copy.
+          path: target/nextest/*/junit*.xml
           if-no-files-found: ignore
           retention-days: 7
 
@@ -965,6 +1048,64 @@ jobs:
       # This is the check that catches it; it needs the restored client above.
       - name: Type check E2E suite
         run: bun run type:check:e2e
+
+  # ── Dockerfile validation on a PR (build only, never pushes) ──
+  #
+  # Every image job below gates on `push` to `main`, so a Dockerfile-only PR was
+  # all-green and entirely unexercised and the first build happened after the
+  # merge. That shipped a Playwright pin drift in `Dockerfile.e2e` (OP-760).
+  # This job builds the changed Dockerfile on the PR instead; publishing a tag
+  # stays on `main`, so nothing here logs in to a registry or pushes.
+  #
+  # Only the two self-contained Dockerfiles are here. `Dockerfile.sandbox-tools`,
+  # `.sandbox` and `.backend-cross` take prebuilt binaries as named build
+  # contexts, and `build-rust` does not run on a PR at all, so building them
+  # would mean a full release Rust build per PR. `Dockerfile.app` copies
+  # `apps/frontend/dist`, which nothing in this repo builds.
+  build-dockerfiles-pr:
+    name: Build changed Dockerfiles (no push)
+    needs: detect-changes
+    if: >-
+      github.event_name == 'pull_request' &&
+      (needs.detect-changes.outputs.dockerfile-sandbox-base == 'true' ||
+       needs.detect-changes.outputs.dockerfile-e2e == 'true')
+    runs-on: staging-runners-large
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Load CLI versions
+        run: grep -E '^[A-Z_]+=' docker/cli-versions.env >> "$GITHUB_ENV"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
+
+      # `cache-from` only reads the published buildcache, so these stay fast
+      # without write access to any registry.
+      - name: Build sandbox-base
+        if: needs.detect-changes.outputs.dockerfile-sandbox-base == 'true'
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        with:
+          context: .
+          file: docker/Dockerfile.sandbox-base
+          platforms: linux/amd64
+          push: false
+          build-args: |
+            CLAUDE_CLI_VERSION=${{ env.CLAUDE_CLI_VERSION }}
+            CODEX_CLI_VERSION=${{ env.CODEX_CLI_VERSION }}
+            TASK_VERSION=${{ env.TASK_VERSION }}
+          cache-from: type=registry,ref=${{ env.SANDBOX_BASE_IMAGE }}:buildcache
+
+      - name: Build e2e image
+        if: needs.detect-changes.outputs.dockerfile-e2e == 'true'
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        with:
+          context: .
+          file: docker/Dockerfile.e2e
+          platforms: linux/amd64
+          push: false
 
   # ── Backend image (push to main + manual dispatch, conditional on changed files) ──
   #

@@ -55,7 +55,7 @@ its own `main.rs`. Add modules to the appropriate target and reuse `crate::commo
 Do not move tests between targets without measuring compile cost.
 
 Follow the exact local commands in root AGENTS.md. CI discovers db-tests packages
-from Cargo metadata; it also compiles the gated tier. Read
+from Cargo metadata; it also runs the gated tier against a Postgres service. Read
 [build costs](build-costs.md) before changing the verification matrix.
 
 ## HTTP and Errors

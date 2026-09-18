@@ -4,6 +4,42 @@
 use super::super::*;
 use super::harness::*;
 
+/// Claims every callsite process-wide and enables none.
+///
+/// `Interest` is cached process-wide from the dispatcher the first thread to
+/// reach a callsite holds: a sibling test reaching `sandbox.lifecycle` without
+/// one caches `never`, and this test then reads no span. `sometimes` returns
+/// the decision to the call site, where the scoped subscriber is asked.
+fn claim_every_callsite() {
+    struct Undecided;
+
+    impl tracing::Subscriber for Undecided {
+        fn register_callsite(
+            &self,
+            _: &'static tracing::Metadata<'static>,
+        ) -> tracing::subscriber::Interest {
+            tracing::subscriber::Interest::sometimes()
+        }
+        fn enabled(&self, _: &tracing::Metadata<'_>) -> bool {
+            false
+        }
+        fn new_span(&self, _: &tracing::span::Attributes<'_>) -> tracing::Id {
+            tracing::Id::from_u64(1)
+        }
+        fn record(&self, _: &tracing::Id, _: &tracing::span::Record<'_>) {}
+        fn record_follows_from(&self, _: &tracing::Id, _: &tracing::Id) {}
+        fn event(&self, _: &tracing::Event<'_>) {}
+        fn enter(&self, _: &tracing::Id) {}
+        fn exit(&self, _: &tracing::Id) {}
+    }
+
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        tracing::subscriber::set_global_default(Undecided)
+            .expect("no other test in this binary may install a global subscriber");
+    });
+}
+
 /// A detached operation must not run under the span of whoever asked for it:
 /// see [`Lifecycle::detached_span`] for why. Asserted on the span tree, since
 /// that's where the fault actually appears.
@@ -57,6 +93,7 @@ async fn a_detached_operation_gets_a_root_span_linked_back_to_the_caller() {
         }
     }
 
+    claim_every_callsite();
     let seen = Arc::new(StdMutex::new(Seen::default()));
     let subscriber = tracing_subscriber::registry().with(Recorder(Arc::clone(&seen)));
     let _guard = tracing::subscriber::set_default(subscriber);

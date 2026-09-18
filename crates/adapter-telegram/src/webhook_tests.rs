@@ -209,6 +209,70 @@ impl ProviderIdentityLink for NoUsers {
     }
 }
 
+/// An identity port holding one Telegram-to-user mapping.
+///
+/// Only `user_who_connected` answers, because that is the one method
+/// [`super::auth::resolve_sender`] calls.
+#[cfg(feature = "db-tests")]
+struct OneSender {
+    telegram_user_id: &'static str,
+    user_id: &'static str,
+}
+
+#[cfg(feature = "db-tests")]
+#[async_trait::async_trait]
+impl ProviderIdentityLink for OneSender {
+    async fn provider_id_for_login(
+        &self,
+        _provider: &str,
+        _login: &str,
+    ) -> Result<Option<String>, moatless_types::store::StoreError> {
+        Ok(None)
+    }
+
+    async fn user_with_login(
+        &self,
+        _provider: &str,
+        _login: &str,
+    ) -> Result<Option<String>, moatless_types::store::StoreError> {
+        Ok(None)
+    }
+
+    async fn user_at(
+        &self,
+        _provider: &str,
+        _provider_user_id: &str,
+    ) -> Result<Option<moatless_ports::identity::LinkedUser>, moatless_types::store::StoreError>
+    {
+        Ok(None)
+    }
+
+    async fn user_by_email(
+        &self,
+        _email: &str,
+    ) -> Result<Option<moatless_ports::identity::LinkedUser>, moatless_types::store::StoreError>
+    {
+        Ok(None)
+    }
+
+    async fn user_who_connected(
+        &self,
+        _provider: &str,
+        provider_user_id: &str,
+    ) -> Result<Option<String>, moatless_types::store::StoreError> {
+        Ok((provider_user_id == self.telegram_user_id).then(|| self.user_id.to_string()))
+    }
+
+    async fn link(
+        &self,
+        _user_id: &uuid::Uuid,
+        _provider: &str,
+        _provider_user_id: &str,
+    ) -> Result<bool, moatless_types::store::StoreError> {
+        Ok(false)
+    }
+}
+
 // =========================================================================
 // Updates that carry nothing to route
 // =========================================================================
@@ -526,20 +590,6 @@ mod db_tests {
     use super::super::test_support::OWNER;
     use super::*;
 
-    /// Map a Telegram user id to a system user, the way the OAuth link does.
-    async fn map_sender(pool: &PgPool, telegram_user_id: &str, user_id: &str) {
-        sqlx::query(
-            "INSERT INTO provider_tokens \
-             (user_id, provider, provider_user_id, access_token, scope, owner_user_id) \
-             VALUES ($1, 'telegram', $2, 'token', 'user', $1)",
-        )
-        .bind(user_id)
-        .bind(telegram_user_id)
-        .execute(pool)
-        .await
-        .expect("map Telegram sender");
-    }
-
     /// A private chat threads on the chat, so every message from one user lands
     /// on one task.
     #[sqlx::test]
@@ -735,7 +785,6 @@ mod db_tests {
     /// what the task reads.
     #[sqlx::test]
     async fn a_mapped_sender_routes_as_their_own_user(pool: PgPool) {
-        map_sender(&pool, "999", "user-ada").await;
         let (provider, _stub) = provider_with_stub().await;
 
         let message = normalize(
@@ -744,7 +793,10 @@ mod db_tests {
             &config("-100123"),
             false,
             &pool,
-            &NoUsers,
+            &OneSender {
+                telegram_user_id: "999",
+                user_id: "user-ada",
+            },
         )
         .await
         .unwrap()

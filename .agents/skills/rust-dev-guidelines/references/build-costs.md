@@ -14,7 +14,8 @@ its manifest is the authority for feature names.
 
 CI also checks adapter-model with `--lib` in isolation, so dev-dependency feature
 unification cannot hide a dependency-boundary violation. It discovers packages
-with `db-tests` from Cargo metadata and lints/compiles those targets. On PRs it
+with `db-tests` from Cargo metadata, lints them, and runs them against a Postgres
+service. On PRs it
 combines packages and qualified feature names; other runs check packages separately.
 The ports no-default pass is conditional on manifest changes in CI. The required
 local list is intentionally explicit and is not identical to that dynamic matrix.
