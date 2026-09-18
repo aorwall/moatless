@@ -341,10 +341,15 @@ async fn a_capture_over_an_open_workspace_certifies_nothing() {
     assert!(registered_writers_are_quiet(&state).await);
 }
 
-/// The registries name only the writers this pod started through them. A test
-/// binary shares its namespace with the processes that launched it, which is the
-/// same shape as an agent tool's own child outliving the agent: every registry
-/// is quiet and a writer is still live.
+/// The registries name only the writers this pod started through them. An
+/// unregistered process is the same shape as an agent tool's own child
+/// outliving the agent: every registry is quiet and a writer is still live.
+///
+/// The test spawns that process itself rather than reading whoever launched the
+/// binary. `self_and_ancestors` excludes the launch chain, so under `moat cmd
+/// run` — where the build descends from the sandbox supervisor and an idle pod
+/// has nothing else running — `/proc` holds nothing foreign and the assertion
+/// fired on the environment instead of the behaviour.
 #[tokio::test]
 async fn a_live_process_no_registry_lists_certifies_nothing() {
     let state = quiet_state();
@@ -354,12 +359,22 @@ async fn a_live_process_no_registry_lists_certifies_nothing() {
         .await;
     assert!(registered_writers_are_quiet(&state).await);
 
+    let mut foreign = std::process::Command::new("sleep")
+        .arg("30")
+        .spawn()
+        .expect("spawn a child this test owns");
+
     let live = crate::pod_processes::foreign_live_processes().expect("/proc is readable");
+    let quiet = workspace_writers_are_quiet(&state).await;
+
+    let _ = foreign.kill();
+    let _ = foreign.wait();
+
     assert!(
-        !live.is_empty(),
-        "this test binary runs beside the processes that launched it"
+        live.iter().any(|p| p.pid == foreign.id()),
+        "the child this test spawned is in no registry, so it is foreign"
     );
-    assert!(!workspace_writers_are_quiet(&state).await);
+    assert!(!quiet);
 }
 
 /// A request admitted before the close and still unfinished at the end of the

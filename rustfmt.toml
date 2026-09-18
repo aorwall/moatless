@@ -1,13 +1,15 @@
-# The two flags `rust-dev-guidelines` tells you to pass by hand, so that a bare
-# `rustfmt <file>` and an editor's format-on-save both do the right thing.
+# The two flags that have to be pinned for a bare `rustfmt <file>` and an
+# editor's format-on-save to agree with `cargo fmt`.
 #
 # `edition`: rustfmt resolves no `edition.workspace = true`, which is how every
 # crate under `crates/` declares its edition, so without this it assumes 2015
 # and aborts with `E0670` on the first `async fn` it reads.
 #
-# `style_edition`: the tree is written in the 2024 style while the crates
-# declare edition 2021. Letting the style follow the edition rewrites 980 files
-# instead of the 229 already off-style, so it is pinned to where the code is
-# rather than to where the manifests are.
+# `style_edition`: the crates declare edition 2021 but the code is written in
+# the 2024 style, which disagrees with 2021 on import ordering. Letting the
+# style follow the edition would rewrite 980 files.
+#
+# `crates/codex-sdk` is edition 2024 and carries its own file; the pin here
+# would reject its let-chains.
 edition = "2021"
 style_edition = "2024"

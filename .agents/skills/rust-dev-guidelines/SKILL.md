@@ -17,9 +17,9 @@ new conventions without checking that they remain sound.
    - `crates/server/` → [backend.md](references/backend.md)
    - `crates/sandbox/` → [sandbox.md](references/sandbox.md)
    - `crates/` → [shared-crates.md](references/shared-crates.md)
-   - running, adding, varying, or removing a cargo invocation — including
-     `cargo fmt`, which is destructive here — or configuring an editor against
-     this workspace → [build-costs.md](references/build-costs.md)
+   - running, adding, varying, or removing a cargo invocation, or configuring
+     an editor against this workspace →
+     [build-costs.md](references/build-costs.md)
 3. Define a failing test or reproducible check before implementation.
 4. For a new or materially changed module, interface, or dependency seam, use
    the `codebase-design` skill before settling the design.
@@ -112,38 +112,27 @@ The comment rules in the root `AGENTS.md` apply. Rust specifics:
 - The `// reason:` comment on a `ScopeContext::system` call states the cause
   only.
 
-### Format single files, never the crate
-
-Do not run `cargo fmt -p <crate>`, and never `cargo fmt --all`. `backend`,
-`sandbox` and every crate under `crates/` except `codex-sdk` declare
-`edition = "2021"`, while newer modules inside them are written in the 2024
-style edition. The two disagree on import ordering, so a crate-wide run
-rewrites unrelated files underneath your change. On `moatless-backend` today
-that is 249 diff hunks and `--all` is 229 across the workspace; one refactor
-lost real time unpicking 72 rewritten files out of its diff.
-
-`crates/codex-sdk` is already `edition = "2024"` and does not have this split.
-
-Format the files you actually touched:
+### Format with `cargo fmt`
 
 ```bash
-rustfmt <file>...
+cargo fmt --all
 ```
 
-`rustfmt.toml` at the repository root pins both flags, so that line and an
-editor's format-on-save agree. Without it rustfmt resolves no
-`edition.workspace = true` and aborts with `E0670` on the first `async fn`.
+The tree is formatted, and `Rust clippy` fails a pull request that is not, so
+run this rather than picking files. `rustfmt.toml` pins `edition` and
+`style_edition`, so `cargo fmt`, a bare `rustfmt <file>` and an editor's
+format-on-save all produce the same bytes.
 
-That is a no-op on already-2024 modules such as
-`crates/adapter-github-pr/src/`, which is the shape to match.
+`crates/codex-sdk` is its own workspace and `--all` does not reach it. Its path
+dependencies live outside the repository, so `cargo` cannot read its manifest in
+a sandbox and neither can CI; format it with
+`find crates/codex-sdk -name '*.rs' | xargs rustfmt`, which picks up that
+crate's own `rustfmt.toml`.
 
 Naming a `mod.rs` (or any file declaring `mod`) formats its whole subtree, not
-just that file — `rustfmt crates/sandbox/src/init/mod.rs` rewrote all eleven of its
-siblings. `--skip-children` is nightly-only, so on stable the check is
-`git status` afterwards: revert every file you did not touch.
-
-If a `--check` run reports diffs in files you did not touch, that is the split
-above, not your change. Leave them.
+just that file — `rustfmt crates/sandbox/src/init/mod.rs` rewrote all eleven of
+its siblings. `--skip-children` is nightly-only. Harmless now that the tree is
+formatted, but it is why `rustfmt <file>` is not a way to keep a diff narrow.
 
 ## Completion Check
 

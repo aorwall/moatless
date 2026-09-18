@@ -33,8 +33,8 @@ pub struct PluginResponse {
 pub struct PluginSkillResponse {
     pub name: String,
     pub description: String,
-    /// Path of the `SKILL.md` inside the plugin repository — the copy an edit
-    /// has to land in, since every copy a sandbox holds is regenerated.
+    /// Path of the `SKILL.md` inside the plugin repository. Same contract as
+    /// `SkillResponse::path`, which states what a reader does with it.
     pub path: String,
 }
 

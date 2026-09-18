@@ -195,8 +195,10 @@ join -t"$(printf '\t')" -a1 -e '?' -o '0,1.2,1.3,1.4,2.2,2.3,2.4' \
         reqmi = unset(req) ? mib(defreq) : mib(req)
         pct   = limmi > 0 ? peak / limmi * 100 : 0
 
+        # 10% of slack: a row sitting a megabyte over its request would
+        # otherwise flap in and out of the verdict between runs.
         if (pct > 85)                                     v = "RAISE LIMIT"
-        else if (reqmi > 0 && med > reqmi)                v = "RAISE REQUEST"
+        else if (reqmi > 0 && med > 1.1*reqmi)            v = "RAISE REQUEST"
         else if (reqmi > 512 && med > 0 && reqmi > 4*med) v = "LOWER REQUEST"
         else                                              v = "ok"
         if (tasks < 3) v = v "  (n=" tasks ", lower bound)"

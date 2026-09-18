@@ -28,8 +28,8 @@ use moatless_workspace_types::repository::RepositoryRemote;
 pub struct FetchedSkillFile {
     pub dir_name: String,
     /// Repo-relative path of the `SKILL.md` itself, resolved through a symlink
-    /// so it names the directory holding the file rather than the link. This is
-    /// the only editable copy; every other one a pod holds is regenerated.
+    /// so it names the directory holding the file rather than the link. Ends up
+    /// on `SkillResponse::path`, whose doc says what a reader does with it.
     pub path: String,
     pub content: String,
 }

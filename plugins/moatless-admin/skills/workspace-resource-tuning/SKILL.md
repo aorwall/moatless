@@ -89,7 +89,7 @@ with different numbers, that is the signal the join is keyed wrongly.
 | Observation | Action |
 |---|---|
 | peak > 85% of limit | Raise the limit (headroom is free; an OOM mid-turn is not) |
-| median RSS > request | Raise the request to the median — the scheduler is packing this node on a number the workspace exceeds continuously |
+| median RSS > request + 10% | Raise the request to the median — the scheduler is packing this node on a number the workspace exceeds continuously |
 | request > ~4× median RSS | Lower the request toward the 512Mi floor |
 | limit ≫ peak on a light workspace | Leave it — limits cost nothing |
 | throttle ratio < ~5% | CPU limit is fine, don't touch it |

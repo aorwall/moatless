@@ -348,9 +348,9 @@ fn build_managed_command_note(config: &Config) -> Option<String> {
          session cannot background one. For work that outlives a single Bash \
          call — a slow build or test suite, a dev server — start it with `moat \
          cmd run --cwd <dir> \"<command>\"` instead of blocking a turn on \
-         `sleep` polling. Pass `--cwd`: the command does not inherit your shell's \
-         working directory, and a `cd <dir> && ` prefix is one you have to \
-         remember every time. \
+         `sleep` polling. `--cwd` defaults to the Bash tool's current \
+         directory, so pass it explicitly to pin the command to the directory \
+         you meant rather than wherever an earlier `cd` left the shell. \
          The sandbox owns the process: it keeps the sandbox awake while the \
          command runs and wakes you the moment it finishes. End your turn once \
          it is started — that wake is guaranteed, including when the command \

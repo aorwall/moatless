@@ -9,8 +9,8 @@ use clap::Subcommand;
 use moatless_api_schemas::enums::{AdapterKind, RoutingMode, Scope};
 use moatless_api_schemas::loops::{
     ActivateLoopRequest, CreateLoopConfig, CreateLoopRequest, CreateLoopSource, CreateSchedule,
-    CreateSubscription, Loop, LoopConfigSource, LoopKind, LoopSource, UpdateLoopConfig,
-    UpdateLoopRequest, UpdateLoopSource, UpdateSchedule, UpdateSubscription,
+    CreateSubscription, Loop, LoopConfigSource, LoopExecutionState, LoopKind, LoopSource,
+    UpdateLoopConfig, UpdateLoopRequest, UpdateLoopSource, UpdateSchedule, UpdateSubscription,
 };
 
 use super::adapters::{parse_adapter_kind, parse_json_opt, print_or_json};
@@ -299,10 +299,7 @@ pub async fn run_loops(
             let adapter = adapter.as_deref().map(parse_adapter_kind).transpose()?;
             let items = client
                 .api()
-                .list_loops(
-                    kind.map(LoopKind::as_str),
-                    adapter.map(AdapterKind::as_str),
-                )
+                .list_loops(kind.map(LoopKind::as_str), adapter.map(AdapterKind::as_str))
                 .await?;
             if json {
                 output::print_json_typed(&items);
@@ -861,16 +858,32 @@ fn fold_list(
     }
 }
 
-/// How a row's stored configuration relates to its Git declaration.
+/// Whether a row keeps a `sourceConfigPath` it no longer reads.
 ///
-/// An overridden Loop keeps `sourceConfigPath` and stops reading it, so editing
-/// that `LOOP.md` and merging the pull request changes nothing that runs. That
-/// state is what `overridden` names, and the only exit from it is
-/// `moat loops reset-git`.
+/// An overridden Loop keeps the path and stops reading it, so editing that
+/// `LOOP.md` and merging the pull request changes nothing that runs. The only
+/// exit is `moat loops reset-git`.
+fn is_overridden(l: &Loop) -> bool {
+    l.config_source == LoopConfigSource::Manual && l.source_config_path.is_some()
+}
+
+/// Why a row is or is not running.
+///
+/// `active` alone collapses two states with different fixes: an administrator
+/// paused this, or nobody has approved it yet.
+fn state_cell(l: &Loop) -> &'static str {
+    match l.execution_state {
+        LoopExecutionState::Active => "active",
+        LoopExecutionState::Paused => "paused",
+        LoopExecutionState::AwaitingApproval => "awaiting-approval",
+    }
+}
+
+/// How a row's stored configuration relates to its Git declaration.
 fn config_source_cell(l: &Loop) -> &'static str {
     match l.config_source {
         LoopConfigSource::Git => "git",
-        LoopConfigSource::Manual if l.source_config_path.is_some() => "manual (overridden)",
+        _ if is_overridden(l) => "manual (overridden)",
         LoopConfigSource::Manual => "manual",
     }
 }
@@ -883,17 +896,14 @@ fn format_loop_list(loops: &[Loop]) {
                 l.id.clone(),
                 l.name.clone(),
                 l.kind.as_str().to_string(),
-                if l.active { "yes" } else { "no" }.to_string(),
+                state_cell(l).to_string(),
                 config_source_cell(l).to_string(),
             ]
         })
         .collect();
-    output::print_table(&["ID", "NAME", "KIND", "ACTIVE", "CONFIG"], &rows);
+    output::print_table(&["ID", "NAME", "KIND", "STATE", "CONFIG"], &rows);
 
-    let overridden: Vec<&Loop> = loops
-        .iter()
-        .filter(|l| config_source_cell(l) == "manual (overridden)")
-        .collect();
+    let overridden: Vec<&Loop> = loops.iter().filter(|l| is_overridden(l)).collect();
     if !overridden.is_empty() {
         println!();
         println!(

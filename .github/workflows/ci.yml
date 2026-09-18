@@ -353,6 +353,17 @@ jobs:
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
+      # Before the cache restore and the build: rustfmt reads source, so this
+      # reports in seconds rather than after clippy's link. `rustfmt.toml` pins
+      # both editions, so this and a bare `rustfmt <file>` agree.
+      #
+      # `crates/codex-sdk` is its own workspace and `--all` does not reach it.
+      # Nothing else in CI builds it either — its path dependencies live outside
+      # the repository — so it is formatted by hand against its own
+      # `rustfmt.toml`.
+      - name: Rustfmt
+        run: cargo fmt --all -- --check
+
       # sccache is an optimisation; a broken OIDC trust must not turn a build
       # red. On failure no credentials are exported and the setup script skips.
       - name: Authenticate to AWS for sccache

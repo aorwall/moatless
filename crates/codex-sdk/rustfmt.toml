@@ -1,0 +1,5 @@
+# This crate is its own workspace and declares `edition = "2024"`. Without this
+# file, rustfmt walks up to the repository root config and formats it as 2021,
+# which rejects the let-chains in `query.rs`.
+edition = "2024"
+style_edition = "2024"
