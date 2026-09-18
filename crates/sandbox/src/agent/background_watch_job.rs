@@ -24,7 +24,7 @@ const POLL_INTERVAL: Duration = Duration::from_secs(5);
 /// How many command labels to keep in the status snapshot / wake prompt.
 const MAX_COMMAND_PREVIEWS: usize = 5;
 
-/// Log lines carried into the wake for a command that did not succeed.
+/// Log lines carried into the wake for each finished command.
 const WAKE_LOG_LINES: usize = 20;
 
 /// Bytes read from the end of the log to find those lines.
@@ -74,21 +74,22 @@ impl BackgroundWatchJob {
 
     /// Message injected once a watched command finishes.
     ///
-    /// A command that failed carries the end of its log, since the failure is
-    /// why the agent is being woken and re-reading it would waste the turn the
-    /// wake bought.
+    /// Every command carries the end of its log, success included: the log
+    /// lives outside `WORKSPACE_DIR` and dies with the pod, so a bare path is
+    /// all a replacement's agent would have, naming a file that is gone. Say
+    /// the log was lost rather than printing a path to nothing.
     fn wake_prompt(finished: &[CommandRecord]) -> String {
         let lines: Vec<String> = finished
             .iter()
             .map(|c| {
-                let (outcome, failed) = match (c.state, c.exit_code) {
+                let outcome = match (c.state, c.exit_code) {
                     (CommandState::TimedOut, _) => {
-                        (format!("timed out after {}s", c.timeout.as_secs()), true)
+                        format!("timed out after {}s", c.timeout.as_secs())
                     }
-                    (CommandState::Killed, _) => ("killed".to_string(), true),
-                    (_, Some(0)) => ("succeeded".to_string(), false),
-                    (_, Some(code)) => (format!("failed with exit {code}"), true),
-                    (_, None) => ("ended without an exit code".to_string(), true),
+                    (CommandState::Killed, _) => "killed".to_string(),
+                    (_, Some(0)) => "succeeded".to_string(),
+                    (_, Some(code)) => format!("failed with exit {code}"),
+                    (_, None) => "ended without an exit code".to_string(),
                 };
                 let head = format!(
                     "- `{}` ({}) {} — output: {}",
@@ -97,12 +98,10 @@ impl BackgroundWatchJob {
                     outcome,
                     c.log_path.display()
                 );
-                match failed
-                    .then(|| crate::commands::log_tail(&c.log_path, WAKE_LOG_LINES, WAKE_LOG_BYTES))
-                    .flatten()
-                {
+                match crate::commands::log_tail(&c.log_path, WAKE_LOG_LINES, WAKE_LOG_BYTES) {
                     Some(tail) => format!("{head}\n\n```\n{tail}\n```"),
-                    None => head,
+                    None if c.log_path.exists() => format!("{head} (it wrote nothing)"),
+                    None => format!("{head} — that log file is gone, so this is all of it"),
                 }
             })
             .collect();
@@ -462,8 +461,10 @@ mod tests {
         );
     }
 
+    /// The path alone is worthless to a replacement pod, which no longer has
+    /// the file — so the wake carries the output whatever the exit code was.
     #[tokio::test]
-    async fn wake_prompt_does_not_quote_the_log_of_a_success() {
+    async fn wake_prompt_carries_the_output_of_a_success_too() {
         let reg = registry();
         spawn(&reg, "echo 'build ok'").await;
         let job = BackgroundWatchJob::arm(Arc::clone(&reg))
@@ -476,11 +477,28 @@ mod tests {
 
         let messages = injected.lock().expect("lock");
         assert!(messages[0].contains("succeeded"), "{:?}", messages[0]);
-        assert!(
-            !messages[0].contains("```"),
-            "a success needs no log dump: {:?}",
-            messages[0]
-        );
+        assert!(messages[0].contains("build ok"), "{:?}", messages[0]);
+    }
+
+    /// A log deleted between the command finishing and the wake — what pod
+    /// replacement does to every `moat cmd` log, since they live in `/tmp`.
+    #[test]
+    fn a_missing_log_is_reported_as_lost_rather_than_as_a_path() {
+        let gone = CommandRecord {
+            id: "cmd-1".into(),
+            command: "cargo test -p moatless-sandbox".into(),
+            label: "cargo test -p moatless-sandbox".into(),
+            pid: 1234,
+            started_at_unix_ms: 0,
+            timeout: Duration::from_mins(1),
+            deadline_unix_ms: 0,
+            state: CommandState::Exited,
+            exit_code: Some(0),
+            log_path: std::path::PathBuf::from("/tmp/moat-commands/gone/cmd-1.log"),
+            finished_at_unix_ms: 0,
+        };
+        let prompt = BackgroundWatchJob::wake_prompt(&[gone]);
+        assert!(prompt.contains("that log file is gone"), "{prompt}");
     }
 
     #[tokio::test]

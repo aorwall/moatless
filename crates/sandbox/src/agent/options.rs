@@ -389,8 +389,9 @@ fn build_managed_command_note(config: &Config) -> Option<String> {
     }
     Some(
         "## Long-running commands\n\
-         The Bash tool kills any command that runs past ~10 minutes, and this \
-         session cannot background one. For work that outlives a single Bash \
+         The Bash tool kills a command at 2 minutes unless you pass a longer \
+         `timeout`, and will not go past 10 minutes whatever you pass; this \
+         session cannot background one either. For work that outlives a single Bash \
          call — a slow build or test suite, a dev server — start it with `moat \
          cmd run --cwd <dir> \"<command>\"` instead of blocking a turn on \
          `sleep` polling. `--cwd` defaults to the Bash tool's current \
