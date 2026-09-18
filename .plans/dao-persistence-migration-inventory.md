@@ -13,8 +13,9 @@ A consumer count is the number of `use` declarations naming the concern's module
 | [adapter connections](#adapter-connections) | moatless-adapter-model | 02 | 0 | 0 |
 | [telegram pairing](#telegram-pairing) | moatless-adapter-telegram | 15 | 0 | 0 |
 | [file metadata](#file-metadata) | moatless-core | 01 | 0 | 0 |
-| [conversation feed](#conversation-feed) | moatless-core | 01 | 7 | 4 |
-| [listing feed](#listing-feed) | moatless-core | 01 | 5 | 7 |
+| [conversation feed](#conversation-feed) | moatless-core | 01 | 8 | 4 |
+| [events feed](#events-feed) | moatless-core | 01 | 7 | 6 |
+| [listing feed](#listing-feed) | moatless-core | 01 | 5 | 8 |
 | [users](#users) | moatless-identity | 03 | 0 | 0 |
 | [teams](#teams) | moatless-identity | 03 | 0 | 0 |
 | [account creation](#account-creation) | moatless-identity | 04 | 0 | 0 |
@@ -27,8 +28,10 @@ A consumer count is the number of `use` declarations naming the concern's module
 | [secrets](#secrets) | moatless-identity | 06 | 0 | 0 |
 | [secret audit](#secret-audit) | moatless-identity | 06 | 0 | 0 |
 | [adapter apps](#adapter-apps) | moatless-identity | 06 | 0 | 0 |
+| [forgejo instances](#forgejo-instances) | moatless-identity | 06 | 0 | 0 |
 | [loop aggregate](#loop-aggregate) | moatless-loops | 13 | 0 | 0 |
 | [task bindings](#task-bindings) | moatless-loops | 14 | 0 | 0 |
+| [inbound message buffer](#inbound-message-buffer) | moatless-loops | 14 | 0 | 0 |
 | [adapter delivery](#adapter-delivery) | moatless-loops | 15 | 0 | 0 |
 | [firing receipts](#firing-receipts) | moatless-loops | 15 | 0 | 0 |
 | [sandbox lifecycle](#sandbox-lifecycle) | moatless-sandbox-control | 16 | 0 | 0 |
@@ -93,10 +96,21 @@ A consumer count is the number of `use` declarations naming the concern's module
 - **Closing slice:** 01
 - **Persistence roots:** `crates/core/src/change_feed/conversation/dao.rs`
 - **Owning tables:** `task_conversation_changes`, `task_conversation_position`
-- **Exports:** `change_feed::conversation::allocate_position`, `change_feed::conversation::changes_from`, `change_feed::conversation::current_head`, `change_feed::conversation::prune_changes`, `change_feed::conversation::record_activity_change`, `change_feed::conversation::record_message_change`, `change_feed::conversation::record_session_change`
+- **Exports:** `change_feed::conversation::allocate_position`, `change_feed::conversation::changes_from`, `change_feed::conversation::current_head`, `change_feed::conversation::prune_changes`, `change_feed::conversation::record_activity_change`, `change_feed::conversation::record_message_change`, `change_feed::conversation::record_revert_change`, `change_feed::conversation::record_session_change`
 - **Constructors:** none
 - **Peer consumers:** moatless-tasks (2)
 - **Test-only consumers:** moatless-t3code (2)
+
+## events feed
+
+- **Owner:** moatless-core
+- **Closing slice:** 01
+- **Persistence roots:** `crates/core/src/change_feed/events/dao.rs`
+- **Owning tables:** `task_event_changes`, `task_event_dispatch_queue`, `task_event_position`
+- **Exports:** `change_feed::events::changes_after`, `change_feed::events::claim_dispatch`, `change_feed::events::current_position`, `change_feed::events::dispatch_depth`, `change_feed::events::prune_changes`, `change_feed::events::record_event`, `change_feed::events::release_dispatch`
+- **Constructors:** none
+- **Peer consumers:** none
+- **Test-only consumers:** moatless-backend (6)
 
 ## listing feed
 
@@ -107,7 +121,7 @@ A consumer count is the number of `use` declarations naming the concern's module
 - **Exports:** `change_feed::listing::changes_after`, `change_feed::listing::current_head`, `change_feed::listing::current_position`, `change_feed::listing::prune_changes`, `change_feed::listing::record_change`
 - **Constructors:** none
 - **Peer consumers:** moatless-tasks (1)
-- **Test-only consumers:** moatless-backend (6)
+- **Test-only consumers:** moatless-backend (7)
 
 ## users
 
@@ -241,6 +255,17 @@ A consumer count is the number of `use` declarations naming the concern's module
 - **Peer consumers:** none
 - **Test-only consumers:** none
 
+## forgejo instances
+
+- **Owner:** moatless-identity
+- **Closing slice:** 06
+- **Persistence roots:** `crates/identity/src/forgejo/dao.rs`
+- **Owning tables:** `forgejo_instances`
+- **Exports:** none
+- **Constructors:** none
+- **Peer consumers:** none
+- **Test-only consumers:** none
+
 ## loop aggregate
 
 - **Owner:** moatless-loops
@@ -258,6 +283,17 @@ A consumer count is the number of `use` declarations naming the concern's module
 - **Closing slice:** 14
 - **Persistence roots:** `crates/loops/src/bindings/dao.rs`
 - **Owning tables:** `task_bindings`
+- **Exports:** none
+- **Constructors:** none
+- **Peer consumers:** none
+- **Test-only consumers:** none
+
+## inbound message buffer
+
+- **Owner:** moatless-loops
+- **Closing slice:** 14
+- **Persistence roots:** `crates/loops/src/bindings/buffer/dao.rs`
+- **Owning tables:** `inbound_message_buffer`
 - **Exports:** none
 - **Constructors:** none
 - **Peer consumers:** none
@@ -300,10 +336,10 @@ A consumer count is the number of `use` declarations naming the concern's module
 
 - **Owner:** moatless-t3code
 - **Closing slice:** 17
-- **Persistence roots:** `crates/t3code/src/dao.rs`
+- **Persistence roots:** `crates/t3code/src/dao.rs`, `crates/t3code/src/transcript_dao.rs`
 - **Owning tables:** none
 - **Exports:** none
-- **Constructors:** `PgConversationDao::new`
+- **Constructors:** `ConversationBrowse::new`, `PgConversationDao::new`
 - **Peer consumers:** none
 - **Test-only consumers:** none
 
@@ -399,7 +435,7 @@ A consumer count is the number of `use` declarations naming the concern's module
 
 - **Owner:** moatless-tasks
 - **Closing slice:** 10
-- **Persistence roots:** `crates/tasks/src/message/dao.rs`, `crates/tasks/src/message/fork_dao.rs`
+- **Persistence roots:** `crates/tasks/src/message/dao.rs`, `crates/tasks/src/message/external_events_dao.rs`, `crates/tasks/src/message/fork_dao.rs`, `crates/tasks/src/message/recovery_dao.rs`, `crates/tasks/src/task/rewind_dao.rs`
 - **Owning tables:** `task_message_content_blocks`, `task_message_contexts`, `task_message_usage`, `task_messages`
 - **Exports:** none
 - **Constructors:** none

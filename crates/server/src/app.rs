@@ -438,6 +438,20 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
                 .spawn(adapter_delivery_handlers, cancel.clone()),
         );
 
+        // The other half of that seam: an inbound event whose Loop buffers is
+        // committed to `inbound_message_buffer` and its delivery reports
+        // success, so nothing reaches the task until this flusher runs.
+        supervisor.supervise(
+            "inbound-buffer-flusher",
+            // Readiness, for the same reason as the delivery worker: the rows
+            // are durable and any replica can claim them, so losing this
+            // flusher delays combined messages rather than dropping them.
+            Criticality::Readiness,
+            app_state
+                .message_buffer_worker
+                .spawn(app_state.routing.clone(), cancel.clone()),
+        );
+
         // The ingress-outbox relay keeps its own handle rather than joining the
         // supervisor: it is shut down explicitly after `supervisor.run` returns,
         // on its own deadline (see `RELAY_SHUTDOWN_DEADLINE`).

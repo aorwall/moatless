@@ -5,6 +5,9 @@ use std::sync::Arc;
 
 use tracing::{debug, info, warn};
 
+use crate::bindings::buffer::dao::{BufferedBatch, MessageBufferStore};
+use crate::bindings::buffer::policy::buffer_window;
+use crate::bindings::buffer::{Part, combine};
 use crate::bindings::operations::Bindings;
 use crate::bindings::recipients::{EventProvenance, resolve_recipients};
 use crate::loops::dao::LoopDao;
@@ -34,6 +37,11 @@ use moatless_types::task::TaskStatus;
 pub use moatless_adapter_model::binding::ADAPTER_EVENT_BINDING_ORIGIN as ORIGIN_ADAPTER_EVENT;
 pub use moatless_adapter_model::binding::CONNECTED_THREAD_BINDING_ORIGIN as ORIGIN_CONNECTED_THREAD;
 
+/// Earlier thread messages quoted above a delivered turn, on top of the turn's
+/// own events. The batch excludes itself from the fetch, so a limit that did not
+/// grow with it would return nothing but the events already being delivered.
+const THREAD_CONTEXT_MESSAGES: usize = 20;
+
 /// The inbound-routing subgraph, owning the ports it reads so the routing
 /// logic names none of them through `AppState`.
 ///
@@ -51,6 +59,7 @@ pub struct RoutingService {
     event_receipts: Arc<EventReceipts>,
     sandbox_waker: Arc<dyn SandboxWaker>,
     adapters: Option<Arc<Adapters>>,
+    message_buffer: Arc<MessageBufferStore>,
 }
 
 /// The connection or Loop a record was admitted against is gone.
@@ -67,7 +76,7 @@ struct Vanished {
 impl RoutingService {
     #[expect(
         clippy::too_many_arguments,
-        reason = "ten independent ports the inbound-routing subgraph reads; they \
+        reason = "eleven independent ports the inbound-routing subgraph reads; they \
                   are exactly the AppState fields this service absorbs, wired in \
                   from the composition root, and there is no narrower grouping \
                   that is not itself an AppState-shaped bag"
@@ -83,6 +92,7 @@ impl RoutingService {
         event_receipts: Arc<EventReceipts>,
         sandbox_waker: Arc<dyn SandboxWaker>,
         adapters: Option<Arc<Adapters>>,
+        message_buffer: Arc<MessageBufferStore>,
     ) -> Self {
         Self {
             adapter_connections,
@@ -95,6 +105,7 @@ impl RoutingService {
             event_receipts,
             sandbox_waker,
             adapters,
+            message_buffer,
         }
     }
 
@@ -681,6 +692,12 @@ impl RoutingService {
         }
     }
 
+    /// Hold this event for its Binding's window, or deliver it on its own.
+    ///
+    /// The seam every Adapter's inbound events pass through, so buffering is
+    /// configured here rather than per provider. A brand-new Task is never
+    /// buffered: it is created with no first turn, so holding its only event
+    /// would leave a fresh sandbox idle for the length of the window.
     async fn deliver_to_binding(
         &self,
         subscription: &SubscriptionMatch,
@@ -689,57 +706,143 @@ impl RoutingService {
         adapter_label: &str,
         is_new_task: bool,
     ) -> Result<(), AdapterError> {
-        let config = subscription_context(subscription);
-        let thread = binding_context(binding);
+        let window = buffer_window(
+            subscription.message_buffer_seconds,
+            subscription.adapter_kind,
+        );
+        if window.is_zero() || is_new_task {
+            return self
+                .deliver_now(
+                    subscription,
+                    binding,
+                    std::slice::from_ref(msg),
+                    adapter_label,
+                    is_new_task,
+                )
+                .await;
+        }
 
-        let thread_context = if msg.thread_id.is_some() {
-            if let Some(ref providers) = self.adapters {
-                if let Some(presentation) = providers.inbound_presentation_by_name(adapter_label) {
-                    let mut exclude_ids = self
-                        .messages
-                        .external_event_ids(&binding.task_id)
-                        .await
-                        .unwrap_or_default();
-                    if let Some(ref ext_id) = msg.external_event_id {
-                        exclude_ids.push(ext_id.clone());
-                    }
-                    presentation
-                        .fetch_context(&thread, &config, 20, &exclude_ids)
-                        .await
-                        .unwrap_or_else(|e| {
-                            warn!(provider = adapter_label, error = %e, "Failed to fetch thread context");
-                            None
-                        })
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        } else {
-            None
+        self.message_buffer
+            .push(&binding.id, &subscription.id, adapter_label, msg, window)
+            .await?;
+        debug!(
+            task_id = %binding.task_id,
+            provider = adapter_label,
+            window_secs = window.as_secs(),
+            "Buffered an inbound event for its binding's window"
+        );
+        Ok(())
+    }
+
+    /// Deliver one Binding's buffered events as a single turn.
+    ///
+    /// Reads the Binding and the Loop back rather than trusting what was
+    /// buffered, so a flush runs against the current configuration; a Binding
+    /// that has since closed drops its events instead of resurrecting its Task.
+    pub(crate) async fn flush_buffered(&self, batch: &BufferedBatch) -> Result<(), AdapterError> {
+        let Some(binding) = self.task_bindings.get(&batch.binding_id).await? else {
+            info!(binding_id = %batch.binding_id, "Dropping buffered events: the binding is gone");
+            return Ok(());
+        };
+        if !binding.active {
+            info!(task_id = %binding.task_id, "Dropping buffered events: the binding is no longer active");
+            return Ok(());
+        }
+        let Some(subscription) = self
+            .loops
+            .find_runnable_subscription_by_id(&batch.loop_id)
+            .await?
+        else {
+            info!(loop_id = %batch.loop_id, "Dropping buffered events: the Loop is gone");
+            return Ok(());
         };
 
-        let mut message_text = msg.text.clone();
+        self.deliver_now(
+            &subscription,
+            &binding,
+            &batch.messages,
+            &batch.adapter_label,
+            false,
+        )
+        .await
+    }
 
-        if let Some(prefix) = self
+    /// Compose `msgs` into one turn and hand it to the Task.
+    ///
+    /// Thread context is fetched once for the whole batch and excludes every
+    /// buffered event, so the newest message is not preceded by a quotation of
+    /// the ones rendered beneath it.
+    async fn deliver_now(
+        &self,
+        subscription: &SubscriptionMatch,
+        binding: &TaskBinding,
+        msgs: &[InboundMessage],
+        adapter_label: &str,
+        is_new_task: bool,
+    ) -> Result<(), AdapterError> {
+        let Some(last) = msgs.last() else {
+            return Ok(());
+        };
+        let config = subscription_context(subscription);
+        let thread = binding_context(binding);
+        let presentation = self
             .adapters
             .as_ref()
-            .and_then(|providers| providers.inbound_presentation_by_name(adapter_label))
-            .and_then(|presentation| presentation.inbound_message_prefix(msg))
-        {
-            message_text = format!("{prefix}\n\n{message_text}");
-        }
+            .and_then(|providers| providers.inbound_presentation_by_name(adapter_label));
 
-        if msg.thread_id.is_some() {
-            if let Some(providers) = self.adapters.as_ref() {
-                if let Some(presentation) = providers.inbound_presentation_by_name(adapter_label) {
-                    if let Some(hint) = presentation.thread_reply_hint(msg) {
-                        message_text = format!("{hint}\n\n{message_text}");
+        // Any part of the batch, not just the newest: a review mixes comments
+        // that carry a `thread_id` with a body that does not, and the ones that
+        // do still want their thread quoted.
+        let on_a_thread = msgs.iter().any(|msg| msg.thread_id.is_some());
+        let thread_context = match (&presentation, on_a_thread) {
+            (Some(presentation), true) => {
+                let mut exclude_ids = self
+                    .messages
+                    .external_event_ids(&binding.task_id)
+                    .await
+                    .unwrap_or_default();
+                exclude_ids.extend(msgs.iter().filter_map(|msg| msg.external_event_id.clone()));
+                presentation
+                    .fetch_context(
+                        &thread,
+                        &config,
+                        THREAD_CONTEXT_MESSAGES + msgs.len(),
+                        &exclude_ids,
+                    )
+                    .await
+                    .unwrap_or_else(|e| {
+                        warn!(provider = adapter_label, error = %e, "Failed to fetch thread context");
+                        None
+                    })
+            }
+            _ => None,
+        };
+
+        let parts: Vec<Part> = msgs
+            .iter()
+            .map(|msg| {
+                let mut text = msg.text.clone();
+                if let Some(prefix) = presentation
+                    .as_ref()
+                    .and_then(|presentation| presentation.inbound_message_prefix(msg))
+                {
+                    text = format!("{prefix}\n\n{text}");
+                }
+                if msg.thread_id.is_some() {
+                    if let Some(hint) = presentation
+                        .as_ref()
+                        .and_then(|presentation| presentation.thread_reply_hint(msg))
+                    {
+                        text = format!("{hint}\n\n{text}");
                     }
                 }
-            }
-        }
+                Part {
+                    author: msg.author.clone(),
+                    text,
+                }
+            })
+            .collect();
+        let mut message_text = combine(parts);
 
         if let Some(ctx) = thread_context {
             if binding.last_external_event_id.is_some() {
@@ -755,10 +858,13 @@ impl RoutingService {
             .accept(InboundTurn {
                 task_id: binding.task_id.clone(),
                 text: message_text,
-                file_ids: msg.file_ids.clone(),
+                file_ids: msgs.iter().flat_map(|msg| msg.file_ids.clone()).collect(),
                 resume: true,
+                // The newest event in the batch, since that is the one a reply
+                // is most likely meant for. `combine` names every other event's
+                // author in the body, because a turn carries one header.
                 origin: TurnOrigin {
-                    event_id: msg.external_event_id.clone(),
+                    event_id: last.external_event_id.clone(),
                     adapter: Some(adapter_label.to_string()),
                     subject_key: Some(binding.subject_key.clone()),
                     // The source's own name where the subscription carries one, else the
@@ -770,10 +876,10 @@ impl RoutingService {
                             .clone()
                             .unwrap_or_else(|| config.source_id.clone()),
                     ),
-                    author: msg.author.clone(),
-                    sender_id: msg.sender_external_id.clone(),
+                    author: last.author.clone(),
+                    sender_id: last.sender_external_id.clone(),
                 },
-                sent_by: Some(msg.user_id.clone()),
+                sent_by: Some(last.user_id.clone()),
                 // A `routing_mode: ongoing` Loop fires into a task that is already
                 // open, so the delivery resumes and the task's own skills are held
                 // back. The Loop still means them for every firing; send them here.
@@ -783,7 +889,7 @@ impl RoutingService {
             .map_err(|e| AdapterError::task_handoff("deliver a provider turn to a task", e))?;
 
         self.task_bindings
-            .record_inbound_event(binding, msg.external_event_id.as_deref())
+            .record_inbound_event(binding, last.external_event_id.as_deref())
             .await?;
 
         if !is_new_task {

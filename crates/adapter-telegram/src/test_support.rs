@@ -25,7 +25,10 @@ pub(super) const OWNER: &str = "user-owner";
 ///
 /// Set only the fields your test is about; spelling out every field per module
 /// lets copies drift on what "default" means.
-pub(super) fn test_rule(adapter_kind: moatless_types::adapter::AdapterKind, source_matcher: &str) -> SubscriptionMatch {
+pub(super) fn test_rule(
+    adapter_kind: moatless_types::adapter::AdapterKind,
+    source_matcher: &str,
+) -> SubscriptionMatch {
     let now = chrono::Utc::now();
     SubscriptionMatch {
         name: "test-loop".to_string(),
@@ -47,6 +50,7 @@ pub(super) fn test_rule(adapter_kind: moatless_types::adapter::AdapterKind, sour
         inactive_ttl_days: None,
         node_selector: None,
         stop_when_done: None,
+        message_buffer_seconds: None,
         allow_direct_send: true,
         adapter_config: None,
         ongoing_task_id: None,

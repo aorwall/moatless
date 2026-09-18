@@ -137,6 +137,11 @@ pub struct SubscriptionMatch {
     /// See [`LoopContext::stop_when_done`]. `None` is the Loop declaring
     /// nothing, which resolves to `false`.
     pub stop_when_done: Option<bool>,
+    /// Seconds inbound events for one Binding are held so those arriving
+    /// together reach the Task as a single message. `None` is the Loop
+    /// declaring nothing, which falls back to the per-adapter environment
+    /// default; `0` delivers every event on its own.
+    pub message_buffer_seconds: Option<i32>,
     pub allow_direct_send: bool,
     pub adapter_config: Option<serde_json::Value>,
     pub ongoing_task_id: Option<String>,

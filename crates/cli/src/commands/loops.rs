@@ -153,6 +153,15 @@ pub enum LoopsAction {
         /// of holding the pod for the idle TTL.
         #[arg(long)]
         stop_when_done: Option<bool>,
+        /// Seconds to hold inbound adapter events for one binding so those
+        /// arriving together reach the task as one message. 0 turns buffering
+        /// off.
+        #[arg(long)]
+        message_buffer_seconds: Option<i32>,
+        /// Drop the buffering override, so the adapter kind's deployment
+        /// default applies again.
+        #[arg(long)]
+        clear_message_buffer_seconds: bool,
         #[arg(long)]
         connection_id: Option<String>,
         #[arg(long)]
@@ -272,6 +281,11 @@ pub struct CreateConfigArgs {
     /// node goes idle in seconds and can scale down.
     #[arg(long)]
     stop_when_done: Option<bool>,
+    /// Seconds to hold inbound adapter events for one binding so those arriving
+    /// together reach the task as one message. 0 turns buffering off; omitted
+    /// inherits the adapter kind's deployment default.
+    #[arg(long)]
+    message_buffer_seconds: Option<i32>,
 }
 
 pub async fn run_loops(
@@ -377,6 +391,8 @@ pub async fn run_loops(
             node_selector,
             clear_node_selector,
             stop_when_done,
+            message_buffer_seconds,
+            clear_message_buffer_seconds,
             connection_id,
             source_matcher,
             source_name,
@@ -431,6 +447,8 @@ pub async fn run_loops(
                 node_selector,
                 clear_node_selector,
                 stop_when_done,
+                message_buffer_seconds,
+                clear_message_buffer_seconds,
             )?;
             let source = update_source(
                 connection_id,
@@ -527,6 +545,7 @@ fn create_config(args: CreateConfigArgs) -> Result<CreateLoopConfig, ClientError
         inactive_ttl_days: args.inactive_ttl_days,
         node_selector: parse_node_selector(args.node_selector.as_deref())?,
         stop_when_done: args.stop_when_done,
+        message_buffer_seconds: args.message_buffer_seconds,
     })
 }
 
@@ -554,6 +573,8 @@ fn update_config(
     node_selector: Option<String>,
     clear_node_selector: bool,
     stop_when_done: Option<bool>,
+    message_buffer_seconds: Option<i32>,
+    clear_message_buffer_seconds: bool,
 ) -> Result<Option<UpdateLoopConfig>, ClientError> {
     let tag_ids = fold_list(tag_ids, clear_tags, "tag", "clear-tags")?;
     let skills = fold_list(skills, clear_skills, "skill", "clear-skills")?;
@@ -578,6 +599,11 @@ fn update_config(
             "node-selector",
         )?,
         stop_when_done,
+        message_buffer_seconds: fold_clearable(
+            message_buffer_seconds,
+            clear_message_buffer_seconds,
+            "message-buffer-seconds",
+        )?,
     };
     if config.workspace_id.is_none()
         && config.routing_mode.is_none()
@@ -591,6 +617,7 @@ fn update_config(
         && config.inactive_ttl_days.is_none()
         && config.node_selector.is_none()
         && config.stop_when_done.is_none()
+        && config.message_buffer_seconds.is_none()
     {
         Ok(None)
     } else {
@@ -981,6 +1008,8 @@ mod tests {
             None,
             false,
             None,
+            None,
+            false,
         )
     }
 

@@ -14,6 +14,7 @@ use tracing::{error, info, warn};
 
 use super::dao::AdapterDeliveryStore;
 use super::metrics::{record_backlog, record_execution};
+use crate::worker_identity::worker_owner_id;
 use moatless_adapter_model::delivery::AdapterDeliveryHandlers;
 use moatless_adapter_model::delivery::{AdapterDelivery, AdapterDeliveryFailure};
 
@@ -49,17 +50,6 @@ impl AdapterDeliveryWorker {
         );
         tokio::spawn(run(Arc::clone(&self.store), handlers, owner, cancel))
     }
-}
-
-/// The claim identity written onto records this process holds.
-///
-/// The pod/container hostname, not a per-process random id, so a process killed
-/// mid-execution returns under the same name and `release_claims_by_owner`
-/// recovers it immediately instead of waiting out the lease; the
-/// `HOSTNAME`-unset fallback stays unique per process, since a shared constant
-/// would let replicas steal each other's in-flight records.
-fn worker_owner_id() -> String {
-    std::env::var("HOSTNAME").unwrap_or_else(|_| format!("unknown-host-{}", uuid::Uuid::new_v4()))
 }
 
 async fn run(

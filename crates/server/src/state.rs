@@ -278,6 +278,9 @@ pub struct AppState {
     /// The worker that owns what admission wrote. The host starts it last, once
     /// every delivery handler this build knows is registered.
     pub adapter_delivery_worker: moatless_loops::adapters::delivery::AdapterDeliveryWorker,
+    /// The flusher that turns each Binding's closed buffer window into one
+    /// combined Task message. Started beside the delivery worker.
+    pub message_buffer_worker: moatless_loops::bindings::buffer::MessageBufferWorker,
 }
 
 // `FromRef` lets a handler extract exactly the port it names —

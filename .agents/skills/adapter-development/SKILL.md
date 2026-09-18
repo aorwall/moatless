@@ -47,6 +47,9 @@ For a new adapter, follow [wiring](references/new-adapter-wiring.md).
   Apply effects in ingress or durable handlers. Keep audience selection in the
   shared subject-event router and preserve `external_id_aliases` for stored IDs.
 - Keep best-effort activity notifications off the durable seam.
+- Several buffered events reach the Task as one turn carrying one
+  `external_event_id`, the newest. An adapter whose replies must reach a
+  specific event renders that event's own id into each part's body.
 - A system scope bypass needs a local lint allowance with the reason required by
   the owning crate's AGENTS.md.
 

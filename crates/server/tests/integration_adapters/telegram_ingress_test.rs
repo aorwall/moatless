@@ -157,6 +157,7 @@ async fn seed_subscription(
             inactive_ttl_days: None,
             node_selector: None,
             stop_when_done: None,
+            message_buffer_seconds: None,
             allow_direct_send: false,
             adapter_config: secret
                 .map(|secret| serde_json::json!({ "secret_token": secret }))

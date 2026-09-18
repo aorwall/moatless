@@ -24,6 +24,8 @@ use moatless_workspace_ports::WorkspaceResolver;
 
 use crate::adapters::delivery::AdapterDeliveryWorker;
 use crate::adapters::delivery::dao::AdapterDeliveryStore;
+use crate::bindings::buffer::MessageBufferWorker;
+use crate::bindings::buffer::dao::MessageBufferStore;
 use crate::bindings::connect::Connector;
 use crate::bindings::dao::PgTaskBindingDao;
 use crate::bindings::operations::Bindings;
@@ -49,6 +51,7 @@ pub struct LoopGraph {
     bindings: Arc<Bindings>,
     receipts: Arc<EventReceipts>,
     delivery: Arc<AdapterDeliveryStore>,
+    message_buffer: Arc<MessageBufferStore>,
 }
 
 /// Build the loops band's stores over `db`.
@@ -57,7 +60,8 @@ pub fn loop_graph(db: DbPool) -> LoopGraph {
         loops: Arc::new(LoopDao::new(db.clone())),
         bindings: Arc::new(Bindings::new(Arc::new(PgTaskBindingDao::new(db.clone())))),
         receipts: Arc::new(EventReceipts::new(db.clone())),
-        delivery: Arc::new(AdapterDeliveryStore::new(db)),
+        delivery: Arc::new(AdapterDeliveryStore::new(db.clone())),
+        message_buffer: Arc::new(MessageBufferStore::new(db)),
     }
 }
 
@@ -98,6 +102,13 @@ impl LoopGraph {
     /// every delivery handler is registered.
     pub fn delivery_worker(&self) -> AdapterDeliveryWorker {
         AdapterDeliveryWorker::new(self.delivery.clone())
+    }
+
+    /// The flusher that turns each Binding's closed buffer window into one
+    /// combined Task message. A host supervises it beside the delivery worker,
+    /// since a delivery that buffered is only half-done until this runs.
+    pub fn message_buffer_worker(&self) -> MessageBufferWorker {
+        MessageBufferWorker::new(self.message_buffer.clone())
     }
 
     /// Reconciles a repository's git-declared Loops, over the four ports the
@@ -145,6 +156,7 @@ impl LoopGraph {
             self.receipts.clone(),
             inputs.sandbox_waker,
             inputs.adapters,
+            self.message_buffer.clone(),
         ))
     }
 

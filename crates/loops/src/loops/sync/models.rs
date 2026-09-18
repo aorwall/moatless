@@ -97,6 +97,13 @@ pub struct LoopFrontmatter {
     /// otherwise move a repository's loops onto dedicated capacity.
     #[serde(default)]
     pub stop_when_done: Option<bool>,
+    /// Seconds inbound Adapter events for this loop's bindings are held so
+    /// those arriving together reach the task as one message
+    /// ([`moatless_types::loops::SubscriptionMatch::message_buffer_seconds`]).
+    /// `None` inherits the deployment default for the adapter kind; `0` turns
+    /// buffering off.
+    #[serde(default)]
+    pub message_buffer_seconds: Option<i32>,
     /// Schedule settings — only meaningful when `on: schedule`.
     #[serde(default)]
     pub schedule: Option<LoopSchedule>,

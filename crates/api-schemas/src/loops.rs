@@ -61,6 +61,11 @@ pub struct LoopConfig {
     /// Stop this Loop's sandbox as soon as its agent run finishes, rather than
     /// holding the pod for the idle TTL.
     pub stop_when_done: Option<bool>,
+    /// Seconds inbound Adapter events for one Binding are held so those
+    /// arriving together reach the Task as a single message. `None` inherits
+    /// the deployment default for the Loop's adapter kind (60 for `github_pr`,
+    /// off elsewhere); `0` delivers every event on its own.
+    pub message_buffer_seconds: Option<i32>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -85,6 +90,8 @@ pub struct CreateLoopConfig {
     pub node_selector: Option<std::collections::BTreeMap<String, String>>,
     /// See [`LoopConfig::stop_when_done`].
     pub stop_when_done: Option<bool>,
+    /// See [`LoopConfig::message_buffer_seconds`].
+    pub message_buffer_seconds: Option<i32>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -118,6 +125,9 @@ pub struct UpdateLoopConfig {
     pub node_selector: Option<Option<std::collections::BTreeMap<String, String>>>,
     /// See [`LoopConfig::stop_when_done`].
     pub stop_when_done: Option<bool>,
+    /// See [`LoopConfig::message_buffer_seconds`]. `Some(None)` clears the
+    /// override.
+    pub message_buffer_seconds: Option<Option<i32>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

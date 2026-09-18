@@ -15,6 +15,7 @@ mod adapter_installation_test;
 mod event_ingress_test;
 mod github_push_claim_test;
 mod github_webhook_redelivery_test;
+mod inbound_message_buffer_test;
 mod linear_admission_test;
 mod linear_delivery_identity_test;
 mod linear_ingress_test;

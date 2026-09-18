@@ -273,6 +273,7 @@ impl Loops {
                     inactive_ttl_days: req.config.inactive_ttl_days,
                     node_selector: req.config.node_selector.clone(),
                     stop_when_done: req.config.stop_when_done,
+                    message_buffer_seconds: req.config.message_buffer_seconds,
                 },
                 source,
             })
@@ -623,6 +624,9 @@ fn next_config(
             .node_selector
             .unwrap_or_else(|| current.config.node_selector.clone()),
         stop_when_done: rule.stop_when_done.or(current.config.stop_when_done),
+        message_buffer_seconds: rule
+            .message_buffer_seconds
+            .unwrap_or(current.config.message_buffer_seconds),
     })
 }
 
@@ -693,6 +697,7 @@ mod tests {
                 inactive_ttl_days: None,
                 node_selector: None,
                 stop_when_done: None,
+                message_buffer_seconds: None,
             },
             source: LoopSourceRow::Manual,
         }

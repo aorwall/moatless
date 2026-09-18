@@ -29,6 +29,7 @@ pub const TABLES: &[(&str, &str)] = &[
     ("github_app_audit_events", "moatless-identity"),
     ("github_app_migrations", "moatless-identity"),
     ("github_apps", "moatless-identity"),
+    ("inbound_message_buffer", "moatless-loops"),
     ("integration_pairing_requests", "moatless-adapter-telegram"),
     ("loop_configs", "moatless-loops"),
     ("loops", "moatless-loops"),

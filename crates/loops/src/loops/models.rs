@@ -30,6 +30,8 @@ pub struct LoopSpawnConfig {
     pub node_selector: Option<std::collections::BTreeMap<String, String>>,
     /// See [`moatless_types::loops::LoopContext::stop_when_done`].
     pub stop_when_done: Option<bool>,
+    /// See [`moatless_types::loops::SubscriptionMatch::message_buffer_seconds`].
+    pub message_buffer_seconds: Option<i32>,
     pub scope: Scope,
     pub owner_user_id: Option<String>,
     pub created_by: String,
@@ -109,6 +111,8 @@ pub(crate) struct LoopConfigRow {
     pub node_selector: Option<std::collections::BTreeMap<String, String>>,
     /// See [`moatless_types::loops::LoopContext::stop_when_done`].
     pub stop_when_done: Option<bool>,
+    /// See [`moatless_types::loops::SubscriptionMatch::message_buffer_seconds`].
+    pub message_buffer_seconds: Option<i32>,
 }
 
 #[derive(Debug, Clone)]
@@ -191,6 +195,8 @@ pub struct NewLoopConfig {
     pub node_selector: Option<std::collections::BTreeMap<String, String>>,
     /// See [`moatless_types::loops::LoopContext::stop_when_done`].
     pub stop_when_done: Option<bool>,
+    /// See [`moatless_types::loops::SubscriptionMatch::message_buffer_seconds`].
+    pub message_buffer_seconds: Option<i32>,
 }
 
 pub enum NewLoopSource {
@@ -268,6 +274,8 @@ pub struct ManagedLoopUpsert {
     /// `node_selector`, this one is declarable in `LOOP.md`: it only shortens a
     /// sandbox's life, so commit access buys no capacity.
     pub stop_when_done: Option<bool>,
+    /// See [`moatless_types::loops::SubscriptionMatch::message_buffer_seconds`].
+    pub message_buffer_seconds: Option<i32>,
     pub adapter: Option<NewAdapterEventSource>,
     pub schedule: Option<NewScheduleSource>,
 }

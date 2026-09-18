@@ -107,6 +107,7 @@ pub struct Ports {
     /// ingress and the worker-facing application state.
     pub adapter_delivery: Arc<dyn moatless_adapter_model::delivery::DeliveryAdmission>,
     pub adapter_delivery_worker: moatless_loops::adapters::delivery::AdapterDeliveryWorker,
+    pub message_buffer_worker: moatless_loops::bindings::buffer::MessageBufferWorker,
 
     /// The `users` table behind the three identity ports peer crates read:
     /// `UserDisplay`, `UserResolver`, `CommitIdentity`.
@@ -242,6 +243,7 @@ pub fn compose(pool: DbPool, config: &Config, s3: Option<moatless_s3::S3Storage>
     let loop_reader = loop_graph.loop_reader();
     let adapter_delivery = loop_graph.delivery_admission();
     let adapter_delivery_worker = loop_graph.delivery_worker();
+    let message_buffer_worker = loop_graph.message_buffer_worker();
     let activities = task_graph.activities();
     let pending_work = task_graph.pending_work();
     let task_events = task_graph.task_events();
@@ -287,6 +289,7 @@ pub fn compose(pool: DbPool, config: &Config, s3: Option<moatless_s3::S3Storage>
         connection_routing: connections.routing(),
         adapter_delivery,
         adapter_delivery_worker,
+        message_buffer_worker,
 
         user_directory: moatless_identity::compose::user_directory(pool.clone()),
         harness_credentials,

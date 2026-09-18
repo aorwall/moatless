@@ -251,6 +251,7 @@ async fn seed_rule_with_id(state: &AppState, id: &str, config: Option<serde_json
             inactive_ttl_days: None,
             node_selector: None,
             stop_when_done: None,
+            message_buffer_seconds: None,
             allow_direct_send: false,
             // `close_task_on_close` is a scalar column on the Subscription, not
             // Linear config — mirrored out of the same literal so a test reads

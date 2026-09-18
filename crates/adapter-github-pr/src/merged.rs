@@ -278,6 +278,7 @@ mod tests {
             inactive_ttl_days: None,
             node_selector: None,
             stop_when_done: None,
+            message_buffer_seconds: None,
             allow_direct_send: false,
             adapter_config: None,
             ongoing_task_id: None,

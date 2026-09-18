@@ -59,6 +59,7 @@ struct JoinedLoopRecordRow {
     inactive_ttl_days: Option<i32>,
     node_selector: Option<sqlx::types::Json<std::collections::BTreeMap<String, String>>>,
     stop_when_done: Option<bool>,
+    message_buffer_seconds: Option<i32>,
     adapter_kind: Option<String>,
     connection_id: Option<String>,
     source_matcher: Option<String>,
@@ -110,6 +111,7 @@ impl JoinedLoopRecordRow {
             inactive_ttl_days: self.inactive_ttl_days,
             node_selector: self.node_selector.map(|json| json.0),
             stop_when_done: self.stop_when_done,
+            message_buffer_seconds: self.message_buffer_seconds,
         };
         let source = match kind {
             LoopKind::AdapterEvent => LoopSourceRow::AdapterEvent(SubscriptionRow {
@@ -173,6 +175,7 @@ const LOOP_RECORD_SELECT: &str = r#"
            r.inactive_ttl_days,
            r.node_selector,
            r.stop_when_done,
+           r.message_buffer_seconds,
            aes.adapter_kind,
            aes.connection_id,
            aes.source_matcher,
@@ -361,7 +364,8 @@ impl LoopDao {
                        model = $11,
                        workspace_id = $12,
                        node_selector = $13,
-                       stop_when_done = $14
+                       stop_when_done = $14,
+                       message_buffer_seconds = $15
                    WHERE loop_id = $1"#,
             )
             .bind(id)
@@ -378,6 +382,7 @@ impl LoopDao {
             .bind(&config.workspace_id)
             .bind(config.node_selector.as_ref().map(sqlx::types::Json))
             .bind(config.stop_when_done)
+            .bind(config.message_buffer_seconds)
             .execute(&mut *tx)
             .await?;
         }
@@ -733,8 +738,9 @@ impl LoopDao {
             r#"INSERT INTO loop_configs
                (loop_id, routing_mode, ongoing_task_id, prompt,
                 task_name, tag_ids, skills, run_as_user_id, agent_type,
-                inactive_ttl_days, model, workspace_id, node_selector, stop_when_done)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+                inactive_ttl_days, model, workspace_id, node_selector, stop_when_done,
+                message_buffer_seconds)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
                ON CONFLICT (loop_id) DO UPDATE
                SET routing_mode      = EXCLUDED.routing_mode,
                    ongoing_task_id   = EXCLUDED.ongoing_task_id,
@@ -748,7 +754,8 @@ impl LoopDao {
                    model             = EXCLUDED.model,
                    workspace_id      = EXCLUDED.workspace_id,
                    node_selector     = EXCLUDED.node_selector,
-                   stop_when_done    = EXCLUDED.stop_when_done"#,
+                   stop_when_done    = EXCLUDED.stop_when_done,
+                   message_buffer_seconds = EXCLUDED.message_buffer_seconds"#,
         )
         .bind(&row.id)
         .bind(row.routing_mode.as_str())
@@ -764,6 +771,7 @@ impl LoopDao {
         .bind(&row.workspace_id)
         .bind(row.node_selector.as_ref().map(sqlx::types::Json))
         .bind(row.stop_when_done)
+        .bind(row.message_buffer_seconds)
         .execute(&mut *tx)
         .await?;
 
@@ -1165,6 +1173,7 @@ impl LoopDao {
                       r.inactive_ttl_days,
                       r.node_selector,
                       r.stop_when_done,
+                      r.message_buffer_seconds,
                       t.scope,
                       t.owner_user_id,
                       t.created_by,
@@ -1222,6 +1231,7 @@ const SUBSCRIPTION_MATCH_SELECT: &str = r#"
            r.inactive_ttl_days,
            r.node_selector,
            r.stop_when_done,
+           r.message_buffer_seconds,
            aes.allow_direct_send,
            aes.adapter_config AS adapter_config,
            r.ongoing_task_id,
@@ -1287,8 +1297,7 @@ async fn replace_managed_loop_rows(
     .bind(loop_id)
     .fetch_optional(&mut **tx)
     .await?;
-    let (ongoing_task_id, run_as_user_id, node_selector) =
-        carried.unwrap_or((None, None, None));
+    let (ongoing_task_id, run_as_user_id, node_selector) = carried.unwrap_or((None, None, None));
 
     sqlx::query("DELETE FROM loop_configs WHERE loop_id = $1")
         .bind(loop_id)
@@ -1320,6 +1329,7 @@ async fn replace_managed_loop_rows(
             inactive_ttl_days: input.inactive_ttl_days,
             node_selector: node_selector.map(|json| json.0),
             stop_when_done: input.stop_when_done,
+            message_buffer_seconds: input.message_buffer_seconds,
         },
     )
     .await?;
@@ -1342,8 +1352,9 @@ async fn insert_config(
         r#"INSERT INTO loop_configs
            (loop_id, routing_mode, ongoing_task_id, prompt,
             task_name, tag_ids, skills, run_as_user_id, agent_type,
-            inactive_ttl_days, model, workspace_id, node_selector, stop_when_done)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)"#,
+            inactive_ttl_days, model, workspace_id, node_selector, stop_when_done,
+            message_buffer_seconds)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)"#,
     )
     .bind(loop_id)
     .bind(config.routing_mode.as_str())
@@ -1359,6 +1370,7 @@ async fn insert_config(
     .bind(&config.workspace_id)
     .bind(config.node_selector.as_ref().map(sqlx::types::Json))
     .bind(config.stop_when_done)
+    .bind(config.message_buffer_seconds)
     .execute(&mut **tx)
     .await?;
     Ok(())

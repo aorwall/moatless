@@ -327,6 +327,13 @@ pub const CONCERNS: &[Concern] = &[
         slice: 14,
     },
     Concern {
+        name: "inbound message buffer",
+        owner: "moatless-loops",
+        roots: &["crates/loops/src/bindings/buffer/dao"],
+        tables: &["inbound_message_buffer"],
+        slice: 14,
+    },
+    Concern {
         name: "adapter delivery",
         owner: "moatless-loops",
         roots: &["crates/loops/src/adapters/delivery/dao"],

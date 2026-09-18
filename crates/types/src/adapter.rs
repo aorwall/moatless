@@ -78,9 +78,9 @@ pub struct ExternalStatus {
 
 /// Inbound message produced by an Adapter-specific parser.
 ///
-/// Serialized only into `adapter_delivery.payload`: the durable delivery seam
-/// redoes routing from this record after a restart, so every field is owned
-/// data.
+/// Serialized into `adapter_delivery.payload` and `inbound_message_buffer.message`:
+/// both seams redo routing from this record after a restart, so every field is
+/// owned data.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct InboundMessage {
     /// Adapter type.

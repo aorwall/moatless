@@ -183,6 +183,7 @@ async fn seed_rule(state: &AppState, pool: &PgPool) {
             inactive_ttl_days: None,
             node_selector: None,
             stop_when_done: None,
+            message_buffer_seconds: None,
             allow_direct_send: false,
             close_task_on_close: false,
             adapter_config: None,

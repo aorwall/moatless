@@ -1,5 +1,6 @@
 //! Task bindings and outbound replies to external subjects.
 
+pub mod buffer;
 pub(crate) mod dao;
 pub mod footer;
 pub mod handlers;
