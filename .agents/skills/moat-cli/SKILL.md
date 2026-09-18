@@ -55,6 +55,23 @@ reading it.
 Bash tool call with `&` is invisible to the idle reaper, which will stop the pod
 underneath it. Start anything that must outlive the turn through `moat cmd run`.
 
+**Detach what you do background**, for the rest of a turn:
+
+```bash
+setsid nohup CMD >log 2>&1 </dev/null & disown
+```
+
+`&` alone leaves the child in this tool call's session and process group, where
+anything aimed at the group reaches both. `setsid` gives it its own, the
+redirects release the call's stdio, and `disown` drops it from the job table.
+
+**`pkill -f <pattern>` kills the tool call that runs it** whenever the pattern
+also matches the call's own command line, which holds your whole command as
+text: `pkill -f "sleep 24"` returns exit 144 and the output is lost. Match on
+something the wrapper cannot contain, or kill by pid from `pgrep -f <pattern>`,
+dropping this shell's own `$$` from the list — `pgrep` excludes itself and not
+its caller.
+
 **A pod replacement destroys every running command and its logs.** The sandbox
 announces the loss once, on the next turn, and names the commands that died.
 Treat that message as the outcome you were waiting for, and start the work

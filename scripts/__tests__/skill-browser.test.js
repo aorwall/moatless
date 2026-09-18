@@ -29,18 +29,31 @@ describe('T3 browser helper', () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}', { status }))
     await expect(backendFixture('http://localhost:8080', 'test')).rejects.toThrow(`HTTP ${status}`)
   })
+  // Two `Set-Cookie` headers rather than one comma-joined value, because that is
+  // what `issued_session_headers` appends and what `getSetCookie()` splits on.
+  const mintResponse = (...cookies) => {
+    const headers = new Headers()
+    for (const cookie of cookies) headers.append('set-cookie', cookie)
+    return new Response('{}', { headers })
+  }
   it('rejects task HTTP failures even if the body resembles valid data', async () => {
     vi.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(
-        new Response('{}', {
-          headers: { 'set-cookie': 'moatless_session=session; Path=/; Secure' },
-        }),
+        mintResponse('moatless_session=session; Path=/; Secure', 'moatless_csrf=csrf; Path=/; Secure'),
       )
       .mockResolvedValueOnce(
         new Response('{"items":[{"repositoryName":"example"}]}', { status: 403 }),
       )
     await expect(backendFixture('http://localhost:8080', 'test')).rejects.toThrow(
       'Task request failed: HTTP 403',
+    )
+  })
+  it('rejects a mint that carries no CSRF cookie', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      mintResponse('moatless_session=session; Path=/; Secure'),
+    )
+    await expect(backendFixture('http://localhost:8080', 'test')).rejects.toThrow(
+      'Session response has no moatless_csrf cookie',
     )
   })
   it('uses the selected host for its cookie and closes the browser on page failure', async () => {
@@ -60,7 +73,7 @@ describe('T3 browser helper', () => {
       browserCheck(
         chromium,
         { host: 'app.example.org', port: 8444 },
-        { session: 'test', names: ['example'] },
+        { session: 'test', csrf: 'csrf', names: ['example'] },
       ),
     ).rejects.toThrow('HTTP 502')
     expect(cookies.mock.calls[0][0][0]).toMatchObject({
@@ -68,6 +81,12 @@ describe('T3 browser helper', () => {
       secure: true,
     })
     expect(cookies.mock.calls[0][0][0]).not.toHaveProperty('domain')
+    expect(cookies.mock.calls[0][0][1]).toMatchObject({
+      name: 'moatless_csrf',
+      value: 'csrf',
+      url: 'https://app.example.org/',
+      httpOnly: false,
+    })
     expect(close).toHaveBeenCalledOnce()
   })
   it('verifies real data and closes the browser after success', async () => {
@@ -96,7 +115,7 @@ describe('T3 browser helper', () => {
     const result = await browserCheck(
       chromium,
       { host: 'app.example.org', port: 8444, screenshot: '/tmp/example.png' },
-      { session: 'test', names: ['fixture-project'] },
+      { session: 'test', csrf: 'csrf', names: ['fixture-project'] },
     )
     expect(result).toEqual({
       sockets: 1,
@@ -134,7 +153,7 @@ describe('T3 browser helper', () => {
       browserCheck(
         chromium,
         { host: 'app.example.org', port: 8444 },
-        { session: 'test', names: ['example'] },
+        { session: 'test', csrf: 'csrf', names: ['example'] },
       ),
     ).rejects.toThrow('Browser integration check failed')
     expect(close).toHaveBeenCalledOnce()

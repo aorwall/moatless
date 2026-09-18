@@ -27,6 +27,13 @@ when an entry no longer occurs, so drop a fixed violation rather than leave it
 to shadow the next one. Review every baseline identity a `--update-baseline`
 run adds.
 
+`cargo run -p moatless-arch-rules --bin arch-report` names the entries, as
+`N baseline entry(s) now fixed`. Run it after a change that could satisfy a rule
+without meaning to: `single-implementation-trait` counts a mock only where a
+test exercises it, so adding the first test double for a port trait clears that
+trait's entry, and `cargo test -p moatless-arch-rules` then fails on a line
+naming the baseline rather than your change.
+
 **A rule at zero is already locked there.** The ordinary test filters to
 violations absent from the baseline, so a rule with no baseline entries fails on
 any occurrence — `dependency-privacy` sits at zero today. Do not add a per-rule

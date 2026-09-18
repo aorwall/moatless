@@ -63,9 +63,12 @@ node .agents/skills/t3-development/references/browser-check.mjs \
 ```
 
 The checker maps the selected hostname to the local TLS port, mints a session,
-sets a host-specific cookie, and checks `/ws`, a real repository name, and console
-errors. It does not start Vite or TLS. Track processes you start and clean up only
-those processes; do not kill other workspace dev servers by a broad name match.
+sets both host-specific cookies — `moatless_session` and the `moatless_csrf` the
+client reads back for its `X-CSRF-Token` header — and checks `/ws`, a real
+repository name, and console errors. It asserts a read, so a missing CSRF cookie
+would not fail it; it fails the mint instead. It does not start Vite or TLS.
+Track processes you start and clean up only those processes; do not kill other
+workspace dev servers by a broad name match.
 
 ## Rebuild and diagnose
 

@@ -43,6 +43,10 @@ export async function backendFixture(backend, key) {
   const cookies = minted.headers.getSetCookie?.() ?? [minted.headers.get('set-cookie')]
   const session = /(?:^|\n|;\s*)moatless_session=([^;\n]+)/.exec(cookies.join('\n'))?.[1]
   if (!session) throw new Error('Session response has no moatless_session cookie')
+  // The other half of the double submit. Without it every mutating request the
+  // client sends is rejected, and a check that only reads still passes.
+  const csrf = /(?:^|\n|;\s*)moatless_csrf=([^;\n]+)/.exec(cookies.join('\n'))?.[1]
+  if (!csrf) throw new Error('Session response has no moatless_csrf cookie')
   const listed = await fetch(new URL('/api/v1/tasks?limit=20', base), {
     headers,
     signal: AbortSignal.timeout(15_000),
@@ -58,7 +62,7 @@ export async function backendFixture(backend, key) {
     ),
   ]
   if (names.length === 0) throw new Error('Backend lists no projects; nothing to assert')
-  return { session, names }
+  return { session, csrf, names }
 }
 
 /** Check an already-running T3 browser harness, closing the browser on every outcome. */
@@ -86,6 +90,16 @@ export async function browserCheck(chromium, options, fixture) {
         url: origin.href,
         secure: true,
         httpOnly: true,
+        sameSite: 'Lax',
+      },
+      {
+        name: 'moatless_csrf',
+        value: fixture.csrf,
+        url: origin.href,
+        secure: true,
+        // Readable by the client, deliberately: it reads this back out of
+        // `document.cookie` to fill the `x-csrf-token` header.
+        httpOnly: false,
         sameSite: 'Lax',
       },
     ])
