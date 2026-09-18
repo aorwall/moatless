@@ -25,6 +25,7 @@ pub mod files;
 mod git_push_watcher;
 pub mod grpc_server;
 pub mod init;
+pub mod limits;
 pub mod outbox;
 pub mod pod_processes;
 pub mod preview_proxy;

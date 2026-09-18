@@ -331,3 +331,38 @@ fn toolchain_persistence_flags_enabled() {
         "must never shadow the baked toolchain at /opt/cargo"
     );
 }
+
+/// The volume limit is the one ceiling the sandbox cannot discover for itself:
+/// the kubelet meters it, so `df` in the pod answers for the node instead.
+#[test]
+fn the_workspace_volume_limit_reaches_the_container_env() {
+    let config = test_config();
+
+    let mut plan = test_plan();
+    plan.repo_config.resources = Some(moatless_workspace_types::workspace::ResourceConfig {
+        storage: Some(memory("20Gi")),
+        ..Default::default()
+    });
+    let container = build_sandbox_container(&config, "task-1", &plan, None, None).unwrap();
+    let limit = container
+        .env
+        .as_ref()
+        .unwrap()
+        .iter()
+        .find(|e| e.name == WORKSPACE_LIMIT_ENV)
+        .and_then(|e| e.value.clone())
+        .expect("SANDBOX_WORKSPACE_LIMIT present");
+    assert_eq!(limit, "20Gi");
+
+    // No per-repo override: the same knob that sizes the volume is exported.
+    let container = build_sandbox_container(&config, "task-1", &test_plan(), None, None).unwrap();
+    let limit = container
+        .env
+        .as_ref()
+        .unwrap()
+        .iter()
+        .find(|e| e.name == WORKSPACE_LIMIT_ENV)
+        .and_then(|e| e.value.clone())
+        .expect("SANDBOX_WORKSPACE_LIMIT present");
+    assert_eq!(limit, config.sandbox.storage_size);
+}

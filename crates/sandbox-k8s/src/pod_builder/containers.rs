@@ -2,7 +2,7 @@
 //! resource envelope each compute mode admits.
 
 use super::env::{env_var, redact_url_userinfo};
-use super::placement::resolve_sandbox_image;
+use super::placement::{resolve_sandbox_image, resolve_sandbox_size};
 use super::security::{app_security_context, privileged_security_context};
 use super::*;
 
@@ -271,6 +271,13 @@ pub(super) fn build_sandbox_container(
     if storage_backend.restore_if_empty() && pvc_name.is_some() {
         env.push(env_var("WORKSPACE_RESTORE_IF_EMPTY", "true"));
     }
+
+    // One knob sizes the PVC and the emptyDir alike, so this is the ceiling
+    // whichever one `workspace-data` turned out to be.
+    env.push(env_var(
+        WORKSPACE_LIMIT_ENV,
+        &resolve_sandbox_size(config, plan),
+    ));
 
     // REPO_CONFIG env var (pass-through for sandbox)
     if let Some(repo_config_json) = build_repo_config_json(plan) {

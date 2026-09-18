@@ -255,6 +255,12 @@ pub fn build_prompt_append(config: &Config, request: &AgentRunRequest) -> String
     let backend_prompt = request.system_prompt.clone().unwrap_or_default();
     let layout_note = build_workspace_layout_note(config);
     let mut sections = vec![layout_note];
+    if let Some(note) = build_resource_limits_note(
+        crate::limits::memory_limit_bytes(),
+        crate::limits::workspace_limit(),
+    ) {
+        sections.push(note);
+    }
     if let Some(note) = build_managed_command_note(config) {
         sections.push(note);
     }
@@ -331,6 +337,45 @@ fn build_workspace_layout_note(config: &Config) -> String {
              restart note dates the snapshot when that happens."
         )
     }
+}
+
+/// Name the two ceilings the pod runs inside, and the tools that read them.
+///
+/// The agent otherwise learns of a cap only by crossing it, and the first thing
+/// it reaches for reports the node instead: `free` and `df` both answer for the
+/// host, several times larger than either ceiling. `None` in a runtime that
+/// caps neither.
+fn build_resource_limits_note(memory: Option<u64>, workspace: Option<String>) -> Option<String> {
+    if memory.is_none() && workspace.is_none() {
+        return None;
+    }
+    let mut lines = vec!["## Resource limits".to_string()];
+    if let Some(bytes) = memory {
+        lines.push(format!(
+            "- Memory is capped at {} for this whole container, not the much \
+             larger figure `free` prints — that is the node's. Read \
+             `/sys/fs/cgroup/memory.max` for the cap and \
+             `/sys/fs/cgroup/memory.peak` for what your last build actually \
+             used, and lower the build's parallelism when the second \
+             approaches the first. `NODE_OPTIONS` already sizes Node's heap \
+             from the cap, so raising it makes a kill likelier rather than \
+             less likely.",
+            crate::limits::format_gib(bytes)
+        ));
+    }
+    if let Some(limit) = workspace {
+        lines.push(format!(
+            "- Disk is capped at {limit} across the workspace volume, which \
+             backs both your working directory and `/tmp`. Measure it with \
+             `du -sx` on the workspace dir; `df` reports the node's \
+             filesystem and its free space tells you nothing about this \
+             limit. Filling the volume gets the pod evicted mid-command and \
+             replaced, which looks like an unexplained restart — so clear \
+             build output (`target/`, `node_modules/`, caches) when the \
+             measurement nears the cap."
+        ));
+    }
+    Some(lines.join("\n"))
 }
 
 /// Tell the agent to hand long-running work to `moat cmd`.
@@ -1078,6 +1123,25 @@ mod tests {
             .find("BACKEND-PROMPT")
             .expect("backend prompt present");
         assert!(note_idx < backend_idx, "layout note must come first");
+    }
+
+    /// Both ceilings, and the tool that reads each — the agent's first instinct
+    /// on an OOM is to raise the heap, and on a disk question to run `df`.
+    #[test]
+    fn the_limits_note_names_each_cap_and_how_to_read_it() {
+        let note = build_resource_limits_note(Some(8 * 1024 * 1024 * 1024), Some("20Gi".into()))
+            .expect("a note when either limit is known");
+        assert!(note.contains("capped at 8 GiB"), "{note}");
+        assert!(note.contains("/sys/fs/cgroup/memory.peak"), "{note}");
+        assert!(note.contains("raising it makes a kill likelier"), "{note}");
+        assert!(note.contains("capped at 20Gi"), "{note}");
+        assert!(note.contains("du -sx"), "{note}");
+    }
+
+    #[test]
+    fn an_uncapped_runtime_gets_no_limits_note() {
+        assert_eq!(build_resource_limits_note(None, None), None);
+        assert!(build_resource_limits_note(None, Some("20Gi".into())).is_some());
     }
 
     #[test]

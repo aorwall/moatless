@@ -17,6 +17,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // been created yet, so nothing can concurrently read the environment.
     unsafe {
         std::env::set_var("CLAUDE_CODE_DEBUG_LOGS_DIR", CLAUDE_CODE_DEBUG_LOGS_DIR);
+        // Exported here rather than onto one child's env map so that every
+        // spawn inherits the cap — the agent CLI, a `moat cmd` build, a
+        // terminal — since any of them can be the process that hits it.
+        for (key, value) in moatless_sandbox::limits::memory_env_exports() {
+            std::env::set_var(key, value);
+        }
     }
 
     moatless_sandbox::app::initialize_logging();

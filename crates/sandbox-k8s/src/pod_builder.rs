@@ -26,7 +26,7 @@ use moatless_workspace_types::workspace::Port;
 use moatless_workspace_types::workspace::{
     Cpu, Memory, ResourceConfig, ResourceQuantities, StorageMedium,
 };
-use moatless_workspace_types::workspace::{RepoCheckout, WORKSPACE_REPOS_ENV};
+use moatless_workspace_types::workspace::{RepoCheckout, WORKSPACE_LIMIT_ENV, WORKSPACE_REPOS_ENV};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap};
 use tracing::{debug, info, warn};

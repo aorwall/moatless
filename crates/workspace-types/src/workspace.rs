@@ -150,6 +150,13 @@ pub struct WorkspaceRepo {
 /// Env var carrying the resolved [`RepoCheckout`] list supplied by the backend.
 pub const WORKSPACE_REPOS_ENV: &str = "WORKSPACE_REPOS";
 
+/// Env var carrying the workspace volume's size limit, as a K8s quantity.
+///
+/// The only way the sandbox learns this ceiling: the kubelet meters the volume
+/// on its own, so `df` in the pod answers for the node's filesystem and its
+/// free space says nothing about how close the pod is to eviction.
+pub const WORKSPACE_LIMIT_ENV: &str = "SANDBOX_WORKSPACE_LIMIT";
+
 /// A [`WorkspaceRepo`] placement resolved for sandbox provisioning.
 ///
 /// `WORKSPACE_REPOS` carries these primary first. Each is cloned into
