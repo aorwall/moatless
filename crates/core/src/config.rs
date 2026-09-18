@@ -405,11 +405,11 @@ pub struct SandboxConfig {
     /// it. Env `K8S_SANDBOX_CACHE_HOST_ROOT` (default `/mnt/cache`).
     pub cache_host_root: String,
     /// Image for the privileged `dind` sidecar attached when a repo sets
-    /// `dockerAccess: true`, letting Testcontainers-based tests run inside the
-    /// sandbox.
+    /// `dockerAccess: true`. Env `K8S_SANDBOX_DOCKER_DIND_IMAGE`.
     ///
-    /// Must be an allowlisted ref under the `restrict-image-registries` Kyverno
-    /// policy. Env `K8S_SANDBOX_DOCKER_DIND_IMAGE`.
+    /// Must be allowlisted by the `restrict-image-registries` Kyverno
+    /// policy, and Docker 25 or newer: the sidecar passes `--feature=` to
+    /// `dockerd`, which an older one rejects at startup rather than ignoring.
     pub docker_dind_image: String,
     /// Size cap for the `dind` sidecar's `/var/lib/docker` emptyDir when
     /// `resources.dockerStorageMode` is `emptyDir`.

@@ -32,6 +32,10 @@ fn docker_access_adds_privileged_dind_sidecar_and_env() {
     assert!(args.contains("dockerd"), "dind runs dockerd, got: {args}");
     assert!(args.contains("--tls=false"), "dind runs without TLS");
     assert!(
+        args.contains("--feature=containerd-snapshotter=false"),
+        "dind must use overlay2, or an SELinux xattr fails every unpack: {args}"
+    );
+    assert!(
         dind.volume_mounts
             .as_ref()
             .unwrap()

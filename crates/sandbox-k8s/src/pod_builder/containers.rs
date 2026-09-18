@@ -59,6 +59,12 @@ pub(super) fn build_dind_container(config: &Config) -> Container {
             "--host=tcp://0.0.0.0:2375".to_string(),
             "--host=unix:///var/run/docker.sock".to_string(),
             "--tls=false".to_string(),
+            // Back to the overlay2 graphdriver: Docker 29 defaults to the
+            // containerd image store, whose copier treats a refused xattr as
+            // fatal, so on these SELinux-labelled nodes every layer unpack and
+            // every seed of a declared `VOLUME` dies with `failed to set xattr
+            // "security.selinux"`. overlay2's copier never asks for that one.
+            "--feature=containerd-snapshotter=false".to_string(),
         ]),
         // Disable the entrypoint's automatic TLS cert generation so it listens
         // in plaintext on 2375.

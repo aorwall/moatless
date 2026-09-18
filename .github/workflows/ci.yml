@@ -144,6 +144,7 @@ jobs:
             sandbox-base:
               - 'docker/Dockerfile.sandbox-base'
               - 'docker/playwright-cli.sh'
+              - 'docker/playwright-consumers.json'
               - 'docker/cli-versions.env'
               - '.github/scripts/install-mold.sh'
               - '.github/workflows/ci.yml'
@@ -309,6 +310,16 @@ jobs:
             echo "::error::Sandbox base image bakes Rust ${BAKED} but the workspace pins ${PINNED}. Update ARG RUST_VERSION in docker/Dockerfile.sandbox-base (and rebuild sandbox-base) so agents don't re-download the toolchain at runtime."
             exit 1
           fi
+
+  playwright-pins:
+    name: Sandbox Playwright drift
+    runs-on: staging-runners
+    steps:
+      - uses: actions/checkout@v6
+      - name: Compare consumer lockfiles with the baked browser builds
+        env:
+          GH_TOKEN: ${{ secrets.E2E_GITHUB_PAT }}
+        run: ./.github/scripts/check-playwright-pins.sh
 
   # ── Rust lint + tests ──
   # The review gate, and the whole workspace every time: clippy and the test
@@ -898,7 +909,7 @@ jobs:
       - name: Setup Node (vitest runtime for test:scripts)
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
-          node-version: 22
+          node-version: 24
 
       - name: Install dependencies
         run: bun install
@@ -1017,9 +1028,51 @@ jobs:
           cache-from: type=registry,ref=${{ env.BACKEND_IMAGE_NAME }}:buildcache
           cache-to: type=registry,ref=${{ env.BACKEND_IMAGE_NAME }}:buildcache,mode=min,image-manifest=true,oci-mediatypes=true
 
-  # ── Build the truly stable sandbox base (Ubuntu + Node + CLIs + user setup) ──
-  # No binaries needed, so it starts immediately and runs alongside build-rust;
-  # rebuilds only when CLI versions or system deps bump.
+  # ── Prove a sandbox-base change builds, on the PR that makes it ──
+  # The publish job below only runs on `main`, so before this the first build of
+  # a Dockerfile change was the merge, and the only pre-merge option pushed
+  # `sandbox-base:latest` from an unmerged branch. Agents cannot build it either
+  # — the sandbox has a Docker CLI and no daemon, and the nodes disable
+  # unprivileged user namespaces, so rootless buildkit cannot stand in.
+  validate-sandbox-base:
+    name: Build sandbox-base (no push)
+    needs: detect-changes
+    if: >-
+      github.event_name == 'pull_request' &&
+      needs.detect-changes.outputs.sandbox-base == 'true'
+    runs-on: staging-runners-large
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Load CLI versions
+        run: grep -E '^[A-Z_]+=' docker/cli-versions.env >> "$GITHUB_ENV"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
+
+      # Only to read the buildcache. A miss costs a cold build, not a failure.
+      - name: Login to Docker Hub
+        continue-on-error: true
+        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # No `cache-to`: the mode=max export belongs to the publish job alone
+      # (docker/AGENTS.md), and a PR writing it would evict what main reads.
+      - name: Build sandbox-base
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        with:
+          context: .
+          file: docker/Dockerfile.sandbox-base
+          platforms: linux/amd64
+          push: false
+          build-args: |
+            CLAUDE_CLI_VERSION=${{ env.CLAUDE_CLI_VERSION }}
+            CODEX_CLI_VERSION=${{ env.CODEX_CLI_VERSION }}
+            TASK_VERSION=${{ env.TASK_VERSION }}
+          cache-from: type=registry,ref=${{ env.SANDBOX_BASE_IMAGE }}:buildcache
+
   build-sandbox-base:
     name: Build & push sandbox-base (stable)
     needs: detect-changes

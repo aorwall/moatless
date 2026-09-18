@@ -1,0 +1,8 @@
+{
+	"comment": "Repos whose lockfiles decide which Chromium builds Dockerfile.sandbox-base has to bake. .github/scripts/check-playwright-pins.sh reads every resolved playwright-core here and fails when the image does not carry it. Add a repo when its sandbox runs browser tests; drop one when it stops. `local` reads the lockfile from this checkout, anything else through the GitHub API.",
+	"consumers": [
+		{ "repo": "soaplabs/moatless", "lockfile": "bun.lock", "local": true },
+		{ "repo": "soaplabs/soap-frontend", "lockfile": "bun.lock" },
+		{ "repo": "soaplabs/soap-specs", "lockfile": "bun.lock" }
+	]
+}

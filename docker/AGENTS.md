@@ -27,7 +27,11 @@ Dockerfile.backend-cross ─> moatless-backend
 Everything downstream of `sandbox-base` is a thin overlay: install a tool in
 `sandbox-base`, never again in a child image. `sandbox-dev` descends from
 `moatless-sandbox` rather than the base, so a tool added to `sandbox-base`
-reaches it only after `sandbox` rebuilds.
+reaches it only after `sandbox` rebuilds. A language toolchain is the
+exception: the base carries Node, Bun, Python and Rust and nothing else, and a
+JDK, Maven and `psql` come from `docker/recipes/soaplabs.json`. A Java repo
+reaches them only by setting its workspace `dockerImage` to
+`<REGISTRY_ORG>/moatless-sandbox-recipe:soaplabs`.
 
 ## Ordering layers in Dockerfile.sandbox-base
 
@@ -56,8 +60,7 @@ to 0% on byte-identical inputs — 606s of an 840s build writing a cache nothing
 reads. That budget is shared and LRU, so nothing in `ci.yml` should hold space
 in it except the Rust target dirs and the per-run binary handoffs.
 
-The first build after you add a `:buildcache` ref logs a `cache-from` miss. The
-tag does not exist yet, and the run after it hits.
+A `:buildcache` ref that does not exist yet misses once, then starts hitting.
 
 `RUN --mount=type=cache` is worth nothing here. Every job gets a fresh
 `docker-container` buildx driver, and a cache mount is builder-local and

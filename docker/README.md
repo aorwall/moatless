@@ -16,7 +16,7 @@ This directory contains Docker configurations for building the application and s
 ```
 ┌─────────────────────────────────┐
 │     moatless-sandbox       │
-│  Ubuntu 24.04, Node.js 22, npm  │
+│  Ubuntu 24.04, Node.js 24, npm  │
 │  Claude Code CLI, git-delta     │
 │  moatless user (UID 1000)       │
 └───────────────┬─────────────────┘
@@ -127,7 +127,7 @@ normal code changes — only the binary `COPY` in the leaf images invalidates.
 
 ### Contents
 - Ubuntu 24.04
-- Node.js 22 + npm
+- Node.js 24 + npm
 - Claude Code CLI, Codex CLI
 - Bun, pnpm, yarn, TypeScript, tsx
 - Vite+ (`vp`) at `VP_HOME=/opt/vite-plus` — https://viteplus.dev/guide/
