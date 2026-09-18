@@ -9,7 +9,7 @@ use moatless_api_schemas::sandbox::{
     ServerConfigResponse, ServerOverride, ServerOverridesResponse, ServerStatusResponse,
     UpdateServerConfigRequest,
 };
-use moatless_workspace_types::schemas::workspace::ServerConfig;
+use moatless_workspace_types::schemas::workspace::{ScriptConfig, ServerConfig};
 use std::collections::BTreeMap;
 
 #[derive(Subcommand)]
@@ -243,6 +243,61 @@ fn format_server_list(
     }
 }
 
+/// A refused log read, with the Script of that name named when there is one.
+///
+/// The backend refusal can only list servers: a Script is workspace
+/// configuration the log reader never resolves, so `--server preview` against a
+/// script named `preview` reads as a typo. The extra request runs only on a
+/// path that has already failed.
+async fn name_the_script_behind(
+    client: &MoatClient,
+    task_id: &str,
+    server: &str,
+    err: ClientError,
+) -> ClientError {
+    let ClientError::Api { status: 404, body } = &err else {
+        return err;
+    };
+    let Ok(resp) = client
+        .raw_get(&format!("/api/orchestration/scripts/{task_id}"))
+        .await
+    else {
+        return err;
+    };
+    let scripts: Vec<ScriptConfig> = resp
+        .get("scripts")
+        .cloned()
+        .and_then(|value| serde_json::from_value(value).ok())
+        .unwrap_or_default();
+    let names: Vec<&str> = scripts.iter().map(|s| s.name.as_str()).collect();
+    match script_note(task_id, server, &names) {
+        Some(note) => ClientError::Other(format!("{} {note}", refusal_text(body))),
+        None => err,
+    }
+}
+
+/// The backend's own message out of an error body, or the body unchanged.
+fn refusal_text(body: &str) -> String {
+    super::format::api_error_message(body).unwrap_or_else(|| body.to_string())
+}
+
+/// What a refusal gains from the scripts the workspace declares.
+///
+/// `None` leaves the backend's message alone, which already names the servers
+/// that would work.
+fn script_note(task_id: &str, server: &str, scripts: &[&str]) -> Option<String> {
+    if scripts.contains(&server) {
+        return Some(format!(
+            "\"{server}\" is a script, not a server: start it with `moat tasks scripts {task_id} \
+             run {server}` and read its output in the terminal it runs in."
+        ));
+    }
+    if scripts.is_empty() {
+        return None;
+    }
+    Some(format!("Declared scripts: {}.", scripts.join(", ")))
+}
+
 /// Stream server logs via SSE.
 ///
 /// With `follow` the stream stays open until Ctrl+C; without it the backend
@@ -260,7 +315,10 @@ pub(super) async fn stream_logs(
         "/api/sandbox/v1/tasks/{task_id}/servers/{server}/logs\
          ?previous={previous}&follow={follow}&tail={tail}"
     );
-    let resp = client.raw_get_stream(&path).await?;
+    let resp = match client.raw_get_stream(&path).await {
+        Ok(resp) => resp,
+        Err(e) => return Err(name_the_script_behind(client, task_id, server, e).await),
+    };
     let mut stream = resp.bytes_stream();
     let mut buf = String::new();
 
@@ -362,5 +420,37 @@ mod tests {
 
         assert!(lines.contains("not declared"), "{lines}");
         assert!(!lines.contains("not readable"), "{lines}");
+    }
+
+    #[test]
+    fn a_name_that_is_a_script_is_named_as_one_with_the_command_that_runs_it() {
+        let note = script_note("t1", "preview", &["preview", "lint"])
+            .expect("the name belongs to a script");
+
+        assert!(note.contains("is a script, not a server"), "{note}");
+        assert!(note.contains("moat tasks scripts t1 run preview"), "{note}");
+    }
+
+    #[test]
+    fn a_name_that_is_neither_lists_the_scripts_that_do_exist() {
+        let note = script_note("t1", "typo", &["preview", "lint"]).expect("scripts exist to name");
+
+        assert_eq!(note, "Declared scripts: preview, lint.");
+    }
+
+    /// Nothing to add, so the backend's own refusal — which already names the
+    /// servers that would work — is what the caller sees.
+    #[test]
+    fn a_workspace_with_no_scripts_adds_nothing() {
+        assert_eq!(script_note("t1", "preview", &[]), None);
+    }
+
+    #[test]
+    fn a_refusal_reads_as_its_message_rather_than_its_envelope() {
+        assert_eq!(
+            refusal_text(r#"{"error":"Task t1 has no server named 'preview'."}"#),
+            "Task t1 has no server named 'preview'."
+        );
+        assert_eq!(refusal_text("plain text"), "plain text");
     }
 }

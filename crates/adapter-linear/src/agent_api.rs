@@ -597,11 +597,30 @@ impl LinearAgentApi {
     /// Fetch one issue by identifier (`SP-123`) or UUID. Returns the issue
     /// subobject.
     pub async fn get_issue(&self, id_or_key: &str) -> Result<serde_json::Value, AdapterError> {
+        self.fetch_issue(id_or_key, ISSUE_FIELDS).await
+    }
+
+    /// [`Self::get_issue`] plus the issue's `comments` connection.
+    ///
+    /// Separate from `get_issue` deliberately: the internal callers resolve a
+    /// team, a project or a state from the issue and would pay for a thread
+    /// none of them reads.
+    pub async fn get_issue_with_comments(
+        &self,
+        id_or_key: &str,
+    ) -> Result<serde_json::Value, AdapterError> {
+        self.fetch_issue(id_or_key, &format!("{ISSUE_FIELDS} {ISSUE_COMMENTS}"))
+            .await
+    }
+
+    async fn fetch_issue(
+        &self,
+        id_or_key: &str,
+        fields: &str,
+    ) -> Result<serde_json::Value, AdapterError> {
         let value = self
             .graphql(serde_json::json!({
-                "query": format!(
-                    "query($id: String!) {{ issue(id: $id) {{ {ISSUE_FIELDS} }} }}"
-                ),
+                "query": format!("query($id: String!) {{ issue(id: $id) {{ {fields} }} }}"),
                 "variables": { "id": id_or_key }
             }))
             .await?;
@@ -1061,6 +1080,18 @@ parent { id identifier } \
 labels { nodes { id name color } } \
 team { id key name } \
 createdAt updatedAt";
+
+/// Comment selection appended to [`ISSUE_FIELDS`] by
+/// [`LinearAgentApi::get_issue_with_comments`].
+///
+/// Linear orders a comment connection newest first with no ascending option,
+/// so `first` takes the most recent 50 rather than a thread's opening. A
+/// comment from an OAuth app has no `user`; `botActor` names the app.
+const ISSUE_COMMENTS: &str = "comments(first: 50) { pageInfo { hasNextPage } \
+nodes { id body url createdAt updatedAt \
+user { id name displayName email } \
+botActor { id name type } \
+parent { id } } }";
 
 /// Convert a non-empty top-level `errors` array into `AdapterError`.
 ///

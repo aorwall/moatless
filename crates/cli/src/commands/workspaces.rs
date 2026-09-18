@@ -1,11 +1,13 @@
 //! Workspace commands: list, get, create, update, override, reset-git, delete.
 
 use clap::Subcommand;
+use clap::builder::PossibleValuesParser;
 use moatless_api_schemas::enums::Scope;
 use moatless_workspace_types::schemas::workspace::{
     CreateWorkspaceRequest, ScriptConfig, UpdateWorkspaceRequest, WorkspaceRepoInput,
     WorkspaceResponse,
 };
+use moatless_workspace_types::workspace::WorkspaceCredentialProvider;
 
 use crate::client::{ClientError, MoatClient};
 use crate::output;
@@ -252,7 +254,8 @@ pub enum CredentialAction {
     /// Pin a provider credential to a workspace, replacing any current value
     Set {
         workspace_id: String,
-        /// Provider: github, gitlab, gitness, openai, or anthropic
+        /// The provider this credential authenticates against
+        #[arg(value_parser = provider_values())]
         provider: String,
         /// Credential value (use "-" to read from stdin)
         #[arg(long, short = 'v')]
@@ -264,9 +267,16 @@ pub enum CredentialAction {
     /// Remove a pinned credential; the workspace falls back to the run-as user
     Remove {
         workspace_id: String,
-        /// Provider: github, gitlab, gitness, openai, or anthropic
+        /// The provider this credential authenticates against
+        #[arg(value_parser = provider_values())]
         provider: String,
     },
+}
+
+/// The provider names `--help` offers, read from the enum the backend accepts,
+/// so a provider added there cannot leave this list stale.
+fn provider_values() -> PossibleValuesParser {
+    PossibleValuesParser::new(WorkspaceCredentialProvider::ALL.iter().map(|p| p.as_str()))
 }
 
 pub async fn run(

@@ -1,8 +1,19 @@
-//! Rendering a task for a person: the list table and the detail block.
+//! Rendering a task for a person: the list table, the detail block, and the
+//! backend's own message out of a refusal.
 
 use crate::output;
 use moatless_api_schemas::enums::TaskStatus;
 use moatless_api_schemas::task::{ListTasksResponse, TaskResponse};
+
+/// The backend's `{"error": …}` message out of an error body.
+///
+/// `None` for a body that is not that envelope, which leaves each caller to
+/// decide between the raw body and returning the error unchanged.
+pub(super) fn api_error_message(body: &str) -> Option<String> {
+    serde_json::from_str::<serde_json::Value>(body)
+        .ok()
+        .and_then(|v| v.get("error").and_then(|e| e.as_str()).map(str::to_string))
+}
 
 pub(super) fn parse_task_status(s: &str) -> Option<TaskStatus> {
     match s {

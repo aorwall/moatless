@@ -58,7 +58,7 @@ pub enum LinearAction {
 
 #[derive(Subcommand)]
 pub enum IssueAction {
-    /// Fetch one issue by identifier (SP-123) or UUID
+    /// Fetch one issue by identifier (SP-123) or UUID, with its comment thread
     Get {
         id: String,
         #[arg(long)]
@@ -811,6 +811,74 @@ fn print_issue(issue: &Value) {
         println!();
         println!("{description}");
     }
+    print_comments(issue);
+}
+
+/// The issue's comments, oldest first, or empty for a payload carrying none.
+///
+/// Linear hands back the newest first, which is the wrong end to start reading
+/// a discussion from.
+fn comments_oldest_first(issue: &Value) -> Vec<&Value> {
+    issue
+        .pointer("/comments/nodes")
+        .and_then(Value::as_array)
+        .map(|nodes| nodes.iter().rev().collect())
+        .unwrap_or_default()
+}
+
+/// A comment's author: a person's display name, or the app that posted it.
+///
+/// A comment from an OAuth app has `user: null` and names itself in `botActor`.
+fn comment_author(comment: &Value) -> &str {
+    comment
+        .pointer("/user/displayName")
+        .or_else(|| comment.pointer("/user/name"))
+        .or_else(|| comment.pointer("/botActor/name"))
+        .and_then(Value::as_str)
+        .unwrap_or("unknown")
+}
+
+/// What the header says about a thread longer than the selection read.
+///
+/// Without it the count reads as the thread's length, and a reader catching up
+/// on a 60-comment issue takes comment 11 for the opening one.
+fn truncation_note(issue: &Value) -> &'static str {
+    match issue
+        .pointer("/comments/pageInfo/hasNextPage")
+        .and_then(Value::as_bool)
+    {
+        Some(true) => ", most recent shown",
+        _ => "",
+    }
+}
+
+/// The issue's comment thread, for the payloads that carry one.
+fn print_comments(issue: &Value) {
+    let comments = comments_oldest_first(issue);
+    if comments.is_empty() {
+        return;
+    }
+    println!();
+    println!(
+        "--- {} comment(s){} ---",
+        comments.len(),
+        truncation_note(issue)
+    );
+    for comment in comments {
+        let author = comment_author(comment);
+        let at = comment
+            .get("createdAt")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        let body = comment
+            .get("body")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .trim_end();
+        println!();
+        println!("{author}  {at}");
+        println!("{body}");
+    }
 }
 
 #[cfg(test)]
@@ -918,6 +986,50 @@ mod tests {
             parse(&["update", "SP-1", "--body", "d"]),
             IssueAction::Update { description: Some(d), .. } if d == "d"
         ));
+    }
+
+    #[test]
+    fn a_comment_thread_reads_oldest_first() {
+        let issue = serde_json::json!({
+            "comments": { "nodes": [
+                { "id": "newest", "createdAt": "2026-09-18T17:00:00.000Z" },
+                { "id": "oldest", "createdAt": "2026-09-18T16:00:00.000Z" },
+            ] }
+        });
+        let ids: Vec<&str> = comments_oldest_first(&issue)
+            .iter()
+            .filter_map(|c| c.get("id").and_then(Value::as_str))
+            .collect();
+        assert_eq!(ids, ["oldest", "newest"]);
+    }
+
+    /// `create`, `update` and `move` share `print_issue` and return no
+    /// `comments` key at all.
+    #[test]
+    fn an_issue_without_comments_yields_none() {
+        assert!(comments_oldest_first(&serde_json::json!({ "identifier": "SP-1" })).is_empty());
+    }
+
+    #[test]
+    fn a_comment_from_an_app_is_named_by_its_bot_actor() {
+        let comment = serde_json::json!({ "user": null, "botActor": { "name": "Moatless" } });
+        assert_eq!(comment_author(&comment), "Moatless");
+
+        let person = serde_json::json!({ "user": { "name": "ada", "displayName": "Ada" } });
+        assert_eq!(comment_author(&person), "Ada");
+        assert_eq!(comment_author(&serde_json::json!({})), "unknown");
+    }
+
+    /// The count is what the payload carries, so a longer thread has to say so
+    /// rather than let 50 read as the whole discussion.
+    #[test]
+    fn a_thread_longer_than_the_selection_says_so() {
+        let more = serde_json::json!({ "comments": { "pageInfo": { "hasNextPage": true } } });
+        assert_eq!(truncation_note(&more), ", most recent shown");
+
+        let all = serde_json::json!({ "comments": { "pageInfo": { "hasNextPage": false } } });
+        assert_eq!(truncation_note(&all), "");
+        assert_eq!(truncation_note(&serde_json::json!({})), "");
     }
 
     #[test]

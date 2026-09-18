@@ -40,7 +40,7 @@ pub(crate) async fn get_issue(
     let linear = require_linear(linear)?;
     let (_connection, api) =
         resolve_linear_api(&linear, &ctx, params.connection_id.as_deref()).await?;
-    let data = api.get_issue(&id).await?;
+    let data = api.get_issue_with_comments(&id).await?;
     Ok(LinearIssueResponse {
         data,
         binding_id: None,

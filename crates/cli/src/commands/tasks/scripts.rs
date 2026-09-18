@@ -147,10 +147,7 @@ fn friendlier_scripts_error(err: ClientError, task_id: &str) -> ClientError {
     let ClientError::Api { status, body } = &err else {
         return err;
     };
-    let Some(message) = serde_json::from_str::<serde_json::Value>(body)
-        .ok()
-        .and_then(|v| v.get("error").and_then(|e| e.as_str()).map(str::to_string))
-    else {
+    let Some(message) = super::format::api_error_message(body) else {
         return err;
     };
     match *status {
