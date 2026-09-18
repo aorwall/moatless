@@ -17,7 +17,7 @@ mkdir -p scratchpad/data && cd scratchpad
 node <skill>/scripts/collect.mjs 2026-09-16 --out data
 ```
 
-It writes `data/digest.json` plus `tasks`, `feedback`, `loops`, `workspaces`, `repos`, `stats`, `k8s_events`, `sandbox_pods`, `log_levels`, `http_5xx` and `patterns`. `--only api|stats|loki` re-runs one group after a failure. The API group takes a few minutes; Loki takes seconds.
+It writes `data/digest.json` plus `tasks`, `feedback`, `loops`, `workspaces`, `repos`, `stats`, `k8s_events`, `sandbox_pods`, `log_levels`, `http_5xx` and `patterns`. `--only api|stats|loki` re-runs one group after a failure and merges into the digest already on disk, so the other groups survive. The stats group owns `tasks.touched`, `tasks.error`, `tasks.costTouchedUsd` and `tasks.carriedPerHour` — an `--only api` run leaves whatever a previous full run put there. Loki takes seconds; the API group takes a few minutes for yesterday and longer the further back the date is, because every task still alive after that date is a candidate and each one costs a `/statistics` call.
 
 **2. Read the digest before writing anything.** It carries every tile number, the per-reason Kubernetes warning breakdown, the log-level totals per service and the tool-failure rate. Anything the digest does not answer needs a query of its own — `references/queries.md` has the ones that already work.
 
@@ -73,7 +73,9 @@ Fixed. A reader scanning the page should reach the findings having already seen 
 
 The eight tiles: tasks created, ended in error, agent messages, cost for tasks created that day, Kubernetes warning events, pods per sandbox, backend errors, feedback filed. Colour a tile only when its value is a problem — `--critical` for a number someone must act on, `--good` for a zero that matters.
 
-Section 3 carries the measurements, including every one a finding cites. It opens with **Tasks per hour**, then **Kubernetes warning events per hour** stacked by reason, then **Loops that fired** — that order puts the day's workload in front of the cluster's reaction to it. After those: agent messages per hour, cost by repository, tool calls and their failure rates, warn/error log volume by service, and HTTP 5xx by path. A finding then carries only the diagram that is specific to it.
+Section 3 carries the measurements, including every one a finding cites. It opens with **Tasks per hour**, then **Kubernetes warning events per hour** stacked by reason, then **Loops that fired** — that order puts the day's workload in front of the cluster's reaction to it. After those: agent messages per hour, sandbox pods per hour, cost by repository, tool calls and their failure rates, warn/error log volume by service, HTTP 5xx by path, and a **comparison table against the previous day**, built from that day's `digest.json` rather than from its published page so both columns are measured the same way.
+
+**Loops that fired** comes from `bindings[].loopId` on each created task, joined to `loops.json`. Only adapter-event loops set it, so the table covers those and the note under it accounts for the unattributed remainder — the scheduled loops' runs and the tasks people started by hand.
 
 `scripts/example.mjs` renders sections 2 through 5 from 2026-09-16's real numbers, with no data directory and no network. Run it and read it beside the source when writing a new `build.mjs`. Its findings and feedback come from `example-findings.html` and `example-feedback.html`, read off disk rather than inlined — that is the pattern for any section no component draws, and it keeps the prose out of a template literal that would otherwise have to escape it.
 
@@ -98,7 +100,11 @@ These defeat a reasonable assumption, and each one has produced a wrong number h
 - **Datasource uid `loki` with `namespace="moatless"` is the moatless staging namespace.** The `soap` namespace on the same datasource is a different product; `-prod` datasources are a different environment entirely.
 - **A sandbox pod name encodes the task id, not the workspace id.** Join through `moat tasks list --json` before attributing pod behaviour to a workspace.
 - **`status` and `totalCostUsd` are read at collection time.** A task that closes an hour later changes the answer, so date the collection in the method note rather than presenting these as the day's final state.
-- **The collector stops at 5,000 tasks** and says so on stderr. A day older than the newest 5,000 tasks needs a larger `cap` or a date filter in the query.
+- **`lastMessageAt` moves forward for as long as a task lives.** Counting a task as touched when its *last* message falls inside the window drops it the moment it speaks again the next day, so the same date collected twice gives two different answers. Take every task whose last message is at or after the window opens, and let the per-message timestamps in `statistics` decide which of them ran in it.
+- **`messageTokenUsage` records agent turns only.** A task whose only activity in the window was a person writing to it has no rows there, so fall back to `lastMessageAt` before concluding it was idle.
+- **A task row keys on `taskId`, not `id`**, and carries `bindings[].loopId` for adapter-event loops only.
+- **`toolCalls` in `/statistics` is a lifetime total with no timestamps.** The collector tallies it over the tasks that ran on the day, so a task that resumed brings its earlier days' calls with it. Read the tool table as "the tasks that worked that day, over their whole lives", and do not put a per-day rate on it.
+- **The collector stops at `CAP` (5,000) rows** and warns only when the oldest row it pulled is newer than the day being collected. A warning means the day is truncated and `CAP` has to rise; hitting the cap silently is normal.
 - **Node writes to disk emit no viewer event.** The first build is fine because the tab is not open yet; any later revision must go through the Edit tool, or the reader's open tab silently keeps the old page.
 - **Never print `GRAFANA_TOKEN`**, in a log line, a command echo, or the page.
 

@@ -9,7 +9,7 @@
 // what is worth reporting.
 
 import { execFile } from "node:child_process";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { promisify } from "node:util";
 
 const exec = promisify(execFile);
@@ -51,8 +51,12 @@ async function api(path) {
   }
 }
 
+/** Rows one collection will pull at most. Above this the API paginates for
+ * minutes, and a day inside the last month never needs it. */
+const CAP = 5000;
+
 /** Walk an offset-paginated collection. `cap` bounds a runaway page loop. */
-async function paginate(base, key = "items", page = 200, cap = 5000) {
+async function paginate(base, key = "items", page = 200, cap = CAP) {
   const out = [];
   for (let offset = 0; offset < cap; offset += page) {
     const sep = base.includes("?") ? "&" : "?";
@@ -66,9 +70,21 @@ async function paginate(base, key = "items", page = 200, cap = 5000) {
     out.push(...items);
     if (items.length < page) break;
   }
-  if (out.length >= cap)
-    console.error(`  ! ${base} stopped at the ${cap}-row cap — a day older than the newest ${cap} rows is truncated`);
   return out;
+}
+
+/**
+ * Report the cap only when it cut into the day being collected. Hitting it is
+ * normal and says nothing on its own; the day is truncated only if the oldest
+ * row pulled is itself newer than the window.
+ */
+function checkCoverage(name, rows) {
+  if (rows.length < CAP) return;
+  const oldest = Math.min(...rows.map((r) => Date.parse(r.createdAt)));
+  if (oldest / 1000 > DAY0)
+    console.error(
+      `  ! ${name}: hit the ${CAP}-row cap and the oldest row is ${new Date(oldest).toISOString().slice(0, 10)} — ${DATE} is truncated, raise CAP`,
+    );
 }
 
 const unwrap = (r) => {
@@ -133,37 +149,61 @@ const inWindow = (s) => {
 async function main() {
   await mkdir(OUT, { recursive: true });
   const digest = { date: DATE };
+  // --only re-runs one group into a digest the other groups already wrote, so
+  // start from what is there. Without this a re-run leaves the rest as holes.
+  if (ONLY)
+    try {
+      const prev = JSON.parse(await readFile(`${OUT}/digest.json`, "utf8"));
+      // `prev` carries its own `date`, so merging another day's file would stamp
+      // this digest with that date and hand the builder a mixed-date page.
+      if (prev.date === DATE) Object.assign(digest, prev);
+      else console.error(`  ! ${OUT}/digest.json is ${prev.date}, not ${DATE} — writing ${ONLY} alone`);
+    } catch {
+      console.error(`  ! no digest to merge into at ${OUT}/digest.json — writing ${ONLY} alone`);
+    }
 
   let tasks = [];
+  let touched = [];
   if (run("api") || run("stats")) {
     tasks = await write("tasks", await paginate("/api/v1/tasks"));
+    checkCoverage("tasks", tasks);
     const created = tasks.filter((t) => inWindow(t.createdAt));
-    const touched = tasks.filter((t) => inWindow(t.createdAt) || inWindow(t.lastMessageAt));
-    // Two series for one chart: new tasks, and tasks created earlier whose last
-    // message landed in the window. Together they are `touched`.
+    // A task still being worked after midnight keeps moving `lastMessageAt`
+    // forward, so "last message inside the window" drops it as soon as it
+    // speaks again the next day — the same date collected twice then gives two
+    // different answers. Take every task whose last message is at or after the
+    // window opens, and let the per-message timestamps in the stats group say
+    // which of them actually ran in it.
+    const carried = tasks.filter(
+      (t) =>
+        !inWindow(t.createdAt) &&
+        Date.parse(t.createdAt) < DAY1 * 1000 &&
+        (t.lastMessageAt ? Date.parse(t.lastMessageAt) : 0) >= DAY0 * 1000,
+    );
+    touched = [...created, ...carried];
     const createdPerHour = new Array(24).fill(0);
-    const carriedPerHour = new Array(24).fill(0);
-    for (const t of touched) {
-      if (inWindow(t.createdAt)) createdPerHour[new Date(t.createdAt).getUTCHours()]++;
-      else carriedPerHour[new Date(t.lastMessageAt).getUTCHours()]++;
-    }
+    for (const t of created) createdPerHour[new Date(t.createdAt).getUTCHours()]++;
+    // Spread rather than replace: `touched`, `error`, `costTouchedUsd` and
+    // `carriedPerHour` belong to the stats group, which is the only place the
+    // candidates above are narrowed to the tasks that ran. Under `--only api`
+    // that group does not run, and assigning a fresh object would drop them.
     digest.tasks = {
+      ...digest.tasks,
       created: created.length,
-      touched: touched.length,
       createdPerHour,
-      carriedPerHour,
       closedSameDay: created.filter((t) => t.status === "closed").length,
-      error: touched.filter((t) => t.status === "error").length,
       costCreatedUsd: +created.reduce((a, t) => a + (t.totalCostUsd ?? 0), 0).toFixed(2),
-      costTouchedUsd: +touched.reduce((a, t) => a + (t.totalCostUsd ?? 0), 0).toFixed(2),
       byAgentType: tally(created, (t) => t.agentType),
       byRepo: tally(created, (t) => t.repositoryName),
     };
-    console.log(`tasks: ${tasks.length} (${created.length} created, ${touched.length} touched)`);
+    console.log(
+      `tasks: ${tasks.length} (${created.length} created, ${carried.length} candidates carried in)`,
+    );
   }
 
   if (run("api")) {
     const feedback = await write("feedback", await paginate("/api/v1/feedback"));
+    checkCoverage("feedback", feedback);
     const day = feedback.filter((f) => inWindow(f.createdAt));
     digest.feedback = { filed: day.length, byCategory: tally(day, (f) => f.category) };
     await write("loops", unwrap(await api("/api/v1/loops")));
@@ -173,7 +213,6 @@ async function main() {
   }
 
   if (run("stats")) {
-    const touched = tasks.filter((t) => inWindow(t.createdAt) || inWindow(t.lastMessageAt));
     const rows = await pool(touched, 8, async (t) => {
       const s = (await api(`/api/v1/tasks/${t.taskId}/statistics`)).body ?? {};
       const msgs = (s.messageTokenUsage ?? []).filter((m) => inWindow(m.timestamp));
@@ -184,6 +223,7 @@ async function main() {
         agentType: t.agentType,
         status: t.status,
         createdInWindow: inWindow(t.createdAt),
+        lastMessageHour: inWindow(t.lastMessageAt) ? new Date(t.lastMessageAt).getUTCHours() : null,
         totalCostUsd: t.totalCostUsd,
         msgsInWindow: msgs.length,
         turnsInWindow: Math.max(0, ...msgs.map((m) => m.turnNumber ?? 0)),
@@ -195,8 +235,27 @@ async function main() {
       };
     });
     await write("stats", rows);
+    // A carried task counts once it shows any activity in the window, and it
+    // belongs to the hour it resumed rather than to a last message that may now
+    // sit on a later day. `messageTokenUsage` records agent turns only, so a
+    // task whose window activity was a person writing to it has none —
+    // `lastMessageHour` catches those.
+    const resumed = new Set(
+      rows.filter((r) => !r.createdInWindow && (r.msgsInWindow > 0 || r.lastMessageHour !== null)),
+    );
+    // Every day total reads `inDay`: the candidates the API group hands over
+    // include tasks that were idle on DATE and only spoke again later.
+    const inDay = rows.filter((r) => r.createdInWindow || resumed.has(r));
+    const carriedPerHour = new Array(24).fill(0);
+    for (const r of resumed)
+      carriedPerHour[r.hourOfMsgs.length ? Math.min(...r.hourOfMsgs) : r.lastMessageHour]++;
+    digest.tasks.touched = inDay.length;
+    digest.tasks.carriedPerHour = carriedPerHour;
+    digest.tasks.error = inDay.filter((r) => r.status === "error").length;
+    digest.tasks.costTouchedUsd = +sum(inDay.map((r) => r.totalCostUsd ?? 0)).toFixed(2);
+
     const tools = {};
-    for (const r of rows)
+    for (const r of inDay)
       for (const c of r.toolCalls) {
         const e = (tools[c.toolName] ??= { calls: 0, failed: 0 });
         e.calls += c.totalCalls ?? 0;
@@ -233,14 +292,27 @@ async function main() {
     await write("k8s_events", ev);
     digest.k8sWarnings = { total: sum(Object.values(ev).map(sum)), byReason: sortDesc(totals(ev)) };
 
-    const pods = hourly(
-      await loki(
-        `count(count by (pod) (count_over_time({namespace="${NS}", service_name="moatless-sandbox"}[1h])))`,
-      ),
-      null,
+    // One query answers both pod questions — how many ran at once, and how many
+    // a sandbox burned through. A pod is named moatless-ws-<task-id>-<hash>, so
+    // the task id is what groups pods into one sandbox.
+    const podSeries = await loki(
+      `count by (pod) (count_over_time({namespace="${NS}", service_name="moatless-sandbox"}[1h]))`,
     );
-    await write("sandbox_pods", pods._ ?? []);
-    digest.sandboxPodsPeak = Math.max(...(pods._ ?? [0]));
+    const podsPerHour = new Array(24).fill(0);
+    const podsByTask = {};
+    for (const s of podSeries) {
+      for (const [ts] of s.values) podsPerHour[new Date((ts - 3600) * 1000).getUTCHours()]++;
+      const id = s.metric.pod.match(/^moatless-ws-([0-9a-f-]{36})/)?.[1] ?? s.metric.pod;
+      (podsByTask[id] ??= []).push(s.metric.pod);
+    }
+    await write("sandbox_pods", { podsPerHour, podsByTask });
+    digest.sandboxPods = {
+      pods: podSeries.length,
+      sandboxes: Object.keys(podsByTask).length,
+      multiPod: Object.values(podsByTask).filter((p) => p.length > 1).length,
+      peakConcurrent: Math.max(0, ...podsPerHour),
+      podsPerHour,
+    };
 
     const levels = {};
     for (const svc of ["moatless", "moatless-sandbox"])
@@ -291,7 +363,7 @@ async function main() {
     digest.noisePatterns = sortDesc(noise);
     console.log(
       `loki: ${digest.k8sWarnings.total} warning events, ${digest.http5xx.total} 5xx, ` +
-        `peak ${digest.sandboxPodsPeak} concurrent sandbox pods`,
+        `${digest.sandboxPods.pods} pods across ${digest.sandboxPods.sandboxes} sandboxes`,
     );
   }
 

@@ -37,13 +37,19 @@ The stream carries `Normal` events too. Without `etype="Warning"` the total roug
 
 Verified: 2,066 warnings, `FailedScheduling` 1,045, `Unhealthy` 757, `NodeNotReady` 183, `BackOff` 77.
 
-## Concurrent sandbox pods
+## Sandbox pods
 
 ```
-count(count by (pod) (count_over_time({namespace="moatless", service_name="moatless-sandbox"}[1h])))
+count by (pod) (count_over_time({namespace="moatless", service_name="moatless-sandbox"}[1h]))
 ```
 
-Distinct pods that logged in the hour, which is a lower bound on concurrency — a pod alive but silent for a whole hour is not counted. Verified peak 54.
+Keep the `pod` label rather than collapsing it with an outer `count()`: one query then answers both pod questions. Counting the series in each bucket gives concurrency — a lower bound, since a pod alive but silent for an hour is not counted — and the pod names themselves give pod churn. A pod is `moatless-ws-<task-id>-<hash>`, so the uuid groups every pod that served one sandbox:
+
+```js
+const id = s.metric.pod.match(/^moatless-ws-([0-9a-f-]{36})/)?.[1] ?? s.metric.pod;
+```
+
+`digest.sandboxPods` carries `pods`, `sandboxes`, `multiPod`, `peakConcurrent` and `podsPerHour`. Verified 2026-09-16: 346 pods across 116 sandboxes, peak 54. On 2026-09-17: 300 across 172, peak 58 — the ratio is what moved, not the pod count.
 
 ## Log volume by level and service
 
@@ -102,15 +108,17 @@ When a query returns nothing, check the plain-text error before believing it: `c
 
 | Path | Used for |
 |---|---|
-| `/api/v1/tasks?limit=200&offset=N` | Created, touched, status, `totalCostUsd`, repo, agent type |
+| `/api/v1/tasks?limit=200&offset=N` | Created, touched, status, `totalCostUsd`, repo, agent type, `bindings[].loopId` |
 | `/api/v1/tasks/<id>/statistics` | Per-message token usage with timestamps, and `toolCalls` with `failedCalls` |
 | `/api/v1/feedback` | Feedback rows with `category` and `createdAt` |
 | `/api/v1/loops` | Which Loops exist and when each last fired |
 | `/api/v1/workspaces`, `/api/v1/repositories` | Names and resource config for attribution |
 
-Three things about this data:
+Five things about this data:
 
-- **`/api/v1/tasks` is newest-first and uncapped in the API**, so the collector stops at 5,000 rows and warns on stderr. A day further back than that needs a larger cap.
+- **A task row keys on `taskId`, not `id`.** `Object.fromEntries(tasks.map(t => [t.taskId, t]))` is the index; keying on `id` returns undefined for every lookup and reads as the task being absent.
+- **`bindings[].loopId` is what attributes a task to a Loop**, and only an `adapter_event` loop sets it. A scheduled loop's task carries no binding, so a "Loops that fired" table covers the adapter loops and the schedules sit in the unattributed remainder — say so under the table rather than presenting the count as every loop.
+- **`/api/v1/tasks` is newest-first and uncapped in the API**, so the collector stops at `CAP` rows. It warns only when the oldest row pulled is newer than the day being collected, which is the case where the day is actually truncated.
 - **`status` and `totalCostUsd` are current values, not end-of-day values.** Re-running the collector a day later gives different closed counts. Date the collection in the method note.
 - **Statistics calls rate-limit above about 8 concurrent.** `pool(items, 8, …)` is why the run takes minutes rather than seconds.
 
