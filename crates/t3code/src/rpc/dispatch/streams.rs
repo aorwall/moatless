@@ -364,13 +364,13 @@ impl ProtocolSession {
         })
     }
 
-    pub(super) async fn subscribe_terminal_metadata(&mut self, request: Request) -> Vec<Value> {
-        let snapshot = request.state.terminal.metadata_snapshot().await;
-        let metadata = request.state.terminal.subscribe_metadata();
-        self.streams
-            .start_produced(&request.id, Some(vec![snapshot]), move |sink| {
-                terminal::forward_value_subscription(metadata, sink)
-            })
+    pub(super) fn subscribe_terminal_metadata(&mut self, request: Request) -> Vec<Value> {
+        let hub = request.state.terminal.clone();
+        let tasks = request.state.reads.tasks_arc();
+        let viewer = viewer_scope(&request.identity);
+        self.streams.start_produced(&request.id, None, move |sink| {
+            watch::watch_terminal_metadata(sink, hub, tasks, viewer)
+        })
     }
 
     pub(super) fn subscribe_vcs_status(&mut self, request: Request) -> Vec<Value> {

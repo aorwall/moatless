@@ -697,6 +697,43 @@ impl Connection {
     pub(super) fn next_pushed(&mut self) -> Option<Value> {
         self.pushed.try_recv().ok()
     }
+
+    /// Wait for the next frame a subscription's producer task pushed.
+    ///
+    /// A produced stream's first frame is written by a `tokio::spawn`, which no
+    /// `wait_until_idle` covers, so [`Connection::next_pushed`] races it.
+    pub(super) async fn next_streamed(&mut self) -> Value {
+        tokio::time::timeout(std::time::Duration::from_secs(5), self.pushed.recv())
+            .await
+            .expect("the producer pushed a frame")
+            .expect("the frame channel is open")
+    }
+}
+
+/// A Task projection that answers for `readable` and for nothing else, which is
+/// what a scoped read does for a viewer without access.
+pub(super) fn tasks_readable(readable: &'static str) -> Arc<dyn crate::task_dao::T3TaskDao> {
+    let mut tasks = MockT3TaskDao::new();
+    tasks.expect_find_by_id().returning(move |task_id, _| {
+        // Inert but for having answered: the gate reads whether a row came
+        // back, never a column on it.
+        Ok((task_id == readable).then_some(TaskView {
+            status: moatless_types::task::TaskStatus::Open,
+            ttl_minutes: 15,
+        }))
+    });
+    Arc::new(tasks)
+}
+
+/// One terminal's entry as the hub stores and broadcasts it.
+pub(super) fn terminal_summary_for(thread_id: &str, terminal_id: &str) -> Value {
+    json!({
+        "threadId": thread_id,
+        "terminalId": terminal_id,
+        "cwd": "/moatless/tasks/task-1",
+        "label": "Terminal 1",
+        "status": "running",
+    })
 }
 
 pub(super) fn viewer() -> UiRpcAuthIdentity {

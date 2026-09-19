@@ -18,6 +18,7 @@ use crate::startup_scripts::StartupScripts;
 use crate::state::{UiRpcDbPool, UiRpcState};
 use crate::subtasks::SubtasksState;
 use crate::terminal;
+use crate::terminal_relay::{TerminalRelay, TerminalRelayWorker};
 use crate::usage::dao::PgUsageDao;
 use axum::Router;
 use moatless_identity::auth::pairing::DevicePairing;
@@ -133,7 +134,10 @@ pub async fn mount(
         ports,
         preview: preview.clone(),
     };
-    let terminal = terminal::TerminalHub::default();
+    let terminal = terminal::TerminalHub::new(TerminalRelay::new(graph.pool.clone()));
+    // Cloned before the state literal takes it: the worker applies the other
+    // replicas' starts into the same hub the routes serve terminal reads from.
+    let terminal_relay = TerminalRelayWorker::new(terminal.clone());
     let startup_scripts = StartupScripts::new(
         scripts.clone(),
         reads.clone(),
@@ -188,6 +192,7 @@ pub async fn mount(
         router,
         startup_scripts,
         preview_relay,
+        terminal_relay,
     })
 }
 
@@ -239,15 +244,16 @@ impl T3Graph {
 }
 
 /// The T3 compatibility module: the routes it serves, the Scripts it starts
-/// when a Sandbox becomes Ready, and the relay that keeps preview tabs
-/// consistent across replicas.
+/// when a Sandbox becomes Ready, and the two relays that keep preview tabs and
+/// terminal sessions consistent across replicas.
 ///
-/// One value because the latter two reach only state the router owns; the Task
-/// band subscribes the Scripts and the root supervisor runs the relay.
+/// One value because the rest reach only state the router owns; the Task band
+/// subscribes the Scripts and the root supervisor runs the relays.
 pub struct UiRpc {
     pub router: Router,
     pub startup_scripts: StartupScripts,
     pub preview_relay: PreviewRelayWorker,
+    pub terminal_relay: TerminalRelayWorker,
 }
 
 /// Everything the T3 compatibility routes need from the rest of the backend.

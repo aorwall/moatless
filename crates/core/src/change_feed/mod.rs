@@ -5,10 +5,11 @@
 //! is held until commit — not a `bigserial`, which a reader can poll past out
 //! of commit order — so position order is commit order. That costs a fixed lock
 //! order: every other lock first, then [`conversation`] (a row per Task), then
-//! [`listing`] innermost (one row per deployment). [`events`] and [`preview`]
-//! take that counter and no other, so they sit outside the order.
+//! [`listing`] innermost (one row per deployment). [`events`], [`preview`] and
+//! [`terminal`] take that counter and no other, so they sit outside the order.
 
 pub mod conversation;
 pub mod events;
 pub mod listing;
 pub mod preview;
+pub mod terminal;

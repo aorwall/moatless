@@ -149,11 +149,13 @@ fn a_subscription_ends_with_the_refusal_its_request_would_have_answered() {
 
 /// Terminal metadata is a served stream. It starts with an explicit empty
 /// snapshot so the client can distinguish "no terminals yet" from a connection
-/// that never produced a value.
+/// that never produced a value. The seed is authorized per Task, so the
+/// producer pushes it rather than the opening request returning it.
 #[tokio::test]
 async fn a_terminal_metadata_subscription_starts_with_a_snapshot() {
-    let mut session = session();
-    let output = session
+    let mut connection = connection();
+    let output = connection
+        .session
         .handle_json(
             &request("7", "subscribeTerminalMetadata", json!({})),
             &state(),
@@ -161,10 +163,66 @@ async fn a_terminal_metadata_subscription_starts_with_a_snapshot() {
         )
         .await;
 
-    assert!(session.streams.contains("7"));
-    assert_eq!(output.frames[0]["_tag"], "Chunk");
-    assert_eq!(output.frames[0]["values"][0]["type"], "snapshot");
-    assert_eq!(output.frames[0]["values"][0]["terminals"], json!([]));
+    assert!(connection.session.streams.contains("7"));
+    assert!(
+        output.frames.is_empty(),
+        "the frame loop did not wait on the seed's authorization reads"
+    );
+    let snapshot = connection.next_streamed().await;
+    assert_eq!(snapshot["_tag"], "Chunk");
+    assert_eq!(snapshot["values"][0]["type"], "snapshot");
+    assert_eq!(snapshot["values"][0]["terminals"], json!([]));
+}
+
+/// A summary this viewer cannot read is dropped from both halves of the stream.
+///
+/// The relay puts every announced session in every replica's hub, and a summary
+/// names a Task's `cwd`, `worktreePath` and `label`, so this filter is the only
+/// thing keeping another viewer's Task off the socket.
+#[tokio::test]
+async fn terminal_metadata_carries_only_the_threads_the_viewer_can_read() {
+    let mut state = state();
+    state.reads = state.reads.with_tasks(tasks_readable("mine"));
+    state
+        .terminal
+        .apply_relayed_start("mine", "term-1", terminal_summary_for("mine", "term-1"))
+        .await;
+    state
+        .terminal
+        .apply_relayed_start("theirs", "term-2", terminal_summary_for("theirs", "term-2"))
+        .await;
+
+    let mut connection = connection();
+    connection
+        .session
+        .handle_json(
+            &request("7", "subscribeTerminalMetadata", json!({})),
+            &state,
+            &viewer(),
+        )
+        .await;
+
+    let seed = connection.next_streamed().await;
+    assert_eq!(
+        seed["values"][0]["terminals"],
+        json!([terminal_summary_for("mine", "term-1")]),
+        "the seed carried a thread this viewer cannot read"
+    );
+
+    // Announced in this order, so the readable one arriving first proves the
+    // unreadable one was dropped rather than merely delayed.
+    state
+        .terminal
+        .apply_relayed_start("theirs", "term-3", terminal_summary_for("theirs", "term-3"))
+        .await;
+    state
+        .terminal
+        .apply_relayed_start("mine", "term-4", terminal_summary_for("mine", "term-4"))
+        .await;
+
+    let event = connection.next_streamed().await;
+    assert_eq!(event["values"][0]["type"], "upsert");
+    assert_eq!(event["values"][0]["terminal"]["terminalId"], "term-4");
 }
 
 #[tokio::test]

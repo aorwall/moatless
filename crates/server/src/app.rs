@@ -300,6 +300,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         let mut startup_scripts = None;
         // Held for the supervision below, out of the same value.
         let mut preview_relay = None;
+        let mut terminal_relay = None;
         if let Some(t3code) = crate::compose::http::ui_rpc(
             &config,
             &ports,
@@ -317,6 +318,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
             router = router.merge(t3code.router);
             startup_scripts = Some(t3code.startup_scripts);
             preview_relay = Some(t3code.preview_relay);
+            terminal_relay = Some(t3code.terminal_relay);
             device_pairing = true;
         }
         info!("Domain routes registered");
@@ -395,6 +397,21 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
                 // outage.
                 Criticality::Optional,
                 preview_relay.spawn(cancel.clone()),
+            );
+        }
+
+        // Cross-replica terminal sessions, for the same reason and over the
+        // same split: a Script run over HTTP starts its session on whichever
+        // replica the balancer picked.
+        if let Some(terminal_relay) = terminal_relay {
+            supervisor.supervise(
+                "terminal-session-relay",
+                // Optional: without it the session still runs and still lists
+                // for viewers on the replica that started it. Everyone else
+                // does not list it at all until a client of theirs opens the
+                // terminal, which is where this stood before the relay.
+                Criticality::Optional,
+                terminal_relay.spawn(cancel.clone()),
             );
         }
 

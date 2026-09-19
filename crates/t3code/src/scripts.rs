@@ -313,7 +313,7 @@ pub(crate) async fn run(
         open_payload["env"] = json!(env);
     }
     let (_, is_new_process) =
-        terminal::open_reporting_new_process(conversations, sandboxes, hub, viewer, &open_payload)
+        terminal::open_from_environment(conversations, sandboxes, hub, viewer, &open_payload)
             .await
             .map_err(ScriptsError::Terminal)?;
 

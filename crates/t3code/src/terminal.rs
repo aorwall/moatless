@@ -25,6 +25,7 @@ use tracing::{debug, warn};
 use super::dao::ConversationDao;
 use super::workspace::{self, WorkspaceAccessError};
 use crate::subscription::{StreamFailure, StreamResult, StreamSink};
+use crate::terminal_relay::TerminalRelay;
 use moatless_ports::sandbox::SandboxError;
 use moatless_types::access_control::ScopeContext;
 use moatless_types::sandbox::SandboxDesiredState;
@@ -37,6 +38,10 @@ pub struct TerminalHub {
     inner: Arc<Mutex<HubInner>>,
     events: broadcast::Sender<Value>,
     metadata: broadcast::Sender<Value>,
+    /// Identifies this hub on the relay feed, so its own records are skipped.
+    /// New per process: the summaries it names live only in this one's memory.
+    epoch: Arc<str>,
+    relay: TerminalRelay,
 }
 
 struct HubInner {
@@ -49,8 +54,21 @@ struct TerminalKey {
     terminal_id: String,
 }
 
+/// A hub whose starts reach no other replica, which is what a unit test with no
+/// database wants. Production builds one through [`TerminalHub::new`].
+#[cfg(test)]
 impl Default for TerminalHub {
     fn default() -> Self {
+        Self::with_relay(TerminalRelay::disabled())
+    }
+}
+
+impl TerminalHub {
+    pub fn new(relay: TerminalRelay) -> Self {
+        Self::with_relay(relay)
+    }
+
+    fn with_relay(relay: TerminalRelay) -> Self {
         let (events, _) = broadcast::channel(TERMINAL_EVENT_BUFFER);
         let (metadata, _) = broadcast::channel(TERMINAL_EVENT_BUFFER);
         Self {
@@ -59,11 +77,19 @@ impl Default for TerminalHub {
             })),
             events,
             metadata,
+            epoch: Arc::from(uuid::Uuid::new_v4().to_string()),
+            relay,
         }
     }
-}
 
-impl TerminalHub {
+    pub(crate) fn epoch(&self) -> &str {
+        &self.epoch
+    }
+
+    pub(crate) fn relay(&self) -> &TerminalRelay {
+        &self.relay
+    }
+
     pub fn subscribe_events(&self) -> broadcast::Receiver<Value> {
         self.events.subscribe()
     }
@@ -92,6 +118,51 @@ impl TerminalHub {
             "terminal": summary
         }));
         previous
+    }
+
+    /// Raise a session the environment just started, here and on the other
+    /// replicas.
+    ///
+    /// The summary is already stored by [`Self::observe_snapshot`]; this is the
+    /// `announced` upsert that tells a client to open its drawer, plus the feed
+    /// record that gets the same to a viewer socketed elsewhere.
+    async fn announce_start(&self, task_id: &str, terminal_id: &str, summary: &Value) {
+        self.publish_announced(summary);
+        self.relay
+            .announce(&self.epoch, task_id, terminal_id, summary)
+            .await;
+    }
+
+    /// Store and raise a session another replica started.
+    ///
+    /// No re-announcement, or two replicas would relay each other's starts
+    /// without end. No authorization either: this hub holds nothing back, and
+    /// what reaches a viewer is decided per subscription by
+    /// [`watch_terminal_metadata`](crate::rpc::watch::watch_terminal_metadata).
+    pub(crate) async fn apply_relayed_start(
+        &self,
+        thread_id: &str,
+        terminal_id: &str,
+        summary: Value,
+    ) {
+        {
+            let mut inner = self.inner.lock().await;
+            inner.summaries.insert(
+                key(thread_id.to_string(), terminal_id.to_string()),
+                summary.clone(),
+            );
+        }
+        self.publish_announced(&summary);
+    }
+
+    /// An upsert carrying `announced`, which is what separates a session worth
+    /// raising a pane for from the upserts every status change produces.
+    fn publish_announced(&self, summary: &Value) {
+        let _ = self.metadata.send(json!({
+            "type": "upsert",
+            "terminal": summary,
+            "announced": true
+        }));
     }
 
     async fn observe_event(&self, event: &TerminalAttachStreamEvent) -> Option<Value> {
@@ -204,6 +275,12 @@ impl TerminalHub {
     }
 }
 
+/// Open a session for the client that asked for it.
+///
+/// Announces nothing: the reply travels back down the asking client's own
+/// socket, so the replica serving it is already current and no other replica
+/// has a viewer waiting on this session. [`open_from_environment`] is the path
+/// that does announce.
 pub async fn open(
     conversations: &dyn ConversationDao,
     sandboxes: &dyn SandboxConnector,
@@ -211,26 +288,48 @@ pub async fn open(
     viewer: &ScopeContext,
     payload: &Value,
 ) -> Result<Value, TerminalError> {
-    open_reporting_new_process(conversations, sandboxes, hub, viewer, payload)
+    open_session(conversations, sandboxes, hub, viewer, payload)
         .await
-        .map(|(snapshot, _)| snapshot)
+        .map(|(snapshot, _)| terminal_snapshot(&snapshot))
 }
 
-/// `open`, plus whether this call is what started the session's current
-/// process.
+/// Open a session for the environment, the only path that announces.
 ///
-/// A running snapshot looks the same for a fresh shell and a reused one;
-/// `scripts.run` needs the difference, since writing into a reused session
-/// types into whatever is already running. The sandbox itself answers, so any
-/// replica gets the same result; an old sandbox falls back to a replica-local
-/// pid heuristic.
-pub async fn open_reporting_new_process(
+/// Also reports whether this call started the session's current process, which
+/// `scripts.run` needs because writing into a reused session types into
+/// whatever is already running. The sandbox answers, so every replica agrees;
+/// an old sandbox falls back to a replica-local pid heuristic.
+pub async fn open_from_environment(
     conversations: &dyn ConversationDao,
     sandboxes: &dyn SandboxConnector,
     hub: &TerminalHub,
     viewer: &ScopeContext,
     payload: &Value,
 ) -> Result<(Value, bool), TerminalError> {
+    let (snapshot, is_new_process) =
+        open_session(conversations, sandboxes, hub, viewer, payload).await?;
+    if is_new_process {
+        // `task_id` and the snapshot's `thread_id` are the same Task under two
+        // names; the relayed record is keyed by the one the hub stores under.
+        hub.announce_start(
+            &snapshot.thread_id,
+            &snapshot.terminal_id,
+            &terminal_summary(&snapshot),
+        )
+        .await;
+    }
+    Ok((terminal_snapshot(&snapshot), is_new_process))
+}
+
+/// The open both entry points share, up to the announcement neither of them
+/// does here.
+async fn open_session(
+    conversations: &dyn ConversationDao,
+    sandboxes: &dyn SandboxConnector,
+    hub: &TerminalHub,
+    viewer: &ScopeContext,
+    payload: &Value,
+) -> Result<(TerminalSessionSnapshot, bool), TerminalError> {
     let mut request = TerminalOpenRequest {
         thread_id: required_string(payload, "threadId")?.to_string(),
         terminal_id: required_string(payload, "terminalId")?.to_string(),
@@ -268,7 +367,7 @@ pub async fn open_reporting_new_process(
         });
         let _ = hub.events.send(event);
     }
-    Ok((terminal_snapshot(&snapshot), is_new_process))
+    Ok((snapshot, is_new_process))
 }
 
 pub async fn attach(
@@ -871,6 +970,88 @@ mod tests {
         let previous = terminal_summary(&running_snapshot(1111));
 
         assert!(snapshot_is_new_process(Some(&previous), &snapshot));
+    }
+
+    /// A relayed start has to reach a subscriber that was already listening,
+    /// carrying `announced` — that flag is the whole difference between a
+    /// session worth raising the drawer for and the upserts every status change
+    /// produces.
+    #[tokio::test]
+    async fn a_relayed_start_reaches_the_metadata_subscribers_as_announced() {
+        let hub = TerminalHub::default();
+        let mut metadata = hub.subscribe_metadata();
+
+        hub.apply_relayed_start("thread-1", "term-1", terminal_summary(&running_snapshot(7)))
+            .await;
+
+        let event = metadata.try_recv().expect("an upsert was published");
+        assert_eq!(event["type"], "upsert");
+        assert_eq!(event["announced"], true);
+        assert_eq!(event["terminal"]["terminalId"], "term-1");
+    }
+
+    /// The relayed session must also be listed, or a client that subscribes
+    /// after the relay applied it would never learn the terminal exists.
+    #[tokio::test]
+    async fn a_relayed_start_is_listed_in_the_next_snapshot() {
+        let hub = TerminalHub::default();
+
+        hub.apply_relayed_start("thread-1", "term-1", terminal_summary(&running_snapshot(7)))
+            .await;
+
+        let snapshot = hub.metadata_snapshot().await;
+        let terminals = snapshot["terminals"].as_array().expect("a terminal list");
+        assert_eq!(terminals.len(), 1);
+        assert_eq!(terminals[0]["terminalId"], "term-1");
+    }
+
+    /// Applying the same session twice is what a replica reading its own record
+    /// back would do; it must leave one terminal, not two.
+    #[tokio::test]
+    async fn applying_the_same_start_twice_leaves_one_terminal() {
+        let hub = TerminalHub::default();
+        let summary = terminal_summary(&running_snapshot(7));
+
+        hub.apply_relayed_start("thread-1", "term-1", summary.clone())
+            .await;
+        hub.apply_relayed_start("thread-1", "term-1", summary).await;
+
+        let snapshot = hub.metadata_snapshot().await;
+        assert_eq!(snapshot["terminals"].as_array().expect("a list").len(), 1);
+    }
+
+    /// A hub with no database still raises the session for the viewers on its
+    /// own replica: the relay is what the *other* replicas need, and a
+    /// deployment of one must not depend on it.
+    #[tokio::test]
+    async fn a_start_is_announced_locally_even_with_the_relay_disabled() {
+        let hub = TerminalHub::default();
+        let mut metadata = hub.subscribe_metadata();
+
+        hub.announce_start(
+            "thread-1",
+            "term-1",
+            &terminal_summary(&running_snapshot(7)),
+        )
+        .await;
+
+        let event = metadata.try_recv().expect("an upsert was published");
+        assert_eq!(event["announced"], true);
+    }
+
+    /// Observing a snapshot is all a client-served `terminal.open` does, and it
+    /// must not raise anyone's drawer: only the environment's path announces,
+    /// which is the rule `0170_terminal_session_relay.sql` records.
+    #[tokio::test]
+    async fn observing_a_snapshot_publishes_an_upsert_that_is_not_announced() {
+        let hub = TerminalHub::default();
+        let mut metadata = hub.subscribe_metadata();
+
+        hub.observe_snapshot(&running_snapshot(7)).await;
+
+        let event = metadata.try_recv().expect("an upsert was published");
+        assert_eq!(event["type"], "upsert");
+        assert_ne!(event["announced"], true);
     }
 
     #[test]

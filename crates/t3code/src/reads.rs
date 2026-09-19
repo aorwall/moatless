@@ -71,6 +71,17 @@ impl T3Reads {
     pub(crate) fn tasks_arc(&self) -> Arc<dyn T3TaskDao> {
         self.tasks.clone()
     }
+
+    /// The same reads over a different Task projection, for a caller asserting
+    /// what one viewer is allowed to read.
+    #[cfg(test)]
+    #[must_use]
+    pub(crate) fn with_tasks(&self, tasks: Arc<dyn T3TaskDao>) -> Self {
+        Self {
+            tasks,
+            ..self.clone()
+        }
+    }
 }
 
 #[cfg(feature = "test-support")]

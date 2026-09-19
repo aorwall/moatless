@@ -239,7 +239,7 @@ impl ProtocolSession {
             "subscribeAuthAccess" => self.subscribe_auth_access(request),
             "subscribePreviewEvents" => self.subscribe_preview_events(request),
             "subscribeTerminalEvents" => self.subscribe_terminal_events(request),
-            "subscribeTerminalMetadata" => self.subscribe_terminal_metadata(request).await,
+            "subscribeTerminalMetadata" => self.subscribe_terminal_metadata(request),
             "subscribeVcsStatus" => self.subscribe_vcs_status(request),
             "git.runStackedAction" => git_run_stacked_action(request).await,
             // `subscribeDiscoveredLocalServers` falls through here and says so:

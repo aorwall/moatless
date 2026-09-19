@@ -152,18 +152,55 @@ pub(crate) async fn watch_thread(
     }
 }
 
-/// Every preview event the viewer is allowed to see, until the socket closes.
+/// Which Tasks one subscriber may read, answered once per Task per
+/// subscription.
 ///
-/// The subscription is environment-wide with client-side thread filtering, so
-/// this is the one gate keeping a tab on an unreadable Task from reaching the
-/// viewer; each Task's authorization is cached per subscription.
+/// Both broadcasts below are environment-wide and the client filters by thread
+/// for display only, so a stream that drops this check has no second gate
+/// behind it.
+struct ReadableTasks {
+    tasks: Arc<dyn crate::task_dao::T3TaskDao>,
+    viewer: ScopeContext,
+    answered: HashMap<String, bool>,
+}
+
+impl ReadableTasks {
+    fn new(tasks: Arc<dyn crate::task_dao::T3TaskDao>, viewer: ScopeContext) -> Self {
+        Self {
+            tasks,
+            viewer,
+            answered: HashMap::new(),
+        }
+    }
+
+    /// `None` when the database could not say, which the caller must treat as
+    /// "do not send" rather than as a refusal to cache.
+    async fn allows(&mut self, task_id: &str) -> Option<bool> {
+        if let Some(answered) = self.answered.get(task_id) {
+            return Some(*answered);
+        }
+        match self.tasks.find_by_id(task_id, &self.viewer).await {
+            Ok(task) => {
+                let allowed = task.is_some();
+                self.answered.insert(task_id.to_string(), allowed);
+                Some(allowed)
+            }
+            Err(error) => {
+                warn!(%error, task_id, "Could not authorize a stream event");
+                None
+            }
+        }
+    }
+}
+
+/// Every preview event the viewer is allowed to see, until the socket closes.
 pub(crate) async fn watch_preview_events(
     sink: subscription::StreamSink,
     preview: crate::preview::PreviewState,
     viewer: ScopeContext,
 ) -> StreamResult {
     let mut events = preview.tabs.subscribe();
-    let mut readable: HashMap<String, bool> = HashMap::new();
+    let mut readable = ReadableTasks::new(preview.tasks.clone(), viewer.clone());
     loop {
         let event = match events.recv().await {
             Ok(event) => event,
@@ -179,20 +216,68 @@ pub(crate) async fn watch_preview_events(
         let Some(task_id) = event.get("threadId").and_then(Value::as_str) else {
             continue;
         };
-        let allowed = if let Some(allowed) = readable.get(task_id) {
-            *allowed
-        } else {
-            let allowed = match preview.tasks.find_by_id(task_id, &viewer).await {
-                Ok(task) => task.is_some(),
-                Err(error) => {
-                    warn!(%error, task_id, "Could not authorize a preview event");
-                    continue;
-                }
-            };
-            readable.insert(task_id.to_string(), allowed);
-            allowed
+        if readable.allows(task_id).await != Some(true) {
+            continue;
+        }
+        if !sink.send(event).await {
+            return Ok(());
+        }
+    }
+}
+
+/// Every terminal summary the viewer is allowed to see: the hub's current set
+/// first, then each change until the socket closes.
+///
+/// The relay puts every announced session in every replica's hub, and a summary
+/// names a Task's `cwd`, `worktreePath` and `label`, so the seed needs the same
+/// check as the events after it.
+pub(crate) async fn watch_terminal_metadata(
+    sink: subscription::StreamSink,
+    hub: crate::terminal::TerminalHub,
+    tasks: Arc<dyn crate::task_dao::T3TaskDao>,
+    viewer: ScopeContext,
+) -> StreamResult {
+    let mut metadata = hub.subscribe_metadata();
+    let mut readable = ReadableTasks::new(tasks, viewer.clone());
+    // Subscribed before the snapshot is taken, so a session starting between
+    // the two arrives as an event rather than falling in the gap.
+    let seed = hub.metadata_snapshot().await;
+    let mut allowed = Vec::new();
+    for summary in seed["terminals"].as_array().into_iter().flatten() {
+        let Some(task_id) = summary.get("threadId").and_then(Value::as_str) else {
+            continue;
         };
-        if !allowed {
+        if readable.allows(task_id).await == Some(true) {
+            allowed.push(summary.clone());
+        }
+    }
+    if !sink
+        .send(serde_json::json!({ "type": "snapshot", "terminals": allowed }))
+        .await
+    {
+        return Ok(());
+    }
+    loop {
+        let event = match metadata.recv().await {
+            Ok(event) => event,
+            // Lagged, as above: the client reconciles from the next event it
+            // does see rather than from a re-opened stream.
+            Err(tokio::sync::broadcast::error::RecvError::Lagged(missed)) => {
+                warn!(missed, user_id = %viewer.user_id, "A terminal metadata subscriber lagged");
+                continue;
+            }
+            Err(tokio::sync::broadcast::error::RecvError::Closed) => return Ok(()),
+        };
+        // `remove` names the thread at the top level, `upsert` inside the
+        // summary it carries.
+        let task_id = event
+            .get("threadId")
+            .or_else(|| event.pointer("/terminal/threadId"))
+            .and_then(Value::as_str);
+        let Some(task_id) = task_id else {
+            continue;
+        };
+        if readable.allows(task_id).await != Some(true) {
             continue;
         }
         if !sink.send(event).await {
