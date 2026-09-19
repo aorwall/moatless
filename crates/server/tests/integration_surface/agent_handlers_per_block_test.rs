@@ -9,14 +9,16 @@
 //! `event_handler::agent_handlers::handle_agent_message`.
 //!
 //! A native Message may arrive as several per-block events tagged with
-//! `blockIndex` (same usage repeated by some CLIs). These fold into one Message
-//! with usage admitted once even under duplicate delivery; an interleaved tool
+//! `blockIndex`. These fold into one Message even under duplicate delivery, and
+//! record no usage until the run's result arrives; an interleaved tool
 //! result settles its call instead of becoming its own Message, and calls
 //! without `blockIndex` stay compatible.
 
 use crate::common;
 
-use moatless_backend::event_handler::agent_handlers::handle_agent_message;
+use moatless_backend::event_handler::agent_handlers::{
+    handle_agent_completed, handle_agent_message,
+};
 use moatless_tasks::agent_event::AgentEvent;
 use moatless_tasks::message::transform::transform_subagent_transcript;
 use moatless_tasks::message::transform::transform_to_ui;
@@ -173,13 +175,25 @@ async fn per_block_events_assemble_into_one_ordered_message(pool: PgPool) {
     assert_eq!(ui_assistant[0].content[1].block_type, "tool_use");
 }
 
+/// Rows in `task_message_usage` admitted against `uuid`.
+async fn admitted_usage_rows(pool: &PgPool, uuid: &str) -> Vec<(i32, i32)> {
+    sqlx::query_as(
+        "SELECT input_tokens, output_tokens FROM task_message_usage WHERE message_uuid = $1",
+    )
+    .bind(uuid)
+    .fetch_all(pool)
+    .await
+    .unwrap()
+}
+
+/// A per-block snapshot's `output_tokens` is sampled before the response
+/// finished, so neither store takes it.
 #[sqlx::test]
-async fn usage_repeated_across_blocks_is_admitted_once(pool: PgPool) {
+async fn per_block_usage_is_not_recorded(pool: PgPool) {
     let task_id = "task-per-block-usage";
     let state = seed(&pool, task_id).await;
     let uuid = "asst-usage";
 
-    // Every per-block event repeats the same usage (output_tokens = 50).
     for (i, block) in [text("a"), text("b"), text("c")].into_iter().enumerate() {
         handle_agent_message(
             &state,
@@ -193,9 +207,92 @@ async fn usage_repeated_across_blocks_is_admitted_once(pool: PgPool) {
         .unwrap();
     let row = rows.iter().find(|m| m.uuid == uuid).unwrap();
 
-    // Admitted exactly once — not summed across the three blocks (would be 150).
-    assert_eq!(row.assistant_usage_output_tokens, Some(50));
-    assert_eq!(row.assistant_usage_input_tokens, Some(10));
+    assert_eq!(row.message_text.as_deref(), Some("a\n\nb\n\nc"));
+    assert_eq!(row.assistant_usage_input_tokens, None);
+    assert_eq!(row.assistant_usage_output_tokens, None);
+    assert_eq!(row.assistant_usage_cache_creation_input_tokens, None);
+    assert_eq!(row.assistant_usage_cache_read_input_tokens, None);
+    assert_eq!(row.assistant_usage, None);
+    assert!(admitted_usage_rows(&pool, uuid).await.is_empty());
+}
+
+/// Codex's `turn_result` block is a terminal event, so its usage is admitted.
+#[sqlx::test]
+async fn turn_result_usage_is_admitted(pool: PgPool) {
+    let task_id = "task-turn-result-usage";
+    let state = seed(&pool, task_id).await;
+    let uuid = "session-1_nonce_result";
+
+    let payload = serde_json::json!({
+        "uuid": uuid,
+        "session_id": "session-1",
+        "blockIndex": 0,
+        "message": {
+            "role": "system",
+            "id": uuid,
+            "content": [{ "type": "turn_result" }],
+            "usage": { "input_tokens": 1200, "output_tokens": 340 },
+        },
+    });
+    handle_agent_message(&state, &event_from_payload("e0", task_id, payload)).await;
+
+    assert_eq!(admitted_usage_rows(&pool, uuid).await, vec![(1200, 340)]);
+}
+
+/// The run's result writes its totals onto the turn's last assistant row, once.
+#[sqlx::test]
+async fn completion_writes_the_run_usage_onto_the_turns_last_row(pool: PgPool) {
+    let task_id = "task-completion-usage";
+    let state = seed(&pool, task_id).await;
+
+    handle_agent_message(
+        &state,
+        &per_block_event("e0", task_id, "asst-first", 0, text("looking")),
+    )
+    .await;
+    handle_agent_message(
+        &state,
+        &per_block_event("e1", task_id, "asst-last", 0, text("done")),
+    )
+    .await;
+
+    let completed = serde_json::from_value::<AgentEvent>(serde_json::json!({
+        "eventId": "e-completed",
+        "type": "agent",
+        "subType": "completed",
+        "taskId": task_id,
+        "timestamp": "2026-04-30T00:00:01.000Z",
+        "isError": false,
+        "agentType": "claude-code",
+        "turnNumber": 1,
+        "payload": {
+            "is_error": false,
+            "total_cost_usd": 0.42,
+            "usage": {
+                "input_tokens": 12,
+                "output_tokens": 3456,
+                "cache_creation_input_tokens": 700,
+                "cache_read_input_tokens": 90000,
+            },
+        },
+    }))
+    .unwrap();
+    handle_agent_completed(&state, &completed).await;
+    // Redelivered: the last row is filled, so nothing moves to the first.
+    handle_agent_completed(&state, &completed).await;
+
+    let (rows, _, _) = moatless_tasks::message::test_support::messages_for(&pool, task_id)
+        .await
+        .unwrap();
+    let last = rows.iter().find(|m| m.uuid == "asst-last").unwrap();
+    assert_eq!(last.assistant_usage_input_tokens, Some(12));
+    assert_eq!(last.assistant_usage_output_tokens, Some(3456));
+    assert_eq!(last.assistant_usage_cache_creation_input_tokens, Some(700));
+    assert_eq!(last.assistant_usage_cache_read_input_tokens, Some(90000));
+
+    let first = rows.iter().find(|m| m.uuid == "asst-first").unwrap();
+    assert_eq!(first.assistant_usage_output_tokens, None);
+    assert_eq!(first.assistant_usage, None);
 }
 
 #[sqlx::test]
@@ -206,7 +303,7 @@ async fn duplicate_per_block_delivery_is_idempotent(pool: PgPool) {
 
     handle_agent_message(&state, &per_block_event("e0", task_id, uuid, 0, text("a"))).await;
     handle_agent_message(&state, &per_block_event("e1", task_id, uuid, 1, text("b"))).await;
-    // Redeliver block 0 — a duplicate must not duplicate blocks or usage.
+    // Redeliver block 0 — a duplicate must not duplicate blocks.
     handle_agent_message(&state, &per_block_event("e0b", task_id, uuid, 0, text("a"))).await;
 
     let (rows, _, activities) = moatless_tasks::message::test_support::messages_for(&pool, task_id)
@@ -226,7 +323,6 @@ async fn duplicate_per_block_delivery_is_idempotent(pool: PgPool) {
         on_message(&activities, uuid).is_empty(),
         "text-only blocks record no activity"
     );
-    assert_eq!(row.assistant_usage_output_tokens, Some(50));
 }
 
 #[sqlx::test]

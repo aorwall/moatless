@@ -146,6 +146,33 @@ const inWindow = (s) => {
   return t >= DAY0 && t < DAY1;
 };
 
+/** Pages one task's message history walks back through at most. */
+const MESSAGE_PAGES = 100;
+
+/**
+ * The agent messages one task wrote inside the window. Counted from the
+ * message history, not from `messageTokenUsage`: that list holds one entry per
+ * Claude turn, because only the run's result carries a final token count.
+ */
+async function agentMessagesInWindow(taskId) {
+  const out = [];
+  let beforeId = null;
+  for (let page = 0; page < MESSAGE_PAGES; page++) {
+    const cursor = beforeId === null ? "" : `&before_id=${beforeId}`;
+    const r = await api(`/api/v1/tasks/${taskId}/messages?summary=true&limit=200${cursor}`);
+    if (r.status !== 200) {
+      console.error(`  ! task ${taskId} messages -> ${r.status} ${r.err ?? ""}`);
+      break;
+    }
+    const msgs = r.body?.messages ?? [];
+    out.push(...msgs.filter((m) => m.messageType === "assistant" && inWindow(m.timestamp)));
+    const oldest = Math.min(...msgs.map((m) => Date.parse(m.timestamp)));
+    if (!r.body?.hasMore || oldest < DAY0 * 1000) break;
+    beforeId = r.body.nextBeforeId;
+  }
+  return out;
+}
+
 async function main() {
   await mkdir(OUT, { recursive: true });
   const digest = { date: DATE };
@@ -234,7 +261,8 @@ async function main() {
   if (run("stats")) {
     const rows = await pool(touched, 8, async (t) => {
       const s = (await api(`/api/v1/tasks/${t.taskId}/statistics`)).body ?? {};
-      const msgs = (s.messageTokenUsage ?? []).filter((m) => inWindow(m.timestamp));
+      const usage = (s.messageTokenUsage ?? []).filter((m) => inWindow(m.timestamp));
+      const msgs = await agentMessagesInWindow(t.taskId);
       return {
         taskId: t.taskId,
         name: t.name ?? t.title,
@@ -245,10 +273,10 @@ async function main() {
         lastMessageHour: inWindow(t.lastMessageAt) ? new Date(t.lastMessageAt).getUTCHours() : null,
         totalCostUsd: t.totalCostUsd,
         msgsInWindow: msgs.length,
-        turnsInWindow: Math.max(0, ...msgs.map((m) => m.turnNumber ?? 0)),
-        tokensInWindow: sum(msgs.map((m) => m.totalTokens ?? 0)),
-        outputTokensInWindow: sum(msgs.map((m) => m.outputTokens ?? 0)),
-        cachedInWindow: sum(msgs.map((m) => m.cachedInputTokens ?? 0)),
+        turnsInWindow: Math.max(0, ...usage.map((m) => m.turnNumber ?? 0)),
+        tokensInWindow: sum(usage.map((m) => m.totalTokens ?? 0)),
+        outputTokensInWindow: sum(usage.map((m) => m.outputTokens ?? 0)),
+        cachedInWindow: sum(usage.map((m) => m.cachedInputTokens ?? 0)),
         hourOfMsgs: msgs.map((m) => new Date(m.timestamp).getUTCHours()),
         toolCalls: s.toolCalls ?? [],
       };
@@ -256,9 +284,9 @@ async function main() {
     await write("stats", rows);
     // A carried task counts once it shows any activity in the window, and it
     // belongs to the hour it resumed rather than to a last message that may now
-    // sit on a later day. `messageTokenUsage` records agent turns only, so a
-    // task whose window activity was a person writing to it has none —
-    // `lastMessageHour` catches those.
+    // sit on a later day. `msgs` holds agent messages only, so a task whose
+    // window activity was a person writing to it has none — `lastMessageHour`
+    // catches those.
     const resumed = new Set(
       rows.filter((r) => !r.createdInWindow && (r.msgsInWindow > 0 || r.lastMessageHour !== null)),
     );

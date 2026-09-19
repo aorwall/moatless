@@ -28,9 +28,9 @@ use moatless_tasks::agent_event::AgentEvent;
 
 /// Handle `agent.completed` event.
 ///
-/// No separate result row is persisted — the final message already carries the
-/// text and usage — before updating cost, emitting follow-ups, and finalizing
-/// any active Linear session.
+/// No separate result row is persisted: the run's usage goes onto the turn's
+/// last assistant row, before updating cost, emitting follow-ups, and
+/// finalizing any active Linear session.
 pub async fn handle_agent_completed(state: &AppState, event: &AgentEvent) {
     // reason: agent-lifecycle event handler runs as background system with no caller identity
     #[allow(clippy::disallowed_methods)]
@@ -145,7 +145,8 @@ pub async fn handle_agent_completed(state: &AppState, event: &AgentEvent) {
     // `output_tokens` is a partial value sampled before the response finished
     // (the final count only reaches the transcript), so the terminal result is
     // the only trustworthy source — and it is per-run, which is what a turn is.
-    if let Some(turn_number) = resolve_turn_number(state, &event.task_id, event.turn_number).await {
+    let turn_number = resolve_turn_number(state, &event.task_id, event.turn_number).await;
+    if let Some(turn_number) = turn_number {
         let metrics = serde_json::json!({
             "usage": event.payload.get("usage"),
             "modelUsage": event.payload.get("modelUsage"),
@@ -180,18 +181,16 @@ pub async fn handle_agent_completed(state: &AppState, event: &AgentEvent) {
         tracing::warn!(task_id = %event.task_id, error = %e, "Failed to recompute task total cost");
     }
 
-    // Backfill turn token usage onto the assistant reply. Codex reports usage
-    // only on this terminal result (its assistant message carries none), so
-    // without this the token counts never reach a DB message. The DAO guards on
-    // `assistant_usage IS NULL`, so this is a no-op for Claude/tmux (whose
-    // assistant rows already carry inline usage). The raw `usage` object is kept
+    // The only writer of an assistant row's usage columns, for every harness:
+    // `handle_agent_message` leaves them null. The raw `usage` object is kept
     // whole (e.g. Codex `reasoning_output_tokens`) alongside the typed columns.
-    if let Some(usage) = sdk_result.usage.as_ref() {
+    if let (Some(turn_number), Some(usage)) = (turn_number, sdk_result.usage.as_ref()) {
         let raw_usage = event.payload.get("usage");
         match state
             .messages
             .backfill_last_assistant_usage(
                 &event.task_id,
+                turn_number,
                 usage.input_tokens.map(|v| v as i32),
                 usage.output_tokens.map(|v| v as i32),
                 usage.cache_creation_input_tokens.map(|v| v as i32),
@@ -202,11 +201,13 @@ pub async fn handle_agent_completed(state: &AppState, event: &AgentEvent) {
         {
             Ok(true) => tracing::debug!(
                 task_id = %event.task_id,
+                turn_number,
                 "Backfilled assistant-message usage from completion result"
             ),
             Ok(false) => {}
             Err(e) => tracing::warn!(
                 task_id = %event.task_id,
+                turn_number,
                 error = %e,
                 "Failed to backfill assistant usage after completion"
             ),
@@ -763,7 +764,14 @@ pub async fn handle_agent_message(state: &AppState, event: &AgentEvent) {
         .and_then(as_block_index)
         .unwrap_or(0);
 
-    let usage = event.payload.get("message").and_then(|m| m.get("usage"));
+    // Only a turn's terminal event carries a final count. A per-block snapshot
+    // is sampled at `message_start`, so Claude's `output_tokens` reads 1-9
+    // whatever the reply; `handle_agent_completed` writes the row's usage.
+    let usage = event
+        .payload
+        .get("message")
+        .and_then(|m| m.get("usage"))
+        .filter(|_| carries_turn_result(&content));
 
     // 3. Inherit agent_mode from the last user message (same pattern as result messages)
     let agent_mode = match state.messages.get_last_user_message(&event.task_id).await {
@@ -865,26 +873,12 @@ pub async fn handle_agent_message(state: &AppState, event: &AgentEvent) {
         assistant_message_model,
         assistant_stop_reason,
         assistant_stop_sequence,
-        assistant_usage_input_tokens: usage
-            .and_then(|u| u.get("input_tokens"))
-            .and_then(serde_json::Value::as_i64)
-            .map(|v| v as i32),
-        assistant_usage_output_tokens: usage
-            .and_then(|u| u.get("output_tokens"))
-            .and_then(serde_json::Value::as_i64)
-            .map(|v| v as i32),
-        assistant_usage_cache_creation_input_tokens: usage
-            .and_then(|u| u.get("cache_creation_input_tokens"))
-            .and_then(serde_json::Value::as_i64)
-            .map(|v| v as i32),
-        assistant_usage_cache_read_input_tokens: usage
-            .and_then(|u| u.get("cache_read_input_tokens"))
-            .and_then(serde_json::Value::as_i64)
-            .map(|v| v as i32),
-        // Persist the whole usage object (ephemeral cache-write breakdown,
-        // server tool use, service tier) so cost is derivable downstream even
-        // when the transport reports no total_cost_usd (tmux).
-        assistant_usage: usage.cloned(),
+        // Written by `handle_agent_completed` from the run's result.
+        assistant_usage_input_tokens: None,
+        assistant_usage_output_tokens: None,
+        assistant_usage_cache_creation_input_tokens: None,
+        assistant_usage_cache_read_input_tokens: None,
+        assistant_usage: None,
         tool_use_result,
         sdk_metadata,
         attachments: None,
@@ -1080,6 +1074,16 @@ pub async fn handle_task_metadata_updated(state: &AppState, event: &AgentEvent) 
 /// means the event carries a whole content array starting at 0.
 fn as_block_index(value: &serde_json::Value) -> Option<usize> {
     value.as_u64().and_then(|v| usize::try_from(v).ok())
+}
+
+/// Whether `content` holds Codex's `turn_result` block: the one per-block event
+/// whose usage is a final count.
+fn carries_turn_result(content: &serde_json::Value) -> bool {
+    content.as_array().is_some_and(|blocks| {
+        blocks.iter().any(|block| {
+            block.get("type").and_then(serde_json::Value::as_str) == Some("turn_result")
+        })
+    })
 }
 
 /// Which Message a reader will see change.
@@ -1377,5 +1381,15 @@ mod tests {
         assert_eq!(as_block_index(&json!(-1)), None);
         assert_eq!(as_block_index(&json!("2")), None);
         assert_eq!(as_block_index(&json!(null)), None);
+    }
+
+    #[test]
+    fn carries_turn_result_matches_only_the_turn_result_block() {
+        assert!(carries_turn_result(&json!([{ "type": "turn_result" }])));
+        assert!(!carries_turn_result(
+            &json!([{ "type": "text", "text": "done" }])
+        ));
+        assert!(!carries_turn_result(&json!([])));
+        assert!(!carries_turn_result(&json!("turn_result")));
     }
 }

@@ -98,10 +98,11 @@ pub async fn set_session_id(
         .await
 }
 
-/// Write usage onto the most recent assistant Message.
+/// Write a run's usage onto the last assistant Message of a turn.
 pub async fn backfill_last_assistant_usage(
     pool: &DbPool,
     task_id: &str,
+    turn_number: i32,
     input_tokens: Option<i32>,
     output_tokens: Option<i32>,
     cache_creation_input_tokens: Option<i32>,
@@ -111,6 +112,7 @@ pub async fn backfill_last_assistant_usage(
     messages(pool)
         .backfill_last_assistant_usage(
             task_id,
+            turn_number,
             input_tokens,
             output_tokens,
             cache_creation_input_tokens,

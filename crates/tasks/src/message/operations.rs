@@ -122,6 +122,7 @@ impl Messages {
     pub async fn backfill_last_assistant_usage(
         &self,
         task_id: &str,
+        turn_number: i32,
         input_tokens: Option<i32>,
         output_tokens: Option<i32>,
         cache_creation_input_tokens: Option<i32>,
@@ -131,6 +132,7 @@ impl Messages {
         self.store
             .backfill_last_assistant_usage(
                 task_id,
+                turn_number,
                 input_tokens,
                 output_tokens,
                 cache_creation_input_tokens,

@@ -116,31 +116,55 @@ async fn append_persists_assistant_usage(pool: PgPool) {
     );
 }
 
-/// Codex reports usage only on the terminal result, leaving assistant rows with
-/// none.
-///
-/// `backfill_last_assistant_usage` fills the most recent row where
-/// `assistant_usage IS NULL`; repeat calls are no-ops.
-#[sqlx::test]
-async fn backfill_fills_last_assistant_usage_once(pool: PgPool) {
-    use crate::message::models::MessageRole;
-    use crate::message::models::MessageType;
+/// Seed an assistant row in `turn_number` with no usage, as the per-block
+/// write path leaves it.
+async fn seed_assistant_row(
+    pool: &PgPool,
+    uuid: &str,
+    turn_number: i32,
+    timestamp: &str,
+    parent_uuid: Option<&str>,
+) {
+    let mut row = make_message_row("task-1", uuid);
+    row.message_type = MessageType::Assistant;
+    row.message_role = MessageRole::Assistant;
+    row.turn_number = Some(turn_number);
+    row.timestamp = timestamp.to_string();
+    row.parent_uuid = parent_uuid.map(ToString::to_string);
+    crate::message::test_support::seed_message(pool, &row, &[], &ConversationWrite::default())
+        .await
+        .unwrap();
+}
 
-    seed_task(&pool, "task-1", "user-1").await;
+/// A row's stored `output_tokens`, read directly so subagent rows are visible.
+async fn output_tokens_of(pool: &PgPool, uuid: &str) -> Option<i32> {
+    sqlx::query_scalar("SELECT assistant_usage_output_tokens FROM task_messages WHERE uuid = $1")
+        .bind(uuid)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+}
 
-    // Assistant reply inserted WITHOUT usage (the Codex shape).
-    let mut assistant = make_message_row("task-1", "codex-assistant-1");
-    assistant.message_type = MessageType::Assistant;
-    assistant.message_role = MessageRole::Assistant;
-    assistant.assistant_message_model = Some("gpt-5.5".to_string());
-    crate::message::test_support::seed_message(
-        &pool,
-        &assistant,
-        &[],
-        &ConversationWrite::default(),
+/// Fill `turn_number` with a result whose `output_tokens` is `output`.
+async fn backfill_turn(pool: &PgPool, turn_number: i32, output: i32) -> bool {
+    crate::message::test_support::backfill_last_assistant_usage(
+        pool,
+        "task-1",
+        turn_number,
+        Some(3),
+        Some(output),
+        None,
+        Some(9088),
+        Some(&serde_json::json!({ "input_tokens": 3, "output_tokens": output })),
     )
     .await
-    .unwrap();
+    .unwrap()
+}
+
+#[sqlx::test]
+async fn backfill_fills_last_assistant_usage_once(pool: PgPool) {
+    seed_task(&pool, "task-1", "user-1").await;
+    seed_assistant_row(&pool, "assistant-1", 1, "2026-01-01T00:00:01.000Z", None).await;
 
     let usage = serde_json::json!({
         "input_tokens": 10943,
@@ -153,6 +177,7 @@ async fn backfill_fills_last_assistant_usage_once(pool: PgPool) {
     let updated = crate::message::test_support::backfill_last_assistant_usage(
         &pool,
         "task-1",
+        1,
         Some(10943),
         Some(5),
         None,
@@ -168,99 +193,57 @@ async fn backfill_fills_last_assistant_usage_once(pool: PgPool) {
         .unwrap();
     let stored = messages
         .iter()
-        .find(|m| m.uuid == "codex-assistant-1")
+        .find(|m| m.uuid == "assistant-1")
         .expect("assistant row present");
     assert_eq!(stored.assistant_usage_input_tokens, Some(10943));
     assert_eq!(stored.assistant_usage_output_tokens, Some(5));
+    assert_eq!(stored.assistant_usage_cache_creation_input_tokens, None);
     assert_eq!(stored.assistant_usage_cache_read_input_tokens, Some(9088));
-    assert_eq!(stored.assistant_message_model.as_deref(), Some("gpt-5.5"));
-    assert_eq!(stored.assistant_usage.as_ref(), Some(&usage));
     // Codex reasoning tokens survive in the raw blob.
-    assert_eq!(
-        stored
-            .assistant_usage
-            .as_ref()
-            .and_then(|u| u.get("reasoning_output_tokens"))
-            .and_then(serde_json::Value::as_i64),
-        Some(128)
-    );
+    assert_eq!(stored.assistant_usage.as_ref(), Some(&usage));
 
-    // Idempotent: the row now has usage, so a second backfill touches nothing.
-    let again = crate::message::test_support::backfill_last_assistant_usage(
-        &pool,
-        "task-1",
-        Some(1),
-        Some(1),
-        None,
-        Some(1),
-        Some(&serde_json::json!({"input_tokens": 1})),
-    )
-    .await
-    .unwrap();
     assert!(
-        !again,
-        "second backfill must be a no-op (usage already set)"
+        !backfill_turn(&pool, 1, 1).await,
+        "a redelivered completion must not write the turn a second time"
     );
+    assert_eq!(output_tokens_of(&pool, "assistant-1").await, Some(5));
 }
 
-/// Claude may split one response across several rows; repeat rows deliberately
-/// carry no usage so tokens count once.
-///
-/// The backfill must skip them — writing the cumulative total onto a repeat
-/// would double-count tokens.
+/// Each turn's total lands on that turn's last top-level assistant row, and
+/// nowhere else.
 #[sqlx::test]
-async fn backfill_skips_tasks_that_already_report_usage(pool: PgPool) {
-    use crate::message::models::MessageRole;
-    use crate::message::models::MessageType;
-
+async fn backfill_writes_only_the_turns_last_top_level_row(pool: PgPool) {
     seed_task(&pool, "task-1", "user-1").await;
-
-    // First row of the response — carries the per-message usage.
-    let mut first = make_message_row("task-1", "claude-assistant-1");
-    first.message_type = MessageType::Assistant;
-    first.message_role = MessageRole::Assistant;
-    first.assistant_message_id = Some("msg_split".to_string());
-    first.assistant_usage_input_tokens = Some(10);
-    first.assistant_usage_output_tokens = Some(6);
-    first.assistant_usage = Some(serde_json::json!({"input_tokens": 10, "output_tokens": 6}));
-    crate::message::test_support::seed_message(&pool, &first, &[], &ConversationWrite::default())
-        .await
-        .unwrap();
-
-    // Repeat of the same API message after interleaved traffic — no usage.
-    let mut repeat = make_message_row("task-1", "claude-assistant-2");
-    repeat.message_type = MessageType::Assistant;
-    repeat.message_role = MessageRole::Assistant;
-    repeat.assistant_message_id = Some("msg_split".to_string());
-    crate::message::test_support::seed_message(&pool, &repeat, &[], &ConversationWrite::default())
-        .await
-        .unwrap();
-
-    let updated = crate::message::test_support::backfill_last_assistant_usage(
+    seed_assistant_row(&pool, "t1-last", 1, "2026-01-01T00:00:01.000Z", None).await;
+    seed_assistant_row(&pool, "t2-first", 2, "2026-01-01T00:00:02.000Z", None).await;
+    seed_assistant_row(&pool, "t2-last", 2, "2026-01-01T00:00:03.000Z", None).await;
+    seed_assistant_row(
         &pool,
-        "task-1",
-        Some(20),
-        Some(1050),
-        None,
-        Some(37987),
-        Some(&serde_json::json!({"input_tokens": 20, "output_tokens": 1050})),
+        "t2-subagent",
+        2,
+        "2026-01-01T00:00:04.000Z",
+        Some("tu-agent"),
     )
-    .await
-    .unwrap();
-    assert!(
-        !updated,
-        "the task already reports per-message usage; the repeat must stay empty"
-    );
+    .await;
 
-    let (messages, _, _) = crate::message::test_support::messages_for(&pool, "task-1")
-        .await
-        .unwrap();
-    let repeat_row = messages
-        .iter()
-        .find(|m| m.uuid == "claude-assistant-2")
-        .expect("repeat row present");
-    assert_eq!(repeat_row.assistant_usage_output_tokens, None);
-    assert_eq!(repeat_row.assistant_usage, None);
+    assert!(backfill_turn(&pool, 1, 100).await);
+    // An earlier turn that already has usage does not block this one.
+    assert!(backfill_turn(&pool, 2, 200).await);
+
+    assert_eq!(output_tokens_of(&pool, "t1-last").await, Some(100));
+    assert_eq!(output_tokens_of(&pool, "t2-last").await, Some(200));
+    assert_eq!(output_tokens_of(&pool, "t2-first").await, None);
+    assert_eq!(output_tokens_of(&pool, "t2-subagent").await, None);
+
+    // The redelivery finds the last row filled and must not fall through to the
+    // earlier row of the same turn, which would count the run twice.
+    assert!(!backfill_turn(&pool, 2, 200).await);
+    assert_eq!(output_tokens_of(&pool, "t2-first").await, None);
+
+    assert!(
+        !backfill_turn(&pool, 3, 300).await,
+        "a turn with no assistant row writes nothing"
+    );
 }
 
 #[sqlx::test]

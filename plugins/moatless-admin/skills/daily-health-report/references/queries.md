@@ -109,7 +109,8 @@ When a query returns nothing, check the plain-text error before believing it: `c
 | Path | Used for |
 |---|---|
 | `/api/v1/tasks?limit=200&offset=N` | Created, touched, status, `totalCostUsd`, repo, agent type, `bindings[].loopId` |
-| `/api/v1/tasks/<id>/statistics` | Per-message token usage with timestamps, and `toolCalls` with `failedCalls` |
+| `/api/v1/tasks/<id>/statistics` | Token usage with timestamps, one entry per Claude turn from the run's result, and `toolCalls` with `failedCalls` |
+| `/api/v1/tasks/<id>/messages?summary=true&limit=200&before_id=N` | Agent messages per hour: the `messageType: "assistant"` rows, paged back until one is older than the window |
 | `/api/v1/feedback` | Feedback rows with `category` and `createdAt` |
 | `/api/v1/loops` | Which Loops exist and when each last fired |
 | `/api/v1/workspaces`, `/api/v1/repositories` | Names and resource config for attribution |

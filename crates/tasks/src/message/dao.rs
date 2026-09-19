@@ -148,12 +148,17 @@ pub(crate) trait MessageDao: Send + Sync {
         task_id: &str,
     ) -> Result<Option<TaskMessage>, sqlx::Error>;
 
-    /// Backfills the latest `assistant` row's usage, only if none yet
-    /// (`assistant_usage IS NULL`): Codex reports counts on `turn.completed`,
-    /// not the message, so the guard is a no-op elsewhere.
+    /// Write a run's usage onto the last top-level `assistant` row of
+    /// `turn_number`. Returns `false` when that row already has usage or the
+    /// turn has no such row; an earlier row of the turn is never written.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "one column per usage tier, bound as-is"
+    )]
     async fn backfill_last_assistant_usage<'a>(
         &self,
         task_id: &'a str,
+        turn_number: i32,
         input_tokens: Option<i32>,
         output_tokens: Option<i32>,
         cache_creation_input_tokens: Option<i32>,
@@ -905,45 +910,36 @@ impl MessageDao for PgMessageDao {
     async fn backfill_last_assistant_usage<'a>(
         &self,
         task_id: &'a str,
+        turn_number: i32,
         input_tokens: Option<i32>,
         output_tokens: Option<i32>,
         cache_creation_input_tokens: Option<i32>,
         cache_read_input_tokens: Option<i32>,
         assistant_usage: Option<&'a serde_json::Value>,
     ) -> Result<bool, sqlx::Error> {
-        // Target the single most recent assistant row that still lacks usage,
-        // via a subquery so the `IS NULL` guard both selects and gates the write.
-        //
-        // The `NOT EXISTS` clause confines this to transports that report no
-        // per-message usage at all (Codex). Claude reports it inline, but not on
-        // every row: one API response can span several rows when the CLI
-        // interleaves other traffic between its content-block lines, and the
-        // repeats deliberately carry no usage so the tokens are counted once.
-        // Without this guard the run's cumulative total lands on one of those
-        // repeats and is counted a second time.
+        // Pick the turn's last row first, then gate on it. Selecting the last
+        // row *without* usage instead lets a redelivered completion write the
+        // run's total a second time, onto an earlier row of the same turn.
         let result = sqlx::query(
             r#"UPDATE task_messages SET
-                   assistant_usage_input_tokens = $2,
-                   assistant_usage_output_tokens = $3,
-                   assistant_usage_cache_creation_input_tokens = $4,
-                   assistant_usage_cache_read_input_tokens = $5,
-                   assistant_usage = $6
+                   assistant_usage_input_tokens = $3,
+                   assistant_usage_output_tokens = $4,
+                   assistant_usage_cache_creation_input_tokens = $5,
+                   assistant_usage_cache_read_input_tokens = $6,
+                   assistant_usage = $7
                WHERE id = (
                    SELECT id FROM task_messages
                    WHERE task_id = $1
+                     AND turn_number = $2
                      AND message_type = 'assistant'
-                     AND assistant_usage IS NULL
-                     AND NOT EXISTS (
-                         SELECT 1 FROM task_messages prior
-                         WHERE prior.task_id = $1
-                           AND prior.message_type = 'assistant'
-                           AND prior.assistant_usage IS NOT NULL
-                     )
+                     AND parent_uuid IS NULL
                    ORDER BY timestamp DESC, id DESC
                    LIMIT 1
-               )"#,
+               )
+                 AND assistant_usage IS NULL"#,
         )
         .bind(task_id)
+        .bind(turn_number)
         .bind(input_tokens)
         .bind(output_tokens)
         .bind(cache_creation_input_tokens)
