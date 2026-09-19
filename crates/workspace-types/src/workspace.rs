@@ -152,9 +152,9 @@ pub const WORKSPACE_REPOS_ENV: &str = "WORKSPACE_REPOS";
 
 /// Env var carrying the workspace volume's size limit, as a K8s quantity.
 ///
-/// The only way the sandbox learns this ceiling: the kubelet meters the volume
-/// on its own, so `df` in the pod answers for the node's filesystem and its
-/// free space says nothing about how close the pod is to eviction.
+/// One number sizes both backends, so the writer exports it unconditionally:
+/// an `emptyDir` is metered by the kubelet and evicts the pod that overruns
+/// it, a PVC fails the write with `ENOSPC`, and `df` answers for neither.
 pub const WORKSPACE_LIMIT_ENV: &str = "SANDBOX_WORKSPACE_LIMIT";
 
 /// A [`WorkspaceRepo`] placement resolved for sandbox provisioning.

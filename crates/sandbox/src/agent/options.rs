@@ -378,26 +378,29 @@ fn build_resource_limits_note(memory: Option<u64>, workspace: Option<String>) ->
     if let Some(bytes) = memory {
         lines.push(format!(
             "- Memory is capped at {} for this whole container, not the much \
-             larger figure `free` prints — that is the node's. Read \
-             `/sys/fs/cgroup/memory.max` for the cap and \
-             `/sys/fs/cgroup/memory.peak` for what your last build actually \
-             used, and lower the build's parallelism when the second \
-             approaches the first. `NODE_OPTIONS` already sizes Node's heap \
-             from the cap, so raising it makes a kill likelier rather than \
-             less likely.",
+             larger figure `free` prints — that is the node's. \
+             `$SANDBOX_MEMORY_LIMIT` holds the same cap in bytes and \
+             `/sys/fs/cgroup/memory.peak` holds what your last build actually \
+             used; lower the build's parallelism when the second approaches \
+             the first. Raising `NODE_OPTIONS --max-old-space-size` past the \
+             cap makes a kill likelier rather than less likely.",
             crate::limits::format_gib(bytes)
         ));
     }
     if let Some(limit) = workspace {
         lines.push(format!(
             "- Disk is capped at {limit} across the workspace volume, which \
-             backs both your working directory and `/tmp`. Measure it with \
-             `du -sx` on the workspace dir; `df` reports the node's \
-             filesystem and its free space tells you nothing about this \
-             limit. Filling the volume gets the pod evicted mid-command and \
-             replaced, which looks like an unexplained restart — so clear \
-             build output (`target/`, `node_modules/`, caches) when the \
-             measurement nears the cap."
+             backs your working directory and `/tmp`, plus \
+             `/opt/cargo/registry` and `/opt/cargo/git` when the cargo cache \
+             is persisted — separate mount points charged to one limit, so \
+             `du -sx` stops at each boundary and you add the figures up \
+             (`/opt/cargo` is not one of them and measures nothing). \
+             `df` reports the node's filesystem and its free space \
+             tells you nothing about this limit. Filling the volume either \
+             gets the pod evicted mid-command and replaced, which looks like \
+             an unexplained restart, or fails a write with `No space left on \
+             device` — so clear build output (`target/`, `node_modules/`, \
+             caches) when the measurement nears the cap."
         ));
     }
     Some(lines.join("\n"))
@@ -1245,16 +1248,19 @@ mod tests {
         let note = build_resource_limits_note(Some(8 * 1024 * 1024 * 1024), Some("20Gi".into()))
             .expect("a note when either limit is known");
         assert!(note.contains("capped at 8 GiB"), "{note}");
+        assert!(note.contains("$SANDBOX_MEMORY_LIMIT"), "{note}");
         assert!(note.contains("/sys/fs/cgroup/memory.peak"), "{note}");
-        assert!(note.contains("raising it makes a kill likelier"), "{note}");
+        assert!(note.contains("makes a kill likelier"), "{note}");
         assert!(note.contains("capped at 20Gi"), "{note}");
         assert!(note.contains("du -sx"), "{note}");
+        assert!(note.contains("No space left on device"), "{note}");
     }
 
     #[test]
-    fn an_uncapped_runtime_gets_no_limits_note() {
+    fn a_note_needs_one_cap_and_an_uncapped_runtime_gets_none() {
         assert_eq!(build_resource_limits_note(None, None), None);
         assert!(build_resource_limits_note(None, Some("20Gi".into())).is_some());
+        assert!(build_resource_limits_note(Some(8 * 1024 * 1024 * 1024), None).is_some());
     }
 
     #[test]

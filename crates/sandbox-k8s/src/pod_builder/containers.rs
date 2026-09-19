@@ -278,8 +278,6 @@ pub(super) fn build_sandbox_container(
         env.push(env_var("WORKSPACE_RESTORE_IF_EMPTY", "true"));
     }
 
-    // One knob sizes the PVC and the emptyDir alike, so this is the ceiling
-    // whichever one `workspace-data` turned out to be.
     env.push(env_var(
         WORKSPACE_LIMIT_ENV,
         &resolve_sandbox_size(config, plan),

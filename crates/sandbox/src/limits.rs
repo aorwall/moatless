@@ -2,9 +2,10 @@
 //!
 //! Memory is capped by the container's cgroup, far below the node total `free`
 //! prints, and the workspace volume by a `sizeLimit` the kubelet meters on its
-//! own while `df` reports the node's filesystem. Crossing either ends the pod —
-//! the cgroup kills the process, the volume limit gets the pod evicted — so
-//! both numbers are read here and handed to the agent and its children.
+//! own while `df` reports the node's filesystem. Crossing either ends the work —
+//! the cgroup kills the process, and a full volume evicts the pod when it is an
+//! `emptyDir` and fails the write when it is a PVC — so both numbers are read
+//! here and handed to the agent and its children.
 
 use moatless_workspace_types::workspace::WORKSPACE_LIMIT_ENV;
 
@@ -13,7 +14,8 @@ use moatless_workspace_types::workspace::WORKSPACE_LIMIT_ENV;
 /// missing file already means "no cap we can name".
 const MEMORY_MAX_PATH: &str = "/sys/fs/cgroup/memory.max";
 
-/// Env var carrying [`memory_limit_bytes`] to every child process.
+/// Env var carrying [`memory_limit_bytes`] to every child process, so a shell
+/// script reads the cap without parsing `/sys`. The agent's prompt names it.
 pub const MEMORY_LIMIT_ENV: &str = "SANDBOX_MEMORY_LIMIT";
 
 /// The container's memory ceiling in bytes, or `None` when it is uncapped

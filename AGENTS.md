@@ -52,10 +52,12 @@ carries its own build and clippy line in its `Cargo.toml`. Read
 bounded by memory before disk — a cold floor line peaks around 6.0 GiB of the
 sandbox's 8 GiB cgroup cap, and leaves 7 GiB in `target/` — so read
 `/sys/fs/cgroup/memory.peak` after a build, and lower `CARGO_BUILD_JOBS` when it
-nears `memory.max`. Do not use `df` for either number: the workspace volume is
-an `emptyDir` with a `sizeLimit` the kubelet meters separately (it is in
-`SANDBOX_WORKSPACE_LIMIT`), and `df` reports the node's device. Measure it with
-`du -sx /opt/moatless`, and run `task rust:gc` when that approaches the cap.
+nears `memory.max`. Do not use `df` for either number: the workspace volume's
+size limit is metered outside the pod's filesystem (it is in
+`SANDBOX_WORKSPACE_LIMIT`), and `df` reports the node's device. Measure it by
+adding up `du -sx` on each mount point that volume backs: `/opt/moatless`,
+`/tmp`, and `/opt/cargo/registry` plus `/opt/cargo/git` when the cargo cache is
+persisted. Run `task rust:gc` when the total approaches the cap.
 
 ### Building, deploying and releasing
 ```bash
