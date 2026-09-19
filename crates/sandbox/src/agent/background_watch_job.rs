@@ -74,10 +74,9 @@ impl BackgroundWatchJob {
 
     /// Message injected once a watched command finishes.
     ///
-    /// Every command carries the end of its log, success included: the log
-    /// lives outside `WORKSPACE_DIR` and dies with the pod, so a bare path is
-    /// all a replacement's agent would have, naming a file that is gone. Say
-    /// the log was lost rather than printing a path to nothing.
+    /// The end of every command's log travels in the message, labelled with how
+    /// much of it that is: this text outlives the pod, and the log does not —
+    /// `init::dirs` wipes `/tmp` at every start, so a path alone finds nothing.
     fn wake_prompt(finished: &[CommandRecord]) -> String {
         let lines: Vec<String> = finished
             .iter()
@@ -91,17 +90,24 @@ impl BackgroundWatchJob {
                     (_, Some(code)) => format!("failed with exit {code}"),
                     (_, None) => "ended without an exit code".to_string(),
                 };
-                let head = format!(
-                    "- `{}` ({}) {} — output: {}",
-                    c.id,
-                    c.label,
-                    outcome,
-                    c.log_path.display()
-                );
+                let head = format!("- `{}` ({}) {}", c.id, c.label, outcome);
+                let path = c.log_path.display();
                 match crate::commands::log_tail(&c.log_path, WAKE_LOG_LINES, WAKE_LOG_BYTES) {
-                    Some(tail) => format!("{head}\n\n```\n{tail}\n```"),
-                    None if c.log_path.exists() => format!("{head} (it wrote nothing)"),
-                    None => format!("{head} — that log file is gone, so this is all of it"),
+                    Some(tail) => {
+                        let n = tail.lines().count();
+                        let s = if n == 1 { "" } else { "s" };
+                        format!("{head} — output: {path} (last {n} line{s})\n\n```\n{tail}\n```")
+                    }
+                    // `log_tail` returns `None` for a log it could not read as
+                    // well as for an empty one, so the length tells them apart
+                    // rather than claiming every silent log wrote nothing.
+                    None => match c.log_path.metadata().map(|m| m.len()) {
+                        Ok(0) => format!("{head} — output: {path} (it wrote nothing)"),
+                        Ok(_) => format!("{head} — output: {path} (nothing readable in it)"),
+                        Err(_) => {
+                            format!("{head} — that log file is gone, so there is no output to read")
+                        }
+                    },
                 }
             })
             .collect();
@@ -111,7 +117,7 @@ impl BackgroundWatchJob {
             "commands have"
         };
         format!(
-            "A background {noun} finished:\n{}\n\nRead the output and continue the task.",
+            "A background {noun} finished:\n{}\n\nRead what output there is and continue the task.",
             lines.join("\n")
         )
     }
@@ -478,13 +484,46 @@ mod tests {
         let messages = injected.lock().expect("lock");
         assert!(messages[0].contains("succeeded"), "{:?}", messages[0]);
         assert!(messages[0].contains("build ok"), "{:?}", messages[0]);
+        // The quote is a tail, and says so: an agent told only "read the
+        // output" would take one line of a 10k-line log for the whole of it.
+        assert!(messages[0].contains("(last 1 line)"), "{:?}", messages[0]);
     }
 
-    /// A log deleted between the command finishing and the wake — what pod
-    /// replacement does to every `moat cmd` log, since they live in `/tmp`.
+    /// A log deleted between the command finishing and the wake — what
+    /// `init::dirs` does to every `moat cmd` log when it wipes `/tmp`. The path
+    /// carries a fresh uuid so that nothing can create it under this test.
     #[test]
     fn a_missing_log_is_reported_as_lost_rather_than_as_a_path() {
-        let gone = CommandRecord {
+        let gone =
+            succeeded_with_log(std::env::temp_dir().join(format!("{}.log", uuid::Uuid::new_v4())));
+        let path = gone.log_path.display().to_string();
+        let prompt = BackgroundWatchJob::wake_prompt(&[gone]);
+        assert!(prompt.contains("that log file is gone"), "{prompt}");
+        assert!(!prompt.contains(&path), "{prompt}");
+    }
+
+    /// An empty log and one holding only whitespace both leave `log_tail` with
+    /// nothing to quote, and neither is gone.
+    #[test]
+    fn a_log_that_quotes_nothing_is_told_apart_from_one_that_is_gone() {
+        let dir = std::env::temp_dir().join(format!("wake-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("dir");
+
+        let empty = dir.join("empty.log");
+        std::fs::write(&empty, "").expect("write");
+        let prompt = BackgroundWatchJob::wake_prompt(&[succeeded_with_log(empty)]);
+        assert!(prompt.contains("it wrote nothing"), "{prompt}");
+
+        let blank = dir.join("blank.log");
+        std::fs::write(&blank, "\n\n").expect("write");
+        let prompt = BackgroundWatchJob::wake_prompt(&[succeeded_with_log(blank)]);
+        assert!(prompt.contains("nothing readable in it"), "{prompt}");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    fn succeeded_with_log(log_path: std::path::PathBuf) -> CommandRecord {
+        CommandRecord {
             id: "cmd-1".into(),
             command: "cargo test -p moatless-sandbox".into(),
             label: "cargo test -p moatless-sandbox".into(),
@@ -494,11 +533,9 @@ mod tests {
             deadline_unix_ms: 0,
             state: CommandState::Exited,
             exit_code: Some(0),
-            log_path: std::path::PathBuf::from("/tmp/moat-commands/gone/cmd-1.log"),
+            log_path,
             finished_at_unix_ms: 0,
-        };
-        let prompt = BackgroundWatchJob::wake_prompt(&[gone]);
-        assert!(prompt.contains("that log file is gone"), "{prompt}");
+        }
     }
 
     #[tokio::test]

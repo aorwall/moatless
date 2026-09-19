@@ -417,12 +417,13 @@ fn build_managed_command_note(config: &Config) -> Option<String> {
     }
     Some(
         "## Long-running commands\n\
-         The Bash tool kills a command at 2 minutes unless you pass a longer \
-         `timeout`, and will not go past 10 minutes whatever you pass; this \
-         session cannot background one either. For work that outlives a single Bash \
-         call — a slow build or test suite, a dev server — start it with `moat \
-         cmd run --cwd <dir> \"<command>\"` instead of blocking a turn on \
-         `sleep` polling. `--cwd` defaults to the Bash tool's current \
+         Your shell tool kills a long command — Claude Code's Bash tool at 2 \
+         minutes unless you pass a longer `timeout`, and never past 10 minutes \
+         whatever you pass — and this session cannot background one. For work \
+         that outlives a single shell call — a slow build or test suite, a dev \
+         server — start it with `moat cmd run --cwd <dir> \"<command>\"` \
+         instead of blocking a turn on `sleep` polling. \
+         `--cwd` defaults to your shell tool's current \
          directory, so pass it explicitly to pin the command to the directory \
          you meant rather than wherever an earlier `cd` left the shell. \
          The sandbox owns the process: it keeps the sandbox awake while the \
