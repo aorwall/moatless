@@ -127,6 +127,37 @@ fn is_ssh_url(url: &str) -> bool {
     }
 }
 
+/// Reject a remote another provider addresses and the declared one does not.
+///
+/// Two remotes resolve to no host however they are declared, and are accepted:
+/// an SSH URL (see [`resolve_remote`]), and a URL no provider reads as
+/// `owner/repo`, which `sandbox::init::git` clones anonymously.
+pub(crate) fn ensure_no_provider_mismatch(
+    provider: Option<RepositoryProvider>,
+    url: &str,
+) -> Result<(), super::error::RepositoryError> {
+    let Some(provider) = provider else {
+        return Ok(());
+    };
+    if is_ssh_url(url) || parse_host_repo(provider, url).is_some() {
+        return Ok(());
+    }
+
+    let parses_under: Vec<&str> = RepositoryProvider::ALL
+        .iter()
+        .copied()
+        .filter(|candidate| *candidate != provider && parse_host_repo(*candidate, url).is_some())
+        .map(RepositoryProvider::as_str)
+        .collect();
+    if parses_under.is_empty() {
+        return Ok(());
+    }
+    Err(super::error::RepositoryError::BadRequest(format!(
+        "Provider {provider} does not host {url}: it reads as owner/repo under {}",
+        parses_under.join(", ")
+    )))
+}
+
 /// The resolved identity required by a git-host operation.
 pub(crate) fn require_host_repo(
     remote: &RepositoryRemote,
@@ -174,6 +205,54 @@ mod tests {
         );
         assert_eq!(remote.url, "https://gitlab.com/acme/repo");
         assert!(remote.host_repo.is_none());
+    }
+
+    #[test]
+    fn a_host_another_provider_serves_is_rejected_under_the_declared_one() {
+        let message = match ensure_no_provider_mismatch(
+            Some(RepositoryProvider::Github),
+            "https://git.example.com/config-dev/config-default",
+        ) {
+            Err(super::super::error::RepositoryError::BadRequest(message)) => message,
+            other => panic!("expected a BadRequest, got {other:?}"),
+        };
+        assert!(
+            message.contains("Provider github does not host"),
+            "{message}"
+        );
+        assert!(message.contains("gitlab, gitness, forgejo"), "{message}");
+    }
+
+    #[test]
+    fn a_remote_no_provider_would_address_differently_is_accepted() {
+        // A host the provider serves, an SSH remote, no declared provider, and
+        // the two shapes every parser rejects — a single path segment and a
+        // non-HTTP scheme. The last three clone anonymously, so rejecting them
+        // would strand a remote the CLI has no provider value to re-declare.
+        for (provider, url) in [
+            (
+                Some(RepositoryProvider::Forgejo),
+                "https://git.example.com/config-dev/config-default",
+            ),
+            (
+                Some(RepositoryProvider::Github),
+                "ssh://deploy@git.internal:2222/team/repo.git",
+            ),
+            (None, "https://git.example.com/acme/repo"),
+            (
+                Some(RepositoryProvider::Github),
+                "https://git.example.com/repo.git",
+            ),
+            (
+                Some(RepositoryProvider::Github),
+                "git://git.example.com/acme/repo",
+            ),
+        ] {
+            assert!(
+                ensure_no_provider_mismatch(provider, url).is_ok(),
+                "{provider:?} {url}"
+            );
+        }
     }
 
     #[test]

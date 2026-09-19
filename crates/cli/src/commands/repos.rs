@@ -59,9 +59,10 @@ pub enum RepoAction {
         git_url: Option<String>,
         #[arg(long, default_value = "main")]
         branch: String,
-        /// Hosting provider (github, gitlab, gitness, forgejo). Ignored for SSH
-        /// clone URLs, which authenticate via an `ssh_key` secret rather than a
-        /// provider token.
+        /// Hosting provider (github, gitlab, gitness, forgejo). Name the one
+        /// serving the host in `--git-url`: `github` is refused for any other
+        /// host, while the self-hosted three parse any host. Ignored for SSH
+        /// clone URLs, which authenticate via an `ssh_key` secret.
         #[arg(long, default_value = "github")]
         provider: String,
         /// Repository kind: remote, template, or git
@@ -175,12 +176,17 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
             description,
             scope,
         } => {
+            // Not `parse_repo_provider(&provider)`: an unreadable value would
+            // send `provider: null`, which registers the unaddressed row the
+            // backend's mismatch check exists to refuse.
+            let parsed_provider = parse_repo_provider(&provider)
+                .ok_or_else(|| ClientError::Other(format!("Invalid --provider '{provider}'")))?;
             let req = CreateRepositoryRequest {
                 name,
                 kind: parse_repo_kind(&kind),
                 remote_url: git_url,
                 default_branch: Some(branch),
-                provider: parse_repo_provider(&provider),
+                provider: Some(parsed_provider),
                 description,
                 scope: scope.as_deref().and_then(parse_scope),
             };

@@ -3,7 +3,7 @@ use super::error::RepositoryError;
 use super::models::Repository;
 use super::models::RepositoryPatch;
 use super::schemas::{CreateRepositoryRequest, UpdateRepositoryRequest};
-use crate::repository::remote::normalize_remote_url;
+use crate::repository::remote::{ensure_no_provider_mismatch, normalize_remote_url};
 use crate::workspace::git_sync::{GitSyncService, SyncForce, log_workspace_sync_for};
 use moatless_core::db::DbPool;
 use moatless_types::access_control::{Scope, ScopeContext, resolve_scope_for_create};
@@ -53,6 +53,10 @@ pub async fn create_repository(
 
     let resolved_scope = resolve_scope_for_create(ctx, req.scope)?;
     let scope_ctx = ctx;
+
+    if let Some(remote_url) = req.remote_url.as_deref() {
+        ensure_no_provider_mismatch(req.provider, remote_url)?;
+    }
 
     ensure_unique_remote_url(
         repositories,
@@ -147,6 +151,16 @@ pub async fn update_repository(
         .remote_url
         .clone()
         .or_else(|| existing.remote.as_ref().map(|remote| remote.url.clone()));
+
+    // Either half may be patched alone, so the check reads the pair the row
+    // ends up holding rather than the one the request carried. A patch sending
+    // neither is exempt: a row registered before this check must stay editable
+    // by a rename, and repairing it needs `provider` anyway.
+    if req.provider.is_some() || req.remote_url.is_some() {
+        if let Some(remote_url) = target_remote_url.as_deref() {
+            ensure_no_provider_mismatch(req.provider.or(existing.provider), remote_url)?;
+        }
+    }
 
     ensure_unique_remote_url(
         repositories,
