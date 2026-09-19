@@ -33,6 +33,7 @@ pub mod server_control;
 pub mod shutdown;
 pub mod state;
 pub mod supervisor;
+pub mod task_scripts;
 pub mod terminal;
 
 pub(crate) mod transcript_sync;

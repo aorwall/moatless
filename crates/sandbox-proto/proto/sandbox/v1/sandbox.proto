@@ -529,6 +529,12 @@ service SandboxService {
   rpc ApplyServerConfig(ApplyServerConfigRequest) returns (ApplyServerConfigResponse);
   rpc GetServerConfig(GetServerConfigRequest) returns (GetServerConfigResponse);
 
+  // Declare, drop and read back the Scripts belonging to one Member rather than
+  // to its Workspace. The record is a file on the workspace volume, so it rides
+  // the snapshot into a replacement pod and no database copy exists.
+  rpc ApplyTaskScript(ApplyTaskScriptRequest) returns (ApplyTaskScriptResponse);
+  rpc GetTaskScripts(GetTaskScriptsRequest) returns (GetTaskScriptsResponse);
+
   // File operations
   rpc GetFileTree(GetFileTreeRequest) returns (GetFileTreeResponse);
   rpc ReadFile(ReadFileRequest) returns (ReadFileResponse);
@@ -830,6 +836,44 @@ message ServerConfigOverride {
   repeated string unset_env = 3;
   // The counter the sidecar watches; 0 means it has never been restarted.
   uint64 generation = 4;
+}
+
+// One Script declared on a Member rather than on its Workspace, in the fields
+// `ScriptConfig` carries. No `env_vars`: the surface that declares these is
+// read by a task-scoped bearer key, which does not carry the workspace-level
+// access a pinned secret would assume.
+message TaskScript {
+  // The id. Becomes the terminal session id `script-<name>`, so it is
+  // constrained to alphanumerics, `-` and `_`.
+  string name = 1;
+  string command = 2;
+  optional string label = 3;
+  optional string icon = 4;
+  // Serving this port is what earns the Script a preview URL and a browser tab.
+  optional uint32 port = 5;
+  bool run_on_start = 6;
+}
+
+message ApplyTaskScriptRequest {
+  string task_id = 1;
+  // The complete Script, not a delta — the sandbox replaces whatever it holds
+  // under this name. Only `script.name` is read when `remove` is set.
+  TaskScript script = 2;
+  // Drop the named Script instead of declaring it. Removing one that was never
+  // declared succeeds.
+  bool remove = 3;
+}
+
+message ApplyTaskScriptResponse {}
+
+message GetTaskScriptsRequest {
+  string task_id = 1;
+}
+
+message GetTaskScriptsResponse {
+  // Keyed by `TaskScript.name`. The file on the workspace volume is the only
+  // record, so this reports what is on disk and not what anyone intended.
+  map<string, TaskScript> scripts = 1;
 }
 
 message ExecuteAgentRequest {

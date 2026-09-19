@@ -14,12 +14,13 @@ use moatless_types::sandbox::SandboxError;
 
 use crate::sandbox_service_client::SandboxServiceClient;
 use crate::{
-    ApplyServerConfigRequest, ExecuteAgentRequest, GetAgentStatusRequest, GetAgentStatusResponse,
-    GetFileTreeRequest, GetFileTreeResponse, GetGitDiffPreviewRequest, GetGitDiffPreviewResponse,
-    GetGitStatusRequest, GetGitStatusResponse, GetServerConfigRequest, JoinTaskRequest,
-    ListFilesRequest, ListGitRefsRequest, ListGitRefsResponse, NotifyMessagesRequest,
-    ReadFileRequest, ReadFileResponse, RefreshCredentialRequest, SearchFilesByNameRequest,
-    SearchFilesByNameResponse, StopAgentRequest, SyncWorkspaceRequest, SyncWorkspaceResponse,
+    ApplyServerConfigRequest, ApplyTaskScriptRequest, ExecuteAgentRequest, GetAgentStatusRequest,
+    GetAgentStatusResponse, GetFileTreeRequest, GetFileTreeResponse, GetGitDiffPreviewRequest,
+    GetGitDiffPreviewResponse, GetGitStatusRequest, GetGitStatusResponse, GetServerConfigRequest,
+    GetTaskScriptsRequest, JoinTaskRequest, ListFilesRequest, ListGitRefsRequest,
+    ListGitRefsResponse, NotifyMessagesRequest, ReadFileRequest, ReadFileResponse,
+    RefreshCredentialRequest, SearchFilesByNameRequest, SearchFilesByNameResponse,
+    StopAgentRequest, SyncWorkspaceRequest, SyncWorkspaceResponse, TaskScript,
     TerminalAttachRequest, TerminalAttachStreamEvent, TerminalClearRequest, TerminalCloseRequest,
     TerminalOpenRequest, TerminalResizeRequest, TerminalRestartRequest, TerminalSessionSnapshot,
     TerminalWriteRequest, WriteFileRequest,
@@ -491,6 +492,59 @@ impl SandboxClient {
                 )
             })
             .collect())
+    }
+
+    /// Declare one of a Task's own Scripts, replacing whatever it held under
+    /// that name; `remove` drops it instead.
+    ///
+    /// Removing a Script that was never declared succeeds.
+    pub async fn apply_task_script(
+        &self,
+        task_id: &str,
+        script: TaskScript,
+        remove: bool,
+    ) -> Result<(), tonic::Status> {
+        let mut client = self.client.clone();
+        let request = ApplyTaskScriptRequest {
+            task_id: task_id.to_string(),
+            script: Some(script),
+            remove,
+        };
+        let result = tokio::time::timeout(SHORT_RPC_TIMEOUT, async {
+            client.apply_task_script(request).await
+        })
+        .await;
+
+        match result {
+            Ok(Ok(_)) => Ok(()),
+            Ok(Err(e)) => Err(e),
+            Err(_) => Err(tonic::Status::deadline_exceeded(
+                "ApplyTaskScript gRPC timed out",
+            )),
+        }
+    }
+
+    /// Every Script this Task has declared on itself, keyed by name.
+    pub async fn get_task_scripts(
+        &self,
+        task_id: &str,
+    ) -> Result<BTreeMap<String, TaskScript>, tonic::Status> {
+        let mut client = self.client.clone();
+        let request = GetTaskScriptsRequest {
+            task_id: task_id.to_string(),
+        };
+        let result = tokio::time::timeout(SHORT_RPC_TIMEOUT, async {
+            client.get_task_scripts(request).await
+        })
+        .await;
+
+        match result {
+            Ok(Ok(resp)) => Ok(resp.into_inner().scripts.into_iter().collect()),
+            Ok(Err(e)) => Err(e),
+            Err(_) => Err(tonic::Status::deadline_exceeded(
+                "GetTaskScripts gRPC timed out",
+            )),
+        }
     }
 
     pub async fn terminal_open(

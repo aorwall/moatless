@@ -1,4 +1,4 @@
-//! Starting the Scripts a Workspace declares `run_on_start`.
+//! Starting the Scripts declared `run_on_start`, on the Workspace or the Task.
 //!
 //! A Sandbox becoming Ready is the other trigger for these Scripts, besides a
 //! person pressing one; the Task band drives it, nothing here decides when.
@@ -10,6 +10,7 @@
 use std::sync::Arc;
 
 use serde_json::json;
+use tracing::warn;
 
 use crate::reads::T3Reads;
 use crate::scripts::{self, ScriptsError, ScriptsState};
@@ -51,25 +52,36 @@ impl StartupScripts {
         }
     }
 
-    /// Start every Script the Task's Workspace declares `run_on_start`.
+    /// Start every Script declared `run_on_start`, the Task's own included,
+    /// which brings a Task Script back after its pod was replaced.
     ///
     /// The `Result` error is the Workspace read failing; the vector is the
-    /// Scripts that would not start. A failed Script does not stop the next
-    /// one.
+    /// Scripts that would not start, a failure never stopping the next one.
     pub async fn run_for_task(
         &self,
         viewer: &ScopeContext,
         task_id: &str,
     ) -> Result<Vec<StartupScriptFailure>, ScriptsError> {
-        let scripts = self
-            .scripts
-            .workspaces
-            .scripts_for_task(viewer, task_id)
-            .await?
-            .ok_or(ScriptsError::NotFound)?;
+        let resolved =
+            scripts::resolve(&self.scripts, self.sandboxes.as_ref(), viewer, task_id).await?;
+        // Only a log: this fires on every `sandbox.ready`, and most Tasks
+        // declare nothing of their own, so a Script that was never there would
+        // report a failure to the person on every start.
+        if let Some(error) = &resolved.own_unread {
+            warn!(
+                task_id,
+                %error,
+                "A task's own run_on_start scripts were not read; only its workspace's started"
+            );
+        }
 
         let mut failures = Vec::new();
-        for script in scripts.iter().filter(|script| script.run_on_start) {
+        for script in resolved
+            .scripts
+            .iter()
+            .map(|script| &script.config)
+            .filter(|script| script.run_on_start)
+        {
             let payload = json!({ "threadId": task_id, "scriptId": script.name });
             if let Err(error) = scripts::run(
                 &self.scripts,

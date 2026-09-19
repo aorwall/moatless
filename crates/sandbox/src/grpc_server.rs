@@ -16,11 +16,12 @@ use tracing::info;
 
 use sandbox_proto::sandbox_service_server::SandboxService;
 use sandbox_proto::{
-    ApplyServerConfigRequest, ApplyServerConfigResponse, BackgroundWatchJobInfo,
-    CancelWakeNoteRequest, CancelWakeNoteResponse, ExecuteAgentRequest, ExecuteAgentResponse,
-    GetAgentStatusRequest, GetAgentStatusResponse, GetFileTreeRequest, GetFileTreeResponse,
-    GetGitDiffPreviewRequest, GetGitDiffPreviewResponse, GetGitStatusRequest, GetGitStatusResponse,
-    GetServerConfigRequest, GetServerConfigResponse, GitRef, GitRepoRange, GitWorkingTreeFile,
+    ApplyServerConfigRequest, ApplyServerConfigResponse, ApplyTaskScriptRequest,
+    ApplyTaskScriptResponse, BackgroundWatchJobInfo, CancelWakeNoteRequest, CancelWakeNoteResponse,
+    ExecuteAgentRequest, ExecuteAgentResponse, GetAgentStatusRequest, GetAgentStatusResponse,
+    GetFileTreeRequest, GetFileTreeResponse, GetGitDiffPreviewRequest, GetGitDiffPreviewResponse,
+    GetGitStatusRequest, GetGitStatusResponse, GetServerConfigRequest, GetServerConfigResponse,
+    GetTaskScriptsRequest, GetTaskScriptsResponse, GitRef, GitRepoRange, GitWorkingTreeFile,
     KillCommandRequest, KillCommandResponse, ListCommandsRequest, ListCommandsResponse,
     ListFilesRequest, ListFilesResponse, ListGitRefsRequest, ListGitRefsResponse,
     ManagedCommand as ManagedCommandProto, ManagedCommandState, NotifyMessagesRequest,
@@ -28,11 +29,11 @@ use sandbox_proto::{
     RecordWakeNoteResponse, RefreshCredentialRequest, RefreshCredentialResponse, RunCommandRequest,
     RunCommandResponse, ScheduledJobInfo, SearchFilesByNameRequest, SearchFilesByNameResponse,
     ServerConfigOverride, StopAgentRequest, StopAgentResponse, SyncWorkspaceRequest,
-    SyncWorkspaceResponse, TerminalAttachRequest, TerminalAttachStreamEvent, TerminalClearRequest,
-    TerminalClearResponse, TerminalCloseRequest, TerminalCloseResponse, TerminalOpenRequest,
-    TerminalResizeRequest, TerminalResizeResponse, TerminalRestartRequest, TerminalSessionSnapshot,
-    TerminalWriteRequest, TerminalWriteResponse, WakeupJobInfo, WriteFileRequest,
-    WriteFileResponse, scheduled_job_info,
+    SyncWorkspaceResponse, TaskScript as TaskScriptProto, TerminalAttachRequest,
+    TerminalAttachStreamEvent, TerminalClearRequest, TerminalClearResponse, TerminalCloseRequest,
+    TerminalCloseResponse, TerminalOpenRequest, TerminalResizeRequest, TerminalResizeResponse,
+    TerminalRestartRequest, TerminalSessionSnapshot, TerminalWriteRequest, TerminalWriteResponse,
+    WakeupJobInfo, WriteFileRequest, WriteFileResponse, scheduled_job_info,
 };
 
 use crate::agent::scheduled_job::JobSnapshot;
@@ -42,6 +43,7 @@ use crate::commands::{CommandError, CommandRecord, CommandSpec, CommandState};
 use crate::files;
 use crate::server_control;
 use crate::state::{RegisterTaskContextError, SandboxState, TaskContext, TaskContextLookupError};
+use crate::task_scripts::{self, TaskScript};
 use crate::writer_admission::WriterPermit;
 
 /// gRPC server for sandbox commands.
@@ -492,6 +494,69 @@ impl SandboxService for SandboxServiceImpl {
         Ok(Response::new(GetServerConfigResponse { overrides }))
     }
 
+    /// Declare or drop one of this Member's own Scripts.
+    ///
+    /// Whole-state, like [`Self::apply_server_config`]: the stored Script is
+    /// replaced, never merged into.
+    #[tracing::instrument(skip_all, fields(request_id = %uuid::Uuid::new_v4(), task_id = %self.state.config.task_id))]
+    async fn apply_task_script(
+        &self,
+        request: Request<ApplyTaskScriptRequest>,
+    ) -> Result<Response<ApplyTaskScriptResponse>, Status> {
+        let _permit = self.admit_workspace_writer()?;
+        let req = request.into_inner();
+        let context = self.resolve_member_context(Some(&req.task_id)).await?;
+        let script = req
+            .script
+            .ok_or_else(|| Status::invalid_argument("script is required"))?;
+
+        if !task_scripts::is_valid_script_name(&script.name) {
+            return Err(Status::invalid_argument(format!(
+                "Invalid script name: {}",
+                script.name
+            )));
+        }
+
+        info!(
+            script = %script.name,
+            remove = req.remove,
+            "ApplyTaskScript received"
+        );
+        let result = if req.remove {
+            task_scripts::remove(&context.workspace_dir, &req.task_id, &script.name).await
+        } else {
+            task_scripts::apply(
+                &context.workspace_dir,
+                &req.task_id,
+                task_script_from_proto(script)?,
+            )
+            .await
+        };
+        result.map_err(|e| Status::internal(format!("Failed to apply task script: {e}")))?;
+
+        Ok(Response::new(ApplyTaskScriptResponse {}))
+    }
+
+    /// Read back every Script this Member has declared.
+    ///
+    /// The file on the workspace volume is the only record, so this reports
+    /// what is on disk — a hand-edited one shows up here.
+    #[tracing::instrument(skip_all, fields(request_id = %uuid::Uuid::new_v4(), task_id = %self.state.config.task_id))]
+    async fn get_task_scripts(
+        &self,
+        request: Request<GetTaskScriptsRequest>,
+    ) -> Result<Response<GetTaskScriptsResponse>, Status> {
+        let req = request.into_inner();
+        let context = self.resolve_member_context(Some(&req.task_id)).await?;
+        let scripts = task_scripts::read_all(&context.workspace_dir, &req.task_id)
+            .await
+            .into_iter()
+            .map(|(name, script)| (name, task_script_to_proto(script)))
+            .collect();
+
+        Ok(Response::new(GetTaskScriptsResponse { scripts }))
+    }
+
     #[tracing::instrument(skip_all, fields(request_id = %uuid::Uuid::new_v4(), task_id = %self.state.config.task_id))]
     async fn terminal_open(
         &self,
@@ -887,6 +952,35 @@ fn command_error_to_status(e: CommandError) -> Status {
         CommandError::NotFound(_) => Status::not_found(e.to_string()),
         CommandError::Log { .. } | CommandError::Spawn(_) => Status::internal(e.to_string()),
     }
+}
+
+fn task_script_to_proto(script: TaskScript) -> TaskScriptProto {
+    TaskScriptProto {
+        name: script.name,
+        command: script.command,
+        label: script.label,
+        icon: script.icon,
+        port: script.port.map(u32::from),
+        run_on_start: script.run_on_start,
+    }
+}
+
+/// Fallible, not a `From`: the wire carries the port as a `uint32`, and
+/// anything past a `u16` is not a port at all.
+fn task_script_from_proto(script: TaskScriptProto) -> Result<TaskScript, Status> {
+    let port = script
+        .port
+        .map(u16::try_from)
+        .transpose()
+        .map_err(|_| Status::invalid_argument("port must fit in 16 bits"))?;
+    Ok(TaskScript {
+        name: script.name,
+        command: script.command,
+        label: script.label,
+        icon: script.icon,
+        port,
+        run_on_start: script.run_on_start,
+    })
 }
 
 fn tree_node_to_proto(node: files::tree::FileTreeNode) -> sandbox_proto::FileTreeNode {

@@ -1,16 +1,18 @@
-//! Running and editing a workspace Script.
+//! Running and editing a Script.
 //!
-//! A Script is declared on the Workspace ([`ScriptConfig`]) and listed on the
-//! T3 project by [`projection::scripts`](crate::projection). `run` resolves a
-//! Script, publishes its port if declared, then execs the command in a named
-//! terminal session; running one already running attaches instead of starting a
-//! second. [`replace`] writes the `project.meta.update` command's `scripts`
-//! field back to the Workspace.
+//! A Script is declared either on the Workspace ([`ScriptConfig`], listed on
+//! the T3 project by [`projection::scripts`](crate::projection)) or on one Task
+//! by [`declare`], which stores it in that Task's sandbox. [`resolve`] merges
+//! the two. `run` resolves a Script, publishes its port if declared, then execs
+//! the command in a named terminal session; running one already running
+//! attaches instead of starting a second. [`replace`] writes the
+//! `project.meta.update` command's `scripts` field back to the Workspace.
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use serde_json::{Value, json};
-use tracing::warn;
+use tracing::{debug, warn};
 
 use crate::dao::ConversationDao;
 use crate::nominal_path;
@@ -21,7 +23,8 @@ use crate::workspace_dao::T3WorkspaceDao;
 use moatless_ports::sandbox::{SandboxError, SandboxPortPublisher};
 use moatless_types::access_control::ScopeContext;
 use moatless_workspace_types::schemas::repository::ScriptConfig;
-use sandbox_proto::client::SandboxConnector;
+use sandbox_proto::TaskScript;
+use sandbox_proto::client::{SandboxConnector, classify_grpc_error};
 
 /// Everything `scripts.run` reaches that the terminal path does not already
 /// hand it; conversation, sandbox and terminal handles are passed through from
@@ -51,6 +54,15 @@ pub enum ScriptsError {
     /// The Task is readable but declares no Script by that id.
     #[error("no script named {0}")]
     ScriptNotFound(String),
+    /// The Task's own Scripts could not be read or written. A stopped sandbox
+    /// arrives here as [`SandboxError::NotReady`], a rejected name as
+    /// [`SandboxError::BadRequest`].
+    #[error("the task's own scripts could not be reached")]
+    Sandbox(#[source] SandboxError),
+    /// A submitted field is not one this surface can store. Carries the whole
+    /// refusal, which names the field and what it would accept.
+    #[error("{0}")]
+    Invalid(String),
     /// The port could not be published. A reserved port arrives here as
     /// [`SandboxError::BadRequest`]; a stopped sandbox as
     /// [`SandboxError::NotReady`].
@@ -79,36 +91,136 @@ fn required_str<'a>(payload: &'a Value, field: &'static str) -> Result<&'a str, 
         .ok_or(ScriptsError::Malformed(field))
 }
 
-/// The Scripts a Task's Workspace declares — the same read [`run`] resolves a
-/// Script id against, for a caller that only wants to enumerate them (`moat
-/// tasks scripts list`, over HTTP rather than the RPC/WS surface).
-pub(crate) async fn list(
+/// One Script a Task can run, and where it was declared.
+pub struct ResolvedScript {
+    pub config: ScriptConfig,
+    /// Declared on this Task and stored in its sandbox, rather than on its
+    /// Workspace. A Task Script runs on this Task alone, which is what a
+    /// Workspace one cannot do.
+    pub task_scoped: bool,
+}
+
+/// Every Script a Task can run, and whether its own were readable.
+pub(crate) struct Resolved {
+    pub scripts: Vec<ResolvedScript>,
+    /// Why the Task's own Scripts were left out, when they were. A name absent
+    /// from `scripts` may still be declared, so a caller resolving one reports
+    /// this rather than "no such script".
+    pub own_unread: Option<SandboxError>,
+}
+
+/// Every Script this Task can run: its Workspace's, with its own merged over
+/// them, a Task Script shadowing a Workspace Script of the same name.
+///
+/// The Workspace read is the authorization gate — `None` from it is
+/// [`ScriptsError::NotFound`]. A sandbox that cannot be read costs the Task's
+/// own Scripts and not the Workspace's, reported on [`Resolved::own_unread`].
+pub(crate) async fn resolve(
     state: &ScriptsState,
+    sandboxes: &dyn SandboxConnector,
     viewer: &ScopeContext,
     task_id: &str,
-) -> Result<Vec<ScriptConfig>, ScriptsError> {
-    state
+) -> Result<Resolved, ScriptsError> {
+    let workspace = state
         .workspaces
         .scripts_for_task(viewer, task_id)
         .await?
-        .ok_or(ScriptsError::NotFound)
+        .ok_or(ScriptsError::NotFound)?;
+
+    let (own, own_unread) = match read_own(sandboxes, task_id).await {
+        Ok(own) => (own, None),
+        Err(error) => {
+            debug!(%error, task_id, "A task's own scripts were not read");
+            (BTreeMap::new(), Some(error))
+        }
+    };
+
+    Ok(Resolved {
+        scripts: merge(workspace, own),
+        own_unread,
+    })
+}
+
+/// The Workspace's Scripts with the Task's own over them, the Task's winning a
+/// shared name as the more specific of the two.
+fn merge(workspace: Vec<ScriptConfig>, own: BTreeMap<String, ScriptConfig>) -> Vec<ResolvedScript> {
+    let mut scripts: Vec<ResolvedScript> = workspace
+        .into_iter()
+        .filter(|script| !own.contains_key(&script.name))
+        .map(|config| ResolvedScript {
+            config,
+            task_scoped: false,
+        })
+        .collect();
+    scripts.extend(own.into_values().map(|config| ResolvedScript {
+        config,
+        task_scoped: true,
+    }));
+    scripts
+}
+
+/// The Scripts a Task declared on itself, keyed by name.
+async fn read_own(
+    sandboxes: &dyn SandboxConnector,
+    task_id: &str,
+) -> Result<BTreeMap<String, ScriptConfig>, SandboxError> {
+    let client = sandboxes.sandbox_client(task_id).await?;
+    let scripts = client
+        .get_task_scripts(task_id)
+        .await
+        .map_err(|status| classify_grpc_error(status, "get_task_scripts"))?;
+    Ok(scripts
+        .into_iter()
+        .map(|(name, script)| (name, stored_script(script)))
+        .collect())
+}
+
+/// One stored Task Script as the shape the rest of this module runs.
+///
+/// `env_vars` is always `None`: a Task Script is declared over a surface a
+/// task-scoped bearer key reaches, which does not carry the workspace-level
+/// access a pinned secret would assume, so the wire has no field for it.
+fn stored_script(script: TaskScript) -> ScriptConfig {
+    ScriptConfig {
+        name: script.name,
+        label: script.label,
+        command: script.command,
+        icon: script.icon,
+        // A port past a `u16` is not a port; the sandbox refuses one on the way
+        // in, so anything else on disk is dropped rather than failing the read.
+        port: script.port.and_then(|port| u16::try_from(port).ok()),
+        env_vars: None,
+        run_on_start: script.run_on_start,
+    }
+}
+
+/// Every Script a Task can run, for a caller that only wants to enumerate them
+/// (`moat tasks scripts list`, over HTTP rather than the RPC/WS surface).
+pub(crate) async fn list(
+    state: &ScriptsState,
+    sandboxes: &dyn SandboxConnector,
+    viewer: &ScopeContext,
+    task_id: &str,
+) -> Result<Vec<ResolvedScript>, ScriptsError> {
+    Ok(resolve(state, sandboxes, viewer, task_id).await?.scripts)
 }
 
 /// A Script as `moat tasks scripts list` reports it.
 ///
 /// Omits `env_vars`: a task-scoped bearer key reads this route without the
 /// workspace-level access a pinned secret would assume.
-pub fn public_script_list(scripts: &[ScriptConfig]) -> Vec<Value> {
+pub fn public_script_list(scripts: &[ResolvedScript]) -> Vec<Value> {
     scripts
         .iter()
         .map(|script| {
             json!({
-                "name": script.name,
-                "label": script.label,
-                "command": script.command,
-                "icon": script.icon,
-                "port": script.port,
-                "runOnStart": script.run_on_start,
+                "name": script.config.name,
+                "label": script.config.label,
+                "command": script.config.command,
+                "icon": script.config.icon,
+                "port": script.config.port,
+                "runOnStart": script.config.run_on_start,
+                "scope": if script.task_scoped { "task" } else { "workspace" },
             })
         })
         .collect()
@@ -131,15 +243,21 @@ pub(crate) async fn run(
     let task_id = required_str(payload, "threadId")?;
     let script_id = required_str(payload, "scriptId")?;
 
-    let scripts = state
-        .workspaces
-        .scripts_for_task(viewer, task_id)
-        .await?
-        .ok_or(ScriptsError::NotFound)?;
-    let script = scripts
+    let resolved = resolve(state, sandboxes, viewer, task_id).await?;
+    let script = match resolved
+        .scripts
         .into_iter()
-        .find(|script| script.name == script_id)
-        .ok_or_else(|| ScriptsError::ScriptNotFound(script_id.to_string()))?;
+        .find(|script| script.config.name == script_id)
+    {
+        Some(script) => script.config,
+        // A name this call could not look up is not a name that is absent.
+        None => {
+            return Err(match resolved.own_unread {
+                Some(error) => ScriptsError::Sandbox(error),
+                None => ScriptsError::ScriptNotFound(script_id.to_string()),
+            });
+        }
+    };
 
     // The port first: it is a secondary product of the call (the console is the
     // primary one), so a route failure yields no URL rather than failing the
@@ -219,6 +337,105 @@ pub(crate) async fn run(
         "url": url,
         "previewTabId": preview_tab_id,
     }))
+}
+
+/// Declare `name` on this Task alone, replacing whatever it held under that
+/// name.
+///
+/// Stored in the Task's sandbox under `WORKSPACE_DIR`, so it rides the
+/// workspace snapshot into a replacement pod rather than editing the Workspace,
+/// which would put a control on every Task under it.
+pub(crate) async fn declare(
+    state: &ScriptsState,
+    sandboxes: &dyn SandboxConnector,
+    viewer: &ScopeContext,
+    task_id: &str,
+    name: &str,
+    payload: &Value,
+) -> Result<ScriptConfig, ScriptsError> {
+    authorize(state, viewer, task_id).await?;
+    let script = TaskScript {
+        name: name.to_string(),
+        command: required_str(payload, "command")?.to_string(),
+        label: optional_str(payload, "label").filter(|label| label != name),
+        icon: optional_str(payload, "icon").filter(|icon| projection::is_script_icon(icon)),
+        port: port(payload)
+            .map_err(|error| ScriptsError::Invalid(error.to_string()))?
+            .map(u32::from),
+        run_on_start: payload
+            .get("runOnStart")
+            .and_then(Value::as_bool)
+            .unwrap_or_default(),
+    };
+    apply_own(sandboxes, task_id, script.clone(), false).await?;
+    Ok(stored_script(script))
+}
+
+/// Drop the Script `name` declares on this Task, leaving any Workspace Script
+/// of the same name in place.
+///
+/// Removing one that was never declared succeeds.
+pub(crate) async fn remove(
+    state: &ScriptsState,
+    sandboxes: &dyn SandboxConnector,
+    viewer: &ScopeContext,
+    task_id: &str,
+    name: &str,
+) -> Result<(), ScriptsError> {
+    authorize(state, viewer, task_id).await?;
+    apply_own(
+        sandboxes,
+        task_id,
+        TaskScript {
+            name: name.to_string(),
+            ..TaskScript::default()
+        },
+        true,
+    )
+    .await
+}
+
+/// The scoped Workspace read every Task Script write goes through first.
+///
+/// A Task Script is stored in the sandbox, which has no viewer scoping of its
+/// own, so this is the only thing standing between a viewer and another
+/// tenant's Task.
+async fn authorize(
+    state: &ScriptsState,
+    viewer: &ScopeContext,
+    task_id: &str,
+) -> Result<(), ScriptsError> {
+    state
+        .workspaces
+        .scripts_for_task(viewer, task_id)
+        .await?
+        .ok_or(ScriptsError::NotFound)?;
+    Ok(())
+}
+
+async fn apply_own(
+    sandboxes: &dyn SandboxConnector,
+    task_id: &str,
+    script: TaskScript,
+    remove: bool,
+) -> Result<(), ScriptsError> {
+    sandboxes
+        .sandbox_client(task_id)
+        .await
+        .map_err(ScriptsError::Sandbox)?
+        .apply_task_script(task_id, script, remove)
+        .await
+        .map_err(|status| ScriptsError::Sandbox(classify_grpc_error(status, "apply_task_script")))
+}
+
+/// A trimmed, non-empty string field, or `None`.
+fn optional_str(payload: &Value, field: &str) -> Option<String> {
+    payload
+        .get(field)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
 }
 
 /// The line written into a freshly opened shell to run `command` as that shell,
@@ -466,5 +683,52 @@ mod tests {
                 "{script}"
             );
         }
+    }
+
+    fn config(name: &str, command: &str) -> ScriptConfig {
+        ScriptConfig {
+            name: name.to_string(),
+            label: None,
+            command: command.to_string(),
+            icon: None,
+            port: None,
+            env_vars: None,
+            run_on_start: false,
+        }
+    }
+
+    /// Declaring `demo` on one Task is how a Workspace Script is overridden for
+    /// that Task alone, so the Workspace's copy must not be listed beside it or
+    /// `run demo` has two candidates.
+    #[test]
+    fn a_task_script_shadows_the_workspace_script_of_the_same_name() {
+        let own = BTreeMap::from([("demo".to_string(), config("demo", "python3 -m http.server"))]);
+        let merged = merge(
+            vec![config("dev", "bun dev"), config("demo", "bun demo")],
+            own,
+        );
+
+        let demo: Vec<_> = merged
+            .iter()
+            .filter(|script| script.config.name == "demo")
+            .collect();
+        assert_eq!(demo.len(), 1, "one `demo`, not both");
+        assert_eq!(demo[0].config.command, "python3 -m http.server");
+        assert!(demo[0].task_scoped);
+
+        let dev = merged
+            .iter()
+            .find(|script| script.config.name == "dev")
+            .expect("the workspace's other script survives");
+        assert!(!dev.task_scoped);
+    }
+
+    /// A Task that declared nothing still runs its Workspace's Scripts, all
+    /// reported as the Workspace's.
+    #[test]
+    fn a_task_with_no_scripts_of_its_own_lists_its_workspace_unchanged() {
+        let merged = merge(vec![config("dev", "bun dev")], BTreeMap::new());
+        assert_eq!(merged.len(), 1);
+        assert!(!merged[0].task_scoped);
     }
 }

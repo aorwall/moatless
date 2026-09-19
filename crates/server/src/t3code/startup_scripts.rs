@@ -1,5 +1,5 @@
-//! Starting a Workspace's `run_on_start` Scripts when the Sandbox reports
-//! Ready.
+//! Starting a Task's `run_on_start` Scripts — its Workspace's and its own —
+//! when the Sandbox reports Ready.
 //!
 //! The trigger half of [`StartupScripts`]: the Sandbox becoming Ready is the
 //! event, and both runtimes publish it once per operation generation

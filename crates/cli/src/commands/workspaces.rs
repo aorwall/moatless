@@ -682,11 +682,7 @@ fn print_scripts_result(updated: &WorkspaceResponse, json: bool) {
     }
 }
 
-/// One line per script; a multi-line command is folded onto one line for the
-/// table (display only — the stored command is untouched).
-///
-/// Shared with `moat tasks scripts list`, which renders the same declarations
-/// from the task-scoped read.
+/// One line per script this workspace declares.
 pub(crate) fn format_scripts_list(scripts: &[ScriptConfig]) {
     let rows: Vec<Vec<String>> = scripts
         .iter()
@@ -703,7 +699,9 @@ pub(crate) fn format_scripts_list(scripts: &[ScriptConfig]) {
     output::print_table(&["NAME", "LABEL", "COMMAND", "PORT", "ON START"], &rows);
 }
 
-fn summarize_command(command: &str) -> String {
+/// A multi-line command folded onto one line for a table (display only — the
+/// stored command is untouched).
+pub(crate) fn summarize_command(command: &str) -> String {
     let one_line = command.replace('\n', " \u{23ce} ");
     if one_line.chars().count() > 60 {
         format!("{}...", one_line.chars().take(57).collect::<String>())

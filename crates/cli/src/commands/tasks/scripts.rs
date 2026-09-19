@@ -1,29 +1,71 @@
-//! The task-scoped half of Scripts: running what a workspace already declares.
-//! Declaring one is `moat workspaces scripts`.
+//! The task-scoped half of Scripts: declaring one on this task alone, and
+//! running it or anything its workspace declares.
+//!
+//! `moat workspaces scripts` declares on the workspace, which puts the script on
+//! every task under it; `run --command` declares on this task only. The record
+//! lives in the sandbox under `WORKSPACE_DIR`, so it survives a restart and `run
+//! <name>` alone starts it again afterwards.
 
 use crate::client::{ClientError, MoatClient};
-use crate::commands::workspaces::format_scripts_list;
+use crate::commands::workspaces::summarize_command;
 use crate::output;
 use clap::Subcommand;
-use moatless_workspace_types::schemas::workspace::ScriptConfig;
+use serde::Deserialize;
 
 #[derive(Subcommand)]
 pub enum TaskScriptAction {
-    /// List the scripts this task's workspace declares. See `moat workspaces
-    /// scripts add` to declare one
+    /// List the scripts this task can run: its workspace's, plus its own
     List,
-    /// Start a declared script, or attach to it if it's already running
-    /// (running twice attaches rather than starting a second copy)
+    /// Start a script, or attach to it if it's already running (running twice
+    /// attaches rather than starting a second copy). With --command, declare it
+    /// on this task first
     Run {
-        /// Script id, as declared on the workspace (see `list`)
+        /// Script id: one from `list`, or a new name to declare with --command
+        name: String,
+        /// Shell command to run. Declares the script on this task alone,
+        /// replacing whatever it held under this name
+        #[arg(long)]
+        command: Option<String>,
+        /// Port the command serves, which is what earns it a preview URL and a
+        /// browser tab in the T3 UI
+        #[arg(long)]
+        port: Option<u16>,
+        /// Display name in the T3 UI
+        #[arg(long)]
+        label: Option<String>,
+        /// Icon name in the T3 UI
+        #[arg(long)]
+        icon: Option<String>,
+        /// Start this script again whenever the sandbox becomes ready
+        #[arg(long)]
+        run_on_start: bool,
+    },
+    /// Drop a script this task declared on itself, leaving any workspace script
+    /// of the same name in place
+    Remove {
+        /// Script id, as listed with scope `task`
         name: String,
     },
 }
 
-/// Lists or starts a script, via a REST wrapper around the same `scripts.run`
-/// the T3 UI's chat header uses (`scripts_run_http`).
+/// One entry of the task's script list, as `public_script_list` writes it.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ListedScript {
+    name: String,
+    label: Option<String>,
+    command: String,
+    port: Option<u16>,
+    run_on_start: bool,
+    /// `"task"` or `"workspace"`. A backend from before task scripts omits it,
+    /// and everything it lists is a workspace script.
+    scope: Option<String>,
+}
+
+/// Lists, declares, starts or drops a script, over the same HTTP routes the T3
+/// UI uses (`scripts_run_http` and its siblings).
 ///
-/// A plain bearer-key HTTP route — no WebSocket ticket needed.
+/// Plain bearer-key routes — no WebSocket ticket needed.
 pub(super) async fn run_task_script_action(
     client: &MoatClient,
     task_id: &str,
@@ -36,26 +78,35 @@ pub(super) async fn run_task_script_action(
                 .raw_get(&format!("/api/orchestration/scripts/{task_id}"))
                 .await
                 .map_err(|e| friendlier_scripts_error(e, task_id))?;
-            let scripts: Vec<ScriptConfig> = serde_json::from_value(
-                resp.get("scripts")
-                    .cloned()
-                    .unwrap_or(serde_json::Value::Array(vec![])),
-            )
-            .map_err(|e| ClientError::Other(format!("Unexpected response: {e}")))?;
+            let listed = resp
+                .get("scripts")
+                .cloned()
+                .unwrap_or(serde_json::Value::Array(vec![]));
             if json {
-                output::print_json_typed(&scripts);
-            } else if scripts.is_empty() {
+                output::print_json_typed(&listed);
+                return Ok(());
+            }
+            let scripts: Vec<ListedScript> = serde_json::from_value(listed)
+                .map_err(|e| ClientError::Other(format!("Unexpected response: {e}")))?;
+            if scripts.is_empty() {
                 println!("No scripts declared for task {task_id}.");
             } else {
-                format_scripts_list(&scripts);
+                format_task_scripts_list(&scripts);
             }
         }
-        TaskScriptAction::Run { name } => {
+        TaskScriptAction::Run {
+            name,
+            command,
+            port,
+            label,
+            icon,
+            run_on_start,
+        } => {
             let script_id = urlencoding::encode(&name);
             let resp = client
                 .raw_post(
                     &format!("/api/orchestration/scripts/{task_id}/{script_id}/run"),
-                    &serde_json::json!({}),
+                    &declaration(command, port, label, icon, run_on_start),
                 )
                 .await
                 .map_err(|e| friendlier_scripts_error(e, task_id))?;
@@ -67,8 +118,71 @@ pub(super) async fn run_task_script_action(
                 }
             }
         }
+        TaskScriptAction::Remove { name } => {
+            let script_id = urlencoding::encode(&name);
+            let resp = client
+                .raw_delete(&format!("/api/orchestration/scripts/{task_id}/{script_id}"))
+                .await
+                .map_err(|e| friendlier_scripts_error(e, task_id))?;
+            if json {
+                output::print_json_typed(&resp);
+            } else {
+                println!("Removed \"{name}\" from task {task_id}.");
+            }
+        }
     }
     Ok(())
+}
+
+/// The body `run` posts. Without `--command` it declares nothing and the
+/// backend runs whatever is already declared, so the other flags are dropped
+/// rather than half-declaring a script with no command.
+fn declaration(
+    command: Option<String>,
+    port: Option<u16>,
+    label: Option<String>,
+    icon: Option<String>,
+    run_on_start: bool,
+) -> serde_json::Value {
+    let Some(command) = command else {
+        return serde_json::json!({});
+    };
+    serde_json::json!({
+        "command": command,
+        "port": port,
+        "label": label,
+        "icon": icon,
+        "runOnStart": run_on_start,
+    })
+}
+
+/// One line per script, with where it was declared.
+///
+/// Not [`crate::commands::workspaces::format_scripts_list`]: this list merges
+/// two scopes, and which one a script came from is what says whether `moat
+/// workspaces scripts update` or `moat tasks scripts remove` is the way to
+/// change it.
+fn format_task_scripts_list(scripts: &[ListedScript]) {
+    output::print_table(
+        &["NAME", "SCOPE", "LABEL", "COMMAND", "PORT", "ON START"],
+        &script_rows(scripts),
+    );
+}
+
+fn script_rows(scripts: &[ListedScript]) -> Vec<Vec<String>> {
+    scripts
+        .iter()
+        .map(|s| {
+            vec![
+                s.name.clone(),
+                s.scope.clone().unwrap_or_else(|| "workspace".to_string()),
+                s.label.clone().unwrap_or_default(),
+                summarize_command(&s.command),
+                s.port.map(|p| p.to_string()).unwrap_or_default(),
+                if s.run_on_start { "yes" } else { "" }.to_string(),
+            ]
+        })
+        .collect()
 }
 
 /// What `run` did, as lines to print.
@@ -133,7 +247,7 @@ fn run_report(name: &str, resp: &serde_json::Value) -> Vec<String> {
             }
         }
         None => lines.push(
-            "No port declared, so no preview — open the T3 UI to watch its output, or add --port with `moat workspaces scripts update`."
+            "No port declared, so no preview — open the T3 UI to watch its output, or re-run with --command and --port."
                 .to_string(),
         ),
     }
@@ -213,5 +327,45 @@ mod tests {
         assert!(lines.contains("Ran \"preview-static\""), "{lines}");
         assert!(lines.contains("does not say whether"), "{lines}");
         assert!(lines.contains("No port declared"), "{lines}");
+    }
+
+    fn rows(listed: serde_json::Value) -> Vec<Vec<String>> {
+        script_rows(&serde_json::from_value::<Vec<ListedScript>>(listed).expect("list parses"))
+    }
+
+    /// Which scope a script came from is what says whether `moat tasks scripts
+    /// remove` can drop it or the workspace has to be edited.
+    #[test]
+    fn the_scope_column_separates_a_task_script_from_a_workspace_one() {
+        let rows = rows(json!([
+            { "name": "dev", "command": "bun dev", "runOnStart": true, "scope": "workspace" },
+            { "name": "demo", "command": "python3 -m http.server 4321", "port": 4321,
+              "runOnStart": false, "scope": "task" },
+        ]));
+        assert_eq!(rows[0][0..2], ["dev".to_string(), "workspace".to_string()]);
+        assert_eq!(rows[1][0..2], ["demo".to_string(), "task".to_string()]);
+        assert_eq!(rows[1][4], "4321");
+    }
+
+    /// A backend from before task scripts lists only workspace ones, so an
+    /// absent field is that scope rather than an empty column.
+    #[test]
+    fn a_response_without_a_scope_reads_as_a_workspace_script() {
+        let rows = rows(json!([{ "name": "dev", "command": "bun dev", "runOnStart": false }]));
+        assert_eq!(rows[0][1], "workspace");
+    }
+
+    /// Without `--command` nothing is declared, so sending a port would ask the
+    /// backend to store a script with no command to run.
+    #[test]
+    fn the_other_flags_are_dropped_when_no_command_is_given() {
+        assert_eq!(declaration(None, Some(4321), None, None, true), json!({}));
+        assert_eq!(
+            declaration(Some("serve".into()), Some(4321), None, None, true),
+            json!({
+                "command": "serve", "port": 4321, "label": null, "icon": null,
+                "runOnStart": true,
+            })
+        );
     }
 }

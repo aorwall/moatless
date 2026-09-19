@@ -106,16 +106,23 @@ pub(crate) async fn thread_snapshot_http(
     }
 }
 
-/// A Task's declared Scripts, for a caller outside the RPC/WS surface (`moat
-/// tasks scripts list`) — the same read `scripts.run` resolves a Script id
-/// against.
+/// A Task's Scripts, for a caller outside the RPC/WS surface (`moat tasks
+/// scripts list`) — the same read `scripts.run` resolves a Script id against,
+/// so it carries the Task's own Scripts as well as its Workspace's.
 pub(crate) async fn scripts_list_http(
     State(state): State<UiRpcState>,
     Extension(identity): Extension<UiRpcAuthIdentity>,
     Path(thread_id): Path<String>,
 ) -> Response {
     let viewer = viewer_scope(&identity);
-    match scripts::list(&state.scripts, &viewer, &thread_id).await {
+    match scripts::list(
+        &state.scripts,
+        state.sandboxes.as_ref(),
+        &viewer,
+        &thread_id,
+    )
+    .await
+    {
         Ok(scripts) => {
             Json(json!({ "scripts": scripts::public_script_list(&scripts) })).into_response()
         }
@@ -123,15 +130,90 @@ pub(crate) async fn scripts_list_http(
     }
 }
 
-/// Start a Task's declared Script from outside the RPC/WS surface (`moat tasks
-/// scripts run`). Same effect as `scripts.run`: execs into a named terminal
-/// session, publishing the Script's port first if it declares one.
-pub(crate) async fn scripts_run_http(
+/// Declare a Script on this Task alone (`moat tasks scripts run --command`).
+///
+/// Nothing is written to the Workspace, so no other Task under it gains a
+/// control; the record lives in this Task's sandbox.
+pub(crate) async fn scripts_declare_http(
+    State(state): State<UiRpcState>,
+    Extension(identity): Extension<UiRpcAuthIdentity>,
+    Path((thread_id, script_id)): Path<(String, String)>,
+    body: String,
+) -> Response {
+    let viewer = viewer_scope(&identity);
+    let payload = match request_payload(&body) {
+        Ok(payload) => payload,
+        Err(detail) => return scripts_error_response(&ScriptsError::Invalid(detail)),
+    };
+    match scripts::declare(
+        &state.scripts,
+        state.sandboxes.as_ref(),
+        &viewer,
+        &thread_id,
+        &script_id,
+        &payload,
+    )
+    .await
+    {
+        Ok(script) => Json(json!({ "script": script.name })).into_response(),
+        Err(error) => scripts_error_response(&error),
+    }
+}
+
+/// Drop a Script this Task declared on itself; a Workspace Script of the same
+/// name is untouched and becomes visible again.
+pub(crate) async fn scripts_remove_http(
     State(state): State<UiRpcState>,
     Extension(identity): Extension<UiRpcAuthIdentity>,
     Path((thread_id, script_id)): Path<(String, String)>,
 ) -> Response {
     let viewer = viewer_scope(&identity);
+    match scripts::remove(
+        &state.scripts,
+        state.sandboxes.as_ref(),
+        &viewer,
+        &thread_id,
+        &script_id,
+    )
+    .await
+    {
+        Ok(()) => Json(json!({ "removed": script_id })).into_response(),
+        Err(error) => scripts_error_response(&error),
+    }
+}
+
+/// Start a Task's Script from outside the RPC/WS surface (`moat tasks scripts
+/// run`). Same effect as `scripts.run`: execs into a named terminal session,
+/// publishing the Script's port first if it declares one.
+///
+/// A body carrying `command` declares the Script on this Task first, which is
+/// what makes an ad-hoc server one call rather than two.
+pub(crate) async fn scripts_run_http(
+    State(state): State<UiRpcState>,
+    Extension(identity): Extension<UiRpcAuthIdentity>,
+    Path((thread_id, script_id)): Path<(String, String)>,
+    body: String,
+) -> Response {
+    let viewer = viewer_scope(&identity);
+    let declaration = match request_payload(&body) {
+        Ok(payload) => payload,
+        Err(detail) => return scripts_error_response(&ScriptsError::Invalid(detail)),
+    };
+    if declaration.get("command").is_some() {
+        if let Err(error) = scripts::declare(
+            &state.scripts,
+            state.sandboxes.as_ref(),
+            &viewer,
+            &thread_id,
+            &script_id,
+            &declaration,
+        )
+        .await
+        {
+            return scripts_error_response(&error);
+        }
+    }
+
     let payload = json!({ "threadId": thread_id, "scriptId": script_id });
     match scripts::run(
         &state.scripts,
@@ -146,6 +228,19 @@ pub(crate) async fn scripts_run_http(
         Ok(result) => Json(result).into_response(),
         Err(error) => scripts_error_response(&error),
     }
+}
+
+/// The request body as an object, or why it is not one. An empty body is an
+/// empty object, since `moat tasks scripts run` sends no fields when it is only
+/// starting a Script.
+///
+/// Returns the detail rather than a built `Response`: an `Err` holding one
+/// trips `clippy::result_large_err`.
+fn request_payload(body: &str) -> Result<Value, String> {
+    if body.trim().is_empty() {
+        return Ok(json!({}));
+    }
+    serde_json::from_str(body).map_err(|error| format!("Body is not JSON: {error}"))
 }
 
 pub(crate) async fn websocket_upgrade(
@@ -239,6 +334,33 @@ pub(crate) fn scripts_error_response(error: &ScriptsError) -> Response {
             Json(json!({ "error": detail.clone() })),
         )
             .into_response(),
+        ScriptsError::Invalid(detail) => (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": detail.clone() })),
+        )
+            .into_response(),
+        // The same `code` a port refusal carries: reaching the Task's own
+        // Scripts needs the sandbox running, and starting it is the fix.
+        // `NotFound` is that state too — a pod that has not registered this Task
+        // yet answers it — so it is a refusal to retry, not a defect.
+        ScriptsError::Sandbox(SandboxError::NotReady(_) | SandboxError::NotFound(_)) => (
+            StatusCode::CONFLICT,
+            Json(json!({ "error": "Sandbox not running.", "code": "SANDBOX_NOT_RUNNING" })),
+        )
+            .into_response(),
+        ScriptsError::Sandbox(SandboxError::BadRequest(detail)) => (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": detail.clone() })),
+        )
+            .into_response(),
+        ScriptsError::Sandbox(cause) => {
+            warn!(%cause, "A task's own scripts could not be reached");
+            (
+                StatusCode::BAD_GATEWAY,
+                Json(json!({ "error": "The task's own scripts could not be reached." })),
+            )
+                .into_response()
+        }
         ScriptsError::Port(cause) => {
             warn!(%cause, "scripts.run could not publish the port");
             (

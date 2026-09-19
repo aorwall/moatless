@@ -577,6 +577,19 @@ pub(crate) fn scripts_failure_exit(
             debug!(%name, user_id = %identity.user_id, "scripts.run: no such script");
             failure_exit(request_id, format!("No script named \"{name}\"."))
         }
+        ScriptsError::Sandbox(SandboxError::NotReady(_) | SandboxError::NotFound(_)) => {
+            debug!(?error, user_id = %identity.user_id, "scripts.run refused: sandbox not running");
+            typed_failure_exit(request_id, sandbox_not_running(thread_id))
+        }
+        ScriptsError::Sandbox(SandboxError::BadRequest(detail)) => {
+            debug!(%detail, user_id = %identity.user_id, "scripts.run refused the task's own scripts");
+            failure_exit(request_id, detail.clone())
+        }
+        ScriptsError::Sandbox(cause) => {
+            warn!(%cause, user_id = %identity.user_id, "A task's own scripts could not be reached");
+            failure_exit(request_id, "The task's own scripts could not be reached.")
+        }
+        ScriptsError::Invalid(detail) => failure_exit(request_id, detail.clone()),
         ScriptsError::NotFound => {
             debug!(user_id = %identity.user_id, "scripts.run: conversation not found");
             failure_exit(request_id, "Conversation not found.")

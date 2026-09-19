@@ -19,6 +19,14 @@ fn unreachable(task_id: &str) -> SandboxError {
     SandboxError::NotReady(task_id.to_string())
 }
 
+pub(super) fn unreachable_sandboxes() -> Arc<dyn sandbox_proto::client::SandboxConnector> {
+    Arc::new(UnreachableSandboxes)
+}
+
+pub(super) fn unreachable_ports() -> Arc<dyn SandboxPortPublisher> {
+    Arc::new(UnreachableSandboxes)
+}
+
 #[async_trait]
 impl SandboxConnector for UnreachableSandboxes {
     async fn sandbox_client(
