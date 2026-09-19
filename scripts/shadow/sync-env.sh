@@ -14,10 +14,29 @@ set -euo pipefail
 
 DEPLOY="${SHADOW_BACKEND_DEPLOY:-moatless-vibe-backend}"
 CONTAINER="${SHADOW_BACKEND_CONTAINER:-backend}"
-OUT="${1:-${SHADOW_ENV_FILE:-/opt/moatless/data/shadow/backend.env}}"
+RUNTIME_DIR="${RUNTIME_DIR:-/run/moatless}"
+OUT="${1:-${SHADOW_ENV_FILE:-${RUNTIME_DIR}/shadow/backend.env}}"
 
 # Namespace: prefer the pod's own, fall back to the configured sandbox namespace.
 NS="${SHADOW_NAMESPACE:-$(cat /var/run/secrets/kubernetes.io/serviceaccount/namespace 2>/dev/null || echo moatless)}"
+
+# This file holds TASK_TOKEN_SECRET, DATABASE_URL and ~135 other resolved
+# secrets, so crates/sandbox/AGENTS.md keeps it out of DATA_DIR and
+# WORKSPACE_DIR, which every server sidecar mounts. Refuse a caller-supplied
+# path there rather than warn: a default alone leaves the old path passable.
+# `realpath -m` resolves a path that does not exist yet, so this runs before
+# the mkdir below and creates nothing under a directory it is about to reject.
+OUT_ABS="$(realpath -m "$OUT")"
+for FORBIDDEN in "${DATA_DIR:-/opt/moatless/data}" "${WORKSPACE_DIR:-/opt/moatless/workspace}"; do
+  FORBIDDEN_ABS="$(realpath -m "$FORBIDDEN")"
+  case "$OUT_ABS" in
+    "$FORBIDDEN_ABS"/*)
+      echo "ERROR: refusing to write resolved secrets to ${OUT_ABS}" >&2
+      echo "       (inside ${FORBIDDEN_ABS}; credentials belong under RUNTIME_DIR=${RUNTIME_DIR})" >&2
+      exit 1
+      ;;
+  esac
+done
 
 mkdir -p "$(dirname "$OUT")"
 

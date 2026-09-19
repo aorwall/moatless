@@ -38,7 +38,7 @@ if [ "$PROFILE" = "release" ]; then
 else
   SOURCE_STAMP=""
 fi
-ENV_FILE="${SHADOW_ENV_FILE:-/opt/moatless/data/shadow/backend.env}"
+ENV_FILE="${SHADOW_ENV_FILE:-${RUNTIME_DIR:-/run/moatless}/shadow/backend.env}"
 TRIGGER="${SHADOW_TRIGGER:-/opt/moatless/data/shadow/rebuild.trigger}"
 BAKED_COMMIT=""
 mkdir -p "$(dirname "$TRIGGER")"

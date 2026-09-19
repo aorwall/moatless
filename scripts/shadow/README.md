@@ -301,7 +301,11 @@ shadow. To fully act like the backend:
 
 ## Files
 
-- `sync-env.sh` — resolve live backend env + secrets → sourceable env file
+- `sync-env.sh` — resolve live backend env + secrets → sourceable env file, by
+  default `$RUNTIME_DIR/shadow/backend.env` (`/run/moatless/shadow/backend.env`).
+  It refuses a target under `DATA_DIR` or `WORKSPACE_DIR`: the file holds
+  `TASK_TOKEN_SECRET`, `DATABASE_URL` and ~135 other secrets, and every server
+  sidecar mounts those two directories. Override with `SHADOW_ENV_FILE`.
 - `up.sh` — sync + build + run the backend, watch for rebuilds
 - `rebuild.sh` — compile + trigger a restart
 - `workspaces.shadow.json` — workspace declaring the backend server (copy to `.moatless/workspaces.json`)
