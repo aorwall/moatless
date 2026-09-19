@@ -79,6 +79,21 @@ async fn the_descriptor_advertises_thread_browse() {
     );
 }
 
+/// A client without this key lists a thread's project's Scripts and never
+/// sends `scripts.listForThread`, so a Script the agent declared on the Task
+/// stays out of reach of the control that would run it.
+#[tokio::test]
+async fn the_descriptor_advertises_the_per_thread_script_listing() {
+    let frame = request("1", "server.getConfig", json!({}));
+    let mut connection = connection();
+    let output = connection.exchange(&frame, &state(), &viewer()).await;
+
+    assert_eq!(
+        output.frames[0]["exit"]["value"]["environment"]["capabilities"]["taskScripts"],
+        json!(true)
+    );
+}
+
 /// The two keys the composer reads before choosing how to send a file.
 /// Reporting `attachmentUploads` also moves images off the inline data-URL
 /// path; report both or the attachment is lost.

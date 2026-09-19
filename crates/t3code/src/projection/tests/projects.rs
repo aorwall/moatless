@@ -204,6 +204,10 @@ fn declared_scripts_become_scripts_and_servers_do_not() {
         scripts[1].get("previewUrl").is_none(),
         "a bare port is not a URL, so the field is left out"
     );
+    assert!(
+        scripts[0].get("scope").is_none(),
+        "only the merged per-thread listing says where a script came from"
+    );
 }
 
 #[test]

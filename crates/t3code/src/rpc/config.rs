@@ -76,6 +76,11 @@ pub(crate) fn descriptor(config: &UiRpcConfig) -> Value {
             // server omits this key and answers `scripts.run` with
             // `UnsupportedMethodError`.
             "workspaceScripts": true,
+            // Whether `scripts.listForThread` is understood. A Task may declare
+            // Scripts of its own, which its project does not carry and its
+            // project's listing therefore cannot show; a client without this
+            // key lists the project's alone and never asks.
+            "taskScripts": true,
             // Whether `thread.pull-request.link` and `.unlink` are understood,
             // and whether a conversation row carries `pullRequests`. One flag
             // for the set: a client that cannot read the current links has

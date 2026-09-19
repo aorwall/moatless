@@ -25,6 +25,7 @@ pub(crate) use detail::thread_detail;
 pub(crate) use events::change_events;
 pub(crate) use origin::OriginContext;
 pub(crate) use project::is_script_icon;
+pub(crate) use project::ui_script;
 pub(crate) use search::thread_matches;
 pub(crate) use shell::listed_threads;
 pub(crate) use shell::shell_snapshot;

@@ -6,12 +6,14 @@ use crate::authentication::viewer_scope;
 use crate::rpc::frames::failure_exit;
 use crate::rpc::frames::sandbox_failure_exit;
 use crate::rpc::frames::scripts_failure_exit;
+use crate::rpc::frames::scripts_list_failure_exit;
 use crate::rpc::frames::servers_failure_exit;
 use crate::rpc::frames::servers_not_found;
 use crate::rpc::frames::subtasks_failure_exit;
 use crate::rpc::frames::success_exit;
 use crate::sandbox;
 use crate::scripts;
+use crate::scripts::ScriptsError;
 use crate::servers;
 use crate::servers::ServersError;
 use crate::subtasks;
@@ -40,6 +42,32 @@ pub(super) async fn scripts_run(request: Request) -> Vec<Value> {
     {
         Ok(result) => vec![success_exit(&id, result)],
         Err(error) => vec![scripts_failure_exit(&id, &error, &payload, &identity)],
+    }
+}
+
+pub(super) async fn scripts_list_for_thread(request: Request) -> Vec<Value> {
+    let ThreadRequest {
+        id,
+        viewer,
+        task_id,
+        state,
+        identity,
+        ..
+    } = match request.require_thread_id() {
+        Ok(request) => request,
+        Err(failure) => return failure,
+    };
+    match scripts::list(&state.scripts, state.sandboxes.as_ref(), &viewer, &task_id).await {
+        Ok(scripts) => vec![success_exit(
+            &id,
+            json!({ "scripts": scripts::ui_script_list(&scripts) }),
+        )],
+        // A Thread the viewer cannot read runs no Scripts *for them*, and the
+        // Run control sits in the header of a page they are already looking
+        // at: `servers.list` and `subtasks.list` answer the same condition the
+        // same way, for the same reason.
+        Err(ScriptsError::NotFound) => vec![success_exit(&id, json!({ "scripts": [] }))],
+        Err(error) => vec![scripts_list_failure_exit(&id, &error, &identity)],
     }
 }
 

@@ -100,6 +100,68 @@ async fn a_stopped_sandbox_leaves_the_workspace_scripts_listed_and_says_so() {
     ));
 }
 
+/// The UI listing runs over the same resolve, so a stopped Sandbox leaves the
+/// header's Run control offering the Workspace's Scripts rather than nothing.
+#[tokio::test]
+async fn listing_a_threads_scripts_answers_over_an_unreachable_sandbox() {
+    let mut workspaces = MockT3WorkspaceDao::new();
+    workspaces.expect_scripts_for_task().returning(|_, _| {
+        Ok(Some(vec![ScriptConfig {
+            name: "dev".to_string(),
+            label: Some("Dev server".to_string()),
+            command: "bun dev".to_string(),
+            icon: None,
+            port: Some(3000),
+            env_vars: None,
+            run_on_start: false,
+        }]))
+    });
+    let mut state = state();
+    state.scripts = scripts_state(workspaces);
+
+    let frame = request(
+        "1",
+        "scripts.listForThread",
+        json!({ "threadId": "task-1" }),
+    );
+    let mut connection = connection();
+    let output = connection.exchange(&frame, &state, &viewer()).await;
+
+    let scripts = &output.frames[0]["exit"]["value"]["scripts"];
+    // Exactly the Workspace's one: an unreachable Sandbox must drop the Task's
+    // own Scripts, not leak a half-read entry through beside them.
+    assert_eq!(scripts.as_array().map(Vec::len), Some(1));
+    assert_eq!(scripts[0]["id"], "dev");
+    assert_eq!(scripts[0]["name"], "Dev server");
+    assert_eq!(scripts[0]["scope"], "workspace");
+    assert_eq!(scripts[0]["autoOpenPreview"], true);
+}
+
+/// A Task the viewer cannot read and one that does not exist are one answer,
+/// as everywhere else a scoped read is made — and that answer is an empty
+/// listing, not a failure, because the Run control sits on a page that is
+/// otherwise working.
+#[tokio::test]
+async fn listing_the_scripts_of_a_thread_the_viewer_cannot_read_is_empty() {
+    let mut workspaces = MockT3WorkspaceDao::new();
+    workspaces
+        .expect_scripts_for_task()
+        .returning(|_, _| Ok(None));
+    let mut state = state();
+    state.scripts = scripts_state(workspaces);
+
+    let frame = request(
+        "1",
+        "scripts.listForThread",
+        json!({ "threadId": "task-1" }),
+    );
+    let mut connection = connection();
+    let output = connection.exchange(&frame, &state, &viewer()).await;
+
+    assert_eq!(output.frames[0]["exit"]["_tag"], "Success");
+    assert_eq!(output.frames[0]["exit"]["value"]["scripts"], json!([]));
+}
+
 /// A subscriber's output, for a test asserting on a log line rather than a
 /// return value.
 #[derive(Clone, Default)]

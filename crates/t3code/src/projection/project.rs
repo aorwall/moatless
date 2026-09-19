@@ -8,6 +8,7 @@ use super::scalar::non_empty;
 use super::scalar::timestamp;
 use crate::nominal_path;
 use crate::workspace::{UiRpcListedWorkspace, WorkspaceView as Workspace};
+use moatless_workspace_types::schemas::repository::ScriptConfig;
 
 /// The fields a script is read out of, narrowed from the workspace's stored
 /// config.
@@ -29,6 +30,22 @@ struct UiRpcScriptConfig {
     port: Option<u16>,
     #[serde(default)]
     run_on_start: bool,
+}
+
+impl From<UiRpcScriptConfig> for ScriptConfig {
+    fn from(script: UiRpcScriptConfig) -> Self {
+        ScriptConfig {
+            name: script.name,
+            label: script.label,
+            command: script.command,
+            icon: script.icon,
+            port: script.port,
+            // No wire field decodes into it, and [`ui_script`] shapes nothing
+            // out of it: a Script's environment is the Sandbox's business.
+            env_vars: None,
+            run_on_start: script.run_on_start,
+        }
+    }
 }
 
 /// The icons the contract accepts, and the one anything else becomes.
@@ -189,46 +206,57 @@ pub(super) fn scripts(workspace: &Workspace) -> Vec<Value> {
     };
 
     scripts
-        .iter()
-        .filter_map(|script| {
-            // Two of a script's fields are non-empty strings, and one script
-            // the client cannot read takes the entire listing down with it. A
-            // script that cannot fill them is left out rather than emitted
-            // malformed.
-            let id = non_empty(&script.name)?;
-            let command = non_empty(&script.command)?;
-            let name = script
-                .label
-                .as_deref()
-                .and_then(non_empty)
-                .unwrap_or_else(|| id.clone());
-            let icon = script
-                .icon
-                .as_deref()
-                .filter(|icon| SCRIPT_ICONS.contains(icon))
-                .unwrap_or(DEFAULT_SCRIPT_ICON);
-            Some(json!({
-                // The script's name: stable across reads, and unique within the
-                // workspace. It is the identity rather than a generated id
-                // because it has to survive a git reconcile.
-                "id": id,
-                "name": name,
-                "command": command,
-                "icon": icon,
-                // The client's name for `run_on_start`. Moatless has no
-                // worktrees — a Sandbox is the isolation — so the backend runs
-                // the flagged Script itself when the Sandbox reports Ready
-                // (`startup_scripts`), and the client only labels it "(setup)".
-                "runOnWorktreeCreate": script.run_on_start,
-                // A script that serves a port is worth auto-opening a preview
-                // for; one that prints to a console is not.
-                "autoOpenPreview": script.port.is_some(),
-                // The stand-in for upstream's `previewUrl`, which a Moatless
-                // script cannot carry: the published address exists only once a
-                // Task has a sandbox serving the port, and `scripts.run`
-                // returns it. `previewUrl` is omitted rather than guessed.
-                "port": script.port
-            }))
-        })
+        .into_iter()
+        .filter_map(|script| ui_script(&script.into(), None))
         .collect()
+}
+
+/// One Script in the shape the contract's `ProjectScript` takes, or `None`
+/// where a field the client requires is empty.
+///
+/// `scope` names the side that declared this Script, for the listings that
+/// merge two of them (`scripts.listForThread`). The project listing passes
+/// `None` and the field is left out: every Script there is its project's.
+pub(crate) fn ui_script(script: &ScriptConfig, scope: Option<&str>) -> Option<Value> {
+    // Two of a script's fields are non-empty strings, and one script the client
+    // cannot read takes the entire listing down with it. A script that cannot
+    // fill them is left out rather than emitted malformed.
+    let id = non_empty(&script.name)?;
+    let command = non_empty(&script.command)?;
+    let name = script
+        .label
+        .as_deref()
+        .and_then(non_empty)
+        .unwrap_or_else(|| id.clone());
+    let icon = script
+        .icon
+        .as_deref()
+        .filter(|icon| SCRIPT_ICONS.contains(icon))
+        .unwrap_or(DEFAULT_SCRIPT_ICON);
+    let mut shaped = json!({
+        // The script's name: stable across reads, and unique within the
+        // workspace. It is the identity rather than a generated id because it
+        // has to survive a git reconcile.
+        "id": id,
+        "name": name,
+        "command": command,
+        "icon": icon,
+        // The client's name for `run_on_start`. Moatless has no worktrees — a
+        // Sandbox is the isolation — so the backend runs the flagged Script
+        // itself when the Sandbox reports Ready (`startup_scripts`), and the
+        // client only labels it "(setup)".
+        "runOnWorktreeCreate": script.run_on_start,
+        // A script that serves a port is worth auto-opening a preview for; one
+        // that prints to a console is not.
+        "autoOpenPreview": script.port.is_some(),
+        // The stand-in for upstream's `previewUrl`, which a Moatless script
+        // cannot carry: the published address exists only once a Task has a
+        // sandbox serving the port, and `scripts.run` returns it. `previewUrl`
+        // is omitted rather than guessed.
+        "port": script.port
+    });
+    if let Some(scope) = scope {
+        shaped["scope"] = Value::from(scope);
+    }
+    Some(shaped)
 }

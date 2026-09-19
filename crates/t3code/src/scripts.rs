@@ -100,6 +100,18 @@ pub struct ResolvedScript {
     pub task_scoped: bool,
 }
 
+impl ResolvedScript {
+    /// Where this Script was declared, under the name both wire surfaces give
+    /// it.
+    pub fn scope(&self) -> &'static str {
+        if self.task_scoped {
+            "task"
+        } else {
+            "workspace"
+        }
+    }
+}
+
 /// Every Script a Task can run, and whether its own were readable.
 pub(crate) struct Resolved {
     pub scripts: Vec<ResolvedScript>,
@@ -220,9 +232,21 @@ pub fn public_script_list(scripts: &[ResolvedScript]) -> Vec<Value> {
                 "icon": script.config.icon,
                 "port": script.config.port,
                 "runOnStart": script.config.run_on_start,
-                "scope": if script.task_scoped { "task" } else { "workspace" },
+                "scope": script.scope(),
             })
         })
+        .collect()
+}
+
+/// A Script as `scripts.listForThread` reports it: the contract's
+/// `ProjectScript` with the `scope` it was declared at.
+///
+/// Shaped by [`projection::ui_script`], which is also what lists a project's
+/// own Scripts, so the same Script reads the same on both surfaces.
+pub(crate) fn ui_script_list(scripts: &[ResolvedScript]) -> Vec<Value> {
+    scripts
+        .iter()
+        .filter_map(|script| projection::ui_script(&script.config, Some(script.scope())))
         .collect()
 }
 
@@ -730,5 +754,33 @@ mod tests {
         let merged = merge(vec![config("dev", "bun dev")], BTreeMap::new());
         assert_eq!(merged.len(), 1);
         assert!(!merged[0].task_scoped);
+    }
+
+    /// The client reads the merged listing as its `ProjectScript`, and tells
+    /// the two apart by `scope` alone.
+    #[test]
+    fn the_ui_listing_says_which_side_declared_each_script() {
+        let own = BTreeMap::from([("demo".to_string(), config("demo", "python3 -m http.server"))]);
+        let listed = ui_script_list(&merge(vec![config("dev", "bun dev")], own));
+
+        assert_eq!(listed.len(), 2);
+        assert_eq!(listed[0]["id"], "dev");
+        assert_eq!(listed[0]["scope"], "workspace");
+        assert_eq!(listed[1]["id"], "demo");
+        assert_eq!(listed[1]["command"], "python3 -m http.server");
+        assert_eq!(listed[1]["scope"], "task");
+    }
+
+    /// The same rule the project listing applies: one Script the client cannot
+    /// decode would cost the Task every other Script it can run.
+    #[test]
+    fn a_script_missing_a_command_is_left_out_of_the_ui_listing() {
+        let listed = ui_script_list(&merge(
+            vec![config("dev", "bun dev"), config("broken", "")],
+            BTreeMap::new(),
+        ));
+
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0]["id"], "dev");
     }
 }

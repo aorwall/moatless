@@ -288,6 +288,7 @@ fn detach(request: Request) -> Dispatch {
         "preview.list" => Box::pin(preview_list(request)),
         "servers.list" => Box::pin(servers_list(request)),
         "subtasks.list" => Box::pin(subtasks_list(request)),
+        "scripts.listForThread" => Box::pin(scripts_list_for_thread(request)),
         "sandbox.status" => Box::pin(sandbox_status(request)),
         "sandbox.listDiagnostics" => Box::pin(sandbox_list_diagnostics(request)),
         "projects.listEntries" => Box::pin(projects_list_entries(request)),

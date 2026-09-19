@@ -604,6 +604,20 @@ pub(crate) fn scripts_failure_exit(
     }
 }
 
+/// How a failed `scripts.listForThread` reaches the client.
+///
+/// Only a database error gets here: `NotFound` is answered as an empty listing
+/// by the caller, and an unreachable sandbox costs the Task's own Scripts
+/// rather than the listing ([`Resolved::own_unread`](crate::scripts::Resolved)).
+pub(crate) fn scripts_list_failure_exit(
+    request_id: &RequestId,
+    error: &ScriptsError,
+    identity: &UiRpcAuthIdentity,
+) -> Value {
+    error!(%error, user_id = %identity.user_id, "scripts.listForThread failed");
+    failure_exit(request_id, "Failed to list the conversation's scripts.")
+}
+
 /// The contract's `SandboxNotRunningError`, as the error a `Fail` cause
 /// carries.
 ///
