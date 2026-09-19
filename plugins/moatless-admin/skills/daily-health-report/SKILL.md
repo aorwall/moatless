@@ -1,11 +1,11 @@
 ---
 name: daily-health-report
-description: Build the daily Moatless environment health report — collect one UTC day of task, Loki and Kubernetes data with the bundled collector, then render a self-contained HTML page with stat tiles, a metrics section, the three biggest findings and a feedback breakdown. Use when asked for a health report, a daily or yesterday's report on the environment, a system-health snapshot of the moatless namespace, or when the daily-health-check loop fires. Not for diagnosing one stuck sandbox (use sandbox-troubleshooting) and not for right-sizing workspace CPU or memory (use workspace-resource-tuning).
+description: Build the daily Moatless environment health report — collect one UTC day of task, Loki and Kubernetes data with the bundled collector, then render a self-contained HTML page with stat tiles, the three things to fix, a metrics section and a feedback breakdown. Use when asked for a health report, a daily or yesterday's report on the environment, a system-health snapshot of the moatless namespace, or when the daily-health-check loop fires. Not for diagnosing one stuck sandbox (use sandbox-troubleshooting) and not for right-sizing workspace CPU or memory (use workspace-resource-tuning).
 ---
 
 # Daily health report
 
-One HTML page covering one UTC day of the `moatless` namespace, written for a person to read: what the platform did, what it did badly, and the three things worth acting on.
+One HTML page covering one UTC day of the `moatless` namespace, written for a person to read: the three things to fix, then the numbers behind them.
 
 ## Workflow
 
@@ -21,7 +21,7 @@ It writes `data/digest.json` plus `tasks`, `feedback`, `loops`, `workspaces`, `r
 
 **2. Read the digest before writing anything.** It carries every tile number, the per-reason Kubernetes warning breakdown, the log-level totals per service and the tool-failure rate. Anything the digest does not answer needs a query of its own — `references/queries.md` has the ones that already work.
 
-**3. Pick the three findings.** Three, not four, and not one per data source. See *Picking the three* below.
+**3. Pick the three fixes.** Three, not four, and not one per data source. See *Picking and writing the three* below.
 
 **4. Build the page.** Write a `build.mjs` beside the data that imports `scripts/layout.mjs`, feeds it the digest, and writes the HTML. Sections the library has no component for are plain HTML strings in the same file — the library imposes the shell, the CSS and the chart geometry, nothing else.
 
@@ -36,6 +36,8 @@ const metrics = section({ heading: "Tasks, metrics and cost", body: [
          body: columns({ labels: HOURS, series: k8sSeries, peaks: 2 }) }),
 ].join("\n") });
 ```
+
+Keep the three fix cards in a `fixes.html` beside `build.mjs` and read it in, as `example.mjs` does. That is the file you will revise most, and prose inside a template literal has to escape its own backticks.
 
 **5. Validate and hand it over.** Check tag balance before anyone opens it:
 
@@ -53,42 +55,80 @@ p=P(); p.feed(open('$FILE').read()); print(p.bad, p.st)"
 
 A clean page prints the two self-closed `<meta />` tags as mismatches and nothing unclosed. Anything else is a real imbalance, almost always an unescaped `<` in a log line or a repo name — pass it through `esc()`.
 
-Give the reader the workspace-relative path once — `scratchpad/moatless-health-<date>-<timestamp>.html` — and the three findings in two sentences each.
+Give the reader the workspace-relative path once — `scratchpad/moatless-health-<date>-<timestamp>.html` — and the three fixes in two sentences each.
 
 ## Section order
 
-Fixed. A reader scanning the page should reach the findings having already seen the numbers behind them.
+Fixed. A reader who stops after the first screen should already have the three fixes, so they come straight after the tiles and the charts follow as the evidence.
 
 | # | Section | Contents |
 |---|---|---|
 | 1 | Header | Environment kicker, `System health, <date>`, a lede naming the day's one big fact, a sources line |
 | 2 | Stat tiles | Eight tiles, no heading — the grid is four columns, so use four or eight |
-| 3 | `Tasks, metrics and cost` | Heading only, then cards. No intro prose |
-| 4 | `Findings` | The heading, then three findings as `h3` |
+| 3 | `Three things to fix` | Heading only, then three fix cards |
+| 4 | `Tasks, metrics and cost` | Heading only, then cards. No intro prose |
 | 5 | `Feedback report` | Category split, then clusters |
-| 6 | `What to do with this` | Ordered by payoff, each naming who acts |
-| 7 | `Method and caveats` | Sources, windows, what was not verified |
+| 6 | `Method and caveats` | Sources, windows, what was not verified |
+
+There is no separate recommendations section: the fix card carries the action, so a closing *What to do with this* would say it a second time. A chart in section 4 that a fix cites refers back to it by number — "fix 2 above shows" — rather than restating it.
 
 **Write the section's name as its heading.** No kicker line above it, and no descriptive headline in its place: `Feedback report`, not *31 items carrying 40 distinct problems*. The one exception is the page header's environment line, which is context rather than a section label.
 
 The eight tiles: tasks created, ended in error, agent messages, cost for tasks created that day, Kubernetes warning events, pods per sandbox, backend errors, feedback filed. Colour a tile only when its value is a problem — `--critical` for a number someone must act on, `--good` for a zero that matters.
 
-Section 3 carries the measurements, including every one a finding cites. It opens with **Tasks per hour**, then **Kubernetes warning events per hour** stacked by reason, then **Loops that fired** — that order puts the day's workload in front of the cluster's reaction to it. After those: agent messages per hour, sandbox pods per hour, cost by repository, tool calls and their failure rates, warn/error log volume by service, HTTP 5xx by path, and a **comparison table against the previous day**, built from that day's `digest.json` rather than from its published page so both columns are measured the same way.
+Section 4 carries the measurements, including every one a fix cites. It opens with **Tasks per hour**, then **Kubernetes warning events per hour** stacked by reason, then **Loops that fired** — that order puts the day's workload in front of the cluster's reaction to it. After those: agent messages per hour, sandbox pods per hour, cost by repository, tool calls and their failure rates, warn/error log volume by service, HTTP 5xx by path, and a **comparison table against the previous day**, built from that day's `digest.json` rather than from its published page so both columns are measured the same way.
 
-**Loops that fired** comes from `bindings[].loopId` on each created task, joined to `loops.json`. Only adapter-event loops set it, so the table covers those and the note under it accounts for the unattributed remainder — the scheduled loops' runs and the tasks people started by hand.
+**Loops that fired** comes from `bindings[].loopId` on each created task, joined to `loops.json`. Its columns are **Loop, Workspace, Tasks, Cost** — the workspace identifies the loop to a reader, and the cost is the lifetime spend of the tasks counted in its row.
 
-`scripts/example.mjs` renders sections 2 through 5 from 2026-09-16's real numbers, with no data directory and no network. Run it and read it beside the source when writing a new `build.mjs`. Its findings and feedback come from `example-findings.html` and `example-feedback.html`, read off disk rather than inlined — that is the pattern for any section no component draws, and it keeps the prose out of a template literal that would otherwise have to escape it.
+- **Count only the bindings whose `origin` is `"ingress"`, and count each task once.** That is the one origin the router writes from an inbound event. The other two, `connected_thread` and `task_owned`, mean the task existed first and later connected a subject — someone's own task picking up the PR thread a review loop watches. On 2026-09-16, 33 of 100 loop bindings were `connected_thread`, and counting them put $324 of hand-started work under the loops and spread single loops across three workspaces each.
+- **Group by `taskId` before counting, because a binding is not a creation.** A loop in `ongoing` routing mode writes an ingress binding onto its one open task for each new subject it matches (`crates/loops/src/bindings/runtime.rs`), so summing bindings credits that loop with several tasks where there is one. The same mechanic bounds what the column means: for a `by_subject` loop an ingress binding marks a task the loop created, and for an ongoing one it marks a task the loop feeds, which may have been created earlier the same day by someone else.
+- **`/api/v1/tasks` omits `origin`.** The detail row `/api/v1/tasks/{id}` carries it; `collect.mjs` refetches every created task that names a loop and writes the enriched bindings back into `tasks.json`, so a build script reads `b.origin === "ingress"` straight off disk.
+- **A loop names exactly one workspace** (`LoopSpawnConfig.workspace_id`, `crates/loops/src/loops/models.rs`), so each row's Workspace column is that workspace. Several loop records share a name — `java-review` has one per repository — and each is its own row. A row spanning two workspaces means a non-ingress binding got through.
+- **Only adapter-event loops bind at all.** No scheduled loop appears, however busy it was; give the remainder as one number — created tasks with no ingress binding — and say that it holds the scheduled loops' runs and the tasks people started by hand.
 
-## Picking the three
+`scripts/example.mjs` renders sections 2 through 5 from 2026-09-16's real numbers, with no data directory and no network. Run it and read it beside the source when writing a new `build.mjs`. Its fixes and feedback come from `example-fixes.html` and `example-feedback.html`, read off disk rather than inlined — that is the pattern for any section no component draws, and it keeps the prose out of a template literal that would otherwise have to escape it.
+
+## Picking and writing the three
 
 Rank by what a reader would act on, not by what produced the most lines.
 
-- **A number nobody can act on is not a finding.** 2.7 M harmless WARN lines is a metric; *four patterns are 88% of ingest and here is the one to delete first* is a finding.
+- **A number nobody can act on is not a fix.** 2.7 M harmless WARN lines is a metric; *four patterns are 88% of ingest and here is the one to delete first* is a fix.
 - **Prefer a failure that reached a person or destroyed work** over one that cost only time.
-- **Fold repeats into one finding.** Six evictions with the same cause are one finding with six instances, not six findings.
+- **Fold repeats into one card.** Six evictions with the same cause are one fix with six instances, not six fixes.
 - **Name the ones you dropped** in the method note, so the next reader can tell a quiet area from an unexamined one.
 
-Write each finding as three paragraphs: what happened and what it cost, the evidence with counts and timestamps, then what to do. A reader who stops after the first paragraph should still have the finding. Where the cause is inferred rather than measured, say so once — *may* — and keep the observation separate from the inference.
+Each of the three is one card, and the card has four slots:
+
+| Slot | Rule |
+|---|---|
+| **Header** | The fix, in the imperative, naming the thing to change: *Return 404 and 400 from the Linear adapter instead of 502*. Not the symptom, not a topic — a reader scanning only the three headers should know what to do |
+| **Evidence size** | The one number that says how big this is, opposite the header: `26 of 29 user-facing 5xx`, `2 sandboxes evicted`. No sentence, no unit spelled out |
+| **Problem** | What happened and what it cost, with the counts, timestamps and file paths that prove it |
+| **Fix** | What to change, named concretely: the file and line, the command, the config field. Where the cause is inferred rather than measured, say so once — *may* — and keep the observation separate from the inference |
+
+**Colour the left border by severity**: `--critical` when work was destroyed or a person was blocked, `--serious` when it reached a caller, `--warning` for a number that is wrong but nobody is bleeding. Ordered by that severity, first to third.
+
+The markup — theme variables only, never a Tailwind palette utility like `bg-slate-900`, which is a black card on a black surface in dark mode:
+
+```html
+<div class="card p-5 space-y-4" style="border-left:3px solid var(--critical)">
+  <div class="flex items-baseline justify-between gap-6">
+    <h3 class="text-lg font-semibold tracking-tight">
+      <span class="muted tnum">1</span>&ensp;Put the committed 60Gi disk limit back on the
+      <em>Moatless</em> workspace
+    </h3>
+    <span class="text-xs muted whitespace-nowrap">2 sandboxes evicted</span>
+  </div>
+  <div class="rule pt-4 grid md:grid-cols-[4.5rem_1fr] gap-x-5 gap-y-3 text-[14px] leading-relaxed">
+    <p class="kicker md:pt-1">Problem</p>
+    <p class="ink2">…</p>
+    <p class="kicker md:pt-1">Fix</p>
+    <p>…</p>
+  </div>
+</div>
+```
+
+The three cards go in one `<div class="space-y-4">`, passed to `section({ heading: "Three things to fix", body })` at the default spacing. `scripts/example-fixes.html` is the worked instance.
 
 ## Gotchas
 
@@ -102,7 +142,7 @@ These defeat a reasonable assumption, and each one has produced a wrong number h
 - **`status` and `totalCostUsd` are read at collection time.** A task that closes an hour later changes the answer, so date the collection in the method note rather than presenting these as the day's final state.
 - **`lastMessageAt` moves forward for as long as a task lives.** Counting a task as touched when its *last* message falls inside the window drops it the moment it speaks again the next day, so the same date collected twice gives two different answers. Take every task whose last message is at or after the window opens, and let the per-message timestamps in `statistics` decide which of them ran in it.
 - **`messageTokenUsage` records agent turns only.** A task whose only activity in the window was a person writing to it has no rows there, so fall back to `lastMessageAt` before concluding it was idle.
-- **A task row keys on `taskId`, not `id`**, and carries `bindings[].loopId` for adapter-event loops only.
+- **A task row keys on `taskId`, not `id`**, and carries `bindings[].loopId` for adapter-event loops only. A `loopId` on the list endpoint is not evidence the loop created the task — read `origin` for that, per *Loops that fired* above.
 - **`toolCalls` in `/statistics` is a lifetime total with no timestamps.** The collector tallies it over the tasks that ran on the day, so a task that resumed brings its earlier days' calls with it. Read the tool table as "the tasks that worked that day, over their whole lives", and do not put a per-day rate on it.
 - **The collector stops at `CAP` (5,000) rows** and warns only when the oldest row it pulled is newer than the day being collected. A warning means the day is truncated and `CAP` has to rise; hitting the cap silently is normal.
 - **Node writes to disk emit no viewer event.** The first build is fine because the tab is not open yet; any later revision must go through the Edit tool, or the reader's open tab silently keeps the old page.
@@ -111,8 +151,8 @@ These defeat a reasonable assumption, and each one has produced a wrong number h
 ## Done when
 
 - Every number on the page traces to a file in `data/` or to a query written down in the report's method note.
-- Three findings, each with consequence, evidence and an action, and each citing a chart that is on the page.
-- No kicker above any section heading, and no numbered *Finding N* labels.
+- Three fix cards, each with an imperative header, an evidence size, a Problem and a Fix, and each citing either a chart on the page or a query written down in the method note. A single failure has no chart, and inventing one to satisfy the rule is worse than citing the log line.
+- No kicker above any section heading, and no `bg-*`/`text-*` palette utility anywhere on the page — a card that hard-codes a colour inverts in dark mode.
 - The tag-balance check reports nothing unclosed and nothing mismatched beyond the two `<meta />` tags.
 - Charts carry a legend or a table when they hold more than one series, and every tooltip names its hour.
 

@@ -1,6 +1,6 @@
 # Queries
 
-Every check `collect.mjs` runs, in the form that returns the right answer, plus the ones worth running by hand when a finding needs more than the digest. Numbers in the examples are from 2026-09-16, the day these were verified against a published report.
+Every check `collect.mjs` runs, in the form that returns the right answer, plus the ones worth running by hand when a fix needs more than the digest. Numbers in the examples are from 2026-09-16, the day these were verified against a published report.
 
 ## Setup
 
@@ -86,11 +86,11 @@ The needles `collect.mjs` tracks, and what each means:
 | `slow_statement` | `slow statement` | A query past the backend's threshold |
 | `sandbox_slow_start` | `Sandbox container slow to start` | Provisioning latency the agent waited on |
 
-Add a needle when a finding needs its rate over the day; a one-off count does not need to live in the script.
+Add a needle when a fix needs its rate over the day; a one-off count does not need to live in the script.
 
 ## Reading raw lines behind a count
 
-Once a count points somewhere, read the lines. This is what turns a metric into a finding:
+Once a count points somewhere, read the lines. This is what turns a metric into a fix worth writing up:
 
 ```bash
 curl -s -G "$L" -H "Authorization: Bearer $GRAFANA_TOKEN" \
@@ -122,6 +122,6 @@ Five things about this data:
 - **`status` and `totalCostUsd` are current values, not end-of-day values.** Re-running the collector a day later gives different closed counts. Date the collection in the method note.
 - **Statistics calls rate-limit above about 8 concurrent.** `pool(items, 8, …)` is why the run takes minutes rather than seconds.
 
-## Prometheus, when a finding needs resource numbers
+## Prometheus, when a fix needs resource numbers
 
-Memory and CPU sizing belong to the `workspace-resource-tuning` skill, which has the joins and the statistics right. Two rules carry over if a health-report finding needs one number from there: read `container_memory_rss`, not working set, and never take an instant value — `max_over_time(...[24h])` for peaks, `quantile_over_time(0.5, ...[24h])` for typical.
+Memory and CPU sizing belong to the `workspace-resource-tuning` skill, which has the joins and the statistics right. Two rules carry over if a health-report fix needs one number from there: read `container_memory_rss`, not working set, and never take an instant value — `max_over_time(...[24h])` for peaks, `quantile_over_time(0.5, ...[24h])` for typical.

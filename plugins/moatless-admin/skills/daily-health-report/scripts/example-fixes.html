@@ -1,0 +1,92 @@
+        <div class="space-y-4">
+
+        <div class="card p-5 space-y-4" style="border-left:3px solid var(--critical)">
+          <div class="flex items-baseline justify-between gap-6">
+            <h3 class="text-lg font-semibold tracking-tight">
+              <span class="muted tnum">1</span>&ensp;Give the <code>workload=moatless-od</code> node
+              pool room for the 08:00 and 15:00 peaks
+            </h3>
+            <span class="text-xs muted whitespace-nowrap">1,045 FailedScheduling</span>
+          </div>
+          <div class="rule pt-4 grid md:grid-cols-[4.5rem_1fr] gap-x-5 gap-y-3 text-[14px] leading-relaxed">
+            <p class="kicker md:pt-1">Problem</p>
+            <p class="ink2">
+              The cluster could not place sandbox pods for most of the working day, so agents waited
+              for pods that had nowhere to go. 1,045 <code>FailedScheduling</code> warnings, peaking
+              at 203 in the 08:00 hour and 204 in the 15:00 hour; the representative message names
+              three exclusions at once — <em>0/19 nodes are available: 3 node(s) didn&rsquo;t match
+              Pod&rsquo;s node affinity/selector, 7 Insufficient cpu, 9 node(s) had untolerated
+              taint(s)</em>. Node-level disruption sits inside the same window: 183
+              <code>NodeNotReady</code> and 136 <code>TaintManagerEviction</code>, all of which stop
+              before 11:00 and never return.
+            </p>
+            <p class="kicker md:pt-1">Fix</p>
+            <p>
+              Read the pool&rsquo;s scaling behaviour against 05:00&ndash;10:00, where node churn and
+              scheduling failure overlap, and raise its floor to cover the two peaks. The rejections
+              split across affinity, CPU and taints rather than pointing at one shortage, so a single
+              limit may not clear them — the taint arm needs the churn fixed, not more CPU.
+            </p>
+          </div>
+        </div>
+
+        <div class="card p-5 space-y-4" style="border-left:3px solid var(--serious)">
+          <div class="flex items-baseline justify-between gap-6">
+            <h3 class="text-lg font-semibold tracking-tight">
+              <span class="muted tnum">2</span>&ensp;Snapshot the workspace often enough that an
+              eviction costs minutes, not a morning
+            </h3>
+            <span class="text-xs muted whitespace-nowrap">52 of 116 sandboxes replaced</span>
+          </div>
+          <div class="rule pt-4 grid md:grid-cols-[4.5rem_1fr] gap-x-5 gap-y-3 text-[14px] leading-relaxed">
+            <p class="kicker md:pt-1">Problem</p>
+            <p class="ink2">
+              346 pods served 116 distinct task sandboxes. When a pod is replaced the workspace is
+              restored from its snapshot, and the snapshot is behind the live tree, so uncommitted
+              edits and completed verification runs disappear. 52 sandboxes went through more than
+              one pod and the worst used 21. At 06:18 the t3code upstream-merge task reported losing
+              six verification passes and ruled out memory itself — <em>the heap was not the cause:
+              /sys/fs/cgroup/memory.max is 12 GB</em>; at 08:28 a soap-frontend task reported four
+              evictions in one task, each rolling its uncommitted edits back.
+            </p>
+            <p class="kicker md:pt-1">Fix</p>
+            <p>
+              Shorten the snapshot interval and take one on the events that mark work worth keeping —
+              a finished command, a write to a tracked file. This is the layer that makes an eviction
+              survivable; reducing evictions is fix 1, and both are worth doing. The 08:28 feedback
+              is the specific report to work from.
+            </p>
+          </div>
+        </div>
+
+        <div class="card p-5 space-y-4" style="border-left:3px solid var(--warning)">
+          <div class="flex items-baseline justify-between gap-6">
+            <h3 class="text-lg font-semibold tracking-tight">
+              <span class="muted tnum">3</span>&ensp;Tell the agent when the snapshot guard is holding
+              its uploads
+            </h3>
+            <span class="text-xs muted whitespace-nowrap">one task, 42 held uploads</span>
+          </div>
+          <div class="rule pt-4 grid md:grid-cols-[4.5rem_1fr] gap-x-5 gap-y-3 text-[14px] leading-relaxed">
+            <p class="kicker md:pt-1">Problem</p>
+            <p class="ink2">
+              Task <code>bad6e5ef</code> logged <em>Upload held: the stored snapshot could not be read
+              on start, and this tree would overwrite it</em> 42 times. The guard did the right thing
+              by refusing to clobber the stored snapshot, and the consequence is that the task&rsquo;s
+              work was never written to durable storage for the whole day. Nothing in the task&rsquo;s
+              own output would have told its agent that, so it kept working against a tree no restart
+              would return.
+            </p>
+            <p class="kicker md:pt-1">Fix</p>
+            <p>
+              Surface the held upload into the task &mdash; a message on the first hold, not only a
+              backend log line &mdash; so the agent commits and pushes instead of accumulating work it
+              is about to lose. The same day carried two other single failures with no such signal:
+              a <code>config-juni</code> clone refused for a missing Forgejo credential
+              (<code>exit 78</code>, task never started) and a frontend server past its crash-loop
+              threshold at restart 5.
+            </p>
+          </div>
+        </div>
+
+        </div>

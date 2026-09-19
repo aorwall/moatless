@@ -165,9 +165,28 @@ async function main() {
   let tasks = [];
   let touched = [];
   if (run("api") || run("stats")) {
-    tasks = await write("tasks", await paginate("/api/v1/tasks"));
+    tasks = await paginate("/api/v1/tasks");
     checkCoverage("tasks", tasks);
     const created = tasks.filter((t) => inWindow(t.createdAt));
+    // `/api/v1/tasks` drops each binding's `origin`, and without it a task that
+    // only connected a thread to a Loop reads as one the Loop created — a third
+    // of yesterday's loop-bound tasks. The detail row carries it, so refetch the
+    // created tasks that name a loop and keep the enriched bindings on disk.
+    const bound = created.filter((t) => (t.bindings ?? []).some((b) => b.loopId));
+    let enriched = 0;
+    await pool(bound, 8, async (t) => {
+      const r = await api(`/api/v1/tasks/${t.taskId}`);
+      // A task left with its list bindings has no origin on any of them, so it
+      // drops out of the loops table rather than landing in the wrong row.
+      if (r.status !== 200 || !r.body?.bindings) {
+        console.error(`  ! task ${t.taskId} origins -> ${r.status} ${r.err ?? ""}`);
+        return;
+      }
+      t.bindings = r.body.bindings;
+      enriched++;
+    });
+    await write("tasks", tasks);
+    console.log(`bindings: read origins for ${enriched} of ${bound.length} loop-bound tasks`);
     // A task still being worked after midnight keeps moving `lastMessageAt`
     // forward, so "last message inside the window" drops it as soon as it
     // speaks again the next day — the same date collected twice then gives two

@@ -12,7 +12,7 @@ import { page, section, tiles, card, columns, hbars, table, swatch, esc, num, SE
 
 `env`, `lede`, `sources` and `footer` are inserted as raw HTML so they can carry `<code>`, `<strong>` and entities. `heading` and every component's `heading` go through `esc`.
 
-**`section({ heading, body, space = 5 })`** emits a horizontal rule, one `h2`, then `body`, inside `space-y-<space>`. There is no kicker slot, deliberately — the section's name is its heading. Use `space: 8` for the findings section, where each finding is a multi-paragraph block.
+**`section({ heading, body, space = 5 })`** emits a horizontal rule, one `h2`, then `body`, inside `space-y-<space>`. There is no kicker slot, deliberately — the section's name is its heading. The default spacing suits every section on this page; raise `space` only for a section whose children are multi-paragraph blocks rather than cards.
 
 ## Components
 
@@ -34,9 +34,15 @@ Two or more series need a legend or a table beside the chart — colour alone do
 
 `SERIES` is `["s1","s2","s3","s4"]` — blue, orange, green, amber — assigned in fixed order and never cycled. A fifth category folds into an "Other" row rather than getting a new hue. The status variables `--good`, `--warning`, `--serious` and `--critical` are reserved for state and never used as a series colour. Every variable has a dark-mode value, so a custom component that uses `var(--…)` follows the reader's theme for free and one that hard-codes `#fff` does not.
 
+## The fix card
+
+`Three things to fix` has no component — it is the plain-HTML block in `scripts/example-fixes.html`, built from the same classes the components use: `.card p-5` for the panel, `.kicker` for the Problem and Fix labels, `.ink2` for the problem text, `.rule` for the divider under the header, `.tnum` for the number. Severity is a left border taking its colour from a status variable, `style="border-left:3px solid var(--critical)"`.
+
+Nothing in it may use a Tailwind palette utility. `bg-slate-900 text-white` renders a black badge on a `#1a1a19` card once the reader's system is in dark mode, and the page has no `dark:` variants to rescue it — the CSS variables are what follow the theme. SKILL.md holds the slot-by-slot rules and the full markup.
+
 ## Writing a custom component
 
-A finding usually needs one visual nothing here draws — a timeline, a before/after pair, a Mermaid graph. Write it inline:
+A fix sometimes needs one visual nothing here draws — a timeline, a before/after pair, a Mermaid graph. Write it inline:
 
 ```js
 const timeline = card({ heading: "Provisioning attempt", body: `
