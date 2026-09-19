@@ -3,7 +3,7 @@
   "workspaces": [
     {
       "key": "moatless",
-      "name": "Moatless",
+      "name": "moatless-global",
       "description": "Agent sandbox only — no dev server or preview.",
       "repos": [
         { "url": "https://github.com/soaplabs/moatless.git", "primary": true }
@@ -22,48 +22,6 @@
         "storage": "60Gi"
       },
       "servers": []
-    },
-    {
-      "key": "moatless-fullstack",
-      "name": "Moatless Fullstack",
-      "description": "Shadow dev — runs the moatless-vibe backend (:8080) as a sidecar on the precompiled moatless-dev image.",
-      "repos": [
-        { "url": "https://github.com/soaplabs/moatless.git", "primary": true }
-      ],
-      "dockerImage": "aorwall/moatless-dev:dev",
-      "dockerAccess": true,
-      "sandboxServiceAccount": "moatless-dev",
-      "codeExecution": {
-        "setupCommands": [
-          "curl -fsSL https://bun.sh/install | BUN_INSTALL=/opt/moatless/data/.bun bash",
-          "/opt/moatless/data/.bun/bin/bun install",
-          "mkdir -p /opt/moatless/data/shadow"
-        ]
-      },
-      "envVars": {
-        "CARGO_BUILD_JOBS": "2",
-        "CARGO_PROFILE_DEV_DEBUG": "0",
-        "CARGO_PROFILE_TEST_DEBUG": "0"
-      },
-      "resources": {
-        "requests": { "cpu": "250m", "memory": "4Gi" },
-        "limits": { "cpu": "4", "memory": "8Gi" },
-        "storage": "20Gi",
-        "dockerStorageMode": "node",
-        "dockerStorage": "30Gi"
-      },
-      "servers": [
-        {
-          "name": "backend",
-          "label": "Shadow Backend",
-          "port": 8080,
-          "startCommands": ["bash scripts/shadow/up.sh"],
-          "startupTimeoutSeconds": 600,
-          "autoReload": false,
-          "enableInspector": false,
-          "default": true
-        }
-      ]
     }
   ]
 }
