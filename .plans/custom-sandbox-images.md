@@ -6,6 +6,20 @@
 
 ## Progress
 
+- **2026-09-19 — `moatless-fullstack` deleted, phase 1 needs a new candidate.**
+  The deployment now runs one git-declared workspace on this repo,
+  `moatless-global` (the entry keyed `moatless`), plus a manual `moatless`
+  workspace; `moatless-fullstack` and every other moatless workspace were
+  deleted, so the entry was dropped from `.moatless/workspaces.json`. Phase 1's
+  definition of done named that workspace, and is restated above in terms of
+  what it stood for: a workspace paying a tool install on every start. No
+  workspace declared here does that today — `moatless-global`'s only
+  `setupCommand` is `bun install`, which installs the project's own
+  dependencies and is not a recipe candidate — so phase 1 starts by naming one,
+  and `Dockerfile.sandbox-full` still exists either way. The manual `moatless`
+  workspace already runs on `aorwall/moatless-sandbox-recipe:soaplabs`, so the
+  recipe path itself is in production use; what is unproven is a recipe
+  replacing `setupCommands`.
 - **2026-08-12 — soaplabs recipe shipped.** `docker/features/java`,
   `docker/features/postgres-client`, `docker/recipes/soaplabs.json` and
   `build-sandboxes.yml` replaced `Dockerfile.sandbox-java` and its CI matrix
@@ -77,10 +91,11 @@ and both are bad:
    with `sandbox-base`. The variants do not compose: there is no
    "Java 21 + Python" image and adding one means a fourth file.
 2. **`setupCommands`** (`backend/src/workspace/git_sync.rs:74`, executed by
-   `run_workspace_setup` at `sandbox/src/init/mod.rs:734`). This works and is
-   what `moatless-fullstack` uses today (`.moatless/workspaces.json:78`), but it
-   pays the install cost on **every sandbox start**, over the network, with no
-   cache and no pinning.
+   `run_workspace_setup` at `sandbox/src/init/mod.rs:734`). This works — it is
+   what the deleted `moatless-fullstack` entry used to install bun on every
+   start, still visible in `scripts/shadow/workspaces.shadow.json` — but it pays
+   the install cost on **every sandbox start**, over the network, with no cache
+   and no pinning.
 
 The cost of option 1 is measured. `sandbox-base` is 2.03 GB over 26 layers and
 takes 14 minutes to build; the child variants rebuild whenever it moves. The
@@ -96,7 +111,7 @@ image, built once.
 ```jsonc
 // .moatless/workspaces.json — a workspace entry
 {
-  "key": "moatless-fullstack",
+  "key": "<workspace-key>",
   "recipe": {
     "base": "sandbox",                       // sandbox | sandbox-base
     "features": {
@@ -172,8 +187,10 @@ rebuild. Also `workflow_dispatch`. The backend does not participate: it
 resolves a recipe to a tag and uses it, and a missing tag is a startup
 failure it reports rather than repairs.
 
-**Definition of done:** `moatless-fullstack` runs on a recipe image with its
-`setupCommands` deleted, and `Dockerfile.sandbox-full` is gone.
+**Definition of done:** a workspace whose `setupCommands` install tools runs on
+a recipe image with those commands deleted, and `Dockerfile.sandbox-full` is
+gone. `moatless-fullstack` was that workspace until it was deleted; pick the
+replacement candidate before starting, and see the progress note below.
 
 **Phase 2 — fold the existing variants in.**
 

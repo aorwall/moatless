@@ -391,14 +391,19 @@ been evicted mid-carve this way (`Usage of EmptyDir volume "workspace-data" exce
 Rust-heavy repos. None of the evicted lanes were using it. A task created with `moat tasks create
 --repo moatless` lands on a synthesized per-repository workspace — its id is literally `ws_` + the
 repository id and its name is `null` — which carries no `resources` block at all and therefore gets
-the deployment default, not the 20Gi. Tasks created with `--workspace Moatless` land on
-`ws_a7a61c35…`, which has the block. **Create carve lanes with `--workspace Moatless`.** The
+the deployment default, not the 20Gi. Tasks created with `--workspace moatless-global` land on
+`ws_a7a61c35…`, which has the block. **Create carve lanes with `--workspace moatless-global`.** The
 protocol below still stands: it costs nothing on a correctly-sized workspace, and a lane can still
 find itself on a constrained one.
 
-**A residual gap, measured and deliberately not fixed here.** Even the `Moatless` workspace does not
-set `CARGO_TARGET_DIR` to the build cache, so `target/` rides the workspace volume rather than the
-node-backed cache that `buildCacheMode: "node"` provisions — the env block
+That workspace was named `Moatless` when this was written, and the entry's `key` is still
+`moatless`. Do not pass `--workspace Moatless`: name lookup is a case-insensitive exact match that
+errors only on ambiguity, so it now resolves silently to the manual `moatless` workspace
+(`ws_688b4fb4…`), which carries no `resources` block.
+
+**A residual gap, measured and deliberately not fixed here.** Even the `moatless-global` workspace
+does not set `CARGO_TARGET_DIR` to the build cache, so `target/` rides the workspace volume rather
+than the node-backed cache that `buildCacheMode: "node"` provisions — the env block
 `docs/sandbox-architecture.md:783-786` recommends alongside it is absent, on all three Rust-capable
 workspaces. That makes 20Gi a larger ceiling rather than a different resource. Changing it touches
 every task on those workspaces, not just this program, so it is **tracked in
