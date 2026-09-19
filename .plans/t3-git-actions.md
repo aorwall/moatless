@@ -295,7 +295,7 @@ Because the PR is part of the snapshot, the dedupe at `lib.rs:2505` sends a fram
 #### `backend/src/adapters/providers/github_pr/api.rs`
 
 - **Proposed responsibility** — also answering "which open pull request has this head branch".
-- **Proposed change** — `find_open_pr_for_head(owner, repo, head) -> Option<PrInfo>` over `GET /repos/{owner}/{repo}/pulls?head={owner}:{head}&state=open`, alongside `get_pulls_for_commit`. One method serves three callers: the `opened_existing` path, the endpoint's 422 recovery, and binding a Task created from a PR-prepared draft thread.
+- **Proposed change** — `find_open_pr_for_head(owner, repo, head) -> Option<PrInfo>` over `GET /repos/{owner}/{repo}/pulls?head={owner}:{head}&state=open`, alongside `get_pulls_for_commit`. One method serves two callers: the `opened_existing` path and the endpoint's 422 recovery. It no longer binds a Task created from a PR-prepared draft thread — that inference bound every thread opened on a pull request's head branch (#978), so the criteria at :219 and :525 are met by the client calling `thread.linkPullRequest` after create instead (`docs/deferred-changes.md`, _A thread prepared from a pull request arrives unbound_).
 - **Evidence** — `github_pr/api.rs:305`, `:383`.
 
 #### `backend/src/adapters/providers/github_pr/api_routes.rs`
