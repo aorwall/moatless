@@ -17,7 +17,7 @@ use moatless_adapter_model::binding::binding_context;
 use moatless_adapter_model::connections::ConnectionRouting;
 use moatless_adapter_model::delivery::AdapterDeliveryFailure;
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
-use moatless_adapter_model::loops::subscription_context;
+use moatless_adapter_model::loops::{delivery_only_subscription, subscription_context};
 use moatless_adapter_model::metrics::{inbound_reason, record_inbound};
 use moatless_adapter_model::registry::Adapters;
 use moatless_ports::sandbox::SandboxWaker;
@@ -60,6 +60,23 @@ pub struct RoutingService {
     sandbox_waker: Arc<dyn SandboxWaker>,
     adapters: Option<Arc<Adapters>>,
     message_buffer: Arc<MessageBufferStore>,
+}
+
+/// Meter events a flush gave up on, so a batch lost after admission is visible
+/// beside the ones that landed.
+///
+/// Counted per event, not per batch: admission already counted each buffered
+/// event on its own, and this series is read against that one.
+fn record_buffer_drop(batch: &BufferedBatch, reason: &'static str, connection_id: &str) {
+    for _ in &batch.messages {
+        record_inbound(
+            &batch.adapter_label,
+            "ignored",
+            reason,
+            &batch.loop_id,
+            connection_id,
+        );
+    }
 }
 
 /// The connection or Loop a record was admitted against is gone.
@@ -706,10 +723,7 @@ impl RoutingService {
         adapter_label: &str,
         is_new_task: bool,
     ) -> Result<(), AdapterError> {
-        let window = buffer_window(
-            subscription.message_buffer_seconds,
-            subscription.adapter_kind,
-        );
+        let window = buffer_window(subscription);
         if window.is_zero() || is_new_task {
             return self
                 .deliver_now(
@@ -722,6 +736,8 @@ impl RoutingService {
                 .await;
         }
 
+        // Always a Loop id: `buffer_window` gives a delivery-only Subscription
+        // no window, and its id resolves to no row a flush could read back.
         self.message_buffer
             .push(&binding.id, &subscription.id, adapter_label, msg, window)
             .await?;
@@ -736,24 +752,31 @@ impl RoutingService {
 
     /// Deliver one Binding's buffered events as a single turn.
     ///
-    /// Reads the Binding and the Loop back rather than trusting what was
+    /// Reads the Binding and its route back rather than trusting what was
     /// buffered, so a flush runs against the current configuration; a Binding
     /// that has since closed drops its events instead of resurrecting its Task.
     pub(crate) async fn flush_buffered(&self, batch: &BufferedBatch) -> Result<(), AdapterError> {
         let Some(binding) = self.task_bindings.get(&batch.binding_id).await? else {
             info!(binding_id = %batch.binding_id, "Dropping buffered events: the binding is gone");
+            record_buffer_drop(batch, inbound_reason::BINDING_GONE, "");
             return Ok(());
         };
         if !binding.active {
             info!(task_id = %binding.task_id, "Dropping buffered events: the binding is no longer active");
+            record_buffer_drop(batch, inbound_reason::BINDING_GONE, &binding.connection_id);
             return Ok(());
         }
-        let Some(subscription) = self
-            .loops
-            .find_runnable_subscription_by_id(&batch.loop_id)
-            .await?
-        else {
-            info!(loop_id = %batch.loop_id, "Dropping buffered events: the Loop is gone");
+        let Some(first) = batch.messages.first() else {
+            return Ok(());
+        };
+        let Some(subscription) = self.flush_route(&binding, &batch.loop_id, first).await? else {
+            warn!(
+                task_id = %binding.task_id,
+                connection_id = %binding.connection_id,
+                events = batch.messages.len(),
+                "Dropping buffered events: the binding's connection is gone"
+            );
+            record_buffer_drop(batch, inbound_reason::NO_CONNECTION, &binding.connection_id);
             return Ok(());
         };
 
@@ -765,6 +788,35 @@ impl RoutingService {
             false,
         )
         .await
+    }
+
+    /// The Subscription a batch delivers under: `loop_id`'s Loop where that is
+    /// still runnable, else one derived from the Binding's connection.
+    ///
+    /// The connection deliberately, not a stopped Loop's own config: an
+    /// unbuffered event routes that way too, losing the Loop's `skills`. `None`
+    /// only when the connection is gone.
+    async fn flush_route(
+        &self,
+        binding: &TaskBinding,
+        loop_id: &str,
+        msg: &InboundMessage,
+    ) -> Result<Option<SubscriptionMatch>, AdapterError> {
+        if let Some(subscription) = self.loops.find_runnable_subscription_by_id(loop_id).await? {
+            return Ok(Some(subscription));
+        }
+        let Some(connection) = self
+            .adapter_connections
+            .by_id_trusted(&binding.connection_id)
+            .await?
+        else {
+            return Ok(None);
+        };
+        Ok(Some(delivery_only_subscription(
+            &connection,
+            msg.adapter_kind,
+            &msg.source_id,
+        )))
     }
 
     /// Compose `msgs` into one turn and hand it to the Task.

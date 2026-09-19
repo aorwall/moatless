@@ -13,8 +13,10 @@
 //! [`LoopContext`] the older adapter trait methods still accept.
 
 use async_trait::async_trait;
+use chrono::Utc;
 
-use moatless_types::loops::{LoopContext, SubscriptionMatch};
+use moatless_types::adapter::{AdapterConnection, AdapterKind};
+use moatless_types::loops::{LoopContext, RoutingMode, SubscriptionMatch};
 use moatless_types::store::StoreError;
 
 /// The Subscriptions an inbound provider event is matched against.
@@ -54,6 +56,63 @@ pub trait LoopReader: Send + Sync {
     ) -> Result<Option<SubscriptionMatch>, StoreError>;
 }
 
+/// Build the config-only Subscription used when a connection has no matching
+/// Loop.
+///
+/// Never persisted or used to authorize Task creation; it exists only to keep
+/// normalization, metrics, and message labelling consistent for events
+/// delivered to existing Bindings.
+pub fn delivery_only_subscription(
+    connection: &AdapterConnection,
+    adapter_kind: AdapterKind,
+    source_matcher: &str,
+) -> SubscriptionMatch {
+    let now = Utc::now();
+    SubscriptionMatch {
+        id: SubscriptionMatch::delivery_only_id(&connection.id),
+        // Not a real Loop, so it has no configured name — say so rather than
+        // borrowing one that would read as a Loop in any UI that shows it.
+        name: "delivery-only".to_string(),
+        adapter_kind,
+        connection_id: connection.id.clone(),
+        source_matcher: source_matcher.to_string(),
+        source_name: None,
+        routing_mode: RoutingMode::BySubject,
+        event_filter: serde_json::json!([]),
+        workspace_id: String::new(),
+        prompt_template: None,
+        task_name: None,
+        tag_ids: Vec::new(),
+        skills: Vec::new(),
+        // Never `None`: an org connection owned by nobody would otherwise
+        // panic every reader of `SubscriptionMatch::effective_user_id`, which
+        // is where an unmapped sender lands. Whoever connected it, then.
+        run_as_user_id: Some(
+            connection
+                .owner_user_id
+                .clone()
+                .unwrap_or_else(|| connection.created_by.clone()),
+        ),
+        agent_type: moatless_types::agent::AgentType(String::new()),
+        model: None,
+        inactive_ttl_days: None,
+        node_selector: None,
+        stop_when_done: None,
+        message_buffer_seconds: None,
+        allow_direct_send: false,
+        adapter_config: None,
+        ongoing_task_id: None,
+        close_task_on_close: false,
+        notify_on_success: false,
+        active: true,
+        created_by: connection.created_by.clone(),
+        scope: connection.scope,
+        owner_user_id: connection.owner_user_id.clone(),
+        created_at: now,
+        updated_at: now,
+    }
+}
+
 /// Build a synthetic `LoopContext` from a subscription view for adapter trait
 /// methods that still accept a config-shaped value.
 pub fn subscription_context(subscription: &SubscriptionMatch) -> LoopContext {
@@ -82,5 +141,42 @@ pub fn subscription_context(subscription: &SubscriptionMatch) -> LoopContext {
         created_by: subscription.created_by.clone(),
         created_at: subscription.created_at,
         updated_at: subscription.updated_at,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::Utc;
+    use moatless_types::access_control::Scope;
+
+    use super::*;
+
+    fn connection() -> AdapterConnection {
+        let now = Utc::now();
+        AdapterConnection {
+            id: "pc_org".to_string(),
+            adapter_kind: AdapterKind::Github,
+            connection_kind: "org_webhook".to_string(),
+            scope_value: "acme".to_string(),
+            credential_ref: None,
+            webhook_secret: Some("s3cr3t".to_string()),
+            transport_config: serde_json::json!({}),
+            created_by: "u_installer".to_string(),
+            scope: Scope::User,
+            owner_user_id: Some("u_owner".to_string()),
+            created_at: now,
+            updated_at: now,
+        }
+    }
+
+    /// Every writer of a Subscription id — the buffer above all — has to tell
+    /// this one apart from a Loop's, since no row answers to it.
+    #[test]
+    fn a_connection_derived_subscription_says_it_is_delivery_only() {
+        let subscription =
+            delivery_only_subscription(&connection(), AdapterKind::GithubPr, "acme/widget");
+
+        assert!(subscription.is_delivery_only());
+        assert_eq!(subscription.connection_id, "pc_org");
     }
 }

@@ -155,7 +155,23 @@ pub struct SubscriptionMatch {
     pub updated_at: DateTime<Utc>,
 }
 
+/// Id prefix of a Subscription derived from a connection rather than read from
+/// `loops`. Nothing persists such a row, so a reader that goes looking for one
+/// by id finds nothing.
+const DELIVERY_ONLY_PREFIX: &str = "virtual:";
+
 impl SubscriptionMatch {
+    /// The id a Subscription built from `connection_id` alone carries.
+    pub fn delivery_only_id(connection_id: &str) -> String {
+        format!("{DELIVERY_ONLY_PREFIX}{connection_id}")
+    }
+
+    /// Whether this Subscription was derived from a connection with no Loop.
+    /// Never store this id where a Loop's own id is expected.
+    pub fn is_delivery_only(&self) -> bool {
+        self.id.starts_with(DELIVERY_ONLY_PREFIX)
+    }
+
     /// The administrator-approved execution identity.
     // Runnable subscription queries exclude rows without this value.
     #[allow(clippy::expect_used)]

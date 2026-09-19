@@ -25,5 +25,8 @@ pub const NO_RECIPIENTS: &str = "no_recipients";
 pub const NEW_TASK: &str = "new_task";
 /// Delivered to a task that was already bound.
 pub const EXISTING_TASK: &str = "existing_task";
+/// The binding a buffered event was held for is gone or no longer active, so
+/// the event is dropped instead of waking its task back up.
+pub const BINDING_GONE: &str = "binding_gone";
 /// Handing the message to the task message flow failed.
 pub const DELIVER_FAILED: &str = "deliver_failed";

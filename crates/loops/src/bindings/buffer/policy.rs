@@ -2,11 +2,13 @@
 //!
 //! Three authorities, narrowest first: the Loop's own
 //! `loop_configs.message_buffer_seconds`, the deployment's environment, then the
-//! built-in default per [`AdapterKind`].
+//! built-in default per [`AdapterKind`]. All three belong to a Loop, so a
+//! subject routed without one is not buffered at all.
 
 use std::time::Duration;
 
 use moatless_types::adapter::AdapterKind;
+use moatless_types::loops::SubscriptionMatch;
 
 /// Global default, overriding [`builtin_window`] for every Adapter kind.
 const GLOBAL_ENV: &str = "ADAPTER_MESSAGE_BUFFER_SECONDS";
@@ -32,11 +34,26 @@ fn builtin_window(adapter: AdapterKind) -> Duration {
     }
 }
 
+/// The window an event routed under `subscription` waits out.
+///
+/// A delivery-only Subscription is a connection with no Loop, so it carries no
+/// window and no place to configure one: those events are never buffered,
+/// whatever the environment and the built-in say for their Adapter.
+pub(crate) fn buffer_window(subscription: &SubscriptionMatch) -> Duration {
+    if subscription.is_delivery_only() {
+        return Duration::ZERO;
+    }
+    configured_window(
+        subscription.message_buffer_seconds,
+        subscription.adapter_kind,
+    )
+}
+
 /// The window for an event on `adapter`, under `loop_override`.
 ///
 /// `Duration::ZERO` means "deliver this event on its own", which is what every
 /// caller treats as buffering being off.
-pub(crate) fn buffer_window(loop_override: Option<i32>, adapter: AdapterKind) -> Duration {
+fn configured_window(loop_override: Option<i32>, adapter: AdapterKind) -> Duration {
     let seconds = loop_override.or_else(|| env_default(adapter)).map_or_else(
         || builtin_window(adapter),
         |seconds| Duration::from_secs(u64::from(seconds.max(0).unsigned_abs())),
@@ -66,7 +83,65 @@ fn read_seconds(key: &str) -> Option<i32> {
 
 #[cfg(test)]
 mod tests {
+    use chrono::Utc;
+    use moatless_adapter_model::loops::delivery_only_subscription;
+    use moatless_types::access_control::Scope;
+    use moatless_types::adapter::AdapterConnection;
+
     use super::*;
+
+    fn connection() -> AdapterConnection {
+        let now = Utc::now();
+        AdapterConnection {
+            id: "pc_org".to_string(),
+            adapter_kind: AdapterKind::Github,
+            connection_kind: "org_webhook".to_string(),
+            scope_value: "acme".to_string(),
+            credential_ref: None,
+            webhook_secret: None,
+            transport_config: serde_json::json!({}),
+            created_by: "u_installer".to_string(),
+            scope: Scope::User,
+            owner_user_id: Some("u_owner".to_string()),
+            created_at: now,
+            updated_at: now,
+        }
+    }
+
+    /// A Loop's Subscription on the same connection: the id is the only part
+    /// [`buffer_window`] reads apart from the window itself.
+    fn loop_subscription(window: Option<i32>) -> SubscriptionMatch {
+        let mut subscription =
+            delivery_only_subscription(&connection(), AdapterKind::GithubPr, "acme/widget");
+        subscription.id = "lc_review".to_string();
+        subscription.message_buffer_seconds = window;
+        subscription
+    }
+
+    /// The repo has no Loop, so nothing holds its events and nothing can
+    /// configure a hold: the built-in minute for `github_pr` does not apply.
+    #[test]
+    fn a_subject_with_no_loop_is_not_buffered() {
+        let delivery_only =
+            delivery_only_subscription(&connection(), AdapterKind::GithubPr, "acme/widget");
+
+        assert_eq!(buffer_window(&delivery_only), Duration::ZERO);
+    }
+
+    /// A Loop takes the configured window, so `github_pr` keeps buffering
+    /// without anyone opting in. Compared against `configured_window` rather
+    /// than a minute, so an environment that sets a default does not fail it.
+    #[test]
+    fn a_loop_takes_the_window_its_configuration_gives_it() {
+        assert_eq!(
+            buffer_window(&loop_subscription(None)),
+            configured_window(None, AdapterKind::GithubPr)
+        );
+        assert_eq!(
+            buffer_window(&loop_subscription(Some(5))),
+            Duration::from_secs(5)
+        );
+    }
 
     #[test]
     fn github_pr_buffers_for_a_minute_and_other_adapters_do_not() {
@@ -81,15 +156,15 @@ mod tests {
     #[test]
     fn a_loop_override_outranks_the_builtin_in_both_directions() {
         assert_eq!(
-            buffer_window(Some(5), AdapterKind::GithubPr),
+            configured_window(Some(5), AdapterKind::GithubPr),
             Duration::from_secs(5)
         );
         assert_eq!(
-            buffer_window(Some(0), AdapterKind::GithubPr),
+            configured_window(Some(0), AdapterKind::GithubPr),
             Duration::ZERO
         );
         assert_eq!(
-            buffer_window(Some(30), AdapterKind::Slack),
+            configured_window(Some(30), AdapterKind::Slack),
             Duration::from_secs(30)
         );
     }
@@ -97,10 +172,13 @@ mod tests {
     #[test]
     fn a_window_is_clamped_rather_than_refused() {
         assert_eq!(
-            buffer_window(Some(i32::MAX), AdapterKind::Slack),
+            configured_window(Some(i32::MAX), AdapterKind::Slack),
             MAX_WINDOW
         );
-        assert_eq!(buffer_window(Some(-7), AdapterKind::Slack), Duration::ZERO);
+        assert_eq!(
+            configured_window(Some(-7), AdapterKind::Slack),
+            Duration::ZERO
+        );
     }
 
     /// The per-kind key is derived from the kind string, so `github_pr` must

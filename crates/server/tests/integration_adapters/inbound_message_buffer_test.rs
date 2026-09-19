@@ -339,6 +339,44 @@ async fn a_loop_with_the_window_at_zero_delivers_each_event_on_its_own(pool: PgP
     );
 }
 
+/// A Loop deactivated while its window is open. The Binding keeps receiving,
+/// under a Subscription derived from its connection, because a Binding whose
+/// Subscription is gone still works.
+#[sqlx::test]
+async fn a_loop_deactivated_inside_its_window_still_delivers(pool: PgPool) {
+    let state = test_app_state_with_adapters(pool.clone(), test_config());
+    seed_bound_thread(&state, &pool, 60).await;
+
+    route(
+        &state,
+        &pool,
+        &[("slack:ts:1700000000.000101", "first comment")],
+    )
+    .await;
+    assert_eq!(buffered(&pool).await, 1);
+
+    sqlx::query("UPDATE loops SET active = false WHERE id = $1")
+        .bind(LOOP)
+        .execute(&pool)
+        .await
+        .expect("deactivate the loop");
+
+    flush_windows(&state, &pool).await;
+
+    assert_eq!(buffered(&pool).await, 0, "the window flushed");
+    let messages = delivered_messages(&pool).await;
+    assert_eq!(
+        messages.len(),
+        1,
+        "the event is delivered, got {messages:?}"
+    );
+    assert!(
+        messages[0].contains("first comment"),
+        "the turn carries the event: {}",
+        messages[0]
+    );
+}
+
 /// A Binding that closes while its window is open: the Task is finished with,
 /// and the flusher must drop the events rather than resurrect it.
 #[sqlx::test]

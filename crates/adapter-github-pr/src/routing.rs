@@ -3,13 +3,13 @@
 
 use std::fmt::Write as _;
 
-use chrono::Utc;
 use tracing::{debug, info, warn};
 
 use moatless_adapter_model::binding::ADAPTER_EVENT_BINDING_ORIGIN;
 use moatless_adapter_model::binding::CONNECTED_THREAD_BINDING_ORIGIN;
 use moatless_adapter_model::capabilities::AdapterInboundPresentation;
 use moatless_adapter_model::error::AdapterError;
+use moatless_adapter_model::loops::delivery_only_subscription;
 use moatless_adapter_model::metrics::{inbound_reason, record_inbound};
 use moatless_ports::task::{CloseReason, EventSubject, InboundTurn, TaskOpenError, TurnOrigin};
 use moatless_types::access_control::ScopeContext;
@@ -17,7 +17,6 @@ use moatless_types::adapter::AdapterConnection;
 use moatless_types::adapter::AdapterKind;
 use moatless_types::adapter::TaskBinding;
 use moatless_types::adapter::{Audience, InboundMessage};
-use moatless_types::loops::RoutingMode;
 use moatless_types::loops::SubscriptionMatch;
 use moatless_types::task::TaskStatus;
 use moatless_types::task::Visibility;
@@ -42,60 +41,13 @@ const ORIGIN_CONNECTED_THREAD: &str = CONNECTED_THREAD_BINDING_ORIGIN;
 /// GitHub PR event, so loop/trigger prompts don't have to restate the origin.
 const PR_ORIGIN_CONTEXT: &str = "This task was created from a GitHub Pull Request.";
 
-/// Build the config-only Subscription used when a connection has no matching
-/// trigger.
-///
-/// Never persisted or used to authorize Task creation; it exists only to keep
-/// normalization, metrics, and message labelling consistent for events
-/// delivered to existing PR bindings.
+/// This adapter's [`delivery_only_subscription`]: the Subscription a PR event
+/// delivers under when the connection has no matching trigger.
 pub(super) fn delivery_only_rule(
     connection: &AdapterConnection,
     repo_full_name: &str,
 ) -> SubscriptionMatch {
-    let now = Utc::now();
-    SubscriptionMatch {
-        id: format!("virtual:{}", connection.id),
-        // Not a real Loop, so it has no configured name — say so rather than
-        // borrowing one that would read as a Loop in any UI that shows it.
-        name: "delivery-only".to_string(),
-        adapter_kind: AdapterKind::GithubPr,
-        connection_id: connection.id.clone(),
-        source_matcher: repo_full_name.to_string(),
-        source_name: None,
-        routing_mode: RoutingMode::BySubject,
-        event_filter: serde_json::json!([]),
-        workspace_id: String::new(),
-        prompt_template: None,
-        task_name: None,
-        tag_ids: Vec::new(),
-        skills: Vec::new(),
-        // Never `None`: an org connection owned by nobody would otherwise
-        // panic every reader of `SubscriptionMatch::effective_user_id`, which
-        // is where an unmapped sender lands. Whoever connected it, then.
-        run_as_user_id: Some(
-            connection
-                .owner_user_id
-                .clone()
-                .unwrap_or_else(|| connection.created_by.clone()),
-        ),
-        agent_type: moatless_types::agent::AgentType(String::new()),
-        model: None,
-        inactive_ttl_days: None,
-        node_selector: None,
-        stop_when_done: None,
-        message_buffer_seconds: None,
-        allow_direct_send: false,
-        adapter_config: None,
-        ongoing_task_id: None,
-        close_task_on_close: false,
-        notify_on_success: false,
-        active: true,
-        created_by: connection.created_by.clone(),
-        scope: connection.scope,
-        owner_user_id: connection.owner_user_id.clone(),
-        created_at: now,
-        updated_at: now,
-    }
+    delivery_only_subscription(connection, AdapterKind::GithubPr, repo_full_name)
 }
 
 impl GithubPrInboundRouter {
