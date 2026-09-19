@@ -3,7 +3,8 @@
 //! Three authorities, narrowest first: the Loop's own
 //! `loop_configs.message_buffer_seconds`, the deployment's environment, then the
 //! built-in default per [`AdapterKind`]. All three belong to a Loop, so a
-//! subject routed without one is not buffered at all.
+//! subject routed without one is not buffered at all. [`buffer_window`] owns
+//! which Adapter the latter two are keyed on.
 
 use std::time::Duration;
 
@@ -34,19 +35,17 @@ fn builtin_window(adapter: AdapterKind) -> Duration {
     }
 }
 
-/// The window an event routed under `subscription` waits out.
+/// The window an event on `event_kind` waits out under `subscription`.
 ///
-/// A delivery-only Subscription is a connection with no Loop, so it carries no
-/// window and no place to configure one: those events are never buffered,
-/// whatever the environment and the built-in say for their Adapter.
-pub(crate) fn buffer_window(subscription: &SubscriptionMatch) -> Duration {
+/// `event_kind` is the event's own Adapter, deliberately not
+/// `subscription.adapter_kind`, which holds the connection's kind: a GitHub PR
+/// Loop reads `github` there and never reaches the `github_pr` default. A
+/// delivery-only Subscription has no Loop and so no window: never buffered.
+pub(crate) fn buffer_window(subscription: &SubscriptionMatch, event_kind: AdapterKind) -> Duration {
     if subscription.is_delivery_only() {
         return Duration::ZERO;
     }
-    configured_window(
-        subscription.message_buffer_seconds,
-        subscription.adapter_kind,
-    )
+    configured_window(subscription.message_buffer_seconds, event_kind)
 }
 
 /// The window for an event on `adapter`, under `loop_override`.
@@ -108,11 +107,12 @@ mod tests {
         }
     }
 
-    /// A Loop's Subscription on the same connection: the id is the only part
-    /// [`buffer_window`] reads apart from the window itself.
+    /// A Loop's Subscription as `subscriptions` stores one: `adapter_kind` is
+    /// the connection's, `github`, even where every event it routes is a
+    /// `github_pr` one.
     fn loop_subscription(window: Option<i32>) -> SubscriptionMatch {
         let mut subscription =
-            delivery_only_subscription(&connection(), AdapterKind::GithubPr, "acme/widget");
+            delivery_only_subscription(&connection(), AdapterKind::Github, "acme/widget");
         subscription.id = "lc_review".to_string();
         subscription.message_buffer_seconds = window;
         subscription
@@ -125,20 +125,24 @@ mod tests {
         let delivery_only =
             delivery_only_subscription(&connection(), AdapterKind::GithubPr, "acme/widget");
 
-        assert_eq!(buffer_window(&delivery_only), Duration::ZERO);
+        assert_eq!(
+            buffer_window(&delivery_only, AdapterKind::GithubPr),
+            Duration::ZERO
+        );
     }
 
-    /// A Loop takes the configured window, so `github_pr` keeps buffering
-    /// without anyone opting in. Compared against `configured_window` rather
-    /// than a minute, so an environment that sets a default does not fail it.
+    /// The window follows the event's Adapter, so a `github_pr` event buffers
+    /// under a Loop whose Subscription says `github`. Compared against
+    /// `configured_window` rather than a minute, so an environment that sets a
+    /// default does not fail it.
     #[test]
-    fn a_loop_takes_the_window_its_configuration_gives_it() {
+    fn a_pr_event_takes_the_pr_window_under_a_github_subscription() {
         assert_eq!(
-            buffer_window(&loop_subscription(None)),
+            buffer_window(&loop_subscription(None), AdapterKind::GithubPr),
             configured_window(None, AdapterKind::GithubPr)
         );
         assert_eq!(
-            buffer_window(&loop_subscription(Some(5))),
+            buffer_window(&loop_subscription(Some(5)), AdapterKind::GithubPr),
             Duration::from_secs(5)
         );
     }

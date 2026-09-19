@@ -723,7 +723,7 @@ impl RoutingService {
         adapter_label: &str,
         is_new_task: bool,
     ) -> Result<(), AdapterError> {
-        let window = buffer_window(subscription);
+        let window = buffer_window(subscription, msg.adapter_kind);
         if window.is_zero() || is_new_task {
             return self
                 .deliver_now(
