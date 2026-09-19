@@ -76,7 +76,8 @@ pub enum SharedAdapterError {
 
     /// The provider answered and rejected the call — a non-success status, or
     /// an `ok: false` / `errors` payload. Synthesized from the provider's own
-    /// words, so there is no underlying Rust error to carry.
+    /// words, so there is no underlying Rust error to carry. Renders as 502: a
+    /// rejection the caller can fix is `NotFound` or `BadRequest` instead.
     #[error("Adapter API error: {0}")]
     AdapterApi(String),
 

@@ -309,8 +309,8 @@ impl LinearAgentApi {
             .map_err(|e| SharedAdapterError::provider_response_invalid("Linear refresh", e).into())
     }
 
-    /// Send a GraphQL request with a fresh access token. Surface errors via
-    /// `SharedAdapterError::AdapterApi`.
+    /// Send a GraphQL request with a fresh access token. A non-empty `errors`
+    /// array fails the call.
     pub async fn graphql(
         &self,
         body: serde_json::Value,
@@ -393,10 +393,7 @@ impl LinearAgentApi {
         if !status.is_success() {
             warn!(status = %status, body = %text, "Linear GraphQL HTTP error");
             record_api_call(PROVIDER, "error");
-            return Err(SharedAdapterError::AdapterApi(format!(
-                "Linear API returned {status}: {text}"
-            ))
-            .into());
+            return Err(http_rejection(status, &text).into());
         }
 
         match serde_json::from_str(&text) {
@@ -1108,7 +1105,73 @@ fn check_graphql_errors(value: &serde_json::Value) -> Result<(), AdapterError> {
         errors = %serde_json::Value::Array(errors.clone()),
         "Linear GraphQL returned errors"
     );
-    Err(SharedAdapterError::AdapterApi(format!("Linear GraphQL errors: {errors:?}")).into())
+    Err(classify_graphql_errors(errors, false).into())
+}
+
+/// Classify a non-success answer other than a 401. Only a 400 can be the
+/// caller's fault.
+fn http_rejection(status: reqwest::StatusCode, text: &str) -> SharedAdapterError {
+    let message = format!("Linear API returned {status}: {text}");
+    if status != reqwest::StatusCode::BAD_REQUEST {
+        return SharedAdapterError::AdapterApi(message);
+    }
+    let errors = serde_json::from_str::<serde_json::Value>(text)
+        .ok()
+        .and_then(|body| body.get("errors")?.as_array().cloned())
+        .filter(|errors| !errors.is_empty());
+    match errors {
+        Some(errors) => classify_graphql_errors(&errors, true),
+        None => SharedAdapterError::BadRequest(message),
+    }
+}
+
+/// Classify a non-empty `errors` array by what Linear said about it.
+///
+/// A caller error is `NotFound` or `BadRequest`; anything else stays
+/// `AdapterApi`. `RATELIMITED` stays `AdapterApi` whatever else it carries,
+/// deliberately: the delivery retry policy reads the other two as permanent.
+/// `http_400` marks every error as the caller's.
+fn classify_graphql_errors(errors: &[serde_json::Value], http_400: bool) -> SharedAdapterError {
+    let str_at = |error: &serde_json::Value, pointer: &str| {
+        error
+            .pointer(pointer)
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned)
+    };
+    let message = errors
+        .iter()
+        .map(|error| {
+            str_at(error, "/extensions/userPresentableMessage")
+                .or_else(|| str_at(error, "/message"))
+                .unwrap_or_else(|| "no message".to_string())
+        })
+        .collect::<Vec<_>>()
+        .join("; ");
+    let message = format!("Linear: {message}");
+
+    let rate_limited = errors
+        .iter()
+        .any(|error| str_at(error, "/extensions/code").as_deref() == Some("RATELIMITED"));
+    let caller_error = |error: &serde_json::Value| {
+        http_400
+            || error.pointer("/extensions/userError") == Some(&serde_json::Value::Bool(true))
+            || error
+                .pointer("/extensions/statusCode")
+                .and_then(serde_json::Value::as_u64)
+                == Some(400)
+    };
+    if rate_limited || !errors.iter().all(caller_error) {
+        return SharedAdapterError::AdapterApi(message);
+    }
+
+    let not_found = errors
+        .iter()
+        .any(|error| str_at(error, "/message").is_some_and(|m| m.starts_with("Entity not found")));
+    if not_found {
+        SharedAdapterError::NotFound(message)
+    } else {
+        SharedAdapterError::BadRequest(message)
+    }
 }
 
 /// Recognise Linear's "URL already linked with <issue>" response from
@@ -1331,130 +1394,4 @@ mod tests {
 mod lookup_tests;
 
 #[cfg(test)]
-mod error_source_tests {
-    use std::error::Error as _;
-
-    use axum::http::StatusCode;
-
-    use super::*;
-    use moatless_adapter_model::error::ProviderDecodeError;
-    use moatless_adapter_model::test_support::{UNREACHABLE_BASE, stub_provider};
-
-    /// An app-credential port nothing stands behind.
-    ///
-    /// These tests assert the request path, not the credential read;
-    /// `graphql_with_token` takes the token as an argument, so it never touches
-    /// the database.
-    struct NoAppToken;
-
-    #[async_trait::async_trait]
-    impl AppCredentials for NoAppToken {
-        async fn app_token(
-            &self,
-            _provider: &str,
-        ) -> Result<Option<AppToken>, moatless_types::store::StoreError> {
-            Ok(None)
-        }
-
-        async fn store_app_token(
-            &self,
-            _provider: &str,
-            _token: &AppToken,
-        ) -> Result<(), moatless_types::store::StoreError> {
-            Ok(())
-        }
-    }
-
-    fn offline_pool() -> Arc<dyn AppCredentials> {
-        Arc::new(NoAppToken)
-    }
-
-    /// A client whose whole API host is `base`, built the way production builds
-    /// one — same constructor, same fields, only the host replaced.
-    fn api_at(base: impl AsRef<str>) -> LinearAgentApi {
-        LinearAgentApi::with_base_url(
-            Client::new(),
-            offline_pool(),
-            "test-org".to_string(),
-            None,
-            None,
-            base.as_ref(),
-        )
-    }
-
-    #[tokio::test]
-    async fn unreachable_linear_keeps_transport_source() {
-        let api = api_at(UNREACHABLE_BASE);
-
-        let err = api
-            .graphql_with_token(
-                "lin_test",
-                serde_json::json!({ "query": "{ viewer { id } }" }),
-            )
-            .await
-            .expect_err("dead loopback port must fail");
-
-        let AdapterError::Shared(SharedAdapterError::ProviderUnreachable {
-            ref operation,
-            ref source,
-        }) = err
-        else {
-            panic!("expected ProviderUnreachable, got {err:?}");
-        };
-        assert_eq!(operation, "Linear request");
-        assert!(source.is_connect() || source.is_request(), "{source}");
-        assert!(err.source().is_some(), "cause must stay reachable");
-    }
-
-    #[tokio::test]
-    async fn undecodable_linear_body_keeps_serde_source() {
-        let base = stub_provider(StatusCode::OK, "<html>not json</html>").await;
-        let api = api_at(base);
-
-        let err = api
-            .graphql_with_token(
-                "lin_test",
-                serde_json::json!({ "query": "{ viewer { id } }" }),
-            )
-            .await
-            .expect_err("html body must not decode");
-
-        let AdapterError::Shared(SharedAdapterError::ProviderResponseInvalid {
-            ref operation,
-            ref source,
-        }) = err
-        else {
-            panic!("expected ProviderResponseInvalid, got {err:?}");
-        };
-        assert_eq!(operation, "Linear JSON");
-        assert!(
-            matches!(source, ProviderDecodeError::Json(_)),
-            "Linear buffers the body itself, so the cause is a serde error"
-        );
-        assert!(err.source().is_some(), "cause must stay reachable");
-    }
-
-    /// A Linear 401 is a rejection we classify separately from "unreachable".
-    #[tokio::test]
-    async fn linear_401_stays_unauthorized() {
-        let base = stub_provider(StatusCode::UNAUTHORIZED, r#"{"error":"invalid token"}"#).await;
-        let api = api_at(base);
-
-        let err = api
-            .graphql_with_token(
-                "lin_test",
-                serde_json::json!({ "query": "{ viewer { id } }" }),
-            )
-            .await
-            .expect_err("401 must be an error");
-
-        assert!(
-            matches!(
-                err,
-                AdapterError::Shared(SharedAdapterError::Unauthorized(_))
-            ),
-            "got {err:?}"
-        );
-        assert!(err.source().is_none());
-    }
-}
+mod error_source_tests;

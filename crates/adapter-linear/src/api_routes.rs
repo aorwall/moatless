@@ -99,6 +99,7 @@ pub async fn create_issue(
     responses(
         (status = 200, description = "Issue updated", body = LinearIssueResponse),
         (status = 400, description = "Bad request", body = moatless_api_schemas::error::ErrorBody),
+        (status = 404, description = "Issue not found", body = moatless_api_schemas::error::ErrorBody),
     )
 )]
 pub async fn update_issue(
@@ -126,6 +127,7 @@ pub async fn update_issue(
     responses(
         (status = 200, description = "Comment posted", body = LinearIssueResponse),
         (status = 400, description = "Bad request", body = moatless_api_schemas::error::ErrorBody),
+        (status = 404, description = "Issue not found", body = moatless_api_schemas::error::ErrorBody),
     )
 )]
 pub async fn create_comment(
@@ -162,6 +164,7 @@ pub async fn create_comment(
     responses(
         (status = 200, description = "Label mutated", body = LinearOkResponse),
         (status = 400, description = "Bad request", body = moatless_api_schemas::error::ErrorBody),
+        (status = 404, description = "Issue not found", body = moatless_api_schemas::error::ErrorBody),
     )
 )]
 pub async fn mutate_label(
@@ -188,6 +191,7 @@ pub async fn mutate_label(
     responses(
         (status = 200, description = "Relation created", body = LinearIssueResponse),
         (status = 400, description = "Bad request", body = moatless_api_schemas::error::ErrorBody),
+        (status = 404, description = "Issue not found", body = moatless_api_schemas::error::ErrorBody),
     )
 )]
 pub async fn relate_issue(
@@ -229,7 +233,10 @@ pub async fn list_issues(
     tag = "linear",
     params(LinearConnectionParams),
     request_body = LinearGraphqlRequest,
-    responses((status = 200, description = "Raw GraphQL response", body = Object))
+    responses(
+        (status = 200, description = "Raw GraphQL response", body = Object),
+        (status = 400, description = "Linear rejected the query", body = moatless_api_schemas::error::ErrorBody),
+    )
 )]
 pub async fn graphql_passthrough(
     State(linear): State<Option<Arc<LinearAdapter>>>,
