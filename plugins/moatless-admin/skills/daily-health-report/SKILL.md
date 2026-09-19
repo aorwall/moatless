@@ -21,7 +21,7 @@ It writes `data/digest.json` plus `tasks`, `feedback`, `loops`, `workspaces`, `r
 
 **2. Read the digest before writing anything.** It carries every tile number, the per-reason Kubernetes warning breakdown, the log-level totals per service and the tool-failure rate. Anything the digest does not answer needs a query of its own — `references/queries.md` has the ones that already work.
 
-**3. Pick the three fixes.** Three, not four, and not one per data source. See *Picking and writing the three* below.
+**3. Pick the three fixes.** Three, not four, and not one per data source, and read `data/feedback.json` before you choose and cluster it — those clusters compete for the three slots. See *Picking and writing the three* below.
 
 **4. Build the page.** Write a `build.mjs` beside the data that imports `scripts/layout.mjs`, feeds it the digest, and writes the HTML. Sections the library has no component for are plain HTML strings in the same file — the library imposes the shell, the CSS and the chart geometry, nothing else.
 
@@ -95,7 +95,8 @@ Rank by what a reader would act on, not by what produced the most lines.
 - **A number nobody can act on is not a fix.** 2.7 M harmless WARN lines is a metric; *four patterns are 88% of ingest and here is the one to delete first* is a fix.
 - **Prefer a failure that reached a person or destroyed work** over one that cost only time.
 - **Fold repeats into one card.** Six evictions with the same cause are one fix with six instances, not six fixes.
-- **Name the ones you dropped** in the method note, so the next reader can tell a quiet area from an unexamined one.
+- **Rank the feedback clusters against the log-derived candidates, not after them.** Feedback is the one source where the cost is reported by whoever paid it, so a cluster of agents that could not verify their own work outranks a metric nobody has complained about. Take the three from the merged ranking, whatever the mix — the ranking decides which three, and the severity rule below still decides the order they are written in. A cluster that becomes a card is written as one, and section 5 then cites it by number instead of describing it twice.
+- **Name the ones you dropped** in the method note — the measurements and the feedback clusters both, with the reason — so the next reader can tell a quiet area from an unexamined one. A dropped fix leaves its evidence on the page: the chart stays in section 4, the cluster stays in section 5.
 
 Each of the three is one card, and the card has four slots:
 
@@ -151,7 +152,7 @@ These defeat a reasonable assumption, and each one has produced a wrong number h
 ## Done when
 
 - Every number on the page traces to a file in `data/` or to a query written down in the report's method note.
-- Three fix cards, each with an imperative header, an evidence size, a Problem and a Fix, and each citing either a chart on the page or a query written down in the method note. A single failure has no chart, and inventing one to satisfy the rule is worse than citing the log line.
+- Three fix cards, each with an imperative header, an evidence size, a Problem and a Fix, and each citing a chart on the page, a query written down in the method note, or the section 5 cluster it was promoted from. A single failure has no chart, and inventing one to satisfy the rule is worse than citing the log line.
 - No kicker above any section heading, and no `bg-*`/`text-*` palette utility anywhere on the page — a card that hard-codes a colour inverts in dark mode.
 - The tag-balance check reports nothing unclosed and nothing mismatched beyond the two `<meta />` tags.
 - Charts carry a legend or a table when they hold more than one series, and every tooltip names its hour.
