@@ -385,30 +385,32 @@ been evicted mid-carve this way (`Usage of EmptyDir volume "workspace-data" exce
 "10Gi"`).
 
 **All three evictions were self-inflicted at task creation, and the fix is one flag.** The repo
-*does* size its workspace: the `moatless` entry in `.moatless/workspaces.json` sets
-`"storage": "20Gi"` with `"buildCacheMode": "node"` and `"buildCacheScope": "task"`, and
-`docs/sandbox-architecture.md:763-791` documents that block as the answer to this exact eviction for
-Rust-heavy repos. None of the evicted lanes were using it. A task created with `moat tasks create
---repo moatless` lands on a synthesized per-repository workspace — its id is literally `ws_` + the
-repository id and its name is `null` — which carries no `resources` block at all and therefore gets
-the deployment default, not the 20Gi. Tasks created with `--workspace moatless-global` land on
-`ws_a7a61c35…`, which has the block. **Create carve lanes with `--workspace moatless-global`.** The
+*does* size its workspace: the `moatless` entry in `.moatless/workspaces.json` sets a `resources`
+block — `"storage": "60Gi"` today, `"20Gi"` when this was written, with explicit `requests` and
+`limits` — and `docs/sandbox-architecture.md:752-774` documents that block as the answer to this
+exact eviction for Rust-heavy repos. None of the evicted lanes were using it. A task created with
+`moat tasks create --repo moatless` lands on a synthesized per-repository workspace — its id is
+literally `ws_` + the repository id and its name is `null` — which carries no `resources` block at
+all and therefore gets the deployment default. Tasks created with `--workspace moatless-global`
+land on `ws_a7a61c35…`, which has the block. **Create carve lanes with `--workspace moatless-global`.** The
 protocol below still stands: it costs nothing on a correctly-sized workspace, and a lane can still
 find itself on a constrained one.
 
 That workspace was named `Moatless` when this was written, and the entry's `key` is still
 `moatless`. Do not pass `--workspace Moatless`: name lookup is a case-insensitive exact match that
 errors only on ambiguity, so it now resolves silently to the manual `moatless` workspace
-(`ws_688b4fb4…`), which carries no `resources` block.
+(`ws_688b4fb4…`), which sets only `storage` and is not the workspace these lanes were sized
+against — no `requests`/`limits` means the deployment `K8S_RESOURCE_*` memory defaults, which is
+the other half of the eviction above.
 
 **A residual gap, measured and deliberately not fixed here.** Even the `moatless-global` workspace
-does not set `CARGO_TARGET_DIR` to the build cache, so `target/` rides the workspace volume rather
-than the node-backed cache that `buildCacheMode: "node"` provisions — the env block
-`docs/sandbox-architecture.md:783-786` recommends alongside it is absent, on all three Rust-capable
-workspaces. That makes 20Gi a larger ceiling rather than a different resource. Changing it touches
-every task on those workspaces, not just this program, so it is **tracked in
-`docs/deferred-changes.md`** under "Test and CI structure" with its anchor and entry condition, and
-only summarised here.
+does not move `CARGO_TARGET_DIR` off the workspace volume, and no workspace here declares storage
+separate from it, so `target/` spends the same `storage` budget as the checkout. That makes the
+number a larger ceiling rather than a different resource. Changing it touches
+every task on that workspace, not just this program, which is why it was left alone. No row in
+`docs/deferred-changes.md` tracks it today — the `CARGO_TARGET_DIR` entry under "Test and CI
+structure" is about the CI jobs' restored cache, not the sandbox volume — so whoever picks it up
+files it first.
 
 **Push early, and push broken.** This is the rule that matters most and the one this section was
 missing through the first three evictions: it told you how to make eviction *less likely* and
