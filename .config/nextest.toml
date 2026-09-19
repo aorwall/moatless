@@ -7,6 +7,13 @@
 # Surface a hang before the job timeout does; bounds a deadlock at 10 * 30s.
 slow-timeout = { period = "30s", terminate-after = 10 }
 
+# A throughput benchmark: its counted arms serialize every writer on one row
+# across the commit, so commit latency from concurrent tests on the same
+# Postgres slows only those arms and fails its ratio assertions.
+[[profile.default.overrides]]
+filter = 'binary_id(moatless-backend::integration_data) and test(=task_listing_position_test::the_counter_is_measured_under_concurrent_mutation)'
+threads-required = "num-test-threads"
+
 [profile.ci]
 # Report every failure in a run, not just the first.
 fail-fast = false
