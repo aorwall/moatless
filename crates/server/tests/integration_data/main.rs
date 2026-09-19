@@ -10,6 +10,7 @@ mod common;
 
 mod feedback_handler_test;
 mod message_handler_test;
+mod preview_tab_feed_test;
 mod repository_handler_test;
 mod supervisor_test;
 mod t3_usage_port_test;

@@ -24,6 +24,7 @@ mod oauth;
 mod observability;
 pub mod ports;
 mod preview;
+pub mod preview_relay;
 pub mod preview_tabs;
 mod projection;
 mod providers;

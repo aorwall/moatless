@@ -609,6 +609,7 @@ pub(super) fn state_with_attachments(attachments: Arc<dyn ports::AttachmentStore
                     std::time::Duration::from_hours(1),
                 ))),
                 tasks: Arc::new(MockT3TaskDao::new()),
+                relay: preview_relay::PreviewRelay::disabled(),
             },
         },
         sandbox: SandboxState {
@@ -629,6 +630,7 @@ pub(super) fn state_with_attachments(attachments: Arc<dyn ports::AttachmentStore
                 std::time::Duration::from_hours(1),
             ))),
             tasks: Arc::new(MockT3TaskDao::new()),
+            relay: preview_relay::PreviewRelay::disabled(),
         },
         agents: Arc::new(StubAgents),
         branches: Arc::new(UnreachableBranches),

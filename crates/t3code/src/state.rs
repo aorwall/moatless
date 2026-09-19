@@ -58,8 +58,9 @@ pub(crate) struct UiRpcState {
     /// The Tasks a Task spawned. A second fleet beside its subagents, and not
     /// the same kind of thing: each one is a Thread of its own.
     pub(crate) subtasks: SubtasksState,
-    /// The browser tabs open on a Task, and the fan-out that tells every
-    /// replica when one changes.
+    /// The browser tabs open on a Task, and the fan-out that tells this
+    /// replica's subscribers when one changes. A tab the environment opens
+    /// reaches the other replicas over `preview_relay`.
     pub(crate) preview: PreviewState,
     pub(crate) model_defaults: Arc<AgentModelDefaults>,
     /// The agent catalog, as this deployment can actually run it. Read on every

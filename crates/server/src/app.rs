@@ -298,6 +298,8 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         // Held for the event-subscriber registration below: the Scripts this
         // starts run through the router's own state.
         let mut startup_scripts = None;
+        // Held for the supervision below, out of the same value.
+        let mut preview_relay = None;
         if let Some(t3code) = crate::compose::http::ui_rpc(
             &config,
             &ports,
@@ -314,6 +316,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         {
             router = router.merge(t3code.router);
             startup_scripts = Some(t3code.startup_scripts);
+            preview_relay = Some(t3code.preview_relay);
             device_pairing = true;
         }
         info!("Domain routes registered");
@@ -374,6 +377,24 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
                 // tasks silently never complete on this replica.
                 Criticality::Readiness,
                 handle,
+            );
+        }
+
+        // Cross-replica preview tabs. A Script run over HTTP opens its tab on
+        // whichever replica the load balancer picked, and the person who
+        // started it is socketed to a replica chosen independently; this is
+        // what carries the open across. Gated on the T3 module, which owns
+        // both halves.
+        if let Some(preview_relay) = preview_relay {
+            supervisor.supervise(
+                "preview-tab-relay",
+                // Optional: without it a Script's tab still opens for viewers
+                // on the replica that ran it, and everyone else reaches the
+                // same server through the preview URL or by opening the Script
+                // from the UI. Shedding traffic over it would be the larger
+                // outage.
+                Criticality::Optional,
+                preview_relay.spawn(cancel.clone()),
             );
         }
 

@@ -7,6 +7,7 @@ use crate::dao::PgConversationDao;
 use crate::observability;
 use crate::ports;
 use crate::preview::PreviewState;
+use crate::preview_relay::{PreviewRelay, PreviewRelayWorker};
 use crate::preview_tabs::PreviewTabTtl;
 use crate::reads::T3Reads;
 use crate::routes::router;
@@ -119,7 +120,11 @@ pub async fn mount(
     let preview = PreviewState {
         tabs: Arc::new(crate::preview_tabs::PreviewTabs::new(preview_tab_ttl)),
         tasks: reads.tasks_arc(),
+        relay: PreviewRelay::new(graph.pool.clone()),
     };
+    // Cloned before the state literal takes it: the worker applies the other
+    // replicas' opens into the same store the routes read from.
+    let preview_relay = PreviewRelayWorker::new(preview.clone());
     // Both held outside the state literal because the startup runner is handed
     // the same two: a Script started at Sandbox Ready has to land in the hub
     // the RPC surface serves terminal reads from.
@@ -182,6 +187,7 @@ pub async fn mount(
     Ok(UiRpc {
         router,
         startup_scripts,
+        preview_relay,
     })
 }
 
@@ -191,6 +197,10 @@ pub async fn mount(
 /// views, so a request spanning them shares one pool and one access filter.
 #[derive(Clone)]
 pub struct T3Graph {
+    /// The one write this crate makes for itself: the preview relay records an
+    /// open here. Every other write goes out through a port, and every read
+    /// through [`T3Reads`].
+    pool: UiRpcDbPool,
     reads: T3Reads,
     usage: Arc<dyn ports::UsageReporter>,
 }
@@ -202,6 +212,7 @@ pub struct T3Graph {
 pub fn t3_graph(db: UiRpcDbPool, activities: Arc<dyn ActivitySource>) -> T3Graph {
     let conversations = Arc::new(PgConversationDao::new(db.clone(), activities));
     T3Graph {
+        pool: db.clone(),
         reads: T3Reads::new(
             db.clone(),
             conversations.clone(),
@@ -227,14 +238,16 @@ impl T3Graph {
     }
 }
 
-/// The two halves of the T3 compatibility module: the routes it serves, and the
-/// Scripts it starts on its own when a Sandbox becomes Ready.
+/// The T3 compatibility module: the routes it serves, the Scripts it starts
+/// when a Sandbox becomes Ready, and the relay that keeps preview tabs
+/// consistent across replicas.
 ///
-/// One value because the second half is only reachable through state the first
-/// half owns; the Task band subscribes it to the Ready event.
+/// One value because the latter two reach only state the router owns; the Task
+/// band subscribes the Scripts and the root supervisor runs the relay.
 pub struct UiRpc {
     pub router: Router,
     pub startup_scripts: StartupScripts,
+    pub preview_relay: PreviewRelayWorker,
 }
 
 /// Everything the T3 compatibility routes need from the rest of the backend.

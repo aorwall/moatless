@@ -4358,6 +4358,7 @@ dependencies = [
  "sqlx",
  "thiserror 2.0.18",
  "tokio",
+ "tokio-util",
  "tonic",
  "tower",
  "tower-http 0.7.0",

@@ -77,6 +77,13 @@ pub const CONCERNS: &[Concern] = &[
         slice: 1,
     },
     Concern {
+        name: "preview feed",
+        owner: "moatless-core",
+        roots: &["crates/core/src/change_feed/preview/dao"],
+        tables: &["preview_tab_changes", "preview_tab_position"],
+        slice: 1,
+    },
+    Concern {
         name: "adapter connections",
         owner: "moatless-adapter-model",
         roots: &["crates/adapter-model/src/connections/dao"],
@@ -452,6 +459,10 @@ const FEED_OPERATIONS: &[(&str, &str)] = &[
     ("moatless-core", "change_feed::listing::current_position"),
     ("moatless-core", "change_feed::listing::prune_changes"),
     ("moatless-core", "change_feed::listing::record_change"),
+    ("moatless-core", "change_feed::preview::current_position"),
+    ("moatless-core", "change_feed::preview::opens_after"),
+    ("moatless-core", "change_feed::preview::prune_opens"),
+    ("moatless-core", "change_feed::preview::record_open"),
 ];
 
 /// A live connection or transaction. `PgPool` is deliberately absent: the plan

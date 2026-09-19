@@ -1,9 +1,11 @@
 //! The preview tabs open on each Task, and the fan-out that tells subscribers
 //! when one changes.
 //!
-//! Held in this process only, so a tab written on one replica is invisible to
-//! another. Deliberately a placeholder for a Postgres-backed store — see
-//! `docs/deferred-changes.md#preview-tabs-are-per-replica`.
+//! Held in this process only, so the contents die with it and a tab written on
+//! one replica is invisible to another. A tab the environment opens crosses
+//! that gap over [`crate::preview_relay`]; nothing else does, and nothing
+//! survives a restart — see
+//! `docs/deferred-changes.md#preview-tabs-do-not-survive-a-restart`.
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

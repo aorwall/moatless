@@ -27,6 +27,8 @@ sha2 = { workspace = true }
 sqlx = { workspace = true, features = ["runtime-tokio", "tls-rustls", "postgres", "json", "chrono", "uuid"] }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
+# `CancellationToken`, for the preview relay the root supervisor shuts down.
+tokio-util = { workspace = true }
 tonic = { workspace = true }
 tower-http = { version = "0.7", features = ["compression-br", "compression-gzip"] }
 tracing = { workspace = true }

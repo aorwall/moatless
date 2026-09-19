@@ -13,8 +13,10 @@ use std::sync::Arc;
 
 use chrono::Utc;
 use serde_json::{Value, json};
+use tracing::warn;
 use uuid::Uuid;
 
+use crate::preview_relay::PreviewRelay;
 use crate::preview_tabs::{PreviewTab, PreviewTabs};
 use crate::task_dao::T3TaskDao;
 use moatless_types::access_control::ScopeContext;
@@ -24,6 +26,9 @@ use moatless_types::access_control::ScopeContext;
 pub struct PreviewState {
     pub tabs: Arc<PreviewTabs>,
     pub tasks: Arc<dyn T3TaskDao>,
+    /// Carries an [`open_at`] to the replicas holding the other viewers'
+    /// sockets. [`tabs`](Self::tabs) reaches this process and no further.
+    pub relay: PreviewRelay,
 }
 
 /// Why a `preview.*` call could not be answered.
@@ -109,7 +114,7 @@ fn commanded(url: &str) -> Value {
     json!({ "_tag": "Success", "url": url, "title": "" })
 }
 
-/// Store a whole tab, then tell every replica about it.
+/// Store a whole tab, then tell this replica's subscribers about it.
 ///
 /// The write lands first — a publish failure leaves the tab stored and the
 /// caller answered; clients that missed the event converge on their next
@@ -168,8 +173,9 @@ pub async fn open(
 /// Open a tab at a caller-chosen id, replacing whatever that id held.
 ///
 /// Unlike [`open`], which mints one: every run of one Script is the same tab
-/// (see [`crate::scripts::run`]), so this re-announces it, carrying the
-/// viewport over and pulling every viewer back to `url`.
+/// (see [`crate::scripts::run`]), so the viewport carries over and viewers are
+/// pulled back to `url`. Its caller need not hold a socket to this replica —
+/// `moat tasks scripts run` is a load-balanced POST — hence [`PreviewRelay`].
 pub async fn open_at(
     state: &PreviewState,
     viewer: &ScopeContext,
@@ -178,6 +184,38 @@ pub async fn open_at(
     url: &str,
 ) -> Result<Value, PreviewError> {
     authorize(state, viewer, task_id).await?;
+    let opened = store_open(state, task_id, tab_id, url).await?;
+    state
+        .relay
+        .announce(state.tabs.epoch(), task_id, tab_id, url)
+        .await;
+    Ok(opened)
+}
+
+/// Open a tab another replica opened, into this replica's store.
+///
+/// No authorization, deliberately: the replica that served the open checked
+/// it, and [`watch_preview_events`](crate::rpc::watch::watch_preview_events)
+/// checks each subscriber's own access. No re-announcement either, or two
+/// replicas would relay each other's opens without end.
+pub(crate) async fn apply_relayed_open(
+    state: &PreviewState,
+    task_id: &str,
+    tab_id: &str,
+    url: &str,
+) {
+    if let Err(error) = store_open(state, task_id, tab_id, url).await {
+        warn!(%error, task_id, tab_id, "A relayed preview tab was not applied");
+    }
+}
+
+/// Write the tab and publish it, carrying over a viewport somebody chose.
+async fn store_open(
+    state: &PreviewState,
+    task_id: &str,
+    tab_id: &str,
+    url: &str,
+) -> Result<Value, PreviewError> {
     let viewport = state.tabs.get(task_id, tab_id).and_then(|tab| tab.viewport);
     commit(
         state,
@@ -400,6 +438,7 @@ mod tests {
                 std::time::Duration::from_hours(1),
             ))),
             tasks: tasks_readable(readable),
+            relay: PreviewRelay::disabled(),
         }
     }
 
@@ -668,6 +707,25 @@ mod tests {
             .unwrap();
 
         assert_eq!(reopened["viewport"], viewport);
+    }
+
+    /// A relayed open carries no viewer, so it cannot authorize and does not
+    /// try: `watch_preview_events` filters each subscriber before forwarding
+    /// what this publishes. A DAO that answers for nobody is the sharpest
+    /// version of that — if this ever starts authorizing, it stops working.
+    #[tokio::test]
+    async fn a_relayed_open_lands_and_publishes_without_a_viewer() {
+        let state = state(None);
+        let mut events = state.tabs.subscribe();
+
+        apply_relayed_open(&state, "task", "script-dev", "https://a.example").await;
+
+        let listing = state.tabs.list("task");
+        assert_eq!(listing.tabs.len(), 1);
+        assert_eq!(listing.tabs[0].tab_id, "script-dev");
+        let event = events.recv().await.unwrap();
+        assert_eq!(event["type"], "opened");
+        assert_eq!(event["snapshot"]["navStatus"]["url"], "https://a.example");
     }
 
     /// Every method in the group authorizes first, so a viewer without access
