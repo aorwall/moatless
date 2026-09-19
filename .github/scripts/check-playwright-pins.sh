@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Fail when a repo in docker/playwright-consumers.json resolves a playwright-core
-# build that docker/Dockerfile.sandbox-base does not bake.
+# build that docker/Dockerfile.sandbox-base does not bake, or when
+# docker/Dockerfile.e2e's base tag disagrees with this repo's own lockfile.
 #
 # The image installs one Chromium per version in PLAYWRIGHT_VERSION,
 # PLAYWRIGHT_CLI_VERSION and PLAYWRIGHT_COMPAT_VERSIONS. A consumer that moves
@@ -95,6 +96,27 @@ if [ "$skipped" = "0" ]; then
 		*) echo "::warning::No consumer resolves playwright-core $version — drop it from ARG PLAYWRIGHT_COMPAT_VERSIONS in $DOCKERFILE" ;;
 		esac
 	done
+fi
+
+# The e2e runner needs equality, not membership: `FROM playwright:v${VERSION}`
+# is an exact tag, so it carries one browser set and a mismatched runner
+# launches browsers the suite was not built against. `bun.lock` rather than
+# `package.json`, deliberately — the caret floor there never moves under a
+# `bun update`, so it agrees with a stale pin.
+E2E_DOCKERFILE=docker/Dockerfile.e2e
+e2e_pin=$(sed -n 's/^ARG PLAYWRIGHT_VERSION=\([0-9][^"]*\)$/\1/p' "$E2E_DOCKERFILE")
+local_pin=$(
+	{ grep -oE '"@playwright/test": \["@playwright/test@[0-9]+\.[0-9]+\.[0-9]+"' bun.lock || true; } |
+		sed -E 's/.*@([0-9]+\.[0-9]+\.[0-9]+)"$/\1/' | sort -u
+)
+if [ -z "$e2e_pin" ] || [ -z "$local_pin" ]; then
+	echo "::error::Could not read a Playwright version — expected one 'ARG PLAYWRIGHT_VERSION=X.Y.Z' in $E2E_DOCKERFILE and one hoisted '@playwright/test' entry in bun.lock"
+	failed=1
+elif [ "$e2e_pin" != "$local_pin" ]; then
+	echo "::error::bun.lock resolves @playwright/test $local_pin but $E2E_DOCKERFILE bakes $e2e_pin. Move them together."
+	failed=1
+else
+	echo "ok    $E2E_DOCKERFILE matches bun.lock at $e2e_pin"
 fi
 
 exit "$failed"

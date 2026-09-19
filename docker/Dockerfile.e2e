@@ -10,7 +10,9 @@
 #
 # Browsers are already provisioned in the base image at $PLAYWRIGHT_BROWSERS_PATH,
 # so the entrypoint never runs `playwright install` and the version here must
-# track "@playwright/test" in package.json.
+# equal the "@playwright/test" bun.lock resolves — the caret floor in
+# package.json agrees with a drifted pin, so it is not the authority.
+# .github/scripts/check-playwright-pins.sh enforces the equality.
 #
 # Build/run is orchestrated by docker-compose/playwright-runner.sh.
 

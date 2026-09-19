@@ -81,7 +81,6 @@ jobs:
       sandbox-base: ${{ steps.filter.outputs.sandbox-base }}
       sandbox-image: ${{ steps.filter.outputs.sandbox-image }}
       dockerfile-e2e: ${{ steps.filter.outputs.dockerfile-e2e }}
-      dockerfile-sandbox-base: ${{ steps.filter.outputs.dockerfile-sandbox-base }}
       helm: ${{ steps.filter.outputs.helm }}
       cargo-manifest: ${{ steps.filter.outputs.cargo-manifest }}
       # Narrows rust-test's package set; no deep fetch needed.
@@ -156,22 +155,15 @@ jobs:
             sandbox-image:
               - 'docker/Dockerfile.sandbox'
               - '.github/workflows/ci.yml'
-            # Gate the no-push PR builds below. Narrower than the publish
+            # Gates the no-push PR build below. Narrower than the publish
             # filters above: only the Dockerfile itself and what it copies in,
             # because a PR build validates the Dockerfile, not a republish
             # decision. Notably no `ci.yml`, which the publish filters carry and
-            # which would rebuild every image on any workflow edit.
+            # which would rebuild the image on any workflow edit.
             dockerfile-e2e:
               - 'docker/Dockerfile.e2e'
               - 'docker/e2e-entrypoint.sh'
               - '.github/scripts/apt-https-mirrors.sh'
-            dockerfile-sandbox-base:
-              - 'docker/Dockerfile.sandbox-base'
-              - 'docker/playwright-cli.sh'
-              - 'docker/cli-versions.env'
-              - '.github/scripts/install-mold.sh'
-              - 'packages/inspector/**'
-              - 'tsconfig.json'
             helm:
               - 'k8s/helm/**'
 
@@ -330,11 +322,11 @@ jobs:
           fi
 
   playwright-pins:
-    name: Sandbox Playwright drift
+    name: Playwright pin drift
     runs-on: staging-runners
     steps:
       - uses: actions/checkout@v6
-      - name: Compare consumer lockfiles with the baked browser builds
+      - name: Compare the Playwright pins with the lockfiles that decide them
         env:
           GH_TOKEN: ${{ secrets.E2E_GITHUB_PAT }}
         run: ./.github/scripts/check-playwright-pins.sh
@@ -1049,26 +1041,23 @@ jobs:
       - name: Type check E2E suite
         run: bun run type:check:e2e
 
-  # ── Dockerfile validation on a PR (build only, never pushes) ──
+  # ── Prove an e2e-runner change builds, on the PR that makes it ──
+  # Nothing else builds `Dockerfile.e2e` in CI: the image is built by
+  # `docker-compose/playwright-runner.sh` on whoever runs the suite, so a broken
+  # Dockerfile reaches `main` green and fails the next person to run E2E
+  # (OP-760). `validate-sandbox-base` covers the other self-contained Dockerfile.
   #
-  # Every image job below gates on `push` to `main`, so a Dockerfile-only PR was
-  # all-green and entirely unexercised and the first build happened after the
-  # merge. That shipped a Playwright pin drift in `Dockerfile.e2e` (OP-760).
-  # This job builds the changed Dockerfile on the PR instead; publishing a tag
-  # stays on `main`, so nothing here logs in to a registry or pushes.
-  #
-  # Only the two self-contained Dockerfiles are here. `Dockerfile.sandbox-tools`,
-  # `.sandbox` and `.backend-cross` take prebuilt binaries as named build
-  # contexts, and `build-rust` does not run on a PR at all, so building them
-  # would mean a full release Rust build per PR. `Dockerfile.app` copies
-  # `apps/frontend/dist`, which nothing in this repo builds.
-  build-dockerfiles-pr:
-    name: Build changed Dockerfiles (no push)
+  # The rest stay uncovered deliberately. `Dockerfile.sandbox-tools`, `.sandbox`
+  # and `.backend-cross` take prebuilt binaries as named build contexts, and
+  # `build-rust` does not run on a PR at all, so building them would mean a full
+  # release Rust build per PR. `Dockerfile.app` copies `apps/frontend/dist`,
+  # which nothing in this repo builds.
+  validate-dockerfile-e2e:
+    name: Build e2e image (no push)
     needs: detect-changes
     if: >-
       github.event_name == 'pull_request' &&
-      (needs.detect-changes.outputs.dockerfile-sandbox-base == 'true' ||
-       needs.detect-changes.outputs.dockerfile-e2e == 'true')
+      needs.detect-changes.outputs.dockerfile-e2e == 'true'
     runs-on: staging-runners-large
     timeout-minutes: 45
     permissions:
@@ -1076,30 +1065,10 @@ jobs:
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
-      - name: Load CLI versions
-        run: grep -E '^[A-Z_]+=' docker/cli-versions.env >> "$GITHUB_ENV"
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
 
-      # `cache-from` only reads the published buildcache, so these stay fast
-      # without write access to any registry.
-      - name: Build sandbox-base
-        if: needs.detect-changes.outputs.dockerfile-sandbox-base == 'true'
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
-        with:
-          context: .
-          file: docker/Dockerfile.sandbox-base
-          platforms: linux/amd64
-          push: false
-          build-args: |
-            CLAUDE_CLI_VERSION=${{ env.CLAUDE_CLI_VERSION }}
-            CODEX_CLI_VERSION=${{ env.CODEX_CLI_VERSION }}
-            TASK_VERSION=${{ env.TASK_VERSION }}
-          cache-from: type=registry,ref=${{ env.SANDBOX_BASE_IMAGE }}:buildcache
-
       - name: Build e2e image
-        if: needs.detect-changes.outputs.dockerfile-e2e == 'true'
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
         with:
           context: .
