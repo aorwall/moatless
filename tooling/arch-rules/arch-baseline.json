@@ -35,7 +35,6 @@
   "composition-root::moatless_backend::t3code::backend::commands::impl  for AppStateCommands names AppState",
   "composition-root::moatless_backend::t3code::backend::commands::use crate::state::AppState as AppState names AppState",
   "composition-root::moatless_backend::t3code::backend::pull_requests::AppStateBoundPullRequests names AppState",
-  "composition-root::moatless_backend::t3code::backend::pull_requests::bind_thread_to_open_pr names AppState",
   "composition-root::moatless_backend::t3code::backend::pull_requests::use crate::state::AppState as AppState names AppState",
   "duplicate-comment-prose::crates/adapter-slack/src/delivery.rs|crates/adapter-telegram/src/delivery.rs",
   "duplicate-comment-prose::crates/adapter-slack/src/delivery.rs|crates/adapter-webhook/src/delivery.rs",

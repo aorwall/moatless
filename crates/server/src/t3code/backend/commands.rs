@@ -2,7 +2,7 @@
 //! the Moatless UI makes for the same thing.
 
 use super::attachments::ResolvedAttachments;
-use super::pull_requests::{bind_thread_to_open_pr, github_owner_repo};
+use super::pull_requests::github_owner_repo;
 use crate::state::AppState;
 use async_trait::async_trait;
 use moatless_t3code::ports::{
@@ -212,11 +212,6 @@ impl ThreadCommandSink for AppStateCommands {
         // runs the first catalog agent of the kind the person picked.
         let agent_type = default_agent_for(&thread.instance);
 
-        // Kept past the request, which moves both: a thread created on a PR's
-        // head branch is bound to that PR once the Task exists.
-        let workspace_id = thread.workspace_id.clone();
-        let branch = thread.branch.clone();
-
         let attachments = match thread.first_message.as_ref() {
             Some(first) => self.resolve_attachments(viewer, &first.attachments).await?,
             None => ResolvedAttachments {
@@ -305,14 +300,10 @@ impl ThreadCommandSink for AppStateCommands {
                 .await;
             return Err(create_refusal(&thread.task_id, e));
         }
-
-        // The PR-prepared thread flow drops the pull-request reference before
-        // `thread.create` (ChatView.tsx), so the head branch is the only signal
-        // that this thread belongs to a pull request. Bind it here from that
-        // branch so a review comment on the PR is delivered into this Task.
-        if let Some(branch) = branch.as_deref().filter(|branch| !branch.is_empty()) {
-            bind_thread_to_open_pr(&self.0, viewer, &workspace_id, branch, &thread.task_id).await;
-        }
+        // No binding is derived from the branch here: a person picks a branch to
+        // read it or to continue work beside another thread, not only to join
+        // its pull request. A thread reaches a pull request through
+        // `thread.linkPullRequest`.
         Ok(())
     }
 
