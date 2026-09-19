@@ -127,9 +127,11 @@ pub(crate) async fn create_issue(
         label_ids.push(resolve_required(&api, LookupKind::Label, name, Some(&team_id)).await?);
     }
 
+    // Linear keeps the app as `creator`; this sets the name it shows beside it.
     let mut input = json!({
         "teamId": team_id,
         "title": req.title,
+        "createAsUser": creator_name(users.as_ref(), &ctx.user_id, &login).await,
     });
     // Prepend a `Reported by <profile-url>` line (renders as a real user
     // mention) whether or not a description was supplied. Also subscribe the

@@ -350,6 +350,22 @@ pub(super) async fn default_assignee_from_caller(
     }
 }
 
+/// The caller's Moatless display name, for `issueCreate`'s `createAsUser`.
+/// Falls back to `login` on every miss, so it never fails issue creation.
+pub(super) async fn creator_name(users: &dyn UserDisplay, user_id: &str, login: &str) -> String {
+    let Ok(uid) = user_id.parse::<uuid::Uuid>() else {
+        return login.to_string();
+    };
+    match users.name(&uid).await {
+        Ok(Some(name)) => name,
+        Ok(None) => login.to_string(),
+        Err(e) => {
+            warn!(error = %e, user_id, "creator name: failed to load caller; using the login");
+            login.to_string()
+        }
+    }
+}
+
 /// Resolve a parent value: UUID → as-is; identifier (SP-123) → fetch the issue
 /// and return its UUID.
 pub(super) async fn resolve_optional_issue(
@@ -427,7 +443,8 @@ mod tests {
 
     use super::super::agent_api::LinearAgentApi;
     use super::{
-        LINEAR_PROVIDER, default_assignee_from_caller, linear_id_for_login, resolve_user_opt,
+        LINEAR_PROVIDER, creator_name, default_assignee_from_caller, linear_id_for_login,
+        resolve_user_opt,
     };
 
     /// The Linear id stored against the login, and the answer the precedence
@@ -605,5 +622,47 @@ mod tests {
             .returning(|_, _| Err(StoreError::new("database is down")));
 
         assert_eq!(linear_id_for_login(&identity, "aorwall").await, None);
+    }
+
+    const CALLER_ID: &str = "00000000-0000-4000-8000-000000000001";
+
+    #[tokio::test]
+    async fn the_creator_is_the_callers_display_name() {
+        let mut users = MockUserDisplay::new();
+        users
+            .expect_name()
+            .withf(|id| id.to_string() == CALLER_ID)
+            .returning(|_| Ok(Some("Albert Örwall".into())));
+
+        assert_eq!(
+            creator_name(&users, CALLER_ID, "aorwall").await,
+            "Albert Örwall"
+        );
+    }
+
+    /// The creator name must never fail issue creation: every miss is the login.
+    #[tokio::test]
+    async fn the_creator_falls_back_to_the_login() {
+        let mut unknown = MockUserDisplay::new();
+        unknown.expect_name().returning(|_| Ok(None));
+        let mut failing = MockUserDisplay::new();
+        failing
+            .expect_name()
+            .returning(|_| Err(StoreError::new("database is down")));
+        let mut unread = MockUserDisplay::new();
+        unread.expect_name().never();
+
+        assert_eq!(
+            creator_name(&unknown, CALLER_ID, "aorwall").await,
+            "aorwall"
+        );
+        assert_eq!(
+            creator_name(&failing, CALLER_ID, "aorwall").await,
+            "aorwall"
+        );
+        assert_eq!(
+            creator_name(&unread, "not-a-uuid", "aorwall").await,
+            "aorwall"
+        );
     }
 }

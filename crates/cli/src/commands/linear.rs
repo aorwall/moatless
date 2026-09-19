@@ -64,7 +64,7 @@ pub enum IssueAction {
         #[arg(long)]
         connection: Option<String>,
     },
-    /// Create an issue
+    /// Create an issue. Linear shows you as its creator, via the app.
     Create {
         #[arg(long)]
         title: String,
