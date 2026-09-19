@@ -392,9 +392,9 @@ exact eviction for Rust-heavy repos. None of the evicted lanes were using it. A 
 `moat tasks create --repo moatless` lands on a synthesized per-repository workspace — its id is
 literally `ws_` + the repository id and its name is `null` — which carries no `resources` block at
 all and therefore gets the deployment default. Tasks created with `--workspace moatless-global`
-land on `ws_a7a61c35…`, which has the block. **Create carve lanes with `--workspace moatless-global`.** The
-protocol below still stands: it costs nothing on a correctly-sized workspace, and a lane can still
-find itself on a constrained one.
+land on `ws_a7a61c35…`, which has the block. **Create carve lanes with
+`--workspace moatless-global`.** The protocol below still stands: it costs nothing on a
+correctly-sized workspace, and a lane can still find itself on a constrained one.
 
 That workspace was named `Moatless` when this was written, and the entry's `key` is still
 `moatless`. Do not pass `--workspace Moatless`: name lookup is a case-insensitive exact match that
@@ -407,10 +407,10 @@ the other half of the eviction above.
 does not move `CARGO_TARGET_DIR` off the workspace volume, and no workspace here declares storage
 separate from it, so `target/` spends the same `storage` budget as the checkout. That makes the
 number a larger ceiling rather than a different resource. Changing it touches
-every task on that workspace, not just this program, which is why it was left alone. No row in
-`docs/deferred-changes.md` tracks it today — the `CARGO_TARGET_DIR` entry under "Test and CI
-structure" is about the CI jobs' restored cache, not the sandbox volume — so whoever picks it up
-files it first.
+every task on that workspace, not just this program, which is why it was left alone. It is
+**tracked in `docs/deferred-changes.md`** under "Test and CI structure", as "a sandbox's `target/`
+spends the same `storage` budget as its checkout", with its anchor and entry condition; the
+`CARGO_TARGET_DIR` row beside it is a different problem, the CI jobs' restored cache.
 
 **Push early, and push broken.** This is the rule that matters most and the one this section was
 missing through the first three evictions: it told you how to make eviction *less likely* and
