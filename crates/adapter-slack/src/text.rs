@@ -50,12 +50,13 @@ mean to notify that person; naming someone in passing does not need one.
 
 A moatless login is its own identifier: a Slack handle, an email local-part, or \
 a display name from Linear, GitHub or Jira is usually *not* one, so never \
-mention a name you read out of another system. Two places hand you a real \
-login. Inbound text is one — a Slack mention someone else wrote arrives already \
-resolved, so `@alice` in the message you are answering is the login `alice`, \
-and wrapping it gives you the mention to send back. `moat user list` is the \
-other: it maps display names and emails to logins. Run it whenever you have a \
-person's name or email but not their login.
+mention a name you read out of another system. `moat user list` maps display \
+names and emails to logins — run it whenever you have a person's name or email \
+but not their login. A mention someone else wrote in the thread is the other \
+source, and a near-miss: it arrives resolved to their login when they have a \
+moatless account and to their Slack handle when they do not, and the two look \
+alike. Wrapping it is worth doing either way; `moat user list` is what tells \
+them apart.
 
 The same `<@login>` works inside a rich payload, in every block that renders a \
 mention at all: `section` and `context` text written as `mrkdwn`, a `markdown` \
@@ -154,10 +155,9 @@ mod tests {
     #[test]
     fn the_instructions_say_where_a_login_comes_from() {
         let s = reply_instructions(Some("U0000000002"));
-        assert!(
-            s.contains("moat user list"),
-            "the directory command that turns a name or email into a login"
-        );
+        let directory = s
+            .find("moat user list")
+            .expect("the directory command that turns a name or email into a login");
         let mentioning = s
             .find("### Mentioning users")
             .expect("Mentioning users section present");
@@ -165,7 +165,7 @@ mod tests {
             .find("### Telling threads apart")
             .expect("Telling threads apart section present");
         assert!(
-            (mentioning..threads).contains(&s.find("moat user list").unwrap_or(0)),
+            (mentioning..threads).contains(&directory),
             "it belongs in the mentioning section, where the login is asked for"
         );
     }
