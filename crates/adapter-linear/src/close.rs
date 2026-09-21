@@ -81,13 +81,21 @@ async fn binding_is_close_eligible(
     task_can_be_closed(tasks, issue, binding).await
 }
 
+/// Whether this Binding is the only subject the Task connects to.
+///
+/// Counts every Binding the Task holds, across Adapters, except one scoped to
+/// a comment the Task posted: routing replies to its own comment connects the
+/// Task to nothing new.
 async fn sole_binding_for_task(
     binding_repo: &Bindings,
     issue: &IssuePayload,
     binding: &TaskBinding,
 ) -> bool {
     let siblings_count = match binding_repo.for_task(&binding.task_id).await {
-        Ok(rows) => rows.len(),
+        Ok(rows) => rows
+            .iter()
+            .filter(|row| !super::subject::is_comment_scoped_issue(row))
+            .count(),
         Err(e) => {
             warn!(
                 task_id = %binding.task_id,

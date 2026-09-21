@@ -191,12 +191,12 @@ pub enum IssueAction {
         /// Read the body from a file.
         #[arg(long = "body-file", short = 'F')]
         body_file: Option<std::path::PathBuf>,
-        /// Task to associate with (defaults to `$TASK_ID`). A comment on an
-        /// already-bound issue refreshes its binding automatically.
+        /// Task to associate with (defaults to `$TASK_ID`). Replies under the
+        /// comment route back to that task automatically.
         #[arg(long = "task")]
         task: Option<String>,
-        /// Force a reply binding even when the issue isn't already bound (for a
-        /// proactive comment on an issue you intend to keep following).
+        /// Listen to every comment on the issue, not just replies under this
+        /// one (for a ticket you intend to keep following in full).
         #[arg(long)]
         bind: bool,
         #[arg(long)]

@@ -130,11 +130,11 @@ pub struct LinearCommentCreateRequest {
     /// [`LinearIssueCreateRequest::task_id`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub task_id: Option<String>,
-    /// Force the parent issue into a reply target even when no binding exists
-    /// yet.
+    /// Listen to the whole issue rather than only this comment's thread.
     ///
-    /// A comment on an already-bound issue refreshes its binding regardless;
-    /// this flag covers a proactive comment on an unbound issue. Defaults to
+    /// A comment always becomes a reply target on its own: a reply under it
+    /// reaches the task without this flag. Set it to hear every comment on the
+    /// issue, including ones in threads the task never wrote in. Defaults to
     /// `false`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bind: Option<bool>,

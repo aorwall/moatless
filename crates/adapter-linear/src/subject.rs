@@ -158,19 +158,41 @@ pub(super) fn session_destination_config(
     issue_url: Option<&str>,
     team_id: &str,
 ) -> serde_json::Value {
-    serde_json::json!({
+    let mut config = serde_json::json!({
         "session_id": session.id,
         "issue_id": issue_id,
         "identifier": issue_identifier,
         "team_id": team_id,
         "issue_url": issue_url,
-        // The comment that spawned the session (mention). `None` for
-        // assignment-initiated sessions. A session task is thread-scoped: it
-        // hears a follow-up comment only when the comment replies to a comment
-        // it authored or to this originating comment — see
-        // `comments::recipients_for_comment`.
-        "origin_comment_id": session.comment.as_ref().map(|c| c.id.as_str()),
-    })
+    });
+    // The mention that spawned the session; null for an assignment-initiated
+    // session, which starts inside no thread.
+    config[ORIGIN_COMMENT_ID] = serde_json::json!(session.comment.as_ref().map(|c| c.id.as_str()));
+    config
+}
+
+/// `destination_config.origin_comment_id`: the comment a Binding is scoped to.
+///
+/// A session Binding carries the mention that spawned it; an issue Binding, the
+/// comment its own task posted. `comments::hears_comment` decides what a scoped
+/// Binding hears.
+pub(super) const ORIGIN_COMMENT_ID: &str = "origin_comment_id";
+
+/// The comment `binding` is scoped to, or `None` when it hears its whole issue.
+pub(super) fn origin_comment_id(binding: &TaskBinding) -> Option<&str> {
+    binding
+        .destination_config
+        .get(ORIGIN_COMMENT_ID)
+        .and_then(serde_json::Value::as_str)
+}
+
+/// Whether this Binding exists only to route replies to one comment its Task
+/// posted, rather than to connect the Task to the whole issue.
+///
+/// `close.rs` leaves it out of the sibling count for that reason: commenting on
+/// a ticket is not taking on a second connected subject.
+pub(super) fn is_comment_scoped_issue(binding: &TaskBinding) -> bool {
+    binding.subject_kind == SUBJECT_KIND_ISSUE && origin_comment_id(binding).is_some()
 }
 
 /// The `destination_config` of a Binding created from an issue entering a
@@ -250,5 +272,56 @@ mod tests {
             "an issue binding has no Linear session behind it"
         );
         assert_eq!(config["issue_id"], "issue-1");
+    }
+
+    fn binding(subject_kind: &str, destination_config: serde_json::Value) -> TaskBinding {
+        let now = chrono::Utc::now();
+        TaskBinding {
+            id: "ts_1".into(),
+            task_id: "task-1".into(),
+            adapter_kind: moatless_types::adapter::AdapterKind::Linear,
+            subject_kind: subject_kind.to_string(),
+            subject_key: "issue-1".into(),
+            connection_id: "pc_1".into(),
+            loop_id: None,
+            destination_config,
+            metadata: serde_json::json!({}),
+            last_external_event_id: None,
+            origin: "responder".into(),
+            created_at: now,
+            last_event_at: now,
+            external_status: None,
+            external_state_kind: None,
+            external_status_raw: None,
+            external_review_decision: None,
+            external_mergeable_state: None,
+            external_status_updated_at: None,
+            active: true,
+            deactivated_at: None,
+        }
+    }
+
+    /// Only a `linear_issue` Binding scoped to a comment is comment-scoped.
+    ///
+    /// `close.rs` drops these from its sibling count, so widening this to a
+    /// session Binding — which carries `origin_comment_id` whenever a mention
+    /// spawned it — would stop that task from holding the issue open.
+    #[test]
+    fn only_a_comment_scoped_issue_binding_is_excluded_from_the_sibling_count() {
+        let scoped = serde_json::json!({ "issue_id": "issue-1", ORIGIN_COMMENT_ID: "comment-1" });
+        assert!(is_comment_scoped_issue(&binding(
+            SUBJECT_KIND_ISSUE,
+            scoped.clone()
+        )));
+        assert!(!is_comment_scoped_issue(&binding(
+            SUBJECT_KIND_SESSION,
+            scoped
+        )));
+
+        let whole_issue = serde_json::json!({ "issue_id": "issue-1" });
+        assert!(!is_comment_scoped_issue(&binding(
+            SUBJECT_KIND_ISSUE,
+            whole_issue
+        )));
     }
 }

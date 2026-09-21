@@ -1,13 +1,12 @@
 //! Comment routing: who on our side hears a comment written on a Linear issue.
 //!
-//! A `linear_issue` binding hears every comment; a `linear_agent_session`
-//! binding hears only a reply to a comment it authored or was created from,
-//! never another session's thread, so two sessions cannot ferry replies
-//! forever.
+//! A binding either owns its whole ticket or is scoped to one comment thread;
+//! [`hears_comment`] decides which comments reach it.
 //!
-//! The agent's own posted comments arrive back through this same webhook path;
-//! the footer naming the authoring task keeps them from being replayed as new
-//! messages.
+//! The agent's own posted comments arrive back through this same webhook path.
+//! Two records keep them from being replayed as new messages: the footer naming
+//! the authoring task, and the external event
+//! `issue_commands::note_comment_as_own` wrote.
 
 use tracing::{debug, info, warn};
 
@@ -24,6 +23,7 @@ use moatless_types::adapter::Audience;
 use moatless_types::adapter::TaskBinding;
 
 use super::agent_api::{ActivityKind, LinearAgentApi};
+use super::subject::{SUBJECT_KIND_ISSUE, SUBJECT_KIND_SESSION, origin_comment_id};
 use super::webhook_payloads::CommentPayloadData;
 
 const ADAPTER_LABEL: &str = "linear";
@@ -167,10 +167,8 @@ pub(super) async fn handle_comment_created(
 
 /// The bound tasks a `Comment.create` is delivered to, scoped by binding shape.
 ///
-/// A `linear_issue` binding hears every comment; a `linear_agent_session`
-/// binding hears only a reply to `parent_author_task_id` or its
-/// `origin_comment_id`. `author_task_id` is excluded first, so a task never
-/// hears back what it authored.
+/// `author_task_id` is excluded first, so a task never hears back what it
+/// authored; the rest is [`hears_comment`].
 fn recipients_for_comment<'b>(
     bindings: &'b [TaskBinding],
     comment_parent_id: Option<&str>,
@@ -181,25 +179,35 @@ fn recipients_for_comment<'b>(
     bindings
         .iter()
         .filter(|binding| author_task_id != Some(binding.task_id.as_str()))
-        .filter(|binding| {
-            if binding.subject_kind == crate::SUBJECT_KIND_ISSUE {
-                return true;
-            }
-            if binding.subject_kind == crate::subject::SUBJECT_KIND_SESSION {
-                let replies_to_own_comment =
-                    parent_author_task_id == Some(binding.task_id.as_str());
-                let origin_comment_id = binding
-                    .destination_config
-                    .get("origin_comment_id")
-                    .and_then(serde_json::Value::as_str);
-                let replies_to_origin_comment =
-                    comment_parent_id.is_some() && comment_parent_id == origin_comment_id;
-                return replies_to_own_comment || replies_to_origin_comment;
-            }
-            false
-        })
+        .filter(|binding| hears_comment(binding, comment_parent_id, parent_author_task_id))
         .filter(|binding| seen_tasks.insert(binding.task_id.clone()))
         .collect()
+}
+
+/// Whether one binding is listening where this comment was written.
+///
+/// A thread-scoped binding (any session binding, or an issue binding carrying
+/// an `origin_comment_id`) hears a reply to a comment its own task authored or
+/// to the comment it was scoped to. An unscoped `linear_issue` binding owns the
+/// ticket, so every comment on it is for that task.
+fn hears_comment(
+    binding: &TaskBinding,
+    comment_parent_id: Option<&str>,
+    parent_author_task_id: Option<&str>,
+) -> bool {
+    let is_issue_binding = binding.subject_kind == SUBJECT_KIND_ISSUE;
+    if !is_issue_binding && binding.subject_kind != SUBJECT_KIND_SESSION {
+        return false;
+    }
+
+    let scoped_to = origin_comment_id(binding);
+    if is_issue_binding && scoped_to.is_none() {
+        return true;
+    }
+
+    let replies_to_own_comment = parent_author_task_id == Some(binding.task_id.as_str());
+    let replies_to_origin_comment = comment_parent_id.is_some() && comment_parent_id == scoped_to;
+    replies_to_own_comment || replies_to_origin_comment
 }
 
 /// Who a `Comment.create` is for: a comment with a `parentId` is a threaded
@@ -220,7 +228,6 @@ mod tests {
     use moatless_types::adapter::AdapterKind;
 
     use super::*;
-    use crate::subject::SUBJECT_KIND_SESSION as SUBJECT_KIND;
     use moatless_adapter_model::binding::ADAPTER_EVENT_BINDING_ORIGIN;
     use moatless_types::adapter::TaskBinding;
 
@@ -294,7 +301,7 @@ mod tests {
     fn issue_producer(task_id: &str) -> TaskBinding {
         linear_binding(
             task_id,
-            crate::SUBJECT_KIND_ISSUE,
+            SUBJECT_KIND_ISSUE,
             moatless_adapter_model::binding::TASK_OWNED_BINDING_ORIGIN,
         )
     }
@@ -302,12 +309,21 @@ mod tests {
     /// A task a Linear agent session spawned from the issue, with no recorded
     /// originating comment (an assignment-initiated session).
     fn session_responder(task_id: &str) -> TaskBinding {
-        linear_binding(task_id, SUBJECT_KIND, ADAPTER_EVENT_BINDING_ORIGIN)
+        linear_binding(task_id, SUBJECT_KIND_SESSION, ADAPTER_EVENT_BINDING_ORIGIN)
     }
 
     /// A session task spawned from a mention on `origin_comment_id`.
     fn session_responder_from(task_id: &str, origin_comment_id: &str) -> TaskBinding {
-        let mut binding = session_responder(task_id);
+        scoped_to(session_responder(task_id), origin_comment_id)
+    }
+
+    /// The task that posted `origin_comment_id` on an issue it does not own —
+    /// what `linear issue comment` writes without `--bind`.
+    fn comment_author(task_id: &str, origin_comment_id: &str) -> TaskBinding {
+        scoped_to(issue_producer(task_id), origin_comment_id)
+    }
+
+    fn scoped_to(mut binding: TaskBinding, origin_comment_id: &str) -> TaskBinding {
         binding.destination_config = serde_json::json!({
             "issue_id": "issue-1",
             "origin_comment_id": origin_comment_id,
@@ -371,6 +387,54 @@ mod tests {
             vec!["t_resp"],
             "a reply to the comment a session was created from reaches that \
              session, and only it"
+        );
+    }
+
+    #[test]
+    fn a_reply_to_a_comment_a_task_posted_reaches_that_task() {
+        let bindings = vec![comment_author("t_author", "comment-mine")];
+        assert_eq!(
+            delivered_to(
+                &comment_with_parent(Some("comment-mine")),
+                &bindings,
+                None,
+                // The durable record of the comment is gone (or never landed),
+                // so only the binding's own scope can match.
+                None,
+            ),
+            vec!["t_author"],
+            "the comment a task posted is its subject: a reply under it comes back"
+        );
+        assert_eq!(
+            delivered_to(
+                &comment_with_parent(Some("comment-later")),
+                &bindings,
+                None,
+                Some("t_author"),
+            ),
+            vec!["t_author"],
+            "and a reply under any later comment the same task posted does too"
+        );
+    }
+
+    #[test]
+    fn a_comment_outside_a_task_authored_thread_does_not_reach_it() {
+        let bindings = vec![comment_author("t_author", "comment-mine")];
+        assert_eq!(
+            delivered_to(&comment_with_parent(None), &bindings, None, None),
+            Vec::<String>::new(),
+            "a task that only commented on someone else's ticket does not hear \
+             unrelated chatter on it"
+        );
+        assert_eq!(
+            delivered_to(
+                &comment_with_parent(Some("comment-theirs")),
+                &bindings,
+                None,
+                None,
+            ),
+            Vec::<String>::new(),
+            "nor a reply in a thread it never wrote in"
         );
     }
 

@@ -12,8 +12,9 @@ use moatless_api_schemas::linear::{
 };
 use moatless_core::http_auth::AuthUser;
 use moatless_loops::bindings::operations::Bindings;
+use moatless_loops::bindings::recently_sent::RecentlySent;
 use moatless_ports::identity::{ProviderIdentityLink, UserDisplay};
-use moatless_ports::task::TaskReader;
+use moatless_ports::task::{TaskReader, TranscriptAppend};
 use serde_json::Value;
 #[cfg(test)]
 use serde_json::json;
@@ -131,10 +132,18 @@ pub async fn update_issue(
         (status = 404, description = "Issue not found", body = moatless_api_schemas::error::ErrorBody),
     )
 )]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "an axum handler's width is its extractor list, and each State names \
+              exactly one port the comment path uses; bundling them would re-bag \
+              the AppState these handlers exist to unbag"
+)]
 pub async fn create_comment(
     State(linear): State<Option<Arc<LinearAdapter>>>,
     State(tasks): State<Arc<dyn TaskReader>>,
     State(task_bindings): State<Arc<Bindings>>,
+    State(recently_sent): State<Arc<RecentlySent>>,
+    State(messages): State<Arc<dyn TranscriptAppend>>,
     auth: AuthUser,
     Path(id): Path<String>,
     Query(params): Query<LinearConnectionParams>,
@@ -144,6 +153,8 @@ pub async fn create_comment(
         linear,
         tasks,
         task_bindings,
+        recently_sent,
+        messages,
         auth.scope_context(),
         id,
         params,

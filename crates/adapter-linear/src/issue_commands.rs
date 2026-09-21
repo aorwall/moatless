@@ -17,9 +17,10 @@ use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_core::config::Config;
 use moatless_loops::adapters::access::ensure_task_access_only;
 use moatless_loops::bindings::operations::Bindings;
+use moatless_loops::bindings::recently_sent::RecentlySent;
 use moatless_ports::identity::{ProviderIdentityLink, UserDisplay};
-use moatless_ports::task::TaskReader;
-use moatless_types::adapter::AdapterConnection;
+use moatless_ports::task::{ExternalEvent, TaskReader, TranscriptAppend};
+use moatless_types::adapter::{AdapterConnection, TaskBinding};
 
 use super::SUBJECT_KIND_ISSUE;
 use super::adapter::LinearAdapter;
@@ -216,7 +217,12 @@ pub(crate) async fn create_issue(
         )
         .await;
         if req.bind == Some(true) {
-            Some(create_issue_binding(task_bindings.as_ref(), &connection, task_id, &issue).await?)
+            // The task filed the ticket, so it follows all of it: no comment to
+            // scope the binding to.
+            Some(
+                create_issue_binding(task_bindings.as_ref(), &connection, task_id, &issue, None)
+                    .await?,
+            )
         } else {
             None
         }
@@ -435,10 +441,18 @@ fn require_applied(
 // Comments + labels
 // ---------------------------------------------------------------------------
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "each port the comment path uses is named on its own — the echo \
+              caches and the binding store are separate concerns, and bundling \
+              them would re-bag the AppState these functions exist to unbag"
+)]
 pub(crate) async fn create_comment(
     linear: Option<Arc<LinearAdapter>>,
     tasks: Arc<dyn TaskReader>,
     task_bindings: Arc<Bindings>,
+    recently_sent: Arc<RecentlySent>,
+    messages: Arc<dyn TranscriptAppend>,
     ctx: moatless_types::access_control::ScopeContext,
     id: String,
     params: LinearConnectionParams,
@@ -476,8 +490,24 @@ pub(crate) async fn create_comment(
         None => req.body.clone(),
     };
     let comment = api.create_comment(&issue_uuid, &body).await?;
+    let comment_id = comment
+        .get("id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| {
+            SharedAdapterError::AdapterApi("Linear commentCreate missing comment id".into())
+        })?
+        .to_string();
 
     let binding_id = if let Some(task_id) = req.task_id.as_deref() {
+        note_comment_as_own(
+            recently_sent.as_ref(),
+            messages.as_ref(),
+            task_id,
+            &comment_id,
+            &issue_uuid,
+        )
+        .await;
+
         attach_moatless_task(
             linear.require_config()?,
             tasks.as_ref(),
@@ -487,19 +517,18 @@ pub(crate) async fn create_comment(
         )
         .await;
 
-        // A comment refreshes the binding when the issue is already a reply
-        // target (the agent is continuing an established thread). A proactive
-        // comment on an unbound issue only binds when the caller opts in.
-        let already_bound = task_bindings
-            .for_task_and_subject(task_id, LINEAR_PROVIDER, SUBJECT_KIND_ISSUE, &issue_uuid)
-            .await?
-            .is_some();
-
-        if req.bind == Some(true) || already_bound {
-            Some(create_issue_binding(task_bindings.as_ref(), &connection, task_id, &issue).await?)
-        } else {
-            None
-        }
+        // The comment itself is the subject: a reply to it reaches this task
+        // through a binding scoped to it.
+        bind_comment_thread(
+            task_bindings.as_ref(),
+            &connection,
+            task_id,
+            &issue,
+            &issue_uuid,
+            &comment_id,
+            req.bind == Some(true),
+        )
+        .await
     } else {
         None
     };
@@ -708,13 +737,101 @@ pub(crate) async fn lookup(
 // Helpers
 // ---------------------------------------------------------------------------
 
+/// Record a comment the task just posted as its own, in memory and durably.
+///
+/// Two readers: the echo filter, so the comment is not replayed to its author,
+/// and `RoutingService::parent_author_task_id`, which is how a reply to this
+/// comment reaches the task that wrote it. Best effort — the durable half only
+/// matters on a replica that did not serve this request.
+async fn note_comment_as_own(
+    recently_sent: &RecentlySent,
+    messages: &dyn TranscriptAppend,
+    task_id: &str,
+    comment_id: &str,
+    issue_uuid: &str,
+) {
+    let external_id = super::external_id::comment(comment_id);
+    recently_sent.note(task_id, &external_id);
+    if let Err(e) = messages
+        .record_external_event(
+            task_id,
+            &ExternalEvent {
+                external_id,
+                provider: LINEAR_PROVIDER.to_string(),
+                source_name: Some(issue_uuid.to_string()),
+            },
+        )
+        .await
+    {
+        warn!(
+            task_id,
+            comment_id,
+            error = %e,
+            "Failed to record the Linear comment this task posted"
+        );
+    }
+}
+
+/// Point `task_id` at the comment it just posted, or at the whole issue when
+/// `follow_issue` or an existing unscoped Binding says so.
+///
+/// Best effort: the comment is already on Linear, so a storage failure returns
+/// `None` rather than failing the call into a retry that double-posts it. A
+/// reply still reaches the task through the event `note_comment_as_own` wrote.
+async fn bind_comment_thread(
+    task_bindings: &Bindings,
+    connection: &AdapterConnection,
+    task_id: &str,
+    issue: &Value,
+    issue_uuid: &str,
+    comment_id: &str,
+    follow_issue: bool,
+) -> Option<String> {
+    // Neither widen nor narrow an existing Binding on a failed read: leaving it
+    // as it is beats guessing.
+    let existing = task_bindings
+        .for_task_and_subject(task_id, LINEAR_PROVIDER, SUBJECT_KIND_ISSUE, issue_uuid)
+        .await
+        .inspect_err(|e| {
+            warn!(task_id, error = %e, "Failed to read the Linear issue binding");
+        })
+        .ok()?;
+
+    let scope = comment_binding_scope(follow_issue, existing.as_ref(), comment_id);
+    create_issue_binding(task_bindings, connection, task_id, issue, scope)
+        .await
+        .ok()
+}
+
+/// Which comment a new Binding is scoped to: `None` for the whole issue.
+///
+/// `--bind` twice must not be narrowed by the second comment, and a
+/// comment-scoped Binding must not be widened by one.
+fn comment_binding_scope<'a>(
+    follow_issue: bool,
+    existing: Option<&TaskBinding>,
+    comment_id: &'a str,
+) -> Option<&'a str> {
+    let bound_to_whole_issue =
+        existing.is_some_and(|binding| super::subject::origin_comment_id(binding).is_none());
+    if follow_issue || bound_to_whole_issue {
+        None
+    } else {
+        Some(comment_id)
+    }
+}
+
 /// Persist a `task_bindings` row pointing the given task at the Linear issue.
 /// Used for both create and comment auto-binding.
+///
+/// `origin_comment_id` scopes the binding to one comment thread; `None` makes it
+/// own the whole ticket — see `subject::ORIGIN_COMMENT_ID`.
 async fn create_issue_binding(
     task_bindings: &Bindings,
     connection: &AdapterConnection,
     task_id: &str,
     issue: &Value,
+    origin_comment_id: Option<&str>,
 ) -> Result<String, AdapterError> {
     let issue_uuid = issue
         .get("id")
@@ -736,6 +853,9 @@ async fn create_issue_binding(
     if let Some(ref u) = url {
         destination_config["url"] = json!(u);
     }
+    if let Some(comment_id) = origin_comment_id {
+        destination_config[super::subject::ORIGIN_COMMENT_ID] = json!(comment_id);
+    }
 
     let binding = task_bindings
         .bind(
@@ -746,8 +866,9 @@ async fn create_issue_binding(
             SUBJECT_KIND_ISSUE,
             &issue_uuid,
             destination_config,
-            // The task filed this issue, so its binding is a producer one — that
-            // is what makes it hear replies inside threads on its own issue.
+            // The task acted on this issue itself rather than being started by an
+            // event on it, which is what makes `close.rs` leave the task open
+            // when the issue reaches a terminal state.
             TASK_OWNED_BINDING_ORIGIN,
             None,
         )
@@ -908,5 +1029,71 @@ mod tests {
     fn no_description_leaves_the_field_alone() {
         let written = description_to_write(None, None).expect("an absent field is not a change");
         assert!(written.is_none());
+    }
+
+    // ---- Which subject a comment binds to -------------------------------
+
+    fn existing_binding(destination_config: Value) -> TaskBinding {
+        let now = chrono::Utc::now();
+        TaskBinding {
+            id: "ts_1".into(),
+            task_id: "t_1".into(),
+            adapter_kind: moatless_types::adapter::AdapterKind::Linear,
+            subject_kind: SUBJECT_KIND_ISSUE.into(),
+            subject_key: "issue-1".into(),
+            connection_id: "pc_1".into(),
+            loop_id: None,
+            destination_config,
+            metadata: json!({}),
+            last_external_event_id: None,
+            origin: TASK_OWNED_BINDING_ORIGIN.into(),
+            created_at: now,
+            last_event_at: now,
+            external_status: None,
+            external_state_kind: None,
+            external_status_raw: None,
+            external_review_decision: None,
+            external_mergeable_state: None,
+            external_status_updated_at: None,
+            active: true,
+            deactivated_at: None,
+        }
+    }
+
+    #[test]
+    fn a_plain_comment_binds_to_its_own_thread() {
+        assert_eq!(
+            comment_binding_scope(false, None, "comment-1"),
+            Some("comment-1")
+        );
+    }
+
+    #[test]
+    fn opting_in_binds_the_whole_issue() {
+        assert_eq!(comment_binding_scope(true, None, "comment-1"), None);
+    }
+
+    #[test]
+    fn a_second_comment_does_not_narrow_a_whole_issue_binding() {
+        let existing = existing_binding(json!({ "issue_id": "issue-1" }));
+        assert_eq!(
+            comment_binding_scope(false, Some(&existing), "comment-2"),
+            None,
+            "a task following the whole ticket keeps hearing all of it"
+        );
+    }
+
+    #[test]
+    fn a_second_comment_rescopes_a_thread_binding_to_itself() {
+        let existing = existing_binding(json!({
+            "issue_id": "issue-1",
+            "origin_comment_id": "comment-1",
+        }));
+        assert_eq!(
+            comment_binding_scope(false, Some(&existing), "comment-2"),
+            Some("comment-2"),
+            "the newest comment carries the scope; replies to the earlier one \
+             still arrive through the event that recorded its author"
+        );
     }
 }
