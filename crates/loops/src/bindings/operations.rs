@@ -224,21 +224,39 @@ impl Bindings {
         self.store.mark_task_link_sent(id).await
     }
 
-    /// Set whether the Binding joining this Task to this subject routes;
+    /// Put the Binding joining this Task to this subject back to routing;
     /// reports whether the row changed.
     ///
-    /// One subject, unlike [`Bindings::deactivate_for_task`]: this is how a
-    /// person releases a single pull request from a Thread that is still open.
-    pub async fn set_routing(
+    /// [`Bindings::bind`] upserts without touching `active`, so re-binding a
+    /// subject a closed Task released ([`Bindings::deactivate_for_task`])
+    /// needs this to start routing again.
+    pub async fn activate(
         &self,
         task_id: &str,
         adapter_kind: &str,
         subject_kind: &str,
         subject_key: &str,
-        active: bool,
     ) -> Result<bool, sqlx::Error> {
         self.store
-            .set_active_for_subject(task_id, adapter_kind, subject_kind, subject_key, active)
+            .activate_for_subject(task_id, adapter_kind, subject_kind, subject_key)
+            .await
+    }
+
+    /// Release one subject from a Task, deleting the Binding that joined them;
+    /// reports whether a row went. Idempotent: a second call reports `false`.
+    ///
+    /// The inverse of [`Bindings::bind`], not a single-subject
+    /// [`Bindings::deactivate_for_task`]: a later [`Bindings::bind`] starts a
+    /// live Binding rather than reviving this one's cursor and status.
+    pub async fn unbind(
+        &self,
+        task_id: &str,
+        adapter_kind: &str,
+        subject_kind: &str,
+        subject_key: &str,
+    ) -> Result<bool, sqlx::Error> {
+        self.store
+            .delete_for_subject(task_id, adapter_kind, subject_kind, subject_key)
             .await
     }
 

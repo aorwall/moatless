@@ -144,6 +144,58 @@ async fn deactivate_for_task_through_the_operation_is_task_scoped_and_idempotent
     assert_eq!(again, 0);
 }
 
+/// What `unbind` buys over parking the row: an upsert holds `active` where it
+/// finds it, so binding the same subject again routes after a delete and stays
+/// parked after a deactivate.
+#[sqlx::test]
+async fn a_bind_routes_again_after_unbind_but_not_after_deactivate(pool: PgPool) {
+    seed_task(&pool, "task-unbound", USER_1).await;
+    seed_task(&pool, "task-parked", USER_1).await;
+    let state = test_app_state(pool.clone());
+    let connection_id = seed_connection(&state, "pc-1", USER_1).await;
+
+    let rows = [("tb-unbound", "task-unbound"), ("tb-parked", "task-parked")];
+    for (id, task_id) in rows {
+        upsert_binding(
+            &state.task_bindings,
+            &binding(id, task_id, &connection_id, "acme/web#7"),
+        )
+        .await
+        .expect("upsert binding through the port");
+    }
+
+    let removed = state
+        .task_bindings
+        .unbind("task-unbound", "github", "github_pr", "acme/web#7")
+        .await
+        .expect("unbind through the port");
+    assert!(removed);
+    state
+        .task_bindings
+        .deactivate_for_task("task-parked")
+        .await
+        .expect("deactivate through the port");
+
+    // The agent acting on the pull request binds it again, on both tasks.
+    for (id, task_id) in rows {
+        upsert_binding(
+            &state.task_bindings,
+            &binding(id, task_id, &connection_id, "acme/web#7"),
+        )
+        .await
+        .expect("re-bind the same subject through the port");
+    }
+
+    assert!(
+        is_active(&pool, "tb-unbound").await,
+        "the deleted binding is re-created routing"
+    );
+    assert!(
+        !is_active(&pool, "tb-parked").await,
+        "the parked row is upserted onto and stays out of routing"
+    );
+}
+
 /// The adapter-connection port resolves the row it just wrote by both of the
 /// lookups handlers use (`get` under a viewer, and `by_external_account`).
 #[sqlx::test]

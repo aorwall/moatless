@@ -19,9 +19,10 @@ use std::sync::Arc;
 
 use chrono::{DateTime, Duration, Utc};
 use moatless_backend::t3code::backend::{AppStateAttachments, AppStateCommands};
+use moatless_loops::bindings::test_support as binding_fixtures;
 use moatless_t3code::ports::{
     AttachmentKind, AttachmentStore, CommandRefusal, ForkThread, NewThread, ThreadCommandSink,
-    ThreadMeta, ThreadTurn,
+    ThreadMeta, ThreadPullRequestRef, ThreadTurn,
 };
 use moatless_t3code::{AgentModelDefaults, Deployment, thread_snapshot};
 use moatless_tasks::agent::catalog;
@@ -1321,6 +1322,154 @@ async fn settle_on_a_task_the_viewer_cannot_read_is_not_writable(pool: PgPool) {
         .await
         .expect_err("unreadable task refuses");
     assert!(matches!(refusal, CommandRefusal::NotWritable { .. }));
+}
+
+/// The connection a seeded Binding hangs off, since `connection_id` is a
+/// foreign key.
+async fn seed_pr_connection(pool: &PgPool) {
+    sqlx::query(
+        r#"INSERT INTO adapter_connections
+               (id, adapter_kind, connection_kind, external_account_id, created_by,
+                scope, owner_user_id)
+           VALUES ('conn-gh', 'github', 'org', 'acme', $1, 'user', $1)
+           ON CONFLICT (id) DO NOTHING"#,
+    )
+    .bind(USER_1)
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+async fn seed_pr_binding(pool: &PgPool, binding_id: &str, task_id: &str, subject_key: &str) {
+    binding_fixtures::insert_binding(
+        pool,
+        &binding_fixtures::BindingFixture {
+            id: binding_id,
+            task_id,
+            adapter_kind: "github",
+            subject_kind: "github_pr",
+            subject_key,
+            connection_id: "conn-gh",
+            origin: "connected_thread",
+            external_state_kind: None,
+        },
+    )
+    .await
+    .unwrap();
+}
+
+/// Whether a Binding row is there at all, and whether it is routing.
+async fn pr_binding(pool: &PgPool, binding_id: &str) -> Option<bool> {
+    sqlx::query_scalar("SELECT active FROM task_bindings WHERE id = $1")
+        .bind(binding_id)
+        .fetch_optional(pool)
+        .await
+        .unwrap()
+}
+
+/// Hold one inbound event for a Binding's buffer window.
+async fn buffer_event(pool: &PgPool, id: &str, binding_id: &str) {
+    sqlx::query(
+        r#"INSERT INTO inbound_message_buffer
+               (id, binding_id, loop_id, adapter_label, message, flush_at)
+           VALUES ($1, $2, 'loop-1', 'github_pr', '{}'::jsonb, now() + interval '1 minute')"#,
+    )
+    .bind(id)
+    .bind(binding_id)
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+async fn buffered_event_count(pool: &PgPool, binding_id: &str) -> i64 {
+    sqlx::query_scalar("SELECT COUNT(*) FROM inbound_message_buffer WHERE binding_id = $1")
+        .bind(binding_id)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+}
+
+fn pull_request(task_id: &str, number: i64) -> ThreadPullRequestRef {
+    ThreadPullRequestRef {
+        task_id: task_id.into(),
+        host: "github.com".into(),
+        repository: "acme/web".into(),
+        number,
+    }
+}
+
+/// Unlinking ends the join rather than parking it: the row goes, so a later
+/// `bind` of the same pull request starts a live Binding instead of upserting
+/// onto a row that is not routing.
+#[sqlx::test]
+async fn unlinking_a_pull_request_removes_its_binding(pool: PgPool) {
+    seed_project(&pool, USER_1).await;
+    seed_task(&pool, "t-pr", USER_1).await;
+    seed_pr_connection(&pool).await;
+    seed_pr_binding(&pool, "b-7", "t-pr", "acme/web#7").await;
+    seed_pr_binding(&pool, "b-9", "t-pr", "acme/web#9").await;
+    // Events held for the released subject, which must not reach the Thread.
+    buffer_event(&pool, "buf-1", "b-7").await;
+    let changes = listing_change_count(&pool, "t-pr").await;
+
+    sink(&pool)
+        .unlink_pull_request(&viewer(USER_1), pull_request("t-pr", 7))
+        .await
+        .expect("unlink is accepted");
+
+    assert_eq!(pr_binding(&pool, "b-7").await, None);
+    assert_eq!(
+        pr_binding(&pool, "b-9").await,
+        Some(true),
+        "the Thread's other pull request still routes"
+    );
+    assert_eq!(buffered_event_count(&pool, "b-7").await, 0);
+    assert_eq!(
+        listing_change_count(&pool, "t-pr").await,
+        changes + 1,
+        "the Thread shell re-sends, which is how the client hears the unlink"
+    );
+}
+
+/// The client sends an unlink against the state it already believes, so a
+/// second one reports success and re-sends nothing.
+#[sqlx::test]
+async fn unlinking_a_pull_request_that_is_already_gone_writes_nothing(pool: PgPool) {
+    seed_project(&pool, USER_1).await;
+    seed_task(&pool, "t-pr", USER_1).await;
+    seed_pr_connection(&pool).await;
+    seed_pr_binding(&pool, "b-7", "t-pr", "acme/web#7").await;
+
+    let sink = sink(&pool);
+    sink.unlink_pull_request(&viewer(USER_1), pull_request("t-pr", 7))
+        .await
+        .expect("unlink is accepted");
+    let changes = listing_change_count(&pool, "t-pr").await;
+    sink.unlink_pull_request(&viewer(USER_1), pull_request("t-pr", 7))
+        .await
+        .expect("a second unlink is accepted");
+
+    assert_eq!(listing_change_count(&pool, "t-pr").await, changes);
+}
+
+/// Only GitHub is bound, and a reference on another host is refused by name
+/// before anything is deleted.
+#[sqlx::test]
+async fn unlinking_a_pull_request_on_another_host_is_refused(pool: PgPool) {
+    seed_project(&pool, USER_1).await;
+    seed_task(&pool, "t-pr", USER_1).await;
+    seed_pr_connection(&pool).await;
+    seed_pr_binding(&pool, "b-7", "t-pr", "acme/web#7").await;
+
+    let mut elsewhere = pull_request("t-pr", 7);
+    elsewhere.host = "gitlab.com".into();
+    let refusal = sink(&pool)
+        .unlink_pull_request(&viewer(USER_1), elsewhere)
+        .await
+        .expect_err("another host refuses");
+
+    assert!(matches!(refusal, CommandRefusal::Unsupported { .. }));
+    assert_eq!(pr_binding(&pool, "b-7").await, Some(true));
 }
 
 /// Every method on the port is `Send + Sync` behind an `Arc`, because the

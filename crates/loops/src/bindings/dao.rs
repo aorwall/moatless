@@ -277,32 +277,29 @@ impl PgTaskBindingDao {
         Ok(TaskBinding::from(row))
     }
 
-    /// Set whether the Binding joining one Task to one subject routes; reports
+    /// Put the Binding joining one Task to one subject back to routing; reports
     /// whether the row changed.
     ///
-    /// The `active <> $5` predicate makes this idempotent: a second unlink of
-    /// the same pull request answers `false` rather than re-stamping
-    /// `deactivated_at`.
-    pub(crate) async fn set_active_for_subject(
+    /// The `NOT active` predicate makes this idempotent: linking a pull request
+    /// that is already routing answers `false` rather than re-stamping the row.
+    pub(crate) async fn activate_for_subject(
         &self,
         task_id: &str,
         adapter_kind: &str,
         subject_kind: &str,
         subject_key: &str,
-        active: bool,
     ) -> Result<bool, sqlx::Error> {
         let mut tx = self.0.begin().await?;
         let changed = sqlx::query(
             "UPDATE task_bindings \
-             SET active = $5, deactivated_at = CASE WHEN $5 THEN NULL ELSE now() END \
+             SET active = TRUE, deactivated_at = NULL \
              WHERE task_id = $1 AND adapter_kind = $2 AND subject_kind = $3 \
-               AND subject_key = $4 AND active <> $5",
+               AND subject_key = $4 AND NOT active",
         )
         .bind(task_id)
         .bind(adapter_kind)
         .bind(subject_kind)
         .bind(subject_key)
-        .bind(active)
         .execute(&mut *tx)
         .await?
         .rows_affected()
@@ -313,6 +310,41 @@ impl PgTaskBindingDao {
         }
         tx.commit().await?;
         Ok(changed)
+    }
+
+    /// Delete the Binding joining one Task to one subject; reports whether a
+    /// row went. Idempotent: a second delete of the same pull request answers
+    /// `false`.
+    ///
+    /// `inbound_message_buffer` cascades, so events held for this Binding go
+    /// with it rather than reaching a Task that released the subject.
+    pub(crate) async fn delete_for_subject(
+        &self,
+        task_id: &str,
+        adapter_kind: &str,
+        subject_kind: &str,
+        subject_key: &str,
+    ) -> Result<bool, sqlx::Error> {
+        let mut tx = self.0.begin().await?;
+        let deleted = sqlx::query(
+            "DELETE FROM task_bindings \
+             WHERE task_id = $1 AND adapter_kind = $2 AND subject_kind = $3 \
+               AND subject_key = $4",
+        )
+        .bind(task_id)
+        .bind(adapter_kind)
+        .bind(subject_kind)
+        .bind(subject_key)
+        .execute(&mut *tx)
+        .await?
+        .rows_affected()
+            > 0;
+        if deleted {
+            // Ordered as in [`Self::upsert`].
+            moatless_core::change_feed::listing::record_change(&mut tx, task_id).await?;
+        }
+        tx.commit().await?;
+        Ok(deleted)
     }
 
     /// Deactivate every active binding for a task — called when the task closes

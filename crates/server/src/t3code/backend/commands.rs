@@ -94,24 +94,17 @@ impl AppStateCommands {
         Ok(())
     }
 
-    /// Switch one pull request Binding's routing, reporting success whether or
-    /// not the row moved — both commands are idempotent, and the client sends
-    /// either one against the state it already believes.
-    async fn set_pull_request_routing(
+    /// Put a pull request Binding back to routing, reporting success whether or
+    /// not the row moved — a link is idempotent, and the client sends it
+    /// against the state it already believes.
+    async fn activate_pull_request_binding(
         &self,
         reference: &ThreadPullRequestRef,
-        active: bool,
     ) -> Result<(), CommandRefusal> {
-        let subject_key = format!("{}#{}", reference.repository, reference.number);
+        let subject_key = pull_request_subject(reference);
         self.0
             .task_bindings
-            .set_routing(
-                &reference.task_id,
-                "github",
-                "github_pr",
-                &subject_key,
-                active,
-            )
+            .activate(&reference.task_id, "github", "github_pr", &subject_key)
             .await
             .map(|_| ())
             .map_err(|error| {
@@ -119,8 +112,7 @@ impl AppStateCommands {
                     %error,
                     task_id = %reference.task_id,
                     subject_key,
-                    active,
-                    "T3 pull request routing change failed"
+                    "T3 pull request link could not start routing"
                 );
                 CommandRefusal::Failed {
                     message: "That pull request could not be updated.".to_string(),
@@ -728,11 +720,11 @@ impl ThreadCommandSink for AppStateCommands {
                     message: "That pull request could not be linked.".to_string(),
                 }
             })?;
-        // A Binding released by an earlier unlink is re-bound rather than
-        // re-created — `connect_github_binding` upserts on the same key and
-        // leaves `active` alone — so linking it again has to switch routing back
-        // on for the row to reach `pullRequests`.
-        self.set_pull_request_routing(&reference, true).await
+        // A Binding the close path parked (`deactivate_for_task`) is re-bound
+        // rather than re-created — `connect_github_binding` upserts on the same
+        // key and leaves `active` alone — so linking it has to switch routing
+        // back on for the row to reach `pullRequests`.
+        self.activate_pull_request_binding(&reference).await
     }
 
     async fn unlink_pull_request(
@@ -741,8 +733,33 @@ impl ThreadCommandSink for AppStateCommands {
         reference: ThreadPullRequestRef,
     ) -> Result<(), CommandRefusal> {
         github_owner_repo(&reference)?;
-        self.set_pull_request_routing(&reference, false).await
+        let subject_key = pull_request_subject(&reference);
+        // Deleted rather than parked with `active` false: a parked row is still
+        // this Task's row for the subject, so the next `bind_task_to_pr` — the
+        // agent acting on the pull request the person just released — upserts
+        // onto it and leaves it silently not routing.
+        self.0
+            .task_bindings
+            .unbind(&reference.task_id, "github", "github_pr", &subject_key)
+            .await
+            .map(|_| ())
+            .map_err(|error| {
+                tracing::warn!(
+                    %error,
+                    task_id = %reference.task_id,
+                    subject_key,
+                    "T3 pull request unlink failed"
+                );
+                CommandRefusal::Failed {
+                    message: "That pull request could not be unlinked.".to_string(),
+                }
+            })
     }
+}
+
+/// The `task_bindings` subject one pull request is bound under.
+fn pull_request_subject(reference: &ThreadPullRequestRef) -> String {
+    format!("{}#{}", reference.repository, reference.number)
 }
 
 /// The agent a thread created from T3 runs.
