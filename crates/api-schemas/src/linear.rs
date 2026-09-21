@@ -4,7 +4,9 @@
 //! Mutating endpoints accept names OR UUIDs for state/label/project/
 //! assignee/cycle; the backend resolves names via Linear's GraphQL API before
 //! issuing the underlying mutation. Responses pass through the Linear payload
-//! verbatim as `serde_json::Value`.
+//! as `serde_json::Value`, removing nothing and adding one field: a user
+//! object gains `moatlessLogin` when that Linear account is linked to a
+//! Moatless one. The `graphql` passthrough is exempt and stays verbatim.
 
 use serde::{Deserialize, Serialize};
 

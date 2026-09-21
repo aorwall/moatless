@@ -50,4 +50,5 @@ mod subscription_rules;
 mod task_links;
 
 mod issue_commands;
+mod login_annotation;
 mod reference_resolution;

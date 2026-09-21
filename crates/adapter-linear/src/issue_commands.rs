@@ -25,6 +25,7 @@ use super::SUBJECT_KIND_ISSUE;
 use super::adapter::LinearAdapter;
 use super::agent_api::{LinearAgentApi, LookupKind};
 use super::auth::{require_linear, resolve_linear_api};
+use super::login_annotation::{annotate_issue, annotate_issues, annotate_user};
 use super::reference_resolution::*;
 
 // ---------------------------------------------------------------------------
@@ -33,6 +34,7 @@ use super::reference_resolution::*;
 
 pub(crate) async fn get_issue(
     linear: Option<Arc<LinearAdapter>>,
+    identity: Arc<dyn ProviderIdentityLink>,
     ctx: moatless_types::access_control::ScopeContext,
     id: String,
     params: LinearConnectionParams,
@@ -40,7 +42,8 @@ pub(crate) async fn get_issue(
     let linear = require_linear(linear)?;
     let (_connection, api) =
         resolve_linear_api(&linear, &ctx, params.connection_id.as_deref()).await?;
-    let data = api.get_issue_with_comments(&id).await?;
+    let mut data = api.get_issue_with_comments(&id).await?;
+    annotate_issue(identity.as_ref(), &mut data).await;
     Ok(LinearIssueResponse {
         data,
         binding_id: None,
@@ -181,7 +184,8 @@ pub(crate) async fn create_issue(
         input["templateId"] = json!(t);
     }
 
-    let issue = api.create_issue(input).await?;
+    let mut issue = api.create_issue(input).await?;
+    annotate_issue(identity.as_ref(), &mut issue).await;
     if let Some(requested) = state_id.as_deref() {
         require_applied(&issue, "state", "/state", Some(requested), "")?;
     }
@@ -324,7 +328,8 @@ pub(crate) async fn update_issue(
         .into());
     }
 
-    let issue = api.update_issue(&id, input).await?;
+    let mut issue = api.update_issue(&id, input).await?;
+    annotate_issue(identity.as_ref(), &mut issue).await;
     if let Some(requested) = state_id.as_deref() {
         require_applied(&issue, "state", "/state", Some(requested), "")?;
     }
@@ -628,7 +633,8 @@ pub(crate) async fn list_issues(
     }
 
     let first = params.limit.unwrap_or(50).clamp(1, 250);
-    let data = api.list_issues(Value::Object(filter), first).await?;
+    let mut data = api.list_issues(Value::Object(filter), first).await?;
+    annotate_issues(identity.as_ref(), &mut data).await;
     Ok(LinearIssueListResponse { data })
 }
 
@@ -656,6 +662,7 @@ pub(crate) async fn graphql_passthrough(
 
 pub(crate) async fn lookup(
     linear: Option<Arc<LinearAdapter>>,
+    identity: Arc<dyn ProviderIdentityLink>,
     ctx: moatless_types::access_control::ScopeContext,
     params: LinearLookupParams,
     conn_params: LinearConnectionParams,
@@ -676,11 +683,19 @@ pub(crate) async fn lookup(
     };
     let result = api.lookup(kind, &params.name, team_id.as_deref()).await?;
     Ok(match result {
-        Some(r) => LinearLookupResponse {
-            id: Some(r.id),
-            name: Some(r.name),
-            raw: Some(r.raw),
-        },
+        Some(r) => {
+            let mut raw = r.raw;
+            // `lookup user` is how the agent turns a name into someone it can
+            // act on, so it is the one kind whose node carries a login.
+            if matches!(kind, LookupKind::User) {
+                annotate_user(identity.as_ref(), &mut raw).await;
+            }
+            LinearLookupResponse {
+                id: Some(r.id),
+                name: Some(r.name),
+                raw: Some(raw),
+            }
+        }
         None => LinearLookupResponse {
             id: None,
             name: None,

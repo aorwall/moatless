@@ -511,7 +511,14 @@ pub(super) const REPLY_INSTRUCTIONS: &str = "## Linear Agent Notes\n\
        `moat messages reply` once to post.\n\
      - Markdown is supported. Linear URLs auto-render as mentions.\n\
      - The Moatless task URL is already linked via the session's \
-       external URLs — no need to include it in the reply body.";
+       external URLs — no need to include it in the reply body.\n\
+     - Every user `moat linear issue get`, `issue list` and `lookup user` \
+       return carries a `moatlessLogin` when that person has a linked \
+       account. That is the name to use when you address them anywhere in \
+       Moatless — a Slack mention, another adapter's reply. Linear's \
+       `name` and `displayName` are Linear's own and address nobody, and a \
+       raw `moat linear graphql` query returns neither the login nor a hint \
+       that one exists.";
 
 #[async_trait::async_trait]
 impl AdapterInboundPresentation for LinearAdapter {

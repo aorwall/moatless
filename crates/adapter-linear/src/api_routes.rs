@@ -35,11 +35,12 @@ use tracing::warn;
 )]
 pub async fn get_issue(
     State(linear): State<Option<Arc<LinearAdapter>>>,
+    State(identity): State<Arc<dyn ProviderIdentityLink>>,
     auth: AuthUser,
     Path(id): Path<String>,
     Query(params): Query<LinearConnectionParams>,
 ) -> Result<Json<LinearIssueResponse>, AdapterError> {
-    super::issue_commands::get_issue(linear, auth.scope_context(), id, params)
+    super::issue_commands::get_issue(linear, identity, auth.scope_context(), id, params)
         .await
         .map(Json)
 }
@@ -266,11 +267,12 @@ pub async fn graphql_passthrough(
 )]
 pub async fn lookup(
     State(linear): State<Option<Arc<LinearAdapter>>>,
+    State(identity): State<Arc<dyn ProviderIdentityLink>>,
     auth: AuthUser,
     Query(params): Query<LinearLookupParams>,
     Query(conn_params): Query<LinearConnectionParams>,
 ) -> Result<Json<LinearLookupResponse>, AdapterError> {
-    super::issue_commands::lookup(linear, auth.scope_context(), params, conn_params)
+    super::issue_commands::lookup(linear, identity, auth.scope_context(), params, conn_params)
         .await
         .map(Json)
 }

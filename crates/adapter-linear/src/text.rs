@@ -52,11 +52,16 @@ fn issue_read_block(identifier: &str, title: &str, url: Option<&str>) -> String 
         text,
         "\n\nBefore working on this task, read the Linear issue, all of its \
          comments, and its linked PRs and agent tasks using the `moat` CLI:\n\n\
-         - Issue details and description: `moat linear issue get {id} --json`\n\
-         - Comments, linked PRs, and related agent tasks: \
+         - Issue details, description and comments: \
+         `moat linear issue get {id} --json`\n\
+         - Linked PRs and related agent tasks: \
          `moat linear graphql 'query {{ issue(id: \"{id}\") {{ \
-         attachments {{ nodes {{ title url sourceType }} }} \
-         comments {{ nodes {{ body createdAt user {{ displayName }} }} }} }} }}'`"
+         attachments {{ nodes {{ title url sourceType }} }} }} }}'`\n\n\
+         Read people off `issue get`, not off a raw `graphql` query: it names \
+         each assignee, delegate, creator and comment author with a \
+         `moatlessLogin` alongside Linear's own fields, and that login is the \
+         only one of those names you can address a person by elsewhere in \
+         Moatless. A Linear `displayName` is not a login."
     );
     text
 }
@@ -132,11 +137,25 @@ mod tests {
         assert!(text.contains("moat linear issue get SP-1 --json"));
         assert!(text.contains(
             "moat linear graphql 'query { issue(id: \"SP-1\") { \
-             attachments { nodes { title url sourceType } } \
-             comments { nodes { body createdAt user { displayName } } } } }'"
+             attachments { nodes { title url sourceType } } } }'"
         ));
         // The issue description is not inlined — the agent reads the live ticket.
         assert!(!text.contains("Long description here."));
+    }
+
+    /// Comments come from `issue get`, which annotates each author with a
+    /// `moatlessLogin`. Sending the agent to a raw `graphql` query for them
+    /// hands it a `displayName` it cannot address anyone by, which is how a
+    /// Linear name once reached a Slack mention.
+    #[test]
+    fn the_read_block_sources_people_from_the_annotated_command() {
+        let text = build_inbound_text(&session_with(None, None));
+        assert!(
+            !text.contains("user { displayName }"),
+            "no raw query for comment authors"
+        );
+        assert!(text.contains("moatlessLogin"));
+        assert!(text.contains("A Linear `displayName` is not a login."));
     }
 
     #[test]
