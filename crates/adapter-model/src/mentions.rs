@@ -93,7 +93,15 @@ pub async fn resolve_mention(
     }
     match users.provider_id_for_login(provider, token).await {
         Ok(Some(provider_user_id)) => Mention::Native(provider_user_id),
-        Ok(None) => Mention::Plain(token.to_string()),
+        Ok(None) => {
+            warn!(
+                provider,
+                login = %token,
+                "Mention left as plain text and notified nobody: the token is not \
+                 a Moatless login with an account linked at this provider"
+            );
+            Mention::Plain(token.to_string())
+        }
         Err(e) => {
             warn!(
                 provider,
