@@ -3,8 +3,8 @@
 //! Linear converts markdown to its own document model and back, so the stored
 //! text never matches the sent bytes: it escapes `~`, wraps bare URLs in
 //! links, renumbers lists, re-hosts images. None of that drops a word, so the
-//! check compares words, and it skips URLs, HTML entities and emoji
-//! shortcodes, which Linear rewrites legitimately.
+//! check compares words, and it skips URLs, HTML entities, emoji shortcodes
+//! and reference-link labels, which Linear rewrites legitimately.
 
 use std::collections::HashSet;
 use std::fmt::Write as _;
@@ -55,14 +55,31 @@ fn has_indented_table_row(text: &str) -> bool {
     })
 }
 
-/// The text's words, lowercased, with URLs, `&name;` entities and `:name:`
-/// shortcodes removed.
+/// The text's words, lowercased, with URLs, `&name;` entities, `:name:`
+/// shortcodes and reference-link labels removed.
 fn words(text: &str) -> Vec<String> {
-    strip_rewritten_spans(text)
+    let text: String = text
+        .lines()
+        .map(without_reference_definition)
+        .collect::<Vec<_>>()
+        .join("\n");
+    strip_rewritten_spans(&text)
         .split(|c: char| !c.is_alphanumeric())
         .filter(|w| !w.is_empty())
         .map(str::to_lowercase)
         .collect()
+}
+
+/// A line with a `[label]: url` definition's label removed: Linear inlines
+/// reference links and drops the definition.
+fn without_reference_definition(line: &str) -> &str {
+    let body = line.trim_start();
+    if body.starts_with('[') && !body.starts_with("[^") {
+        if let Some(end) = body.find("]:") {
+            return &body[end + 2..];
+        }
+    }
+    line
 }
 
 fn strip_rewritten_spans(text: &str) -> String {
@@ -72,6 +89,9 @@ fn strip_rewritten_spans(text: &str) -> String {
         let skip = if rest.starts_with("http://") || rest.starts_with("https://") {
             rest.find(|c: char| c.is_whitespace() || matches!(c, ')' | '>' | ']' | '"' | '\''))
                 .unwrap_or(rest.len())
+        } else if rest.starts_with("][") {
+            // The `[ref]` of `[text][ref]`, which Linear inlines as `(url)`.
+            1 + delimited(&rest[1..], ']', |c| c != ']' && c != '\n')
         } else if c == '&' {
             delimited(rest, ';', |c| c.is_ascii_alphanumeric() || c == '#')
         } else if c == ':' {
@@ -137,6 +157,19 @@ mod tests {
         let stored = "1. one\n2. again\n\n- [X] done\n\nA & B 🎉 \\~tilde\\~ \
                       [https://example.com/a?q=1&r=2](<https://example.com/a?q=1&r=2>) \
                       ![img](https://uploads.linear.app/1/2/3)\n# Title\n";
+        assert_eq!(lost_words_warning(sent, stored), None);
+    }
+
+    /// Linear stored this HTML and mention verbatim, and inlined the reference
+    /// link, in a run against a scratch issue.
+    #[test]
+    fn inline_html_mentions_and_reference_links_are_not_a_loss() {
+        let sent = "A [ref link][myref] and @aorwall.\n\n[myref]: https://example.com/ref\n\n\
+                    <!-- hidden words -->\n<div align=\"center\">centered</div>\n\
+                    Line <br> break <kbd>Ctrl</kbd> <details><summary>sum</summary>inner</details>\n";
+        let stored = "A [ref link](<https://example.com/ref>) and @aorwall.\n\n\
+                      <!-- hidden words -->\n<div align=\"center\">centered</div>\n\
+                      Line <br> break <kbd>Ctrl</kbd> <details><summary>sum</summary>inner</details>\n";
         assert_eq!(lost_words_warning(sent, stored), None);
     }
 

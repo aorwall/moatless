@@ -459,10 +459,17 @@ async fn run_issue(
             state,
             connection,
         } => {
-            let before = client
-                .api()
-                .linear_get_issue(&id, connection.as_deref())
-                .await?;
+            // Only the confirmation line reads the previous state, and a failed
+            // read must not stop a move that would land.
+            let before = if json {
+                None
+            } else {
+                client
+                    .api()
+                    .linear_get_issue(&id, connection.as_deref())
+                    .await
+                    .ok()
+            };
             let req = LinearIssueUpdateRequest {
                 state: Some(state),
                 ..Default::default()
@@ -477,7 +484,9 @@ async fn run_issue(
                 println!(
                     "{}: {} -> {}",
                     str_at(&resp.data, "/identifier"),
-                    str_at(&before.data, "/state/name"),
+                    before
+                        .as_ref()
+                        .map_or("?", |b| str_at(&b.data, "/state/name")),
                     str_at(&resp.data, "/state/name"),
                 );
             }
