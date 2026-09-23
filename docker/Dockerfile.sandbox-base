@@ -241,12 +241,16 @@ RUN mkdir -p /opt/moatless/data /mnt/plugins /usr/share/moatless-skills /etc/cod
 # Create cache and config directories in home (following Linux FHS standard)
 RUN mkdir -p /home/$USERNAME/.cache \
     /home/$USERNAME/.config/gh \
+    /home/$USERNAME/.kube \
+    && chmod 700 /home/$USERNAME/.kube \
     && chown -R $USERNAME:$USERNAME /home/$USERNAME
 
 # kubectl for the pod's own cluster, through its mounted ServiceAccount. kubectl
 # falls back to in-cluster config only with no kubeconfig and no client flag:
 # `--as`, `--context` or `--request-timeout` sends it to localhost:8080 instead.
 # A pod with no token mounted fails here naming the missing token file.
+# `--chmod` also applies to a parent it creates, so `~/.kube` is made 0700 above:
+# a 0600 directory cannot be traversed and kubectl cannot open the config.
 COPY --chown=$USER_UID:$USER_GID --chmod=600 docker/sandbox-kubeconfig /home/$USERNAME/.kube/config
 
 # Install the Rust toolchain (rustup default profile: rustc, cargo, clippy,
