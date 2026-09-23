@@ -1,0 +1,58 @@
+# /etc/mavenrc — sourced by Maven's bin/mvn on every run, including the Maven
+# a repository's ./mvnw downloads. Sourced POSIX sh: an `exit` here ends the
+# build, so every failure falls through to a warning and lets Maven report it.
+#
+# Mints CODEARTIFACT_AUTH_TOKEN and caches it until ten minutes before expiry,
+# so a sandbox outliving the 12-hour token still builds. Writes
+# ~/.m2/settings.xml only when none exists, with the two CodeArtifact
+# repository ids Soap poms declare.
+if [ -n "${CODEARTIFACT_DOMAIN:-}" ] && command -v aws >/dev/null 2>&1; then
+  _ca_owner="${CODEARTIFACT_DOMAIN_OWNER:-222222222222}"
+  _ca_region="${AWS_REGION:-${AWS_DEFAULT_REGION:-eu-north-1}}"
+  _ca_cache="${XDG_CACHE_HOME:-$HOME/.cache}/codeartifact/token"
+  _ca_exp=$(cat "$_ca_cache.exp" 2>/dev/null || echo 0)
+  # dash aborts the whole mvn run on a non-numeric operand in $((...)).
+  case "$_ca_exp" in ''|*[!0-9]*) _ca_exp=0 ;; esac
+  if [ ! -s "$_ca_cache" ] || [ "$(date +%s)" -ge $((_ca_exp - 600)) ]; then
+    mkdir -p "$(dirname "$_ca_cache")"
+    if _ca_out=$(aws codeartifact get-authorization-token \
+        --domain "$CODEARTIFACT_DOMAIN" --domain-owner "$_ca_owner" --region "$_ca_region" \
+        --query '[authorizationToken,expiration]' --output text 2>"$_ca_cache.err"); then
+      (umask 077; printf '%s\n' "$_ca_out" | awk '{print $1}' > "$_ca_cache")
+      date -d "$(printf '%s\n' "$_ca_out" | awk '{print $2}')" +%s > "$_ca_cache.exp" 2>/dev/null \
+        || echo 0 > "$_ca_cache.exp"
+    else
+      echo "[mavenrc] CodeArtifact token mint failed; com.soaplabs artifacts will 401:" >&2
+      sed '/^[[:space:]]*$/d; s/^/[mavenrc]   /' "$_ca_cache.err" >&2
+      rm -f "$_ca_cache" "$_ca_cache.exp"
+    fi
+    rm -f "$_ca_cache.err"
+  fi
+  if [ -s "$_ca_cache" ]; then
+    CODEARTIFACT_AUTH_TOKEN=$(cat "$_ca_cache")
+    export CODEARTIFACT_AUTH_TOKEN
+  fi
+
+  # Maven reads user settings from the passwd home, which can differ from $HOME.
+  _ca_home=$(getent passwd "$(id -u)" | cut -d: -f6)
+  _ca_settings="${_ca_home:-$HOME}/.m2/settings.xml"
+  if [ ! -e "$_ca_settings" ] && mkdir -p "$(dirname "$_ca_settings")"; then
+    cat > "$_ca_settings" <<'EOF'
+<settings>
+  <servers>
+    <server>
+      <id>codeartifact</id>
+      <username>aws</username>
+      <password>${env.CODEARTIFACT_AUTH_TOKEN}</password>
+    </server>
+    <server>
+      <id>soaplabs-222222222222</id>
+      <username>aws</username>
+      <password>${env.CODEARTIFACT_AUTH_TOKEN}</password>
+    </server>
+  </servers>
+</settings>
+EOF
+  fi
+  unset _ca_owner _ca_region _ca_cache _ca_exp _ca_out _ca_home _ca_settings
+fi

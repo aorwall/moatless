@@ -71,6 +71,9 @@ for bin in /usr/lib/jvm/default-java/bin/java /usr/lib/jvm/default-java/bin/java
     esac
 done
 
+# Maven sources /etc/mavenrc on every run; it mints the CodeArtifact token.
+install -m 0644 "$(dirname "$0")/mavenrc" /etc/mavenrc
+
 # The real JAVA_HOME/PATH ENV is emitted into the generated Dockerfile from
 # this feature's feature.json "env" field (see generate-recipe.sh) — that's
 # what the sandbox process itself inherits. This /etc/profile append is only

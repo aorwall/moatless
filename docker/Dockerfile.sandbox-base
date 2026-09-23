@@ -168,6 +168,18 @@ RUN ARCH=$(dpkg --print-architecture) && \
     rm -rf /tmp/helm.tgz "/tmp/linux-${ARCH}" && \
     helm version --short
 
+# crane — reads image manifests, configs and layers from a registry with no
+# Docker daemon, which a sandbox does not run. `crane export <ref> - | tar -x`
+# unpacks an image's filesystem for inspection.
+# renovate: datasource=github-releases depName=google/go-containerregistry
+ARG CRANE_VERSION=v0.22.1
+RUN ARCH=$(dpkg --print-architecture) && \
+    CRANE_ARCH=$([ "$ARCH" = "amd64" ] && echo "x86_64" || echo "arm64") && \
+    curl -fsSL "https://github.com/google/go-containerregistry/releases/download/${CRANE_VERSION}/go-containerregistry_Linux_${CRANE_ARCH}.tar.gz" -o /tmp/crane.tgz && \
+    tar -xzf /tmp/crane.tgz -C /usr/local/bin crane && \
+    rm /tmp/crane.tgz && \
+    crane version
+
 # terraform — pinned to soap-infra's CI version. `terraform validate` needs the
 # same minor to agree with what plans there.
 # renovate: datasource=hashicorp depName=terraform
