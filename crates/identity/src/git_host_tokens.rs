@@ -179,10 +179,7 @@ impl GitHostTokens {
                 .read_secret_ref_token(actor, GITHUB_TOKEN)
                 .await
                 .map(|_| ()),
-            Some(AUTH_METHOD_APP_USER) => {
-                self.refreshed_oauth_token(&row, actor).await;
-                Ok(())
-            }
+            Some(AUTH_METHOD_APP_USER) => self.refreshed_oauth_token(&row, actor).await.map(|_| ()),
             _ => Ok(()),
         };
 
@@ -211,7 +208,7 @@ impl GitHostTokens {
         let resolved = match row.auth_method.as_deref() {
             Some(AUTH_METHOD_APP_INSTALLATION) => self.mint_installation_token(&row, owner).await,
             Some(AUTH_METHOD_SECRET_REF) => self.read_secret_ref_token(actor, GITHUB_TOKEN).await,
-            Some(AUTH_METHOD_APP_USER) => Ok(self.refreshed_oauth_token(&row, actor).await),
+            Some(AUTH_METHOD_APP_USER) => self.refreshed_oauth_token(&row, actor).await,
             _ => Ok(row.access_token.clone()),
         };
 
@@ -259,11 +256,15 @@ impl GitHostTokens {
         })
     }
 
-    /// A GitHub App user row refreshes near expiry. A refresh failure falls
-    /// back to the stored access token, which may still be valid.
-    async fn refreshed_oauth_token(&self, row: &ProviderToken, actor: &Actor) -> String {
+    /// A GitHub App user row refreshes near expiry; a failed refresh falls back
+    /// as [`fallback_after_failed_refresh`] decides.
+    async fn refreshed_oauth_token(
+        &self,
+        row: &ProviderToken,
+        actor: &Actor,
+    ) -> Result<String, AuthError> {
         let Some(app) = self.github_app_service.as_deref() else {
-            return row.access_token.clone();
+            return Ok(row.access_token.clone());
         };
         match ensure_fresh_token(
             self.provider_tokens.as_ref(),
@@ -273,14 +274,18 @@ impl GitHostTokens {
         )
         .await
         {
-            Ok(token) => token,
+            Ok(token) => Ok(token),
             Err(e) => {
-                warn!(
-                    error = %e,
-                    actor = %actor,
-                    "GitHub App token refresh failed, falling back to the stored token"
-                );
-                row.access_token.clone()
+                // A concurrent caller may have spent the single-use refresh
+                // token and stored a new pair; `row` predates that.
+                let current = self
+                    .provider_tokens
+                    .find_github_row(actor.user_id())
+                    .await
+                    .ok()
+                    .flatten();
+                let row = current.as_ref().unwrap_or(row);
+                fallback_after_failed_refresh(row, actor, e, chrono::Utc::now())
             }
         }
     }
@@ -430,6 +435,41 @@ impl GitHostTokens {
     }
 }
 
+/// The stored token after its refresh failed, while it is still in date.
+///
+/// Once it has expired GitHub answers it with 401, so handing it on only moves
+/// the failure to every consumer as an unexplained `Bad credentials`; the
+/// refresh error is returned instead, which reports the identity as broken.
+fn fallback_after_failed_refresh(
+    row: &ProviderToken,
+    actor: &Actor,
+    error: AuthError,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Result<String, AuthError> {
+    if let Some(expired_at) = row.expires_at.filter(|at| *at <= now) {
+        warn!(
+            %error,
+            actor = %actor,
+            %expired_at,
+            "GitHub App token refresh failed and the stored token has expired"
+        );
+        let remedy = if matches!(error, AuthError::RefreshRejected { .. }) {
+            "the GitHub App authorization must be reconnected: "
+        } else {
+            ""
+        };
+        return Err(AuthError::OAuth(format!(
+            "{remedy}the stored token expired at {expired_at} and refreshing it failed: {error}"
+        )));
+    }
+    warn!(
+        %error,
+        actor = %actor,
+        "GitHub App token refresh failed, falling back to the stored token"
+    );
+    Ok(row.access_token.clone())
+}
+
 /// Separate "the credential cannot reach this repository" from "the credential
 /// is broken". The remedies differ, and "connect GitHub" is wrong advice for
 /// someone already connected.
@@ -529,6 +569,68 @@ mod tests {
             Arc::new(GitHubAppRegistry::default()),
             Arc::new(secrets),
         )
+    }
+
+    fn app_user_row_expiring_at(expires_at: chrono::DateTime<chrono::Utc>) -> ProviderToken {
+        ProviderToken {
+            expires_at: Some(expires_at),
+            ..github_row(AUTH_METHOD_APP_USER, "ghu_stored")
+        }
+    }
+
+    #[test]
+    fn a_failed_refresh_falls_back_to_a_stored_token_still_in_date() {
+        let now = chrono::Utc::now();
+        let row = app_user_row_expiring_at(now + chrono::Duration::minutes(2));
+
+        let token = fallback_after_failed_refresh(
+            &row,
+            &Actor::of("u1"),
+            AuthError::OAuth("request timed out".into()),
+            now,
+        )
+        .expect("an in-date token is still worth presenting");
+
+        assert_eq!(token, "ghu_stored");
+    }
+
+    #[test]
+    fn a_failed_refresh_of_an_expired_token_reports_the_refresh_error() {
+        let now = chrono::Utc::now();
+        let row = app_user_row_expiring_at(now - chrono::Duration::hours(1));
+
+        let message = fallback_after_failed_refresh(
+            &row,
+            &Actor::of("u1"),
+            AuthError::RefreshRejected {
+                error: "bad_refresh_token".into(),
+                description: String::new(),
+            },
+            now,
+        )
+        .expect_err("an expired token would only answer 401")
+        .to_string();
+
+        assert!(message.contains("reconnected"), "{message}");
+        assert!(message.contains("bad_refresh_token"), "{message}");
+    }
+
+    #[test]
+    fn a_transient_refresh_failure_of_an_expired_token_does_not_ask_for_a_reconnect() {
+        let now = chrono::Utc::now();
+        let row = app_user_row_expiring_at(now - chrono::Duration::hours(1));
+
+        let message = fallback_after_failed_refresh(
+            &row,
+            &Actor::of("u1"),
+            AuthError::OAuth("GitHub App token refresh returned 502 Bad Gateway".into()),
+            now,
+        )
+        .expect_err("an expired token would only answer 401")
+        .to_string();
+
+        assert!(!message.contains("reconnected"), "{message}");
+        assert!(message.contains("502"), "{message}");
     }
 
     async fn resolve(

@@ -84,10 +84,12 @@ struct InstallationRepository {
     name: String,
 }
 
+/// GitHub rejects a refresh with HTTP 200 and a body of only `error` and
+/// `error_description`, so the token fields are optional to let that body parse.
 #[derive(Deserialize)]
 struct RefreshTokenResponse {
-    access_token: String,
-    token_type: String,
+    access_token: Option<String>,
+    token_type: Option<String>,
     scope: Option<String>,
     refresh_token: Option<String>,
     expires_in: Option<u64>,
@@ -95,6 +97,30 @@ struct RefreshTokenResponse {
     error: Option<String>,
     #[serde(default)]
     error_description: Option<String>,
+}
+
+/// The tokens a refresh response carries, or GitHub's stated reason for none.
+fn refreshed_tokens(data: RefreshTokenResponse) -> Result<OAuthTokens, AuthError> {
+    if let Some(error) = data.error {
+        return Err(AuthError::RefreshRejected {
+            error,
+            description: data.error_description.unwrap_or_default(),
+        });
+    }
+    let access_token = data.access_token.ok_or_else(|| {
+        AuthError::OAuth(
+            "GitHub App refresh response carried neither an access_token nor an error".to_string(),
+        )
+    })?;
+    Ok(OAuthTokens {
+        access_token,
+        token_type: data.token_type.unwrap_or_else(|| "bearer".to_string()),
+        scope: data.scope,
+        id_token: None,
+        refresh_token: data.refresh_token,
+        expires_in: data.expires_in,
+        refresh_token_expires_in: data.refresh_token_expires_in,
+    })
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -708,25 +734,11 @@ impl GitHubAppService {
         let data: RefreshTokenResponse = resp.json().await.map_err(|e| {
             AuthError::OAuth(format!("Failed to parse GitHub App refresh response: {e}"))
         })?;
-
-        if let Some(err) = data.error {
-            let desc = data.error_description.unwrap_or_default();
-            return Err(AuthError::OAuth(format!(
-                "GitHub App token refresh error: {err}: {desc}"
-            )));
-        }
+        let tokens = refreshed_tokens(data)?;
 
         info!("Refreshed GitHub App user access token");
 
-        Ok(OAuthTokens {
-            access_token: data.access_token,
-            token_type: data.token_type,
-            scope: data.scope,
-            id_token: None,
-            refresh_token: data.refresh_token,
-            expires_in: data.expires_in,
-            refresh_token_expires_in: data.refresh_token_expires_in,
-        })
+        Ok(tokens)
     }
 
     /// Resolves the installation id for an `owner` (org or user), cached.
@@ -1162,5 +1174,39 @@ mod tests {
         );
         assert!(message.contains("installation 42"), "{message}");
         assert!(message.contains("account 'Acme'"), "{message}");
+    }
+
+    /// The body GitHub sends, with HTTP 200, for a rejected refresh token.
+    #[test]
+    fn a_rejected_refresh_names_githubs_reason() {
+        let data: RefreshTokenResponse = serde_json::from_str(
+            r#"{"error":"bad_refresh_token","error_description":"The refresh token passed is incorrect or expired.","error_uri":"https://docs.github.com"}"#,
+        )
+        .expect("an error-only body parses");
+
+        let Err(error) = refreshed_tokens(data) else {
+            panic!("an error body is a failure");
+        };
+        assert!(matches!(error, AuthError::RefreshRejected { .. }));
+        let message = error.to_string();
+
+        assert!(message.contains("bad_refresh_token"), "{message}");
+        assert!(message.contains("incorrect or expired"), "{message}");
+    }
+
+    #[test]
+    fn a_successful_refresh_yields_the_new_tokens() {
+        let data: RefreshTokenResponse = serde_json::from_str(
+            r#"{"access_token":"ghu_new","token_type":"bearer","scope":"","refresh_token":"ghr_new","expires_in":28800,"refresh_token_expires_in":15897600}"#,
+        )
+        .expect("a success body parses");
+
+        let Ok(tokens) = refreshed_tokens(data) else {
+            panic!("a token body succeeds");
+        };
+
+        assert_eq!(tokens.access_token, "ghu_new");
+        assert_eq!(tokens.refresh_token.as_deref(), Some("ghr_new"));
+        assert_eq!(tokens.expires_in, Some(28800));
     }
 }

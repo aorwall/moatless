@@ -23,6 +23,12 @@ pub enum AuthError {
     #[error("OAuth error: {0}")]
     OAuth(String),
 
+    /// GitHub refused a refresh token outright, so only reconnecting the App
+    /// authorization produces a new one; a transient refresh failure is
+    /// [`Self::OAuth`] instead.
+    #[error("GitHub rejected the refresh token: {error}: {description}")]
+    RefreshRejected { error: String, description: String },
+
     #[error("Configuration error: {0}")]
     Config(String),
 
@@ -92,6 +98,7 @@ impl IntoResponse for AuthError {
             | Self::PasswordHashing(_)
             | Self::BotIdentity(_)
             | Self::OAuth(_)
+            | Self::RefreshRejected { .. }
             | Self::Config(_)
             | Self::Database(_)
             | Self::Store(_) => {
