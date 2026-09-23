@@ -285,10 +285,10 @@ async fn run_core_init(state: &SandboxState) -> Result<WorkspaceOrigin, InitErro
 
     // 6. Stage plugin-bundled skills so the Codex agent can discover them.
     // Runs unconditionally so a plugin cloned above is picked up.
-    let staged = run_init_blocking(
-        "stage_plugin_skills_for_codex",
-        plugin_skills::stage_plugin_skills_for_codex,
-    )
+    let plugins_dir = state.config.plugins_dir();
+    let staged = run_init_blocking("stage_plugin_skills_for_codex", move || {
+        plugin_skills::stage_plugin_skills_for_codex(&plugins_dir)
+    })
     .await?;
     if staged > 0 {
         info!(count = staged, "Staged plugin skills for Codex");

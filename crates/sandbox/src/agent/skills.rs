@@ -24,6 +24,10 @@ struct SkillRoot {
     /// for the repo roots, absolute for the home dir — which no repo is
     /// relative to.
     label_prefix: String,
+    /// The plugin component a plugin root belongs to, whose path a skill body
+    /// read from it gets for `${CLAUDE_PLUGIN_ROOT}`; `None` for the repo and
+    /// home roots.
+    plugin_root: Option<PathBuf>,
 }
 
 /// Prepend a preamble per resolved skill to `prompt`, in the order the backend
@@ -91,6 +95,7 @@ async fn skill_roots(config: &Config) -> Vec<SkillRoot> {
             REPO_SKILL_ROOTS.iter().map(move |root| SkillRoot {
                 dir: Path::new(repo_dir).join(root),
                 label_prefix: (*root).to_string(),
+                plugin_root: None,
             })
         })
         .collect();
@@ -99,11 +104,13 @@ async fn skill_roots(config: &Config) -> Vec<SkillRoot> {
     roots.push(SkillRoot {
         label_prefix: home.display().to_string(),
         dir: home,
+        plugin_root: None,
     });
 
     let plugins = config.plugins.clone();
+    let plugins_dir = config.plugins_dir();
     let plugin_dirs = tokio::task::spawn_blocking(move || {
-        crate::init::plugin_skills::plugin_skill_dirs(&plugins)
+        crate::init::plugin_skills::plugin_skill_dirs(&plugins_dir, &plugins)
     })
     .await
     .unwrap_or_else(|e| {
@@ -111,8 +118,9 @@ async fn skill_roots(config: &Config) -> Vec<SkillRoot> {
         Vec::new()
     });
     roots.extend(plugin_dirs.into_iter().map(|dir| SkillRoot {
-        label_prefix: dir.display().to_string(),
-        dir,
+        label_prefix: dir.skills_dir.display().to_string(),
+        dir: dir.skills_dir,
+        plugin_root: Some(dir.plugin_root),
     }));
     roots
 }
@@ -134,16 +142,24 @@ fn home_skills_dir(config: &Config) -> PathBuf {
 
 /// The first root holding `<name>/SKILL.md`, as `(label, markdown body)`.
 ///
-/// The body is the file past its frontmatter; see [`strip_frontmatter`].
+/// The body is the file past its frontmatter (see [`strip_frontmatter`]),
+/// with a plugin skill's placeholders expanded.
 async fn read_skill(roots: &[SkillRoot], name: &str) -> Option<(String, String)> {
     for root in roots {
-        let path = root.dir.join(name).join("SKILL.md");
+        let skill_dir = root.dir.join(name);
+        let path = skill_dir.join("SKILL.md");
         match tokio::fs::read_to_string(&path).await {
             Ok(contents) => {
-                return Some((
-                    format!("{}/{name}", root.label_prefix),
-                    strip_frontmatter(&contents).to_string(),
-                ));
+                let body = strip_frontmatter(&contents);
+                let body = match &root.plugin_root {
+                    Some(plugin_root) => crate::init::plugin_skills::expand_plugin_placeholders(
+                        body,
+                        plugin_root,
+                        &skill_dir,
+                    ),
+                    None => body.to_string(),
+                };
+                return Some((format!("{}/{name}", root.label_prefix), body));
             }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
             Err(e) => warn!(path = %path.display(), error = %e, "Failed to read SKILL.md"),
@@ -435,6 +451,31 @@ mod tests {
             let out = frontload_skills(&config, &[name.to_string()], "go").await;
             assert_eq!(out, "go", "name {name:?} should resolve nothing");
         }
+    }
+
+    /// A frontloaded body bypasses Claude Code's Skill tool, which is what
+    /// would otherwise expand the placeholders a plugin skill's commands use.
+    #[tokio::test]
+    async fn a_plugin_skill_body_names_its_plugin_root() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let mut config = config_in(tmp.path(), "claude-code");
+        with_plugins(&mut config, &[("agentops", &[])]);
+        let plugin = config.plugins_dir().join("agentops");
+        write_skill(
+            &plugin.join("skills"),
+            "pr-review",
+            "python3 \"${CLAUDE_PLUGIN_ROOT}/skills/pr-review/scripts/review-scope.py\"",
+        );
+
+        let out = frontload_skills(&config, &["pr-review".to_string()], "go").await;
+        assert_eq!(
+            out,
+            format!(
+                "Activated {skills}/pr-review:\n\npython3 \"{root}/skills/pr-review/scripts/review-scope.py\"\n\ngo",
+                skills = plugin.join("skills").display(),
+                root = plugin.display(),
+            )
+        );
     }
 
     // ---- Standing skills ----

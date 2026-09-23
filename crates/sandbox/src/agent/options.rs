@@ -572,8 +572,12 @@ fn repo_instruction_path(dir: &str, filenames: [&'static str; 2]) -> Option<Stri
 }
 
 /// Build plugin configs from the plugins cloned into the sandbox.
-fn build_plugins(_config: &Config) -> Vec<PluginConfig> {
-    build_plugins_with_root(Path::new("/opt/moatless/plugins"))
+///
+/// Each `path` becomes a `--plugin-dir`, which the CLI itself exports as
+/// `${CLAUDE_PLUGIN_ROOT}` to that plugin's hooks and MCP servers and expands
+/// in the skills its Skill tool loads; the SDK has no per-plugin env to set.
+fn build_plugins(config: &Config) -> Vec<PluginConfig> {
+    build_plugins_with_root(&config.plugins_dir())
 }
 
 fn build_plugins_with_root(plugins_dir: &Path) -> Vec<PluginConfig> {
@@ -757,17 +761,20 @@ mod tests {
         fs::write(path, content).unwrap();
     }
 
+    /// Plugins are read from under the workspace, where `workspace_sync`
+    /// restores them after a pod replacement.
     #[test]
     fn build_plugins_finds_cloned_plugin_dir() {
         let root = tempdir().unwrap();
-        let plugins_root = root.path().join("plugins");
-        let direct = plugins_root.join("direct-plugin");
+        let mut config = test_config(false);
+        config.workspace_dir = root.path().to_string_lossy().into_owned();
+        let direct = root.path().join(".plugins/direct-plugin");
         write(
             &direct.join(".claude-plugin/plugin.json"),
             r#"{"name":"direct-plugin"}"#,
         );
 
-        let plugins = build_plugins_with_root(&plugins_root);
+        let plugins = build_plugins(&config);
 
         assert_eq!(plugins.len(), 1);
         assert_eq!(plugins[0].plugin_type, "local");

@@ -33,9 +33,9 @@ export const SANDBOX_UPLOAD_DIR = '/opt/moatless/workspace/uploads'
 export const SANDBOX_DOWNLOADS_DIR = '/opt/moatless/downloads'
 
 /**
- * Plugins directory (synced via backend API at startup)
- * Located inside /opt/moatless so it persists in workspace PVC and survives pod restarts
+ * Plugins directory, cloned at sandbox start. Under the workspace so the
+ * workspace snapshot restores it after a pod replacement.
  */
-export const SANDBOX_PLUGINS_DIR = '/opt/moatless/plugins'
+export const SANDBOX_PLUGINS_DIR = '/opt/moatless/workspace/.plugins'
 
 export const SANDBOX_CLAUDE_EXECUTABLE_PATH = '/usr/local/bin/claude'

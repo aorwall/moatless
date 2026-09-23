@@ -4,6 +4,7 @@
 //! environment variables set by the orchestrator.
 
 use std::env;
+use std::path::{Path, PathBuf};
 
 use claude_agent_sdk::PermissionMode;
 use moatless_workspace_types::plugin::PluginDelivery;
@@ -375,6 +376,15 @@ fn env_flag_override(name: &str) -> Option<bool> {
 }
 
 impl Config {
+    /// Where the task owner's plugins are cloned: `$WORKSPACE_DIR/.plugins`.
+    ///
+    /// Under the workspace so `workspace_sync` restores them after a pod
+    /// replacement; hidden so `files::git::discover_git_repos` does not list
+    /// them beside the repo checkouts.
+    pub fn plugins_dir(&self) -> PathBuf {
+        Path::new(&self.workspace_dir).join(".plugins")
+    }
+
     /// Absolute checkout directories, primary first, falling back to a nonempty `repo_dir`.
     pub fn repo_dirs(&self) -> Vec<String> {
         if self.repos.is_empty() {

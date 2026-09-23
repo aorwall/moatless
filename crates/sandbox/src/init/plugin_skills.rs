@@ -17,7 +17,6 @@ use tracing::{debug, info, warn};
 
 use super::dirs::copy_dir_contents;
 
-const PLUGINS_DIR: &str = "/opt/moatless/plugins";
 const CODEX_SKILLS_DIR: &str = "/etc/codex/skills";
 
 #[derive(Debug, Deserialize)]
@@ -48,13 +47,13 @@ const PLUGIN_MARKETPLACE_PATHS: [&str; 2] = [
     ".claude-plugin/marketplace.json",
 ];
 
-/// Scans `/opt/moatless/plugins/*` and copies every plugin's skills into
-/// `/etc/codex/skills/{plugin}--{skill}/`, honoring plugin manifests and
-/// marketplace files.
+/// Scans `plugins_root/*` ([`crate::config::Config::plugins_dir`]) and copies
+/// every plugin's skills into `/etc/codex/skills/{plugin}--{skill}/`, honoring
+/// plugin manifests and marketplace files.
 ///
 /// Non-fatal; blocking, recursive — via [`super::run_init_blocking`].
-pub(super) fn stage_plugin_skills_for_codex() -> usize {
-    stage_plugin_skills_with_roots(Path::new(PLUGINS_DIR), Path::new(CODEX_SKILLS_DIR))
+pub(super) fn stage_plugin_skills_for_codex(plugins_root: &Path) -> usize {
+    stage_plugin_skills_with_roots(plugins_root, Path::new(CODEX_SKILLS_DIR))
 }
 
 fn stage_plugin_skills_with_roots(plugins_root: &Path, codex_skills_root: &Path) -> usize {
@@ -218,16 +217,23 @@ fn read_first_marketplace(plugin_path: &Path) -> Option<(PathBuf, String)> {
     None
 }
 
-/// Every installed plugin's resolved `skills/` directory.
+/// One installed plugin component's resolved `skills/` directory.
+pub(crate) struct PluginSkillDir {
+    /// The component root Claude Code is handed as `--plugin-dir`, which
+    /// `${CLAUDE_PLUGIN_ROOT}` names.
+    pub(crate) plugin_root: PathBuf,
+    pub(crate) skills_dir: PathBuf,
+}
+
+/// Every installed plugin's resolved `skills/` directory under `plugins_root`.
 ///
 /// The one place a plugin skill's `SKILL.md` is always found regardless of
 /// harness (Codex only gets a staged copy); `agent::skills` reads bodies from
 /// here. Blocking — reads plugin manifests, so call it off the async worker.
-pub(crate) fn plugin_skill_dirs(plugins: &[PluginDelivery]) -> Vec<PathBuf> {
-    plugin_skill_dirs_under(Path::new(PLUGINS_DIR), plugins)
-}
-
-fn plugin_skill_dirs_under(plugins_root: &Path, plugins: &[PluginDelivery]) -> Vec<PathBuf> {
+pub(crate) fn plugin_skill_dirs(
+    plugins_root: &Path,
+    plugins: &[PluginDelivery],
+) -> Vec<PluginSkillDir> {
     if !plugins_root.is_dir() {
         return Vec::new();
     }
@@ -240,7 +246,10 @@ fn plugin_skill_dirs_under(plugins_root: &Path, plugins: &[PluginDelivery]) -> V
         for (_, root) in plugin_components(&path, &plugin.name) {
             let skills_dir = root.join(resolve_plugin_skills_subdir(&root));
             if skills_dir.is_dir() {
-                dirs.push(skills_dir);
+                dirs.push(PluginSkillDir {
+                    plugin_root: root,
+                    skills_dir,
+                });
             }
         }
     }
@@ -310,6 +319,7 @@ fn stage_plugin_component(
         }
         match copy_dir_contents(&skill_src, &target) {
             Ok(_) => {
+                expand_staged_skill_md(&target, plugin_path);
                 count += 1;
             }
             Err(e) => {
@@ -323,6 +333,33 @@ fn stage_plugin_component(
         }
     }
     count
+}
+
+/// Rewrite a staged copy's `SKILL.md` with its placeholders expanded; the copy
+/// is its own `${CLAUDE_SKILL_DIR}`, since its scripts were copied with it.
+fn expand_staged_skill_md(staged_skill: &Path, plugin_root: &Path) {
+    let skill_md = staged_skill.join("SKILL.md");
+    let Ok(body) = std::fs::read_to_string(&skill_md) else {
+        return;
+    };
+    let expanded = expand_plugin_placeholders(&body, plugin_root, staged_skill);
+    if expanded != body {
+        if let Err(e) = std::fs::write(&skill_md, expanded) {
+            warn!(path = %skill_md.display(), error = %e, "Failed to expand staged SKILL.md");
+        }
+    }
+}
+
+/// `body` with `${CLAUDE_PLUGIN_ROOT}` and `${CLAUDE_SKILL_DIR}` replaced by
+/// absolute paths. Claude Code does this only for a skill its Skill tool loads,
+/// so every other reader of a plugin `SKILL.md` must call this.
+pub(crate) fn expand_plugin_placeholders(
+    body: &str,
+    plugin_root: &Path,
+    skill_dir: &Path,
+) -> String {
+    body.replace("${CLAUDE_PLUGIN_ROOT}", &plugin_root.to_string_lossy())
+        .replace("${CLAUDE_SKILL_DIR}", &skill_dir.to_string_lossy())
 }
 
 fn resolve_plugin_skills_subdir(plugin_path: &Path) -> PathBuf {
@@ -438,13 +475,19 @@ mod tests {
         write(&plugins.join("plugin-b/custom/skills/baz/SKILL.md"), "baz");
         fs::create_dir_all(plugins.join("plugin-c")).unwrap();
 
-        let dirs =
-            plugin_skill_dirs_under(&plugins, &[delivered("plugin-b"), delivered("plugin-a")]);
+        let dirs: Vec<(PathBuf, PathBuf)> =
+            plugin_skill_dirs(&plugins, &[delivered("plugin-b"), delivered("plugin-a")])
+                .into_iter()
+                .map(|dir| (dir.plugin_root, dir.skills_dir))
+                .collect();
         assert_eq!(
             dirs,
             vec![
-                plugins.join("plugin-b/custom/skills"),
-                plugins.join("plugin-a/skills"),
+                (
+                    plugins.join("plugin-b"),
+                    plugins.join("plugin-b/custom/skills")
+                ),
+                (plugins.join("plugin-a"), plugins.join("plugin-a/skills")),
             ]
         );
     }
@@ -452,9 +495,7 @@ mod tests {
     #[test]
     fn plugin_skill_dirs_is_empty_without_a_plugins_root() {
         let root = tempdir().unwrap();
-        assert!(
-            plugin_skill_dirs_under(&root.path().join("nope"), &[delivered("plugin-a")]).is_empty()
-        );
+        assert!(plugin_skill_dirs(&root.path().join("nope"), &[delivered("plugin-a")]).is_empty());
     }
 
     #[test]
@@ -573,6 +614,37 @@ mod tests {
                 .is_file()
         );
         assert!(!codex.join("remote-only--sample-skill/SKILL.md").exists());
+    }
+
+    /// A staged copy lives outside its plugin, so its `SKILL.md` names the
+    /// marketplace component's root and its own directory absolutely.
+    #[test]
+    fn staged_skill_md_expands_plugin_placeholders() {
+        let root = tempdir().unwrap();
+        let plugins = root.path().join("plugins");
+        let codex = root.path().join("codex-skills");
+        let repo = plugins.join("soaplabs");
+        write(
+            &repo.join(".claude-plugin/marketplace.json"),
+            r#"{"plugins":[{"name":"agentops","source":"./plugins/agentops"}]}"#,
+        );
+        write(
+            &repo.join("plugins/agentops/skills/pr-review/SKILL.md"),
+            "python3 \"${CLAUDE_PLUGIN_ROOT}/skills/pr-review/scripts/review-scope.py\"\n\
+             cat ${CLAUDE_SKILL_DIR}/ref.md",
+        );
+
+        assert_eq!(stage_plugin_skills_with_roots(&plugins, &codex), 1);
+
+        let staged = codex.join("agentops--pr-review");
+        assert_eq!(
+            fs::read_to_string(staged.join("SKILL.md")).unwrap(),
+            format!(
+                "python3 \"{}/skills/pr-review/scripts/review-scope.py\"\ncat {}/ref.md",
+                repo.join("plugins/agentops").display(),
+                staged.display()
+            )
+        );
     }
 
     #[test]
