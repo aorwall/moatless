@@ -929,7 +929,7 @@ mod tests {
     #[test]
     fn a_requested_alias_reaches_the_cli_as_a_model_id() {
         let expected = [
-            ("opus", "claude-opus-5"),
+            ("opus", "claude-opus-5-5"),
             ("sonnet", "claude-sonnet-5"),
             ("haiku", "claude-haiku-4-5-20251001"),
             ("fable", "claude-fable-5-1"),
@@ -1000,7 +1000,7 @@ mod tests {
         );
         assert_eq!(
             claude_model(Some("  opus ".to_string())).as_deref(),
-            Some("claude-opus-5")
+            Some("claude-opus-5-5")
         );
         assert_eq!(claude_model(Some("default".to_string())), None);
         assert_eq!(claude_model(Some("   ".to_string())), None);

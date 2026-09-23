@@ -159,7 +159,7 @@ pub struct AgentEventPayload {
 /// an API accepts, not the slugs T3 publishes — `haiku` is the one that
 /// differs, since `claude-haiku-4-5` is refused.
 const CLAUDE_MODEL_IDS: &[(&str, &str)] = &[
-    ("opus", "claude-opus-5"),
+    ("opus", "claude-opus-5-5"),
     ("sonnet", "claude-sonnet-5"),
     ("haiku", "claude-haiku-4-5-20251001"),
     ("fable", "claude-fable-5-1"),

@@ -72,7 +72,7 @@ fn the_workspace_defaults_reach_the_client_as_an_icon_and_a_model_selection() {
         project["defaultModelSelection"],
         json!({
             "instanceId": "claudeAgent",
-            "model": "claude-opus-5",
+            "model": "claude-opus-5-5",
             "options": [{ "id": "effort", "value": "max" }],
         }),
         "the catalog id is published as T3's own slug, under the instance's effort descriptor"

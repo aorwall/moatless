@@ -5,7 +5,7 @@ use super::*;
 
 #[tokio::test]
 async fn a_bootstrapped_turn_creates_the_thread_with_its_first_message() {
-    let mut command = turn(Some(("claudeAgent", "claude-opus-5")));
+    let mut command = turn(Some(("claudeAgent", "claude-opus-5-5")));
     command["bootstrap"] = json!({
         "createThread": {
             "projectId": "ws-1",
@@ -39,7 +39,7 @@ async fn a_bootstrapped_turn_creates_the_thread_with_its_first_message() {
 /// is created against it rather than the repository's default.
 #[tokio::test]
 async fn a_bootstrapped_turn_carries_the_picked_branch() {
-    let mut command = turn(Some(("claudeAgent", "claude-opus-5")));
+    let mut command = turn(Some(("claudeAgent", "claude-opus-5-5")));
     command["bootstrap"] = json!({
         "createThread": {
             "projectId": "ws-1",

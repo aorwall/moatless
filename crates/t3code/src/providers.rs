@@ -139,7 +139,7 @@ fn capabilities(instance: &str, catalog_model: &str) -> Value {
 /// reads the same here as in a standalone T3. A slug is not always the id the
 /// model answers to — [`published_slug_for_reported`] translates one back.
 const CLAUDE_MODELS: &[(&str, &str, &str)] = &[
-    ("opus", "claude-opus-5", "Claude Opus 5"),
+    ("opus", "claude-opus-5-5", "Claude Opus 5.5"),
     ("sonnet", "claude-sonnet-5", "Claude Sonnet 5"),
     ("haiku", "claude-haiku-4-5", "Claude Haiku 4.5"),
     ("fable", "claude-fable-5-1", "Claude Fable 5.1"),
@@ -245,7 +245,7 @@ fn kind_of(agent: &AgentDescriptor) -> &'static str {
 /// The catalog id of the model to mark `isDefault` for an instance.
 ///
 /// The deployment's configured fallback decides it, matched against both `opus`
-/// and `claude-opus-5` since the setting is free text; configuring nothing, or
+/// and `claude-opus-5-5` since the setting is free text; configuring nothing, or
 /// an unrunnable model, falls back to the first publishable one.
 fn default_model_for(
     agents: &[AgentDescriptor],
@@ -419,7 +419,7 @@ mod tests {
         assert_eq!(list[1]["instanceId"], CODEX_INSTANCE);
     }
 
-    /// The regression that matters most: T3 rewrites `opus` to `claude-opus-5`
+    /// The regression that matters most: T3 rewrites `opus` to `claude-opus-5-5`
     /// before matching, so publishing `opus` silently runs the default.
     #[test]
     fn claude_models_are_published_under_t3s_canonical_names() {
@@ -427,7 +427,7 @@ mod tests {
         assert_eq!(
             slugs(&list[0]),
             vec![
-                "claude-opus-5",
+                "claude-opus-5-5",
                 "claude-sonnet-5",
                 "claude-haiku-4-5",
                 "claude-fable-5-1"
@@ -444,7 +444,7 @@ mod tests {
         assert_eq!(
             names(&list[0]),
             vec![
-                "Claude Opus 5",
+                "Claude Opus 5.5",
                 "Claude Sonnet 5",
                 "Claude Haiku 4.5",
                 "Claude Fable 5.1"
@@ -554,10 +554,16 @@ mod tests {
             "claude-haiku-4-5"
         );
         assert_eq!(
+            published_slug_for_reported(CLAUDE_INSTANCE, "claude-opus-5-5"),
+            "claude-opus-5-5"
+        );
+        // Not an id this catalog names — reported as it arrived. `claude-opus-5`
+        // is one of these since `opus` moved to 5.5: a turn that ran before the
+        // move keeps reporting the model it actually ran.
+        assert_eq!(
             published_slug_for_reported(CLAUDE_INSTANCE, "claude-opus-5"),
             "claude-opus-5"
         );
-        // Not an id this catalog names — reported as it arrived.
         assert_eq!(
             published_slug_for_reported(CLAUDE_INSTANCE, "claude-opus-4-8"),
             "claude-opus-4-8"
@@ -585,7 +591,7 @@ mod tests {
     /// It is free text an operator writes, so either vocabulary has to land.
     #[test]
     fn the_configured_default_is_the_flagged_row_in_either_vocabulary() {
-        for configured in ["opus", "claude-opus-5"] {
+        for configured in ["opus", "claude-opus-5-5"] {
             let list = providers(
                 &agents(true),
                 &AgentModelDefaults {
@@ -602,7 +608,7 @@ mod tests {
                 .filter(|m| m["isDefault"] == json!(true))
                 .map(|m| m["slug"].as_str().unwrap().to_string())
                 .collect();
-            assert_eq!(flagged, vec!["claude-opus-5"], "configured {configured}");
+            assert_eq!(flagged, vec!["claude-opus-5-5"], "configured {configured}");
         }
     }
 
@@ -662,7 +668,7 @@ mod tests {
     fn each_instance_publishes_its_effort_picker_under_t3s_own_id() {
         let list = published();
         assert_eq!(
-            effort_descriptor(&list[0], "claude-opus-5")["id"],
+            effort_descriptor(&list[0], "claude-opus-5-5")["id"],
             json!("effort")
         );
         assert_eq!(
@@ -677,7 +683,7 @@ mod tests {
     fn the_published_levels_are_the_ones_the_agent_accepts() {
         let list = published();
         assert_eq!(
-            level_ids(effort_descriptor(&list[0], "claude-opus-5")),
+            level_ids(effort_descriptor(&list[0], "claude-opus-5-5")),
             vec!["low", "medium", "high", "xhigh", "max"]
         );
         assert_eq!(
