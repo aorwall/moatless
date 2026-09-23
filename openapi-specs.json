@@ -13632,6 +13632,13 @@
           },
           "data": {
             "type": "object"
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "What the write sent that Linear did not store: the write landed, but\nlost content."
           }
         }
       },

@@ -16,4 +16,9 @@ export interface LinearIssueResponse {
   /** @nullable */
   bindingId?: string | null;
   data: LinearIssueResponseData;
+  /**
+     * What the write sent that Linear did not store: the write landed, but
+     * lost content.
+     */
+  warnings?: string[];
 }

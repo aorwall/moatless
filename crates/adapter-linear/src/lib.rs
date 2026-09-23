@@ -49,6 +49,7 @@ pub use subject::SUBJECT_KIND_ISSUE;
 mod subscription_rules;
 mod task_links;
 
+mod description_readback;
 mod issue_commands;
 mod login_annotation;
 mod reference_resolution;

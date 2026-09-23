@@ -269,6 +269,10 @@ pub struct LinearIssueResponse {
     pub data: serde_json::Value,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub binding_id: Option<String>,
+    /// What the write sent that Linear did not store: the write landed, but
+    /// lost content.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
 }
 
 /// Response for label add/remove (no body content).

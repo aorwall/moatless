@@ -208,14 +208,20 @@ pub enum IssueAction {
         action: LabelAction,
     },
     /// Relate two issues (`related`, `duplicate`, `blocks`, `similar`)
+    #[command(after_help = "Examples:\n  \
+        moat linear issue relate SP-1 SP-2 --type blocks\n  \
+        moat linear issue relate SP-1 blocks SP-2")]
     Relate {
         /// Issue identifier (SP-123) or UUID
         id: String,
-        /// The other issue: identifier or UUID
-        related_issue: String,
-        /// `blocks` reads left-to-right: `ID` blocks `RELATED_ISSUE`
-        #[arg(long = "type", value_enum, default_value_t = RelationTypeArg::Related)]
-        relation: RelationTypeArg,
+        /// The other issue (identifier or UUID), optionally preceded by the
+        /// relation type in place of `--type`
+        #[arg(value_name = "[TYPE] RELATED_ISSUE", num_args = 1..=2, required = true)]
+        rest: Vec<String>,
+        /// `blocks` reads left-to-right: `ID` blocks `RELATED_ISSUE`. Defaults
+        /// to `related`
+        #[arg(long = "type", value_enum)]
+        relation: Option<RelationTypeArg>,
         #[arg(long)]
         connection: Option<String>,
     },
@@ -393,12 +399,12 @@ async fn run_issue(
             if json {
                 output::print_json_typed(&resp);
             } else {
-                print_issue(&resp.data);
-                if let Some(bid) = resp.binding_id {
-                    println!("\nBound to task via: {bid}");
+                println!("Created {}", issue_ref(&resp.data));
+                if let Some(bid) = &resp.binding_id {
+                    println!("Bound to task via: {bid}");
                 }
             }
-            Ok(())
+            fail_on_warnings(&resp.warnings)
         }
         IssueAction::Update {
             id,
@@ -439,15 +445,24 @@ async fn run_issue(
             if json {
                 output::print_json_typed(&resp);
             } else {
-                print_issue(&resp.data);
+                println!(
+                    "Updated {} ({}) {}",
+                    str_at(&resp.data, "/identifier"),
+                    updated_fields(&req).join(", "),
+                    str_at(&resp.data, "/url")
+                );
             }
-            Ok(())
+            fail_on_warnings(&resp.warnings)
         }
         IssueAction::Move {
             id,
             state,
             connection,
         } => {
+            let before = client
+                .api()
+                .linear_get_issue(&id, connection.as_deref())
+                .await?;
             let req = LinearIssueUpdateRequest {
                 state: Some(state),
                 ..Default::default()
@@ -459,7 +474,12 @@ async fn run_issue(
             if json {
                 output::print_json_typed(&resp);
             } else {
-                print_issue(&resp.data);
+                println!(
+                    "{}: {} -> {}",
+                    str_at(&resp.data, "/identifier"),
+                    str_at(&before.data, "/state/name"),
+                    str_at(&resp.data, "/state/name"),
+                );
             }
             Ok(())
         }
@@ -497,10 +517,11 @@ async fn run_issue(
         IssueAction::Label { action } => run_label(client, action, json).await,
         IssueAction::Relate {
             id,
-            related_issue,
+            rest,
             relation,
             connection,
         } => {
+            let (relation, related_issue) = relation_and_issue(relation, rest)?;
             let req = LinearIssueRelateRequest {
                 related_issue,
                 relation: relation.into(),
@@ -628,6 +649,77 @@ fn comment_body(
     Ok(body)
 }
 
+/// `SP-123 <url>`: how a write names the issue it changed.
+fn issue_ref(issue: &Value) -> String {
+    format!("{} {}", str_at(issue, "/identifier"), str_at(issue, "/url"))
+        .trim_end()
+        .to_string()
+}
+
+fn str_at<'a>(value: &'a Value, pointer: &str) -> &'a str {
+    value
+        .pointer(pointer)
+        .and_then(Value::as_str)
+        .unwrap_or("?")
+}
+
+/// The fields an update request writes, named as the flags that set them.
+fn updated_fields(req: &LinearIssueUpdateRequest) -> Vec<&'static str> {
+    [
+        ("title", req.title.is_some()),
+        (
+            "description",
+            req.description.is_some() || req.clear_description.is_some(),
+        ),
+        ("state", req.state.is_some()),
+        ("project", req.project.is_some()),
+        ("assignee", req.assignee.is_some()),
+        ("delegate", req.delegate.is_some()),
+        ("priority", req.priority.is_some()),
+        ("estimate", req.estimate.is_some()),
+        ("due", req.due_date.is_some()),
+        ("cycle", req.cycle.is_some()),
+        ("parent", req.parent.is_some()),
+    ]
+    .into_iter()
+    .filter_map(|(name, set)| set.then_some(name))
+    .collect()
+}
+
+/// An error for a write that landed but lost content, so the command exits
+/// non-zero after printing its confirmation.
+fn fail_on_warnings(warnings: &[String]) -> Result<(), Box<dyn std::error::Error>> {
+    if warnings.is_empty() {
+        Ok(())
+    } else {
+        Err(warnings.join("\n").into())
+    }
+}
+
+/// The relation type and the other issue from `relate`'s trailing arguments:
+/// `RELATED_ISSUE` alone, or `TYPE RELATED_ISSUE`.
+fn relation_and_issue(
+    flag: Option<RelationTypeArg>,
+    mut rest: Vec<String>,
+) -> Result<(RelationTypeArg, String), Box<dyn std::error::Error>> {
+    let related = rest.pop().ok_or("Pass the related issue")?;
+    match (rest.pop(), flag) {
+        (None, flag) => Ok((flag.unwrap_or(RelationTypeArg::Related), related)),
+        (Some(_), Some(_)) => {
+            Err("Pass the relation type once: positionally or as `--type`".into())
+        }
+        (Some(kind), None) => {
+            let kind =
+                <RelationTypeArg as clap::ValueEnum>::from_str(&kind, true).map_err(|_| {
+                    format!(
+                        "`{kind}` is not a relation type: use related, duplicate, blocks or similar"
+                    )
+                })?;
+            Ok((kind, related))
+        }
+    }
+}
+
 /// One line per issue, for the listing. `print_issue` stays the detail view.
 fn print_issue_row(issue: &Value) {
     let identifier = issue
@@ -678,14 +770,21 @@ async fn run_label(
         .api()
         .linear_mutate_label(
             &id,
-            &LinearLabelMutationRequest { label, op },
+            &LinearLabelMutationRequest {
+                label: label.clone(),
+                op,
+            },
             connection.as_deref(),
         )
         .await?;
     if json {
         output::print_json_typed(&resp);
     } else {
-        println!("ok");
+        let done = match op {
+            LinearLabelOp::Add => "added label",
+            LinearLabelOp::Remove => "removed label",
+        };
+        println!("{id}: {done} {label}");
     }
     Ok(())
 }
@@ -743,11 +842,7 @@ async fn run_graphql(
     Ok(())
 }
 
-/// Pretty-print an issue payload's key fields.
-///
-/// Every caller renders the `{"data": …}` envelope itself in `--json` mode, so
-/// that one shape is what a script extracting the new issue's id sees from
-/// `get`, `create`, `update` and `move` alike.
+/// Pretty-print an issue payload's key fields, for `get`.
 fn print_issue(issue: &Value) {
     let identifier = issue
         .get("identifier")
@@ -1003,8 +1098,7 @@ mod tests {
         assert_eq!(ids, ["oldest", "newest"]);
     }
 
-    /// `create`, `update` and `move` share `print_issue` and return no
-    /// `comments` key at all.
+    /// A write's issue payload carries no `comments` key at all.
     #[test]
     fn an_issue_without_comments_yields_none() {
         assert!(comments_oldest_first(&serde_json::json!({ "identifier": "SP-1" })).is_empty());
@@ -1030,6 +1124,40 @@ mod tests {
         let all = serde_json::json!({ "comments": { "pageInfo": { "hasNextPage": false } } });
         assert_eq!(truncation_note(&all), "");
         assert_eq!(truncation_note(&serde_json::json!({})), "");
+    }
+
+    fn relate(args: &[&str]) -> Result<(RelationTypeArg, String), Box<dyn std::error::Error>> {
+        match parse(&[&["relate", "SP-1"], args].concat()) {
+            IssueAction::Relate { rest, relation, .. } => relation_and_issue(relation, rest),
+            _ => unreachable!("the subcommand is relate"),
+        }
+    }
+
+    #[test]
+    fn a_relation_takes_its_type_as_a_flag_or_positionally() {
+        let (kind, other) = relate(&["SP-2", "--type", "blocks"]).expect("the flag form");
+        assert!(matches!(kind, RelationTypeArg::Blocks) && other == "SP-2");
+        let (kind, other) = relate(&["blocks", "SP-2"]).expect("the positional form");
+        assert!(matches!(kind, RelationTypeArg::Blocks) && other == "SP-2");
+        let (kind, _) = relate(&["SP-2"]).expect("the type is optional");
+        assert!(matches!(kind, RelationTypeArg::Related));
+    }
+
+    #[test]
+    fn a_relation_type_given_twice_or_unknown_is_refused() {
+        assert!(relate(&["blocks", "SP-2", "--type", "related"]).is_err());
+        let err = relate(&["parent", "SP-2"]).expect_err("not a relation type");
+        assert!(err.to_string().contains("related, duplicate"), "{err}");
+    }
+
+    #[test]
+    fn an_update_names_the_fields_it_wrote() {
+        let req = LinearIssueUpdateRequest {
+            description: Some("d".into()),
+            state: Some("Done".into()),
+            ..Default::default()
+        };
+        assert_eq!(updated_fields(&req), ["description", "state"]);
     }
 
     #[test]

@@ -26,6 +26,7 @@ use super::SUBJECT_KIND_ISSUE;
 use super::adapter::LinearAdapter;
 use super::agent_api::{LinearAgentApi, LookupKind};
 use super::auth::{require_linear, resolve_linear_api};
+use super::description_readback::lost_words_warning;
 use super::login_annotation::{annotate_issue, annotate_issues, annotate_user};
 use super::reference_resolution::*;
 
@@ -48,6 +49,7 @@ pub(crate) async fn get_issue(
     Ok(LinearIssueResponse {
         data,
         binding_id: None,
+        warnings: Vec::new(),
     })
 }
 
@@ -145,7 +147,7 @@ pub(crate) async fn create_issue(
         (Some(r), None) => Some(format!("Reported by {}", r.url)),
         (None, d) => d,
     };
-    if let Some(d) = description {
+    if let Some(d) = description.as_deref() {
         input["description"] = json!(d);
     }
     if let Some(r) = reporter.as_ref() {
@@ -231,6 +233,7 @@ pub(crate) async fn create_issue(
     };
 
     Ok(LinearIssueResponse {
+        warnings: description_warnings(description.as_deref(), &issue),
         data: issue,
         binding_id,
     })
@@ -296,7 +299,7 @@ pub(crate) async fn update_issue(
     if let Some(t) = req.title {
         input["title"] = json!(t);
     }
-    if let Some(d) = description {
+    if let Some(d) = description.as_deref() {
         input["description"] = json!(d);
     }
     if let Some(s) = state_id.as_deref() {
@@ -352,9 +355,25 @@ pub(crate) async fn update_issue(
         require_applied(&issue, "delegate", "/delegate", requested.as_str(), "")?;
     }
     Ok(LinearIssueResponse {
+        warnings: description_warnings(description.as_deref(), &issue),
         data: issue,
         binding_id: None,
     })
+}
+
+/// The warning for a written description Linear stored with words missing.
+///
+/// Linear answers a lossy write with `success: true` (a table indented inside a
+/// list item loses the start of every cell), so the stored text is the only
+/// proof, as it is for [`require_applied`].
+fn description_warnings(sent: Option<&str>, issue: &Value) -> Vec<String> {
+    let stored = issue
+        .get("description")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    sent.and_then(|sent| lost_words_warning(sent, stored))
+        .into_iter()
+        .collect()
 }
 
 /// What Linear does with an `assigneeId` it will not honour, for the error a
@@ -536,6 +555,7 @@ pub(crate) async fn create_comment(
     Ok(LinearIssueResponse {
         data: comment,
         binding_id,
+        warnings: Vec::new(),
     })
 }
 
@@ -601,6 +621,7 @@ pub(crate) async fn relate_issue(
     Ok(LinearIssueResponse {
         data: relation,
         binding_id: None,
+        warnings: Vec::new(),
     })
 }
 
