@@ -53,6 +53,11 @@ const CODEX_EFFORT_LEVELS: &[(&str, &[&str])] = &[
         &["low", "medium", "high", "xhigh", "max", "ultra"],
     ),
     (
+        "gpt-6-sol",
+        &["low", "medium", "high", "xhigh", "max", "ultra"],
+    ),
+    ("gpt-6-luna", &["low", "medium", "high", "xhigh", "max"]),
+    (
         "gpt-5.6-sol",
         &["low", "medium", "high", "xhigh", "max", "ultra"],
     ),
@@ -456,11 +461,12 @@ mod tests {
             names(&list[1]),
             vec![
                 "GPT-6 Astra",
+                "GPT-6 Sol",
+                "GPT-6 Luna",
                 "GPT-5.6 Sol",
                 "GPT-5.6 Terra",
                 "GPT-5.6 Luna",
-                "GPT-5.5",
-                "GPT-5.3 Codex Spark"
+                "GPT-5.5"
             ]
         );
     }
@@ -486,11 +492,12 @@ mod tests {
             slugs(&list[1]),
             vec![
                 "gpt-6-astra",
+                "gpt-6-sol",
+                "gpt-6-luna",
                 "gpt-5.6-sol",
                 "gpt-5.6-terra",
                 "gpt-5.6-luna",
-                "gpt-5.5",
-                "gpt-5.3-codex-spark"
+                "gpt-5.5"
             ]
         );
     }

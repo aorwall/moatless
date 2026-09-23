@@ -122,7 +122,7 @@ pub enum TaskAction {
             value_parser = clap::builder::PossibleValuesParser::new(AgentType::SUPPORTED)
         )]
         agent_type: String,
-        /// Model for the chosen harness, e.g. `haiku` or `gpt-5.3-codex-spark`
+        /// Model for the chosen harness, e.g. `haiku` or `gpt-5.5`
         #[arg(long)]
         model: Option<String>,
         /// Runs headless: no preview servers, and no tools that wait on a

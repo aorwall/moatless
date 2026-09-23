@@ -183,6 +183,14 @@ pub const CODEX: AgentEntry = AgentEntry {
             label: "GPT-6 Astra",
         },
         ModelEntry {
+            id: "gpt-6-sol",
+            label: "GPT-6 Sol",
+        },
+        ModelEntry {
+            id: "gpt-6-luna",
+            label: "GPT-6 Luna",
+        },
+        ModelEntry {
             id: "gpt-5.6-sol",
             label: "GPT-5.6 Sol",
         },
@@ -197,10 +205,6 @@ pub const CODEX: AgentEntry = AgentEntry {
         ModelEntry {
             id: "gpt-5.5",
             label: "GPT-5.5",
-        },
-        ModelEntry {
-            id: "gpt-5.3-codex-spark",
-            label: "GPT-5.3 Codex Spark",
         },
     ],
     missing_credential_hint: "Add CODEX_AUTH_JSON or OPENAI_API_KEY in Settings \u{2192} Secrets",
