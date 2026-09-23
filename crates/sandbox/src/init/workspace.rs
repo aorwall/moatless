@@ -6,19 +6,22 @@ use tokio::fs;
 use tokio::process::Command;
 use tracing::{info, warn};
 
+use moatless_workspace_types::plugin::PluginDelivery;
+
 use crate::config::Config;
 
 /// Clone or update each of the task owner's plugins under
-/// [`Config::plugins_dir`] and remove the skills they did not pick.
+/// [`Config::plugins_dir`] and remove the plugins and skills they did not pick.
 ///
 /// Non-fatal per plugin; see [`checkout_plugin`] for what a restored
 /// checkout gets. Prune reruns since picks can change between starts.
 pub async fn clone_plugins(config: &Config) -> Vec<String> {
+    let base_dir = config.plugins_dir();
+    remove_unpicked_plugins(&base_dir, &config.plugins).await;
     if config.plugins.is_empty() {
         return Vec::new();
     }
 
-    let base_dir = config.plugins_dir();
     if let Err(e) = fs::create_dir_all(&base_dir).await {
         warn!(error = %e, "Failed to create plugins directory");
         return Vec::new();
@@ -39,6 +42,12 @@ pub async fn clone_plugins(config: &Config) -> Vec<String> {
                 error = %e,
                 "Failed to clone plugin (non-fatal)"
             );
+            // A restored copy left here would load with every skill unpruned.
+            if let Err(e) = fs::remove_dir_all(&dest).await {
+                if e.kind() != std::io::ErrorKind::NotFound {
+                    warn!(name = %name, error = %e, "Failed to remove unusable plugin checkout");
+                }
+            }
             continue;
         }
 
@@ -50,6 +59,35 @@ pub async fn clone_plugins(config: &Config) -> Vec<String> {
     }
 
     cloned_paths
+}
+
+/// Remove every child of `base_dir` that `picked` does not name.
+///
+/// The snapshot restores `base_dir` whole, and `agent::options::build_plugins`
+/// loads every child of it, so a plugin dropped between starts would otherwise
+/// come back with all its skills.
+async fn remove_unpicked_plugins(base_dir: &Path, picked: &[PluginDelivery]) {
+    let Ok(mut entries) = fs::read_dir(base_dir).await else {
+        return;
+    };
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        let name = entry.file_name();
+        if picked.iter().any(|plugin| name == plugin.name.as_str()) {
+            continue;
+        }
+        let path = entry.path();
+        let removed = if entry.file_type().await.is_ok_and(|ft| ft.is_dir()) {
+            fs::remove_dir_all(&path).await
+        } else {
+            fs::remove_file(&path).await
+        };
+        match removed {
+            Ok(()) => {
+                info!(path = %path.display(), "Removed plugin the task's owner no longer picks");
+            }
+            Err(e) => warn!(path = %path.display(), error = %e, "Failed to remove unpicked plugin"),
+        }
+    }
 }
 
 /// Bring `dest` to the tip of `git_url`'s default branch, shallowly.
@@ -270,6 +308,32 @@ mod tests {
 
         assert!(dest.join("skills/review/SKILL.md").is_file());
         assert!(!dest.join("leftover").exists());
+    }
+
+    /// The snapshot restores every plugin a previous start cloned, including
+    /// ones the owner has since dropped; those must not survive to be loaded.
+    #[tokio::test]
+    async fn a_restored_plugin_the_owner_dropped_is_removed() {
+        let root = tempdir().unwrap();
+        let (_source, url) = source_repo(root.path());
+        let mut config = crate::config::test_support::minimal_config();
+        config.workspace_dir = root.path().join("ws").to_string_lossy().into_owned();
+        let plugins_dir = config.plugins_dir();
+        std::fs::create_dir_all(plugins_dir.join("dropped/skills/x")).unwrap();
+        config.plugins = vec![PluginDelivery {
+            name: "kept".to_string(),
+            git_url: url,
+            skill_names: vec!["review".to_string()],
+            frontload_skill_names: Vec::new(),
+        }];
+
+        clone_plugins(&config).await;
+        assert!(plugins_dir.join("kept/skills/review/SKILL.md").is_file());
+        assert!(!plugins_dir.join("dropped").exists());
+
+        config.plugins = Vec::new();
+        clone_plugins(&config).await;
+        assert!(!plugins_dir.join("kept").exists());
     }
 
     #[test]

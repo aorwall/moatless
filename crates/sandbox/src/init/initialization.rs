@@ -269,18 +269,17 @@ async fn run_core_init(state: &SandboxState) -> Result<WorkspaceOrigin, InitErro
         }
     }
 
-    // 5. Clone the task's plugins (non-fatal)
-    if !state.config.plugins.is_empty() {
-        let cloned = workspace::clone_plugins(&state.config).await;
-        if !cloned.is_empty() {
-            publish_sandbox_event(
-                state,
-                "PluginsCloned",
-                &format!("Cloned {} plugin(s)", cloned.len()),
-                false,
-            )
-            .await;
-        }
+    // 5. Clone the task's plugins (non-fatal). Runs with none picked too, so
+    // plugins a restored snapshot still holds are removed.
+    let cloned = workspace::clone_plugins(&state.config).await;
+    if !cloned.is_empty() {
+        publish_sandbox_event(
+            state,
+            "PluginsCloned",
+            &format!("Cloned {} plugin(s)", cloned.len()),
+            false,
+        )
+        .await;
     }
 
     // 6. Stage plugin-bundled skills so the Codex agent can discover them.
