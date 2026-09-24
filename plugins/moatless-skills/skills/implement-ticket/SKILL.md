@@ -46,8 +46,6 @@ Read the ticket. Understand:
   Read the file, not a summary of it. If the path is missing from your
   checkout, that is a blocker; do not proceed on the ticket alone.
 
-Explore the relevant parts of the codebase before writing a line.
-
 ---
 
 ## Step 2 — Implement

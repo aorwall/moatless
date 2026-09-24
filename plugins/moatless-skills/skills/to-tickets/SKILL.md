@@ -28,7 +28,7 @@ Break the work into **tracer bullet** tickets.
 
 <vertical-slice-rules>
 
-- Each slice cuts a narrow but COMPLETE path through every layer (schema, API, UI, tests) — vertical, NOT a horizontal slice of one layer
+- Each slice cuts a narrow but complete path through every layer (schema, API, UI, tests): a vertical slice, not a horizontal slice of one layer
 - A completed slice is demoable or verifiable on its own
 - Each slice is sized to fit in a single fresh context window
 - Any prefactoring should be done first
@@ -64,7 +64,7 @@ Publish the approved tickets. **How** depends on the tracker configured in `docs
 
 Work the **frontier**: any ticket whose blockers are all done. For a purely linear chain that means top to bottom.
 
-Do NOT close or modify any parent issue.
+Leave any parent issue open and unedited.
 
 **The tracker is the only place the breakdown lives.** Do not copy it into the spec markdown: a second list of what is left disagrees with the tracker the first time a ticket moves, and the spec is read by agents implementing from it, which makes the stale copy the one that gets believed.
 

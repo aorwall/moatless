@@ -36,7 +36,7 @@ Apply the **deletion test** to anything you suspect is shallow: would deleting i
 
 ### 2. Present candidates as an HTML report
 
-Run the `/html-report` skill for the page mechanics — temp-dir file, scaffold, diagram forms, style baseline. Each candidate gets a **before/after visualisation**. Be visual.
+Run the `/html-report` skill for the page mechanics — scratchpad file, scaffold, diagram forms, style baseline. Each candidate gets a **before/after visualisation**. Be visual.
 
 For each candidate, render a card with:
 
@@ -55,7 +55,7 @@ End the report with a **Top recommendation** section: which candidate you'd tack
 
 See [HTML-REPORT.md](HTML-REPORT.md) for the architecture-review layer: style additions, card anatomy, diagram patterns, and tone.
 
-Do NOT propose interfaces yet. After the file is written, ask which candidate to explore. That is a selection from a set, not a ranked pick — shape and deliver it per `/asking-questions`, which puts the candidates through `AskUserQuestion` where the runtime has it and the count fits.
+Propose no interfaces at this stage: interface design happens in the grilling loop, after the user picks a candidate. After the file is written, ask which candidate to explore. That is a selection from a set, not a ranked pick — shape and deliver it per `/asking-questions`, which puts the candidates through `AskUserQuestion` where the runtime has it and the count fits.
 
 ### 3. Grilling loop
 

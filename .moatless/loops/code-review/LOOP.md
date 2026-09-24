@@ -88,8 +88,7 @@ author, branches, description, and often the diff) arrives as the task message.
    left active at the top level as a review issue unless the PR clearly leaves
    follow-up work that still needs the active path.
 6. **Review** the checked-out code against the guidelines and general quality.
-7. **Post inline comments** for line-specific issues via `moat gh api` (optional but
-   recommended).
+7. **Post inline comments** for line-specific issues via `moat gh api`.
 8. **Resolve** review threads whose issue has left the diff (see Lifecycle Actions).
 9. **Submit `APPROVE`** when no outstanding issues remain (see Approving).
 10. **Send the summary review** via `moat gh pr comment` — **mandatory, exactly once**.
@@ -113,7 +112,7 @@ Classify each changed file, load the matching guideline, and apply its checks.
 |--------------|--------|----------------------|------------|
 | `apps/frontend/**` | Retired Moatless UI | root `AGENTS.md` | flag any change: the UI is T3 Code, and nothing builds or checks this code |
 | `packages/**/*.ts` | TypeScript packages | root `AGENTS.md` | strict TS (no `any` → use `unknown`) |
-| `backend/src/**/*.rs`, `crates/**/*.rs` (except `crates/cli`) | Rust backend | **`AGENTS.md` → "Critical Development Rules → Rust Safety" + "Backend Module Pattern"** | clippy-clean (`-D warnings`, no `unwrap`/`expect`/`panic!` on runtime paths); `thiserror` enums, not string errors; `Arc` for state shared across async tasks; `CancellationToken` for graceful shutdown; layered `routes → handlers → services → dao`; module layout (`mod/models/dao/schemas/handlers/routes/error.rs`); utoipa OpenAPI annotations on routes; `IntoResponse` for module errors; parameterized SQLx queries |
+| `crates/**/*.rs` (except `crates/cli`) | Rust backend | root `AGENTS.md`; `.agents/skills/rust-dev-guidelines/SKILL.md` | clippy-clean (`-D warnings`, no `unwrap`/`expect`/`panic!` on runtime paths); `thiserror` enums, not string errors; `Arc` for state shared across async tasks; `CancellationToken` for graceful shutdown; layered `routes → handlers → services → dao`; module layout (`mod/models/dao/schemas/handlers/routes/error.rs`); utoipa OpenAPI annotations on routes; `IntoResponse` for module errors; parameterized SQLx queries |
 | `crates/sandbox/src/**/*.rs` | Rust sandbox | same Rust rules (`AGENTS.md`) | plus gRPC / Claude-agent orchestration correctness; no blocking calls in async; graceful shutdown; state-machine transitions |
 | `crates/cli/src/**/*.rs` | moat CLI | `.agents/skills/moat-cli/SKILL.md` (+ `references/command-reference.md`) | clap command/flag semantics consistent with the docs; `--json` output; error handling |
 | `crates/sandbox-proto/**`, `**/*.proto` | gRPC contract | — | field changes are backward-compatible (no renumbering/repurposing tags); regenerate implications noted |
@@ -122,13 +121,6 @@ Classify each changed file, load the matching guideline, and apply its checks.
 | `docker/**`, `docker-compose/**`, `Dockerfile*` | Docker | `.agents/skills/docker-testing/SKILL.md`; `.agents/skills/docker-install/SKILL.md` | multi-stage build correctness; no secrets baked into layers; pinned base images |
 | `Cargo.toml`, `Cargo.lock`, `package.json`, `bun.lock`, `drizzle/**` | Build / deps / migrations | — | suspicious or major version bumps; migration file naming and forward-safety |
 | anything else | General | root `AGENTS.md` | general code quality (below) |
-
-> **Do not apply `backend-dev-guidelines/SKILL.md` to Rust files.** That skill
-> describes a TypeScript/Hono/InversifyJS/Drizzle backend under `apps/backend/**`,
-> which does not exist in this repo. The real backend is Rust (Axum/Tonic/SQLx) under
-> `backend/`, `sandbox/`, and `crates/`. For those, the authoritative rules are in the
-> root `AGENTS.md`. `testing-guidelines` does match the code and is used as
-> written.
 
 ## General Code Quality
 
@@ -168,10 +160,9 @@ moat gh run list --commit <HEAD_SHA> --limit 20         # if a check failed, fin
 moat gh run view <RUN_ID> --log-failed                  # pull the failed-step logs
 ```
 
-CI enforces the repo's mandatory workflow: `bun run type:check`, `bun run biome:check`
-(TypeScript); `cargo clippy -p <crate> -- -D warnings`, `cargo test -p <crate>`
-(Rust); and commitlint (conventional-commit header ≤ 100 chars, scopes limited to
-`components/layout/routes/styles/utils/hooks` or none).
+CI enforces the checks in root `AGENTS.md` → "Verifying a change". The PR-title
+check runs commitlint (header ≤ 100 chars); `commitlint.config.ts` owns the valid
+types and scopes, and the check is advisory.
 
 - Checks **pending** → note it in the summary and proceed with the static review; don't
   block on CI.

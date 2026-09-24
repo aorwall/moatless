@@ -68,11 +68,10 @@ reached zero.
   Use `public_api::exports`, which walks from the crate root and follows
   re-exports, rather than `Workspace::sources`, for anything that asserts about
   shared vocabulary.
-- **Check the rule against the repo before you trust it.** `generic-module-name`
-  first flagged every `task/models.rs` beside `task/schemas.rs`. That pairing is
-  a deliberate convention: the directory names the domain, and the leaves split
-  the entity from the wire shape. A rule that fights a convention is wrong about the
-  convention until proven otherwise.
+- **Check the rule against the repo before you trust it.** A rule that flags an
+  established convention, such as `task/models.rs` beside `task/schemas.rs` (the
+  directory names the domain, and the leaves split the entity from the wire
+  shape), is wrong about the convention until proven otherwise.
 
 ## `comment-block-size` is not a registered rule
 

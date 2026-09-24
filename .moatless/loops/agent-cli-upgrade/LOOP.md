@@ -77,8 +77,8 @@ reading.
 
 **Do not probe with this pod's own `CODEX_HOME`.** The script clears it per
 probe because the pod's config routes Codex through the Moatless proxy, and
-`model/list` then answers with the proxy's catalog — Claude model ids, and
-`gpt-5.6-sol` marked default. Those ids are what would land in the tables below,
+`model/list` then answers with the proxy's catalog — Claude model ids, and the
+proxy's own default marked `isDefault`. Those ids are what would land in the tables below,
 and no Codex task can run one.
 
 Each line is `id`, `displayName`, `hidden`, `isDefault` and the reasoning
@@ -92,7 +92,7 @@ efforts. Reconcile four places against them:
   an effort its model rejects, so a row that publishes one hands out a choice
   that cannot run.
 - `DEFAULT_CODEX_MODEL` in both `crates/core/src/config.rs` and
-  `sandbox/src/agent/codex_app_server/mod.rs` — set to the entry whose
+  `crates/sandbox/src/agent/codex_app_server/session.rs` — set to the entry whose
   `isDefault` is true, and keep the two identical.
 
 Label a model the way the catalog already labels its siblings: `GPT-6 Astra` for
@@ -182,11 +182,8 @@ One commit, conventional-commit title, header at most 100 characters:
 chore: bump claude-code to <ver> and codex to <ver>
 ```
 
-Use no scope. `commitlint.config.ts` pins a closed `scope-enum` that does not
-include `deps`, so `chore(deps):` fails the PR-title check; a bare `chore:` is
-valid. This title does not match the code-review loop's
-`ignored_title_patterns`, so the PR is reviewed like any other — that is fine, a
-human merges it either way.
+Use no scope. The code-review loop's `ignored_title_patterns` skips
+`chore(deps`, and this PR needs a review before a human merges it.
 
 The body carries what a reviewer cannot get from the diff:
 

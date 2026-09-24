@@ -76,4 +76,4 @@ Bring a fresh Docker Compose or Kubernetes installation to a healthy deployment,
 - Use one deployment reference per run. Never mix `moat docker` state with Helm or `moat k8s` state.
 - For Kubernetes, pass the named target context to every `moat k8s`, Helm, and kubectl operation. A successful check against the current context does not authorize later commands to rely on it implicitly.
 - This skill configures repository credentials and verifies repository access. Leave inbound GitHub PR webhook configuration to the integrations workflow.
-- Hand an established Docker stack to `docker-testing` and an established Kubernetes installation to `kubernetes-testing` for debugging and routine operation.
+- Hand an established Docker stack to `docker-testing` and an established Kubernetes installation to `sandbox-troubleshooting` for debugging and routine operation.

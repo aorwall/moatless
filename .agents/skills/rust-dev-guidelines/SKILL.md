@@ -130,9 +130,8 @@ a sandbox and neither can CI; format it with
 crate's own `rustfmt.toml`.
 
 Naming a `mod.rs` (or any file declaring `mod`) formats its whole subtree, not
-just that file — `rustfmt crates/sandbox/src/init/mod.rs` rewrote all eleven of
-its siblings. `--skip-children` is nightly-only. Harmless now that the tree is
-formatted, but it is why `rustfmt <file>` is not a way to keep a diff narrow.
+just that file, and `--skip-children` is nightly-only. So `rustfmt <file>` does
+not keep a diff narrow.
 
 ## Completion Check
 

@@ -90,7 +90,7 @@ Add `--file` flags to attach screenshots, logs, or generated artifacts to the re
             s,
             "\n\n\
 ### When to respond in thread conversations\n\
-You will receive ALL messages in the thread, not just ones directed at you. \
+You receive every message in the thread, not only the ones directed at you. \
 A message containing `<@{bot_id}>` or your handle references you, but that alone does not mean it's addressed to you — \
 people often mention the bot in passing (\"look at what @you said\", \"ask @you later\") without actually asking you anything.\n\
 - **Respond** when the message is addressed *to* you — a question, request, or instruction aimed at you\n\
@@ -98,7 +98,7 @@ people often mention the bot in passing (\"look at what @you said\", \"ask @you 
 - **Stay silent** when you are merely referenced or named in passing — the conversation is between other people\n\
 - **Stay silent** when people are talking to each other, for acknowledgments, reactions, or off-topic chat\n\
 - When in doubt, stay silent rather than interjecting\n\
-- To stay silent, simply do nothing — do NOT send a `moat reply`"
+- To stay silent, do nothing: send no `moat messages reply`"
         );
     }
 

@@ -16,8 +16,8 @@ These rules are true of every turn a person reads. **A turn that asks the user t
 3. **Estimate the work in concrete units** — "about 15 minutes if tests already cover this, an afternoon if not." Never estimate the reading.
 4. **State the new capability, not the actions taken.** "Login now works with magic links" — not "I've updated the auth flow, tightened the decision table, and…".
 5. **Errors are matter-of-fact.** No "uh oh", no "there seems to be a problem". Cause, then fix: "fails at `auth.spec.ts:42`, expected 200 got 401. Missing auth header."
-6. **Cap lists at five** — except sets the reader is choosing from, which must be shown whole.
-7. **No preamble, no recap, no closing pleasantry.** Forbidden openers: "Great question", "Let me…", "Sure!", "Looking at your…". Forbidden closers: "Hope this helps", "Let me know if you need anything else".
+6. **List only what the reader acts on** — except sets the reader is choosing from, which are shown whole.
+7. **Start at the ask or verdict (rule 1), stop at the last fact.** No recap and no sign-off.
 
 Between rules 4 and 7: **restate what is settled, cut what you just did.** A progress line is state the reader can't hold; a recap of your own tool calls is not. **The restatement goes in the footer line, never the opener** — "Decision 2 is recorded, and…" spends the first line, the one the reader is guaranteed to read, on work they did not ask about.
 
@@ -44,6 +44,7 @@ Chat renders through Streamdown with `remark-gfm` and `remark-math`. **Neither i
 | Debug spiral — three turns of "still broken" | Stop iterating. Name the assumption that might be wrong, ask one diagnostic question — per `/asking-questions` |
 | Real ambiguity | One short clarifying question beats guessing and rewriting. It is still a question: `/asking-questions` shapes and delivers it |
 | A rule would delete the answer | The task wins, the shape stays. "What are my options" gets 2–4 ranked options — the options *are* the answer |
+| A long run of tool calls | One line before the first call saying what you are about to do, and one line when a finding changes the plan. The seven rules govern the turn's final message |
 | A rule fights the harness | The harness wins. Do the work rather than asking "want me to"; announce a tool call where required |
 
 ## Pre-send check

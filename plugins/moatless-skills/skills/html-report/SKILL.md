@@ -101,7 +101,7 @@ For before/after comparisons, put the two diagrams side by side in two columns, 
 
 ## Style baseline
 
-- Lean editorial, not corporate-dashboard. Generous whitespace. Serif optional for headings (`font-serif` works well with stone/slate).
+- Lean editorial: no KPI-tile rows, no drop shadow on every card, no gradient headers, no pill badges on plain labels. Generous whitespace. Serif optional for headings (`font-serif` works well with stone/slate).
 - Colour sparingly: one accent (emerald or indigo) plus red for problems and amber for warnings.
 - Use `text-xs uppercase tracking-wider` for labels inside diagrams — they should read as schematic, not as UI.
 - Supporting text is sparse and plain; the diagrams carry the weight. If a diagram needs a paragraph to be understood, redraw the diagram.

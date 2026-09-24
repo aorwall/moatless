@@ -23,7 +23,7 @@ impl AdapterInboundPresentation for SlackAdapter {
             .and_then(serde_json::Value::as_bool)
             .unwrap_or(false)
             .then(|| {
-                "[You were @mentioned - a reply via `moat messages reply --message <id>` is required]"
+                "[You were @mentioned. If the message is addressed to you, reply with `moat messages reply --message <id>`: plain assistant text does not reach Slack.]"
                     .to_string()
             })
     }
@@ -334,7 +334,7 @@ mod tests {
 
         assert_eq!(
             adapter.inbound_message_prefix(&mentioned),
-            Some("[You were @mentioned - a reply via `moat messages reply --message <id>` is required]".to_string())
+            Some("[You were @mentioned. If the message is addressed to you, reply with `moat messages reply --message <id>`: plain assistant text does not reach Slack.]".to_string())
         );
         assert_eq!(adapter.thread_reply_hint(&mentioned), None);
 

@@ -13,9 +13,7 @@ The [AKS values example](../examples/values-aks-minimal.yaml) targets an existin
 secrets before applying it. Keep Traefik for the preview hop described in
 [prerequisites](prerequisites.md).
 
-As of the September 2026 review, Microsoft supports critical security patches for
-the NGINX application-routing add-on through November 2026 and recommends migration.
-Check the [current Azure routing guidance](https://learn.microsoft.com/en-us/azure/aks/app-routing-gateway-api)
+Microsoft is retiring the NGINX application-routing add-on. Check the [current Azure routing guidance](https://learn.microsoft.com/en-us/azure/aks/app-routing-gateway-api)
 before a fresh install. The chart emits Ingress resources; adopting Gateway API
 requires a separate routing change, not just a different class name in this example.
 

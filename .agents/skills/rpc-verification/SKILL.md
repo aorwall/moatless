@@ -1,6 +1,6 @@
 ---
 name: rpc-verification
-description: "Call and verify Moatless's UI-RPC surface (server.*, orchestration.*, sandbox.*, servers.* — crates/t3code/, mounted from crates/server/src/t3code/) from inside any sandbox: the WebSocket ticket exchange, the rpc.mjs probe script, and how to read Chunk/Exit/Fail/Die frames. Works against the deployed cluster backend with no local setup, or a local shadow backend for unreleased changes. Covers what a plain read-and-print cannot: proving a push/subscription feature actually pushes, by creating a throwaway task, subscribing, forcing a real state transition with `moat tasks stop`/`start`, and cleaning up with `moat tasks close`. Use when asked to test, verify, smoke-test, or probe an RPC method or subscription, to check whether a capability has actually deployed, or to confirm a push channel pushes rather than just answering a read."
+description: "Call and verify Moatless's UI-RPC surface (server.*, orchestration.*, sandbox.*, servers.* — crates/t3code/, mounted from crates/server/src/t3code/) from inside any sandbox: the WebSocket ticket exchange, the rpc.mjs probe script, and how to read Chunk/Exit/Fail/Die frames. Works against the deployed cluster backend with no local setup, or a local shadow backend for unreleased changes. Covers proving that a push/subscription feature actually pushes. Use when asked to test, verify, smoke-test, or probe an RPC method or subscription, to check whether a capability has actually deployed, or to confirm a push channel pushes rather than just answering a read."
 ---
 
 # Verifying the UI-RPC surface
@@ -24,8 +24,8 @@ to the shadow backend, not to debug the RPC handler.
 ## The ticket exchange
 
 Every HTTP route on this surface accepts `Authorization: Bearer $MOATLESS_API_KEY`
-directly. The socket does not: `origin_checked` skips the Origin allow-list only
-for `AuthMethod::WebSocketTicket` (`crates/t3code/src/lib.rs`), so a bearer-only
+directly. The socket does not: `origin_checked` (`crates/t3code/src/handlers.rs`)
+skips the Origin allow-list only for `UiRpcAuthMethod::WebSocketTicket`, so a bearer-only
 upgrade gets a **403**. Trade the key for a 60-second ticket first:
 
 ```bash
@@ -100,10 +100,7 @@ without killing the session running the check, so use a disposable one:
 - `moat tasks create` without `--message` starts the sandbox but not the
   agent — that's what makes it a cheap, fast throwaway target rather than a
   billed agent run.
-- A background probe (`&`) survives a later `cd` in this harness — the shell's
-  working directory persists across tool calls, the job doesn't care either
-  way, but don't assume a relative script path in a *later* command still
-  resolves the way it did when you launched the job.
+- Use absolute paths for the script and its output files in a backgrounded probe.
 - "Not on this commit yet" and "not deployed yet" are different failure
   conditions. A merged PR's capability can take several minutes to reach the
   cluster backend behind CI + image build + chart promotion — reread

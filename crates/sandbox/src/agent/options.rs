@@ -27,7 +27,6 @@ use super::permission_handler::InteractivePermissionHandler;
 /// `settings.json`, whose `env` block would outrank it.
 pub const CLAUDE_ENV_DEFAULTS: &[(&str, &str)] = &[
     ("CLAUDE_CODE_AUTO_COMPACT_WINDOW", "300000"),
-    ("CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING", "1"),
     ("CLAUDE_CODE_DISABLE_AUTO_MEMORY", "1"),
     ("CLAUDE_CODE_SUBAGENT_MODEL", "claude-sonnet-5"),
     // No telemetry leaves the pod. The first two also stop feature-flag

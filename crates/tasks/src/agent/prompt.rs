@@ -58,10 +58,10 @@ pub struct PromptInputs<'a> {
 const GITHUB_CLI_HINT: &str = "\
 # GitHub Access
 
-All GitHub access goes through `moat gh`, run via bash — do not rely on GitHub
-MCP tools. For these four operations you MUST use `moat gh` (the backend
-proxies them and binds the PR/issue to this task, so review comments and
-replies route back here automatically):
+All GitHub access goes through `moat gh`, run via bash, not the hosted GitHub
+MCP tools. Use `moat gh` for these four operations: the backend proxies them and
+binds the PR/issue to this task, so review comments and replies route back here
+automatically:
 
 - `moat gh pr create --title \"<title>\" --body \"<body>\"`
 - `moat gh pr comment <number> --body \"<text>\"`
@@ -119,8 +119,8 @@ acknowledge with a reaction instead of a reply.
 
 `<sent_by>` is the moatless login of the user who initiated the message.
 There is no external channel to call back to — just emit a normal assistant
-response and the user sees it directly in the task UI. Do NOT call
-`moat messages reply` for internal messages.
+response and the user sees it directly in the task UI. Internal messages need
+no `moat messages reply`.
 
 When neither header is present (e.g. system/scheduler-originated rows with
 no resolvable sender), treat the body as authoritative on its own.
@@ -309,7 +309,7 @@ fn build_task_identity_section(task_name: Option<&str>) -> String {
         )
     } else {
         "# Required First Actions\n\n\
-         Before responding to the user's first message, you MUST run:\n  \
+         Before you reply to the first message, run:\n  \
          `moat set-name \"<name>\"`\n\
          Choose a short, descriptive name based on the user's request (under 50 characters)."
             .to_string()
@@ -379,13 +379,11 @@ fn build_parent_task_section(parent: ParentTask<'_>) -> String {
     match parent {
         ParentTask::CreatedBy(parent_task_id) => format!(
             "# Parent Task\n\n\
-             This task was created by another task (`{parent_task_id}`). \
-             When you have completed your work, you MUST report back to the parent task by running:\n\n  \
+             This task was created by another task (`{parent_task_id}`), which is waiting \
+             for your result. When your work is done, report back once:\n\n  \
              `moat send --task {parent_task_id} --text \"<summary of what you did and the outcome>\"`\n\n\
-             Always send this final message; the parent task is waiting for your response. \
-             It is an AI agent, not a person: send it once, when the work is done, and keep it \
-             to the outcome, what it has to act on, and where the work is. Send no progress \
-             updates along the way."
+             The parent is an AI agent, not a person: keep the message to the outcome, what \
+             it has to act on, and where the work is. Send no progress updates along the way."
         ),
         ParentTask::ForkedFrom { task_id, at_turn } => {
             let cut = match at_turn {
@@ -622,7 +620,7 @@ mod tests {
     }
 
     /// Do not let the fork section restate the naming rule permissively: that
-    /// licenses deferring the `MUST` in `# Required First Actions` above it,
+    /// licenses deferring the directive in `# Required First Actions` above it,
     /// and a `set-name` pointer here cannot set a description either.
     #[test]
     fn the_fork_section_leaves_naming_to_the_required_first_actions() {
