@@ -15,6 +15,12 @@ export interface LinearIssueUpdateRequest {
      * @nullable
      */
   assignee?: string | null;
+  /**
+     * Blank the description. The only way to erase one, so that erasing is
+     * always something the caller asked for.
+     * @nullable
+     */
+  clearDescription?: boolean | null;
   /** @nullable */
   cycle?: string | null;
   /**
@@ -22,15 +28,20 @@ export interface LinearIssueUpdateRequest {
      * @nullable
      */
   delegate?: string | null;
-  /** @nullable */
+  /**
+     * New description. An empty or whitespace-only string is rejected — a
+     * command substitution over a file that no longer exists expands to one,
+     * and Linear reads it as "erase the description".
+     * @nullable
+     */
   description?: string | null;
   /** @nullable */
   dueDate?: string | null;
   /** @nullable */
   estimate?: number | null;
   /**
-     * Parent issue identifier or UUID. Pass `"null"` (literal string) or
-     * the JSON `null` value to clear the parent.
+     * Parent issue identifier or UUID. Pass `"null"` (literal string) or the
+     * JSON `null` value to clear the parent.
      * @nullable
      */
   parent?: string | null;

@@ -9,16 +9,15 @@
 /**
  * What a `moat` command created on GitHub outside the typed API.
  *
- * Named by *what was created*, not by an external event id: the id format is
- * the Adapter's vocabulary and the caller does not have to know it. Each shape
- * carries the numeric id GitHub returned for the object it made.
+ * Named by what was created, not by an external event id — that id format is
+ * the Adapter's vocabulary. Each shape carries the numeric id GitHub returned.
  */
 export type GithubExternalEventSubject = {
   kind: 'reviewComment';
   /**
-     * An inline review comment, from either
-     * `POST repos/{owner}/{repo}/pulls/{n}/comments` or one of the comments a
-     * `POST …/pulls/{n}/reviews` carried.
+     * An inline review comment, from either `POST
+     * repos/{owner}/{repo}/pulls/{n}/comments` or one of the comments a `POST
+     * …/pulls/{n}/reviews` carried.
      * @minimum 0
      */
   value: number;

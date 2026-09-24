@@ -60,17 +60,13 @@ async fn start_ready_synchronously_publishes_initializing_not_ready() {
 
 #[tokio::test]
 async fn runtime_success_diagnostics_are_republished_by_lifecycle() {
-    use moatless_sandbox_runtime::outcome::{DegradationWarning, Diagnostics, ServerFailure};
+    use moatless_sandbox_runtime::outcome::{DegradationWarning, Diagnostics};
 
     let h = harness(open_stopped());
     let diagnostics = Diagnostics {
         degradations: vec![DegradationWarning {
             code: "storage_degraded".into(),
             message: "using ephemeral storage".into(),
-        }],
-        server_failures: vec![ServerFailure {
-            server: "preview".into(),
-            message: "port was unavailable".into(),
         }],
     };
     h.runtime

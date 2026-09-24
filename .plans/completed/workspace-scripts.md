@@ -1,7 +1,8 @@
 # Workspace Scripts
 
-> **Status:** approved
-> **Updated:** 2026-08-13
+> **Status:** shipped. Preview Servers, listed below as untouched, were removed
+> afterwards in #999.
+> **Updated:** 2026-09-24
 > **Vocabulary:** CONTEXT.md
 
 A **Script** is a named command declared on a Workspace that a person runs on demand inside the

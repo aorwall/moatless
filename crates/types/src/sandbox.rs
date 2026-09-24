@@ -1,5 +1,5 @@
 //! Sandbox vocabulary: which provider runs a Sandbox, what survives its
-//! removal, and the live status of a Sandbox and of the servers inside it.
+//! removal, and the live status of a Sandbox.
 //!
 //! `AgentStatus` lives here, not in `agent`, because it belongs to the
 //! live-status cluster: [`LiveStatus`] names it alongside [`SandboxStatus`],
@@ -115,53 +115,6 @@ crate::string_enum!(
 );
 
 crate::string_enum!(
-    /// Matches TS `ServerStatusEnumSchema`: 'stopped' | 'installing' | 'starting' | 'started' | 'failed' | 'disabled'
-    ServerStatus {
-        Stopped => "stopped",
-        Installing => "installing",
-        Starting => "starting",
-        Started => "started",
-        Failed => "failed",
-        /// Declared by the Workspace and never started, because the Sandbox
-        /// runs headless. Distinct from `Stopped`, which is a server that
-        /// starting would bring up; nothing starts this one short of recreating
-        /// the Task.
-        Disabled => "disabled",
-    }
-);
-
-/// Server capabilities (deterministic from server name)
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "camelCase")]
-pub struct ServerCapabilities {
-    pub address_bar: bool,
-    pub inspector: bool,
-    pub reload: bool,
-    pub open_external: bool,
-    pub viewport: bool,
-    pub console: bool,
-}
-
-/// Single server entry in the workspace status response
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "camelCase")]
-pub struct ServerEntry {
-    pub name: String,
-    pub label: String,
-    pub port: u16,
-    pub status: ServerStatus,
-    pub url: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub detail: Option<String>,
-    pub default: bool,
-    pub capabilities: ServerCapabilities,
-}
-
-crate::string_enum!(
     /// Observed Agent lifecycle while its Sandbox is ready.
     AgentStatus {
         Running => "running",
@@ -248,33 +201,6 @@ impl LiveStatus {
         self.commands = commands;
         self
     }
-}
-
-crate::string_enum!(
-    /// Server sub-types — server container lifecycle.
-    ///
-    /// `Failed` covers all error conditions (was: Failed, Error, Timeout — consolidated).
-    ServerSubType [Hash] {
-        Installing => "installing",
-        Starting => "starting",
-        Started => "started",
-        Stopped => "stopped",
-        Failed => "failed",
-    }
-);
-
-/// Server event payload — matches frontend `ServerEventPayloadSchema`.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "camelCase")]
-pub struct ServerEventPayload {
-    pub server_name: String,
-    pub status: ServerSubType,
-    /// Human-readable contextual detail (e.g. "`ContainerCreating`",
-    /// "`CrashLoopBackOff`"). Always set by the publisher. `#[serde(default)]`
-    /// handles old events without this field.
-    #[serde(default)]
-    pub message: String,
 }
 
 /// Sandbox event payload — typed payload for sandbox lifecycle events.
@@ -428,24 +354,6 @@ mod tests {
     }
 
     #[test]
-    fn every_server_status_deserializes() {
-        for wire in [
-            "stopped",
-            "installing",
-            "starting",
-            "started",
-            "failed",
-            "disabled",
-        ] {
-            let json = format!("\"{wire}\"");
-            let parsed: ServerStatus =
-                serde_json::from_str(&json).unwrap_or_else(|e| panic!("{wire}: {e}"));
-            assert_eq!(parsed.to_string(), wire);
-            assert_eq!(ServerStatus::try_from(wire), Ok(parsed));
-        }
-    }
-
-    #[test]
     fn sandbox_status_serializes_to_snake_case() {
         assert_eq!(
             serde_json::to_string(&SandboxStatus::NotCreated).unwrap(),
@@ -477,52 +385,6 @@ mod tests {
     }
 
     #[test]
-    fn server_sub_type_serializes() {
-        assert_eq!(
-            serde_json::to_string(&ServerSubType::Started).unwrap(),
-            "\"started\""
-        );
-        assert_eq!(
-            serde_json::to_string(&ServerSubType::Failed).unwrap(),
-            "\"failed\""
-        );
-    }
-
-    #[test]
-    fn server_event_payload_serializes() {
-        let payload = ServerEventPayload {
-            server_name: "preview".to_string(),
-            status: ServerSubType::Started,
-            message: String::new(),
-        };
-        let json = serde_json::to_value(&payload).unwrap();
-        assert_eq!(json["serverName"], "preview");
-        assert_eq!(json["status"], "started");
-        assert_eq!(json["message"], "");
-    }
-
-    #[test]
-    fn server_event_payload_with_message() {
-        let payload = ServerEventPayload {
-            server_name: "preview".to_string(),
-            status: ServerSubType::Starting,
-            message: "ContainerCreating".to_string(),
-        };
-        let json = serde_json::to_value(&payload).unwrap();
-        assert_eq!(json["message"], "ContainerCreating");
-    }
-
-    #[test]
-    fn server_event_payload_deserializes_without_message() {
-        let json = serde_json::json!({
-            "serverName": "preview",
-            "status": "started"
-        });
-        let payload: ServerEventPayload = serde_json::from_value(json).unwrap();
-        assert_eq!(payload.message, "");
-    }
-
-    #[test]
     fn sandbox_status_try_from() {
         assert_eq!(
             SandboxStatus::try_from("not_created"),
@@ -542,12 +404,6 @@ mod tests {
             serde_json::from_str::<SandboxStatus>("\"fatal\"").unwrap(),
             SandboxStatus::Error
         );
-    }
-
-    #[test]
-    fn server_sub_type_try_from() {
-        assert_eq!(ServerSubType::try_from("failed"), Ok(ServerSubType::Failed));
-        assert!(ServerSubType::try_from("nah").is_err());
     }
 
     /// The classification is the machine-readable half; the message is what a

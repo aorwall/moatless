@@ -31,11 +31,6 @@ export const SANDBOX_ENDPOINTS = {
   GIT_DIFF: '/git-diff',
   CURRENT_COMMIT_HASH: '/current-commit-hash',
 
-  // Preview server
-  SERVER_START: '/server/start',
-  SERVER_STOP: '/server/stop',
-  SERVER_STATUS: '/server/status',
-  SERVER_LOGS: '/server/logs',
   // Sandbox
   SANDBOX_PROVISION: '/workspace/provision',
   SANDBOX_STATUS: '/workspace/status',

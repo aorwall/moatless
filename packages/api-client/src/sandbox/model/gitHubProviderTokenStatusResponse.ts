@@ -8,8 +8,8 @@
 
 export interface GitHubProviderTokenStatusResponse {
   /**
-     * Whether `GET /auth/github-app/connect` can run on this deployment.
-     * False leaves a Personal Access Token as the only way to connect.
+     * Whether `GET /auth/github-app/connect` can run on this deployment. False
+     * leaves a Personal Access Token as the only way to connect.
      */
   appConnectAvailable: boolean;
   /**

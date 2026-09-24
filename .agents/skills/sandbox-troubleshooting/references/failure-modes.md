@@ -2,8 +2,7 @@
 
 Use [ResourceConfig](../../../../crates/workspace-types/src/schemas/workspace.rs) for the API
 shape. Workspace `resources.requests` and `resources.limits` configure sandbox
-CPU/memory; server entries can override their own requests/limits. Repository git
-records do not own these settings.
+CPU/memory. Repository git records do not own these settings.
 
 Kubernetes workspace persistence has two independent switches:
 

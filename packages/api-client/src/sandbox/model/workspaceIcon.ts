@@ -9,9 +9,9 @@
 /**
  * The glyph a client renders beside a Workspace name.
  *
- * Mirrors the T3 client's `ProjectIconOverride`: it is the only surface that
- * picks one, and its own schema enumerates the legal glyph names and colours.
- * Neither vocabulary is restated here — both would drift from the client's.
+ * Mirrors the T3 client's `ProjectIconOverride`, the only surface that picks
+ * one; its own schema enumerates legal glyph names and colours, not restated
+ * here to avoid drift.
  */
 export type WorkspaceIcon = {
   color: string;

@@ -1,7 +1,7 @@
 //! Traefik `IngressRoute` CRD lifecycle operations.
 //!
 //! Creates and deletes `traefik.io/v1alpha1` `IngressRoute` custom resources
-//! for each server port exposed by a workspace pod.
+//! for each preview port a Script publishes.
 
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::OwnerReference;
 use kube::api::{Api, DynamicObject, ListParams, PostParams};
@@ -31,14 +31,14 @@ fn ingress_api(k8s: &K8sClient) -> Api<DynamicObject> {
 }
 
 /// Maps `{task_id}--{port}.{proxy_domain}` to the workspace Service for each
-/// server port; idempotent — handles 409 (`AlreadyExists`) gracefully.
+/// `route key → port` entry; idempotent — handles 409 (`AlreadyExists`) gracefully.
 ///
 /// `owner`, when present, is set as each route's `ownerReference` (the task's
 /// Deployment) so K8s garbage collection cascades their deletion.
 pub async fn create_task_ingress_routes(
     k8s: &K8sClient,
     task_id: &str,
-    server_ports: &BTreeMap<String, u16>,
+    routes: &BTreeMap<String, u16>,
     config: &Config,
     owner: Option<&OwnerReference>,
 ) -> Result<(), kube::Error> {
@@ -55,12 +55,12 @@ pub async fn create_task_ingress_routes(
     let api = ingress_api(k8s);
     let service_name = generate_service_name(task_id);
 
-    for (server_name, port) in server_ports {
-        // The server name is user-supplied (repo config) and unsanitized, so it
+    for (route_key, port) in routes {
+        // The route key carries a user-supplied Script name, unsanitized, so it
         // may contain multi-byte chars — build the route name via the shared
         // helper, which sanitizes, truncates char-safely to 63, and trims any
         // trailing '-'.
-        let route_name = generate_ingress_route_name(&service_name, server_name);
+        let route_name = generate_ingress_route_name(&service_name, route_key);
 
         let hostname = format!("{task_id}--{port}.{proxy_domain}");
 

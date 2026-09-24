@@ -971,7 +971,6 @@ fn build_config(tmp: &TempDir, agent: EvalAgent) -> Config {
             .unwrap_or_else(|_| "/usr/local/bin/claude".to_string()),
         codex_cli_path: std::env::var("SANDBOX_CODEX_EXECUTABLE_PATH")
             .unwrap_or_else(|_| "/usr/local/bin/codex".to_string()),
-        servers: Vec::new(),
         frontend_url: None,
         default_model: None,
         default_codex_model: None,

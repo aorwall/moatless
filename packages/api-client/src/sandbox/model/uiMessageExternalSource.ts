@@ -14,16 +14,17 @@ export interface UiMessageExternalSource {
   adapterKind: string;
   /**
      * Stable, type-namespaced external id (e.g. "github:ic:12345",
-     * "slack:ts:1700000.000123"). Present when the row was tagged by an
-     * inbound webhook or by the outbound dedup fix; absent for legacy
-     * rows written before the prefix scheme.
+     * "slack:ts:1700000.000123").
+     *
+     * Present when tagged by an inbound webhook or the outbound dedup fix;
+     * absent for legacy rows written before the prefix scheme.
      * @nullable
      */
   externalId?: string | null;
   /**
-     * Human-readable rendering of `external_id` (e.g. "Comment #12345",
-     * "PR #42 opened", "ts 1700000.000123"). Falls back to the raw
-     * `external_id` for legacy or unknown prefix shapes.
+     * Human-readable rendering of `external_id` (e.g. "Comment #12345", "PR
+     * #42 opened", "ts 1700000.000123"). Falls back to the raw `external_id`
+     * for legacy or unknown prefix shapes.
      * @nullable
      */
   externalLabel?: string | null;

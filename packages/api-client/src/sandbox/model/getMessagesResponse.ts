@@ -15,7 +15,8 @@ export interface GetMessagesResponse {
   hasMore: boolean;
   messages: UiMessage[];
   /**
-     * Cursor for fetching the next older page; `None` when no older rows remain.
+     * Cursor for fetching the next older page; `None` when no older rows
+     * remain.
      * @nullable
      */
   nextBeforeId?: number | null;

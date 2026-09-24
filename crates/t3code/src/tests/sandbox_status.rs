@@ -47,15 +47,6 @@ impl SandboxObserver for FixedStatus {
     ) -> Result<moatless_ports::sandbox::SandboxDetail, SandboxError> {
         unreachable!("the lifecycle read reads no detail")
     }
-
-    async fn server_logs(
-        &self,
-        _task_id: &str,
-        _server_name: &str,
-        _options: LogOptions,
-    ) -> Result<ServerLogStream, SandboxError> {
-        unreachable!("the lifecycle read reads no logs")
-    }
 }
 
 fn state_with_sandbox_status(status: SandboxStatus) -> UiRpcState {

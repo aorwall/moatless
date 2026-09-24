@@ -13,7 +13,7 @@ synonyms to avoid — not how anything is implemented.
 
 **Sandbox**:
 The on-demand isolated container (a Kubernetes pod or Docker container) that runs
-coding agents and their servers. Ephemeral, and identified by its own `sandbox_id`
+coding agents and their Scripts. Ephemeral, and identified by its own `sandbox_id`
 — never by a Task's id. A Sandbox materializes exactly one Workspace on disk under
 its workspace directory.
 Its durable lifecycle record (desired state, stop reason, archive retention,
@@ -46,11 +46,18 @@ _Avoid_: putting run-config on a Repository
 
 **Workspace**:
 The composition of one or more repositories plus run-configuration (docker image,
-setup commands, env vars, servers, resources) that a Task runs against.
+setup commands, env vars, scripts, resources) that a Task runs against.
 A Sandbox materializes it on disk under the workspace directory. `source` is
 `manual` (created via the API) or `git` (reconciled from a repo's
 `.moatless/workspaces.json`). Not the Sandbox (the pod that runs it) nor the
 Workspace panel (a task-page UI view).
+
+**Script**:
+A named command (`ScriptConfig`: name, command, optional label/icon/port/envVars/
+runOnStart) a Workspace declares, run as a terminal session inside a Task's
+Sandbox. A Script with a `port` earns a preview URL, published on the fly under
+Kubernetes; Docker never publishes it, so a Docker Task's Script has no preview.
+_Avoid_: server, preview server
 
 **Override** (of a Workspace):
 Flipping a git-declared Workspace to `source = manual` so it can be edited from

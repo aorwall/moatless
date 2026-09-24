@@ -34,7 +34,6 @@ impl TryFrom<moatless_types::event::EventType> for EventType {
             moatless_types::event::EventType::TaskTurn => Ok(EventType::TaskTurn),
             moatless_types::event::EventType::Sandbox => Ok(EventType::Sandbox),
             moatless_types::event::EventType::Agent => Ok(EventType::Agent),
-            moatless_types::event::EventType::Server => Ok(EventType::Server),
             moatless_types::event::EventType::Resources => Ok(EventType::Resources),
             // Derived, UI-only event. Rejected rather than mapped: publishing it
             // as any other type would silently corrupt the event stream.
@@ -53,7 +52,6 @@ impl From<EventType> for moatless_types::event::EventType {
             EventType::TaskTurn => moatless_types::event::EventType::TaskTurn,
             EventType::Sandbox => moatless_types::event::EventType::Sandbox,
             EventType::Agent => moatless_types::event::EventType::Agent,
-            EventType::Server => moatless_types::event::EventType::Server,
             EventType::Resources => moatless_types::event::EventType::Resources,
         }
     }
@@ -79,28 +77,25 @@ mod event_type_conversion_tests {
             | Domain::TaskTurn
             | Domain::Sandbox
             | Domain::Agent
-            | Domain::Server
             | Domain::Resources => true,
             Domain::Message => false,
         }
     }
 
-    const ALL_DOMAIN: [Domain; 7] = [
+    const ALL_DOMAIN: [Domain; 6] = [
         Domain::Task,
         Domain::TaskTurn,
         Domain::Sandbox,
         Domain::Agent,
-        Domain::Server,
         Domain::Resources,
         Domain::Message,
     ];
 
-    const ALL_WIRE: [EventType; 6] = [
+    const ALL_WIRE: [EventType; 5] = [
         EventType::Task,
         EventType::TaskTurn,
         EventType::Sandbox,
         EventType::Agent,
-        EventType::Server,
         EventType::Resources,
     ];
 

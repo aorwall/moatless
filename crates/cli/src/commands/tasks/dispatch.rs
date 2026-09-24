@@ -6,6 +6,7 @@ use super::create::{
 };
 use super::files::{FileAction, run_file_action};
 use super::format::{format_task_detail, format_task_list, parse_task_status};
+use super::logs::stream_logs;
 use super::resolve::{
     resolve_parent_task_id, resolve_repo_id, resolve_same_sandbox, resolve_task_id,
     resolve_workspace_id,
@@ -15,7 +16,6 @@ use super::sandbox::{
     self_restart_note,
 };
 use super::scripts::{TaskScriptAction, run_task_script_action};
-use super::servers::{ServerAction, run_server_action, stream_logs};
 use crate::client::{ClientError, MoatClient};
 use crate::config::Config;
 use crate::output;
@@ -125,8 +125,8 @@ pub enum TaskAction {
         /// Model for the chosen harness, e.g. `haiku` or `gpt-5.5`
         #[arg(long)]
         model: Option<String>,
-        /// Runs headless: no preview servers, and no tools that wait on a
-        /// person (`AskUserQuestion`, Enter/ExitPlanMode).
+        /// Runs headless: no tools that wait on a person (`AskUserQuestion`,
+        /// Enter/ExitPlanMode).
         ///
         /// Defaults to true for CLI-created tasks, since there's no browser
         /// here to view them or answer a prompt.
@@ -183,7 +183,7 @@ pub enum TaskAction {
         #[arg(long)]
         inactive_ttl_days: Option<i32>,
     },
-    /// Show full task status (environment, agent, servers)
+    /// Show full task status (environment, agent)
     Status { task_id: String },
     /// Restart sandbox for a task
     Restart {
@@ -202,12 +202,9 @@ pub enum TaskAction {
         #[arg(long)]
         yes: bool,
     },
-    /// Stream server logs from a task's sandbox
+    /// Stream the sandbox container's logs
     Logs {
         task_id: String,
-        /// Server name (e.g. "sandbox", "preview", "files")
-        #[arg(long, short = 's', default_value = "sandbox")]
-        server: String,
         /// Fetch logs from previous (crashed/restarted) container instance
         #[arg(long)]
         previous: bool,
@@ -230,27 +227,11 @@ pub enum TaskAction {
     /// Platform admins only — the output carries live S3 credentials and the
     /// repository password.
     WorkspaceRepo { task_id: String },
-    /// Fetch preview server page content
-    Preview {
-        task_id: String,
-        /// Server name (e.g. "preview", "files")
-        #[arg(long, short = 's', default_value = "preview")]
-        server: String,
-        /// URL path to fetch (default: "/")
-        #[arg(long, default_value = "/")]
-        path: String,
-    },
     /// File operations in a task's workspace
     Files {
         task_id: String,
         #[command(subcommand)]
         action: FileAction,
-    },
-    /// Inspect and live-update a task's preview servers
-    Servers {
-        task_id: String,
-        #[command(subcommand)]
-        action: ServerAction,
     },
     /// Run a workspace's declared script against this task's sandbox, reporting
     /// a preview URL and opening a browser tab in the T3 UI if it declares a
@@ -585,13 +566,12 @@ pub async fn run(
         }
         TaskAction::Logs {
             task_id,
-            server,
             previous,
             no_follow,
             tail,
         } => {
             let task_id = resolve_task_id(client, &task_id).await?;
-            stream_logs(client, &task_id, &server, previous, !no_follow, tail).await?;
+            stream_logs(client, &task_id, previous, !no_follow, tail).await?;
         }
         TaskAction::Diagnose { task_id, limit } => {
             let task_id = resolve_task_id(client, &task_id).await?;
@@ -614,50 +594,9 @@ pub async fn run(
                 println!("# then: restic snapshots");
             }
         }
-        TaskAction::Preview {
-            task_id,
-            server,
-            path,
-        } => {
-            let task_id = resolve_task_id(client, &task_id).await?;
-            let status = client.api().sandbox_status(&task_id).await?;
-            let entry = status
-                .servers
-                .iter()
-                .find(|s| s.name == server)
-                .ok_or_else(|| ClientError::Api {
-                    status: 404,
-                    body: format!(
-                        "No server '{}' found. Available: {}",
-                        server,
-                        status
-                            .servers
-                            .iter()
-                            .map(|s| s.name.as_str())
-                            .collect::<Vec<_>>()
-                            .join(", ")
-                    ),
-                })?;
-            let base_url = entry.url.as_deref().ok_or_else(|| ClientError::Api {
-                status: 404,
-                body: format!(
-                    "Server '{}' has no URL (status: {:?})",
-                    server, entry.status
-                ),
-            })?;
-            let url = format!("{}{}", base_url.trim_end_matches('/'), path);
-            let body = client.raw_get_url(&url).await?;
-            print!("{body}");
-        }
         TaskAction::Files { task_id, action } => {
             let task_id = resolve_task_id(client, &task_id).await?;
             run_file_action(client, &task_id, action, json).await?;
-        }
-        // Deliberately allowed from inside the sandbox, unlike `restart`/`redeploy`:
-        // these only restart a preview sidecar, never the agent container.
-        TaskAction::Servers { task_id, action } => {
-            let task_id = resolve_task_id(client, &task_id).await?;
-            run_server_action(client, &task_id, action, json).await?;
         }
         TaskAction::Scripts { task_id, action } => {
             let task_id = resolve_task_id(client, &task_id).await?;

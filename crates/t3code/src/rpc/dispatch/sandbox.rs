@@ -7,15 +7,11 @@ use crate::rpc::frames::failure_exit;
 use crate::rpc::frames::sandbox_failure_exit;
 use crate::rpc::frames::scripts_failure_exit;
 use crate::rpc::frames::scripts_list_failure_exit;
-use crate::rpc::frames::servers_failure_exit;
-use crate::rpc::frames::servers_not_found;
 use crate::rpc::frames::subtasks_failure_exit;
 use crate::rpc::frames::success_exit;
 use crate::sandbox;
 use crate::scripts;
 use crate::scripts::ScriptsError;
-use crate::servers;
-use crate::servers::ServersError;
 use crate::subtasks;
 use crate::subtasks::SubtasksError;
 use serde_json::Value;
@@ -64,7 +60,7 @@ pub(super) async fn scripts_list_for_thread(request: Request) -> Vec<Value> {
         )],
         // A Thread the viewer cannot read runs no Scripts *for them*, and the
         // Run control sits in the header of a page they are already looking
-        // at: `servers.list` and `subtasks.list` answer the same condition the
+        // at: `subtasks.list` answers the same condition the
         // same way, for the same reason.
         Err(ScriptsError::NotFound) => vec![success_exit(&id, json!({ "scripts": [] }))],
         Err(error) => vec![scripts_list_failure_exit(&id, &error, &identity)],
@@ -224,27 +220,6 @@ pub(super) async fn sandbox_list_diagnostics(request: Request) -> Vec<Value> {
     match sandbox::list_diagnostics(&state.sandbox).await {
         Ok(entries) => vec![success_exit(&id, entries)],
         Err(error) => vec![sandbox_failure_exit(&id, &tag, &error, &identity)],
-    }
-}
-
-pub(super) async fn servers_list(request: Request) -> Vec<Value> {
-    let ThreadRequest {
-        id,
-        viewer,
-        task_id,
-        state,
-        identity,
-        ..
-    } = match request.require_thread_id() {
-        Ok(request) => request,
-        Err(failure) => return failure,
-    };
-    match servers::list(&state.servers, &viewer, &task_id).await {
-        Ok(listing) => vec![success_exit(&id, listing)],
-        // See [`servers_not_found`]: an unprovisioned conversation has no
-        // servers, which is an answer and not a failure.
-        Err(ServersError::NotFound) => vec![success_exit(&id, servers_not_found())],
-        Err(error) => vec![servers_failure_exit(&id, &error, &identity)],
     }
 }
 

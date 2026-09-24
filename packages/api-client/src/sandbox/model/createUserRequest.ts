@@ -10,15 +10,6 @@ import type { UserRole } from './userRole';
 /**
  * POST /api/v1/users request.
  *
- * With `isBot: true`, creates a bot user backed by a configured GitHub App:
- * the server resolves the App's `{slug}[bot]` identity from
- * `GitHubAppRegistry` and writes both the `users` row and the matching
- * `provider_tokens` row atomically. `githubAppKey` is required in this mode.
- *
- * With `isBot: false`, creates a human user with a local password. Only
- * available when the server runs local password auth; `email`, `login`, and
- * `password` are required in this mode.
- *
  * `Debug` is hand-written to redact `password`.
  */
 export interface CreateUserRequest {

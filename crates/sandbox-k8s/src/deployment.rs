@@ -745,7 +745,7 @@ mod tests {
     #[test]
     fn deployment_sandbox_image_extracts_sandbox_container() {
         let dep = deployment_with_containers(vec![
-            container("web-server", Some("server:latest")),
+            container("dind", Some("docker:dind")),
             container("sandbox", Some("sandbox:v2")),
         ]);
         assert_eq!(
@@ -756,7 +756,7 @@ mod tests {
 
     #[test]
     fn deployment_sandbox_image_none_when_no_sandbox_container() {
-        let dep = deployment_with_containers(vec![container("web-server", Some("server:latest"))]);
+        let dep = deployment_with_containers(vec![container("dind", Some("docker:dind"))]);
         assert_eq!(deployment_sandbox_image(&dep), None);
     }
 

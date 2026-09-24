@@ -29,7 +29,6 @@ pub mod limits;
 pub mod outbox;
 pub mod pod_processes;
 pub mod preview_proxy;
-pub mod server_control;
 pub mod shutdown;
 pub mod state;
 pub mod supervisor;

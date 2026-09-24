@@ -18,7 +18,8 @@ export interface LoopSyncSummary {
      */
   created: number;
   /**
-     * Manual overrides or deletion tombstones preserved during repository sync.
+     * Manual overrides or deletion tombstones preserved during repository
+     * sync.
      * @minimum 0
      */
   overridesSkipped: number;

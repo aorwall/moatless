@@ -10,8 +10,7 @@ import type { WebhookAdmission } from './webhookAdmission';
 /**
  * The answer to an accepted delivery.
  *
- * It names the delivery, not a Task: routing has not run when this is written,
- * so no Task exists to name yet.
+ * Names the delivery, not a Task — routing hasn't run yet, so no Task exists.
  */
 export interface WebhookAccepted {
   /**

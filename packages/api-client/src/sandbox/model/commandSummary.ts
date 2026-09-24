@@ -9,17 +9,12 @@ import type { ManagedCommandState } from './managedCommandState';
 
 /**
  * A registered command, narrowed to what a status reader needs to say one is
- * still running and name it.
+ * still running and name it (the full shape is
+ * `moatless_api_schemas::sandbox::ManagedCommand`).
  *
- * The full shape is `moatless_api_schemas::sandbox::ManagedCommand`, which the
- * status-read response carries. This is the half of it that belongs on a
- * status polled every couple of seconds: `pid`, the whole command line, and
- * the log path answer questions a status indicator does not ask.
- *
- * Every time here is an instant, never an elapsed duration. A reader computes
- * "12m in" from `started_at_unix_ms` itself, because a duration recomputed on
- * the producing side changes on every read, and a push that only sends changes
- * would then send one every poll forever.
+ * Every time here is an instant, never an elapsed duration — a reader computes
+ * "12m in" from `started_at_unix_ms` itself, since a duration recomputed
+ * producer-side would change (and re-push) on every poll.
  */
 export interface CommandSummary {
   /** When the sandbox kills it for outliving its deadline. */

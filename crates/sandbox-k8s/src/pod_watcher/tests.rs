@@ -79,54 +79,12 @@ fn not_ready_when_sandbox_container_not_ready() {
         "Running",
         vec![
             running_container("sandbox", true, false),
-            running_container("dev-server", true, true),
+            running_container("dind", true, true),
         ],
     );
 
     let state = extract_pod_observed_state(&pod, "pod-1", "task-1");
     assert!(!state.ready);
-}
-
-/// `extract_pod_observed_state` must carry each server container's restart
-/// count so the crash-loop auto-disable crossing logic can fire.
-#[test]
-fn server_container_restart_count_is_populated() {
-    use k8s_openapi::api::core::v1::{
-        ContainerState as K8sState, ContainerStateWaiting, ContainerStatus, Pod, PodStatus,
-    };
-
-    let pod = Pod {
-        status: Some(PodStatus {
-            phase: Some("Running".to_string()),
-            container_statuses: Some(vec![
-                running_container("sandbox", true, true),
-                ContainerStatus {
-                    name: "storybook-server".to_string(),
-                    ready: false,
-                    started: Some(false),
-                    restart_count: 7,
-                    state: Some(K8sState {
-                        waiting: Some(ContainerStateWaiting {
-                            reason: Some("CrashLoopBackOff".to_string()),
-                            message: None,
-                        }),
-                        ..Default::default()
-                    }),
-                    ..Default::default()
-                },
-            ]),
-            ..Default::default()
-        }),
-        ..Default::default()
-    };
-
-    let state = extract_pod_observed_state(&pod, "pod-1", "task-1");
-    let sb = state
-        .server_containers
-        .iter()
-        .find(|s| s.name == "storybook-server")
-        .expect("storybook-server tracked");
-    assert_eq!(sb.restart_count, 7);
 }
 
 /// `extract_pod_observed_state` captures the scheduled node and the structured

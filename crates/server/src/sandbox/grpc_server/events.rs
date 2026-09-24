@@ -329,7 +329,6 @@ mod tests {
             (sandbox_proto::EventType::TaskTurn, "taskTurn"),
             (sandbox_proto::EventType::Sandbox, "sandbox"),
             (sandbox_proto::EventType::Agent, "agent"),
-            (sandbox_proto::EventType::Server, "server"),
             (sandbox_proto::EventType::Resources, "resources"),
         ] {
             let decoded = sandbox_proto::EventType::try_from(wire as i32)

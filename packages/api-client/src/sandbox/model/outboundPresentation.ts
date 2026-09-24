@@ -10,11 +10,9 @@ import type { SlackBlock } from './slackBlock';
 /**
  * Adapter-native rich rendering of an outbound message body.
  *
- * The portable reply text stays mandatory and portable: every adapter sends it,
- * Slack uses it for the notification, and the binding layer records it as the
- * task-timeline entry. A presentation is the optional richer form, for the
- * adapters that have one. An adapter ignores a presentation addressed to
- * another kind, the way Slack already ignores `footer`.
+ * The portable reply text stays mandatory — every adapter sends it, recorded
+ * as the task-timeline entry; this is the optional richer form, ignored by an
+ * adapter it isn't addressed to.
  */
 export type OutboundPresentation = {
   blocks: SlackBlock[];

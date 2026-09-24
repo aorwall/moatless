@@ -10,12 +10,18 @@
  * One outbound destination returned by task reply APIs.
  */
 export interface ReplyTargetDescriptor {
-  /** CLI flag the caller should add to disambiguate, e.g. `"--binding bind_xyz"`. */
+  /**
+     * CLI flag the caller should add to disambiguate, e.g. `"--binding
+     * bind_xyz"`.
+     */
   flagHint: string;
   /** Stable target identifier, usually `task_bindings.id`. */
   id: string;
   /** Target category, currently `"binding"` for canonical task bindings. */
   kind: string;
-  /** Human-readable label such as `"slack source:C123"` or `"github pr:owner/repo#42"`. */
+  /**
+     * Human-readable label such as `"slack source:C123"` or `"github
+     * pr:owner/repo#42"`.
+     */
   label: string;
 }

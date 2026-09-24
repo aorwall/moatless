@@ -8,8 +8,8 @@
 
 export type ListIssuesParams = {
 /**
- * Free text matched against title, description and comments
- * (Linear's `searchableContent`).
+ * Free text matched against title, description and comments (Linear's
+ * `searchableContent`).
  * @nullable
  */
 query?: string | null;

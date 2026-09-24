@@ -86,7 +86,6 @@ describe.skipIf(!canRunTests)('Sandbox Docker gRPC Integration', () => {
       expect(status).toHaveProperty('taskId')
       expect(status).toHaveProperty('agent')
       expect(status.agent).toHaveProperty('status')
-      expect(status).toHaveProperty('servers')
     })
   })
 
@@ -105,30 +104,6 @@ describe.skipIf(!canRunTests)('Sandbox Docker gRPC Integration', () => {
       const resp = await grpcClient.searchFiles('**/nonexistent-file-abc123.xyz')
       expect(resp.files).toBeDefined()
       expect(resp.files.length).toBe(0)
-    })
-  })
-
-  // ── Server Management ───────────────────────────────────────
-
-  describe('Server Management', () => {
-    it('should return NOT_FOUND for nonexistent server', async () => {
-      try {
-        await grpcClient.getServerStatus('nonexistent')
-        expect.fail('Expected gRPC NOT_FOUND error')
-      } catch (err) {
-        const grpcErr = err as grpc.ServiceError
-        expect(grpcErr.code).toBe(grpc.status.NOT_FOUND)
-      }
-    })
-
-    it('should return NOT_FOUND for StreamServerLogs on nonexistent server', async () => {
-      try {
-        await grpcClient.streamServerLogs('nonexistent')
-        expect.fail('Expected gRPC NOT_FOUND error')
-      } catch (err) {
-        const grpcErr = err as grpc.ServiceError
-        expect(grpcErr.code).toBe(grpc.status.NOT_FOUND)
-      }
     })
   })
 

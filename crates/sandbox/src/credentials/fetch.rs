@@ -17,7 +17,6 @@ use tokio::fs;
 use tracing::{info, warn};
 
 use super::gh_hosts;
-use super::server_env;
 use super::ssh;
 use crate::config::Config;
 use crate::state::SandboxState;
@@ -83,16 +82,6 @@ pub fn filter_agent_credentials(credentials: &HashMap<String, String>) -> HashMa
         .filter(|(k, _)| !AGENT_EXCLUDED_KEYS.contains(&k.as_str()))
         .map(|(k, v)| (k.clone(), v.clone()))
         .collect()
-}
-
-fn server_sidecar_env(
-    config: &Config,
-    backend_server_env: &HashMap<String, String>,
-) -> HashMap<String, String> {
-    let mut env = backend_server_env.clone();
-    env.insert("WORKSPACE_DIR".to_string(), config.workspace_dir.clone());
-    env.insert("WORKSPACE_PATH".to_string(), config.repo_dir.clone());
-    env
 }
 
 /// Whether `fetch_and_apply_credentials` runs at sandbox init or from the
@@ -209,11 +198,6 @@ pub async fn fetch_and_apply_credentials_with_mode(
                 *state.credentials.write().await = filter_agent_credentials(&resp.credentials);
 
                 persist_agent_credentials(&state.config, &resp.credentials, mode).await;
-
-                // Sidecars source this after init, so the sandbox-derived paths
-                // override container-level fallbacks.
-                let server_env = server_sidecar_env(&state.config, &resp.server_env);
-                server_env::write_server_env_file(&state.config, &server_env).await;
 
                 // Materialize SSH private keys into ~/.ssh so git/ssh can use
                 // them for SSH remotes. Delivered on a dedicated channel and
@@ -523,8 +507,7 @@ mod tests {
     use super::{
         MAX_RETRY_DELAY, PersistMode, RETRY_BUDGET, exposed_user_token_paths, fallback_tokens,
         filter_agent_credentials, is_auth_rejection, persist_agent_credentials,
-        persist_user_auth_token, purge_exposed_user_tokens, server_sidecar_env,
-        terminal_rejection_reason,
+        persist_user_auth_token, purge_exposed_user_tokens, terminal_rejection_reason,
     };
     use crate::config::{Config, test_support::minimal_config};
 
@@ -701,31 +684,6 @@ mod tests {
             claude_config_dir: claude_config_dir.display().to_string(),
             ..minimal_config()
         }
-    }
-
-    #[test]
-    fn server_sidecar_env_exports_workspace_root_and_primary_repo() {
-        let tmp = TempDir::new().unwrap();
-        let mut config = test_config(&tmp);
-        config.workspace_dir = "/opt/moatless/workspace".to_string();
-        config.repo_dir = "/opt/moatless/workspace/moatless".to_string();
-
-        let mut backend_env = HashMap::new();
-        backend_env.insert("WORKSPACE_DIR".to_string(), "/wrong".to_string());
-        backend_env.insert("WORKSPACE_PATH".to_string(), "/wrong/repo".to_string());
-        backend_env.insert("EXTRA".to_string(), "kept".to_string());
-
-        let env = server_sidecar_env(&config, &backend_env);
-
-        assert_eq!(
-            env.get("WORKSPACE_DIR").map(String::as_str),
-            Some("/opt/moatless/workspace")
-        );
-        assert_eq!(
-            env.get("WORKSPACE_PATH").map(String::as_str),
-            Some("/opt/moatless/workspace/moatless")
-        );
-        assert_eq!(env.get("EXTRA").map(String::as_str), Some("kept"));
     }
 
     #[tokio::test]

@@ -30,7 +30,7 @@ const EVENT_BUFFER: usize = 256;
 /// How long a Task's tabs outlive their last mutation.
 ///
 /// Passed in so it can track the sandbox idle TTL — a tab should not outlive
-/// the servers it points at. Refreshed on every write.
+/// the Scripts it points at. Refreshed on every write.
 #[derive(Debug, Clone, Copy)]
 pub struct PreviewTabTtl(pub Duration);
 

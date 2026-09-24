@@ -1,9 +1,9 @@
 {
   "//": "Shadow-dev variant of .moatless/workspaces.json. Runs a shadow backend as a",
-  "//1": "sidecar in the sandbox pod. Point a",
+  "//1": "Script in the sandbox. Point a",
   "//2": "dedicated 'moatless-vibe (shadow)' repo/branch at this, or copy it over",
   "//3": "workspaces.json for a dev task. Do NOT make this the default for agent tasks —",
-  "//4": "the backend sidecar compiles Rust on start, which is heavy.",
+  "//4": "the backend Script compiles Rust on start, which is heavy.",
   "//5": "The sandbox image must include the Rust toolchain + bun (full sandbox image).",
   "//6": "Set repos[0].url to the shadow repository you actually push this branch to.",
   "//7": "sandboxServiceAccount is deliberately NOT set here: git-declared values are",
@@ -35,16 +35,13 @@
         "dockerStorageMode": "node",
         "dockerStorage": "30Gi"
       },
-      "servers": [
+      "scripts": [
         {
           "name": "backend",
           "label": "Shadow Backend",
+          "command": "bash scripts/shadow/up.sh",
           "port": 8080,
-          "startCommands": ["bash scripts/shadow/up.sh"],
-          "startupTimeoutSeconds": 600,
-          "autoReload": false,
-          "enableInspector": false,
-          "default": true
+          "runOnStart": true
         }
       ]
     }

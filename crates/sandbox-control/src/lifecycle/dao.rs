@@ -302,8 +302,6 @@ impl LifecycleDao for PgLifecycleDao {
                     owner_user_id,
                     sandbox_id,
                     workspace_id,
-                    // No Sandbox row is a Sandbox that was never created, which
-                    // has started no servers either way.
                     headless: headless.unwrap_or(false),
                     desired_state: decode_optional("desired_state", desired_state)?
                         .unwrap_or(SandboxDesiredState::Stopped),

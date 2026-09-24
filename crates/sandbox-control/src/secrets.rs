@@ -191,33 +191,6 @@ pub async fn resolve_task_ssh_keys(
     }
 }
 
-/// Resolve the shared env delivered to every server sidecar.
-///
-/// Same workspace > user > global order as the agent env; reserved runtime keys
-/// and Forgejo credentials are filtered out.
-pub async fn resolve_server_env(
-    user_id: &str,
-    secrets: Option<&Arc<dyn SecretResolver>>,
-    workspace_env_vars: &HashMap<String, String>,
-) -> HashMap<String, String> {
-    let mut env = workspace_env_vars.clone();
-    let Some(secrets) = secrets else {
-        return env;
-    };
-    match secrets.plaintext(user_id).await {
-        Ok(scoped) => {
-            for (key, value) in scoped {
-                env.entry(key).or_insert(value);
-            }
-        }
-        Err(e) => {
-            warn!(user_id, error = %e, "Failed to resolve server env secrets");
-        }
-    }
-    env.retain(|key, _| !is_reserved_key(key) && !is_forgejo_credential_key(key));
-    env
-}
-
 /// The two rows a task's credentials are resolved against: the repository whose
 /// owner/name a GitHub credential is minted for, and the workspace whose pinned
 /// credentials outrank everything else.
@@ -827,7 +800,6 @@ mod tests {
                 system_prompt: None,
                 setup_commands: None,
                 env_vars: env_vars.clone(),
-                servers: None,
                 resources: None,
                 network_profile: None,
                 node_selector: None,
@@ -1253,19 +1225,6 @@ mod tests {
         assert_eq!(
             credentials,
             HashMap::from([(OPENAI_API_KEY.to_string(), "sk-fine".to_string())])
-        );
-    }
-
-    #[tokio::test]
-    async fn a_sidecar_gets_no_forgejo_credential_either() {
-        let stash = moatless_core::secret_keys::forgejo_token_key("git.acme.dev");
-        let secrets = secrets_holding(&[(stash.as_str(), "pat"), ("PORT", "3000")]);
-
-        let env = resolve_server_env("u1", Some(&secrets), &HashMap::new()).await;
-
-        assert_eq!(
-            env,
-            HashMap::from([("PORT".to_string(), "3000".to_string())])
         );
     }
 

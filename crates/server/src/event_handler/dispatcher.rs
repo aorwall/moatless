@@ -272,7 +272,6 @@ impl EventDispatcher {
             EventKey::Agent(AgentSubType::Started) => {}
             // Known SSE-only event types — forwarded to frontend but not processed here
             EventKey::Sandbox(_)
-            | EventKey::Server(_)
             | EventKey::Agent(
                 AgentSubType::PendingResponse
                 | AgentSubType::Retrying

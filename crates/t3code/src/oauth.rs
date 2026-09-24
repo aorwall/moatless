@@ -389,7 +389,7 @@ mod tests {
     }
 
     /// The fleet diagnostics read is unclassified here on purpose — it is a
-    /// read like `servers.list` and `sandbox.status`, so the default is the
+    /// read like `sandbox.status`, so the default is the
     /// right answer rather than an omission.
     #[test]
     fn fleet_diagnostics_falls_through_to_read() {

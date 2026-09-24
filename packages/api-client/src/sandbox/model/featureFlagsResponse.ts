@@ -14,8 +14,7 @@ export interface FeatureFlagsResponse {
      * Whether the settings dialog offers to pair a device.
      *
      * Not an `FF_*` variable of its own: pairing is the bootstrap half of the
-     * T3 compatibility routes, and a code is worth nothing on a deployment
-     * that does not mount them. So it reports whether *they* are on.
+     * T3 compatibility routes, so it reports whether those routes are mounted.
      */
   device_pairing: boolean;
   /** Whether the deployment offers Forgejo instances, connections and repos. */
@@ -28,9 +27,9 @@ export interface FeatureFlagsResponse {
   /**
      * Whether a T3 project's settings page edits the Workspace behind it.
      *
-     * On, the page gains the Workspace's own description, repositories, image
-     * and defaults, and drops the three rows a Moatless Workspace does not
-     * have (`defaultThreadEnvMode`, auto-pull, agent browser access).
+     * On, the page gains the Workspace description, repositories, image and
+     * defaults, and drops `defaultThreadEnvMode`, auto-pull, and agent browser
+     * access.
      */
   workspace_settings: boolean;
 }

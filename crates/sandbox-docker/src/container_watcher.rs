@@ -26,8 +26,9 @@ use moatless_sandbox_runtime::runtime::{OPERATION_GENERATION_LABEL, generation_f
 
 /// Spawns a background task publishing Docker container lifecycle events.
 ///
-/// Server-container events are excluded by the service-label filter and a
-/// defensive handler check, so they never reach classification.
+/// Events from containers not labelled as a sandbox are excluded by the
+/// service-label filter and a defensive handler check, so they never reach
+/// classification.
 pub fn spawn_container_lifecycle_watcher(
     client: DockerClient,
     event_publisher: Arc<dyn EventPublisher>,
@@ -291,12 +292,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn server_labeled_event_is_rejected_before_classification() {
+    fn a_non_sandbox_event_is_rejected_before_classification() {
         let event = bollard::models::EventMessage {
             action: Some("die".to_string()),
             actor: Some(bollard::models::EventActor {
                 attributes: Some(HashMap::from([
-                    (SERVICE_LABEL.to_string(), "server".to_string()),
+                    (SERVICE_LABEL.to_string(), "other".to_string()),
                     ("moatless.io/task-id".to_string(), "t1".to_string()),
                 ])),
                 ..Default::default()

@@ -12,11 +12,11 @@ import type { ActivationReach } from './activationReach';
  */
 export interface SetActivationRequest {
   /**
-     * Lift this record above every record that is not `always`, whatever
-     * reach either of them carries — so what is turned on for everyone or for
-     * one person keeps arriving in a Workspace that says nothing about it, and
-     * in one that turns it off. Omit to leave whatever the record already
-     * says, so a control that knows only about on and off cannot clear it.
+     * Lift this record above every other record regardless of reach, so it
+     * keeps applying even in a Workspace that overrides or disables it.
+     *
+     * Omit to leave the existing value — a control that only knows on/off
+     * cannot clear it.
      * @nullable
      */
   always?: boolean | null;
@@ -34,18 +34,18 @@ export interface SetActivationRequest {
      */
   skillName?: string | null;
   /**
-     * Whose record, with `personal` reach: the caller's own when omitted, and
-     * somebody else's only for an administrator — which is how a bot user,
-     * who never signs in to set its own, gets one. Rejected with `everyone`,
-     * where naming a person would read as a record for them and write the
-     * deployment-wide default instead.
+     * Whose record, with `personal` reach: the caller's own when omitted, or
+     * (admin only) somebody else's — how a bot user gets one set.
+     *
+     * Rejected with `everyone`, where naming a person would misleadingly write
+     * the deployment-wide default.
      * @nullable
      */
   userId?: string | null;
   /**
      * Which Workspace's record, with `workspace` reach. Required there and
-     * rejected with any other reach, where it would read as a record scoped
-     * to that Workspace and write a broader one instead.
+     * rejected with any other reach, where it would read as a record scoped to
+     * that Workspace and write a broader one instead.
      * @nullable
      */
   workspaceId?: string | null;

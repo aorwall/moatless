@@ -1,17 +1,11 @@
-//! The provision plan a runtime is handed, and the per-server config it
-//! derives.
-//!
-//! [`ProvisionRequest`]/[`ProvisionPlan`] and [`RepoConfig`] are the plan the
-//! backend sends; [`allocated_port`] and [`server_capabilities_from_config`]
-//! read one server's config out of it.
+//! The provision plan a runtime is handed: [`ProvisionRequest`]/[`ProvisionPlan`]
+//! and the [`RepoConfig`] the backend sends.
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use tracing::warn;
 use utoipa::ToSchema;
 
-use moatless_types::sandbox::ServerCapabilities;
-use moatless_workspace_types::workspace::{Port, RepoCheckout, ServerConfig};
+use moatless_workspace_types::workspace::RepoCheckout;
 
 /// Provision plan sent from TS backend
 #[derive(Debug, Clone, Deserialize, ToSchema)]
@@ -48,20 +42,14 @@ pub struct RepoConfig {
     pub name: String,
     /// Per-repository sandbox image override
     pub docker_image: Option<String>,
-    /// Servers with allocated ports
-    #[schema(value_type = Vec<moatless_workspace_types::schemas::workspace::ServerConfig>)]
-    pub servers: Option<Vec<ServerConfig>>,
     // --- Pass-through fields for REPO_CONFIG env var ---
     /// System prompt for the agent
     pub system_prompt: Option<String>,
     /// Code execution configuration (dockerImage, envVars, etc.)
     #[schema(value_type = Object)]
     pub code_execution: Option<serde_json::Value>,
-    /// Preview server configuration
-    #[schema(value_type = Object)]
-    pub preview_config: Option<serde_json::Value>,
     // --- K8s resource configuration (opt-in per-repo) ---
-    /// Per-repo K8s resource requests/limits override for server containers.
+    /// Per-repo K8s resource requests/limits override for the sandbox.
     #[schema(value_type = moatless_workspace_types::schemas::workspace::ResourceConfig)]
     pub resources: Option<moatless_workspace_types::workspace::ResourceConfig>,
     // --- Plugins (resolved from the task owner's activation records) ---
@@ -103,36 +91,6 @@ pub struct RepoConfig {
     pub node_selector: Option<std::collections::BTreeMap<String, String>>,
 }
 
-pub use moatless_workspace_types::workspace::ServerOverride;
-
-/// Derive capabilities from a `ServerConfig`.
-pub fn server_capabilities_from_config(config: &ServerConfig) -> ServerCapabilities {
-    ServerCapabilities {
-        address_bar: config.enable_inspector,
-        inspector: config.enable_inspector,
-        reload: true,
-        open_external: true,
-        viewport: true,
-        console: true,
-    }
-}
-
-/// The port a runtime can act on for this server, or `None` with a log.
-///
-/// Every plan server has been through `assign_missing_ports`; a missing port
-/// here means the plan was assembled some other way, so the server is skipped
-/// rather than given an invented port.
-pub fn allocated_port(server: &ServerConfig, task_id: &str) -> Option<u16> {
-    if server.port.is_none() {
-        warn!(
-            task_id,
-            server = %server.name,
-            "Skipping a server with no allocated port"
-        );
-    }
-    server.port.map(Port::get)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -153,35 +111,5 @@ mod tests {
         assert_eq!(req.plan.repo_config.name, "test-repo");
         assert_eq!(req.plan.git_clone_url, "https://github.com/test/repo.git");
         assert!(req.plan.git_branch.is_none());
-    }
-
-    #[test]
-    fn capabilities_with_inspector_enabled() {
-        let config = ServerConfig {
-            name: "preview".to_string(),
-            enable_inspector: true,
-            ..Default::default()
-        };
-        let caps = server_capabilities_from_config(&config);
-        assert!(caps.inspector);
-        assert!(caps.address_bar);
-        assert!(caps.reload);
-        assert!(caps.viewport);
-        assert!(caps.console);
-    }
-
-    #[test]
-    fn capabilities_with_inspector_disabled() {
-        let config = ServerConfig {
-            name: "files".to_string(),
-            enable_inspector: false,
-            ..Default::default()
-        };
-        let caps = server_capabilities_from_config(&config);
-        assert!(!caps.inspector);
-        assert!(!caps.address_bar);
-        assert!(caps.reload);
-        assert!(caps.viewport);
-        assert!(caps.console);
     }
 }

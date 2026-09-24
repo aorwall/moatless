@@ -10,7 +10,6 @@
  * Top-level event types.
  *
  * Serializes to the exact strings the frontend `EventTypeSchema` expects.
- * Renamed: "environment" → "sandbox" to avoid confusion with K8s environments.
  */
 export type EventType = typeof EventType[keyof typeof EventType];
 
@@ -20,7 +19,6 @@ export const EventType = {
   taskTurn: 'taskTurn',
   sandbox: 'sandbox',
   agent: 'agent',
-  server: 'server',
   resources: 'resources',
   message: 'message',
 } as const;

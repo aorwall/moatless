@@ -5,7 +5,7 @@ use futures::stream::BoxStream;
 use k8s_openapi::api::apps::v1::Deployment;
 use k8s_openapi::api::core::v1::Pod;
 use kube::api::{Api, ListParams};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::sync::Arc;
 use tracing::{info, warn};
 
@@ -113,7 +113,7 @@ impl K8sSandboxAdapter {
             // A live Deployment can have lost its Service/IngressRoutes. Without
             // the Service the backend can't reach the sandbox over gRPC, so heal
             // before taking any fast path.
-            self.heal_network_resources(task_id, plan).await;
+            self.heal_network_resources(task_id).await;
         }
         match existing {
             ExistingPodResult::Ready => {
@@ -269,8 +269,7 @@ impl K8sSandboxAdapter {
             }
         };
 
-        // 4. Build pod spec. Secrets flow via gRPC `GetCredentials` and are
-        //    materialized to `/opt/moatless/data/server.env` by the sandbox init.
+        // 4. Build pod spec. Secrets flow via gRPC `GetCredentials`.
         let mut pod = pod_builder::build_pod(
             &self.config,
             task_id,
@@ -294,15 +293,6 @@ impl K8sSandboxAdapter {
         }
         pod_builder::stamp_operation_generation(&mut pod, ctx);
 
-        // Build servers map for service port exposure, dropping any port that
-        // collides with a reserved sandbox infrastructure port so it is never
-        // exposed via the Service, an IngressRoute, or the preview NetworkPolicy.
-        let server_ports: BTreeMap<String, u16> = pod_builder::admitted_server_ports(
-            pod_builder::build_servers_map(plan, task_id).into_iter().collect(),
-            &self.config,
-            task_id,
-        );
-
         // 5. Create Deployment (wraps pod spec) first so its UID can own the
         //    Service and IngressRoutes — K8s garbage collection then cascades
         //    their deletion when the Deployment is deleted, so a transient
@@ -316,12 +306,11 @@ impl K8sSandboxAdapter {
             warn!(task_id = %task_id, "Deployment UID unavailable; Service/IngressRoutes will not be owner-referenced");
         }
 
-        // No script ports: provisioning only knows the declared servers, and a
-        // Script publishes against a sandbox that is already up.
+        // No script ports: a Script publishes its port through `edge` against a
+        // sandbox that is already up, which also creates its route and policy.
         let service_name = service::create_sandbox_service(
             &self.k8s,
             task_id,
-            &server_ports,
             &BTreeSet::new(),
             self.config.sandbox.grpc_port,
             owner.as_ref(),
@@ -329,38 +318,9 @@ impl K8sSandboxAdapter {
         .await
         .map_err(|e| SandboxError::KubeError(Box::new(e)))?;
 
-        // 5b. Create Traefik IngressRoutes + the preview NetworkPolicy admitting
-        //     Traefik to those same ports (if proxy_domain is configured).
-        if self.config.proxy.domain.is_some() {
-            if let Err(e) = ingress::create_task_ingress_routes(
-                &self.k8s,
-                task_id,
-                &server_ports,
-                &self.config,
-                owner.as_ref(),
-            )
-            .await
-            {
-                warn!(task_id = %task_id, error = %e, "Failed to create IngressRoutes");
-            }
-            let preview_ports: BTreeSet<u16> = server_ports.values().copied().collect();
-            if let Err(e) = networkpolicy::create_task_preview_network_policy(
-                &self.k8s,
-                task_id,
-                &preview_ports,
-                &self.config,
-                owner.as_ref(),
-            )
-            .await
-            {
-                warn!(task_id = %task_id, error = %e, "Failed to create preview NetworkPolicy");
-            }
-        }
-
         info!(
             task_id = %task_id,
             service_name = %service_name,
-            server_count = server_ports.len(),
             "Sandbox provisioned, returning immediately (pod starting in background)"
         );
 
@@ -1003,27 +963,15 @@ impl SandboxStatusReader for K8sSandboxAdapter {
         .await
     }
 
-    async fn server_logs(
+    async fn sandbox_logs(
         &self,
         task_id: &str,
-        server_name: &str,
         options: moatless_sandbox_runtime::access::LogOptions,
     ) -> Result<BoxStream<'static, Result<String, SandboxError>>, SandboxError> {
-        let container_name = if server_name == "sandbox" {
-            "sandbox".to_string()
-        } else {
-            status::require_running_server(self.plan.as_ref(), task_id, server_name).await?;
-            format!("{server_name}-server")
-        };
         let sandbox_id = self.sandbox_id_for_task(task_id).await?;
 
-        match pod_reader::stream_container_logs_k8s(
-            &self.k8s,
-            &sandbox_id,
-            &container_name,
-            options,
-        )
-        .await
+        match pod_reader::stream_container_logs_k8s(&self.k8s, &sandbox_id, "sandbox", options)
+            .await
         {
             Ok(stream) => Ok(stream),
             Err(
@@ -1063,7 +1011,7 @@ impl moatless_sandbox_runtime::client::SandboxConnector for K8sSandboxAdapter {
 
 #[async_trait]
 impl core_sandbox::SandboxPortPublisher for K8sSandboxAdapter {
-    /// Script path to the same edge provisioning declared preview servers use.
+    /// Publish a Script's port on the preview edge.
     ///
     /// Refuses a reserved infrastructure port first: routing the preview edge
     /// onto the control plane, gRPC channel, or Docker socket would be a
@@ -1181,12 +1129,12 @@ impl K8sSandboxAdapter {
         }
     }
 
-    /// Recreate the sandbox Service and `IngressRoutes` if they went missing
-    /// while the Deployment lives on.
+    /// Recreate the sandbox Service and preview `NetworkPolicy` if they went
+    /// missing while the Deployment lives on.
     ///
     /// Best-effort: failures are logged, not returned, so provisioning still
     /// proceeds; the notify path surfaces unreachability on its own.
-    async fn heal_network_resources(&self, task_id: &str, plan: &ProvisionPlan) {
+    async fn heal_network_resources(&self, task_id: &str) {
         match service::sandbox_service_exists(&self.k8s, task_id).await {
             Ok(true) => return,
             Ok(false) => {}
@@ -1197,29 +1145,16 @@ impl K8sSandboxAdapter {
         }
         warn!(task_id = %task_id, "Sandbox Service missing for existing Deployment, recreating");
 
-        let server_ports: BTreeMap<String, u16> = pod_builder::admitted_server_ports(
-            pod_builder::build_servers_map(plan, task_id)
-                .into_iter()
-                .collect(),
-            &self.config,
-            task_id,
-        );
-
-        // The plan only knows the *declared* ports. A Script may have published
-        // one against the live sandbox, and its IngressRoute — a separate object
-        // that survived the missing Service — is the only record of it. Union
-        // those back into the Service, or the rebuilt Service drops the port and
-        // the route that outlived it starts pointing at nothing.
+        // A Script's IngressRoute — a separate object that survived the missing
+        // Service — is the only record of its port. Put those back into the
+        // Service, or the route that outlived it starts pointing at nothing.
         //
         // Only into the Service and the policy: those routes still exist, and
         // recreating them under a second name would give Traefik two rules for
         // one hostname.
-        let declared: BTreeSet<u16> = server_ports.values().copied().collect();
         let mut script_ports = BTreeSet::new();
         for port in edge::published_task_ports(&self.k8s, task_id).await {
-            if declared.contains(&port)
-                || is_reserved_sandbox_port(port, self.config.sandbox.grpc_port)
-            {
+            if is_reserved_sandbox_port(port, self.config.sandbox.grpc_port) {
                 continue;
             }
             info!(task_id = %task_id, port, "Preserving dynamically published port across network heal");
@@ -1238,7 +1173,6 @@ impl K8sSandboxAdapter {
         if let Err(e) = service::create_sandbox_service(
             &self.k8s,
             task_id,
-            &server_ports,
             &script_ports,
             self.config.sandbox.grpc_port,
             owner.as_ref(),
@@ -1249,30 +1183,15 @@ impl K8sSandboxAdapter {
             return;
         }
 
-        if self.config.proxy.domain.is_some() {
-            if let Err(e) = ingress::create_task_ingress_routes(
+        // A `NetworkPolicy` admits *pod* ports, and a script port's pod port is
+        // the proxy's. Admitting the script ports themselves would leave every
+        // script preview on the task unanswerable whenever the policy went
+        // missing alongside the Service.
+        if self.config.proxy.domain.is_some() && !script_ports.is_empty() {
+            if let Err(e) = networkpolicy::admit_preview_port(
                 &self.k8s,
                 task_id,
-                &server_ports,
-                &self.config,
-                owner.as_ref(),
-            )
-            .await
-            {
-                warn!(task_id = %task_id, error = %e, "Failed to recreate IngressRoutes");
-            }
-            // A `NetworkPolicy` admits *pod* ports, and a script port's pod port
-            // is the proxy's. Admitting the script ports themselves would leave
-            // every script preview on the task unanswerable whenever the policy
-            // went missing alongside the Service.
-            let mut preview_ports: BTreeSet<u16> = server_ports.values().copied().collect();
-            if !script_ports.is_empty() {
-                preview_ports.insert(SANDBOX_PREVIEW_PROXY_PORT);
-            }
-            if let Err(e) = networkpolicy::create_task_preview_network_policy(
-                &self.k8s,
-                task_id,
-                &preview_ports,
+                SANDBOX_PREVIEW_PROXY_PORT,
                 &self.config,
                 owner.as_ref(),
             )
@@ -1468,7 +1387,7 @@ mod tests {
                 template: PodTemplateSpec {
                     metadata: Some(ObjectMeta {
                         annotations: fingerprint.map(|hash| {
-                            BTreeMap::from([(
+                            std::collections::BTreeMap::from([(
                                 pod_builder::POD_SPEC_HASH_ANNOTATION.to_string(),
                                 hash.to_string(),
                             )])

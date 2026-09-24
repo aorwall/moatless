@@ -37,7 +37,8 @@ export interface TaskBindingSummary {
   /** @nullable */
   sourceName?: string | null;
   /**
-     * Adapter-specific subject key such as `owner/repo#123` for GitHub PR bindings.
+     * Adapter-specific subject key such as `owner/repo#123` for GitHub PR
+     * bindings.
      * @nullable
      */
   subjectKey?: string | null;

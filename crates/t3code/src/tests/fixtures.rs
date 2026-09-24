@@ -139,15 +139,6 @@ impl SandboxObserver for UnreachableSandboxes {
     ) -> Result<moatless_ports::sandbox::SandboxDetail, SandboxError> {
         Err(unreachable(task_id))
     }
-
-    async fn server_logs(
-        &self,
-        task_id: &str,
-        _server_name: &str,
-        _options: LogOptions,
-    ) -> Result<ServerLogStream, SandboxError> {
-        Err(unreachable(task_id))
-    }
 }
 
 struct TestApiKeyIssuer;
@@ -604,11 +595,6 @@ pub(super) fn state_with_attachments(attachments: Arc<dyn ports::AttachmentStore
         workspace_script_commands: Arc::new(ports::MockWorkspaceScriptCommands::new()),
         sandboxes: Arc::new(UnreachableSandboxes),
         snapshots: None,
-        servers: ServersState {
-            observer: Arc::new(UnreachableSandboxes),
-            tasks: Arc::new(MockT3TaskDao::new()),
-            intent: Arc::new(UnreachableSandboxes),
-        },
         scripts: ScriptsState {
             workspaces: Arc::new(MockT3WorkspaceDao::new()),
             ports: Arc::new(UnreachableSandboxes),

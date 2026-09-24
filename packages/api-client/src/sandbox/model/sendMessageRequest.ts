@@ -15,8 +15,9 @@ export interface SendMessageRequest {
   /**
      * Reasoning effort for the turn, in the agent's own vocabulary
      * (`low`/`medium`/`high`/`xhigh`/`max` for Claude,
-     * `minimal`/`low`/`medium`/`high` for Codex). Omit to leave the agent on
-     * its own default.
+     * `minimal`/`low`/`medium`/`high` for Codex).
+     *
+     * Omit to leave the agent on its own default.
      * @nullable
      */
   effort?: string | null;
@@ -32,13 +33,14 @@ export interface SendMessageRequest {
      */
   skills?: string[];
   /**
-     * Task ID of the sender (set automatically when sent from within a sandbox).
+     * Task ID of the sender (set automatically when sent from within a
+     * sandbox).
      * @nullable
      */
   sourceTaskId?: string | null;
   /**
-     * When true, the next agent run starts a fresh session instead of resuming.
-     * Per-message and cleared after send.
+     * When true, the next agent run starts a fresh session instead of
+     * resuming. Per-message and cleared after send.
      * @nullable
      */
   startFresh?: boolean | null;

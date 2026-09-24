@@ -7,14 +7,13 @@
  */
 
 /**
- * Type of a directional link between two tasks. The `from` task points at the
- * `to` task via this relation (e.g. a child `created_by` its parent).
+ * Type of a directional link between two tasks: the `from` task points at
+ * the `to` task via this relation (e.g. a child `created_by` its parent).
  *
- * `CreatedBy` and `ForkedFrom` are both parent edges and both surface the
- * `from` task as a child. They differ in what else follows: only
- * `CreatedBy` closes with its parent and reports its agent errors into the
- * parent's conversation, because a fork is often the work that continued
- * and nobody is waiting on its result.
+ * `CreatedBy` and `ForkedFrom` are both parent edges surfacing `from` as a
+ * child, but only `CreatedBy` closes with its parent and reports agent
+ * errors into the parent's conversation — a fork is often work that
+ * continued with nobody waiting on it.
  */
 export type TaskRelationType = typeof TaskRelationType[keyof typeof TaskRelationType];
 

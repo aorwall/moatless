@@ -34,8 +34,8 @@ use moatless_workspace_types::repository::{GitHostRepo, RepositoryRemote};
 use moatless_workspace_types::schemas::workspace::{
     WorkspaceSyncSkip, WorkspaceSyncSummary, WorkspaceSyncWarning,
 };
+use moatless_workspace_types::workspace::ResourceConfig;
 use moatless_workspace_types::workspace::ScriptConfig;
-use moatless_workspace_types::workspace::{ResourceConfig, ServerConfig};
 
 // =============================================================================
 // `.moatless/` file schemas
@@ -85,7 +85,6 @@ pub struct MoatlessWorkspaceEntry {
     pub docker_image: Option<String>,
     pub docker_access: Option<bool>,
     pub code_execution: Option<CodeExecution>,
-    pub servers: Option<Vec<ServerConfig>>,
     pub scripts: Option<Vec<ScriptConfig>>,
     pub system_prompt: Option<String>,
     pub resources: Option<ResourceConfig>,
@@ -483,7 +482,6 @@ struct RunConfig {
     system_prompt: Option<String>,
     setup_commands: Option<Vec<String>>,
     env_vars: Option<HashMap<String, String>>,
-    servers: Option<Vec<ServerConfig>>,
     scripts: Option<Vec<ScriptConfig>>,
     resources: Option<ResourceConfig>,
 }
@@ -531,7 +529,6 @@ fn run_config_from_entry(entry: &MoatlessWorkspaceEntry) -> RunConfig {
             .as_ref()
             .and_then(|c| c.setup_commands.clone()),
         env_vars: entry.env_vars.clone(),
-        servers: entry.servers.clone(),
         scripts: entry.scripts.clone(),
         resources: entry.resources.clone(),
     }
@@ -604,7 +601,6 @@ impl GitSyncService {
                     system_prompt: desired.run.system_prompt.clone(),
                     setup_commands: desired.run.setup_commands.clone(),
                     env_vars: desired.run.env_vars.clone(),
-                    servers: desired.run.servers.clone(),
                     scripts: desired.run.scripts.clone(),
                     resources: desired.run.resources.clone(),
                     network_profile: desired.run.network_profile.clone(),
@@ -653,7 +649,6 @@ impl GitSyncService {
             system_prompt: Some(desired.run.system_prompt.clone()),
             setup_commands: Some(desired.run.setup_commands.clone()),
             env_vars: Some(desired.run.env_vars.clone()),
-            servers: Some(desired.run.servers.clone()),
             scripts: Some(desired.run.scripts.clone()),
             resources: Some(desired.run.resources.clone()),
             network_profile: Some(desired.run.network_profile.clone()),
@@ -1069,7 +1064,7 @@ mod tests {
                     ],
                     "dockerImage": "acme/sandbox:latest",
                     "codeExecution": { "setupCommands": ["bun install"] },
-                    "servers": [{ "name": "dev", "port": 3000, "default": true }],
+                    "scripts": [{ "name": "dev", "command": "bun dev", "port": 3000 }],
                     "envVars": { "LOG_LEVEL": "debug" },
                     "networkProfile": "sealed"
                 },
@@ -1154,7 +1149,7 @@ mod tests {
         let json = r#"{
             "//": "the shadow workspace",
             "workspaces": [{
-                "//1": "runs two servers",
+                "//1": "runs two scripts",
                 "name": "Frontend",
                 "repos": [{ "url": "https://github.com/acme/web", "mountName": "web" }],
                 "codeExecution": { "setupCommands": ["bun install"] },

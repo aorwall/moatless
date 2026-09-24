@@ -2,8 +2,7 @@
 //! rebuild is needed, and the generation stamped on it.
 
 use super::containers::{
-    build_dind_container, build_sandbox_container, build_server_containers, docker_access_enabled,
-    validate_compute_mode,
+    build_dind_container, build_sandbox_container, docker_access_enabled, validate_compute_mode,
 };
 use super::env::{chrono_now_iso, redact_url_userinfo};
 use super::placement::{
@@ -15,7 +14,7 @@ use super::*;
 
 /// Build a complete Pod spec from config + plan (no template).
 ///
-/// Generates the sandbox container, dynamic server containers, volumes, probes,
+/// Generates the sandbox container, volumes, probes,
 /// and security contexts entirely in code.
 pub fn build_pod(
     config: &Config,
@@ -81,14 +80,14 @@ pub fn build_pod(
     // `/opt/moatless` (the workspace) is backed by the `workspace-data` volume:
     // a per-task PVC when the `pvc` switch is on, a node-local emptyDir when it
     // is off. Either way it is a single
-    // volume shared across the sandbox and server containers, with `/tmp` served
+    // volume shared by the pod's containers, with `/tmp` served
     // from its `tmp` subPath so `/tmp` never charges against the pod's memory
     // budget.
     let mut volumes = vec![
         Volume {
             name: "shared-data".to_string(),
             empty_dir: Some(EmptyDirVolumeSource {
-                // Bound the shared `/opt/moatless/data` emptyDir so server
+                // Bound the shared `/opt/moatless/data` emptyDir so
                 // artifacts/logs can't grow unbounded and evict the node.
                 size_limit: Some(Quantity(config.sandbox.shared_data_size.clone())),
                 ..Default::default()
@@ -137,9 +136,6 @@ pub fn build_pod(
     // ── Sandbox container ───────────────────────────────────────────
     let sandbox_container = build_sandbox_container(config, task_id, plan, tokens, pvc_name)?;
 
-    // ── Server containers ───────────────────────────────────────────
-    let server_containers = build_server_containers(config, task_id, plan)?;
-
     // ── Docker-in-Docker sidecar (opt-in via repo config `dockerAccess`) ──
     //
     // When a repo opts in, attach a privileged `docker:dind` sidecar. It shares
@@ -175,7 +171,6 @@ pub fn build_pod(
 
     // ── Assemble Pod ────────────────────────────────────────────────
     let mut all_containers = vec![sandbox_container];
-    all_containers.extend(server_containers);
     if docker_access {
         all_containers.push(build_dind_container(config));
     }
@@ -252,16 +247,10 @@ pub fn build_pod(
         .get_or_insert_with(BTreeMap::new)
         .insert(POD_SPEC_HASH_ANNOTATION.to_string(), fingerprint);
 
-    let server_count = plan
-        .repo_config
-        .servers
-        .as_ref()
-        .map_or(0, std::vec::Vec::len);
     info!(
         task_id,
         pod_name = %pod_name,
         namespace = %namespace,
-        server_count,
         "Pod spec built (code-generated)"
     );
     debug!(

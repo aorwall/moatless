@@ -13,7 +13,7 @@ moat tasks status <task-id> --json
 moat tasks get <task-id> --json
 moat events list <task-id> --errors
 moat messages list <task-id> --full
-moat tasks logs <task-id> --server sandbox --no-follow --tail 500
+moat tasks logs <task-id> --no-follow --tail 500
 ```
 
 `diagnose` describes current health; events and messages explain what happened
@@ -35,8 +35,7 @@ Choose the next read from the symptom:
 - [Metrics](references/metrics.md): fleet health and adapter delivery.
 - [Code map](references/code-map.md): source owners for ambiguous classifications.
 
-Use [preview-servers](../preview-servers/SKILL.md) for a failed server and
-[E2E testing](../e2e-testing/SKILL.md) for reproducible smoke verification.
+Use [E2E testing](../e2e-testing/SKILL.md) for reproducible smoke verification.
 Capture evidence before you destroy a failed pod, and check the other members
 first. Restarting the sandbox running your own investigation ends the current
 turn: `moat tasks restart $TASK_ID --yes` replaces the pod and wakes you with a

@@ -11,17 +11,15 @@ use bollard::models::{
 };
 use bollard::query_parameters::{
     CreateContainerOptionsBuilder, ListContainersOptionsBuilder, RemoveContainerOptionsBuilder,
-    RestartContainerOptionsBuilder, StartContainerOptions, StopContainerOptionsBuilder,
+    StartContainerOptions, StopContainerOptionsBuilder,
 };
 use futures::stream::BoxStream;
 use std::sync::Arc;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 
 use super::client::DockerClient;
 use super::container_builder;
-use super::naming::{
-    generate_container_name, generate_server_container_name, generate_task_host_path,
-};
+use super::naming::{generate_container_name, generate_task_host_path};
 use super::status_resolver::DockerStatusResolver;
 use moatless_core::config::Config;
 use moatless_core::sandbox_jwt as jwt;
@@ -31,7 +29,7 @@ use moatless_sandbox_control::status;
 use moatless_sandbox_runtime::client::SandboxClient;
 use moatless_sandbox_runtime::error::SandboxError;
 use moatless_sandbox_runtime::operation::{ObservedStatus, RuntimeEffect};
-use moatless_sandbox_runtime::outcome::{DegradationWarning, Diagnostics, ServerFailure};
+use moatless_sandbox_runtime::outcome::{DegradationWarning, Diagnostics};
 use moatless_sandbox_runtime::provisioning::ProvisionRequest;
 use moatless_sandbox_runtime::runtime::{
     RuntimeOperationContext, RuntimeOutcome, SandboxRuntime, map_sandbox_error,
@@ -39,7 +37,6 @@ use moatless_sandbox_runtime::runtime::{
 use moatless_sandbox_runtime::schemas::*;
 use moatless_sandbox_runtime::status_reader::SandboxStatusReader;
 use moatless_types::sandbox::ArchiveRetention;
-use moatless_workspace_types::workspace::ServerConfig;
 
 /// Docker adapter for lifecycle mutation, observation, and connection.
 pub struct DockerSandboxAdapter {
@@ -175,7 +172,7 @@ impl DockerSandboxAdapter {
                     });
                 }
 
-                // Tag changed — remove the stale container (and its servers) and
+                // Tag changed — remove the stale container and
                 // fall through to recreate from the fresh plan with the new image.
                 info!(
                     task_id = %task_id,
@@ -186,7 +183,6 @@ impl DockerSandboxAdapter {
                 self.force_remove_container(&container_name).await?;
                 self.ensure_container_absent(&container_name, task_id)
                     .await?;
-                self.remove_server_containers(task_id).await?;
             }
             ExistingContainerResult::NotFound => {} // Continue provisioning
         }
@@ -323,51 +319,6 @@ impl DockerSandboxAdapter {
             }
         }
 
-        // 7. Create and start server sidecar containers. Secrets are
-        //    materialized to `/opt/moatless/data/server.env` by the sandbox
-        //    init after it fetches them via gRPC `GetCredentials`.
-        if let Some(ref servers) = plan.repo_config.servers {
-            let sandbox_image: &str = plan
-                .repo_config
-                .docker_image
-                .as_deref()
-                .filter(|s| !s.is_empty())
-                .unwrap_or(&self.config.docker.image);
-            for server in servers {
-                let port = match container_builder::validate_server_config(server) {
-                    Ok(port) => port,
-                    Err(message) => {
-                        error!(
-                            task_id = %task_id,
-                            server = %server.name,
-                            "Invalid server config: {message}"
-                        );
-                        diagnostics.server_failures.push(ServerFailure {
-                            server: server.name.clone(),
-                            message,
-                        });
-                        continue;
-                    }
-                };
-                if let Err(e) = self
-                    .create_and_start_server_container(task_id, server, port, sandbox_image)
-                    .await
-                {
-                    let msg = format!("Failed to create server container: {e}");
-                    error!(
-                        task_id = %task_id,
-                        server = %server.name,
-                        error = %e,
-                        "Failed to create server container"
-                    );
-                    diagnostics.server_failures.push(ServerFailure {
-                        server: server.name.clone(),
-                        message: msg,
-                    });
-                }
-            }
-        }
-
         Ok(RuntimeOutcome {
             observed: ObservedStatus::Ready,
             effect: RuntimeEffect::Applied,
@@ -396,9 +347,6 @@ impl SandboxRuntime for DockerSandboxAdapter {
         _ctx: RuntimeOperationContext,
     ) -> Result<RuntimeOutcome, moatless_sandbox_runtime::runtime::RuntimeError> {
         info!(task_id = %task_id, "Stopping Docker sandbox");
-
-        // Stop server containers first
-        self.stop_server_containers(task_id).await;
 
         let container_name = generate_container_name(task_id);
         let effect = match self
@@ -505,10 +453,6 @@ impl SandboxRuntime for DockerSandboxAdapter {
                 })
             })?;
 
-        // Server containers are subordinate resources; their lifecycle events
-        // are excluded from sandbox observation.
-        self.restart_server_containers(task_id).await;
-
         Ok(RuntimeOutcome::applied(ObservedStatus::Ready))
     }
 
@@ -521,9 +465,7 @@ impl SandboxRuntime for DockerSandboxAdapter {
         let plan = self.require_plan()?;
         let request = plan.build_request(task_id).await?;
 
-        // A redeploy must cross a clean edge: stale subordinate containers can
-        // otherwise survive with obsolete server configuration.
-        self.remove_server_containers(task_id)
+        self.remove_legacy_server_containers(task_id)
             .await
             .map_err(map_sandbox_error)?;
 
@@ -550,19 +492,15 @@ impl SandboxRuntime for DockerSandboxAdapter {
     ) -> Result<RuntimeOutcome, moatless_sandbox_runtime::runtime::RuntimeError> {
         info!(task_id = %task_id, "Cleaning up Docker sandbox");
         let container_name = generate_container_name(task_id);
-        let server_containers = self
-            .list_server_container_names(task_id)
+        let had_legacy_servers = self
+            .remove_legacy_server_containers(task_id)
             .await
             .map_err(map_sandbox_error)?;
         let had_runtime = self
             .container_exists(&container_name)
             .await
             .map_err(map_sandbox_error)?
-            || !server_containers.is_empty();
-
-        self.remove_named_server_containers(task_id, server_containers)
-            .await
-            .map_err(map_sandbox_error)?;
+            || had_legacy_servers;
 
         // Load-bearing: strict removal must not report success while the sandbox
         // container lingers — a propagated error withholds lifecycle's `Removed`
@@ -572,18 +510,6 @@ impl SandboxRuntime for DockerSandboxAdapter {
             .map_err(map_sandbox_error)?;
         self.ensure_container_absent_runtime(&container_name, task_id)
             .await?;
-        if !self
-            .list_server_container_names(task_id)
-            .await
-            .map_err(map_sandbox_error)?
-            .is_empty()
-        {
-            return Err(
-                moatless_sandbox_runtime::runtime::RuntimeError::Infrastructure(format!(
-                    "Docker resources for task {task_id} remain after removal"
-                )),
-            );
-        }
         if !retention.retains() {
             apply_disk_archive_retention(
                 &self.config.docker.container_data_dir,
@@ -662,14 +588,13 @@ impl SandboxStatusReader for DockerSandboxAdapter {
         .await
     }
 
-    async fn server_logs(
+    async fn sandbox_logs(
         &self,
         _task_id: &str,
-        _server_name: &str,
         _options: moatless_sandbox_runtime::access::LogOptions,
     ) -> Result<BoxStream<'static, Result<String, SandboxError>>, SandboxError> {
         Err(SandboxError::NotReady(
-            "Server logs not available in Docker mode".to_string(),
+            "Sandbox logs are not available in Docker mode".to_string(),
         ))
     }
 }
@@ -823,101 +748,47 @@ impl DockerSandboxAdapter {
         }
     }
 
-    /// Create and start a server sidecar container.
-    async fn create_and_start_server_container(
-        &self,
-        task_id: &str,
-        server: &ServerConfig,
-        port: u16,
-        sandbox_image: &str,
-    ) -> Result<(), SandboxError> {
-        let server_container_name = generate_server_container_name(task_id, &server.name);
-
-        // Check if it already exists
-        match self.check_existing_container(&server_container_name).await {
-            ExistingContainerResult::Running => {
-                info!(task_id = %task_id, server = %server.name, "Reusing existing server container");
-                return Ok(());
-            }
-            ExistingContainerResult::Exists { .. } => {
-                info!(task_id = %task_id, server = %server.name, "Starting existing server container");
-                self.client
-                    .docker
-                    .start_container(&server_container_name, None::<StartContainerOptions>)
-                    .await
-                    .map_err(|source| SandboxError::Docker {
-                        operation: "starting an existing server container",
-                        source: Box::new(source),
-                    })?;
-                return Ok(());
-            }
-            ExistingContainerResult::NotFound => {}
+    /// Force-remove the task's preview server containers, which releases before
+    /// Scripts created with an `unless-stopped` policy and host ports. Returns
+    /// whether any existed; errors if one survives removal.
+    async fn remove_legacy_server_containers(&self, task_id: &str) -> Result<bool, SandboxError> {
+        let names = self.list_legacy_server_container_names(task_id).await?;
+        if names.is_empty() {
+            return Ok(false);
         }
-
-        let server_config = container_builder::build_server_container_config(
-            &self.config,
-            task_id,
-            server,
-            port,
-            sandbox_image,
-        );
-
-        self.client
-            .docker
-            .create_container(
-                Some(
-                    CreateContainerOptionsBuilder::new()
-                        .name(&server_container_name)
-                        .build(),
-                ),
-                server_config,
-            )
-            .await
-            .map_err(|source| SandboxError::Docker {
-                operation: "creating a server container",
-                source: Box::new(source),
-            })?;
-
-        self.client
-            .docker
-            .start_container(&server_container_name, None::<StartContainerOptions>)
-            .await
-            .map_err(|source| SandboxError::Docker {
-                operation: "starting a server container",
-                source: Box::new(source),
-            })?;
-
-        info!(
-            task_id = %task_id,
-            server = %server.name,
-            container = %server_container_name,
-            "Server container created and started"
-        );
-
-        Ok(())
+        for name in &names {
+            self.force_remove_container(name).await?;
+        }
+        if self
+            .list_legacy_server_container_names(task_id)
+            .await?
+            .is_empty()
+        {
+            Ok(true)
+        } else {
+            Err(SandboxError::DockerError(format!(
+                "server containers for task {task_id} remain after removal"
+            )))
+        }
     }
 
-    /// List all server container names for a task by label.
-    async fn list_server_container_names(
+    async fn list_legacy_server_container_names(
         &self,
         task_id: &str,
     ) -> Result<Vec<String>, SandboxError> {
-        use std::collections::HashMap;
-
-        let mut filters = HashMap::new();
-        filters.insert(
+        let filters = std::collections::HashMap::from([(
             "label".to_string(),
             vec![
                 format!("moatless.io/task-id={task_id}"),
                 format!(
                     "{}={}",
                     container_builder::SERVICE_LABEL,
-                    container_builder::SERVER_SERVICE
+                    container_builder::LEGACY_SERVER_SERVICE
                 ),
             ],
-        );
-
-        self.client
+        )]);
+        let containers = self
+            .client
             .docker
             .list_containers(Some(
                 ListContainersOptionsBuilder::new()
@@ -926,99 +797,15 @@ impl DockerSandboxAdapter {
                     .build(),
             ))
             .await
-            .map(|containers| {
-                containers
-                    .into_iter()
-                    .filter_map(|c| {
-                        c.names
-                            .and_then(|names| names.into_iter().next())
-                            .map(|name| name.trim_start_matches('/').to_string())
-                    })
-                    .collect()
-            })
             .map_err(|source| SandboxError::Docker {
                 operation: "listing server containers",
                 source: Box::new(source),
-            })
-    }
-
-    /// Stop all server containers for a task.
-    async fn stop_server_containers(&self, task_id: &str) {
-        let names = match self.list_server_container_names(task_id).await {
-            Ok(names) => names,
-            Err(e) => {
-                warn!(task_id, error = %e, "Cannot stop server containers after list failure");
-                return;
-            }
-        };
-        for name in names {
-            if let Err(e) = self
-                .client
-                .docker
-                .stop_container(
-                    &name,
-                    Some(StopContainerOptionsBuilder::new().t(10).build()),
-                )
-                .await
-            {
-                if !matches!(
-                    e,
-                    bollard::errors::Error::DockerResponseServerError {
-                        status_code: 304 | 404,
-                        ..
-                    }
-                ) {
-                    warn!(task_id = %task_id, container = %name, error = %e, "Failed to stop server container");
-                }
-            }
-        }
-    }
-
-    /// Restart all server containers for a task.
-    async fn restart_server_containers(&self, task_id: &str) {
-        let names = match self.list_server_container_names(task_id).await {
-            Ok(names) => names,
-            Err(e) => {
-                warn!(task_id, error = %e, "Cannot restart server containers after list failure");
-                return;
-            }
-        };
-        for name in names {
-            if let Err(e) = self
-                .client
-                .docker
-                .restart_container(
-                    &name,
-                    Some(RestartContainerOptionsBuilder::new().t(10).build()),
-                )
-                .await
-            {
-                warn!(task_id = %task_id, container = %name, error = %e, "Failed to restart server container");
-            }
-        }
-    }
-
-    /// Force-remove all server containers and verify their label set is empty.
-    async fn remove_server_containers(&self, task_id: &str) -> Result<(), SandboxError> {
-        let names = self.list_server_container_names(task_id).await?;
-        self.remove_named_server_containers(task_id, names).await
-    }
-
-    async fn remove_named_server_containers(
-        &self,
-        task_id: &str,
-        names: Vec<String>,
-    ) -> Result<(), SandboxError> {
-        for name in names {
-            self.force_remove_container(&name).await?;
-        }
-        if self.list_server_container_names(task_id).await?.is_empty() {
-            Ok(())
-        } else {
-            Err(SandboxError::DockerError(format!(
-                "server containers for task {task_id} remain after removal"
-            )))
-        }
+            })?;
+        Ok(containers
+            .into_iter()
+            .filter_map(|c| c.names?.into_iter().next())
+            .map(|name| name.trim_start_matches('/').to_string())
+            .collect())
     }
 
     /// Force-remove a container. `Ok` on success or when it is already gone

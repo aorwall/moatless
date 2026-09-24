@@ -16,7 +16,10 @@ export interface AdapterSendResponse {
      * @nullable
      */
   bindingId?: string | null;
-  /** Adapter-specific external message ID (e.g. Slack `ts`, Linear comment ID). */
+  /**
+     * Adapter-specific external message ID (e.g. Slack `ts`, Linear comment
+     * ID).
+     */
   externalId: string;
   /**
      * Binding `subject_kind` produced by the adapter (e.g. `slack_thread`,

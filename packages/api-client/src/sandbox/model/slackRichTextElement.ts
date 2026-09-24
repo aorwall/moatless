@@ -20,4 +20,7 @@ export type SlackRichTextElement = {
   text?: string | null;
   type: 'link';
   url: string;
+} | {
+  type: 'user';
+  user_id: string;
 };

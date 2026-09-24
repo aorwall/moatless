@@ -139,19 +139,6 @@ pub(super) fn format_sandbox_status(status: &SandboxStatusFullResponse) {
         .map_or_else(|| "n/a".to_string(), |value| value.to_string());
     println!("Agent:       {agent_status}");
 
-    if !status.servers.is_empty() {
-        println!("\nServers:");
-        for s in &status.servers {
-            println!("  {}: {} (port {})", s.name, s.status, s.port);
-            if let Some(ref err) = s.error {
-                println!("    Error:  {err}");
-            }
-            if let Some(ref detail) = s.detail {
-                println!("    Detail: {detail}");
-            }
-        }
-    }
-
     format_container_diagnostics_json(None);
 }
 
@@ -228,8 +215,7 @@ pub(super) async fn run_diagnose(
     let status = client.raw_get(&status_path).await?;
 
     // Fetch recent error events
-    let events_path =
-        format!("/api/v1/tasks/{task_id}/events/history?limit={limit}&types=sandbox,server");
+    let events_path = format!("/api/v1/tasks/{task_id}/events/history?limit={limit}&types=sandbox");
     let events_resp = client.raw_get(&events_path).await;
 
     if json {
@@ -306,34 +292,6 @@ pub(super) async fn run_diagnose(
                 let ts = if ts.len() > 19 { &ts[..19] } else { ts };
                 let sev_tag = if severity == "warning" { " [WARN]" } else { "" };
                 println!("  {ts}  {reason}{sev_tag} (x{count})  {message}");
-            }
-        }
-    }
-
-    // Servers section
-    if let Some(servers) = status.get("servers").and_then(serde_json::Value::as_array) {
-        if !servers.is_empty() {
-            println!("\nServers:");
-            for s in servers {
-                let name = s
-                    .get("name")
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or("?");
-                let srv_status = s
-                    .get("status")
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or("?");
-                let port = s
-                    .get("port")
-                    .and_then(serde_json::Value::as_u64)
-                    .unwrap_or(0);
-                println!("  {name}: {srv_status} (port {port})");
-                if let Some(err) = s.get("error").and_then(serde_json::Value::as_str) {
-                    println!("    Error: {err}");
-                }
-                if let Some(detail) = s.get("detail").and_then(serde_json::Value::as_str) {
-                    println!("    Detail: {detail}");
-                }
             }
         }
     }

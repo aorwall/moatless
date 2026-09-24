@@ -12,5 +12,4 @@ pub(crate) mod fetch;
 pub(crate) mod gh_hosts;
 pub(crate) mod refresher;
 pub(crate) mod retry;
-pub(crate) mod server_env;
 pub(crate) mod ssh;

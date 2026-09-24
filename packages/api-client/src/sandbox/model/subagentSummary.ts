@@ -8,10 +8,11 @@
 import type { SubagentStatus } from './subagentStatus';
 
 /**
- * Derived aggregate metadata for a spawned subagent, carried on the `Agent`
- * tool-use content block. Not content — the collapsed `Agent` card renders as
- * a pure read of this. Shared shape between the read path and the live
- * `subagentProgress` event (absolute values).
+ * Derived aggregate metadata for a spawned subagent.
+ *
+ * Carried on the `Agent` tool-use content block, not as content; shared shape
+ * between the read path and the live `subagentProgress` event (absolute
+ * values).
  */
 export interface SubagentSummary {
   /**
@@ -22,7 +23,8 @@ export interface SubagentSummary {
   messageCount: number;
   status: SubagentStatus;
   /**
-     * `SUM(input_tokens + output_tokens)` across the subagent's assistant rows.
+     * `SUM(input_tokens + output_tokens)` across the subagent's assistant
+     * rows.
      * @minimum 0
      */
   tokens: number;

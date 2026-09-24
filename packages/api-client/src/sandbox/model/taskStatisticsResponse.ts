@@ -26,13 +26,9 @@ export interface TaskStatisticsResponse {
   /**
      * Whether this Task has a tool-call record at all.
      *
-     * A Task that ran before tool calls were stored as their own rows has none,
-     * and an empty `tool_calls` from that Task means "not recorded", not "made
-     * no calls". The client has to be able to tell those apart — reporting zero
-     * is a wrong answer, not a missing one.
-     *
-     * Defaults to `true` so a client reading an older response, or a response
-     * from a deployment that predates the field, is not told every Task is
+     * An empty `tool_calls` from a Task older than this storage means "not
+     * recorded", not "made no calls" — the client must tell those apart.
+     * Defaults to `true` so older or pre-field responses aren't read as
      * unrecorded.
      */
   toolCallsAvailable?: boolean;

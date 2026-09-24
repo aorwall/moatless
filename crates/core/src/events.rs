@@ -10,9 +10,7 @@ use crate::change_feed::events as feed;
 use async_trait::async_trait;
 use moatless_types::agent::AgentSubType;
 use moatless_types::event::{EventType, StreamEvent, SubType};
-use moatless_types::sandbox::{
-    SandboxEventPayload, SandboxStatus, ServerEventPayload, ServerSubType,
-};
+use moatless_types::sandbox::{SandboxEventPayload, SandboxStatus};
 use moatless_types::task::{TaskSubType, TaskTurnSubType};
 use sqlx::PgPool;
 use tracing::{debug, warn};
@@ -89,14 +87,6 @@ pub trait EventPublisher: Send + Sync {
         task_id: &str,
         sub_type: SandboxStatus,
         payload: &SandboxEventPayload,
-    );
-
-    /// Publish a server container event.
-    async fn publish_server_event(
-        &self,
-        task_id: &str,
-        sub_type: ServerSubType,
-        payload: &ServerEventPayload,
     );
 
     /// Publish a task lifecycle event (e.g. "open", "closed").
@@ -341,24 +331,6 @@ impl EventPublisher for FeedEventPublisher {
         .await;
     }
 
-    async fn publish_server_event(
-        &self,
-        task_id: &str,
-        sub_type: ServerSubType,
-        payload: &ServerEventPayload,
-    ) {
-        let payload_value = serde_json::to_value(payload).unwrap_or_default();
-        self.publish_event_typed(
-            task_id,
-            EventType::Server,
-            sub_type.into(),
-            None,
-            None,
-            payload_value,
-        )
-        .await;
-    }
-
     async fn publish_task_event(
         &self,
         task_id: &str,
@@ -496,7 +468,7 @@ mod tests {
     fn the_error_flag_follows_the_sub_type_and_nothing_else() {
         assert!(!envelope("agent", "message").expect("known").is_error);
         assert!(envelope("agent", "error").expect("known").is_error);
-        assert!(envelope("server", "failed").expect("known").is_error);
+        assert!(envelope("sandbox", "failed").expect("known").is_error);
     }
 
     #[test]

@@ -31,9 +31,7 @@ use moatless_tasks::agent_event::AgentEvent;
 use moatless_tasks::compose::TaskGraph;
 use moatless_tasks::task::test_support as task_fixtures;
 use moatless_types::agent::AgentSubType;
-use moatless_types::sandbox::{
-    SandboxEventPayload, SandboxStatus, ServerEventPayload, ServerSubType,
-};
+use moatless_types::sandbox::{SandboxEventPayload, SandboxStatus};
 use moatless_types::task::{TaskSubType, TaskTurnSubType};
 use moatless_workspaces::compose;
 use sandbox_proto::PublishEventRequest;
@@ -76,7 +74,6 @@ impl EventPublisher for FakeTransport {
         _: &SandboxEventPayload,
     ) {
     }
-    async fn publish_server_event(&self, _: &str, _: ServerSubType, _: &ServerEventPayload) {}
     async fn publish_task_event(&self, _: &str, _: TaskSubType, _: Option<&str>, _: Value) {}
     async fn publish_agent_event(&self, _: &str, _: AgentSubType, _: Option<&str>, _: Value) {}
     async fn publish_task_turn_event(

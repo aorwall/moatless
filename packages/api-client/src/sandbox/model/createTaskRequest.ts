@@ -22,8 +22,9 @@ export interface CreateTaskRequest {
   /**
      * Reasoning effort for the first turn, in the agent's own vocabulary
      * (`low`/`medium`/`high`/`xhigh`/`max` for Claude,
-     * `minimal`/`low`/`medium`/`high` for Codex). Omit to leave the agent on
-     * its own default.
+     * `minimal`/`low`/`medium`/`high` for Codex).
+     *
+     * Omit to leave the agent on its own default.
      * @nullable
      */
   effort?: string | null;
@@ -57,7 +58,8 @@ export interface CreateTaskRequest {
   sandboxId?: string | null;
   /**
      * Skills to activate for the first turn. Names only — the sandbox resolves
-     * each one's `SKILL.md` on disk and frontloads its body ahead of the message.
+     * each one's `SKILL.md` on disk and frontloads its body ahead of the
+     * message.
      */
   skills?: string[];
   /**

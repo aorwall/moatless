@@ -4,7 +4,7 @@ use super::models::{UpdateOutcome, WorkspacePatch};
 use super::models::{Workspace, WorkspaceKind, WorkspaceRepo, WorkspaceSource};
 use super::schemas::{
     AddRepoRequest, CreateWorkspaceRequest, UpdateWorkspaceRequest, WorkspaceRepoInput,
-    resource_config_from_wire, script_configs_from_wire, server_configs_from_wire,
+    resource_config_from_wire, script_configs_from_wire,
 };
 use crate::repository::dao::RepositoryDao;
 use crate::repository::error::RepositoryError;
@@ -207,7 +207,6 @@ pub async fn create_workspace(
         system_prompt: req.system_prompt,
         setup_commands: req.setup_commands,
         env_vars: req.env_vars,
-        servers: req.servers.map(server_configs_from_wire).transpose()?,
         scripts: req.scripts.map(script_configs_from_wire),
         resources: req.resources.map(resource_config_from_wire).transpose()?,
         network_profile: req.network_profile,
@@ -320,10 +319,6 @@ pub async fn update_workspace(
         system_prompt: req.system_prompt.map(Some),
         setup_commands: req.setup_commands.map(Some),
         env_vars: req.env_vars.map(Some),
-        servers: req
-            .servers
-            .map(|configs| server_configs_from_wire(configs).map(Some))
-            .transpose()?,
         scripts: req
             .scripts
             .map(|configs| Some(script_configs_from_wire(configs))),
@@ -391,10 +386,6 @@ pub async fn override_workspace(
         system_prompt: req.system_prompt.map(Some),
         setup_commands: req.setup_commands.map(Some),
         env_vars: req.env_vars.map(Some),
-        servers: req
-            .servers
-            .map(|configs| server_configs_from_wire(configs).map(Some))
-            .transpose()?,
         scripts: req
             .scripts
             .map(|configs| Some(script_configs_from_wire(configs))),
@@ -656,7 +647,6 @@ mod tests {
             system_prompt: None,
             setup_commands: None,
             env_vars: None,
-            servers: None,
             scripts: None,
             resources: None,
             network_profile: None,

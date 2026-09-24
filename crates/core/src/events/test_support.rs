@@ -20,9 +20,7 @@ use async_trait::async_trait;
 use serde_json::Value;
 
 use moatless_types::agent::AgentSubType;
-use moatless_types::sandbox::{
-    SandboxEventPayload, SandboxStatus, ServerEventPayload, ServerSubType,
-};
+use moatless_types::sandbox::{SandboxEventPayload, SandboxStatus};
 use moatless_types::task::{TaskSubType, TaskTurnSubType};
 
 use crate::events::{EventPublisher, PublishError};
@@ -34,7 +32,6 @@ pub enum RecordedEvent {
     Task(TaskSubType),
     Agent(AgentSubType),
     TaskTurn(TaskTurnSubType),
-    Server(ServerSubType),
     /// A raw event (`publish_raw_event` / `publish_raw_event_with_id`).
     Raw,
 }
@@ -150,9 +147,6 @@ impl EventPublisher for RecordingPublisher {
         _: &SandboxEventPayload,
     ) {
         self.push(RecordedEvent::Sandbox(sub_type));
-    }
-    async fn publish_server_event(&self, _: &str, sub_type: ServerSubType, _: &ServerEventPayload) {
-        self.push(RecordedEvent::Server(sub_type));
     }
     async fn publish_task_event(
         &self,

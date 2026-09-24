@@ -38,14 +38,14 @@ pub fn generate_service_name(task_id: &str) -> String {
     truncate_k8s(format!("moatless-ws-{sanitized}"))
 }
 
-/// Sanitizes `server_name` and truncates the combined name to fit K8s limits.
+/// Sanitizes `route_key` and truncates the combined name to fit K8s limits.
 ///
 /// User-supplied and possibly multi-byte, so it's run through
 /// [`sanitize_k8s_name`] first; truncated char-safely to 63 chars (a byte
 /// slice would panic mid-character) with any trailing `-` trimmed.
-pub(crate) fn generate_ingress_route_name(service_name: &str, server_name: &str) -> String {
-    let sanitized_server = sanitize_k8s_name(server_name, 63);
-    let combined = format!("{service_name}-{sanitized_server}");
+pub(crate) fn generate_ingress_route_name(service_name: &str, route_key: &str) -> String {
+    let sanitized_key = sanitize_k8s_name(route_key, 63);
+    let combined = format!("{service_name}-{sanitized_key}");
     let truncated: String = combined.chars().take(63).collect();
     truncated.trim_end_matches('-').to_string()
 }
@@ -138,7 +138,7 @@ mod tests {
             generate_ingress_route_name(&svc, "preview"),
             "moatless-ws-task-123-preview"
         );
-        // User-supplied server names are sanitized (uppercase/underscore → dash).
+        // User-supplied names are sanitized (uppercase/underscore → dash).
         assert_eq!(
             generate_ingress_route_name(&svc, "My_Server"),
             "moatless-ws-task-123-my-server"
@@ -147,7 +147,7 @@ mod tests {
 
     #[test]
     fn test_generate_ingress_route_name_multibyte_is_char_safe() {
-        // A multi-byte UTF-8 server name must not panic and must yield a valid,
+        // A multi-byte UTF-8 name must not panic and must yield a valid,
         // ASCII-only name (a byte slice at 63 would have panicked here).
         let svc = generate_service_name("t");
         let name = generate_ingress_route_name(&svc, &"é".repeat(80));

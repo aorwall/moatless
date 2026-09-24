@@ -34,14 +34,10 @@ import type {
   LiveStatus,
   ProvisionResponse,
   ReadFileHandlerParams,
+  SandboxLogsHandlerParams,
   SandboxStatusFullResponse,
   SearchByNameRequest,
   SearchByNameResponse,
-  ServerConfigResponse,
-  ServerLogsHandlerParams,
-  ServerOverridesResponse,
-  ServerStatusResponse,
-  UpdateServerConfigRequest,
   WriteFileRequestBody
 } from '../model';
 
@@ -625,7 +621,8 @@ export const getFileTreeHandlerUrl = (taskId: string,
 }
 
 /**
- * @summary See `sandbox::files::tree::get_file_tree_with_changes` for the file-tree contract.
+ * @summary See `sandbox::files::tree::get_file_tree_with_changes` for the file-tree
+contract.
  */
 export const fileTreeHandler = async (taskId: string,
     params?: FileTreeHandlerParams, options?: Parameters<typeof customInstance>[1]): Promise<fileTreeHandlerResponse> => {
@@ -678,7 +675,8 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type FileTreeHandlerMutationVariables = {taskId: string;params?: FileTreeHandlerParams}
 
     /**
- * @summary See `sandbox::files::tree::get_file_tree_with_changes` for the file-tree contract.
+ * @summary See `sandbox::files::tree::get_file_tree_with_changes` for the file-tree
+contract.
  */
 export const useFileTreeHandler = <TError = ErrorType<ErrorBody>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof fileTreeHandler>>, TError,FileTreeHandlerMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
@@ -939,6 +937,110 @@ export const useLiveStatusHandler = <TError = ErrorType<ErrorBody>,
       > => {
       return useMutation(getLiveStatusHandlerMutationOptions(options), queryClient);
     }
+    export type sandboxLogsHandlerResponse200 = {
+  data: void
+  status: 200
+}
+
+export type sandboxLogsHandlerResponse500 = {
+  data: ErrorBody
+  status: 500
+}
+
+export type sandboxLogsHandlerResponseSuccess = (sandboxLogsHandlerResponse200) & {
+  headers: Headers;
+};
+export type sandboxLogsHandlerResponseError = (sandboxLogsHandlerResponse500) & {
+  headers: Headers;
+};
+
+export type sandboxLogsHandlerResponse = (sandboxLogsHandlerResponseSuccess | sandboxLogsHandlerResponseError)
+
+export const getSandboxLogsHandlerUrl = (taskId: string,
+    params: SandboxLogsHandlerParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/sandbox/v1/tasks/${taskId}/logs?${stringifiedParams}` : `/api/sandbox/v1/tasks/${taskId}/logs`
+}
+
+/**
+ * `?previous=true` fetches logs from a crashed/restarted container;
+ * `?follow=false` ends the stream after the buffered lines instead of
+ * waiting for more. OpenAPI cannot represent an SSE response body.
+ * @summary Stream the sandbox container's logs via SSE.
+ */
+export const sandboxLogsHandler = async (taskId: string,
+    params: SandboxLogsHandlerParams, options?: Parameters<typeof customInstance>[1]): Promise<sandboxLogsHandlerResponse> => {
+
+  return customInstance<sandboxLogsHandlerResponse>(getSandboxLogsHandlerUrl(taskId,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getSandboxLogsHandlerMutationKey = () => ['sandboxLogsHandler'] as const;
+
+export const getSandboxLogsHandlerMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof sandboxLogsHandler>>, TError,SandboxLogsHandlerMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof sandboxLogsHandler>>, TError,SandboxLogsHandlerMutationVariables, TContext> => {
+
+const mutationKey = getSandboxLogsHandlerMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof sandboxLogsHandler>>, SandboxLogsHandlerMutationVariables> = (props) => {
+          const {taskId,params} = props ?? {};
+
+          return  sandboxLogsHandler(taskId,params,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SandboxLogsHandlerMutationResult = NonNullable<Awaited<ReturnType<typeof sandboxLogsHandler>>>
+
+    export type SandboxLogsHandlerMutationError = ErrorType<ErrorBody>
+    export type SandboxLogsHandlerMutationVariables = {taskId: string;params: SandboxLogsHandlerParams}
+
+    /**
+ * @summary Stream the sandbox container's logs via SSE.
+ */
+export const useSandboxLogsHandler = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof sandboxLogsHandler>>, TError,SandboxLogsHandlerMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof sandboxLogsHandler>>,
+        TError,
+        SandboxLogsHandlerMutationVariables,
+        TContext
+      > => {
+      return useMutation(getSandboxLogsHandlerMutationOptions(options), queryClient);
+    }
     export type provisionHandlerResponse200 = {
   data: ProvisionResponse
   status: 200
@@ -983,10 +1085,7 @@ export const getProvisionHandlerUrl = (taskId: string,) => {
 
 /**
  * Builds the provision request internally from DB state (task, repository,
- * credentials). No request body required.
- *
- * Requires control access: the Sandbox's owner, a platform admin, or any
- * signed-in caller when the Task is public.
+ * credentials); no request body required. Requires control access.
  * @summary Provision a new sandbox for a task.
  */
 export const provisionHandler = async (taskId: string, options?: Parameters<typeof customInstance>[1]): Promise<provisionHandlerResponse> => {
@@ -1130,8 +1229,9 @@ export const getRedeployHandlerUrl = (taskId: string,) => {
 }
 
 /**
- * Preserves workspace data (PVC). Use after updating repo server configs.
- * @summary Redeploy a sandbox (delete Deployment/Service/IngressRoutes, recreate with fresh repo config).
+ * Preserves workspace data (PVC). Use after changing the workspace configuration.
+ * @summary Redeploy a sandbox (delete Deployment/Service/IngressRoutes, recreate with
+fresh repo config).
  */
 export const redeployHandler = async (taskId: string, options?: Parameters<typeof customInstance>[1]): Promise<redeployHandlerResponse> => {
 
@@ -1202,7 +1302,8 @@ export function useRedeployHandler<TData = Awaited<ReturnType<typeof redeployHan
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 /**
- * @summary Redeploy a sandbox (delete Deployment/Service/IngressRoutes, recreate with fresh repo config).
+ * @summary Redeploy a sandbox (delete Deployment/Service/IngressRoutes, recreate with
+fresh repo config).
  */
 
 export function useRedeployHandler<TData = Awaited<ReturnType<typeof redeployHandler>>, TError = ErrorType<ErrorBody>>(
@@ -1218,7 +1319,8 @@ export function useRedeployHandler<TData = Awaited<ReturnType<typeof redeployHan
 }
 
 /**
- * @summary Redeploy a sandbox (delete Deployment/Service/IngressRoutes, recreate with fresh repo config).
+ * @summary Redeploy a sandbox (delete Deployment/Service/IngressRoutes, recreate with
+fresh repo config).
  */
 export const prefetchRedeployHandlerQuery = async <TData = Awaited<ReturnType<typeof redeployHandler>>, TError = ErrorType<ErrorBody>>(
  queryClient: QueryClient, taskId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof redeployHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
@@ -1379,765 +1481,6 @@ export const prefetchRestartHandlerQuery = async <TData = Awaited<ReturnType<typ
 
 
 
-export type serverStatusHandlerResponse200 = {
-  data: ServerStatusResponse
-  status: 200
-}
-
-export type serverStatusHandlerResponse500 = {
-  data: ErrorBody
-  status: 500
-}
-
-export type serverStatusHandlerResponseSuccess = (serverStatusHandlerResponse200) & {
-  headers: Headers;
-};
-export type serverStatusHandlerResponseError = (serverStatusHandlerResponse500) & {
-  headers: Headers;
-};
-
-export type serverStatusHandlerResponse = (serverStatusHandlerResponseSuccess | serverStatusHandlerResponseError)
-
-export const getServerStatusHandlerUrl = (taskId: string,) => {
-
-
-
-
-  return `/api/sandbox/v1/tasks/${taskId}/server/status`
-}
-
-/**
- * @summary Get server status for all servers in a task's sandbox.
- */
-export const serverStatusHandler = async (taskId: string, options?: Parameters<typeof customInstance>[1]): Promise<serverStatusHandlerResponse> => {
-
-  return customInstance<serverStatusHandlerResponse>(getServerStatusHandlerUrl(taskId),
-  {
-    ...options,
-    method: 'GET'
-
-
-  }
-);}
-
-
-
-
-
-export const getServerStatusHandlerMutationKey = () => ['serverStatusHandler'] as const;
-
-export const getServerStatusHandlerMutationOptions = <TError = ErrorType<ErrorBody>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof serverStatusHandler>>, TError,ServerStatusHandlerMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
-): UseMutationOptions<Awaited<ReturnType<typeof serverStatusHandler>>, TError,ServerStatusHandlerMutationVariables, TContext> => {
-
-const mutationKey = getServerStatusHandlerMutationKey();
-const {mutation: mutationOptions, request: requestOptions} = options ?
-      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
-      options
-      : {...options, mutation: {...options.mutation, mutationKey}}
-      : {mutation: { mutationKey, }, request: undefined};
-
-
-
-
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof serverStatusHandler>>, ServerStatusHandlerMutationVariables> = (props) => {
-          const {taskId} = props ?? {};
-
-          return  serverStatusHandler(taskId,requestOptions)
-        }
-
-
-
-
-
-
-  return  { mutationFn, ...mutationOptions }}
-
-    export type ServerStatusHandlerMutationResult = NonNullable<Awaited<ReturnType<typeof serverStatusHandler>>>
-
-    export type ServerStatusHandlerMutationError = ErrorType<ErrorBody>
-    export type ServerStatusHandlerMutationVariables = {taskId: string}
-
-    /**
- * @summary Get server status for all servers in a task's sandbox.
- */
-export const useServerStatusHandler = <TError = ErrorType<ErrorBody>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof serverStatusHandler>>, TError,ServerStatusHandlerMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
- , queryClient?: QueryClient): UseMutationResult<
-        Awaited<ReturnType<typeof serverStatusHandler>>,
-        TError,
-        ServerStatusHandlerMutationVariables,
-        TContext
-      > => {
-      return useMutation(getServerStatusHandlerMutationOptions(options), queryClient);
-    }
-    export type listServerConfigHandlerResponse200 = {
-  data: ServerOverridesResponse
-  status: 200
-}
-
-export type listServerConfigHandlerResponse503 = {
-  data: ErrorBody
-  status: 503
-}
-
-export type listServerConfigHandlerResponseSuccess = (listServerConfigHandlerResponse200) & {
-  headers: Headers;
-};
-export type listServerConfigHandlerResponseError = (listServerConfigHandlerResponse503) & {
-  headers: Headers;
-};
-
-export type listServerConfigHandlerResponse = (listServerConfigHandlerResponseSuccess | listServerConfigHandlerResponseError)
-
-export const getListServerConfigHandlerUrl = (taskId: string,) => {
-
-
-
-
-  return `/api/sandbox/v1/tasks/${taskId}/servers/config`
-}
-
-/**
- * Separate from `GET /servers` because it needs a live sandbox: there is no
- * persisted copy to fall back on, so a stopped sandbox has no answer.
- * @summary List the overrides currently in effect, read off the sandbox's workspace.
- */
-export const listServerConfigHandler = async (taskId: string, options?: Parameters<typeof customInstance>[1]): Promise<listServerConfigHandlerResponse> => {
-
-  return customInstance<listServerConfigHandlerResponse>(getListServerConfigHandlerUrl(taskId),
-  {
-    ...options,
-    method: 'GET'
-
-
-  }
-);}
-
-
-
-
-
-export const getListServerConfigHandlerMutationKey = () => ['listServerConfigHandler'] as const;
-
-export const getListServerConfigHandlerMutationOptions = <TError = ErrorType<ErrorBody>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof listServerConfigHandler>>, TError,ListServerConfigHandlerMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
-): UseMutationOptions<Awaited<ReturnType<typeof listServerConfigHandler>>, TError,ListServerConfigHandlerMutationVariables, TContext> => {
-
-const mutationKey = getListServerConfigHandlerMutationKey();
-const {mutation: mutationOptions, request: requestOptions} = options ?
-      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
-      options
-      : {...options, mutation: {...options.mutation, mutationKey}}
-      : {mutation: { mutationKey, }, request: undefined};
-
-
-
-
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof listServerConfigHandler>>, ListServerConfigHandlerMutationVariables> = (props) => {
-          const {taskId} = props ?? {};
-
-          return  listServerConfigHandler(taskId,requestOptions)
-        }
-
-
-
-
-
-
-  return  { mutationFn, ...mutationOptions }}
-
-    export type ListServerConfigHandlerMutationResult = NonNullable<Awaited<ReturnType<typeof listServerConfigHandler>>>
-
-    export type ListServerConfigHandlerMutationError = ErrorType<ErrorBody>
-    export type ListServerConfigHandlerMutationVariables = {taskId: string}
-
-    /**
- * @summary List the overrides currently in effect, read off the sandbox's workspace.
- */
-export const useListServerConfigHandler = <TError = ErrorType<ErrorBody>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof listServerConfigHandler>>, TError,ListServerConfigHandlerMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
- , queryClient?: QueryClient): UseMutationResult<
-        Awaited<ReturnType<typeof listServerConfigHandler>>,
-        TError,
-        ListServerConfigHandlerMutationVariables,
-        TContext
-      > => {
-      return useMutation(getListServerConfigHandlerMutationOptions(options), queryClient);
-    }
-    export type updateServerConfigHandlerResponse200 = {
-  data: ServerConfigResponse
-  status: 200
-}
-
-export type updateServerConfigHandlerResponse400 = {
-  data: ErrorBody
-  status: 400
-}
-
-export type updateServerConfigHandlerResponse404 = {
-  data: ErrorBody
-  status: 404
-}
-
-export type updateServerConfigHandlerResponse409 = {
-  data: ErrorBody
-  status: 409
-}
-
-export type updateServerConfigHandlerResponse503 = {
-  data: ErrorBody
-  status: 503
-}
-
-export type updateServerConfigHandlerResponseSuccess = (updateServerConfigHandlerResponse200) & {
-  headers: Headers;
-};
-export type updateServerConfigHandlerResponseError = (updateServerConfigHandlerResponse400 | updateServerConfigHandlerResponse404 | updateServerConfigHandlerResponse409 | updateServerConfigHandlerResponse503) & {
-  headers: Headers;
-};
-
-export type updateServerConfigHandlerResponse = (updateServerConfigHandlerResponseSuccess | updateServerConfigHandlerResponseError)
-
-export const getUpdateServerConfigHandlerUrl = (taskId: string,
-    serverName: string,) => {
-
-
-
-
-  return `/api/sandbox/v1/tasks/${taskId}/servers/${serverName}`
-}
-
-/**
- * @summary Update one preview server's start command / env and (by default) restart it.
- */
-export const updateServerConfigHandler = async (taskId: string,
-    serverName: string,
-    updateServerConfigRequest: UpdateServerConfigRequest, options?: Parameters<typeof customInstance>[1]): Promise<updateServerConfigHandlerResponse> => {
-
-    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
-    if (!h) return {};
-    if (h instanceof Headers) return Object.fromEntries(h.entries());
-    if (Array.isArray(h)) return Object.fromEntries(h);
-    return h;
-  };
-return customInstance<updateServerConfigHandlerResponse>(getUpdateServerConfigHandlerUrl(taskId,serverName),
-  {
-    ...options,
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
-    body: JSON.stringify(updateServerConfigRequest)
-  }
-);}
-
-
-
-
-
-export const getUpdateServerConfigHandlerQueryKey = (taskId: string,
-    serverName: string,
-    updateServerConfigRequest?: UpdateServerConfigRequest,) => {
-    return [
-    'PATCH', `/api/sandbox/v1/tasks/${taskId}/servers/${serverName}`, updateServerConfigRequest
-    ] as const;
-    }
-
-
-export const getUpdateServerConfigHandlerQueryOptions = <TData = Awaited<ReturnType<typeof updateServerConfigHandler>>, TError = ErrorType<ErrorBody>>(taskId: string,
-    serverName: string,
-    updateServerConfigRequest: UpdateServerConfigRequest, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof updateServerConfigHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
-) => {
-
-const {query: queryOptions, request: requestOptions} = options ?? {};
-
-  const queryKey =  queryOptions?.queryKey ?? getUpdateServerConfigHandlerQueryKey(taskId,serverName,updateServerConfigRequest);
-
-
-
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof updateServerConfigHandler>>> = ({ signal }) => updateServerConfigHandler(taskId,serverName,updateServerConfigRequest, { signal, ...requestOptions });
-
-
-
-
-
-   return  { queryKey, queryFn, enabled: taskId !== null && taskId !== undefined && serverName !== null && serverName !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof updateServerConfigHandler>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
-}
-
-export type UpdateServerConfigHandlerQueryResult = NonNullable<Awaited<ReturnType<typeof updateServerConfigHandler>>>
-export type UpdateServerConfigHandlerQueryError = ErrorType<ErrorBody>
-
-
-export function useUpdateServerConfigHandler<TData = Awaited<ReturnType<typeof updateServerConfigHandler>>, TError = ErrorType<ErrorBody>>(
- taskId: string,
-    serverName: string,
-    updateServerConfigRequest: UpdateServerConfigRequest, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof updateServerConfigHandler>>, TError, TData>> & Pick<
-        DefinedInitialDataOptions<
-          Awaited<ReturnType<typeof updateServerConfigHandler>>,
-          TError,
-          Awaited<ReturnType<typeof updateServerConfigHandler>>
-        > , 'initialData'
-      >, request?: SecondParameter<typeof customInstance>}
- , queryClient?: QueryClient
-  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-export function useUpdateServerConfigHandler<TData = Awaited<ReturnType<typeof updateServerConfigHandler>>, TError = ErrorType<ErrorBody>>(
- taskId: string,
-    serverName: string,
-    updateServerConfigRequest: UpdateServerConfigRequest, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof updateServerConfigHandler>>, TError, TData>> & Pick<
-        UndefinedInitialDataOptions<
-          Awaited<ReturnType<typeof updateServerConfigHandler>>,
-          TError,
-          Awaited<ReturnType<typeof updateServerConfigHandler>>
-        > , 'initialData'
-      >, request?: SecondParameter<typeof customInstance>}
- , queryClient?: QueryClient
-  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-export function useUpdateServerConfigHandler<TData = Awaited<ReturnType<typeof updateServerConfigHandler>>, TError = ErrorType<ErrorBody>>(
- taskId: string,
-    serverName: string,
-    updateServerConfigRequest: UpdateServerConfigRequest, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof updateServerConfigHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
- , queryClient?: QueryClient
-  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-/**
- * @summary Update one preview server's start command / env and (by default) restart it.
- */
-
-export function useUpdateServerConfigHandler<TData = Awaited<ReturnType<typeof updateServerConfigHandler>>, TError = ErrorType<ErrorBody>>(
- taskId: string,
-    serverName: string,
-    updateServerConfigRequest: UpdateServerConfigRequest, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof updateServerConfigHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
- , queryClient?: QueryClient
- ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
-
-  const queryOptions = getUpdateServerConfigHandlerQueryOptions(taskId,serverName,updateServerConfigRequest,options)
-
-  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
-
-  return withQueryKey(query, queryOptions.queryKey);
-}
-
-/**
- * @summary Update one preview server's start command / env and (by default) restart it.
- */
-export const prefetchUpdateServerConfigHandlerQuery = async <TData = Awaited<ReturnType<typeof updateServerConfigHandler>>, TError = ErrorType<ErrorBody>>(
- queryClient: QueryClient, taskId: string,
-    serverName: string,
-    updateServerConfigRequest: UpdateServerConfigRequest, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof updateServerConfigHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
-
-  ): Promise<QueryClient> => {
-
-  const queryOptions = getUpdateServerConfigHandlerQueryOptions(taskId,serverName,updateServerConfigRequest,options)
-
-  await queryClient.prefetchQuery(queryOptions);
-
-  return queryClient;
-}
-
-
-
-
-
-export type serverLogsHandlerResponse200 = {
-  data: void
-  status: 200
-}
-
-export type serverLogsHandlerResponse500 = {
-  data: ErrorBody
-  status: 500
-}
-
-export type serverLogsHandlerResponseSuccess = (serverLogsHandlerResponse200) & {
-  headers: Headers;
-};
-export type serverLogsHandlerResponseError = (serverLogsHandlerResponse500) & {
-  headers: Headers;
-};
-
-export type serverLogsHandlerResponse = (serverLogsHandlerResponseSuccess | serverLogsHandlerResponseError)
-
-export const getServerLogsHandlerUrl = (taskId: string,
-    serverName: string,
-    params: ServerLogsHandlerParams,) => {
-  const normalizedParams = new URLSearchParams();
-
-  Object.entries(params || {}).forEach(([key, value]) => {
-
-    if (value !== undefined) {
-      normalizedParams.append(key, value === null ? 'null' : String(value))
-    }
-  });
-
-  const stringifiedParams = normalizedParams.toString();
-
-  return stringifiedParams.length > 0 ? `/api/sandbox/v1/tasks/${taskId}/servers/${serverName}/logs?${stringifiedParams}` : `/api/sandbox/v1/tasks/${taskId}/servers/${serverName}/logs`
-}
-
-/**
- * Returns a Server-Sent Events stream of log lines for the given server.
- * Pass `?previous=true` to fetch logs from a crashed/restarted container, and
- * `?follow=false` to end the stream after the buffered lines instead of
- * waiting for more. The response body cannot be represented in OpenAPI (SSE
- * streaming).
- * @summary Stream server logs via SSE.
- */
-export const serverLogsHandler = async (taskId: string,
-    serverName: string,
-    params: ServerLogsHandlerParams, options?: Parameters<typeof customInstance>[1]): Promise<serverLogsHandlerResponse> => {
-
-  return customInstance<serverLogsHandlerResponse>(getServerLogsHandlerUrl(taskId,serverName,params),
-  {
-    ...options,
-    method: 'GET'
-
-
-  }
-);}
-
-
-
-
-
-export const getServerLogsHandlerMutationKey = () => ['serverLogsHandler'] as const;
-
-export const getServerLogsHandlerMutationOptions = <TError = ErrorType<ErrorBody>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof serverLogsHandler>>, TError,ServerLogsHandlerMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
-): UseMutationOptions<Awaited<ReturnType<typeof serverLogsHandler>>, TError,ServerLogsHandlerMutationVariables, TContext> => {
-
-const mutationKey = getServerLogsHandlerMutationKey();
-const {mutation: mutationOptions, request: requestOptions} = options ?
-      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
-      options
-      : {...options, mutation: {...options.mutation, mutationKey}}
-      : {mutation: { mutationKey, }, request: undefined};
-
-
-
-
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof serverLogsHandler>>, ServerLogsHandlerMutationVariables> = (props) => {
-          const {taskId,serverName,params} = props ?? {};
-
-          return  serverLogsHandler(taskId,serverName,params,requestOptions)
-        }
-
-
-
-
-
-
-  return  { mutationFn, ...mutationOptions }}
-
-    export type ServerLogsHandlerMutationResult = NonNullable<Awaited<ReturnType<typeof serverLogsHandler>>>
-
-    export type ServerLogsHandlerMutationError = ErrorType<ErrorBody>
-    export type ServerLogsHandlerMutationVariables = {taskId: string;serverName: string;params: ServerLogsHandlerParams}
-
-    /**
- * @summary Stream server logs via SSE.
- */
-export const useServerLogsHandler = <TError = ErrorType<ErrorBody>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof serverLogsHandler>>, TError,ServerLogsHandlerMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
- , queryClient?: QueryClient): UseMutationResult<
-        Awaited<ReturnType<typeof serverLogsHandler>>,
-        TError,
-        ServerLogsHandlerMutationVariables,
-        TContext
-      > => {
-      return useMutation(getServerLogsHandlerMutationOptions(options), queryClient);
-    }
-    export type resetServerConfigHandlerResponse200 = {
-  data: ServerConfigResponse
-  status: 200
-}
-
-export type resetServerConfigHandlerResponse404 = {
-  data: ErrorBody
-  status: 404
-}
-
-export type resetServerConfigHandlerResponse503 = {
-  data: ErrorBody
-  status: 503
-}
-
-export type resetServerConfigHandlerResponseSuccess = (resetServerConfigHandlerResponse200) & {
-  headers: Headers;
-};
-export type resetServerConfigHandlerResponseError = (resetServerConfigHandlerResponse404 | resetServerConfigHandlerResponse503) & {
-  headers: Headers;
-};
-
-export type resetServerConfigHandlerResponse = (resetServerConfigHandlerResponseSuccess | resetServerConfigHandlerResponseError)
-
-export const getResetServerConfigHandlerUrl = (taskId: string,
-    serverName: string,) => {
-
-
-
-
-  return `/api/sandbox/v1/tasks/${taskId}/servers/${serverName}/override`
-}
-
-/**
- * @summary Drop a server's override and restart it on the workspace's configuration.
- */
-export const resetServerConfigHandler = async (taskId: string,
-    serverName: string, options?: Parameters<typeof customInstance>[1]): Promise<resetServerConfigHandlerResponse> => {
-
-  return customInstance<resetServerConfigHandlerResponse>(getResetServerConfigHandlerUrl(taskId,serverName),
-  {
-    ...options,
-    method: 'DELETE'
-
-
-  }
-);}
-
-
-
-
-
-export const getResetServerConfigHandlerQueryKey = (taskId: string,
-    serverName: string,) => {
-    return [
-    'DELETE', `/api/sandbox/v1/tasks/${taskId}/servers/${serverName}/override`
-    ] as const;
-    }
-
-
-export const getResetServerConfigHandlerQueryOptions = <TData = Awaited<ReturnType<typeof resetServerConfigHandler>>, TError = ErrorType<ErrorBody>>(taskId: string,
-    serverName: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof resetServerConfigHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
-) => {
-
-const {query: queryOptions, request: requestOptions} = options ?? {};
-
-  const queryKey =  queryOptions?.queryKey ?? getResetServerConfigHandlerQueryKey(taskId,serverName);
-
-
-
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof resetServerConfigHandler>>> = ({ signal }) => resetServerConfigHandler(taskId,serverName, { signal, ...requestOptions });
-
-
-
-
-
-   return  { queryKey, queryFn, enabled: taskId !== null && taskId !== undefined && serverName !== null && serverName !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof resetServerConfigHandler>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
-}
-
-export type ResetServerConfigHandlerQueryResult = NonNullable<Awaited<ReturnType<typeof resetServerConfigHandler>>>
-export type ResetServerConfigHandlerQueryError = ErrorType<ErrorBody>
-
-
-export function useResetServerConfigHandler<TData = Awaited<ReturnType<typeof resetServerConfigHandler>>, TError = ErrorType<ErrorBody>>(
- taskId: string,
-    serverName: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof resetServerConfigHandler>>, TError, TData>> & Pick<
-        DefinedInitialDataOptions<
-          Awaited<ReturnType<typeof resetServerConfigHandler>>,
-          TError,
-          Awaited<ReturnType<typeof resetServerConfigHandler>>
-        > , 'initialData'
-      >, request?: SecondParameter<typeof customInstance>}
- , queryClient?: QueryClient
-  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-export function useResetServerConfigHandler<TData = Awaited<ReturnType<typeof resetServerConfigHandler>>, TError = ErrorType<ErrorBody>>(
- taskId: string,
-    serverName: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof resetServerConfigHandler>>, TError, TData>> & Pick<
-        UndefinedInitialDataOptions<
-          Awaited<ReturnType<typeof resetServerConfigHandler>>,
-          TError,
-          Awaited<ReturnType<typeof resetServerConfigHandler>>
-        > , 'initialData'
-      >, request?: SecondParameter<typeof customInstance>}
- , queryClient?: QueryClient
-  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-export function useResetServerConfigHandler<TData = Awaited<ReturnType<typeof resetServerConfigHandler>>, TError = ErrorType<ErrorBody>>(
- taskId: string,
-    serverName: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof resetServerConfigHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
- , queryClient?: QueryClient
-  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-/**
- * @summary Drop a server's override and restart it on the workspace's configuration.
- */
-
-export function useResetServerConfigHandler<TData = Awaited<ReturnType<typeof resetServerConfigHandler>>, TError = ErrorType<ErrorBody>>(
- taskId: string,
-    serverName: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof resetServerConfigHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
- , queryClient?: QueryClient
- ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
-
-  const queryOptions = getResetServerConfigHandlerQueryOptions(taskId,serverName,options)
-
-  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
-
-  return withQueryKey(query, queryOptions.queryKey);
-}
-
-/**
- * @summary Drop a server's override and restart it on the workspace's configuration.
- */
-export const prefetchResetServerConfigHandlerQuery = async <TData = Awaited<ReturnType<typeof resetServerConfigHandler>>, TError = ErrorType<ErrorBody>>(
- queryClient: QueryClient, taskId: string,
-    serverName: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof resetServerConfigHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
-
-  ): Promise<QueryClient> => {
-
-  const queryOptions = getResetServerConfigHandlerQueryOptions(taskId,serverName,options)
-
-  await queryClient.prefetchQuery(queryOptions);
-
-  return queryClient;
-}
-
-
-
-
-
-export type restartServerHandlerResponse200 = {
-  data: ServerConfigResponse
-  status: 200
-}
-
-export type restartServerHandlerResponse404 = {
-  data: ErrorBody
-  status: 404
-}
-
-export type restartServerHandlerResponse503 = {
-  data: ErrorBody
-  status: 503
-}
-
-export type restartServerHandlerResponseSuccess = (restartServerHandlerResponse200) & {
-  headers: Headers;
-};
-export type restartServerHandlerResponseError = (restartServerHandlerResponse404 | restartServerHandlerResponse503) & {
-  headers: Headers;
-};
-
-export type restartServerHandlerResponse = (restartServerHandlerResponseSuccess | restartServerHandlerResponseError)
-
-export const getRestartServerHandlerUrl = (taskId: string,
-    serverName: string,) => {
-
-
-
-
-  return `/api/sandbox/v1/tasks/${taskId}/servers/${serverName}/restart`
-}
-
-/**
- * @summary Restart one preview server in place, leaving its override as-is.
- */
-export const restartServerHandler = async (taskId: string,
-    serverName: string, options?: Parameters<typeof customInstance>[1]): Promise<restartServerHandlerResponse> => {
-
-  return customInstance<restartServerHandlerResponse>(getRestartServerHandlerUrl(taskId,serverName),
-  {
-    ...options,
-    method: 'POST'
-
-
-  }
-);}
-
-
-
-
-
-export const getRestartServerHandlerQueryKey = (taskId: string,
-    serverName: string,) => {
-    return [
-    'POST', `/api/sandbox/v1/tasks/${taskId}/servers/${serverName}/restart`
-    ] as const;
-    }
-
-
-export const getRestartServerHandlerQueryOptions = <TData = Awaited<ReturnType<typeof restartServerHandler>>, TError = ErrorType<ErrorBody>>(taskId: string,
-    serverName: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof restartServerHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
-) => {
-
-const {query: queryOptions, request: requestOptions} = options ?? {};
-
-  const queryKey =  queryOptions?.queryKey ?? getRestartServerHandlerQueryKey(taskId,serverName);
-
-
-
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof restartServerHandler>>> = ({ signal }) => restartServerHandler(taskId,serverName, { signal, ...requestOptions });
-
-
-
-
-
-   return  { queryKey, queryFn, enabled: taskId !== null && taskId !== undefined && serverName !== null && serverName !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof restartServerHandler>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
-}
-
-export type RestartServerHandlerQueryResult = NonNullable<Awaited<ReturnType<typeof restartServerHandler>>>
-export type RestartServerHandlerQueryError = ErrorType<ErrorBody>
-
-
-export function useRestartServerHandler<TData = Awaited<ReturnType<typeof restartServerHandler>>, TError = ErrorType<ErrorBody>>(
- taskId: string,
-    serverName: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof restartServerHandler>>, TError, TData>> & Pick<
-        DefinedInitialDataOptions<
-          Awaited<ReturnType<typeof restartServerHandler>>,
-          TError,
-          Awaited<ReturnType<typeof restartServerHandler>>
-        > , 'initialData'
-      >, request?: SecondParameter<typeof customInstance>}
- , queryClient?: QueryClient
-  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-export function useRestartServerHandler<TData = Awaited<ReturnType<typeof restartServerHandler>>, TError = ErrorType<ErrorBody>>(
- taskId: string,
-    serverName: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof restartServerHandler>>, TError, TData>> & Pick<
-        UndefinedInitialDataOptions<
-          Awaited<ReturnType<typeof restartServerHandler>>,
-          TError,
-          Awaited<ReturnType<typeof restartServerHandler>>
-        > , 'initialData'
-      >, request?: SecondParameter<typeof customInstance>}
- , queryClient?: QueryClient
-  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-export function useRestartServerHandler<TData = Awaited<ReturnType<typeof restartServerHandler>>, TError = ErrorType<ErrorBody>>(
- taskId: string,
-    serverName: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof restartServerHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
- , queryClient?: QueryClient
-  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-/**
- * @summary Restart one preview server in place, leaving its override as-is.
- */
-
-export function useRestartServerHandler<TData = Awaited<ReturnType<typeof restartServerHandler>>, TError = ErrorType<ErrorBody>>(
- taskId: string,
-    serverName: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof restartServerHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
- , queryClient?: QueryClient
- ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
-
-  const queryOptions = getRestartServerHandlerQueryOptions(taskId,serverName,options)
-
-  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
-
-  return withQueryKey(query, queryOptions.queryKey);
-}
-
-/**
- * @summary Restart one preview server in place, leaving its override as-is.
- */
-export const prefetchRestartServerHandlerQuery = async <TData = Awaited<ReturnType<typeof restartServerHandler>>, TError = ErrorType<ErrorBody>>(
- queryClient: QueryClient, taskId: string,
-    serverName: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof restartServerHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
-
-  ): Promise<QueryClient> => {
-
-  const queryOptions = getRestartServerHandlerQueryOptions(taskId,serverName,options)
-
-  await queryClient.prefetchQuery(queryOptions);
-
-  return queryClient;
-}
-
-
-
-
-
 export type sandboxStatusHandlerResponse200 = {
   data: SandboxStatusFullResponse
   status: 200
@@ -2171,7 +1514,7 @@ export const getSandboxStatusHandlerUrl = (taskId: string,) => {
 }
 
 /**
- * @summary Get full sandbox status including servers and Agent status.
+ * @summary Get full sandbox status including Agent status.
  */
 export const sandboxStatusHandler = async (taskId: string, options?: Parameters<typeof customInstance>[1]): Promise<sandboxStatusHandlerResponse> => {
 
@@ -2223,7 +1566,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type SandboxStatusHandlerMutationVariables = {taskId: string}
 
     /**
- * @summary Get full sandbox status including servers and Agent status.
+ * @summary Get full sandbox status including Agent status.
  */
 export const useSandboxStatusHandler = <TError = ErrorType<ErrorBody>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof sandboxStatusHandler>>, TError,SandboxStatusHandlerMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}

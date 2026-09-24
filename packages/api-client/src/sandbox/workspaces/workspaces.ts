@@ -1059,8 +1059,8 @@ export const getOverrideWorkspaceUrl = (workspaceId: string,) => {
 
 /**
  * @summary Override a git-synced workspace. Sets `source = "manual"` so that git sync
-skips this workspace going forward. Provenance fields are preserved.
-Use `POST /{id}/reset-git` to re-enable git sync.
+skips this workspace going forward. Provenance fields are preserved. Use
+`POST /{id}/reset-git` to re-enable git sync.
  */
 export const overrideWorkspace = async (workspaceId: string,
     updateWorkspaceRequest: UpdateWorkspaceRequest, options?: Parameters<typeof customInstance>[1]): Promise<overrideWorkspaceResponse> => {
@@ -1144,8 +1144,8 @@ export function useOverrideWorkspace<TData = Awaited<ReturnType<typeof overrideW
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 /**
  * @summary Override a git-synced workspace. Sets `source = "manual"` so that git sync
-skips this workspace going forward. Provenance fields are preserved.
-Use `POST /{id}/reset-git` to re-enable git sync.
+skips this workspace going forward. Provenance fields are preserved. Use
+`POST /{id}/reset-git` to re-enable git sync.
  */
 
 export function useOverrideWorkspace<TData = Awaited<ReturnType<typeof overrideWorkspace>>, TError = ErrorType<ErrorBody>>(
@@ -1163,8 +1163,8 @@ export function useOverrideWorkspace<TData = Awaited<ReturnType<typeof overrideW
 
 /**
  * @summary Override a git-synced workspace. Sets `source = "manual"` so that git sync
-skips this workspace going forward. Provenance fields are preserved.
-Use `POST /{id}/reset-git` to re-enable git sync.
+skips this workspace going forward. Provenance fields are preserved. Use
+`POST /{id}/reset-git` to re-enable git sync.
  */
 export const prefetchOverrideWorkspaceQuery = async <TData = Awaited<ReturnType<typeof overrideWorkspace>>, TError = ErrorType<ErrorBody>>(
  queryClient: QueryClient, workspaceId: string,
@@ -1645,10 +1645,10 @@ export const getResetGitWorkspaceUrl = (workspaceId: string,) => {
 }
 
 /**
- * Implemented as a re-sync of just this workspace rather than a flag flip, so
+ * Implemented as a re-sync of just this workspace, not a flag flip, so
  * `source` only returns to `"git"` when the repository still declares the
- * entry — a workspace can never end up claiming git provenance while holding
- * config git never produced.
+ * entry — never claiming git provenance while holding config git never
+ * produced.
  * @summary Discard a workspace's local override and take its run-config from git again.
  */
 export const resetGitWorkspace = async (workspaceId: string, options?: Parameters<typeof customInstance>[1]): Promise<resetGitWorkspaceResponse> => {

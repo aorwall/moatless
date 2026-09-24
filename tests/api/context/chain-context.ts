@@ -33,9 +33,6 @@ export class ChainContext {
   /** Sandbox/workspace status after provisioning */
   sandboxStatus?: SandboxStatusFullResponse
 
-  /** Preview server URL once started */
-  serverUrl?: string
-
   /** Tracks the number of agent turns completed */
   turnCount = 0
 

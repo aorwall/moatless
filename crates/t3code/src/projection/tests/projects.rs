@@ -157,13 +157,9 @@ fn an_icon_the_clients_schema_rejects_is_not_published() {
 }
 
 #[test]
-fn declared_scripts_become_scripts_and_servers_do_not() {
+fn declared_scripts_become_scripts() {
     let mut ws = workspace("ws-a", "Alpha");
     ws.workspace.setup_commands = Some(json!(["bun install"]));
-    // Servers must contribute no script at all: pressing one is a bug.
-    ws.workspace.servers = Some(json!([
-        { "name": "dev", "port": 3000, "startCommands": ["bun run dev"], "default": true }
-    ]));
     ws.workspace.scripts = Some(json!([
         {
             "name": "test",
@@ -181,11 +177,7 @@ fn declared_scripts_become_scripts_and_servers_do_not() {
 
     let scripts = project(&ws)["scripts"].as_array().unwrap().clone();
 
-    assert_eq!(
-        scripts.len(),
-        2,
-        "a script with no command is left out, and servers contribute none"
-    );
+    assert_eq!(scripts.len(), 2, "a script with no command is left out");
     assert_eq!(scripts[0]["id"], "test");
     assert_eq!(scripts[0]["name"], "Run tests");
     assert_eq!(scripts[0]["command"], "bun test");

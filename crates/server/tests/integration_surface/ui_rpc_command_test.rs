@@ -1082,7 +1082,7 @@ async fn settling_as_one_follower_leaves_another_followers_row_untouched(pool: P
 
 /// The Stop button under a running turn ends the turn and nothing else. A
 /// session stop moves the Sandbox intent; an interrupt writes none at all, so
-/// the working copy and the preview servers survive it.
+/// the working copy and running Scripts survive it.
 #[sqlx::test]
 async fn interrupting_a_turn_moves_no_sandbox_intent(pool: PgPool) {
     seed_project(&pool, USER_1).await;

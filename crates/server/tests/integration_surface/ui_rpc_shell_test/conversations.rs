@@ -284,33 +284,20 @@ async fn a_followed_conversation_in_an_unreadable_project_still_lists_under_it(p
 
 /// The widening that admits an unreadable Workspace is justified by names only.
 ///
-/// A server's start command carries paths and config, not a name, so it stays
-/// behind the read rule; referenced projects disclose Scripts only when the
-/// viewer can read the Workspace.
+/// A Script's command carries paths and config, not a name, so it stays behind
+/// the read rule; referenced projects disclose Scripts only when the viewer can
+/// read the Workspace.
 #[sqlx::test]
 async fn a_project_the_viewer_may_not_read_discloses_no_script_commands(pool: PgPool) {
     let repo = compose::workspaces(pool.clone());
-    let servers = |command: &str| {
-        json!([{
-            "name": "dev",
-            "label": "Dev server",
-            "port": 3000,
-            "startCommands": [command],
-            "default": true
-        }])
-    };
 
     let mut mine = make_workspace_row("ws-own", "user-1");
-    mine.servers = Some(run_config(servers("bun run dev")));
     mine.scripts = Some(run_config(
         json!([{ "name": "dev", "command": "bun run dev" }]),
     ));
     repo.insert_workspace(&mine).await.unwrap();
 
     let mut theirs = make_workspace_row("ws-theirs", "user-2");
-    theirs.servers = Some(run_config(servers(
-        "bun run secret-thing --token /etc/theirs",
-    )));
     theirs.scripts = Some(run_config(json!([{
         "name": "dev",
         "command": "bun run secret-thing --token /etc/theirs"

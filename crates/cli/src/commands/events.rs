@@ -13,7 +13,7 @@ pub enum EventAction {
     /// List events for a task
     List {
         task_id: String,
-        /// Comma-separated event type filter (e.g. sandbox,server,agent)
+        /// Comma-separated event type filter (e.g. sandbox,agent,message)
         #[arg(long)]
         types: Option<String>,
         /// Maximum number of events to return
@@ -34,7 +34,7 @@ pub enum EventAction {
         /// Only events for this task. Omit for every task the caller can see.
         #[arg(long)]
         task: Option<String>,
-        /// Comma-separated event type filter (e.g. sandbox,server,agent)
+        /// Comma-separated event type filter (e.g. sandbox,agent,message)
         #[arg(long)]
         types: Option<String>,
         /// Include the stream's keep-alive pings, which are filtered by

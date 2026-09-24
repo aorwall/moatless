@@ -11,7 +11,8 @@
  */
 export interface ReplyToMessageResponse {
   /**
-     * Provider-specific external id of the reply we posted, when the API returns one.
+     * Provider-specific external id of the reply we posted, when the API
+     * returns one.
      * @nullable
      */
   externalId?: string | null;

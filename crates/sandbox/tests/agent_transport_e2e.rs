@@ -148,7 +148,6 @@ impl BackendClient for NoopBackend {
     ) -> Result<GetCredentialsResponse, tonic::Status> {
         Ok(GetCredentialsResponse {
             credentials: self.credentials.clone(),
-            server_env: HashMap::new(),
             ssh_keys: HashMap::new(),
         })
     }
@@ -222,7 +221,6 @@ fn test_config(tmp: &TempDir, use_tmux: bool, agent_type: &str) -> Config {
             .unwrap_or_else(|_| "/usr/local/bin/claude".to_string()),
         codex_cli_path: std::env::var("CODEX_CLI_PATH")
             .unwrap_or_else(|_| "/usr/local/bin/codex".to_string()),
-        servers: vec![],
         frontend_url: None,
         default_model: None,
         default_codex_model: None,

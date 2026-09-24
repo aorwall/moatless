@@ -70,7 +70,7 @@ pub struct SseQuery {
 /// Query parameters for the historical task events endpoint.
 #[derive(Deserialize)]
 pub struct TaskEventsQuery {
-    /// Comma-separated event type filter (e.g., `?types=sandbox,server`).
+    /// Comma-separated event type filter (e.g., `?types=sandbox,agent,message`).
     pub types: Option<String>,
     /// Maximum number of events to return (default 500, max 2000).
     pub limit: Option<usize>,

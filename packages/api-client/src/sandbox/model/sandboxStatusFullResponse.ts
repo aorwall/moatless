@@ -13,10 +13,10 @@ import type { RuntimeEvent } from './runtimeEvent';
 import type { SandboxDesiredState } from './sandboxDesiredState';
 import type { SandboxStatus } from './sandboxStatus';
 import type { ScheduledJobInfo } from './scheduledJobInfo';
-import type { ServerEntry } from './serverEntry';
 
 /**
- * Full sandbox status response to frontend (matches TS `SandboxStatusFullResponse`)
+ * Full sandbox status response to frontend (matches TS
+ * `SandboxStatusFullResponse`)
  */
 export interface SandboxStatusFullResponse {
   agentStatus: null | AgentStatus;
@@ -40,10 +40,11 @@ export interface SandboxStatusFullResponse {
      */
   imageUpToDate?: boolean | null;
   /**
-     * Image a fresh (re)deploy would use for the sandbox container: the
-     * per-repo `docker_image` override when set, otherwise the configured
-     * default. Compare against `current_sandbox_image` to know whether a
-     * redeploy would change the image.
+     * Image a fresh (re)deploy would use: the per-repo `docker_image` override
+     * when set, otherwise the configured default.
+     *
+     * Compare against `current_sandbox_image` to know whether a redeploy would
+     * change the image.
      * @nullable
      */
   latestSandboxImage?: string | null;
@@ -55,5 +56,4 @@ export interface SandboxStatusFullResponse {
   sandboxError: string | null;
   sandboxStatus: SandboxStatus;
   scheduledJobs?: ScheduledJobInfo[];
-  servers: ServerEntry[];
 }

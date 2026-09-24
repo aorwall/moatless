@@ -42,6 +42,5 @@ pub mod workspace_repository;
 pub mod workspace_snapshot;
 
 pub mod access;
-pub mod server_config;
 pub mod state;
 pub mod status;

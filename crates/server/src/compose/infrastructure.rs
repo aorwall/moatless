@@ -108,7 +108,7 @@ pub fn build_k8s_sandbox_adapter(
     use crate::sandbox::k8s::provider::K8sSandboxAdapter;
     use crate::sandbox::k8s::status_resolver::StatusResolver;
 
-    let status_resolver = StatusResolver::new(k8s.clone(), Arc::new(config.clone()));
+    let status_resolver = StatusResolver::new(k8s.clone());
 
     Arc::new(K8sSandboxAdapter {
         config: Arc::new(config.clone()),
@@ -163,12 +163,10 @@ pub fn build_merged_openapi() -> utoipa::openapi::OpenApi {
             // Event types + sub-types
             moatless_types::event::EventType,
             moatless_types::sandbox::SandboxStatus,
-            moatless_types::sandbox::ServerSubType,
             moatless_types::agent::AgentSubType,
             moatless_types::task::TaskSubType,
             moatless_types::task::TaskTurnSubType,
             // Event payloads
-            moatless_types::sandbox::ServerEventPayload,
             moatless_types::sandbox::SandboxEventPayload,
             moatless_types::agent::AgentEventPayload,
             moatless_types::task::TaskEventPayload,

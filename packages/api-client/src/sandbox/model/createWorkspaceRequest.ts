@@ -6,9 +6,9 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { CreateWorkspaceRequestEnvVars } from './createWorkspaceRequestEnvVars';
+import type { CreateWorkspaceRequestNodeSelector } from './createWorkspaceRequestNodeSelector';
 import type { ResourceConfig } from './resourceConfig';
 import type { Scope } from './scope';
-import type { ServerConfig } from './serverConfig';
 import type { WorkspaceIcon } from './workspaceIcon';
 import type { WorkspaceRepoInput } from './workspaceRepoInput';
 
@@ -29,6 +29,12 @@ export interface CreateWorkspaceRequest {
   name: string;
   /** @nullable */
   networkProfile?: string | null;
+  /**
+     * Extra node labels sandbox pods must match, merged over the
+     * deployment-wide selector. Admin-only, like the two fields above it.
+     * @nullable
+     */
+  nodeSelector?: CreateWorkspaceRequestNodeSelector;
   /** Repository placements. May be empty (a blank/scratch workspace). */
   repos?: WorkspaceRepoInput[];
   resources?: null | ResourceConfig;
@@ -41,8 +47,6 @@ export interface CreateWorkspaceRequest {
   /** @nullable */
   sandboxServiceAccount?: string | null;
   scope?: null | Scope;
-  /** @nullable */
-  servers?: ServerConfig[] | null;
   /** @nullable */
   setupCommands?: string[] | null;
   /** @nullable */

@@ -1,23 +1,6 @@
-//! The observed state of a pod and its server containers, read off one `Pod`
-//! object.
+//! The observed state of a pod, read off one `Pod` object.
 
 use super::*;
-
-/// Observed state of a server container, used for transition detection.
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) struct ServerContainerState {
-    pub(crate) name: String,
-    pub(crate) status: String,
-    pub(crate) error: Option<String>,
-    pub(crate) detail: Option<String>,
-    pub(crate) terminated_reason: Option<String>,
-    pub(crate) exit_code: Option<i32>,
-    pub(crate) memory_limit: Option<String>,
-    pub(crate) running_since: Option<chrono::DateTime<chrono::Utc>>,
-    /// Restart count of this server container (used for crash-loop
-    /// auto-disable).
-    pub(crate) restart_count: i32,
-}
 
 /// Observed state for a single pod, used for transition detection.
 #[derive(Debug, Clone)]
@@ -41,18 +24,9 @@ pub(crate) struct PodObservedState {
     pub(crate) last_terminated_reason: Option<String>,
     /// Termination message or waiting message from the sandbox container.
     pub(crate) failure_detail: Option<String>,
-    /// Server container snapshots (excludes sandbox container).
-    pub(crate) server_containers: Vec<ServerContainerState>,
     /// Whether a fatal event has already been published for this pod.
     /// Suppresses repeated fatal events during `CrashLoopBackOff`.
     pub(super) fatal_published: bool,
-    /// Server names already reported as crash-looping during this pod's
-    /// lifecycle.
-    ///
-    /// Fire-once guard so the watcher publishes one `Failed` event per
-    /// container instead of once per watch event while it keeps crashing;
-    /// cleared naturally when a new pod replaces this map entry.
-    pub(super) crash_reported_servers: HashSet<String>,
     /// Whether the `moatless_sandbox_startup_seconds` histogram has already
     /// been recorded for this pod.
     ///
@@ -232,26 +206,9 @@ pub(crate) fn extract_pod_observed_state(
         });
 
     // Track readiness from the **sandbox** container specifically, not the
-    // pod-level `Ready` condition. A crash-looping non-default *server*
-    // container keeps the pod-level condition false forever, which would
-    // suppress the `pod_ready` → `Ready` transition even though the agent is
-    // fine. This mirrors `status_resolver`'s use of `is_sandbox_container_ready`.
+    // pod-level `Ready` condition, mirroring `status_resolver`'s use of
+    // `is_sandbox_container_ready`.
     let ready = is_sandbox_container_ready(pod);
-
-    // Build a map of container name → memory limit from pod spec
-    let memory_limits: HashMap<String, String> = pod
-        .spec
-        .as_ref()
-        .map(|spec| {
-            spec.containers
-                .iter()
-                .filter_map(|c| {
-                    let limit = c.resources.as_ref()?.limits.as_ref()?.get("memory")?;
-                    Some((c.name.clone(), limit.0.clone()))
-                })
-                .collect()
-        })
-        .unwrap_or_default();
 
     // Node the pod is bound to (empty/absent while still Pending+unscheduled).
     let node_name = pod
@@ -279,27 +236,6 @@ pub(crate) fn extract_pod_observed_state(
         .as_ref()
         .map(|t| t.0.as_millisecond());
 
-    // Extract server container states
-    let server_containers = extract_container_observed_statuses(pod)
-        .into_iter()
-        .map(|cs| {
-            let memory_limit = memory_limits.get(&cs.name).cloned();
-            ServerContainerState {
-                name: cs.name.clone(),
-                status: cs
-                    .to_server_status_with_timeout(DEFAULT_SERVER_READINESS_TIMEOUT_SECS)
-                    .to_string(),
-                error: cs.error_reason_with_timeout(DEFAULT_SERVER_READINESS_TIMEOUT_SECS),
-                detail: cs.detail_reason(),
-                terminated_reason: cs.terminated_reason.clone(),
-                exit_code: cs.exit_code,
-                memory_limit,
-                running_since: cs.running_since,
-                restart_count: cs.restart_count,
-            }
-        })
-        .collect();
-
     PodObservedState {
         task_id: task_id.to_string(),
         operation_generation: pod
@@ -317,9 +253,7 @@ pub(crate) fn extract_pod_observed_state(
         last_exit_code,
         last_terminated_reason,
         failure_detail,
-        server_containers,
         fatal_published: false,
-        crash_reported_servers: HashSet::new(),
         startup_recorded: false,
         node_name,
         disruption_reason,
@@ -334,40 +268,6 @@ pub(crate) fn extract_pod_observed_state(
         auto_stop_pending: false,
         last_published_sandbox_status: None,
     }
-}
-
-/// Generate a human-readable message for a server container event.
-///
-/// Since `server_name` and `status` are separate fields, this returns only the
-/// contextual detail (e.g. "`ContainerCreating`", "Out of memory (limit:
-/// 1536Mi)").
-pub(super) fn format_server_message(sc: Option<&ServerContainerState>) -> String {
-    let sc = match sc {
-        Some(s) => s,
-        None => return String::new(),
-    };
-
-    // Termination reasons take priority
-    if let Some(reason) = &sc.terminated_reason {
-        return match reason.as_str() {
-            "OOMKilled" => match &sc.memory_limit {
-                Some(limit) => format!("Out of memory (limit: {limit})"),
-                None => "Out of memory (OOMKilled)".to_string(),
-            },
-            "Completed" => String::new(),
-            _ => match sc.exit_code {
-                Some(code) => format!("Terminated: {reason} (exit code: {code})"),
-                None => format!("Terminated: {reason}"),
-            },
-        };
-    }
-
-    // Fall back to detail, then error
-    sc.detail
-        .as_deref()
-        .or(sc.error.as_deref())
-        .unwrap_or("")
-        .to_string()
 }
 
 /// Generate a human-readable message for a sandbox lifecycle event.

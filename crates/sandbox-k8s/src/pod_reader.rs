@@ -12,7 +12,7 @@ use std::collections::HashMap;
 use tracing::{debug, warn};
 
 use super::client::K8sClient;
-use super::pod_status::{extract_all_container_statuses, extract_container_observed_statuses};
+use super::pod_status::extract_all_container_statuses;
 use moatless_ports::sandbox::{SandboxDiagnosticsContainer, SandboxDiagnosticsEntry};
 use moatless_sandbox_runtime::access::LogOptions;
 use moatless_sandbox_runtime::container_status::{
@@ -52,30 +52,6 @@ fn container_waiting_message(e: &kube::Error) -> Option<&str> {
 /// terminated predecessor.
 fn no_previous_container(e: &kube::Error) -> bool {
     matches!(e, kube::Error::Api(api) if api.code == 400 && api.message.contains("not found"))
-}
-
-/// Fetch container statuses from the pod matching the task ID, excluding the
-/// "sandbox" container.
-pub async fn fetch_server_container_statuses(
-    k8s: &K8sClient,
-    task_id: &str,
-) -> Vec<ContainerObservedStatus> {
-    let pods_api: Api<Pod> = Api::namespaced(k8s.client.clone(), k8s.namespace());
-    let lp = ListParams::default().labels(&format!("moatless.io/task-id={task_id}"));
-
-    match pods_api.list(&lp).await {
-        Ok(list) => {
-            if let Some(pod) = list.items.first() {
-                extract_container_observed_statuses(pod)
-            } else {
-                vec![]
-            }
-        }
-        Err(e) => {
-            warn!(task_id, error = %e, "Failed to fetch pod for container statuses");
-            vec![]
-        }
-    }
 }
 
 /// Fetch observed statuses for **all** containers (including sandbox) from K8s
@@ -147,7 +123,7 @@ pub async fn fetch_pod_runtime_events(k8s: &K8sClient, task_id: &str) -> Vec<Run
     }
 }
 
-/// Stream server container logs, one value per line; falls back to previous
+/// Stream a container's logs, one value per line; falls back to previous
 /// container logs (`previous: true`) if live streaming fails (e.g. terminated).
 pub async fn stream_container_logs_k8s(
     k8s: &K8sClient,

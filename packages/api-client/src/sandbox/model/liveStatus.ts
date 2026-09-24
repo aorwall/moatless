@@ -17,10 +17,9 @@ export interface LiveStatus {
   /**
      * Commands registered through `moat cmd`, running and recently finished.
      *
-     * The agent reports `idle` while one of these runs — its turn ended and
-     * the sandbox is carrying the work — so a reader with the agent status
-     * alone cannot tell a finished Task from one that is mid-build. Empty
-     * whenever the sandbox is not `Ready`, or when nothing is registered.
+     * The agent reports `idle` while one runs (turn ended, sandbox carrying
+     * the work), so agent status alone can't tell finished from mid-build.
+     * Empty unless the sandbox is `Ready` with something registered.
      */
   commands?: CommandSummary[];
   /** @nullable */

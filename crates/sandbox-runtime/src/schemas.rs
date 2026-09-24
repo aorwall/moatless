@@ -8,14 +8,12 @@ pub use moatless_api_schemas::sandbox::{
     ManagedCommandState, RuntimeEvent, SandboxStatusFullResponse, ScheduledJobInfo,
     ScheduledJobKind, WakeupJobInfo,
 };
-pub use moatless_types::sandbox::ServerEntry;
 
 pub use crate::file_conversion::UnknownFileNodeType;
 pub use moatless_api_schemas::sandbox::{
     ContentOrigin, ContentSource, FileContentResponse, FileNameMatchDto, FileTreeNodeDto,
     FileTreeResponse, GitSummaryDto, ListFilesResponse, MoatlessToolName, ProvisionResponse,
-    SearchByNameRequest, SearchByNameResponse, ServerConfigResponse, ServerOverrideEntry,
-    ServerOverridesResponse, ServerStatusResponse, UpdateServerConfigRequest, WriteFileRequestBody,
+    SearchByNameRequest, SearchByNameResponse, WriteFileRequestBody,
 };
 #[cfg(test)]
 mod tests {
@@ -66,7 +64,6 @@ mod tests {
             sandbox_status: SandboxStatus::Ready,
             sandbox_error: None,
             agent_status: Some(AgentStatus::Idle),
-            servers: vec![],
             resources: None,
             container_diagnostics: None,
             runtime_events: None,
@@ -88,7 +85,6 @@ mod tests {
             sandbox_status: SandboxStatus::Ready,
             sandbox_error: None,
             agent_status: Some(AgentStatus::Running),
-            servers: vec![],
             resources: None,
             container_diagnostics: None,
             runtime_events: None,
@@ -123,7 +119,6 @@ mod tests {
             sandbox_status: SandboxStatus::Ready,
             sandbox_error: None,
             agent_status: Some(AgentStatus::Idle),
-            servers: vec![],
             resources: None,
             container_diagnostics: None,
             runtime_events: None,

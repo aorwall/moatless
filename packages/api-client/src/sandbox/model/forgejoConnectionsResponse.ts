@@ -10,8 +10,7 @@ import type { ForgejoProviderTokenStatusResponse } from './forgejoProviderTokenS
 /**
  * Every registered instance, each carrying the caller's own connection to it.
  *
- * This is not [`ForgejoInstancesResponse`]: that one is the admin view of the
- * registered OAuth2 applications, and it names a `client_id`.
+ * Not [`ForgejoInstancesResponse`], the admin view that names a `client_id`.
  */
 export interface ForgejoConnectionsResponse {
   instances: ForgejoProviderTokenStatusResponse[];

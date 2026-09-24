@@ -10,8 +10,6 @@ use moatless_types::access_control::Scope;
 pub use crate::schemas::workspace::ResourceConfig;
 #[deprecated(note = "use moatless_workspace_types::schemas::workspace::ScriptConfig")]
 pub use crate::schemas::workspace::ScriptConfig;
-#[deprecated(note = "use moatless_workspace_types::schemas::workspace::ServerConfig")]
-pub use crate::schemas::workspace::ServerConfig;
 
 // =============================================================================
 // CreateRepositoryRequest

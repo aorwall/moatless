@@ -14,9 +14,8 @@ moat tasks get <task-id> --json | jq '{taskId, sandboxId, workspaceId}'
 ## Task lifecycle
 
 Create with `--agent-type` plus `--repo`, `--workspace`, or `--same-sandbox`.
-Use `--headless false` when preview servers are part of the check. `--same-sandbox`
-can take a task ID or use the ambient task; `--checkout-mode shared|isolated`
-only applies with it. `--parent` sets a parent explicitly.
+`--same-sandbox` can take a task ID or use the ambient task; `--checkout-mode
+shared|isolated` only applies with it. `--parent` sets a parent explicitly.
 
 `moat tasks fork <task-id>` supports `--at-turn`, `--message`, and `--same-sandbox`.
 Read its help before combining these. Stop/start controls the sandbox; close
@@ -27,9 +26,9 @@ session. A shared sandbox can affect other task members.
 
 Repository commands configure git connection fields: name, URL, branch, provider,
 kind, description, and scope as supported by each command. Workspace commands own
-image, setup commands, servers, environment, resources, and sandbox service account.
+image, setup commands, scripts, environment, resources, and sandbox service account.
 
-Inspect `moat workspaces update --help` for `--servers-json`, `--env-vars-json`,
+Inspect `moat workspaces update --help` for `--scripts-json`, `--env-vars-json`,
 `--resources-json`, and `--docker-image`. Get the workspace ID from the task.
 For git-managed workspaces, edit `.moatless/workspaces.json` in the owning repository
 or use `moat workspaces override` to take manual ownership. `reset-git` returns
@@ -45,12 +44,16 @@ moat tasks diagnose <task-id>
 moat tasks status <task-id>
 moat events list <task-id> --errors
 moat messages list <task-id> --full
-moat tasks logs <task-id> --server <configured-name> --no-follow --tail 500
+moat tasks logs <task-id> --no-follow --tail 500
+moat tasks scripts list <task-id>
 ```
 
-Use `--previous` for a prior crashed container instance when supported by the
-runtime. Without `--no-follow`, logs keep streaming. Server names come from task
-status; do not append `-server` to the CLI name.
+`moat tasks logs` streams the sandbox container's own logs; Docker mode returns
+"not available". Use `--previous` for a prior crashed container instance when
+supported by the runtime. Without `--no-follow`, logs keep streaming. A Script's
+output is not in `moat tasks logs`: `moat tasks scripts run <name>` starts it or
+attaches to it and returns a terminal id, and its output is read in that
+terminal in the T3 UI.
 
 `moat tasks workspace-repo <task-id>` prints a block of `export` lines that point
 the `restic` CLI at the task's own stored workspace. Platform admins only, and

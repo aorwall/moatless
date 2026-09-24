@@ -33,10 +33,6 @@
 			"types": "./dist/routes/git.routes.d.ts",
 			"import": "./dist/routes/git.routes.js"
 		},
-		"./routes/server": {
-			"types": "./dist/routes/server.routes.d.ts",
-			"import": "./dist/routes/server.routes.js"
-		},
 		"./routes/workspace": {
 			"types": "./dist/routes/workspace.routes.d.ts",
 			"import": "./dist/routes/workspace.routes.js"

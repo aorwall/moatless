@@ -1,6 +1,6 @@
 ---
 name: shadow-dev
-description: "Run and rebuild the Moatless backend inside a sandbox using scripts/shadow. Use for a local shadow backend against shared development services and its managed preview server."
+description: "Run and rebuild the Moatless backend inside a sandbox using scripts/shadow. Use for a local shadow backend against shared development services, run as a Script."
 ---
 
 # Shadow development
@@ -14,14 +14,14 @@ an extra backend or inherit its elevated service account.
 
 Read [shadow configuration](../../../scripts/shadow/workspaces.shadow.json) and
 [the shadow runbook](../../../scripts/shadow/README.md), then create or update a
-workspace with the repository binding and the backend server. Run configuration
+workspace with the repository binding and the backend Script. Run configuration
 belongs to the workspace, not the repository git record.
 
-- Backend start command: `bash scripts/shadow/up.sh`, port 8080, and a startup
-  classification timeout large enough for a cold build (the example uses 600s).
-- Set `SHADOW_CARGO_PROFILE=dev` in the backend server's `envVars` and in the shell
+- Backend Script: name `backend`, command `bash scripts/shadow/up.sh`, port 8080,
+  `runOnStart: true` so it starts as soon as the sandbox is ready.
+- Set `SHADOW_CARGO_PROFILE=dev` in the backend Script's `envVars` and in the shell
   running rebuilds. Both scripts default to release; mismatching profiles makes
-  the server start a different binary from the one rebuilt.
+  the Script start a different binary from the one rebuilt.
 - Set resources through `--resources-json`, for example
   `{"storage":"40Gi","pvcEnabled":false,"s3Enabled":true}` when snapshot-backed
   ephemeral storage matches the cluster. Check available disk before compiling.
@@ -36,19 +36,22 @@ belongs to the workspace, not the repository git record.
 moat tasks create --workspace <shadow-workspace-id> --agent-type claude-code \
   --headless false --name "Shadow development"
 moat tasks status <task-id> --json
-moat tasks logs <task-id> --server backend --no-follow --tail 2000
+moat tasks scripts list <task-id>
 curl --fail --max-time 10 http://localhost:8080/health
 ```
 
-Use the returned backend preview URL. Do not derive it from task ID: shared
-sandbox tasks can have a different sandbox identity. Authenticated API checks
-need the API key even when `/health` succeeds publicly.
+`moat tasks logs` streams the sandbox container's own logs, not the Script's —
+the `backend` Script's output is in its own terminal, read in the T3 UI (attach
+or restart it with `moat tasks scripts run backend`). Use the T3 UI's preview
+tab for the backend's published URL under Kubernetes; do not derive it from task
+ID, since shared sandbox tasks can have a different sandbox identity.
+Authenticated API checks need the API key even when `/health` succeeds publicly.
 
 ## Rebuild and environment
 
-Confirm a backend server exists first — `moat tasks servers <task-id> list`.
+Confirm the backend Script exists first — `moat tasks scripts list <task-id>`.
 `rebuild.sh` builds `moatless-backend` and only then bumps the trigger that
-`up.sh` watches, and `up.sh` runs only where a backend server does. With none,
+`up.sh` watches, and `up.sh` runs only where the backend Script does. With none,
 the whole build is spent and nothing consumes the trigger.
 
 ```bash

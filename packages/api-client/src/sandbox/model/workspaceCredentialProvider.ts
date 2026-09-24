@@ -10,9 +10,9 @@
  * A provider whose credential can be pinned to a Workspace.
  *
  * Only providers whose sandbox credential is a single static environment
- * variable are here. Codex (`CODEX_AUTH_JSON`) and the Claude OAuth token are
- * refreshed and written back against the connected user's own row, so a
- * workspace-level copy of either would go stale with nothing to rotate it.
+ * variable are listed here. Codex and the Claude OAuth token are refreshed
+ * per-user, so a workspace-level copy would go stale with nothing to
+ * rotate it.
  */
 export type WorkspaceCredentialProvider = typeof WorkspaceCredentialProvider[keyof typeof WorkspaceCredentialProvider];
 

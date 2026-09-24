@@ -68,19 +68,18 @@ moat workspaces list --json | jq '.[] | {id, name, source, dockerAccess}'
 
 Git-synced workspaces (from the repo's `.moatless/workspaces.json`) carry the
 run-config a child needs — resource sizing (memory/storage for heavy builds),
-servers, and Docker access.
+scripts, and Docker access.
 
 Choose per ticket — **default to the sandbox-only workspace**:
 
-- **Default**: the sandbox-only workspace — agent container, no dev server.
+- **Default**: the sandbox-only workspace — agent container, no dev Script.
   Child tasks write code, run tests, and open a PR; almost none of them need a
-  running frontend. A sandbox-only pod is a fraction of the size of one carrying
-  a dev server, so several fit per node instead of one, and children stop
-  queueing behind each other for capacity. Pick this unless the ticket gives you
-  a concrete reason not to.
-- **Preview needed**: a workspace declaring a dev server, only when the ticket
-  needs the app actually running — visual/UI verification, or acceptance
-  criteria written against a live preview URL.
+  running frontend. Pick this unless the ticket gives you a concrete reason not
+  to.
+- **Preview needed**: a workspace declaring a dev Script with a `port`, only
+  when the ticket needs the app actually running — visual/UI verification, or
+  acceptance criteria written against a live preview URL. Kubernetes only:
+  Docker does not publish a Script's port.
 - **Docker needed**: a workspace with `dockerAccess: true` when the ticket runs
   compose-based integration tests, builds images, or otherwise needs a Docker
   daemon. Check the ticket's acceptance criteria for compose/E2E test commands.
@@ -88,8 +87,8 @@ Choose per ticket — **default to the sandbox-only workspace**:
 The listing above is the authority on which of those exist — read it rather
 than assuming a preview or Docker workspace is there.
 
-Sizing follows that choice automatically — each workspace carries its own
-resource config, and servers are sized separately from the agent container.
+Sizing follows that choice automatically — the Workspace's resource config
+sizes the sandbox, and Scripts share that sandbox's resources.
 
 Pass `--workspace <ws-id-or-name>` to `moat tasks create`. It is required: a
 task always runs in a Workspace, and the CLI ignores `--repo`.

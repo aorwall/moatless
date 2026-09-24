@@ -61,9 +61,10 @@ export interface TaskResponse {
   ownerUserId?: string | null;
   /**
      * Derived from whichever parent relation in `relations` makes this task a
-     * child — `created_by` or `forked_from`. Kept for backward compatibility
-     * with clients that pre-date the relations field. Read `forked_from` to
-     * tell the two apart.
+     * child (`created_by` or `forked_from`).
+     *
+     * Kept for backward compatibility with clients that pre-date `relations`;
+     * read `forked_from` to tell the two apart.
      * @nullable
      */
   parentTaskId?: string | null;

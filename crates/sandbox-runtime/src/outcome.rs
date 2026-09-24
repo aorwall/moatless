@@ -12,28 +12,17 @@ pub struct DegradationWarning {
     pub message: String,
 }
 
-/// A single server that failed to come up while the sandbox itself succeeded.
-///
-/// Docker surfaces these per-server; they survive into the outcome so
-/// visibility isn't lost when adapters stop publishing their own events.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ServerFailure {
-    pub server: String,
-    pub message: String,
-}
-
 /// Success diagnostics shared by [`super::runtime::RuntimeOutcome`] and
 /// [`LifecycleOutcome`]. The **success** type never describes the operation's
 /// own failure — that lives on the error types.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Diagnostics {
     pub degradations: Vec<DegradationWarning>,
-    pub server_failures: Vec<ServerFailure>,
 }
 
 impl Diagnostics {
     pub fn is_empty(&self) -> bool {
-        self.degradations.is_empty() && self.server_failures.is_empty()
+        self.degradations.is_empty()
     }
 }
 
@@ -118,10 +107,6 @@ mod tests {
             degradations: vec![DegradationWarning {
                 code: "storage_degraded".into(),
                 message: "ephemeral fallback".into(),
-            }],
-            server_failures: vec![ServerFailure {
-                server: "web".into(),
-                message: "port in use".into(),
             }],
         };
         assert!(!diags.is_empty());

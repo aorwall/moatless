@@ -7,10 +7,10 @@
  */
 import type { ResourceConfig } from './resourceConfig';
 import type { Scope } from './scope';
-import type { ServerConfig } from './serverConfig';
 import type { WorkspaceIcon } from './workspaceIcon';
 import type { WorkspaceRepoResponse } from './workspaceRepoResponse';
 import type { WorkspaceResponseEnvVars } from './workspaceResponseEnvVars';
+import type { WorkspaceResponseNodeSelector } from './workspaceResponseNodeSelector';
 
 export interface WorkspaceResponse {
   /** @nullable */
@@ -29,9 +29,9 @@ export interface WorkspaceResponse {
      */
   defaultModel?: string | null;
   /**
-     * Soft-deleted workspaces are normally hidden. Git-origin tombstones remain
-     * visible in admin so users can restore them from git without automatic
-     * sync recreating them behind their back.
+     * Soft-deleted workspaces are normally hidden. Git-origin tombstones
+     * remain visible in admin so users can restore them from git without
+     * automatic sync recreating them behind their back.
      */
   deleted?: boolean;
   /** @nullable */
@@ -44,11 +44,16 @@ export interface WorkspaceResponse {
   envVars?: WorkspaceResponseEnvVars;
   icon?: null | WorkspaceIcon;
   id: string;
-  /** Derived from the placement count: `blank` (0), `single` (1), `multi` (n). */
+  /**
+     * Derived from the placement count: `blank` (0), `single` (1), `multi`
+     * (n).
+     */
   kind: string;
   name: string;
   /** @nullable */
   networkProfile?: string | null;
+  /** @nullable */
+  nodeSelector?: WorkspaceResponseNodeSelector;
   /** @nullable */
   ownerUserId?: string | null;
   repos: WorkspaceRepoResponse[];
@@ -62,8 +67,6 @@ export interface WorkspaceResponse {
   /** @nullable */
   sandboxServiceAccount?: string | null;
   scope: Scope;
-  /** @nullable */
-  servers?: ServerConfig[] | null;
   /** @nullable */
   setupCommands?: string[] | null;
   /**
@@ -85,7 +88,8 @@ export interface WorkspaceResponse {
      */
   sourceKey?: string | null;
   /**
-     * The repository whose git tree declared this workspace (`source == "git"`).
+     * The repository whose git tree declared this workspace (`source ==
+     * "git"`).
      * @nullable
      */
   sourceRepositoryId?: string | null;

@@ -11,7 +11,7 @@ Use code and tests to settle behavior; documentation is a routing aid.
 | Lifecycle orchestration | [sandbox-control](../../../../crates/sandbox-control/src) |
 | Workspace persistence | [storage.rs](../../../../crates/sandbox-runtime/src/storage.rs) |
 | Task creation and first message | [task service](../../../../crates/tasks/src/task/service.rs) |
-| Live server overrides | [server_control.rs](../../../../crates/sandbox/src/server_control.rs) |
+| Script port publishing | [edge.rs](../../../../crates/sandbox-k8s/src/edge.rs) |
 | Preview ingress | [ingress.rs](../../../../crates/sandbox-k8s/src/ingress.rs) |
 | CLI diagnostic output | [tasks.rs](../../../../crates/cli/src/commands/tasks.rs) |
 

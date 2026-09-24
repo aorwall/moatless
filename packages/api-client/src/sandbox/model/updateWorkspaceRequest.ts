@@ -7,8 +7,8 @@
  */
 import type { ResourceConfig } from './resourceConfig';
 import type { Scope } from './scope';
-import type { ServerConfig } from './serverConfig';
 import type { UpdateWorkspaceRequestEnvVars } from './updateWorkspaceRequestEnvVars';
+import type { UpdateWorkspaceRequestNodeSelector } from './updateWorkspaceRequestNodeSelector';
 import type { WorkspaceIcon } from './workspaceIcon';
 
 export interface UpdateWorkspaceRequest {
@@ -35,6 +35,12 @@ export interface UpdateWorkspaceRequest {
   name?: string | null;
   /** @nullable */
   networkProfile?: string | null;
+  /**
+     * Extra node labels sandbox pods must match, merged over the
+     * deployment-wide selector. Send `{}` to clear.
+     * @nullable
+     */
+  nodeSelector?: UpdateWorkspaceRequestNodeSelector;
   resources?: null | ResourceConfig;
   /**
      * Identity every Task on this Workspace acts as on a git host. When set it
@@ -45,8 +51,6 @@ export interface UpdateWorkspaceRequest {
   /** @nullable */
   sandboxServiceAccount?: string | null;
   scope?: null | Scope;
-  /** @nullable */
-  servers?: ServerConfig[] | null;
   /** @nullable */
   setupCommands?: string[] | null;
   /** @nullable */

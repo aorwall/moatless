@@ -1,13 +1,8 @@
 //! One watcher event: the transitions it detects and what each publishes.
 
 use super::diagnostics::{emit_turn_interrupted, fetch_sandbox_logs};
-use super::observed::{
-    extract_task_id, format_sandbox_lifecycle_message, format_server_message,
-    record_sandbox_startup,
-};
-use super::remediation::{
-    CleanExitAction, clean_exit_action, crash_autostop, publish_server_failed,
-};
+use super::observed::{extract_task_id, format_sandbox_lifecycle_message, record_sandbox_startup};
+use super::remediation::{CleanExitAction, clean_exit_action, crash_autostop};
 use super::watch::WatcherDeps;
 use super::*;
 
@@ -138,39 +133,6 @@ pub(super) async fn process_watcher_event(
                 ObservationContext::default(),
             );
 
-            // Publish server container events as typed `server` events
-            for transition in &initial_plan.server_transitions {
-                let server_sub_type = transition.sub_type;
-                let server_name = &transition.server_name;
-                let sc = new_state.server_containers.iter().find(|s| {
-                    let n = s.name.strip_suffix("-server").unwrap_or(&s.name);
-                    n == server_name
-                });
-
-                info!(
-                    task_id = %task_id,
-                    pod_name = %pod_name,
-                    server = %server_name,
-                    event = ?transition.sub_type,
-                    status = %transition.status,
-                    error = ?sc.and_then(|s| s.error.as_deref()),
-                    detail = ?sc.and_then(|s| s.detail.as_deref()),
-                    "Server container status changed"
-                );
-
-                event_publisher
-                    .publish_server_event(
-                        &task_id,
-                        server_sub_type,
-                        &ServerEventPayload {
-                            server_name: server_name.clone(),
-                            status: server_sub_type,
-                            message: format_server_message(sc),
-                        },
-                    )
-                    .await;
-            }
-
             // Check if this is an intentional stop (Deployment scaled to 0).
             // When the idle reaper or user explicitly stops a sandbox, the pod
             // terminates with exit code 137 (SIGKILL) which would otherwise be
@@ -197,41 +159,6 @@ pub(super) async fn process_watcher_event(
             } else {
                 initial_plan
             };
-
-            // If sandbox entered an error state AND this is NOT an intentional stop,
-            // force all servers to Failed (pod crash kills server containers too).
-            if plan.has_error_transition && !is_intentional_stop {
-                for sc in &new_state.server_containers {
-                    let server_name = sc.name.strip_suffix("-server").unwrap_or(&sc.name);
-                    // Skip servers already reported as failed by the policy plan.
-                    let already_failed = plan.server_transitions.iter().any(|t| {
-                        t.server_name == server_name && t.sub_type == ServerSubType::Failed
-                    });
-                    if already_failed {
-                        continue;
-                    }
-                    info!(
-                        task_id = %task_id,
-                        pod_name = %pod_name,
-                        server = %server_name,
-                        "Forcing server to Failed due to error-level pod transition"
-                    );
-                    event_publisher
-                        .publish_server_event(
-                            &task_id,
-                            ServerSubType::Failed,
-                            &ServerEventPayload {
-                                server_name: server_name.to_string(),
-                                status: ServerSubType::Failed,
-                                message: sc
-                                    .error
-                                    .clone()
-                                    .unwrap_or_else(|| "Pod terminated".to_string()),
-                            },
-                        )
-                        .await;
-                }
-            }
 
             for transition in &plan.sandbox_transitions {
                 let sub_type = &transition.sub_type;
@@ -366,7 +293,6 @@ pub(super) async fn process_watcher_event(
             // startup_recorded is sticky (never reset) so re-readies aren't re-timed.
             if let Some(prev) = prev_state {
                 new_state.fatal_published = prev.fatal_published;
-                new_state.crash_reported_servers = prev.crash_reported_servers.clone();
                 new_state.startup_recorded = prev.startup_recorded;
                 // Sticky fire-once guards for the threshold sweep, so re-observing
                 // a still-stuck pod doesn't re-emit its blocked/slow event.
@@ -673,60 +599,6 @@ pub(super) async fn process_watcher_event(
                 }
             }
 
-            // Surface a crash-looping *server* container as a `Failed` event.
-            // This never touches the running pod: the sandbox container and every
-            // healthy sidecar keep serving, and the broken container is left to
-            // the kubelet's own restart backoff.
-            if max_crash_restart_count > 0 && !is_intentional_stop {
-                // Identify server containers that just crossed the restart
-                // threshold and haven't already been reported for this pod.
-                let candidates: Vec<ServerContainerState> = new_state
-                    .server_containers
-                    .iter()
-                    .filter(|sc| sc.restart_count >= max_crash_restart_count)
-                    .filter(|sc| {
-                        let name = sc.name.strip_suffix("-server").unwrap_or(&sc.name);
-                        !new_state.crash_reported_servers.contains(name)
-                    })
-                    .filter(|sc| {
-                        // Crossing guard: same container was below threshold before
-                        // (or this is a freshly-observed pod).
-                        prev_state
-                            .and_then(|p| {
-                                p.server_containers.iter().find(|p_sc| p_sc.name == sc.name)
-                            })
-                            .is_none_or(|p_sc| p_sc.restart_count < max_crash_restart_count)
-                    })
-                    .cloned()
-                    .collect();
-
-                for sc in candidates {
-                    let server_name = sc
-                        .name
-                        .strip_suffix("-server")
-                        .unwrap_or(&sc.name)
-                        .to_string();
-                    warn!(
-                        task_id = %task_id,
-                        server = %server_name,
-                        restart_count = sc.restart_count,
-                        threshold = max_crash_restart_count,
-                        "Server container exceeded crash-loop threshold"
-                    );
-                    publish_server_failed(
-                        event_publisher,
-                        &task_id,
-                        &server_name,
-                        format!(
-                            "Server crash-looping after {} restarts (threshold: {})",
-                            sc.restart_count, max_crash_restart_count
-                        ),
-                    )
-                    .await;
-                    new_state.crash_reported_servers.insert(server_name);
-                }
-            }
-
             pod_states.insert(pod_name, new_state);
         }
         watcher::Event::Delete(pod) => {
@@ -745,12 +617,6 @@ pub(super) async fn process_watcher_event(
                 pod.metadata.labels.as_ref().and_then(|labels| {
                     generation_from_label(labels.get(OPERATION_GENERATION_LABEL))
                 });
-
-            // Capture server state BEFORE removing from pod_states
-            let deleted_pod_servers: Vec<ServerContainerState> = pod_states
-                .get(pod_name)
-                .map(|s| s.server_containers.clone())
-                .unwrap_or_default();
 
             // Remove the specific pod entry
             pod_states.remove(pod_name);
@@ -824,39 +690,6 @@ pub(super) async fn process_watcher_event(
                         pod_name = %pod_name,
                         "Suppressing lifecycle-correlated pod deletion"
                     );
-                }
-
-                // Publish server events for each server in the deleted pod
-                let server_sub = if sandbox_status == SandboxStatus::Removed {
-                    ServerSubType::Failed // Unexpected deletion
-                } else {
-                    ServerSubType::Stopped // Intentional stop
-                };
-
-                for sc in &deleted_pod_servers {
-                    let server_name = sc.name.strip_suffix("-server").unwrap_or(&sc.name);
-                    info!(
-                        task_id = %task_id,
-                        pod_name = %pod_name,
-                        server = %server_name,
-                        event = ?server_sub,
-                        "Publishing server event for deleted pod"
-                    );
-                    event_publisher
-                        .publish_server_event(
-                            &task_id,
-                            server_sub,
-                            &ServerEventPayload {
-                                server_name: server_name.to_string(),
-                                status: server_sub,
-                                message: if sandbox_status == SandboxStatus::Removed {
-                                    "Pod deleted".to_string()
-                                } else {
-                                    String::new()
-                                },
-                            },
-                        )
-                        .await;
                 }
 
                 let delete_message = if sandbox_status == SandboxStatus::Stopped {

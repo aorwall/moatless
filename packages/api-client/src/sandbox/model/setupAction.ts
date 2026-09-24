@@ -8,8 +8,8 @@
 import type { SetupActionKind } from './setupActionKind';
 
 /**
- * A remediation step the frontend can offer. `target` is machine-readable:
- * a settings-section id, an in-app route, or an absolute URL, per `kind`.
+ * A remediation step the frontend can offer. `target` is machine-readable: a
+ * settings-section id, an in-app route, or an absolute URL, per `kind`.
  */
 export interface SetupAction {
   kind: SetupActionKind;

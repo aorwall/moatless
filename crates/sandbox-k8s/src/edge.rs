@@ -1,11 +1,10 @@
 //! Opening one port on an already-running sandbox.
 //!
-//! Provisioning publishes a workspace's *declared* preview-server ports as one
-//! atomic pass over Service, `IngressRoutes` and the preview `NetworkPolicy`. A
-//! Script's port is not declared — asked for as the script starts, against a
-//! sandbox already up — so this module writes the same three objects one port
-//! at a time, each write idempotent and none compensated on failure: what
-//! survives is a port published but unused, never one reachable but unadmitted.
+//! A Script's port is asked for as the script starts, against a sandbox already
+//! up, so this module writes the Service port, the `IngressRoute` and the
+//! preview `NetworkPolicy` one port at a time, each write idempotent and none
+//! compensated on failure: what survives is a port published but unused, never
+//! one reachable but unadmitted.
 
 use std::collections::BTreeSet;
 
@@ -33,8 +32,8 @@ pub fn script_port_name(port: u16) -> String {
 
 /// The key a script's `IngressRoute` is named from.
 ///
-/// Prefixed so a Script and a preview server sharing a name get distinct routes
-/// rather than one silently reusing the other's.
+/// Do not change the prefix: routes are created, never replaced, so a new name
+/// would give every running sandbox a second route per port.
 fn script_route_key(name: &str) -> String {
     format!("script-{name}")
 }
@@ -55,8 +54,7 @@ fn ingress_api(k8s: &K8sClient) -> Api<DynamicObject> {
 /// Every port the task's `IngressRoutes` currently point at.
 ///
 /// Routes outlive a missing Service and are the only record of a Script's port,
-/// so the network heal reads this to avoid dropping one when rebuilding from
-/// the declared plan. Best-effort: an unavailable/uninstalled CRD yields an
+/// so the network heal rebuilds the Service from this. Best-effort: an unavailable/uninstalled CRD yields an
 /// empty set.
 pub async fn published_task_ports(k8s: &K8sClient, task_id: &str) -> BTreeSet<u16> {
     let api = ingress_api(k8s);
@@ -135,9 +133,9 @@ async fn patch_service_port(
 /// Whether `port` still needs the patch that routes it to the preview proxy.
 ///
 /// Scoped to entries `script_port_name` marks as this module's own, since the
-/// merge keys on `port` alone and a name-blind guard would rewrite a declared
-/// server's entry too; a pre-proxy entry (`targetPort == port`) is re-patched
-/// or stays unreachable.
+/// merge keys on `port` alone and a name-blind guard would rewrite a reserved
+/// entry such as `http` too; a pre-proxy entry (`targetPort == port`) is
+/// re-patched or stays unreachable.
 fn needs_proxy_patch(ports: &[ServicePort], port: u16) -> bool {
     let Some(existing) = ports.iter().find(|p| p.port == i32::from(port)) else {
         return true;
@@ -238,12 +236,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn script_routes_do_not_collide_with_a_same_named_server() {
-        assert_eq!(script_route_key("dev"), "script-dev");
-        assert_ne!(script_route_key("dev"), "dev");
-    }
-
     /// The patch carries only the port being published. Sending a rebuilt copy
     /// of the whole list is what let a concurrent publish be dropped, so a
     /// patch that names other ports at all is the regression.
@@ -305,14 +297,13 @@ mod tests {
         assert!(needs_proxy_patch(&ports, 3000));
     }
 
-    /// `web: 3000` declared plus a Script started on 3000 is an ordinary
-    /// collision. Patching here would rename the declared server's entry and
-    /// retarget it at the proxy, leaving the two writers in disagreement.
+    /// Patching a reserved entry would retarget the sandbox's own control
+    /// port at the preview proxy.
     #[test]
-    fn a_declared_servers_entry_is_never_rewritten_by_a_script_naming_its_port() {
-        let ports = [entry("web", 3000, 3000)];
+    fn an_entry_this_module_did_not_write_is_never_rewritten() {
+        let ports = [entry("http", 8001, 8001)];
 
-        assert!(!needs_proxy_patch(&ports, 3000));
+        assert!(!needs_proxy_patch(&ports, 8001));
     }
 
     /// An entry with no name at all is not one this module wrote either.

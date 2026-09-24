@@ -1,4 +1,4 @@
-//! The containers on the pod — sandbox, servers and Docker-in-Docker — and the
+//! The containers on the pod — sandbox and Docker-in-Docker — and the
 //! resource envelope each compute mode admits.
 
 use super::env::{env_var, redact_url_userinfo};
@@ -19,10 +19,8 @@ pub(super) fn docker_access_enabled(plan: &ProvisionPlan) -> bool {
 /// Build the privileged `dind` (docker-in-docker) sidecar container.
 ///
 /// Runs `dockerd` without TLS on `tcp://0.0.0.0:2375`, reachable only inside
-/// the pod's network namespace (i.e. via `localhost`), plus the default socket;
-/// layers persist on the `docker-storage` volume. Only attached when a repo
-/// opts into `dockerAccess`; the agent/server containers keep
-/// `app_security_context`.
+/// the pod's network namespace, plus the default socket; layers persist on the
+/// `docker-storage` volume. The agent container keeps `app_security_context`.
 pub(super) fn build_dind_container(config: &Config) -> Container {
     let resources = ResourceRequirements {
         limits: Some(BTreeMap::from([
@@ -196,7 +194,6 @@ pub(super) fn validate_compute_mode(
 }
 
 /// Build the main sandbox container.
-#[allow(clippy::unnecessary_wraps)] // Result for consistency with build_server_containers
 pub(super) fn build_sandbox_container(
     config: &Config,
     task_id: &str,
@@ -533,147 +530,6 @@ pub(super) fn build_sandbox_container(
     })
 }
 
-/// Build server containers from repo config.
-///
-/// Each container's image resolves from `server.docker_image`, falling back to
-/// `config.sandbox.image`; start commands come from `server.start_commands`, or
-/// the image's default CMD if absent.
-#[allow(clippy::unnecessary_wraps)] // Result for consistency with build_sandbox_container
-pub(super) fn build_server_containers(
-    config: &Config,
-    task_id: &str,
-    plan: &ProvisionPlan,
-) -> Result<Vec<Container>, String> {
-    let servers = match &plan.repo_config.servers {
-        Some(s) if !s.is_empty() => s,
-        _ => return Ok(vec![]),
-    };
-
-    let mut containers = Vec::new();
-
-    for server in servers {
-        let Some(port) = allocated_port(server, task_id) else {
-            continue;
-        };
-        let container_name = format!("{}-server", server.name);
-
-        // Image: per-server override → repo-level override → global fallback.
-        // Treat empty strings as unset so cleared-but-non-null DB values fall through.
-        let image = server
-            .docker_image
-            .as_ref()
-            .filter(|s| !s.is_empty())
-            .cloned()
-            .or_else(|| {
-                plan.repo_config
-                    .docker_image
-                    .as_ref()
-                    .filter(|s| !s.is_empty())
-                    .cloned()
-            })
-            .unwrap_or_else(|| config.sandbox.image.clone());
-
-        // Standard env vars for all server containers
-        let mut env = vec![
-            env_var("PORT", &port.to_string()),
-            env_var("WORKSPACE_DIR", "/opt/moatless/workspace"),
-            env_var("WORKSPACE_PATH", "/opt/moatless/workspace"),
-            env_var("DATA_DIR", "/opt/moatless/data"),
-        ];
-
-        // Per-server env vars from config
-        for (k, v) in &server.env_vars {
-            env.push(env_var(k.as_str(), v));
-        }
-
-        // Command: always set command to override the image ENTRYPOINT.
-        // Server containers reuse the sandbox image (ENTRYPOINT: runs sandbox
-        // binary), which we must override.
-        // The script waits for the workspace-ready sentinel, sources the shared
-        // env files, and supervises the child so a live config override can
-        // restart it without rebuilding the pod — see `server_runner`.
-        let (command, args) = if server.start_commands.is_empty() {
-            (None, None)
-        } else {
-            (
-                Some(vec!["bash".to_string(), "-c".to_string()]),
-                Some(vec![build_server_start_script(
-                    &server.name,
-                    &server.start_commands,
-                )]),
-            )
-        };
-
-        // Volume mounts — server containers share workspace-data + shared-data
-        // with the sandbox container. `workspace-data` (PVC or emptyDir) is
-        // always present, so the server sees the same `/opt/moatless`.
-        let volume_mounts = vec![
-            VolumeMount {
-                name: "shared-data".to_string(),
-                mount_path: "/opt/moatless/data".to_string(),
-                ..Default::default()
-            },
-            VolumeMount {
-                name: "workspace-data".to_string(),
-                mount_path: "/opt/moatless".to_string(),
-                ..Default::default()
-            },
-        ];
-
-        // Readiness probe — TCP check on server port
-        let readiness_probe = Probe {
-            tcp_socket: Some(TCPSocketAction {
-                port: IntOrString::Int(port as i32),
-                ..Default::default()
-            }),
-            period_seconds: Some(5),
-            failure_threshold: Some(3),
-            initial_delay_seconds: Some(5),
-            ..Default::default()
-        };
-
-        // Resource limits: per-server override wins, then per-repo, then global
-        // defaults. Servers are typically far lighter than the agent container,
-        // so sizing them separately is what keeps pod density honest.
-        let server_resources = server
-            .resources
-            .as_ref()
-            .or(plan.repo_config.resources.as_ref());
-        let resources = merge_resources(
-            server_resources,
-            &config.sandbox.resources_cpu_request,
-            &config.sandbox.resources_memory_request,
-            &config.sandbox.resources_cpu_limit,
-            &config.sandbox.resources_memory_limit,
-        );
-        if config.sandbox.compute_mode.is_fargate() {
-            validate_fargate_resources(&resources, &container_name)?;
-        }
-
-        containers.push(Container {
-            name: container_name,
-            image: Some(image),
-            image_pull_policy: Some(config.sandbox.image_pull_policy.clone()),
-            command,
-            args,
-            ports: Some(vec![ContainerPort {
-                container_port: port as i32,
-                name: Some("http".to_string()),
-                protocol: Some("TCP".to_string()),
-                ..Default::default()
-            }]),
-            env: Some(env),
-            readiness_probe: Some(readiness_probe),
-            volume_mounts: Some(volume_mounts),
-            resources: Some(resources),
-            security_context: Some(app_security_context(config)),
-            ..Default::default()
-        });
-    }
-
-    Ok(containers)
-}
-
 /// Serialize the plan's repository checkouts for the `WORKSPACE_REPOS` env.
 ///
 /// Clone URLs are redacted exactly like `GIT_CLONE_URL`, so no credential
@@ -705,21 +561,5 @@ pub(super) fn build_workspace_repos_json(plan: &ProvisionPlan) -> Option<String>
 }
 
 pub(super) fn build_repo_config_json(plan: &ProvisionPlan) -> Option<String> {
-    moatless_sandbox_runtime::repo_config_encoding::encode_repo_config(
-        &plan.repo_config,
-        |server| {
-            let mut fields = serde_json::Map::new();
-            if !server.start_commands.is_empty() {
-                fields.insert(
-                    "startCommands".into(),
-                    serde_json::json!(server.start_commands),
-                );
-            }
-            fields.insert("autoReload".into(), serde_json::json!(server.auto_reload));
-            if let Some(label) = &server.label {
-                fields.insert("label".into(), serde_json::json!(label));
-            }
-            fields
-        },
-    )
+    moatless_sandbox_runtime::repo_config_encoding::encode_repo_config(&plan.repo_config)
 }

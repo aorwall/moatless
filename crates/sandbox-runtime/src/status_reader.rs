@@ -1,15 +1,10 @@
 //! The backend's full-fidelity sandbox read, for the HTTP status and log
 //! routes.
 //!
-//! `handlers` serves `SandboxStatusFullResponse` (thirteen fields) as a
-//! documented HTTP response, so that route reads through this trait rather than
-//! the runtime contract `moatless_ports::sandbox::SandboxObserver` (two-field
-//! status), which is implemented for the same adapters by projecting from this
-//! read in `t3code::projection`.
-//!
-//! `live_status`/`server_logs` are field-identical to the contract's, differing
-//! only in error type: this trait returns the sandbox module's `SandboxError`
-//! (with its axum `IntoResponse`), the contract returns the runtime contract's.
+//! `handlers` serves the thirteen-field `SandboxStatusFullResponse`, so it reads
+//! through this trait; the narrower `moatless_ports::sandbox::SandboxObserver`
+//! is projected from this read in `t3code::projection`. Errors are the sandbox
+//! module's `SandboxError`, which carries an axum `IntoResponse`.
 
 use std::sync::Arc;
 
@@ -48,10 +43,9 @@ pub trait SandboxStatusReader: Send + Sync {
     /// The SSE route frames each line at its own boundary; an `axum` SSE
     /// `Event` is write-only and could not be re-emitted over a second
     /// transport.
-    async fn server_logs(
+    async fn sandbox_logs(
         &self,
         task_id: &str,
-        server_name: &str,
         options: LogOptions,
     ) -> Result<BoxStream<'static, Result<String, SandboxError>>, SandboxError>;
 }

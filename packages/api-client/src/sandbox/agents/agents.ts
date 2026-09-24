@@ -52,7 +52,8 @@ export const getListAgentsHandlerUrl = () => {
 }
 
 /**
- * @summary List supported agents with installed / credential status for the current user.
+ * @summary List supported agents with installed / credential status for the current
+user.
  */
 export const listAgentsHandler = async ( options?: Parameters<typeof customInstance>[1]): Promise<listAgentsHandlerResponse> => {
 
@@ -104,7 +105,8 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
     /**
- * @summary List supported agents with installed / credential status for the current user.
+ * @summary List supported agents with installed / credential status for the current
+user.
  */
 export const useListAgentsHandler = <TError = ErrorType<unknown>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof listAgentsHandler>>, TError,void, TContext>, request?: SecondParameter<typeof customInstance>}

@@ -7,10 +7,10 @@
  */
 
 /**
- * What the note is about — the axis a reader triages on, orthogonal to
- * [`FeedbackSurface`], which says only where it was submitted from. A
- * row predating the column, or one whose submitter named none, carries
- * no category.
+ * What the note is about.
+ *
+ * Orthogonal to [`FeedbackSurface`] (where it was submitted from); a row
+ * predating the column, or with no submitter-named category, carries none.
  */
 export type FeedbackCategory = typeof FeedbackCategory[keyof typeof FeedbackCategory];
 

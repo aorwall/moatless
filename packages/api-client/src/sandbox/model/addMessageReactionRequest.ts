@@ -10,6 +10,9 @@
  * Request body for POST `/api/v1/messages/{message_id}/reactions`.
  */
 export interface AddMessageReactionRequest {
-  /** Emoji name (e.g. "thumbsup", "+1", "rocket"). Platform-native names accepted. */
+  /**
+     * Emoji name (e.g. "thumbsup", "+1", "rocket"). Platform-native names
+     * accepted.
+     */
   emoji: string;
 }

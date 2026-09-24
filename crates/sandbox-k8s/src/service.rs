@@ -38,17 +38,13 @@ pub async fn list_sandbox_service_task_ids(
         .collect())
 }
 
-/// The Service's whole `spec.ports` list: sandbox HTTP/gRPC, one entry per
-/// declared server, then one per script port.
+/// The Service's whole `spec.ports` list: sandbox HTTP/gRPC, then one entry per
+/// script port.
 ///
 /// A script port forwards to [`SANDBOX_PREVIEW_PROXY_PORT`], not `port`,
 /// matching `edge::script_service_port_patch` — the only other writer of its
 /// `targetPort`; using `port` here would silently undo the proxy.
-fn service_port_entries(
-    server_ports: &BTreeMap<String, u16>,
-    script_ports: &BTreeSet<u16>,
-    grpc_port: u16,
-) -> Vec<serde_json::Value> {
+fn service_port_entries(script_ports: &BTreeSet<u16>, grpc_port: u16) -> Vec<serde_json::Value> {
     let mut ports = vec![
         serde_json::json!({
             "name": "http",
@@ -64,15 +60,6 @@ fn service_port_entries(
         }),
     ];
 
-    for (name, port) in server_ports {
-        ports.push(serde_json::json!({
-            "name": name,
-            "port": port,
-            "targetPort": port,
-            "protocol": "TCP",
-        }));
-    }
-
     for port in script_ports {
         ports.push(serde_json::json!({
             "name": super::edge::script_port_name(*port),
@@ -87,13 +74,12 @@ fn service_port_entries(
 
 /// Idempotent — handles `AlreadyExists` (409) gracefully.
 ///
-/// `server_ports`/`script_ports` are forwarded as in [`service_port_entries`];
+/// `script_ports` is forwarded as in [`service_port_entries`];
 /// `owner`, when present, becomes the `ownerReference` so deleting the
 /// Deployment cascades to the Service.
 pub async fn create_sandbox_service(
     k8s: &K8sClient,
     task_id: &str,
-    server_ports: &BTreeMap<String, u16>,
     script_ports: &BTreeSet<u16>,
     grpc_port: u16,
     owner: Option<&OwnerReference>,
@@ -101,7 +87,7 @@ pub async fn create_sandbox_service(
     let services: Api<Service> = Api::namespaced(k8s.client.clone(), k8s.namespace());
     let service_name = generate_service_name(task_id);
 
-    let ports = service_port_entries(server_ports, script_ports, grpc_port);
+    let ports = service_port_entries(script_ports, grpc_port);
 
     let mut labels = BTreeMap::new();
     labels.insert(
@@ -203,13 +189,9 @@ pub async fn wait_for_sandbox_service_deleted(
 mod tests {
     use super::*;
 
-    fn entries(servers: &[(&str, u16)], scripts: &[u16]) -> Vec<serde_json::Value> {
-        let servers = servers
-            .iter()
-            .map(|(name, port)| ((*name).to_string(), *port))
-            .collect();
+    fn entries(scripts: &[u16]) -> Vec<serde_json::Value> {
         let scripts = scripts.iter().copied().collect();
-        service_port_entries(&servers, &scripts, 50052)
+        service_port_entries(&scripts, 50052)
     }
 
     fn find<'a>(ports: &'a [serde_json::Value], name: &str) -> &'a serde_json::Value {
@@ -226,7 +208,7 @@ mod tests {
     /// pre-proxy wiring, leaving a `127.0.0.1`-bound server unreachable.
     #[test]
     fn a_script_port_is_rebuilt_pointing_at_the_preview_proxy() {
-        let ports = entries(&[], &[3100, 5173]);
+        let ports = entries(&[3100, 5173]);
 
         for port in [3100u16, 5173] {
             let entry = find(&ports, &super::super::edge::script_port_name(port));
@@ -235,34 +217,11 @@ mod tests {
         }
     }
 
-    /// A declared server runs in its own sidecar and is reached directly.
-    #[test]
-    fn a_declared_server_still_targets_its_own_port() {
-        let ports = entries(&[("web", 3000)], &[]);
-
-        let entry = find(&ports, "web");
-        assert_eq!(entry["port"], 3000);
-        assert_eq!(entry["targetPort"], 3000);
-    }
-
     #[test]
     fn the_sandbox_control_ports_are_always_present() {
-        let ports = entries(&[], &[]);
+        let ports = entries(&[]);
 
         assert_eq!(find(&ports, "http")["targetPort"], 8001);
         assert_eq!(find(&ports, "grpc")["targetPort"], 50052);
-    }
-
-    /// Both kinds coexist on one Service after a heal.
-    #[test]
-    fn declared_and_script_ports_keep_their_own_targets_side_by_side() {
-        let ports = entries(&[("web", 3000)], &[3100]);
-
-        assert_eq!(find(&ports, "web")["targetPort"], 3000);
-        assert_eq!(
-            find(&ports, "scr-3100")["targetPort"],
-            SANDBOX_PREVIEW_PROXY_PORT
-        );
-        assert_eq!(ports.len(), 4);
     }
 }

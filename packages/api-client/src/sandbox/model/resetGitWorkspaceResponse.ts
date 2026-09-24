@@ -10,9 +10,8 @@ import type { WorkspaceResponse } from './workspaceResponse';
 /**
  * Response for `POST /api/v1/workspaces/{id}/reset-git`.
  *
- * The workspace only returns to `source = "git"` when the re-sync actually
- * found it still declared in the repository, so `resynced` reports whether the
- * reset took effect.
+ * `resynced` reports whether the re-sync found the workspace still declared in
+ * git; only then does `source` return to `"git"`.
  */
 export interface ResetGitWorkspaceResponse {
   /**

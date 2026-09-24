@@ -7,31 +7,25 @@
  */
 
 /**
- * `POST /api/v1/linear/issues` — create an issue.
+ * `POST /api/v1/linear/issues` — create an issue. Linear shows the caller's
+ * display name as its creator, via the app.
  */
 export interface LinearIssueCreateRequest {
   /**
-     * Assignee: a Moatless login, an email, a display name, or a UUID. `"me"`
-     * resolves to the authenticated agent (the workspace OAuth viewer). A
-     * Moatless login resolves through the Linear user id stored for that user
-     * (`moat user set-provider-id <login> --provider linear --id <uuid>`), and
-     * outranks an email or display-name match.
+     * Assignee: a Moatless login, email, display name, or UUID; `"me"`
+     * resolves to the authenticated agent. Omitted on create, defaults to the
+     * caller.
      *
-     * Omitted on create, this defaults to the caller — their stored Linear
-     * id, or their moat email matched against Linear's members. Both missing
-     * leaves the issue unassigned.
-     *
-     * Linear rejects an app user here and routes it to `delegate` instead:
-     * pass an app agent as [`Self::delegate`] so the read-back is meaningful.
+     * Linear rejects an app user here — pass an app agent as
+     * [`Self::delegate`] instead.
      * @nullable
      */
   assignee?: string | null;
   /**
-     * Opt the created issue into being a reply target: when `true` (and
-     * `task_id` is set) a `task_bindings` row with `subject_kind =
-     * "linear_issue"` is inserted so future comments on the issue route back
-     * to the task and `moat messages reply` can post here. Filing alone does
-     * NOT bind — this defaults to `false`.
+     * Opt the created issue into a reply target: with `task_id` set and
+     * `true`, inserts a `task_bindings` row so replies route back to the task.
+     *
+     * Filing alone does NOT bind — this defaults to `false`.
      * @nullable
      */
   bind?: boolean | null;
@@ -79,7 +73,7 @@ export interface LinearIssueCreateRequest {
   /**
      * Real Linear user to record as the issue reporter. Resolved like
      * [`Self::assignee`]. Added as a subscriber and mentioned in the
-     * description (Linear has no settable creator/reporter field).
+     * description (Linear has no reporter field).
      * @nullable
      */
   reporter?: string | null;
@@ -95,8 +89,8 @@ export interface LinearIssueCreateRequest {
      */
   taskId?: string | null;
   /**
-     * Team key (e.g. `SP`) or UUID. Optional — defaults to the only team
-     * the connection's user can see when omitted.
+     * Team key (e.g. `SP`) or UUID. Optional — defaults to the only team the
+     * connection's user can see when omitted.
      * @nullable
      */
   team?: string | null;

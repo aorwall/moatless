@@ -1,7 +1,6 @@
 //! Sandbox API request/response schemas.
 
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
 
 use crate::enums::SandboxDesiredState;
 
@@ -11,32 +10,7 @@ use crate::enums::SandboxDesiredState;
 
 pub use moatless_types::sandbox::{
     AgentStatus, CommandSummary, LiveStatus, ManagedCommandState, SandboxStatus,
-    ServerCapabilities, ServerEntry, ServerStatus,
 };
-
-/// Server snapshot from sandbox GET /status
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-pub struct ServerSnapshot {
-    pub name: String,
-    #[serde(default)]
-    pub label: String,
-    #[serde(default)]
-    pub port: u16,
-    #[serde(default)]
-    pub builtin: bool,
-    #[serde(default)]
-    pub default: bool,
-    #[serde(default)]
-    pub enable_inspector: bool,
-    pub status: ServerStatus,
-    pub error: Option<String>,
-    /// Why the server is in this status, when the status alone does not say
-    /// — a `disabled` server names the headless Task that never started it.
-    #[serde(default)]
-    pub detail: Option<String>,
-    pub pid: Option<u32>,
-}
 
 /// Direct access to one task's workspace `restic` repository, for the `restic`
 /// CLI.
@@ -219,7 +193,6 @@ pub struct SandboxStatusFullResponse {
     pub sandbox_error: Option<String>,
     #[cfg_attr(feature = "openapi", schema(required = true))]
     pub agent_status: Option<AgentStatus>,
-    pub servers: Vec<ServerEntry>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resources: Option<ResourceMetrics>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -252,83 +225,6 @@ pub struct SandboxStatusFullResponse {
     /// `None` when either image is unknown (e.g. no sandbox provisioned).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub image_up_to_date: Option<bool>,
-}
-
-/// Server status response proxied from sandbox pod.
-#[derive(Debug, Deserialize, Serialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "camelCase")]
-pub struct ServerStatusResponse {
-    pub servers: Vec<ServerSnapshot>,
-}
-
-pub use moatless_workspace_types::workspace::ServerOverride;
-
-/// Update one preview server's live config.
-///
-/// Only fields a sidecar can pick up on an in-place restart are accepted;
-/// `port` and `dockerImage` are declared so sending them errors "redeploy
-/// required" instead of silently no-op.
-#[derive(Debug, Default, Deserialize, Serialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "camelCase")]
-pub struct UpdateServerConfigRequest {
-    /// Replaces the workspace's start command. Joined with `&&`, as at
-    /// provision time.
-    #[serde(default)]
-    pub start_commands: Option<Vec<String>>,
-    /// Env entries to set, merged into any existing override.
-    #[serde(default)]
-    pub env: Option<BTreeMap<String, String>>,
-    /// Keys to remove from the server's environment. Also drops them from the
-    /// override's `env`, so setting and unsetting the same key is coherent.
-    #[serde(default)]
-    pub unset_env: Option<Vec<String>>,
-    /// Restart the server so the change takes effect (default `true`).
-    #[serde(default = "default_restart")]
-    pub restart: bool,
-    /// Not applicable live — the port is wired into the Service and
-    /// `IngressRoute` at provision time.
-    #[serde(default)]
-    pub port: Option<u16>,
-    /// Not applicable live — the image is the container's identity.
-    #[serde(default)]
-    pub docker_image: Option<String>,
-}
-
-/// Result of a live server config change or restart.
-#[derive(Debug, Deserialize, Serialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "camelCase")]
-pub struct ServerConfigResponse {
-    pub server_name: String,
-    /// The override after the call — empty when it was reset.
-    pub config_override: ServerOverride,
-    /// Sidecar restart generation after the call.
-    pub generation: u64,
-    pub restarted: bool,
-}
-
-/// One server's override as it currently exists on the workspace volume.
-#[derive(Debug, Deserialize, Serialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "camelCase")]
-pub struct ServerOverrideEntry {
-    pub server_name: String,
-    pub config_override: ServerOverride,
-    /// The counter the sidecar watches; `0` means it has never been restarted.
-    pub generation: u64,
-}
-
-/// Every override in effect on a task. Servers with no override are omitted.
-///
-/// Read from the sandbox's workspace volume, the only place an override exists
-/// — a stopped sandbox cannot answer this.
-#[derive(Debug, Deserialize, Serialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "camelCase")]
-pub struct ServerOverridesResponse {
-    pub overrides: Vec<ServerOverrideEntry>,
 }
 
 // ── File operation DTOs ──────────────────────────────────────────
@@ -470,10 +366,6 @@ pub enum MoatlessToolName {
     UpdateRepositoryConfig,
     #[serde(rename = "getRepositoryConfig")]
     GetRepositoryConfig,
-    #[serde(rename = "startOrRestartPreviewServer")]
-    StartOrRestartPreviewServer,
-    #[serde(rename = "getPreviewServerLogs")]
-    GetPreviewServerLogs,
     #[serde(rename = "navigatePreview")]
     NavigatePreview,
     #[serde(rename = "clickElement")]
@@ -529,22 +421,9 @@ impl ContentOrigin {
     }
 }
 
-fn default_restart() -> bool {
-    true
-}
-
 #[cfg(test)]
 mod wire_contract_tests {
     use super::*;
-
-    #[test]
-    fn omitted_restart_matches_the_live_endpoint_default() {
-        let request: UpdateServerConfigRequest = serde_json::from_str("{}").expect("request");
-        assert!(request.restart);
-        let request: UpdateServerConfigRequest =
-            serde_json::from_str(r#"{"restart":false}"#).expect("request");
-        assert!(!request.restart);
-    }
 
     #[test]
     fn binary_snapshot_content_round_trips_without_losing_provenance() {

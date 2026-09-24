@@ -1,10 +1,7 @@
 //! gRPC server implementing `SandboxService`.
 //!
 //! Receives commands from the backend (execute agent, stop agent, notify
-//! messages, status checks, file search). Preview servers still run as separate
-//! containers owned by K8s/Docker — the sandbox does not supervise them — but
-//! it does own their live override files (`ApplyServerConfig`), which is what
-//! lets a server be reconfigured without rebuilding the pod.
+//! messages, status checks, file search).
 
 use std::pin::Pin;
 use std::sync::Arc;
@@ -16,24 +13,23 @@ use tracing::info;
 
 use sandbox_proto::sandbox_service_server::SandboxService;
 use sandbox_proto::{
-    ApplyServerConfigRequest, ApplyServerConfigResponse, ApplyTaskScriptRequest,
-    ApplyTaskScriptResponse, BackgroundWatchJobInfo, CancelWakeNoteRequest, CancelWakeNoteResponse,
-    ExecuteAgentRequest, ExecuteAgentResponse, GetAgentStatusRequest, GetAgentStatusResponse,
-    GetFileTreeRequest, GetFileTreeResponse, GetGitDiffPreviewRequest, GetGitDiffPreviewResponse,
-    GetGitStatusRequest, GetGitStatusResponse, GetServerConfigRequest, GetServerConfigResponse,
-    GetTaskScriptsRequest, GetTaskScriptsResponse, GitRef, GitRepoRange, GitWorkingTreeFile,
-    KillCommandRequest, KillCommandResponse, ListCommandsRequest, ListCommandsResponse,
-    ListFilesRequest, ListFilesResponse, ListGitRefsRequest, ListGitRefsResponse,
+    ApplyTaskScriptRequest, ApplyTaskScriptResponse, BackgroundWatchJobInfo, CancelWakeNoteRequest,
+    CancelWakeNoteResponse, ExecuteAgentRequest, ExecuteAgentResponse, GetAgentStatusRequest,
+    GetAgentStatusResponse, GetFileTreeRequest, GetFileTreeResponse, GetGitDiffPreviewRequest,
+    GetGitDiffPreviewResponse, GetGitStatusRequest, GetGitStatusResponse, GetTaskScriptsRequest,
+    GetTaskScriptsResponse, GitRef, GitRepoRange, GitWorkingTreeFile, KillCommandRequest,
+    KillCommandResponse, ListCommandsRequest, ListCommandsResponse, ListFilesRequest,
+    ListFilesResponse, ListGitRefsRequest, ListGitRefsResponse,
     ManagedCommand as ManagedCommandProto, ManagedCommandState, NotifyMessagesRequest,
     NotifyMessagesResponse, ReadFileRequest, ReadFileResponse, RecordWakeNoteRequest,
     RecordWakeNoteResponse, RefreshCredentialRequest, RefreshCredentialResponse, RunCommandRequest,
     RunCommandResponse, ScheduledJobInfo, SearchFilesByNameRequest, SearchFilesByNameResponse,
-    ServerConfigOverride, StopAgentRequest, StopAgentResponse, SyncWorkspaceRequest,
-    SyncWorkspaceResponse, TaskScript as TaskScriptProto, TerminalAttachRequest,
-    TerminalAttachStreamEvent, TerminalClearRequest, TerminalClearResponse, TerminalCloseRequest,
-    TerminalCloseResponse, TerminalOpenRequest, TerminalResizeRequest, TerminalResizeResponse,
-    TerminalRestartRequest, TerminalSessionSnapshot, TerminalWriteRequest, TerminalWriteResponse,
-    WakeupJobInfo, WriteFileRequest, WriteFileResponse, scheduled_job_info,
+    StopAgentRequest, StopAgentResponse, SyncWorkspaceRequest, SyncWorkspaceResponse,
+    TaskScript as TaskScriptProto, TerminalAttachRequest, TerminalAttachStreamEvent,
+    TerminalClearRequest, TerminalClearResponse, TerminalCloseRequest, TerminalCloseResponse,
+    TerminalOpenRequest, TerminalResizeRequest, TerminalResizeResponse, TerminalRestartRequest,
+    TerminalSessionSnapshot, TerminalWriteRequest, TerminalWriteResponse, WakeupJobInfo,
+    WriteFileRequest, WriteFileResponse, scheduled_job_info,
 };
 
 use crate::agent::scheduled_job::JobSnapshot;
@@ -41,7 +37,6 @@ use crate::agent::types::AgentStatus;
 use crate::agent::wake_note;
 use crate::commands::{CommandError, CommandRecord, CommandSpec, CommandState};
 use crate::files;
-use crate::server_control;
 use crate::state::{RegisterTaskContextError, SandboxState, TaskContext, TaskContextLookupError};
 use crate::task_scripts::{self, TaskScript};
 use crate::writer_admission::WriterPermit;
@@ -421,83 +416,9 @@ impl SandboxService for SandboxServiceImpl {
         }
     }
 
-    /// Write a preview server's override, optionally bumping its generation so
-    /// the sidecar re-execs in place.
-    ///
-    /// A partial update reads the current state with `GetServerConfig` first —
-    /// see [`crate::server_control`] for why overrides are whole-state.
-    #[tracing::instrument(skip_all, fields(request_id = %uuid::Uuid::new_v4(), task_id = %self.state.config.task_id))]
-    async fn apply_server_config(
-        &self,
-        request: Request<ApplyServerConfigRequest>,
-    ) -> Result<Response<ApplyServerConfigResponse>, Status> {
-        let _permit = self.admit_workspace_writer()?;
-        let req = request.into_inner();
-        info!(
-            server = %req.server_name,
-            restart = req.restart,
-            env_count = req.env.len(),
-            "ApplyServerConfig received"
-        );
-
-        if !server_control::is_valid_server_name(&req.server_name) {
-            return Err(Status::invalid_argument(format!(
-                "Invalid server name: {}",
-                req.server_name
-            )));
-        }
-
-        let ov = server_control::ServerOverride {
-            start_command: req.start_command,
-            env: req.env.into_iter().collect(),
-            unset_env: req.unset_env,
-        };
-
-        let generation = server_control::apply(
-            &self.state.config.workspace_dir,
-            &req.server_name,
-            &ov,
-            req.restart,
-        )
-        .await
-        .map_err(|e| Status::internal(format!("Failed to apply server config: {e}")))?;
-
-        Ok(Response::new(ApplyServerConfigResponse { generation }))
-    }
-
-    /// Read back every override currently on the workspace volume.
-    ///
-    /// The backend has no other source since it stopped persisting overrides;
-    /// this reports what is on disk, not what anyone intended, so a hand-edited
-    /// control file shows up here.
-    #[tracing::instrument(skip_all, fields(request_id = %uuid::Uuid::new_v4(), task_id = %self.state.config.task_id))]
-    async fn get_server_config(
-        &self,
-        _request: Request<GetServerConfigRequest>,
-    ) -> Result<Response<GetServerConfigResponse>, Status> {
-        let overrides = server_control::read_all(&self.state.config.workspace_dir)
-            .await
-            .into_iter()
-            .map(|(name, live)| {
-                (
-                    name,
-                    ServerConfigOverride {
-                        start_command: live.config.start_command,
-                        env: live.config.env.into_iter().collect(),
-                        unset_env: live.config.unset_env,
-                        generation: live.generation,
-                    },
-                )
-            })
-            .collect();
-
-        Ok(Response::new(GetServerConfigResponse { overrides }))
-    }
-
     /// Declare or drop one of this Member's own Scripts.
     ///
-    /// Whole-state, like [`Self::apply_server_config`]: the stored Script is
-    /// replaced, never merged into.
+    /// Whole-state: the stored Script is replaced, never merged into.
     #[tracing::instrument(skip_all, fields(request_id = %uuid::Uuid::new_v4(), task_id = %self.state.config.task_id))]
     async fn apply_task_script(
         &self,
@@ -1071,10 +992,6 @@ mod tests {
                 .execute_agent(Request::new(ExecuteAgentRequest::default()))
                 .await
                 .err(),
-            service
-                .apply_server_config(Request::new(ApplyServerConfigRequest::default()))
-                .await
-                .err(),
         ];
 
         for refusal in refusals {
@@ -1098,12 +1015,6 @@ mod tests {
             .run_command(Request::new(RunCommandRequest::default()))
             .await
             .expect_err("an empty command is rejected");
-        assert_eq!(status.code(), tonic::Code::InvalidArgument);
-
-        let status = service
-            .apply_server_config(Request::new(ApplyServerConfigRequest::default()))
-            .await
-            .expect_err("an empty server name is rejected");
         assert_eq!(status.code(), tonic::Code::InvalidArgument);
     }
 

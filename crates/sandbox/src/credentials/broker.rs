@@ -191,7 +191,6 @@ mod tests {
         async fn get_credentials(&self, _: &str) -> Result<GetCredentialsResponse, tonic::Status> {
             Ok(GetCredentialsResponse {
                 credentials: self.creds.clone(),
-                server_env: HashMap::new(),
                 ssh_keys: HashMap::new(),
             })
         }

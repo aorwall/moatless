@@ -18,10 +18,10 @@ an API key. Do not print credentials when inspecting configuration.
 moat repos list --json
 moat workspaces list --json
 moat tasks create --workspace <workspace-id> --agent-type claude-code \
-  --headless false --name "Preview smoke"
+  --headless false --name "Sandbox smoke"
 moat tasks get <task-id> --json
 moat tasks status <task-id> --json
-moat tasks logs <task-id> --server sandbox --no-follow --tail 500
+moat tasks logs <task-id> --no-follow --tail 500
 moat messages list <task-id> --full
 ```
 

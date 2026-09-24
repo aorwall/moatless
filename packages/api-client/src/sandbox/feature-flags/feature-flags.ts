@@ -52,8 +52,8 @@ export const getGetFeatureFlagsUrl = () => {
 }
 
 /**
- * Returns all feature flags and their current values.
- * Flags are controlled by `FF_*` environment variables.
+ * Returns all feature flags and their current values, controlled by `FF_*`
+ * environment variables.
  * @summary GET /api/v1/feature-flags
  */
 export const getFeatureFlags = async ( options?: Parameters<typeof customInstance>[1]): Promise<getFeatureFlagsResponse> => {

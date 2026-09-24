@@ -7,8 +7,8 @@
  */
 
 /**
- * `POST /api/v1/github/repos/{owner}/{repo}/issues/{number}/comments` —
- * post a comment on a PR or issue (GitHub's issues API covers both).
+ * `POST /api/v1/github/repos/{owner}/{repo}/issues/{number}/comments` — post a
+ * comment on a PR or issue (GitHub's issues API covers both).
  */
 export interface GithubCommentRequest {
   body: string;

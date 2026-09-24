@@ -4136,7 +4136,6 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "chrono",
- "futures",
  "moatless-types",
  "moatless-workspace-types",
  "mockall",

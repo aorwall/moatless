@@ -1,33 +1,19 @@
 //! Lifecycle-owned workspace-to-runtime plan knowledge.
 //!
 //! Repository seams stay behind the lifecycle module. Runtime adapters receive
-//! this bundled dependency and ask it for a fresh provision request; status
-//! observation uses the same workspace source for canonical server config.
+//! this bundled dependency and ask it for a fresh provision request.
 
 use std::sync::Arc;
 
-use crate::auto_provision::{build_provision_request, get_server_configs_for_workspace};
+use crate::auto_provision::build_provision_request;
 use moatless_ports::identity::CommitIdentity;
 use moatless_sandbox_runtime::provisioning::ProvisionRequest;
 use moatless_workspace_ports::WorkspaceResolver;
-use moatless_workspace_types::workspace::ServerConfig;
 
 use super::dao::LifecycleDao;
 use super::orchestrator::TaskIntent;
 use moatless_sandbox_runtime::runtime::RuntimeError;
 use moatless_sandbox_runtime::runtime::map_sandbox_error;
-
-/// The servers a Task's Workspace declares, and whether its Sandbox runs any.
-///
-/// A headless Sandbox starts none of them: [`build_provision_request`] drops
-/// `servers` from the plan, so no sidecar container is ever created. The two
-/// travel together because the configs alone say what a Workspace wants, not
-/// what its pod is running.
-#[derive(Default)]
-pub struct TaskServers {
-    pub configs: Vec<ServerConfig>,
-    pub headless: bool,
-}
 
 /// The three seams a fresh runtime plan is assembled from.
 ///
@@ -67,20 +53,6 @@ impl ProvisionDeps {
 
     pub async fn sandbox_id_for_task(&self, task_id: &str) -> Result<String, RuntimeError> {
         Ok(self.intent(task_id).await?.sandbox_id)
-    }
-
-    pub async fn task_servers(&self, task_id: &str) -> TaskServers {
-        let Ok(intent) = self.intent(task_id).await else {
-            return TaskServers::default();
-        };
-        TaskServers {
-            configs: get_server_configs_for_workspace(
-                self.workspaces.as_ref(),
-                &intent.workspace_id,
-            )
-            .await,
-            headless: intent.headless,
-        }
     }
 
     pub async fn expected_sandbox_image(

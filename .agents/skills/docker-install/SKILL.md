@@ -27,9 +27,9 @@ are the authority for flags and readiness checks.
    `moat status`. Use the configured frontend port if it differs. App API routes
    require authentication even on localhost.
 6. Follow [manual smoke verification](../e2e-testing/references/manual-smoke.md).
-   A preview smoke task needs a workspace with servers, `--agent-type`, and
-   `--headless false`. Report separately whether services, agent output, and the
-   returned preview URL were verified.
+   For a Script smoke, use a workspace that declares a Script, and verify
+   the command's output. Docker publishes no Script ports, so report
+   preview HTTP as unavailable. Report services and agent output separately.
 
 Use [troubleshooting](references/troubleshooting.md) when a step fails.
 For a running installation use [docker-testing](../docker-testing/SKILL.md).

@@ -25,7 +25,6 @@ use super::access::{
 };
 use super::state::SandboxApiState;
 use moatless_core::http_auth::OptionalScope;
-use moatless_sandbox_runtime::container_status::ServerSnapshot;
 use moatless_sandbox_runtime::schemas::*;
 use moatless_types::sandbox::SandboxStopReason;
 
@@ -124,7 +123,7 @@ pub async fn live_status_handler(
     Json(status).into_response()
 }
 
-/// Get full sandbox status including servers and Agent status.
+/// Get full sandbox status including Agent status.
 #[utoipa::path(
     get,
     path = "/api/sandbox/v1/tasks/{task_id}/status",
@@ -252,7 +251,7 @@ pub async fn restart_handler(
 /// Redeploy a sandbox (delete Deployment/Service/IngressRoutes, recreate with
 /// fresh repo config).
 ///
-/// Preserves workspace data (PVC). Use after updating repo server configs.
+/// Preserves workspace data (PVC). Use after changing the workspace configuration.
 #[utoipa::path(
     post,
     path = "/api/sandbox/v1/tasks/{task_id}/redeploy",
@@ -381,69 +380,7 @@ pub async fn remove_handler(
     Ok(StatusCode::NO_CONTENT)
 }
 
-// =============================================================================
-// New preview/workspace handlers
-// =============================================================================
-
-/// Get server status for all servers in a task's sandbox.
-#[utoipa::path(
-    get,
-    path = "/api/sandbox/v1/tasks/{task_id}/server/status",
-    tag = "sandbox",
-    params(
-        ("task_id" = String, Path, description = "Task identifier")
-    ),
-    responses(
-        (status = 200, description = "Server status", body = ServerStatusResponse),
-        (status = 500, description = "Internal error", body = moatless_api_schemas::error::ErrorBody)
-    )
-)]
-pub async fn server_status_handler(
-    State(state): State<SandboxApiState>,
-    OptionalScope(scope): OptionalScope,
-    Path(task_id): Path<String>,
-) -> impl IntoResponse {
-    let intent = match authorize_task_read(&state, &scope, &task_id).await {
-        Ok(intent) => intent,
-        Err(e) => {
-            return e.into_response();
-        }
-    };
-    let status = match state
-        .observer
-        .sandbox_status(&task_id, intent.status, intent.desired_state)
-        .await
-    {
-        Ok(status) => status,
-        Err(e) => {
-            error!(task_id = %task_id, error = %e, "server status observation failed");
-            return e.into_response();
-        }
-    };
-    // No `config_override` here: overrides live only on the sandbox's workspace
-    // volume, and this path resolves status from the K8s API with no sandbox
-    // round-trip. Adding one would put a gRPC call on a polled endpoint to serve
-    // a debugging field. `GET /servers/config` reports overrides instead.
-    let servers = status
-        .servers
-        .into_iter()
-        .map(|server| ServerSnapshot {
-            name: server.name,
-            label: server.label,
-            port: server.port,
-            builtin: false,
-            default: server.default,
-            enable_inspector: server.capabilities.inspector,
-            status: server.status,
-            error: server.error,
-            detail: server.detail,
-            pid: None,
-        })
-        .collect();
-    Json(ServerStatusResponse { servers }).into_response()
-}
-
-/// Query parameters for the server logs endpoint.
+/// Query parameters for the sandbox logs endpoint.
 #[derive(Debug, Deserialize)]
 pub struct LogsQuery {
     /// Fetch logs from the previous container instance (useful for crashed
@@ -466,39 +403,37 @@ fn default_tail() -> i64 {
     LogOptions::default().tail_lines
 }
 
-/// Stream server logs via SSE.
+/// Stream the sandbox container's logs via SSE.
 ///
 /// `?previous=true` fetches logs from a crashed/restarted container;
 /// `?follow=false` ends the stream after the buffered lines instead of
 /// waiting for more. OpenAPI cannot represent an SSE response body.
 #[utoipa::path(
     get,
-    path = "/api/sandbox/v1/tasks/{task_id}/servers/{server_name}/logs",
+    path = "/api/sandbox/v1/tasks/{task_id}/logs",
     tag = "sandbox",
     params(
         ("task_id" = String, Path, description = "Task identifier"),
-        ("server_name" = String, Path, description = "Server name"),
         ("previous" = bool, Query, description = "Fetch logs from previous container instance"),
         ("follow" = Option<bool>, Query, description = "Keep the stream open for new lines (default true)"),
         ("tail" = Option<i64>, Query, description = "Number of trailing lines to start from (default 500)")
     ),
     responses(
-        (status = 200, description = "SSE stream of server log lines"),
+        (status = 200, description = "SSE stream of sandbox log lines"),
         (status = 500, description = "Internal error", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
-pub async fn server_logs_handler(
+pub async fn sandbox_logs_handler(
     State(state): State<SandboxApiState>,
     OptionalScope(scope): OptionalScope,
-    Path((task_id, server_name)): Path<(String, String)>,
+    Path(task_id): Path<String>,
     Query(query): Query<LogsQuery>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, SandboxError>>>, SandboxError> {
     authorize_task_read(&state, &scope, &task_id).await?;
     let lines = state
         .observer
-        .server_logs(
+        .sandbox_logs(
             &task_id,
-            &server_name,
             LogOptions {
                 previous: query.previous,
                 follow: query.follow,
@@ -506,134 +441,8 @@ pub async fn server_logs_handler(
             },
         )
         .await?;
-    // The observer produces lines; SSE framing is this boundary's business and
-    // not the observer's, because the same lines also leave over the T3 RPC
-    // socket as chunk values.
     let events = lines.map(|line| line.map(|line| Event::default().data(line)));
     Ok(Sse::new(events).keep_alive(KeepAlive::default()))
-}
-
-// =============================================================================
-// Live server config
-// =============================================================================
-//
-// These three endpoints reconfigure and restart a single preview server without
-// rebuilding the pod, so — unlike `restart`/`redeploy` — they are safe to call
-// from inside the sandbox: the agent container is never touched.
-//
-// **The backend persists nothing here.** An override is workspace state: the
-// sandbox writes it to control files under `WORKSPACE_DIR/.moatless/servers/`,
-// which ride the same volume as the repo checkouts and therefore survive a
-// stop/start, a redeploy, and the reaper's idle-stop wherever the checkouts do.
-// The `ephemeral` tier keeps neither, which is that tier's contract.
-//
-// The consequence for these handlers is that the sandbox is the only source of
-// truth, so a partial update is a read-modify-write over gRPC. That is not
-// atomic against a concurrent PATCH to the same server. This is a per-task
-// debugging surface, not a concurrent one.
-
-/// List the overrides currently in effect, read off the sandbox's workspace.
-///
-/// Separate from `GET /servers` because it needs a live sandbox; there is no
-/// persisted copy to fall back on, so a stopped sandbox has no answer.
-#[utoipa::path(
-    get,
-    path = "/api/sandbox/v1/tasks/{task_id}/servers/config",
-    tag = "sandbox",
-    params(("task_id" = String, Path, description = "Task identifier")),
-    responses(
-        (status = 200, description = "Overrides in effect", body = ServerOverridesResponse),
-        (status = 503, description = "Sandbox not reachable", body = moatless_api_schemas::error::ErrorBody)
-    )
-)]
-pub async fn list_server_config_handler(
-    State(state): State<SandboxApiState>,
-    OptionalScope(scope): OptionalScope,
-    Path(task_id): Path<String>,
-) -> Result<Json<ServerOverridesResponse>, SandboxError> {
-    Ok(Json(
-        super::server_config::list_server_config(&state, &scope, task_id).await?,
-    ))
-}
-
-/// Update one preview server's start command / env and (by default) restart it.
-#[utoipa::path(
-    patch,
-    path = "/api/sandbox/v1/tasks/{task_id}/servers/{server_name}",
-    tag = "sandbox",
-    params(
-        ("task_id" = String, Path, description = "Task identifier"),
-        ("server_name" = String, Path, description = "Server name")
-    ),
-    request_body = UpdateServerConfigRequest,
-    responses(
-        (status = 200, description = "Override applied", body = ServerConfigResponse),
-        (status = 400, description = "Invalid env key or server name", body = moatless_api_schemas::error::ErrorBody),
-        (status = 404, description = "No such server on this task", body = moatless_api_schemas::error::ErrorBody),
-        (status = 409, description = "Field requires a redeploy to change", body = moatless_api_schemas::error::ErrorBody),
-        (status = 503, description = "Sandbox not reachable", body = moatless_api_schemas::error::ErrorBody)
-    )
-)]
-pub async fn update_server_config_handler(
-    State(state): State<SandboxApiState>,
-    OptionalScope(scope): OptionalScope,
-    Path((task_id, server_name)): Path<(String, String)>,
-    Json(req): Json<UpdateServerConfigRequest>,
-) -> Result<Json<ServerConfigResponse>, SandboxError> {
-    Ok(Json(
-        super::server_config::update_server_config(&state, &scope, task_id, server_name, req)
-            .await?,
-    ))
-}
-
-/// Restart one preview server in place, leaving its override as-is.
-#[utoipa::path(
-    post,
-    path = "/api/sandbox/v1/tasks/{task_id}/servers/{server_name}/restart",
-    tag = "sandbox",
-    params(
-        ("task_id" = String, Path, description = "Task identifier"),
-        ("server_name" = String, Path, description = "Server name")
-    ),
-    responses(
-        (status = 200, description = "Server restarted", body = ServerConfigResponse),
-        (status = 404, description = "No such server on this task", body = moatless_api_schemas::error::ErrorBody),
-        (status = 503, description = "Sandbox not reachable", body = moatless_api_schemas::error::ErrorBody)
-    )
-)]
-pub async fn restart_server_handler(
-    State(state): State<SandboxApiState>,
-    OptionalScope(scope): OptionalScope,
-    Path((task_id, server_name)): Path<(String, String)>,
-) -> Result<Json<ServerConfigResponse>, SandboxError> {
-    Ok(Json(
-        super::server_config::restart_server(&state, &scope, task_id, server_name).await?,
-    ))
-}
-
-/// Drop a server's override and restart it on the workspace's configuration.
-#[utoipa::path(
-    delete,
-    path = "/api/sandbox/v1/tasks/{task_id}/servers/{server_name}/override",
-    tag = "sandbox",
-    params(
-        ("task_id" = String, Path, description = "Task identifier"),
-        ("server_name" = String, Path, description = "Server name")
-    ),
-    responses(
-        (status = 200, description = "Override cleared", body = ServerConfigResponse),
-        (status = 404, description = "No such server on this task", body = moatless_api_schemas::error::ErrorBody),
-        (status = 503, description = "Sandbox not reachable", body = moatless_api_schemas::error::ErrorBody)
-    )
-)]
-pub async fn reset_server_config_handler(
-    State(state): State<SandboxApiState>,
-    OptionalScope(scope): OptionalScope,
-    Path((task_id, server_name)): Path<(String, String)>,
-) -> Result<Json<ServerConfigResponse>, SandboxError> {
-    Ok(Json(
-        super::server_config::reset_server_config(&state, &scope, task_id, server_name).await?,
-    ))
 }
 
 /// Health check handler (not documented in OpenAPI — infrastructure only).

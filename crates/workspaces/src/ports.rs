@@ -57,7 +57,6 @@ fn project(workspace: Workspace) -> ResolvedWorkspace {
         system_prompt: workspace.system_prompt,
         setup_commands: workspace.setup_commands,
         env_vars: workspace.env_vars,
-        servers: workspace.servers,
         resources: workspace.resources,
         network_profile: workspace.network_profile,
         node_selector: workspace.node_selector,

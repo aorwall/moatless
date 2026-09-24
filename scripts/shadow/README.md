@@ -15,38 +15,54 @@ rest.
 | Copy the target's ServiceAccount token (RBAC to create pods) | Helm `shadowDev` toggle (`templates/shadow-dev-rbac.yaml`) binds a `moatless-dev` SA to the backend's existing Roles |
 | Steal incoming traffic | Not needed for HTTP: the backend has its own `--8080` preview URL, and sibling containers reach `localhost:8080`; for sandbox gRPC callbacks the backend self-advertises its address (Phase 3) |
 
-## How a preview server actually runs (mechanism)
+## How the shadow backend actually runs (mechanism)
 
-A preview server is a **container in the sandbox pod**, generated from the repo's
-`servers` list — not a hand-started process:
+The shadow backend runs as a **Script** — a named command a Workspace declares
+(`ScriptConfig`: name, command, optional label/icon/port/envVars/runOnStart),
+executed as a terminal session inside the sandbox's own container, not a
+separate container:
 
-- `build_server_containers()` (`backend/src/sandbox/k8s/pod_builder.rs`) makes one
-  `{name}-server` container per `ServerConfig`, running its `startCommands` after
-  the workspace-ready sentinel.
-- Each server port gets a Traefik IngressRoute `{task_id}--{port}.{proxy_domain}`
-  (`k8s/ingress.rs`) — the backend on 8080 gets the `…--8080.preview…` URL.
-- Readiness = TCP probe on the port. All pod containers share the network
-  namespace, so a sibling container reaches the backend on `localhost:8080`.
-- `servers` come from the workspace DB record, synced from
-  **`.moatless/workspaces.json`** (`workspace/git_sync.rs`).
+- `crates/t3code/src/scripts.rs::run` execs the Script's `command` into a named
+  terminal session in the sandbox, publishing its `port` first if it has one.
+- A Script's `port` gets a Traefik IngressRoute `{task_id}--{port}.{proxy_domain}`
+  (`crates/sandbox-k8s/src/ingress.rs`), reached via a Service port the
+  `SandboxPortPublisher` trait creates on the fly (`crates/sandbox-k8s/src/edge.rs`,
+  named `scr-{port}`) — the backend on 8080 gets the `…--8080.preview…` URL.
+  Docker's `SandboxPortPublisher` always returns `None`, so a Docker sandbox's
+  Script never gets a preview URL.
+- All pod containers share the network namespace, so a sibling container
+  reaches the backend on `localhost:8080` regardless of whether its port is
+  published.
+- `scripts` come from the workspace DB record, synced from
+  **`.moatless/workspaces.json`** (`crates/workspaces/src/workspace/git_sync.rs`).
 
-So the shadow backend should run **as a server** with
-`startCommands: ["bash scripts/shadow/up.sh"]`. Put it on a **dedicated
-repository record** — **not** the shared/global `moatless-vibe` repo. That repo
-is global, so adding the `backend` server there makes **every** moatless-vibe
-task (agents included) compile Rust on start. Keep it isolated:
+So the shadow backend should be declared as a **Script** with
+`command: "bash scripts/shadow/up.sh"`. Put it on a **dedicated Workspace** —
+**not** whatever workspace the shared/global `moatless-vibe` repo already uses.
+Declaring the `backend` Script there would make **every** moatless-vibe task
+(agents included) compile Rust on start. Keep it isolated: create a dedicated
+repository record for the git connection, then a dedicated workspace carrying
+the Script:
 
 ```bash
-# User-scoped dev repo pointing at the same GitHub repo (only you use it):
-moat repos create --name "moatless-vibe (shadow)" \
+# User-scoped dev repo pointing at the same GitHub repo (only you use it) —
+# a repository record is only a git connection; run-configuration lives on
+# the workspace, set separately below:
+REPO_ID=$(moat repos create --name "moatless-vibe (shadow)" \
   --git-url https://github.com/soaplabs/moatless-vibe --branch main \
+  --json | jq -r '.id')
+
+moat workspaces create --name "moatless-vibe (shadow)" \
   --docker-access true \
-  --storage 40Gi --storage-mode s3 \
-  --setup-command 'curl -fsSL https://bun.sh/install | BUN_INSTALL=/opt/moatless/data/.bun bash' \
-  --setup-command '/opt/moatless/data/.bun/bin/bun install' \
-  --servers-json '[
-    {"name":"backend","label":"Shadow Backend","port":8080,"default":true,
-     "startCommands":["bash scripts/shadow/up.sh"],"startupTimeoutSeconds":600}]'
+  --docker-image <ecr-registry>/moatless-dev:latest \
+  --setup-commands-json '[
+    "curl -fsSL https://bun.sh/install | BUN_INSTALL=/opt/moatless/data/.bun bash",
+    "/opt/moatless/data/.bun/bin/bun install"]' \
+  --scripts-json '[
+    {"name":"backend","label":"Shadow Backend","command":"bash scripts/shadow/up.sh",
+     "port":8080,"runOnStart":true}]' \
+  --resources-json '{"storage":"40Gi","s3Enabled":true}' \
+  --repos-json "[{\"repositoryId\":\"$REPO_ID\",\"isPrimary\":true}]"
 ```
 
 The elevated identity is **not** part of that command — `sandboxServiceAccount`
@@ -68,14 +84,15 @@ git sync leaves it alone from then on. See
 
 `workspaces.shadow.json` is the equivalent as a committed
 `.moatless/workspaces.json` if
-you'd rather wire it via a shadow branch — for the servers and setup commands
-only; it cannot carry the SA. Provisioning a task on the shadow repo
-builds a `backend-server` container (visible in the sandbox view,
-`moat tasks logs $TASK_ID --server backend`). Its API answers on the `--8080`
-preview URL.
+you'd rather wire it via a shadow branch — for the Script and setup commands
+only; it cannot carry the SA. Provisioning a task on the shadow workspace runs
+the `backend` Script as a terminal session in the sandbox (start it with
+`moat tasks scripts run backend <task-id>`, or let `runOnStart` do it; read its
+output in that terminal in the T3 UI, not with `moat tasks logs`). Its API
+answers on the `--8080` preview URL.
 
-> Put the `backend` server on the global repo by mistake? Revert with
-> `moat repos sync-config <repo_id>` (restores `servers` from `main`), and clear
+> Declared the `backend` Script on the wrong workspace by mistake? Revert with
+> `moat repos sync-config <repo_id>` (restores `scripts` from `main`), and clear
 > the SA directly — the update API can't null it —
 > `UPDATE repositories SET sandbox_service_account=NULL WHERE id='<repo_id>';`.
 
@@ -84,11 +101,13 @@ preview URL.
 No cluster changes. The sandbox SA can already `get deployments` and
 `get secrets`, and `cargo` + `bun` are in the sandbox image.
 
-- **Preferred (managed server):** provision a shadow task as above; the platform
-  supervises the backend server and gives it a `--8080` preview URL.
+- **Preferred (declared Script):** provision a shadow task as above; the
+  `backend` Script runs in the sandbox and, under Kubernetes, gets a `--8080`
+  preview URL.
 - **Fallback (attach by hand):** on a sandbox that wasn't provisioned with the
-  backend server, run it in the agent container — works because pod containers
-  share localhost, but it's unmanaged (no route/probe, dies with the container):
+  `backend` Script, run it in the agent container — works because pod
+  containers share localhost, but it's unmanaged (no port publishing, dies
+  with the container):
 
 ```bash
 bash scripts/shadow/up.sh          # sync env -> build -> run backend on :8080, watch for rebuilds
@@ -161,7 +180,7 @@ export SHADOW_CARGO_PROFILE=dev
 bash scripts/shadow/rebuild.sh
 ```
 
-> Set it in **both** places or not at all: the `backend` server's env (so
+> Set it in **both** places or not at all: the `backend` Script's env (so
 > `up.sh` runs the right binary) *and* your shell (so `rebuild.sh` compiles the
 > one it runs). Mismatched, `rebuild.sh` builds a profile `up.sh` never starts
 > and the backend silently keeps serving the old code. The baked-binary
@@ -219,13 +238,13 @@ docker push aorwall/moatless-dev:<tag>
 > Ops prerequisite: the `moatless-dev` ECR repo must exist — add it to the
 > moatless service's `ecr_repos` in soap-infra `services.yaml`.
 
-Then point the shadow repo at it so provisioning uses the warm image — set
-`dockerImage` on the `moatless-vibe (shadow)` repo (via the API / `moat repo`
-config) or add `"dockerImage": "<ecr-registry>/moatless-dev:latest"` to
-`workspaces.shadow.json`. Without it, everything still works — just with the cold
-build. The `backend-server` container inherits the image's `CARGO_TARGET_DIR`
-(the curated server-container env doesn't override it), so no config wiring is
-needed beyond the image itself.
+Then point the shadow workspace at it so provisioning uses the warm image —
+`moat workspaces update <workspace-id> --docker-image <ecr-registry>/moatless-dev:latest`
+(or add `"dockerImage": "<ecr-registry>/moatless-dev:latest"` to the workspace
+entry in `workspaces.shadow.json`). Without it, everything still works — just
+with the cold build. The `backend` Script runs in that same sandbox container,
+so it inherits the image's `CARGO_TARGET_DIR` directly — no separate config
+wiring needed beyond the image itself.
 
 ## Phase 2 — provisioning powers (RBAC only)
 
@@ -294,8 +313,7 @@ shadow. To fully act like the backend:
 1. Make the advertised URL configurable (e.g. env `BACKEND_ADVERTISE_GRPC_URL` /
    `BACKEND_ADVERTISE_API_URL`), defaulting to today's value. The shadow sets it
    to its own pod/Service address.
-2. Expose port `50051` on the shadow sandbox's Service (add it to the server's
-   ports) so children can reach it.
+2. Expose port `50051` on the shadow sandbox's Service so children can reach it.
 3. Allow child → shadow on `50051` in the sandbox `NetworkPolicy`
    (`k8s/helm/moatless-vibe/templates/sandbox-networkpolicy.yaml`).
 
@@ -304,11 +322,11 @@ shadow. To fully act like the backend:
 - `sync-env.sh` — resolve live backend env + secrets → sourceable env file, by
   default `$RUNTIME_DIR/shadow/backend.env` (`/run/moatless/shadow/backend.env`).
   It refuses a target under `DATA_DIR` or `WORKSPACE_DIR`: the file holds
-  `TASK_TOKEN_SECRET`, `DATABASE_URL` and ~135 other secrets, and every server
-  sidecar mounts those two directories. Override with `SHADOW_ENV_FILE`.
+  `TASK_TOKEN_SECRET`, `DATABASE_URL` and ~135 other secrets, and every sandbox
+  mounts those two directories. Override with `SHADOW_ENV_FILE`.
 - `up.sh` — sync + build + run the backend, watch for rebuilds
 - `rebuild.sh` — compile + trigger a restart
-- `workspaces.shadow.json` — workspace declaring the backend server (copy to `.moatless/workspaces.json`)
+- `workspaces.shadow.json` — workspace declaring the backend Script (copy to `.moatless/workspaces.json`)
 - `../../docker/Dockerfile.sandbox-dev` — precompiled image (published on demand
   as `moatless-dev:latest` by the `Build dev sandbox image` workflow) with warm
   caches so `up.sh` rebuilds fast (point the shadow repo's `dockerImage` at it)

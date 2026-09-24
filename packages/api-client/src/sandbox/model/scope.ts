@@ -9,10 +9,8 @@
 /**
  * Access scope for repositories, tasks, integrations, and credentials.
  *
- * Reads: `global` is readable by every authenticated user; `user` only by
- * its owner (and admins). Writes: `global` is admin-managed; `user` is
- * owner-managed. Task `visibility = 'public'` additionally grants
- * read/interact and control on tasks — never write.
+ * `global` is world-readable and admin-writable; `user` is owner-managed. A
+ * public Task additionally grants read/interact and control, never write.
  */
 export type Scope = typeof Scope[keyof typeof Scope];
 

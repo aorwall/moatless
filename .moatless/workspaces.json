@@ -20,8 +20,7 @@
         "requests": { "cpu": "250m", "memory": "4Gi" },
         "limits": { "cpu": "4", "memory": "8Gi" },
         "storage": "60Gi"
-      },
-      "servers": []
+      }
     }
   ]
 }

@@ -11,8 +11,8 @@ import type { UserStatus } from './userStatus';
 /**
  * Body for PATCH /api/v1/users/{login}.
  *
- * `None` means the field was omitted and should remain unchanged.
- * `Some(None)` means the caller explicitly sent `null` and the column should be cleared.
+ * `None` leaves the field unchanged; `Some(None)` is an explicit `null` that
+ * clears the column.
  */
 export interface AdminUpdateUserRequest {
   /** @nullable */

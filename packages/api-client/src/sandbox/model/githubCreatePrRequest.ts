@@ -20,14 +20,14 @@ export interface GithubCreatePrRequest {
   /** @nullable */
   draft?: boolean | null;
   /**
-     * Head branch the PR is created from. The CLI infers this from the
-     * current git branch when the agent omits `--head`.
+     * Head branch the PR is created from. The CLI infers this from the current
+     * git branch when the agent omits `--head`.
      */
   head: string;
   /**
-     * Task to bind the created PR to. When provided, a `task_bindings` row
-     * is upserted so inbound PR comments route back to this task, and a
-     * `Moatless task: <url>` footer is appended to the PR body.
+     * Task to bind the created PR to. When provided, a `task_bindings` row is
+     * upserted so inbound PR comments route back to this task, and a `Moatless
+     * task: <url>` footer is appended to the PR body.
      * @nullable
      */
   taskId?: string | null;

@@ -10,10 +10,8 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use futures::StreamExt as _;
 use moatless_ports::sandbox as core_sandbox;
 
-use crate::sandbox::access as backend_sandbox;
 use crate::sandbox::error::SandboxError;
 use crate::sandbox::status_reader::SandboxStatusReader;
 
@@ -98,23 +96,6 @@ impl core_sandbox::SandboxObserver for ContractObserver {
             signals,
         ))
     }
-
-    async fn server_logs(
-        &self,
-        task_id: &str,
-        server_name: &str,
-        options: core_sandbox::LogOptions,
-    ) -> Result<core_sandbox::ServerLogStream, core_sandbox::SandboxError> {
-        self.reader
-            .server_logs(task_id, server_name, log_options(options))
-            .await
-            .map(|stream| {
-                stream
-                    .map(|item| item.map_err(SandboxError::into_contract))
-                    .boxed()
-            })
-            .map_err(SandboxError::into_contract)
-    }
 }
 
 pub(crate) fn sandbox_status(
@@ -122,7 +103,6 @@ pub(crate) fn sandbox_status(
 ) -> core_sandbox::ContractSandboxStatus {
     core_sandbox::ContractSandboxStatus {
         sandbox_status: response.sandbox_status,
-        servers: response.servers.into_iter().map(server_entry).collect(),
     }
 }
 
@@ -199,55 +179,16 @@ pub(crate) fn live_status(
     }
 }
 
-fn server_entry(entry: crate::sandbox::schemas::ServerEntry) -> core_sandbox::ServerEntry {
-    core_sandbox::ServerEntry {
-        name: entry.name,
-        label: entry.label,
-        port: entry.port,
-        status: match entry.status {
-            moatless_types::sandbox::ServerStatus::Stopped => core_sandbox::ServerStatus::Stopped,
-            moatless_types::sandbox::ServerStatus::Installing => {
-                core_sandbox::ServerStatus::Installing
-            }
-            moatless_types::sandbox::ServerStatus::Starting => core_sandbox::ServerStatus::Starting,
-            moatless_types::sandbox::ServerStatus::Started => core_sandbox::ServerStatus::Started,
-            moatless_types::sandbox::ServerStatus::Failed => core_sandbox::ServerStatus::Failed,
-            moatless_types::sandbox::ServerStatus::Disabled => core_sandbox::ServerStatus::Disabled,
-        },
-        url: entry.url,
-        error: entry.error,
-        detail: entry.detail,
-        default: entry.default,
-        capabilities: core_sandbox::ServerCapabilities {
-            address_bar: entry.capabilities.address_bar,
-            inspector: entry.capabilities.inspector,
-            reload: entry.capabilities.reload,
-            open_external: entry.capabilities.open_external,
-            viewport: entry.capabilities.viewport,
-            console: entry.capabilities.console,
-        },
-    }
-}
-
-pub(crate) fn log_options(options: core_sandbox::LogOptions) -> backend_sandbox::LogOptions {
-    backend_sandbox::LogOptions {
-        previous: options.previous,
-        follow: options.follow,
-        tail_lines: options.tail_lines,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::sandbox::live_status::AgentStatus;
     use crate::sandbox::schemas::{
         CommandSummary, ContainerDiagnostics, ManagedCommand, ManagedCommandState, RuntimeEvent,
-        SandboxStatusFullResponse, ScheduledJobInfo, ScheduledJobKind, ServerEntry, WakeupJobInfo,
+        SandboxStatusFullResponse, ScheduledJobInfo, ScheduledJobKind, WakeupJobInfo,
     };
     use moatless_api_schemas::enums::SandboxDesiredState;
     use moatless_types::sandbox::SandboxStatus;
-    use moatless_types::sandbox::{ServerCapabilities, ServerStatus};
 
     /// Every field populated with a distinguishable value, as an exhaustive
     /// struct literal: a new field on the rich type breaks this until someone
@@ -257,7 +198,6 @@ mod tests {
             sandbox_status: SandboxStatus::Ready,
             sandbox_error: Some("a stale image warning".to_string()),
             agent_status: Some(AgentStatus::Waiting),
-            servers: vec![fully_populated_rich_server()],
             // `None` rather than a value, deliberately, on the three fields no
             // writer of this response ever sets: `resources` in all four
             // status resolvers, and the two image fields the REST handler
@@ -312,27 +252,6 @@ mod tests {
         }
     }
 
-    fn fully_populated_rich_server() -> ServerEntry {
-        ServerEntry {
-            name: "frontend".to_string(),
-            label: "Frontend".to_string(),
-            port: 5173,
-            status: ServerStatus::Started,
-            url: Some("https://sandbox.example/preview".to_string()),
-            error: Some("last start exited 1".to_string()),
-            detail: Some("vite ready in 412ms".to_string()),
-            default: true,
-            capabilities: ServerCapabilities {
-                address_bar: true,
-                inspector: true,
-                reload: true,
-                open_external: true,
-                viewport: true,
-                console: true,
-            },
-        }
-    }
-
     /// The T3 contract is deliberately narrower than the backend's status
     /// vocabulary.
     ///
@@ -342,13 +261,9 @@ mod tests {
     #[test]
     fn the_projected_status_carries_exactly_the_contract_field_set() {
         let rich = fully_populated_rich_status();
-        let core_sandbox::ContractSandboxStatus {
-            sandbox_status,
-            servers,
-        } = sandbox_status(rich);
+        let core_sandbox::ContractSandboxStatus { sandbox_status } = sandbox_status(rich);
 
         assert_eq!(sandbox_status, SandboxStatus::Ready);
-        assert_eq!(servers.len(), 1);
     }
 
     /// The panel's projection is the wide one, and the same exhaustive literal
@@ -401,40 +316,6 @@ mod tests {
         assert!(detail.runtime_events.is_empty());
     }
 
-    #[test]
-    fn the_projected_server_entry_carries_exactly_the_contract_field_set() {
-        let core_sandbox::ServerEntry {
-            name,
-            label,
-            port,
-            status,
-            url,
-            error,
-            detail,
-            default,
-            capabilities,
-        } = server_entry(fully_populated_rich_server());
-
-        assert_eq!(name, "frontend");
-        assert_eq!(label, "Frontend");
-        assert_eq!(port, 5173);
-        assert_eq!(status, core_sandbox::ServerStatus::Started);
-        assert_eq!(url.as_deref(), Some("https://sandbox.example/preview"));
-        assert_eq!(error.as_deref(), Some("last start exited 1"));
-        assert_eq!(detail.as_deref(), Some("vite ready in 412ms"));
-        assert!(default);
-
-        let core_sandbox::ServerCapabilities {
-            address_bar,
-            inspector,
-            reload,
-            open_external,
-            viewport,
-            console,
-        } = capabilities;
-        assert!(address_bar && inspector && reload && open_external && viewport && console);
-    }
-
     /// `live_status` is an error-only collapse — the field sets already match —
     /// so what it pins is that every field still crosses, rather than a
     /// narrowing.
@@ -470,22 +351,5 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["reactor build"]
         );
-    }
-
-    #[test]
-    fn the_projected_log_options_carry_exactly_the_backend_field_set() {
-        let backend_sandbox::LogOptions {
-            previous,
-            follow,
-            tail_lines,
-        } = log_options(core_sandbox::LogOptions {
-            previous: true,
-            follow: true,
-            tail_lines: 250,
-        });
-
-        assert!(previous);
-        assert!(follow);
-        assert_eq!(tail_lines, 250);
     }
 }

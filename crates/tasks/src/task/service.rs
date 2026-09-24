@@ -123,7 +123,7 @@ pub async fn stop_task(
 
 /// Stop the agent mid-turn, leaving the sandbox running. The narrower half of
 /// [`stop_task`]: same `StopAgent` and terminal event, without the `Stopped`
-/// intent, so preview servers stay up.
+/// intent, so running Scripts stay up.
 pub async fn stop_agent(
     tasks: &TaskCommands,
     sandbox: &dyn SandboxLifecycle,

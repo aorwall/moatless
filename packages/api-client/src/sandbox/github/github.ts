@@ -93,10 +93,9 @@ export const getRecordExternalEventUrl = () => {
 }
 
 /**
- * `moat gh api` reaches GitHub directly, because the endpoint surface of `gh
- * api` is too wide to type, so the side effect the typed routes perform inline
- * has to be requested separately. The command that made the change is the one
- * that calls this, with the response in hand.
+ * `moat gh api` reaches GitHub directly (its endpoint surface is too wide to
+ * type), so the caller must self-report the resulting event here instead of it
+ * being recorded inline.
  * @summary Record a GitHub event the caller produced outside the typed routes above.
  */
 export const recordExternalEvent = async (githubExternalEventRequest: GithubExternalEventRequest, options?: Parameters<typeof customInstance>[1]): Promise<recordExternalEventResponse> => {

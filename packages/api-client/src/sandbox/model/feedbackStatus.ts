@@ -7,9 +7,11 @@
  */
 
 /**
- * What a reader decided about a note, orthogonal to [`FeedbackCategory`],
- * which says what the note is about. A submitter never sets it: a row is
- * written `Open` and only a reader working the inbox moves it.
+ * What a reader decided about a note.
+ *
+ * Orthogonal to [`FeedbackCategory`] (what the note is about). A submitter
+ * never sets it: a row is written `Open` and only a reader working the
+ * inbox moves it.
  */
 export type FeedbackStatus = typeof FeedbackStatus[keyof typeof FeedbackStatus];
 

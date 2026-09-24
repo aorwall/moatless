@@ -9,9 +9,9 @@
 /**
  * Which copy of the workspace answered a file read.
  *
- * A stopped sandbox is still readable, out of the stored workspace
- * (`sandbox-control::workspace_snapshot`), so a caller has to be able to tell
- * live content from content that stopped changing when the pod did.
+ * A stopped sandbox is still readable from the stored workspace snapshot, so a
+ * caller must be able to tell live content from content frozen when the pod
+ * stopped.
  */
 export type ContentSource = typeof ContentSource[keyof typeof ContentSource];
 

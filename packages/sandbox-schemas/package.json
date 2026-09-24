@@ -25,10 +25,6 @@
 			"types": "./dist/git.schemas.d.ts",
 			"import": "./dist/git.schemas.js"
 		},
-		"./server": {
-			"types": "./dist/server.schemas.d.ts",
-			"import": "./dist/server.schemas.js"
-		},
 		"./workspace": {
 			"types": "./dist/workspace.schemas.d.ts",
 			"import": "./dist/workspace.schemas.js"

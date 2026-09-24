@@ -8,10 +8,8 @@
 
 /**
  * A container's CPU and memory for one direction (requests or limits), as
- * Kubernetes quantity strings (`"250m"`, `"4Gi"`).
- *
- * Each field overrides the deployment default independently: a block that
- * names only `memory` keeps the configured CPU default.
+ * Kubernetes quantity strings (`"250m"`, `"4Gi"`); each field overrides the
+ * deployment default independently.
  */
 export interface ResourceQuantities {
   /** @nullable */

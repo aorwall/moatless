@@ -1115,16 +1115,11 @@ export const getWebhookInboundUrl = (loopId: string,) => {
 }
 
 /**
- * Everything the caller is answered with is decided before any routing runs:
- * the delivery is verified, parsed, and written to the Adapter delivery seam,
- * and only then acknowledged. A 200 therefore means the backend owns the delivery,
- * not that a Task exists — the Task is created later, by the worker, out of the
- * record this wrote. Anything that failed to record reaches the caller as a
- * failure so its own retry is the recovery path.
- *
- * Deactivated loops are rejected before admission. A Loop can also be
- * paused or resynced after admission; the worker rechecks runnable state and
- * then terminates the durable delivery without creating a Task.
+ * A 200 means the backend owns the delivery, not that a Task exists yet;
+ * anything that failed to record reaches the caller as a failure so its retry
+ * is the recovery path. Deactivated loops are rejected before admission; a
+ * loop paused or resynced after admission is handled by the worker without
+ * creating a Task.
  * @summary Take durable ownership of one inbound webhook delivery.
  */
 export const webhookInbound = async (loopId: string,

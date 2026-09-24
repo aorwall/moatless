@@ -1,10 +1,7 @@
 //! gRPC client wrapper for calling sandbox pods.
 //!
 //! Replaces all HTTP calls to sandbox pods (health, status, execute-agent,
-//! stop-agent, notify-messages, search-files) with gRPC. Preview servers run as
-//! separate K8s/Docker containers, but their live start-command / env overrides
-//! are pushed through the sandbox (`apply_server_config`), which owns the
-//! control files the sidecars read.
+//! stop-agent, notify-messages, search-files) with gRPC.
 
 use std::collections::BTreeMap;
 use std::time::Duration;
@@ -14,22 +11,19 @@ use moatless_types::sandbox::SandboxError;
 
 use crate::sandbox_service_client::SandboxServiceClient;
 use crate::{
-    ApplyServerConfigRequest, ApplyTaskScriptRequest, ExecuteAgentRequest, GetAgentStatusRequest,
-    GetAgentStatusResponse, GetFileTreeRequest, GetFileTreeResponse, GetGitDiffPreviewRequest,
-    GetGitDiffPreviewResponse, GetGitStatusRequest, GetGitStatusResponse, GetServerConfigRequest,
-    GetTaskScriptsRequest, JoinTaskRequest, ListFilesRequest, ListGitRefsRequest,
-    ListGitRefsResponse, NotifyMessagesRequest, ReadFileRequest, ReadFileResponse,
-    RefreshCredentialRequest, SearchFilesByNameRequest, SearchFilesByNameResponse,
-    StopAgentRequest, SyncWorkspaceRequest, SyncWorkspaceResponse, TaskScript,
-    TerminalAttachRequest, TerminalAttachStreamEvent, TerminalClearRequest, TerminalCloseRequest,
-    TerminalOpenRequest, TerminalResizeRequest, TerminalRestartRequest, TerminalSessionSnapshot,
-    TerminalWriteRequest, WriteFileRequest,
+    ApplyTaskScriptRequest, ExecuteAgentRequest, GetAgentStatusRequest, GetAgentStatusResponse,
+    GetFileTreeRequest, GetFileTreeResponse, GetGitDiffPreviewRequest, GetGitDiffPreviewResponse,
+    GetGitStatusRequest, GetGitStatusResponse, GetTaskScriptsRequest, JoinTaskRequest,
+    ListFilesRequest, ListGitRefsRequest, ListGitRefsResponse, NotifyMessagesRequest,
+    ReadFileRequest, ReadFileResponse, RefreshCredentialRequest, SearchFilesByNameRequest,
+    SearchFilesByNameResponse, StopAgentRequest, SyncWorkspaceRequest, SyncWorkspaceResponse,
+    TaskScript, TerminalAttachRequest, TerminalAttachStreamEvent, TerminalClearRequest,
+    TerminalCloseRequest, TerminalOpenRequest, TerminalResizeRequest, TerminalRestartRequest,
+    TerminalSessionSnapshot, TerminalWriteRequest, WriteFileRequest,
 };
 use tonic::Streaming;
 use tonic::transport::Channel;
 use tracing::debug;
-
-pub use moatless_workspace_types::workspace::ServerOverride;
 
 /// Raise from tonic's 4 MB default so binary files (audio, images) can
 /// round-trip.
@@ -409,89 +403,6 @@ impl SandboxClient {
                 "RefreshCredential gRPC timed out",
             )),
         }
-    }
-
-    /// Push a preview server's override into the sandbox and optionally restart
-    /// it in place.
-    ///
-    /// Sent whole, never merged as a delta — callers needing a partial update
-    /// read current state via [`Self::get_server_config`] first. Returns the
-    /// sidecar generation after the call.
-    pub async fn apply_server_config(
-        &self,
-        task_id: &str,
-        server_name: &str,
-        ov: &ServerOverride,
-        restart: bool,
-    ) -> Result<u64, tonic::Status> {
-        let mut client = self.client.clone();
-        let request = ApplyServerConfigRequest {
-            task_id: task_id.to_string(),
-            server_name: server_name.to_string(),
-            start_command: ov.start_command.clone(),
-            env: ov.env.clone().into_iter().collect(),
-            unset_env: ov.unset_env.clone(),
-            restart,
-        };
-        let result = tokio::time::timeout(Duration::from_secs(5), async {
-            client.apply_server_config(request).await
-        })
-        .await;
-
-        match result {
-            Ok(Ok(resp)) => Ok(resp.into_inner().generation),
-            Ok(Err(e)) => Err(e),
-            Err(_) => Err(tonic::Status::deadline_exceeded(
-                "ApplyServerConfig gRPC timed out",
-            )),
-        }
-    }
-
-    /// Read every preview-server override on the workspace volume, keyed by
-    /// server name, as `(override, generation)`.
-    ///
-    /// The control files are the only record, so this needs a running sandbox;
-    /// servers with no override are absent from the map.
-    pub async fn get_server_config(
-        &self,
-        task_id: &str,
-    ) -> Result<BTreeMap<String, (ServerOverride, u64)>, tonic::Status> {
-        let mut client = self.client.clone();
-        let request = GetServerConfigRequest {
-            task_id: task_id.to_string(),
-        };
-        let result = tokio::time::timeout(Duration::from_secs(5), async {
-            client.get_server_config(request).await
-        })
-        .await;
-
-        let resp = match result {
-            Ok(Ok(resp)) => resp.into_inner(),
-            Ok(Err(e)) => return Err(e),
-            Err(_) => {
-                return Err(tonic::Status::deadline_exceeded(
-                    "GetServerConfig gRPC timed out",
-                ));
-            }
-        };
-
-        Ok(resp
-            .overrides
-            .into_iter()
-            .map(|(name, o)| {
-                (
-                    name,
-                    (
-                        ServerOverride {
-                            start_command: o.start_command,
-                            env: o.env.into_iter().collect(),
-                            unset_env: o.unset_env,
-                        },
-                        o.generation,
-                    ),
-                )
-            })
-            .collect())
     }
 
     /// Declare one of a Task's own Scripts, replacing whatever it held under

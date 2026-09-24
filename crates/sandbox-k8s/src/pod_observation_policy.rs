@@ -1,4 +1,4 @@
-use moatless_types::sandbox::{SandboxStatus, ServerSubType};
+use moatless_types::sandbox::SandboxStatus;
 
 use moatless_sandbox_runtime::classify::ObservedTransition;
 
@@ -19,7 +19,6 @@ pub(super) struct ObservationContext {
 #[derive(Debug, Clone, Default)]
 pub(super) struct ObservationPlan {
     pub sandbox_transitions: Vec<SandboxTransition>,
-    pub server_transitions: Vec<ServerTransition>,
     pub has_error_transition: bool,
     pub has_fatal_transition: bool,
     pub has_completed_transition: bool,
@@ -36,13 +35,6 @@ pub(super) struct SandboxTransition {
     pub lifecycle_observation: Option<ObservedTransition>,
 }
 
-#[derive(Debug, Clone)]
-pub(super) struct ServerTransition {
-    pub sub_type: ServerSubType,
-    pub server_name: String,
-    pub status: String,
-}
-
 pub(super) struct PodObservationPolicy;
 
 impl PodObservationPolicy {
@@ -52,15 +44,6 @@ impl PodObservationPolicy {
         context: ObservationContext,
     ) -> ObservationPlan {
         let raw_sandbox_transitions = detect_transitions(previous, current);
-        let server_transitions = detect_server_transitions(previous, current)
-            .into_iter()
-            .map(|(sub_type, server_name, status)| ServerTransition {
-                sub_type,
-                server_name,
-                status,
-            })
-            .collect();
-
         let has_error_transition = raw_sandbox_transitions.iter().any(|(sub_type, _)| {
             matches!(
                 lifecycle_sub_type_to_sandbox_status(sub_type),
@@ -109,7 +92,6 @@ impl PodObservationPolicy {
 
         ObservationPlan {
             sandbox_transitions,
-            server_transitions,
             has_error_transition,
             has_fatal_transition,
             has_completed_transition,
@@ -419,45 +401,10 @@ fn detect_transitions(
     events
 }
 
-fn detect_server_transitions(
-    prev: Option<&PodObservedState>,
-    current: &PodObservedState,
-) -> Vec<(ServerSubType, String, String)> {
-    let mut events = Vec::new();
-
-    let prev_servers: std::collections::HashMap<&str, &str> = prev
-        .map(|p| {
-            p.server_containers
-                .iter()
-                .map(|sc| (sc.name.as_str(), sc.status.as_str()))
-                .collect()
-        })
-        .unwrap_or_default();
-
-    for sc in &current.server_containers {
-        let server_name = sc.name.strip_suffix("-server").unwrap_or(&sc.name);
-        let prev_status = prev_servers.get(sc.name.as_str()).copied();
-
-        if prev_status != Some(sc.status.as_str()) {
-            let sub_type = match sc.status.as_str() {
-                "starting" => ServerSubType::Starting,
-                "started" => ServerSubType::Started,
-                "failed" => ServerSubType::Failed,
-                "stopped" => ServerSubType::Stopped,
-                _ => continue,
-            };
-            events.push((sub_type, server_name.to_string(), sc.status.clone()));
-        }
-    }
-
-    events
-}
-
 #[cfg(test)]
 mod tests {
     use moatless_types::sandbox::SandboxStatus;
 
-    use super::super::pod_watcher::ServerContainerState;
     use super::*;
     use crate::pod_status::test_helpers::{
         pod_with_phase_and_containers, running_container, terminated_container, waiting_container,
@@ -675,14 +622,14 @@ mod tests {
             "Running",
             vec![
                 running_container("sandbox", true, true),
-                waiting_container("storybook-server", "CrashLoopBackOff"),
+                waiting_container("dind", "CrashLoopBackOff"),
             ],
         );
 
         let state = super::super::pod_watcher::extract_pod_observed_state(&pod, "pod-1", "task-1");
         assert!(
             state.ready,
-            "sandbox ready should make observed state ready despite crash-looping server"
+            "sandbox ready should make observed state ready despite a crash-looping sidecar"
         );
 
         let plan = plan_for(&state);
@@ -1010,38 +957,6 @@ mod tests {
         state.gc_requested = false;
         state.phase = "Running".to_string();
         assert!(!should_gc_failed_pod(&state, now_ms));
-    }
-
-    #[test]
-    fn server_transitions_are_part_of_observation_plan() {
-        let mut previous = super::super::pod_watcher::extract_pod_observed_state(
-            &pod_with_phase_and_containers("Running", vec![]),
-            "pod-1",
-            "task-1",
-        );
-        previous.server_containers = vec![ServerContainerState {
-            name: "storybook-server".to_string(),
-            status: "starting".to_string(),
-            error: None,
-            detail: None,
-            terminated_reason: None,
-            exit_code: None,
-            memory_limit: None,
-            running_since: None,
-            restart_count: 0,
-        }];
-        let mut current = previous.clone();
-        current.server_containers[0].status = "failed".to_string();
-
-        let plan = PodObservationPolicy::evaluate(
-            Some(&previous),
-            &current,
-            ObservationContext::default(),
-        );
-
-        assert_eq!(plan.server_transitions.len(), 1);
-        assert_eq!(plan.server_transitions[0].sub_type, ServerSubType::Failed);
-        assert_eq!(plan.server_transitions[0].server_name, "storybook");
     }
 
     #[test]

@@ -8,13 +8,17 @@
 
 /**
  * Something the declaring file said that the sync did not act on.
+ *
+ * An unknown key and a stripped admin-only field both parse without error and
+ * both leave the sandbox running something the file does not describe, so each
+ * is reported rather than only logged.
  */
 export interface WorkspaceSyncWarning {
   /** What the sync did with it, and why. */
   message: string;
   /**
      * Where the key sits in the declaring file, as a JSON path
-(`workspaces[0].previewConfig`).
+     * (`workspaces[0].previewConfig`).
      */
   path: string;
 }

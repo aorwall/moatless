@@ -178,16 +178,10 @@ async fn the_mounted_route_returns_the_viewers_projects(pool: PgPool) {
 }
 
 #[sqlx::test]
-async fn a_projects_scripts_are_separate_from_servers_and_setup(pool: PgPool) {
+async fn a_projects_scripts_are_separate_from_setup(pool: PgPool) {
     let repo = compose::workspaces(pool.clone());
     let mut ws = make_workspace_row("ws-a", "user-1");
     ws.setup_commands = Some(run_config(serde_json::json!(["bun install"])));
-    ws.servers = Some(run_config(serde_json::json!([{
-        "name": "dev",
-        "port": 3000,
-        "startCommands": ["bun run dev"],
-        "default": true
-    }])));
     ws.scripts = Some(run_config(
         json!([{ "name": "dev", "command": "bun run dev" }]),
     ));
@@ -232,46 +226,4 @@ async fn a_script_that_runs_on_sandbox_start_is_projected_as_flagged(pool: PgPoo
     assert_eq!(scripts[0]["runOnWorktreeCreate"], true);
     assert_eq!(scripts[1]["id"], "test");
     assert_eq!(scripts[1]["runOnWorktreeCreate"], false);
-}
-
-/// Server and setup declarations do not become client-run Scripts.
-#[sqlx::test]
-async fn the_repositorys_server_config_does_not_create_scripts(pool: PgPool) {
-    let mut ws = make_workspace_row("ws-vibe", "user-1");
-    ws.name = "Moatless".into();
-    ws.setup_commands = Some(run_config(serde_json::json!([
-        "curl -fsSL https://bun.sh/install | bash",
-        "bun install"
-    ])));
-    ws.servers = Some(run_config(serde_json::json!([
-        {
-            "name": "dev",
-            "port": 3000,
-            "default": true,
-            "autoReload": true,
-            "startCommands": ["bun run dev -- --host 0.0.0.0"],
-            "startupTimeoutSeconds": 120
-        },
-        {
-            "name": "backend",
-            "label": "Shadow Backend",
-            "port": 8080,
-            "startCommands": ["bash scripts/shadow/up.sh"],
-            "startupTimeoutSeconds": 600
-        }
-    ])));
-    compose::workspaces(pool.clone())
-        .insert_workspace(&ws)
-        .await
-        .unwrap();
-
-    let scripts = project(&pool, &viewer("user-1"), "ws-vibe").await["scripts"]
-        .as_array()
-        .unwrap()
-        .clone();
-
-    assert!(
-        scripts.is_empty(),
-        "servers and setup commands are not scripts"
-    );
 }

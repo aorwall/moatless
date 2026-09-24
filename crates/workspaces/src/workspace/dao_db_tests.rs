@@ -10,10 +10,10 @@
 use std::collections::HashMap;
 
 use moatless_types::access_control::{Scope, ScopeContext};
-use moatless_workspace_types::workspace::{ServerConfig, WorkspaceKind, WorkspaceSource};
+use moatless_workspace_types::workspace::{WorkspaceKind, WorkspaceSource};
 use sqlx::PgPool;
 
-use crate::test_support::{make_workspace_repo_row, make_workspace_row, run_config};
+use crate::test_support::{make_workspace_repo_row, make_workspace_row};
 use crate::workspace::dao::{PgWorkspaceDao, WorkspaceDao};
 use crate::workspace::models::{UpdateOutcome, WorkspacePatch};
 
@@ -184,7 +184,7 @@ async fn update_mutates_present_fields_only(pool: PgPool) {
     );
 }
 
-/// The run-config JSONB columns (`servers`, `env_vars`) live on `workspaces`,
+/// The run-config JSONB column `env_vars` lives on `workspaces`,
 /// not `repositories`; this covers their patch + read-back round-trip at the
 /// workspace layer.
 #[sqlx::test]
@@ -194,10 +194,8 @@ async fn update_jsonb_run_config_round_trips(pool: PgPool) {
         .await
         .unwrap();
 
-    let servers: Vec<ServerConfig> = run_config(serde_json::json!([{"name": "web", "port": 3000}]));
     let env_vars = HashMap::from([("NODE_ENV".to_string(), "test".to_string())]);
     let patch = WorkspacePatch {
-        servers: Some(Some(servers.clone())),
         env_vars: Some(Some(env_vars.clone())),
         ..Default::default()
     };
@@ -213,7 +211,6 @@ async fn update_jsonb_run_config_round_trips(pool: PgPool) {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(found.servers.unwrap(), servers);
     assert_eq!(found.env_vars.unwrap(), env_vars);
 }
 

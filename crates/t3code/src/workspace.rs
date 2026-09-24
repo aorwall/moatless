@@ -37,7 +37,6 @@ pub struct WorkspaceView {
     pub system_prompt: Option<String>,
     pub setup_commands: Option<Value>,
     pub env_vars: Option<Value>,
-    pub servers: Option<Value>,
     pub scripts: Option<Value>,
     pub resources: Option<Value>,
     pub network_profile: Option<String>,

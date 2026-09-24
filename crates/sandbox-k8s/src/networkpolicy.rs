@@ -1,14 +1,12 @@
 //! Per-sandbox Traefik preview `NetworkPolicy` lifecycle.
 //!
-//! Each running sandbox that exposes preview servers gets a `NetworkPolicy`
-//! admitting the cluster's Traefik ingress pods to its declared preview ports —
-//! the ingress counterpart to `IngressRoutes`: a route makes a port
-//! addressable, this policy makes the pod reachable on it.
+//! A sandbox whose Script publishes a preview port gets a `NetworkPolicy`
+//! admitting the cluster's Traefik ingress pods to it — the ingress
+//! counterpart to `IngressRoutes`: a route makes a port addressable, this
+//! policy makes the pod reachable on it.
 //!
-//! Deriving ports from the same server map the routes use avoids drift from a
-//! hand-maintained allowlist; once enforced, an un-listed port times out
-//! silently (auth succeeds at the edge, so it reads as an app fault, not a
-//! network one).
+//! Once enforced, an un-listed port times out silently (auth succeeds at the
+//! edge, so it reads as an app fault, not a network one).
 
 use k8s_openapi::api::networking::v1::NetworkPolicy;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::OwnerReference;
@@ -108,72 +106,18 @@ fn build_preview_network_policy(
     .map_err(kube::Error::SerdeError)
 }
 
-/// Create the per-task preview `NetworkPolicy` admitting Traefik to `ports`.
-/// Idempotent — handles `AlreadyExists` (409) gracefully.
-///
-/// A no-op on an empty `ports` set: an empty ports list matches *all* ports in
-/// the `NetworkPolicy` API, which would admit Traefik to reserved
-/// infrastructure ports — the opposite of the intent. `owner`, when present,
-/// sets the policy's `ownerReference` for cascading K8s GC.
-pub async fn create_task_preview_network_policy(
-    k8s: &K8sClient,
-    task_id: &str,
-    ports: &BTreeSet<u16>,
-    config: &Config,
-    owner: Option<&OwnerReference>,
-) -> Result<(), kube::Error> {
-    if ports.is_empty() {
-        debug!(task_id, "No preview ports; skipping preview NetworkPolicy");
-        return Ok(());
-    }
-
-    let api: Api<NetworkPolicy> = Api::namespaced(k8s.client.clone(), k8s.namespace());
-    let name = generate_preview_network_policy_name(task_id);
-    let policy = build_preview_network_policy(
-        k8s.namespace(),
-        task_id,
-        ports,
-        &config.proxy.traefik_ingress_namespaces,
-        owner,
-    )?;
-
-    match api.create(&PostParams::default(), &policy).await {
-        Ok(_) => {
-            info!(task_id, policy_name = %name, ?ports, "Preview NetworkPolicy created");
-        }
-        Err(kube::Error::Api(ref e)) if e.code == 409 => {
-            debug!(task_id, policy_name = %name, "Preview NetworkPolicy already exists, reusing");
-        }
-        Err(ref e) if is_forbidden(e) => {
-            warn!(
-                task_id,
-                policy_name = %name,
-                "Skipping preview NetworkPolicy: {MISSING_RBAC_HINT}"
-            );
-        }
-        Err(e) => {
-            warn!(task_id, policy_name = %name, error = %e, "Failed to create preview NetworkPolicy");
-            return Err(e);
-        }
-    }
-
-    Ok(())
-}
-
 /// How many times [`admit_preview_port`] re-reads and retries when a concurrent
 /// writer changes the policy under it; more than a few concurrent `scripts.run`
 /// on one task is not a real workload, so a small bound converges without
 /// spinning.
 const MAX_WIDEN_ATTEMPTS: usize = 5;
 
-/// Widen the per-task preview `NetworkPolicy` to admit one more port, unlike
-/// [`create_task_preview_network_policy`]'s create-only reuse of what's already
-/// declared at provisioning time.
+/// Widen the per-task preview `NetworkPolicy` to admit one more port, creating
+/// it when absent.
 ///
-/// A `NetworkPolicy`'s ingress port list has no per-port merge key, so this
-/// read-modify-writes it guarded by `resourceVersion`: a concurrent widen 409s
-/// and retries (re-reading, adding on top) up to [`MAX_WIDEN_ATTEMPTS`]. A
-/// no-op if the port is already admitted.
+/// The ingress port list has no per-port merge key, so this read-modify-writes
+/// it under `resourceVersion`: a concurrent widen 409s and retries up to
+/// [`MAX_WIDEN_ATTEMPTS`]. A no-op if the port is already admitted.
 pub async fn admit_preview_port(
     k8s: &K8sClient,
     task_id: &str,

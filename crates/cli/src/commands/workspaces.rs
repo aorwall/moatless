@@ -43,9 +43,6 @@ pub enum WorkspaceAction {
         /// Environment variables as a JSON object, e.g. `{"FOO":"bar"}`
         #[arg(long)]
         env_vars_json: Option<String>,
-        /// Server configs as a JSON array
-        #[arg(long)]
-        servers_json: Option<String>,
         /// Script configs as a JSON array, e.g. `[{"name":"test","command":"bun
         /// test"}]`
         #[arg(long)]
@@ -92,8 +89,6 @@ pub enum WorkspaceAction {
         #[arg(long)]
         env_vars_json: Option<String>,
         #[arg(long)]
-        servers_json: Option<String>,
-        #[arg(long)]
         scripts_json: Option<String>,
         #[arg(long)]
         resources_json: Option<String>,
@@ -130,8 +125,6 @@ pub enum WorkspaceAction {
         setup_commands_json: Option<String>,
         #[arg(long)]
         env_vars_json: Option<String>,
-        #[arg(long)]
-        servers_json: Option<String>,
         #[arg(long)]
         scripts_json: Option<String>,
         #[arg(long)]
@@ -311,7 +304,6 @@ pub async fn run(
             system_prompt,
             setup_commands_json,
             env_vars_json,
-            servers_json,
             scripts_json,
             resources_json,
             network_profile,
@@ -339,7 +331,6 @@ pub async fn run(
                 system_prompt,
                 setup_commands: parse_json_opt(&setup_commands_json, "--setup-commands-json")?,
                 env_vars: parse_json_opt(&env_vars_json, "--env-vars-json")?,
-                servers: parse_json_opt(&servers_json, "--servers-json")?,
                 scripts: parse_json_opt(&scripts_json, "--scripts-json")?,
                 resources: parse_json_opt(&resources_json, "--resources-json")?,
                 network_profile,
@@ -365,7 +356,6 @@ pub async fn run(
             system_prompt,
             setup_commands_json,
             env_vars_json,
-            servers_json,
             scripts_json,
             resources_json,
             network_profile,
@@ -387,7 +377,6 @@ pub async fn run(
                 system_prompt,
                 setup_commands: parse_json_opt(&setup_commands_json, "--setup-commands-json")?,
                 env_vars: parse_json_opt(&env_vars_json, "--env-vars-json")?,
-                servers: parse_json_opt(&servers_json, "--servers-json")?,
                 scripts: parse_json_opt(&scripts_json, "--scripts-json")?,
                 resources: parse_json_opt(&resources_json, "--resources-json")?,
                 network_profile,
@@ -411,7 +400,6 @@ pub async fn run(
             system_prompt,
             setup_commands_json,
             env_vars_json,
-            servers_json,
             scripts_json,
             resources_json,
             network_profile,
@@ -432,7 +420,6 @@ pub async fn run(
                 system_prompt,
                 setup_commands: parse_json_opt(&setup_commands_json, "--setup-commands-json")?,
                 env_vars: parse_json_opt(&env_vars_json, "--env-vars-json")?,
-                servers: parse_json_opt(&servers_json, "--servers-json")?,
                 scripts: parse_json_opt(&scripts_json, "--scripts-json")?,
                 resources: parse_json_opt(&resources_json, "--resources-json")?,
                 network_profile,

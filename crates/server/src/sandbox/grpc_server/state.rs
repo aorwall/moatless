@@ -41,7 +41,7 @@ pub struct HandlerDbPorts {
     /// written through.
     pub credential_sync: Arc<CredentialSync>,
     /// Workspace projection: the primary repository, the run-as identity, and
-    /// the `system_prompt` / `servers` an append prompt is built from.
+    /// the `system_prompt` an append prompt is built from.
     pub workspace_resolver: Arc<dyn moatless_workspace_ports::WorkspaceResolver>,
     /// Sandbox lifecycle store, read for the Sandbox a task belongs to.
     pub sandboxes: Arc<SandboxIngress>,

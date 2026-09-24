@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::agent::AgentSubType;
 use crate::message::MessageSubType;
-use crate::sandbox::{SandboxStatus, ServerSubType};
+use crate::sandbox::SandboxStatus;
 use crate::task::{TaskSubType, TaskTurnSubType};
 
 crate::string_enum!(
@@ -26,7 +26,6 @@ crate::string_enum!(
         TaskTurn => "taskTurn",
         Sandbox => "sandbox",
         Agent => "agent",
-        Server => "server",
         Resources => "resources",
         /// Derived, UI-only events (`message.upsert` / `message.subagentProgress`).
         /// Assembled server-side and relayed to clients, never persisted to
@@ -85,7 +84,6 @@ pub fn agent_working(event_type: &str, sub_type: &str) -> Option<bool> {
 #[derive(Clone, Debug)]
 pub enum SubType {
     Sandbox(SandboxStatus),
-    Server(ServerSubType),
     Agent(AgentSubType),
     Task(TaskSubType),
     TaskTurn(TaskTurnSubType),
@@ -98,7 +96,6 @@ impl SubType {
     pub fn as_str(&self) -> &str {
         match self {
             Self::Sandbox(s) => s.as_str(),
-            Self::Server(s) => s.as_str(),
             Self::Agent(s) => s.as_str(),
             Self::Task(s) => s.as_str(),
             Self::TaskTurn(s) => s.as_str(),
@@ -110,7 +107,6 @@ impl SubType {
     pub fn is_error(&self) -> bool {
         match self {
             Self::Sandbox(SandboxStatus::Error) => true,
-            Self::Server(ServerSubType::Failed) => true,
             Self::Agent(s) => s.is_error(),
             Self::TaskTurn(s) => s.is_error(),
             _ => false,
@@ -128,12 +124,6 @@ impl std::fmt::Display for SubType {
 impl From<SandboxStatus> for SubType {
     fn from(s: SandboxStatus) -> Self {
         Self::Sandbox(s)
-    }
-}
-
-impl From<ServerSubType> for SubType {
-    fn from(s: ServerSubType) -> Self {
-        Self::Server(s)
     }
 }
 
@@ -262,7 +252,6 @@ mod tests {
     #[test]
     fn sub_type_is_error() {
         assert!(SubType::from(SandboxStatus::Error).is_error());
-        assert!(SubType::from(ServerSubType::Failed).is_error());
         assert!(SubType::from(AgentSubType::Error).is_error());
         assert!(!SubType::from(AgentSubType::Completed).is_error());
         assert!(!SubType::from(SandboxStatus::Ready).is_error());

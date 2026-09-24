@@ -12,4 +12,9 @@
 export interface PluginSkillResponse {
   description: string;
   name: string;
+  /**
+     * Path of the `SKILL.md` inside the plugin repository. Same contract as
+     * `SkillResponse::path`, which states what a reader does with it.
+     */
+  path: string;
 }

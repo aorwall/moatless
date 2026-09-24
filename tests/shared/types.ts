@@ -104,8 +104,6 @@ export type {
   RepositoryResponse,
   SandboxStatus,
   SandboxStatusFullResponse,
-  ServerEntry,
-  ServerStatusResponse,
   SetActivationRequest,
   TaskResponse,
   TeamMemberResponse,

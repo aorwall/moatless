@@ -9,14 +9,15 @@
 /**
  * One person's connection to one Forgejo instance.
  *
- * There is no `login`, unlike every sibling here: a `read:repository` personal
- * access token cannot reach Forgejo's `user` endpoint, so validating one
- * learns only that it works. A screen names the `host`.
+ * There is no `login`, unlike every sibling here: a `read:repository` token
+ * can't reach Forgejo's `user` endpoint, so validating one only learns that it
+ * works.
  */
 export interface ForgejoProviderTokenStatusResponse {
   /**
      * How the stored credential resolves: `secret_ref` for a personal access
-     * token held in the secret store, `forgejo_oauth` for an OAuth2 credential.
+     * token held in the secret store, `forgejo_oauth` for an OAuth2
+     * credential.
      * @nullable
      */
   authMethod?: string | null;

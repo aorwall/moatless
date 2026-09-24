@@ -63,21 +63,6 @@ fn pvc_switch_off_mounts_capped_workspace_empty_dir() {
             .any(|m| m.name == "run-moatless" && m.mount_path == "/run/moatless"),
         "credential-broker socket dir must be a writable mount for non-root"
     );
-
-    // Server containers share the same workspace volume.
-    let servers = build_server_containers(&config, "task-1", &plan).unwrap();
-    let web = servers
-        .iter()
-        .find(|c| c.name == "web-server")
-        .expect("web-server present");
-    assert!(
-        web.volume_mounts
-            .as_ref()
-            .unwrap()
-            .iter()
-            .any(|m| m.name == "workspace-data" && m.mount_path == "/opt/moatless"),
-        "server containers must share workspace-data"
-    );
 }
 
 /// The two switches are read independently, and neither ever produces a

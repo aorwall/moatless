@@ -10,7 +10,6 @@ use tracing::warn;
 
 use moatless_core::config::Config;
 use moatless_workspace_ports::WorkspaceResolver;
-use moatless_workspace_types::workspace::ServerConfig;
 
 use crate::task::models::Task;
 use crate::task::relations::TaskRelations;
@@ -43,10 +42,7 @@ pub struct PromptInputs<'a> {
     pub task_append_system_prompt: Option<&'a str>,
     /// The workspace's `system_prompt`.
     pub repo_system_prompt: Option<&'a str>,
-    pub servers: &'a [ServerConfig],
     pub frontend_url: Option<&'a str>,
-    pub proxy_domain: Option<&'a str>,
-    pub proxy_protocol: &'a str,
 }
 
 /// Steers the agent toward `moat gh` and away from the (broken) hosted GitHub
@@ -147,8 +143,8 @@ Available `moat` commands:
   a conversation-comment id is posted as a new PR comment instead)
 - `moat gh issue comment <n> --body \"<text>\"` — Comment on an issue via the backend
 - `moat gh <any other gh args>` — Passthrough to the authenticated `gh` CLI
-- `moat tasks status $TASK_ID` — Show sandbox status including server states
-- `moat tasks logs $TASK_ID --server <name>` — Stream server logs (e.g., `--server preview`)
+- `moat tasks status $TASK_ID` — Show sandbox status
+- `moat tasks logs $TASK_ID` — Stream the sandbox container's logs
 - `moat tasks diagnose $TASK_ID` — Diagnose sandbox issues (status + container diagnostics + recent errors)
 - `moat feedback --category <category> --comment \"<text>\"` — Record what cost you time that a fix would have prevented (see `# Feedback Inbox`)";
 
@@ -234,14 +230,7 @@ pub async fn build_for_task(
             TaskRelationType::RelatedTo => None,
         });
 
-    let servers: Vec<ServerConfig> = workspace
-        .as_ref()
-        .and_then(|w| w.servers.clone())
-        .unwrap_or_default();
-
     let frontend_url = config.map(|c| c.auth.frontend_url.as_str());
-    let proxy_domain = config.and_then(|c| c.proxy.domain.as_deref());
-    let proxy_protocol = config.map_or("https", |c| c.proxy.protocol.as_str());
 
     build_append_system_prompt(&PromptInputs {
         task_id,
@@ -249,10 +238,7 @@ pub async fn build_for_task(
         parent,
         task_append_system_prompt: task.and_then(|t| t.append_system_prompt.as_deref()),
         repo_system_prompt: workspace.as_ref().and_then(|w| w.system_prompt.as_deref()),
-        servers: &servers,
         frontend_url,
-        proxy_domain,
-        proxy_protocol,
     })
 }
 
@@ -268,15 +254,6 @@ pub fn build_append_system_prompt(inputs: &PromptInputs<'_>) -> String {
 
     if let Some(sp) = inputs.task_append_system_prompt {
         sections.push(sp.to_string());
-    }
-
-    if let Some(servers_section) = build_server_section(
-        inputs.servers,
-        inputs.task_id,
-        inputs.proxy_domain,
-        inputs.proxy_protocol,
-    ) {
-        sections.push(servers_section);
     }
 
     if let Some(frontend_url) = inputs.frontend_url {
@@ -316,64 +293,6 @@ fn build_task_identity_section(task_name: Option<&str>) -> String {
     }
 }
 
-/// Build the "# Preview Servers" section. Returns `None` when `servers` is
-/// empty.
-fn build_server_section(
-    servers: &[ServerConfig],
-    task_id: &str,
-    proxy_domain: Option<&str>,
-    proxy_protocol: &str,
-) -> Option<String> {
-    if servers.is_empty() {
-        return None;
-    }
-
-    let mut lines = vec![
-        "# Preview Servers".to_string(),
-        String::new(),
-        "The following preview servers are running as sidecars in this sandbox environment. \
-         They start automatically when the workspace is ready — you do not need to start them manually."
-            .to_string(),
-    ];
-
-    for server in servers {
-        lines.push(String::new());
-        let label = server.label.as_deref().unwrap_or(&server.name);
-
-        // A server whose port the workspace never declared has none allocated
-        // yet, so it has no URL to give the agent.
-        if let Some(port) = server.port {
-            lines.push(format!("## {label} (port {port})"));
-            lines.push(format!(
-                "- **Local URL**: http://localhost:{port} (use this to curl/verify the server — no auth needed)"
-            ));
-            if let Some(domain) = proxy_domain {
-                let url = format!("{proxy_protocol}://{task_id}--{port}.{domain}");
-                lines.push(format!(
-                    "- **External URL**: {url} (share with the user to open in their browser — they are already authenticated)"
-                ));
-            }
-        } else {
-            lines.push(format!("## {label} (port assigned at startup)"));
-        }
-
-        if !server.start_commands.is_empty() {
-            let joined = server.start_commands.join(" && ");
-            lines.push(format!(
-                "- **Configured start command**: `{joined}` (runs automatically, configured in the repository)"
-            ));
-        }
-
-        if server.auto_reload {
-            lines.push(
-                "- **Auto-reload**: enabled (file changes are reflected automatically)".to_string(),
-            );
-        }
-    }
-
-    Some(lines.join("\n"))
-}
-
 /// Build the "# Parent Task" or "# Forked Task" section.
 fn build_parent_task_section(parent: ParentTask<'_>) -> String {
     match parent {
@@ -403,8 +322,6 @@ fn build_parent_task_section(parent: ParentTask<'_>) -> String {
 
 #[cfg(test)]
 mod tests {
-    use moatless_workspace_types::workspace::Port;
-
     use super::*;
 
     fn base_inputs(task_id: &str) -> PromptInputs<'_> {
@@ -414,10 +331,7 @@ mod tests {
             parent: None,
             task_append_system_prompt: None,
             repo_system_prompt: None,
-            servers: &[],
             frontend_url: None,
-            proxy_domain: None,
-            proxy_protocol: "https",
         }
     }
 
@@ -463,37 +377,6 @@ mod tests {
         let prompt = build_append_system_prompt(&inputs);
         assert!(prompt.contains("# Required First Actions"));
         assert!(!prompt.contains("# Task Name"));
-    }
-
-    #[test]
-    fn server_section_omitted_when_servers_empty() {
-        let inputs = base_inputs("task-123");
-        let prompt = build_append_system_prompt(&inputs);
-        assert!(!prompt.contains("# Preview Servers"));
-    }
-
-    #[test]
-    fn server_section_includes_external_url_when_proxy_domain_set() {
-        let server = ServerConfig {
-            name: "preview".to_string(),
-            label: Some("Preview".to_string()),
-            port: Port::new(3000),
-            auto_reload: true,
-            ..Default::default()
-        };
-        let servers = [server];
-        let inputs = PromptInputs {
-            servers: &servers,
-            proxy_domain: Some("moatless.xyz"),
-            proxy_protocol: "https",
-            ..base_inputs("task-abc")
-        };
-        let prompt = build_append_system_prompt(&inputs);
-        assert!(prompt.contains("# Preview Servers"));
-        assert!(prompt.contains("## Preview (port 3000)"));
-        assert!(prompt.contains("http://localhost:3000"));
-        assert!(prompt.contains("https://task-abc--3000.moatless.xyz"));
-        assert!(prompt.contains("Auto-reload"));
     }
 
     #[test]

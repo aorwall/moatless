@@ -477,7 +477,7 @@ fn exec_line(command: &str) -> String {
 /// Hold the Script until the sandbox's workspace setup has finished.
 ///
 /// A Sandbox reports Ready before Phase 2 runs setup, so this waits on the same
-/// `.workspace-ready` sentinel preview servers use.
+/// `.workspace-ready` sentinel.
 const SETUP_GATE: &str = concat!(
     r#"if [ ! -f "${DATA_DIR:-/opt/moatless/data}/.workspace-ready" ]; then "#,
     r#"echo "Waiting for workspace setup to finish..."; "#,

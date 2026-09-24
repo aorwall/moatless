@@ -9,8 +9,8 @@
 export interface RemoveGitHubAppResponse {
   githubAppKey: string;
   /**
-     * Bot users that named this App and can no longer obtain a token. They
-     * are left in place so past work stays attributed, and named here so the
+     * Bot users that named this App and can no longer obtain a token. They are
+     * left in place so past work stays attributed, and named here so the
      * consequence is not silent.
      */
   orphanedBotUsers: string[];

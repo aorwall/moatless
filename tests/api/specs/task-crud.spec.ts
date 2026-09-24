@@ -116,10 +116,10 @@ test.describe('Chain: Task CRUD', () => {
       .body as Record<string, unknown>
     expect(Object.keys(live).sort()).toEqual(['agentStatus', 'sandboxError', 'sandboxStatus'])
 
-    // The fuller report adds the servers, and still drops the retired names.
+    // The fuller report carries the same three, and still drops the retired names.
     const status = (await api.cli.raw('GET', `/api/sandbox/v1/tasks/${ctx.taskId}/status`))
       .body as Record<string, unknown>
-    for (const field of ['sandboxStatus', 'agentStatus', 'sandboxError', 'servers']) {
+    for (const field of ['sandboxStatus', 'agentStatus', 'sandboxError']) {
       expect(status, `the status report must carry ${field}`).toHaveProperty(field)
     }
     for (const field of [

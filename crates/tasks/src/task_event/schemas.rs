@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Serialize, Deserialize, utoipa::IntoParams)]
 #[serde(rename_all = "camelCase")]
 pub struct ListTaskEventsQuery {
-    /// Comma-separated event type filter (e.g., `?types=sandbox,server,agent`).
+    /// Comma-separated event type filter (e.g., `?types=sandbox,agent,message`).
     pub types: Option<String>,
     /// Maximum number of events to return (default 500, max 5000).
     pub limit: Option<i64>,

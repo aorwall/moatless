@@ -29,7 +29,6 @@ pub mod provisioning;
 pub mod repo_config_encoding;
 pub mod runtime;
 pub mod schemas;
-pub mod server_runner;
 pub mod status_reader;
 pub mod storage;
 

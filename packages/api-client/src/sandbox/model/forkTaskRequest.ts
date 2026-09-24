@@ -10,9 +10,9 @@ import type { AgentMode } from './agentMode';
 /**
  * Branch a Task off another Task at one of its completed turns.
  *
- * Everything the fork runs against — repository, workspace, branch, agent,
- * model — comes from the Task being forked; only what the fork is *for* is
- * stated here.
+ * Everything the fork runs against (repository, workspace, branch, agent,
+ * model) comes from the Task being forked; only what the fork is for is stated
+ * here.
  */
 export interface ForkTaskRequest {
   agentMode?: null | AgentMode;

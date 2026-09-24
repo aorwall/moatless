@@ -7,8 +7,8 @@
  */
 
 /**
- * One loop that was skipped during a sync, with a human-readable reason
- * (e.g. "no github connection for org acme").
+ * One loop that was skipped during a sync, with a human-readable reason (e.g.
+ * "no github connection for org acme").
  */
 export interface LoopSyncSkip {
   /** The loop directory name (`.moatless/loops/<loop>/`). */

@@ -36,7 +36,7 @@ In Kubernetes mode, the application consists of:
 
 ### 1. Create a Vibe Task (Recommended)
 
-Vibe tasks use templates for quick prototyping with pre-configured preview servers.
+Vibe tasks use templates for quick prototyping with pre-configured Scripts.
 
 **Important: K8s Mode Behavior**
 
@@ -113,18 +113,18 @@ curl -s -X POST \
   "$BASE_URL/api/v1/tasks/$TASK_ID/messages"
 ```
 
-### 5. Test Preview Server
+### 5. Test a Script
 
-For vibe tasks, the preview server starts automatically.
+A vibe task's template can declare a `runOnStart` Script, which starts once the
+sandbox reports Ready. Check it with `moat tasks scripts list <task-id>`, and
+read its output in the T3 UI terminal or via `moat tasks scripts run <name> <task-id>`
+— not through a worker-pod HTTP endpoint.
 
 ```bash
 # Get the worker pod name
 WORKER_POD=$(kubectl get pods -n $NAMESPACE | grep ${TASK_ID:0:8} | awk '{print $1}')
 
-# Check preview server status via worker API
-kubectl exec -n $NAMESPACE $WORKER_POD -- curl -s localhost:8001/server/status
-
-# Test preview server directly on the pod
+# Test the Script's port directly on the pod (adjust the port to the Script's own)
 kubectl exec -n $NAMESPACE $WORKER_POD -- curl -s localhost:3000 | head -20
 
 # Test via hostname routing (requires authentication)

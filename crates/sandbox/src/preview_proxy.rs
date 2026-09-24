@@ -394,9 +394,6 @@ mod tests {
         assert_eq!(upstream_port(&format!("{TASK}--99999.example.com")), None);
     }
 
-    /// Only the shared rule. The declared-server filter that reads it is
-    /// `sandbox-k8s`'s `pod_builder::admitted_server_ports`, covered by its own
-    /// test there.
     #[test]
     fn the_proxy_port_is_reserved_by_the_shared_rule() {
         assert!(is_reserved_sandbox_port(SANDBOX_PREVIEW_PROXY_PORT, 50052));

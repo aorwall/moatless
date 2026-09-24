@@ -11,7 +11,7 @@ use sandbox_proto::{
 };
 
 use crate::sandbox::secrets::{
-    TaskCredentialInputs, resolve_server_env, resolve_task_actor, resolve_task_credential_targets,
+    TaskCredentialInputs, resolve_task_actor, resolve_task_credential_targets,
     resolve_task_credentials, resolve_task_ssh_keys, resolve_workspace_credentials,
     resolve_workspace_env_vars,
 };
@@ -160,7 +160,7 @@ pub(super) async fn get_credentials(
         users: handlers.map(|h| &h.commit_identity),
         credential_sync: codex_credentials.as_ref(),
         workspace_credentials,
-        workspace_env_vars: workspace_env_vars.clone(),
+        workspace_env_vars,
     })
     .await;
 
@@ -169,12 +169,6 @@ pub(super) async fn get_credentials(
     {
         credentials.insert(CredentialKey::USER_AUTH_TOKEN.to_string(), user_token);
     }
-    let server_env = resolve_server_env(
-        &grant.ctx.user_id,
-        handlers.map(|h| &h.secrets),
-        &workspace_env_vars,
-    )
-    .await;
     let ssh_keys = resolve_task_ssh_keys(handlers.map(|h| &h.secrets), &grant.ctx.user_id).await;
 
     info!(
@@ -187,7 +181,6 @@ pub(super) async fn get_credentials(
         has_openai = credentials.contains_key(CredentialKey::OPENAI_API_KEY),
         has_anthropic = credentials.contains_key(CredentialKey::ANTHROPIC_API_KEY),
         has_claude_oauth = credentials.contains_key(CredentialKey::CLAUDE_CODE_OAUTH_TOKEN),
-        server_env_count = server_env.len(),
         ssh_key_count = ssh_keys.len(),
         workspace_credential_count,
         "Credentials resolved"
@@ -195,7 +188,6 @@ pub(super) async fn get_credentials(
 
     Ok(Response::new(GetCredentialsResponse {
         credentials,
-        server_env,
         ssh_keys,
     }))
 }

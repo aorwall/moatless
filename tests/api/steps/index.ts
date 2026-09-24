@@ -40,6 +40,5 @@ export {
   waitForSandboxReady,
 } from './sandbox.steps'
 // Servers
-export { fetchServerUrl } from './server.steps'
 // Task creation
 export { createTaskWithMessage, createTaskWithoutMessage } from './task.steps'

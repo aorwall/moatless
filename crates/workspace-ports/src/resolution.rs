@@ -4,7 +4,6 @@ use moatless_types::store::StoreError;
 use moatless_workspace_types::plugin::PluginDelivery;
 use moatless_workspace_types::repository::Repository;
 use moatless_workspace_types::workspace::ResourceConfig;
-use moatless_workspace_types::workspace::ServerConfig;
 use moatless_workspace_types::workspace::Workspace;
 use std::collections::HashMap;
 use uuid::Uuid;
@@ -23,7 +22,6 @@ pub struct ResolvedWorkspace {
     pub system_prompt: Option<String>,
     pub setup_commands: Option<Vec<String>>,
     pub env_vars: Option<HashMap<String, String>>,
-    pub servers: Option<Vec<ServerConfig>>,
     pub resources: Option<ResourceConfig>,
     pub network_profile: Option<String>,
     /// Extra node labels sandbox pods must match, merged over the

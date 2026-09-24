@@ -465,6 +465,70 @@
         }
       }
     },
+    "/api/sandbox/v1/tasks/{task_id}/logs": {
+      "get": {
+        "tags": [
+          "sandbox"
+        ],
+        "summary": "Stream the sandbox container's logs via SSE.",
+        "description": "`?previous=true` fetches logs from a crashed/restarted container;\n`?follow=false` ends the stream after the buffered lines instead of\nwaiting for more. OpenAPI cannot represent an SSE response body.",
+        "operationId": "sandbox_logs_handler",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "previous",
+            "in": "query",
+            "description": "Fetch logs from previous container instance",
+            "required": true,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "follow",
+            "in": "query",
+            "description": "Keep the stream open for new lines (default true)",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "tail",
+            "in": "query",
+            "description": "Number of trailing lines to start from (default 500)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SSE stream of sandbox log lines"
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/sandbox/v1/tasks/{task_id}/provision": {
       "post": {
         "tags": [
@@ -544,7 +608,7 @@
           "sandbox"
         ],
         "summary": "Redeploy a sandbox (delete Deployment/Service/IngressRoutes, recreate with\nfresh repo config).",
-        "description": "Preserves workspace data (PVC). Use after updating repo server configs.",
+        "description": "Preserves workspace data (PVC). Use after changing the workspace configuration.",
         "operationId": "redeploy_handler",
         "parameters": [
           {
@@ -656,383 +720,12 @@
         }
       }
     },
-    "/api/sandbox/v1/tasks/{task_id}/server/status": {
-      "get": {
-        "tags": [
-          "sandbox"
-        ],
-        "summary": "Get server status for all servers in a task's sandbox.",
-        "operationId": "server_status_handler",
-        "parameters": [
-          {
-            "name": "task_id",
-            "in": "path",
-            "description": "Task identifier",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Server status",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ServerStatusResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/sandbox/v1/tasks/{task_id}/servers/config": {
-      "get": {
-        "tags": [
-          "sandbox"
-        ],
-        "summary": "List the overrides currently in effect, read off the sandbox's workspace.",
-        "description": "Separate from `GET /servers` because it needs a live sandbox; there is no\npersisted copy to fall back on, so a stopped sandbox has no answer.",
-        "operationId": "list_server_config_handler",
-        "parameters": [
-          {
-            "name": "task_id",
-            "in": "path",
-            "description": "Task identifier",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Overrides in effect",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ServerOverridesResponse"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "Sandbox not reachable",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/sandbox/v1/tasks/{task_id}/servers/{server_name}": {
-      "patch": {
-        "tags": [
-          "sandbox"
-        ],
-        "summary": "Update one preview server's start command / env and (by default) restart it.",
-        "operationId": "update_server_config_handler",
-        "parameters": [
-          {
-            "name": "task_id",
-            "in": "path",
-            "description": "Task identifier",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "server_name",
-            "in": "path",
-            "description": "Server name",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UpdateServerConfigRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Override applied",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ServerConfigResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid env key or server name",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "No such server on this task",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "Field requires a redeploy to change",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "Sandbox not reachable",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/sandbox/v1/tasks/{task_id}/servers/{server_name}/logs": {
-      "get": {
-        "tags": [
-          "sandbox"
-        ],
-        "summary": "Stream server logs via SSE.",
-        "description": "`?previous=true` fetches logs from a crashed/restarted container;\n`?follow=false` ends the stream after the buffered lines instead of\nwaiting for more. OpenAPI cannot represent an SSE response body.",
-        "operationId": "server_logs_handler",
-        "parameters": [
-          {
-            "name": "task_id",
-            "in": "path",
-            "description": "Task identifier",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "server_name",
-            "in": "path",
-            "description": "Server name",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "previous",
-            "in": "query",
-            "description": "Fetch logs from previous container instance",
-            "required": true,
-            "schema": {
-              "type": "boolean"
-            }
-          },
-          {
-            "name": "follow",
-            "in": "query",
-            "description": "Keep the stream open for new lines (default true)",
-            "required": false,
-            "schema": {
-              "type": "boolean"
-            }
-          },
-          {
-            "name": "tail",
-            "in": "query",
-            "description": "Number of trailing lines to start from (default 500)",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "format": "int64"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "SSE stream of server log lines"
-          },
-          "500": {
-            "description": "Internal error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/sandbox/v1/tasks/{task_id}/servers/{server_name}/override": {
-      "delete": {
-        "tags": [
-          "sandbox"
-        ],
-        "summary": "Drop a server's override and restart it on the workspace's configuration.",
-        "operationId": "reset_server_config_handler",
-        "parameters": [
-          {
-            "name": "task_id",
-            "in": "path",
-            "description": "Task identifier",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "server_name",
-            "in": "path",
-            "description": "Server name",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Override cleared",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ServerConfigResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "No such server on this task",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "Sandbox not reachable",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/sandbox/v1/tasks/{task_id}/servers/{server_name}/restart": {
-      "post": {
-        "tags": [
-          "sandbox"
-        ],
-        "summary": "Restart one preview server in place, leaving its override as-is.",
-        "operationId": "restart_server_handler",
-        "parameters": [
-          {
-            "name": "task_id",
-            "in": "path",
-            "description": "Task identifier",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "server_name",
-            "in": "path",
-            "description": "Server name",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Server restarted",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ServerConfigResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "No such server on this task",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "Sandbox not reachable",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/sandbox/v1/tasks/{task_id}/status": {
       "get": {
         "tags": [
           "sandbox"
         ],
-        "summary": "Get full sandbox status including servers and Agent status.",
+        "summary": "Get full sandbox status including Agent status.",
         "operationId": "sandbox_status_handler",
         "parameters": [
           {
@@ -3754,6 +3447,16 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "Linear rejected the query",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
           }
         }
       }
@@ -4072,6 +3775,16 @@
                 }
               }
             }
+          },
+          "404": {
+            "description": "Issue not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
           }
         }
       }
@@ -4128,6 +3841,16 @@
           },
           "400": {
             "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Issue not found",
             "content": {
               "application/json": {
                 "schema": {
@@ -4198,6 +3921,16 @@
                 }
               }
             }
+          },
+          "404": {
+            "description": "Issue not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
           }
         }
       }
@@ -4254,6 +3987,16 @@
           },
           "400": {
             "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Issue not found",
             "content": {
               "application/json": {
                 "schema": {
@@ -7208,7 +6951,7 @@
           {
             "name": "types",
             "in": "query",
-            "description": "Comma-separated event type filter (e.g., `?types=sandbox,server,agent`).",
+            "description": "Comma-separated event type filter (e.g., `?types=sandbox,agent,message`).",
             "required": false,
             "schema": {
               "type": [
@@ -8689,6 +8432,217 @@
           },
           "500": {
             "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/users/by-id/{user_id}/provider-ids": {
+      "get": {
+        "tags": [
+          "users"
+        ],
+        "summary": "List all provider ID mappings, keyed on the internal user id.",
+        "description": "See [`set_user_provider_id_by_id_handler`] for why a login is not enough.",
+        "operationId": "list_user_provider_ids_by_id_handler",
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "description": "Target user id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of provider ID mappings",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/UserProviderIdItem"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "User not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/users/by-id/{user_id}/provider-ids/{provider}": {
+      "put": {
+        "tags": [
+          "users"
+        ],
+        "summary": "Set (upsert) a provider-specific user ID, keyed on the internal user id.",
+        "description": "A login isn't unique — `PUT /api/v1/users/{login}/provider-ids/{provider}`\nresolves only the oldest row of a shared login. Reach any other row here,\nkeyed on the `id` `GET /api/v1/users` reports; same body, same policy.",
+        "operationId": "set_user_provider_id_by_id_handler",
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "description": "Target user id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "provider",
+            "in": "path",
+            "description": "Provider name, e.g. 'slack'",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetProviderIdRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Provider ID set",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Access denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "User not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "users"
+        ],
+        "summary": "Delete a provider ID mapping, keyed on the internal user id.",
+        "description": "See [`set_user_provider_id_by_id_handler`] for why a login is not enough.",
+        "operationId": "delete_user_provider_id_by_id_handler",
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "description": "Target user id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "provider",
+            "in": "path",
+            "description": "Provider name, e.g. 'slack'",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Provider ID deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Access denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "User or mapping not found",
             "content": {
               "application/json": {
                 "schema": {
@@ -11389,6 +11343,14 @@
             ],
             "format": "int32"
           },
+          "messageBufferSeconds": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "See [`LoopConfig::message_buffer_seconds`]."
+          },
           "model": {
             "type": [
               "string",
@@ -12106,15 +12068,6 @@
               }
             ]
           },
-          "servers": {
-            "type": [
-              "array",
-              "null"
-            ],
-            "items": {
-              "$ref": "#/components/schemas/ServerConfig"
-            }
-          },
           "setupCommands": {
             "type": [
               "array",
@@ -12213,7 +12166,6 @@
           "taskTurn",
           "sandbox",
           "agent",
-          "server",
           "resources",
           "message"
         ]
@@ -13429,7 +13381,7 @@
               "boolean",
               "null"
             ],
-            "description": "Force the parent issue into a reply target even when no binding exists\nyet.\n\nA comment on an already-bound issue refreshes its binding regardless;\nthis flag covers a proactive comment on an unbound issue. Defaults to\n`false`."
+            "description": "Listen to the whole issue rather than only this comment's thread.\n\nA comment always becomes a reply target on its own: a reply under it\nreaches the task without this flag. Set it to hear every comment on the\nissue, including ones in threads the task never wrote in. Defaults to\n`false`."
           },
           "body": {
             "type": "string"
@@ -13463,7 +13415,7 @@
       },
       "LinearIssueCreateRequest": {
         "type": "object",
-        "description": "`POST /api/v1/linear/issues` — create an issue.",
+        "description": "`POST /api/v1/linear/issues` — create an issue. Linear shows the caller's\ndisplay name as its creator, via the app.",
         "required": [
           "title"
         ],
@@ -13551,7 +13503,7 @@
               "string",
               "null"
             ],
-            "description": "Real Linear user to record as the issue reporter. Resolved like\n[`Self::assignee`]. Added as a subscriber and mentioned in the\ndescription (Linear has no settable creator/reporter field)."
+            "description": "Real Linear user to record as the issue reporter. Resolved like\n[`Self::assignee`]. Added as a subscriber and mentioned in the\ndescription (Linear has no reporter field)."
           },
           "state": {
             "type": [
@@ -13653,6 +13605,13 @@
             ],
             "description": "See [`LinearIssueCreateRequest::assignee`]. Pass `\"null\"` to unassign."
           },
+          "clearDescription": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Blank the description. The only way to erase one, so that erasing is\nalways something the caller asked for."
+          },
           "cycle": {
             "type": [
               "string",
@@ -13670,7 +13629,8 @@
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "description": "New description. An empty or whitespace-only string is rejected — a\ncommand substitution over a file that no longer exists expands to one,\nand Linear reads it as \"erase the description\"."
           },
           "dueDate": {
             "type": [
@@ -14061,6 +14021,14 @@
             ],
             "format": "int32",
             "description": "Per-Loop inactivity TTL in days. `None` means \"inherit the global\ndefault\" (`TASK_INACTIVE_TIMEOUT_DAYS`). Flows into\n`tasks.inactive_ttl_days` when this Loop spawns a task."
+          },
+          "messageBufferSeconds": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Seconds inbound Adapter events for one Binding are held so those\narriving together reach the Task as a single message. `None` inherits\nthe deployment default for the Loop's adapter kind (60 for `github_pr`,\noff elsewhere); `0` delivers every event on its own."
           },
           "model": {
             "type": [
@@ -14519,8 +14487,6 @@
           "install",
           "updateRepositoryConfig",
           "getRepositoryConfig",
-          "startOrRestartPreviewServer",
-          "getPreviewServerLogs",
           "navigatePreview",
           "clickElement",
           "evaluateJavaScript",
@@ -14824,7 +14790,8 @@
         "description": "One skill inside a plugin, as stored at the plugin's synced version.",
         "required": [
           "name",
-          "description"
+          "description",
+          "path"
         ],
         "properties": {
           "description": {
@@ -14832,6 +14799,10 @@
           },
           "name": {
             "type": "string"
+          },
+          "path": {
+            "type": "string",
+            "description": "Path of the `SKILL.md` inside the plugin repository. Same contract as\n`SkillResponse::path`, which states what a reader does with it."
           }
         }
       },
@@ -15845,8 +15816,7 @@
         "required": [
           "sandboxStatus",
           "sandboxError",
-          "agentStatus",
-          "servers"
+          "agentStatus"
         ],
         "properties": {
           "agentStatus": {
@@ -15939,12 +15909,6 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/ScheduledJobInfo"
-            }
-          },
-          "servers": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ServerEntry"
             }
           }
         }
@@ -16651,376 +16615,6 @@
           }
         }
       },
-      "ServerCapabilities": {
-        "type": "object",
-        "description": "Server capabilities (deterministic from server name)",
-        "required": [
-          "addressBar",
-          "inspector",
-          "reload",
-          "openExternal",
-          "viewport",
-          "console"
-        ],
-        "properties": {
-          "addressBar": {
-            "type": "boolean"
-          },
-          "console": {
-            "type": "boolean"
-          },
-          "inspector": {
-            "type": "boolean"
-          },
-          "openExternal": {
-            "type": "boolean"
-          },
-          "reload": {
-            "type": "boolean"
-          },
-          "viewport": {
-            "type": "boolean"
-          }
-        }
-      },
-      "ServerConfig": {
-        "type": "object",
-        "description": "Server config entry.",
-        "required": [
-          "name"
-        ],
-        "properties": {
-          "autoReload": {
-            "type": "boolean"
-          },
-          "default": {
-            "type": "boolean"
-          },
-          "dockerImage": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Per-server Docker image. Falls back to `sandbox_image` if not set."
-          },
-          "enableInspector": {
-            "type": "boolean"
-          },
-          "envVars": {
-            "type": "object",
-            "description": "Per-server environment variables.",
-            "additionalProperties": {
-              "type": "string"
-            },
-            "propertyNames": {
-              "type": "string"
-            }
-          },
-          "label": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "name": {
-            "type": "string"
-          },
-          "port": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int32",
-            "description": "Absent until the backend allocates one on the next provision.",
-            "minimum": 0
-          },
-          "resources": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/ResourceConfig",
-                "description": "Per-server resource requests/limits. Falls back to the repo-wide\n`resources` when unset. Only `requests`/`limits` apply; the storage\nfields are repo-wide and ignored here."
-              }
-            ]
-          },
-          "startCommands": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "startupTimeoutSeconds": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int32",
-            "minimum": 0
-          }
-        }
-      },
-      "ServerConfigResponse": {
-        "type": "object",
-        "description": "Result of a live server config change or restart.",
-        "required": [
-          "serverName",
-          "configOverride",
-          "generation",
-          "restarted"
-        ],
-        "properties": {
-          "configOverride": {
-            "$ref": "#/components/schemas/ServerOverride",
-            "description": "The override after the call — empty when it was reset."
-          },
-          "generation": {
-            "type": "integer",
-            "format": "int64",
-            "description": "Sidecar restart generation after the call.",
-            "minimum": 0
-          },
-          "restarted": {
-            "type": "boolean"
-          },
-          "serverName": {
-            "type": "string"
-          }
-        }
-      },
-      "ServerEntry": {
-        "type": "object",
-        "description": "Single server entry in the workspace status response",
-        "required": [
-          "name",
-          "label",
-          "port",
-          "status",
-          "default",
-          "capabilities"
-        ],
-        "properties": {
-          "capabilities": {
-            "$ref": "#/components/schemas/ServerCapabilities"
-          },
-          "default": {
-            "type": "boolean"
-          },
-          "detail": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "error": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "label": {
-            "type": "string"
-          },
-          "name": {
-            "type": "string"
-          },
-          "port": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          },
-          "status": {
-            "$ref": "#/components/schemas/ServerStatus"
-          },
-          "url": {
-            "type": [
-              "string",
-              "null"
-            ]
-          }
-        }
-      },
-      "ServerEventPayload": {
-        "type": "object",
-        "description": "Server event payload — matches frontend `ServerEventPayloadSchema`.",
-        "required": [
-          "serverName",
-          "status"
-        ],
-        "properties": {
-          "message": {
-            "type": "string",
-            "description": "Human-readable contextual detail (e.g. \"`ContainerCreating`\",\n\"`CrashLoopBackOff`\"). Always set by the publisher. `#[serde(default)]`\nhandles old events without this field."
-          },
-          "serverName": {
-            "type": "string"
-          },
-          "status": {
-            "$ref": "#/components/schemas/ServerSubType"
-          }
-        }
-      },
-      "ServerOverride": {
-        "type": "object",
-        "description": "A live override of one preview server's start command and env. Callers send\nthe complete state; the sandbox replaces it without merging.",
-        "properties": {
-          "env": {
-            "type": "object",
-            "description": "Applied after the configured server environment, so these values win.",
-            "additionalProperties": {
-              "type": "string"
-            },
-            "propertyNames": {
-              "type": "string"
-            }
-          },
-          "startCommand": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Replaces the configured start command; `None` uses the workspace\ncommand."
-          },
-          "unsetEnv": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "description": "Removes variables injected through the container spec; sourcing an env\nfile cannot unset them."
-          }
-        }
-      },
-      "ServerOverrideEntry": {
-        "type": "object",
-        "description": "One server's override as it currently exists on the workspace volume.",
-        "required": [
-          "serverName",
-          "configOverride",
-          "generation"
-        ],
-        "properties": {
-          "configOverride": {
-            "$ref": "#/components/schemas/ServerOverride"
-          },
-          "generation": {
-            "type": "integer",
-            "format": "int64",
-            "description": "The counter the sidecar watches; `0` means it has never been restarted.",
-            "minimum": 0
-          },
-          "serverName": {
-            "type": "string"
-          }
-        }
-      },
-      "ServerOverridesResponse": {
-        "type": "object",
-        "description": "Every override in effect on a task. Servers with no override are omitted.\n\nRead from the sandbox's workspace volume, the only place an override exists\n— a stopped sandbox cannot answer this.",
-        "required": [
-          "overrides"
-        ],
-        "properties": {
-          "overrides": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ServerOverrideEntry"
-            }
-          }
-        }
-      },
-      "ServerSnapshot": {
-        "type": "object",
-        "description": "Server snapshot from sandbox GET /status",
-        "required": [
-          "name",
-          "status"
-        ],
-        "properties": {
-          "builtin": {
-            "type": "boolean"
-          },
-          "default": {
-            "type": "boolean"
-          },
-          "detail": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Why the server is in this status, when the status alone does not say\n— a `disabled` server names the headless Task that never started it."
-          },
-          "enable_inspector": {
-            "type": "boolean"
-          },
-          "error": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "label": {
-            "type": "string"
-          },
-          "name": {
-            "type": "string"
-          },
-          "pid": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int32",
-            "minimum": 0
-          },
-          "port": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          },
-          "status": {
-            "$ref": "#/components/schemas/ServerStatus"
-          }
-        }
-      },
-      "ServerStatus": {
-        "type": "string",
-        "description": "Matches TS `ServerStatusEnumSchema`: 'stopped' | 'installing' | 'starting' | 'started' | 'failed' | 'disabled'",
-        "enum": [
-          "stopped",
-          "installing",
-          "starting",
-          "started",
-          "failed",
-          "disabled"
-        ]
-      },
-      "ServerStatusResponse": {
-        "type": "object",
-        "description": "Server status response proxied from sandbox pod.",
-        "required": [
-          "servers"
-        ],
-        "properties": {
-          "servers": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ServerSnapshot"
-            }
-          }
-        }
-      },
-      "ServerSubType": {
-        "type": "string",
-        "description": "Server sub-types — server container lifecycle.\n\n`Failed` covers all error conditions (was: Failed, Error, Timeout — consolidated).",
-        "enum": [
-          "installing",
-          "starting",
-          "started",
-          "stopped",
-          "failed"
-        ]
-      },
       "SessionResponse": {
         "type": "object",
         "description": "GET /api/v1/auth/me response.",
@@ -17256,6 +16850,7 @@
         "required": [
           "name",
           "description",
+          "path",
           "source"
         ],
         "properties": {
@@ -17264,6 +16859,10 @@
           },
           "name": {
             "type": "string"
+          },
+          "path": {
+            "type": "string",
+            "description": "Where to edit this skill: the `SKILL.md` path inside the repository or\nplugin it was read from. A sandbox's own `<home>/skills` copy is\nregenerated on every init, so an edit there reaches nothing."
           },
           "pluginId": {
             "type": [
@@ -17366,7 +16965,7 @@
           },
           {
             "type": "object",
-            "description": "Tabular data. Cells are rich text, so they can carry live links.",
+            "description": "Tabular data. Cells are rich text, so they can carry live links and\nmentions that notify.",
             "required": [
               "rows",
               "type"
@@ -17539,6 +17138,25 @@
                 ]
               },
               "url": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "A mention that notifies, naming its person by moatless login or by Slack\nmember id. No `style`: Slack takes a different set here than on the other\ntwo leaves, and a mention that renders plainly is the whole point.",
+            "required": [
+              "user_id",
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "user"
+                ]
+              },
+              "user_id": {
                 "type": "string"
               }
             }
@@ -19060,6 +18678,14 @@
             ],
             "format": "int32"
           },
+          "messageBufferSeconds": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "See [`LoopConfig::message_buffer_seconds`]. `Some(None)` clears the\noverride."
+          },
           "model": {
             "type": [
               "string",
@@ -19265,65 +18891,6 @@
         },
         "additionalProperties": false
       },
-      "UpdateServerConfigRequest": {
-        "type": "object",
-        "description": "Update one preview server's live config.\n\nOnly fields a sidecar can pick up on an in-place restart are accepted;\n`port` and `dockerImage` are declared so sending them errors \"redeploy\nrequired\" instead of silently no-op.",
-        "properties": {
-          "dockerImage": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Not applicable live — the image is the container's identity."
-          },
-          "env": {
-            "type": [
-              "object",
-              "null"
-            ],
-            "description": "Env entries to set, merged into any existing override.",
-            "additionalProperties": {
-              "type": "string"
-            },
-            "propertyNames": {
-              "type": "string"
-            }
-          },
-          "port": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int32",
-            "description": "Not applicable live — the port is wired into the Service and\n`IngressRoute` at provision time.",
-            "minimum": 0
-          },
-          "restart": {
-            "type": "boolean",
-            "description": "Restart the server so the change takes effect (default `true`)."
-          },
-          "startCommands": {
-            "type": [
-              "array",
-              "null"
-            ],
-            "items": {
-              "type": "string"
-            },
-            "description": "Replaces the workspace's start command. Joined with `&&`, as at\nprovision time."
-          },
-          "unsetEnv": {
-            "type": [
-              "array",
-              "null"
-            ],
-            "items": {
-              "type": "string"
-            },
-            "description": "Keys to remove from the server's environment. Also drops them from the\noverride's `env`, so setting and unsetting the same key is coherent."
-          }
-        }
-      },
       "UpdateSubscription": {
         "type": "object",
         "properties": {
@@ -19387,6 +18954,13 @@
               "null"
             ]
           },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Model for the task's later turns. Each delivery falls back to it, so a\nchange takes effect from the next turn and leaves the running one alone."
+          },
           "name": {
             "type": [
               "string",
@@ -19442,13 +19016,6 @@
               "string",
               "null"
             ]
-          },
-          "model": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Model for the task's later turns. Each delivery falls back to it, so a\nchange takes effect from the next turn and leaves the running one alone."
           },
           "name": {
             "type": [
@@ -19585,15 +19152,6 @@
                 "description": "Change the workspace's access scope (`global` requires admin).\n\nPromotes every repository already placed to `global` too — repos added\nlater keep their own scope — and returning to `user` does not demote\nthem back."
               }
             ]
-          },
-          "servers": {
-            "type": [
-              "array",
-              "null"
-            ],
-            "items": {
-              "$ref": "#/components/schemas/ServerConfig"
-            }
           },
           "setupCommands": {
             "type": [
@@ -20321,15 +19879,6 @@
           },
           "scope": {
             "$ref": "#/components/schemas/Scope"
-          },
-          "servers": {
-            "type": [
-              "array",
-              "null"
-            ],
-            "items": {
-              "$ref": "#/components/schemas/ServerConfig"
-            }
           },
           "setupCommands": {
             "type": [

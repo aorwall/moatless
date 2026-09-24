@@ -17,9 +17,9 @@ service BackendSandboxService {
   rpc GetCredentials(GetCredentialsRequest) returns (GetCredentialsResponse);
 
   // Fetch the assembled append-system-prompt for a task. Backend owns assembly
-  // (task name, repo prompt, external-source prompt, server section, task URL, CLI
-  // hints); sandbox calls this once per agent run and caches the result for
-  // fallback on subsequent gRPC failures.
+  // (task name, repo prompt, external-source prompt, task URL, CLI hints);
+  // sandbox calls this once per agent run and caches the result for fallback
+  // on subsequent gRPC failures.
   rpc GetSystemPrompt(GetSystemPromptRequest) returns (GetSystemPromptResponse);
 
   // Push a credential rotated locally inside the sandbox back to the backend.
@@ -275,7 +275,8 @@ enum EventType {
   EVENT_TYPE_TASK_TURN = 1;
   EVENT_TYPE_SANDBOX = 2;
   EVENT_TYPE_AGENT = 3;
-  EVENT_TYPE_SERVER = 4;
+  reserved 4;
+  reserved "EVENT_TYPE_SERVER";
   EVENT_TYPE_RESOURCES = 5;
 }
 
@@ -418,9 +419,8 @@ message GetCredentialsResponse {
   // Key = env var name (e.g. "GITHUB_TOKEN", "ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN")
   // Extensible: add new credentials without proto changes
   map<string, string> credentials = 1;
-  // Shared env for all server sidecars; written by the sandbox to
-  // /opt/moatless/data/server.env at init time.
-  map<string, string> server_env = 2;
+  reserved 2;
+  reserved "server_env";
   // SSH private keys, keyed by secret name. Materialized by the sandbox into
   // ~/.ssh (mode 0600) and used transparently for git/ssh over SSH remotes.
   // Delivered separately from `credentials` so they are never set as env vars.
@@ -520,14 +520,6 @@ service SandboxService {
   // pull-based credentials). Generic by `key` so future credentials are
   // dispatcher-only changes.
   rpc RefreshCredential(RefreshCredentialRequest) returns (RefreshCredentialResponse);
-
-  // Apply a start-command / env override to one preview server and optionally
-  // restart it in place. The sandbox writes the override into the shared data
-  // volume that every server sidecar reads on start; bumping the generation
-  // makes the sidecar's supervisor re-exec its child without recreating the
-  // container (so the agent container, and the pod, are untouched).
-  rpc ApplyServerConfig(ApplyServerConfigRequest) returns (ApplyServerConfigResponse);
-  rpc GetServerConfig(GetServerConfigRequest) returns (GetServerConfigResponse);
 
   // Declare, drop and read back the Scripts belonging to one Member rather than
   // to its Workspace. The record is a file on the workspace volume, so it rides
@@ -796,47 +788,6 @@ message RefreshCredentialRequest {
 }
 
 message RefreshCredentialResponse {}
-
-message ApplyServerConfigRequest {
-  string task_id = 1;
-  // Server name as it appears in the workspace config (not the container name).
-  string server_name = 2;
-  // The complete override state, not a delta. The sandbox never merges: the
-  // caller reads the current state with GetServerConfig, merges, and sends the
-  // result. Absent `start_command` means no override: the sidecar runs the
-  // command baked into its container spec.
-  optional string start_command = 3;
-  map<string, string> env = 4;
-  // Keys emitted as `unset K` so a variable injected by the container spec can
-  // be removed — sourcing alone can only add.
-  repeated string unset_env = 5;
-  // Bump the generation so the sidecar restarts its child immediately.
-  bool restart = 6;
-}
-
-message ApplyServerConfigResponse {
-  // Generation after the call — unchanged when `restart` was false.
-  uint64 generation = 1;
-}
-
-message GetServerConfigRequest {
-  string task_id = 1;
-}
-
-message GetServerConfigResponse {
-  // Keyed by server name. The control files under the workspace volume are the
-  // only record of an override, so this is the authoritative read — a server
-  // with no override is absent rather than present-and-empty.
-  map<string, ServerConfigOverride> overrides = 1;
-}
-
-message ServerConfigOverride {
-  optional string start_command = 1;
-  map<string, string> env = 2;
-  repeated string unset_env = 3;
-  // The counter the sidecar watches; 0 means it has never been restarted.
-  uint64 generation = 4;
-}
 
 // One Script declared on a Member rather than on its Workspace, in the fields
 // `ScriptConfig` carries. No `env_vars`: the surface that declares these is

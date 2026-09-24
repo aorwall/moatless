@@ -217,7 +217,7 @@ Rules that keep the suite worth running:
   fixture repository was found; the header line names every capability the
   profile lacks, which is why a group of tests will skip.
 - Docker stack logs: `docker compose -f docker-compose/docker-compose.yml -f docker-compose/docker-compose.ci.yml logs backend`.
-- Cluster: `moat tasks logs <task-id> --server <name>`, and `moat tasks diagnose <task-id>`.
+- Cluster: `moat tasks logs <task-id>`, and `moat tasks diagnose <task-id>`.
 
 **Common causes**
 

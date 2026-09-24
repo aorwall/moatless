@@ -7,7 +7,8 @@
  */
 
 /**
- * Typed tool result from SDK (e.g., `BashToolUseResult`, `ReadToolUseResult`).
+ * Typed tool result from SDK (e.g., `BashToolUseResult`,
+ * `ReadToolUseResult`).
  * @nullable
  */
 export type UiToolResultTypedResult = { [key: string]: unknown } | null;

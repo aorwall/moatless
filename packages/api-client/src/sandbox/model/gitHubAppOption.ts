@@ -29,8 +29,8 @@ export interface GitHubAppOption {
   installations: GitHubInstallationOption[];
   /**
      * Short digest of the stored signing key. Enough to tell two keys apart;
-     * the key itself is never returned. Absent for the login App, whose key
-     * is not stored.
+     * the key itself is never returned. Absent for the login App, whose key is
+     * not stored.
      * @nullable
      */
   keyFingerprint?: string | null;

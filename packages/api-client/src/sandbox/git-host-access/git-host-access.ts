@@ -317,10 +317,9 @@ export const getListForgejoConnectionsUrl = () => {
 }
 
 /**
- * Any signed-in caller reads this, unlike
- * [`admin_list_forgejo_instances`]: a hostname is not a secret, and the
- * settings screen cannot offer a Connect button without one.
- * @summary List every registered instance with the caller's own connection to each.
+ * Any signed-in caller may read this, unlike [`admin_list_forgejo_instances`],
+ * since a hostname isn't a secret.
+ * @summary Lists every registered instance with the caller's own connection to each.
  */
 export const listForgejoConnections = async ( options?: Parameters<typeof customInstance>[1]): Promise<listForgejoConnectionsResponse> => {
 
@@ -372,7 +371,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
     /**
- * @summary List every registered instance with the caller's own connection to each.
+ * @summary Lists every registered instance with the caller's own connection to each.
  */
 export const useListForgejoConnections = <TError = ErrorType<ErrorBody>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof listForgejoConnections>>, TError,void, TContext>, request?: SecondParameter<typeof customInstance>}

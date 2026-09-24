@@ -275,13 +275,13 @@ impl WorkspaceDao for PgWorkspaceDao {
             r#"INSERT INTO workspaces (
                    id, name, description, icon, kind,
                    docker_image, docker_access, sandbox_service_account,
-                   system_prompt, setup_commands, env_vars, servers, scripts, resources,
+                   system_prompt, setup_commands, env_vars, scripts, resources,
                    network_profile, node_selector, default_model, default_effort,
                    source, source_repository_id, source_key, source_config_path,
                    scope, owner_user_id, run_as_user_id, created_by, deleted
                ) VALUES (
                    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
-                   $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27
+                   $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26
                )"#,
         )
         .bind(&row.id)
@@ -298,7 +298,6 @@ impl WorkspaceDao for PgWorkspaceDao {
             "setup_commands",
         )?)
         .bind(encode_column(row.env_vars.as_ref(), "env_vars")?)
-        .bind(encode_column(row.servers.as_ref(), "servers")?)
         .bind(encode_column(row.scripts.as_ref(), "scripts")?)
         .bind(encode_column(row.resources.as_ref(), "resources")?)
         .bind(&row.network_profile)
@@ -430,7 +429,6 @@ impl WorkspaceDao for PgWorkspaceDao {
         push_set!(system_prompt);
         push_set!(setup_commands);
         push_set!(env_vars);
-        push_set!(servers);
         push_set!(scripts);
         push_set!(resources);
         push_set!(network_profile);
@@ -493,7 +491,6 @@ impl WorkspaceDao for PgWorkspaceDao {
         bind_opt!(system_prompt);
         bind_json!(setup_commands);
         bind_json!(env_vars);
-        bind_json!(servers);
         bind_json!(scripts);
         bind_json!(resources);
         bind_opt!(network_profile);

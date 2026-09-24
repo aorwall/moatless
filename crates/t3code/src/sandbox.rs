@@ -1,8 +1,7 @@
 //! Sandbox lifecycle status and commands for the T3 compatibility surface.
 //!
 //! This module owns only environment lifecycle answers: whether a Task's
-//! Sandbox is available, and start/stop requests. Preview server declarations
-//! and server logs live in `servers.rs`.
+//! Sandbox is available, and start/stop requests.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -483,8 +482,8 @@ mod tests {
 
     use async_trait::async_trait;
     use moatless_ports::sandbox::{
-        ContractSandboxStatus, LiveStatus, LogOptions, SandboxContainer, SandboxDesiredState,
-        SandboxDetail, SandboxStatus, ServerLogStream,
+        ContractSandboxStatus, LiveStatus, SandboxContainer, SandboxDesiredState, SandboxDetail,
+        SandboxStatus,
     };
     use moatless_types::sandbox::{CommandSummary, ManagedCommandState};
     use moatless_types::task::TaskStatus;
@@ -610,15 +609,6 @@ mod tests {
                 containers,
                 runtime_events: Vec::new(),
             })
-        }
-
-        async fn server_logs(
-            &self,
-            _task_id: &str,
-            _server_name: &str,
-            _options: LogOptions,
-        ) -> Result<ServerLogStream, SandboxError> {
-            unreachable!("the lifecycle read reads no logs")
         }
     }
 

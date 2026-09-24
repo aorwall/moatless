@@ -9,7 +9,7 @@
 | Agent reports not logged in | Check the selected agent's credential source and expiry. Refresh its credential and recreate affected containers; inspect sandbox logs. This message does not diagnose a system encryption-key failure. |
 | Changed environment is absent | Run `moat docker install` to recreate containers. Restarting an existing container preserves its original environment. |
 | Postgres or migration failure | Read backend and Postgres logs and the status endpoint details. Check connectivity and migration error before changing data. |
-| Preview unavailable | Use [preview-servers](../../preview-servers/SKILL.md); servers belong to the workspace. |
+| Preview unavailable | Expected under Docker: `DockerSandboxAdapter` does not publish a Script's `port`, so a Script with a `port` has no preview URL. |
 
 Use `moat docker env list --json` for masked inspection. Preserve system encryption
 keys and data volumes during repairs. Purging an installation is a data-removal

@@ -13,19 +13,19 @@ use bollard::models::{
 
 use super::naming::{
     generate_claude_config_host_path, generate_container_name, generate_data_host_path,
-    generate_sandbox_host_path, generate_server_container_name,
+    generate_sandbox_host_path,
 };
 use moatless_core::config::Config;
 use moatless_sandbox_runtime::provisioning::ProvisionPlan;
 use moatless_sandbox_runtime::runtime::{OPERATION_GENERATION_LABEL, RuntimeOperationContext};
-use moatless_sandbox_runtime::server_runner::build_server_start_script;
-use moatless_workspace_types::workspace::{Memory, Port, ServerConfig, WORKSPACE_REPOS_ENV};
+use moatless_workspace_types::workspace::{Memory, WORKSPACE_REPOS_ENV};
 
 pub(crate) const CREATED_BY_LABEL: &str = "created-by";
 pub(crate) const CREATED_BY_VALUE: &str = "moatless";
 pub(crate) const SERVICE_LABEL: &str = "moatless.service";
 pub(crate) const SANDBOX_SERVICE: &str = "sandbox";
-pub(crate) const SERVER_SERVICE: &str = "server";
+/// `SERVICE_LABEL` value on preview server containers older releases created.
+pub(crate) const LEGACY_SERVER_SERVICE: &str = "server";
 
 /// Resolve the sandbox image for a plan: per-repo override → default docker
 /// image.
@@ -263,177 +263,7 @@ pub fn stamp_operation_generation(config: &mut ContainerConfig, ctx: RuntimeOper
 }
 
 fn build_repo_config_json(plan: &ProvisionPlan) -> Option<String> {
-    moatless_sandbox_runtime::repo_config_encoding::encode_repo_config(
-        &plan.repo_config,
-        |server| {
-            let mut fields = serde_json::Map::new();
-            if !server.start_commands.is_empty() {
-                fields.insert(
-                    "startCommands".into(),
-                    serde_json::json!(server.start_commands),
-                );
-            }
-            if !server.env_vars.is_empty() {
-                fields.insert("envVars".into(), serde_json::json!(server.env_vars));
-            }
-            if let Some(image) = &server.docker_image {
-                fields.insert("dockerImage".into(), serde_json::json!(image));
-            }
-            fields
-        },
-    )
-}
-
-/// Validate a server's configuration before we try to launch it.
-///
-/// Requires `start_commands` unless a custom `docker_image` is set (trusted to
-/// have its own CMD) — the sandbox image's default ENTRYPOINT just runs the
-/// sandbox binary. Also requires an allocated port, since the container
-/// publishes one.
-pub(super) fn validate_server_config(server: &ServerConfig) -> Result<u16, String> {
-    let has_start_commands = !server.start_commands.is_empty();
-    let has_per_server_image = server.docker_image.is_some();
-
-    if !has_start_commands && !has_per_server_image {
-        return Err(format!(
-            "Server '{}' has no start_commands and no docker_image override. \
-             Set repositories.servers[].startCommands (camelCase) in the repo config, \
-             or specify a docker_image with a baked-in CMD.",
-            server.name
-        ));
-    }
-
-    server.port.map(Port::get).ok_or_else(|| {
-        format!(
-            "Server '{}' has no allocated port; declare one in the repo config.",
-            server.name
-        )
-    })
-}
-
-/// Build a `bollard::container::Config` for a server sidecar container.
-///
-/// Mirrors the K8s `build_server_containers()` pattern: waits for the
-/// `.workspace-ready` sentinel, then runs the start commands.
-pub fn build_server_container_config(
-    config: &Config,
-    task_id: &str,
-    server: &ServerConfig,
-    port: u16,
-    sandbox_image: &str,
-) -> ContainerConfig {
-    let container_name = generate_server_container_name(task_id, &server.name);
-
-    // ── Image: per-server override → sandbox image fallback.
-    // Treat empty strings as unset so cleared-but-non-null DB values fall through.
-    let image = server
-        .docker_image
-        .as_ref()
-        .filter(|s| !s.is_empty())
-        .cloned()
-        .unwrap_or_else(|| sandbox_image.to_string());
-
-    // ── Environment variables ─────────────────────────────────────
-    let mut env = vec![
-        format!("PORT={port}"),
-        "WORKSPACE_DIR=/opt/moatless/workspace".to_string(),
-        "WORKSPACE_PATH=/opt/moatless/workspace".to_string(),
-        "DATA_DIR=/opt/moatless/data".to_string(),
-    ];
-    // Note: server.env (sourced below at startup) overrides WORKSPACE_DIR and
-    // WORKSPACE_PATH with sandbox-derived paths; these defaults only apply
-    // before init.
-
-    for (k, v) in &server.env_vars {
-        env.push(format!("{k}={v}"));
-    }
-
-    // ── Command ──────────────────────────────────────────────────
-    // The supervisor script waits for the workspace-ready sentinel, sources the
-    // shared env files, and restarts its child on a live config override — see
-    // `server_runner`.
-    //
-    // This must be set as the container *entrypoint*: Docker `Cmd` only
-    // supplies arguments to the image ENTRYPOINT, and the sandbox image's
-    // docker-entrypoint-sandbox.sh ignores its args and execs the sandbox
-    // binary (which crash-loops without BACKEND_GRPC_URL). K8s `command:`
-    // overrides the entrypoint — mirror that here with `entrypoint`.
-    let entrypoint = (!server.start_commands.is_empty()).then(|| {
-        vec![
-            "bash".to_string(),
-            "-c".to_string(),
-            build_server_start_script(&server.name, &server.start_commands),
-        ]
-    });
-
-    // ── Labels ─────────────────────────────────────────────────────
-    let mut labels = HashMap::new();
-    labels.insert("created-by".to_string(), "moatless".to_string());
-    labels.insert(SERVICE_LABEL.to_string(), SERVER_SERVICE.to_string());
-    labels.insert("moatless.io/task-id".to_string(), task_id.to_string());
-    labels.insert("moatless.io/server-name".to_string(), server.name.clone());
-    labels.insert(
-        "app.kubernetes.io/managed-by".to_string(),
-        "moatless".to_string(),
-    );
-
-    // ── Exposed ports ─────────────────────────────────────────────
-    let port_key = format!("{port}/tcp");
-    let exposed_ports: Vec<String> = vec![port_key.clone()];
-
-    // ── Port bindings (dynamic host port mapping) ─────────────────
-    let mut port_bindings: HashMap<String, Option<Vec<PortBinding>>> = HashMap::new();
-    port_bindings.insert(
-        port_key,
-        Some(vec![PortBinding {
-            host_ip: Some("0.0.0.0".to_string()),
-            host_port: Some(String::new()), // empty = dynamic assignment
-        }]),
-    );
-
-    // ── Bind mounts ───────────────────────────────────────────────
-    let workspace_host_path = generate_sandbox_host_path(&config.docker.data_dir, task_id);
-    let data_host_path = generate_data_host_path(&config.docker.data_dir, task_id);
-    let mounts = vec![
-        Mount {
-            target: Some("/opt/moatless/workspace".to_string()),
-            source: Some(workspace_host_path),
-            typ: Some(MountType::BIND),
-            read_only: Some(false),
-            ..Default::default()
-        },
-        Mount {
-            target: Some("/opt/moatless/data".to_string()),
-            source: Some(data_host_path),
-            typ: Some(MountType::BIND),
-            read_only: Some(false),
-            ..Default::default()
-        },
-    ];
-
-    // ── Host config ───────────────────────────────────────────────
-    let host_config = HostConfig {
-        network_mode: Some(config.docker.network.clone()),
-        mounts: Some(mounts),
-        port_bindings: Some(port_bindings),
-        restart_policy: Some(RestartPolicy {
-            name: Some(RestartPolicyNameEnum::UNLESS_STOPPED),
-            maximum_retry_count: None,
-        }),
-        ..Default::default()
-    };
-
-    // ── Container config ──────────────────────────────────────────
-    ContainerConfig {
-        image: Some(image),
-        hostname: Some(container_name),
-        env: Some(env),
-        labels: Some(labels),
-        exposed_ports: Some(exposed_ports),
-        host_config: Some(host_config),
-        entrypoint,
-        ..Default::default()
-    }
+    moatless_sandbox_runtime::repo_config_encoding::encode_repo_config(&plan.repo_config)
 }
 
 #[cfg(test)]
@@ -452,40 +282,13 @@ mod tests {
         config
     }
 
-    #[test]
-    fn repo_config_preserves_docker_server_projection() {
-        let mut plan = test_plan();
-        plan.repo_config.servers = Some(vec![ServerConfig {
-            name: "web".into(),
-            port: Port::new(3000),
-            start_commands: vec!["run".into()],
-            env_vars: serde_json::from_value(serde_json::json!({"KEY": "value"}))
-                .expect("env vars"),
-            auto_reload: true,
-            docker_image: Some("image".into()),
-            label: Some("Web".into()),
-            ..Default::default()
-        }]);
-        let encoded = build_repo_config_json(&plan).expect("config");
-        let value: serde_json::Value = serde_json::from_str(&encoded).expect("json");
-        assert_eq!(
-            value["servers"],
-            serde_json::json!([{
-                "name": "web", "port": 3000, "startCommands": ["run"],
-                "envVars": {"KEY": "value"}, "dockerImage": "image"
-            }])
-        );
-    }
-
     fn test_plan() -> ProvisionPlan {
         ProvisionPlan {
             repo_config: RepoConfig {
                 name: "test-repo".into(),
                 docker_image: None,
-                servers: None,
                 system_prompt: None,
                 code_execution: None,
-                preview_config: None,
                 resources: None,
                 plugins: None,
                 docker_access: None,
@@ -705,148 +508,6 @@ mod tests {
         assert_eq!(host_config.network_mode.unwrap(), "moatless");
     }
 
-    // ── Server container config tests ──────────────────────────────
-
-    fn test_server_config() -> ServerConfig {
-        ServerConfig {
-            name: "preview".into(),
-            label: Some("Preview".into()),
-            port: Port::new(3000),
-            start_commands: vec!["bun run dev".into()],
-            docker_image: None,
-            ..Default::default()
-        }
-    }
-
-    const TEST_SANDBOX_IMAGE: &str = "aorwall/moatless-sandbox:latest";
-
-    #[test]
-    fn server_config_uses_sandbox_image_fallback() {
-        let config = test_config();
-        let server = test_server_config();
-        let cc =
-            build_server_container_config(&config, "task-1", &server, 3000, TEST_SANDBOX_IMAGE);
-        assert_eq!(cc.image.unwrap(), TEST_SANDBOX_IMAGE);
-    }
-
-    #[test]
-    fn server_config_uses_custom_image() {
-        let config = test_config();
-        let mut server = test_server_config();
-        server.docker_image = Some("custom-server:v1".into());
-        let cc =
-            build_server_container_config(&config, "task-1", &server, 3000, TEST_SANDBOX_IMAGE);
-        assert_eq!(cc.image.unwrap(), "custom-server:v1");
-    }
-
-    #[test]
-    fn server_config_treats_empty_image_as_unset() {
-        let config = test_config();
-        let mut server = test_server_config();
-        server.docker_image = Some(String::new());
-        let cc =
-            build_server_container_config(&config, "task-1", &server, 3000, TEST_SANDBOX_IMAGE);
-        assert_eq!(cc.image.unwrap(), TEST_SANDBOX_IMAGE);
-    }
-
-    #[test]
-    fn server_config_per_server_image_overrides_sandbox_fallback() {
-        let config = test_config();
-        let mut server = test_server_config();
-        server.docker_image = Some("custom-server:v1".into());
-        let cc =
-            build_server_container_config(&config, "task-1", &server, 3000, TEST_SANDBOX_IMAGE);
-        assert_eq!(cc.image.unwrap(), "custom-server:v1");
-    }
-
-    #[test]
-    fn server_config_has_correct_labels() {
-        let config = test_config();
-        let server = test_server_config();
-        let cc =
-            build_server_container_config(&config, "task-1", &server, 3000, TEST_SANDBOX_IMAGE);
-        let labels = cc.labels.unwrap();
-        assert_eq!(labels.get(SERVICE_LABEL).unwrap(), SERVER_SERVICE);
-        assert_eq!(labels.get("moatless.io/task-id").unwrap(), "task-1");
-        assert_eq!(labels.get("moatless.io/server-name").unwrap(), "preview");
-    }
-
-    #[test]
-    fn server_config_has_workspace_ready_wait() {
-        let config = test_config();
-        let server = test_server_config();
-        let cc =
-            build_server_container_config(&config, "task-1", &server, 3000, TEST_SANDBOX_IMAGE);
-        // Start commands must land in `entrypoint` (not `cmd`): Docker Cmd
-        // only feeds args to the image ENTRYPOINT, which ignores them.
-        assert!(cc.cmd.is_none());
-        let entrypoint = cc.entrypoint.unwrap();
-        assert_eq!(entrypoint[0], "bash");
-        assert_eq!(entrypoint[1], "-c");
-        assert!(entrypoint[2].contains(".workspace-ready"));
-        assert!(entrypoint[2].contains("bun run dev"));
-    }
-
-    #[test]
-    fn server_config_sources_shared_server_env_file() {
-        let config = test_config();
-        let server = test_server_config();
-        let cc =
-            build_server_container_config(&config, "task-1", &server, 3000, TEST_SANDBOX_IMAGE);
-        let env = cc.env.unwrap();
-        assert!(
-            !env.iter()
-                .any(|e| e.starts_with("MOATLESS_SERVER_ENV_FILE="))
-        );
-        assert!(!env.iter().any(|e| e.starts_with("BASH_ENV=")));
-
-        let entrypoint = cc.entrypoint.unwrap();
-        assert!(entrypoint[2].contains(". /opt/moatless/data/server.env"));
-        assert!(entrypoint[2].contains("bun run dev"));
-    }
-
-    #[test]
-    fn server_config_exposes_server_port() {
-        let config = test_config();
-        let server = test_server_config();
-        let cc =
-            build_server_container_config(&config, "task-1", &server, 3000, TEST_SANDBOX_IMAGE);
-        let ports = cc.exposed_ports.unwrap();
-        assert!(ports.iter().any(|p| p == "3000/tcp"));
-    }
-
-    #[test]
-    fn server_config_has_bind_mounts() {
-        let config = test_config();
-        let server = test_server_config();
-        let cc =
-            build_server_container_config(&config, "task-1", &server, 3000, TEST_SANDBOX_IMAGE);
-        let host_config = cc.host_config.unwrap();
-        let mounts = host_config.mounts.unwrap();
-        assert_eq!(mounts.len(), 2);
-        assert_eq!(mounts[0].target.as_deref(), Some("/opt/moatless/workspace"));
-        assert_eq!(mounts[1].target.as_deref(), Some("/opt/moatless/data"));
-    }
-
-    #[test]
-    fn server_config_env_vars() {
-        let config = test_config();
-        let server = test_server_config();
-        let cc =
-            build_server_container_config(&config, "task-1", &server, 3000, TEST_SANDBOX_IMAGE);
-        let env = cc.env.unwrap();
-        assert!(env.iter().any(|e| e == "PORT=3000"));
-        assert!(
-            env.iter()
-                .any(|e| e == "WORKSPACE_DIR=/opt/moatless/workspace")
-        );
-        assert!(
-            env.iter()
-                .any(|e| e == "WORKSPACE_PATH=/opt/moatless/workspace")
-        );
-        assert!(env.iter().any(|e| e == "DATA_DIR=/opt/moatless/data"));
-    }
-
     // ── Docker socket access tests ──────────────────────────────
 
     #[test]
@@ -925,39 +586,5 @@ mod tests {
             .find(|m| m.target.as_deref() == Some("/var/run/docker.sock"))
             .unwrap();
         assert_eq!(socket_mount.source.as_deref(), Some("/custom/docker.sock"));
-    }
-
-    // ── Server config validation tests ──────────────────────────────
-
-    #[test]
-    fn validate_ok_with_start_commands() {
-        let server = test_server_config();
-        assert!(validate_server_config(&server).is_ok());
-    }
-
-    #[test]
-    fn validate_rejects_no_image_no_start_commands() {
-        let mut server = test_server_config();
-        server.start_commands = Vec::new();
-        let err = validate_server_config(&server).unwrap_err();
-        assert!(err.contains("preview"));
-        assert!(err.contains("startCommands"));
-    }
-
-    #[test]
-    fn validate_rejects_a_server_without_a_port() {
-        let mut server = test_server_config();
-        server.port = None;
-        let err = validate_server_config(&server).unwrap_err();
-        assert!(err.contains("preview"));
-        assert!(err.contains("port"));
-    }
-
-    #[test]
-    fn validate_allows_custom_image_without_start_commands() {
-        let mut server = test_server_config();
-        server.start_commands = Vec::new();
-        server.docker_image = Some("my-server:v1".into());
-        assert!(validate_server_config(&server).is_ok());
     }
 }

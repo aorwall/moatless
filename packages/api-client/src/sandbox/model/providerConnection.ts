@@ -9,9 +9,8 @@
 /**
  * Connection state for an external provider (OAuth app, GitHub App, PAT, …).
  *
- * `connected = false` indicates the frontend should prompt the user to
- * reconnect: either no token is stored, or the most recent refresh attempt
- * failed.
+ * `connected = false` means the frontend should prompt reconnect: no token is
+ * stored, or the most recent refresh failed.
  */
 export interface ProviderConnection {
   /**

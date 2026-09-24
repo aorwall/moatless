@@ -27,7 +27,7 @@ pub const SANDBOX_PERMANENT_FAILURE_REASONS: &[&str] = &[
 /// passed).
 ///
 /// Checks the sandbox container specifically, not the pod-level Ready
-/// condition, since a server container's image-pull issue can block that while
+/// condition, since a sidecar's image-pull issue can block that while the
 /// sandbox itself is fine.
 pub fn is_sandbox_container_ready(pod: &Pod) -> bool {
     pod.status
@@ -37,8 +37,8 @@ pub fn is_sandbox_container_ready(pod: &Pod) -> bool {
         .is_some_and(|cs| cs.started.unwrap_or(false) && cs.ready)
 }
 
-/// Checks for a permanent failure of the `sandbox` container only (server
-/// containers may have unrelated image-pull issues). Returns `Some(message)`
+/// Checks for a permanent failure of the `sandbox` container only (sidecars
+/// may have unrelated image-pull issues). Returns `Some(message)`
 /// describing the failure, else `None`.
 pub fn check_sandbox_permanent_failure(pod: &Pod) -> Option<String> {
     let container_statuses = pod.status.as_ref()?.container_statuses.as_ref()?;
@@ -107,27 +107,9 @@ pub fn pick_best_pod(pods: &[Pod]) -> Option<&Pod> {
         .or(terminating.first().copied())
 }
 
-/// Extract observed statuses for **all** containers in a K8s Pod, including
-/// `sandbox` (unlike [`extract_container_observed_statuses`]). Used for
-/// diagnostics/troubleshooting.
+/// Extract observed statuses for every container in a K8s Pod, including
+/// `sandbox`. Used for diagnostics/troubleshooting.
 pub fn extract_all_container_statuses(pod: &Pod) -> Vec<ContainerObservedStatus> {
-    extract_container_statuses_filtered(pod, false)
-}
-
-/// Extract container observed statuses from a K8s Pod, excluding `sandbox` —
-/// used for monitoring *server* containers only (files-server, preview-server,
-/// etc.).
-pub fn extract_container_observed_statuses(pod: &Pod) -> Vec<ContainerObservedStatus> {
-    extract_container_statuses_filtered(pod, true)
-}
-
-/// Shared implementation for container status extraction.
-///
-/// When `exclude_sandbox` is `true`, the `sandbox` container is filtered out.
-fn extract_container_statuses_filtered(
-    pod: &Pod,
-    exclude_sandbox: bool,
-) -> Vec<ContainerObservedStatus> {
     let container_statuses = match pod
         .status
         .as_ref()
@@ -139,7 +121,6 @@ fn extract_container_statuses_filtered(
 
     container_statuses
         .iter()
-        .filter(|cs| !exclude_sandbox || cs.name != "sandbox")
         .map(|cs| {
             let (state, waiting_reason) = match cs.state.as_ref() {
                 Some(s) if s.running.is_some() => (ContainerState::Running, None),
@@ -301,7 +282,6 @@ mod tests {
         Pod, PodStatus,
     };
     use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
-    use moatless_types::sandbox::ServerStatus;
 
     // =========================================================================
     // is_sandbox_container_ready()
@@ -313,7 +293,7 @@ mod tests {
             "Running",
             vec![
                 running_container("sandbox", true, true),
-                waiting_container("files-server", "ErrImagePull"),
+                waiting_container("dind", "ErrImagePull"),
             ],
         );
         assert!(is_sandbox_container_ready(&pod));
@@ -336,7 +316,7 @@ mod tests {
 
     #[test]
     fn sandbox_not_ready_when_no_sandbox_container() {
-        let pod = pod_with_containers(vec![running_container("files-server", true, true)]);
+        let pod = pod_with_containers(vec![running_container("dind", true, true)]);
         assert!(!is_sandbox_container_ready(&pod));
     }
 
@@ -347,11 +327,11 @@ mod tests {
     }
 
     #[test]
-    fn sandbox_ready_independent_of_server_containers() {
+    fn sandbox_ready_independent_of_sidecars() {
         let pod = pod_with_containers(vec![
             running_container("sandbox", true, true),
-            waiting_container("preview-server", "ImagePullBackOff"),
-            waiting_container("files-server", "ErrImagePull"),
+            waiting_container("sidecar", "ImagePullBackOff"),
+            waiting_container("dind", "ErrImagePull"),
         ]);
         assert!(is_sandbox_container_ready(&pod));
     }
@@ -364,7 +344,7 @@ mod tests {
     fn no_permanent_failure_when_sandbox_running() {
         let pod = pod_with_containers(vec![
             running_container("sandbox", true, true),
-            waiting_container("files-server", "ErrImagePull"),
+            waiting_container("dind", "ErrImagePull"),
         ]);
         assert!(check_sandbox_permanent_failure(&pod).is_none());
     }
@@ -373,7 +353,7 @@ mod tests {
     fn permanent_failure_when_sandbox_has_image_pull_error() {
         let pod = pod_with_containers(vec![
             waiting_container("sandbox", "ErrImagePull"),
-            running_container("files-server", true, true),
+            running_container("dind", true, true),
         ]);
         let msg = check_sandbox_permanent_failure(&pod);
         assert!(msg.is_some());
@@ -465,11 +445,11 @@ mod tests {
     }
 
     #[test]
-    fn no_permanent_failure_ignores_server_container_errors() {
+    fn no_permanent_failure_ignores_sidecar_errors() {
         let pod = pod_with_containers(vec![
             running_container("sandbox", false, false),
-            waiting_container("preview-server", "ErrImagePull"),
-            waiting_container("files-server", "ImagePullBackOff"),
+            waiting_container("sidecar", "ErrImagePull"),
+            waiting_container("dind", "ImagePullBackOff"),
         ]);
         assert!(check_sandbox_permanent_failure(&pod).is_none());
     }
@@ -534,11 +514,11 @@ mod tests {
     }
 
     // =========================================================================
-    // extract_container_observed_statuses()
+    // extract_all_container_statuses()
     // =========================================================================
 
     #[test]
-    fn extract_statuses_excludes_sandbox_container() {
+    fn extract_statuses_includes_the_sandbox_container() {
         let pod = Pod {
             status: Some(PodStatus {
                 container_statuses: Some(vec![
@@ -554,7 +534,7 @@ mod tests {
                         ..Default::default()
                     },
                     ContainerStatus {
-                        name: "preview-server".to_string(),
+                        name: "sidecar".to_string(),
                         ready: false,
                         started: Some(false),
                         restart_count: 0,
@@ -573,16 +553,16 @@ mod tests {
             ..Default::default()
         };
 
-        let statuses = extract_container_observed_statuses(&pod);
-        assert_eq!(statuses.len(), 1);
-        assert_eq!(statuses[0].name, "preview-server");
-        assert_eq!(statuses[0].to_server_status(), ServerStatus::Failed);
+        let statuses = extract_all_container_statuses(&pod);
+        assert_eq!(statuses.len(), 2);
+        assert_eq!(statuses[0].name, "sandbox");
+        assert_eq!(statuses[1].waiting_reason.as_deref(), Some("ErrImagePull"));
     }
 
     #[test]
     fn extract_statuses_empty_when_no_container_statuses() {
         let pod = Pod::default();
-        let statuses = extract_container_observed_statuses(&pod);
+        let statuses = extract_all_container_statuses(&pod);
         assert!(statuses.is_empty());
     }
 
@@ -590,41 +570,25 @@ mod tests {
     fn extract_statuses_captures_oom_killed_reason() {
         let pod = pod_with_containers(vec![
             running_container("sandbox", true, true),
-            terminated_container("preview-server", "OOMKilled", 137),
+            terminated_container("sidecar", "OOMKilled", 137),
         ]);
 
-        let statuses = extract_container_observed_statuses(&pod);
-        assert_eq!(statuses.len(), 1);
-        assert_eq!(statuses[0].name, "preview-server");
-        assert_eq!(statuses[0].terminated_reason.as_deref(), Some("OOMKilled"));
-        assert_eq!(statuses[0].exit_code, Some(137));
-        assert_eq!(statuses[0].to_server_status(), ServerStatus::Failed);
+        let statuses = extract_all_container_statuses(&pod);
+        assert_eq!(statuses[1].name, "sidecar");
+        assert_eq!(statuses[1].terminated_reason.as_deref(), Some("OOMKilled"));
+        assert_eq!(statuses[1].exit_code, Some(137));
     }
 
     #[test]
     fn extract_statuses_captures_error_termination() {
         let pod = pod_with_containers(vec![
             running_container("sandbox", true, true),
-            terminated_container("preview-server", "Error", 1),
+            terminated_container("sidecar", "Error", 1),
         ]);
 
-        let statuses = extract_container_observed_statuses(&pod);
-        assert_eq!(statuses.len(), 1);
-        assert_eq!(statuses[0].terminated_reason.as_deref(), Some("Error"));
-        assert_eq!(statuses[0].exit_code, Some(1));
-        assert_eq!(statuses[0].to_server_status(), ServerStatus::Failed);
-    }
-
-    #[test]
-    fn extract_statuses_completed_is_stopped() {
-        let pod = pod_with_containers(vec![
-            running_container("sandbox", true, true),
-            terminated_container("preview-server", "Completed", 0),
-        ]);
-
-        let statuses = extract_container_observed_statuses(&pod);
-        assert_eq!(statuses.len(), 1);
-        assert_eq!(statuses[0].to_server_status(), ServerStatus::Stopped);
+        let statuses = extract_all_container_statuses(&pod);
+        assert_eq!(statuses[1].terminated_reason.as_deref(), Some("Error"));
+        assert_eq!(statuses[1].exit_code, Some(1));
     }
 
     // =========================================================================

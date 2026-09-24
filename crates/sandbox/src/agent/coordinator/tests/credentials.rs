@@ -57,7 +57,6 @@ impl BackendClient for CredBackend {
         };
         Ok(GetCredentialsResponse {
             credentials: HashMap::from([("CODEX_AUTH_JSON".to_string(), value)]),
-            server_env: HashMap::new(),
             ssh_keys: HashMap::new(),
         })
     }

@@ -256,7 +256,6 @@ mod tests {
         ) -> Result<GetCredentialsResponse, tonic::Status> {
             Ok(GetCredentialsResponse {
                 credentials: HashMap::new(),
-                server_env: HashMap::new(),
                 ssh_keys: HashMap::new(),
             })
         }

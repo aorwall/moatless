@@ -8,9 +8,11 @@
 import type { LinearIssueResponseData } from './linearIssueResponseData';
 
 /**
- * Common envelope for all typed responses. `data` is the raw Linear
- * subobject (e.g. issue, comment); `binding_id` is set only when the
- * request included a `task_id` and a `task_bindings` row was inserted.
+ * Envelope for all typed responses.
+ *
+ * `data` is the raw Linear subobject (e.g. issue, comment); `binding_id` is
+ * set only when the request included a `task_id` and a `task_bindings` row was
+ * inserted.
  */
 export interface LinearIssueResponse {
   /** @nullable */

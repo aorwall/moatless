@@ -12,7 +12,8 @@ import type { UpdateLoopSource } from './updateLoopSource';
 export interface UpdateLoopRequest {
   config?: null | UpdateLoopConfig;
   /**
-     * Rename the Loop. Omit to keep the current name; a name cannot be cleared.
+     * Rename the Loop. Omit to keep the current name; a name cannot be
+     * cleared.
      * @nullable
      */
   name?: string | null;

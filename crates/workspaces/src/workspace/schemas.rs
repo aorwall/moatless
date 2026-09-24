@@ -6,8 +6,8 @@
 pub use moatless_workspace_types::schemas::workspace::*;
 
 use moatless_workspace_types::workspace::{
-    Cpu, EnvKey, EnvVars, Memory, Port, ResourceConfig as DomainResourceConfig,
-    ResourceQuantities as DomainResourceQuantities, ServerConfig as DomainServerConfig,
+    Cpu, Memory, ResourceConfig as DomainResourceConfig,
+    ResourceQuantities as DomainResourceQuantities,
 };
 
 use super::error::WorkspaceError;
@@ -78,71 +78,6 @@ pub fn resource_config_to_wire(config: DomainResourceConfig) -> ResourceConfig {
     }
 }
 
-pub fn server_config_from_wire(config: ServerConfig) -> Result<DomainServerConfig, WorkspaceError> {
-    let env_vars = config
-        .env_vars
-        .into_iter()
-        .map(|(key, value)| {
-            key.parse::<EnvKey>()
-                .map(|key| (key, value))
-                .map_err(WorkspaceError::BadRequest)
-        })
-        .collect::<Result<EnvVars, _>>()?;
-    let port = config
-        .port
-        .map(|port| {
-            Port::new(port).ok_or_else(|| {
-                WorkspaceError::BadRequest(format!(
-                    "Server '{}' declares port 0; omit the field to have one allocated",
-                    config.name
-                ))
-            })
-        })
-        .transpose()?;
-    Ok(DomainServerConfig {
-        name: config.name,
-        label: config.label,
-        port,
-        start_commands: config.start_commands,
-        startup_timeout_seconds: config.startup_timeout_seconds,
-        auto_reload: config.auto_reload,
-        enable_inspector: config.enable_inspector,
-        default: config.default,
-        docker_image: config.docker_image.filter(|image| !image.is_empty()),
-        env_vars,
-        resources: config
-            .resources
-            .map(resource_config_from_wire)
-            .transpose()?,
-    })
-}
-
-pub fn server_config_to_wire(config: DomainServerConfig) -> ServerConfig {
-    ServerConfig {
-        name: config.name,
-        label: config.label,
-        port: config.port.map(Port::get),
-        start_commands: config.start_commands,
-        startup_timeout_seconds: config.startup_timeout_seconds,
-        auto_reload: config.auto_reload,
-        enable_inspector: config.enable_inspector,
-        default: config.default,
-        docker_image: config.docker_image,
-        env_vars: config
-            .env_vars
-            .iter()
-            .map(|(key, value)| (key.as_str().to_string(), value.clone()))
-            .collect(),
-        resources: config.resources.map(resource_config_to_wire),
-    }
-}
-
-pub(super) fn server_configs_from_wire(
-    configs: Vec<ServerConfig>,
-) -> Result<Vec<DomainServerConfig>, WorkspaceError> {
-    configs.into_iter().map(server_config_from_wire).collect()
-}
-
 pub(super) fn script_configs_from_wire(configs: Vec<ScriptConfig>) -> Vec<DomainScriptConfig> {
     configs
 }
@@ -177,9 +112,6 @@ pub fn workspace_response(w: Workspace, repos: Vec<WorkspaceRepo>) -> WorkspaceR
         system_prompt: w.system_prompt,
         setup_commands: w.setup_commands,
         env_vars: w.env_vars,
-        servers: w
-            .servers
-            .map(|configs| configs.into_iter().map(server_config_to_wire).collect()),
         scripts: w.scripts,
         resources: w.resources.map(resource_config_to_wire),
         network_profile: w.network_profile,
@@ -204,7 +136,7 @@ pub fn workspace_response(w: Workspace, repos: Vec<WorkspaceRepo>) -> WorkspaceR
 
 #[cfg(test)]
 mod tests {
-    use std::collections::{BTreeMap, HashMap};
+    use std::collections::HashMap;
 
     use super::*;
 
@@ -245,50 +177,6 @@ mod tests {
             resources
         );
 
-        let server = DomainServerConfig {
-            name: "web".to_string(),
-            label: Some("Web".to_string()),
-            port: Port::new(3000),
-            start_commands: vec!["bun run dev".to_string()],
-            startup_timeout_seconds: Some(90),
-            auto_reload: true,
-            enable_inspector: true,
-            default: true,
-            docker_image: Some("node:24".to_string()),
-            env_vars: [(
-                "MODE".parse::<EnvKey>().expect("env key"),
-                "dev".to_string(),
-            )]
-            .into_iter()
-            .collect(),
-            resources: Some(resources.clone()),
-        };
-        let wire_server = server_config_to_wire(server.clone());
-        assert_eq!(
-            serde_json::to_value(&server).expect("serialize"),
-            serde_json::to_value(&wire_server).expect("serialize")
-        );
-        assert_eq!(
-            server_config_from_wire(wire_server).expect("parse back"),
-            server
-        );
-
-        // The empty forms too: both sides must omit the same keys, or a
-        // workspace with no servers round-trips into a different document.
-        let empty = DomainServerConfig {
-            name: "bare".to_string(),
-            ..Default::default()
-        };
-        let wire_empty = server_config_to_wire(empty.clone());
-        assert_eq!(
-            serde_json::to_value(&empty).expect("serialize"),
-            serde_json::to_value(&wire_empty).expect("serialize")
-        );
-        assert_eq!(
-            server_config_from_wire(wire_empty).expect("parse back"),
-            empty
-        );
-
         let script = DomainScriptConfig {
             name: "seed".to_string(),
             label: Some("Seed".to_string()),
@@ -318,25 +206,5 @@ mod tests {
             error.to_string().contains("requests.cpu"),
             "the message must name the field: {error}"
         );
-    }
-
-    #[test]
-    fn a_malformed_env_var_name_is_rejected_at_the_write_boundary() {
-        let config = ServerConfig {
-            name: "web".to_string(),
-            env_vars: BTreeMap::from([("WITH-DASH".to_string(), "1".to_string())]),
-            ..Default::default()
-        };
-        assert!(server_config_from_wire(config).is_err());
-    }
-
-    #[test]
-    fn a_declared_port_of_zero_is_rejected_at_the_write_boundary() {
-        let config = ServerConfig {
-            name: "web".to_string(),
-            port: Some(0),
-            ..Default::default()
-        };
-        assert!(server_config_from_wire(config).is_err());
     }
 }

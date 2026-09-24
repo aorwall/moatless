@@ -1,8 +1,8 @@
 //! Workspace request/response types.
 //!
 //! A Workspace owns the run-configuration and holds 0..n repository placements
-//! (`WorkspaceRepo`). Run-config fields use the [`ServerConfig`] and
-//! [`ResourceConfig`] wire shapes defined here.
+//! (`WorkspaceRepo`). Run-config fields use the [`ResourceConfig`]
+//! and [`ScriptConfig`] wire shapes defined here.
 
 use std::collections::{BTreeMap, HashMap};
 
@@ -100,44 +100,6 @@ pub struct ResourceConfig {
 }
 
 // =============================================================================
-// ServerConfig
-// =============================================================================
-
-/// Server config entry.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "camelCase")]
-pub struct ServerConfig {
-    pub name: String,
-    #[serde(default)]
-    pub label: Option<String>,
-    /// Absent until the backend allocates one on the next provision.
-    #[serde(default)]
-    pub port: Option<u16>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub start_commands: Vec<String>,
-    #[serde(default)]
-    pub startup_timeout_seconds: Option<u32>,
-    #[serde(default)]
-    pub auto_reload: bool,
-    #[serde(default)]
-    pub enable_inspector: bool,
-    #[serde(default)]
-    pub default: bool,
-    /// Per-server Docker image. Falls back to `sandbox_image` if not set.
-    #[serde(default)]
-    pub docker_image: Option<String>,
-    /// Per-server environment variables.
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub env_vars: BTreeMap<String, String>,
-    /// Per-server resource requests/limits. Falls back to the repo-wide
-    /// `resources` when unset. Only `requests`/`limits` apply; the storage
-    /// fields are repo-wide and ignored here.
-    #[serde(default)]
-    pub resources: Option<ResourceConfig>,
-}
-
-// =============================================================================
 // ScriptConfig
 // =============================================================================
 
@@ -204,8 +166,6 @@ pub struct CreateWorkspaceRequest {
     #[serde(default)]
     pub env_vars: Option<HashMap<String, String>>,
     #[serde(default)]
-    pub servers: Option<Vec<ServerConfig>>,
-    #[serde(default)]
     #[cfg_attr(feature = "openapi", schema(value_type = Object, ignore))]
     pub scripts: Option<Vec<ScriptConfig>>,
     #[serde(default)]
@@ -252,7 +212,6 @@ pub struct UpdateWorkspaceRequest {
     pub system_prompt: Option<String>,
     pub setup_commands: Option<Vec<String>>,
     pub env_vars: Option<HashMap<String, String>>,
-    pub servers: Option<Vec<ServerConfig>>,
     #[cfg_attr(feature = "openapi", schema(value_type = Object, ignore))]
     pub scripts: Option<Vec<ScriptConfig>>,
     pub resources: Option<ResourceConfig>,
@@ -343,7 +302,6 @@ pub struct WorkspaceResponse {
     pub system_prompt: Option<String>,
     pub setup_commands: Option<Vec<String>>,
     pub env_vars: Option<HashMap<String, String>>,
-    pub servers: Option<Vec<ServerConfig>>,
     #[serde(default)]
     #[cfg_attr(feature = "openapi", schema(value_type = Object, ignore))]
     pub scripts: Option<Vec<ScriptConfig>>,

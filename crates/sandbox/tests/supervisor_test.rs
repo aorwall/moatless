@@ -580,7 +580,6 @@ fn test_config(dir: &std::path::Path) -> Config {
         agent_config: moatless_sandbox::config::AgentConfig::default(),
         claude_cli_path: path("bin/claude"),
         codex_cli_path: path("bin/codex"),
-        servers: vec![],
         claude_config_dir: path("claude-config"),
         git_clone_url: None,
         git_branch: None,

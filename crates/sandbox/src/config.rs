@@ -56,21 +56,6 @@ pub struct CodeExecutionConfig {
     pub setup_commands: Vec<String>,
 }
 
-/// Server info parsed from `REPO_CONFIG`, used for system prompt.
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ServerInfo {
-    pub name: String,
-    #[serde(default)]
-    pub label: Option<String>,
-    #[serde(default)]
-    pub port: u16,
-    #[serde(default)]
-    pub start_commands: Option<Vec<String>>,
-    #[serde(default)]
-    pub auto_reload: bool,
-}
-
 /// Partial `REPO_CONFIG` JSON structure — we only parse the fields we need.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -86,8 +71,6 @@ struct RepoConfigFile {
     code_execution: Option<CodeExecutionConfig>,
     #[serde(default)]
     plugins: Option<Vec<PluginDelivery>>,
-    #[serde(default)]
-    servers: Option<Vec<ServerInfo>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -110,7 +93,6 @@ struct ParsedRepoConfig {
     agent_config: AgentConfig,
     setup_commands: Vec<String>,
     plugins: Vec<PluginDelivery>,
-    servers: Vec<ServerInfo>,
 }
 
 /// Main sandbox configuration.
@@ -167,8 +149,6 @@ pub struct Config {
     pub claude_cli_path: String,
     /// Path to the Codex CLI binary
     pub codex_cli_path: String,
-    /// Server configurations parsed from `REPO_CONFIG`
-    pub servers: Vec<ServerInfo>,
     /// Frontend URL for constructing task URLs (e.g., "<https://moatless.io>")
     pub frontend_url: Option<String>,
     /// Global default Claude model (env: `DEFAULT_CLAUDE_CODE_MODEL`), used
@@ -506,7 +486,6 @@ impl Config {
             codex_cli_path: env::var("SANDBOX_CODEX_EXECUTABLE_PATH")
                 .unwrap_or_else(|_| "/usr/local/bin/codex".to_string()),
 
-            servers: parsed.servers,
             frontend_url: env::var("FRONTEND_URL").ok(),
             default_model: env::var("DEFAULT_CLAUDE_CODE_MODEL").ok(),
             default_codex_model: env::var("DEFAULT_CODEX_MODEL").ok(),
@@ -608,7 +587,6 @@ pub(crate) mod test_support {
             agent_config: AgentConfig::default(),
             claude_cli_path: "/usr/local/bin/claude".to_string(),
             codex_cli_path: "/usr/local/bin/codex".to_string(),
-            servers: Vec::new(),
             frontend_url: None,
             default_model: None,
             default_codex_model: None,
@@ -664,7 +642,6 @@ fn parse_repo_config() -> ParsedRepoConfig {
                 agent_config: AgentConfig::default(),
                 setup_commands: Vec::new(),
                 plugins: Vec::new(),
-                servers: Vec::new(),
             };
         }
     };
@@ -677,7 +654,6 @@ fn parse_repo_config() -> ParsedRepoConfig {
                 agent_config: AgentConfig::default(),
                 setup_commands: Vec::new(),
                 plugins: Vec::new(),
-                servers: Vec::new(),
             };
         }
     };
@@ -691,13 +667,11 @@ fn parse_repo_config() -> ParsedRepoConfig {
         .unwrap_or_default();
 
     let plugins = repo_config.plugins.unwrap_or_default();
-    let servers = repo_config.servers.unwrap_or_default();
 
     ParsedRepoConfig {
         agent_config,
         setup_commands,
         plugins,
-        servers,
     }
 }
 

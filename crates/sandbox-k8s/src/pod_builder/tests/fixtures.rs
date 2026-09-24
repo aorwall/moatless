@@ -51,15 +51,8 @@ pub(super) fn test_plan() -> ProvisionPlan {
         repo_config: RepoConfig {
             name: "repo".into(),
             docker_image: None,
-            servers: Some(vec![ServerConfig {
-                name: "web".into(),
-                port: Port::new(3000),
-                start_commands: vec!["bun run dev".into()],
-                ..Default::default()
-            }]),
             system_prompt: None,
             code_execution: None,
-            preview_config: None,
             resources: None,
             plugins: None,
             docker_access: None,

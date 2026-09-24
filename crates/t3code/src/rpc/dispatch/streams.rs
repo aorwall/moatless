@@ -11,14 +11,11 @@ use crate::rpc::config::server_config;
 use crate::rpc::config::sources_event;
 use crate::rpc::frames::failure_exit;
 use crate::rpc::frames::sandbox_failure_exit;
-use crate::rpc::frames::servers_failure_exit;
 use crate::rpc::frames::shell_failure_exit;
 use crate::rpc::frames::terminal_failure_exit;
 use crate::rpc::session::ProtocolSession;
 use crate::rpc::watch;
 use crate::sandbox;
-use crate::servers;
-use crate::servers::ServersError;
 use crate::snapshots::after_sequence;
 use crate::snapshots::workspace_cwd;
 use crate::subscriptions::shell_subscription;
@@ -106,70 +103,6 @@ impl ProtocolSession {
             .start_produced(&id, Some(vec![seeded.clone()]), move |sink| {
                 sandbox::watch_detail(sink, sandbox, viewer, task_id, seeded)
             })
-    }
-
-    pub(super) async fn subscribe_server_status(&mut self, request: Request) -> Vec<Value> {
-        let ThreadRequest {
-            id,
-            viewer,
-            task_id,
-            state,
-            identity,
-            ..
-        } = match request.require_thread_id() {
-            Ok(request) => request,
-            Err(failure) => return failure,
-        };
-        // Seed from the same read the poller makes, so the panel has a list
-        // before the first interval elapses rather than after it.
-        let seeded = match servers::list(&state.servers, &viewer, &task_id).await {
-            Ok(listing) => json!({
-                "threadId": task_id,
-                "servers": listing.get("servers").cloned().unwrap_or(json!([])),
-                "observedAt": chrono::Utc::now().to_rfc3339(),
-            }),
-            Err(ServersError::NotFound) => json!({
-                "threadId": task_id,
-                "servers": [],
-                "observedAt": chrono::Utc::now().to_rfc3339(),
-            }),
-            Err(error) => return vec![servers_failure_exit(&id, &error, &identity)],
-        };
-        let servers = state.servers.clone();
-        self.streams
-            .start_produced(&id, Some(vec![seeded]), move |sink| {
-                servers::watch_status(sink, servers, viewer, task_id)
-            })
-    }
-
-    pub(super) fn servers_subscribe_logs(&mut self, request: Request) -> Vec<Value> {
-        let Request {
-            id,
-            payload,
-            state,
-            identity,
-            ..
-        } = request;
-        let viewer = viewer_scope(&identity);
-        let (Some(task_id), Some(name)) = (
-            payload.get("threadId").and_then(Value::as_str),
-            payload.get("name").and_then(Value::as_str),
-        ) else {
-            return vec![failure_exit(
-                &id,
-                "servers.subscribeLogs requires a threadId and a name",
-            )];
-        };
-        let servers = state.servers.clone();
-        let task_id = task_id.to_string();
-        let name = name.to_string();
-        let previous = payload
-            .get("previous")
-            .and_then(Value::as_bool)
-            .unwrap_or(false);
-        self.streams.start_produced(&id, None, move |sink| {
-            servers::watch_logs(sink, servers, viewer, task_id, name, previous)
-        })
     }
 
     pub(super) async fn orchestration_subscribe_shell(&mut self, request: Request) -> Vec<Value> {

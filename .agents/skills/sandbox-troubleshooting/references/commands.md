@@ -10,14 +10,15 @@ moat events list <task-id> --errors --json
 moat messages list <task-id> --full
 moat messages list <task-id> --limit 200
 moat messages list <task-id> --before-id <message-id>
-moat tasks logs <task-id> --server sandbox --no-follow --tail 500
-moat tasks logs <task-id> --server sandbox --previous --no-follow --tail 500
+moat tasks logs <task-id> --no-follow --tail 500
+moat tasks logs <task-id> --previous --no-follow --tail 500
 ```
 
-Read the named preview server with `--server <name>` from status. CLI logs follow
-by default; use `--no-follow` for a terminating tool call. Increase `--tail` when
-startup output fell out of the window. `--previous` reads the prior container
-instance where the runtime supports it, not an arbitrary older pod.
+`moat tasks logs` streams the sandbox container's own logs (Docker mode answers
+"not available"). CLI logs follow by default; use `--no-follow` for a
+terminating tool call. Increase `--tail` when startup output fell out of the
+window. `--previous` reads the prior container instance where the runtime
+supports it, not an arbitrary older pod.
 
 Correlate events, logs, and the transcript by timestamp. An idle agent may be
 waiting for user input; an Open task does not imply an active turn. Do not use

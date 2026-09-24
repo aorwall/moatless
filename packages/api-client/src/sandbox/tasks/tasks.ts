@@ -867,8 +867,8 @@ export const getFollowTaskUrl = (taskId: string,) => {
 }
 
 /**
- * @summary Follow a task so it appears in the requesting user's personal task list.
-Any task the user can see may be followed. Idempotent.
+ * @summary Follow a task so it appears in the requesting user's personal task list. Any
+task the user can see may be followed. Idempotent.
  */
 export const followTask = async (taskId: string, options?: Parameters<typeof customInstance>[1]): Promise<followTaskResponse> => {
 
@@ -939,8 +939,8 @@ export function useFollowTask<TData = Awaited<ReturnType<typeof followTask>>, TE
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 /**
- * @summary Follow a task so it appears in the requesting user's personal task list.
-Any task the user can see may be followed. Idempotent.
+ * @summary Follow a task so it appears in the requesting user's personal task list. Any
+task the user can see may be followed. Idempotent.
  */
 
 export function useFollowTask<TData = Awaited<ReturnType<typeof followTask>>, TError = ErrorType<ErrorBody>>(
@@ -956,8 +956,8 @@ export function useFollowTask<TData = Awaited<ReturnType<typeof followTask>>, TE
 }
 
 /**
- * @summary Follow a task so it appears in the requesting user's personal task list.
-Any task the user can see may be followed. Idempotent.
+ * @summary Follow a task so it appears in the requesting user's personal task list. Any
+task the user can see may be followed. Idempotent.
  */
 export const prefetchFollowTaskQuery = async <TData = Awaited<ReturnType<typeof followTask>>, TError = ErrorType<ErrorBody>>(
  queryClient: QueryClient, taskId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof followTask>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
@@ -1302,8 +1302,8 @@ export const getMarkTaskReadUrl = (taskId: string,) => {
 
 /**
  * @summary Mark a task's conversation as read for the requesting user, up to now.
-Clears the unread indicator; safe to call repeatedly (the stored marker
-only ever advances).
+Clears the unread indicator; safe to call repeatedly (the stored marker only
+ever advances).
  */
 export const markTaskRead = async (taskId: string, options?: Parameters<typeof customInstance>[1]): Promise<markTaskReadResponse> => {
 
@@ -1375,8 +1375,8 @@ export function useMarkTaskRead<TData = Awaited<ReturnType<typeof markTaskRead>>
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 /**
  * @summary Mark a task's conversation as read for the requesting user, up to now.
-Clears the unread indicator; safe to call repeatedly (the stored marker
-only ever advances).
+Clears the unread indicator; safe to call repeatedly (the stored marker only
+ever advances).
  */
 
 export function useMarkTaskRead<TData = Awaited<ReturnType<typeof markTaskRead>>, TError = ErrorType<ErrorBody>>(
@@ -1393,8 +1393,8 @@ export function useMarkTaskRead<TData = Awaited<ReturnType<typeof markTaskRead>>
 
 /**
  * @summary Mark a task's conversation as read for the requesting user, up to now.
-Clears the unread indicator; safe to call repeatedly (the stored marker
-only ever advances).
+Clears the unread indicator; safe to call repeatedly (the stored marker only
+ever advances).
  */
 export const prefetchMarkTaskReadQuery = async <TData = Awaited<ReturnType<typeof markTaskRead>>, TError = ErrorType<ErrorBody>>(
  queryClient: QueryClient, taskId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof markTaskRead>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
@@ -1445,14 +1445,9 @@ export const getReopenTaskUrl = (taskId: string,) => {
 }
 
 /**
- * Flips a `Closed` task back to `Open` so it can be started and chatted with
- * again. No sandbox is provisioned here — that happens on the next `start` or
- * inbound message, at which point the sandbox restores any retained S3 state
- * (Claude transcript + `s3`-mode workspace) keyed by `task_id`. Whether that
- * state still exists depends on `SANDBOX_RETAIN_STORAGE_ON_CLOSE` having been
- * set when the task was closed; if not, the task reopens with a fresh
- * sandbox. External bindings deactivated on close are left inactive.
- * @summary Reopen a previously closed task.
+ * @summary Reopen a closed task, flipping `Closed` to `Open`. No sandbox is provisioned
+here — the next `start` restores retained S3 state if
+`SANDBOX_RETAIN_STORAGE_ON_CLOSE` was set; bindings stay inactive.
  */
 export const reopenTask = async (taskId: string, options?: Parameters<typeof customInstance>[1]): Promise<reopenTaskResponse> => {
 
@@ -1523,7 +1518,9 @@ export function useReopenTask<TData = Awaited<ReturnType<typeof reopenTask>>, TE
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 /**
- * @summary Reopen a previously closed task.
+ * @summary Reopen a closed task, flipping `Closed` to `Open`. No sandbox is provisioned
+here — the next `start` restores retained S3 state if
+`SANDBOX_RETAIN_STORAGE_ON_CLOSE` was set; bindings stay inactive.
  */
 
 export function useReopenTask<TData = Awaited<ReturnType<typeof reopenTask>>, TError = ErrorType<ErrorBody>>(
@@ -1539,7 +1536,9 @@ export function useReopenTask<TData = Awaited<ReturnType<typeof reopenTask>>, TE
 }
 
 /**
- * @summary Reopen a previously closed task.
+ * @summary Reopen a closed task, flipping `Closed` to `Open`. No sandbox is provisioned
+here — the next `start` restores retained S3 state if
+`SANDBOX_RETAIN_STORAGE_ON_CLOSE` was set; bindings stay inactive.
  */
 export const prefetchReopenTaskQuery = async <TData = Awaited<ReturnType<typeof reopenTask>>, TError = ErrorType<ErrorBody>>(
  queryClient: QueryClient, taskId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof reopenTask>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
@@ -2100,10 +2099,9 @@ export const getUpdateTtlUrl = (taskId: string,) => {
 }
 
 /**
- * @summary Update a task's TTLs. `ttl_minutes` is the idle TTL (`0` disables the idle
-reaper — the sandbox stays alive until explicitly stopped). `inactive_ttl_days`
-is the inactivity TTL (`0` disables auto-close). Both fields are optional;
-omit a field to leave that TTL unchanged. At least one must be provided.
+ * @summary Update a task's TTLs. `ttl_minutes` is idle TTL (`0` disables the reaper);
+`inactive_ttl_days` is inactivity TTL (`0` disables auto-close). Both
+optional; at least one required.
  */
 export const updateTtl = async (taskId: string,
     updateTaskTtlRequest: UpdateTaskTtlRequest, options?: Parameters<typeof customInstance>[1]): Promise<updateTtlResponse> => {
@@ -2186,10 +2184,9 @@ export function useUpdateTtl<TData = Awaited<ReturnType<typeof updateTtl>>, TErr
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 /**
- * @summary Update a task's TTLs. `ttl_minutes` is the idle TTL (`0` disables the idle
-reaper — the sandbox stays alive until explicitly stopped). `inactive_ttl_days`
-is the inactivity TTL (`0` disables auto-close). Both fields are optional;
-omit a field to leave that TTL unchanged. At least one must be provided.
+ * @summary Update a task's TTLs. `ttl_minutes` is idle TTL (`0` disables the reaper);
+`inactive_ttl_days` is inactivity TTL (`0` disables auto-close). Both
+optional; at least one required.
  */
 
 export function useUpdateTtl<TData = Awaited<ReturnType<typeof updateTtl>>, TError = ErrorType<ErrorBody>>(
@@ -2206,10 +2203,9 @@ export function useUpdateTtl<TData = Awaited<ReturnType<typeof updateTtl>>, TErr
 }
 
 /**
- * @summary Update a task's TTLs. `ttl_minutes` is the idle TTL (`0` disables the idle
-reaper — the sandbox stays alive until explicitly stopped). `inactive_ttl_days`
-is the inactivity TTL (`0` disables auto-close). Both fields are optional;
-omit a field to leave that TTL unchanged. At least one must be provided.
+ * @summary Update a task's TTLs. `ttl_minutes` is idle TTL (`0` disables the reaper);
+`inactive_ttl_days` is inactivity TTL (`0` disables auto-close). Both
+optional; at least one required.
  */
 export const prefetchUpdateTtlQuery = async <TData = Awaited<ReturnType<typeof updateTtl>>, TError = ErrorType<ErrorBody>>(
  queryClient: QueryClient, taskId: string,

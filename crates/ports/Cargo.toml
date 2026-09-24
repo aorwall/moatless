@@ -9,7 +9,6 @@ authors.workspace = true
 moatless-workspace-types = { workspace = true }
 async-trait = { workspace = true }
 chrono = { workspace = true, features = ["serde"] }
-futures = { workspace = true }
 # Mock ports for downstream crates' tests. `cfg(test)` does not fire across a
 # crate boundary, so the automock attributes here are feature-gated instead.
 mockall = { workspace = true, optional = true }

@@ -89,12 +89,6 @@ pub(crate) async fn initialize(state: SandboxState) -> Result<(), InitError> {
     // Phase 2: Workspace setup — runs after health is 200
     run_workspace_setup(&state).await;
 
-    // Server overrides need no step here. They are files under
-    // `WORKSPACE_DIR/.moatless/servers/`, so whatever `run_core_init` put on the
-    // workspace volume — the PVC as it was left, or the `s3` tier's restored
-    // archive — already *is* the current override. There is no second copy to
-    // replay and therefore no ordering hazard between the two.
-
     // Write workspace-ready sentinel AFTER setup commands complete (e.g. bun install).
     // Server containers poll for this file before starting, so they must wait
     // until dependencies are installed.

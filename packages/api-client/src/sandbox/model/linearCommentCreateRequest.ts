@@ -11,10 +11,12 @@
  */
 export interface LinearCommentCreateRequest {
   /**
-     * Force the parent issue into a reply target even when no binding exists
-     * yet. A comment on an already-bound issue refreshes its binding
-     * regardless; this flag covers a proactive comment on an unbound issue.
-     * Defaults to `false`. See [`LinearIssueCreateRequest::bind`].
+     * Listen to the whole issue rather than only this comment's thread.
+     *
+     * A comment always becomes a reply target on its own: a reply under it
+     * reaches the task without this flag. Set it to hear every comment on the
+     * issue, including ones in threads the task never wrote in. Defaults to
+     * `false`.
      * @nullable
      */
   bind?: boolean | null;

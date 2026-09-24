@@ -1,13 +1,8 @@
-//! Read-only domain service for resolving sandbox status.
-//!
-//! Resolves environment and server status directly from the K8s API. Server
-//! entries are built config-first (server configs passed by caller) with K8s
-//! container probe statuses overlaid.
+//! Read-only domain service resolving sandbox status from the K8s API.
 
 use async_trait::async_trait;
 use k8s_openapi::api::core::v1::Pod;
 use kube::api::{Api, ListParams};
-use std::sync::Arc;
 use tracing::warn;
 
 use super::client::K8sClient;
@@ -17,32 +12,25 @@ use super::pod_status::{
     check_sandbox_permanent_failure, is_sandbox_container_ready, pick_best_pod,
 };
 use super::service;
-use moatless_core::config::Config;
 use moatless_sandbox_control::status::StatusResolve;
 use moatless_sandbox_runtime::client::{AgentStatusSnapshot, SandboxConnector, fetch_agent_status};
-use moatless_sandbox_runtime::container_status::{
-    ContainerState, DEFAULT_SERVER_READINESS_TIMEOUT_SECS, PodPhase,
-};
+use moatless_sandbox_runtime::container_status::{ContainerState, PodPhase};
 use moatless_sandbox_runtime::live_status::{LiveStatus, derive_live_status};
-use moatless_sandbox_runtime::provisioning::{allocated_port, server_capabilities_from_config};
 use moatless_sandbox_runtime::schemas::*;
 use moatless_types::sandbox::SandboxDesiredState;
-use moatless_types::sandbox::{SandboxStatus, ServerStatus};
+use moatless_types::sandbox::SandboxStatus;
 use moatless_types::task::TaskStatus;
-use moatless_workspace_types::workspace::ServerConfig;
 
 /// Read-only domain service for resolving sandbox status from the K8s API.
 ///
-/// Pure infrastructure — no DB dependencies; server configs are provided by
-/// callers (resolved from DB in handlers).
+/// Pure infrastructure, with no DB dependencies.
 pub struct StatusResolver {
     k8s: K8sClient,
-    config: Arc<Config>,
 }
 
 impl StatusResolver {
-    pub fn new(k8s: K8sClient, config: Arc<Config>) -> Self {
-        Self { k8s, config }
+    pub fn new(k8s: K8sClient) -> Self {
+        Self { k8s }
     }
 }
 
@@ -52,7 +40,6 @@ impl StatusResolve for StatusResolver {
         &self,
         task_id: &str,
         sandbox_id: &str,
-        server_configs: &[ServerConfig],
         task_status: TaskStatus,
         desired_state: SandboxDesiredState,
         connector: &dyn SandboxConnector,
@@ -64,40 +51,6 @@ impl StatusResolve for StatusResolver {
         let is_running = phase == PodPhase::Running;
 
         if is_running {
-            // Config-first: start from server configs, overlay K8s container statuses
-            let container_statuses =
-                pod_reader::fetch_server_container_statuses(&self.k8s, sandbox_id).await;
-
-            let servers: Vec<ServerEntry> = server_configs
-                .iter()
-                .filter_map(|config| {
-                    let port = allocated_port(config, task_id)?;
-                    let container = container_statuses.iter().find(|cs| {
-                        let name = cs.name.strip_suffix("-server").unwrap_or(&cs.name);
-                        name == config.name
-                    });
-                    let timeout = config
-                        .startup_timeout_seconds
-                        .unwrap_or(DEFAULT_SERVER_READINESS_TIMEOUT_SECS);
-                    let status = container.map_or(ServerStatus::Starting, |cs| {
-                        cs.to_server_status_with_timeout(timeout)
-                    });
-                    let url = self.build_proxy_url(sandbox_id, port);
-                    Some(ServerEntry {
-                        name: config.name.clone(),
-                        label: config.label.clone().unwrap_or_else(|| config.name.clone()),
-                        port,
-                        status,
-                        url,
-                        error: container.and_then(|cs| cs.error_reason_with_timeout(timeout)),
-                        detail: container
-                            .and_then(moatless_sandbox_runtime::container_status::ContainerObservedStatus::detail_reason),
-                        default: config.default,
-                        capabilities: server_capabilities_from_config(config),
-                    })
-                })
-                .collect();
-
             // Query actual agent status from the sandbox pod via gRPC
             let AgentStatusSnapshot {
                 status: agent_status,
@@ -120,7 +73,6 @@ impl StatusResolve for StatusResolver {
                 sandbox_status: live_status.sandbox_status,
                 sandbox_error: live_status.sandbox_error,
                 agent_status: live_status.agent_status,
-                servers,
                 resources: None,
                 container_diagnostics,
                 runtime_events: None,
@@ -132,68 +84,6 @@ impl StatusResolve for StatusResolver {
                 image_up_to_date: None,
             };
         }
-
-        // For Pending/Failed/Unknown phases, overlay K8s container statuses on config
-        let servers = if matches!(
-            phase,
-            PodPhase::Pending | PodPhase::Failed | PodPhase::Unknown
-        ) {
-            let container_statuses =
-                pod_reader::fetch_server_container_statuses(&self.k8s, sandbox_id).await;
-
-            server_configs
-                .iter()
-                .filter_map(|config| {
-                    let port = allocated_port(config, task_id)?;
-                    let container = container_statuses.iter().find(|cs| {
-                        let name = cs.name.strip_suffix("-server").unwrap_or(&cs.name);
-                        name == config.name
-                    });
-                    let timeout = config
-                        .startup_timeout_seconds
-                        .unwrap_or(DEFAULT_SERVER_READINESS_TIMEOUT_SECS);
-                    let status = container.map_or(ServerStatus::Starting, |cs| {
-                        cs.to_server_status_with_timeout(timeout)
-                    });
-                    let url = self.build_proxy_url(sandbox_id, port);
-                    Some(ServerEntry {
-                        name: config.name.clone(),
-                        label: config.label.clone().unwrap_or_else(|| config.name.clone()),
-                        port,
-                        status,
-                        url,
-                        error: container.and_then(|cs| cs.error_reason_with_timeout(timeout)),
-                        detail: container
-                            .and_then(moatless_sandbox_runtime::container_status::ContainerObservedStatus::detail_reason),
-                        default: config.default,
-                        capabilities: server_capabilities_from_config(config),
-                    })
-                })
-                .collect()
-        } else {
-            // Stopped/NotFound/Terminating/Succeeded: no pod is serving, so the
-            // declared servers are listed as stopped. `Starting` here would
-            // promise a page that is about to load and leave every client
-            // spinning against an ingress with no backend.
-            server_configs
-                .iter()
-                .filter_map(|config| {
-                    let port = allocated_port(config, task_id)?;
-                    let url = self.build_proxy_url(sandbox_id, port);
-                    Some(ServerEntry {
-                        name: config.name.clone(),
-                        label: config.label.clone().unwrap_or_else(|| config.name.clone()),
-                        port,
-                        status: ServerStatus::Stopped,
-                        url,
-                        error: None,
-                        detail: None,
-                        default: config.default,
-                        capabilities: server_capabilities_from_config(config),
-                    })
-                })
-                .collect()
-        };
 
         // Fetch diagnostics for non-running pods with issues
         let fetch_diagnostics = matches!(
@@ -230,7 +120,6 @@ impl StatusResolve for StatusResolver {
             sandbox_status: live_status.sandbox_status,
             sandbox_error: live_status.sandbox_error,
             agent_status: live_status.agent_status,
-            servers,
             resources: None,
             container_diagnostics,
             runtime_events,
@@ -444,15 +333,5 @@ impl StatusResolver {
                 (PodPhase::Unknown, None, current_image)
             }
         }
-    }
-
-    /// Build a proxy URL for a server port using the configured proxy domain.
-    fn build_proxy_url(&self, task_id: &str, port: u16) -> Option<String> {
-        self.config.proxy.domain.as_ref().map(|domain| {
-            format!(
-                "{}://{}--{}.{}",
-                self.config.proxy.protocol, task_id, port, domain
-            )
-        })
     }
 }

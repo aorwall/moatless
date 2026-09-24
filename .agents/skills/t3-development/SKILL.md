@@ -5,7 +5,7 @@ description: "Develop and verify the T3 client against Moatless UI-RPC from a sa
 
 # T3 client integration
 
-The paired workspace checks out Moatless and T3. Its `web` server runs the T3
+The paired workspace checks out Moatless and T3. Its `web` Script runs the T3
 client on 5733 and proxies `/api` and `/ws` to `moatless-backend` on 8080. T3's
 standalone Node backend is not part of this arrangement. Inspect the actual T3
 checkout's scripts and proxy configuration before starting another dev server.
@@ -19,12 +19,14 @@ Use [shadow-dev](../shadow-dev/SKILL.md) for workspace setup and isolation.
 
 ```bash
 curl --fail --max-time 10 http://localhost:8080/health
-moat tasks logs <task-id> --server backend --no-follow --tail 2000
+moat tasks scripts list <task-id>
 ```
 
-A web server can be ready while the backend is still compiling. Managed sidecars
-share the Kubernetes pod network, but their processes are outside the agent's
-PID namespace; control them through `moat tasks servers`.
+The `web` Script can be ready while the `backend` Script is still compiling. A
+Script runs as a terminal session inside the sandbox's own container; control it
+with `moat tasks scripts run <name>` and read its output in that terminal in the
+T3 UI, not with `moat tasks logs` (which streams the sandbox container's own
+logs).
 
 Use [rpc-verification](../rpc-verification/SKILL.md) and its shared probe for
 protocol reads, payload sizes, failures, and subscription transitions. A check
@@ -32,7 +34,7 @@ against the deployed backend does not verify an unreleased backend edit.
 
 ## Browser verification
 
-Prefer the returned preview URL. A blank sidebar needs evidence from the app's
+Prefer the `web` Script's preview URL from the T3 UI. A blank sidebar needs evidence from the app's
 `/ws` handshake, console, and backend data; the absence of an empty-state label
 is not proof that project data loaded.
 
@@ -72,11 +74,11 @@ workspace dev servers by a broad name match.
 
 ## Rebuild and diagnose
 
-Confirm a backend server exists before rebuilding — `moat tasks servers <task-id> list`.
+Confirm the backend Script exists before rebuilding — `moat tasks scripts list <task-id>`.
 [shadow-dev](../shadow-dev/SKILL.md) owns `rebuild.sh` and states what the build costs
 without one.
 
-Set `SHADOW_CARGO_PROFILE=dev` in both the backend server env and rebuild shell,
+Set `SHADOW_CARGO_PROFILE=dev` in both the backend Script's env and rebuild shell,
 then run `bash scripts/shadow/rebuild.sh`. Verify health and the changed behavior.
 Use root Rust lint/test commands; do not add a `cargo check` loop.
 

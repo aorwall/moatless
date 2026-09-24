@@ -990,13 +990,8 @@ async fn workspace_writers_are_quiet(state: &SandboxState) -> bool {
 
 /// Whether every writer this pod has a registry for has finished.
 ///
-/// Each check names a writer that outlives `agent.stop()`. A preview server is
-/// a sibling container this pod can neither see nor outlive, so its presence
-/// alone denies the claim rather than being checked.
+/// Each check names a writer that outlives `agent.stop()`.
 async fn registered_writers_are_quiet(state: &SandboxState) -> bool {
-    if !state.config.servers.is_empty() {
-        return false;
-    }
     // A writer admitted before the close but not finished by the end of the
     // drain is one no registry below lists yet.
     if !state.writer_admission.is_drained() {

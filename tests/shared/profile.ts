@@ -50,8 +50,6 @@ export interface Timeouts {
   sandboxTeardown: number
   /** Agent returns to idle after a turn. */
   agentIdle: number
-  /** A preview server starts serving. */
-  serverStart: number
 }
 
 /** Where tests get a repository to run tasks against. */
@@ -93,7 +91,6 @@ function dockerProfile(): Profile {
       // A turn against a real model is the one thing Docker does not make
       // faster, so this matches the cluster more closely than the rest.
       agentIdle: 300_000,
-      serverStart: 60_000,
     },
     capabilities: {
       seedUsers: true,
@@ -127,7 +124,6 @@ function k8sProfile(): Profile {
       sandboxReady: 420_000,
       sandboxTeardown: 120_000,
       agentIdle: 420_000,
-      serverStart: 180_000,
     },
     capabilities: {
       // Human users cannot be created under the deployed auth provider, the

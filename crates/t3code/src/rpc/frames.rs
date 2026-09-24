@@ -8,7 +8,6 @@ use crate::review;
 use crate::rpc::metrics as rpc_metrics;
 use crate::sandbox::SandboxRpcError;
 use crate::scripts::ScriptsError;
-use crate::servers::ServersError;
 use crate::snapshots::workspace_cwd;
 use crate::subtasks::SubtasksError;
 use crate::terminal;
@@ -512,17 +511,6 @@ fn log_terminal_failure(error: &terminal::TerminalError, identity: &UiRpcAuthIde
     }
 }
 
-/// The client is told the servers could not be read; the cause is logged once
-/// here rather than shipped to the browser.
-pub(crate) fn servers_failure_exit(
-    request_id: &RequestId,
-    error: &ServersError,
-    identity: &UiRpcAuthIdentity,
-) -> Value {
-    error!(%error, user_id = %identity.user_id, "Failed to read a Task's servers");
-    failure_exit(request_id, "Failed to read the conversation's servers")
-}
-
 /// The client is told the subtasks could not be read; the cause is logged once
 /// here rather than shipped to the browser.
 pub(crate) fn subtasks_failure_exit(
@@ -672,15 +660,6 @@ pub(crate) fn sandbox_stream_refusal(request_id: &RequestId, tag: &str) -> Value
         request_id,
         authorization_error(oauth::required_scope(tag), THREAD_UNAVAILABLE),
     )
-}
-
-/// A conversation with no Sandbox, as `servers.list` answers it.
-///
-/// `servers.list` declares no domain error, so a `Die` would reach the panel as
-/// an unexpected server error; an empty list is what a project with no sandbox
-/// has to list.
-pub(crate) fn servers_not_found() -> Value {
-    json!({ "servers": [] })
 }
 
 /// The method is not one this server has.

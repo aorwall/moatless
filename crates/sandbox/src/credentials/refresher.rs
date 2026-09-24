@@ -136,7 +136,6 @@ mod tests {
             self.call_count.fetch_add(1, Ordering::SeqCst);
             Ok(GetCredentialsResponse {
                 credentials: HashMap::new(),
-                server_env: HashMap::new(),
                 ssh_keys: HashMap::new(),
             })
         }

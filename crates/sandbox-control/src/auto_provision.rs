@@ -1,9 +1,9 @@
-//! Provider-agnostic lifecycle plan construction and server-config reads.
+//! Provider-agnostic lifecycle plan construction.
 //!
 //! Lifecycle uses [`build_provision_request`] to assemble a fresh runtime plan
-//! from durable Sandbox, Task, Workspace, repository, and plugin state, and
-//! [`get_server_configs_for_task`] to list a task's servers. HTTP and adapter
-//! callers do not provision through this module; they call `state.sandbox`.
+//! from durable Sandbox, Task, Workspace, repository, and plugin state. HTTP
+//! and adapter callers do not provision through this module; they call
+//! `state.sandbox`.
 
 use std::collections::{HashMap, HashSet};
 
@@ -11,7 +11,7 @@ use serde_json::json;
 
 use tracing::{info, warn};
 
-use moatless_workspace_types::workspace::{Port, ResourceConfig, ServerConfig};
+use moatless_workspace_types::workspace::ResourceConfig;
 
 use crate::lifecycle::dao::LifecycleDao;
 use crate::preflight::preflight_validate_sandbox_control;
@@ -29,24 +29,16 @@ use moatless_workspace_types::workspace::{RepoCheckout, derive_mount_name, sanit
 /// Builds a `RepoConfig` from a workspace row.
 ///
 /// Reads the workspace's JSONB run-config columns (`resources`,
-/// `network_profile`, `servers`, …); the workspace has no flattened preview
-/// columns, so `preview_config` is always `None`.
+/// `network_profile`, …).
 pub fn build_repo_config_from_workspace(ws: &ResolvedWorkspace) -> RepoConfig {
-    let servers = build_server_configs_from_workspace(ws);
     let resources: Option<ResourceConfig> = ws.resources.clone();
     let code_execution = build_code_execution_from_workspace(ws);
 
     RepoConfig {
         name: ws.name.clone(),
         docker_image: ws.docker_image.clone(),
-        servers: if servers.is_empty() {
-            None
-        } else {
-            Some(servers)
-        },
         system_prompt: ws.system_prompt.clone(),
         code_execution,
-        preview_config: None,
         resources,
         plugins: None,
         docker_access: ws.docker_access,
@@ -55,21 +47,6 @@ pub fn build_repo_config_from_workspace(ws: &ResolvedWorkspace) -> RepoConfig {
         network_profile: ws.network_profile.clone(),
         node_selector: ws.node_selector.clone(),
     }
-}
-
-/// Build the server list from a workspace's declared servers, ensuring a
-/// default is elected and every server has a port assigned.
-pub fn build_server_configs_from_workspace(ws: &ResolvedWorkspace) -> Vec<ServerConfig> {
-    let mut servers: Vec<ServerConfig> = ws.servers.clone().unwrap_or_default();
-
-    // Ensure at least one default among any present servers, then assign ports.
-    if !servers.iter().any(|s| s.default) {
-        if let Some(s) = servers.iter_mut().last() {
-            s.default = true;
-        }
-    }
-    assign_missing_ports(&mut servers);
-    servers
 }
 
 /// The environment variables a workspace declares, less the keys the platform
@@ -104,27 +81,6 @@ fn build_code_execution_from_workspace(ws: &ResolvedWorkspace) -> Option<serde_j
         config.insert("envVars".to_string(), json!(vars));
     }
     Some(serde_json::Value::Object(config))
-}
-
-/// Assign sequential ports starting at 3000 to servers that declared none.
-fn assign_missing_ports(servers: &mut [ServerConfig]) {
-    let mut used: HashSet<u16> = servers
-        .iter()
-        .filter_map(|s| s.port.map(Port::get))
-        .collect();
-
-    let mut next_port: u16 = 3000;
-    for server in servers.iter_mut() {
-        if server.port.is_some() {
-            continue;
-        }
-        while used.contains(&next_port) {
-            next_port += 1;
-        }
-        used.insert(next_port);
-        server.port = Port::new(next_port);
-        next_port += 1;
-    }
 }
 
 /// Build a `ProvisionRequest` from database state. Every path to a pod (first
@@ -294,20 +250,13 @@ pub(crate) async fn build_provision_request(
         }
     }
 
-    // A headless sandbox has no browser on it: no preview servers to run, and no
-    // one watching for a prompt, so the sandbox also drops the tools that park
-    // a turn on a person's answer.
+    // A headless sandbox has no one watching for a prompt, so the sandbox drops
+    // the tools that park a turn on a person's answer.
     if shape.headless {
-        repo_config.servers = None;
-        repo_config.preview_config = None;
         env_vars
             .get_or_insert_with(std::collections::HashMap::new)
             .insert("SANDBOX_HEADLESS".to_string(), "true".to_string());
     }
-
-    // Server overrides are deliberately absent from the plan. They are files on
-    // the workspace volume, so a rebuilt pod finds them already in place; there
-    // is no copy here to replay.
 
     let plan = moatless_sandbox_runtime::provisioning::ProvisionPlan {
         repo_config,
@@ -481,15 +430,13 @@ fn unique_mount_name(requested: String, used: &HashSet<String>) -> String {
 }
 
 /// A run-config with only the repo name — used when a task unexpectedly has no
-/// workspace. Provisioning then falls back to global defaults (no servers).
+/// workspace. Provisioning then falls back to global defaults.
 fn minimal_repo_config(name: &str) -> RepoConfig {
     RepoConfig {
         name: name.to_string(),
         docker_image: None,
-        servers: None,
         system_prompt: None,
         code_execution: None,
-        preview_config: None,
         resources: None,
         plugins: None,
         docker_access: None,
@@ -498,39 +445,6 @@ fn minimal_repo_config(name: &str) -> RepoConfig {
         network_profile: None,
         node_selector: None,
     }
-}
-
-/// Get a workspace's server configs, returning an empty vec on any failure.
-pub async fn get_server_configs_for_workspace(
-    workspaces: &dyn WorkspaceResolver,
-    workspace_id: &str,
-) -> Vec<ServerConfig> {
-    match resolve_server_configs(workspaces, workspace_id).await {
-        Ok(configs) => configs,
-        Err(e) => {
-            warn!(workspace_id, error = %e, "Failed to get server configs");
-            vec![]
-        }
-    }
-}
-
-/// Resolve server configs from a workspace's `servers` JSONB.
-///
-/// Returns `Err` only on DB failure; a workspace that no longer exists reads as
-/// no servers, same as one that declares none, rather than a failure reported
-/// on every status pass.
-async fn resolve_server_configs(
-    workspaces: &dyn WorkspaceResolver,
-    workspace_id: &str,
-) -> Result<Vec<ServerConfig>, String> {
-    let Some(ws) = workspaces
-        .resolve(workspace_id)
-        .await
-        .map_err(|e| format!("Failed to fetch workspace {workspace_id}: {e}"))?
-    else {
-        return Ok(vec![]);
-    };
-    Ok(build_server_configs_from_workspace(&ws))
 }
 
 #[cfg(test)]
@@ -611,7 +525,6 @@ mod tests {
             system_prompt: None,
             setup_commands: None,
             env_vars: Some(env_vars),
-            servers: None,
             resources: None,
             network_profile: None,
             node_selector: None,

@@ -5,7 +5,7 @@
  * during E2E testing.
  */
 
-import type { SandboxStatusFullResponse, ServerEntry } from '@moatless/api-client/sandbox/model'
+import type { SandboxStatusFullResponse } from '@moatless/api-client/sandbox/model'
 import type { MoatApi } from './moat-api'
 import { profile } from './profile'
 
@@ -64,53 +64,6 @@ export async function waitForWorkspaceReady(
   }
 
   return false
-}
-
-/**
- * Wait for preview server to be ready.
- *
- * Polls getWorkspaceStatus() and checks the servers array for
- * an entry with status "started".
- *
- * @returns The started ServerEntry if ready, null if timeout
- */
-export async function waitForPreviewReady(
-  api: MoatApi,
-  taskId: string,
-  options?: WaitOptions,
-): Promise<ServerEntry | null> {
-  const { timeout = profile().timeouts.serverStart, interval = 2000, onProgress } = options || {}
-  const startTime = Date.now()
-
-  while (Date.now() - startTime < timeout) {
-    try {
-      const status = await api.getWorkspaceStatus(taskId)
-
-      // Find the default/preview server
-      const server =
-        status.servers?.find((entry) => entry.default) ||
-        status.servers?.find((entry) => entry.name === 'preview') ||
-        status.servers?.[0]
-
-      if (server?.status === 'started') {
-        onProgress?.(`Preview ready at ${server.url}`)
-        return server
-      }
-
-      if (server?.status === 'failed') {
-        onProgress?.(`Preview failed: ${server.error}`)
-        return server
-      }
-
-      onProgress?.(`Preview status: ${server?.status ?? 'no server'}`)
-    } catch (err) {
-      onProgress?.(`Error checking preview: ${err}`)
-    }
-
-    await new Promise((resolve) => setTimeout(resolve, interval))
-  }
-
-  return null
 }
 
 /**

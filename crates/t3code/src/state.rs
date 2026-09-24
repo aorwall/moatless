@@ -7,7 +7,6 @@ use crate::preview::PreviewState;
 use crate::reads::T3Reads;
 use crate::sandbox::SandboxState;
 use crate::scripts::ScriptsState;
-use crate::servers::ServersState;
 use crate::subtasks::SubtasksState;
 use crate::terminal;
 use moatless_identity::auth::pairing::DevicePairing;
@@ -46,9 +45,6 @@ pub(crate) struct UiRpcState {
     /// is not running. `None` when the deployment stores no snapshots (no S3
     /// bucket), in which case a stopped Task's files are unavailable as before.
     pub(crate) snapshots: Option<Arc<dyn WorkspaceSnapshotSource>>,
-    /// What a Task's servers are doing. Distinct from `sandboxes`, which
-    /// reaches *into* a Sandbox; this only observes one from outside.
-    pub(crate) servers: ServersState,
     /// Running a Workspace's declared Scripts: reads the scripts and publishes
     /// a script's port. The terminal it runs in is reached through `reads`,
     /// `sandboxes` and `terminal`, the same handles `terminal.open` uses.

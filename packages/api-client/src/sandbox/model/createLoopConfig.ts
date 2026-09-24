@@ -5,6 +5,7 @@
  * Sandbox orchestration and authentication for Moatless Vibe
  * OpenAPI spec version: 0.1.0
  */
+import type { CreateLoopConfigNodeSelector } from './createLoopConfigNodeSelector';
 import type { RoutingMode } from './routingMode';
 
 export interface CreateLoopConfig {
@@ -13,10 +14,20 @@ export interface CreateLoopConfig {
   /** @nullable */
   inactiveTtlDays?: number | null;
   /**
+     * See [`LoopConfig::message_buffer_seconds`].
+     * @nullable
+     */
+  messageBufferSeconds?: number | null;
+  /**
      * See [`LoopConfig::model`].
      * @nullable
      */
   model?: string | null;
+  /**
+     * See [`LoopConfig::node_selector`].
+     * @nullable
+     */
+  nodeSelector?: CreateLoopConfigNodeSelector;
   /** @nullable */
   ongoingTaskId?: string | null;
   /** @nullable */
@@ -26,6 +37,11 @@ export interface CreateLoopConfig {
   runAsUserId?: string | null;
   /** @nullable */
   skills?: string[] | null;
+  /**
+     * See [`LoopConfig::stop_when_done`].
+     * @nullable
+     */
+  stopWhenDone?: boolean | null;
   /** @nullable */
   tagIds?: string[] | null;
   /** @nullable */

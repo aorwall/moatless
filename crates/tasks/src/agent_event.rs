@@ -8,7 +8,7 @@
 
 use moatless_types::agent::AgentSubType;
 use moatless_types::event::EventType;
-use moatless_types::sandbox::{SandboxStatus, ServerSubType};
+use moatless_types::sandbox::SandboxStatus;
 use moatless_types::task::{TaskSubType, TaskTurnSubType};
 use serde::Deserialize;
 
@@ -22,7 +22,6 @@ pub enum EventKey {
     Task(TaskSubType),
     TaskTurn(TaskTurnSubType),
     Sandbox(SandboxStatus),
-    Server(ServerSubType),
     /// Unrecognised `event_type` + `sub_type` pair.
     Unknown(String, String),
 }
@@ -55,8 +54,6 @@ impl AgentEvent {
                 .map_or_else(|_| self.unknown(), EventKey::TaskTurn),
             EventType::Sandbox => SandboxStatus::try_from(self.sub_type.as_str())
                 .map_or_else(|_| self.unknown(), EventKey::Sandbox),
-            EventType::Server => ServerSubType::try_from(self.sub_type.as_str())
-                .map_or_else(|_| self.unknown(), EventKey::Server),
             EventType::Resources => self.unknown(),
             // Derived, UI-only events are gated out before dispatch (see
             // `EventDispatcher::dispatch_batch`); never reached here.

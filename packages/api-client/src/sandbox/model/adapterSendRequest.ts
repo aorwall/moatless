@@ -9,30 +9,31 @@ import type { AdapterKind } from './adapterKind';
 import type { OutboundPresentation } from './outboundPresentation';
 
 /**
- * Request body for `POST /api/v1/adapters/send` — generic adapter pass-through send.
+ * Request body for `POST /api/v1/adapters/send` — generic adapter pass-through
+ * send.
  */
 export interface AdapterSendRequest {
   /** Which adapter to dispatch through. */
   adapter: AdapterKind;
   /**
      * Optional connection ID. When omitted, the backend picks the single
-     * accessible connection of `adapter` kind, or returns an error if zero
-     * or more than one match.
+     * accessible connection of `adapter` kind, or returns an error if zero or
+     * more than one match.
      * @nullable
      */
   connectionId?: string | null;
   /**
-     * Adapter-specific destination string. Each adapter defines its own
-     * format (e.g. Slack: `channel:C123` / `dm:D123` / `thread:C/ts`;
-     * Linear: `issue:LIN-123`).
+     * Adapter-specific destination string. Each adapter defines its own format
+     * (e.g. Slack: `channel:C123` / `dm:D123` / `thread:C/ts`; Linear:
+     * `issue:LIN-123`).
      */
   destination: string;
   /** File IDs (uploaded via `POST /api/v1/uploads`) to attach. */
   fileIds?: string[];
   presentation?: null | OutboundPresentation;
   /**
-     * Optional task to bind this send to. When set, a `task_bindings` row
-     * is created so future `moat reply` calls thread under this destination.
+     * Optional task to bind this send to. When set, a `task_bindings` row is
+     * created so future `moat reply` calls thread under this destination.
      * @nullable
      */
   taskId?: string | null;

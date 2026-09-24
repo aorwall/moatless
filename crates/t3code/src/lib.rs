@@ -34,7 +34,6 @@ mod routes;
 mod rpc;
 mod sandbox;
 pub mod scripts;
-mod servers;
 mod skills;
 mod snapshots;
 mod startup_scripts;

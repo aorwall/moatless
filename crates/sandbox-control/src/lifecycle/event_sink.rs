@@ -9,7 +9,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use moatless_types::sandbox::{SandboxEventPayload, ServerEventPayload, ServerSubType};
+use moatless_types::sandbox::SandboxEventPayload;
 
 use moatless_core::events::EventPublisher;
 
@@ -104,39 +104,6 @@ impl LifecycleEventSink for OutboxEventSink {
                         task_id,
                         error = %e,
                         "failed to serialize lifecycle degradation"
-                    );
-                }
-            }
-        }
-        for (index, failure) in diagnostics.server_failures.iter().enumerate() {
-            let payload = ServerEventPayload {
-                server_name: failure.server.clone(),
-                status: ServerSubType::Failed,
-                message: failure.message.clone(),
-            };
-            match serde_json::to_value(payload) {
-                Ok(payload) => {
-                    if let Err(e) = publisher
-                        .publish_raw_event_with_id(
-                            &format!("server:{task_id}:{generation}:failed:{index}"),
-                            task_id,
-                            "server",
-                            ServerSubType::Failed.as_str(),
-                            None,
-                            None,
-                            payload,
-                        )
-                        .await
-                    {
-                        tracing::warn!(task_id, server = %failure.server, error = %e, "server failure did not reach the live transport");
-                    }
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        task_id,
-                        server = %failure.server,
-                        error = %e,
-                        "failed to serialize lifecycle server failure"
                     );
                 }
             }

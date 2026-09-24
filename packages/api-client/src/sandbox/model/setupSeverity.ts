@@ -7,8 +7,8 @@
  */
 
 /**
- * A closed vocabulary: a new value here is a real contract change the
- * frontend should fail to compile against rather than silently ignore.
+ * A closed vocabulary: a new value here is a real contract change the frontend
+ * should fail to compile against rather than silently ignore.
  */
 export type SetupSeverity = typeof SetupSeverity[keyof typeof SetupSeverity];
 

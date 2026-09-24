@@ -1,6 +1,6 @@
 ---
 name: rpc-verification
-description: "Call and verify Moatless's UI-RPC surface (server.*, orchestration.*, sandbox.*, servers.* — crates/t3code/, mounted from crates/server/src/t3code/) from inside any sandbox: the WebSocket ticket exchange, the rpc.mjs probe script, and how to read Chunk/Exit/Fail/Die frames. Works against the deployed cluster backend with no local setup, or a local shadow backend for unreleased changes. Covers proving that a push/subscription feature actually pushes. Use when asked to test, verify, smoke-test, or probe an RPC method or subscription, to check whether a capability has actually deployed, or to confirm a push channel pushes rather than just answering a read."
+description: "Call and verify Moatless's UI-RPC surface (server.*, orchestration.*, sandbox.*, scripts.* — crates/t3code/, mounted from crates/server/src/t3code/) from inside any sandbox: the WebSocket ticket exchange, the rpc.mjs probe script, and how to read Chunk/Exit/Fail/Die frames. Works against the deployed cluster backend with no local setup, or a local shadow backend for unreleased changes. Covers proving that a push/subscription feature actually pushes. Use when asked to test, verify, smoke-test, or probe an RPC method or subscription, to check whether a capability has actually deployed, or to confirm a push channel pushes rather than just answering a read."
 ---
 
 # Verifying the UI-RPC surface

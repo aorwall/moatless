@@ -32,7 +32,6 @@ import type {
   SendMessageResponse,
   SendTaskReplyRequest,
   SendTaskReplyResponse,
-  ServerStatusResponse,
   SessionResponse,
   SubagentTranscriptResponse,
   TaskBindingResponse,
@@ -217,7 +216,7 @@ export class MoatApi {
   /**
    * Create a workspace.
    *
-   * Run configuration — image, servers, setup commands — lives here, not on
+   * Run configuration — image, setup commands, scripts — lives here, not on
    * the repository, so a test that needs a deliberately broken sandbox builds
    * a workspace for it rather than a repository.
    */
@@ -230,7 +229,6 @@ export class MoatApi {
     if (config.setupCommands)
       args.push('--setup-commands-json', JSON.stringify(config.setupCommands))
     if (config.envVars) args.push('--env-vars-json', JSON.stringify(config.envVars))
-    if (config.servers) args.push('--servers-json', JSON.stringify(config.servers))
     if (config.repos) args.push('--repos-json', JSON.stringify(config.repos))
     return this.moat.json<WorkspaceResponse>(args)
   }
@@ -850,14 +848,6 @@ export class MoatApi {
     await this.moat.raw('POST', `/api/sandbox/v1/tasks/${taskId}/cleanup`, undefined, {
       timeoutMs: this.sandboxWork,
     })
-  }
-
-  // =========================================================================
-  // Preview servers
-  // =========================================================================
-
-  async getServerStatus(taskId: string): Promise<ServerStatusResponse> {
-    return this.moat.json<ServerStatusResponse>(['tasks', 'servers', taskId, 'list'])
   }
 
   // =========================================================================

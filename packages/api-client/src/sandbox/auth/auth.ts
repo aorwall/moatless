@@ -713,8 +713,8 @@ export const getAuthModeHandlerUrl = () => {
 }
 
 /**
- * Public by design: the login page is anonymous, so this cannot live on
- * `/auth/me` (which 401s without a session).
+ * Public by design: the login page is anonymous, so this can't live on
+ * `/auth/me`, which 401s without a session.
  * @summary Report how this deployment authenticates users.
  */
 export const authModeHandler = async ( options?: Parameters<typeof customInstance>[1]): Promise<authModeHandlerResponse> => {
@@ -807,9 +807,8 @@ export const getCreatePairingCodeHandlerUrl = () => {
 }
 
 /**
- * The code is the bootstrap half of pairing: the client exchanges it once, at
- * `POST /oauth/token`, for the API key it then keeps. It is readable in this
- * response and nowhere afterwards.
+ * The client exchanges it once, at `POST /oauth/token`, for the API key it
+ * keeps; readable in this response and nowhere afterwards.
  * @summary Mint a one-time code that pairs a client on another device to this account.
  */
 export const createPairingCodeHandler = async (createPairingCodeRequest: CreatePairingCodeRequest, options?: Parameters<typeof customInstance>[1]): Promise<createPairingCodeHandlerResponse> => {
@@ -1247,9 +1246,8 @@ export const getExchangeTokenHandlerUrl = () => {
 }
 
 /**
- * Sandbox pods carry a `USER_AUTH_TOKEN` JWT signed with `TASK_TOKEN_SECRET`.
- * This endpoint verifies that token and creates a session, allowing the CLI
- * to call authenticated `/api/v1/*` endpoints.
+ * Sandbox pods carry a `USER_AUTH_TOKEN` JWT signed with `TASK_TOKEN_SECRET`;
+ * verifying it lets the CLI call authenticated `/api/v1/*` endpoints.
  * @summary Exchange a sandbox user auth token (JWT) for a session cookie.
  */
 export const exchangeTokenHandler = async ( options?: Parameters<typeof customInstance>[1]): Promise<exchangeTokenHandlerResponse> => {
@@ -1388,8 +1386,8 @@ export const getVerifyHandlerUrl = () => {
 }
 
 /**
- * Returns 200/401 only — no response headers.
- * For preview URLs (hostname contains `--`), also checks task-based access.
+ * Returns 200/401 only, no response headers; for preview URLs (hostname
+ * contains `--`), also checks task-based access.
  * @summary Verify authentication via session cookie or API key (Traefik `ForwardAuth`).
  */
 export const verifyHandler = async ( options?: Parameters<typeof customInstance>[1]): Promise<verifyHandlerResponse> => {

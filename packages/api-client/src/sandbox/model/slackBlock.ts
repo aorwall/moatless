@@ -12,9 +12,8 @@ import type { SlackText } from './slackText';
 /**
  * One Slack Block Kit block.
  *
- * Typed rather than a raw `Value` so a malformed payload fails where it is
- * entered, with a field path, instead of reaching Slack and returning a bare
- * `invalid_blocks` with the message silently unposted.
+ * Typed rather than a raw `Value` so a malformed payload fails where entered,
+ * with a field path, instead of reaching Slack as a bare `invalid_blocks`.
  */
 export type SlackBlock = {
   text: SlackPlainText;

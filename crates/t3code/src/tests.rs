@@ -39,7 +39,6 @@ use crate::sandbox::SandboxRpcError;
 use crate::sandbox::SandboxState;
 use crate::scripts::ScriptsError;
 use crate::scripts::ScriptsState;
-use crate::servers::ServersState;
 use crate::snapshots::after_sequence;
 use crate::state::UiRpcState;
 use crate::subscriptions::thread_initial_values;
@@ -66,9 +65,8 @@ use moatless_ports::sandbox::SandboxObserver;
 use moatless_ports::sandbox::SandboxStarter;
 use moatless_ports::sandbox::SandboxStopper;
 use moatless_ports::sandbox::{
-    ContractSandboxStatus, LiveStatus, LogOptions, SandboxDesiredState,
-    SandboxDiagnosticsContainer, SandboxDiagnosticsEntry, SandboxError, SandboxPortPublisher,
-    SandboxStatus, ServerLogStream,
+    ContractSandboxStatus, LiveStatus, SandboxDesiredState, SandboxDiagnosticsContainer,
+    SandboxDiagnosticsEntry, SandboxError, SandboxPortPublisher, SandboxStatus,
 };
 use moatless_types::access_control::ScopeContext;
 use moatless_types::auth::AllowedOrigin;

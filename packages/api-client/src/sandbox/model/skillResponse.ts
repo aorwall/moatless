@@ -13,6 +13,12 @@ import type { SkillSource } from './skillSource';
 export interface SkillResponse {
   description: string;
   name: string;
+  /**
+     * Where to edit this skill: the `SKILL.md` path inside the repository or
+     * plugin it was read from. A sandbox's own `<home>/skills` copy is
+     * regenerated on every init, so an edit there reaches nothing.
+     */
+  path: string;
   /** @nullable */
   pluginId?: string | null;
   /** @nullable */

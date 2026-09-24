@@ -12,9 +12,8 @@ import type { AgentEventPayloadToolInput } from './agentEventPayloadToolInput';
 /**
  * Agent event payload — typed shape for `EventType::Agent` events.
  *
- * Agent payloads are pass-through from the sandbox (Claude CLI output).
- * This struct is primarily for OpenAPI schema generation; at runtime the
- * backend continues to forward `serde_json::Value` payloads.
+ * Pass-through from the sandbox; primarily for OpenAPI schema generation,
+ * since the backend forwards raw `serde_json::Value` payloads at runtime.
  */
 export interface AgentEventPayload {
   /**

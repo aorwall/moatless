@@ -9,15 +9,14 @@
 /**
  * Sandbox event payload — typed payload for sandbox lifecycle events.
  *
- * Used by the pod watcher and provider to publish structured events
- * instead of raw `serde_json::Value`.
+ * Used by the pod watcher and provider to publish structured events instead of
+ * raw `serde_json::Value`.
  */
 export interface SandboxEventPayload {
   /**
      * Why the pod was disrupted, from
-     * `pod.status.conditions[DisruptionTarget].reason` (`PreemptionByScheduler` |
-     * `DeletionByTaintManager` | `TerminationByKubelet` | `EvictionByEvictionAPI` |
-     * `DeletionByPodGC`), falling back to `pod.status.reason`.
+     * `pod.status.conditions[DisruptionTarget].reason`, falling back to
+     * `pod.status.reason`.
      * @nullable
      */
   disruptionReason?: string | null;
@@ -30,7 +29,7 @@ export interface SandboxEventPayload {
      * Exit code of the terminated sandbox container, when known.
      *
      * Lets consumers distinguish OOM (137) from an application crash (1) or a
-     * graceful SIGTERM (143). `#[serde(default)]` keeps old events readable.
+     * graceful SIGTERM (143); `#[serde(default)]` keeps old events readable.
      * @nullable
      */
   exitCode?: number | null;
@@ -55,7 +54,8 @@ export interface SandboxEventPayload {
   nodeName?: string | null;
   /**
      * Seconds the pod spent `Pending` before it was scheduled onto a node.
-     * Attached to `pod_scheduled` events so slow scheduling is readable directly.
+     * Attached to `pod_scheduled` events so slow scheduling is readable
+     * directly.
      * @nullable
      */
   pendingSeconds?: number | null;

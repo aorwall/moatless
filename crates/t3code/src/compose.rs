@@ -13,7 +13,6 @@ use crate::reads::T3Reads;
 use crate::routes::router;
 use crate::sandbox::SandboxState;
 use crate::scripts::ScriptsState;
-use crate::servers::ServersState;
 use crate::startup_scripts::StartupScripts;
 use crate::state::{UiRpcDbPool, UiRpcState};
 use crate::subtasks::SubtasksState;
@@ -154,11 +153,6 @@ pub async fn mount(
         workspace_script_commands,
         sandboxes,
         snapshots,
-        servers: ServersState {
-            observer: observer.clone(),
-            tasks: reads.tasks_arc(),
-            intent: intent.clone(),
-        },
         scripts,
         sandbox: SandboxState {
             observer,
@@ -275,7 +269,7 @@ pub struct UiRpcDependencies {
     /// Reads a conversation's files from the S3 mirror when its Sandbox is not
     /// running. `None` when the deployment stores no snapshots.
     pub snapshots: Option<Arc<dyn WorkspaceSnapshotSource>>,
-    /// Reports what a Task's servers are doing, without reaching inside.
+    /// Reports what a Task's Sandbox is doing, without reaching inside.
     pub observer: Arc<dyn SandboxObserver>,
     /// Fleet-wide Sandbox status and live resource usage, deployment-scoped
     /// rather than per-Task.

@@ -10,11 +10,9 @@ use moatless_backend::t3code::backend as t3code_backend;
 use moatless_ports::sandbox::ClusterDiagnostics;
 use moatless_ports::sandbox::ContractSandboxStatus;
 use moatless_ports::sandbox::LiveStatus;
-use moatless_ports::sandbox::LogOptions;
 use moatless_ports::sandbox::SandboxDiagnosticsEntry;
 use moatless_ports::sandbox::SandboxError;
 use moatless_ports::sandbox::SandboxPortPublisher;
-use moatless_ports::sandbox::ServerLogStream;
 use moatless_t3code::AgentModelDefaults;
 use moatless_t3code::SandboxConnector;
 use moatless_t3code::SandboxIntentReader;
@@ -155,15 +153,6 @@ impl SandboxObserver for NoSandboxes {
         _task_status: TaskStatus,
         _desired_state: SandboxDesiredState,
     ) -> Result<moatless_ports::sandbox::SandboxDetail, SandboxError> {
-        Err(SandboxError::NotReady(task_id.to_string()))
-    }
-
-    async fn server_logs(
-        &self,
-        task_id: &str,
-        _server_name: &str,
-        _options: LogOptions,
-    ) -> Result<ServerLogStream, SandboxError> {
         Err(SandboxError::NotReady(task_id.to_string()))
     }
 }

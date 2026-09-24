@@ -4,26 +4,6 @@
 use super::watch::WatcherDeps;
 use super::*;
 
-/// Publish a `server` `Failed` event for a named server.
-pub(super) async fn publish_server_failed(
-    event_publisher: &dyn EventPublisher,
-    task_id: &str,
-    server_name: &str,
-    message: String,
-) {
-    event_publisher
-        .publish_server_event(
-            task_id,
-            ServerSubType::Failed,
-            &ServerEventPayload {
-                server_name: server_name.to_string(),
-                status: ServerSubType::Failed,
-                message,
-            },
-        )
-        .await;
-}
-
 /// Stop a crash-looping sandbox through the lifecycle (Stopped/Error intent +
 /// graceful stop + scale-to-0).
 ///

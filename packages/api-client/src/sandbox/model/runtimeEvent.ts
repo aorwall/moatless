@@ -9,8 +9,8 @@
 /**
  * A provider-agnostic runtime event associated with a sandbox.
  *
- * In K8s mode, these are sourced from K8s Event objects (`FailedScheduling`,
- * `BackOff`, Pulling, etc.). Docker mode can populate from `docker events`.
+ * K8s mode sources these from K8s Event objects (`FailedScheduling`,
+ * `BackOff`, Pulling); Docker mode populates from `docker events`.
  */
 export interface RuntimeEvent {
   /**
@@ -25,7 +25,10 @@ export interface RuntimeEvent {
   lastTimestamp?: string | null;
   /** Human-readable message */
   message: string;
-  /** Event reason (e.g. "`BackOff`", "`FailedScheduling`", "Pulling", "`OOMKilled`") */
+  /**
+     * Event reason (e.g. "`BackOff`", "`FailedScheduling`", "Pulling",
+     * "`OOMKilled`")
+     */
   reason: string;
   /**
      * Severity: "normal" or "warning"

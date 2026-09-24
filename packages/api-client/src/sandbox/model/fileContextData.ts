@@ -7,8 +7,8 @@
  */
 
 /**
- * Data for a file attachment context. Filled in by the backend at read
- * time from `file_metadata`; senders supply only `reference_id`.
+ * Data for a file attachment context. Filled in by the backend at read time
+ * from `file_metadata`; senders supply only `reference_id`.
  */
 export interface FileContextData {
   filename: string;

@@ -1,6 +1,6 @@
 ---
 name: docker-testing
-description: "Operate and debug a running Moatless Docker stack. Use for sandbox containers, preview container logs, Docker networking, and container communication failures."
+description: "Operate and debug a running Moatless Docker stack. Use for sandbox containers, Docker networking, and container communication failures."
 ---
 
 # Docker diagnostics
@@ -10,22 +10,22 @@ Resolve the sandbox using `moat tasks get <task-id> --json`: its `sandboxId`
 can differ from `taskId` when tasks share a sandbox.
 
 Use `docker ps -a` and `docker inspect <container>` to identify the actual sandbox
-and server containers, networks, mounts, exit state, and published ports. Include
-stopped containers when investigating crashes. Read bounded logs:
+container, networks, mounts, exit state, and published ports. Include stopped
+containers when investigating crashes. Read bounded logs:
 
 ```bash
-moat tasks logs <task-id> --server sandbox --no-follow --tail 500
+moat tasks logs <task-id> --no-follow --tail 500
 docker logs --tail 500 <container>
 ```
 
-The agent sandbox and each preview server run in separate containers. Do not
-look for a preview process in the agent's process namespace. Use the task status
-response's server names and URLs; do not infer host ports from task IDs.
+A Script runs as a terminal session inside the sandbox container, not a separate
+container; its output is in its terminal, not `moat tasks logs`. Docker mode does
+not publish a Script's `port`, so a Script with a `port` has no preview URL under
+Docker (`DockerSandboxAdapter`'s `SandboxPortPublisher::publish_port` always
+returns `None` — see `docs/deferred-changes.md`).
 
 - [Networking](references/networking.md): connection refused, unreachable backend,
-  wrong hostname, or missing published port.
-- [Preview troubleshooting](references/preview-troubleshooting.md): server startup
-  and configuration.
+  or wrong hostname.
 - [E2E suite](../e2e-testing/SKILL.md): reproducible product tests.
 - [CLI](../moat-cli/SKILL.md): authenticated task and workspace operations.
 

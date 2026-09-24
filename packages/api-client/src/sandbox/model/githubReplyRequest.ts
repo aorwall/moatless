@@ -7,14 +7,15 @@
  */
 
 /**
- * `POST /api/v1/github/repos/{owner}/{repo}/pulls/{number}/comments/{comment_id}/replies`
+ * `POST
+ * /api/v1/github/repos/{owner}/{repo}/pulls/{number}/comments/{comment_id}/replies`
  * — threaded reply to a PR review (inline) comment.
  */
 export interface GithubReplyRequest {
   body: string;
   /**
-     * Task to bind the PR to and dedup the reply's webhook echo against.
-     * See [`GithubCreatePrRequest::task_id`].
+     * Task to bind the PR to and dedup the reply's webhook echo against. See
+     * [`GithubCreatePrRequest::task_id`].
      * @nullable
      */
   taskId?: string | null;

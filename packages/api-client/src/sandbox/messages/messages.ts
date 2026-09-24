@@ -98,8 +98,8 @@ export const getGetMessagesUrl = (taskId: string,
 }
 
 /**
- * Without query params returns the most recent `DEFAULT_MESSAGE_LIMIT` rows.
- * Pass `before_id=<oldest_in_previous_page>` to fetch older pages.
+ * Without query params returns the most recent `DEFAULT_MESSAGE_LIMIT` rows;
+ * pass `before_id=<oldest_in_previous_page>` for older pages.
  * @summary Get a chronological page of messages for a task.
  */
 export const getMessages = async (taskId: string,
@@ -532,9 +532,9 @@ export const getGetSubagentTranscriptUrl = (taskId: string,
 }
 
 /**
- * Runs the fold-resolving row-transform over the rows whose `parent_uuid`
- * equals `tool_use_id`. Returned whole (no pagination) — bounded per call and
- * fetched on demand when the collapsed `Agent` card is expanded.
+ * Runs the fold-resolving row-transform over rows whose `parent_uuid` equals
+ * `tool_use_id`; returned whole, since it's bounded per call and fetched on
+ * demand when the `Agent` card expands.
  * @summary Get the assembled subagent transcript for a single `Agent` tool call.
  */
 export const getSubagentTranscript = async (taskId: string,

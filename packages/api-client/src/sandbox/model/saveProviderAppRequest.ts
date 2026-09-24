@@ -10,9 +10,9 @@ import type { SaveProviderAppRequestFields } from './saveProviderAppRequestField
 /**
  * `PUT /api/v1/admin/settings/apps/{provider}/{key}`.
  *
- * Every value is a field named by the provider's spec, and an unknown name is
- * rejected rather than dropped: a mistyped secret would otherwise register an
- * app that authenticates against nothing.
+ * Every value is a field named by the provider's spec; an unknown name is
+ * rejected rather than dropped, so a mistyped secret cannot register an app
+ * that authenticates against nothing.
  */
 export interface SaveProviderAppRequest {
   fields: SaveProviderAppRequestFields;

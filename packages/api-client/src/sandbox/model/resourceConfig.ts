@@ -14,46 +14,40 @@ import type { StorageMedium } from './storageMedium';
 export interface ResourceConfig {
   /**
      * Per-repository size cap for the `dind` sidecar's `/var/lib/docker`
-     * emptyDir (e.g. "50Gi"). Only meaningful for repos with `dockerAccess`
-     * and `dockerStorageMode: "emptyDir"`. Exceeding the cap gets the pod
-     * **evicted** by the kubelet, wiping all dind container data. When unset,
-     * the global `K8S_SANDBOX_DOCKER_DIND_STORAGE_SIZE` default applies.
+     * emptyDir.
+     *
+     * Only meaningful with `dockerAccess` + `dockerStorageMode: "emptyDir"`.
+     * Exceeding it gets the pod evicted, wiping all dind data. Defaults to
+     * `K8S_SANDBOX_DOCKER_DIND_STORAGE_SIZE`.
      * @nullable
      */
   dockerStorage?: string | null;
   dockerStorageMode?: null | StorageMedium;
   limits?: ResourceQuantities;
   /**
-     * Whether this repo's sandbox gets a per-task PVC mounted at
-     * `/opt/moatless`. The PVC is owned by the Deployment: it survives pod
-     * restarts and is deleted when the sandbox is removed. When `false`, the
-     * workspace is a node-local emptyDir that dies with the pod.
+     * Whether this repo's sandbox gets a per-task PVC at `/opt/moatless`.
      *
-     * When unset, the deployment-wide default applies (`K8S_SANDBOX_DEFAULT_PVC`).
-     * The global `K8S_SANDBOX_STORAGE_ENABLED` kill switch still wins over both.
+     * Survives pod restarts, unlike the emptyDir fallback. Defaults to
+     * `K8S_SANDBOX_DEFAULT_PVC`; `K8S_SANDBOX_STORAGE_ENABLED` overrides both.
      * @nullable
      */
   pvcEnabled?: boolean | null;
   requests?: ResourceQuantities;
   /**
-     * Whether this repo's sandbox snapshots its workspace to S3 — the copy that
-     * outlives the Deployment. Pushed before a stop or remove, and pulled back
-     * on start when the volume holds nothing usable (a fresh PVC, a redeploy, or
-     * a fallback after the PVC could not attach).
+     * Whether this repo's sandbox snapshots its workspace to S3.
      *
-     * Independent of [`Self::pvc_enabled`]: with a PVC the volume is the live
-     * copy and S3 is read only when it is empty or broken; without one, S3 is
-     * the only persistence and is read on every start.
-     *
-     * When unset, the deployment-wide default applies (`K8S_SANDBOX_DEFAULT_S3`).
+     * The copy that outlives the Deployment: pushed before stop/remove, pulled
+     * back on start when the volume holds nothing usable. Defaults to
+     * `K8S_SANDBOX_DEFAULT_S3`.
      * @nullable
      */
   s3Enabled?: boolean | null;
   /**
-     * Per-repository workspace storage size override (e.g. "8Gi"). Sizes the
-     * per-task PVC when `pvc_enabled`, and the node-local emptyDir otherwise.
-     * When unset, the global `K8S_SANDBOX_STORAGE_SIZE` default applies. Never
-     * copied into container resource specs.
+     * Per-repository workspace storage size override (e.g. "8Gi").
+     *
+     * Sizes the per-task PVC when `pvc_enabled`, else the node-local emptyDir.
+     * Defaults to `K8S_SANDBOX_STORAGE_SIZE`; never copied into container
+     * resource specs.
      * @nullable
      */
   storage?: string | null;

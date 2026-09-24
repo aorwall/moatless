@@ -109,9 +109,6 @@ pub(crate) async fn build(
                 k8s.clone(),
                 sandbox_observer.clone(),
             ));
-
-            // The K8s pod lifecycle watcher is spawned after the DB repos are
-            // built (it needs them to auto-disable crash-looping servers).
         }
         SandboxProviderType::Docker => {
             let docker_client = sandbox::docker::client::DockerClient::new(

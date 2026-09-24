@@ -4,19 +4,16 @@
  * Independent tests — each creates and tears down its own resources.
  *
  * Every scenario here needs a deliberately broken run configuration, which
- * lives on the workspace rather than the repository: a bad image, or a server
- * that never binds its port.
+ * lives on the workspace rather than the repository: a bad image.
  *
  * Scenarios:
  *   SANDBOX-06: Sandbox provision failure (invalid image)
  *   SANDBOX-07: Sandbox crash loop detected early
- *   SERVER-02: Server readiness timeout detected as failure
  */
 
 import { execSync } from 'node:child_process'
 import { budget, missingCapability } from '../../shared/profile'
 import { scopedName } from '../../shared/run-scope'
-import { waitForPreviewReady } from '../../shared/wait-helpers'
 import { expect, test } from '../fixtures/api-fixtures'
 import { progress } from '../helpers/progress'
 import { discardTask } from '../helpers/teardown'
@@ -34,9 +31,6 @@ const NOT_COMING_UP_MS = 60_000
  * less than this.
  */
 const CRASH_LOOP_WAIT_MS = 120_000
-
-/** The failing server's own `startupTimeoutSeconds` is 30s, plus room to observe it. */
-const SERVER_FAILURE_WAIT_MS = 120_000
 
 // ─── SANDBOX-06: Sandbox provision failure (invalid image) ──────────────
 
@@ -119,70 +113,6 @@ test('SANDBOX-07: Sandbox crash loop detected early', async ({ api }, testInfo) 
     expect(elapsed).toBeLessThan(CRASH_LOOP_WAIT_MS)
 
     progress(`Error: ${status.sandboxError} (detected in ${elapsed}ms)`)
-  } finally {
-    if (taskId) {
-      await discardTask(api, taskId)
-    }
-    await api.deleteWorkspace(workspace.id).catch(() => {})
-  }
-})
-
-// ─── SERVER-02: Server readiness timeout detected as failure ─────────
-
-// FIXME: docker does not report a preview server's readiness-timeout failure.
-// A server whose start command never binds its port should reach `failed`
-// after startupTimeoutSeconds; under docker it stays non-terminal, so this
-// poll returns null. The gap is one shape — an absent StartedAt is treated as
-// "keep waiting" — across four paths in
-// backend/src/sandbox/docker/status_resolver.rs::inspect_server_container:
-// `running` + port closed + StartedAt absent/unparseable falls through to
-// Starting (no else); `created`/`restarting` returns Starting with no timeout
-// check; the catch-all and the inspect-404 arm both return Stopped. None is
-// terminal to waitForPreviewReady. The fix threads a "start requested at"
-// instant through the resolver's signature (it has only startup_timeout_secs
-// and the container's own StartedAt) and is tracked as a separate backend PR.
-test.fixme('SERVER-02: Server readiness timeout detected as failure', async ({ api }, testInfo) => {
-  testInfo.setTimeout(budget('sandboxReady') + SERVER_FAILURE_WAIT_MS)
-
-  // A server that intentionally doesn't bind the expected port: the start
-  // command runs a process that stays alive but never listens, so the
-  // readiness probe stays unhealthy until the startup timeout elapses.
-  const repo = await api.ensureTemplateRepository()
-  const workspace = await api.createWorkspace({
-    name: scopedName('server-timeout-test'),
-    repos: [{ repositoryId: repo.id }],
-    servers: [
-      {
-        name: 'preview',
-        label: 'Preview',
-        port: 5173,
-        startCommands: ['sleep 300'], // alive but never binds port
-        startupTimeoutSeconds: 30, // short timeout for faster test
-        default: true,
-      },
-    ],
-  })
-
-  let taskId: string | undefined
-  try {
-    const task = await api.createVibeTask({ workspaceId: workspace.id })
-    taskId = task.taskId
-
-    // Wait for sandbox environment to be ready first
-    const { ready } = await waitForSandboxReady(api, taskId)
-    expect(ready).toBe(true)
-
-    // Now wait for the server — it should eventually report "failed"
-    // after the 30s startup timeout elapses
-    const server = await waitForPreviewReady(api, taskId, {
-      timeout: SERVER_FAILURE_WAIT_MS,
-    })
-
-    expect(server).not.toBeNull()
-    expect(server!.status).toBe('failed')
-    expect(server!.error).toBeTruthy()
-
-    progress(`Server status: ${server!.status}, error: ${server!.error}`)
   } finally {
     if (taskId) {
       await discardTask(api, taskId)

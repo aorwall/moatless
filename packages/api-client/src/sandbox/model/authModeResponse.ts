@@ -10,12 +10,14 @@ import type { AuthMode } from './authMode';
 /**
  * GET /api/v1/auth/mode response.
  *
- * A dedicated endpoint rather than a field on `SessionResponse`: `/auth/me`
- * 401s for anonymous callers, and the login page is anonymous by definition.
+ * A dedicated endpoint rather than a field on `SessionResponse`, since
+ * `/auth/me` 401s for anonymous callers and the login page is anonymous by
+ * definition.
  */
 export interface AuthModeResponse {
   /**
-     * Where to send the browser to start an OAuth login. `None` in password mode.
+     * Where to send the browser to start an OAuth login. `None` in password
+     * mode.
      * @nullable
      */
   loginUrl?: string | null;

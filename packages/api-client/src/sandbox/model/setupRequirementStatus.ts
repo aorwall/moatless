@@ -7,9 +7,9 @@
  */
 
 /**
- * Tri-state because "configured but unusable" needs different copy from
- * "never configured": a `secret_ref` row whose secret is gone is `Broken`,
- * and telling that user to "connect GitHub" would be wrong.
+ * Tri-state because "configured but unusable" needs different copy from "never
+ * configured": a `secret_ref` row whose secret is gone is `Broken`, and
+ * telling that user to "connect GitHub" would be wrong.
  */
 export type SetupRequirementStatus = typeof SetupRequirementStatus[keyof typeof SetupRequirementStatus];
 

@@ -5,24 +5,41 @@
  * Sandbox orchestration and authentication for Moatless Vibe
  * OpenAPI spec version: 0.1.0
  */
+import type { LoopConfigNodeSelector } from './loopConfigNodeSelector';
 import type { RoutingMode } from './routingMode';
 
 export interface LoopConfig {
   agentType: string;
   /**
      * Per-Loop inactivity TTL in days. `None` means "inherit the global
-     * default" (`TASK_INACTIVE_TIMEOUT_DAYS`). Flows into `tasks.inactive_ttl_days`
-     * when this Loop spawns a task.
+     * default" (`TASK_INACTIVE_TIMEOUT_DAYS`). Flows into
+     * `tasks.inactive_ttl_days` when this Loop spawns a task.
      * @nullable
      */
   inactiveTtlDays?: number | null;
   /**
+     * Seconds inbound Adapter events for one Binding are held so those
+     * arriving together reach the Task as a single message. `None` inherits
+     * the deployment default for the Loop's adapter kind (60 for `github_pr`,
+     * off elsewhere); `0` delivers every event on its own.
+     * @nullable
+     */
+  messageBufferSeconds?: number | null;
+  /**
      * Model the spawned Tasks run on, from the `agent_type` entry's catalog
      * models. `None` means "inherit the platform default the sandbox resolves
-     * for `agent_type`". Flows into `tasks.model` when this Loop spawns a task.
+     * for `agent_type`". Flows into `tasks.model` when this Loop spawns a
+     * task.
      * @nullable
      */
   model?: string | null;
+  /**
+     * Extra node labels for the sandboxes this Loop spawns, merged over the
+     * deployment-wide selector and outranking the Workspace's own value.
+     * Admin-only, and never declared in `LOOP.md`.
+     * @nullable
+     */
+  nodeSelector?: LoopConfigNodeSelector;
   /** @nullable */
   ongoingTaskId?: string | null;
   /** @nullable */
@@ -30,8 +47,17 @@ export interface LoopConfig {
   routingMode: RoutingMode;
   /** @nullable */
   runAsUserId?: string | null;
-  /** Skills every task this Loop spawns activates on each fresh agent session. */
+  /**
+     * Skills every task this Loop spawns activates on each fresh agent
+     * session.
+     */
   skills: string[];
+  /**
+     * Stop this Loop's sandbox as soon as its agent run finishes, rather than
+     * holding the pod for the idle TTL.
+     * @nullable
+     */
+  stopWhenDone?: boolean | null;
   tagIds: string[];
   /** @nullable */
   taskName?: string | null;

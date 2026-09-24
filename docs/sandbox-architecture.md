@@ -11,7 +11,7 @@
    - [Agent Execution](#agent-execution)
    - [File Operations](#file-operations)
    - [Git Operations](#git-operations)
-   - [Preview Server](#preview-server)
+   - [Scripts](#scripts)
    - [Browser Automation](#browser-automation)
    - [Workspace Provisioning](#workspace-provisioning)
 7. [Skills System](#skills-system)
@@ -23,7 +23,7 @@
 
 ## Overview
 
-The sandbox is an isolated per-task execution environment that runs the Claude Code agent and supporting services. It provides file operations, git integration, preview server management, and browser automation—all scoped to a single task's workspace.
+The sandbox is an isolated per-task execution environment that runs the Claude Code agent and supporting services. It provides file operations, git integration, Script execution, and browser automation—all scoped to a single task's workspace.
 
 - **Runtime**: Native Rust binary (axum HTTP + tonic gRPC server)
 - **HTTP Port**: 8001 (health probes only)
@@ -45,7 +45,6 @@ recovers, and destroys sandboxes — see [Sandbox Lifecycle & Handling](./sandbo
 ├── usr/local/bin/
 │   ├── sandbox                          # Rust sandbox binary
 │   ├── claude                           # Claude Code CLI
-│   ├── server                           # Server management script
 │   └── docker-entrypoint-sandbox.sh     # Container entrypoint
 │
 ├── opt/moatless/
@@ -53,17 +52,11 @@ recovers, and destroys sandboxes — see [Sandbox Lifecycle & Handling](./sandbo
 │   │   └── <primary-mount>/             # Primary repo checkout
 │   ├── data/                            # Runtime data
 │   │   ├── events/                      # Persisted events
-│   │   ├── screenshots/                 # Browser screenshots
-│   │   ├── preview-server.config.json   # Preview server configuration
-│   │   ├── preview-server.status.json   # Current server status
-│   │   ├── preview-server.pid           # Server process ID
-│   │   └── preview-server.log           # Server stdout/stderr
+│   │   └── screenshots/                 # Browser screenshots
 │   ├── .claude/                         # Claude Code configuration
 │   │   └── skills/                      # Staged image skills + the repo's own, copied at startup
 │   ├── .codex/
 │   │   └── skills/                      # Same set, for Codex
-│   └── bin/
-│       └── preview-server               # Shell script for server lifecycle
 │
 ├── usr/share/moatless-skills/           # Skills staged by downstream images (empty in the base image)
 │   └── <skill-name>/
@@ -94,21 +87,18 @@ Container Start
 │     falling back to GIT_CLONE_URL alone)
 │     gh repo clone → checkout the entry's branch
 │
-├─ 5. Write preview config (if REPO_CONFIG has previewConfig)
-│     Parse REPO_CONFIG JSON → /opt/moatless/data/preview-server.config.json
-│
-├─ 6. Start sandbox application (background)
+├─ 5. Start sandbox application (background)
 │     /usr/local/bin/sandbox &
 │
-├─ 7. Run setup commands (from REPO_CONFIG.codeExecution.setupCommands)
+├─ 6. Run setup commands (from REPO_CONFIG.codeExecution.setupCommands)
 │     Execute sequentially in workspace directory
 │
-├─ 8. Auto-start preview server (if config exists with serverCommands)
-│     /opt/moatless/bin/preview-server start &
-│
-└─ 9. Wait for sandbox process
+└─ 7. Wait for sandbox process
       wait $SANDBOX_PID
 ```
+
+A `runOnStart` Script is not started by this entrypoint — `crates/t3code/src/startup_scripts.rs`
+starts it once the backend observes the Task's Sandbox report Ready.
 
 The sandbox application (`index.ts`) startup:
 
@@ -124,16 +114,11 @@ main()
 │     • Primary agent execution path (replaces HTTP-based execution)
 │     • Start consumer loop in background
 │
-├─ Initialize PreviewProcessMonitor (watch status.json)
-│     • Watches filesystem for preview server status changes
-│     • Emits server events to Redis
-│
 ├─ Create Hono app with routes
 │   ├─ Workspace routes
 │   ├─ File routes
 │   ├─ Git routes
 │   ├─ Agent routes (HTTP fallback, secondary execution path)
-│   ├─ Preview routes
 │   └─ Browser routes
 │
 └─ Start HTTP server on PORT
@@ -192,27 +177,13 @@ The `REPO_CONFIG` environment variable contains a JSON-encoded configuration obj
   "codeExecution": {
     "setupCommands": ["npm install", "npm run build"],
     "dockerImage": "aorwall/moatless-vibe-sandbox-js:latest"
-  },
-  "previewConfig": {
-    "serverStartCommands": ["npm", "run", "dev"],
-    "port": 3000,
-    "startupTimeoutSeconds": 60
   }
 }
 ```
 
-### Preview Server Config File
-
-Generated from `REPO_CONFIG.previewConfig` and written to `/opt/moatless/data/preview-server.config.json`:
-
-```json
-{
-  "serverCommands": ["npm", "run", "dev"],
-  "port": 3000,
-  "startupTimeoutSeconds": 60,
-  "workspacePath": "/opt/moatless/workspace/<primary-mount>"
-}
-```
+A Script (`ScriptConfig`: name, command, optional label/icon/port/envVars/runOnStart)
+is not passed through `REPO_CONFIG` — it is declared on the Workspace and run
+on demand as a terminal session inside this sandbox; see [Scripts](#scripts).
 
 ---
 
@@ -233,11 +204,10 @@ All operational communication uses gRPC. The backend calls these RPCs:
 | `ExecuteAgent` | Start agent execution with content, model, system prompt |
 | `StopAgent` | Stop running agent |
 | `NotifyMessages` | Wake message polling consumer |
-| `GetStatus` | Combined agent + servers snapshot (JSON) |
-| `CheckHealth` | Health check |
-| `SearchFiles` | Search workspace files by query |
-| `GetServerStatus` | Single server status (JSON) |
-| `StreamServerLogs` | Stream server logs (server-streaming RPC) |
+| `GetAgentStatus` | Agent status snapshot (JSON) |
+| `SearchFilesByName` | Search workspace files by query |
+| `ApplyTaskScript` / `GetTaskScripts` | Declare/read this task's Scripts |
+| `TerminalOpen` / `TerminalAttach` | Open and stream a Script's terminal session |
 
 ---
 
@@ -423,107 +393,25 @@ The `GitService` provides read-only git information for the workspace.
 
 ---
 
-### Preview Server
+### Scripts
 
-The preview server feature uses a three-component architecture: a shell script manages the process, a monitor watches for state changes, and a proxy forwards requests with script injection.
+There is no dedicated preview-server process, shell script, or filesystem
+status file in the sandbox. A **Script** (`ScriptConfig`: name, command,
+optional label/icon/port/envVars/runOnStart) is a named command a Workspace
+declares; it runs as a terminal session inside this same sandbox container —
+`crates/t3code/src/scripts.rs::run` execs the command into a named terminal,
+publishing the Script's `port` first when it has one.
 
-#### Architecture
+A Script with a `port` earns a preview URL: the `SandboxPortPublisher` trait
+publishes the port on the fly (Kubernetes: `crates/sandbox-k8s/src/edge.rs`
+adds a `scr-{port}` Service port and a Traefik `IngressRoute`; Docker's
+implementation always returns `None`, so a Docker sandbox's Script never gets
+a preview URL). There is no separate proxy or inspector-script injection step
+in this path.
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                        PREVIEW SERVER ARCHITECTURE                           │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│  Agent (via preview-server skill)                                           │
-│       │                                                                      │
-│       ▼                                                                      │
-│  /opt/moatless/bin/preview-server start|stop|restart|status|logs            │
-│       │                                                                      │
-│       ├─► Reads: preview-server.config.json                                 │
-│       ├─► Writes: preview-server.status.json (state transitions)            │
-│       ├─► Writes: preview-server.pid                                        │
-│       └─► Writes: preview-server.log (stdout/stderr)                        │
-│                                                                              │
-│  PreviewProcessMonitor (watches status.json)                                │
-│       │                                                                      │
-│       ├─► Detects status changes                                            │
-│       ├─► Verifies PID is alive                                             │
-│       └─► Emits server events → Backend → SSE → Frontend                   │
-│                                                                              │
-│  handleProxyRequest() (serves /preview/*)                                   │
-│       │                                                                      │
-│       ├─► Proxies HTTP to localhost:<port>                                   │
-│       ├─► Injects inspector script into HTML responses                      │
-│       └─► Strips CSP/X-Frame-Options headers for iframe embedding           │
-│                                                                              │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-#### Shell Script: `/opt/moatless/bin/preview-server`
-
-**Commands**:
-
-| Command | Description |
-|---------|-------------|
-| `start` | Read config, start server process, poll for readiness, write status |
-| `stop` | Send SIGTERM (then SIGKILL after timeout), write stopped status |
-| `restart` | Stop then start |
-| `status` | Read and output status.json |
-| `logs [-n N] [-f]` | Tail log file, optionally follow |
-
-**Start Flow**:
-1. Read `preview-server.config.json`
-2. Replace `{{PORT}}` placeholder in server commands
-3. cd to workspace directory
-4. Start: `PORT=<port> bash -c "<commands>"` in background
-5. Write `starting` status
-6. Poll `http://localhost:<port>/` until responsive (tries IPv6 and IPv4)
-7. Write `started` or `failed` status with port, PID, error info
-
-#### Filesystem Artifacts
-
-| File | Content |
-|------|---------|
-| `preview-server.config.json` | `{ serverCommands, port, startupTimeoutSeconds, workspacePath }` |
-| `preview-server.status.json` | `{ status, pid, internalUrl, error, timestamp }` |
-| `preview-server.pid` | Process ID (plain text) |
-| `preview-server.log` | Server stdout/stderr output |
-
-#### Status Lifecycle
-
-```
-stopped → starting → started
-                  └─→ failed → stopped (on retry)
-started → stopped (on stop or crash)
-```
-
-#### Process Monitor
-
-**File**: `src/features/preview/services/preview-process-monitor.ts`
-
-`PreviewProcessMonitor` watches the status file and emits server events:
-
-```typescript
-class PreviewProcessMonitor {
-  getStatus(): Promise<PreviewServerStatus>     // Read status + verify PID alive
-  isRunning(): Promise<boolean>                  // Check PID alive
-  getConfiguredPort(): number                    // From config file (default 3000)
-  getLogs(lines?: number): Promise<string>       // Tail log file
-  streamLogs(): AsyncGenerator<LogChunk>         // Watch + stream log file
-  startWatching(): void                          // Begin file watch loop
-  stopWatching(): void                           // Stop watching
-}
-```
-
-#### Proxy
-
-**File**: `src/features/preview/runtime/preview-proxy.ts`
-
-`handleProxyRequest(req, path, serverId, port)`:
-- HTML requests (`GET /` or `/index.html`): Fetch, inject inspector script, return modified HTML
-- All other requests: Raw pipe via `node:http` (preserves content-encoding)
-
-The inspector script enables communication between the preview iframe and the parent application for live interaction tracking.
+A Script's own output lives in its terminal (read via `moat tasks scripts
+run <name>` or the T3 UI terminal pane), not in the sandbox's own log stream
+(`moat tasks logs`) or on the gRPC task-event feed.
 
 ---
 
@@ -610,7 +498,7 @@ The `GrpcEventPublisher` publishes structured events to the backend via gRPC `Pu
 
 Events are sent as `PublishEventRequest` messages with fields:
 - `task_id`: Task this event belongs to
-- `event_type`: "task", "taskTurn", or "environment"
+- `event_type`: `agent`, `message`, `resources`, `sandbox`, `task`, or `taskTurn` (`EventType`, `crates/types/src/event.rs`)
 - `sub_type`: e.g. "agent_started", "message", "agent_completed"
 - `agent_type`: Optional agent type identifier
 - `turn_number`: Optional turn number
@@ -629,10 +517,10 @@ Events are published via gRPC `PublishEvent` to the backend's `BackendSandboxSer
 | `agent` | `message` | Agent produces a message (includes content, agentSessionId, contextTokens) |
 | `agent` | `completed` | Agent finishes successfully (includes result, plan if applicable) |
 | `agent` | `error` | Agent encounters an error |
-| `server` | `starting` | Preview server start initiated |
-| `server` | `started` | Preview server HTTP ready |
-| `server` | `stopped` | Preview server process terminated |
-| `server` | `failed` | Preview server failed to start or crashed |
+
+A Script's lifecycle is not carried on this event feed — it runs as a terminal
+session, and its state is read from the terminal (`moat tasks scripts list`,
+the T3 UI terminal pane), not from task events.
 
 ### Deduplication
 
@@ -654,11 +542,10 @@ Backend (gRPC Client)                      Sandbox (gRPC Server :50052)
   ├─ ExecuteAgent(content, model) ────────►  │ (start agent execution)
   ├─ StopAgent() ─────────────────────────►  │ (stop running agent)
   ├─ NotifyMessages() ────────────────────►  │ (wake message consumer)
-  ├─ GetStatus() ─────────────────────────►  │ (combined status snapshot)
-  ├─ CheckHealth() ───────────────────────►  │ (health check)
-  ├─ SearchFiles(query, limit) ───────────►  │ (search workspace files)
-  ├─ GetServerStatus(name) ───────────────►  │ (server status)
-  └─ StreamServerLogs(name, lines) ───────►  │ (streaming server logs)
+  ├─ GetAgentStatus() ────────────────────►  │ (agent status snapshot)
+  ├─ SearchFilesByName(query, limit) ─────►  │ (search workspace files)
+  ├─ ApplyTaskScript(script) ─────────────►  │ (declare/update a Script)
+  └─ TerminalAttach(sessionId) ───────────►  │ (stream a Script's terminal)
 ```
 
 ### 2. BackendSandboxService (Sandbox → Backend, gRPC port 50051)
@@ -784,9 +671,8 @@ Runs as non-root user `moatless` (UID 1000) with home at `/home/moatless`.
 | `/usr/local/bin/sandbox` | Rust sandbox binary |
 | `/opt/moatless/workspace` | Workspace root containing repo checkouts |
 | `/opt/moatless/workspace/<primary-mount>` | Primary repo checkout; `<primary-mount>` is the workspace placement mount name or derived repo name |
-| `/opt/moatless/data` | Runtime data (events, screenshots, preview artifacts) |
+| `/opt/moatless/data` | Runtime data (events, screenshots) |
 | `/opt/moatless/.claude` | Claude Code configuration |
-| `/opt/moatless/bin/preview-server` | Preview server shell script |
 | `/usr/share/moatless-skills` | Skills (baked into image) |
 | `/opt/playwright-browsers` | Shared Playwright browser binaries |
 | `/opt/playwright-packages` | Playwright package tree per pin; keeps the browsers above from being pruned |

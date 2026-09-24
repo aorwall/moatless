@@ -20,8 +20,6 @@ export interface GrpcSandboxClient {
   ): Promise<Record<string, never>>
   stopAgent(): Promise<Record<string, never>>
   notifyMessages(): Promise<Record<string, never>>
-  getServerStatus(name: string): Promise<{ statusJson: string }>
-  streamServerLogs(name: string, lines?: number): Promise<Array<{ line: string }>>
   close(): void
 }
 
@@ -80,35 +78,6 @@ export function createGrpcSandboxClient(grpcPort: number): GrpcSandboxClient {
 
     notifyMessages() {
       return callUnary('notifyMessages', {})
-    },
-
-    getServerStatus(name: string) {
-      return callUnary('getServerStatus', { name })
-    },
-
-    streamServerLogs(name: string, lines?: number): Promise<Array<{ line: string }>> {
-      return new Promise((resolve, reject) => {
-        const request: Record<string, unknown> = { name }
-        if (lines !== undefined) {
-          request['lines'] = lines
-        }
-
-        const stream = client.streamServerLogs(request)
-        const logLines: Array<{ line: string }> = []
-
-        stream.on('data', (data: { line: string }) => {
-          logLines.push(data)
-        })
-
-        stream.on('end', () => {
-          resolve(logLines)
-        })
-
-        stream.on('error', (err: grpc.ServiceError) => {
-          // UNIMPLEMENTED or NOT_FOUND are expected in some tests
-          reject(err)
-        })
-      })
     },
 
     close() {

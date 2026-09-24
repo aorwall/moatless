@@ -110,10 +110,9 @@ export const getAdminUpdateUserHandlerUrl = (userId: string,) => {
 }
 
 /**
- * A login is not unique — the same handle exists once per provider — and
- * `PATCH /api/v1/users/{login}` resolves one to its oldest row. Reach any
- * newer row of a shared login here, keyed on the `id` that `GET /api/v1/users`
- * already reports. The body is the one `PATCH /api/v1/users/{login}` takes.
+ * A login isn't unique — `PATCH /api/v1/users/{login}` resolves only the
+ * oldest row of a shared login. Reach any other row here, keyed on the `id`
+ * `GET /api/v1/users` reports; takes the same body.
  * @summary Update the user an internal id names. Admin only.
  */
 export const adminUpdateUserHandler = async (userId: string,
@@ -380,14 +379,9 @@ export const getCreateUserHandlerUrl = () => {
 }
 
 /**
- * With `isBot: true`, resolves the App's `{slug}[bot]` identity via
- * `GitHubAppRegistry`, then inserts both the `users` row and a matching
- * `provider_tokens` row with `auth_method = 'github_app_installation'` so
- * credential resolution transparently mints installation tokens for tasks
- * that `run_as_user_id = <bot id>`.
- *
- * With `isBot: false`, creates a human user with a local password. Available
- * only under local password auth — OAuth deployments create users on callback.
+ * `isBot: true` mints a `{slug}[bot]` identity plus a `provider_tokens` row so
+ * credential resolution issues installation tokens for it; `isBot: false`
+ * creates a local-password human user (local auth only).
  * @summary Create a user. Admin only.
  */
 export const createUserHandler = async (createUserRequest: CreateUserRequest, options?: Parameters<typeof customInstance>[1]): Promise<createUserHandlerResponse> => {
@@ -499,6 +493,426 @@ export const prefetchCreateUserHandlerQuery = async <TData = Awaited<ReturnType<
 
 
 
+export type listUserProviderIdsByIdHandlerResponse200 = {
+  data: UserProviderIdItem[]
+  status: 200
+}
+
+export type listUserProviderIdsByIdHandlerResponse401 = {
+  data: ErrorBody
+  status: 401
+}
+
+export type listUserProviderIdsByIdHandlerResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+
+export type listUserProviderIdsByIdHandlerResponseSuccess = (listUserProviderIdsByIdHandlerResponse200) & {
+  headers: Headers;
+};
+export type listUserProviderIdsByIdHandlerResponseError = (listUserProviderIdsByIdHandlerResponse401 | listUserProviderIdsByIdHandlerResponse404) & {
+  headers: Headers;
+};
+
+export type listUserProviderIdsByIdHandlerResponse = (listUserProviderIdsByIdHandlerResponseSuccess | listUserProviderIdsByIdHandlerResponseError)
+
+export const getListUserProviderIdsByIdHandlerUrl = (userId: string,) => {
+
+
+
+
+  return `/api/v1/users/by-id/${userId}/provider-ids`
+}
+
+/**
+ * See [`set_user_provider_id_by_id_handler`] for why a login is not enough.
+ * @summary List all provider ID mappings, keyed on the internal user id.
+ */
+export const listUserProviderIdsByIdHandler = async (userId: string, options?: Parameters<typeof customInstance>[1]): Promise<listUserProviderIdsByIdHandlerResponse> => {
+
+  return customInstance<listUserProviderIdsByIdHandlerResponse>(getListUserProviderIdsByIdHandlerUrl(userId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListUserProviderIdsByIdHandlerMutationKey = () => ['listUserProviderIdsByIdHandler'] as const;
+
+export const getListUserProviderIdsByIdHandlerMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof listUserProviderIdsByIdHandler>>, TError,ListUserProviderIdsByIdHandlerMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof listUserProviderIdsByIdHandler>>, TError,ListUserProviderIdsByIdHandlerMutationVariables, TContext> => {
+
+const mutationKey = getListUserProviderIdsByIdHandlerMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof listUserProviderIdsByIdHandler>>, ListUserProviderIdsByIdHandlerMutationVariables> = (props) => {
+          const {userId} = props ?? {};
+
+          return  listUserProviderIdsByIdHandler(userId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ListUserProviderIdsByIdHandlerMutationResult = NonNullable<Awaited<ReturnType<typeof listUserProviderIdsByIdHandler>>>
+
+    export type ListUserProviderIdsByIdHandlerMutationError = ErrorType<ErrorBody>
+    export type ListUserProviderIdsByIdHandlerMutationVariables = {userId: string}
+
+    /**
+ * @summary List all provider ID mappings, keyed on the internal user id.
+ */
+export const useListUserProviderIdsByIdHandler = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof listUserProviderIdsByIdHandler>>, TError,ListUserProviderIdsByIdHandlerMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof listUserProviderIdsByIdHandler>>,
+        TError,
+        ListUserProviderIdsByIdHandlerMutationVariables,
+        TContext
+      > => {
+      return useMutation(getListUserProviderIdsByIdHandlerMutationOptions(options), queryClient);
+    }
+    export type setUserProviderIdByIdHandlerResponse200 = {
+  data: MessageResponse
+  status: 200
+}
+
+export type setUserProviderIdByIdHandlerResponse401 = {
+  data: ErrorBody
+  status: 401
+}
+
+export type setUserProviderIdByIdHandlerResponse403 = {
+  data: ErrorBody
+  status: 403
+}
+
+export type setUserProviderIdByIdHandlerResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+
+export type setUserProviderIdByIdHandlerResponseSuccess = (setUserProviderIdByIdHandlerResponse200) & {
+  headers: Headers;
+};
+export type setUserProviderIdByIdHandlerResponseError = (setUserProviderIdByIdHandlerResponse401 | setUserProviderIdByIdHandlerResponse403 | setUserProviderIdByIdHandlerResponse404) & {
+  headers: Headers;
+};
+
+export type setUserProviderIdByIdHandlerResponse = (setUserProviderIdByIdHandlerResponseSuccess | setUserProviderIdByIdHandlerResponseError)
+
+export const getSetUserProviderIdByIdHandlerUrl = (userId: string,
+    provider: string,) => {
+
+
+
+
+  return `/api/v1/users/by-id/${userId}/provider-ids/${provider}`
+}
+
+/**
+ * A login isn't unique — `PUT /api/v1/users/{login}/provider-ids/{provider}`
+ * resolves only the oldest row of a shared login. Reach any other row here,
+ * keyed on the `id` `GET /api/v1/users` reports; same body, same policy.
+ * @summary Set (upsert) a provider-specific user ID, keyed on the internal user id.
+ */
+export const setUserProviderIdByIdHandler = async (userId: string,
+    provider: string,
+    setProviderIdRequest: SetProviderIdRequest, options?: Parameters<typeof customInstance>[1]): Promise<setUserProviderIdByIdHandlerResponse> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return customInstance<setUserProviderIdByIdHandlerResponse>(getSetUserProviderIdByIdHandlerUrl(userId,provider),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(setProviderIdRequest)
+  }
+);}
+
+
+
+
+
+export const getSetUserProviderIdByIdHandlerQueryKey = (userId: string,
+    provider: string,
+    setProviderIdRequest?: SetProviderIdRequest,) => {
+    return [
+    'PUT', `/api/v1/users/by-id/${userId}/provider-ids/${provider}`, setProviderIdRequest
+    ] as const;
+    }
+
+
+export const getSetUserProviderIdByIdHandlerQueryOptions = <TData = Awaited<ReturnType<typeof setUserProviderIdByIdHandler>>, TError = ErrorType<ErrorBody>>(userId: string,
+    provider: string,
+    setProviderIdRequest: SetProviderIdRequest, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof setUserProviderIdByIdHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getSetUserProviderIdByIdHandlerQueryKey(userId,provider,setProviderIdRequest);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof setUserProviderIdByIdHandler>>> = ({ signal }) => setUserProviderIdByIdHandler(userId,provider,setProviderIdRequest, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: userId !== null && userId !== undefined && provider !== null && provider !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof setUserProviderIdByIdHandler>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type SetUserProviderIdByIdHandlerQueryResult = NonNullable<Awaited<ReturnType<typeof setUserProviderIdByIdHandler>>>
+export type SetUserProviderIdByIdHandlerQueryError = ErrorType<ErrorBody>
+
+
+export function useSetUserProviderIdByIdHandler<TData = Awaited<ReturnType<typeof setUserProviderIdByIdHandler>>, TError = ErrorType<ErrorBody>>(
+ userId: string,
+    provider: string,
+    setProviderIdRequest: SetProviderIdRequest, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof setUserProviderIdByIdHandler>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof setUserProviderIdByIdHandler>>,
+          TError,
+          Awaited<ReturnType<typeof setUserProviderIdByIdHandler>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useSetUserProviderIdByIdHandler<TData = Awaited<ReturnType<typeof setUserProviderIdByIdHandler>>, TError = ErrorType<ErrorBody>>(
+ userId: string,
+    provider: string,
+    setProviderIdRequest: SetProviderIdRequest, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof setUserProviderIdByIdHandler>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof setUserProviderIdByIdHandler>>,
+          TError,
+          Awaited<ReturnType<typeof setUserProviderIdByIdHandler>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useSetUserProviderIdByIdHandler<TData = Awaited<ReturnType<typeof setUserProviderIdByIdHandler>>, TError = ErrorType<ErrorBody>>(
+ userId: string,
+    provider: string,
+    setProviderIdRequest: SetProviderIdRequest, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof setUserProviderIdByIdHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Set (upsert) a provider-specific user ID, keyed on the internal user id.
+ */
+
+export function useSetUserProviderIdByIdHandler<TData = Awaited<ReturnType<typeof setUserProviderIdByIdHandler>>, TError = ErrorType<ErrorBody>>(
+ userId: string,
+    provider: string,
+    setProviderIdRequest: SetProviderIdRequest, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof setUserProviderIdByIdHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getSetUserProviderIdByIdHandlerQueryOptions(userId,provider,setProviderIdRequest,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+/**
+ * @summary Set (upsert) a provider-specific user ID, keyed on the internal user id.
+ */
+export const prefetchSetUserProviderIdByIdHandlerQuery = async <TData = Awaited<ReturnType<typeof setUserProviderIdByIdHandler>>, TError = ErrorType<ErrorBody>>(
+ queryClient: QueryClient, userId: string,
+    provider: string,
+    setProviderIdRequest: SetProviderIdRequest, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof setUserProviderIdByIdHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+
+  ): Promise<QueryClient> => {
+
+  const queryOptions = getSetUserProviderIdByIdHandlerQueryOptions(userId,provider,setProviderIdRequest,options)
+
+  await queryClient.prefetchQuery(queryOptions);
+
+  return queryClient;
+}
+
+
+
+
+
+export type deleteUserProviderIdByIdHandlerResponse200 = {
+  data: MessageResponse
+  status: 200
+}
+
+export type deleteUserProviderIdByIdHandlerResponse401 = {
+  data: ErrorBody
+  status: 401
+}
+
+export type deleteUserProviderIdByIdHandlerResponse403 = {
+  data: ErrorBody
+  status: 403
+}
+
+export type deleteUserProviderIdByIdHandlerResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+
+export type deleteUserProviderIdByIdHandlerResponseSuccess = (deleteUserProviderIdByIdHandlerResponse200) & {
+  headers: Headers;
+};
+export type deleteUserProviderIdByIdHandlerResponseError = (deleteUserProviderIdByIdHandlerResponse401 | deleteUserProviderIdByIdHandlerResponse403 | deleteUserProviderIdByIdHandlerResponse404) & {
+  headers: Headers;
+};
+
+export type deleteUserProviderIdByIdHandlerResponse = (deleteUserProviderIdByIdHandlerResponseSuccess | deleteUserProviderIdByIdHandlerResponseError)
+
+export const getDeleteUserProviderIdByIdHandlerUrl = (userId: string,
+    provider: string,) => {
+
+
+
+
+  return `/api/v1/users/by-id/${userId}/provider-ids/${provider}`
+}
+
+/**
+ * See [`set_user_provider_id_by_id_handler`] for why a login is not enough.
+ * @summary Delete a provider ID mapping, keyed on the internal user id.
+ */
+export const deleteUserProviderIdByIdHandler = async (userId: string,
+    provider: string, options?: Parameters<typeof customInstance>[1]): Promise<deleteUserProviderIdByIdHandlerResponse> => {
+
+  return customInstance<deleteUserProviderIdByIdHandlerResponse>(getDeleteUserProviderIdByIdHandlerUrl(userId,provider),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+
+export const getDeleteUserProviderIdByIdHandlerQueryKey = (userId: string,
+    provider: string,) => {
+    return [
+    'DELETE', `/api/v1/users/by-id/${userId}/provider-ids/${provider}`
+    ] as const;
+    }
+
+
+export const getDeleteUserProviderIdByIdHandlerQueryOptions = <TData = Awaited<ReturnType<typeof deleteUserProviderIdByIdHandler>>, TError = ErrorType<ErrorBody>>(userId: string,
+    provider: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof deleteUserProviderIdByIdHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getDeleteUserProviderIdByIdHandlerQueryKey(userId,provider);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof deleteUserProviderIdByIdHandler>>> = ({ signal }) => deleteUserProviderIdByIdHandler(userId,provider, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: userId !== null && userId !== undefined && provider !== null && provider !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof deleteUserProviderIdByIdHandler>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type DeleteUserProviderIdByIdHandlerQueryResult = NonNullable<Awaited<ReturnType<typeof deleteUserProviderIdByIdHandler>>>
+export type DeleteUserProviderIdByIdHandlerQueryError = ErrorType<ErrorBody>
+
+
+export function useDeleteUserProviderIdByIdHandler<TData = Awaited<ReturnType<typeof deleteUserProviderIdByIdHandler>>, TError = ErrorType<ErrorBody>>(
+ userId: string,
+    provider: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof deleteUserProviderIdByIdHandler>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof deleteUserProviderIdByIdHandler>>,
+          TError,
+          Awaited<ReturnType<typeof deleteUserProviderIdByIdHandler>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useDeleteUserProviderIdByIdHandler<TData = Awaited<ReturnType<typeof deleteUserProviderIdByIdHandler>>, TError = ErrorType<ErrorBody>>(
+ userId: string,
+    provider: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof deleteUserProviderIdByIdHandler>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof deleteUserProviderIdByIdHandler>>,
+          TError,
+          Awaited<ReturnType<typeof deleteUserProviderIdByIdHandler>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useDeleteUserProviderIdByIdHandler<TData = Awaited<ReturnType<typeof deleteUserProviderIdByIdHandler>>, TError = ErrorType<ErrorBody>>(
+ userId: string,
+    provider: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof deleteUserProviderIdByIdHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Delete a provider ID mapping, keyed on the internal user id.
+ */
+
+export function useDeleteUserProviderIdByIdHandler<TData = Awaited<ReturnType<typeof deleteUserProviderIdByIdHandler>>, TError = ErrorType<ErrorBody>>(
+ userId: string,
+    provider: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof deleteUserProviderIdByIdHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getDeleteUserProviderIdByIdHandlerQueryOptions(userId,provider,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+/**
+ * @summary Delete a provider ID mapping, keyed on the internal user id.
+ */
+export const prefetchDeleteUserProviderIdByIdHandlerQuery = async <TData = Awaited<ReturnType<typeof deleteUserProviderIdByIdHandler>>, TError = ErrorType<ErrorBody>>(
+ queryClient: QueryClient, userId: string,
+    provider: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof deleteUserProviderIdByIdHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+
+  ): Promise<QueryClient> => {
+
+  const queryOptions = getDeleteUserProviderIdByIdHandlerQueryOptions(userId,provider,options)
+
+  await queryClient.prefetchQuery(queryOptions);
+
+  return queryClient;
+}
+
+
+
+
+
 export type updateUserHandlerResponse200 = {
   data: UserInfo
   status: 200
@@ -538,10 +952,9 @@ export const getUpdateUserHandlerUrl = (login: string,) => {
 
 /**
  * A user may update their own profile; updating another user requires the
- * admin role. Backs the `moat user set-email <login>` CLI command so emails
- * can be corrected without direct DB access. Only the fields present in the
- * body are changed.
- * @summary Update a user's profile (name and/or email).
+ * admin role.
+ * @summary Update a user's profile (name and/or email). Only the fields present in the
+body are changed.
  */
 export const updateUserHandler = async (login: string,
     adminUpdateUserRequest: AdminUpdateUserRequest, options?: Parameters<typeof customInstance>[1]): Promise<updateUserHandlerResponse> => {
@@ -624,7 +1037,8 @@ export function useUpdateUserHandler<TData = Awaited<ReturnType<typeof updateUse
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 /**
- * @summary Update a user's profile (name and/or email).
+ * @summary Update a user's profile (name and/or email). Only the fields present in the
+body are changed.
  */
 
 export function useUpdateUserHandler<TData = Awaited<ReturnType<typeof updateUserHandler>>, TError = ErrorType<ErrorBody>>(
@@ -641,7 +1055,8 @@ export function useUpdateUserHandler<TData = Awaited<ReturnType<typeof updateUse
 }
 
 /**
- * @summary Update a user's profile (name and/or email).
+ * @summary Update a user's profile (name and/or email). Only the fields present in the
+body are changed.
  */
 export const prefetchUpdateUserHandlerQuery = async <TData = Awaited<ReturnType<typeof updateUserHandler>>, TError = ErrorType<ErrorBody>>(
  queryClient: QueryClient, login: string,
@@ -846,8 +1261,8 @@ export const getAdminResetPasswordHandlerUrl = (login: string,) => {
 }
 
 /**
- * @summary Reset another user's password. Admin only — no current password required,
-so a forgotten password has a recovery path that isn't env surgery.
+ * @summary Reset another user's password. Admin only — no current password required, so
+a forgotten password has a recovery path that isn't env surgery.
  */
 export const adminResetPasswordHandler = async (login: string,
     adminResetPasswordRequest: AdminResetPasswordRequest, options?: Parameters<typeof customInstance>[1]): Promise<adminResetPasswordHandlerResponse> => {
@@ -930,8 +1345,8 @@ export function useAdminResetPasswordHandler<TData = Awaited<ReturnType<typeof a
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 /**
- * @summary Reset another user's password. Admin only — no current password required,
-so a forgotten password has a recovery path that isn't env surgery.
+ * @summary Reset another user's password. Admin only — no current password required, so
+a forgotten password has a recovery path that isn't env surgery.
  */
 
 export function useAdminResetPasswordHandler<TData = Awaited<ReturnType<typeof adminResetPasswordHandler>>, TError = ErrorType<ErrorBody>>(
@@ -948,8 +1363,8 @@ export function useAdminResetPasswordHandler<TData = Awaited<ReturnType<typeof a
 }
 
 /**
- * @summary Reset another user's password. Admin only — no current password required,
-so a forgotten password has a recovery path that isn't env surgery.
+ * @summary Reset another user's password. Admin only — no current password required, so
+a forgotten password has a recovery path that isn't env surgery.
  */
 export const prefetchAdminResetPasswordHandlerQuery = async <TData = Awaited<ReturnType<typeof adminResetPasswordHandler>>, TError = ErrorType<ErrorBody>>(
  queryClient: QueryClient, login: string,

@@ -96,10 +96,10 @@ export const getListAllFeedbackUrl = (params?: ListAllFeedbackParams,) => {
 }
 
 /**
- * @summary List feedback across every task the caller may read, newest first. The
-per-task endpoint answers "does this message have feedback"; this one
-answers "what has the fleet been told", which is why it filters by
-workspace, repository, source, surface, category, submitter, and age.
+ * The per-task endpoint answers "does this message have feedback"; this one
+ * answers "what has the fleet been told" — filterable by workspace,
+ * repository, source, surface, category, submitter, and age.
+ * @summary List feedback across every task the caller may read, newest first.
  */
 export const listAllFeedback = async (params?: ListAllFeedbackParams, options?: Parameters<typeof customInstance>[1]): Promise<listAllFeedbackResponse> => {
 
@@ -151,10 +151,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type ListAllFeedbackMutationVariables = {params?: ListAllFeedbackParams}
 
     /**
- * @summary List feedback across every task the caller may read, newest first. The
-per-task endpoint answers "does this message have feedback"; this one
-answers "what has the fleet been told", which is why it filters by
-workspace, repository, source, surface, category, submitter, and age.
+ * @summary List feedback across every task the caller may read, newest first.
  */
 export const useListAllFeedback = <TError = ErrorType<ErrorBody>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof listAllFeedback>>, TError,ListAllFeedbackMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
@@ -199,8 +196,8 @@ export const getCreateFeedbackUrl = () => {
 }
 
 /**
- * @summary Create a new feedback row scoped to a task (and optionally a message
-or tool call within that task).
+ * @summary Create a new feedback row scoped to a task (and optionally a message or tool
+call within that task).
  */
 export const createFeedback = async (createFeedbackRequest: CreateFeedbackRequest, options?: Parameters<typeof customInstance>[1]): Promise<createFeedbackResponse> => {
 
@@ -277,8 +274,8 @@ export function useCreateFeedback<TData = Awaited<ReturnType<typeof createFeedba
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 /**
- * @summary Create a new feedback row scoped to a task (and optionally a message
-or tool call within that task).
+ * @summary Create a new feedback row scoped to a task (and optionally a message or tool
+call within that task).
  */
 
 export function useCreateFeedback<TData = Awaited<ReturnType<typeof createFeedback>>, TError = ErrorType<ErrorBody>>(
@@ -294,8 +291,8 @@ export function useCreateFeedback<TData = Awaited<ReturnType<typeof createFeedba
 }
 
 /**
- * @summary Create a new feedback row scoped to a task (and optionally a message
-or tool call within that task).
+ * @summary Create a new feedback row scoped to a task (and optionally a message or tool
+call within that task).
  */
 export const prefetchCreateFeedbackQuery = async <TData = Awaited<ReturnType<typeof createFeedback>>, TError = ErrorType<ErrorBody>>(
  queryClient: QueryClient, createFeedbackRequest: CreateFeedbackRequest, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof createFeedback>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}

@@ -9,9 +9,8 @@
 /**
  * POST /api/v1/auth/pairing-codes response.
  *
- * The code is readable here and nowhere else — only its hash is stored — so a
- * caller that loses this response asks for another code rather than recovering
- * this one.
+ * The code is readable only here — only its hash is stored — so a caller that
+ * loses it must request a new code.
  */
 export interface PairingCodeResponse {
   /** The code to type into the client being paired. */

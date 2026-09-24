@@ -9,8 +9,8 @@ import type { ManagedCommandState } from './managedCommandState';
 
 /**
  * One long-running command the agent registered through `moat cmd`. The
- * sandbox owns the process, so it is the only work that defers the idle
- * reaper — a process forked any other way never appears here.
+ * sandbox owns the process, so it is the only work that defers the idle reaper
+ * — a process forked any other way never appears here.
  */
 export interface ManagedCommand {
   command: string;

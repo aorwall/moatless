@@ -1,38 +1,18 @@
 use async_trait::async_trait;
-use futures::stream::BoxStream;
 use moatless_types::sandbox::LiveStatus;
 use moatless_types::sandbox::SandboxDesiredState;
 use moatless_types::sandbox::SandboxError;
 use moatless_types::sandbox::SandboxStatus;
-use moatless_types::sandbox::ServerEntry;
 use moatless_types::task::TaskStatus;
 
-#[derive(Debug, Clone, Copy)]
-pub struct LogOptions {
-    pub previous: bool,
-    pub follow: bool,
-    pub tail_lines: i64,
-}
-
-impl Default for LogOptions {
-    fn default() -> Self {
-        Self {
-            previous: false,
-            follow: true,
-            tail_lines: 500,
-        }
-    }
-}
-
-/// The narrowed sandbox status the T3 contract observer returns: the two fields
-/// the T3 surface was designed for.
+/// The narrowed sandbox status the T3 contract observer returns: the field the
+/// T3 surface was designed for.
 ///
 /// Distinct from the wire response body `SandboxStatusFullResponse`, which the
 /// backend projects down to this. See `t3code::projection`.
 #[derive(Debug, Clone)]
 pub struct ContractSandboxStatus {
     pub sandbox_status: SandboxStatus,
-    pub servers: Vec<ServerEntry>,
 }
 
 /// A Task's sandbox beyond its lifecycle state: what the T3 sandbox panel shows
@@ -89,8 +69,6 @@ pub struct SandboxRuntimeEvent {
     pub last_timestamp: Option<String>,
 }
 
-pub type ServerLogStream = BoxStream<'static, Result<String, SandboxError>>;
-
 #[async_trait]
 pub trait SandboxObserver: Send + Sync {
     async fn sandbox_status(
@@ -101,7 +79,7 @@ pub trait SandboxObserver: Send + Sync {
     ) -> Result<ContractSandboxStatus, SandboxError>;
 
     /// The wider read behind the T3 sandbox panel, from the same backend
-    /// response [`Self::sandbox_status`] narrows to two fields.
+    /// response [`Self::sandbox_status`] narrows to one field.
     async fn detail(
         &self,
         task_id: &str,
@@ -115,11 +93,4 @@ pub trait SandboxObserver: Send + Sync {
         task_status: TaskStatus,
         desired_state: SandboxDesiredState,
     ) -> Result<LiveStatus, SandboxError>;
-
-    async fn server_logs(
-        &self,
-        task_id: &str,
-        server_name: &str,
-        options: LogOptions,
-    ) -> Result<ServerLogStream, SandboxError>;
 }

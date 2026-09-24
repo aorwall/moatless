@@ -98,7 +98,6 @@ pub(super) fn workspace(id: &str, name: &str) -> UiRpcListedWorkspace {
             system_prompt: None,
             setup_commands: None,
             env_vars: None,
-            servers: None,
             scripts: None,
             resources: None,
             network_profile: None,

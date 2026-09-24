@@ -121,10 +121,8 @@ mod tests {
             repo_config: RepoConfig {
                 name: "test-repo".to_string(),
                 docker_image: None,
-                servers: None,
                 system_prompt: None,
                 code_execution: None,
-                preview_config: None,
                 resources: (pvc.is_some() || s3.is_some()).then(|| ResourceConfig {
                     pvc_enabled: pvc,
                     s3_enabled: s3,

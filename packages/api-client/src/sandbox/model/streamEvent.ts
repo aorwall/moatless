@@ -10,8 +10,8 @@ import type { EventType } from './eventType';
 /**
  * SSE event envelope — the shape of events streamed to the frontend.
  *
- * This is the canonical wire format for all SSE events. The frontend
- * receives this shape and dispatches on `event_type` + `sub_type`.
+ * The canonical wire format for all SSE events; the frontend dispatches on
+ * `event_type` + `sub_type`.
  */
 export interface StreamEvent {
   /** @nullable */
@@ -19,8 +19,8 @@ export interface StreamEvent {
   /**
      * What this event says about whether the agent is working, if anything.
      *
-     * Absent means *this event does not say*, so the client leaves whatever it
-     * last knew alone. It never means "not working". See [`agent_working`].
+     * Absent means *this event does not say* (client keeps its last known
+     * value), never "not working". See [`agent_working`].
      * @nullable
      */
   agentWorking?: boolean | null;

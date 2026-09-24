@@ -17,7 +17,8 @@ export interface UiToolResult {
   isError?: boolean | null;
   toolUseId: string;
   /**
-     * Typed tool result from SDK (e.g., `BashToolUseResult`, `ReadToolUseResult`).
+     * Typed tool result from SDK (e.g., `BashToolUseResult`,
+     * `ReadToolUseResult`).
      * @nullable
      */
   typedResult?: UiToolResultTypedResult;

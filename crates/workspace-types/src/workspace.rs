@@ -1,9 +1,9 @@
 //! Workspace vocabulary: the composition and run configuration a Workspace
-//! carries — its scripts, preview servers, container sizing, and the providers
+//! carries — its scripts, container sizing, and the providers
 //! whose credential can be pinned to it.
 //!
 //! Every string field that is really a value (CPU/memory quantity, storage
-//! medium, env-var name, port) is parsed at deserialization, strictly — an
+//! medium, env-var name) is parsed at deserialization, strictly — an
 //! unrecognised value fails the whole decode instead of becoming a default —
 //! and serialized keeping the original spelling, so persisted JSON round-trips
 //! byte for byte.
@@ -13,7 +13,6 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::fmt;
-use std::num::NonZeroU16;
 use std::str::FromStr;
 
 use chrono::{DateTime, Utc};
@@ -68,7 +67,7 @@ pub enum WorkspaceIcon {
 /// Task runs against.
 ///
 /// Run-config fields stay `Option` to keep "unset" apart from "empty": a
-/// Workspace declaring no servers differs from one declaring an empty list,
+/// Workspace declaring no scripts differs from one declaring an empty list,
 /// reaching the frontend as `null` vs `[]`.
 #[derive(Debug, Clone)]
 pub struct Workspace {
@@ -84,7 +83,6 @@ pub struct Workspace {
     pub system_prompt: Option<String>,
     pub setup_commands: Option<Vec<String>>,
     pub env_vars: Option<HashMap<String, String>>,
-    pub servers: Option<Vec<ServerConfig>>,
     /// Named commands run on demand in the sandbox.
     pub scripts: Option<Vec<ScriptConfig>>,
     pub resources: Option<ResourceConfig>,
@@ -161,7 +159,7 @@ pub const WORKSPACE_LIMIT_ENV: &str = "SANDBOX_WORKSPACE_LIMIT";
 ///
 /// `WORKSPACE_REPOS` carries these primary first. Each is cloned into
 /// `{WORKSPACE_DIR}/{mount_name}`; the primary supplies the sandbox's `repo_dir`
-/// for git, files, setup commands, and preview servers.
+/// for git, files, and setup commands.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
@@ -182,7 +180,7 @@ pub struct RepoCheckout {
     /// Subdirectory under `WORKSPACE_DIR` this repo is cloned into. Always a
     /// single safe path segment (see [`sanitize_mount_name`]).
     pub mount_name: String,
-    /// The "main" repo: diff, PR, `AGENTS.md`, setup commands, servers.
+    /// The "main" repo: diff, PR, `AGENTS.md`, setup commands.
     #[serde(default)]
     pub is_primary: bool,
 }
@@ -551,119 +549,6 @@ crate::string_enum!(
 );
 
 // =============================================================================
-// EnvKey / EnvVars
-// =============================================================================
-
-/// An environment-variable name that satisfies the POSIX grammar:
-/// `[A-Za-z_][A-Za-z0-9_]*`.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
-#[serde(transparent)]
-pub struct EnvKey(String);
-
-impl EnvKey {
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-impl fmt::Display for EnvKey {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.0)
-    }
-}
-
-impl FromStr for EnvKey {
-    type Err = String;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        let mut chars = value.chars();
-        let valid = match chars.next() {
-            Some(first) if first.is_ascii_alphabetic() || first == '_' => {
-                chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
-            }
-            _ => false,
-        };
-        if valid {
-            Ok(Self(value.to_string()))
-        } else {
-            Err(format!(
-                "Invalid environment variable name '{value}'. Must match [A-Za-z_][A-Za-z0-9_]*"
-            ))
-        }
-    }
-}
-
-impl<'de> Deserialize<'de> for EnvKey {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let raw = String::deserialize(deserializer)?;
-        raw.parse().map_err(de::Error::custom)
-    }
-}
-
-/// Environment overrides for one container, ordered by name.
-///
-/// The order is deterministic so a generated pod spec doesn't churn between two
-/// provisions of the same config.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct EnvVars(BTreeMap<EnvKey, String>);
-
-impl EnvVars {
-    pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
-
-    pub fn len(&self) -> usize {
-        self.0.len()
-    }
-
-    pub fn iter(&self) -> impl Iterator<Item = (&EnvKey, &String)> {
-        self.0.iter()
-    }
-}
-
-impl FromIterator<(EnvKey, String)> for EnvVars {
-    fn from_iter<T: IntoIterator<Item = (EnvKey, String)>>(iter: T) -> Self {
-        Self(iter.into_iter().collect())
-    }
-}
-
-impl<'a> IntoIterator for &'a EnvVars {
-    type Item = (&'a EnvKey, &'a String);
-    type IntoIter = std::collections::btree_map::Iter<'a, EnvKey, String>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.0.iter()
-    }
-}
-
-// =============================================================================
-// Port
-// =============================================================================
-
-/// A TCP port a preview server listens on. Zero is not a port, so an
-/// unallocated server carries `None` rather than a sentinel.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct Port(NonZeroU16);
-
-impl Port {
-    pub fn new(port: u16) -> Option<Self> {
-        NonZeroU16::new(port).map(Self)
-    }
-
-    pub fn get(self) -> u16 {
-        self.0.get()
-    }
-}
-
-impl fmt::Display for Port {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0.get())
-    }
-}
-
-// =============================================================================
 // ResourceConfig
 // =============================================================================
 
@@ -687,10 +572,6 @@ impl ResourceQuantities {
 }
 
 /// Resource and storage configuration for a sandbox, consumed by every runtime.
-///
-/// The same shape serves the workspace-wide block and a per-server override;
-/// only `requests`/`limits` are meaningful per server, the storage fields stay
-/// workspace-wide.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ResourceConfig {
@@ -720,47 +601,6 @@ pub struct ResourceConfig {
     /// [`StorageMedium::Node`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub docker_storage_mode: Option<StorageMedium>,
-}
-
-// =============================================================================
-// ServerConfig
-// =============================================================================
-
-/// One preview server declared by a workspace.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ServerConfig {
-    pub name: String,
-    #[serde(default)]
-    pub label: Option<String>,
-    /// `None` until a port is allocated — see `assign_missing_ports`.
-    #[serde(default)]
-    pub port: Option<Port>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub start_commands: Vec<String>,
-    #[serde(default)]
-    pub startup_timeout_seconds: Option<u32>,
-    #[serde(default)]
-    pub auto_reload: bool,
-    #[serde(default)]
-    pub enable_inspector: bool,
-    #[serde(default)]
-    pub default: bool,
-    /// Per-server image. Falls back to the workspace image, then the sandbox
-    /// image. An empty string reads as unset.
-    #[serde(default, deserialize_with = "empty_string_as_none")]
-    pub docker_image: Option<String>,
-    #[serde(default, skip_serializing_if = "EnvVars::is_empty")]
-    pub env_vars: EnvVars,
-    /// Per-server requests/limits. Falls back to the workspace-wide block.
-    #[serde(default)]
-    pub resources: Option<ResourceConfig>,
-}
-
-fn empty_string_as_none<'de, D: Deserializer<'de>>(
-    deserializer: D,
-) -> Result<Option<String>, D::Error> {
-    Ok(Option::<String>::deserialize(deserializer)?.filter(|s| !s.is_empty()))
 }
 
 #[cfg(test)]
@@ -851,39 +691,6 @@ mod run_config_tests {
     }
 
     #[test]
-    fn env_keys_follow_the_posix_grammar() {
-        for json in [r#""PATH""#, r#""_private""#, r#""a1_B2""#] {
-            round_trip::<EnvKey>(json);
-        }
-        for json in [r#""1ABC""#, r#""WITH-DASH""#, r#""WITH SPACE""#, r#""""#] {
-            assert!(
-                serde_json::from_str::<EnvKey>(json).is_err(),
-                "{json} must be rejected"
-            );
-        }
-    }
-
-    #[test]
-    fn env_vars_serialize_in_name_order() {
-        let vars: EnvVars = serde_json::from_str(r#"{"ZED":"3","ALPHA":"1","MID":"2"}"#)
-            .expect("deserialize EnvVars");
-        assert_eq!(
-            serde_json::to_string(&vars).expect("serialize"),
-            r#"{"ALPHA":"1","MID":"2","ZED":"3"}"#
-        );
-        assert_eq!(vars.len(), 3);
-    }
-
-    #[test]
-    fn a_port_is_never_zero() {
-        assert_eq!(round_trip::<Port>("3000").get(), 3000);
-        assert!(serde_json::from_str::<Port>("0").is_err());
-        assert!(serde_json::from_str::<Port>("70000").is_err());
-        assert_eq!(Port::new(0), None);
-        assert_eq!(Port::new(8080).map(Port::get), Some(8080));
-    }
-
-    #[test]
     fn resource_config_round_trips_without_changing_its_json() {
         let json = r#"{"requests":{"cpu":"500m","memory":"1Gi"},"limits":{"cpu":"4","memory":"8Gi"},"storage":"20Gi","pvcEnabled":true,"s3Enabled":false,"dockerStorage":"30Gi","dockerStorageMode":"node"}"#;
         let config: ResourceConfig = round_trip(json);
@@ -921,42 +728,6 @@ mod run_config_tests {
         assert!(
             serde_json::from_str::<ResourceConfig>(r#"{"dockerStorageMode":"tmpfs"}"#).is_err()
         );
-    }
-
-    #[test]
-    fn server_config_round_trips_without_changing_its_json() {
-        let json = r#"{"name":"web","label":"Web","port":3000,"startCommands":["bun run dev"],"startupTimeoutSeconds":90,"autoReload":true,"enableInspector":true,"default":true,"dockerImage":"node:24","envVars":{"MODE":"dev"},"resources":{"limits":{"memory":"2Gi"}}}"#;
-        let server: ServerConfig = round_trip(json);
-        assert_eq!(server.port.map(Port::get), Some(3000));
-        assert_eq!(server.start_commands, vec!["bun run dev".to_string()]);
-        assert_eq!(server.env_vars.len(), 1);
-    }
-
-    #[test]
-    fn a_minimal_server_config_uses_domain_defaults() {
-        let server: ServerConfig =
-            serde_json::from_str(r#"{"name":"files","port":4000}"#).expect("deserialize");
-        assert_eq!(server.name, "files");
-        assert_eq!(server.port.map(Port::get), Some(4000));
-        assert!(!server.default);
-        assert!(server.start_commands.is_empty());
-        assert!(server.env_vars.is_empty());
-        assert!(server.resources.is_none());
-    }
-
-    #[test]
-    fn a_server_without_a_port_carries_none_rather_than_zero() {
-        let server: ServerConfig =
-            serde_json::from_str(r#"{"name":"files"}"#).expect("deserialize");
-        assert_eq!(server.port, None);
-        assert!(serde_json::from_str::<ServerConfig>(r#"{"name":"files","port":0}"#).is_err());
-    }
-
-    #[test]
-    fn an_empty_docker_image_reads_as_unset() {
-        let server: ServerConfig =
-            serde_json::from_str(r#"{"name":"web","dockerImage":""}"#).expect("deserialize");
-        assert_eq!(server.docker_image, None);
     }
 }
 
@@ -1096,30 +867,5 @@ mod tests {
             checkout.dir("/opt/moatless/workspace/"),
             "/opt/moatless/workspace/service"
         );
-    }
-}
-
-/// A live override of one preview server's start command and env. Callers send
-/// the complete state; the sandbox replaces it without merging.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "camelCase")]
-pub struct ServerOverride {
-    /// Replaces the configured start command; `None` uses the workspace
-    /// command.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub start_command: Option<String>,
-    /// Applied after the configured server environment, so these values win.
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub env: BTreeMap<String, String>,
-    /// Removes variables injected through the container spec; sourcing an env
-    /// file cannot unset them.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub unset_env: Vec<String>,
-}
-
-impl ServerOverride {
-    pub fn is_empty(&self) -> bool {
-        self.start_command.is_none() && self.env.is_empty() && self.unset_env.is_empty()
     }
 }

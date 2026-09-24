@@ -131,9 +131,6 @@ impl RuntimeOutcome {
 /// rebuild-on-image-change, create-missing, heal-network, and
 /// replace-terminal-pod — a failed pod is never reported as indefinitely
 /// Initializing.
-///
-/// Build every server container from `ServerConfig`. Do not hardcode a server
-/// name or a port outside its explicit config parsing.
 #[async_trait]
 pub trait SandboxRuntime: Send + Sync {
     /// Ensure the sandbox is running from a fresh plan (start / reconcile
@@ -292,7 +289,6 @@ mod tests {
                 code: "storage_degraded".into(),
                 message: "pvc failed, ephemeral fallback".into(),
             }],
-            server_failures: vec![],
         };
         let outcome =
             RuntimeOutcome::applied(ObservedStatus::Starting).with_diagnostics(diags.clone());

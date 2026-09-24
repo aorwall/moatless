@@ -1,8 +1,7 @@
 //! Contracts published by the sandbox domain.
 
 pub use moatless_types::sandbox::{
-    AgentStatus, LiveStatus, ProviderKind, SandboxError, SandboxStatus, ServerCapabilities,
-    ServerEntry, ServerStatus,
+    AgentStatus, LiveStatus, ProviderKind, SandboxError, SandboxStatus,
 };
 pub use moatless_types::sandbox::{ArchiveRetention, SandboxDesiredState, SandboxStopReason};
 pub use moatless_types::task::{CheckoutMode, Task, TaskStatus};
@@ -10,8 +9,7 @@ pub use moatless_workspace_types::repository::Repository;
 
 mod observation;
 pub use observation::{
-    ContractSandboxStatus, LogOptions, SandboxContainer, SandboxDetail, SandboxObserver,
-    SandboxRuntimeEvent, ServerLogStream,
+    ContractSandboxStatus, SandboxContainer, SandboxDetail, SandboxObserver, SandboxRuntimeEvent,
 };
 
 mod lifecycle;

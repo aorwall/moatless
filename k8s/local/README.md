@@ -133,7 +133,7 @@ Open `http://moatless.localhost`, sign in at `/login`, and you are in.
 - **Create a repository without a provider.** The seeded "Moatable" repo sets
   `provider: Github`, which trips the GitHub-token preflight and errors the task
   before any pod is created — even for a public, anonymously clonable repo. Create
-  one omitting `provider` and passing `servers` explicitly:
+  one omitting `provider`:
 
   ```bash
   # Log in once and reuse the session cookie, exactly as the browser does.
@@ -145,7 +145,7 @@ Open `http://moatless.localhost`, sign in at `/login`, and you are in.
   curl -X POST -H 'Host: moatless.localhost' -H 'Content-Type: application/json' \
     -H "Cookie: $COOKIE" \
     localhost/api/v1/repositories \
-    -d '{"name":"local-smoke","remoteUrl":"https://github.com/aorwall/moatable","defaultBranch":"main","kind":"remote","servers":[]}'
+    -d '{"name":"local-smoke","remoteUrl":"https://github.com/aorwall/moatable","defaultBranch":"main","kind":"remote"}'
   ```
 
   The clone URL field is `remoteUrl` (not `git_url`), and `kind` is required. Omit

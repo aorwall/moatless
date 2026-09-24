@@ -11,8 +11,8 @@
  */
 export interface MessageReactionResponse {
   /**
-     * Provider-specific reaction id, when the API returns one
-     * (e.g. GitHub reaction id, Linear reaction UUID).
+     * Provider-specific reaction id, when the API returns one (e.g. GitHub
+     * reaction id, Linear reaction UUID).
      * @nullable
      */
   externalId?: string | null;

@@ -80,12 +80,19 @@ export type graphqlPassthroughResponse200 = {
   status: 200
 }
 
+export type graphqlPassthroughResponse400 = {
+  data: ErrorBody
+  status: 400
+}
+
 export type graphqlPassthroughResponseSuccess = (graphqlPassthroughResponse200) & {
   headers: Headers;
 };
-;
+export type graphqlPassthroughResponseError = (graphqlPassthroughResponse400) & {
+  headers: Headers;
+};
 
-export type graphqlPassthroughResponse = (graphqlPassthroughResponseSuccess)
+export type graphqlPassthroughResponse = (graphqlPassthroughResponseSuccess | graphqlPassthroughResponseError)
 
 export const getGraphqlPassthroughUrl = (params?: GraphqlPassthroughParams,) => {
   const normalizedParams = new URLSearchParams();
@@ -132,7 +139,7 @@ export const getGraphqlPassthroughQueryKey = (linearGraphqlRequest?: LinearGraph
     }
 
 
-export const getGraphqlPassthroughQueryOptions = <TData = Awaited<ReturnType<typeof graphqlPassthrough>>, TError = ErrorType<unknown>>(linearGraphqlRequest: LinearGraphqlRequest,
+export const getGraphqlPassthroughQueryOptions = <TData = Awaited<ReturnType<typeof graphqlPassthrough>>, TError = ErrorType<ErrorBody>>(linearGraphqlRequest: LinearGraphqlRequest,
     params?: GraphqlPassthroughParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof graphqlPassthrough>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
 ) => {
 
@@ -152,10 +159,10 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 }
 
 export type GraphqlPassthroughQueryResult = NonNullable<Awaited<ReturnType<typeof graphqlPassthrough>>>
-export type GraphqlPassthroughQueryError = ErrorType<unknown>
+export type GraphqlPassthroughQueryError = ErrorType<ErrorBody>
 
 
-export function useGraphqlPassthrough<TData = Awaited<ReturnType<typeof graphqlPassthrough>>, TError = ErrorType<unknown>>(
+export function useGraphqlPassthrough<TData = Awaited<ReturnType<typeof graphqlPassthrough>>, TError = ErrorType<ErrorBody>>(
  linearGraphqlRequest: LinearGraphqlRequest,
     params: undefined |  GraphqlPassthroughParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof graphqlPassthrough>>, TError, TData>> & Pick<
         DefinedInitialDataOptions<
@@ -166,7 +173,7 @@ export function useGraphqlPassthrough<TData = Awaited<ReturnType<typeof graphqlP
       >, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
   ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-export function useGraphqlPassthrough<TData = Awaited<ReturnType<typeof graphqlPassthrough>>, TError = ErrorType<unknown>>(
+export function useGraphqlPassthrough<TData = Awaited<ReturnType<typeof graphqlPassthrough>>, TError = ErrorType<ErrorBody>>(
  linearGraphqlRequest: LinearGraphqlRequest,
     params?: GraphqlPassthroughParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof graphqlPassthrough>>, TError, TData>> & Pick<
         UndefinedInitialDataOptions<
@@ -177,13 +184,13 @@ export function useGraphqlPassthrough<TData = Awaited<ReturnType<typeof graphqlP
       >, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-export function useGraphqlPassthrough<TData = Awaited<ReturnType<typeof graphqlPassthrough>>, TError = ErrorType<unknown>>(
+export function useGraphqlPassthrough<TData = Awaited<ReturnType<typeof graphqlPassthrough>>, TError = ErrorType<ErrorBody>>(
  linearGraphqlRequest: LinearGraphqlRequest,
     params?: GraphqlPassthroughParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof graphqlPassthrough>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 
-export function useGraphqlPassthrough<TData = Awaited<ReturnType<typeof graphqlPassthrough>>, TError = ErrorType<unknown>>(
+export function useGraphqlPassthrough<TData = Awaited<ReturnType<typeof graphqlPassthrough>>, TError = ErrorType<ErrorBody>>(
  linearGraphqlRequest: LinearGraphqlRequest,
     params?: GraphqlPassthroughParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof graphqlPassthrough>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
@@ -196,7 +203,7 @@ export function useGraphqlPassthrough<TData = Awaited<ReturnType<typeof graphqlP
   return withQueryKey(query, queryOptions.queryKey);
 }
 
-export const prefetchGraphqlPassthroughQuery = async <TData = Awaited<ReturnType<typeof graphqlPassthrough>>, TError = ErrorType<unknown>>(
+export const prefetchGraphqlPassthroughQuery = async <TData = Awaited<ReturnType<typeof graphqlPassthrough>>, TError = ErrorType<ErrorBody>>(
  queryClient: QueryClient, linearGraphqlRequest: LinearGraphqlRequest,
     params?: GraphqlPassthroughParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof graphqlPassthrough>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
 
@@ -556,10 +563,15 @@ export type updateIssueResponse400 = {
   status: 400
 }
 
+export type updateIssueResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+
 export type updateIssueResponseSuccess = (updateIssueResponse200) & {
   headers: Headers;
 };
-export type updateIssueResponseError = (updateIssueResponse400) & {
+export type updateIssueResponseError = (updateIssueResponse400 | updateIssueResponse404) & {
   headers: Headers;
 };
 
@@ -710,10 +722,15 @@ export type createCommentResponse400 = {
   status: 400
 }
 
+export type createCommentResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+
 export type createCommentResponseSuccess = (createCommentResponse200) & {
   headers: Headers;
 };
-export type createCommentResponseError = (createCommentResponse400) & {
+export type createCommentResponseError = (createCommentResponse400 | createCommentResponse404) & {
   headers: Headers;
 };
 
@@ -864,10 +881,15 @@ export type mutateLabelResponse400 = {
   status: 400
 }
 
+export type mutateLabelResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+
 export type mutateLabelResponseSuccess = (mutateLabelResponse200) & {
   headers: Headers;
 };
-export type mutateLabelResponseError = (mutateLabelResponse400) & {
+export type mutateLabelResponseError = (mutateLabelResponse400 | mutateLabelResponse404) & {
   headers: Headers;
 };
 
@@ -1018,10 +1040,15 @@ export type relateIssueResponse400 = {
   status: 400
 }
 
+export type relateIssueResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+
 export type relateIssueResponseSuccess = (relateIssueResponse200) & {
   headers: Headers;
 };
-export type relateIssueResponseError = (relateIssueResponse400) & {
+export type relateIssueResponseError = (relateIssueResponse400 | relateIssueResponse404) & {
   headers: Headers;
 };
 
