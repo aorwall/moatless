@@ -85,13 +85,16 @@ pub struct Conversation {
     /// `0` for a Task with no Sandbox row, which can be running nothing.
     pub running_commands: i32,
 
-    /// When a person last wrote. Counts only `message_type = 'user'` rows —
-    /// this backend's predicate for a person's message, since the agent's own
-    /// `user`-role tool results are persisted as `system`.
+    /// When a person last wrote: the newest `user` row that is not a sandbox
+    /// wake (`HARNESS_USER_TYPE`); the agent's tool results are `system`.
     ///
-    /// `tasks.last_message_at` is the wrong stored value to use instead: it
-    /// also advances when the agent finishes, stops, or errors.
+    /// Not `tasks.last_message_at`: that also advances when the agent
+    /// finishes, stops, or errors.
     pub latest_user_message_at: Option<DateTime<Utc>>,
+
+    /// The newest `user` row including sandbox wakes: what running state
+    /// reads, since a queued wake owes a turn as much as a person's message.
+    pub latest_queued_message_at: Option<DateTime<Utc>>,
 
     /// The model the newest Turn's agent replies reported they were produced
     /// by, newest first. `None` until something comes back.
@@ -680,6 +683,7 @@ impl PgConversationDao {
                    WHERE"
             ),
         };
+        let harness = moatless_types::message::HARNESS_USER_TYPE;
         let sql = format!(
             r#"WITH listed AS MATERIALIZED (
                    SELECT t.*, tf.settled_override, tf.settled_at, tf.snoozed_until, tf.snoozed_at
@@ -708,6 +712,7 @@ impl PgConversationDao {
                    s.desired_state_updated_at AS sandbox_updated_at,
                    COALESCE(s.running_commands, 0) AS running_commands,
                    person.latest_user_message_at,
+                   queued.latest_queued_message_at,
                    model.assistant_model,
                    model.requested_model,
                    COALESCE(pending.question, false) AS pending_question,
@@ -739,9 +744,18 @@ impl PgConversationDao {
                    FROM task_messages m
                    WHERE m.task_id = t.task_id
                      AND m.message_type = 'user'
+                     AND m.user_type <> '{harness}'
                    ORDER BY m.created_at DESC
                    LIMIT 1
                ) person ON TRUE
+               LEFT JOIN LATERAL (
+                   SELECT m.created_at AS latest_queued_message_at
+                   FROM task_messages m
+                   WHERE m.task_id = t.task_id
+                     AND m.message_type = 'user'
+                   ORDER BY m.created_at DESC
+                   LIMIT 1
+               ) queued ON TRUE
                -- UNCERTAIN: `task_messages."timestamp"` is `text`, so every
                -- ORDER BY below is a lexicographic sort standing in for a
                -- chronological one. It holds only while the format is uniform
@@ -1202,6 +1216,7 @@ impl ConversationDao for PgConversationDao {
         // exists to avoid, and here a drift is a disclosure rather than a
         // missing row.
         let open = TaskStatus::Open.as_str();
+        let harness = moatless_types::message::HARNESS_USER_TYPE;
         let access = moatless_core::db::access_control::access_filter(ScopedEntity::Task, "t.", 1);
         let follower = access.next_param();
         let pattern = follower + 1;
@@ -1231,6 +1246,8 @@ impl ConversationDao for PgConversationDao {
                    FROM listed t
                    JOIN task_messages m ON m.task_id = t.task_id
                    WHERE m.parent_uuid IS NULL
+                     -- A harness wake is in no conversation to jump to.
+                     AND m.user_type <> '{harness}'
                      AND m.message_text ILIKE ${pattern} ESCAPE '\'
                    UNION ALL
                    -- A name match, which the reference server has no equivalent

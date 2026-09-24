@@ -9,7 +9,7 @@ use std::collections::{HashMap, HashSet};
 use moatless_api_schemas::codex::{CodexToolInput, CodexToolResult};
 
 use super::contexts::task_message_context_to_input;
-use super::models::{TOOL_RESPONSE_USER_TYPE, TaskMessage, TaskMessageContext};
+use super::models::{HARNESS_USER_TYPE, TOOL_RESPONSE_USER_TYPE, TaskMessage, TaskMessageContext};
 use crate::message::models::MessageType;
 use crate::task::schemas::{FileContextData, MessageContextInput};
 use crate::task_activities::dao::Activity;
@@ -218,6 +218,10 @@ fn transform_scoped(
                 // `ExitPlanMode`. The answer is already on screen as the outcome
                 // of the call that asked; rendering the carrier shows it twice.
                 if msg.user_type == TOOL_RESPONSE_USER_TYPE {
+                    continue;
+                }
+                // The sandbox waking its own agent; nobody said it.
+                if msg.user_type == HARNESS_USER_TYPE {
                     continue;
                 }
                 ui_messages.push(transform_user(msg, &msg_context_rows, file_metadata));

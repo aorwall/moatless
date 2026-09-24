@@ -6,7 +6,9 @@ use std::sync::Arc;
 
 use super::models::{TaskMessage, TaskMessageContext};
 use crate::message::dao::MessageDao;
-use crate::message::models::{MessageRole, MessageType, TOOL_RESPONSE_USER_TYPE};
+use crate::message::models::{
+    HARNESS_USER_TYPE, MessageRole, MessageType, TOOL_RESPONSE_USER_TYPE,
+};
 use crate::message::operations::Messages;
 use crate::task::dao::TaskDao;
 use crate::task::models::TaskPatch;
@@ -148,6 +150,7 @@ pub async fn enqueue_sandbox_message(
         // the last row's `resume` to decide whether the recovered turn rejoins
         // the previous agent session.
         resume: false,
+        user_type: HARNESS_USER_TYPE.to_string(),
         ..TaskMessage::new_user_message(task_id.to_string(), uuid, text.to_string(), now.clone())
     };
     messages
@@ -1077,6 +1080,12 @@ mod db_tests {
                 .await
                 .expect("enqueue")
                 .expect("a fresh wake is queued");
+        let row = messages
+            .find_by_uuid(&uuid)
+            .await
+            .expect("query")
+            .expect("the wake's row");
+        assert_eq!(row.user_type, HARNESS_USER_TYPE, "nobody said the wake");
 
         // Resending the same text is the retry of a call the pod could not
         // confirm; it must collapse onto the first row, not open a second turn.

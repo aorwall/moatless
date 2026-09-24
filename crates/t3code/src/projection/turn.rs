@@ -92,7 +92,7 @@ pub(super) fn running_inputs(
             .as_deref()
             .and_then(TurnStatus::parse),
         turn_ended_at: conversation.turn_ended_at,
-        latest_user_message_at: conversation.latest_user_message_at,
+        latest_user_message_at: conversation.latest_queued_message_at,
         agent: None,
     }
 }

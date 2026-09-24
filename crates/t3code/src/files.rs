@@ -481,6 +481,7 @@ mod tests {
             sandbox_started_at: None,
             sandbox_updated_at: None,
             latest_user_message_at: None,
+            latest_queued_message_at: None,
             assistant_model: None,
             requested_model: None,
             pending_question: false,

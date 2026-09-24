@@ -277,8 +277,24 @@ fn a_sandbox_coming_up_for_a_message_is_a_session_working() {
     assert_eq!(one_thread(&row)["session"]["status"], "ready");
 
     // Asked again, on a Sandbox that has to come up first.
-    row.latest_user_message_at = Some(Utc::now());
+    row.latest_queued_message_at = Some(Utc::now());
     assert_eq!(one_thread(&row)["session"]["status"], "running");
+}
+
+/// A sandbox wake owes a turn as much as a person's message does, but it is
+/// not the person writing.
+#[test]
+fn a_queued_wake_after_a_settled_turn_reads_as_running() {
+    let mut row = running_conversation("task-a", "ws-a");
+    let asked = Utc::now() - chrono::Duration::minutes(5);
+    row.latest_user_message_at = Some(asked);
+    row.turn_status = Some("completed".to_string());
+    row.turn_ended_at = Some(asked + chrono::Duration::minutes(1));
+    row.latest_queued_message_at = Some(Utc::now());
+
+    let thread = one_thread(&row);
+    assert_eq!(thread["session"]["status"], "running");
+    assert_eq!(thread["latestUserMessageAt"], nullable_instant(Some(asked)));
 }
 
 /// A turn that finished without recording when says nothing either way, and is

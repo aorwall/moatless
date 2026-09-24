@@ -4,6 +4,7 @@
 use super::contract::*;
 use super::fixtures::*;
 use super::*;
+use moatless_types::message::HARNESS_USER_TYPE;
 
 #[test]
 fn what_was_said_becomes_messages_and_what_was_done_becomes_activities() {
@@ -317,4 +318,30 @@ fn a_result_row_is_spoken_by_the_system() {
     assert_eq!(messages.len(), 1);
     assert_eq!(messages[0]["role"], "system");
     assert_eq!(messages[0]["text"], "Stopped after an error");
+}
+
+/// The sandbox waking its own agent is nobody speaking; the reply it prompted
+/// still shows.
+#[test]
+fn a_harness_wake_is_not_a_bubble() {
+    let conversation = transcript(
+        vec![
+            TranscriptMessage {
+                user_type: HARNESS_USER_TYPE.to_string(),
+                ..message(1, MessageType::User, "A background command has finished:")
+            },
+            message(2, MessageType::Assistant, "The build passed."),
+        ],
+        Vec::new(),
+    );
+    let spoken = detail(&conversation)["messages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|message| (message["role"].clone(), message["text"].clone()))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        spoken,
+        vec![(json!("assistant"), json!("The build passed."))]
+    );
 }

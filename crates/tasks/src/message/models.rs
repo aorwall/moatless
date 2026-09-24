@@ -27,6 +27,8 @@ pub use moatless_types::message::{MessageRole, MessageType};
 /// row silently.
 pub const TOOL_RESPONSE_USER_TYPE: &str = "tool_response";
 
+pub use moatless_types::message::HARNESS_USER_TYPE;
+
 // =============================================================================
 // Query shapes
 // =============================================================================
