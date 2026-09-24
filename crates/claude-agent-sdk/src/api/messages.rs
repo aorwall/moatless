@@ -418,6 +418,9 @@ pub struct ResultSuccess {
     pub is_error: bool,
     pub num_turns: u32,
     pub result: String,
+    /// This process's own cost, as `model_usage` is its own usage: the CLI
+    /// reports the Session's running totals, and the subprocess backend
+    /// subtracts the ones it resumed with. The tmux backend reports 0.0.
     pub total_cost_usd: f64,
     pub usage: Usage,
     #[serde(rename = "modelUsage")]
@@ -440,6 +443,7 @@ pub struct ResultError {
     pub duration_api_ms: u64,
     pub is_error: bool,
     pub num_turns: u32,
+    /// As [`ResultSuccess::total_cost_usd`].
     pub total_cost_usd: f64,
     pub usage: Usage,
     #[serde(rename = "modelUsage")]

@@ -14,6 +14,7 @@ use crate::error::{Result, SdkError};
 use crate::mcp::SdkMcpServer;
 use crate::protocol::orchestrator::Orchestrator;
 use crate::protocol::request_tracker::RequestTracker;
+use crate::session_cost::SessionCost;
 use crate::transport::{ChildStdinWriter, StdinWriter, SubprocessTransport};
 
 /// Channel capacity for the message stream.
@@ -213,6 +214,7 @@ pub async fn query(prompt: &str, mut options: ClaudeOptions) -> Result<QueryHand
     let sdk_mcp_server_names = extract_server_names(&sdk_mcp_servers);
 
     // 1. Spawn transport
+    let session_cost = SessionCost::restored(&options).await;
     let transport = SubprocessTransport::spawn(&options).await?;
     let stdin_writer: Arc<dyn StdinWriter> = Arc::new(ChildStdinWriter {
         inner: transport.stdin.clone(),
@@ -234,6 +236,7 @@ pub async fn query(prompt: &str, mut options: ClaudeOptions) -> Result<QueryHand
         sdk_mcp_servers,
         stdin_writer.clone(),
         cancellation_token.clone(),
+        session_cost,
     );
 
     // 4. Send initialize control request
@@ -353,6 +356,7 @@ pub async fn query_streaming(mut options: ClaudeOptions) -> Result<QueryHandle> 
     let sdk_mcp_server_names = extract_server_names(&sdk_mcp_servers);
 
     // 1. Spawn transport
+    let session_cost = SessionCost::restored(&options).await;
     let transport = SubprocessTransport::spawn(&options).await?;
     let stdin_writer: Arc<dyn StdinWriter> = Arc::new(ChildStdinWriter {
         inner: transport.stdin.clone(),
@@ -374,6 +378,7 @@ pub async fn query_streaming(mut options: ClaudeOptions) -> Result<QueryHandle> 
         sdk_mcp_servers,
         stdin_writer.clone(),
         cancellation_token.clone(),
+        session_cost,
     );
 
     // 4. Send initialize control request

@@ -17,6 +17,7 @@ mod tests {
     use crate::mcp::SdkMcpServer;
     use crate::protocol::orchestrator::Orchestrator;
     use crate::protocol::request_tracker::RequestTracker;
+    use crate::session_cost::SessionCost;
     use crate::transport::mock::{MockStdinWriter, MockTransport};
 
     /// Helper to spawn an orchestrator with mock transport and return the
@@ -65,6 +66,7 @@ mod tests {
                 sdk_mcp_servers,
                 Arc::new(stdin_writer),
                 cancel.clone(),
+                SessionCost::default(),
             );
 
             Self {
@@ -830,6 +832,7 @@ mod tests {
             None,
             Arc::new(stdin_writer),
             cancel.clone(),
+            SessionCost::default(),
         );
 
         // Drop the feeder to signal EOF

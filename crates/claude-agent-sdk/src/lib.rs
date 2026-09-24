@@ -54,6 +54,7 @@ pub mod query;
 pub mod tmux;
 
 mod protocol;
+mod session_cost;
 mod transcripts;
 mod transport;
 

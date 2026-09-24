@@ -126,7 +126,10 @@ pub struct ModelUsage {
     pub web_search_requests: u64,
     #[serde(rename = "costUSD")]
     pub cost_usd: f64,
+    // A transcript's `cost-state` line carries neither.
+    #[serde(default)]
     pub context_window: u64,
+    #[serde(default)]
     pub max_output_tokens: u64,
 }
 

@@ -91,7 +91,7 @@ pub(crate) async fn resolve_resume_target(
 }
 
 /// The most-recently-modified `*.jsonl` in `dir`, or None if there are none.
-async fn newest_transcript(dir: &Path) -> Option<PathBuf> {
+pub(crate) async fn newest_transcript(dir: &Path) -> Option<PathBuf> {
     let mut read = tokio::fs::read_dir(dir).await.ok()?;
     let mut newest: Option<(std::time::SystemTime, PathBuf)> = None;
     while let Ok(Some(entry)) = read.next_entry().await {

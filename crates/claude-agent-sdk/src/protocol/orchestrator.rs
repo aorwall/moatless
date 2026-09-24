@@ -14,6 +14,7 @@ use crate::api::messages::SdkMessage;
 use crate::api::permissions::{PermissionContext, PermissionHandler, PermissionResult};
 use crate::error::{Result, SdkError};
 use crate::mcp::SdkMcpServer;
+use crate::session_cost::SessionCost;
 use crate::transport::{StdinWriter, Transport};
 
 use super::request_tracker::{ControlErrorInfo, RequestTracker};
@@ -34,6 +35,7 @@ impl Orchestrator {
         sdk_mcp_servers: Option<HashMap<String, SdkMcpServer>>,
         stdin_writer: Arc<dyn StdinWriter>,
         cancellation_token: CancellationToken,
+        mut session_cost: SessionCost,
     ) -> JoinHandle<()> {
         tokio::spawn(async move {
             let result = Self::run_loop(
@@ -45,8 +47,10 @@ impl Orchestrator {
                 sdk_mcp_servers.as_ref(),
                 &stdin_writer,
                 &cancellation_token,
+                &mut session_cost,
             )
             .await;
+            session_cost.mark_exiting();
 
             if let Err(e) = &result {
                 if let SdkError::Cancelled = e {
@@ -73,6 +77,8 @@ impl Orchestrator {
 
             // Close the transport
             transport.close().await;
+            // Only now has the CLI written the `cost-state` a resume restores.
+            drop(session_cost);
 
             debug!(reason = shutdown_reason, "Orchestrator shutdown complete");
         })
@@ -88,6 +94,7 @@ impl Orchestrator {
         sdk_mcp_servers: Option<&HashMap<String, SdkMcpServer>>,
         stdin_writer: &Arc<dyn StdinWriter>,
         cancellation_token: &CancellationToken,
+        session_cost: &mut SessionCost,
     ) -> Result<()> {
         loop {
             let msg = tokio::select! {
@@ -104,7 +111,8 @@ impl Orchestrator {
 
             match msg {
                 RawStdoutMessage::Sdk(sdk_msg) => {
-                    let sdk_msg = *sdk_msg;
+                    let mut sdk_msg = *sdk_msg;
+                    session_cost.observe(&mut sdk_msg);
                     let is_result = matches!(&sdk_msg, SdkMessage::Result(_));
                     if message_tx.send(Ok(sdk_msg)).await.is_err() {
                         warn!("Consumer dropped — orchestrator exiting");
