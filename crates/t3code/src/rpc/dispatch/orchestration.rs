@@ -4,6 +4,7 @@ use super::routing::Request;
 use super::routing::ThreadRequest;
 use crate::authentication::viewer_scope;
 use crate::commands;
+use crate::dao::ArchiveCursor;
 use crate::dao::ConversationBrowse;
 use crate::projection;
 use crate::rpc::frames::failure_exit;
@@ -12,7 +13,7 @@ use crate::rpc::frames::success_exit;
 use crate::rpc::frames::typed_failure_exit;
 use crate::rpc::session::SEARCH_THREADS_LIMIT;
 use crate::rpc::session::SEARCH_THREADS_MIN_QUERY;
-use crate::snapshots::archived_shell_snapshot;
+use crate::snapshots::archived_shell_page;
 use crate::snapshots::browse_snapshot;
 use crate::snapshots::thread_shell;
 use serde_json::Value;
@@ -120,15 +121,29 @@ pub(super) fn orchestration_replay_events(request: Request) -> Vec<Value> {
     vec![success_exit(&request.id, json!([]))]
 }
 
+/// `before` is optional: a client that sends none gets the newest page.
 pub(super) async fn orchestration_get_archived_shell_snapshot(request: Request) -> Vec<Value> {
     let Request {
         id,
+        payload,
         state,
         identity,
         ..
     } = request;
     let viewer = viewer_scope(&identity);
-    match archived_shell_snapshot(&state.reads, &state.model_defaults, &viewer).await {
+    let before = match payload.get("before").and_then(Value::as_str) {
+        None => None,
+        Some(text) => match ArchiveCursor::decode(text) {
+            Some(cursor) => Some(cursor),
+            None => {
+                return vec![failure_exit(
+                    &id,
+                    "orchestration.getArchivedShellSnapshot: `before` is not a cursor it returned",
+                )];
+            }
+        },
+    };
+    match archived_shell_page(&state.reads, &state.model_defaults, &viewer, before).await {
         Ok(snapshot) => vec![success_exit(&id, snapshot)],
         Err(error) => vec![shell_failure_exit(&id, &error, &identity)],
     }

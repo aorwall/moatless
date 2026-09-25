@@ -292,16 +292,16 @@ pub trait ConversationDao: Send + Sync {
     /// its agent produces anything, so nothing running is hidden.
     async fn list_followed(&self, viewer: &ScopeContext) -> Result<Vec<Conversation>, sqlx::Error>;
 
-    /// The other half: every **closed** Task the viewer follows and may still
-    /// read, newest first.
+    /// The other half: the newest **closed** Tasks the viewer follows and may
+    /// still read, older than `before` when given — at most [`ARCHIVED_LIMIT`]
+    /// plus one, which a caller drops.
     ///
-    /// Closing is what T3 calls archiving. The follow and read rules are
-    /// unchanged from [`Self::list_followed`]; only the status rule inverts,
-    /// making the two listings a partition of what a person follows rather than
-    /// two independent queries.
+    /// Closing is what T3 calls archiving. Only the status rule inverts from
+    /// [`Self::list_followed`], so the two partition what a person follows.
     async fn list_followed_closed(
         &self,
         viewer: &ScopeContext,
+        before: Option<ArchiveCursor>,
     ) -> Result<Vec<Conversation>, sqlx::Error>;
 
     /// Every Task the viewer may **read** that `filter` names, newest first,
@@ -497,6 +497,64 @@ const FULL_LISTING_STATEMENT_TIMEOUT: &str = "5s";
 /// calling a complete 200-row list truncated.
 pub(crate) const BROWSE_LIMIT: i64 = 200;
 
+/// How many rows the archived listing returns: the newest. Unlike the open
+/// half, which shrinks as work closes, the archive only grows, so every close
+/// would otherwise add a row to every later read. Asked for plus one, as
+/// [`BROWSE_LIMIT`] is.
+pub(crate) const ARCHIVED_LIMIT: i64 = 200;
+
+/// Where an archive page resumes: the sort key of the last row the page
+/// before it returned, in the listing's `updated_at DESC NULLS LAST, task_id`
+/// order.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ArchiveCursor {
+    updated_at: Option<DateTime<Utc>>,
+    task_id: String,
+}
+
+impl ArchiveCursor {
+    /// The cursor resuming after `conversation`.
+    pub fn after(conversation: &Conversation) -> Self {
+        Self {
+            updated_at: conversation.updated_at,
+            task_id: conversation.task_id.clone(),
+        }
+    }
+
+    /// The opaque text a client echoes back: `<updated_at>|<task_id>`, the
+    /// time empty when absent. Microsecond precision, since that is what
+    /// Postgres stores and a coarser time would skip or repeat rows.
+    pub fn encode(&self) -> String {
+        let updated_at = self
+            .updated_at
+            .map(|at| at.to_rfc3339_opts(chrono::SecondsFormat::Micros, true))
+            .unwrap_or_default();
+        format!("{updated_at}|{}", self.task_id)
+    }
+
+    /// `None` for text [`Self::encode`] did not produce.
+    pub fn decode(text: &str) -> Option<Self> {
+        let (updated_at, task_id) = text.split_once('|')?;
+        if task_id.is_empty() {
+            return None;
+        }
+        let updated_at = match updated_at {
+            "" => None,
+            at => Some(DateTime::parse_from_rfc3339(at).ok()?.with_timezone(&Utc)),
+        };
+        Some(Self {
+            updated_at,
+            task_id: task_id.to_owned(),
+        })
+    }
+}
+
+/// A capped read: `cap` rows, newest first, after `before` when given.
+struct Page<'a> {
+    cap: i64,
+    before: Option<&'a ArchiveCursor>,
+}
+
 /// The statuses a conversation can be listed under: the sidebar and the archive
 /// together. A Task at any other status is in neither, and comes back absent
 /// from a re-read the same way one the viewer no longer follows does.
@@ -551,15 +609,11 @@ impl PgConversationDao {
         }
     }
 
-    /// The one listing query, at a set of statuses, optionally narrowed to a
-    /// set of Tasks.
+    /// The one listing query at a set of statuses, optionally narrowed to a set
+    /// of Tasks or a browse filter, and read a `page` at a time.
     ///
-    /// Narrowing is a `WHERE` clause on the same query, not a second one, since
-    /// the read and follow rules underneath must not drift — a live re-read
-    /// admitting a row the snapshot wouldn't is the same disclosure bug in slow
-    /// motion. `statuses` is a set because the two listings partition and the
-    /// feed's re-read spans both; `browse` is the third narrowing and, unlike
-    /// `task_ids`, caps the rows (see [`ConversationDao::list_browsable`]).
+    /// Every narrowing is a `WHERE` clause on this query, so the read and follow
+    /// rules cannot drift between a snapshot and a live re-read of it.
     async fn list(
         &self,
         viewer: &ScopeContext,
@@ -567,6 +621,7 @@ impl PgConversationDao {
         statuses: &[TaskStatus],
         task_ids: Option<&[String]>,
         browse: Option<&ConversationBrowse>,
+        page: Option<Page<'_>>,
     ) -> Result<Vec<Conversation>, sqlx::Error> {
         let full_listing = task_ids.is_none();
         // A browse takes the same permit, deliberately: it is the other read
@@ -653,18 +708,34 @@ impl PgConversationDao {
                 ));
             }
         }
-        let browsed = match browse {
-            None => String::new(),
-            // The cap is inside the CTE, which is also where the order it takes
-            // the newest rows by has to live: the outer `ORDER BY` runs after
-            // the laterals, and ordering there would cap an arbitrary set.
-            Some(_) => format!(
-                "\n                 {}\n                 ORDER BY t.updated_at DESC NULLS LAST, \
-                 t.task_id ASC LIMIT {}",
-                predicates.join("\n                 "),
-                BROWSE_LIMIT + 1
-            ),
-        };
+        // Keyset rather than `OFFSET`, so a Task closed between two pages
+        // shifts no row across the boundary. `-infinity` stands in for a NULL
+        // `updated_at`, which `NULLS LAST` sorts in the same place.
+        let before = page.as_ref().and_then(|page| page.before);
+        if before.is_some() {
+            let (at, id) = (param(), param());
+            predicates.push(format!(
+                "AND (COALESCE(t.updated_at, '-infinity') < COALESCE(${at}::timestamptz, '-infinity')
+                       OR (COALESCE(t.updated_at, '-infinity') = COALESCE(${at}::timestamptz, '-infinity')
+                           AND t.task_id > ${id}))"
+            ));
+        }
+        let predicates = predicates
+            .iter()
+            .flat_map(|predicate| ["\n                 ", predicate.as_str()])
+            .collect::<String>();
+        // The cap is inside the CTE, which is also where the order it takes the
+        // newest rows by has to live: the outer `ORDER BY` runs after the
+        // laterals, and ordering there would cap an arbitrary set.
+        let capped = page
+            .as_ref()
+            .map(|Page { cap, .. }| {
+                format!(
+                    "\n                 ORDER BY t.updated_at DESC NULLS LAST, \
+                     t.task_id ASC LIMIT {cap}"
+                )
+            })
+            .unwrap_or_default();
         // The follow rule is the join, so widening past it is the join kind and
         // nothing else: `${follower}` moves into the `ON` clause, leaving the
         // status rule, the read rule and the narrowing exactly as they are, at
@@ -688,7 +759,7 @@ impl PgConversationDao {
             r#"WITH listed AS MATERIALIZED (
                    SELECT t.*, tf.settled_override, tf.settled_at, tf.snoozed_until, tf.snoozed_at
                    {follows} t.status IN ({statuses})
-                     AND {}{narrowed}{browsed}
+                     AND {}{narrowed}{predicates}{capped}
                )
                SELECT
                    t.task_id,
@@ -923,6 +994,9 @@ impl PgConversationDao {
                 query = query.bind(tag);
             }
         }
+        if let Some(before) = before {
+            query = query.bind(before.updated_at).bind(before.task_id.clone());
+        }
         let result = match task_ids {
             Some(_) => query.fetch_all(&self.pool).await,
             None => {
@@ -1104,16 +1178,34 @@ impl PgConversationDao {
 #[async_trait]
 impl ConversationDao for PgConversationDao {
     async fn list_followed(&self, viewer: &ScopeContext) -> Result<Vec<Conversation>, sqlx::Error> {
-        self.list(viewer, Reach::Followed, &[TaskStatus::Open], None, None)
-            .await
+        self.list(
+            viewer,
+            Reach::Followed,
+            &[TaskStatus::Open],
+            None,
+            None,
+            None,
+        )
+        .await
     }
 
     async fn list_followed_closed(
         &self,
         viewer: &ScopeContext,
+        before: Option<ArchiveCursor>,
     ) -> Result<Vec<Conversation>, sqlx::Error> {
-        self.list(viewer, Reach::Followed, &[TaskStatus::Closed], None, None)
-            .await
+        self.list(
+            viewer,
+            Reach::Followed,
+            &[TaskStatus::Closed],
+            None,
+            None,
+            Some(Page {
+                cap: ARCHIVED_LIMIT + 1,
+                before: before.as_ref(),
+            }),
+        )
+        .await
     }
 
     async fn list_browsable(
@@ -1127,6 +1219,10 @@ impl ConversationDao for PgConversationDao {
             filter.statuses(),
             None,
             Some(filter),
+            Some(Page {
+                cap: BROWSE_LIMIT + 1,
+                before: None,
+            }),
         )
         .await
     }
@@ -1145,6 +1241,7 @@ impl ConversationDao for PgConversationDao {
             LISTED_STATUSES,
             Some(task_ids),
             None,
+            None,
         )
         .await
     }
@@ -1160,6 +1257,7 @@ impl ConversationDao for PgConversationDao {
                 Reach::Readable,
                 LISTED_STATUSES,
                 Some(&[task_id.to_string()]),
+                None,
                 None,
             )
             .await?
@@ -1180,6 +1278,7 @@ impl ConversationDao for PgConversationDao {
             Reach::Readable,
             LISTED_STATUSES,
             Some(task_ids),
+            None,
             None,
         )
         .await

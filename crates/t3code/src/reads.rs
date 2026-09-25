@@ -87,7 +87,9 @@ impl T3Reads {
 #[cfg(feature = "test-support")]
 mod refusal {
     use super::*;
-    use crate::dao::{Conversation, ConversationBrowse, ConversationMatch, InteractiveCall};
+    use crate::dao::{
+        ArchiveCursor, Conversation, ConversationBrowse, ConversationMatch, InteractiveCall,
+    };
     use crate::listing::UiRpcListingChange;
     use crate::transcript_dao::Transcript;
     use async_trait::async_trait;
@@ -158,8 +160,9 @@ mod refusal {
         async fn list_followed_closed(
             &self,
             viewer: &ScopeContext,
+            before: Option<ArchiveCursor>,
         ) -> Result<Vec<Conversation>, sqlx::Error> {
-            self.0.list_followed_closed(viewer).await
+            self.0.list_followed_closed(viewer, before).await
         }
 
         async fn list_browsable(

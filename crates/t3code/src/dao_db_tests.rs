@@ -744,3 +744,95 @@ async fn a_windowed_answer_reaches_the_plan_call_it_settles(pool: PgPool) {
         "the widened window is still oldest first"
     );
 }
+
+/// Seed closed Tasks `archived-{from}` to `archived-{to - 1}`, owned and so
+/// followed by `USER_1`, each a minute older than the one before it.
+async fn seed_archived(pool: &PgPool, from: i64, to: i64) {
+    for index in from..to {
+        let mut task = make_task_row(&format!("archived-{index:03}"), USER_1);
+        task.workspace_id = Some("ws-archive".to_string());
+        task.status = TaskStatus::Closed;
+        moatless_tasks::task::test_support::seed_task(pool, &task)
+            .await
+            .expect("seed task");
+    }
+    sqlx::query(
+        "UPDATE tasks SET updated_at = now() - substring(task_id FROM 10)::int * interval '1 minute'
+         WHERE task_id LIKE 'archived-%'",
+    )
+    .execute(pool)
+    .await
+    .expect("stagger updated_at");
+}
+
+/// The archive's cursor reaches every row past the first page, down to one
+/// with no `updated_at`, which sorts last.
+///
+/// A page filled exactly to the cap has no cursor: the extra row the query
+/// reads is only a signal.
+#[sqlx::test(migrations = "../core/migrations")]
+async fn the_archive_pages_through_every_closed_task_newest_first(pool: PgPool) {
+    let limit = crate::dao::ARCHIVED_LIMIT;
+    seed_archived(&pool, 0, limit).await;
+    let tasks = moatless_tasks::compose::task_graph(pool.clone());
+    let graph = crate::compose::t3_graph(pool.clone(), tasks.activities());
+    let defaults = crate::config::AgentModelDefaults::default();
+    let viewer = ScopeContext {
+        user_id: USER_1.to_string(),
+        is_admin: false,
+    };
+    let page = |before: Option<crate::dao::ArchiveCursor>| {
+        let (graph, defaults, viewer) = (&graph, &defaults, &viewer);
+        async move {
+            crate::snapshots::archived_shell_page(graph.reads(), defaults, viewer, before)
+                .await
+                .unwrap()
+        }
+    };
+    let ids = |snapshot: &serde_json::Value| -> Vec<String> {
+        snapshot["threads"]
+            .as_array()
+            .expect("threads")
+            .iter()
+            .map(|thread| thread["id"].as_str().expect("id").to_string())
+            .collect()
+    };
+
+    let full = page(None).await;
+    assert_eq!(ids(&full).len() as i64, limit);
+    assert_eq!(full["nextCursor"], serde_json::Value::Null);
+
+    seed_archived(&pool, limit, limit + 2).await;
+    let undated = format!("archived-{:03}", limit + 1);
+    sqlx::query("UPDATE tasks SET updated_at = NULL WHERE task_id = $1")
+        .bind(&undated)
+        .execute(&pool)
+        .await
+        .expect("clear updated_at");
+    let rows = conversations_over(&pool)
+        .list_followed_closed(&viewer, None)
+        .await
+        .unwrap();
+    assert_eq!(
+        rows.len() as i64,
+        limit + 1,
+        "the query stops one row past the cap"
+    );
+
+    let first = page(None).await;
+    let first_ids = ids(&first);
+    assert_eq!(first_ids.len() as i64, limit);
+    assert_eq!(first_ids.first().map(String::as_str), Some("archived-000"));
+    let cursor = first["nextCursor"].as_str().expect("a cursor past the cap");
+
+    let second = page(Some(
+        crate::dao::ArchiveCursor::decode(cursor).expect("the cursor decodes"),
+    ))
+    .await;
+    assert_eq!(
+        ids(&second),
+        vec![format!("archived-{limit:03}"), undated],
+        "the next page holds exactly the rows the first left out, undated last"
+    );
+    assert_eq!(second["nextCursor"], serde_json::Value::Null);
+}

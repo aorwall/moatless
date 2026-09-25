@@ -1,4 +1,5 @@
 use crate::config::AgentModelDefaults;
+use crate::dao::ArchiveCursor;
 use crate::dao::Conversation;
 use crate::dao::ConversationBrowse;
 use crate::dao::ConversationDao;
@@ -263,25 +264,41 @@ pub async fn browse_snapshot(
     }))
 }
 
-/// The archived half of the listing: closed conversations the viewer follows,
-/// under the same projects the live half carries.
-///
-/// Projects come whole, not narrowed: the client groups an archived row under a
-/// project it must already hold.
+/// The newest page of the archived half of the listing: see
+/// [`archived_shell_page`].
 pub async fn archived_shell_snapshot(
     reads: &T3Reads,
     defaults: &AgentModelDefaults,
     viewer: &ScopeContext,
 ) -> Result<Value, sqlx::Error> {
+    archived_shell_page(reads, defaults, viewer, None).await
+}
+
+/// One page of closed conversations the viewer follows, newest first.
+///
+/// At most [`crate::dao::ARCHIVED_LIMIT`], older than `before`; `nextCursor`
+/// resumes after the page and is `null` on the last. Projects come whole: the
+/// client groups an archived row under a project it must already hold.
+pub(crate) async fn archived_shell_page(
+    reads: &T3Reads,
+    defaults: &AgentModelDefaults,
+    viewer: &ScopeContext,
+    before: Option<ArchiveCursor>,
+) -> Result<Value, sqlx::Error> {
     let conversations = reads.conversations();
     let workspaces = reads.workspaces();
     let sequence = conversations.listing_head().await?.position;
     let workspaces = workspaces.list_readable_including(viewer, &[]).await?;
-    let archived = conversations.list_followed_closed(viewer).await?;
-    Ok(projection::shell_snapshot(
-        &workspaces,
-        &archived,
-        defaults,
-        sequence,
-    ))
+    let mut archived = conversations.list_followed_closed(viewer, before).await?;
+    let truncated = archived.len() as i64 > crate::dao::ARCHIVED_LIMIT;
+    archived.truncate(crate::dao::ARCHIVED_LIMIT as usize);
+    // Taken from the raw rows, as `truncated` is in `browse_snapshot`: a row
+    // projection drops still holds its place in the order.
+    let next_cursor = archived
+        .last()
+        .filter(|_| truncated)
+        .map(|last| ArchiveCursor::after(last).encode());
+    let mut snapshot = projection::shell_snapshot(&workspaces, &archived, defaults, sequence);
+    snapshot["nextCursor"] = json!(next_cursor);
+    Ok(snapshot)
 }
