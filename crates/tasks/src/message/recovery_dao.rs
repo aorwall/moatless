@@ -108,7 +108,8 @@ type InterruptedTurnRow = (
     Option<String>,
 );
 
-/// The Task's newest turn that never reached a terminal event.
+/// The Task's newest turn that it ran itself and that no terminal event, on it
+/// or a later turn, has closed.
 pub(crate) async fn find_interrupted_turn(
     pool: &DbPool,
     task_id: &str,
@@ -131,10 +132,17 @@ pub(crate) async fn find_interrupted_turn(
                  AND c.agent_session_id IS NOT NULL
                  AND c.agent_session_id <> ''
                  AND c.turn_number IS NOT NULL
+                 -- A fork copies user rows but not `task_turns`: without
+                 -- this, a copied turn reads as open in the fork forever.
+                 AND EXISTS (
+                   SELECT 1 FROM task_turns t
+                   WHERE t.task_id = c.task_id AND t.turn_number = c.turn_number
+                 )
+                 -- `>=`: a later turn that finished superseded this one.
                  AND NOT EXISTS (
                    SELECT 1 FROM task_events e
                    WHERE e.task_id = c.task_id
-                     AND e.turn_number = c.turn_number
+                     AND e.turn_number >= c.turn_number
                      AND (
                        (e.type = 'agent' AND e.sub_type IN ('completed', 'error', 'stopped'))
                        OR (e.type = 'taskTurn' AND e.sub_type IN ('completed', 'error', 'stopped'))

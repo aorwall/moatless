@@ -347,6 +347,7 @@ fn spawn_test_agent_in(
         Arc::clone(&system_prompt_cache),
         moatless_sandbox::agent::heartbeat::Heartbeat::new(),
         moatless_sandbox::workspace_sync::WorkspaceSyncTracker::new(),
+        moatless_sandbox::init::SetupGate::opened(),
     );
     late_injector.set(Box::new(handle.clone()));
 

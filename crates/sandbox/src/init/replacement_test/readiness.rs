@@ -6,13 +6,14 @@ use tokio_util::sync::CancellationToken;
 
 use super::backend::ReplayBackend;
 use super::support::{
-    interrupted_turn, recorded_inputs, recording_state, settled_inputs, text_message,
+    interrupted_turn, recorded_inputs, recording_state, recording_state_behind, settled_inputs,
+    text_message,
 };
 use crate::agent::dispatcher::dispatch_pending_messages;
 use crate::agent::prompt::{PendingPrompt, PromptResponse, PromptToolName};
 use crate::agent::types::ResumeSession;
 use crate::backend_client::BackendClient;
-use crate::init::{InitPhase, WorkspaceOrigin, open_for_work};
+use crate::init::{InitPhase, SetupGate, WorkspaceOrigin, open_for_work};
 
 /// True when `input` is the interrupted-run replay for the restored session.
 fn is_restored_recover(input: &crate::agent::harness::Input) -> bool {
@@ -374,5 +375,39 @@ async fn prompt_ack_failure_never_becomes_normal_input() {
     assert!(
         settled_inputs(&recorder).await.is_empty(),
         "shutdown during prompt-ack retry must not produce ordinary input"
+    );
+}
+
+#[tokio::test]
+async fn a_replayed_turn_waits_for_workspace_setup() {
+    // Setup runs after `open_for_work` has queued the replay. A turn that
+    // started then would race `bun install` for the dependencies it needs.
+    let backend = ReplayBackend::new(
+        Ok(vec![]),
+        Some(interrupted_turn(
+            "restored-sess",
+            "prior work",
+            Some("claude-code"),
+        )),
+    );
+    let setup_gate = SetupGate::closed();
+    let (state, recorder) =
+        recording_state_behind(setup_gate.clone(), InitPhase::Starting, backend.clone());
+
+    open_for_work(&state, WorkspaceOrigin::Persisted).await;
+
+    assert_eq!(backend.recover_calls(), 1, "the replay was queued");
+    assert!(
+        settled_inputs(&recorder).await.is_empty(),
+        "no turn may start while setup is running"
+    );
+
+    setup_gate.open();
+
+    let inputs = recorded_inputs(&recorder, 1).await;
+    assert_eq!(inputs.len(), 1);
+    assert!(
+        is_restored_recover(&inputs[0]),
+        "the replay ran once setup finished"
     );
 }

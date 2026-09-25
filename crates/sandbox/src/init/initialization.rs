@@ -87,6 +87,7 @@ pub(crate) async fn initialize(state: SandboxState) -> Result<(), InitError> {
     open_for_work(&state, workspace_origin).await;
 
     // Phase 2: Workspace setup — runs after health is 200
+    state.setup_gate.begin_setup();
     run_workspace_setup(&state).await;
 
     // Write workspace-ready sentinel AFTER setup commands complete (e.g. bun install).
@@ -96,6 +97,7 @@ pub(crate) async fn initialize(state: SandboxState) -> Result<(), InitError> {
     if let Err(e) = tokio::fs::write(&ready_path, "ready").await {
         warn!(error = %e, "Failed to write workspace-ready sentinel");
     }
+    state.setup_gate.open();
 
     info!(task_id = %state.config.task_id, "Workspace setup complete");
     Ok(())

@@ -12,6 +12,7 @@ mod models;
 pub(crate) mod plugin_skills;
 #[cfg(test)]
 mod replacement_test;
+mod setup_gate;
 mod workspace;
 
 /// Re-exported beside [`InitPhase`]: both are init outcomes `SandboxState`
@@ -22,3 +23,4 @@ pub(crate) use crate::agent::restart::{open_for_work, recover_interrupted_run_un
 pub use error::InitError;
 pub(crate) use initialization::initialize;
 pub use models::InitPhase;
+pub use setup_gate::SetupGate;

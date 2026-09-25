@@ -640,6 +640,7 @@ fn test_state(backend: Arc<dyn BackendClient>, dir: &tempfile::TempDir) -> Sandb
         Arc::clone(&system_prompt_cache),
         heartbeat.clone(),
         moatless_sandbox::workspace_sync::WorkspaceSyncTracker::new(),
+        moatless_sandbox::init::SetupGate::opened(),
     );
     let task_context = Arc::new(TaskContext::new(
         config.task_id.clone(),
@@ -670,6 +671,7 @@ fn test_state(backend: Arc<dyn BackendClient>, dir: &tempfile::TempDir) -> Sandb
         heartbeat,
         backend_client: backend,
         init_phase: Arc::new(RwLock::new(InitPhase::Ready)),
+        setup_gate: moatless_sandbox::init::SetupGate::opened(),
         workspace_origin: Default::default(),
         credentials,
         lifecycle_cancel,

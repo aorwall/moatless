@@ -23,7 +23,7 @@ use crate::config::test_support::minimal_config;
 use crate::credentials::Dispatcher;
 use crate::credentials::recovery::CredentialFailureDetector;
 use crate::events::GrpcEventPublisher;
-use crate::init::InitPhase;
+use crate::init::{InitPhase, SetupGate};
 use crate::outbox::EventOutbox;
 use crate::state::{SandboxState, TaskContext};
 
@@ -39,6 +39,7 @@ fn build_state(
     agent: Arc<AgentState>,
     agent_handle: AgentHandle,
     events: GrpcEventPublisher,
+    setup_gate: SetupGate,
 ) -> SandboxState {
     let scheduled_jobs = Arc::new(ScheduledJobRegistry::new(Arc::new(LateInjector::new())));
     let task_context = Arc::new(TaskContext::new(
@@ -71,6 +72,7 @@ fn build_state(
         workspace_sync: Default::default(),
         writer_admission: Default::default(),
         init_phase: Arc::new(RwLock::new(phase)),
+        setup_gate,
         workspace_origin: Default::default(),
         credentials: Arc::new(RwLock::new(HashMap::new())),
         lifecycle_cancel: CancellationToken::new(),
@@ -100,6 +102,7 @@ fn spawn_recording_agent(
     agent: Arc<AgentState>,
     events: GrpcEventPublisher,
     recorder: InputRecorder,
+    setup_gate: SetupGate,
 ) -> AgentHandle {
     let (agent_handle, command_rx) = AgentHandle::test_channel();
 
@@ -126,7 +129,7 @@ fn spawn_recording_agent(
         Arc::new(Dispatcher::new()),
         crate::workspace_sync::WorkspaceSyncTracker::new(),
     );
-    tokio::spawn(service.run(command_rx, Heartbeat::new()));
+    tokio::spawn(service.run_after(setup_gate, command_rx, Heartbeat::new()));
     agent_handle
 }
 
@@ -143,6 +146,18 @@ pub(super) fn recording_state(
     recording_state_with_config(config, phase, backend)
 }
 
+/// Like [`recording_state`] but behind `setup_gate`, as a pod is until its
+/// workspace setup has run.
+pub(super) fn recording_state_behind(
+    setup_gate: SetupGate,
+    phase: InitPhase,
+    backend: Arc<dyn BackendClient>,
+) -> (SandboxState, InputRecorder) {
+    let mut config = minimal_config();
+    config.agent_type = Some("claude-code".to_string());
+    recording_state_gated(config, phase, backend, setup_gate)
+}
+
 /// Like [`recording_state`] but over a caller-supplied `config` — used by the
 /// restore-then-replay lifecycle test, whose config points restore at
 /// inspectable tmp dirs.
@@ -150,6 +165,15 @@ pub(super) fn recording_state_with_config(
     config: Config,
     phase: InitPhase,
     backend: Arc<dyn BackendClient>,
+) -> (SandboxState, InputRecorder) {
+    recording_state_gated(config, phase, backend, SetupGate::opened())
+}
+
+fn recording_state_gated(
+    config: Config,
+    phase: InitPhase,
+    backend: Arc<dyn BackendClient>,
+    setup_gate: SetupGate,
 ) -> (SandboxState, InputRecorder) {
     let config = Arc::new(config);
 
@@ -162,9 +186,18 @@ pub(super) fn recording_state_with_config(
         Arc::clone(&agent),
         events.clone(),
         Arc::clone(&recorder),
+        setup_gate.clone(),
     );
 
-    let state = build_state(config, phase, backend, agent, agent_handle, events);
+    let state = build_state(
+        config,
+        phase,
+        backend,
+        agent,
+        agent_handle,
+        events,
+        setup_gate,
+    );
     (state, recorder)
 }
 
@@ -184,6 +217,7 @@ pub(super) async fn add_recording_member(state: &SandboxState, task_id: &str) ->
         Arc::clone(&agent),
         state.events.clone(),
         Arc::clone(&recorder),
+        state.setup_gate.clone(),
     );
     let context = Arc::new(TaskContext::new(
         task_id.to_string(),
@@ -218,7 +252,15 @@ pub(super) fn restore_state(
     let agent = Arc::new(AgentState::new());
     let events = publisher_for(&config, Arc::clone(&backend));
     let (agent_handle, _command_rx) = AgentHandle::test_channel();
-    build_state(config, phase, backend, agent, agent_handle, events)
+    build_state(
+        config,
+        phase,
+        backend,
+        agent,
+        agent_handle,
+        events,
+        SetupGate::opened(),
+    )
 }
 
 // ── Builders ─────────────────────────────────────────────────────────────────

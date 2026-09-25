@@ -109,6 +109,7 @@ pub fn spawn_agent(
     system_prompt_cache: Arc<RwLock<Option<String>>>,
     heartbeat: crate::agent::heartbeat::Heartbeat,
     workspace_sync: crate::workspace_sync::WorkspaceSyncTracker,
+    setup_gate: crate::init::SetupGate,
 ) -> AgentHandle {
     let (command_tx, command_rx) = mpsc::unbounded_channel::<AgentCommand>();
     let agent_type = config.agent_type.as_deref().unwrap_or("");
@@ -141,7 +142,7 @@ pub fn spawn_agent(
                 Arc::clone(&credential_dispatcher),
                 workspace_sync,
             );
-            tokio::spawn(service.run(command_rx, heartbeat));
+            tokio::spawn(service.run_after(setup_gate, command_rx, heartbeat));
         }
         Err(harness_err) => {
             // Invalid configuration: spawn a poison task that publishes one
@@ -286,6 +287,7 @@ mod tests {
             Arc::new(RwLock::new(None)),
             Heartbeat::new(),
             crate::workspace_sync::WorkspaceSyncTracker::new(),
+            crate::init::SetupGate::opened(),
         );
 
         // Give the poison task a moment to run and drop command_rx.
@@ -327,6 +329,7 @@ mod tests {
             Arc::new(RwLock::new(None)),
             Heartbeat::new(),
             crate::workspace_sync::WorkspaceSyncTracker::new(),
+            crate::init::SetupGate::opened(),
         );
 
         let deadline = tokio::time::Instant::now() + Duration::from_secs(2);

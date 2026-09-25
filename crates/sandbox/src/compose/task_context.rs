@@ -48,6 +48,7 @@ pub(crate) async fn compose_task_context(
         Arc::clone(&system_prompt_cache),
         shared.heartbeat.clone(),
         shared.workspace_sync.clone(),
+        shared.setup_gate.clone(),
     );
     late_injector.set(Box::new(QueuedInjector::new(
         task_config.task_id.clone(),

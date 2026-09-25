@@ -317,8 +317,9 @@ pub(crate) trait MessageDao: Send + Sync {
     -> Result<bool, sqlx::Error>;
 
     /// Locate the most recent user-turn that was acknowledged by the sandbox
-    /// (`agent_session_id` set) but never reached a terminal `agent` event
-    /// (`completed/error/stopped`). Returns `None` when no such turn exists.
+    /// (`agent_session_id` set), has this Task's own `task_turns` row, and has
+    /// no terminal event (`completed/error/stopped`) on it or any later turn.
+    /// Returns `None` when no such turn exists.
     async fn find_interrupted_turn(
         &self,
         task_id: &str,

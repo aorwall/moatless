@@ -1065,7 +1065,20 @@ async fn get_message_for_assembly_loads_the_named_message_with_its_activities(po
     );
 }
 
+/// A turn this Task ran: its acknowledged user row and its `task_turns` row.
 async fn seed_acknowledged_turn(pool: &PgPool, task_id: &str, uuid: &str, turn_number: i32) {
+    seed_acknowledged_message(pool, task_id, uuid, turn_number).await;
+    seed_task_turn(pool, task_id, turn_number).await;
+}
+
+async fn seed_task_turn(pool: &PgPool, task_id: &str, turn: i32) {
+    let sql = "INSERT INTO task_turns (task_id, turn_number, status) VALUES ($1, $2, 'active')";
+    let query = sqlx::query(sql).bind(task_id).bind(turn);
+    query.execute(pool).await.unwrap();
+}
+
+/// The user row alone, as a fork copies it from its source Task.
+async fn seed_acknowledged_message(pool: &PgPool, task_id: &str, uuid: &str, turn_number: i32) {
     let mut msg = make_message_row(task_id, uuid);
     msg.session_id = Some(format!("session-{turn_number}"));
     msg.agent_session_id = Some(format!("session-{turn_number}"));
@@ -1165,6 +1178,38 @@ async fn find_interrupted_turn_survives_the_interrupted_marker(pool: PgPool) {
 
     assert_eq!(interrupted.turn_number, 1);
     assert_eq!(interrupted.session_id, "session-1");
+}
+
+/// A fork copies its source's user rows but not the event that closed the turn.
+#[sqlx::test]
+async fn find_interrupted_turn_skips_a_turn_copied_by_a_fork(pool: PgPool) {
+    seed_task(&pool, "task-1", "user-1").await;
+    seed_acknowledged_message(&pool, "task-1", "forked-user", 7).await;
+
+    let repo = PgMessageDao(pool.clone());
+    assert!(
+        repo.find_interrupted_turn("task-1")
+            .await
+            .unwrap()
+            .is_none()
+    );
+}
+
+/// A finished later turn means the open one was not running at shutdown.
+#[sqlx::test]
+async fn find_interrupted_turn_skips_a_turn_a_finished_later_turn_superseded(pool: PgPool) {
+    seed_task(&pool, "task-1", "user-1").await;
+    seed_acknowledged_turn(&pool, "task-1", "left-open-user", 1).await;
+    seed_acknowledged_turn(&pool, "task-1", "finished-user", 2).await;
+    seed_turn_event(&pool, "task-1", "taskTurn", "completed", 2).await;
+
+    let repo = PgMessageDao(pool.clone());
+    assert!(
+        repo.find_interrupted_turn("task-1")
+            .await
+            .unwrap()
+            .is_none()
+    );
 }
 
 #[sqlx::test]
@@ -1445,6 +1490,7 @@ async fn find_interrupted_turn_aggregates_sibling_user_messages(pool: PgPool) {
             .await
             .unwrap();
     }
+    seed_task_turn(&pool, "task-1", 1).await;
 
     let repo = PgMessageDao(pool.clone());
     let interrupted = repo
@@ -1460,7 +1506,7 @@ async fn find_interrupted_turn_aggregates_sibling_user_messages(pool: PgPool) {
 #[sqlx::test]
 async fn find_interrupted_turn_reads_recovery_attempts_from_task_turns(pool: PgPool) {
     seed_task(&pool, "task-1", "user-1").await;
-    seed_acknowledged_turn(&pool, "task-1", "recovering-user", 1).await;
+    seed_acknowledged_message(&pool, "task-1", "recovering-user", 1).await;
     sqlx::query(
         "INSERT INTO task_turns (task_id, turn_number, status, recovery_attempts, run_id) \
          VALUES ($1, 1, 'interrupted', 2, 'run-orig')",

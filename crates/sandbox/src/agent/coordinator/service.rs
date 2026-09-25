@@ -197,6 +197,21 @@ impl CoordinatorService {
         }
     }
 
+    /// [`Self::run`], once `setup_gate` opens.
+    ///
+    /// Commands sent meanwhile queue in `command_rx` in order, so a replayed
+    /// turn still starts ahead of a message sent after it. The wait beats no
+    /// heartbeat: `/livez` reads a stale one as unhealthy only mid-turn.
+    pub(crate) async fn run_after(
+        self,
+        setup_gate: crate::init::SetupGate,
+        command_rx: mpsc::UnboundedReceiver<AgentCommand>,
+        heartbeat: Heartbeat,
+    ) {
+        setup_gate.wait().await;
+        self.run(command_rx, heartbeat).await;
+    }
+
     /// Drive the service loop: heartbeat ticks, harness signals, and incoming
     /// commands all run inside a single `select!`.
     ///

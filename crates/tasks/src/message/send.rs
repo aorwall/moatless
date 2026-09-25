@@ -1100,6 +1100,13 @@ mod db_tests {
             .acknowledge_messages("t1", &[uuid], "sess-1", 7)
             .await
             .expect("acknowledge");
+        // The acknowledging run allocated the turn before the ack stamped it.
+        sqlx::query(
+            "INSERT INTO task_turns (task_id, turn_number, status) VALUES ('t1', 7, 'active')",
+        )
+        .execute(&pool)
+        .await
+        .expect("allocate the turn");
 
         let turn = messages
             .find_interrupted_turn("t1")

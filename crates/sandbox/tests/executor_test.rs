@@ -261,6 +261,7 @@ fn test_state_with_config(backend: Arc<dyn BackendClient>, config: Config) -> Sa
         Arc::clone(&system_prompt_cache),
         heartbeat.clone(),
         moatless_sandbox::workspace_sync::WorkspaceSyncTracker::new(),
+        moatless_sandbox::init::SetupGate::opened(),
     );
     late_injector.set(Box::new(agent_handle.clone()));
     let task_context = Arc::new(TaskContext::new(
@@ -292,6 +293,7 @@ fn test_state_with_config(backend: Arc<dyn BackendClient>, config: Config) -> Sa
         heartbeat,
         backend_client: backend,
         init_phase: Arc::new(RwLock::new(InitPhase::Ready)),
+        setup_gate: moatless_sandbox::init::SetupGate::opened(),
         workspace_origin: Default::default(),
         credentials,
         lifecycle_cancel: CancellationToken::new(),

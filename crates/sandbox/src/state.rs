@@ -46,6 +46,8 @@ pub struct SandboxState {
     /// Current initialization phase — tracked for health probes and consumer
     /// gating.
     pub init_phase: Arc<RwLock<InitPhase>>,
+    /// Holds agent turns until workspace setup has run.
+    pub setup_gate: crate::init::SetupGate,
     /// Written once by `agent::restart::open_for_work` under
     /// `task_context_registration`.
     ///
@@ -323,6 +325,7 @@ pub(crate) mod test_support {
             heartbeat: Heartbeat::new(),
             backend_client,
             init_phase: Arc::new(RwLock::new(InitPhase::Ready)),
+            setup_gate: crate::init::SetupGate::opened(),
             workspace_origin: Default::default(),
             credentials: Arc::new(RwLock::new(HashMap::new())),
             lifecycle_cancel,
