@@ -298,6 +298,29 @@ pub(crate) async fn copy_conversation(
         copied_activities += 1;
     }
 
+    // The fork's newest turn, closed as of the copy: without it the running
+    // rule reads the copied user rows as a turn still owed. It is the newest
+    // copied Message's turn, `completed` when the parent predates `task_turns`
+    // (migration 0071). `ended_at` is the copied rows' `created_at`; no
+    // `run_id`, `metrics` or `agent_turn_id`: the parent's run is not the fork's.
+    sqlx::query(
+        "INSERT INTO task_turns (task_id, turn_number, status, agent_type, started_at, ended_at)
+         SELECT $2, cut.turn_number,
+                CASE WHEN t.status IS NULL THEN 'completed'
+                     WHEN t.status IN ('active', 'interrupted') THEN 'stopped'
+                     ELSE t.status END,
+                t.agent_type, NOW(), NOW()
+           FROM (SELECT MAX(turn_number) AS turn_number
+                   FROM task_messages WHERE task_id = $2) cut
+           LEFT JOIN task_turns t
+             ON t.task_id = $1 AND t.turn_number = cut.turn_number
+          WHERE cut.turn_number IS NOT NULL",
+    )
+    .bind(source_task_id)
+    .bind(dest_task_id)
+    .execute(&mut *tx)
+    .await?;
+
     tx.commit().await?;
 
     Ok(ForkCopyCounts {
@@ -331,6 +354,10 @@ pub(crate) async fn discard_conversation(
         .bind(dest_task_id)
         .execute(&mut *tx)
         .await?;
+    sqlx::query("DELETE FROM task_turns WHERE task_id = $1")
+        .bind(dest_task_id)
+        .execute(&mut *tx)
+        .await?;
     tx.commit().await
 }
 
@@ -348,6 +375,10 @@ fn rekey_activity_id(activity_id: &str, uuids: &HashMap<String, String>) -> Stri
     }
     format!("fk_{}", uuid::Uuid::new_v4())
 }
+
+#[cfg(all(test, feature = "db-tests"))]
+#[path = "fork_dao_db_tests.rs"]
+mod fork_dao_db_tests;
 
 #[cfg(test)]
 mod tests {

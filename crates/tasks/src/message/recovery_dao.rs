@@ -132,11 +132,13 @@ pub(crate) async fn find_interrupted_turn(
                  AND c.agent_session_id IS NOT NULL
                  AND c.agent_session_id <> ''
                  AND c.turn_number IS NOT NULL
-                 -- A fork copies user rows but not `task_turns`: without
-                 -- this, a copied turn reads as open in the fork forever.
+                 -- A fork copies user rows and a closed `task_turns` row, but
+                 -- not the terminal event: without the status test, a copied
+                 -- turn reads as open in the fork and is replayed.
                  AND EXISTS (
                    SELECT 1 FROM task_turns t
                    WHERE t.task_id = c.task_id AND t.turn_number = c.turn_number
+                     AND t.status IN ('active', 'interrupted')
                  )
                  -- `>=`: a later turn that finished superseded this one.
                  AND NOT EXISTS (
