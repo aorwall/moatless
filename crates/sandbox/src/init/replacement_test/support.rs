@@ -168,6 +168,44 @@ pub(super) fn recording_state_with_config(
     (state, recorder)
 }
 
+/// Register `task_id` as a second Member of `state`, sharing its checkout and
+/// driving its own recording coordinator under its own task id. Returns that
+/// Member's recorder, so a test reads back which Member each `Input` reached.
+pub(super) async fn add_recording_member(state: &SandboxState, task_id: &str) -> InputRecorder {
+    let member_config = Arc::new(Config {
+        task_id: task_id.to_string(),
+        ..(*state.config).clone()
+    });
+    let agent = Arc::new(AgentState::new());
+    let recorder: InputRecorder = Arc::new(Mutex::new(Vec::new()));
+    let agent_handle = spawn_recording_agent(
+        &member_config,
+        Arc::clone(&state.backend_client),
+        Arc::clone(&agent),
+        state.events.clone(),
+        Arc::clone(&recorder),
+    );
+    let context = Arc::new(TaskContext::new(
+        task_id.to_string(),
+        state.config.workspace_dir.clone(),
+        state.config.repo_dir.clone(),
+        crate::state::CheckoutMode::Shared,
+        state.config.agent_type.clone(),
+        agent,
+        agent_handle,
+        Arc::new(ScheduledJobRegistry::new(Arc::new(LateInjector::new()))),
+        Arc::new(crate::commands::CommandRegistry::for_test()),
+        CredentialFailureDetector::default(),
+        Arc::new(RwLock::new(None)),
+    ));
+    state
+        .task_contexts
+        .write()
+        .await
+        .insert(task_id.to_string(), context);
+    recorder
+}
+
 /// A `SandboxState` over an explicit `config` with a bare (undriven) agent
 /// channel — for a restore test that calls `download_on_start` and never
 /// touches the agent, and for a dispatch test that needs the send's ack

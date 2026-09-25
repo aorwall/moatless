@@ -13,6 +13,7 @@ mod support;
 mod job_prompts;
 mod joined_member;
 mod lost_commands;
+mod member_dispatch;
 mod precedence;
 mod readiness;
 mod restore;

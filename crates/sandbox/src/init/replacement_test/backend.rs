@@ -22,6 +22,9 @@ pub(super) struct ReplayBackend {
     /// `Ok(list)` for a normal probe; `Err(())` to model a backend blip. Behind
     /// a `Mutex` only because `acknowledge_messages` prunes it.
     pending: Mutex<Result<Vec<PendingAgentDelivery>, ()>>,
+    /// Rows served to one Member only, keyed by task id. A Member absent here
+    /// reads `pending`, which every Member shares.
+    member_pending: Mutex<HashMap<String, Vec<PendingAgentDelivery>>>,
     /// The interrupted turn `recover_interrupted_run` returns (immutable).
     interrupted: Option<InterruptedTurn>,
     /// The session-state archive `download_transcript` serves (immutable).
@@ -70,6 +73,7 @@ impl ReplayBackend {
     ) -> Arc<Self> {
         Arc::new(Self {
             pending: Mutex::new(pending),
+            member_pending: Mutex::new(HashMap::new()),
             interrupted,
             download_tar,
             ack_failures: AtomicUsize::new(0),
@@ -107,6 +111,26 @@ impl ReplayBackend {
         if let Ok(msgs) = &mut *self.pending.lock().await {
             msgs.push(delivery);
         }
+    }
+
+    /// Queue `delivery` for `task_id` alone, apart from the shared `pending`.
+    pub(super) async fn push_member_pending(&self, task_id: &str, delivery: PendingAgentDelivery) {
+        self.member_pending
+            .lock()
+            .await
+            .entry(task_id.to_string())
+            .or_default()
+            .push(delivery);
+    }
+
+    /// Rows `task_id` alone still awaits acknowledgment for.
+    pub(super) async fn member_pending(&self, task_id: &str) -> Vec<PendingAgentDelivery> {
+        self.member_pending
+            .lock()
+            .await
+            .get(task_id)
+            .cloned()
+            .unwrap_or_default()
     }
 
     pub(super) fn get_pending_calls(&self) -> usize {
@@ -151,9 +175,12 @@ impl BackendClient for ReplayBackend {
 
     async fn get_pending_messages(
         &self,
-        _task_id: &str,
+        task_id: &str,
     ) -> Result<Vec<PendingAgentDelivery>, tonic::Status> {
         self.get_pending_calls.fetch_add(1, Ordering::SeqCst);
+        if let Some(rows) = self.member_pending.lock().await.get(task_id) {
+            return Ok(coalesce(rows.clone()));
+        }
         let rows = match &*self.pending.lock().await {
             Ok(msgs) => msgs.clone(),
             Err(()) => return Err(tonic::Status::unavailable("simulated probe failure")),
@@ -163,7 +190,7 @@ impl BackendClient for ReplayBackend {
 
     async fn acknowledge_messages(
         &self,
-        _task_id: &str,
+        task_id: &str,
         message_uuids: Vec<String>,
         _session_id: &str,
         _run_id: &str,
@@ -179,14 +206,19 @@ impl BackendClient for ReplayBackend {
         {
             return Err(tonic::Status::unavailable("simulated ack failure"));
         }
+        let unacked = |m: &PendingAgentDelivery| {
+            m.message_uuids
+                .iter()
+                .all(|uuid| !message_uuids.contains(uuid))
+        };
+        if let Some(rows) = self.member_pending.lock().await.get_mut(task_id) {
+            rows.retain(unacked);
+            return Ok(());
+        }
         // Prune acked messages so a subsequent probe no longer returns them —
         // exactly what lets the startup race manifest if ordering is wrong.
         if let Ok(msgs) = &mut *self.pending.lock().await {
-            msgs.retain(|m| {
-                m.message_uuids
-                    .iter()
-                    .all(|uuid| !message_uuids.contains(uuid))
-            });
+            msgs.retain(unacked);
         }
         Ok(())
     }

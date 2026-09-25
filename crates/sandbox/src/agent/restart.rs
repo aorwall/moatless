@@ -6,11 +6,10 @@ use crate::state::{SandboxState, TaskContext};
 use tracing::{info, warn};
 
 /// Opens the pod for work: decides interrupted-run precedence for each Member
-/// while dispatch is gated, flips `InitPhase::Ready`, then dispatches once.
+/// while dispatch is gated, flips `InitPhase::Ready`, then dispatches each once.
 ///
-/// Precedence must be decided first, or a racing backend notification could ack
-/// a newer Message before the probe runs, leaving a stale Recover enqueued
-/// behind it.
+/// Precedence goes first, or a racing notification could ack a newer Message
+/// before the probe runs, leaving a stale Recover enqueued behind it.
 pub(crate) async fn open_for_work(state: &SandboxState, workspace_origin: WorkspaceOrigin) {
     // Read and clear what a prior pod left behind before a recovered run or a
     // new command can overwrite it.
@@ -43,8 +42,16 @@ pub(crate) async fn open_for_work(state: &SandboxState, workspace_origin: Worksp
     info!(task_id = %state.config.task_id, "Core init complete — health is now ready");
 
     // Awaited, not detached: dispatch only fetches and submits, it does not block
-    // on the turn, so this stays the one authoritative startup dispatch.
-    crate::agent::dispatcher::dispatch_pending_messages(state.clone()).await;
+    // on the turn, so this stays the one authoritative startup dispatch. Per
+    // Member, never the task-less lookup: that resolves only a sole Member, so
+    // a shared pod would deliver nothing.
+    for context in state.task_contexts_snapshot().await {
+        crate::agent::dispatcher::dispatch_pending_messages_for_task(
+            state.clone(),
+            context.task_id.clone(),
+        )
+        .await;
+    }
 
     report_wake_notes(state, wake_notes, lost_commands).await;
 }
