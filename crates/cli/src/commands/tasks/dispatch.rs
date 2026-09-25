@@ -99,6 +99,9 @@ pub enum TaskAction {
         checkout_mode: Option<String>,
         #[arg(long)]
         name: Option<String>,
+        /// Parent task id. Inside a sandbox this CLI's own task is always the
+        /// parent. The backend tells the parent each time the child's turn
+        /// completes or errors; the child still sends its result itself
         #[arg(long)]
         parent: Option<String>,
         /// Identity the task's sandbox acts as on a git host — a moatless login

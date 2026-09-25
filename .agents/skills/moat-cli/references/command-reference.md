@@ -16,6 +16,10 @@ moat tasks get <task-id> --json | jq '{taskId, sandboxId, workspaceId}'
 Create with `--agent-type` plus `--repo`, `--workspace`, or `--same-sandbox`.
 `--same-sandbox` can take a task ID or use the ambient task; `--checkout-mode
 shared|isolated` only applies with it. `--parent` sets a parent explicitly.
+The backend sends a `created_by` parent a notice, and wakes it, each time a
+child's turn completes or errors. The notice carries no result, so a child still
+sends its result with `moat send --task <parent>`, and a parent needs no reply to
+a notice.
 
 `moat tasks fork <task-id>` supports `--at-turn`, `--message`, and `--same-sandbox`.
 Read its help before combining these. Stop/start controls the sandbox; close

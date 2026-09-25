@@ -256,6 +256,16 @@ pub async fn handle_agent_completed(state: &AppState, event: &AgentEvent) {
         }
     }
 
+    // A task closed mid-run tells its parent nothing, as in `handle_agent_error`.
+    if reopened {
+        notify_parent_of_child_outcome(
+            &AgentErrorPorts::from(state),
+            event,
+            ChildOutcome::Completed { turn_number },
+        )
+        .await;
+    }
+
     stop_sandbox_when_done(&state.tasks, &state.sandbox, &event.task_id).await;
 }
 
@@ -341,9 +351,9 @@ pub async fn handle_agent_session_init(state: &AppState, event: &AgentEvent) {
 
 /// Handle `agent.stopped` event — the agent was stopped before completing.
 ///
-/// Nothing about a stop enters the conversation — the task's status and turn
-/// state already say so, and that terminal status is what the next run reads to
-/// decide it needs a fresh session.
+/// Nothing about a stop enters the conversation, nor a `created_by` parent's:
+/// the turn state already says so, the next run reads that status to decide it
+/// needs a fresh session, and whoever stopped it — often the parent — knows.
 pub async fn handle_agent_stopped(state: &AppState, event: &AgentEvent) {
     // reason: agent-lifecycle event handler runs as background system with no caller identity
     #[allow(clippy::disallowed_methods)]
@@ -417,9 +427,10 @@ pub async fn handle_agent_stopped(state: &AppState, event: &AgentEvent) {
     }
 }
 
-/// The ports an errored run is closed over.
+/// The ports an errored run is closed over, and a child's notice to its parent
+/// goes through.
 ///
-/// Two callers reach this path: the event consumer, which projects it out of
+/// Two callers reach the error path: the event consumer, which projects it out of
 /// `AppState`, and the task reaper, which holds the same ports directly.
 #[derive(Clone)]
 pub struct AgentErrorPorts {
@@ -501,19 +512,26 @@ pub async fn handle_agent_error(ports: &AgentErrorPorts, event: &AgentEvent) {
     }
 
     if child_not_closed {
-        notify_parent_task_of_child_error(ports, event, error_msg).await;
+        notify_parent_of_child_outcome(ports, event, ChildOutcome::Errored { error: error_msg })
+            .await;
     }
 }
 
-/// Tell the parent task that this child errored; a completing child reports its
-/// own result, so only errors are forwarded here.
+/// How a `created_by` child's run ended, as its parent is told.
+enum ChildOutcome<'a> {
+    Completed { turn_number: Option<i32> },
+    Errored { error: &'a str },
+}
+
+/// Send the parent task a notice that this child's run ended, and wake it.
 ///
-/// `created_by` only — a fork's errors stay in its own conversation since
-/// nobody awaits a fork's result.
-async fn notify_parent_task_of_child_error(
+/// `created_by` only — a fork's outcomes stay in its own conversation since
+/// nobody awaits a fork's result. A closed parent is skipped. The notice says
+/// only how the run ended; the child still reports its own result.
+async fn notify_parent_of_child_outcome(
     ports: &AgentErrorPorts,
     event: &AgentEvent,
-    error_msg: &str,
+    outcome: ChildOutcome<'_>,
 ) {
     let relation = match ports.task_relations.find_parent(&event.task_id).await {
         Ok(Some(relation)) if relation.relation_type == TaskRelationType::CreatedBy => relation,
@@ -522,16 +540,32 @@ async fn notify_parent_task_of_child_error(
             tracing::warn!(
                 task_id = %event.task_id,
                 error = %e,
-                "Failed to load parent task relation for child error notification"
+                "Failed to load parent task relation for child notice"
             );
             return;
         }
     };
 
-    let message = format!(
-        "Child task `{}` errored.\n\nError: {}",
-        event.task_id, error_msg
-    );
+    // A completion is keyed on its Turn rather than on its text, which carries
+    // the child's current name: a rename, or a failed name read, between two
+    // deliveries of one event would otherwise insert a second notice.
+    let (message, message_uuid) = match outcome {
+        ChildOutcome::Errored { error } => (
+            format!("Child task `{}` errored.\n\nError: {error}", event.task_id),
+            None,
+        ),
+        ChildOutcome::Completed { turn_number } => {
+            let turn_key = turn_number.map_or_else(|| event.event_id.clone(), |t| t.to_string());
+            let key = format!(
+                "child-completed\u{1f}{}\u{1f}{}\u{1f}{turn_key}",
+                event.task_id, relation.to_task_id
+            );
+            (
+                completion_notice(ports, &event.task_id, turn_number).await,
+                Some(uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_OID, key.as_bytes()).to_string()),
+            )
+        }
+    };
 
     match ports
         .message_send
@@ -552,11 +586,14 @@ async fn notify_parent_task_of_child_error(
             false,
             None,
             &[],
-            None,
+            message_uuid,
         )
         .await
     {
-        Ok(_message_uuid) => {
+        // `Ok(None)` is a redelivery whose notice is already queued; its
+        // persisted row, not a second wake, is what the reconciler acts on.
+        Ok(None) => {}
+        Ok(Some(_message_uuid)) => {
             if let Err(error_msg) = ports.sandbox_waker.wake(&relation.to_task_id).await {
                 ports
                     .message_send
@@ -568,7 +605,7 @@ async fn notify_parent_task_of_child_error(
             tracing::debug!(
                 task_id = %event.task_id,
                 parent_task_id = %relation.to_task_id,
-                "Skipping child error notification because parent task is closed"
+                "Skipping child notice because parent task is closed"
             );
         }
         Err(e) => {
@@ -576,10 +613,40 @@ async fn notify_parent_task_of_child_error(
                 task_id = %event.task_id,
                 parent_task_id = %relation.to_task_id,
                 error = %e,
-                "Failed to notify parent task about child error"
+                "Failed to notify parent task about child outcome"
             );
         }
     }
+}
+
+/// The text of a child's completion notice: which child, which Turn, and
+/// nothing of what it produced.
+async fn completion_notice(
+    ports: &AgentErrorPorts,
+    child_task_id: &str,
+    turn_number: Option<i32>,
+) -> String {
+    // reason: agent-lifecycle event handler runs as background system with no caller identity
+    #[allow(clippy::disallowed_methods)]
+    let sys_ctx = ScopeContext::system();
+    let name = match ports.tasks.find_by_id(child_task_id, &sys_ctx).await {
+        Ok(task) => task.and_then(|t| t.name).filter(|n| !n.trim().is_empty()),
+        Err(e) => {
+            tracing::warn!(task_id = %child_task_id, error = %e, "Failed to read child task name");
+            None
+        }
+    };
+    let child = match name {
+        Some(name) => format!("Child task `{child_task_id}` ({name})"),
+        None => format!("Child task `{child_task_id}`"),
+    };
+    let turn = turn_number
+        .map(|t| format!(" turn {t}"))
+        .unwrap_or_default();
+    format!(
+        "{child} completed{turn}. This notice is automatic and carries no result; \
+         read the child's conversation if you need one. It needs no reply."
+    )
 }
 
 /// Handle `sandbox.fatal` event — delegates to `handle_agent_error` to create

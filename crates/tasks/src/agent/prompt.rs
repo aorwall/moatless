@@ -299,7 +299,9 @@ fn build_parent_task_section(parent: ParentTask<'_>) -> String {
         ParentTask::CreatedBy(parent_task_id) => format!(
             "# Parent Task\n\n\
              This task was created by another task (`{parent_task_id}`), which is waiting \
-             for your result. When your work is done, report back once:\n\n  \
+             for your result. The backend tells the parent each time one of your turns \
+             completes or errors, but that notice carries no result. When your work is \
+             done, send your result once:\n\n  \
              `moat send --task {parent_task_id} --text \"<summary of what you did and the outcome>\"`\n\n\
              The parent is an AI agent, not a person: keep the message to the outcome, what \
              it has to act on, and where the work is. Send no progress updates along the way."

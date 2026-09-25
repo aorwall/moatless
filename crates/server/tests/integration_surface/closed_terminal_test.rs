@@ -12,13 +12,20 @@
 //! - `TaskDao::update_status_if_not_closed` — race-safe conditional flip.
 //! - The three agent terminal handlers (`completed` / `stopped` / `error`) do
 //!   not resurrect a `Closed` task to `Open`.
+//! - A `created_by` child's completion or error notices its parent once.
 //! - Regression: see `reconcile_error_keeps_closed_and_says_nothing`.
+
+use std::sync::{Arc, Mutex};
+
+use async_trait::async_trait;
 
 use crate::common;
 
 use moatless_backend::event_handler::agent_handlers::{
     handle_agent_completed, handle_agent_error, handle_agent_stopped,
 };
+use moatless_backend::state::AppState;
+use moatless_ports::sandbox::SandboxWaker;
 use moatless_tasks::agent_event::AgentEvent;
 use moatless_tasks::message::models::MessageRole;
 use moatless_tasks::message::models::MessageType;
@@ -241,10 +248,48 @@ async fn completed_reopens_an_open_task(pool: PgPool) {
     assert_eq!(status_of(&pool, "task-o").await, TaskStatus::Open);
 }
 
+/// Records the task ids it is woken with.
+#[derive(Default)]
+struct RecordingWaker {
+    woken: Mutex<Vec<String>>,
+}
+
+#[async_trait]
+impl SandboxWaker for RecordingWaker {
+    async fn wake(&self, task_id: &str) -> Result<(), String> {
+        self.woken.lock().unwrap().push(task_id.to_string());
+        Ok(())
+    }
+}
+
+fn state_with_recording_waker(pool: &PgPool) -> (AppState, Arc<RecordingWaker>) {
+    let waker = Arc::new(RecordingWaker::default());
+    let mut state = test_app_state(pool.clone());
+    state.sandbox_waker = waker.clone();
+    (state, waker)
+}
+
+fn completed_event(event_id: &str, task_id: &str, turn_number: i32) -> AgentEvent {
+    let mut event = terminal_event(
+        event_id,
+        task_id,
+        "completed",
+        serde_json::json!({ "is_error": false }),
+    );
+    event.turn_number = Some(turn_number);
+    event
+}
+
+fn completion_notice(turn_number: i32) -> String {
+    format!(
+        "Child task `task-child` (Test task task-child) completed turn {turn_number}. \
+         This notice is automatic and carries no result; read the child's conversation \
+         if you need one. It needs no reply."
+    )
+}
+
 #[sqlx::test]
-async fn completed_child_says_nothing_to_parent(pool: PgPool) {
-    // A child reports its own result to the parent, so a completion writes
-    // nothing — not a notice, and not the child's assistant body.
+async fn completed_child_sends_parent_one_notice_and_one_wake(pool: PgPool) {
     seed_task_pair_with_created_by(&pool, "task-parent", "task-child").await;
     let mut assistant = make_message_row("task-child", "child-assistant-1");
     assistant.message_type = MessageType::Assistant;
@@ -253,27 +298,130 @@ async fn completed_child_says_nothing_to_parent(pool: PgPool) {
     message_fixtures::seed_message(&pool, &assistant, &[], &ConversationWrite::default())
         .await
         .unwrap();
+    let (state, waker) = state_with_recording_waker(&pool);
 
-    let state = test_app_state(pool.clone());
-    let event = terminal_event(
-        "evt-child-completed",
-        "task-child",
-        "completed",
-        serde_json::json!({ "is_error": false }),
+    handle_agent_completed(
+        &state,
+        &completed_event("evt-child-completed", "task-child", 1),
+    )
+    .await;
+
+    assert_eq!(
+        visible_parent_texts(&pool, "task-parent").await,
+        vec![completion_notice(1)]
     );
-    handle_agent_completed(&state, &event).await;
-
-    let texts = visible_parent_texts(&pool, "task-parent").await;
+    assert_eq!(
+        *waker.woken.lock().unwrap(),
+        vec!["task-parent".to_string()]
+    );
     assert!(
-        texts.is_empty(),
-        "parent should receive nothing when a child completes: {texts:?}"
+        visible_parent_texts(&pool, "task-child").await.is_empty(),
+        "the notice sets nothing off in the child"
     );
 }
 
 #[sqlx::test]
-async fn errored_child_notifies_parent_with_error_message(pool: PgPool) {
+async fn redelivered_completion_adds_no_second_notice_but_a_new_turn_does(pool: PgPool) {
     seed_task_pair_with_created_by(&pool, "task-parent", "task-child").await;
-    let state = test_app_state(pool.clone());
+    let (state, waker) = state_with_recording_waker(&pool);
+
+    let first = completed_event("evt-turn-1", "task-child", 1);
+    handle_agent_completed(&state, &first).await;
+    // A rename between deliveries changes the notice text, not its identity.
+    moatless_tasks::task::test_support::patch_task(
+        &pool,
+        "task-child",
+        &TaskPatch {
+            name: Some("Renamed child".to_string()),
+            ..Default::default()
+        },
+        &user_scope("user-1"),
+    )
+    .await
+    .unwrap();
+    handle_agent_completed(&state, &first).await;
+    handle_agent_completed(&state, &completed_event("evt-turn-2", "task-child", 2)).await;
+
+    assert_eq!(
+        visible_parent_texts(&pool, "task-parent").await,
+        vec![
+            completion_notice(1),
+            completion_notice(2).replace("Test task task-child", "Renamed child"),
+        ]
+    );
+    assert_eq!(
+        *waker.woken.lock().unwrap(),
+        vec!["task-parent".to_string(), "task-parent".to_string()],
+        "the redelivery wakes nobody"
+    );
+}
+
+#[sqlx::test]
+async fn completed_fork_notifies_nobody(pool: PgPool) {
+    let repo = make_repository_row("repo-1", "user-1");
+    compose::seed_repository(&pool, &repo).await.unwrap();
+    for task_id in ["task-source", "task-fork"] {
+        task_fixtures::seed_task(&pool, &make_task_row(task_id, "user-1"))
+            .await
+            .unwrap();
+    }
+    let relation = TaskRelation::new(
+        "task-fork",
+        "task-source",
+        TaskRelationType::ForkedFrom,
+        serde_json::json!({}),
+    );
+    moatless_tasks::task::test_support::seed_relation(&pool, &relation)
+        .await
+        .unwrap();
+    let (state, waker) = state_with_recording_waker(&pool);
+
+    handle_agent_completed(&state, &completed_event("evt-fork", "task-fork", 1)).await;
+
+    assert!(visible_parent_texts(&pool, "task-source").await.is_empty());
+    assert!(waker.woken.lock().unwrap().is_empty());
+}
+
+#[sqlx::test]
+async fn completed_child_of_a_closed_parent_notifies_nobody(pool: PgPool) {
+    seed_task_pair_with_created_by(&pool, "task-parent", "task-child").await;
+    moatless_tasks::task::test_support::patch_task(
+        &pool,
+        "task-parent",
+        &TaskPatch {
+            status: Some(TaskStatus::Closed),
+            ..Default::default()
+        },
+        &user_scope("user-1"),
+    )
+    .await
+    .unwrap();
+    let (state, waker) = state_with_recording_waker(&pool);
+
+    handle_agent_completed(&state, &completed_event("evt-closed", "task-child", 1)).await;
+
+    assert!(visible_parent_texts(&pool, "task-parent").await.is_empty());
+    assert!(waker.woken.lock().unwrap().is_empty());
+}
+
+#[sqlx::test]
+async fn stopped_child_notifies_nobody(pool: PgPool) {
+    seed_task_pair_with_created_by(&pool, "task-parent", "task-child").await;
+    let (state, waker) = state_with_recording_waker(&pool);
+
+    let event = terminal_event("evt-stop", "task-child", "stopped", serde_json::json!({}));
+    handle_agent_stopped(&state, &event).await;
+
+    assert!(visible_parent_texts(&pool, "task-parent").await.is_empty());
+    assert!(waker.woken.lock().unwrap().is_empty());
+}
+
+const ERROR_NOTICE: &str = "Child task `task-child` errored.\n\nError: sandbox exploded";
+
+#[sqlx::test]
+async fn errored_child_sends_parent_only_the_error_notice(pool: PgPool) {
+    seed_task_pair_with_created_by(&pool, "task-parent", "task-child").await;
+    let (state, waker) = state_with_recording_waker(&pool);
 
     let event = terminal_event(
         "evt-child-error",
@@ -283,12 +431,36 @@ async fn errored_child_notifies_parent_with_error_message(pool: PgPool) {
     );
     handle_agent_error(&(&state).into(), &event).await;
 
-    let texts = visible_parent_texts(&pool, "task-parent").await;
-    assert!(
-        texts
-            .iter()
-            .any(|text| text == "Child task `task-child` errored.\n\nError: sandbox exploded"),
-        "parent should receive the child error detail: {texts:?}"
+    assert_eq!(
+        visible_parent_texts(&pool, "task-parent").await,
+        vec![ERROR_NOTICE.to_string()]
+    );
+    assert_eq!(
+        *waker.woken.lock().unwrap(),
+        vec!["task-parent".to_string()]
+    );
+}
+
+#[sqlx::test]
+async fn an_error_result_under_completed_sends_only_the_error_notice(pool: PgPool) {
+    seed_task_pair_with_created_by(&pool, "task-parent", "task-child").await;
+    let (state, waker) = state_with_recording_waker(&pool);
+
+    let event = terminal_event(
+        "evt-child-error-result",
+        "task-child",
+        "completed",
+        serde_json::json!({ "is_error": true, "error": "sandbox exploded" }),
+    );
+    handle_agent_completed(&state, &event).await;
+
+    assert_eq!(
+        visible_parent_texts(&pool, "task-parent").await,
+        vec![ERROR_NOTICE.to_string()]
+    );
+    assert_eq!(
+        *waker.woken.lock().unwrap(),
+        vec!["task-parent".to_string()]
     );
 }
 
