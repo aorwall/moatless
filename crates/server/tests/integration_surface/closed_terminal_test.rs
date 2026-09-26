@@ -86,7 +86,8 @@ async fn seed_task_pair_with_created_by(pool: &PgPool, parent_task_id: &str, chi
 /// Open the child's turn as one its parent's message triggered.
 async fn seed_turn_triggered_by(pool: &PgPool, task_id: &str, turn_number: i32, trigger: &str) {
     sqlx::query(
-        "INSERT INTO task_turns (task_id, turn_number, triggered_by_task_id) VALUES ($1, $2, $3)",
+        "INSERT INTO task_turns (task_id, turn_number, triggered_by_task_id, trigger_decided) \
+         VALUES ($1, $2, $3, true)",
     )
     .bind(task_id)
     .bind(turn_number)
@@ -369,6 +370,15 @@ async fn redelivered_completion_adds_no_second_notice_but_a_new_turn_does(pool: 
         *waker.woken.lock().unwrap(),
         vec!["task-parent".to_string(), "task-parent".to_string()],
         "the redelivery wakes nobody"
+    );
+    let queued = message_fixtures::pending_user_messages(&pool, "task-parent")
+        .await
+        .unwrap();
+    let senders: Vec<Option<&str>> = queued.iter().map(|m| m.source_task_id.as_deref()).collect();
+    assert_eq!(
+        senders,
+        [Some("task-child"), Some("task-child")],
+        "one inbox item per turn, each from the child"
     );
 }
 

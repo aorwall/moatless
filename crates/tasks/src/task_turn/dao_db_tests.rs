@@ -762,6 +762,7 @@ async fn latest_running_signals_reads_the_newest_turn_and_the_newest_person(pool
         "a task with no turns and no messages is an empty answer, not an error"
     );
 
+    seed_task(&pool, "task-a").await;
     let ended = Utc::now() - Duration::minutes(30);
     seed_closed_turn(&pool, "task-a", 1, "completed", Some(ended)).await;
     seed_closed_turn(
@@ -789,8 +790,16 @@ async fn latest_running_signals_reads_the_newest_turn_and_the_newest_person(pool
             .unwrap();
         }
     };
-    insert_message("m1", "user", 40).await;
-    insert_message("m2", "user", 20).await;
+    for minutes_ago in [40, 20] {
+        sqlx::query(
+            r#"INSERT INTO task_inbox (id, task_id, text, origin, sent_by, created_at)
+               VALUES (gen_random_uuid(), 'task-a', 'hello', 'user', 'user-1', $1)"#,
+        )
+        .bind(Utc::now() - Duration::minutes(minutes_ago))
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
     // An assistant message is newer than either, and must not be mistaken for
     // the person's — a reply is not a new request.
     insert_message("m3", "assistant", 1).await;

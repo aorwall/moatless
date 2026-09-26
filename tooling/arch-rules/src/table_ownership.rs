@@ -58,6 +58,7 @@ pub const TABLES: &[(&str, &str)] = &[
     ("task_events", "moatless-tasks"),
     ("task_follows", "moatless-tasks"),
     ("task_forks", "moatless-tasks"),
+    ("task_inbox", "moatless-tasks"),
     ("task_listing_changes", "moatless-core"),
     ("task_listing_position", "moatless-core"),
     ("task_message_content_blocks", "moatless-tasks"),

@@ -468,7 +468,7 @@ impl PendingWork {
 #[async_trait]
 impl PendingWorkReader for PendingWork {
     async fn members_awaiting_dispatch(&self, task_id: &str) -> Result<Vec<String>, StoreError> {
-        crate::message::dao::members_awaiting_dispatch(&self.pool, task_id)
+        crate::inbox::dao::members_awaiting_dispatch(&self.pool, task_id)
             .await
             .map_err(|e| StoreError::with_source(format!("read pending members for {task_id}"), e))
     }

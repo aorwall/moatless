@@ -1118,9 +1118,9 @@ impl TaskDao for PgTaskDao {
               )
               AND NOT EXISTS (
                     SELECT 1
-                    FROM task_messages m
+                    FROM task_inbox m
                     WHERE m.task_id = t.task_id
-                      AND m.message_type = 'user'
+                      AND m.status <> 'cancelled'
                       AND (
                             NOT EXISTS (
                                   SELECT 1

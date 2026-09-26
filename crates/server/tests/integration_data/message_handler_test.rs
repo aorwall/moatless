@@ -161,16 +161,8 @@ async fn get_pending_messages_empty(pool: PgPool) {
 async fn get_pending_messages_with_data(pool: PgPool) {
     seed_task(&pool, "task-1", USER_1).await;
 
-    // Insert pending user messages (no agent_session_id)
-    let msg1 = make_message_row("task-1", "pending-1");
-    message_fixtures::seed_message(&pool, &msg1, &[], &ConversationWrite::default())
-        .await
-        .unwrap();
-
-    let msg2 = make_message_row("task-1", "pending-2");
-    message_fixtures::seed_message(&pool, &msg2, &[], &ConversationWrite::default())
-        .await
-        .unwrap();
+    message_fixtures::queue_named(&pool, "task-1", "pending-1", "one").await;
+    message_fixtures::queue_named(&pool, "task-1", "pending-2", "two").await;
 
     let app = build_router(pool);
     let req = authed_request("GET", "/api/v1/tasks/task-1/messages/pending", USER_1);

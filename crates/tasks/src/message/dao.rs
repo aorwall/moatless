@@ -133,8 +133,6 @@ pub(crate) trait MessageDao: Send + Sync {
     /// matches.
     async fn find_by_uuid(&self, uuid: &str) -> Result<Option<TaskMessage>, sqlx::Error>;
 
-    async fn get_pending_user(&self, task_id: &str) -> Result<Vec<TaskMessage>, sqlx::Error>;
-
     async fn get_last_result(&self, task_id: &str) -> Result<Option<TaskMessage>, sqlx::Error>;
     /// Most recent `assistant` row for the task — the agent's final reply when
     /// called from a terminal hook. Used to source the body of the Linear
@@ -175,16 +173,6 @@ pub(crate) trait MessageDao: Send + Sync {
         &self,
         task_id: &str,
         session_id: &str,
-    ) -> Result<u64, sqlx::Error>;
-    /// Mark queued messages as delivered to an agent run, stamping the turn the
-    /// run was allocated. Queued rows carry no turn number until here — a turn
-    /// is one agent run, and only the ack says which run took them.
-    async fn acknowledge_messages(
-        &self,
-        task_id: &str,
-        uuids: &[String],
-        session_id: &str,
-        turn_number: i32,
     ) -> Result<u64, sqlx::Error>;
     async fn get_last_message_type(
         &self,
@@ -463,108 +451,187 @@ macro_rules! bind_message {
 }
 pub(crate) use bind_message;
 
-/// Every open Task sharing `task_id`'s Sandbox with an unclaimed user message —
-/// matches `clear_settled_pending_work` so a wake that survives always names
-/// someone.
-///
-/// Backed by the partial index `task_messages_pending_user_idx`; reached
-/// through `moatless_ports::task::PendingWorkReader`.
-pub(crate) async fn members_awaiting_dispatch(
-    pool: &DbPool,
-    task_id: &str,
-) -> Result<Vec<String>, sqlx::Error> {
-    sqlx::query_scalar(
-        r#"SELECT peer.task_id
-             FROM tasks t
-             JOIN tasks peer ON peer.sandbox_id = t.sandbox_id
-            WHERE t.task_id = $1
-              AND peer.status IN ('open', 'error')
-              AND EXISTS (
-                  SELECT 1
-                    FROM task_messages m
-                   WHERE m.task_id = peer.task_id
-                     AND m.agent_session_id IS NULL
-                     AND m.message_type = 'user'
-              )
-            ORDER BY peer.created_at_db NULLS LAST, peer.task_id"#,
-    )
-    .bind(task_id)
-    .fetch_all(pool)
-    .await
-}
-
-/// Record on `turn_number` the task whose message opened it: the earliest
-/// non-`harness` row of its first acknowledgement, `NULL` for a person's. Later
-/// acknowledgements leave it, so neither side can take over the other's turn.
-///
-/// A turn only `harness` rows opened (a wake, a `ScheduleWakeup` prompt) takes
-/// the previous turn's trigger, since the turn that armed it owes the answer.
-async fn stamp_turn_trigger(
+/// Stamps the Messages of the delivered items `ids` with their run, inside the
+/// caller's transaction; their position does not move.
+pub(crate) async fn stamp_delivered_in(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     task_id: &str,
-    uuids: &[String],
-    turn_number: i32,
+    ids: &[uuid::Uuid],
+    run: &crate::inbox::RunStamp,
 ) -> Result<(), sqlx::Error> {
+    let uuids: Vec<String> = ids.iter().map(ToString::to_string).collect();
     sqlx::query(
-        r#"WITH acked AS (
-               SELECT source_task_id, user_type, "timestamp", id
-               FROM task_messages
-               WHERE task_id = $1 AND uuid = ANY($2)
-           ),
-           opener AS (
-               SELECT source_task_id FROM acked
-               WHERE user_type IS DISTINCT FROM $4
-               ORDER BY "timestamp", id LIMIT 1
-           )
-           UPDATE task_turns
-           SET trigger_decided = true,
-               triggered_by_task_id = CASE
-                   WHEN EXISTS (SELECT 1 FROM opener) THEN (SELECT source_task_id FROM opener)
-                   ELSE (SELECT prev.triggered_by_task_id FROM task_turns prev
-                         WHERE prev.task_id = $1 AND prev.turn_number < $3
-                         ORDER BY prev.turn_number DESC LIMIT 1)
-               END
-           WHERE task_id = $1 AND turn_number = $3 AND NOT trigger_decided
-             AND EXISTS (SELECT 1 FROM acked)"#,
+        r#"UPDATE task_messages
+              SET sent_at = NOW(), session_id = $3, agent_session_id = $3, turn_number = $4
+            WHERE task_id = $1 AND uuid = ANY($2) AND agent_session_id IS NULL"#,
     )
     .bind(task_id)
-    .bind(uuids)
-    .bind(turn_number)
-    .bind(moatless_types::message::HARNESS_USER_TYPE)
+    .bind(&uuids)
+    .bind(&run.session_id)
+    .bind(run.turn_number)
     .execute(&mut **tx)
     .await?;
     Ok(())
 }
 
-/// Drop the Sandbox's wake signal once nothing is waiting on it.
-///
-/// Runs in the claiming transaction after the claim, so it sees the rows just
-/// claimed; the condition is exact, or it either drops a peer's unclaimed work
-/// or wakes the Sandbox forever.
-async fn clear_settled_pending_work(
+/// [`MessageDao::append`] inside the caller's transaction.
+pub(crate) async fn append_in(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    task_id: &str,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        r#"UPDATE sandboxes s
-              SET pending_work_at = NULL, updated_at = NOW()
-             FROM tasks t
-            WHERE t.task_id = $1
-              AND s.sandbox_id = t.sandbox_id
-              AND s.pending_work_at IS NOT NULL
-              AND NOT EXISTS (
-                  SELECT 1
-                    FROM task_messages m
-                    JOIN tasks peer ON peer.task_id = m.task_id
-                   WHERE peer.sandbox_id = s.sandbox_id
-                     AND m.agent_session_id IS NULL
-                     AND m.message_type = 'user'
-              )"#,
+    msg: &TaskMessage,
+    contexts: &[TaskMessageContext],
+    conversation: &ConversationWrite,
+) -> Result<i32, sqlx::Error> {
+    let row: (i32,) = bind_message!(
+        sqlx::query_as(concat!(
+            "INSERT INTO task_messages (",
+            message_columns!(),
+            ") VALUES (",
+            message_placeholders!(),
+            r#")
+        ON CONFLICT (uuid) DO UPDATE SET
+            message_type = EXCLUDED.message_type,
+            -- Text is spliced below, at each block's own index. A whole
+            -- string arriving here belongs to a caller that wrote its
+            -- Message in one piece, and must not blank out a Message the
+            -- per-block path is still assembling.
+            message_text = COALESCE(EXCLUDED.message_text, task_messages.message_text),
+            agent_session_id = COALESCE(EXCLUDED.agent_session_id, task_messages.agent_session_id),
+            will_not_resume = COALESCE(EXCLUDED.will_not_resume, task_messages.will_not_resume),
+            run_metrics = COALESCE(EXCLUDED.run_metrics, task_messages.run_metrics),
+            sdk_metadata = COALESCE(EXCLUDED.sdk_metadata, task_messages.sdk_metadata),
+            external_subject_key = COALESCE(EXCLUDED.external_subject_key, task_messages.external_subject_key),
+            -- Usage is admitted exactly once per assembled Message: a CLI that
+            -- repeats usage on every per-block source event keeps the first
+            -- non-null value, so re-upserting blocks never double-counts cost.
+            assistant_usage_input_tokens = COALESCE(task_messages.assistant_usage_input_tokens, EXCLUDED.assistant_usage_input_tokens),
+            assistant_usage_output_tokens = COALESCE(task_messages.assistant_usage_output_tokens, EXCLUDED.assistant_usage_output_tokens),
+            assistant_usage_cache_creation_input_tokens = COALESCE(task_messages.assistant_usage_cache_creation_input_tokens, EXCLUDED.assistant_usage_cache_creation_input_tokens),
+            assistant_usage_cache_read_input_tokens = COALESCE(task_messages.assistant_usage_cache_read_input_tokens, EXCLUDED.assistant_usage_cache_read_input_tokens),
+            assistant_usage = COALESCE(task_messages.assistant_usage, EXCLUDED.assistant_usage),
+            tool_response = COALESCE(EXCLUDED.tool_response, task_messages.tool_response)
+        RETURNING id"#
+        )),
+        msg
     )
-    .bind(task_id)
-    .execute(&mut **tx)
-    .await
-    .map(|_| ())
+    .fetch_one(&mut **tx)
+    .await?;
+
+    let message_id = row.0;
+
+    // Child rows are re-derived from the assembled content, so replace them
+    // rather than append. Replacement is scoped to the child set the caller
+    // actually supplies: per-block assembly always passes the full assembled
+    // set (so redelivery stays idempotent — no accumulating duplicate rows),
+    // while callers that manage no children pass an empty slice and must not
+    // have existing rows deleted out from under them on an upsert.
+    if !contexts.is_empty() {
+        sqlx::query("DELETE FROM task_message_contexts WHERE task_message_id = $1")
+            .bind(message_id)
+            .execute(&mut **tx)
+            .await?;
+    }
+
+    for ctx in contexts {
+        sqlx::query(
+            r#"INSERT INTO task_message_contexts (task_message_id, task_id, type, reference_id, data)
+               VALUES ($1, $2, $3, $4, $5)"#,
+        )
+        .bind(message_id)
+        .bind(&msg.task_id)
+        .bind(&ctx.context_type)
+        .bind(&ctx.reference_id)
+        .bind(&ctx.data)
+        .execute(&mut **tx)
+        .await?;
+    }
+
+    // Text, spliced at each block's own index.
+    //
+    // `message_text_parts[i]` is subscripted assignment, which enlarges the
+    // array — and creates it when the column is NULL — so an out-of-order or
+    // redelivered text block lands in the same slot either way. That idempotency
+    // is why an append would not do. PostgreSQL subscripts from 1.
+    for part in &conversation.text {
+        sqlx::query("UPDATE task_messages SET message_text_parts[$2] = $3 WHERE id = $1")
+            .bind(message_id)
+            .bind(i32::try_from(part.block_index).unwrap_or(i32::MAX) + 1)
+            .bind(&part.text)
+            .execute(&mut **tx)
+            .await?;
+    }
+    if !conversation.text.is_empty() {
+        // `array_to_string` skips NULL holes, which is what the slots for
+        // blocks that are not text are. The separator is the blank line
+        // markdown needs between paragraphs.
+        sqlx::query(
+            r#"UPDATE task_messages
+                  SET message_text = array_to_string(message_text_parts, E'\n\n')
+                WHERE id = $1"#,
+        )
+        .bind(message_id)
+        .execute(&mut **tx)
+        .await?;
+    }
+
+    // The conversation's position, allocated once for the Message and every
+    // activity that happened on it, so they interleave in one stream.
+    let position = match msg.parent_uuid.as_deref() {
+        None => {
+            moatless_core::change_feed::conversation::record_message_change(
+                tx,
+                &msg.task_id,
+                &msg.uuid,
+            )
+            .await?
+        }
+        // A subagent's rows are never in the Task's own stream, so they
+        // allocate nothing from its counter — see the note below on why they
+        // record no change. They still need a position to sort by within
+        // their own transcript.
+        Some(parent_uuid) => next_subagent_position(tx, &msg.task_id, parent_uuid).await?,
+    };
+
+    for activity in &conversation.activities {
+        task_activities::dao::upsert(tx, position, activity).await?;
+    }
+    for outcome in &conversation.outcomes {
+        task_activities::dao::settle(tx, outcome).await?;
+    }
+    if let Some(usage) = conversation.usage {
+        task_activities::dao::admit_usage(
+            tx,
+            &msg.task_id,
+            &msg.uuid,
+            msg.parent_uuid.as_deref(),
+            usage,
+        )
+        .await?;
+    }
+
+    // The position above *is* that record. Every write to a Message a
+    // conversation shows is a change to that conversation — including the
+    // in-place merges that assemble one Message from its blocks, which move
+    // no row count and no id and are otherwise undetectable from outside
+    // this transaction.
+    //
+    // Subagent rows are excluded because no transcript reads them: they are
+    // assembled on demand behind the tool call that spawned them, and they
+    // outnumber the rows that are rendered. Recording them would spend a
+    // conversation's replay window on positions that project to nothing.
+    //
+    // Before the shell's allocator and after every `task_messages` write,
+    // per `record_message_change`'s ordering rule and `record_change`'s
+    // "call this last".
+
+    // A person writing, or the agent asking, is a listing change. Last,
+    // after every `task_messages` write above — `record_change`'s "call this
+    // last", and this is the busiest transaction that allocates.
+    if moves_a_listing_row(msg, conversation) {
+        task_dao::clear_settled_for_all_followers(tx, &msg.task_id).await?;
+        moatless_core::change_feed::listing::record_change(tx, &msg.task_id).await?;
+    }
+
+    Ok(message_id)
 }
 
 #[async_trait]
@@ -599,179 +666,7 @@ impl MessageDao for PgMessageDao {
         conversation: &ConversationWrite,
     ) -> Result<i32, sqlx::Error> {
         let mut tx = self.0.begin().await?;
-
-        let row: (i32,) = bind_message!(
-            sqlx::query_as(concat!(
-                "INSERT INTO task_messages (",
-                message_columns!(),
-                ") VALUES (",
-                message_placeholders!(),
-                r#")
-            ON CONFLICT (uuid) DO UPDATE SET
-                message_type = EXCLUDED.message_type,
-                -- Text is spliced below, at each block's own index. A whole
-                -- string arriving here belongs to a caller that wrote its
-                -- Message in one piece, and must not blank out a Message the
-                -- per-block path is still assembling.
-                message_text = COALESCE(EXCLUDED.message_text, task_messages.message_text),
-                agent_session_id = COALESCE(EXCLUDED.agent_session_id, task_messages.agent_session_id),
-                will_not_resume = COALESCE(EXCLUDED.will_not_resume, task_messages.will_not_resume),
-                run_metrics = COALESCE(EXCLUDED.run_metrics, task_messages.run_metrics),
-                sdk_metadata = COALESCE(EXCLUDED.sdk_metadata, task_messages.sdk_metadata),
-                external_subject_key = COALESCE(EXCLUDED.external_subject_key, task_messages.external_subject_key),
-                -- Usage is admitted exactly once per assembled Message: a CLI that
-                -- repeats usage on every per-block source event keeps the first
-                -- non-null value, so re-upserting blocks never double-counts cost.
-                assistant_usage_input_tokens = COALESCE(task_messages.assistant_usage_input_tokens, EXCLUDED.assistant_usage_input_tokens),
-                assistant_usage_output_tokens = COALESCE(task_messages.assistant_usage_output_tokens, EXCLUDED.assistant_usage_output_tokens),
-                assistant_usage_cache_creation_input_tokens = COALESCE(task_messages.assistant_usage_cache_creation_input_tokens, EXCLUDED.assistant_usage_cache_creation_input_tokens),
-                assistant_usage_cache_read_input_tokens = COALESCE(task_messages.assistant_usage_cache_read_input_tokens, EXCLUDED.assistant_usage_cache_read_input_tokens),
-                assistant_usage = COALESCE(task_messages.assistant_usage, EXCLUDED.assistant_usage),
-                tool_response = COALESCE(EXCLUDED.tool_response, task_messages.tool_response)
-            RETURNING id"#
-            )),
-            msg
-        )
-        .fetch_one(&mut *tx)
-        .await?;
-
-        let message_id = row.0;
-
-        // Queue the Sandbox's wake signal. The reconciler must see that work is
-        // waiting while the pod is down, so the fact lives on the `sandboxes`
-        // row rather than in the pod. Written in the Message's own transaction,
-        // so a committed Message always carries its signal.
-        //
-        // Ahead of the change-feed writes below because this statement takes the
-        // `sandboxes` row, per the lock order in
-        // `moatless_core::change_feed`.
-        if msg.message_type == MessageType::User && msg.agent_session_id.is_none() {
-            sqlx::query(
-                r#"UPDATE sandboxes s
-                      SET pending_work_at = GREATEST(s.pending_work_at, NOW()),
-                          updated_at = NOW()
-                     FROM tasks t
-                    WHERE t.task_id = $1
-                      AND s.sandbox_id = t.sandbox_id"#,
-            )
-            .bind(&msg.task_id)
-            .execute(&mut *tx)
-            .await?;
-        }
-
-        // Child rows are re-derived from the assembled content, so replace them
-        // rather than append. Replacement is scoped to the child set the caller
-        // actually supplies: per-block assembly always passes the full assembled
-        // set (so redelivery stays idempotent — no accumulating duplicate rows),
-        // while callers that manage no children pass an empty slice and must not
-        // have existing rows deleted out from under them on an upsert.
-        if !contexts.is_empty() {
-            sqlx::query("DELETE FROM task_message_contexts WHERE task_message_id = $1")
-                .bind(message_id)
-                .execute(&mut *tx)
-                .await?;
-        }
-
-        for ctx in contexts {
-            sqlx::query(
-                r#"INSERT INTO task_message_contexts (task_message_id, task_id, type, reference_id, data)
-                   VALUES ($1, $2, $3, $4, $5)"#,
-            )
-            .bind(message_id)
-            .bind(&msg.task_id)
-            .bind(&ctx.context_type)
-            .bind(&ctx.reference_id)
-            .bind(&ctx.data)
-            .execute(&mut *tx)
-            .await?;
-        }
-
-        // Text, spliced at each block's own index.
-        //
-        // `message_text_parts[i]` is subscripted assignment, which enlarges the
-        // array — and creates it when the column is NULL — so an out-of-order or
-        // redelivered text block lands in the same slot either way. That idempotency
-        // is why an append would not do. PostgreSQL subscripts from 1.
-        for part in &conversation.text {
-            sqlx::query("UPDATE task_messages SET message_text_parts[$2] = $3 WHERE id = $1")
-                .bind(message_id)
-                .bind(i32::try_from(part.block_index).unwrap_or(i32::MAX) + 1)
-                .bind(&part.text)
-                .execute(&mut *tx)
-                .await?;
-        }
-        if !conversation.text.is_empty() {
-            // `array_to_string` skips NULL holes, which is what the slots for
-            // blocks that are not text are. The separator is the blank line
-            // markdown needs between paragraphs.
-            sqlx::query(
-                r#"UPDATE task_messages
-                      SET message_text = array_to_string(message_text_parts, E'\n\n')
-                    WHERE id = $1"#,
-            )
-            .bind(message_id)
-            .execute(&mut *tx)
-            .await?;
-        }
-
-        // The conversation's position, allocated once for the Message and every
-        // activity that happened on it, so they interleave in one stream.
-        let position = match msg.parent_uuid.as_deref() {
-            None => {
-                moatless_core::change_feed::conversation::record_message_change(
-                    &mut tx,
-                    &msg.task_id,
-                    &msg.uuid,
-                )
-                .await?
-            }
-            // A subagent's rows are never in the Task's own stream, so they
-            // allocate nothing from its counter — see the note below on why they
-            // record no change. They still need a position to sort by within
-            // their own transcript.
-            Some(parent_uuid) => next_subagent_position(&mut tx, &msg.task_id, parent_uuid).await?,
-        };
-
-        for activity in &conversation.activities {
-            task_activities::dao::upsert(&mut tx, position, activity).await?;
-        }
-        for outcome in &conversation.outcomes {
-            task_activities::dao::settle(&mut tx, outcome).await?;
-        }
-        if let Some(usage) = conversation.usage {
-            task_activities::dao::admit_usage(
-                &mut tx,
-                &msg.task_id,
-                &msg.uuid,
-                msg.parent_uuid.as_deref(),
-                usage,
-            )
-            .await?;
-        }
-
-        // The position above *is* that record. Every write to a Message a
-        // conversation shows is a change to that conversation — including the
-        // in-place merges that assemble one Message from its blocks, which move
-        // no row count and no id and are otherwise undetectable from outside
-        // this transaction.
-        //
-        // Subagent rows are excluded because no transcript reads them: they are
-        // assembled on demand behind the tool call that spawned them, and they
-        // outnumber the rows that are rendered. Recording them would spend a
-        // conversation's replay window on positions that project to nothing.
-        //
-        // Before the shell's allocator and after every `task_messages` write,
-        // per `record_message_change`'s ordering rule and `record_change`'s
-        // "call this last".
-
-        // A person writing, or the agent asking, is a listing change. Last,
-        // after every `task_messages` write above — `record_change`'s "call this
-        // last", and this is the busiest transaction that allocates.
-        if moves_a_listing_row(msg, conversation) {
-            task_dao::clear_settled_for_all_followers(&mut tx, &msg.task_id).await?;
-            moatless_core::change_feed::listing::record_change(&mut tx, &msg.task_id).await?;
-        }
-
+        let message_id = append_in(&mut tx, msg, contexts, conversation).await?;
         tx.commit().await?;
         Ok(message_id)
     }
@@ -896,19 +791,6 @@ impl MessageDao for PgMessageDao {
             .await
     }
 
-    async fn get_pending_user(&self, task_id: &str) -> Result<Vec<TaskMessage>, sqlx::Error> {
-        sqlx::query_as::<_, TaskMessage>(
-            r#"SELECT * FROM task_messages
-            WHERE task_id = $1
-              AND agent_session_id IS NULL
-              AND message_type = 'user'
-            ORDER BY timestamp, id"#,
-        )
-        .bind(task_id)
-        .fetch_all(&self.0)
-        .await
-    }
-
     async fn get_last_result(&self, task_id: &str) -> Result<Option<TaskMessage>, sqlx::Error> {
         sqlx::query_as::<_, TaskMessage>(
             r#"SELECT * FROM task_messages
@@ -1031,49 +913,23 @@ impl MessageDao for PgMessageDao {
         task_id: &str,
         session_id: &str,
     ) -> Result<u64, sqlx::Error> {
-        let mut tx = self.0.begin().await?;
+        // A queued item's Message is the inbox's to stamp, when it is delivered.
         let result = sqlx::query(
-            r#"UPDATE task_messages
+            r#"UPDATE task_messages m
                SET session_id = $2, agent_session_id = $2, sent_at = NOW()
-               WHERE task_id = $1
-                 AND (message_type = 'user' OR message_type = 'error')
-                 AND agent_session_id IS NULL"#,
+               WHERE m.task_id = $1
+                 AND (m.message_type = 'user' OR m.message_type = 'error')
+                 AND m.agent_session_id IS NULL
+                 AND NOT EXISTS (
+                     SELECT 1 FROM task_inbox i
+                      WHERE i.task_id = m.task_id AND i.id::text = m.uuid
+                        AND i.status = 'pending'
+                 )"#,
         )
         .bind(task_id)
         .bind(session_id)
-        .execute(&mut *tx)
+        .execute(&self.0)
         .await?;
-        clear_settled_pending_work(&mut tx, task_id).await?;
-        tx.commit().await?;
-
-        Ok(result.rows_affected())
-    }
-
-    async fn acknowledge_messages(
-        &self,
-        task_id: &str,
-        uuids: &[String],
-        session_id: &str,
-        turn_number: i32,
-    ) -> Result<u64, sqlx::Error> {
-        let mut tx = self.0.begin().await?;
-        let result = sqlx::query(
-            r#"UPDATE task_messages
-               SET sent_at = NOW(), session_id = $3, agent_session_id = $3,
-                   turn_number = $4
-               WHERE task_id = $1
-                 AND uuid = ANY($2)
-                 AND agent_session_id IS NULL"#,
-        )
-        .bind(task_id)
-        .bind(uuids)
-        .bind(session_id)
-        .bind(turn_number)
-        .execute(&mut *tx)
-        .await?;
-        stamp_turn_trigger(&mut tx, task_id, uuids, turn_number).await?;
-        clear_settled_pending_work(&mut tx, task_id).await?;
-        tx.commit().await?;
 
         Ok(result.rows_affected())
     }
@@ -1453,7 +1309,3 @@ mod dao_pending_work_db_tests;
 #[cfg(all(test, feature = "db-tests"))]
 #[path = "dao_db_tests.rs"]
 mod dao_db_tests;
-
-#[cfg(all(test, feature = "db-tests"))]
-#[path = "dao_turn_trigger_db_tests.rs"]
-mod dao_turn_trigger_db_tests;

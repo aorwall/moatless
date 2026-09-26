@@ -4,11 +4,14 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use super::models::{TaskMessage, TaskMessageContext};
-use crate::message::dao::MessageDao;
-use crate::message::models::{
-    HARNESS_USER_TYPE, MessageRole, MessageType, TOOL_RESPONSE_USER_TYPE,
+use super::models::TaskMessage;
+use crate::conversation::projector::Projector;
+use crate::inbox::{
+    AdapterChannel, DeliveryOptions, ExternalSender, InboxContext, InboxItem, InboxOrigin,
+    InboxService, NewInboxItem,
 };
+use crate::message::dao::MessageDao;
+use crate::message::models::{MessageRole, MessageType};
 use crate::message::operations::Messages;
 use crate::task::dao::TaskDao;
 use crate::task::models::TaskPatch;
@@ -49,6 +52,7 @@ pub struct MessageSendService {
     task_turns: Arc<dyn TaskTurnDao>,
     files: Arc<Files>,
     self_echo: Arc<dyn SelfEchoGuard>,
+    inbox: InboxService,
 }
 
 impl MessageSendService {
@@ -58,6 +62,7 @@ impl MessageSendService {
         task_turns: Arc<dyn TaskTurnDao>,
         files: Arc<Files>,
         self_echo: Arc<dyn SelfEchoGuard>,
+        inbox: InboxService,
     ) -> Self {
         Self {
             messages,
@@ -65,6 +70,7 @@ impl MessageSendService {
             task_turns,
             files,
             self_echo,
+            inbox,
         }
     }
 
@@ -104,6 +110,57 @@ fn agent_send_idempotency_uuid(source_task_id: &str, task_id: &str, text: &str) 
     uuid::Uuid::new_v5(&AGENT_SEND_NAMESPACE, name.as_bytes()).to_string()
 }
 
+/// Submits `item` and projects its Message in one transaction, so no send
+/// path writes a Message itself. `None` when an item with its id exists.
+pub(crate) async fn queue(
+    inbox: &InboxService,
+    item: NewInboxItem,
+) -> Result<Option<InboxItem>, sqlx::Error> {
+    let mut tx = inbox.begin().await?;
+    let submitted = inbox.submit(&mut tx, item).await?;
+    if let Some(item) = &submitted {
+        Projector.on_inbox(&mut tx, item).await?;
+    }
+    tx.commit().await?;
+    Ok(submitted)
+}
+
+/// Who sent a message, from what its send path knows.
+fn inbox_origin(origin: &ExternalOrigin<'_>, sent_by: Option<&str>) -> InboxOrigin {
+    let sent_by_owned = sent_by.map(str::to_string);
+    if let Some(source_task_id) = origin.source_task_id {
+        return InboxOrigin::Task {
+            source_task_id: source_task_id.to_string(),
+            sent_by: sent_by_owned,
+        };
+    }
+    if let (Some(adapter), Some(event_id)) = (origin.adapter, origin.event_id) {
+        return InboxOrigin::Adapter {
+            channel: AdapterChannel {
+                adapter: adapter.to_string(),
+                external_message_id: event_id.to_string(),
+                subject_key: origin.subject_key.map(str::to_string),
+                source_name: origin.source_name.map(str::to_string),
+            },
+            sender: ExternalSender {
+                id: origin.sender_id.map(str::to_string),
+                author: origin.author.map(str::to_string),
+            },
+            sent_by: sent_by_owned,
+        };
+    }
+    match sent_by_owned {
+        Some(sent_by) => InboxOrigin::User { sent_by },
+        None => InboxOrigin::System,
+    }
+}
+
+/// A client-owned message id, which is the inbox item's id.
+fn parse_message_id(uuid: &str) -> Result<uuid::Uuid, MessageError> {
+    uuid.parse()
+        .map_err(|_| MessageError::BadRequest("A message id must be a UUID.".to_string()))
+}
+
 /// Queue a user message a sandbox wrote for its own Task, so an interrupted
 /// turn recovers — `agent_handle.send` alone leaves no row for
 /// `find_interrupted_turn` to see.
@@ -134,30 +191,30 @@ pub async fn enqueue_sandbox_message(
     }
 
     let uuid = agent_send_idempotency_uuid(task_id, task_id, idempotency_key.unwrap_or(text));
-    if let Some(existing) = messages
-        .find_by_uuid(&uuid)
+    let item = NewInboxItem {
+        id: parse_message_id(&uuid)?,
+        task_id: task_id.to_string(),
+        text: text.to_string(),
+        file_ids: Vec::new(),
+        // `resume: false`, deliberately: this is the last item of its batch,
+        // and `enricher::build_pending_deliveries` reads the last one's `resume`
+        // to decide whether the recovered turn rejoins the previous session.
+        options: DeliveryOptions {
+            resume: false,
+            ..DeliveryOptions::default()
+        },
+        answers_tool_use_id: None,
+        origin: InboxOrigin::Sandbox,
+    };
+    let Some(queued) = queue(messages.inbox(), item)
         .await
-        .map_err(MessageError::DedupCheck)?
-    {
-        tracing::debug!(task_id, uuid = %existing.uuid, "Sandbox message already queued");
+        .map_err(MessageError::PersistMessage)?
+    else {
+        tracing::debug!(task_id, uuid, "Sandbox message already queued");
         return Ok(None);
-    }
+    };
 
     let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
-    let row = TaskMessage {
-        // Overrides the constructor's `resume: true`, deliberately: this is the
-        // last row of its batch, and `enricher::build_pending_deliveries` reads
-        // the last row's `resume` to decide whether the recovered turn rejoins
-        // the previous agent session.
-        resume: false,
-        user_type: HARNESS_USER_TYPE.to_string(),
-        ..TaskMessage::new_user_message(task_id.to_string(), uuid, text.to_string(), now.clone())
-    };
-    messages
-        .append(&row, &[], &ConversationWrite::default())
-        .await
-        .map_err(MessageError::PersistMessage)?;
-
     tasks
         .update_task(
             task_id,
@@ -170,7 +227,7 @@ pub async fn enqueue_sandbox_message(
         .await
         .map_err(MessageError::AdvanceTaskClock)?;
 
-    Ok(Some(row.uuid))
+    Ok(Some(queued.id.to_string()))
 }
 
 fn attached_file_ids(file_ids: &[String], contexts: &[MessageContextInput]) -> Vec<String> {
@@ -362,20 +419,39 @@ impl MessageSendService {
         // reusing its own id for a different message is a bug on its side, and
         // answering it the way a true replay is answered writes nothing either way.
         if let Some(uuid) = message_uuid.as_deref() {
-            let existing = self
-                .messages
-                .find_by_uuid(uuid)
+            let id = parse_message_id(uuid)?;
+            let queued = self
+                .inbox
+                .find(id)
                 .await
-                .map_err(MessageError::DedupCheck)?;
-            if let Some(existing) = existing {
-                if existing.task_id == task_id && existing.message_type == MessageType::User {
+                .map_err(MessageError::DedupCheck)?
+                .map(|item| item.task_id);
+            let addressed = match queued {
+                Some(task) => Some(task),
+                // A Message sent before the inbox, or any other Message: an
+                // agent's reply shares this id space.
+                None => self
+                    .messages
+                    .find_by_uuid(uuid)
+                    .await
+                    .map_err(MessageError::DedupCheck)?
+                    .map(|existing| {
+                        if existing.message_type == MessageType::User {
+                            existing.task_id
+                        } else {
+                            String::new()
+                        }
+                    }),
+            };
+            if let Some(addressed) = addressed {
+                if addressed == task_id {
                     tracing::debug!(task_id = %task_id, uuid = %uuid, "Message already persisted; treating as sent");
                     return Ok(None);
                 }
                 tracing::warn!(
                     task_id = %task_id,
                     uuid = %uuid,
-                    addressed = %existing.task_id,
+                    addressed = %addressed,
                     "Refusing a send whose message id is already in use"
                 );
                 return Err(MessageError::BadRequest(
@@ -384,54 +460,17 @@ impl MessageSendService {
             }
         }
 
-        let effective_message = message.to_string();
-
         let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
-        let msg_uuid = message_uuid.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+        let id = match message_uuid.as_deref() {
+            Some(uuid) => parse_message_id(uuid)?,
+            None => uuid::Uuid::new_v4(),
+        };
         let attachments_meta = self.attachment_metadata(file_ids, contexts).await?;
         let normalized_file_ids: Vec<String> =
             attachments_meta.iter().map(|(id, _)| id.clone()).collect();
 
-        // Persist the attached file IDs so the sandbox can fetch them via gRPC
-        // before invoking the agent.
-        let attachments = if normalized_file_ids.is_empty() {
-            None
-        } else {
-            Some(serde_json::json!({ "file_ids": &normalized_file_ids }))
-        };
-
-        // `message_text` is what the person wrote, and only that. The preview
-        // URL, the selected element, the attribution and the attachments are
-        // rebuilt from their own rows on the way to the agent
-        // (`enricher::build_pending_content_blocks`).
-        let msg_row = TaskMessage {
-            attachments,
-            agent_mode_raw: agent_mode.map(|m| m.as_str().to_string()),
-            model: model.map(std::string::ToString::to_string),
-            effort: effort.map(std::string::ToString::to_string),
-            skills: skills.to_vec(),
-            resume,
-            external_event_id: origin.event_id.map(std::string::ToString::to_string),
-            external_adapter: origin.adapter.map(std::string::ToString::to_string),
-            external_subject_key: origin.subject_key.map(std::string::ToString::to_string),
-            external_source_name: origin.source_name.map(std::string::ToString::to_string),
-            external_author: origin.author.map(std::string::ToString::to_string),
-            external_sender_id: origin.sender_id.map(std::string::ToString::to_string),
-            source_task_id: origin.source_task_id.map(std::string::ToString::to_string),
-            start_fresh,
-            sent_by: sent_by.map(std::string::ToString::to_string),
-            ..TaskMessage::new_user_message(
-                task_id.to_string(),
-                msg_uuid,
-                effective_message,
-                now.clone(),
-            )
-        };
-
-        // Persist contexts: sender-supplied (preview/element) + synthesised
-        // file contexts so the read path can surface uploaded files alongside the
-        // other context items. The `attachments` JSON column is still written
-        // above for the sandbox gRPC pre-fetch path.
+        // Sender-supplied contexts (preview, element) plus one per attached
+        // file, so the read path surfaces uploads beside the other items.
         let mut all_contexts: Vec<MessageContextInput> = contexts
             .iter()
             .filter(|context| !matches!(context, MessageContextInput::File { .. }))
@@ -444,15 +483,38 @@ impl MessageSendService {
             });
         }
 
-        let context_rows: Vec<TaskMessageContext> = all_contexts
-            .iter()
-            .map(message_context_input_to_row)
-            .collect();
-
-        self.messages
-            .append(&msg_row, &context_rows, &ConversationWrite::default())
+        // `text` is what the person wrote, and only that. The preview URL, the
+        // selected element, the attribution and the attachments are rebuilt
+        // from their own fields on the way to the agent
+        // (`enricher::build_pending_content_blocks`).
+        let item = NewInboxItem {
+            id,
+            task_id: task_id.to_string(),
+            text: message.to_string(),
+            file_ids: normalized_file_ids,
+            options: DeliveryOptions {
+                model: model.map(str::to_string),
+                agent_mode: agent_mode.map(|m| m.as_str().to_string()),
+                effort: effort.map(str::to_string),
+                skills: skills.to_vec(),
+                resume,
+                start_fresh,
+                contexts: all_contexts
+                    .iter()
+                    .map(|context| InboxContext::from(&message_context_input_to_row(context)))
+                    .collect(),
+                tool_response: None,
+            },
+            answers_tool_use_id: None,
+            origin: inbox_origin(&origin, sent_by),
+        };
+        let Some(queued) = queue(&self.inbox, item)
             .await
-            .map_err(MessageError::PersistMessage)?;
+            .map_err(MessageError::PersistMessage)?
+        else {
+            tracing::debug!(task_id = %task_id, %id, "Message already queued");
+            return Ok(None);
+        };
 
         tracing::info!(task_id = %task_id, "Message persisted");
 
@@ -477,7 +539,7 @@ impl MessageSendService {
             .await
             .map_err(MessageError::AdvanceTaskClock)?;
 
-        Ok(Some(msg_row.uuid))
+        Ok(Some(queued.id.to_string()))
     }
 
     /// Persist an error result message visible in the chat.
@@ -644,9 +706,6 @@ impl MessageSendService {
             return Err(MessageError::TaskClosed(task_id.to_string()));
         }
 
-        let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
-        let msg_uuid = uuid::Uuid::new_v4().to_string();
-
         let answer = tool_response.cloned().unwrap_or(serde_json::Value::Null);
         // The question as it was asked, off the call's own stored input.
         let asked = self
@@ -666,96 +725,25 @@ impl MessageSendService {
             structured.insert(key.clone(), value.clone());
         }
 
-        let msg_row = TaskMessage {
-            id: 0,
+        // The Projector settles the call this answers, from `tool_response`.
+        let item = NewInboxItem {
+            id: uuid::Uuid::new_v4(),
             task_id: task_id.to_string(),
-            uuid: msg_uuid,
-            message_type: MessageType::User,
-            // Not `human`, even though a person typed it. This row exists to hand a
-            // tool response back to the agent; the answer itself is already on
-            // screen as the outcome of the call that asked, and rendering the
-            // carrier too would show it twice.
-            user_type: TOOL_RESPONSE_USER_TYPE.to_string(),
-            parent_uuid: None,
-            is_sidechain: None,
-            cwd: None,
-            session_id: None,
-            // Queued user rows carry no turn until the sandbox acknowledges them:
-            // the run that consumes them decides which turn they belong to.
-            turn_number: None,
-            version: None,
-            git_branch: None,
-            request_id: None,
-            timestamp: now,
-            message_role: MessageRole::User,
-            message_text: Some(response_text.clone()),
-            assistant_message_id: None,
-            assistant_message_type: None,
-            assistant_message_model: None,
-            assistant_stop_reason: None,
-            assistant_stop_sequence: None,
-            assistant_usage_input_tokens: None,
-            assistant_usage_output_tokens: None,
-            assistant_usage_cache_creation_input_tokens: None,
-            assistant_usage_cache_read_input_tokens: None,
-            assistant_usage: None,
-            tool_use_result: None,
-            tool_response: Some(serde_json::Value::Object(structured)),
-            sdk_metadata: None,
-            attachments: None,
-            agent_session_id: None,
-            will_not_resume: None,
-            run_metrics: None,
-            agent_mode_raw: None,
-            model: None,
-            effort: None,
-            skills: Vec::new(),
-            resume: true,
-            sent_at: None,
-            created_at: None,
-            external_event_id: None,
-            external_adapter: None,
-            external_subject_key: None,
-            external_source_name: None,
-            external_author: None,
-            external_sender_id: None,
-            source_task_id: None,
-            start_fresh: false,
-            sent_by: sent_by.map(std::string::ToString::to_string),
-        };
-
-        // The person's answer settles the call that asked for it. Without this the
-        // `AskUserQuestion` activity stays `in_progress` forever and the question
-        // keeps rendering as unanswered — the agent's own tool result never arrives
-        // for these, because this row *is* the result.
-        //
-        // The resolved row beside it is what closes the panel: the client keeps a
-        // question open until it sees one naming the same `requestId`.
-        let conversation = ConversationWrite {
-            outcomes: vec![ToolOutcome {
-                task_id: task_id.to_string(),
-                tool_use_id: tool_use_id.to_string(),
-                status: ActivityStatus::Completed,
-                result: if answer.is_null() {
-                    serde_json::Value::String(response_text.clone())
-                } else {
-                    answer.clone()
+            text: response_text,
+            file_ids: Vec::new(),
+            options: DeliveryOptions {
+                tool_response: Some(serde_json::Value::Object(structured)),
+                ..DeliveryOptions::default()
+            },
+            answers_tool_use_id: Some(tool_use_id.to_string()),
+            origin: match sent_by {
+                Some(sent_by) => InboxOrigin::User {
+                    sent_by: sent_by.to_string(),
                 },
-                typed_result: None,
-                is_error: false,
-            }],
-            activities: vec![crate::task_activities::mapping::user_input_resolved(
-                task_id,
-                &msg_row.uuid,
-                tool_use_id,
-                &answer,
-            )],
-            ..Default::default()
+                None => InboxOrigin::System,
+            },
         };
-
-        let contexts: Vec<TaskMessageContext> = vec![];
-        self.messages
-            .append(&msg_row, &contexts, &conversation)
+        queue(&self.inbox, item)
             .await
             .map_err(MessageError::PersistToolResponse)?;
 
@@ -1080,12 +1068,17 @@ mod db_tests {
                 .await
                 .expect("enqueue")
                 .expect("a fresh wake is queued");
-        let row = messages
-            .find_by_uuid(&uuid)
+        let item = messages
+            .inbox()
+            .find(uuid.parse().expect("an item id"))
             .await
             .expect("query")
-            .expect("the wake's row");
-        assert_eq!(row.user_type, HARNESS_USER_TYPE, "nobody said the wake");
+            .expect("the wake's item");
+        assert_eq!(item.origin, crate::inbox::InboxOrigin::Sandbox);
+        assert!(
+            messages.find_by_uuid(&uuid).await.expect("query").is_none(),
+            "nobody said the wake, so no Message shows it"
+        );
 
         // Resending the same text is the retry of a call the pod could not
         // confirm; it must collapse onto the first row, not open a second turn.
@@ -1097,7 +1090,15 @@ mod db_tests {
         );
 
         messages
-            .acknowledge_messages("t1", &[uuid], "sess-1", 7)
+            .acknowledge_messages(
+                "t1",
+                &[uuid],
+                &crate::inbox::RunStamp {
+                    run_id: Some("run-7".to_string()),
+                    session_id: "sess-1".to_string(),
+                    turn_number: 7,
+                },
+            )
             .await
             .expect("acknowledge");
         // The acknowledging run allocated the turn before the ack stamped it.

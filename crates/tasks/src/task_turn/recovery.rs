@@ -219,7 +219,12 @@ mod tests {
     }
 
     fn transcript(store: MockMessageDao) -> Messages {
-        Messages::new(Arc::new(store))
+        Messages::new(
+            Arc::new(store),
+            crate::inbox::InboxService::new(
+                sqlx::PgPool::connect_lazy("postgres://unused").expect("a lazy pool"),
+            ),
+        )
     }
 
     fn turn_ops(store: MockTaskTurnDao) -> TaskTurns {
@@ -289,7 +294,6 @@ mod tests {
 
     fn interrupted(attempts: i32) -> InterruptedTurn {
         InterruptedTurn {
-            task_message_id: 1,
             task_id: "task".into(),
             session_id: "session".into(),
             turn_number: 7,

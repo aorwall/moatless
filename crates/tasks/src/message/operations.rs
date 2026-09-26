@@ -10,6 +10,9 @@ use super::dao::MessageDao;
 use super::models::{
     InterruptedTurn, MessagePage, MessageType, TaskMessage, TaskMessageContext, ToolCallRow,
 };
+use crate::conversation::projector::Projector;
+use crate::inbox::view::PendingView;
+use crate::inbox::{InboxService, PENDING_LIMIT, RunStamp};
 use crate::task_activities::mapping::{ActivityRow, ConversationWrite};
 
 /// The `task_messages` and `task_activities` tables, as the backend and this
@@ -20,11 +23,17 @@ use crate::task_activities::mapping::{ActivityRow, ConversationWrite};
 /// [`crate::ports::Activities`] serves the read model.
 pub struct Messages {
     store: Arc<dyn MessageDao>,
+    inbox: InboxService,
 }
 
 impl Messages {
-    pub(crate) fn new(store: Arc<dyn MessageDao>) -> Self {
-        Self { store }
+    pub(crate) fn new(store: Arc<dyn MessageDao>, inbox: InboxService) -> Self {
+        Self { store, inbox }
+    }
+
+    /// The inbox pending work is read from.
+    pub(crate) fn inbox(&self) -> &InboxService {
+        &self.inbox
     }
 
     /// The store, for this crate's own services and mutations.
@@ -91,9 +100,11 @@ impl Messages {
         self.store.find_by_uuid(uuid).await
     }
 
-    /// See [`MessageDao::get_pending_user`].
-    pub async fn get_pending_user(&self, task_id: &str) -> Result<Vec<TaskMessage>, sqlx::Error> {
-        self.store.get_pending_user(task_id).await
+    /// The Task's pending inbox items, oldest first and at most
+    /// [`PENDING_LIMIT`], as the Messages the enricher reads.
+    pub async fn pending_user(&self, task_id: &str) -> Result<PendingView, sqlx::Error> {
+        let items = self.inbox.pending(task_id, PENDING_LIMIT).await?;
+        Ok(PendingView::of(&items))
     }
 
     /// See [`MessageDao::get_last_result`].
@@ -169,17 +180,27 @@ impl Messages {
             .await
     }
 
-    /// See [`MessageDao::acknowledge_messages`].
+    /// Marks the items `message_uuids` names delivered to `run`, and stamps
+    /// their Messages, in one transaction. Ids that are not pending are
+    /// skipped, so a repeated acknowledgement changes nothing.
     pub async fn acknowledge_messages(
         &self,
         task_id: &str,
         message_uuids: &[String],
-        session_id: &str,
-        turn_number: i32,
+        run: &RunStamp,
     ) -> Result<u64, sqlx::Error> {
-        self.store
-            .acknowledge_messages(task_id, message_uuids, session_id, turn_number)
-            .await
+        let ids: Vec<uuid::Uuid> = message_uuids
+            .iter()
+            .filter_map(|uuid| uuid.parse().ok())
+            .collect();
+        let mut tx = self.inbox.begin().await?;
+        let marked = self
+            .inbox
+            .mark_delivered(&mut tx, task_id, &ids, run)
+            .await?;
+        Projector.on_delivered(&mut tx, task_id, &ids, run).await?;
+        tx.commit().await?;
+        Ok(marked)
     }
 
     /// See [`MessageDao::get_last_message_type`].

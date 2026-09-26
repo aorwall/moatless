@@ -76,7 +76,10 @@ pub(super) async fn get_pending_messages(
     let task_model = task.as_ref().and_then(|t| t.model.clone());
     let task_skills = task.as_ref().map(|t| t.skills.clone()).unwrap_or_default();
 
-    let pending = messages.get_pending_user(&req.task_id).await.map_err(|e| {
+    let moatless_tasks::inbox::view::PendingView {
+        messages: pending,
+        contexts: contexts_by_message,
+    } = messages.pending_user(&req.task_id).await.map_err(|e| {
         warn!(error = %e, task_id = %req.task_id, "Failed to fetch pending messages");
         Status::internal("Failed to fetch pending messages")
     })?;
@@ -247,19 +250,9 @@ pub(super) async fn get_pending_messages(
         }
     }
 
-    // The agent's view of a queued Message is rebuilt here, not read back. The
-    // row stores what the person wrote, and everything around it — preview URL,
-    // selected element, sending Task, attached files — is its own row or column.
-    // Pre-rendering them into the Message would create a copy that can disagree.
-    let ids: Vec<i32> = pending.iter().map(|row| row.id).collect();
-    let contexts_by_message = messages
-        .get_contexts_for_messages(&req.task_id, &ids)
-        .await
-        .unwrap_or_else(|e| {
-            warn!(task_id = %req.task_id, error = %e, "Failed to load message contexts; delivering without them");
-            std::collections::HashMap::new()
-        });
-
+    // The agent's view of a queued item is rebuilt here, not read back: the
+    // item stores what the person wrote, and everything around it — preview
+    // URL, selected element, sending Task, attached files — is its own field.
     let builder = moatless_tasks::message::enricher::AgentPromptBuilder::new(
         service.handlers.as_ref().map(|h| h.files.as_ref()),
         Some(service.backend_config.as_ref()),
@@ -414,8 +407,11 @@ pub(super) async fn acknowledge_messages(
         .acknowledge_messages(
             &req.task_id,
             &req.message_uuids,
-            &req.session_id,
-            turn_number,
+            &moatless_tasks::inbox::RunStamp {
+                run_id: (!req.run_id.is_empty()).then(|| req.run_id.clone()),
+                session_id: req.session_id.clone(),
+                turn_number,
+            },
         )
         .await
     {

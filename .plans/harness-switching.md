@@ -193,8 +193,9 @@ CREATE TABLE task_inbox (
     delivered_at          timestamptz,
     run_id                text,
     turn_number           integer,
+    session_id            text,           -- the agent session the delivery ran in; recovery resumes it
 
-    CHECK (CASE origin
+    CONSTRAINT task_inbox_sender_check CHECK (CASE origin
       WHEN 'user'    THEN sent_by IS NOT NULL
                           AND num_nonnulls(source_task_id, adapter, external_message_id,
                                            external_sender_id, external_author) = 0
@@ -210,18 +211,23 @@ CREATE TABLE task_inbox (
     END),
     CHECK (adapter IS NOT NULL OR num_nonnulls(external_subject_key, external_source_name) = 0),
     CHECK ((status = 'delivered') = (delivered_at IS NOT NULL)),
-    CHECK (status = 'delivered' OR num_nonnulls(run_id, turn_number) = 0)
+    CHECK (status = 'delivered' OR num_nonnulls(run_id, turn_number, session_id) = 0)
 );
 
 CREATE UNIQUE INDEX task_inbox_external_message_idx
     ON task_inbox (task_id, adapter, external_message_id) WHERE external_message_id IS NOT NULL;
 CREATE INDEX task_inbox_pending_idx ON task_inbox (task_id, created_at) WHERE status = 'pending';
 CREATE INDEX task_inbox_sent_by_idx ON task_inbox (sent_by);
+CREATE INDEX task_inbox_turn_idx ON task_inbox (task_id, turn_number);
 ```
 
+The origin `CHECK` is named `task_inbox_sender_check`: Postgres auto-names the
+column `CHECK` on `origin` `task_inbox_origin_check`.
+
 An adapter send may carry `sent_by` too: the Moatless user an external sender
-resolved to. `unknown` exists only so backfilled rows whose sender history did
-not record are stored as unknown rather than guessed as `system`.
+resolved to. `unknown` exists only for delivered history whose sender did not
+record. The backfill moves pending rows only, so a pending row with no recorded
+sender is `system`, which the `CHECK` allows while pending.
 
 Column origins:
 
@@ -230,13 +236,18 @@ Column origins:
 | `id`, `task_id`, `created_at` | `uuid`, `task_id`, `timestamp` |
 | `text`, `file_ids` | `message_text`, `attachments` |
 | `delivery_options` | `sdk_metadata` |
-| `origin` | set by each send path (section 5.5); backfill: `source_task_id` → task, `channel_provider` → adapter, `sent_by` → user, otherwise unknown |
+| `origin` | set by each send path (section 5.5); backfill: `user_type = 'harness'` → sandbox, `source_task_id` → task, `channel_provider` and `channel_external_id` → adapter, `sent_by` → user, otherwise system |
 | `sent_by`, `external_sender_id`, `external_author`, `source_task_id` | same names |
 | `adapter`, `external_message_id`, `external_source_name` | `channel_provider`, `channel_external_id`, `channel_source_name` |
 | `external_subject_key`, `command_name` | same names |
 | `origin = 'sandbox'` | `user_type = 'harness'` (`HARNESS_USER_TYPE`, `types/src/message.rs:35`) |
 | `status = pending` | `message_type = 'user' AND agent_session_id IS NULL` (`message/dao.rs:899`) |
-| `delivered_at`, `turn_number`, `run_id` | stamped by `AcknowledgeMessages` today (`message/dao.rs:1052`) |
+| `delivered_at`, `turn_number`, `run_id`, `session_id` | stamped by `AcknowledgeMessages` today (`message/dao.rs:1052`); `session_id` was `agent_session_id` |
+
+An inbox id is a `uuid`, so every send path now refuses a client message id
+that is not one. A queued Message whose id is not a UUID takes
+`md5('task_inbox:' || task_id || ':' || uuid)::uuid` in the backfill, and the
+rows naming it (activities, usage, conversation changes, feedback) follow.
 
 `sandbox` is a prompt the sandbox wrote to wake its own agent: a finished
 background command, a `ScheduleWakeup` prompt, a restart note
@@ -624,7 +635,8 @@ existing `--agent`/`--agent-type` option is renamed `--agent-profile`.
 | `moat send --task` from another Task | `task` |
 | Adapter ingress (`event_ingress/admission.rs`, `relay.rs`) | `adapter` |
 | Child turn notices to a parent (`notify_parent_of_child_outcome`, `agent_handlers.rs`) | `task`, `source_task_id` = the child; id is today's UUIDv5 of (child, parent, turn) |
-| Loop runs, platform prompts | `system` |
+| Schedule firings and adapter-bound Loop runs (they carry an adapter and an event id) | `adapter` |
+| Loop runs with no adapter, platform prompts | `system` |
 | Sandbox wakes (`EnqueueSandboxMessage`): background command done, `ScheduleWakeup`, restart note | `sandbox`; id is today's `agent_send_idempotency_uuid` |
 
 A send path that derives its id makes `submit` idempotent: a redelivered event
@@ -663,17 +675,20 @@ impl TaskSwitchService {
     pub async fn profile_for(&self, sandbox_id: Option<&str>, harness: Harness) -> Result<&'static str, TaskError>;
 }
 
-// crates/tasks/src/inbox/
+// crates/tasks/src/inbox/ — crate-private: `persistence-export` refuses a public
+// signature naming a transaction. Hosts reach the inbox through `Messages`
+// (`pending_user`, `acknowledge_messages`) and `MessageSendService`.
 impl InboxService {
     /// `None` when an item with this id exists: a redelivery, which must not wake again.
-    pub async fn submit(&self, tx: &mut PgTransaction, item: NewInboxItem) -> Result<Option<InboxItem>, InboxError>;
+    pub(crate) async fn submit(&self, tx: &mut PgTransaction, item: NewInboxItem) -> Result<Option<InboxItem>, sqlx::Error>;
     /// Oldest first, at most `limit`.
-    pub async fn pending(&self, task_id: &str, limit: u32) -> Result<Vec<InboxItem>, sqlx::Error>;
+    pub(crate) async fn pending(&self, task_id: &str, limit: u32) -> Result<Vec<InboxItem>, sqlx::Error>;
     /// Marks the `pending` ones among `ids`; already-delivered ids are skipped.
-    /// Decides the turn's trigger (4.5a) when this is its first delivery.
-    pub async fn mark_delivered(&self, tx: &mut PgTransaction, ids: &[Uuid], run: &RunStamp) -> Result<u64, sqlx::Error>;
-    pub async fn cancel(&self, task_id: &str, id: Uuid) -> Result<(), InboxError>;
+    /// Decides the turn's trigger (4.5a) from the items this call moved.
+    pub(crate) async fn mark_delivered(&self, tx: &mut PgTransaction, task_id: &str, ids: &[Uuid], run: &RunStamp) -> Result<u64, sqlx::Error>;
 }
+// No `cancel`: no send path or UI cancels a queued item yet, so `cancelled`
+// has no writer; readers already skip it.
 
 // NewInboxItem carries the origin as a sum type, so the CHECK in 4.2 is never
 // the first place a bad combination is caught.
@@ -1000,7 +1015,8 @@ Verification:
 
 - Migration: `task_inbox` (4.2). Backfill every pending user row
   (`agent_session_id IS NULL`) as `pending`, with `origin` from 5.5's backfill
-  rule.
+  rule, and the acknowledged user rows of an `active` or `interrupted` turn as
+  `delivered` with their session and turn: recovery replays from the inbox.
 - Create `conversation/projector.rs` with `on_inbox` only, writing the user
   `task_messages` row for now. Every send path calls `InboxService::submit` with
   its `InboxOrigin` (5.5) and the Projector in one transaction, and writes no
@@ -1020,10 +1036,21 @@ Verification:
 - Child notices: `notify_parent_of_child_outcome` (`agent_handlers.rs`) submits
   an `origin = 'task'` item with its derived id; it still skips a turn the
   parent did not trigger (#1011) and waits out `backgroundCommands` (#1008).
-- Adapter lookups by external id move to `task_inbox.external_message_id`:
-  `adapter-github-pr/src/external_id.rs`, `routing.rs`,
-  `adapter-linear/src/comments.rs`, `adapter-linear/src/external_id.rs`,
-  `message/external_events_dao.rs`.
+- Adapter lookups by external id move to `task_inbox.external_message_id`. The
+  adapter crates hold no SQL; they reach it through
+  `message/external_events_dao.rs`, which reads the inbox first, then
+  `task_messages` (delivered history), then outbound events.
+  `event_ingress/admission.rs` and `relay.rs` already send through
+  `send_message_flow` and write no Message themselves.
+- `mark_delivered(tx, task_id, ids, &RunStamp)`: `RunStamp` carries `run_id`,
+  `session_id` and `turn_number`. The Projector's `on_delivered` stamps the
+  projected user Message (`sent_at`, session, turn) in the same transaction.
+  The trigger is decided from the items that call moved to `delivered`, so a
+  repeated acknowledgement decides nothing.
+- `set_session_id_for_task` no longer claims a Message whose item is still
+  pending; only `mark_delivered` delivers.
+- `InterruptedTurn.task_message_id` goes (nothing read it). Rewind deletes the
+  inbox items above the cut, as it deletes the Messages.
 
 Verification: DB tests for every `CHECK` (one rejected row per origin rule) and
 the unique index; adapter re-sync idempotence; a repeated `AcknowledgeMessages`

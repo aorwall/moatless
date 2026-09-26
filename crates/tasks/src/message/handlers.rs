@@ -304,7 +304,7 @@ pub async fn get_pending_messages(
 ) -> Result<Json<GetPendingMessagesResponse>, MessageError> {
     ensure_task_read_access(tasks.as_ref(), &auth, &task_id).await?;
 
-    let pending = message_dao.get_pending_user(&task_id).await?;
+    let pending = message_dao.pending_user(&task_id).await?.messages;
     let last_result = message_dao.get_last_result(&task_id).await?;
 
     let mut messages: Vec<PendingMessageItem> = pending

@@ -71,10 +71,6 @@ pub struct ToolCallRow {
 /// mid-run); drives a `claude --resume <session_id>` replay on startup.
 #[derive(Debug, Clone)]
 pub struct InterruptedTurn {
-    /// `task_messages.id` of the turn's first user row, for logging. The
-    /// recovery counter lives on `task_turns` — a turn can hold several user
-    /// messages, so bumping one of them would undercount the batch.
-    pub task_message_id: i32,
     pub task_id: String,
     /// Backend-tracked agent session ID. Either `session_id` or
     /// `agent_session_id` — they're set together at acknowledgement.

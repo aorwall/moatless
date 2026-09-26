@@ -63,12 +63,53 @@ pub async fn subagent_messages(
         .await
 }
 
-/// The user Messages no turn has claimed yet.
+fn facade(pool: &DbPool) -> super::operations::Messages {
+    super::operations::Messages::new(
+        Arc::new(messages(pool)),
+        crate::inbox::InboxService::new(pool.clone()),
+    )
+}
+
+/// Submit an inbox item and project its Message, as a send path does.
+/// `None` when an item with its id exists.
+pub async fn queue_message(
+    pool: &DbPool,
+    item: crate::inbox::NewInboxItem,
+) -> Result<Option<crate::inbox::InboxItem>, sqlx::Error> {
+    super::send::queue(&crate::inbox::InboxService::new(pool.clone()), item).await
+}
+
+/// A person's message to `task_id`, `text` and nothing else.
+pub fn user_item(task_id: &str, id: uuid::Uuid, text: &str) -> crate::inbox::NewInboxItem {
+    crate::inbox::NewInboxItem {
+        id,
+        task_id: task_id.to_string(),
+        text: text.to_string(),
+        file_ids: Vec::new(),
+        options: crate::inbox::DeliveryOptions::default(),
+        answers_tool_use_id: None,
+        origin: crate::inbox::InboxOrigin::User {
+            sent_by: "user-1".to_string(),
+        },
+    }
+}
+
+/// Queue a person's item whose id derives from `name`; returns the id.
+pub async fn queue_named(pool: &DbPool, task_id: &str, name: &str, text: &str) -> String {
+    let id = uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_OID, name.as_bytes());
+    queue_message(pool, user_item(task_id, id, text))
+        .await
+        .unwrap()
+        .expect("a new item");
+    id.to_string()
+}
+
+/// The pending items no turn has taken yet, as the Messages the enricher reads.
 pub async fn pending_user_messages(
     pool: &DbPool,
     task_id: &str,
 ) -> Result<Vec<TaskMessage>, sqlx::Error> {
-    messages(pool).get_pending_user(task_id).await
+    Ok(facade(pool).pending_user(task_id).await?.messages)
 }
 
 /// The most recent `result` Message.
@@ -122,7 +163,7 @@ pub async fn backfill_last_assistant_usage(
         .await
 }
 
-/// Mark Messages as claimed by a turn.
+/// Mark inbox items delivered to a turn.
 pub async fn acknowledge_messages(
     pool: &DbPool,
     task_id: &str,
@@ -130,8 +171,16 @@ pub async fn acknowledge_messages(
     session_id: &str,
     turn_number: i32,
 ) -> Result<u64, sqlx::Error> {
-    messages(pool)
-        .acknowledge_messages(task_id, uuids, session_id, turn_number)
+    facade(pool)
+        .acknowledge_messages(
+            task_id,
+            uuids,
+            &crate::inbox::RunStamp {
+                run_id: None,
+                session_id: session_id.to_string(),
+                turn_number,
+            },
+        )
         .await
 }
 
@@ -214,7 +263,10 @@ pub fn messages_without_a_database() -> Arc<super::operations::Messages> {
     let pool = sqlx::postgres::PgPoolOptions::new()
         .connect_lazy("postgres://unused@127.0.0.1:1/unused")
         .expect("a lazy pool connects to nothing");
-    Arc::new(super::operations::Messages::new(Arc::new(messages(&pool))))
+    Arc::new(super::operations::Messages::new(
+        Arc::new(messages(&pool)),
+        crate::inbox::InboxService::new(pool.clone()),
+    ))
 }
 
 /// A minimal user Message, one line of text with no tool traffic.

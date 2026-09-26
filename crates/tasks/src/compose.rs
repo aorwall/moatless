@@ -117,7 +117,10 @@ impl TaskGraph {
 
     /// The `task_messages` table, as a host reads and writes it.
     pub fn messages(&self) -> Arc<Messages> {
-        Arc::new(Messages::new(self.messages.clone()))
+        Arc::new(Messages::new(
+            self.messages.clone(),
+            crate::inbox::InboxService::new(self.db.clone()),
+        ))
     }
 
     /// The `task_messages` table behind the published `TranscriptAppend` seam.
@@ -237,6 +240,7 @@ impl TaskGraph {
                 self.turns.clone(),
                 files,
                 self_echo,
+                crate::inbox::InboxService::new(self.db.clone()),
             )),
             task_closer: Arc::new(TaskCloser::new(
                 self.tasks.clone(),

@@ -92,7 +92,7 @@ pub struct Conversation {
     /// finishes, stops, or errors.
     pub latest_user_message_at: Option<DateTime<Utc>>,
 
-    /// The newest `user` row including sandbox wakes: what running state
+    /// The newest inbox item including sandbox wakes: what running state
     /// reads, since a queued wake owes a turn as much as a person's message.
     pub latest_queued_message_at: Option<DateTime<Utc>>,
 
@@ -821,9 +821,9 @@ impl PgConversationDao {
                ) person ON TRUE
                LEFT JOIN LATERAL (
                    SELECT m.created_at AS latest_queued_message_at
-                   FROM task_messages m
+                   FROM task_inbox m
                    WHERE m.task_id = t.task_id
-                     AND m.message_type = 'user'
+                     AND m.status <> 'cancelled'
                    ORDER BY m.created_at DESC
                    LIMIT 1
                ) queued ON TRUE

@@ -52,7 +52,9 @@ pub async fn seed_bare_task(pool: &PgPool, task_id: &str, status: &str) {
         r#"INSERT INTO tasks (task_id, created_at, last_message_at, agent_profile, repository_id,
                status, total_cost_usd, visibility, scope, team_id, created_by, owner_user_id,
                workspace_id, sandbox_id)
-           VALUES ($1, NOW()::text, NOW()::text, 'claude-code', 'repo-x', $2, 0,
+           VALUES ($1, to_char(NOW() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
+               to_char(NOW() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
+               'claude-code', 'repo-x', $2, 0,
                'private', 'user', 'team-x', 'user-1', 'user-1', 'ws_repo-x', $1)"#,
     )
     .bind(task_id)

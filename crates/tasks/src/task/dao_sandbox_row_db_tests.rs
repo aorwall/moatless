@@ -277,12 +277,10 @@ async fn seed_turn(
 
 async fn seed_user_message(pool: &PgPool, task_id: &str, created_at: DateTime<Utc>) {
     sqlx::query(
-        r#"INSERT INTO task_messages (task_id, uuid, message_type, user_type,
-                                      timestamp, message_role, created_at)
-           VALUES ($1, $2, 'user', 'human', NOW()::text, 'user', $3)"#,
+        r#"INSERT INTO task_inbox (id, task_id, text, origin, sent_by, created_at)
+           VALUES (gen_random_uuid(), $1, 'hello', 'user', 'user-1', $2)"#,
     )
     .bind(task_id)
-    .bind(format!("{task_id}-{}", created_at.timestamp_millis()))
     .bind(created_at)
     .execute(pool)
     .await

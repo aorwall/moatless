@@ -1,9 +1,11 @@
-//! The external events a Task received, read off the Messages that carry them.
+//! The external events a Task received or wrote, by their external id.
 //!
-//! `task_messages.external_event_id` is the inbound side of the echo check
-//! `crate::task::outbound_events_dao` documents: a Message the Task received
-//! under an id, against an event the Task itself caused. Every read here falls
-//! through to that table, because a webhook redelivery has to match either.
+//! `task_inbox.external_message_id` is the inbound side of the echo check
+//! `crate::task::outbound_events_dao` documents, against an event the Task
+//! itself caused. `task_messages.external_event_id` still holds what the inbox
+//! does not: Messages received before it, and replies stamped with the id they
+//! were posted under. Every read here checks all three, because a webhook
+//! redelivery has to match any of them.
 
 use moatless_core::db::DbPool;
 use moatless_ports::task::EventSubject;
@@ -60,6 +62,9 @@ pub(crate) async fn has_any(
     }
     let row: (bool,) = sqlx::query_as(
         r#"SELECT EXISTS(
+            SELECT 1 FROM task_inbox
+            WHERE task_id = $1 AND external_message_id = ANY($2)
+        ) OR EXISTS(
             SELECT 1 FROM task_messages
             WHERE task_id = $1 AND external_event_id = ANY($2)
         )"#,
@@ -80,7 +85,10 @@ pub(crate) async fn has_any(
 /// Every external event id `task_id` holds, inbound and outbound.
 pub(crate) async fn ids_for_task(pool: &DbPool, task_id: &str) -> Result<Vec<String>, sqlx::Error> {
     let mut ids: Vec<String> = sqlx::query_scalar(
-        r#"SELECT external_event_id FROM task_messages
+        r#"SELECT external_message_id FROM task_inbox
+           WHERE task_id = $1 AND external_message_id IS NOT NULL
+           UNION
+           SELECT external_event_id FROM task_messages
            WHERE task_id = $1 AND external_event_id IS NOT NULL"#,
     )
     .bind(task_id)
@@ -100,18 +108,26 @@ pub(crate) async fn task_for_any(
         return Ok(None);
     }
 
-    let by_message = sqlx::query_scalar::<_, String>(
-        r#"SELECT task_id
-           FROM task_messages
-           WHERE external_event_id = ANY($1)
-           ORDER BY id DESC
+    let by_message = sqlx::query_as::<_, (String, Option<chrono::DateTime<chrono::Utc>>)>(
+        r#"(SELECT task_id, created_at
+             FROM task_inbox
+            WHERE external_message_id = ANY($1)
+            ORDER BY created_at DESC
+            LIMIT 1)
+           UNION ALL
+           (SELECT task_id, created_at
+             FROM task_messages
+            WHERE external_event_id = ANY($1)
+            ORDER BY id DESC
+            LIMIT 1)
+           ORDER BY created_at DESC NULLS LAST
            LIMIT 1"#,
     )
     .bind(external_ids)
     .fetch_optional(pool)
     .await?;
 
-    if let Some(task_id) = by_message {
+    if let Some((task_id, _)) = by_message {
         return Ok(Some(task_id));
     }
     crate::task::outbound_events_dao::task_for_any(pool, external_ids).await
@@ -127,13 +143,23 @@ pub(crate) async fn task_for_any_on_subject(
         return Ok(None);
     }
 
-    let by_message = sqlx::query_scalar::<_, String>(
-        r#"SELECT task_id
-           FROM task_messages
-           WHERE external_event_id = ANY($1)
-             AND external_adapter = $2
-             AND external_subject_key = $3
-           ORDER BY id DESC
+    let by_message = sqlx::query_as::<_, (String, Option<chrono::DateTime<chrono::Utc>>)>(
+        r#"(SELECT task_id, created_at
+             FROM task_inbox
+            WHERE external_message_id = ANY($1)
+              AND adapter = $2
+              AND external_subject_key = $3
+            ORDER BY created_at DESC
+            LIMIT 1)
+           UNION ALL
+           (SELECT task_id, created_at
+             FROM task_messages
+            WHERE external_event_id = ANY($1)
+              AND external_adapter = $2
+              AND external_subject_key = $3
+            ORDER BY id DESC
+            LIMIT 1)
+           ORDER BY created_at DESC NULLS LAST
            LIMIT 1"#,
     )
     .bind(external_ids)
@@ -142,7 +168,7 @@ pub(crate) async fn task_for_any_on_subject(
     .fetch_optional(pool)
     .await?;
 
-    if let Some(task_id) = by_message {
+    if let Some((task_id, _)) = by_message {
         return Ok(Some(task_id));
     }
     crate::task::outbound_events_dao::task_for_any_from_source(

@@ -331,23 +331,9 @@ async fn append_upsert_on_conflict(pool: PgPool) {
 async fn get_pending_user(pool: PgPool) {
     seed_task(&pool, "task-1", "user-1").await;
 
-    // Two pending user messages (no agent_session_id)
-    let msg1 = make_message_row("task-1", "pending-1");
-    crate::message::test_support::seed_message(&pool, &msg1, &[], &ConversationWrite::default())
-        .await
-        .unwrap();
-
-    let msg2 = make_message_row("task-1", "pending-2");
-    crate::message::test_support::seed_message(&pool, &msg2, &[], &ConversationWrite::default())
-        .await
-        .unwrap();
-
-    // One acknowledged message
-    let mut msg3 = make_message_row("task-1", "acked-1");
-    msg3.agent_session_id = Some("sess-1".to_string());
-    crate::message::test_support::seed_message(&pool, &msg3, &[], &ConversationWrite::default())
-        .await
-        .unwrap();
+    crate::message::test_support::queue_named(&pool, "task-1", "pending-1", "one").await;
+    crate::message::test_support::queue_named(&pool, "task-1", "pending-2", "two").await;
+    seed_acknowledged_message(&pool, "task-1", "acked-1", 1).await;
 
     let pending = crate::message::test_support::pending_user_messages(&pool, "task-1")
         .await
@@ -409,19 +395,11 @@ async fn a_copied_message_carries_the_sent_at_that_claimed_it(pool: PgPool) {
         .await
         .expect("seed fork task");
 
-    let msg = make_message_row("task-1", "forked-msg-1");
-    crate::message::test_support::seed_message(&pool, &msg, &[], &ConversationWrite::default())
+    let id =
+        crate::message::test_support::queue_named(&pool, "task-1", "forked-msg-1", "hello").await;
+    crate::message::test_support::acknowledge_messages(&pool, "task-1", &[id], "session-abc", 1)
         .await
         .unwrap();
-    crate::message::test_support::acknowledge_messages(
-        &pool,
-        "task-1",
-        &["forked-msg-1".to_string()],
-        "session-abc",
-        1,
-    )
-    .await
-    .unwrap();
 
     crate::message::fork_dao::copy_conversation(&pool, "task-1", "task-2", None)
         .await
@@ -961,8 +939,10 @@ async fn a_plain_message_settles_the_question_it_answered(pool: PgPool) {
         .await
         .unwrap();
 
-    let messages =
-        crate::message::operations::Messages::new(std::sync::Arc::new(PgMessageDao(pool.clone())));
+    let messages = crate::message::operations::Messages::new(
+        std::sync::Arc::new(PgMessageDao(pool.clone())),
+        crate::inbox::InboxService::new(pool.clone()),
+    );
     crate::message::send::settle_answered_prompt(&messages, "task-1", "tu-1", "m-written").await;
 
     let call = repo
@@ -1077,16 +1057,18 @@ async fn seed_task_turn(pool: &PgPool, task_id: &str, turn: i32) {
     query.execute(pool).await.unwrap();
 }
 
-/// The user row alone, as a fork copies it from its source Task.
-async fn seed_acknowledged_message(pool: &PgPool, task_id: &str, uuid: &str, turn_number: i32) {
-    let mut msg = make_message_row(task_id, uuid);
-    msg.session_id = Some(format!("session-{turn_number}"));
-    msg.agent_session_id = Some(format!("session-{turn_number}"));
-    msg.turn_number = Some(turn_number);
-    msg.sent_at = Some(chrono::Utc::now());
-    crate::message::test_support::seed_message(pool, &msg, &[], &ConversationWrite::default())
-        .await
-        .unwrap();
+/// The delivered item alone, with no `task_turns` row, as a fork copies it.
+async fn seed_acknowledged_message(pool: &PgPool, task_id: &str, name: &str, turn_number: i32) {
+    let id = crate::message::test_support::queue_named(pool, task_id, name, name).await;
+    crate::message::test_support::acknowledge_messages(
+        pool,
+        task_id,
+        &[id],
+        &format!("session-{turn_number}"),
+        turn_number,
+    )
+    .await
+    .unwrap();
 }
 
 async fn seed_turn_event(
@@ -1411,6 +1393,15 @@ async fn last_message_is_completed_reply_detects_coalesced_later_reply(pool: PgP
     )
     .await
     .unwrap();
+    // Turn 1 took an item; its Message above is the transcript's copy.
+    sqlx::query(
+        "INSERT INTO task_inbox (id, task_id, text, origin, sent_by, status, delivered_at, \
+         session_id, turn_number) \
+         VALUES (gen_random_uuid(), 'task-1', '', 'user', 'user-1', 'delivered', now(), 's', 1)",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
 
     let mut empty_placeholder = make_assistant_row(
         "task-1",
@@ -1479,17 +1470,13 @@ async fn find_interrupted_turn_aggregates_sibling_user_messages(pool: PgPool) {
     // of them. Recovery must replay the same joined prompt the dispatcher built,
     // not an arbitrary one of the siblings.
     seed_task(&pool, "task-1", "user-1").await;
-    for (uuid, text) in [("sib-a", "first"), ("sib-b", "second")] {
-        let mut msg = make_message_row("task-1", uuid);
-        msg.session_id = Some("session-1".to_string());
-        msg.agent_session_id = Some("session-1".to_string());
-        msg.turn_number = Some(1);
-        msg.sent_at = Some(chrono::Utc::now());
-        msg.message_text = Some(text.to_string());
-        crate::message::test_support::seed_message(&pool, &msg, &[], &ConversationWrite::default())
-            .await
-            .unwrap();
+    let mut ids = Vec::new();
+    for (name, text) in [("sib-a", "first"), ("sib-b", "second")] {
+        ids.push(crate::message::test_support::queue_named(&pool, "task-1", name, text).await);
     }
+    crate::message::test_support::acknowledge_messages(&pool, "task-1", &ids, "session-1", 1)
+        .await
+        .unwrap();
     seed_task_turn(&pool, "task-1", 1).await;
 
     let repo = PgMessageDao(pool.clone());

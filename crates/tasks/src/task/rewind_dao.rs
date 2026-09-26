@@ -72,6 +72,13 @@ pub(crate) async fn truncate_conversation(
         .await?
         .rows_affected();
 
+    // What those turns were sent goes with them; a pending item has no turn.
+    sqlx::query("DELETE FROM task_inbox WHERE task_id = $1 AND turn_number > $2")
+        .bind(task_id)
+        .bind(keep_through)
+        .execute(&mut *tx)
+        .await?;
+
     let turns = sqlx::query("DELETE FROM task_turns WHERE task_id = $1 AND turn_number > $2")
         .bind(task_id)
         .bind(keep_through)

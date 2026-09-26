@@ -59,10 +59,10 @@ pub(crate) async fn last_message_is_completed_reply(
         sqlx::query_as(
             r#"SELECT
                  EXISTS (
-                   SELECT 1 FROM task_messages
+                   SELECT 1 FROM task_inbox
                    WHERE task_id = $1
                      AND turn_number = $2
-                     AND message_type = 'user'
+                     AND status = 'delivered'
                  ) AS has_user,
                  EXISTS (
                    SELECT 1 FROM task_messages
@@ -97,16 +97,9 @@ pub(crate) async fn last_message_is_completed_reply(
     Ok(has_user && !has_substantive_non_user && latest_later_completed)
 }
 
-/// One user row of an interrupted turn: `id`, `agent_session_id`,
-/// `turn_number`, `message_text`, `agent_mode`, `effort`.
-type InterruptedTurnRow = (
-    i32,
-    Option<String>,
-    i32,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-);
+/// One delivered item of an interrupted turn: `session_id`, `turn_number`,
+/// `text`, `agent_mode`, `effort`.
+type InterruptedTurnRow = (Option<String>, i32, String, Option<String>, Option<String>);
 
 /// The Task's newest turn that it ran itself and that no terminal event, on it
 /// or a later turn, has closed.
@@ -114,27 +107,24 @@ pub(crate) async fn find_interrupted_turn(
     pool: &DbPool,
     task_id: &str,
 ) -> Result<Option<InterruptedTurn>, sqlx::Error> {
-    // A turn can hold several user messages — everything the sandbox
-    // coalesced into one agent run — so this selects the newest turn that
-    // never reached a terminal event and then returns *all* of its user
-    // rows, oldest first.
+    // A turn can take several items — everything the sandbox coalesced into
+    // one agent run — so this selects the newest turn that never reached a
+    // terminal event and then returns *all* of its items, oldest first.
     let rows: Vec<InterruptedTurnRow> = sqlx::query_as(
-        r#"SELECT m.id, m.agent_session_id, m.turn_number,
-                  m.message_text, m.agent_mode, m.effort
-           FROM task_messages m
-           WHERE m.task_id = $1
-             AND m.message_type = 'user'
-             AND m.turn_number = (
+        r#"SELECT i.session_id, i.turn_number, i.text,
+                  i.delivery_options ->> 'agentMode', i.delivery_options ->> 'effort'
+           FROM task_inbox i
+           WHERE i.task_id = $1
+             AND i.status = 'delivered'
+             AND i.turn_number = (
                SELECT c.turn_number
-               FROM task_messages c
+               FROM task_inbox c
                WHERE c.task_id = $1
-                 AND c.message_type = 'user'
-                 AND c.agent_session_id IS NOT NULL
-                 AND c.agent_session_id <> ''
-                 AND c.turn_number IS NOT NULL
-                 -- A fork copies user rows and a closed `task_turns` row, but
-                 -- not the terminal event: without the status test, a copied
-                 -- turn reads as open in the fork and is replayed.
+                 AND c.status = 'delivered'
+                 AND c.session_id IS NOT NULL
+                 AND c.session_id <> ''
+                 -- Only a turn still open: a fork's copied turn is closed, and
+                 -- replaying it would re-run the source's work.
                  AND EXISTS (
                    SELECT 1 FROM task_turns t
                    WHERE t.task_id = c.task_id AND t.turn_number = c.turn_number
@@ -154,41 +144,37 @@ pub(crate) async fn find_interrupted_turn(
                ORDER BY c.turn_number DESC
                LIMIT 1
              )
-           ORDER BY m.timestamp, m.id"#,
+           ORDER BY i.created_at, i.id"#,
     )
     .bind(task_id)
     .fetch_all(pool)
     .await?;
 
-    if rows.is_empty() {
+    let Some(turn_number) = rows.first().map(|row| row.1) else {
         return Ok(None);
-    }
-
-    let turn_number = rows[0].2;
-    let task_message_id = rows[0].0;
-    // Any row of the turn carries the session (they were acknowledged
-    // together); take the first that actually has one.
+    };
+    // Every item of the turn carries its session (they were delivered
+    // together); take the first that has one.
     let Some(session_id) = rows
         .iter()
-        .find_map(|(_, sid, _, _, _, _)| sid.clone().filter(|s| !s.is_empty()))
+        .find_map(|(sid, _, _, _, _)| sid.clone().filter(|s| !s.is_empty()))
     else {
         return Ok(None);
     };
     let agent_mode = rows
         .iter()
         .rev()
-        .find_map(|(_, _, _, _, mode, _)| mode.clone());
+        .find_map(|(_, _, _, mode, _)| mode.clone());
     let effort = rows
         .iter()
         .rev()
-        .find_map(|(_, _, _, _, _, effort)| effort.clone());
+        .find_map(|(_, _, _, _, effort)| effort.clone());
 
-    // Reproduces what the sandbox dispatcher itself builds from the same
-    // rows (`extract_text_from_messages`, joined with newlines over
-    // `get_pending_user`'s ordering), so a replay re-sends the same prompt.
+    // Reproduces the text the sandbox dispatcher built from the same items,
+    // joined with newlines in their order, so a replay re-sends that prompt.
     let prompt_text = rows
         .iter()
-        .map(|(_, _, _, text, _, _)| text.clone().unwrap_or_default())
+        .map(|(_, _, text, _, _)| text.as_str())
         .collect::<Vec<_>>()
         .join("\n");
 
@@ -202,7 +188,6 @@ pub(crate) async fn find_interrupted_turn(
     let (recovery_attempts, run_id) = turn_row.unwrap_or((0, None));
 
     Ok(Some(InterruptedTurn {
-        task_message_id,
         task_id: task_id.to_string(),
         session_id,
         turn_number,
