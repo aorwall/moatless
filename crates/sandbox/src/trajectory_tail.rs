@@ -406,8 +406,11 @@ impl Drop for LiveRecorder {
     }
 }
 
-/// The Workspace env that makes a Turn write its session file out of the
-/// trajectory before the harness opens it.
+/// The env that makes a Turn write its session file out of the trajectory
+/// before the harness opens it.
+///
+/// A Workspace sets it, or the backend's `FF_TRAJECTORY_RESUME` sets it for
+/// every Workspace that does not.
 pub const RESUME_FROM_TRAJECTORY: &str = "MOATLESS_RESUME_FROM_TRAJECTORY";
 
 /// One Turn's trajectory work: write the session out before the harness opens

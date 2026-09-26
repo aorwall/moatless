@@ -41,9 +41,10 @@ export interface Capabilities {
    */
   storedWorkspace: boolean
   /**
-   * The backend runs with `FF_TRAJECTORY_RECORDING` and the fixture workspace
-   * with `MOATLESS_RESUME_FROM_TRAJECTORY=1`. Neither is visible through the
-   * API, so the operator says so with `E2E_TRAJECTORY=1`.
+   * The backend runs with `FF_TRAJECTORY_RECORDING`, and with either
+   * `FF_TRAJECTORY_RESUME` or the fixture workspace setting
+   * `MOATLESS_RESUME_FROM_TRAJECTORY=1`. None is visible through the API, so
+   * the operator says so with `E2E_TRAJECTORY=1`.
    */
   trajectory: boolean
 }

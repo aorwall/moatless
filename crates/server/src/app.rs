@@ -156,7 +156,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
                 s3_client.clone().map(std::sync::Arc::new),
                 workspace_repository.clone(),
                 sandbox_dependencies.sandbox_connector.clone(),
-                feature_flags.trajectory_record,
+                feature_flags,
             ),
             cancel.clone(),
         ),
