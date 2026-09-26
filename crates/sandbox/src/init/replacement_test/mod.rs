@@ -4,7 +4,7 @@
 //! interrupted-Run vs pending-Message precedence while dispatch is gated, then
 //! opens the gate for the one authoritative dispatch (`open_for_work`).
 //!
-//! Tests drive a real `CoordinatorService` over a recording `Harness` and read
+//! Tests drive a real `CoordinatorService` over a recording `HarnessRuntime` and read
 //! back the accepted `Input`, proving harness acceptance over enqueue shape.
 
 mod backend;

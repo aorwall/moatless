@@ -169,7 +169,7 @@ impl EventDispatcher {
             .project_turn(
                 &event.task_id,
                 turn_number,
-                event.agent_type.clone(),
+                event.agent_profile.clone(),
                 transition,
                 at,
             )
@@ -332,7 +332,7 @@ pub async fn persist_event(state: &AppState, event: &AgentEvent) {
         event_type: event.event_type.as_str().to_string(),
         sub_type: event.sub_type.clone(),
         is_error: event.is_error,
-        agent_type: event.agent_type.clone(),
+        agent_profile: event.agent_profile.clone(),
         turn_number: event.turn_number,
         payload: event.payload.clone(),
         timestamp: event.timestamp.clone(),

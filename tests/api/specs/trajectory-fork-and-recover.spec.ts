@@ -20,7 +20,7 @@ import { stopSandbox, waitForSandboxReady } from '../steps'
 
 interface Harness {
   scenario: string
-  agentType: string
+  agentProfile: string
   /** What the run needs before this harness can start. */
   credentials: keyof Capabilities
   model: string
@@ -29,11 +29,16 @@ interface Harness {
 const HARNESSES: Harness[] = [
   {
     scenario: 'TRAJ-01.1',
-    agentType: 'claude-code-cli',
+    agentProfile: 'claude-code-cli',
     credentials: 'claudeCredentials',
     model: 'haiku',
   },
-  { scenario: 'TRAJ-01.2', agentType: 'codex', credentials: 'codexConnection', model: 'gpt-5.5' },
+  {
+    scenario: 'TRAJ-01.2',
+    agentProfile: 'codex',
+    credentials: 'codexConnection',
+    model: 'gpt-5.5',
+  },
 ]
 
 const FIRST_NAME = 'PERIWINKLE'
@@ -65,7 +70,7 @@ async function waitForTurns(sse: EventStream, taskId: string, turns: number): Pr
 }
 
 for (const harness of HARNESSES) {
-  test.describe(`Standalone: Trajectory fork and recover (${harness.agentType})`, () => {
+  test.describe(`Standalone: Trajectory fork and recover (${harness.agentProfile})`, () => {
     const reason = missingCapability(harness.credentials, 'trajectory')
     test.skip(reason !== null, reason ?? '')
 
@@ -82,9 +87,9 @@ for (const harness of HARNESSES) {
       const workspace = await api.ensureTemplateWorkspace()
       const parent = await api.createVibeTask({
         workspaceId: workspace.id,
-        name: `${harness.agentType} trajectory fork`,
+        name: `${harness.agentProfile} trajectory fork`,
         message: `Our first release is named ${FIRST_NAME}. Reply with exactly OK. Use no tools.`,
-        agentType: harness.agentType,
+        agentProfile: harness.agentProfile,
         model: harness.model,
       })
       const created: string[] = [parent.taskId]

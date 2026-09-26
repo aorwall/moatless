@@ -211,7 +211,7 @@ pub(crate) fn subtask(conversation: &Conversation, relation: TaskRelationType) -
         // Both are the agent parked on a person's answer, and a subtask's row
         // says so rather than reporting the run as still working.
         "awaitingInput": conversation.pending_question || conversation.pending_plan,
-        "agentType": conversation.agent_type.as_str(),
+        "agentProfile": conversation.agent_profile.as_str(),
         "branch": conversation
             .branch
             .as_deref()

@@ -477,7 +477,7 @@ pub async fn get_task_statistics(
     request_body = UpdateTaskMetadataRequest,
     responses(
         (status = 200, description = "Task updated", body = TaskResponse),
-        (status = 400, description = "Model belongs to another agentType", body = moatless_api_schemas::error::ErrorBody),
+        (status = 400, description = "Model belongs to another agentProfile", body = moatless_api_schemas::error::ErrorBody),
         (status = 404, description = "Task not found", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
@@ -495,13 +495,13 @@ pub async fn update_task_metadata(
 
     let scope_ctx = auth.scope_context();
     if let Some(ref model) = req.model {
-        // Read the agent type before the write: a model belonging to another
+        // Read the agent profile before the write: a model belonging to another
         // agent is refused at creation, and a patch must not slip one past it.
         let row = tasks
             .find_by_id(&task_id, &scope_ctx)
             .await?
             .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
-        crate::agent::catalog::validate_agent_model(row.agent_type.as_str(), Some(model))
+        crate::agent::catalog::validate_agent_model(row.agent_profile.as_str(), Some(model))
             .map_err(TaskError::BadRequest)?;
     }
     let updated = tasks
@@ -531,7 +531,7 @@ pub async fn update_task_metadata(
             .publish_task_event(
                 &task_id,
                 TaskSubType::MetadataUpdated,
-                Some(row.agent_type.as_str()),
+                Some(row.agent_profile.as_str()),
                 serde_json::json!({
                     "name": req.name,
                     "description": req.description,

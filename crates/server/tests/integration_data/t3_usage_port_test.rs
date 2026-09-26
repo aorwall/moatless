@@ -37,22 +37,22 @@ async fn seed_turn(
     pool: &PgPool,
     task_id: &str,
     turn_number: i32,
-    agent_type: &str,
+    agent_profile: &str,
     metrics: serde_json::Value,
 ) {
-    sqlx::query("UPDATE tasks SET agent_type = $2 WHERE task_id = $1")
+    sqlx::query("UPDATE tasks SET agent_profile = $2 WHERE task_id = $1")
         .bind(task_id)
-        .bind(agent_type)
+        .bind(agent_profile)
         .execute(pool)
         .await
         .expect("set task harness");
     sqlx::query(
-        r#"INSERT INTO task_turns (task_id, turn_number, status, agent_type, started_at, metrics)
+        r#"INSERT INTO task_turns (task_id, turn_number, status, agent_profile, started_at, metrics)
            VALUES ($1, $2, 'completed', $3, '2026-09-02T10:00:00Z'::timestamptz, $4)"#,
     )
     .bind(task_id)
     .bind(turn_number)
-    .bind(agent_type)
+    .bind(agent_profile)
     .bind(metrics)
     .execute(pool)
     .await

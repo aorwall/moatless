@@ -329,7 +329,7 @@ pub(super) async fn report_workspace_sync(
                 "workspace_sync_failed".to_string()
             },
             is_error: !req.ok,
-            agent_type: None,
+            agent_profile: None,
             turn_number: None,
             payload,
             timestamp: now,

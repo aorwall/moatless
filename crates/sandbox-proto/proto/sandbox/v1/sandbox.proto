@@ -375,7 +375,7 @@ message PendingAgentDelivery {
   string prompt_text = 2;
   repeated string file_ids = 3;
   optional string model = 4;
-  optional string agent_type = 5;
+  optional string agent_profile = 5;
   optional string agent_mode = 6;
   optional string resume_session_id = 7;
   bool resume = 8;
@@ -543,8 +543,8 @@ message InterruptedTurn {
   int64 turn_number = 2;
   // The user prompt text, replayed verbatim when resuming.
   string prompt_text = 3;
-  // Optional agent type ("claude-code" or "codex"); falls back to the task default.
-  optional string agent_type = 4;
+  // Optional agent profile ("claude-code" or "codex"); falls back to the task default.
+  optional string agent_profile = 4;
   // Optional agent mode ("edit" or "plan").
   optional string agent_mode = 5;
   // Reasoning effort the interrupted turn ran with, replayed with it.
@@ -887,7 +887,7 @@ message ExecuteAgentRequest {
   optional string model = 2;
   optional string system_prompt = 3;
   optional bool resume = 4;
-  optional string agent_type = 5;
+  optional string agent_profile = 5;
   optional string agent_mode = 6;
   optional string task_id = 7;
 }
@@ -898,8 +898,8 @@ message JoinTaskRequest {
   string task_id = 1;
   optional string checkout_mode = 2;
   // The joining Member's own Agent harness. Absent means the caller predates
-  // this field, and the pod falls back to its boot Member's AGENT_TYPE.
-  optional string agent_type = 3;
+  // this field, and the pod falls back to its boot Member's AGENT_PROFILE.
+  optional string agent_profile = 3;
 }
 
 message JoinTaskResponse {}

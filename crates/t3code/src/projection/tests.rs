@@ -23,7 +23,7 @@ use moatless_types::activity::Activity;
 use moatless_types::activity::ActivityKind;
 use moatless_types::activity::ActivityStatus;
 use moatless_types::activity::ActivityView;
-use moatless_types::agent::AgentType;
+use moatless_types::agent::AgentProfile;
 use moatless_types::message::MessageRole;
 use moatless_types::message::MessageType;
 use moatless_types::sandbox::SandboxDesiredState;

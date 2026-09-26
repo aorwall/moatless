@@ -304,12 +304,12 @@ pub(crate) async fn copy_conversation(
     // (migration 0071). `ended_at` is the copied rows' `created_at`; no
     // `run_id`, `metrics` or `agent_turn_id`: the parent's run is not the fork's.
     sqlx::query(
-        "INSERT INTO task_turns (task_id, turn_number, status, agent_type, started_at, ended_at)
+        "INSERT INTO task_turns (task_id, turn_number, status, agent_profile, started_at, ended_at)
          SELECT $2, cut.turn_number,
                 CASE WHEN t.status IS NULL THEN 'completed'
                      WHEN t.status IN ('active', 'interrupted') THEN 'stopped'
                      ELSE t.status END,
-                t.agent_type, NOW(), NOW()
+                t.agent_profile, NOW(), NOW()
            FROM (SELECT MAX(turn_number) AS turn_number
                    FROM task_messages WHERE task_id = $2) cut
            LEFT JOIN task_turns t

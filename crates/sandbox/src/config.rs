@@ -111,7 +111,7 @@ pub struct Config {
     /// The Task's selected Agent harness, fixed for the Member's lifetime.
     /// `None` means no valid selection, surfaced as invalid config by the agent
     /// lifecycle owner rather than defaulting silently to Claude.
-    pub agent_type: Option<String>,
+    pub agent_profile: Option<String>,
     /// Workspace directory — the persisted *container* dir (e.g.
     /// `/opt/moatless/workspace`), the agent's cwd. **Every git repo under this
     /// dir** is snapshotted to S3, keyed by workspace-relative path.
@@ -319,8 +319,8 @@ fn parse_permission_mode(raw: &str) -> Option<PermissionMode> {
 /// surfacing as
 /// [`HarnessError::InvalidConfiguration`](crate::agent::harness::HarnessError)
 /// rather than a config-load panic.
-fn resolve_agent_type_env() -> Option<String> {
-    let raw = env::var("AGENT_TYPE").ok()?;
+fn resolve_agent_profile_env() -> Option<String> {
+    let raw = env::var("AGENT_PROFILE").ok()?;
     let raw = raw.trim();
     if raw.is_empty() {
         return None;
@@ -446,7 +446,7 @@ impl Config {
             #[allow(clippy::expect_used)] // initial member env var, crash at startup if missing
             task_id: env::var("TASK_ID").expect("TASK_ID is required"),
 
-            agent_type: resolve_agent_type_env(),
+            agent_profile: resolve_agent_profile_env(),
 
             workspace_dir,
             repo_dir,
@@ -575,7 +575,7 @@ pub(crate) mod test_support {
             grpc_port: 50052,
             sandbox_id: "test-sandbox".to_string(),
             task_id: "test-task".to_string(),
-            agent_type: None,
+            agent_profile: None,
             workspace_dir: "/tmp/workspace".to_string(),
             repo_dir: "/tmp/workspace/service".to_string(),
             data_dir: "/tmp/data".to_string(),

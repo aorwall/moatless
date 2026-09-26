@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 
 use tracing::{debug, warn};
 
-use crate::agent::handle::{AGENT_TYPE_CODEX, resolve_agent_harness};
+use crate::agent::handle::resolve_agent_harness;
 use crate::config::Config;
 use crate::init::home_skills::REPO_SKILL_ROOTS;
 
@@ -128,10 +128,10 @@ async fn skill_roots(config: &Config) -> Vec<SkillRoot> {
 /// `<home>/skills` for the harness this Member is fixed to.
 fn home_skills_dir(config: &Config) -> PathBuf {
     let is_codex = config
-        .agent_type
+        .agent_profile
         .as_deref()
         .and_then(|raw| resolve_agent_harness(raw).ok())
-        == Some(AGENT_TYPE_CODEX);
+        == Some(moatless_types::agent::Harness::Codex);
     let home = if is_codex {
         &config.codex_home_dir
     } else {
@@ -216,14 +216,14 @@ mod tests {
     use super::*;
 
     /// A `Config` whose repo and home dirs point into `root`.
-    fn config_in(root: &Path, agent_type: &str) -> Config {
+    fn config_in(root: &Path, agent_profile: &str) -> Config {
         let mut config = crate::config::test_support::minimal_config();
         config.workspace_dir = root.join("workspace").display().to_string();
         config.repo_dir = root.join("workspace/repo").display().to_string();
         config.repos = Vec::new();
         config.claude_config_dir = root.join("home/.claude").display().to_string();
         config.codex_home_dir = root.join("home/.codex").display().to_string();
-        config.agent_type = Some(agent_type.to_string());
+        config.agent_profile = Some(agent_profile.to_string());
         config
     }
 

@@ -36,8 +36,8 @@ fn require_admin(ctx: &ScopeContext) -> Result<(), AdapterError> {
     }
 }
 
-fn require_agent_and_model(agent_type: &str, model: Option<&str>) -> Result<(), AdapterError> {
-    catalog::validate_agent_model(agent_type, model)
+fn require_agent_and_model(agent_profile: &str, model: Option<&str>) -> Result<(), AdapterError> {
+    catalog::validate_agent_model(agent_profile, model)
         .map_err(|e| SharedAdapterError::BadRequest(e).into())
 }
 
@@ -146,12 +146,12 @@ impl Loops {
     ) -> Result<LoopRecord, AdapterError> {
         require_admin(ctx)?;
         let name = require_name(&req.name)?;
-        let agent_type = req
+        let agent_profile = req
             .config
-            .agent_type
+            .agent_profile
             .clone()
             .unwrap_or_else(|| "claude-code".to_string());
-        require_agent_and_model(&agent_type, req.config.model.as_deref())?;
+        require_agent_and_model(&agent_profile, req.config.model.as_deref())?;
         ensure_workspace_usable(workspaces, ctx, &req.config.workspace_id).await?;
         let run_as_user_id = match req.config.run_as_user_id.as_deref() {
             Some(requested) => Some(resolve_run_as_user(users, requested).await?),
@@ -268,7 +268,7 @@ impl Loops {
                     tag_ids: req.config.tag_ids.clone().unwrap_or_default(),
                     skills: req.config.skills.clone().unwrap_or_default(),
                     run_as_user_id,
-                    agent_type,
+                    agent_profile,
                     model: req.config.model.clone(),
                     inactive_ttl_days: req.config.inactive_ttl_days,
                     node_selector: req.config.node_selector.clone(),
@@ -574,7 +574,7 @@ impl Loops {
 /// Merge a config patch onto the Loop's current config.
 ///
 /// The Loop form never sends `model` (`buildUpdateConfig` in `loop-form.tsx`),
-/// so a carried-forward value is dropped on an `agent_type` change rather than
+/// so a carried-forward value is dropped on an `agent_profile` change rather than
 /// rejected, and only a `model` the patch names is validated.
 fn next_config(
     current: &LoopRecord,
@@ -582,21 +582,21 @@ fn next_config(
 ) -> Result<NewLoopConfig, AdapterError> {
     // Both read `rule` before `unwrap_or_else` below moves it.
     let agent_changed = rule
-        .agent_type
+        .agent_profile
         .as_deref()
-        .is_some_and(|next| next != current.config.agent_type.as_str());
+        .is_some_and(|next| next != current.config.agent_profile.as_str());
     let named_model = rule.model.as_ref().and_then(|m| m.as_deref());
 
-    let agent_type = rule
-        .agent_type
-        .unwrap_or_else(|| current.config.agent_type.as_str().to_string());
-    require_agent_and_model(&agent_type, named_model)?;
+    let agent_profile = rule
+        .agent_profile
+        .unwrap_or_else(|| current.config.agent_profile.as_str().to_string());
+    require_agent_and_model(&agent_profile, named_model)?;
     let model = rule.model.unwrap_or_else(|| {
         current
             .config
             .model
             .clone()
-            .filter(|m| !(agent_changed && catalog::model_conflicts(&agent_type, m)))
+            .filter(|m| !(agent_changed && catalog::model_conflicts(&agent_profile, m)))
     });
     Ok(NewLoopConfig {
         workspace_id: rule
@@ -615,7 +615,7 @@ fn next_config(
             .unwrap_or_else(|| current.config.tag_ids.clone()),
         skills: rule.skills.unwrap_or_else(|| current.config.skills.clone()),
         run_as_user_id: current.config.run_as_user_id.clone(),
-        agent_type,
+        agent_profile,
         model,
         inactive_ttl_days: rule
             .inactive_ttl_days
@@ -664,7 +664,7 @@ mod tests {
         )))
     }
 
-    fn record_on(agent_type: &str, model: Option<&str>) -> LoopRecord {
+    fn record_on(agent_profile: &str, model: Option<&str>) -> LoopRecord {
         let now = Utc::now();
         LoopRecord {
             loop_: crate::loops::models::LoopRow {
@@ -692,7 +692,7 @@ mod tests {
                 tag_ids: vec![],
                 skills: vec![],
                 run_as_user_id: Some("runner".into()),
-                agent_type: moatless_types::agent::AgentType(agent_type.into()),
+                agent_profile: moatless_types::agent::AgentProfile(agent_profile.into()),
                 model: model.map(ToString::to_string),
                 inactive_ttl_days: None,
                 node_selector: None,
@@ -711,24 +711,24 @@ mod tests {
         )
         .expect("no change is valid");
         assert_eq!(next.model.as_deref(), Some("opus"));
-        assert_eq!(next.agent_type, "claude-code");
+        assert_eq!(next.agent_profile, "claude-code");
     }
 
     #[test]
     fn a_carried_forward_model_the_new_agent_does_not_offer_is_dropped() {
         // The patch names only the agent, so `opus` would carry forward onto
         // Codex. The Loop form never sends `model`, so this is the UI's every
-        // agent-type change.
+        // agent-profile change.
         let next = next_config(
             &record_on("claude-code", Some("opus")),
             UpdateLoopConfig {
-                agent_type: Some("codex".into()),
+                agent_profile: Some("codex".into()),
                 ..UpdateLoopConfig::default()
             },
         )
         .expect("changing agent drops the model it belonged to");
         assert_eq!(next.model, None);
-        assert_eq!(next.agent_type, "codex");
+        assert_eq!(next.agent_profile, "codex");
     }
 
     /// Sync wrote `model` without validating it before this change, so a row
@@ -752,7 +752,7 @@ mod tests {
         let Err(err) = next_config(
             &record_on("claude-code", None),
             UpdateLoopConfig {
-                agent_type: Some("codex".into()),
+                agent_profile: Some("codex".into()),
                 model: Some(Some("opus".into())),
                 ..UpdateLoopConfig::default()
             },
@@ -760,7 +760,7 @@ mod tests {
             panic!("codex does not offer opus");
         };
         assert!(
-            matches!(&err, AdapterError::Shared(SharedAdapterError::BadRequest(m)) if m.contains("model `opus` belongs to another agentType")),
+            matches!(&err, AdapterError::Shared(SharedAdapterError::BadRequest(m)) if m.contains("model `opus` belongs to another agentProfile")),
             "{err:?}"
         );
     }
@@ -770,14 +770,14 @@ mod tests {
         let next = next_config(
             &record_on("claude-code", Some("opus")),
             UpdateLoopConfig {
-                agent_type: Some("codex".into()),
+                agent_profile: Some("codex".into()),
                 model: Some(None),
                 ..UpdateLoopConfig::default()
             },
         )
         .expect("cleared model imposes nothing on codex");
         assert_eq!(next.model, None);
-        assert_eq!(next.agent_type, "codex");
+        assert_eq!(next.agent_profile, "codex");
     }
 
     /// `model` reaches the agent CLI as written, so a model no catalog entry

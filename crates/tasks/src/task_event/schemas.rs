@@ -25,7 +25,7 @@ pub struct TaskEventResponse {
     pub sub_type: String,
     pub is_error: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub agent_type: Option<String>,
+    pub agent_profile: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub turn_number: Option<i32>,
     pub payload: serde_json::Value,

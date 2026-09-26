@@ -282,9 +282,9 @@ ALTER TABLE tasks            RENAME COLUMN agent_type TO agent_profile;
 ALTER TABLE task_turns       RENAME COLUMN agent_type TO agent_profile;
 ALTER TABLE sandboxes        RENAME COLUMN agent_type TO agent_profile;
 ALTER TABLE task_events      RENAME COLUMN agent_type TO agent_profile;
-ALTER TABLE task_templates   RENAME COLUMN agent_type TO agent_profile;
--- and every other agent_type column: channel_configs, route/trigger/binding and
--- loop configuration tables (0028, 0034, 0045, 0051, 0155).
+ALTER TABLE loop_configs     RENAME COLUMN agent_type TO agent_profile;
+-- These five are every agent_type column left; the channel, route and
+-- template tables that had one are dropped.
 ```
 
 - `tasks.agent_profile` is the profile the **next** turn runs; written at create
@@ -850,20 +850,28 @@ it apart from the phases that follow.
 - `moatless-types`: `Harness` enum; `AgentType` → `AgentProfile`.
 - Delete `AgentKind` (`tasks/src/agent/catalog.rs:17`) and
   `trajectory::Harness` (`tasks/src/trajectory/models.rs:9`); both use the
-  shared `Harness`. `AgentEntry.kind` → `harness`; add `catalog::harness_of`.
+  shared `Harness`. `AgentEntry` → `AgentProfileEntry`, `kind` → `harness`;
+  add `catalog::harness_of`. `crates/t3code`'s `UiRpcAgentKind` is the same
+  fact and goes too.
 - Sandbox: `resolve_agent_harness` (`agent/compose.rs`) returns `Harness`;
   `TaskContext.agent_type` → `agent_profile`; `AGENT_TYPE` env → `AGENT_PROFILE`.
-- Migration: the renames in 4.5, and `agent_type` → `agent_profile` inside
-  stored `task_events` payloads, so no reader keeps the old key.
-- LOOP.md frontmatter and task template frontmatter live in user repositories
-  the migration cannot reach: their parse types take `agent_profile` and accept
-  `agent_type` as a deprecated serde alias, with a test. That alias is the only
-  `agent_type` left outside migrations.
+  The sandbox's own runtime struct `Harness` becomes `HarnessRuntime`, since
+  arch-rules refuses two workspace types named `Harness`.
+- Migration (`0173_agent_profile.sql`): the renames in 4.5, and the top-level
+  `agentType` → `agentProfile` key of stored `StreamEvent` payloads in
+  `task_events.payload` (`text` in older deployments, `jsonb` in newer), so no
+  reader keeps the old key.
+- LOOP.md frontmatter lives in user repositories the migration cannot reach:
+  `LoopFrontmatter` takes `agentProfile` and accepts `agentType` (its keys are
+  camelCase) as a deprecated serde alias, with a test. Task templates were
+  dropped (0088) and need none.
 - Proto renames in 5.1 (same field numbers); `api-schemas` and OpenAPI; CLI
   flags; T3 (`soaplabs/t3code`) in the same release.
 
-Verification: `rg -w 'agent_type|AgentType|AgentKind'` matches only migrations,
-the rename migration's comment, and the frontmatter alias and its test; full clippy floor; the E2E suite (Test plan, T0 regression set) green.
+Verification: `rg -w 'agent_type|AgentType|AgentKind|agentType|AGENT_TYPE'`
+matches only migrations, the frontmatter alias and its test, and the dated
+`docs/frontend-audit-2026-07.md`; full clippy floor; the E2E suite (Test plan,
+T0 regression set) green.
 
 ## Phase 1 — Complete, always-on recording
 
@@ -1181,7 +1189,7 @@ E2E: `scripts/local-e2e/run.sh` (the `e2e-testing` skill), per the Test plan.
 | Projection slows `AppendTrajectory` | Every line | Measure in phase 4; one small upsert per line |
 | Positions change on rebuild | T3 cursors | `task_conversation_changes` reset signal; T3 reloads |
 | The rename breaks an external API caller | Phase 1a | T3 and CLI are the only clients; ship together |
-| The rename breaks a user's LOOP.md or template | Phase 1a | `agent_type` stays a deprecated alias at that parse boundary |
+| The rename breaks a user's LOOP.md | Phase 1a | `agentType` stays a deprecated alias at that parse boundary |
 
 ## Settled questions
 

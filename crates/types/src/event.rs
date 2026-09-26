@@ -50,7 +50,7 @@ pub struct StreamEvent {
     pub timestamp: String,
     pub is_error: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub agent_type: Option<String>,
+    pub agent_profile: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub turn_number: Option<i32>,
     /// What this event says about whether the agent is working, if anything.
@@ -224,7 +224,7 @@ mod tests {
             task_id: "task-1".to_string(),
             timestamp: "2026-09-01T00:00:00.000Z".to_string(),
             is_error: false,
-            agent_type: None,
+            agent_profile: None,
             turn_number: None,
             agent_working: agent_working("sandbox", "ready"),
             payload: serde_json::json!({}),

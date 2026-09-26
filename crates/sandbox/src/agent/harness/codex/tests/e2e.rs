@@ -44,12 +44,9 @@ fn e2e_config(workspace_name: &str) -> CodexConfig {
     }
 }
 
-/// Focused real-CLI E2E: launches the actual `codex app-server` subprocess
-/// through the production [`Harness::codex`] seam and asserts external signal
-/// ordering for a trivial Turn.
-///
-/// Gated behind `CODEX_SDK_E2E=1` and `#[ignore]`; the full E2E matrix runs at
-/// ticket 10.
+/// Focused real-CLI E2E: launches `codex app-server` through the production
+/// [`HarnessRuntime::codex`] seam and asserts signal ordering for a trivial
+/// Turn. Gated behind `CODEX_SDK_E2E=1` and `#[ignore]`.
 #[tokio::test]
 #[ignore = "requires the real codex CLI and credentials (CODEX_SDK_E2E=1)"]
 async fn e2e_codex_turn_through_the_harness() {
@@ -57,7 +54,7 @@ async fn e2e_codex_turn_through_the_harness() {
         return;
     }
 
-    let mut harness = Harness::codex(e2e_config("harness-codex-e2e"));
+    let mut harness = HarnessRuntime::codex(e2e_config("harness-codex-e2e"));
     harness
         .submit(Input::text(
             "in-1",
@@ -158,7 +155,7 @@ struct TurnLog {
 /// execution commits its first `tool_use` block, resuming the thread the
 /// running Turn announced — what `CoordinatorService::build_input` does for a
 /// follow-up Turn.
-async fn collect_turn(harness: &mut Harness, mid_turn: Option<(&str, &str)>) -> TurnLog {
+async fn collect_turn(harness: &mut HarnessRuntime, mid_turn: Option<(&str, &str)>) -> TurnLog {
     let mut log = TurnLog::default();
     let mut mid_turn = mid_turn;
 
@@ -231,7 +228,7 @@ async fn e2e_message_sent_mid_turn_is_answered_inside_the_running_codex_turn() {
     }
 
     let result = timeout(Duration::from_mins(6), async {
-        let mut harness = Harness::codex(e2e_config("harness-codex-mid-turn-e2e"));
+        let mut harness = HarnessRuntime::codex(e2e_config("harness-codex-mid-turn-e2e"));
 
         // Two separate commands keep the Turn demonstrably busy: the first
         // completes early so the test can submit while tool work is still in
@@ -307,7 +304,7 @@ async fn e2e_message_sent_between_turns_opens_a_second_codex_turn() {
     }
 
     let result = timeout(Duration::from_mins(6), async {
-        let mut harness = Harness::codex(e2e_config("harness-codex-between-turns-e2e"));
+        let mut harness = HarnessRuntime::codex(e2e_config("harness-codex-between-turns-e2e"));
 
         harness
             .submit(Input::text(

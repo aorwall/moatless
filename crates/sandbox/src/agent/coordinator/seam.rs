@@ -1,6 +1,6 @@
-//! Maps one [`Harness`]'s signal stream onto Run events and acknowledgements.
+//! Maps one [`HarnessRuntime`]'s signal stream onto Run events and acknowledgements.
 //!
-//! Drives a fixed [`Harness`] alone, never touching a Claude or Codex handle. A
+//! Drives a fixed [`HarnessRuntime`] alone, never touching a Claude or Codex handle. A
 //! fresh Run id is minted per [`Signal::ExecutionStarted`] and stamped on every
 //! event and ack of that Run.
 
@@ -18,7 +18,7 @@ use crate::agent::agent_state::AgentState;
 use crate::agent::handle::RunAck;
 use crate::agent::harness::content::CanonicalContentBlock;
 use crate::agent::harness::{
-    Activity, Cause, ContextWindow, ErrorClass, Harness, HarnessClosed, HarnessError, Input,
+    Activity, Cause, ContextWindow, ErrorClass, HarnessClosed, HarnessError, HarnessRuntime, Input,
     InputId, Outcome, Rejection, Role, SessionImpact, Signal, SourceEvent,
 };
 use crate::agent::prompt::PromptToolName;
@@ -31,10 +31,10 @@ use crate::events::GrpcEventPublisher;
 /// tens of minutes, and a chatty tool would otherwise flood the event stream.
 const ACTIVITY_PUBLISH_INTERVAL: Duration = Duration::from_mins(1);
 
-/// Drives one fixed [`Harness`], mapping its [`Signal`] stream onto Run
+/// Drives one fixed [`HarnessRuntime`], mapping its [`Signal`] stream onto Run
 /// identity, acknowledgement, and backend publication.
 pub struct Coordinator {
-    harness: Harness,
+    harness: HarnessRuntime,
     pub(super) events: GrpcEventPublisher,
     task_id: String,
     /// The Run currently in flight. Minted on [`Signal::ExecutionStarted`] and
@@ -93,9 +93,13 @@ pub struct Coordinator {
 }
 
 impl Coordinator {
-    /// Build a coordinator over a constructed [`Harness`] and a run-agnostic
+    /// Build a coordinator over a constructed [`HarnessRuntime`] and a run-agnostic
     /// publisher.
-    pub fn new(harness: Harness, events: GrpcEventPublisher, task_id: impl Into<String>) -> Self {
+    pub fn new(
+        harness: HarnessRuntime,
+        events: GrpcEventPublisher,
+        task_id: impl Into<String>,
+    ) -> Self {
         Self {
             harness,
             events,
@@ -155,7 +159,7 @@ impl Coordinator {
         self.harness.submit(input).await
     }
 
-    /// Cancel the active execution. Idempotent (see [`Harness::cancel`]).
+    /// Cancel the active execution. Idempotent (see [`HarnessRuntime::cancel`]).
     pub fn cancel(&self) {
         self.harness.cancel();
     }

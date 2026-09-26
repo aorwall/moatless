@@ -13,7 +13,7 @@ use tokio_util::sync::CancellationToken;
 use crate::agent::agent_state::AgentState;
 use crate::agent::coordinator::{Coordinator, CoordinatorService};
 use crate::agent::handle::AgentHandle;
-use crate::agent::harness::{Harness, Input, Script, SessionId, Step};
+use crate::agent::harness::{HarnessRuntime, Input, Script, SessionId, Step};
 use crate::agent::heartbeat::Heartbeat;
 use crate::agent::prompt::{PendingPrompt, PromptResponse, PromptToolName};
 use crate::agent::scheduled_job::{LateInjector, ScheduledJobRegistry};
@@ -47,7 +47,7 @@ fn build_state(
         config.workspace_dir.clone(),
         config.repo_dir.clone(),
         crate::state::CheckoutMode::Shared,
-        config.agent_type.clone(),
+        config.agent_profile.clone(),
         agent,
         agent_handle,
         scheduled_jobs,
@@ -114,7 +114,7 @@ fn spawn_recording_agent(
         Step::AcceptInput,
         Step::Completed,
     ]);
-    let harness = Harness::scripted_recording(script, recorder);
+    let harness = HarnessRuntime::scripted_recording(script, recorder);
     let coordinator = Coordinator::new(harness, events, config.task_id.clone());
     let service = CoordinatorService::new(
         coordinator,
@@ -133,16 +133,16 @@ fn spawn_recording_agent(
     agent_handle
 }
 
-/// A `SandboxState` whose agent is a real recording coordinator. `agent_type`
+/// A `SandboxState` whose agent is a real recording coordinator. `agent_profile`
 /// fixes the harness family; `phase` sets the init phase the readiness gate
 /// reads. Returns the state and the recorder of accepted `Input`s.
 pub(super) fn recording_state(
-    agent_type: Option<&str>,
+    agent_profile: Option<&str>,
     phase: InitPhase,
     backend: Arc<dyn BackendClient>,
 ) -> (SandboxState, InputRecorder) {
     let mut config = minimal_config();
-    config.agent_type = agent_type.map(ToString::to_string);
+    config.agent_profile = agent_profile.map(ToString::to_string);
     recording_state_with_config(config, phase, backend)
 }
 
@@ -154,7 +154,7 @@ pub(super) fn recording_state_behind(
     backend: Arc<dyn BackendClient>,
 ) -> (SandboxState, InputRecorder) {
     let mut config = minimal_config();
-    config.agent_type = Some("claude-code".to_string());
+    config.agent_profile = Some("claude-code".to_string());
     recording_state_gated(config, phase, backend, setup_gate)
 }
 
@@ -225,7 +225,7 @@ pub(super) async fn add_recording_member(state: &SandboxState, task_id: &str) ->
         state.config.workspace_dir.clone(),
         state.config.repo_dir.clone(),
         crate::state::CheckoutMode::Shared,
-        state.config.agent_type.clone(),
+        state.config.agent_profile.clone(),
         agent,
         agent_handle,
         Arc::new(ScheduledJobRegistry::new(Arc::new(LateInjector::new()))),
@@ -277,13 +277,13 @@ pub(super) fn text_message(text: &str, uuid: &str) -> PendingAgentDelivery {
 pub(super) fn interrupted_turn(
     session: &str,
     prompt: &str,
-    agent_type: Option<&str>,
+    agent_profile: Option<&str>,
 ) -> InterruptedTurn {
     InterruptedTurn {
         session_id: session.to_string(),
         turn_number: 1,
         prompt_text: prompt.to_string(),
-        agent_type: agent_type.map(ToString::to_string),
+        agent_profile: agent_profile.map(ToString::to_string),
         agent_mode: None,
         effort: None,
         run_id: None,
@@ -293,9 +293,9 @@ pub(super) fn interrupted_turn(
 /// A config whose Claude/Codex/workspace dirs live under an isolated tmp dir,
 /// so restore lands in a place the test can inspect without touching shared
 /// paths.
-pub(super) fn tmp_config(agent_type: &str, tmp: &tempfile::TempDir) -> Config {
+pub(super) fn tmp_config(agent_profile: &str, tmp: &tempfile::TempDir) -> Config {
     let mut config = minimal_config();
-    config.agent_type = Some(agent_type.to_string());
+    config.agent_profile = Some(agent_profile.to_string());
     config.workspace_dir = tmp.path().join("workspace").display().to_string();
     config.repo_dir = config.workspace_dir.clone();
     config.claude_config_dir = tmp.path().join("claude-config").display().to_string();

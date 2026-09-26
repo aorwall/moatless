@@ -10,7 +10,7 @@ async fn coordinator_service_failed_execution_sets_error_on_agent_state() {
     let cancel = CancellationToken::new();
     let config = {
         let mut c = minimal_config();
-        c.agent_type = Some("claude-code".to_string());
+        c.agent_profile = Some("claude-code".to_string());
         Arc::new(c)
     };
     let agent_state = Arc::new(AgentState::new());
@@ -77,7 +77,7 @@ async fn coordinator_service_retryable_failure_retries_then_completes() {
     let cancel = CancellationToken::new();
     let config = {
         let mut c = minimal_config();
-        c.agent_type = Some("claude-code".to_string());
+        c.agent_profile = Some("claude-code".to_string());
         Arc::new(c)
     };
     let agent_state = Arc::new(AgentState::new());
@@ -98,7 +98,7 @@ async fn coordinator_service_retryable_failure_retries_then_completes() {
         ]),
     ];
     let (tx, received, events) = service_with_harness(
-        Harness::scripted_sequence(scripts),
+        HarnessRuntime::scripted_sequence(scripts),
         Arc::clone(&config),
         Arc::clone(&agent_state),
         cancel.clone(),
@@ -179,7 +179,7 @@ async fn coordinator_service_circuit_breaker_trips_after_consecutive_errors() {
     let cancel = CancellationToken::new();
     let config = {
         let mut c = minimal_config();
-        c.agent_type = Some("claude-code".to_string());
+        c.agent_profile = Some("claude-code".to_string());
         Arc::new(c)
     };
     let agent_state = Arc::new(AgentState::new());
@@ -192,7 +192,7 @@ async fn coordinator_service_circuit_breaker_trips_after_consecutive_errors() {
         Script::rejecting(failure()),
     ];
     let (tx, received, events) = service_with_harness(
-        Harness::scripted_sequence(scripts),
+        HarnessRuntime::scripted_sequence(scripts),
         Arc::clone(&config),
         Arc::clone(&agent_state),
         cancel.clone(),

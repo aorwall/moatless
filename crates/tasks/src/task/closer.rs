@@ -46,7 +46,7 @@ pub struct TaskCloser {
 /// ([`CloseEvent::neutral`]). Pass to [`TaskCloser::close_with_event`].
 pub struct CloseEvent {
     /// Actor recorded on the `Closed` task event. `None` uses the task's own
-    /// `agent_type` — the neutral default.
+    /// `agent_profile` — the neutral default.
     pub actor: Option<String>,
     /// Extra fields merged into the `Closed` task event payload. Empty (`{}`)
     /// in the neutral shape.
@@ -54,7 +54,7 @@ pub struct CloseEvent {
 }
 
 impl CloseEvent {
-    /// The neutral close event: the task's own `agent_type`, empty payload —
+    /// The neutral close event: the task's own `agent_profile`, empty payload —
     /// byte for byte what every close published before the enriched entry
     /// existed. Every non-provider close uses this.
     pub fn neutral() -> Self {
@@ -145,7 +145,7 @@ impl TaskCloser {
         deactivate_task_bindings(self.task_bindings.as_ref(), task_id).await;
 
         if let Some(events) = self.events.as_deref() {
-            let actor = event.actor.as_deref().unwrap_or(row.agent_type.as_str());
+            let actor = event.actor.as_deref().unwrap_or(row.agent_profile.as_str());
             events
                 .publish_task_event(
                     task_id,

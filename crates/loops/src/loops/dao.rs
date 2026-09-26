@@ -24,7 +24,7 @@ use crate::loops::models::{
 use moatless_core::db::DbPool;
 use moatless_core::db_enum::decode_required;
 use moatless_types::adapter::AdapterKind;
-use moatless_types::agent::AgentType;
+use moatless_types::agent::AgentProfile;
 use moatless_types::loops::SubscriptionMatch;
 use moatless_types::loops::{LoopKind, RoutingMode};
 
@@ -54,7 +54,7 @@ struct JoinedLoopRecordRow {
     tag_ids: Vec<String>,
     skills: Vec<String>,
     run_as_user_id: Option<String>,
-    agent_type: String,
+    agent_profile: String,
     model: Option<String>,
     inactive_ttl_days: Option<i32>,
     node_selector: Option<sqlx::types::Json<std::collections::BTreeMap<String, String>>>,
@@ -106,7 +106,7 @@ impl JoinedLoopRecordRow {
             tag_ids: self.tag_ids,
             skills: self.skills,
             run_as_user_id: self.run_as_user_id,
-            agent_type: AgentType(self.agent_type),
+            agent_profile: AgentProfile(self.agent_profile),
             model: self.model,
             inactive_ttl_days: self.inactive_ttl_days,
             node_selector: self.node_selector.map(|json| json.0),
@@ -170,7 +170,7 @@ const LOOP_RECORD_SELECT: &str = r#"
            r.tag_ids,
            r.skills,
            r.run_as_user_id,
-           r.agent_type,
+           r.agent_profile,
            r.model,
            r.inactive_ttl_days,
            r.node_selector,
@@ -359,7 +359,7 @@ impl LoopDao {
                        tag_ids = $6,
                        skills = $7,
                        run_as_user_id = $8,
-                       agent_type = $9,
+                       agent_profile = $9,
                        inactive_ttl_days = $10,
                        model = $11,
                        workspace_id = $12,
@@ -376,7 +376,7 @@ impl LoopDao {
             .bind(&config.tag_ids)
             .bind(&config.skills)
             .bind(&config.run_as_user_id)
-            .bind(config.agent_type.as_str())
+            .bind(config.agent_profile.as_str())
             .bind(config.inactive_ttl_days)
             .bind(&config.model)
             .bind(&config.workspace_id)
@@ -737,7 +737,7 @@ impl LoopDao {
         sqlx::query(
             r#"INSERT INTO loop_configs
                (loop_id, routing_mode, ongoing_task_id, prompt,
-                task_name, tag_ids, skills, run_as_user_id, agent_type,
+                task_name, tag_ids, skills, run_as_user_id, agent_profile,
                 inactive_ttl_days, model, workspace_id, node_selector, stop_when_done,
                 message_buffer_seconds)
                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
@@ -749,7 +749,7 @@ impl LoopDao {
                    tag_ids           = EXCLUDED.tag_ids,
                    skills            = EXCLUDED.skills,
                    run_as_user_id    = EXCLUDED.run_as_user_id,
-                   agent_type        = EXCLUDED.agent_type,
+                   agent_profile        = EXCLUDED.agent_profile,
                    inactive_ttl_days = EXCLUDED.inactive_ttl_days,
                    model             = EXCLUDED.model,
                    workspace_id      = EXCLUDED.workspace_id,
@@ -765,7 +765,7 @@ impl LoopDao {
         .bind(&row.tag_ids)
         .bind(&row.skills)
         .bind(&row.run_as_user_id)
-        .bind(row.agent_type.as_str())
+        .bind(row.agent_profile.as_str())
         .bind(row.inactive_ttl_days)
         .bind(&row.model)
         .bind(&row.workspace_id)
@@ -1168,7 +1168,7 @@ impl LoopDao {
                       r.tag_ids,
                       r.skills,
                       r.run_as_user_id,
-                      r.agent_type,
+                      r.agent_profile,
                       r.model,
                       r.inactive_ttl_days,
                       r.node_selector,
@@ -1226,7 +1226,7 @@ const SUBSCRIPTION_MATCH_SELECT: &str = r#"
            r.tag_ids,
            r.skills,
            r.run_as_user_id,
-           r.agent_type,
+           r.agent_profile,
            r.model,
            r.inactive_ttl_days,
            r.node_selector,
@@ -1324,7 +1324,7 @@ async fn replace_managed_loop_rows(
             tag_ids: input.tag_ids.clone(),
             skills: input.skills.clone(),
             run_as_user_id,
-            agent_type: input.agent_type.clone(),
+            agent_profile: input.agent_profile.clone(),
             model: input.model.clone(),
             inactive_ttl_days: input.inactive_ttl_days,
             node_selector: node_selector.map(|json| json.0),
@@ -1351,7 +1351,7 @@ async fn insert_config(
     sqlx::query(
         r#"INSERT INTO loop_configs
            (loop_id, routing_mode, ongoing_task_id, prompt,
-            task_name, tag_ids, skills, run_as_user_id, agent_type,
+            task_name, tag_ids, skills, run_as_user_id, agent_profile,
             inactive_ttl_days, model, workspace_id, node_selector, stop_when_done,
             message_buffer_seconds)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)"#,
@@ -1364,7 +1364,7 @@ async fn insert_config(
     .bind(&config.tag_ids)
     .bind(&config.skills)
     .bind(&config.run_as_user_id)
-    .bind(config.agent_type.as_str())
+    .bind(config.agent_profile.as_str())
     .bind(config.inactive_ttl_days)
     .bind(&config.model)
     .bind(&config.workspace_id)

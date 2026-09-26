@@ -24,7 +24,7 @@ fn a_subtask_carries_every_field_the_contract_requires() {
             "relation": "createdBy",
             "status": "running",
             "awaitingInput": false,
-            "agentType": "claude-code",
+            "agentProfile": "claude-code",
             "branch": "feat/checkout",
             "turnCount": 3,
             "createdAt": "2026-07-01T09:05:00.000Z",

@@ -22,7 +22,7 @@ use moatless_sandbox::agent::harness::trajectory::{
     ClaudeSessionFormat, CodexSessionFormat, SessionFormat,
 };
 use moatless_sandbox::agent::harness::{
-    ClaudeConfig, CodexConfig, Harness, Input, Outcome, Role, Signal,
+    ClaudeConfig, CodexConfig, HarnessRuntime, Input, Outcome, Role, Signal,
 };
 use moatless_sandbox::agent::types::{ForkSource, ResumeSession};
 use moatless_sandbox::backend_client::BackendClient;
@@ -132,7 +132,7 @@ impl RealEnv {
             grpc_port: 0,
             task_id: "trajectory-e2e".to_string(),
             sandbox_id: "trajectory-e2e".to_string(),
-            agent_type: Some(
+            agent_profile: Some(
                 match kind {
                     Kind::Claude => "claude-code",
                     Kind::Codex => "codex",
@@ -206,18 +206,18 @@ impl RealEnv {
         Path::new(&self.config.workspace_dir)
     }
 
-    fn harness(&self, backend: &Arc<MemoryTrajectoryBackend>) -> Harness {
+    fn harness(&self, backend: &Arc<MemoryTrajectoryBackend>) -> HarnessRuntime {
         let backend: Arc<dyn BackendClient> = Arc::clone(backend) as Arc<dyn BackendClient>;
         let trajectory = Some(TrajectoryRecording::new(backend));
         match self.kind {
-            Kind::Claude => Harness::claude(ClaudeConfig {
+            Kind::Claude => HarnessRuntime::claude(ClaudeConfig {
                 config: Arc::clone(&self.config),
                 agent_state: Arc::new(AgentState::new()),
-                agent_type: Some("claude-code".to_string()),
+                agent_profile: Some("claude-code".to_string()),
                 events: None,
                 trajectory,
             }),
-            Kind::Codex => Harness::codex(CodexConfig {
+            Kind::Codex => HarnessRuntime::codex(CodexConfig {
                 config: Arc::clone(&self.config),
                 credential_failures: CredentialFailureDetector::default(),
                 trajectory,
@@ -354,7 +354,7 @@ struct TestTask<'a> {
     env: &'a RealEnv,
     backend: Arc<MemoryTrajectoryBackend>,
     id: String,
-    harness: Harness,
+    harness: HarnessRuntime,
     session: Option<String>,
     fork: Option<ForkSource>,
     turns: Vec<TurnRecord>,

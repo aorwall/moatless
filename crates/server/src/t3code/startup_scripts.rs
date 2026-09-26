@@ -115,7 +115,7 @@ mod tests {
             task_id: "task-1".to_string(),
             timestamp: "2026-01-01T00:00:00Z".to_string(),
             is_error: false,
-            agent_type: None,
+            agent_profile: None,
             turn_number: None,
             payload,
         }

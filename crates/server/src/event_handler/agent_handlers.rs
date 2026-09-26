@@ -72,36 +72,40 @@ pub async fn handle_agent_completed(state: &AppState, event: &AgentEvent) {
     // count, and any permission denials from the SDK result. The tmux backend
     // reports 0-valued durations on some paths — those are filtered out.
     {
-        let agent_type = event.agent_type.as_deref();
-        super::metrics::record_run("completed", agent_type);
+        let agent_profile = event.agent_profile.as_deref();
+        super::metrics::record_run("completed", agent_profile);
         if let Some(cost) = run_cost_usd {
-            super::metrics::record_cost(agent_type, cost);
+            super::metrics::record_cost(agent_profile, cost);
         }
         if let Some(usage) = sdk_result.usage.as_ref() {
-            super::metrics::record_tokens(agent_type, "input", usage.input_tokens);
-            super::metrics::record_tokens(agent_type, "output", usage.output_tokens);
+            super::metrics::record_tokens(agent_profile, "input", usage.input_tokens);
+            super::metrics::record_tokens(agent_profile, "output", usage.output_tokens);
             super::metrics::record_tokens(
-                agent_type,
+                agent_profile,
                 "cache_creation",
                 usage.cache_creation_input_tokens,
             );
-            super::metrics::record_tokens(agent_type, "cache_read", usage.cache_read_input_tokens);
+            super::metrics::record_tokens(
+                agent_profile,
+                "cache_read",
+                usage.cache_read_input_tokens,
+            );
         }
         if let Some(ms) = sdk_result.duration_ms.filter(|&ms| ms > 0) {
             let context =
                 super::metrics::context_bucket(sdk_result.usage.as_ref(), sdk_result.num_turns);
             super::metrics::record_turn_duration(
-                agent_type,
+                agent_profile,
                 "completed",
                 context,
                 ms as f64 / 1000.0,
             );
         }
         if let Some(ms) = sdk_result.duration_api_ms.filter(|&ms| ms > 0) {
-            super::metrics::record_turn_api_duration(agent_type, ms as f64 / 1000.0);
+            super::metrics::record_turn_api_duration(agent_profile, ms as f64 / 1000.0);
         }
         if let Some(n) = sdk_result.num_turns {
-            super::metrics::record_turns(agent_type, n);
+            super::metrics::record_turns(agent_profile, n);
         }
         for denial in &sdk_result.permission_denials {
             if let Some(name) = denial.tool_name.as_deref() {
@@ -237,7 +241,7 @@ pub async fn handle_agent_completed(state: &AppState, event: &AgentEvent) {
             .publish_task_turn_event(
                 &event.task_id,
                 TaskTurnSubType::Completed,
-                event.agent_type.as_deref(),
+                event.agent_profile.as_deref(),
                 event.turn_number,
                 event.payload.clone(),
             )
@@ -250,7 +254,7 @@ pub async fn handle_agent_completed(state: &AppState, event: &AgentEvent) {
                 .publish_task_event(
                     &event.task_id,
                     TaskSubType::Open,
-                    event.agent_type.as_deref(),
+                    event.agent_profile.as_deref(),
                     serde_json::json!({}),
                 )
                 .await;
@@ -397,7 +401,7 @@ pub async fn handle_agent_stopped(state: &AppState, event: &AgentEvent) {
     }
 
     // Prometheus: count the stopped run once, after the duplicate-stop guard.
-    super::metrics::record_run("stopped", event.agent_type.as_deref());
+    super::metrics::record_run("stopped", event.agent_profile.as_deref());
 
     let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
 
@@ -432,7 +436,7 @@ pub async fn handle_agent_stopped(state: &AppState, event: &AgentEvent) {
             .publish_task_turn_event(
                 &event.task_id,
                 TaskTurnSubType::Stopped,
-                event.agent_type.as_deref(),
+                event.agent_profile.as_deref(),
                 event.turn_number,
                 event.payload.clone(),
             )
@@ -464,7 +468,7 @@ pub async fn handle_agent_error(ports: &AgentErrorPorts, event: &AgentEvent) {
     // dispatch arm and from `handle_agent_completed`'s `is_error` short-circuit
     // (which returns before recording a `completed` outcome), so an error run is
     // never double-counted as completed.
-    super::metrics::record_run("error", event.agent_type.as_deref());
+    super::metrics::record_run("error", event.agent_profile.as_deref());
 
     let error_msg = event
         .payload
@@ -518,7 +522,7 @@ pub async fn handle_agent_error(ports: &AgentErrorPorts, event: &AgentEvent) {
             .publish_task_turn_event(
                 &event.task_id,
                 TaskTurnSubType::Error,
-                event.agent_type.as_deref(),
+                event.agent_profile.as_deref(),
                 event.turn_number,
                 event.payload.clone(),
             )
@@ -1293,7 +1297,7 @@ async fn record_tool_call_metrics(
                 "ok"
             };
             let tool = resolve_tool_label(state, &event.task_id, tool_use_id).await;
-            super::metrics::record_tool_call(tool, event.agent_type.as_deref(), status);
+            super::metrics::record_tool_call(tool, event.agent_profile.as_deref(), status);
         }
     } else {
         // assistant tool_use blocks → cache the bucketed tool name so the later

@@ -862,9 +862,9 @@ fn model_for_existing(
     let Some(instance) = selected_instance(command) else {
         return Ok(None);
     };
-    let thread_instance = catalog::find(conversation.agent_type.as_str())
+    let thread_instance = catalog::find(conversation.agent_profile.as_str())
         .map_or(providers::CLAUDE_INSTANCE, |entry| {
-            providers::instance_for(entry.kind)
+            providers::instance_for(entry.harness)
         });
     if instance != thread_instance {
         return Err(CommandRefusal::Rejected {

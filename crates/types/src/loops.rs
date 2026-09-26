@@ -9,7 +9,7 @@ use chrono::{DateTime, Utc};
 
 use crate::access_control::Scope;
 use crate::adapter::AdapterKind;
-use crate::agent::AgentType;
+use crate::agent::AgentProfile;
 
 crate::string_enum!(
     /// Loop routing mode for message-to-task mapping.
@@ -52,9 +52,9 @@ pub struct LoopContext {
     /// session. Names only; the sandbox resolves each one's `SKILL.md` on disk.
     pub skills: Vec<String>,
     pub run_as_user_id: Option<String>,
-    pub agent_type: AgentType,
+    pub agent_profile: AgentProfile,
     /// Per-Loop model override. `None` keeps the platform default the sandbox
-    /// resolves for `agent_type`. Flows into `tasks.model` at task creation.
+    /// resolves for `agent_profile`. Flows into `tasks.model` at task creation.
     pub model: Option<String>,
     /// Per-Loop inactivity TTL override (days). `None` means the reaper falls
     /// back to the platform-wide default (`TASK_INACTIVE_TIMEOUT_DAYS`). Flows
@@ -128,7 +128,7 @@ pub struct SubscriptionMatch {
     pub tag_ids: Vec<String>,
     pub skills: Vec<String>,
     pub run_as_user_id: Option<String>,
-    pub agent_type: AgentType,
+    pub agent_profile: AgentProfile,
     /// Per-Loop model override. See [`LoopContext::model`].
     pub model: Option<String>,
     pub inactive_ttl_days: Option<i32>,

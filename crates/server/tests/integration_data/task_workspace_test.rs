@@ -14,7 +14,7 @@ use crate::common;
 use moatless_ports::task::{NewTask, TaskOpenError, TaskOpener};
 use moatless_tasks::task::test_support::find_task;
 use moatless_types::access_control::ScopeContext;
-use moatless_types::agent::AgentType;
+use moatless_types::agent::AgentProfile;
 use moatless_types::task::Visibility;
 use sqlx::PgPool;
 
@@ -41,7 +41,7 @@ async fn seed_local_repository(pool: &PgPool, repository_id: &str) {
 fn loop_task(workspace_id: &str) -> NewTask {
     NewTask {
         workspace_id: workspace_id.to_string(),
-        agent_type: AgentType::from("claude-code"),
+        agent_profile: AgentProfile::from("claude-code"),
         model: None,
         name: Some("loop task".to_string()),
         description: None,

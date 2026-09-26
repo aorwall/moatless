@@ -14,7 +14,7 @@ use moatless_types::access_control::ScopeContext;
 
 use moatless_tasks::agent::prompt;
 use moatless_tasks::task_turn::models::TurnStatus;
-use moatless_types::agent::AgentType;
+use moatless_types::agent::AgentProfile;
 
 use super::state::BackendSandboxServiceImpl;
 
@@ -69,9 +69,9 @@ pub(super) async fn get_pending_messages(
         }));
     }
 
-    let task_agent_type = task.as_ref().map_or_else(
-        || AgentType::CLAUDE_CODE.to_string(),
-        |t| t.agent_type.0.clone(),
+    let task_agent_profile = task.as_ref().map_or_else(
+        || AgentProfile::CLAUDE_CODE.to_string(),
+        |t| t.agent_profile.0.clone(),
     );
     let task_model = task.as_ref().and_then(|t| t.model.clone());
     let task_skills = task.as_ref().map(|t| t.skills.clone()).unwrap_or_default();
@@ -244,7 +244,7 @@ pub(super) async fn get_pending_messages(
     let builder = moatless_tasks::message::enricher::AgentPromptBuilder::new(
         service.handlers.as_ref().map(|h| h.files.as_ref()),
         Some(service.backend_config.as_ref()),
-        task_agent_type,
+        task_agent_profile,
         task_model,
         task_resume_session_id,
         task_skills,
@@ -259,7 +259,7 @@ pub(super) async fn get_pending_messages(
             prompt_text: delivery.prompt_text,
             file_ids: delivery.file_ids,
             model: delivery.model,
-            agent_type: delivery.agent_type,
+            agent_profile: delivery.agent_profile,
             agent_mode: delivery.agent_mode,
             effort: delivery.effort,
             skills: delivery.skills,

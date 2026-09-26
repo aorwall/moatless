@@ -1,12 +1,11 @@
 //! The trajectory tables, as the backend's `AppendTrajectory` and
 //! `ReadTrajectory` handlers reach them.
 
+use moatless_types::agent::Harness;
 use uuid::Uuid;
 
 use super::dao::PgTrajectoryDao;
-use super::models::{
-    AppendError, AppendOutcome, ChainError, ForkCut, Harness, NewEvent, TrajectorySession,
-};
+use super::models::{AppendError, AppendOutcome, ChainError, ForkCut, NewEvent, TrajectorySession};
 
 /// The `trajectory_sessions` and `trajectory_events` tables, as a host reaches
 /// them.

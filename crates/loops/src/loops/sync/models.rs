@@ -21,11 +21,13 @@ pub struct LoopFrontmatter {
     /// [`moatless_types::loops::LoopContext::workspace_id`].
     #[serde(default)]
     pub workspace: Option<String>,
-    /// Agent type (`loop_configs.agent_type`, default `claude-code`).
-    #[serde(default)]
-    pub agent_type: Option<String>,
+    /// Agent profile (`loop_configs.agent_profile`, default `claude-code`).
+    /// `agentType` is its deprecated name, still accepted because LOOP.md
+    /// files live in user repositories no migration reaches.
+    #[serde(default, alias = "agentType")]
+    pub agent_profile: Option<String>,
     /// Model the spawned tasks run on (`loop_configs.model`). `None` keeps the
-    /// platform default the sandbox resolves for `agent_type`.
+    /// platform default the sandbox resolves for `agent_profile`.
     #[serde(default)]
     pub model: Option<String>,
     /// Routing mode (`loop_configs.routing_mode`, default `by_subject`).

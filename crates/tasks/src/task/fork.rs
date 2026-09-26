@@ -170,7 +170,7 @@ impl TaskForkService {
             }) => {
                 // Codex names the cut by turn id and Claude by Message uuid, so
                 // which anchor is load-bearing follows the parent's agent.
-                if source.agent_type.as_str() == "codex" {
+                if source.agent_profile.as_str() == "codex" {
                     if cut.is_some() && point.agent_turn_id.is_none() {
                         return Err(TaskError::Conflict(format!(
                             "turn {} of task {source_task_id} has no recorded agent turn id; fork at head instead",
@@ -278,7 +278,7 @@ impl TaskForkService {
             workspace_id: source.workspace_id.clone(),
             sandbox_id: same_sandbox.then(|| source.sandbox_id.clone()).flatten(),
             checkout_mode: same_sandbox.then_some(moatless_types::task::CheckoutMode::Shared),
-            agent_type: Some(source.agent_type.clone()),
+            agent_profile: Some(source.agent_profile.clone()),
             name: None,
             description: None,
             branch: source.branch.clone(),

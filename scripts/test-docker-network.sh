@@ -138,7 +138,7 @@ print_header "TASK CREATION"
 print_step "Creating new vibe task..."
 CREATE_RESPONSE=$(curl -s -X POST "$BACKEND_URL/api/v1/tasks/vibe" \
     -H "Content-Type: application/json" \
-    -d "{\"agentType\":\"claude-code\",\"templateId\":\"$TEMPLATE_ID\",\"message\":\"Docker network test\",\"start\":false}")
+    -d "{\"agentProfile\":\"claude-code\",\"templateId\":\"$TEMPLATE_ID\",\"message\":\"Docker network test\",\"start\":false}")
 
 TASK_ID=$(echo "$CREATE_RESPONSE" | jq -r '.taskId' 2>/dev/null)
 if [ -z "$TASK_ID" ] || [ "$TASK_ID" = "null" ]; then

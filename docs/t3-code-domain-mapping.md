@@ -378,7 +378,7 @@ of what else lands.
   `instanceId` is the routing key, not part of the model name: it is an **open**
   branded slug (`providerInstance.ts:59`), and
   `defaultInstanceIdForDriver(driver) = driver` (`:148`), so a Moatless
-  `AgentKind` maps to the driver's default instance — `ClaudeCode → claudeAgent`,
+  `Harness` maps to the driver's default instance — `ClaudeCode → claudeAgent`,
   `Codex → codex` (driver slugs at `model.ts:130-131`). An unrecognized instance
   is marked unavailable at runtime rather than failing to decode.
 - **`task_events` retention.** Unpruned today. If it is ever pruned, resume

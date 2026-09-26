@@ -33,7 +33,7 @@ belongs to the workspace, not the repository git record.
   and the configured workspace service account. Verify the actual permissions.
 
 ```bash
-moat tasks create --workspace <shadow-workspace-id> --agent-type claude-code \
+moat tasks create --workspace <shadow-workspace-id> --agent-profile claude-code \
   --headless false --name "Shadow development"
 moat tasks status <task-id> --json
 moat tasks scripts list <task-id>

@@ -27,7 +27,7 @@ use std::time::{Duration, Instant};
 use chrono::Utc;
 use moatless_sandbox::agent::agent_state::AgentState;
 use moatless_sandbox::agent::harness::{
-    Cause, ClaudeConfig, CodexConfig, Harness, Input, Outcome, Rejection, Role, Signal,
+    Cause, ClaudeConfig, CodexConfig, HarnessRuntime, Input, Outcome, Rejection, Role, Signal,
 };
 use moatless_sandbox::config::{AgentConfig, Config, DEFAULT_COMMAND_TIMEOUT_SECS};
 use moatless_sandbox::credentials::recovery::CredentialFailureDetector;
@@ -955,7 +955,7 @@ fn build_config(tmp: &TempDir, agent: EvalAgent) -> Config {
         grpc_port: 0,
         sandbox_id: format!("moat-cli-eval-{}", agent.id()),
         task_id: format!("moat-cli-eval-{}", agent.id()),
-        agent_type: Some(agent.id().to_string()),
+        agent_profile: Some(agent.id().to_string()),
         workspace_dir: tmp.path().join("workspace").display().to_string(),
         repo_dir: tmp.path().join("workspace").display().to_string(),
         data_dir: tmp.path().join("data").display().to_string(),
@@ -1053,7 +1053,7 @@ fn prepare_trial(
             "moat-cli-eval-no-backend".to_string(),
         ),
         ("TASK_ID".to_string(), config.task_id.clone()),
-        ("AGENT_TYPE".to_string(), agent.id().to_string()),
+        ("AGENT_PROFILE".to_string(), agent.id().to_string()),
         (
             "MOAT_CLI_REAL_BIN".to_string(),
             settings.real_moat_bin.display().to_string(),
@@ -1109,14 +1109,14 @@ async fn run_trial(
     };
 
     let mut harness = match agent {
-        EvalAgent::ClaudeCode => Harness::claude(ClaudeConfig {
+        EvalAgent::ClaudeCode => HarnessRuntime::claude(ClaudeConfig {
             config: Arc::new(config),
             agent_state: Arc::new(AgentState::new()),
-            agent_type: Some(agent.id().to_string()),
+            agent_profile: Some(agent.id().to_string()),
             events: None,
             trajectory: None,
         }),
-        EvalAgent::Codex => Harness::codex(CodexConfig {
+        EvalAgent::Codex => HarnessRuntime::codex(CodexConfig {
             config: Arc::new(config),
             credential_failures: CredentialFailureDetector::default(),
             trajectory: None,

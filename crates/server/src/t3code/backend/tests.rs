@@ -18,11 +18,11 @@ use std::sync::Arc;
 fn each_instance_maps_to_the_first_catalog_agent_of_its_kind() {
     assert_eq!(
         default_agent_for("claudeAgent"),
-        moatless_types::agent::AgentType(catalog::CLAUDE_CODE.id.to_string())
+        moatless_types::agent::AgentProfile(catalog::CLAUDE_CODE.id.to_string())
     );
     assert_eq!(
         default_agent_for("codex"),
-        moatless_types::agent::AgentType(catalog::CODEX.id.to_string())
+        moatless_types::agent::AgentProfile(catalog::CODEX.id.to_string())
     );
 }
 
@@ -33,7 +33,9 @@ fn each_instance_maps_to_the_first_catalog_agent_of_its_kind() {
 fn an_unknown_instance_falls_back_to_claude() {
     assert_eq!(
         default_agent_for("somethingElse"),
-        moatless_types::agent::AgentType(moatless_types::agent::AgentType::CLAUDE_CODE.to_string())
+        moatless_types::agent::AgentProfile(
+            moatless_types::agent::AgentProfile::CLAUDE_CODE.to_string()
+        )
     );
 }
 
@@ -120,8 +122,8 @@ mod thread_ids {
             short_id: None,
             created_at: chrono::Utc::now(),
             last_message_at: chrono::Utc::now(),
-            agent_type: moatless_types::agent::AgentType(
-                moatless_types::agent::AgentType::CLAUDE_CODE.to_string(),
+            agent_profile: moatless_types::agent::AgentProfile(
+                moatless_types::agent::AgentProfile::CLAUDE_CODE.to_string(),
             ),
             repository_id: "repo-1".to_string(),
             status,

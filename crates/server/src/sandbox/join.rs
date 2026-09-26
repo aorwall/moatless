@@ -1,7 +1,7 @@
 //! Attach a task to an existing sandbox through its gRPC connector.
 
 use moatless_ports::sandbox::{SandboxError, SandboxJoiner};
-use moatless_types::agent::AgentType;
+use moatless_types::agent::AgentProfile;
 use moatless_types::task::CheckoutMode;
 use sandbox_proto::client::{SandboxConnector, classify_grpc_error};
 use std::sync::Arc;
@@ -16,14 +16,14 @@ impl SandboxJoiner for ConnectorSandboxJoiner {
         &self,
         task_id: &str,
         checkout_mode: CheckoutMode,
-        agent_type: &AgentType,
+        agent_profile: &AgentProfile,
     ) -> Result<(), SandboxError> {
         let client = self.connector.sandbox_client(task_id).await?;
         client
             .join_task(
                 task_id,
                 Some(checkout_mode.as_str()),
-                Some(agent_type.as_str()),
+                Some(agent_profile.as_str()),
             )
             .await
             .map_err(|error| classify_grpc_error(error, "JoinTask"))

@@ -2,9 +2,9 @@
 //!
 //! This is the mock adapter role for the private [`AgentProcess`] port. It lets
 //! contract tests drive Session starts, source blocks, failures, EOF, and
-//! cancellation through the real [`super::Harness`] interface without a CLI.
+//! cancellation through the real [`super::HarnessRuntime`] interface without a CLI.
 //! The interface under test is the external command/signal seam, not this type
-//! — tests construct a [`Script`] and pass it to [`super::Harness::scripted`].
+//! — tests construct a [`Script`] and pass it to [`super::HarnessRuntime::scripted`].
 
 use std::collections::VecDeque;
 use std::sync::Arc;

@@ -4,8 +4,8 @@
  * Independent tests — each creates and tears down its own resources.
  *
  * Scenarios:
- *   TASK-09.2: Create task without agent type (400)
- *   TASK-09.3: Create task with unknown agent type (400)
+ *   TASK-09.2: Create task without agent profile (400)
+ *   TASK-09.3: Create task with unknown agent profile (400)
  *   TASK-10: Create task in a missing workspace (404)
  *   TASK-11: Send message to closed task (409)
  */
@@ -13,9 +13,9 @@
 import { expect, test } from '../fixtures/api-fixtures'
 import { createTaskWithMessage } from '../steps'
 
-// ─── TASK-09.2: Create task without agent type (400) ───────────────────
+// ─── TASK-09.2: Create task without agent profile (400) ───────────────────
 
-test('TASK-09.2: Create task without agent type (400)', async ({ api }) => {
+test('TASK-09.2: Create task without agent profile (400)', async ({ api }) => {
   const workspace = await api.ensureTemplateWorkspace()
   const response = await api.createVibeTaskRaw({
     workspaceId: workspace.id,
@@ -23,23 +23,23 @@ test('TASK-09.2: Create task without agent type (400)', async ({ api }) => {
   })
 
   expect(response.status).toBe(400)
-  expect((response.body as { error?: string }).error).toContain('agentType is required')
+  expect((response.body as { error?: string }).error).toContain('agentProfile is required')
   expect((response.body as { error?: string }).error).toContain('claude-code')
   expect((response.body as { error?: string }).error).toContain('codex')
 })
 
-// ─── TASK-09.3: Create task with unknown agent type (400) ───────────────
+// ─── TASK-09.3: Create task with unknown agent profile (400) ───────────────
 
-test('TASK-09.3: Create task with unknown agent type (400)', async ({ api }) => {
+test('TASK-09.3: Create task with unknown agent profile (400)', async ({ api }) => {
   const workspace = await api.ensureTemplateWorkspace()
   const response = await api.createVibeTaskRaw({
     workspaceId: workspace.id,
-    agentType: 'not-an-agent',
+    agentProfile: 'not-an-agent',
     message: 'This should fail',
   })
 
   expect(response.status).toBe(400)
-  expect((response.body as { error?: string }).error).toContain('unknown agentType')
+  expect((response.body as { error?: string }).error).toContain('unknown agentProfile')
   expect((response.body as { error?: string }).error).toContain('Available options')
 })
 
@@ -48,7 +48,7 @@ test('TASK-09.3: Create task with unknown agent type (400)', async ({ api }) => 
 test('TASK-10: Create task in a missing workspace (404)', async ({ api }) => {
   const response = await api.createVibeTaskRaw({
     workspaceId: '00000000-0000-0000-0000-000000000000',
-    agentType: 'claude-code',
+    agentProfile: 'claude-code',
     message: 'This should fail',
   })
 

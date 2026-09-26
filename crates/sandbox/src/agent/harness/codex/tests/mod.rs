@@ -23,7 +23,7 @@ use super::super::classify::{
     classify_startup_error, classify_stream_error, classify_turn_error, is_expired_credential,
 };
 use super::{CodexConfig, CodexProcess, MID_TURN_DELIVERY_TIMEOUT};
-use crate::agent::harness::Harness;
+use crate::agent::harness::HarnessRuntime;
 use crate::agent::harness::error::{ErrorClass, FailureStage, SessionImpact};
 use crate::agent::harness::process::{AgentProcess, ProcessEvent, ProcessTermination};
 use crate::agent::harness::signal::{Cause, Input, InputId, Outcome, Signal};

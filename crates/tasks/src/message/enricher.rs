@@ -32,7 +32,7 @@ pub struct AgentDelivery {
     pub prompt_text: String,
     pub file_ids: Vec<String>,
     pub model: Option<String>,
-    pub agent_type: Option<String>,
+    pub agent_profile: Option<String>,
     pub agent_mode: Option<String>,
     /// Reasoning effort for the turn, in the agent's own vocabulary. `None`
     /// leaves the agent on its own default.
@@ -97,7 +97,7 @@ impl PromptResponse {
 pub struct AgentPromptBuilder<'a> {
     files: Option<&'a Files>,
     config: Option<&'a Config>,
-    task_agent_type: String,
+    task_agent_profile: String,
     task_model: Option<String>,
     task_resume_session_id: Option<String>,
     task_skills: Vec<String>,
@@ -111,7 +111,7 @@ impl<'a> AgentPromptBuilder<'a> {
     pub fn new(
         files: Option<&'a Files>,
         config: Option<&'a Config>,
-        task_agent_type: String,
+        task_agent_profile: String,
         task_model: Option<String>,
         task_resume_session_id: Option<String>,
         task_skills: Vec<String>,
@@ -120,7 +120,7 @@ impl<'a> AgentPromptBuilder<'a> {
         Self {
             files,
             config,
-            task_agent_type,
+            task_agent_profile,
             task_model,
             task_resume_session_id,
             task_skills,
@@ -183,7 +183,7 @@ impl<'a> AgentPromptBuilder<'a> {
             model = effective_model(
                 row.model.clone(),
                 self.task_model.clone(),
-                &self.task_agent_type,
+                &self.task_agent_profile,
             )
             .or(model);
             if row.agent_mode_raw.is_some() {
@@ -216,7 +216,7 @@ impl<'a> AgentPromptBuilder<'a> {
             prompt_text: parts.join("\n"),
             file_ids,
             model,
-            agent_type: Some(self.task_agent_type.clone()),
+            agent_profile: Some(self.task_agent_profile.clone()),
             agent_mode,
             effort,
             skills,
@@ -280,9 +280,9 @@ fn delivery_slice(pending: &[TaskMessage]) -> Option<(&[TaskMessage], usize)> {
 pub fn effective_model(
     row_model: Option<String>,
     task_model: Option<String>,
-    agent_type: &str,
+    agent_profile: &str,
 ) -> Option<String> {
-    row_model.or(task_model).or_else(|| match agent_type {
+    row_model.or(task_model).or_else(|| match agent_profile {
         "claude-code-fable" => Some("fable".to_string()),
         _ => None,
     })

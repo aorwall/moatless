@@ -909,7 +909,7 @@ mod tests {
     use crate::ports::{PullRequestError, ResolvedPullRequest};
     use crate::workspace_dao::MockT3WorkspaceDao;
     use async_trait::async_trait;
-    use moatless_types::agent::AgentType;
+    use moatless_types::agent::AgentProfile;
     use std::sync::Mutex;
 
     /// A branch source that answers with a fixed list, or a fixed failure, and
@@ -1310,7 +1310,7 @@ mod tests {
             workspace_id: Some("ws-1".to_string()),
             name: None,
             branch: None,
-            agent_type: AgentType(AgentType::CLAUDE_CODE.to_string()),
+            agent_profile: AgentProfile(AgentProfile::CLAUDE_CODE.to_string()),
             created_at: "2026-07-01T09:00:00.000Z".to_string(),
             created_at_db: None,
             updated_at: None,

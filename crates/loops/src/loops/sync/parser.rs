@@ -94,11 +94,20 @@ mod tests {
 
     #[test]
     fn parses_model_override() {
-        let content =
-            "---\non: github_pr\nname: Review\nagentType: claude-code\nmodel: opus\n---\n\nbody\n";
+        let content = "---\non: github_pr\nname: Review\nagentProfile: claude-code\nmodel: opus\n---\n\nbody\n";
         let loop_ = parse_loop(content, "review").expect("valid loop parses");
-        assert_eq!(loop_.frontmatter.agent_type.as_deref(), Some("claude-code"));
+        assert_eq!(
+            loop_.frontmatter.agent_profile.as_deref(),
+            Some("claude-code")
+        );
         assert_eq!(loop_.frontmatter.model.as_deref(), Some("opus"));
+    }
+
+    #[test]
+    fn accepts_the_deprecated_agent_type_key() {
+        let content = "---\non: github_pr\nname: Review\nagentType: codex\n---\n\nbody\n";
+        let loop_ = parse_loop(content, "review").expect("valid loop parses");
+        assert_eq!(loop_.frontmatter.agent_profile.as_deref(), Some("codex"));
     }
 
     #[test]
@@ -175,7 +184,7 @@ mod tests {
     #[test]
     fn skips_loop_missing_on() {
         // `on` is required by serde — missing key fails deserialization.
-        let content = "---\nname: No On\nagentType: claude-code\n---\n\nbody\n";
+        let content = "---\nname: No On\nagentProfile: claude-code\n---\n\nbody\n";
         assert!(parse_loop(content, "no-on").is_err());
     }
 
@@ -216,11 +225,14 @@ mod tests {
 
     #[test]
     fn tolerates_bom_and_crlf() {
-        let content = "\u{feff}---\r\non: github_pr\r\nname: BOM Loop\r\nagentType: claude-code\r\n---\r\n\r\nBody here.\r\n";
+        let content = "\u{feff}---\r\non: github_pr\r\nname: BOM Loop\r\nagentProfile: claude-code\r\n---\r\n\r\nBody here.\r\n";
         let loop_ = parse_loop(content, "bom").expect("bom+crlf parses");
         assert_eq!(loop_.frontmatter.on, "github_pr");
         assert_eq!(loop_.frontmatter.name, "BOM Loop");
-        assert_eq!(loop_.frontmatter.agent_type.as_deref(), Some("claude-code"));
+        assert_eq!(
+            loop_.frontmatter.agent_profile.as_deref(),
+            Some("claude-code")
+        );
         assert_eq!(loop_.prompt_body, "Body here.");
     }
 

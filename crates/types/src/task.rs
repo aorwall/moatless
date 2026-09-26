@@ -8,7 +8,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::access_control::{Scope, ScopedResource};
-use crate::agent::AgentType;
+use crate::agent::AgentProfile;
 
 /// The provenance that says a Message reached this Task from outside it.
 ///
@@ -338,7 +338,7 @@ pub struct Task {
     pub short_id: Option<String>,
     pub created_at: DateTime<Utc>,
     pub last_message_at: DateTime<Utc>,
-    pub agent_type: AgentType,
+    pub agent_profile: AgentProfile,
     pub repository_id: String,
     /// Workspace this task runs against, which provisioning resolves the
     /// repository composition through.

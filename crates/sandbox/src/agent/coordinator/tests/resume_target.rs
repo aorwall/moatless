@@ -5,6 +5,7 @@
 //! id for whichever family the pod runs.
 
 use super::*;
+use moatless_types::agent::Harness;
 
 #[test]
 fn build_resume_prefers_last_session_id_for_claude() {
@@ -12,7 +13,7 @@ fn build_resume_prefers_last_session_id_for_claude() {
     let resume = build_resume(
         "restored-claude-session",
         Some("backend-resume-id"),
-        AGENT_TYPE_CLAUDE_CODE,
+        Harness::ClaudeCode,
         false,
     );
     assert_eq!(
@@ -26,7 +27,7 @@ fn build_resume_prefers_last_session_id_for_codex() {
     let resume = build_resume(
         "restored-codex-rollout",
         Some("backend-resume-id"),
-        "codex",
+        Harness::Codex,
         false,
     );
     assert_eq!(
@@ -39,7 +40,7 @@ fn build_resume_prefers_last_session_id_for_codex() {
 fn build_resume_uses_backend_id_on_fresh_pod_for_both_families() {
     // Fresh pod with no local Session: the backend-provided resume id (from the
     // restored run) is honored for both families.
-    for family in [AGENT_TYPE_CLAUDE_CODE, "codex"] {
+    for family in [Harness::ClaudeCode, Harness::Codex] {
         let resume = build_resume("", Some("backend-resume-id"), family, false);
         assert_eq!(
             resume,
@@ -51,7 +52,7 @@ fn build_resume_uses_backend_id_on_fresh_pod_for_both_families() {
 
 #[test]
 fn build_resume_start_fresh_overrides_restored_session_for_both_families() {
-    for family in [AGENT_TYPE_CLAUDE_CODE, "codex"] {
+    for family in [Harness::ClaudeCode, Harness::Codex] {
         let resume = build_resume("restored-session", Some("backend-resume-id"), family, true);
         assert_eq!(resume, None, "family {family}");
     }
@@ -62,8 +63,8 @@ fn build_resume_falls_back_to_continue_for_claude_only() {
     // No local Session and no backend id: Claude gets `--continue`, Codex (which
     // has no `--continue`) starts fresh.
     assert_eq!(
-        build_resume("", None, AGENT_TYPE_CLAUDE_CODE, false),
+        build_resume("", None, Harness::ClaudeCode, false),
         Some(ResumeSession::Last)
     );
-    assert_eq!(build_resume("", None, "codex", false), None);
+    assert_eq!(build_resume("", None, Harness::Codex, false), None);
 }

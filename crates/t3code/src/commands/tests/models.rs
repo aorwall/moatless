@@ -75,7 +75,7 @@ async fn codex_reads_its_effort_off_its_own_descriptor_id() {
         "gpt-5.6-sol",
         json!([{ "id": "reasoningEffort", "value": "minimal" }]),
     );
-    let (_, calls) = run_against(command, Some(conversation(AgentType::CODEX))).await;
+    let (_, calls) = run_against(command, Some(conversation(AgentProfile::CODEX))).await;
     assert_eq!(sent_effort(&calls).as_deref(), Some("minimal"));
 }
 

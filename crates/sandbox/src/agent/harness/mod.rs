@@ -1,6 +1,6 @@
 //! Agent process and session lifetime, input delivery, and normalized signals.
 //!
-//! A [`Harness`] controls at most one active process while its session survives
+//! A [`HarnessRuntime`] controls at most one active process while its session survives
 //! process replacement. The coordinator owns Run/Turn identity,
 //! acknowledgement, retry policy, credentials, and backend publishing.
 
@@ -15,7 +15,7 @@ pub(crate) mod codex;
 mod driver;
 mod process;
 
-// The scripted mock and its `Harness::scripted` constructor exist only to drive
+// The scripted mock and its `HarnessRuntime::scripted` constructor exist only to drive
 // the lifecycle/contract tests, so they stay behind `cfg(test)` — never part of
 // the crate's runtime surface.
 #[cfg(test)]
@@ -38,4 +38,4 @@ pub use signal::{
 pub use source::{NativeMessageId, Role, SourceEvent};
 
 mod runtime;
-pub use runtime::{Harness, HarnessClosed};
+pub use runtime::{HarnessClosed, HarnessRuntime};

@@ -5,14 +5,14 @@ use super::service_fixtures::*;
 use super::*;
 
 /// A `ScheduleWakeup` `tool_use` in a completed Turn's Source blocks arms a
-/// wakeup job on the `AGENT_TYPE` path; once its (zero) delay elapses the job
+/// wakeup job on the `AGENT_PROFILE` path; once its (zero) delay elapses the job
 /// injects the scheduled prompt back into the service.
 #[tokio::test]
 async fn coordinator_service_arms_and_fires_scheduled_wakeup() {
     let cancel = CancellationToken::new();
     let config = {
         let mut c = minimal_config();
-        c.agent_type = Some("claude-code".to_string());
+        c.agent_profile = Some("claude-code".to_string());
         Arc::new(c)
     };
     let agent_state = Arc::new(AgentState::new());
@@ -39,7 +39,7 @@ async fn coordinator_service_arms_and_fires_scheduled_wakeup() {
 
     // Build the service directly so it uses the capturing registry.
     let (events, _received, _outbox_cancel) = recording_publisher_with_cancel(cancel.clone());
-    let coordinator = Coordinator::new(Harness::scripted(script), events.clone(), "task-1");
+    let coordinator = Coordinator::new(HarnessRuntime::scripted(script), events.clone(), "task-1");
     let service = CoordinatorService::new(
         coordinator,
         Arc::clone(&agent_state),

@@ -5,7 +5,7 @@
  * Sandbox orchestration and authentication for Moatless Vibe
  * OpenAPI spec version: 0.1.0
  */
-import type { AgentType } from './agentType';
+import type { AgentProfile } from './agentProfile';
 import type { CheckoutMode } from './checkoutMode';
 import type { ForkOrigin } from './forkOrigin';
 import type { SandboxDesiredState } from './sandboxDesiredState';
@@ -18,7 +18,7 @@ import type { TaskStatus } from './taskStatus';
 import type { Visibility } from './visibility';
 
 export interface TaskResponse {
-  agentType: AgentType;
+  agentProfile: AgentProfile;
   /** @nullable */
   appendSystemPrompt?: string | null;
   bindings?: TaskBindingSummary[];

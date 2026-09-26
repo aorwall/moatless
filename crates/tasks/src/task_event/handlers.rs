@@ -64,7 +64,7 @@ pub async fn list_task_events(
             event_type: e.event_type,
             sub_type: e.sub_type,
             is_error: e.is_error,
-            agent_type: e.agent_type,
+            agent_profile: e.agent_profile,
             turn_number: e.turn_number,
             payload: e.payload,
             timestamp: e.timestamp,

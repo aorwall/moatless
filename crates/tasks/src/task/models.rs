@@ -8,7 +8,7 @@ use chrono::{DateTime, Utc};
 
 use moatless_core::db_enum::decode_optional;
 use moatless_types::access_control::{Scope, ScopeContext};
-use moatless_types::agent::AgentType;
+use moatless_types::agent::AgentProfile;
 
 // The task band's vocabulary surface: call sites keep naming these through
 // `task::models`, which is where a reader of this crate looks for them.
@@ -37,7 +37,7 @@ pub struct TaskRow {
     pub created_at: String,
     pub last_message_at: String,
     #[sqlx(try_from = "String")]
-    pub agent_type: AgentType,
+    pub agent_profile: AgentProfile,
     pub repository_id: String,
     /// Workspace this task runs against, and what provisioning resolves the
     /// repository composition through. Nullable only for rows predating
@@ -105,7 +105,7 @@ impl TryFrom<TaskRow> for Task {
             checkout_mode: decode_optional("checkout_mode", row.checkout_mode_raw)?,
             task_id: row.task_id,
             short_id: row.short_id,
-            agent_type: row.agent_type,
+            agent_profile: row.agent_profile,
             repository_id: row.repository_id,
             workspace_id: row.workspace_id,
             sandbox_id: row.sandbox_id,

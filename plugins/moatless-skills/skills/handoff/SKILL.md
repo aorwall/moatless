@@ -65,13 +65,13 @@ Relevant files:
 EOF
 )
 
-AGENT_TYPE="<agent-id>"
+AGENT_PROFILE="<agent-id>"
 MODEL="" # Optional.
 
 CREATE_ARGS=(
   --workspace "<workspace-id-or-name>"
   --name "Handoff: <short focus>"
-  --agent-type "$AGENT_TYPE"
+  --agent-profile "$AGENT_PROFILE"
   --message "$HANDOFF_MESSAGE"
   --context-file path/to/file.ext
 )

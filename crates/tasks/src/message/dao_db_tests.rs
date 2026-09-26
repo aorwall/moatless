@@ -1098,7 +1098,7 @@ async fn seed_turn_event(
 ) {
     sqlx::query(
         r#"INSERT INTO task_events
-               (event_id, task_id, type, sub_type, turn_number, agent_type, payload, timestamp)
+               (event_id, task_id, type, sub_type, turn_number, agent_profile, payload, timestamp)
            VALUES ($1, $2, $3, $4, $5, 'claude-code', '{}'::jsonb, '')"#,
     )
     .bind(format!("{task_id}-{event_type}-{sub_type}-{turn_number}"))
@@ -1539,7 +1539,7 @@ async fn seed_agent_event_at(
 ) {
     sqlx::query(
         r#"INSERT INTO task_events
-               (event_id, task_id, type, sub_type, turn_number, agent_type, payload, timestamp, created_at)
+               (event_id, task_id, type, sub_type, turn_number, agent_profile, payload, timestamp, created_at)
            VALUES ($1, $2, 'agent', $3, $4, 'claude-code', '{}'::jsonb, $5, $5::timestamptz)"#,
     )
     .bind(format!("{task_id}-agent-{sub_type}-{turn_number}-{created_at}"))

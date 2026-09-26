@@ -353,7 +353,7 @@ impl AgentProcess for ClaudeProcess {
             model: input.model.clone(),
             system_prompt: input.system_prompt.clone(),
             resume,
-            agent_type: self.cfg.agent_type.clone(),
+            agent_profile: self.cfg.agent_profile.clone(),
             agent_mode: input.mode.clone(),
             effort: input.effort.clone(),
         };

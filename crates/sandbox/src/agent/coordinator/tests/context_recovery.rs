@@ -7,7 +7,7 @@ use super::*;
 async fn resume_run_maps_recovery_events_onto_the_interrupted_turns_run_id() {
     let (events, received, _cancel) = recording_publisher();
     let mut coord = Coordinator::new(
-        Harness::scripted(Script::new(vec![])),
+        HarnessRuntime::scripted(Script::new(vec![])),
         events.clone(),
         "task-1",
     );
@@ -55,7 +55,7 @@ async fn lost_resume_recovers_with_a_fresh_turn_and_keeps_the_ack() {
         ]),
     ];
     let mut coord = Coordinator::new(
-        Harness::scripted_sequence(scripts),
+        HarnessRuntime::scripted_sequence(scripts),
         events.clone(),
         "task-1",
     );
@@ -110,7 +110,7 @@ async fn lost_resume_recovers_with_a_fresh_turn_and_keeps_the_ack() {
 async fn lost_rejection_without_a_resume_request_drops_the_ack() {
     let (events, received, _cancel) = recording_publisher();
     let mut coord = Coordinator::new(
-        Harness::scripted(Script::rejecting(lost_error())),
+        HarnessRuntime::scripted(Script::rejecting(lost_error())),
         events.clone(),
         "task-1",
     );
@@ -146,7 +146,7 @@ async fn a_recovery_that_fails_again_is_not_retried() {
         Script::rejecting(failure()),
     ];
     let mut coord = Coordinator::new(
-        Harness::scripted_sequence(scripts),
+        HarnessRuntime::scripted_sequence(scripts),
         events.clone(),
         "task-1",
     );

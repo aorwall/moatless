@@ -13,14 +13,14 @@ use sqlx::PgPool;
 use crate::task::test_support::make_task_row;
 use moatless_workspaces::test_support::make_repository_row;
 
-/// Read back a `task_turns` row as `(status, has_ended_at, agent_type)`.
+/// Read back a `task_turns` row as `(status, has_ended_at, agent_profile)`.
 async fn turn_row(
     pool: &PgPool,
     task_id: &str,
     turn_number: i32,
 ) -> Option<(String, bool, Option<String>)> {
     let row: Option<(String, Option<chrono::DateTime<Utc>>, Option<String>)> = sqlx::query_as(
-        r#"SELECT status, ended_at, agent_type
+        r#"SELECT status, ended_at, agent_profile
            FROM task_turns WHERE task_id = $1 AND turn_number = $2"#,
     )
     .bind(task_id)
@@ -28,7 +28,7 @@ async fn turn_row(
     .fetch_optional(pool)
     .await
     .expect("read turn");
-    row.map(|(status, ended_at, agent_type)| (status, ended_at.is_some(), agent_type))
+    row.map(|(status, ended_at, agent_profile)| (status, ended_at.is_some(), agent_profile))
 }
 
 fn ingress_event(
@@ -48,7 +48,7 @@ fn ingress_event(
         },
         sub_type: sub_type.to_string(),
         is_error: sub_type == "error",
-        agent_type: Some("claude-code".to_string()),
+        agent_profile: Some("claude-code".to_string()),
         turn_number,
         payload: serde_json::json!({}),
         timestamp: "2026-07-12T00:00:00.000Z".to_string(),
@@ -375,7 +375,7 @@ async fn list_unclosed_active_turns_filters_by_age_and_status(pool: PgPool) {
         let pool = pool.clone();
         async move {
             sqlx::query(
-                r#"INSERT INTO task_turns (task_id, turn_number, status, agent_type, started_at)
+                r#"INSERT INTO task_turns (task_id, turn_number, status, agent_profile, started_at)
                    VALUES ($1, $2, $3, 'claude-code', $4)"#,
             )
             .bind(task_id)
@@ -413,7 +413,7 @@ async fn backfill_recovers_open_turns_from_event_log(pool: PgPool) {
         async move {
             sqlx::query(
                 r#"INSERT INTO task_events
-                       (event_id, task_id, type, sub_type, turn_number, agent_type, timestamp, created_at)
+                       (event_id, task_id, type, sub_type, turn_number, agent_profile, timestamp, created_at)
                    VALUES ($1, $2, 'taskTurn', $3, $4, 'claude-code', '', now() - ($5 || ' seconds')::interval)"#,
             )
             .bind(format!("{task_id}-{sub_type}-{turn}"))
@@ -434,12 +434,12 @@ async fn backfill_recovers_open_turns_from_event_log(pool: PgPool) {
 
     // The exact backfill statement from migration 0071.
     sqlx::query(
-        r#"INSERT INTO task_turns (task_id, turn_number, status, agent_type, started_at)
+        r#"INSERT INTO task_turns (task_id, turn_number, status, agent_profile, started_at)
            SELECT latest.task_id, COALESCE(latest.turn_number, 1), 'active',
-                  latest.agent_type, latest.created_at
+                  latest.agent_profile, latest.created_at
            FROM (
                SELECT DISTINCT ON (task_id)
-                      task_id, sub_type, turn_number, agent_type, created_at
+                      task_id, sub_type, turn_number, agent_profile, created_at
                FROM task_events
                WHERE type = 'taskTurn'
                ORDER BY task_id, created_at DESC, id DESC
@@ -676,7 +676,7 @@ async fn seed_closed_turn(
     ended_at: Option<chrono::DateTime<Utc>>,
 ) {
     sqlx::query(
-        r#"INSERT INTO task_turns (task_id, turn_number, status, agent_type, started_at, ended_at, run_id)
+        r#"INSERT INTO task_turns (task_id, turn_number, status, agent_profile, started_at, ended_at, run_id)
            VALUES ($1, $2, $3, 'claude-code', now() - interval '1 hour', $4, $5)"#,
     )
     .bind(task_id)
@@ -695,7 +695,7 @@ async fn seed_closed_turn(
 async fn seed_event(pool: &PgPool, task_id: &str, sub_type: &str, minutes_ago: i64) {
     sqlx::query(
         r#"INSERT INTO task_events
-               (event_id, task_id, type, sub_type, turn_number, agent_type, timestamp, created_at)
+               (event_id, task_id, type, sub_type, turn_number, agent_profile, timestamp, created_at)
            VALUES ($1, $2, 'agent', $3, 1, 'claude-code', 'not-a-timestamp', $4)"#,
     )
     .bind(format!("{task_id}-{sub_type}-{minutes_ago}"))
@@ -744,7 +744,7 @@ async fn settled_turns_with_later_activity_are_the_only_candidates(pool: PgPool)
     assert_eq!(ids, vec!["candidate"]);
     let found = &settled[0];
     assert_eq!(found.turn_number, 1);
-    assert_eq!(found.agent_type.as_deref(), Some("claude-code"));
+    assert_eq!(found.agent_profile.as_deref(), Some("claude-code"));
     assert_eq!(
         found.run_id.as_deref(),
         Some("candidate-run-1"),
@@ -913,7 +913,7 @@ async fn list_superseded_open_turns_returns_only_turns_a_later_turn_ran_past(poo
         let pool = pool.clone();
         async move {
             sqlx::query(
-                r#"INSERT INTO task_turns (task_id, turn_number, status, agent_type, started_at)
+                r#"INSERT INTO task_turns (task_id, turn_number, status, agent_profile, started_at)
                    VALUES ($1, $2, $3, 'claude-code', $4)"#,
             )
             .bind(task_id)
@@ -958,7 +958,7 @@ async fn a_superseded_turn_settles_to_terminal_and_leaves_the_newest_alone(pool:
     let repo = PgTaskTurnDao(pool.clone());
 
     sqlx::query(
-        r#"INSERT INTO task_turns (task_id, turn_number, status, agent_type, started_at)
+        r#"INSERT INTO task_turns (task_id, turn_number, status, agent_profile, started_at)
            VALUES ('task-a', 1, 'interrupted', 'claude-code', $1),
                   ('task-a', 2, 'completed',   'claude-code', $1)"#,
     )

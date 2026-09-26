@@ -94,7 +94,7 @@ pub trait EventPublisher: Send + Sync {
         &self,
         task_id: &str,
         sub_type: TaskSubType,
-        agent_type: Option<&str>,
+        agent_profile: Option<&str>,
         payload: serde_json::Value,
     );
 
@@ -104,7 +104,7 @@ pub trait EventPublisher: Send + Sync {
         &self,
         task_id: &str,
         sub_type: AgentSubType,
-        agent_type: Option<&str>,
+        agent_profile: Option<&str>,
         payload: serde_json::Value,
     );
 
@@ -113,7 +113,7 @@ pub trait EventPublisher: Send + Sync {
         &self,
         task_id: &str,
         sub_type: TaskTurnSubType,
-        agent_type: Option<&str>,
+        agent_profile: Option<&str>,
         turn_number: Option<i32>,
         payload: serde_json::Value,
     );
@@ -125,7 +125,7 @@ pub trait EventPublisher: Send + Sync {
         task_id: &str,
         event_type: &str,
         sub_type: &str,
-        agent_type: Option<&str>,
+        agent_profile: Option<&str>,
         turn_number: Option<i32>,
         payload: serde_json::Value,
     );
@@ -144,7 +144,7 @@ pub trait EventPublisher: Send + Sync {
         task_id: &str,
         event_type: &str,
         sub_type: &str,
-        agent_type: Option<&str>,
+        agent_profile: Option<&str>,
         turn_number: Option<i32>,
         payload: serde_json::Value,
     ) -> Result<(), PublishError>;
@@ -159,7 +159,7 @@ fn build_envelope(
     task_id: &str,
     event_type: &str,
     sub_type: &str,
-    agent_type: Option<&str>,
+    agent_profile: Option<&str>,
     turn_number: Option<i32>,
     payload: serde_json::Value,
 ) -> Result<StreamEvent, PublishError> {
@@ -174,7 +174,7 @@ fn build_envelope(
         task_id: task_id.to_string(),
         timestamp: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
         is_error: sub_type == "error" || sub_type == "failed",
-        agent_type: agent_type.map(std::string::ToString::to_string),
+        agent_profile: agent_profile.map(std::string::ToString::to_string),
         turn_number,
         agent_working: moatless_types::event::agent_working(event_type, sub_type),
         payload,
@@ -198,7 +198,7 @@ impl FeedEventPublisher {
         task_id: &str,
         event_type: EventType,
         sub_type: SubType,
-        agent_type: Option<&str>,
+        agent_profile: Option<&str>,
         turn_number: Option<i32>,
         payload: serde_json::Value,
     ) {
@@ -210,7 +210,7 @@ impl FeedEventPublisher {
                 task_id,
                 event_type.as_str(),
                 sub_type.as_str(),
-                agent_type,
+                agent_profile,
                 turn_number,
                 payload,
             )
@@ -230,7 +230,7 @@ impl FeedEventPublisher {
         task_id: &str,
         event_type: &str,
         sub_type: &str,
-        agent_type: Option<&str>,
+        agent_profile: Option<&str>,
         turn_number: Option<i32>,
         payload: serde_json::Value,
     ) -> Result<(), PublishError> {
@@ -239,7 +239,7 @@ impl FeedEventPublisher {
             task_id,
             event_type,
             sub_type,
-            agent_type,
+            agent_profile,
             turn_number,
             payload,
         )?;
@@ -335,14 +335,14 @@ impl EventPublisher for FeedEventPublisher {
         &self,
         task_id: &str,
         sub_type: TaskSubType,
-        agent_type: Option<&str>,
+        agent_profile: Option<&str>,
         payload: serde_json::Value,
     ) {
         self.publish_event_typed(
             task_id,
             EventType::Task,
             sub_type.into(),
-            agent_type,
+            agent_profile,
             None,
             payload,
         )
@@ -353,14 +353,14 @@ impl EventPublisher for FeedEventPublisher {
         &self,
         task_id: &str,
         sub_type: AgentSubType,
-        agent_type: Option<&str>,
+        agent_profile: Option<&str>,
         payload: serde_json::Value,
     ) {
         self.publish_event_typed(
             task_id,
             EventType::Agent,
             sub_type.into(),
-            agent_type,
+            agent_profile,
             None,
             payload,
         )
@@ -371,7 +371,7 @@ impl EventPublisher for FeedEventPublisher {
         &self,
         task_id: &str,
         sub_type: TaskTurnSubType,
-        agent_type: Option<&str>,
+        agent_profile: Option<&str>,
         turn_number: Option<i32>,
         payload: serde_json::Value,
     ) {
@@ -379,7 +379,7 @@ impl EventPublisher for FeedEventPublisher {
             task_id,
             EventType::TaskTurn,
             sub_type.into(),
-            agent_type,
+            agent_profile,
             turn_number,
             payload,
         )
@@ -391,7 +391,7 @@ impl EventPublisher for FeedEventPublisher {
         task_id: &str,
         event_type: &str,
         sub_type: &str,
-        agent_type: Option<&str>,
+        agent_profile: Option<&str>,
         turn_number: Option<i32>,
         payload: serde_json::Value,
     ) {
@@ -401,7 +401,7 @@ impl EventPublisher for FeedEventPublisher {
                 task_id,
                 event_type,
                 sub_type,
-                agent_type,
+                agent_profile,
                 turn_number,
                 payload,
             )
@@ -414,7 +414,7 @@ impl EventPublisher for FeedEventPublisher {
         task_id: &str,
         event_type: &str,
         sub_type: &str,
-        agent_type: Option<&str>,
+        agent_profile: Option<&str>,
         turn_number: Option<i32>,
         payload: serde_json::Value,
     ) -> Result<(), PublishError> {
@@ -423,7 +423,7 @@ impl EventPublisher for FeedEventPublisher {
             task_id,
             event_type,
             sub_type,
-            agent_type,
+            agent_profile,
             turn_number,
             payload,
         )
@@ -458,7 +458,7 @@ mod tests {
         assert_eq!(event.task_id, "task-1");
         assert_eq!(event.event_type, EventType::Agent);
         assert_eq!(event.sub_type, "message");
-        assert_eq!(event.agent_type.as_deref(), Some("claude-code"));
+        assert_eq!(event.agent_profile.as_deref(), Some("claude-code"));
         assert_eq!(event.turn_number, Some(1));
         assert_eq!(event.payload["text"], "hi");
     }

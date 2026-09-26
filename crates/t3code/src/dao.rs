@@ -29,7 +29,7 @@ use moatless_core::change_feed::conversation::{ConversationChange, ConversationH
 use moatless_ports::activity::ActivitySource;
 use moatless_types::access_control::{ScopeContext, ScopedEntity};
 use moatless_types::activity::{PLAN_TOOL, QUESTION_TOOL};
-use moatless_types::agent::AgentType;
+use moatless_types::agent::AgentProfile;
 use moatless_types::sandbox::{SandboxDesiredState, SandboxStopReason};
 use moatless_types::task::{TaskStatus, Visibility};
 use moatless_workspace_types::schemas::workspace::ScriptConfig;
@@ -45,7 +45,7 @@ pub struct Conversation {
     pub name: Option<String>,
     pub branch: Option<String>,
     #[sqlx(try_from = "String")]
-    pub agent_type: AgentType,
+    pub agent_profile: AgentProfile,
     /// Creation time as the caller recorded it (RFC 3339 text, `NOT NULL`).
     pub created_at: String,
     /// Creation time as the database recorded it. `None` for rows written
@@ -766,7 +766,7 @@ impl PgConversationDao {
                    t.workspace_id,
                    t.name,
                    t.branch,
-                   t.agent_type,
+                   t.agent_profile,
                    t.created_at,
                    t.created_at_db,
                    t.updated_at,

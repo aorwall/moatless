@@ -118,7 +118,7 @@ mod tests {
     use super::*;
     use crate::dao::{Conversation, MockConversationDao};
     use async_trait::async_trait;
-    use moatless_types::agent::AgentType;
+    use moatless_types::agent::AgentProfile;
 
     struct StubRelations(Vec<crate::ports::ChildTask>);
 
@@ -145,7 +145,7 @@ mod tests {
             workspace_id: None,
             name: Some(name.to_string()),
             branch: None,
-            agent_type: AgentType::from(AgentType::CLAUDE_CODE),
+            agent_profile: AgentProfile::from(AgentProfile::CLAUDE_CODE),
             created_at: created_at.to_string(),
             created_at_db: None,
             updated_at: None,

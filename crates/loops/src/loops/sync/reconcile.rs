@@ -4,7 +4,7 @@ use super::error::LoopError;
 use super::fetcher::{GitHubLoopFetcher, LoopFetcher};
 use super::models::ParsedLoop;
 use super::parser::parse_loop;
-use super::resolve::{ResolveOutcome, declared_agent_type, managed_loop_input};
+use super::resolve::{ResolveOutcome, declared_agent_profile, managed_loop_input};
 use crate::loops::dao::LoopDao;
 use moatless_adapter_model::connections::ConnectionRouting;
 use moatless_api_schemas::loops::{LoopSyncSkip, LoopSyncSummary, LoopSyncWarning};
@@ -181,15 +181,15 @@ impl LoopSyncService {
             // pass-through to the agent CLI, so it warns here; one another agent
             // offers is a `Skipped` from `resolve_loop`.
             if let Some(model) = parsed.frontmatter.model.as_deref() {
-                let agent_type = declared_agent_type(&parsed.frontmatter);
-                if !catalog::offers_model(&agent_type, model)
-                    && !catalog::model_conflicts(&agent_type, model)
+                let agent_profile = declared_agent_profile(&parsed.frontmatter);
+                if !catalog::offers_model(&agent_profile, model)
+                    && !catalog::model_conflicts(&agent_profile, model)
                 {
                     summary.warnings.push(LoopSyncWarning {
                         loop_name: parsed.dir_name.clone(),
                         field: "model".to_string(),
                         message: format!(
-                            "`{model}` is not one of the models `{agent_type}` offers; passed to the agent as written"
+                            "`{model}` is not one of the models `{agent_profile}` offers; passed to the agent as written"
                         ),
                     });
                 }

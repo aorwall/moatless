@@ -129,9 +129,9 @@ impl SandboxState {
         &self,
         task_id: String,
         checkout_mode: Option<&str>,
-        agent_type: Option<&str>,
+        agent_profile: Option<&str>,
     ) -> Result<Arc<TaskContext>, RegisterTaskContextError> {
-        crate::task_context::register(self, task_id, checkout_mode, agent_type).await
+        crate::task_context::register(self, task_id, checkout_mode, agent_profile).await
     }
 
     /// False when [`SandboxState::supervisor_health`] records a failure or
@@ -281,7 +281,7 @@ pub(crate) mod test_support {
         config.task_id = "task-1".to_string();
         config.sandbox_id = "sandbox-1".to_string();
         config.repo_dir = "/tmp/repo".to_string();
-        config.agent_type = Some("claude-code".to_string());
+        config.agent_profile = Some("claude-code".to_string());
         config.claude_cli_path = "/missing/claude".to_string();
         config.codex_cli_path = "/missing/codex".to_string();
         state_with(config, Arc::new(NoopBackend))
@@ -305,7 +305,7 @@ pub(crate) mod test_support {
             config.workspace_dir.clone(),
             config.repo_dir.clone(),
             CheckoutMode::Shared,
-            config.agent_type.clone(),
+            config.agent_profile.clone(),
             Arc::new(AgentState::new()),
             agent_handle,
             Arc::new(ScheduledJobRegistry::new(Arc::new(LateInjector::new()))),
@@ -379,31 +379,31 @@ mod tests {
     /// The regression this guards: the pod boots `claude-code`, a Codex Task
     /// joins it, and the joined Member's harness must be Codex.
     ///
-    /// Building it from `AGENT_TYPE` instead sends those Turns to Claude CLI,
+    /// Building it from `AGENT_PROFILE` instead sends those Turns to Claude CLI,
     /// which kills the turn in half a second, surfacing nothing to the sender.
     #[tokio::test]
     async fn joined_member_harness_comes_from_the_join_not_the_pod() {
         let state = test_state();
-        assert_eq!(state.config.agent_type.as_deref(), Some("claude-code"));
+        assert_eq!(state.config.agent_profile.as_deref(), Some("claude-code"));
 
         let joined = state
             .register_task_context("task-2".to_string(), Some("shared"), Some("codex"))
             .await
             .expect("join registers");
 
-        assert_eq!(joined.agent_type.as_deref(), Some("codex"));
+        assert_eq!(joined.agent_profile.as_deref(), Some("codex"));
         // The boot Member keeps its own.
         let boot = state
             .task_context(Some("task-1"))
             .await
             .expect("boot member");
-        assert_eq!(boot.agent_type.as_deref(), Some("claude-code"));
+        assert_eq!(boot.agent_profile.as_deref(), Some("claude-code"));
     }
 
-    /// A caller that predates `JoinTaskRequest.agent_type` leaves the Member on
+    /// A caller that predates `JoinTaskRequest.agent_profile` leaves the Member on
     /// the pod's own selection, which is what it had before the field existed.
     #[tokio::test]
-    async fn joined_member_without_an_agent_type_inherits_the_pod() {
+    async fn joined_member_without_an_agent_profile_inherits_the_pod() {
         let state = test_state();
 
         let joined = state
@@ -411,25 +411,25 @@ mod tests {
             .await
             .expect("join registers");
 
-        assert_eq!(joined.agent_type.as_deref(), Some("claude-code"));
+        assert_eq!(joined.agent_profile.as_deref(), Some("claude-code"));
     }
 
     /// Refused at the join rather than at `spawn_agent`, which answers an
     /// unsupported harness by closing the Member's command channel — and
     /// `is_live` reads every Member's, so one bad join would replace the pod.
     #[tokio::test]
-    async fn register_task_context_rejects_unsupported_agent_type() {
+    async fn register_task_context_rejects_unsupported_agent_profile() {
         let state = test_state();
 
         let Err(err) = state
             .register_task_context("task-2".to_string(), Some("shared"), Some("gpt-9000"))
             .await
         else {
-            panic!("unsupported agent type is rejected");
+            panic!("unsupported agent profile is rejected");
         };
 
-        let RegisterTaskContextError::UnsupportedAgentType(diagnostic) = &err else {
-            panic!("unsupported agent type is rejected as such, got {err}");
+        let RegisterTaskContextError::UnsupportedAgentProfile(diagnostic) = &err else {
+            panic!("unsupported agent profile is rejected as such, got {err}");
         };
         assert!(diagnostic.contains("gpt-9000"), "{diagnostic}");
         // The accepted set travels with the rejection: the reconciler retries

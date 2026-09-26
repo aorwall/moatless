@@ -13,7 +13,7 @@ moat tasks get <task-id> --json | jq '{taskId, sandboxId, workspaceId}'
 
 ## Task lifecycle
 
-Create with `--agent-type` plus `--repo`, `--workspace`, or `--same-sandbox`.
+Create with `--agent-profile` plus `--repo`, `--workspace`, or `--same-sandbox`.
 `--same-sandbox` can take a task ID or use the ambient task; `--checkout-mode
 shared|isolated` only applies with it. `--parent` sets a parent explicitly.
 The backend sends a `created_by` parent a notice, and wakes it, each time a

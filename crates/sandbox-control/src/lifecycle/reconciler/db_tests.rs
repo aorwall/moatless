@@ -704,9 +704,9 @@ async fn the_wake_reaches_the_shared_sandbox_member_holding_the_message(pool: Pg
 async fn reissues_join_task_for_all_running_sandbox_members(pool: PgPool) {
     seed(&pool, "t1", "open", "running").await;
     seed_bare_task(&pool, "t2", "open").await;
-    // `t2` joins `t1`'s pod under its own harness. The pod's `AGENT_TYPE`
+    // `t2` joins `t1`'s pod under its own harness. The pod's `AGENT_PROFILE`
     // names `t1` only, so each re-registration has to carry the Member's.
-    sqlx::query("UPDATE tasks SET sandbox_id = 't1', agent_type = 'codex' WHERE task_id = 't2'")
+    sqlx::query("UPDATE tasks SET sandbox_id = 't1', agent_profile = 'codex' WHERE task_id = 't2'")
         .execute(&pool)
         .await
         .unwrap();
@@ -740,13 +740,13 @@ async fn reissues_join_task_for_all_running_sandbox_members(pool: PgPool) {
                 task_id: "t1".to_string(),
                 sandbox_id: "t1".to_string(),
                 checkout_mode: moatless_types::task::CheckoutMode::Shared,
-                agent_type: AgentType::CLAUDE_CODE.into(),
+                agent_profile: AgentProfile::CLAUDE_CODE.into(),
             },
             SandboxMember {
                 task_id: "t2".to_string(),
                 sandbox_id: "t1".to_string(),
                 checkout_mode: moatless_types::task::CheckoutMode::Shared,
-                agent_type: AgentType::CODEX.into(),
+                agent_profile: AgentProfile::CODEX.into(),
             },
         ],
         "reconciler rebuilds in-pod members from DB membership after restart, each under \

@@ -421,7 +421,7 @@ mod tests {
     use crate::dao::{Conversation, MockConversationDao};
     use crate::transcript_dao::{Transcript, TranscriptMessage};
     use moatless_core::change_feed::conversation::EVENTS_PER_CHANGE;
-    use moatless_types::agent::AgentType;
+    use moatless_types::agent::AgentProfile;
     use moatless_types::message::{MessageRole, MessageType};
     use moatless_types::sandbox::SandboxDesiredState;
 
@@ -525,7 +525,7 @@ mod tests {
             workspace_id: Some("ws-a".into()),
             name: Some("Fix the build".into()),
             branch: None,
-            agent_type: AgentType(AgentType::CLAUDE_CODE.to_string()),
+            agent_profile: AgentProfile(AgentProfile::CLAUDE_CODE.to_string()),
             created_at: "2026-07-01T09:00:00.000Z".into(),
             created_at_db: None,
             updated_at: None,

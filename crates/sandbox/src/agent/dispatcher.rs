@@ -265,7 +265,7 @@ async fn dispatch_pending_messages_for_context(
     let uuids = delivery.message_uuids.clone();
     let text = delivery.prompt_text;
     let model = delivery.model;
-    let agent_type = delivery.agent_type;
+    let agent_profile = delivery.agent_profile;
     let agent_mode = delivery.agent_mode;
     let effort = delivery.effort;
     let resume_session_id = delivery.resume_session_id;
@@ -317,7 +317,7 @@ async fn dispatch_pending_messages_for_context(
         text_len = text.len(),
         skill_count = skills.len(),
         model = ?model,
-        agent_type = ?agent_type,
+        agent_profile = ?agent_profile,
         agent_mode = ?agent_mode,
         effort = ?effort,
         resume_session_id = ?resume_session_id,
@@ -339,7 +339,7 @@ async fn dispatch_pending_messages_for_context(
     let ack_rx = context.agent_handle.send(
         text,
         model,
-        agent_type,
+        agent_profile,
         agent_mode,
         effort,
         resume_session_id,

@@ -12,7 +12,7 @@ async fn coordinator_service_submits_this_members_task_id_to_the_harness() {
     let config = {
         let mut c = minimal_config();
         c.task_id = "fork-task".to_string();
-        c.agent_type = Some("claude-code".to_string());
+        c.agent_profile = Some("claude-code".to_string());
         Arc::new(c)
     };
     let agent_state = Arc::new(AgentState::new());
@@ -25,7 +25,7 @@ async fn coordinator_service_submits_this_members_task_id_to_the_harness() {
         Step::Completed,
     ]);
     let (tx, _received, _events) = service_with_harness(
-        Harness::scripted_recording(script, Arc::clone(&recorder)),
+        HarnessRuntime::scripted_recording(script, Arc::clone(&recorder)),
         Arc::clone(&config),
         Arc::clone(&agent_state),
         cancel.clone(),
@@ -69,7 +69,7 @@ async fn coordinator_service_submit_completed_sets_idle_and_publishes_completed(
     let cancel = CancellationToken::new();
     let config = {
         let mut c = minimal_config();
-        c.agent_type = Some("claude-code".to_string());
+        c.agent_profile = Some("claude-code".to_string());
         Arc::new(c)
     };
     let agent_state = Arc::new(AgentState::new());
@@ -127,7 +127,7 @@ async fn coordinator_service_sends_during_active_turn_into_running_harness() {
     let cancel = CancellationToken::new();
     let config = {
         let mut c = minimal_config();
-        c.agent_type = Some("claude-code".to_string());
+        c.agent_profile = Some("claude-code".to_string());
         Arc::new(c)
     };
     let agent_state = Arc::new(AgentState::new());
@@ -145,7 +145,7 @@ async fn coordinator_service_sends_during_active_turn_into_running_harness() {
         Step::Completed,
     ]);
     let (tx, received, events) = service_with_harness(
-        Harness::scripted(script),
+        HarnessRuntime::scripted(script),
         Arc::clone(&config),
         Arc::clone(&agent_state),
         cancel.clone(),
@@ -209,7 +209,7 @@ async fn coordinator_service_send_without_model_reuses_last_model() {
     let cancel = CancellationToken::new();
     let config = {
         let mut c = minimal_config();
-        c.agent_type = Some("codex".to_string());
+        c.agent_profile = Some("codex".to_string());
         Arc::new(c)
     };
     let agent_state = Arc::new(AgentState::new());
@@ -221,7 +221,7 @@ async fn coordinator_service_send_without_model_reuses_last_model() {
         Step::Completed,
     ]);
     let (tx, _received, events) = service_with_harness(
-        Harness::scripted_recording(script, Arc::clone(&recorder)),
+        HarnessRuntime::scripted_recording(script, Arc::clone(&recorder)),
         Arc::clone(&config),
         Arc::clone(&agent_state),
         cancel.clone(),
@@ -295,7 +295,7 @@ async fn completed_payload(commands: Arc<crate::commands::CommandRegistry>) -> s
     let cancel = CancellationToken::new();
     let config = {
         let mut c = minimal_config();
-        c.agent_type = Some("claude-code".to_string());
+        c.agent_profile = Some("claude-code".to_string());
         Arc::new(c)
     };
     let script = Script::new(vec![
@@ -304,7 +304,7 @@ async fn completed_payload(commands: Arc<crate::commands::CommandRegistry>) -> s
         Step::Completed,
     ]);
     let (tx, received, events) = service_with_commands(
-        Harness::scripted(script),
+        HarnessRuntime::scripted(script),
         config,
         Arc::new(AgentState::new()),
         cancel.clone(),

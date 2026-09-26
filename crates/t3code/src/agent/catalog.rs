@@ -1,14 +1,10 @@
+use moatless_types::agent::Harness;
+
 /// A catalog model choice that names no model — resolved inside the Sandbox at
 /// run time and never written back.
 ///
 /// Never report it as a model identity: it names nothing.
 pub(crate) const UNRESOLVED_MODEL_CHOICE: &str = "default";
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum UiRpcAgentKind {
-    ClaudeCode,
-    Codex,
-}
 
 pub struct UiRpcModelEntry {
     pub id: &'static str,
@@ -18,7 +14,7 @@ pub struct UiRpcModelEntry {
 pub struct UiRpcAgentEntry {
     pub id: &'static str,
     pub label: &'static str,
-    pub kind: UiRpcAgentKind,
+    pub harness: Harness,
     pub default_model: &'static str,
     pub models: &'static [UiRpcModelEntry],
     pub missing_credential_hint: &'static str,
@@ -27,7 +23,7 @@ pub struct UiRpcAgentEntry {
 pub const CLAUDE_CODE: UiRpcAgentEntry = UiRpcAgentEntry {
     id: "claude-code",
     label: "Claude Code",
-    kind: UiRpcAgentKind::ClaudeCode,
+    harness: Harness::ClaudeCode,
     default_model: UNRESOLVED_MODEL_CHOICE,
     missing_credential_hint: "Add CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY in Settings > Secrets",
     models: &[
@@ -57,7 +53,7 @@ pub const CLAUDE_CODE: UiRpcAgentEntry = UiRpcAgentEntry {
 pub const CLAUDE_CODE_TUI: UiRpcAgentEntry = UiRpcAgentEntry {
     id: "claude-code-tui",
     label: "Claude Code (TUI)",
-    kind: UiRpcAgentKind::ClaudeCode,
+    harness: Harness::ClaudeCode,
     default_model: UNRESOLVED_MODEL_CHOICE,
     missing_credential_hint: CLAUDE_CODE.missing_credential_hint,
     models: CLAUDE_CODE.models,
@@ -66,7 +62,7 @@ pub const CLAUDE_CODE_TUI: UiRpcAgentEntry = UiRpcAgentEntry {
 pub const CLAUDE_CODE_CLI: UiRpcAgentEntry = UiRpcAgentEntry {
     id: "claude-code-cli",
     label: "Claude Code (CLI)",
-    kind: UiRpcAgentKind::ClaudeCode,
+    harness: Harness::ClaudeCode,
     default_model: UNRESOLVED_MODEL_CHOICE,
     missing_credential_hint: CLAUDE_CODE.missing_credential_hint,
     models: CLAUDE_CODE.models,
@@ -75,7 +71,7 @@ pub const CLAUDE_CODE_CLI: UiRpcAgentEntry = UiRpcAgentEntry {
 pub const CLAUDE_CODE_FABLE: UiRpcAgentEntry = UiRpcAgentEntry {
     id: "claude-code-fable",
     label: "Claude Code (Fable)",
-    kind: UiRpcAgentKind::ClaudeCode,
+    harness: Harness::ClaudeCode,
     default_model: "fable",
     missing_credential_hint: CLAUDE_CODE.missing_credential_hint,
     models: &[UiRpcModelEntry {
@@ -87,7 +83,7 @@ pub const CLAUDE_CODE_FABLE: UiRpcAgentEntry = UiRpcAgentEntry {
 pub const CODEX: UiRpcAgentEntry = UiRpcAgentEntry {
     id: "codex",
     label: "Codex",
-    kind: UiRpcAgentKind::Codex,
+    harness: Harness::Codex,
     default_model: UNRESOLVED_MODEL_CHOICE,
     missing_credential_hint: "Add CODEX_AUTH_JSON or OPENAI_API_KEY in Settings > Secrets",
     models: &[

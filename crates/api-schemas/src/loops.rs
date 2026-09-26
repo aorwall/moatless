@@ -43,10 +43,10 @@ pub struct LoopConfig {
     /// session.
     pub skills: Vec<String>,
     pub run_as_user_id: Option<String>,
-    pub agent_type: String,
-    /// Model the spawned Tasks run on, from the `agent_type` entry's catalog
+    pub agent_profile: String,
+    /// Model the spawned Tasks run on, from the `agent_profile` entry's catalog
     /// models. `None` means "inherit the platform default the sandbox resolves
-    /// for `agent_type`". Flows into `tasks.model` when this Loop spawns a
+    /// for `agent_profile`". Flows into `tasks.model` when this Loop spawns a
     /// task.
     pub model: Option<String>,
     /// Per-Loop inactivity TTL in days. `None` means "inherit the global
@@ -81,7 +81,7 @@ pub struct CreateLoopConfig {
     pub tag_ids: Option<Vec<String>>,
     pub skills: Option<Vec<String>>,
     pub run_as_user_id: Option<String>,
-    pub agent_type: Option<String>,
+    pub agent_profile: Option<String>,
     /// See [`LoopConfig::model`].
     pub model: Option<String>,
     pub inactive_ttl_days: Option<i32>,
@@ -106,7 +106,7 @@ pub struct UpdateLoopConfig {
     pub prompt: Option<Option<String>>,
     pub tag_ids: Option<Vec<String>>,
     pub skills: Option<Vec<String>>,
-    pub agent_type: Option<String>,
+    pub agent_profile: Option<String>,
     /// See [`LoopConfig::model`]. `Some(None)` clears the override.
     #[serde(
         default,

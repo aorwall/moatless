@@ -500,7 +500,7 @@ Events are sent as `PublishEventRequest` messages with fields:
 - `task_id`: Task this event belongs to
 - `event_type`: `agent`, `message`, `resources`, `sandbox`, `task`, or `taskTurn` (`EventType`, `crates/types/src/event.rs`)
 - `sub_type`: e.g. "agent_started", "message", "agent_completed"
-- `agent_type`: Optional agent type identifier
+- `agent_profile`: Optional agent profile identifier
 - `turn_number`: Optional turn number
 - `is_error`: Whether this is an error event
 - `payload_json`: JSON string payload (preserved for backend consumer compatibility)

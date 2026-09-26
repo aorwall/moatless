@@ -5,13 +5,13 @@ use std::sync::Arc;
 /// Register a task as a member of this sandbox process.
 ///
 /// Idempotent per task: replaying `JoinTask` after a mid-join failure returns
-/// the existing context. `agent_type` overrides the harness on this Member's
-/// `Config` clone; `None` leaves the pod's `AGENT_TYPE`.
+/// the existing context. `agent_profile` overrides the harness on this Member's
+/// `Config` clone; `None` leaves the pod's `AGENT_PROFILE`.
 pub(crate) async fn register(
     state: &SandboxState,
     task_id: String,
     checkout_mode: Option<&str>,
-    agent_type: Option<&str>,
+    agent_profile: Option<&str>,
 ) -> Result<Arc<TaskContext>, RegisterTaskContextError> {
     if task_id.is_empty() {
         return Err(RegisterTaskContextError::EmptyTaskId);
@@ -29,9 +29,9 @@ pub(crate) async fn register(
     // answers one by poisoning the Member's command channel — and `/livez` reads
     // every Member's channel, so one bad join would replace the whole shared pod
     // and take the other Members' turns with it.
-    if let Some(raw) = agent_type {
+    if let Some(raw) = agent_profile {
         crate::agent::handle::resolve_agent_harness(raw)
-            .map_err(RegisterTaskContextError::UnsupportedAgentType)?;
+            .map_err(RegisterTaskContextError::UnsupportedAgentProfile)?;
     }
     let _registration = state.task_context_registration.lock().await;
     {
@@ -55,8 +55,8 @@ pub(crate) async fn register(
     task_config.task_id = task_id.clone();
     task_config.workspace_dir = workspace_dir;
     task_config.repo_dir = checkout_dir.clone();
-    if let Some(raw) = agent_type {
-        task_config.agent_type = Some(raw.to_string());
+    if let Some(raw) = agent_profile {
+        task_config.agent_profile = Some(raw.to_string());
     }
     let task_config = Arc::new(task_config);
 

@@ -1,6 +1,6 @@
 //! Contract tests for the persistent-process seam (`driver::run_persistent`).
 //!
-//! These drive the external [`Harness`] interface with a scripted *persistent*
+//! These drive the external [`HarnessRuntime`] interface with a scripted *persistent*
 //! process — one long-lived process hosting many executions — and assert the
 //! behaviors ticket 06 requires: mid-execution injection, fingerprint
 //! replacement, harness-internal executions, cancellation, EOF, and queued
@@ -32,7 +32,7 @@ fn assistant_block(source: &str, session: &str, text: &str) -> SourceEvent {
 
 /// Drain signals up to and including the next terminal (`ExecutionFinished` /
 /// `InputRejected`), or until the stream closes.
-async fn drain_to_terminal(harness: &mut Harness) -> Vec<Signal> {
+async fn drain_to_terminal(harness: &mut HarnessRuntime) -> Vec<Signal> {
     let mut out = Vec::new();
     while let Some(signal) = harness.next_signal().await {
         let terminal = matches!(
@@ -60,7 +60,7 @@ async fn injection_accepts_into_active_execution_without_new_start() {
         Step::Block(assistant_block("s2", "sess-1", "second")),
         Step::ExecutionEnded,
     ]);
-    let mut harness = Harness::scripted_persistent(script);
+    let mut harness = HarnessRuntime::scripted_persistent(script);
     harness
         .submit(Input::text("in-1", "hi"))
         .await
@@ -116,7 +116,7 @@ async fn terminal_before_acceptance_drops_buffered_source() {
         Step::Block(assistant_block("s1", "sess-1", "never-anchored")),
         Step::ExecutionEnded,
     ]);
-    let mut harness = Harness::scripted_persistent(script);
+    let mut harness = HarnessRuntime::scripted_persistent(script);
     harness
         .submit(Input::text("in-1", "hi"))
         .await
@@ -158,7 +158,7 @@ async fn incompatible_input_opens_replacement_execution_on_the_intended_session(
         Step::Block(assistant_block("s2", "sess-2", "second")),
         Step::ExecutionEnded,
     ]);
-    let mut harness = Harness::scripted_persistent(script);
+    let mut harness = HarnessRuntime::scripted_persistent(script);
     harness
         .submit(Input::text("in-1", "hi"))
         .await
@@ -216,7 +216,7 @@ async fn internal_execution_starts_without_input_or_acknowledgement() {
         Step::Block(assistant_block("s1", "sess-1", "self-started")),
         Step::ExecutionEnded,
     ]);
-    let mut harness = Harness::scripted_persistent(script);
+    let mut harness = HarnessRuntime::scripted_persistent(script);
 
     let signals = drain_to_terminal(&mut harness).await;
     assert!(matches!(
@@ -253,7 +253,7 @@ async fn cancellation_ends_execution_and_process_persists_for_the_next() {
         Step::Block(assistant_block("s2", "sess-1", "after-cancel")),
         Step::ExecutionEnded,
     ]);
-    let mut harness = Harness::scripted_persistent(script);
+    let mut harness = HarnessRuntime::scripted_persistent(script);
     harness
         .submit(Input::text("in-1", "hi"))
         .await
@@ -316,7 +316,7 @@ async fn queued_input_opens_the_next_execution_and_is_acked_against_it() {
         Step::Block(assistant_block("s2", "sess-1", "second")),
         Step::ExecutionEnded,
     ]);
-    let mut harness = Harness::scripted_persistent(script);
+    let mut harness = HarnessRuntime::scripted_persistent(script);
     harness
         .submit(Input::text("in-1", "hi"))
         .await
@@ -370,7 +370,7 @@ async fn eof_mid_execution_is_a_process_exit() {
         Step::Block(assistant_block("s1", "sess-1", "partial")),
         Step::Eof,
     ]);
-    let mut harness = Harness::scripted_persistent(script);
+    let mut harness = HarnessRuntime::scripted_persistent(script);
     harness
         .submit(Input::text("in-1", "hi"))
         .await
@@ -399,7 +399,7 @@ async fn started_execution_stream_failure_finishes_failed_once() {
             "scripted stream failure",
         )),
     ]);
-    let mut harness = Harness::scripted_persistent(script);
+    let mut harness = HarnessRuntime::scripted_persistent(script);
     harness
         .submit(Input::text("in-1", "hi"))
         .await

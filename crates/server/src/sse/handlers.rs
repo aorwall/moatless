@@ -276,8 +276,8 @@ fn event_row_to_json(row: TaskEvent) -> serde_json::Value {
     map.insert("taskId".to_string(), row.task_id.into());
     map.insert("timestamp".to_string(), row.timestamp.into());
     map.insert("isError".to_string(), row.is_error.into());
-    if let Some(agent_type) = row.agent_type {
-        map.insert("agentType".to_string(), agent_type.into());
+    if let Some(agent_profile) = row.agent_profile {
+        map.insert("agentProfile".to_string(), agent_profile.into());
     }
     if let Some(turn_number) = row.turn_number {
         map.insert("turnNumber".to_string(), turn_number.into());
@@ -305,7 +305,7 @@ mod tests {
             event_type: "sandbox".to_string(),
             sub_type: "ready".to_string(),
             is_error: false,
-            agent_type: Some("claude".to_string()),
+            agent_profile: Some("claude".to_string()),
             turn_number: Some(3),
             payload: json!({ "message": "up" }),
             timestamp: "2026-07-12T00:00:00.000Z".to_string(),
@@ -325,7 +325,7 @@ mod tests {
                 "taskId": "task-1",
                 "timestamp": "2026-07-12T00:00:00.000Z",
                 "isError": false,
-                "agentType": "claude",
+                "agentProfile": "claude",
                 "turnNumber": 3,
                 "payload": { "message": "up" },
             })
@@ -335,11 +335,11 @@ mod tests {
     #[test]
     fn omits_absent_optional_fields() {
         let mut row = sample_row();
-        row.agent_type = None;
+        row.agent_profile = None;
         row.turn_number = None;
         let value = event_row_to_json(row);
         let obj = value.as_object().expect("object");
-        assert!(!obj.contains_key("agentType"));
+        assert!(!obj.contains_key("agentProfile"));
         assert!(!obj.contains_key("turnNumber"));
         // The base envelope the frontend's `isStreamEvent` guard requires.
         assert!(obj.contains_key("eventId"));

@@ -184,7 +184,7 @@ fn test_config() -> Config {
         grpc_port: 0,
         task_id: "test-task-1".to_string(),
         sandbox_id: "test-task-1".to_string(),
-        agent_type: Some("claude-code".to_string()),
+        agent_profile: Some("claude-code".to_string()),
         workspace_dir: "/tmp/test-workspace".to_string(),
         repo_dir: "/tmp/test-workspace".to_string(),
         data_dir: "/tmp/test-data".to_string(),
@@ -269,7 +269,7 @@ fn test_state_with_config(backend: Arc<dyn BackendClient>, config: Config) -> Sa
         config.workspace_dir.clone(),
         config.repo_dir.clone(),
         moatless_sandbox::state::CheckoutMode::Shared,
-        config.agent_type.clone(),
+        config.agent_profile.clone(),
         agent_state,
         agent_handle,
         scheduled_jobs,
@@ -337,7 +337,7 @@ async fn dispatcher_fetches_pending_messages_but_ack_waits_for_agent_acceptance(
         Some("uuid-late"),
     )]]));
     let mut config = test_config();
-    config.agent_type = Some("codex".to_string());
+    config.agent_profile = Some("codex".to_string());
     let state = test_state_with_config(Arc::clone(&backend) as _, config);
     test_task_context(&state)
         .await

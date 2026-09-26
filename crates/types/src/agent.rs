@@ -253,13 +253,47 @@ mod tests {
     }
 }
 
-/// Agent type identifier (open-ended, e.g. "claude-code").
+/// The executable family that runs an Agent. The only harness type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "kebab-case")]
+pub enum Harness {
+    ClaudeCode,
+    Codex,
+}
+
+impl Harness {
+    /// The wire and column value: `claude-code` or `codex`.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::ClaudeCode => "claude-code",
+            Self::Codex => "codex",
+        }
+    }
+
+    /// Parse a wire or column value; `None` for anything else.
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "claude-code" => Some(Self::ClaudeCode),
+            "codex" => Some(Self::Codex),
+            _ => None,
+        }
+    }
+}
+
+impl std::fmt::Display for Harness {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// A catalog entry: a harness plus transport, default model and credentials (e.g. "claude-code-tui").
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(transparent)]
-pub struct AgentType(pub String);
+pub struct AgentProfile(pub String);
 
-impl AgentType {
+impl AgentProfile {
     pub const CLAUDE_CODE: &str = "claude-code";
     pub const CLAUDE_CODE_TUI: &str = "claude-code-tui";
     pub const CLAUDE_CODE_CLI: &str = "claude-code-cli";
@@ -278,19 +312,19 @@ impl AgentType {
     }
 }
 
-impl std::fmt::Display for AgentType {
+impl std::fmt::Display for AgentProfile {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.as_str())
     }
 }
 
-impl From<String> for AgentType {
+impl From<String> for AgentProfile {
     fn from(value: String) -> Self {
         Self(value)
     }
 }
 
-impl From<&str> for AgentType {
+impl From<&str> for AgentProfile {
     fn from(value: &str) -> Self {
         Self(value.to_string())
     }

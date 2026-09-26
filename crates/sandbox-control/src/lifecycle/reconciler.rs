@@ -29,7 +29,7 @@ use super::reconcile::{ReconcileInput, decide};
 use moatless_ports::task::PendingWorkReader;
 use moatless_sandbox_runtime::convergence::{ReconcileAction, SandboxObservedStatus};
 use moatless_sandbox_runtime::runtime::ErrorClass;
-use moatless_types::agent::AgentType;
+use moatless_types::agent::AgentProfile;
 use moatless_types::sandbox::ArchiveRetention;
 use moatless_types::task::CheckoutMode;
 
@@ -43,7 +43,7 @@ pub struct SandboxMember {
     /// The harness this Member's agent loop runs. See
     /// [`SandboxJoiner::join_task`](moatless_ports::sandbox::SandboxJoiner::join_task).
     #[sqlx(try_from = "String")]
-    pub agent_type: AgentType,
+    pub agent_profile: AgentProfile,
 }
 
 /// Delivers a pending-message wake to an already-Ready sandbox over gRPC.

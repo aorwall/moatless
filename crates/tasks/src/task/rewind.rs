@@ -115,7 +115,7 @@ impl TaskRewindService {
             return Ok(None);
         };
 
-        let is_codex = task.agent_type.as_str() == "codex";
+        let is_codex = task.agent_profile.as_str() == "codex";
         if is_codex && point.agent_turn_id.is_none() {
             return Err(TaskError::Conflict(format!(
                 "turn {keep_through} of task {} has no recorded agent turn id; \

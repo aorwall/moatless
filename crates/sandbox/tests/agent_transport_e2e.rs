@@ -22,8 +22,8 @@ use std::time::Duration;
 use moatless_sandbox::agent::agent_state::AgentState;
 use moatless_sandbox::agent::handle::{AgentHandle, spawn_agent};
 use moatless_sandbox::agent::harness::{
-    ClaudeConfig, ErrorClass, Harness, HarnessError, Input, Outcome, Rejection, SessionImpact,
-    Signal,
+    ClaudeConfig, ErrorClass, HarnessError, HarnessRuntime, Input, Outcome, Rejection,
+    SessionImpact, Signal,
 };
 use moatless_sandbox::agent::types::{AgentStatus, ResumeSession, StopSource};
 use moatless_sandbox::backend_client::BackendClient;
@@ -195,7 +195,7 @@ impl BackendClient for NoopBackend {
 
 // ── Actor wiring ────────────────────────────────────────────────────────────
 
-fn test_config(tmp: &TempDir, use_tmux: bool, agent_type: &str) -> Config {
+fn test_config(tmp: &TempDir, use_tmux: bool, agent_profile: &str) -> Config {
     let home = tmp.path().join("home");
     Config {
         port: 0,
@@ -205,7 +205,7 @@ fn test_config(tmp: &TempDir, use_tmux: bool, agent_type: &str) -> Config {
         // The Sandbox's fixed harness. `None` reaches `resolve_agent_harness` as
         // `""`, which it rejects — every session then fails to start with
         // `invalid_configuration` before any CLI is spawned.
-        agent_type: Some(agent_type.to_string()),
+        agent_profile: Some(agent_profile.to_string()),
         workspace_dir: tmp.path().join("workspace").display().to_string(),
         repo_dir: tmp.path().join("workspace").display().to_string(),
         data_dir: tmp.path().join("data").display().to_string(),
@@ -256,7 +256,7 @@ type EventLog = Arc<std::sync::Mutex<Vec<String>>>;
 /// `TempDir` (kept alive by the caller).
 fn spawn_test_agent(
     use_tmux: bool,
-    agent_type: &str,
+    agent_profile: &str,
 ) -> (AgentHandle, Arc<AgentState>, EventLog, TempDir) {
     let tmp = TempDir::new().expect("create tempdir");
     // The harness persists credential files under these dirs. `claude-config`
@@ -284,7 +284,7 @@ fn spawn_test_agent(
         std::fs::write(tmp.path().join("home/.codex/auth.json"), auth_json)
             .expect("write Codex auth.json");
     }
-    let (handle, agent_state, events) = spawn_test_agent_in(&tmp, use_tmux, agent_type);
+    let (handle, agent_state, events) = spawn_test_agent_in(&tmp, use_tmux, agent_profile);
     (handle, agent_state, events, tmp)
 }
 
@@ -293,7 +293,7 @@ fn spawn_test_agent(
 fn spawn_test_agent_in(
     tmp: &TempDir,
     use_tmux: bool,
-    agent_type: &str,
+    agent_profile: &str,
 ) -> (AgentHandle, Arc<AgentState>, EventLog) {
     use moatless_sandbox::agent::scheduled_job::{LateInjector, ScheduledJobRegistry};
 
@@ -310,7 +310,7 @@ fn spawn_test_agent_in(
         tokio_util::sync::CancellationToken::new(),
     );
     let events = GrpcEventPublisher::new(outbox);
-    let config = Arc::new(test_config(tmp, use_tmux, agent_type));
+    let config = Arc::new(test_config(tmp, use_tmux, agent_profile));
 
     // Mirror the cluster: the `claude` child inherits CLAUDE_CONFIG_DIR from the
     // process env (the sandbox does NOT pass it through `options.env`), and the
@@ -393,7 +393,7 @@ async fn run_agent_roundtrip(use_tmux: bool) {
     let ack = handle.send(
         TEST_PROMPT.to_string(),
         Some(claude_test_model()),
-        None,  // agent_type → claude-code
+        None,  // agent_profile → claude-code
         None,  // agent_mode
         None,  // effort
         None,  // resume_session_id
@@ -425,7 +425,7 @@ async fn run_agent_roundtrip(use_tmux: bool) {
     handle.stop(StopSource::User);
 }
 
-/// Drives `spawn_agent` with `agent_type = "codex"`, routing through the real
+/// Drives `spawn_agent` with `agent_profile = "codex"`, routing through the real
 /// `codex app-server --stdio` subprocess, not the standalone `codex-sdk` crate.
 ///
 /// Codex ignores `use_tmux`; mirrors `run_agent_roundtrip` minus the
@@ -480,7 +480,7 @@ async fn run_agent_resume(use_tmux: bool) {
     let ack = handle.send(
         TEST_PROMPT.to_string(),
         Some(claude_test_model()),
-        None,  // agent_type → claude-code
+        None,  // agent_profile → claude-code
         None,  // agent_mode
         None,  // effort
         None,  // resume_session_id → fresh
@@ -506,7 +506,7 @@ async fn run_agent_resume(use_tmux: bool) {
     let ack = handle.send(
         "What is 3+3? Reply with only the number.".to_string(),
         Some(claude_test_model()),
-        None,                     // agent_type → claude-code
+        None,                     // agent_profile → claude-code
         None,                     // agent_mode
         None,                     // effort
         Some(session_id.clone()), // resume_session_id → resume turn 1
@@ -739,10 +739,10 @@ async fn run_missing_session_resume_is_lost() {
         "the isolated session store must contain no transcript to resume"
     );
 
-    let mut harness = Harness::claude(ClaudeConfig {
+    let mut harness = HarnessRuntime::claude(ClaudeConfig {
         config: Arc::new(config),
         agent_state: Arc::new(AgentState::new()),
-        agent_type: Some("claude-code".to_string()),
+        agent_profile: Some("claude-code".to_string()),
         events: None,
         trajectory: None,
     });

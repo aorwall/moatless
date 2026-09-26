@@ -119,7 +119,7 @@ fn codex_config_with_auth(on_disk_auth: &str) -> (tempfile::TempDir, Arc<Config>
     let auth_path = codex_dir.join("auth.json");
     std::fs::write(&auth_path, on_disk_auth).expect("write auth.json");
     let mut config = minimal_config();
-    config.agent_type = Some("codex".to_string());
+    config.agent_profile = Some("codex".to_string());
     config.codex_home_dir = codex_dir.display().to_string();
     (tmp, Arc::new(config), auth_path)
 }
@@ -128,7 +128,7 @@ fn codex_config_with_auth(on_disk_auth: &str) -> (tempfile::TempDir, Arc<Config>
 /// detector, and dispatcher — the credential-recovery collaborators.
 #[allow(clippy::too_many_arguments)] // reason: test wiring mirrors the service constructor
 fn service_with_credentials(
-    harness: Harness,
+    harness: HarnessRuntime,
     config: Arc<Config>,
     agent_state: Arc<AgentState>,
     backend: Arc<dyn BackendClient>,
@@ -255,7 +255,7 @@ async fn coordinator_service_credential_recovery_redrives_same_run_on_fresher_cr
         ]),
     ];
     let (tx, received, events) = service_with_credentials(
-        Harness::scripted_sequence(scripts),
+        HarnessRuntime::scripted_sequence(scripts),
         config,
         Arc::clone(&agent_state),
         backend,
@@ -335,7 +335,7 @@ async fn coordinator_service_credential_recovery_unchanged_gives_one_terminal_er
     });
 
     let (tx, received, events) = service_with_credentials(
-        Harness::scripted(failing_turn()),
+        HarnessRuntime::scripted(failing_turn()),
         config,
         Arc::clone(&agent_state),
         backend,
@@ -437,7 +437,7 @@ async fn coordinator_service_credential_recovery_caps_and_then_gives_up() {
     // Three failing Turns: two recovery re-drives, then the cap gives up.
     let scripts = vec![failing_turn(), failing_turn(), failing_turn()];
     let (tx, received, events) = service_with_credentials(
-        Harness::scripted_sequence(scripts),
+        HarnessRuntime::scripted_sequence(scripts),
         config,
         Arc::clone(&agent_state),
         backend,
@@ -511,7 +511,7 @@ async fn coordinator_service_credential_giveups_count_once_toward_breaker() {
     // Three give-up Turns; the fourth Send trips the breaker before submitting.
     let scripts = vec![failing_turn(), failing_turn(), failing_turn()];
     let (tx, received, events) = service_with_credentials(
-        Harness::scripted_sequence(scripts),
+        HarnessRuntime::scripted_sequence(scripts),
         config,
         Arc::clone(&agent_state),
         backend,

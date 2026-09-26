@@ -24,7 +24,7 @@ fn process() -> ClaudeProcess {
     ClaudeProcess::new(ClaudeConfig {
         config: Arc::new(crate::config::test_support::minimal_config()),
         agent_state: Arc::new(AgentState::new()),
-        agent_type: Some("claude-code".to_string()),
+        agent_profile: Some("claude-code".to_string()),
         events: None,
         trajectory: None,
     })
@@ -518,7 +518,7 @@ fn malformed_protocol_is_native_protocol() {
 }
 
 /// Focused real-CLI E2E: launch the actual `claude` subprocess through the
-/// production [`crate::agent::harness::Harness::claude`] seam and assert
+/// production [`crate::agent::harness::HarnessRuntime::claude`] seam and assert
 /// external signal ordering for a trivial Turn.
 ///
 /// Gated behind `CLAUDE_SDK_E2E=1`; the full E2E matrix runs at ticket 10.
@@ -529,7 +529,7 @@ async fn e2e_claude_subprocess_turn_through_the_harness() {
         eprintln!("skipping: set CLAUDE_SDK_E2E=1 to run");
         return;
     }
-    use crate::agent::harness::Harness;
+    use crate::agent::harness::HarnessRuntime;
     use crate::agent::harness::signal::{Outcome, Signal};
 
     let mut config = crate::config::test_support::minimal_config();
@@ -553,12 +553,12 @@ async fn e2e_claude_subprocess_turn_through_the_harness() {
     let cfg = ClaudeConfig {
         config: Arc::new(config),
         agent_state: Arc::new(AgentState::new()),
-        agent_type: Some("claude-code".to_string()),
+        agent_profile: Some("claude-code".to_string()),
         events: None,
         trajectory: None,
     };
 
-    let mut harness = Harness::claude(cfg);
+    let mut harness = HarnessRuntime::claude(cfg);
     let mut input = Input::text("in-1", "What is 2+2? Reply with only the number.");
     input.env = (!env.is_empty()).then_some(env);
     harness.submit(input).await.expect("submit input");
@@ -588,7 +588,7 @@ async fn e2e_claude_subprocess_turn_through_the_harness() {
 }
 
 /// Focused real-CLI E2E for the persistent tmux transport: launch the actual
-/// TUI through [`crate::agent::harness::Harness::claude_persistent`], run one
+/// TUI through [`crate::agent::harness::HarnessRuntime::claude_persistent`], run one
 /// Turn, then a second to prove the same live Session hosts it (no
 /// replacement).
 #[tokio::test]
@@ -598,7 +598,7 @@ async fn e2e_persistent_claude_two_turns_share_a_session() {
         eprintln!("skipping: set CLAUDE_TMUX_E2E=1 to run");
         return;
     }
-    use crate::agent::harness::Harness;
+    use crate::agent::harness::HarnessRuntime;
     use crate::agent::harness::signal::{Cause, Outcome, SessionId, Signal};
 
     let mut config = crate::config::test_support::minimal_config();
@@ -625,16 +625,16 @@ async fn e2e_persistent_claude_two_turns_share_a_session() {
     let cfg = ClaudeConfig {
         config: Arc::new(config),
         agent_state: Arc::new(AgentState::new()),
-        agent_type: Some("claude-code".to_string()),
+        agent_profile: Some("claude-code".to_string()),
         events: None,
         trajectory: None,
     };
 
-    let mut harness = Harness::claude_persistent(cfg);
+    let mut harness = HarnessRuntime::claude_persistent(cfg);
 
     // Runs one Turn and returns (session, outcome) for it.
     async fn run_turn(
-        harness: &mut Harness,
+        harness: &mut HarnessRuntime,
         env: &Option<HashMap<String, String>>,
         id: &str,
         text: &str,

@@ -311,6 +311,12 @@ How the Agent runs a Turn: `plan` or `edit`.
 **Agent model**:
 The LLM the Agent uses (e.g. Opus, Sonnet).
 
+**Agent profile**:
+A catalog entry a Task runs, such as `claude-code-tui` or `codex`: an Agent
+harness plus its transport, default Agent model and credentials. The catalog
+maps each profile to its harness.
+_Avoid_: Agent type
+
 **Subagent**:
 A sub-conversation the Agent spawns via the Task tool, threaded onto the spawning
 tool call (`parent_tool_use_id`). Its own rows are never in the Task's stream. The

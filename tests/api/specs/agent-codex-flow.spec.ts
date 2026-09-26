@@ -44,7 +44,7 @@ test.describe('Chain: Codex Execution & Multi-Turn', () => {
       templateId: ctx.repositoryId!,
       name: 'codex-task',
       message: "Create a file called codex-marker.txt containing exactly 'Codex Test Success'",
-      agentType: 'codex',
+      agentProfile: 'codex',
     })
 
     expect(task.status, 'a new Codex task is not open').toBe('open')

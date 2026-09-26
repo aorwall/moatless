@@ -15,13 +15,18 @@ pub(super) fn service_with_script(
     Arc<Mutex<Vec<PublishEventRequest>>>,
     GrpcEventPublisher,
 ) {
-    service_with_harness(Harness::scripted(script), config, agent_state, cancel)
+    service_with_harness(
+        HarnessRuntime::scripted(script),
+        config,
+        agent_state,
+        cancel,
+    )
 }
 
-/// Like `service_with_script` but takes a pre-built `Harness` so tests can
+/// Like `service_with_script` but takes a pre-built `HarnessRuntime` so tests can
 /// drive a scripted *sequence* (e.g. fail-then-succeed for a retry).
 pub(super) fn service_with_harness(
-    harness: Harness,
+    harness: HarnessRuntime,
     config: Arc<Config>,
     agent_state: Arc<AgentState>,
     cancel: CancellationToken,
@@ -41,7 +46,7 @@ pub(super) fn service_with_harness(
 
 /// Like `service_with_harness` over a caller-held `moat cmd` registry.
 pub(super) fn service_with_commands(
-    harness: Harness,
+    harness: HarnessRuntime,
     config: Arc<Config>,
     agent_state: Arc<AgentState>,
     cancel: CancellationToken,

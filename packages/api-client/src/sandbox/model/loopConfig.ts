@@ -9,7 +9,7 @@ import type { LoopConfigNodeSelector } from './loopConfigNodeSelector';
 import type { RoutingMode } from './routingMode';
 
 export interface LoopConfig {
-  agentType: string;
+  agentProfile: string;
   /**
      * Per-Loop inactivity TTL in days. `None` means "inherit the global
      * default" (`TASK_INACTIVE_TIMEOUT_DAYS`). Flows into
@@ -26,9 +26,9 @@ export interface LoopConfig {
      */
   messageBufferSeconds?: number | null;
   /**
-     * Model the spawned Tasks run on, from the `agent_type` entry's catalog
+     * Model the spawned Tasks run on, from the `agent_profile` entry's catalog
      * models. `None` means "inherit the platform default the sandbox resolves
-     * for `agent_type`". Flows into `tasks.model` when this Loop spawns a
+     * for `agent_profile`". Flows into `tasks.model` when this Loop spawns a
      * task.
      * @nullable
      */

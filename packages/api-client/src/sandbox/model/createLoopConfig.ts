@@ -10,7 +10,7 @@ import type { RoutingMode } from './routingMode';
 
 export interface CreateLoopConfig {
   /** @nullable */
-  agentType?: string | null;
+  agentProfile?: string | null;
   /** @nullable */
   inactiveTtlDays?: number | null;
   /**

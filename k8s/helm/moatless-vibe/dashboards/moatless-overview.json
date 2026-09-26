@@ -842,8 +842,8 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(rate(moatless_task_created_total[5m])) by (agent_type)",
-          "legendFormat": "{{agent_type}}",
+          "expr": "sum(rate(moatless_task_created_total[5m])) by (agent_profile)",
+          "legendFormat": "{{agent_profile}}",
           "refId": "A"
         }
       ],

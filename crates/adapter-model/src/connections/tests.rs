@@ -41,7 +41,7 @@ fn subscription(id: &str, connection_id: &str, source_matcher: &str) -> Subscrip
         tag_ids: vec![],
         skills: vec![],
         run_as_user_id: Some("u_test".into()),
-        agent_type: "claude-code".into(),
+        agent_profile: "claude-code".into(),
         model: None,
         inactive_ttl_days: None,
         node_selector: None,

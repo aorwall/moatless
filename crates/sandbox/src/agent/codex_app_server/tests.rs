@@ -603,7 +603,7 @@ fn parity_request() -> AgentRunRequest {
         model: Some("gpt-test".to_string()),
         system_prompt: None,
         resume: None,
-        agent_type: None,
+        agent_profile: None,
         agent_mode: None,
         effort: None,
     }

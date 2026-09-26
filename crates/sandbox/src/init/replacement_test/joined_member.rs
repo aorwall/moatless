@@ -18,7 +18,7 @@ use crate::init::{
 
 /// A state whose agent spawns are inert.
 ///
-/// Clearing `AGENT_TYPE` after `tmp_config` makes a joining Member's real agent
+/// Clearing `AGENT_PROFILE` after `tmp_config` makes a joining Member's real agent
 /// a poison task instead of exec'ing a CLI, while `materialize_checkout` still
 /// gets the tmp dirs it needs.
 fn joinable_state(
@@ -27,7 +27,7 @@ fn joinable_state(
     backend: Arc<ReplayBackend>,
 ) -> (crate::state::SandboxState, String) {
     let mut config = tmp_config("claude-code", tmp);
-    config.agent_type = None;
+    config.agent_profile = None;
     let boot_task_id = config.task_id.clone();
     let (state, _recorder) = recording_state_with_config(config, phase, backend);
     (state, boot_task_id)

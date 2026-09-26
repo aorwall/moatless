@@ -1,6 +1,6 @@
 //! Contract tests for the harness command/signal seam.
 //!
-//! These drive the external [`Harness`] interface with the scripted mock
+//! These drive the external [`HarnessRuntime`] interface with the scripted mock
 //! process — the same interface the coordinator uses — and assert the ordering
 //! and terminal invariants every harness must satisfy.
 
@@ -43,7 +43,7 @@ fn failure(class: ErrorClass) -> HarnessError {
 
 /// Drain signals until (and including) the first terminal — `ExecutionFinished`
 /// or `InputRejected` — or until the stream closes.
-async fn drain_to_terminal(harness: &mut Harness) -> Vec<Signal> {
+async fn drain_to_terminal(harness: &mut HarnessRuntime) -> Vec<Signal> {
     let mut out = Vec::new();
     while let Some(signal) = harness.next_signal().await {
         let terminal = matches!(
@@ -67,7 +67,7 @@ async fn new_execution_ordering_started_accepted_source_finished() {
         Step::Block(assistant_block("s2", "m1", "sess-1", "world")),
         Step::Completed,
     ]);
-    let mut harness = Harness::scripted(script);
+    let mut harness = HarnessRuntime::scripted(script);
     harness
         .submit(Input::text("in-1", "hi"))
         .await
@@ -106,7 +106,7 @@ async fn no_source_event_before_execution_start() {
         Step::InputAccepted(InputId("in-1".into())),
         Step::Completed,
     ]);
-    let mut harness = Harness::scripted(script);
+    let mut harness = HarnessRuntime::scripted(script);
     harness
         .submit(Input::text("in-1", "hi"))
         .await
@@ -140,7 +140,7 @@ async fn terminal_before_acceptance_drops_buffered_source() {
         Step::Block(assistant_block("s1", "m1", "sess-1", "never-anchored")),
         Step::Completed,
     ]);
-    let mut harness = Harness::scripted(script);
+    let mut harness = HarnessRuntime::scripted(script);
     harness
         .submit(Input::text("in-1", "hi"))
         .await
@@ -169,7 +169,7 @@ async fn terminal_before_acceptance_drops_buffered_source() {
 
 #[tokio::test]
 async fn pre_start_submit_failure_rejects_input() {
-    let mut harness = Harness::scripted(Script::rejecting(HarnessError::new(
+    let mut harness = HarnessRuntime::scripted(Script::rejecting(HarnessError::new(
         FailureStage::Startup,
         ErrorClass::Authentication,
         SessionImpact::Unknown,
@@ -201,7 +201,7 @@ async fn started_execution_failure_finishes_once() {
         Step::InputAccepted(InputId("in-1".into())),
         Step::Failed(failure(ErrorClass::NativeProtocol)),
     ]);
-    let mut harness = Harness::scripted(script);
+    let mut harness = HarnessRuntime::scripted(script);
     harness
         .submit(Input::text("in-1", "hi"))
         .await
@@ -230,7 +230,7 @@ async fn unexpected_eof_after_start_is_a_process_exit() {
         Step::Block(assistant_block("s1", "m1", "sess-1", "partial")),
         Step::Eof,
     ]);
-    let mut harness = Harness::scripted(script);
+    let mut harness = HarnessRuntime::scripted(script);
     harness
         .submit(Input::text("in-1", "hi"))
         .await
@@ -253,7 +253,7 @@ async fn cancellation_during_output_finishes_cancelled_and_is_idempotent() {
         Step::Block(assistant_block("s1", "m1", "sess-1", "working")),
         Step::WaitForCancel,
     ]);
-    let mut harness = Harness::scripted(script);
+    let mut harness = HarnessRuntime::scripted(script);
     harness
         .submit(Input::text("in-1", "hi"))
         .await
@@ -289,7 +289,7 @@ async fn cancellation_during_output_finishes_cancelled_and_is_idempotent() {
 async fn cancellation_during_startup_rejects_input() {
     // No SessionReady precedes the cancel wait, so the execution never starts.
     let script = Script::new(vec![Step::WaitForCancel]);
-    let mut harness = Harness::scripted(script);
+    let mut harness = HarnessRuntime::scripted(script);
     harness
         .submit(Input::text("in-1", "hi"))
         .await
@@ -322,7 +322,8 @@ async fn cancellation_during_a_blocking_open_rejects_the_input() {
     let recorder: scripted::InputRecorder = Arc::new(tokio::sync::Mutex::new(Vec::new()));
     // This script's `submit` never returns on its own; only the cancel handle
     // ends it.
-    let mut harness = Harness::scripted_recording(Script::blocking_open(), Arc::clone(&recorder));
+    let mut harness =
+        HarnessRuntime::scripted_recording(Script::blocking_open(), Arc::clone(&recorder));
     harness
         .submit(Input::text("in-1", "hi"))
         .await
@@ -371,7 +372,7 @@ async fn cancellation_while_idle_is_a_noop() {
         Step::InputAccepted(InputId("in-1".into())),
         Step::Completed,
     ]);
-    let mut harness = Harness::scripted(script);
+    let mut harness = HarnessRuntime::scripted(script);
 
     // Cancel before any input: must not affect the later execution.
     harness.cancel();
@@ -408,7 +409,7 @@ async fn backpressure_delivers_every_signal_in_order() {
     }
     steps.push(Step::Completed);
 
-    let mut harness = Harness::scripted_with_signal_capacity(Script::new(steps), 2);
+    let mut harness = HarnessRuntime::scripted_with_signal_capacity(Script::new(steps), 2);
     harness
         .submit(Input::text("in-1", "hi"))
         .await
@@ -520,7 +521,7 @@ async fn coordinator_mints_run_after_start_and_acks_after_acceptance() {
         Step::Block(assistant_block("s1", "m1", "sess-1", "hello")),
         Step::Completed,
     ]);
-    let mut harness = Harness::scripted(script);
+    let mut harness = HarnessRuntime::scripted(script);
     harness
         .submit(Input::text("in-1", "hi"))
         .await
@@ -559,7 +560,7 @@ async fn input_submitted_mid_execution_joins_it_when_the_process_injects() {
         Step::AcceptInput,
         Step::Completed,
     ]);
-    let mut harness = Harness::scripted(script);
+    let mut harness = HarnessRuntime::scripted(script);
     harness
         .submit(Input::text("in-1", "first"))
         .await
@@ -598,7 +599,7 @@ async fn input_submitted_after_cancel_is_queued_rather_than_injected() {
     // A cancelled execution finishes `Cancelled` whatever the process reports, so
     // input arriving while it unwinds must not join it — it opens the next
     // execution instead, even though the process would accept an injection.
-    let mut harness = Harness::scripted_sequence(vec![
+    let mut harness = HarnessRuntime::scripted_sequence(vec![
         Script::injecting(vec![
             Step::SessionReady(SessionId("sess-1".into())),
             Step::AcceptInput,
@@ -681,7 +682,7 @@ async fn input_submitted_mid_execution_is_queued_when_the_process_cannot_inject(
         Step::AcceptInput,
         Step::Completed,
     ]);
-    let mut harness = Harness::scripted(script);
+    let mut harness = HarnessRuntime::scripted(script);
     harness
         .submit(Input::text("in-1", "first"))
         .await

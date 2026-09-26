@@ -27,7 +27,7 @@ fn the_model_chain_ends_in_an_answer() {
     row.assistant_model = Some("claude-opus-4-5-20260115".to_string());
     assert_eq!(model_name(&row, &defaults), "claude-opus-4-5-20260115");
 
-    row.agent_type = AgentType("codex".to_string());
+    row.agent_profile = AgentProfile("codex".to_string());
     assert_eq!(
         model_name(&conversation("task-b", "ws-a"), &defaults),
         "claude-opus-4-5"
@@ -61,9 +61,9 @@ fn a_deployment_that_configures_no_default_still_reports_a_model() {
 fn the_provider_instance_follows_the_agent_kind() {
     let mut row = conversation("task-a", "ws-a");
     assert_eq!(provider_instance(&row), "claudeAgent");
-    row.agent_type = AgentType("codex".to_string());
+    row.agent_profile = AgentProfile("codex".to_string());
     assert_eq!(provider_instance(&row), "codex");
     // An agent this build does not know is not a reason to refuse a row.
-    row.agent_type = AgentType("from-a-newer-backend".to_string());
+    row.agent_profile = AgentProfile("from-a-newer-backend".to_string());
     assert_eq!(provider_instance(&row), "claudeAgent");
 }

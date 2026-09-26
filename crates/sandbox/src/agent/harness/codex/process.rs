@@ -182,7 +182,7 @@ impl CodexProcess {
             model: input.model.clone(),
             system_prompt: input.system_prompt.clone(),
             resume: resume.clone(),
-            agent_type: Some("codex".to_string()),
+            agent_profile: Some("codex".to_string()),
             agent_mode: input.mode.clone(),
             effort: input.effort.clone(),
         };

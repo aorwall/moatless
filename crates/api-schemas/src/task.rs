@@ -7,7 +7,7 @@ use crate::enums::{
     CheckoutMode, SandboxDesiredState, SandboxStopReason, Scope, TaskRelationType, TaskStatus,
     Visibility,
 };
-use moatless_types::agent::{AgentMode, AgentType};
+use moatless_types::agent::{AgentMode, AgentProfile};
 
 /// A typed link from one task to another, with optional JSON context.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -42,7 +42,7 @@ pub struct CreateTaskRequest {
     /// Omit for the shared checkout, which is also the single-member behavior.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub checkout_mode: Option<CheckoutMode>,
-    pub agent_type: Option<AgentType>,
+    pub agent_profile: Option<AgentProfile>,
     pub name: Option<String>,
     pub description: Option<String>,
     pub branch: Option<String>,
@@ -250,7 +250,7 @@ pub struct TaskResponse {
     pub name: Option<String>,
     pub description: Option<String>,
     pub status: TaskStatus,
-    pub agent_type: AgentType,
+    pub agent_profile: AgentProfile,
     pub repository_id: String,
     pub repository_name: Option<String>,
     /// Workspace the task runs in. Every task has one, so this is only `None`
@@ -382,7 +382,7 @@ pub struct TaskSkillUsage {
 #[serde(rename_all = "camelCase")]
 pub struct TaskStatisticsResponse {
     pub task_id: String,
-    pub agent_type: AgentType,
+    pub agent_profile: AgentProfile,
     pub model: Option<String>,
     pub token_totals: TaskTokenTotals,
     pub message_token_usage: Vec<TaskMessageTokenUsage>,

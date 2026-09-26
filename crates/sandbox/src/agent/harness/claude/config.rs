@@ -6,7 +6,7 @@ use std::sync::Arc;
 pub struct ClaudeConfig {
     pub config: Arc<Config>,
     pub agent_state: Arc<AgentState>,
-    pub agent_type: Option<String>,
+    pub agent_profile: Option<String>,
     /// Publishes the interactive calls the permission handler parks on. `None`
     /// in tests, which drive the harness without a backend to publish to.
     pub events: Option<crate::events::GrpcEventPublisher>,

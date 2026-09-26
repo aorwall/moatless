@@ -11,7 +11,7 @@ use tracing::{debug, info, warn};
 /// A recorded recovery attempt that may be replayed by the sandbox.
 pub struct RecoveredTurn {
     pub interrupted: InterruptedTurn,
-    pub agent_type: Option<String>,
+    pub agent_profile: Option<String>,
 }
 
 /// A failed read or attempt write that prevents recovery replay.
@@ -167,14 +167,14 @@ pub async fn recover_interrupted_turn(
         }
     };
 
-    let task_agent_type = task.as_ref().map(|t| t.agent_type.0.clone());
+    let task_agent_profile = task.as_ref().map(|t| t.agent_profile.0.clone());
 
     if let Some(publisher) = events {
         publisher
             .publish_agent_event(
                 task_id,
                 AgentSubType::RecoveryStarted,
-                task_agent_type.as_deref(),
+                task_agent_profile.as_deref(),
                 serde_json::json!({
                     "turn_number": interrupted.turn_number,
                     "session_id": interrupted.session_id,
@@ -195,7 +195,7 @@ pub async fn recover_interrupted_turn(
 
     Ok(Some(RecoveredTurn {
         interrupted,
-        agent_type: task_agent_type,
+        agent_profile: task_agent_profile,
     }))
 }
 
@@ -211,7 +211,7 @@ mod tests {
     use moatless_types::sandbox::SandboxDesiredState;
     use std::sync::Arc;
 
-    use moatless_types::agent::AgentType;
+    use moatless_types::agent::AgentProfile;
     use moatless_types::task::{Task, TaskStatus, Visibility};
 
     fn commands(store: MockTaskDao) -> TaskCommands {
@@ -236,7 +236,7 @@ mod tests {
             last_message_at: chrono::DateTime::parse_from_rfc3339("2026-01-01T00:00:00.000Z")
                 .expect("fixture timestamp")
                 .with_timezone(&chrono::Utc),
-            agent_type: AgentType("codex".to_string()),
+            agent_profile: AgentProfile("codex".to_string()),
             repository_id: "repo-1".to_string(),
             status: TaskStatus::Closed,
             total_cost_usd: 0.0,

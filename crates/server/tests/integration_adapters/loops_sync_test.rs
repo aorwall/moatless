@@ -97,7 +97,7 @@ async fn insert_linear_connection(pool: &PgPool, org_id: &str) {
     .unwrap();
 }
 
-const GITHUB_LOOP: &str = "---\non: github_pr\nname: Java Review\nagentType: claude-code\ntags: [review]\nskills: [java-review, e2e-testing]\n---\n\nReview this PR.\n";
+const GITHUB_LOOP: &str = "---\non: github_pr\nname: Java Review\nagentProfile: claude-code\ntags: [review]\nskills: [java-review, e2e-testing]\n---\n\nReview this PR.\n";
 const SCHEDULE_LOOP: &str = "---\non: schedule\nname: Daily Health Check\nschedule:\n  cron: \"0 0 6 * * MON-FRI *\"\n  timezone: Europe/Stockholm\n  message: \"Run the daily check.\"\n---\n\nDaily health check.\n";
 const SLACK_LOOP: &str = "---\non: slack\nname: E2E Triage\nsourceMatcher: C0000000001\nteamId: T0000000001\nroutingMode: ongoing\nadapterConfig:\n  allow_bot_messages: true\n  trigger: all_messages\n---\n\nTriage CI failures posted to #notifications-cicd.\n";
 const LINEAR_LOOP: &str = "---\non: linear\nname: Ready Pool\nsourceMatcher: team-uuid-eng\ntriggerStates: [Ready]\nprojectIds: [proj-launch]\nstartState: In Progress\n---\n\nPick up the Linear ticket and implement it.\n";
@@ -146,7 +146,7 @@ async fn sync_creates_then_reconciles_loops(pool: PgPool) {
     // github_pr loop -> adapter_event trigger pointed at owner/repo.
     let gh = sqlx::query(
         "SELECT t.kind, t.name, t.active, t.config_source, t.source_config_path,
-                r.agent_type, r.prompt, r.run_as_user_id, r.skills,
+                r.agent_profile, r.prompt, r.run_as_user_id, r.skills,
                 aes.adapter_kind, aes.source_matcher \
          FROM loops t \
          JOIN loop_configs r ON r.loop_id = t.id \
@@ -163,7 +163,7 @@ async fn sync_creates_then_reconciles_loops(pool: PgPool) {
         "Java Review",
         "the trigger is named by the frontmatter, not by its directory"
     );
-    assert_eq!(gh.get::<String, _>("agent_type"), "claude-code");
+    assert_eq!(gh.get::<String, _>("agent_profile"), "claude-code");
     assert_eq!(
         gh.get::<Option<String>, _>("prompt").as_deref(),
         Some("Review this PR.")
@@ -604,7 +604,7 @@ async fn resync_preserves_ongoing_task_id(pool: PgPool) {
 /// declaration must leave `active` and the run-as user untouched.
 #[sqlx::test]
 async fn resync_preserves_activation_across_a_changed_declaration(pool: PgPool) {
-    const EDITED_GITHUB_LOOP: &str = "---\non: github_pr\nname: Java Review v2\nagentType: codex\ntags: [review, backend]\n---\n\nReview this PR against the backend guidelines.\n";
+    const EDITED_GITHUB_LOOP: &str = "---\non: github_pr\nname: Java Review v2\nagentProfile: codex\ntags: [review, backend]\n---\n\nReview this PR against the backend guidelines.\n";
 
     let repo = make_repository_row("repo-reapprove", "user-1");
     seed_team(&pool, "user-1").await;
@@ -651,7 +651,7 @@ async fn resync_preserves_activation_across_a_changed_declaration(pool: PgPool) 
     assert_eq!(summary.updated, 1);
 
     let row = sqlx::query(
-        "SELECT t.name, t.active, r.agent_type, r.run_as_user_id \
+        "SELECT t.name, t.active, r.agent_profile, r.run_as_user_id \
          FROM loops t JOIN loop_configs r ON r.loop_id = t.id \
          WHERE t.id = $1",
     )
@@ -664,7 +664,7 @@ async fn resync_preserves_activation_across_a_changed_declaration(pool: PgPool) 
         "Java Review v2",
         "Git configuration still lands"
     );
-    assert_eq!(row.get::<String, _>("agent_type"), "codex");
+    assert_eq!(row.get::<String, _>("agent_profile"), "codex");
     assert!(
         row.get::<bool, _>("active"),
         "the Loop keeps running across the edit"
@@ -760,7 +760,7 @@ fn schedule_upsert(repo: &Repository) -> ManagedLoopUpsert {
         prompt: Some("Daily health check.".to_string()),
         tag_ids: Vec::new(),
         skills: Vec::new(),
-        agent_type: "claude-code".into(),
+        agent_profile: "claude-code".into(),
         model: None,
         inactive_ttl_days: None,
         stop_when_done: None,

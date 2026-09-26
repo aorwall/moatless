@@ -88,7 +88,7 @@ feature pushes on a real change — for that, the tracked state has to move
 while you're listening. You can't force that on your own task's sandbox
 without killing the session running the check, so use a disposable one:
 
-1. `moat tasks create --workspace <small-workspace> --agent-type claude-code --headless true --name <throwaway-name>` — no `--message`, so only the sandbox starts, not an agent turn.
+1. `moat tasks create --workspace <small-workspace> --agent-profile claude-code --headless true --name <throwaway-name>` — no `--message`, so only the sandbox starts, not an agent turn.
 2. Poll `moat tasks status <id>` until `Sandbox: ready` (~20s for a small repo).
 3. Start the subscription against that task's id in the background with a wide window: `... --stream --wait=25000 > /tmp/sub.json 2> /tmp/sub.stderr &`
 4. A few seconds in, force the transition being tested — `moat tasks stop <id>` / `moat tasks start <id>` for sandbox lifecycle, or the equivalent action for whatever the subscription tracks.

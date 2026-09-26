@@ -43,7 +43,7 @@ async fn dispatch_is_skipped_before_ready() {
 
 #[tokio::test]
 async fn dispatch_drives_the_pending_message_after_ready_per_family() {
-    // The configured family (`config.agent_type`) — fixed for the pod across
+    // The configured family (`config.agent_profile`) — fixed for the pod across
     // replacement — selects how a bare pending Message resolves its resume: the
     // Claude family continues its last session (`ResumeSession::Last`, i.e.
     // `--continue`); Codex has no `--continue` and starts fresh. Asserting the
@@ -67,7 +67,7 @@ async fn dispatch_drives_the_pending_message_after_ready_per_family() {
         );
         assert_eq!(
             inputs[0].resume, expected_resume,
-            "family {family}: config.agent_type selects the family's resume default"
+            "family {family}: config.agent_profile selects the family's resume default"
         );
         assert!(backend.get_pending_calls() >= 1);
     }

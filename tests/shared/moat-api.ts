@@ -333,7 +333,7 @@ export class MoatApi {
   async createVibeTask(
     config: (TemplateTaskRequest | { workspaceId: string; name?: string; message?: string }) & {
       /** Harness to run under. Omitted uses the test suite's standard agent. */
-      agentType?: string
+      agentProfile?: string
       model?: string
       /**
        * `edit` or `plan`. Omitted means the backend's default. The CLI always
@@ -368,7 +368,7 @@ export class MoatApi {
             : { repositoryId: config.templateId }),
           name: scopedName(config.name ?? 'task'),
           message: config.message,
-          agentType: config.agentType ?? 'claude-code',
+          agentProfile: config.agentProfile ?? 'claude-code',
           model: config.model,
           agentMode: config.agentMode,
           headless: config.headless ?? true,
@@ -388,7 +388,7 @@ export class MoatApi {
       args.push('--workspace', (await this.ensureWorkspaceFor(config.templateId)).id)
     }
     if (config.message) args.push('--message', config.message)
-    args.push('--agent-type', config.agentType ?? 'claude-code')
+    args.push('--agent-profile', config.agentProfile ?? 'claude-code')
     if (config.model) args.push('--model', config.model)
     if (config.headless !== undefined) args.push('--headless', String(config.headless))
     if (config.checkoutMode) args.push('--checkout-mode', config.checkoutMode)
@@ -399,7 +399,7 @@ export class MoatApi {
   /** Create a task and report the status, for assertions on rejection. */
   async createVibeTaskRaw(config: {
     workspaceId: string
-    agentType?: string
+    agentProfile?: string
     message?: string
     name?: string
   }): Promise<RawResponse> {
@@ -774,7 +774,7 @@ export class MoatApi {
     routingMode?: string
     taskName?: string
     prompt?: string
-    agentType?: string
+    agentProfile?: string
     active?: boolean
   }): Promise<Loop> {
     const args = [
@@ -797,7 +797,7 @@ export class MoatApi {
     // and the sweep can find it.
     if (config.taskName) args.push('--task-name', scopedName(config.taskName))
     if (config.prompt) args.push('--prompt', config.prompt)
-    if (config.agentType) args.push('--agent-type', config.agentType)
+    if (config.agentProfile) args.push('--agent-profile', config.agentProfile)
     return this.moat.json<Loop>(args)
   }
 

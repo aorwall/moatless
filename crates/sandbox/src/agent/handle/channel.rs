@@ -72,7 +72,7 @@ impl AgentHandle {
         &self,
         text: String,
         model: Option<String>,
-        _agent_type: Option<String>,
+        _agent_profile: Option<String>,
         agent_mode: Option<String>,
         effort: Option<String>,
         resume_session_id: Option<String>,
@@ -124,7 +124,7 @@ impl AgentHandle {
     pub fn recover(
         &self,
         text: String,
-        _agent_type: Option<String>,
+        _agent_profile: Option<String>,
         agent_mode: Option<String>,
         effort: Option<String>,
         resume_session_id: String,

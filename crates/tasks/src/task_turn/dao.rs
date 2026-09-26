@@ -28,23 +28,23 @@ use moatless_core::db::DbPool;
 fn turn_projection_query<'a>(
     task_id: &'a str,
     turn_number: i32,
-    agent_type: Option<&'a str>,
+    agent_profile: Option<&'a str>,
     transition: TurnTransition,
     at: DateTime<Utc>,
 ) -> Query<'a, Postgres, PgArguments> {
     match transition {
         TurnTransition::Open => sqlx::query(
-            r#"INSERT INTO task_turns (task_id, turn_number, status, agent_type, started_at)
+            r#"INSERT INTO task_turns (task_id, turn_number, status, agent_profile, started_at)
                VALUES ($1, $2, 'active', $3, $4)
                ON CONFLICT (task_id, turn_number) DO UPDATE
                  SET status = 'active',
                      ended_at = NULL,
-                     agent_type = COALESCE(task_turns.agent_type, EXCLUDED.agent_type)
+                     agent_profile = COALESCE(task_turns.agent_profile, EXCLUDED.agent_profile)
                  WHERE task_turns.status = 'interrupted'"#,
         )
         .bind(task_id)
         .bind(turn_number)
-        .bind(agent_type)
+        .bind(agent_profile)
         .bind(at),
         TurnTransition::Interrupted => sqlx::query(
             r#"UPDATE task_turns
@@ -54,18 +54,18 @@ fn turn_projection_query<'a>(
         .bind(task_id)
         .bind(turn_number),
         TurnTransition::Terminal(status) => sqlx::query(
-            r#"INSERT INTO task_turns (task_id, turn_number, status, agent_type, started_at, ended_at)
+            r#"INSERT INTO task_turns (task_id, turn_number, status, agent_profile, started_at, ended_at)
                VALUES ($1, $2, $3, $4, $5, $5)
                ON CONFLICT (task_id, turn_number) DO UPDATE
                  SET status = EXCLUDED.status,
                      ended_at = EXCLUDED.ended_at,
-                     agent_type = COALESCE(task_turns.agent_type, EXCLUDED.agent_type)
+                     agent_profile = COALESCE(task_turns.agent_profile, EXCLUDED.agent_profile)
                  WHERE task_turns.status IN ('active', 'interrupted')"#,
         )
         .bind(task_id)
         .bind(turn_number)
         .bind(status.as_str())
-        .bind(agent_type)
+        .bind(agent_profile)
         .bind(at),
     }
 }
@@ -106,7 +106,7 @@ pub trait TaskTurnDao: Send + Sync {
         &self,
         task_id: &str,
         turn_number: i32,
-        agent_type: Option<String>,
+        agent_profile: Option<String>,
         transition: TurnTransition,
         at: DateTime<Utc>,
     ) -> Result<(), sqlx::Error>;
@@ -259,7 +259,7 @@ impl TaskTurnDao for PgTaskTurnDao {
         sqlx::query(
             r#"INSERT INTO task_events (
                    event_id, task_id, type, sub_type, is_error,
-                   agent_type, turn_number, payload, timestamp
+                   agent_profile, turn_number, payload, timestamp
                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
                ON CONFLICT (event_id) DO NOTHING"#,
         )
@@ -268,7 +268,7 @@ impl TaskTurnDao for PgTaskTurnDao {
         .bind(&ev.event_type)
         .bind(&ev.sub_type)
         .bind(ev.is_error)
-        .bind(&ev.agent_type)
+        .bind(&ev.agent_profile)
         .bind(ev.turn_number)
         .bind(&ev.payload)
         .bind(&ev.timestamp)
@@ -281,7 +281,7 @@ impl TaskTurnDao for PgTaskTurnDao {
         let projected = turn_projection_query(
             &ev.task_id,
             ev.turn_number,
-            ev.agent_type.as_deref(),
+            ev.agent_profile.as_deref(),
             ev.transition,
             at,
         )
@@ -314,7 +314,7 @@ impl TaskTurnDao for PgTaskTurnDao {
         &self,
         task_id: &str,
         turn_number: i32,
-        agent_type: Option<String>,
+        agent_profile: Option<String>,
         transition: TurnTransition,
         at: DateTime<Utc>,
     ) -> Result<(), sqlx::Error> {
@@ -324,10 +324,15 @@ impl TaskTurnDao for PgTaskTurnDao {
         // state without any event committing for it — so a partial write leaves
         // the sidebar showing a reconciled turn as running.
         let mut tx = self.0.begin().await?;
-        let projected =
-            turn_projection_query(task_id, turn_number, agent_type.as_deref(), transition, at)
-                .execute(&mut *tx)
-                .await?;
+        let projected = turn_projection_query(
+            task_id,
+            turn_number,
+            agent_profile.as_deref(),
+            transition,
+            at,
+        )
+        .execute(&mut *tx)
+        .await?;
         record_turn_change(&mut tx, task_id, projected.rows_affected()).await?;
         tx.commit().await?;
         Ok(())
@@ -338,7 +343,7 @@ impl TaskTurnDao for PgTaskTurnDao {
         older_than: DateTime<Utc>,
     ) -> Result<Vec<UnclosedTurn>, sqlx::Error> {
         let rows: Vec<(String, i32, Option<String>)> = sqlx::query_as(
-            r#"SELECT tt.task_id, tt.turn_number, tt.agent_type
+            r#"SELECT tt.task_id, tt.turn_number, tt.agent_profile
                FROM task_turns tt
                WHERE tt.status IN ('active', 'interrupted')
                  AND tt.started_at < $1
@@ -361,10 +366,10 @@ impl TaskTurnDao for PgTaskTurnDao {
 
         Ok(rows
             .into_iter()
-            .map(|(task_id, turn_number, agent_type)| UnclosedTurn {
+            .map(|(task_id, turn_number, agent_profile)| UnclosedTurn {
                 task_id,
                 turn_number: Some(turn_number),
-                agent_type,
+                agent_profile,
             })
             .collect())
     }
@@ -380,7 +385,7 @@ impl TaskTurnDao for PgTaskTurnDao {
         // The activity is dated by `created_at` (timestamptz), not by
         // `timestamp`, which is free-form text a publisher chooses.
         let rows: Vec<(String, i32, Option<String>, Option<String>)> = sqlx::query_as(
-            r#"SELECT tt.task_id, tt.turn_number, tt.agent_type, tt.run_id
+            r#"SELECT tt.task_id, tt.turn_number, tt.agent_profile, tt.run_id
                FROM task_turns tt
                WHERE tt.status IN ('completed', 'error', 'stopped')
                  AND tt.ended_at IS NOT NULL
@@ -403,12 +408,14 @@ impl TaskTurnDao for PgTaskTurnDao {
 
         Ok(rows
             .into_iter()
-            .map(|(task_id, turn_number, agent_type, run_id)| SettledTurn {
-                task_id,
-                turn_number,
-                agent_type,
-                run_id,
-            })
+            .map(
+                |(task_id, turn_number, agent_profile, run_id)| SettledTurn {
+                    task_id,
+                    turn_number,
+                    agent_profile,
+                    run_id,
+                },
+            )
             .collect())
     }
 
@@ -421,7 +428,7 @@ impl TaskTurnDao for PgTaskTurnDao {
         // supersession, so no age of the row itself is required — the floor is
         // only a guard against racing a terminal event still in flight.
         let rows: Vec<(String, i32, Option<String>)> = sqlx::query_as(
-            r#"SELECT tt.task_id, tt.turn_number, tt.agent_type
+            r#"SELECT tt.task_id, tt.turn_number, tt.agent_profile
                FROM task_turns tt
                WHERE tt.status IN ('active', 'interrupted')
                  AND tt.started_at < $1
@@ -444,10 +451,10 @@ impl TaskTurnDao for PgTaskTurnDao {
 
         Ok(rows
             .into_iter()
-            .map(|(task_id, turn_number, agent_type)| UnclosedTurn {
+            .map(|(task_id, turn_number, agent_profile)| UnclosedTurn {
                 task_id,
                 turn_number: Some(turn_number),
-                agent_type,
+                agent_profile,
             })
             .collect())
     }

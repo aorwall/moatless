@@ -28,7 +28,7 @@ async fn log_agent_event(repo: &PgTaskEventDao, task_id: &str, event_id: &str, s
         event_type: "agent".to_string(),
         sub_type: sub.to_string(),
         is_error: sub == "error",
-        agent_type: Some("claude-code".to_string()),
+        agent_profile: Some("claude-code".to_string()),
         turn_number: Some(1),
         payload: serde_json::json!({}),
         timestamp: "2026-07-12T00:00:00.000Z".to_string(),

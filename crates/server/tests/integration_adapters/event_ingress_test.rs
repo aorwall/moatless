@@ -101,7 +101,7 @@ impl EventPublisher for FakeTransport {
         _task_id: &str,
         _event_type: &str,
         sub_type: &str,
-        _agent_type: Option<&str>,
+        _agent_profile: Option<&str>,
         _turn_number: Option<i32>,
         payload: Value,
     ) -> Result<(), PublishError> {
@@ -189,7 +189,7 @@ fn consumed(task_id: &str, event_id: &str, payload: &Value) -> AgentEvent {
         "taskId": task_id,
         "timestamp": "2026-07-20T00:00:00.000Z",
         "isError": false,
-        "agentType": "claude-code",
+        "agentProfile": "claude-code",
         "turnNumber": 1,
         "payload": payload,
     }))
@@ -311,7 +311,7 @@ async fn a_lifecycle_event_still_reaches_the_event_log(pool: PgPool) {
         "taskId": task_id,
         "timestamp": "2026-07-20T00:00:00.000Z",
         "isError": false,
-        "agentType": "claude-code",
+        "agentProfile": "claude-code",
         "turnNumber": 1,
         "payload": { "reason": "done" },
     }))

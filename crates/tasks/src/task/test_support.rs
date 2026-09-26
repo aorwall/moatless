@@ -49,7 +49,7 @@ pub async fn seed_bare_task(pool: &PgPool, task_id: &str, status: &str) {
     .expect("seed sandbox");
 
     sqlx::query(
-        r#"INSERT INTO tasks (task_id, created_at, last_message_at, agent_type, repository_id,
+        r#"INSERT INTO tasks (task_id, created_at, last_message_at, agent_profile, repository_id,
                status, total_cost_usd, visibility, scope, team_id, created_by, owner_user_id,
                workspace_id, sandbox_id)
            VALUES ($1, NOW()::text, NOW()::text, 'claude-code', 'repo-x', $2, 0,
@@ -71,7 +71,7 @@ pub async fn seed_bare_task(pool: &PgPool, task_id: &str, status: &str) {
 
 use moatless_core::db::DbPool;
 use moatless_types::access_control::ScopeContext;
-use moatless_types::agent::AgentType;
+use moatless_types::agent::AgentProfile;
 
 use super::dao::{PgTaskDao, TaskDao, store_over};
 use super::models::{Task, TaskFilter, TaskPatch, TaskStatus, Visibility};
@@ -218,7 +218,7 @@ pub fn make_task_row(task_id: &str, user_id: &str) -> Task {
         short_id: Some(format!("s-{task_id}")),
         created_at: now,
         last_message_at: now,
-        agent_type: AgentType(AgentType::CLAUDE_CODE.into()),
+        agent_profile: AgentProfile(AgentProfile::CLAUDE_CODE.into()),
         repository_id: "repo-1".to_string(),
         status: TaskStatus::Open,
         total_cost_usd: 0.0,

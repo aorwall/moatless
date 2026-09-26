@@ -322,7 +322,7 @@ pub(crate) fn build_task_response(
         name: row.name.clone(),
         description: row.description.clone(),
         status: row.status,
-        agent_type: row.agent_type.clone(),
+        agent_profile: row.agent_profile.clone(),
         repository_id: row.repository_id.clone(),
         repository_name: names.repository,
         workspace_id: row.workspace_id.clone(),
@@ -374,7 +374,7 @@ fn relations_to_dtos(rows: Vec<TaskRelation>) -> Vec<TaskRelationDto> {
         .collect()
 }
 
-/// Derive task title: name > description first line > `agent_type` > "Task".
+/// Derive task title: name > description first line > `agent_profile` > "Task".
 fn derive_title(row: &Task) -> String {
     if let Some(ref name) = row.name {
         if !name.is_empty() {
@@ -386,5 +386,5 @@ fn derive_title(row: &Task) -> String {
             return desc.lines().next().unwrap_or("Task").to_string();
         }
     }
-    row.agent_type.to_string()
+    row.agent_profile.to_string()
 }

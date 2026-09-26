@@ -1,5 +1,5 @@
-use crate::agent::catalog::UiRpcAgentKind;
 use crate::listing::UiRpcEnvironmentIdentity;
+use moatless_types::agent::Harness;
 use moatless_types::auth::AllowedOrigin;
 use std::env;
 
@@ -64,11 +64,11 @@ pub struct AgentModelDefaults {
 }
 
 impl AgentModelDefaults {
-    /// The deployment default for one kind of agent, if it configures one.
-    pub(crate) fn for_kind(&self, kind: UiRpcAgentKind) -> Option<&str> {
-        match kind {
-            UiRpcAgentKind::ClaudeCode => self.claude_code.as_deref(),
-            UiRpcAgentKind::Codex => self.codex.as_deref(),
+    /// The deployment default for one harness, if it configures one.
+    pub(crate) fn for_harness(&self, harness: Harness) -> Option<&str> {
+        match harness {
+            Harness::ClaudeCode => self.claude_code.as_deref(),
+            Harness::Codex => self.codex.as_deref(),
         }
     }
 }

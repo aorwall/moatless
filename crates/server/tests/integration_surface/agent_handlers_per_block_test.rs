@@ -90,7 +90,7 @@ fn event_from_payload(event_id: &str, task_id: &str, payload: serde_json::Value)
         "taskId": task_id,
         "timestamp": "2026-04-30T00:00:00.000Z",
         "isError": false,
-        "agentType": "claude-code",
+        "agentProfile": "claude-code",
         "turnNumber": 1,
         "payload": payload,
     });
@@ -263,7 +263,7 @@ async fn completion_writes_the_run_usage_onto_the_turns_last_row(pool: PgPool) {
         "taskId": task_id,
         "timestamp": "2026-04-30T00:00:01.000Z",
         "isError": false,
-        "agentType": "claude-code",
+        "agentProfile": "claude-code",
         "turnNumber": 1,
         "payload": {
             "is_error": false,

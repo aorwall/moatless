@@ -22,7 +22,7 @@ pub(super) struct ResolvedLoop {
     routing_mode: RoutingMode,
     /// See [`moatless_types::loops::LoopContext::workspace_id`].
     workspace_id: String,
-    agent_type: String,
+    agent_profile: String,
     model: Option<String>,
     prompt: Option<String>,
     tag_ids: Vec<String>,
@@ -54,9 +54,9 @@ pub(super) enum ResolveOutcome {
     Skipped(String),
 }
 
-/// The agent a Loop declaration runs on: its `agentType`, else the default.
-pub(super) fn declared_agent_type(fm: &LoopFrontmatter) -> String {
-    fm.agent_type
+/// The agent a Loop declaration runs on: its `agentProfile`, else the default.
+pub(super) fn declared_agent_profile(fm: &LoopFrontmatter) -> String {
+    fm.agent_profile
         .clone()
         .unwrap_or_else(|| "claude-code".to_string())
 }
@@ -107,9 +107,9 @@ impl LoopSyncService {
             }
         };
 
-        let agent_type = declared_agent_type(fm);
+        let agent_profile = declared_agent_profile(fm);
         let model = fm.model.clone();
-        if let Err(e) = catalog::validate_agent_model(&agent_type, model.as_deref()) {
+        if let Err(e) = catalog::validate_agent_model(&agent_profile, model.as_deref()) {
             return Ok(ResolveOutcome::Skipped(e));
         }
         let prompt = if parsed.prompt_body.is_empty() {
@@ -329,7 +329,7 @@ impl LoopSyncService {
             name: fm.name.clone(),
             routing_mode,
             workspace_id,
-            agent_type,
+            agent_profile,
             model,
             prompt,
             tag_ids,
@@ -387,7 +387,7 @@ pub(super) fn managed_loop_input(
         prompt: resolved.prompt.clone(),
         tag_ids: resolved.tag_ids.clone(),
         skills: resolved.skills.clone(),
-        agent_type: resolved.agent_type.clone(),
+        agent_profile: resolved.agent_profile.clone(),
         model: resolved.model.clone(),
         inactive_ttl_days: resolved.inactive_ttl_days,
         stop_when_done: resolved.stop_when_done,
@@ -493,7 +493,7 @@ mod tests {
             on: "linear".to_string(),
             name: "Ready Pool".to_string(),
             workspace: None,
-            agent_type: None,
+            agent_profile: None,
             model: None,
             routing_mode: None,
             tags: None,

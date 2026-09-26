@@ -14,7 +14,7 @@ async fn a_thread_the_viewer_cannot_be_shown_is_refused() {
 /// same on the wire, deliberately: which one it was says who owns the Task.
 #[tokio::test]
 async fn a_thread_the_viewer_reads_but_does_not_control_is_refused() {
-    let found = conversation(AgentType::CLAUDE_CODE);
+    let found = conversation(AgentProfile::CLAUDE_CODE);
     let mut dao = MockConversationDao::new();
     dao.expect_readable_by_id()
         .returning(move |_, _| Ok(Some(found.clone())));
@@ -34,7 +34,7 @@ async fn a_thread_the_viewer_reads_but_does_not_control_is_refused() {
 async fn a_turn_into_an_archived_thread_is_refused() {
     let archived = Conversation {
         closed_at: Some(Utc::now()),
-        ..conversation(AgentType::CLAUDE_CODE)
+        ..conversation(AgentProfile::CLAUDE_CODE)
     };
     let (result, calls) = run_against(turn(None), Some(archived)).await;
     assert!(matches!(result, Err(CommandRefusal::NotWritable { .. })));

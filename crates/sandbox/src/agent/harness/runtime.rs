@@ -33,13 +33,13 @@ fn supervise(handle: tokio::task::JoinHandle<()>) {
 
 /// The deep Agent-harness module. Construction fixes the implementation for the
 /// Sandbox lifetime; the type is concrete, so there is no public harness trait.
-pub struct Harness {
+pub struct HarnessRuntime {
     submit_tx: mpsc::Sender<Input>,
     cancel_tx: mpsc::Sender<()>,
     signal_rx: mpsc::Receiver<Signal>,
 }
 
-impl Harness {
+impl HarnessRuntime {
     /// Construct a harness driven by a scripted mock process. The first
     /// execution runs `script`; any later execution ends immediately at EOF.
     #[cfg(test)]
@@ -47,8 +47,8 @@ impl Harness {
         Self::scripted_with_signal_capacity(script, SIGNAL_CAPACITY)
     }
 
-    /// Like [`Harness::scripted`] but with an explicit signal-channel capacity,
-    /// for exercising backpressure.
+    /// Like [`HarnessRuntime::scripted`] but with an explicit signal-channel
+    /// capacity, for exercising backpressure.
     #[cfg(test)]
     pub(crate) fn scripted_with_signal_capacity(script: Script, signal_capacity: usize) -> Self {
         let (submit_tx, submit_rx) = mpsc::channel(SUBMIT_CAPACITY);
@@ -68,12 +68,9 @@ impl Harness {
         }
     }
 
-    /// Like [`Harness::scripted`] but every execution records the full `Input`
-    /// it accepts into the shared `recorder`.
-    ///
-    /// Lets a lifecycle test prove which input the harness received (text +
-    /// resume), not merely that a command was enqueued; the same `script` runs
-    /// for each execution.
+    /// Like [`HarnessRuntime::scripted`] but every execution records the full
+    /// `Input` it accepts into `recorder`, so a lifecycle test proves which
+    /// input (text + resume) the harness received. Each execution runs `script`.
     #[cfg(test)]
     pub(crate) fn scripted_recording(script: Script, recorder: scripted::InputRecorder) -> Self {
         let (submit_tx, submit_rx) = mpsc::channel(SUBMIT_CAPACITY);

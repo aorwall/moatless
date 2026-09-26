@@ -10,43 +10,42 @@
 
 use super::models::UsageInfo;
 
-/// Per-tool-call counter, labelled by bucketed `tool`, `agent_type`, and
+/// Per-tool-call counter, labelled by bucketed `tool`, `agent_profile`, and
 /// `status` (`ok` | `error`). Emitted once per `tool_result` block, so it
 /// counts *completed* tool calls by outcome.
 pub(crate) const AGENT_TOOL_CALLS_TOTAL: &str = "moatless_agent_tool_calls_total";
 
 /// Terminal agent-run outcomes (`completed` | `error` | `stopped`) by
-/// `agent_type`. One increment per terminal agent event.
+/// `agent_profile`. One increment per terminal agent event.
 pub(crate) const AGENT_RUNS_TOTAL: &str = "moatless_agent_runs_total";
 
-/// Agent cost in USD per run by `agent_type` (histogram, not a counter: cost is
+/// Agent cost in USD per run by `agent_profile` (histogram, not a counter: cost is
 /// fractional and `metrics` counters only take `u64`).
 ///
 /// The histogram's `_sum` accumulates real-USD spend (rate of `_sum` gives
 /// $/s).
 pub(crate) const AGENT_COST_USD: &str = "moatless_agent_cost_usd";
 
-/// Wall-clock turn duration in seconds by `agent_type`, `outcome`, and
+/// Wall-clock turn duration in seconds by `agent_profile`, `outcome`, and
 /// `context_bucket` (histogram), sourced from the SDK result's `duration_ms`.
 ///
 /// The `context_bucket` label separates a 20k-context turn from a 400k one —
 /// without it the histogram mixes both.
 pub(crate) const AGENT_TURN_DURATION_SECONDS: &str = "moatless_agent_turn_duration_seconds";
 
-/// Tokens consumed by a run, by `agent_type` and `kind` (`input` | `output` |
-/// `cache_read` | `cache_creation`) — counter, sourced from the SDK result's
-/// authoritative `usage` totals.
+/// Tokens consumed by a run, by `agent_profile` and `kind` (`input` | `output`
+/// | `cache_read` | `cache_creation`) — counter, from the SDK result's `usage`.
 ///
-/// The per-message `output_tokens` on the stream is a partial value sampled
-/// before the response finished, so it is not summed here.
+/// The stream's per-message `output_tokens` is sampled before the response
+/// finishes, so it is not summed here.
 pub(crate) const AGENT_TOKENS_TOTAL: &str = "moatless_agent_tokens_total";
 
-/// API-time portion of a turn in seconds by `agent_type` (histogram). Sourced
+/// API-time portion of a turn in seconds by `agent_profile` (histogram). Sourced
 /// from the SDK result's `duration_api_ms` (the tmux backend reports 0 — those
 /// are dropped, see call site).
 pub(crate) const AGENT_TURN_API_DURATION_SECONDS: &str = "moatless_agent_turn_api_duration_seconds";
 
-/// Number of internal turns per agent run by `agent_type` (histogram). Sourced
+/// Number of internal turns per agent run by `agent_profile` (histogram). Sourced
 /// from the SDK result's `num_turns`.
 pub(crate) const AGENT_TURNS: &str = "moatless_agent_turns";
 
@@ -129,9 +128,9 @@ pub(crate) fn context_bucket(usage: Option<&UsageInfo>, num_turns: Option<u32>) 
     }
 }
 
-/// Normalise an optional agent-type label to a non-empty owned string.
-fn agent_label(agent_type: Option<&str>) -> String {
-    agent_type
+/// Normalise an optional agent-profile label to a non-empty owned string.
+fn agent_label(agent_profile: Option<&str>) -> String {
+    agent_profile
         .filter(|s| !s.is_empty())
         .unwrap_or("unknown")
         .to_string()
@@ -143,29 +142,29 @@ fn agent_label(agent_type: Option<&str>) -> String {
 pub fn describe_agent_metrics() {
     metrics::describe_counter!(
         AGENT_TOOL_CALLS_TOTAL,
-        "Completed agent tool calls by bucketed tool, agent_type, and status (ok | error)"
+        "Completed agent tool calls by bucketed tool, agent_profile, and status (ok | error)"
     );
     metrics::describe_counter!(
         AGENT_RUNS_TOTAL,
-        "Terminal agent-run outcomes (completed | error | stopped) by agent_type"
+        "Terminal agent-run outcomes (completed | error | stopped) by agent_profile"
     );
     metrics::describe_histogram!(
         AGENT_COST_USD,
-        "Agent cost in USD per run by agent_type (sum = total spend, buckets = per-run distribution)"
+        "Agent cost in USD per run by agent_profile (sum = total spend, buckets = per-run distribution)"
     );
     metrics::describe_histogram!(
         AGENT_TURN_DURATION_SECONDS,
-        "Agent turn wall-clock duration in seconds by agent_type, outcome, and context_bucket (mean prompt size per internal turn)"
+        "Agent turn wall-clock duration in seconds by agent_profile, outcome, and context_bucket (mean prompt size per internal turn)"
     );
     metrics::describe_counter!(
         AGENT_TOKENS_TOTAL,
-        "Tokens consumed by agent runs by agent_type and kind (input | output | cache_read | cache_creation)"
+        "Tokens consumed by agent runs by agent_profile and kind (input | output | cache_read | cache_creation)"
     );
     metrics::describe_histogram!(
         AGENT_TURN_API_DURATION_SECONDS,
-        "Agent turn API time in seconds by agent_type"
+        "Agent turn API time in seconds by agent_profile"
     );
-    metrics::describe_histogram!(AGENT_TURNS, "Internal turns per agent run by agent_type");
+    metrics::describe_histogram!(AGENT_TURNS, "Internal turns per agent run by agent_profile");
     metrics::describe_counter!(
         AGENT_PERMISSION_DENIALS_TOTAL,
         "Tool-permission denials by bucketed tool"
@@ -174,11 +173,15 @@ pub fn describe_agent_metrics() {
 
 /// Record one completed tool call. `tool` must already be bucketed
 /// ([`bucket_tool`]); `status` is `"ok"` or `"error"`.
-pub(crate) fn record_tool_call(tool: &'static str, agent_type: Option<&str>, status: &'static str) {
+pub(crate) fn record_tool_call(
+    tool: &'static str,
+    agent_profile: Option<&str>,
+    status: &'static str,
+) {
     metrics::counter!(
         AGENT_TOOL_CALLS_TOTAL,
         "tool" => tool,
-        "agent_type" => agent_label(agent_type),
+        "agent_profile" => agent_label(agent_profile),
         "status" => status,
     )
     .increment(1);
@@ -186,23 +189,23 @@ pub(crate) fn record_tool_call(tool: &'static str, agent_type: Option<&str>, sta
 
 /// Record one terminal agent-run outcome (`"completed"`, `"error"`,
 /// `"stopped"`).
-pub(crate) fn record_run(outcome: &'static str, agent_type: Option<&str>) {
+pub(crate) fn record_run(outcome: &'static str, agent_profile: Option<&str>) {
     metrics::counter!(
         AGENT_RUNS_TOTAL,
         "outcome" => outcome,
-        "agent_type" => agent_label(agent_type),
+        "agent_profile" => agent_label(agent_profile),
     )
     .increment(1);
 }
 
 /// Record one run's agent spend (USD) into the cost histogram.
-pub(crate) fn record_cost(agent_type: Option<&str>, usd: f64) {
+pub(crate) fn record_cost(agent_profile: Option<&str>, usd: f64) {
     if usd <= 0.0 {
         return;
     }
     metrics::histogram!(
         AGENT_COST_USD,
-        "agent_type" => agent_label(agent_type),
+        "agent_profile" => agent_label(agent_profile),
     )
     .record(usd);
 }
@@ -210,14 +213,14 @@ pub(crate) fn record_cost(agent_type: Option<&str>, usd: f64) {
 /// Record turn wall-clock duration (seconds). `context` must already be
 /// bucketed ([`context_bucket`]).
 pub(crate) fn record_turn_duration(
-    agent_type: Option<&str>,
+    agent_profile: Option<&str>,
     outcome: &'static str,
     context: &'static str,
     seconds: f64,
 ) {
     metrics::histogram!(
         AGENT_TURN_DURATION_SECONDS,
-        "agent_type" => agent_label(agent_type),
+        "agent_profile" => agent_label(agent_profile),
         "outcome" => outcome,
         "context_bucket" => context,
     )
@@ -227,7 +230,7 @@ pub(crate) fn record_turn_duration(
 /// Record one run's token consumption for a single `kind`. A missing or
 /// non-positive count is not a zero-valued observation — it is the runtime not
 /// reporting that class at all, so it is skipped rather than counted.
-pub(crate) fn record_tokens(agent_type: Option<&str>, kind: &'static str, tokens: Option<i64>) {
+pub(crate) fn record_tokens(agent_profile: Option<&str>, kind: &'static str, tokens: Option<i64>) {
     let Some(tokens) = tokens
         .and_then(|t| u64::try_from(t).ok())
         .filter(|&t| t > 0)
@@ -236,26 +239,26 @@ pub(crate) fn record_tokens(agent_type: Option<&str>, kind: &'static str, tokens
     };
     metrics::counter!(
         AGENT_TOKENS_TOTAL,
-        "agent_type" => agent_label(agent_type),
+        "agent_profile" => agent_label(agent_profile),
         "kind" => kind,
     )
     .increment(tokens);
 }
 
 /// Record turn API time (seconds).
-pub(crate) fn record_turn_api_duration(agent_type: Option<&str>, seconds: f64) {
+pub(crate) fn record_turn_api_duration(agent_profile: Option<&str>, seconds: f64) {
     metrics::histogram!(
         AGENT_TURN_API_DURATION_SECONDS,
-        "agent_type" => agent_label(agent_type),
+        "agent_profile" => agent_label(agent_profile),
     )
     .record(seconds);
 }
 
 /// Record the number of internal turns in an agent run.
-pub(crate) fn record_turns(agent_type: Option<&str>, num_turns: u32) {
+pub(crate) fn record_turns(agent_profile: Option<&str>, num_turns: u32) {
     metrics::histogram!(
         AGENT_TURNS,
-        "agent_type" => agent_label(agent_type),
+        "agent_profile" => agent_label(agent_profile),
     )
     .record(f64::from(num_turns));
 }

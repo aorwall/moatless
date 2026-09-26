@@ -1,6 +1,6 @@
 //! Coordinator seam-mapping contract tests.
 //!
-//! Each test drives the real [`Coordinator`] over a scripted [`Harness`] and a
+//! Each test drives the real [`Coordinator`] over a scripted [`HarnessRuntime`] and a
 //! real [`GrpcEventPublisher`] whose outbox delivers to an in-memory recording
 //! backend. Assertions are on the exact `agent.*` events published (their
 //! order, sub-types, and per-block payload shape) plus the acknowledgement —
@@ -20,12 +20,12 @@ use tokio_util::sync::CancellationToken;
 use tonic::Status;
 
 use crate::agent::agent_state::AgentState;
-use crate::agent::handle::{AGENT_TYPE_CLAUDE_CODE, AgentCommand};
+use crate::agent::handle::AgentCommand;
 use crate::agent::harness::error::FailureStage;
 use crate::agent::harness::source::{NativeMessageId, SourceId};
 use crate::agent::harness::{
-    Activity, Cause, ErrorClass, Harness, HarnessError, Input, InputId, Outcome, Role, Script,
-    SessionId, SessionImpact, Signal, SourceEvent, Step,
+    Activity, Cause, ErrorClass, HarnessError, HarnessRuntime, Input, InputId, Outcome, Role,
+    Script, SessionId, SessionImpact, Signal, SourceEvent, Step,
 };
 use crate::agent::heartbeat::Heartbeat;
 use crate::agent::scheduled_job::{JobInjector, LateInjector, ScheduledJobRegistry};

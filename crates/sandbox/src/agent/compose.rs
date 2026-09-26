@@ -14,41 +14,42 @@ use crate::trajectory_tail::TrajectoryRecording;
 
 use crate::agent::agent_state::AgentState;
 use crate::agent::harness::{
-    ClaudeConfig, CodexConfig, ErrorClass, FailureStage, Harness, HarnessError, SessionImpact,
+    ClaudeConfig, CodexConfig, ErrorClass, FailureStage, HarnessError, HarnessRuntime,
+    SessionImpact,
 };
 use crate::agent::scheduled_job::ScheduledJobRegistry;
 
-pub(crate) const AGENT_TYPE_CLAUDE_CODE: &str = "claude-code";
+const AGENT_PROFILE_CLAUDE_CODE: &str = "claude-code";
 /// Claude Code over the tmux (interactive TUI) transport. Same executor family
 /// as claude-code; the tmux transport is selected backend-side via the
 /// `SANDBOX_USE_TMUX` env var.
-const AGENT_TYPE_CLAUDE_CODE_TUI: &str = "claude-code-tui";
+const AGENT_PROFILE_CLAUDE_CODE_TUI: &str = "claude-code-tui";
 /// Claude Code over the subprocess/NDJSON transport (the explicit non-tmux CLI
 /// variant). Treated as the claude-code family for everything except the
 /// transport selection inside the Claude harness.
-const AGENT_TYPE_CLAUDE_CODE_CLI: &str = "claude-code-cli";
+const AGENT_PROFILE_CLAUDE_CODE_CLI: &str = "claude-code-cli";
 /// Claude Code pinned to the `fable` model. Same executor family as
 /// claude-code; the model is forced backend-side when the message carries none.
-const AGENT_TYPE_CLAUDE_CODE_FABLE: &str = "claude-code-fable";
-pub(crate) const AGENT_TYPE_CODEX: &str = "codex";
+const AGENT_PROFILE_CLAUDE_CODE_FABLE: &str = "claude-code-fable";
+const AGENT_PROFILE_CODEX: &str = "codex";
 
-/// Resolve a raw agent-type string into the canonical harness identifier,
+/// Resolve an Agent profile id into the harness that runs it,
 /// rejecting values this Sandbox has no harness for.
 ///
 /// An unsupported harness fails at startup rather than silently falling through
 /// to Claude; the Claude transport, model, and mode variants all resolve to the
 /// one Claude harness.
-pub(crate) fn resolve_agent_harness(raw: &str) -> Result<&'static str, String> {
+pub(crate) fn resolve_agent_harness(raw: &str) -> Result<moatless_types::agent::Harness, String> {
     match raw {
-        AGENT_TYPE_CODEX => Ok(AGENT_TYPE_CODEX),
-        AGENT_TYPE_CLAUDE_CODE
-        | AGENT_TYPE_CLAUDE_CODE_TUI
-        | AGENT_TYPE_CLAUDE_CODE_CLI
-        | AGENT_TYPE_CLAUDE_CODE_FABLE => Ok(AGENT_TYPE_CLAUDE_CODE),
+        AGENT_PROFILE_CODEX => Ok(moatless_types::agent::Harness::Codex),
+        AGENT_PROFILE_CLAUDE_CODE
+        | AGENT_PROFILE_CLAUDE_CODE_TUI
+        | AGENT_PROFILE_CLAUDE_CODE_CLI
+        | AGENT_PROFILE_CLAUDE_CODE_FABLE => Ok(moatless_types::agent::Harness::ClaudeCode),
         other => Err(format!(
             "unsupported Agent harness '{other}' (expected one of: \
-             {AGENT_TYPE_CLAUDE_CODE}, {AGENT_TYPE_CLAUDE_CODE_TUI}, \
-             {AGENT_TYPE_CLAUDE_CODE_CLI}, {AGENT_TYPE_CLAUDE_CODE_FABLE}, {AGENT_TYPE_CODEX})"
+             {AGENT_PROFILE_CLAUDE_CODE}, {AGENT_PROFILE_CLAUDE_CODE_TUI}, \
+             {AGENT_PROFILE_CLAUDE_CODE_CLI}, {AGENT_PROFILE_CLAUDE_CODE_FABLE}, {AGENT_PROFILE_CODEX})"
         )),
     }
 }
@@ -63,11 +64,11 @@ pub fn build_harness(
     config: &Arc<Config>,
     agent_state: &Arc<AgentState>,
     credential_failures: &CredentialFailureDetector,
-    agent_type: &str,
+    agent_profile: &str,
     events: Option<GrpcEventPublisher>,
     trajectory: Option<Arc<TrajectoryRecording>>,
-) -> Result<Harness, HarnessError> {
-    let harness = resolve_agent_harness(agent_type).map_err(|diagnostic| {
+) -> Result<HarnessRuntime, HarnessError> {
+    let harness = resolve_agent_harness(agent_profile).map_err(|diagnostic| {
         HarnessError::new(
             FailureStage::Startup,
             ErrorClass::InvalidConfiguration,
@@ -76,8 +77,8 @@ pub fn build_harness(
         )
     })?;
 
-    if harness == AGENT_TYPE_CODEX {
-        return Ok(Harness::codex(CodexConfig {
+    if harness == moatless_types::agent::Harness::Codex {
+        return Ok(HarnessRuntime::codex(CodexConfig {
             config: Arc::clone(config),
             credential_failures: credential_failures.clone(),
             trajectory,
@@ -87,14 +88,14 @@ pub fn build_harness(
     let claude = ClaudeConfig {
         config: Arc::clone(config),
         agent_state: Arc::clone(agent_state),
-        agent_type: Some(agent_type.to_string()),
+        agent_profile: Some(agent_profile.to_string()),
         events,
         trajectory,
     };
     Ok(if config.use_tmux {
-        Harness::claude_persistent(claude)
+        HarnessRuntime::claude_persistent(claude)
     } else {
-        Harness::claude(claude)
+        HarnessRuntime::claude(claude)
     })
 }
 
@@ -116,13 +117,13 @@ pub fn spawn_agent(
     setup_gate: crate::init::SetupGate,
 ) -> AgentHandle {
     let (command_tx, command_rx) = mpsc::unbounded_channel::<AgentCommand>();
-    let agent_type = config.agent_type.as_deref().unwrap_or("");
+    let agent_profile = config.agent_profile.as_deref().unwrap_or("");
 
     match build_harness(
         &config,
         &agent_state,
         &credential_failures,
-        agent_type,
+        agent_profile,
         Some(events.clone()),
         Some(TrajectoryRecording::new(Arc::clone(&backend_client))),
     ) {
@@ -179,9 +180,7 @@ pub fn spawn_agent(
 mod tests {
     use std::sync::Arc;
 
-    use super::{
-        AGENT_TYPE_CLAUDE_CODE, AGENT_TYPE_CODEX, build_harness, resolve_agent_harness, spawn_agent,
-    };
+    use super::{build_harness, resolve_agent_harness, spawn_agent};
     use crate::agent::agent_state::AgentState;
     use crate::agent::harness::ErrorClass;
     use crate::agent::heartbeat::Heartbeat;
@@ -267,17 +266,17 @@ mod tests {
         GrpcEventPublisher::new(outbox)
     }
 
-    /// `spawn_agent` with an unsupported `agent_type` must return an
+    /// `spawn_agent` with an unsupported `agent_profile` must return an
     /// `AgentHandle` whose channel closes promptly (the poison task drops
     /// `command_rx` so `is_closed()` becomes true and `/livez` restarts the
     /// pod).
     #[tokio::test]
-    async fn spawn_agent_with_invalid_agent_type_closes_channel_promptly() {
+    async fn spawn_agent_with_invalid_agent_profile_closes_channel_promptly() {
         let cancel = CancellationToken::new();
         let events = make_publisher(cancel.clone());
 
         let mut config = minimal_config();
-        config.agent_type = Some("gpt-9000".to_string()); // not a supported harness
+        config.agent_profile = Some("gpt-9000".to_string()); // not a supported harness
 
         let handle = spawn_agent(
             Arc::new(config),
@@ -311,15 +310,15 @@ mod tests {
         cancel.cancel();
     }
 
-    /// A missing `AGENT_TYPE` is a classified invalid configuration that closes
+    /// A missing `AGENT_PROFILE` is a classified invalid configuration that closes
     /// the handle for liveness.
     #[tokio::test]
-    async fn spawn_agent_without_agent_type_closes_channel_promptly() {
+    async fn spawn_agent_without_agent_profile_closes_channel_promptly() {
         let cancel = CancellationToken::new();
         let events = make_publisher(cancel.clone());
 
         let mut config = minimal_config();
-        config.agent_type = None;
+        config.agent_profile = None;
 
         let handle = spawn_agent(
             Arc::new(config),
@@ -365,7 +364,7 @@ mod tests {
     #[tokio::test]
     async fn build_harness_rejects_unsupported_type_as_invalid_configuration() {
         let (config, agent_state, failures) = harness_inputs(false);
-        // `Harness` has no `Debug`, so match rather than `expect_err`.
+        // `HarnessRuntime` has no `Debug`, so match rather than `expect_err`.
         let err = match build_harness(&config, &agent_state, &failures, "gpt-9000", None, None) {
             Ok(_) => panic!("unsupported harness must fail"),
             Err(err) => err,
@@ -376,7 +375,7 @@ mod tests {
 
     #[tokio::test]
     async fn build_harness_constructs_each_supported_selection() {
-        // Every supported (agent_type, transport) composes a harness rather than
+        // Every supported (agent_profile, transport) composes a harness rather than
         // panicking or erroring; the routing decision itself — which family each
         // raw type collapses to — is asserted by the `resolve_agent_harness` tests
         // below (the single source of truth `build_harness` matches on). The
@@ -385,17 +384,17 @@ mod tests {
         // surviving a restart is covered for both families by
         // `sandbox_replacement_ordering` (gated `SANDBOX_REPLACEMENT_E2E`) — not
         // by inspecting a private tag here.
-        for (agent_type, use_tmux) in [
+        for (agent_profile, use_tmux) in [
             ("codex", false),
             ("claude-code", false),
             ("claude-code", true),
             ("claude-code-cli", false),
         ] {
             let (config, agent_state, failures) = harness_inputs(use_tmux);
-            // `Harness` has no `Debug`, so assert on the `is_ok()` bool.
+            // `HarnessRuntime` has no `Debug`, so assert on the `is_ok()` bool.
             assert!(
-                build_harness(&config, &agent_state, &failures, agent_type, None, None).is_ok(),
-                "{agent_type} (tmux={use_tmux}) should construct"
+                build_harness(&config, &agent_state, &failures, agent_profile, None, None).is_ok(),
+                "{agent_profile} (tmux={use_tmux}) should construct"
             );
         }
     }
@@ -408,13 +407,19 @@ mod tests {
             "claude-code-cli",
             "claude-code-fable",
         ] {
-            assert_eq!(resolve_agent_harness(raw).unwrap(), AGENT_TYPE_CLAUDE_CODE);
+            assert_eq!(
+                resolve_agent_harness(raw).unwrap(),
+                moatless_types::agent::Harness::ClaudeCode
+            );
         }
     }
 
     #[test]
     fn resolve_agent_harness_accepts_codex() {
-        assert_eq!(resolve_agent_harness("codex").unwrap(), AGENT_TYPE_CODEX);
+        assert_eq!(
+            resolve_agent_harness("codex").unwrap(),
+            moatless_types::agent::Harness::Codex
+        );
     }
 
     #[test]

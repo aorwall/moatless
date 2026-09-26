@@ -25,7 +25,7 @@ use moatless_api_schemas::task::{
     CloseTaskRequest, CreateTaskRequest, ForkTaskRequest, ListTasksQuery,
     UpdateTaskMetadataRequest, UpdateTaskTtlRequest,
 };
-use moatless_types::agent::{AgentMode, AgentType};
+use moatless_types::agent::{AgentMode, AgentProfile};
 
 #[derive(Subcommand)]
 pub enum TaskAction {
@@ -122,9 +122,9 @@ pub enum TaskAction {
         #[arg(
             long,
             required = true,
-            value_parser = clap::builder::PossibleValuesParser::new(AgentType::SUPPORTED)
+            value_parser = clap::builder::PossibleValuesParser::new(AgentProfile::SUPPORTED)
         )]
-        agent_type: String,
+        agent_profile: String,
         /// Model for the chosen harness, e.g. `haiku` or `gpt-5.5`
         #[arg(long)]
         model: Option<String>,
@@ -299,7 +299,7 @@ pub async fn run(
             message,
             context_files,
             branch,
-            agent_type,
+            agent_profile,
             model,
             headless,
         } => {
@@ -345,7 +345,7 @@ pub async fn run(
                 run_as_user_id: run_as,
                 // The CLI always drives the agent in edit mode; plan mode is a UI affordance.
                 agent_mode: Some(AgentMode("edit".to_string())),
-                agent_type: Some(AgentType(agent_type)),
+                agent_profile: Some(AgentProfile(agent_profile)),
                 contexts: Vec::new(),
                 description: None,
                 file_ids,
@@ -622,7 +622,7 @@ mod tests {
     }
 
     fn parse_create(extra: &[&str]) -> Result<TaskAction, clap::Error> {
-        let mut argv = vec!["moat", "create", "--agent-type", "claude-code"];
+        let mut argv = vec!["moat", "create", "--agent-profile", "claude-code"];
         argv.extend_from_slice(extra);
         <TestCli as clap::Parser>::try_parse_from(argv).map(|cli| cli.action)
     }

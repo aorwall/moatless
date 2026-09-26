@@ -239,7 +239,7 @@ async function main() {
       createdPerHour,
       closedSameDay: created.filter((t) => t.status === "closed").length,
       costCreatedUsd: +created.reduce((a, t) => a + (t.totalCostUsd ?? 0), 0).toFixed(2),
-      byAgentType: tally(created, (t) => t.agentType),
+      byAgentProfile: tally(created, (t) => t.agentProfile),
       byRepo: tally(created, (t) => t.repositoryName),
     };
     console.log(
@@ -267,7 +267,7 @@ async function main() {
         taskId: t.taskId,
         name: t.name ?? t.title,
         repo: t.repositoryName,
-        agentType: t.agentType,
+        agentProfile: t.agentProfile,
         status: t.status,
         createdInWindow: inWindow(t.createdAt),
         lastMessageHour: inWindow(t.lastMessageAt) ? new Date(t.lastMessageAt).getUTCHours() : null,

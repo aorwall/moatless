@@ -11,7 +11,7 @@ fn reconcile_error_event_is_deterministic_per_task_and_turn() {
     let turn = UnclosedTurn {
         task_id: "task-9".to_string(),
         turn_number: Some(4),
-        agent_type: Some("claude".to_string()),
+        agent_profile: Some("claude".to_string()),
     };
 
     let event = reconcile_error_event(&turn);
@@ -20,7 +20,7 @@ fn reconcile_error_event_is_deterministic_per_task_and_turn() {
     assert_eq!(event.sub_type, "error");
     assert_eq!(event.task_id, "task-9");
     assert!(event.is_error);
-    assert_eq!(event.agent_type.as_deref(), Some("claude"));
+    assert_eq!(event.agent_profile.as_deref(), Some("claude"));
     assert_eq!(event.turn_number, Some(4));
     assert_eq!(
         event.payload.get("reason").and_then(|v| v.as_str()),
@@ -37,7 +37,7 @@ fn reconcile_error_event_labels_a_numberless_turn() {
     let turn = UnclosedTurn {
         task_id: "task-3".to_string(),
         turn_number: None,
-        agent_type: None,
+        agent_profile: None,
     };
     assert_eq!(
         reconcile_error_event(&turn).event_id,

@@ -6,10 +6,10 @@ use tracing::warn;
 use super::scalar::non_empty;
 use crate::AgentModelDefaults;
 use crate::agent::catalog;
-use crate::agent::catalog::UiRpcAgentKind;
 use crate::dao::Conversation;
 use crate::providers;
 use crate::workspace::WorkspaceView as Workspace;
+use moatless_types::agent::Harness;
 
 /// The last resort of the model chain, and the only invented value in the row.
 ///
@@ -50,22 +50,22 @@ pub(super) fn model_name(conversation: &Conversation, defaults: &AgentModelDefau
     }
     // 3. The deployment's default for this kind of agent. Optional
     //    configuration: a deployment that sets none falls through.
-    if let Some(model) = defaults.for_kind(agent_kind(conversation)) {
+    if let Some(model) = defaults.for_harness(harness(conversation)) {
         return model.to_string();
     }
     // 4. The invention, logged so it is visible rather than silent.
     warn!(
         task_id = %conversation.task_id,
-        agent_type = %conversation.agent_type,
+        agent_profile = %conversation.agent_profile,
         "No model could be resolved for the conversation; reporting a placeholder"
     );
     UNKNOWN_MODEL.to_string()
 }
 
 /// Which driver family backs this conversation's agent.
-fn agent_kind(conversation: &Conversation) -> UiRpcAgentKind {
-    catalog::find(conversation.agent_type.as_str())
-        .map_or(UiRpcAgentKind::ClaudeCode, |entry| entry.kind)
+fn harness(conversation: &Conversation) -> Harness {
+    catalog::find(conversation.agent_profile.as_str())
+        .map_or(Harness::ClaudeCode, |entry| entry.harness)
 }
 
 /// The provider instance a model is resolved against.
@@ -73,9 +73,9 @@ fn agent_kind(conversation: &Conversation) -> UiRpcAgentKind {
 /// The routing key, not part of the model name. An instance a build does not
 /// recognize is marked unavailable at runtime rather than refusing to decode.
 pub(super) fn provider_instance(conversation: &Conversation) -> &'static str {
-    match agent_kind(conversation) {
-        UiRpcAgentKind::ClaudeCode => "claudeAgent",
-        UiRpcAgentKind::Codex => "codex",
+    match harness(conversation) {
+        Harness::ClaudeCode => "claudeAgent",
+        Harness::Codex => "codex",
     }
 }
 

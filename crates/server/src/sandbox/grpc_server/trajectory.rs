@@ -1,6 +1,7 @@
 //! `AppendTrajectory` and `ReadTrajectory`: the trajectory a sandbox records
 //! its harness session file into, and writes it back out from.
 
+use moatless_types::agent::Harness;
 use std::pin::Pin;
 
 use futures::Stream;
@@ -13,7 +14,7 @@ use sandbox_proto::{
 };
 
 use moatless_tasks::trajectory::models::{
-    AppendError, ChainError, ForkCut, Harness, NewEvent, TrajectorySession,
+    AppendError, ChainError, ForkCut, NewEvent, TrajectorySession,
 };
 use moatless_tasks::trajectory::operations::Trajectories;
 

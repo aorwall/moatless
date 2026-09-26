@@ -15,7 +15,7 @@ async fn coordinator_service_active_stop_publishes_exactly_one_stopped() {
     let cancel = CancellationToken::new();
     let config = {
         let mut c = minimal_config();
-        c.agent_type = Some("claude-code".to_string());
+        c.agent_profile = Some("claude-code".to_string());
         Arc::new(c)
     };
     let agent_state = Arc::new(AgentState::new());
@@ -69,7 +69,7 @@ async fn coordinator_service_idle_stop_publishes_exactly_one_stopped() {
     let cancel = CancellationToken::new();
     let config = {
         let mut c = minimal_config();
-        c.agent_type = Some("claude-code".to_string());
+        c.agent_profile = Some("claude-code".to_string());
         Arc::new(c)
     };
     let agent_state = Arc::new(AgentState::new());
@@ -113,7 +113,7 @@ async fn coordinator_service_duplicate_stop_emits_exactly_one_stopped() {
     let cancel = CancellationToken::new();
     let config = {
         let mut c = minimal_config();
-        c.agent_type = Some("claude-code".to_string());
+        c.agent_profile = Some("claude-code".to_string());
         Arc::new(c)
     };
     let agent_state = Arc::new(AgentState::new());
@@ -171,7 +171,7 @@ async fn coordinator_service_cancel_token_publishes_turn_interrupted_not_stopped
     let cancel = CancellationToken::new();
     let config = {
         let mut c = minimal_config();
-        c.agent_type = Some("claude-code".to_string());
+        c.agent_profile = Some("claude-code".to_string());
         Arc::new(c)
     };
     let agent_state = Arc::new(AgentState::new());

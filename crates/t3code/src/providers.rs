@@ -1,7 +1,7 @@
 //! The Moatless agent catalog, as T3's provider list.
 //!
 //! Two instances, not five: `instanceId` is a routing key the thread projection
-//! derives from a Task's agent kind, immutable once the Task exists, so one
+//! derives from a Task's harness, immutable once the Task exists, so one
 //! instance per catalog agent would rewrite it mid-thread.
 //!
 //! Publishes T3's canonical slugs and names (its alias table maps only towards
@@ -11,18 +11,19 @@ use moatless_types::agent::{claude_model_alias, claude_model_id};
 use serde_json::{Value, json};
 
 use crate::AgentModelDefaults;
-use crate::agent::catalog::{UNRESOLVED_MODEL_CHOICE, UiRpcAgentKind, catalog};
+use crate::agent::catalog::{UNRESOLVED_MODEL_CHOICE, catalog};
 use crate::agent::schemas::AgentDescriptor;
+use moatless_types::agent::Harness;
 
 /// The two provider instances this surface publishes, in display order.
 pub const CLAUDE_INSTANCE: &str = "claudeAgent";
 pub const CODEX_INSTANCE: &str = "codex";
 
 /// Which instance a catalog agent belongs to.
-pub fn instance_for(kind: UiRpcAgentKind) -> &'static str {
-    match kind {
-        UiRpcAgentKind::ClaudeCode => CLAUDE_INSTANCE,
-        UiRpcAgentKind::Codex => CODEX_INSTANCE,
+pub fn instance_for(harness: Harness) -> &'static str {
+    match harness {
+        Harness::ClaudeCode => CLAUDE_INSTANCE,
+        Harness::Codex => CODEX_INSTANCE,
     }
 }
 
@@ -213,7 +214,7 @@ pub fn publish_model(catalog_model: &str) -> Option<(&'static str, String)> {
         .iter()
         .find(|agent| agent.models.iter().any(|m| m.id == catalog_model))
         .map(|agent| {
-            let instance = instance_for(agent.kind);
+            let instance = instance_for(agent.harness);
             (instance, published_slug(instance, catalog_model))
         })
 }
@@ -239,7 +240,8 @@ fn models_for(agents: &[AgentDescriptor], instance: &str) -> Vec<(String, String
 
 /// The instance a descriptor belongs to, looked up through the catalog.
 fn kind_of(agent: &AgentDescriptor) -> &'static str {
-    crate::agent::catalog::find(&agent.id).map_or(CLAUDE_INSTANCE, |entry| instance_for(entry.kind))
+    crate::agent::catalog::find(&agent.id)
+        .map_or(CLAUDE_INSTANCE, |entry| instance_for(entry.harness))
 }
 
 /// The catalog id of the model to mark `isDefault` for an instance.
@@ -292,13 +294,13 @@ pub fn providers(
     workspace_snapshots: &[Value],
 ) -> Vec<Value> {
     [
-        (CLAUDE_INSTANCE, "Claude Code", UiRpcAgentKind::ClaudeCode),
-        (CODEX_INSTANCE, "Codex", UiRpcAgentKind::Codex),
+        (CLAUDE_INSTANCE, "Claude Code", Harness::ClaudeCode),
+        (CODEX_INSTANCE, "Codex", Harness::Codex),
     ]
     .into_iter()
-    .map(|(instance, display_name, kind)| {
+    .map(|(instance, display_name, harness)| {
         let is_installed = installed(agents, instance);
-        let default_model = default_model_for(agents, instance, defaults.for_kind(kind));
+        let default_model = default_model_for(agents, instance, defaults.for_harness(harness));
         let models: Vec<Value> = models_for(agents, instance)
             .into_iter()
             .map(|(id, label)| {

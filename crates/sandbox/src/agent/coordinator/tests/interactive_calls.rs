@@ -24,7 +24,7 @@ async fn a_call_the_permission_handler_announced_is_not_published_again() {
     // The claim the handler took on its way into the wait.
     assert!(agent_state.claim_prompt_publication("toolu_plan").await);
 
-    let mut coord = Coordinator::new(Harness::scripted(script), events.clone(), "task-1")
+    let mut coord = Coordinator::new(HarnessRuntime::scripted(script), events.clone(), "task-1")
         .driving(Arc::clone(&agent_state));
     let (ack_tx, _ack_rx) = oneshot::channel();
     coord
@@ -71,7 +71,7 @@ async fn a_call_that_arrives_first_publishes_and_takes_the_claim() {
         Step::Completed,
     ]);
     let agent_state = Arc::new(crate::agent::agent_state::AgentState::new());
-    let mut coord = Coordinator::new(Harness::scripted(script), events.clone(), "task-1")
+    let mut coord = Coordinator::new(HarnessRuntime::scripted(script), events.clone(), "task-1")
         .driving(Arc::clone(&agent_state));
     let (ack_tx, _ack_rx) = oneshot::channel();
     coord

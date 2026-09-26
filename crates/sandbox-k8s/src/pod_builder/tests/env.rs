@@ -266,24 +266,24 @@ fn pod_spec_emits_bootstrap_and_optional_legacy_token() {
 }
 
 /// The Task's fixed Agent-harness selection reaches the sandbox container as
-/// `AGENT_TYPE` at construction, so the sandbox resolves its harness once
+/// `AGENT_PROFILE` at construction, so the sandbox resolves its harness once
 /// instead of switching per Message.
 ///
 /// `auto_provision` stamps this into `plan.env_vars`; here we prove the builder
 /// delivers it verbatim.
 #[test]
-fn agent_type_env_reaches_the_sandbox_container() {
+fn agent_profile_env_reaches_the_sandbox_container() {
     let config = test_config();
     let mut plan = test_plan();
     plan.env_vars = Some(std::collections::HashMap::from([(
-        "AGENT_TYPE".to_string(),
+        "AGENT_PROFILE".to_string(),
         "codex".to_string(),
     )]));
     let pod = build_pod(&config, "task-1", &plan, None, None).unwrap();
     assert_eq!(
         sandbox_env(&pod)
             .iter()
-            .find(|e| e.name == "AGENT_TYPE")
+            .find(|e| e.name == "AGENT_PROFILE")
             .and_then(|e| e.value.as_deref()),
         Some("codex"),
     );

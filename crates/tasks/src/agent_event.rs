@@ -37,7 +37,7 @@ pub struct AgentEvent {
     pub task_id: String,
     pub timestamp: String,
     pub is_error: bool,
-    pub agent_type: Option<String>,
+    pub agent_profile: Option<String>,
     pub turn_number: Option<i32>,
     pub payload: serde_json::Value,
 }
@@ -88,7 +88,7 @@ mod tests {
             "taskId": "task-1",
             "timestamp": "2025-01-01T00:00:00Z",
             "isError": false,
-            "agentType": "claude",
+            "agentProfile": "claude",
             "turnNumber": 3,
             "payload": { "key": "value" }
         });
@@ -98,7 +98,7 @@ mod tests {
         assert_eq!(evt.sub_type, "completed");
         assert_eq!(evt.task_id, "task-1");
         assert!(!evt.is_error);
-        assert_eq!(evt.agent_type.as_deref(), Some("claude"));
+        assert_eq!(evt.agent_profile.as_deref(), Some("claude"));
         assert_eq!(evt.turn_number, Some(3));
     }
 
@@ -116,7 +116,7 @@ mod tests {
         let evt: AgentEvent = serde_json::from_value(v).unwrap();
         assert_eq!(evt.event_type, EventType::Agent);
         assert!(evt.is_error);
-        assert!(evt.agent_type.is_none());
+        assert!(evt.agent_profile.is_none());
         assert!(evt.turn_number.is_none());
     }
 

@@ -29,7 +29,7 @@ use moatless_tasks::agent::catalog;
 use moatless_tasks::task::models::TaskStatus;
 use moatless_tasks::task::models::Visibility;
 use moatless_types::access_control::ScopeContext;
-use moatless_types::agent::{AgentMode, AgentType};
+use moatless_types::agent::{AgentMode, AgentProfile};
 use moatless_workspaces::compose;
 use sqlx::PgPool;
 
@@ -773,7 +773,10 @@ async fn a_bootstrapped_thread_is_created_under_the_clients_id_with_its_message(
         task.name, None,
         "the client's title is its own; the agent names the Task on its first turn"
     );
-    assert_eq!(task.agent_type, AgentType(catalog::CLAUDE_CODE.id.into()));
+    assert_eq!(
+        task.agent_profile,
+        AgentProfile(catalog::CLAUDE_CODE.id.into())
+    );
 
     assert_eq!(
         message_uuids(&pool, task_id).await,
@@ -932,7 +935,10 @@ async fn a_fork_is_created_under_the_clients_id_referencing_its_source(pool: PgP
         .await
         .unwrap()
         .expect("the fork exists under the id T3 minted");
-    assert_eq!(task.agent_type, AgentType(catalog::CLAUDE_CODE.id.into()));
+    assert_eq!(
+        task.agent_profile,
+        AgentProfile(catalog::CLAUDE_CODE.id.into())
+    );
 
     let source_task_id: String = sqlx::query_scalar(
         "SELECT to_task_id FROM task_relations WHERE from_task_id = $1 AND relation_type = 'forked_from'",

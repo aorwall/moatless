@@ -640,7 +640,7 @@ mod tests {
 
         assert!(rule.active);
         assert!(rule.workspace_id.is_empty());
-        assert!(rule.agent_type.as_str().is_empty());
+        assert!(rule.agent_profile.as_str().is_empty());
         assert!(rule.prompt_template.is_none());
         assert_eq!(rule.event_filter, serde_json::json!([]));
         assert_eq!(rule.source_matcher, "acme/widget");

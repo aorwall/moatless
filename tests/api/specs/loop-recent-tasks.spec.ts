@@ -47,7 +47,7 @@ test.describe('Standalone: Schedule loop recent tasks', () => {
 
     try {
       psql(
-        'INSERT INTO tasks (task_id, short_id, created_at, last_message_at, agent_type, ' +
+        'INSERT INTO tasks (task_id, short_id, created_at, last_message_at, agent_profile, ' +
           'repository_id, workspace_id, status, total_cost_usd, visibility, scope, team_id, ' +
           `headless, ttl_minutes, inactive_ttl_days, loop_id) VALUES ('${taskId}', ` +
           `'${taskId.slice(0, 8)}', (now() AT TIME ZONE 'UTC')::text, ` +

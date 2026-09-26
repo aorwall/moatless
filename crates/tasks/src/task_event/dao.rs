@@ -72,7 +72,7 @@ impl TaskEventDao for PgTaskEventDao {
         sqlx::query(
             r#"INSERT INTO task_events (
                 event_id, task_id, type, sub_type, is_error,
-                agent_type, turn_number, payload, timestamp
+                agent_profile, turn_number, payload, timestamp
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             ON CONFLICT (event_id) DO NOTHING"#,
         )
@@ -81,7 +81,7 @@ impl TaskEventDao for PgTaskEventDao {
         .bind(&event.event_type)
         .bind(&event.sub_type)
         .bind(event.is_error)
-        .bind(&event.agent_type)
+        .bind(&event.agent_profile)
         .bind(event.turn_number)
         .bind(&event.payload)
         .bind(&event.timestamp)
@@ -110,7 +110,7 @@ impl TaskEventDao for PgTaskEventDao {
         let mut rows = sqlx::query_as::<_, TaskEvent>(
             r#"SELECT
                 id::bigint AS id, event_id, task_id, type AS event_type, sub_type, is_error,
-                agent_type, turn_number, payload::jsonb AS payload, timestamp, created_at
+                agent_profile, turn_number, payload::jsonb AS payload, timestamp, created_at
             FROM task_events
             WHERE task_id = $1
               AND ($2::text[] IS NULL OR type = ANY($2))

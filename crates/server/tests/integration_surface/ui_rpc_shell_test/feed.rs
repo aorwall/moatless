@@ -82,7 +82,7 @@ pub(super) async fn ingress(
             event_type: event_type.to_string(),
             sub_type: sub_type.to_string(),
             is_error: sub_type == "error",
-            agent_type: Some("claude_code".to_string()),
+            agent_profile: Some("claude_code".to_string()),
             turn_number,
             payload: json!({}),
             timestamp: Utc::now().to_rfc3339(),

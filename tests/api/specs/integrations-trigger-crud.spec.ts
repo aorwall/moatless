@@ -172,7 +172,7 @@ test.describe('Chain 2: Schedule Loop CRUD', () => {
       timezone: 'UTC',
       taskName: 'Scheduled smoke task',
       prompt: 'Scheduled prompt: {message}',
-      agentType: 'codex',
+      agentProfile: 'codex',
     })
 
     expect(loop.kind).toBe('schedule')

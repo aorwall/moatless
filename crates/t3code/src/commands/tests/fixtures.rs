@@ -379,13 +379,13 @@ impl AgentCatalogSource for StubAgents {
     }
 }
 
-pub(super) fn conversation(agent_type: &str) -> Conversation {
+pub(super) fn conversation(agent_profile: &str) -> Conversation {
     Conversation {
         task_id: "task-1".to_string(),
         workspace_id: Some("ws-1".to_string()),
         name: None,
         branch: None,
-        agent_type: AgentType(agent_type.to_string()),
+        agent_profile: AgentProfile(agent_profile.to_string()),
         created_at: "2026-07-01T09:00:00.000Z".to_string(),
         created_at_db: None,
         updated_at: None,
@@ -418,7 +418,7 @@ pub(super) fn conversation(agent_type: &str) -> Conversation {
 pub(super) fn named(name: &str) -> Conversation {
     Conversation {
         name: Some(name.to_string()),
-        ..conversation(AgentType::CLAUDE_CODE)
+        ..conversation(AgentProfile::CLAUDE_CODE)
     }
 }
 
@@ -460,7 +460,7 @@ pub(super) fn viewer() -> ScopeContext {
 
 /// Run one command against a Claude thread that exists.
 pub(super) async fn run(command: Value) -> (Result<Value, CommandRefusal>, Vec<Call>) {
-    run_against(command, Some(conversation(AgentType::CLAUDE_CODE))).await
+    run_against(command, Some(conversation(AgentProfile::CLAUDE_CODE))).await
 }
 
 /// Run one command against a thread whose stored call is `call`.
@@ -468,7 +468,7 @@ pub(super) async fn run_answering(
     command: Value,
     call: Option<InteractiveCall>,
 ) -> (Result<Value, CommandRefusal>, Vec<Call>) {
-    let mut dao = conversations(Some(conversation(AgentType::CLAUDE_CODE)));
+    let mut dao = conversations(Some(conversation(AgentProfile::CLAUDE_CODE)));
     dao.expect_interactive_call()
         .returning(move |_, _| Ok(call.clone()));
     dispatch_against(dao, command).await

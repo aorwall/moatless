@@ -100,9 +100,9 @@ pub struct AgentRunRequest {
     /// Session ID to resume, or `true` to resume last session.
     #[serde(default)]
     pub resume: Option<ResumeSession>,
-    /// Agent type identifier.
+    /// Agent profile identifier.
     #[serde(default)]
-    pub agent_type: Option<String>,
+    pub agent_profile: Option<String>,
     /// Agent mode identifier.
     #[serde(default)]
     pub agent_mode: Option<String>,
@@ -278,7 +278,7 @@ mod tests {
             model: None,
             system_prompt: None,
             resume: None,
-            agent_type: None,
+            agent_profile: None,
             agent_mode: None,
             effort: None,
         };
@@ -292,7 +292,7 @@ mod tests {
             model: None,
             system_prompt: None,
             resume: None,
-            agent_type: None,
+            agent_profile: None,
             agent_mode: None,
             effort: None,
         };
@@ -314,12 +314,12 @@ mod tests {
             "content": [],
             "model": "claude-sonnet-4-5-20250929",
             "resume": true,
-            "agentType": "claude-code"
+            "agentProfile": "claude-code"
         }"#;
         let req: AgentRunRequest = serde_json::from_str(json).unwrap();
         assert_eq!(req.model.as_deref(), Some("claude-sonnet-4-5-20250929"));
         assert_eq!(req.resume, Some(ResumeSession::Last));
-        assert_eq!(req.agent_type.as_deref(), Some("claude-code"));
+        assert_eq!(req.agent_profile.as_deref(), Some("claude-code"));
     }
 
     #[test]

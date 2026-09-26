@@ -12,7 +12,7 @@ async fn ack_is_withheld_until_input_accepted() {
         Step::Block(block("msg-1", text_block("hello"), Role::Assistant)),
         Step::Completed,
     ]);
-    let mut coord = Coordinator::new(Harness::scripted(script), events.clone(), "task-1");
+    let mut coord = Coordinator::new(HarnessRuntime::scripted(script), events.clone(), "task-1");
     let (ack_tx, mut ack_rx) = oneshot::channel();
     coord
         .submit(Input::text("in-1", "hi"), ack_tx)
@@ -31,7 +31,11 @@ async fn ack_is_withheld_until_input_accepted() {
 #[tokio::test]
 async fn injected_input_ack_waits_for_following_source() {
     let (events, _received, _cancel) = recording_publisher();
-    let mut coord = Coordinator::new(Harness::scripted(Script::new(vec![])), events, "task-1");
+    let mut coord = Coordinator::new(
+        HarnessRuntime::scripted(Script::new(vec![])),
+        events,
+        "task-1",
+    );
 
     let (first_ack, first_rx) = oneshot::channel();
     coord
@@ -87,7 +91,11 @@ async fn injected_input_ack_waits_for_following_source() {
 #[tokio::test]
 async fn injected_input_ack_resolves_on_following_activity() {
     let (events, _received, _cancel) = recording_publisher();
-    let mut coord = Coordinator::new(Harness::scripted(Script::new(vec![])), events, "task-1");
+    let mut coord = Coordinator::new(
+        HarnessRuntime::scripted(Script::new(vec![])),
+        events,
+        "task-1",
+    );
 
     let (first_ack, first_rx) = oneshot::channel();
     coord
@@ -143,7 +151,11 @@ async fn injected_input_ack_resolves_on_following_activity() {
 #[tokio::test]
 async fn multiple_injected_input_acks_resolve_on_one_following_source() {
     let (events, _received, _cancel) = recording_publisher();
-    let mut coord = Coordinator::new(Harness::scripted(Script::new(vec![])), events, "task-1");
+    let mut coord = Coordinator::new(
+        HarnessRuntime::scripted(Script::new(vec![])),
+        events,
+        "task-1",
+    );
 
     let (first_ack, first_rx) = oneshot::channel();
     coord
@@ -210,7 +222,11 @@ async fn multiple_injected_input_acks_resolve_on_one_following_source() {
 #[tokio::test]
 async fn injected_input_ack_is_dropped_when_terminal_arrives_first() {
     let (events, _received, _cancel) = recording_publisher();
-    let mut coord = Coordinator::new(Harness::scripted(Script::new(vec![])), events, "task-1");
+    let mut coord = Coordinator::new(
+        HarnessRuntime::scripted(Script::new(vec![])),
+        events,
+        "task-1",
+    );
 
     let (first_ack, first_rx) = oneshot::channel();
     coord
@@ -264,7 +280,11 @@ async fn injected_input_ack_is_dropped_when_terminal_arrives_first() {
 #[tokio::test]
 async fn injected_input_ack_is_dropped_when_cancelled_terminal_arrives_first() {
     let (events, _received, _cancel) = recording_publisher();
-    let mut coord = Coordinator::new(Harness::scripted(Script::new(vec![])), events, "task-1");
+    let mut coord = Coordinator::new(
+        HarnessRuntime::scripted(Script::new(vec![])),
+        events,
+        "task-1",
+    );
 
     let (first_ack, first_rx) = oneshot::channel();
     coord
@@ -310,7 +330,11 @@ async fn injected_input_ack_is_dropped_when_cancelled_terminal_arrives_first() {
 #[tokio::test]
 async fn injected_input_ack_is_dropped_at_next_execution_start() {
     let (events, _received, _cancel) = recording_publisher();
-    let mut coord = Coordinator::new(Harness::scripted(Script::new(vec![])), events, "task-1");
+    let mut coord = Coordinator::new(
+        HarnessRuntime::scripted(Script::new(vec![])),
+        events,
+        "task-1",
+    );
 
     let (first_ack, first_rx) = oneshot::channel();
     coord
@@ -359,7 +383,7 @@ async fn injected_input_ack_is_dropped_at_next_execution_start() {
 async fn rejected_input_opens_no_run_and_drops_the_ack() {
     let (events, received, _cancel) = recording_publisher();
     let mut coord = Coordinator::new(
-        Harness::scripted(Script::rejecting(failure())),
+        HarnessRuntime::scripted(Script::rejecting(failure())),
         events.clone(),
         "task-1",
     );

@@ -1,15 +1,14 @@
 //! `trajectory_sessions` and `trajectory_events`: append, chain walk, cut
 //! resolution and fork sessions.
 
+use moatless_types::agent::Harness;
 use std::collections::HashSet;
 
 use moatless_core::db::DbPool;
 use serde_json::Value;
 use uuid::Uuid;
 
-use super::models::{
-    AppendError, AppendOutcome, ChainError, ForkCut, Harness, NewEvent, TrajectorySession,
-};
+use super::models::{AppendError, AppendOutcome, ChainError, ForkCut, NewEvent, TrajectorySession};
 
 macro_rules! session_columns {
     () => {

@@ -39,7 +39,7 @@ pub struct SandboxShape {
     pub run_as_user_id: Option<String>,
     pub branch: Option<String>,
     pub headless: bool,
-    pub agent_type: Option<String>,
+    pub agent_profile: Option<String>,
     pub use_tmux: bool,
     /// Extra node labels for the pod, already resolved Loop-over-Workspace at
     /// Sandbox creation so a pod rebuild keeps the placement it started with.
@@ -353,7 +353,7 @@ impl LifecycleDao for PgLifecycleDao {
                    t.task_id,
                    s.sandbox_id,
                    COALESCE(t.checkout_mode, 'shared') AS checkout_mode,
-                   t.agent_type
+                   t.agent_profile
                FROM sandboxes s
                JOIN tasks t ON t.sandbox_id = s.sandbox_id
                WHERE s.desired_state = 'running'
@@ -391,7 +391,7 @@ impl LifecycleDao for PgLifecycleDao {
     async fn sandbox_shape(&self, sandbox_id: &str) -> Result<Option<SandboxShape>, StoreError> {
         sqlx::query_as(
             r#"SELECT workspace_id, scope, owner_user_id, run_as_user_id,
-                      branch, headless, agent_type, use_tmux,
+                      branch, headless, agent_profile, use_tmux,
                       node_selector, stop_when_done
                FROM sandboxes
                WHERE sandbox_id = $1"#,
@@ -546,7 +546,7 @@ impl LifecycleDao for PgLifecycleDao {
         sqlx::query(
             r#"INSERT INTO task_events (
                    event_id, task_id, type, sub_type, is_error,
-                   agent_type, turn_number, payload, timestamp
+                   agent_profile, turn_number, payload, timestamp
                ) VALUES ($1, $2, 'sandbox', $3, $4, NULL, NULL, $5, $6)
                ON CONFLICT (event_id) DO NOTHING"#,
         )

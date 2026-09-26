@@ -9,7 +9,7 @@ pub struct InsertTaskEvent {
     pub event_type: String,
     pub sub_type: String,
     pub is_error: bool,
-    pub agent_type: Option<String>,
+    pub agent_profile: Option<String>,
     pub turn_number: Option<i32>,
     pub payload: serde_json::Value,
     pub timestamp: String,
@@ -24,7 +24,7 @@ pub struct TaskEvent {
     pub event_type: String,
     pub sub_type: String,
     pub is_error: bool,
-    pub agent_type: Option<String>,
+    pub agent_profile: Option<String>,
     pub turn_number: Option<i32>,
     pub payload: serde_json::Value,
     pub timestamp: String,
@@ -40,5 +40,5 @@ pub struct TaskEvent {
 pub struct UnclosedTurn {
     pub task_id: String,
     pub turn_number: Option<i32>,
-    pub agent_type: Option<String>,
+    pub agent_profile: Option<String>,
 }

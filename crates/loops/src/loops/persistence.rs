@@ -4,7 +4,7 @@ use crate::loops::models::{LoopSpawnConfig, Schedule};
 use chrono::{DateTime, Utc};
 use moatless_types::access_control::Scope;
 use moatless_types::adapter::AdapterKind;
-use moatless_types::agent::AgentType;
+use moatless_types::agent::AgentProfile;
 use moatless_types::loops::{RoutingMode, SubscriptionMatch};
 use std::collections::BTreeMap;
 
@@ -21,7 +21,7 @@ pub struct LoopSpawnConfigRow {
     pub tag_ids: Vec<String>,
     pub skills: Vec<String>,
     pub run_as_user_id: Option<String>,
-    pub agent_type: String,
+    pub agent_profile: String,
     pub model: Option<String>,
     pub inactive_ttl_days: Option<i32>,
     pub node_selector: Option<sqlx::types::Json<BTreeMap<String, String>>>,
@@ -38,7 +38,7 @@ pub struct LoopSpawnConfigRow {
 impl From<LoopSpawnConfigRow> for LoopSpawnConfig {
     fn from(row: LoopSpawnConfigRow) -> Self {
         Self {
-            agent_type: AgentType(row.agent_type),
+            agent_profile: AgentProfile(row.agent_profile),
             model: row.model,
             id: row.id,
             workspace_id: row.workspace_id,
@@ -80,7 +80,7 @@ pub struct SubscriptionMatchRow {
     pub tag_ids: Vec<String>,
     pub skills: Vec<String>,
     pub run_as_user_id: Option<String>,
-    pub agent_type: String,
+    pub agent_profile: String,
     pub model: Option<String>,
     pub inactive_ttl_days: Option<i32>,
     pub node_selector: Option<sqlx::types::Json<BTreeMap<String, String>>>,
@@ -104,7 +104,7 @@ impl From<SubscriptionMatchRow> for SubscriptionMatch {
     fn from(row: SubscriptionMatchRow) -> Self {
         Self {
             adapter_kind: AdapterKind::parse_or_webhook(&row.adapter_kind),
-            agent_type: AgentType(row.agent_type),
+            agent_profile: AgentProfile(row.agent_profile),
             model: row.model,
             id: row.id,
             name: row.name,

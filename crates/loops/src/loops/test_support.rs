@@ -43,7 +43,7 @@ pub async fn insert_manual_loop(
     .execute(db)
     .await?;
     sqlx::query(
-        "INSERT INTO loop_configs (loop_id, workspace_id, routing_mode, agent_type) \
+        "INSERT INTO loop_configs (loop_id, workspace_id, routing_mode, agent_profile) \
          VALUES ($1, $2, 'by_subject', 'claude-code')",
     )
     .bind(loop_id)

@@ -17,7 +17,7 @@ an API key. Do not print credentials when inspecting configuration.
 ```bash
 moat repos list --json
 moat workspaces list --json
-moat tasks create --workspace <workspace-id> --agent-type claude-code \
+moat tasks create --workspace <workspace-id> --agent-profile claude-code \
   --headless false --name "Sandbox smoke"
 moat tasks get <task-id> --json
 moat tasks status <task-id> --json
@@ -33,7 +33,7 @@ agent state and messages to determine whether a turn completed.
 Tasks may share a sandbox. Read `sandboxId` and `workspaceId` from task details
 before operating infrastructure or changing configuration. Select `--workspace`
 when a task needs a configured workspace; `--repo` may select its bare workspace.
-`--agent-type` is required, and `--headless` defaults to true.
+`--agent-profile` is required, and `--headless` defaults to true.
 
 ## Running a command that outlives one tool call
 

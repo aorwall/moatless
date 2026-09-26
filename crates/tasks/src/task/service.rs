@@ -28,7 +28,7 @@ use moatless_ports::identity::UserResolver;
 use moatless_ports::sandbox::SandboxLifecycle;
 use moatless_types::access_control::ensure_can_use_repository;
 use moatless_types::access_control::{ScopeContext, ScopedResource};
-use moatless_types::agent::AgentType;
+use moatless_types::agent::AgentProfile;
 use moatless_types::task::Visibility;
 use moatless_workspace_ports::{RepositoryReader, WorkspaceResolver};
 use moatless_workspace_types::repository::RepositoryKind;
@@ -233,7 +233,7 @@ pub async fn normalize(
         provision,
         first_message_uuid,
     } = intent;
-    let agent_type = validate_agent_type(req.agent_type.clone(), req.model.as_deref())?;
+    let agent_profile = validate_agent_profile(req.agent_profile.clone(), req.model.as_deref())?;
 
     let workspace_id = resolve_workspace_id(tasks, scope_ctx, &req).await?;
     let workspace = workspaces
@@ -281,7 +281,7 @@ pub async fn normalize(
     // a sandbox that dies on sign-in. Transient refresh errors (upstream
     // outage) do NOT block creation — the sandbox retries with the stored
     // blob.
-    if agent_type.as_str() == "codex" {
+    if agent_profile.as_str() == "codex" {
         if let Err(moatless_identity::credentials::CredentialError::NotFound(reason)) =
             credential_sync.ensure_fresh_codex_for(user_id, None).await
         {
@@ -301,7 +301,7 @@ pub async fn normalize(
         // its Workspace declares.
         sandbox_placement: crate::task::models::SandboxPlacement::default(),
         repository_id: repository_id.clone(),
-        agent_type,
+        agent_profile,
         name: req.name.clone(),
         description: req.description.clone(),
         branch: req.branch.clone().or(repo.default_branch.clone()),
@@ -431,18 +431,18 @@ pub(super) fn validate_task_name(name: &str) -> Result<(), TaskError> {
     Ok(())
 }
 
-fn validate_agent_type(
-    agent_type: Option<AgentType>,
+fn validate_agent_profile(
+    agent_profile: Option<AgentProfile>,
     model: Option<&str>,
-) -> Result<AgentType, TaskError> {
-    let Some(agent_type) = agent_type else {
-        return Err(agent_type_error("agentType is required"));
+) -> Result<AgentProfile, TaskError> {
+    let Some(agent_profile) = agent_profile else {
+        return Err(agent_profile_error("agentProfile is required"));
     };
-    catalog::validate_agent_model(agent_type.as_str(), model).map_err(TaskError::BadRequest)?;
-    Ok(agent_type)
+    catalog::validate_agent_model(agent_profile.as_str(), model).map_err(TaskError::BadRequest)?;
+    Ok(agent_profile)
 }
 
-fn agent_type_error(reason: &str) -> TaskError {
+fn agent_profile_error(reason: &str) -> TaskError {
     let options = catalog::catalog()
         .iter()
         .map(|entry| entry.id)
@@ -494,7 +494,7 @@ pub async fn reopen_task_for(
             .publish_task_event(
                 task_id,
                 TaskSubType::Open,
-                Some(row.agent_type.as_str()),
+                Some(row.agent_profile.as_str()),
                 serde_json::json!({"reason": "reopened"}),
             )
             .await;
@@ -645,7 +645,7 @@ mod tests {
             workspace_id: workspace_id.map(str::to_string),
             sandbox_id: None,
             checkout_mode: None,
-            agent_type: None,
+            agent_profile: None,
             name: None,
             description: None,
             branch: None,
@@ -671,7 +671,7 @@ mod tests {
                 short_id: None,
                 created_at: now,
                 last_message_at: now,
-                agent_type: AgentType(AgentType::CLAUDE_CODE.into()),
+                agent_profile: AgentProfile(AgentProfile::CLAUDE_CODE.into()),
                 repository_id: "repo-1".to_string(),
                 workspace_id: workspace_id.map(str::to_string),
                 sandbox_id: None,

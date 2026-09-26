@@ -465,8 +465,8 @@ mod tests {
             workspace_id: Some("ws".into()),
             name: None,
             branch: None,
-            agent_type: moatless_types::agent::AgentType(
-                moatless_types::agent::AgentType::CLAUDE_CODE.to_string(),
+            agent_profile: moatless_types::agent::AgentProfile(
+                moatless_types::agent::AgentProfile::CLAUDE_CODE.to_string(),
             ),
             created_at: "2026-01-01T00:00:00Z".into(),
             created_at_db: None,

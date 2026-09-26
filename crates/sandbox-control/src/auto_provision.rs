@@ -204,16 +204,16 @@ pub(crate) async fn build_provision_request(
     // The Agent harness is fixed for the Sandbox lifetime: pass it at
     // construction so the sandbox resolves it once. Inserted after the workspace
     // env so the authoritative Sandbox selection overrides any stray
-    // workspace-level `AGENT_TYPE`.
+    // workspace-level `AGENT_PROFILE`.
     if shape.use_tmux {
         env_vars
             .get_or_insert_with(std::collections::HashMap::new)
             .insert("SANDBOX_USE_TMUX".to_string(), "true".to_string());
     }
-    if let Some(agent_type) = shape.agent_type.clone() {
+    if let Some(agent_profile) = shape.agent_profile.clone() {
         env_vars
             .get_or_insert_with(std::collections::HashMap::new)
-            .insert("AGENT_TYPE".to_string(), agent_type);
+            .insert("AGENT_PROFILE".to_string(), agent_profile);
     }
 
     // Resolve the plugins the identity this pod acts as has turned on, as the

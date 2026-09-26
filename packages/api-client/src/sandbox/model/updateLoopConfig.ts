@@ -10,7 +10,7 @@ import type { UpdateLoopConfigNodeSelector } from './updateLoopConfigNodeSelecto
 
 export interface UpdateLoopConfig {
   /** @nullable */
-  agentType?: string | null;
+  agentProfile?: string | null;
   /** @nullable */
   inactiveTtlDays?: number | null;
   /**

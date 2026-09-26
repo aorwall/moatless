@@ -80,7 +80,7 @@ pub async fn create_task_from_loop(
     let outcome = task_creation
         .open(NewTask {
             workspace_id: config.workspace_id.clone(),
-            agent_type: config.agent_type.clone(),
+            agent_profile: config.agent_profile.clone(),
             model: config.model.clone(),
             name: params.name,
             description: Some(params.description),

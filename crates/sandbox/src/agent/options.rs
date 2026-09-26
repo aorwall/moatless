@@ -12,7 +12,7 @@ use serde::Deserialize;
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
-use crate::agent::handle::{AGENT_TYPE_CODEX, resolve_agent_harness};
+use crate::agent::handle::resolve_agent_harness;
 use crate::agent::types::AgentRunRequest;
 use crate::config::Config;
 use crate::events::GrpcEventPublisher;
@@ -445,10 +445,10 @@ fn build_managed_command_note(config: &Config) -> Option<String> {
 /// fallback, since a repo commits one as a symlink to the other.
 fn repo_instruction_filenames(config: &Config) -> [&'static str; 2] {
     let is_codex = config
-        .agent_type
+        .agent_profile
         .as_deref()
         .and_then(|raw| resolve_agent_harness(raw).ok())
-        == Some(AGENT_TYPE_CODEX);
+        == Some(moatless_types::agent::Harness::Codex);
     if is_codex {
         ["AGENTS.md", "CLAUDE.md"]
     } else {
@@ -736,7 +736,7 @@ mod tests {
             model: None,
             system_prompt: None,
             resume: None,
-            agent_type: None,
+            agent_profile: None,
             agent_mode: None,
             effort: None,
         }
@@ -1438,14 +1438,14 @@ mod tests {
         config.repo_dir = dir.clone();
         config.repos = vec![repo("api", true)];
 
-        config.agent_type = Some("claude-code".to_string());
+        config.agent_profile = Some("claude-code".to_string());
         let claude = build_prompt_append(&config, &test_request());
         assert!(claude.contains(&format!("## `{dir}/CLAUDE.md`")));
         assert!(!claude.contains(&format!("## `{dir}/AGENTS.md`")));
         assert!(claude.contains("CLAUDE COPY"));
         assert!(!claude.contains("AGENTS COPY"));
 
-        config.agent_type = Some("codex".to_string());
+        config.agent_profile = Some("codex".to_string());
         let codex = build_prompt_append(&config, &test_request());
         assert!(codex.contains(&format!("## `{dir}/AGENTS.md`")));
         assert!(!codex.contains(&format!("## `{dir}/CLAUDE.md`")));
@@ -1458,17 +1458,17 @@ mod tests {
     #[test]
     fn repo_instruction_filenames_default_to_claude() {
         let mut config = test_config(false);
-        for agent_type in [
+        for agent_profile in [
             None,
             Some("claude-code-tui"),
             Some("claude-code-fable"),
             Some("gpt-9000"),
         ] {
-            config.agent_type = agent_type.map(str::to_string);
+            config.agent_profile = agent_profile.map(str::to_string);
             assert_eq!(
                 repo_instruction_filenames(&config),
                 ["CLAUDE.md", "AGENTS.md"],
-                "agent_type={agent_type:?}"
+                "agent_profile={agent_profile:?}"
             );
         }
     }

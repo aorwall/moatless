@@ -27,7 +27,7 @@ use crate::task::relations::{
 };
 use crate::task::schemas::MessageContextInput;
 use moatless_core::events::EventPublisher;
-use moatless_types::agent::{AgentMode, AgentType};
+use moatless_types::agent::{AgentMode, AgentProfile};
 use moatless_types::task::RelatedTask;
 use moatless_types::task::Visibility;
 use moatless_workspace_ports::{RepositoryReader, WorkspaceResolver};
@@ -38,7 +38,7 @@ use moatless_workspaces::repository::models::Repository;
 /// [`TaskCreationService::create`], not from the caller.
 pub struct NewTaskRequest {
     pub repository_id: String,
-    pub agent_type: AgentType,
+    pub agent_profile: AgentProfile,
     pub name: Option<String>,
     pub description: Option<String>,
     pub branch: Option<String>,
@@ -293,7 +293,7 @@ impl TaskCreationService {
             short_id: Some(short_id),
             created_at: now,
             last_message_at: now,
-            agent_type: req.agent_type.clone(),
+            agent_profile: req.agent_profile.clone(),
             repository_id: req.repository_id.clone(),
             status: TaskStatus::Open,
             total_cost_usd: 0.0,
@@ -424,7 +424,7 @@ impl TaskCreationService {
         if let Some(checkout_mode) = join_checkout_mode {
             match self
                 .joiner
-                .join_task(&task_id, checkout_mode, &row.agent_type)
+                .join_task(&task_id, checkout_mode, &row.agent_profile)
                 .await
             {
                 Ok(()) => {}
@@ -529,7 +529,7 @@ impl TaskCreationService {
                 .publish_task_event(
                     &task_id,
                     req.event_subtype,
-                    Some(row.agent_type.as_str()),
+                    Some(row.agent_profile.as_str()),
                     payload,
                 )
                 .await;
@@ -688,7 +688,7 @@ mod tests {
         NewTaskRequest {
             sandbox_placement: crate::task::models::SandboxPlacement::default(),
             repository_id: "repo1".into(),
-            agent_type: AgentType(AgentType::CLAUDE_CODE.into()),
+            agent_profile: AgentProfile(AgentProfile::CLAUDE_CODE.into()),
             name: Some("t".into()),
             description: None,
             branch: None,
@@ -1302,11 +1302,11 @@ mod tests {
         let join_order = Arc::clone(&order);
         joiner
             .expect_join_task()
-            .withf(|task_id, checkout_mode, agent_type| {
+            .withf(|task_id, checkout_mode, agent_profile| {
                 !task_id.is_empty()
                     && *checkout_mode == CheckoutMode::Shared
                     // The joining Task's own harness, not the shared pod's.
-                    && agent_type.as_str() == AgentType::CLAUDE_CODE
+                    && agent_profile.as_str() == AgentProfile::CLAUDE_CODE
             })
             .times(1)
             .returning(move |_, _, _| {

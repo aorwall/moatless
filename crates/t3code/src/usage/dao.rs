@@ -42,8 +42,8 @@ impl UsageReporter for PgUsageDao {
             r#"
             WITH turns AS (
                 SELECT t.task_id, t.started_at, t.metrics,
-                       CASE WHEN k.agent_type LIKE 'claude%' THEN 'claude'
-                            WHEN k.agent_type LIKE 'codex%'  THEN 'codex'
+                       CASE WHEN k.agent_profile LIKE 'claude%' THEN 'claude'
+                            WHEN k.agent_profile LIKE 'codex%'  THEN 'codex'
                             ELSE NULL END AS provider
                 FROM task_turns t
                 JOIN tasks k ON k.task_id = t.task_id

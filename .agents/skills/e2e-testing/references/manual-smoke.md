@@ -6,7 +6,7 @@ authenticate first; do not change cluster-wide auth settings for a smoke task.
 
 ```bash
 moat workspaces list --json
-moat tasks create --workspace <workspace-id> --agent-type claude-code \
+moat tasks create --workspace <workspace-id> --agent-profile claude-code \
   --headless false --name "Manual preview smoke"
 moat tasks status <task-id> --json
 moat tasks diagnose <task-id>

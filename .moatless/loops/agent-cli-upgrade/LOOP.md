@@ -1,7 +1,7 @@
 ---
 on: schedule
 name: Agent CLI Upgrade
-agentType: claude-code
+agentProfile: claude-code
 tags:
   - agent-cli-upgrade
 inactiveTtlDays: 1

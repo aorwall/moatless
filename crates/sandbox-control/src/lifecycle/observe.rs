@@ -52,7 +52,7 @@ impl MemberRegistryPort for GrpcMemberRegistry {
             .join_task(
                 &member.task_id,
                 Some(member.checkout_mode.as_str()),
-                Some(member.agent_type.as_str()),
+                Some(member.agent_profile.as_str()),
             )
             .await
             .map_err(|e| {

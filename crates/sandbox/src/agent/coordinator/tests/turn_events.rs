@@ -12,7 +12,7 @@ async fn fresh_turn_publishes_ordered_events_and_acks_after_acceptance() {
         Step::Block(block("msg-1", text_block("hello"), Role::Assistant)),
         Step::Completed,
     ]);
-    let mut coord = Coordinator::new(Harness::scripted(script), events.clone(), "task-1");
+    let mut coord = Coordinator::new(HarnessRuntime::scripted(script), events.clone(), "task-1");
 
     let (ack_tx, ack_rx) = oneshot::channel();
     coord
@@ -59,7 +59,7 @@ async fn a_turn_moves_the_state_machine_and_the_event_stream_together() {
         Step::Completed,
     ]);
     let agent_state = Arc::new(AgentState::new());
-    let mut coord = Coordinator::new(Harness::scripted(script), events.clone(), "task-1");
+    let mut coord = Coordinator::new(HarnessRuntime::scripted(script), events.clone(), "task-1");
     coord.bind(Arc::clone(&agent_state), CancellationToken::new());
 
     assert_eq!(
@@ -119,7 +119,7 @@ async fn per_block_message_payload_matches_backend_assembly_contract() {
         )),
         Step::Completed,
     ]);
-    let mut coord = Coordinator::new(Harness::scripted(script), events.clone(), "task-1");
+    let mut coord = Coordinator::new(HarnessRuntime::scripted(script), events.clone(), "task-1");
     let (ack_tx, _ack_rx) = oneshot::channel();
     coord
         .submit(Input::text("in-1", "hi"), ack_tx)
@@ -175,7 +175,7 @@ async fn tool_result_block_surfaces_typed_result_at_payload_top_level() {
         Step::Block(result),
         Step::Completed,
     ]);
-    let mut coord = Coordinator::new(Harness::scripted(script), events.clone(), "task-1");
+    let mut coord = Coordinator::new(HarnessRuntime::scripted(script), events.clone(), "task-1");
     let (ack_tx, _ack_rx) = oneshot::channel();
     coord
         .submit(Input::text("in-1", "hi"), ack_tx)
@@ -209,7 +209,7 @@ async fn failed_execution_publishes_error_and_no_completion() {
         Step::AcceptInput,
         Step::Failed(failure()),
     ]);
-    let mut coord = Coordinator::new(Harness::scripted(script), events.clone(), "task-1");
+    let mut coord = Coordinator::new(HarnessRuntime::scripted(script), events.clone(), "task-1");
     let (ack_tx, _ack_rx) = oneshot::channel();
     coord
         .submit(Input::text("in-1", "hi"), ack_tx)

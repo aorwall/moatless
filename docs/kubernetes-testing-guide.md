@@ -65,7 +65,7 @@ TEMPLATE_ID="f7a613fc-c769-4740-b7be-b4d57d20b9f0"  # moatable template
 TASK_RESPONSE=$(curl -s -X POST \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
-  -d "{\"agentType\":\"claude-code\",\"templateId\":\"$TEMPLATE_ID\",\"message\":\"Create a simple hello world page\",\"start\":true}" \
+  -d "{\"agentProfile\":\"claude-code\",\"templateId\":\"$TEMPLATE_ID\",\"message\":\"Create a simple hello world page\",\"start\":true}" \
   "$BASE_URL/api/v1/tasks/vibe")
 
 TASK_ID=$(echo $TASK_RESPONSE | jq -r '.taskId')
@@ -85,7 +85,7 @@ REPO_ID=$(curl -s -H "Authorization: Bearer $API_KEY" "$BASE_URL/api/v1/reposito
 TASK_RESPONSE=$(curl -s -X POST \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
-  -d "{\"agentType\":\"claude-code\",\"repositoryId\":\"$REPO_ID\",\"message\":\"Create a hello.txt file\",\"start\":true}" \
+  -d "{\"agentProfile\":\"claude-code\",\"repositoryId\":\"$REPO_ID\",\"message\":\"Create a hello.txt file\",\"start\":true}" \
   "$BASE_URL/api/v1/tasks")
 
 TASK_ID=$(echo $TASK_RESPONSE | jq -r '.taskId')
@@ -398,7 +398,7 @@ echo "3. Creating task..."
 TASK_RESPONSE=$(curl -s -X POST \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
-  -d "{\"agentType\":\"claude-code\",\"repositoryId\":\"$REPO_ID\",\"message\":\"Create a test.txt file with 'E2E Test'\",\"start\":true}" \
+  -d "{\"agentProfile\":\"claude-code\",\"repositoryId\":\"$REPO_ID\",\"message\":\"Create a test.txt file with 'E2E Test'\",\"start\":true}" \
   "$BASE_URL/api/v1/tasks")
 TASK_ID=$(echo $TASK_RESPONSE | jq -r '.taskId')
 echo "   Task ID: $TASK_ID"

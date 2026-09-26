@@ -88,13 +88,13 @@ impl SandboxClient {
 
     /// Register a task as a member of an already-running warm sandbox.
     ///
-    /// See `JoinTaskRequest` for what `agent_type` selects and its fallback
+    /// See `JoinTaskRequest` for what `agent_profile` selects and its fallback
     /// when absent.
     pub async fn join_task(
         &self,
         task_id: &str,
         checkout_mode: Option<&str>,
-        agent_type: Option<&str>,
+        agent_profile: Option<&str>,
     ) -> Result<(), tonic::Status> {
         let mut client = self.client.clone();
         let result = tokio::time::timeout(JOIN_TASK_TIMEOUT, async {
@@ -102,7 +102,7 @@ impl SandboxClient {
                 .join_task(JoinTaskRequest {
                     task_id: task_id.to_string(),
                     checkout_mode: checkout_mode.map(str::to_string),
-                    agent_type: agent_type.map(str::to_string),
+                    agent_profile: agent_profile.map(str::to_string),
                 })
                 .await
         })

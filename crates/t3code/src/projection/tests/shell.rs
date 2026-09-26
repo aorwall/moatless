@@ -173,9 +173,9 @@ fn background_liveness_reports_the_axis_not_the_count() {
 /// at decode rather than downgraded.
 #[test]
 fn the_provider_instance_is_a_well_formed_slug() {
-    for agent_type in ["claude-code", "codex", "claude-code-fable", "made-up"] {
+    for agent_profile in ["claude-code", "codex", "claude-code-fable", "made-up"] {
         let mut row = running_conversation("task-a", "ws-a");
-        row.agent_type = AgentType(agent_type.to_string());
+        row.agent_profile = AgentProfile(agent_profile.to_string());
         let instance = one_thread(&row)["modelSelection"]["instanceId"]
             .as_str()
             .unwrap()

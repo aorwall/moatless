@@ -522,7 +522,7 @@ async fn a_prune_cannot_delete_a_record_resume_has_already_promised(pool: PgPool
 #[sqlx::test]
 async fn a_writer_blocked_on_a_task_row_is_not_holding_the_counter(pool: PgPool) {
     sqlx::query(
-        r#"INSERT INTO tasks (task_id, owner_user_id, created_at, last_message_at, agent_type,
+        r#"INSERT INTO tasks (task_id, owner_user_id, created_at, last_message_at, agent_profile,
                               repository_id, status, total_cost_usd)
            VALUES ('task-a', 'user-1', NOW(), NOW(), 'claude_code', 'repo-a', 'open', 0)"#,
     )
@@ -559,7 +559,7 @@ async fn a_writer_blocked_on_a_task_row_is_not_holding_the_counter(pool: PgPool)
                 event_type: "agent".to_string(),
                 sub_type: "completed".to_string(),
                 is_error: false,
-                agent_type: Some("claude_code".to_string()),
+                agent_profile: Some("claude_code".to_string()),
                 turn_number: 1,
                 payload: serde_json::json!({}),
                 timestamp: "2026-01-01T00:00:00Z".to_string(),
@@ -654,7 +654,7 @@ async fn no_mutation_holds_the_counter_while_it_waits_for_another_lock(pool: PgP
             // Creation writes no existing row, so what it can be made to wait on
             // is the uniqueness of the id it is about to take.
             hold: "INSERT INTO tasks (task_id, owner_user_id, created_at, last_message_at, \
-                   agent_type, repository_id, status, total_cost_usd) \
+                   agent_profile, repository_id, status, total_cost_usd) \
                    VALUES ($1 || '-new', 'user-x', NOW(), NOW(), 'claude_code', 'repo-a', \
                    'open', 0)",
             run: |pool, subject| {
@@ -988,7 +988,7 @@ async fn seed_tasks(pool: &PgPool) {
     for writer in 0..WRITERS {
         sqlx::query(
             r#"INSERT INTO tasks (task_id, owner_user_id, created_at, last_message_at,
-                                  agent_type, repository_id, status, total_cost_usd)
+                                  agent_profile, repository_id, status, total_cost_usd)
                VALUES ($1, 'user-1', NOW(), NOW(), 'claude_code', 'repo-a', 'open', 0)"#,
         )
         .bind(format!("task-{writer}"))

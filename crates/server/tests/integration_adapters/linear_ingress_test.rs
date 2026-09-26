@@ -178,7 +178,7 @@ async fn seed_rule(state: &AppState, pool: &PgPool) {
             // that resolves rules — `run_as_user_id IS NOT NULL` is in the
             // query. Without it the rule exists and matches nothing.
             run_as_user_id: Some(USER_1.to_string()),
-            agent_type: "claude-code".into(),
+            agent_profile: "claude-code".into(),
             model: None,
             inactive_ttl_days: None,
             node_selector: None,

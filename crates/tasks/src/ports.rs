@@ -326,7 +326,7 @@ impl TaskOpener for crate::task::creation::TaskCreationService {
                 crate::task::creation::NewTaskRequest {
                     forked_from: None,
                     repository_id,
-                    agent_type: req.agent_type,
+                    agent_profile: req.agent_profile,
                     name: req.name,
                     description: req.description,
                     branch: None,

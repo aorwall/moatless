@@ -2,7 +2,7 @@
 
 use std::collections::HashSet;
 
-use super::catalog::{AgentEntry, catalog};
+use super::catalog::{AgentProfileEntry, catalog};
 use super::schemas::{AgentDescriptor, AgentModel};
 use moatless_ports::identity::{HarnessCredentials, SecretCatalog};
 use moatless_types::access_control::ScopeContext;
@@ -23,7 +23,7 @@ pub async fn list_agents(
 }
 
 fn build_descriptor(
-    entry: &AgentEntry,
+    entry: &AgentProfileEntry,
     present_keys: &HashSet<String>,
     present_providers: &HashSet<String>,
 ) -> AgentDescriptor {

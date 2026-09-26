@@ -34,7 +34,7 @@ fn command_matching_ignores_global_flags_but_never_counts_help() {
                 "tasks".to_string(),
                 "--verbose".to_string(),
                 "create".to_string(),
-                "--agent-type=codex".to_string(),
+                "--agent-profile=codex".to_string(),
             ],
         }
     ));
@@ -66,7 +66,7 @@ fn required_and_forbidden_arguments_are_enforced() {
     let expectation = CommandExpectation {
         command: vec!["tasks".to_string(), "create".to_string()],
         min_invocations: 1,
-        required_args: vec!["--agent-type".to_string()],
+        required_args: vec!["--agent-profile".to_string()],
         forbidden_args: vec!["--headless=false".to_string()],
     };
     assert!(invocation_matches(
@@ -75,7 +75,7 @@ fn required_and_forbidden_arguments_are_enforced() {
             argv: vec![
                 "tasks".to_string(),
                 "create".to_string(),
-                "--agent-type=codex".to_string(),
+                "--agent-profile=codex".to_string(),
             ],
         }
     ));
@@ -85,7 +85,7 @@ fn required_and_forbidden_arguments_are_enforced() {
             argv: vec![
                 "tasks".to_string(),
                 "create".to_string(),
-                "--agent-type=codex".to_string(),
+                "--agent-profile=codex".to_string(),
                 "--headless=false".to_string(),
             ],
         }

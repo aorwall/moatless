@@ -970,7 +970,7 @@ impl TaskReaper {
                 .project_turn(
                     &turn.task_id,
                     turn_number,
-                    turn.agent_type.clone(),
+                    turn.agent_profile.clone(),
                     TurnTransition::Terminal(status),
                     Utc::now(),
                 )
@@ -1136,7 +1136,7 @@ impl TaskReaper {
                 .project_turn(
                     &turn.task_id,
                     turn_number,
-                    turn.agent_type.clone(),
+                    turn.agent_profile.clone(),
                     TurnTransition::Terminal(TurnStatus::Completed),
                     Utc::now(),
                 )
@@ -1172,7 +1172,7 @@ impl TaskReaper {
                 .publish_task_turn_event(
                     &turn.task_id,
                     TaskTurnSubType::Completed,
-                    turn.agent_type.as_deref(),
+                    turn.agent_profile.as_deref(),
                     turn.turn_number,
                     serde_json::json!({ "reason": "reconciled_orphaned_turn_completed" }),
                 )
@@ -1220,7 +1220,7 @@ fn reconcile_error_event(turn: &UnclosedTurn) -> AgentEvent {
         task_id: turn.task_id.clone(),
         timestamp: Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
         is_error: true,
-        agent_type: turn.agent_type.clone(),
+        agent_profile: turn.agent_profile.clone(),
         turn_number: turn.turn_number,
         payload: serde_json::json!({
             "error": "The agent stopped without reporting a result. The backend closed this turn so you can continue.",
@@ -1409,8 +1409,8 @@ impl TaskReaper {
         #[allow(clippy::disallowed_methods)]
         let sys_ctx = ScopeContext::system();
 
-        let agent_type = match self.tasks.find_by_id(task_id, &sys_ctx).await {
-            Ok(Some(row)) => Some(row.agent_type),
+        let agent_profile = match self.tasks.find_by_id(task_id, &sys_ctx).await {
+            Ok(Some(row)) => Some(row.agent_profile),
             Ok(None) => {
                 warn!(task_id, "auto-close: task vanished mid-cycle");
                 return;
@@ -1455,7 +1455,7 @@ impl TaskReaper {
             warn!(task_id, error = %e, "auto-close: failed to deactivate bindings");
         }
 
-        if let (Some(events), Some(at)) = (&self.events, agent_type) {
+        if let (Some(events), Some(at)) = (&self.events, agent_profile) {
             events
                 .publish_task_event(
                     task_id,

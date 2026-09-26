@@ -30,7 +30,7 @@ use super::normalize::Normalizer;
 /// The per-Input configuration the live session was opened with.
 ///
 /// A new Input compatible with this pastes into the live TUI; an incompatible
-/// one forces a replacement (kill + respawn with `--resume`). Agent type and
+/// one forces a replacement (kill + respawn with `--resume`). Agent profile and
 /// system prompt are fixed for the Sandbox lifetime, so only model, mode,
 /// effort, and the resumed Session id can diverge.
 struct Fingerprint {
@@ -144,7 +144,7 @@ impl ClaudePersistentProcess {
             model: input.model.clone(),
             system_prompt: input.system_prompt.clone(),
             resume,
-            agent_type: self.cfg.agent_type.clone(),
+            agent_profile: self.cfg.agent_profile.clone(),
             agent_mode: input.mode.clone(),
             effort: input.effort.clone(),
         };

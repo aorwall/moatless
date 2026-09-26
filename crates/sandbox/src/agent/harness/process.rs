@@ -4,7 +4,7 @@
 //! Codex adapters (tickets 05/07) and the scripted mock (this ticket) implement
 //! it, and the shared ordering driver consumes it. Keeping it `pub(crate)`
 //! prevents a public universal harness trait from forming — callers receive the
-//! concrete [`super::Harness`], never a process handle.
+//! concrete [`super::HarnessRuntime`], never a process handle.
 
 use tokio_util::sync::CancellationToken;
 

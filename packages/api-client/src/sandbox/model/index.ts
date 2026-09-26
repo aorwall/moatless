@@ -30,7 +30,7 @@ export * from './agentMode';
 export * from './agentModel';
 export * from './agentStatus';
 export * from './agentSubType';
-export * from './agentType';
+export * from './agentProfile';
 export * from './allowedPrompt';
 export * from './apiKeyCreateResponse';
 export * from './apiKeyListItem';

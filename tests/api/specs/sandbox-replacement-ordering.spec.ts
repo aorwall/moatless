@@ -22,7 +22,7 @@ import { stopSandbox, waitForSandboxReady } from '../steps'
 
 interface Harness {
   scenario: string
-  agentType: string
+  agentProfile: string
   /** What the run needs before this harness can start. */
   credentials: keyof Capabilities
   model: string
@@ -33,14 +33,14 @@ interface Harness {
 const HARNESSES: Harness[] = [
   {
     scenario: 'AGENT-09.1',
-    agentType: 'claude-code-cli',
+    agentProfile: 'claude-code-cli',
     credentials: 'claudeCredentials',
     model: 'haiku',
     modelPrefix: 'claude-',
   },
   {
     scenario: 'AGENT-09.2',
-    agentType: 'codex',
+    agentProfile: 'codex',
     credentials: 'codexConnection',
     model: 'gpt-5.5',
     modelPrefix: 'gpt-',
@@ -80,13 +80,13 @@ async function expectModelFamily(
       (turnNumber === undefined || message.turnNumber === turnNumber) &&
       message.model?.startsWith(harness.modelPrefix),
   )
-  expect(produced, `${harness.agentType} output must carry a ${harness.modelPrefix} model`).toBe(
+  expect(produced, `${harness.agentProfile} output must carry a ${harness.modelPrefix} model`).toBe(
     true,
   )
 }
 
 for (const harness of HARNESSES) {
-  test.describe(`Standalone: Sandbox replacement ordering (${harness.agentType})`, () => {
+  test.describe(`Standalone: Sandbox replacement ordering (${harness.agentProfile})`, () => {
     const reason = missingCapability(harness.credentials)
     test.skip(reason !== null, reason ?? '')
 
@@ -103,9 +103,9 @@ for (const harness of HARNESSES) {
       const repo = await api.ensureTemplateRepository()
       const task = await api.createVibeTask({
         templateId: repo.id,
-        name: `${harness.agentType} replacement ordering`,
+        name: `${harness.agentProfile} replacement ordering`,
         message: 'Reply with exactly FIRST and do nothing else.',
-        agentType: harness.agentType,
+        agentProfile: harness.agentProfile,
         model: harness.model,
       })
 
@@ -187,7 +187,7 @@ for (const harness of HARNESSES) {
         await expectModelFamily(api, task.taskId, harness, accepted?.turnNumber ?? undefined)
 
         const reread = await api.getTask(task.taskId)
-        expect(reread.agentType).toBe(harness.agentType)
+        expect(reread.agentProfile).toBe(harness.agentProfile)
       } finally {
         sse.stop()
         await api.stopTask(task.taskId).catch(() => {})

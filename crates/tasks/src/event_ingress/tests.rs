@@ -55,7 +55,7 @@ impl TaskTurnDao for RecordingTurns {
         &self,
         _task_id: &str,
         _turn_number: i32,
-        _agent_type: Option<String>,
+        _agent_profile: Option<String>,
         _transition: TurnTransition,
         _at: DateTime<Utc>,
     ) -> Result<(), sqlx::Error> {
@@ -282,7 +282,7 @@ fn state_request(event_id: &str) -> AdmissionRequest {
             event_type: "taskTurn".to_string(),
             sub_type: "active".to_string(),
             is_error: false,
-            agent_type: Some("claude-code".to_string()),
+            agent_profile: Some("claude-code".to_string()),
             turn_number: 1,
             payload: serde_json::json!({}),
             timestamp: "2026-07-12T00:00:00.000Z".to_string(),

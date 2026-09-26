@@ -4,32 +4,6 @@
 use serde_json::Value;
 use uuid::Uuid;
 
-/// The harness that wrote a session, which picks the format that writes it out.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Harness {
-    ClaudeCode,
-    Codex,
-}
-
-impl Harness {
-    /// The `trajectory_sessions.harness` value.
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::ClaudeCode => "claude-code",
-            Self::Codex => "codex",
-        }
-    }
-
-    /// Parse a `harness` wire or column value; `None` for anything else.
-    pub fn parse(value: &str) -> Option<Self> {
-        match value {
-            "claude-code" => Some(Self::ClaudeCode),
-            "codex" => Some(Self::Codex),
-            _ => None,
-        }
-    }
-}
-
 /// One harness session line to record.
 #[derive(Debug, Clone)]
 pub struct NewEvent {

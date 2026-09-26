@@ -13,7 +13,7 @@ use super::models::{
 use moatless_core::db::DbPool;
 use moatless_core::db_enum::decode_optional;
 use moatless_types::access_control::{Scope, ScopeContext, ScopedEntity};
-use moatless_types::agent::AgentType;
+use moatless_types::agent::AgentProfile;
 
 #[derive(sqlx::FromRow)]
 struct SandboxIntentViewRow {
@@ -326,7 +326,7 @@ impl TaskDao for PgTaskDao {
             let inserted = sqlx::query(
                 r#"INSERT INTO sandboxes (
                        sandbox_id, workspace_id, scope, owner_user_id, run_as_user_id,
-                       branch, headless, agent_type, use_tmux, storage_reclaimed_at,
+                       branch, headless, agent_profile, use_tmux, storage_reclaimed_at,
                        node_selector, stop_when_done
                    )
                    SELECT $1, w.id, $2, $3,
@@ -341,10 +341,12 @@ impl TaskDao for PgTaskDao {
             .bind(owner)
             .bind(&row.branch)
             .bind(row.headless)
-            .bind(row.agent_type.as_str())
+            .bind(row.agent_profile.as_str())
             // The catalog is the authority for which harness runs over tmux, and
             // it lives in this band. The control plane reads the answer.
-            .bind(crate::agent::catalog::use_tmux_for(row.agent_type.as_str()))
+            .bind(crate::agent::catalog::use_tmux_for(
+                row.agent_profile.as_str(),
+            ))
             .bind(&workspace_id)
             .bind(&row.run_as_user_id)
             .bind(placement.node_selector.as_ref().map(sqlx::types::Json))
@@ -362,7 +364,7 @@ impl TaskDao for PgTaskDao {
 
         sqlx::query(
             r#"INSERT INTO tasks (
-                task_id, short_id, created_at, last_message_at, agent_type,
+                task_id, short_id, created_at, last_message_at, agent_profile,
                 repository_id, status, total_cost_usd, site_url, template_id,
                 vibe, name, description, site_id, site_provider, branch,
                 created_by, visibility, scope, owner_user_id, run_as_user_id,
@@ -380,7 +382,7 @@ impl TaskDao for PgTaskDao {
         .bind(&row.short_id)
         .bind(row.created_at.to_rfc3339())
         .bind(row.last_message_at.to_rfc3339())
-        .bind(row.agent_type.as_str())
+        .bind(row.agent_profile.as_str())
         .bind(&row.repository_id)
         .bind(row.status.as_str())
         .bind(row.total_cost_usd)
@@ -564,7 +566,7 @@ impl TaskDao for PgTaskDao {
             short_id: Option<String>,
             created_at: Option<String>,
             last_message_at: Option<String>,
-            agent_type: Option<String>,
+            agent_profile: Option<String>,
             repository_id: Option<String>,
             workspace_id: Option<String>,
             sandbox_id: Option<String>,
@@ -616,7 +618,7 @@ impl TaskDao for PgTaskDao {
                     short_id: self.short_id,
                     created_at: timestamp(&self.created_at?)?,
                     last_message_at: timestamp(&self.last_message_at?)?,
-                    agent_type: AgentType::from(self.agent_type?),
+                    agent_profile: AgentProfile::from(self.agent_profile?),
                     repository_id: self.repository_id?,
                     workspace_id: self.workspace_id,
                     sandbox_id: self.sandbox_id,
@@ -670,7 +672,7 @@ impl TaskDao for PgTaskDao {
         let sql = format!(
             r#"WITH filtered AS (
                 SELECT
-                    t.task_id, t.short_id, t.created_at, t.last_message_at, t.agent_type,
+                    t.task_id, t.short_id, t.created_at, t.last_message_at, t.agent_profile,
                     t.repository_id, t.workspace_id, t.status, t.total_cost_usd, t.site_url, t.template_id,
                     t.sandbox_id, t.checkout_mode,
                     t.vibe, t.name, t.description, t.site_id, t.site_provider, t.branch,
@@ -1382,7 +1384,7 @@ impl TaskDao for PgTaskDao {
                 sqlx::query_as(
                     r#"SELECT task_id FROM tasks
                        WHERE status = 'open'
-                         AND agent_type = 'codex'
+                         AND agent_profile = 'codex'
                          AND created_by = $1
                          AND ($2::text IS NULL OR task_id <> $2)"#,
                 )
@@ -1395,7 +1397,7 @@ impl TaskDao for PgTaskDao {
                 sqlx::query_as(
                     r#"SELECT task_id FROM tasks
                        WHERE status = 'open'
-                         AND agent_type = 'codex'
+                         AND agent_profile = 'codex'
                          AND ($1::text IS NULL OR task_id <> $1)"#,
                 )
                 .bind(except)

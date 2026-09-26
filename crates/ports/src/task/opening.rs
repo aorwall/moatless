@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use moatless_types::agent::AgentType;
+use moatless_types::agent::AgentProfile;
 use moatless_types::store::StoreError;
 use moatless_types::task::RelatedTask;
 use moatless_types::task::Visibility;
@@ -14,7 +14,7 @@ pub struct NewTask {
     /// The Workspace the Loop names. Its primary placement is the repository
     /// the Task runs against.
     pub workspace_id: String,
-    pub agent_type: AgentType,
+    pub agent_profile: AgentProfile,
     /// The model the spawned Task runs on. `None` keeps the platform default.
     pub model: Option<String>,
     pub name: Option<String>,

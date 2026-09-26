@@ -151,7 +151,7 @@ echo "Repository ID: $REPO_ID"
 
 Option A - Single-line (most reliable for copy-paste):
 ```bash
-TASK_RESPONSE=$(curl -s -X POST -H "Authorization: Bearer $API_KEY" -H "Content-Type: application/json" -d '{"agentType":"claude-code","repositoryId":"'"$REPO_ID"'","message":"Add a hello world endpoint","start":true}' "$BASE_URL/api/v1/tasks")
+TASK_RESPONSE=$(curl -s -X POST -H "Authorization: Bearer $API_KEY" -H "Content-Type: application/json" -d '{"agentProfile":"claude-code","repositoryId":"'"$REPO_ID"'","message":"Add a hello world endpoint","start":true}' "$BASE_URL/api/v1/tasks")
 ```
 
 Option B - Using a script file (better for complex requests):
@@ -164,7 +164,7 @@ curl -s -X POST \
   -H "Content-Type: application/json" \
   -d "$(cat <<EOF
 {
-  "agentType": "claude-code",
+  "agentProfile": "claude-code",
   "repositoryId": "$REPO_ID",
   "message": "Add a hello world endpoint",
   "start": true

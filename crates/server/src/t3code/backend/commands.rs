@@ -202,7 +202,7 @@ impl ThreadCommandSink for AppStateCommands {
 
         // The transport is not selectable from T3, so a thread created there
         // runs the first catalog agent of the kind the person picked.
-        let agent_type = default_agent_for(&thread.instance);
+        let agent_profile = default_agent_for(&thread.instance);
 
         let attachments = match thread.first_message.as_ref() {
             Some(first) => self.resolve_attachments(viewer, &first.attachments).await?,
@@ -217,7 +217,7 @@ impl ThreadCommandSink for AppStateCommands {
             workspace_id: Some(thread.workspace_id),
             sandbox_id: None,
             checkout_mode: None,
-            agent_type: Some(agent_type),
+            agent_profile: Some(agent_profile),
             // Created unnamed: the agent names it on its first turn, and the
             // client's create title is a placeholder.
             name: None,
@@ -329,7 +329,7 @@ impl ThreadCommandSink for AppStateCommands {
             checkout_mode: fork
                 .same_sandbox
                 .then_some(moatless_types::task::CheckoutMode::Shared),
-            agent_type: Some(source.agent_type.clone()),
+            agent_profile: Some(source.agent_profile.clone()),
             name: None,
             description: None,
             branch: source.branch.clone(),
@@ -763,20 +763,20 @@ fn pull_request_subject(reference: &ThreadPullRequestRef) -> String {
 }
 
 /// The agent a thread created from T3 runs.
-pub(super) fn default_agent_for(instance: &str) -> moatless_types::agent::AgentType {
+pub(super) fn default_agent_for(instance: &str) -> moatless_types::agent::AgentProfile {
     let id = moatless_tasks::agent::catalog::catalog()
         .iter()
-        .find(|entry| agent_instance_for(entry.kind) == instance)
-        .map_or(moatless_types::agent::AgentType::CLAUDE_CODE, |entry| {
+        .find(|entry| agent_instance_for(entry.harness) == instance)
+        .map_or(moatless_types::agent::AgentProfile::CLAUDE_CODE, |entry| {
             entry.id
         });
-    moatless_types::agent::AgentType(id.to_string())
+    moatless_types::agent::AgentProfile(id.to_string())
 }
 
-fn agent_instance_for(kind: moatless_tasks::agent::catalog::AgentKind) -> &'static str {
+fn agent_instance_for(kind: moatless_types::agent::Harness) -> &'static str {
     match kind {
-        moatless_tasks::agent::catalog::AgentKind::ClaudeCode => "claudeAgent",
-        moatless_tasks::agent::catalog::AgentKind::Codex => "codex",
+        moatless_types::agent::Harness::ClaudeCode => "claudeAgent",
+        moatless_types::agent::Harness::Codex => "codex",
     }
 }
 

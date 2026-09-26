@@ -19,7 +19,7 @@ use tracing::{info, warn};
 use super::seam::{Coordinator, extract_wakeup_from_block, interrupted_turn_payload};
 use crate::agent::agent_state::AgentState;
 use crate::agent::background_watch_job::BackgroundWatchJob;
-use crate::agent::handle::{AGENT_TYPE_CLAUDE_CODE, AgentCommand, RunAck, resolve_agent_harness};
+use crate::agent::handle::{AgentCommand, RunAck, resolve_agent_harness};
 use crate::agent::harness::{HarnessError, Input, InputId, Outcome, Rejection, Signal};
 use crate::agent::heartbeat::{HEARTBEAT_TICK_INTERVAL, Heartbeat};
 use crate::agent::retry::{MAX_RETRIES, compute_backoff, is_retryable_harness_error};
@@ -491,7 +491,7 @@ impl CoordinatorService {
                         }
                     } else {
                         // Harness signal stream closed: the harness has stopped.
-                        info!(task_id = %task_id, "Harness signal stream closed; CoordinatorService exiting");
+                        info!(task_id = %task_id, "HarnessRuntime signal stream closed; CoordinatorService exiting");
                         break;
                     }
                 }
@@ -951,14 +951,14 @@ impl CoordinatorService {
         // Resolve resume exactly as `session::resolve_resume_session`: the pod's
         // last known Session id takes precedence, then the backend-provided id,
         // then a `--continue` for the Claude family. The harness is fixed for the
-        // Member, so the family is `config.agent_type` — this service's own
+        // Member, so the family is `config.agent_profile` — this service's own
         // per-Member `Config` — and not the per-Turn value.
         let harness_family = self
             .config
-            .agent_type
+            .agent_profile
             .as_deref()
             .and_then(|t| resolve_agent_harness(t).ok())
-            .unwrap_or(AGENT_TYPE_CLAUDE_CODE);
+            .unwrap_or(moatless_types::agent::Harness::ClaudeCode);
         let resume = build_resume(
             self.agent_state
                 .last_session_id()
@@ -1019,7 +1019,7 @@ async fn fetch_system_prompt(
 pub(super) fn build_resume(
     previous_session_id: &str,
     resume_session_id: Option<&str>,
-    agent_type: &str,
+    harness: moatless_types::agent::Harness,
     start_fresh: bool,
 ) -> Option<ResumeSession> {
     if start_fresh {
@@ -1031,7 +1031,7 @@ pub(super) fn build_resume(
     if let Some(session_id) = resume_session_id.filter(|s| !s.is_empty()) {
         return Some(ResumeSession::WithId(session_id.to_string()));
     }
-    if agent_type == AGENT_TYPE_CLAUDE_CODE {
+    if harness == moatless_types::agent::Harness::ClaudeCode {
         Some(ResumeSession::Last)
     } else {
         None

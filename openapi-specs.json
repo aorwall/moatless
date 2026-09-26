@@ -6770,7 +6770,7 @@
             }
           },
           "400": {
-            "description": "Model belongs to another agentType",
+            "description": "Model belongs to another agentProfile",
             "content": {
               "application/json": {
                 "schema": {
@@ -10341,9 +10341,9 @@
           "commands_changed"
         ]
       },
-      "AgentType": {
+      "AgentProfile": {
         "type": "string",
-        "description": "Agent type identifier (open-ended, e.g. \"claude-code\")."
+        "description": "A catalog entry: a harness plus transport, default model and credentials (e.g. \"claude-code-tui\")."
       },
       "AllowedPrompt": {
         "type": "object",
@@ -11330,7 +11330,7 @@
           "routingMode"
         ],
         "properties": {
-          "agentType": {
+          "agentProfile": {
             "type": [
               "string",
               "null"
@@ -11695,13 +11695,13 @@
               }
             ]
           },
-          "agentType": {
+          "agentProfile": {
             "oneOf": [
               {
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/AgentType"
+                "$ref": "#/components/schemas/AgentProfile"
               }
             ]
           },
@@ -14008,10 +14008,10 @@
           "routingMode",
           "tagIds",
           "skills",
-          "agentType"
+          "agentProfile"
         ],
         "properties": {
-          "agentType": {
+          "agentProfile": {
             "type": "string"
           },
           "inactiveTtlDays": {
@@ -14035,7 +14035,7 @@
               "string",
               "null"
             ],
-            "description": "Model the spawned Tasks run on, from the `agent_type` entry's catalog\nmodels. `None` means \"inherit the platform default the sandbox resolves\nfor `agent_type`\". Flows into `tasks.model` when this Loop spawns a\ntask."
+            "description": "Model the spawned Tasks run on, from the `agent_profile` entry's catalog\nmodels. `None` means \"inherit the platform default the sandbox resolves\nfor `agent_profile`\". Flows into `tasks.model` when this Loop spawns a\ntask."
           },
           "nodeSelector": {
             "type": [
@@ -17315,7 +17315,7 @@
           "payload"
         ],
         "properties": {
-          "agentType": {
+          "agentProfile": {
             "type": [
               "string",
               "null"
@@ -17644,7 +17644,7 @@
           "timestamp"
         ],
         "properties": {
-          "agentType": {
+          "agentProfile": {
             "type": [
               "string",
               "null"
@@ -17775,7 +17775,7 @@
           "taskId",
           "title",
           "status",
-          "agentType",
+          "agentProfile",
           "repositoryId",
           "createdAt",
           "lastMessageAt",
@@ -17789,8 +17789,8 @@
           "sandboxDesiredStateUpdatedAt"
         ],
         "properties": {
-          "agentType": {
-            "$ref": "#/components/schemas/AgentType"
+          "agentProfile": {
+            "$ref": "#/components/schemas/AgentProfile"
           },
           "appendSystemPrompt": {
             "type": [
@@ -18041,15 +18041,15 @@
         "description": "Conversation statistics derived from persisted task messages.",
         "required": [
           "taskId",
-          "agentType",
+          "agentProfile",
           "tokenTotals",
           "messageTokenUsage",
           "toolCalls",
           "skills"
         ],
         "properties": {
-          "agentType": {
-            "$ref": "#/components/schemas/AgentType"
+          "agentProfile": {
+            "$ref": "#/components/schemas/AgentProfile"
           },
           "messageTokenUsage": {
             "type": "array",
@@ -18665,7 +18665,7 @@
       "UpdateLoopConfig": {
         "type": "object",
         "properties": {
-          "agentType": {
+          "agentProfile": {
             "type": [
               "string",
               "null"

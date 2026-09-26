@@ -5,18 +5,12 @@
 use moatless_core::secret_keys::{
     ANTHROPIC_API_KEY, CLAUDE_CODE_OAUTH_TOKEN, CODEX_AUTH_JSON, OPENAI_API_KEY,
 };
+use moatless_types::agent::Harness;
 
 /// Static model entry for a catalog agent.
 pub struct ModelEntry {
     pub id: &'static str,
     pub label: &'static str,
-}
-
-/// Which executable family backs an agent.
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum AgentKind {
-    ClaudeCode,
-    Codex,
 }
 
 /// Agent-specific options resolved from the catalog (extensible).
@@ -27,11 +21,10 @@ pub struct AgentParams {
 }
 
 /// Static agent definition.
-pub struct AgentEntry {
+pub struct AgentProfileEntry {
     pub id: &'static str,
     pub label: &'static str,
-    /// Which executable family backs this agent.
-    pub kind: AgentKind,
+    pub harness: Harness,
     /// Agent-specific options (e.g. `use_tmux`).
     pub params: AgentParams,
     /// Credential keys (secrets / env vars) any of which makes the agent
@@ -45,10 +38,10 @@ pub struct AgentEntry {
     pub missing_credential_hint: &'static str,
 }
 
-pub const CLAUDE_CODE: AgentEntry = AgentEntry {
+pub const CLAUDE_CODE: AgentProfileEntry = AgentProfileEntry {
     id: "claude-code",
     label: "Claude Code",
-    kind: AgentKind::ClaudeCode,
+    harness: Harness::ClaudeCode,
     params: AgentParams { use_tmux: false },
     credential_keys: &[CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY],
     provider_token_providers: &["claude"],
@@ -78,10 +71,10 @@ pub const CLAUDE_CODE: AgentEntry = AgentEntry {
     missing_credential_hint: "Add CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY in Settings \u{2192} Secrets",
 };
 
-pub const CLAUDE_CODE_TUI: AgentEntry = AgentEntry {
+pub const CLAUDE_CODE_TUI: AgentProfileEntry = AgentProfileEntry {
     id: "claude-code-tui",
     label: "Claude Code (TUI)",
-    kind: AgentKind::ClaudeCode,
+    harness: Harness::ClaudeCode,
     params: AgentParams { use_tmux: true },
     credential_keys: &[CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY],
     provider_token_providers: &["claude"],
@@ -111,10 +104,10 @@ pub const CLAUDE_CODE_TUI: AgentEntry = AgentEntry {
     missing_credential_hint: "Add CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY in Settings \u{2192} Secrets",
 };
 
-pub const CLAUDE_CODE_CLI: AgentEntry = AgentEntry {
+pub const CLAUDE_CODE_CLI: AgentProfileEntry = AgentProfileEntry {
     id: "claude-code-cli",
     label: "Claude Code (CLI)",
-    kind: AgentKind::ClaudeCode,
+    harness: Harness::ClaudeCode,
     params: AgentParams { use_tmux: false },
     credential_keys: &[CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY],
     provider_token_providers: &["claude"],
@@ -144,10 +137,10 @@ pub const CLAUDE_CODE_CLI: AgentEntry = AgentEntry {
     missing_credential_hint: "Add CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY in Settings \u{2192} Secrets",
 };
 
-pub const CLAUDE_CODE_FABLE: AgentEntry = AgentEntry {
+pub const CLAUDE_CODE_FABLE: AgentProfileEntry = AgentProfileEntry {
     id: "claude-code-fable",
     label: "Claude Code (Fable)",
-    kind: AgentKind::ClaudeCode,
+    harness: Harness::ClaudeCode,
     params: AgentParams { use_tmux: false },
     credential_keys: &[CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY],
     provider_token_providers: &["claude"],
@@ -159,10 +152,10 @@ pub const CLAUDE_CODE_FABLE: AgentEntry = AgentEntry {
     missing_credential_hint: "Add CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY in Settings \u{2192} Secrets",
 };
 
-pub const CODEX: AgentEntry = AgentEntry {
+pub const CODEX: AgentProfileEntry = AgentProfileEntry {
     id: "codex",
     label: "Codex",
-    kind: AgentKind::Codex,
+    harness: Harness::Codex,
     params: AgentParams { use_tmux: false },
     credential_keys: &[CODEX_AUTH_JSON, OPENAI_API_KEY],
     provider_token_providers: &["codex", "openai"],
@@ -211,7 +204,7 @@ pub const CODEX: AgentEntry = AgentEntry {
 };
 
 /// All supported agents in display order.
-pub fn catalog() -> &'static [AgentEntry] {
+pub fn catalog() -> &'static [AgentProfileEntry] {
     &[
         CLAUDE_CODE,
         CLAUDE_CODE_TUI,
@@ -221,53 +214,57 @@ pub fn catalog() -> &'static [AgentEntry] {
     ]
 }
 
-/// Look up a catalog entry by its `agent_type` id.
-pub fn find(id: &str) -> Option<&'static AgentEntry> {
+/// Look up a catalog entry by its `agent_profile` id.
+pub fn find(id: &str) -> Option<&'static AgentProfileEntry> {
     catalog().iter().find(|e| e.id == id)
 }
 
+/// The harness `agent_profile` runs on; `None` for an id the catalog lacks.
+pub fn harness_of(agent_profile: &str) -> Option<Harness> {
+    find(agent_profile).map(|e| e.harness)
+}
+
 /// Whether the agent with this id runs over the tmux transport.
-pub fn use_tmux_for(agent_type: &str) -> bool {
-    find(agent_type).is_some_and(|e| e.params.use_tmux)
+pub fn use_tmux_for(agent_profile: &str) -> bool {
+    find(agent_profile).is_some_and(|e| e.params.use_tmux)
 }
 
-/// Whether `model` is one of the models `agent_type` offers.
-pub fn offers_model(agent_type: &str, model: &str) -> bool {
-    find(agent_type).is_some_and(|e| e.models.iter().any(|m| m.id == model))
+/// Whether `model` is one of the models `agent_profile` offers.
+pub fn offers_model(agent_profile: &str, model: &str) -> bool {
+    find(agent_profile).is_some_and(|e| e.models.iter().any(|m| m.id == model))
 }
 
-/// Whether `model` is knowably wrong for `agent_type`: some other catalog agent
-/// offers it and this one does not.
+/// Whether `model` is knowably wrong for `agent_profile`: another catalog
+/// agent offers it and this one does not.
 ///
-/// `models` is the picker's menu, not the set of runnable models — a pinned
-/// upstream id can run unlisted, so only a model belonging to a different agent
-/// can be rejected on the catalog's word alone.
-pub fn model_conflicts(agent_type: &str, model: &str) -> bool {
-    !offers_model(agent_type, model)
+/// `models` is the picker's menu: a pinned upstream id can run unlisted, so
+/// only a model another agent owns is rejected on the catalog's word alone.
+pub fn model_conflicts(agent_profile: &str, model: &str) -> bool {
+    !offers_model(agent_profile, model)
         && catalog()
             .iter()
             .any(|e| e.models.iter().any(|m| m.id == model))
 }
 
-/// Check that `agent_type` names a catalog agent and that `model`, when given,
+/// Check that `agent_profile` names a catalog agent and that `model`, when given,
 /// does not belong to a different one.
 ///
 /// The `Err` names the valid options, so a caller can surface it verbatim.
-pub fn validate_agent_model(agent_type: &str, model: Option<&str>) -> Result<(), String> {
-    let Some(entry) = find(agent_type) else {
+pub fn validate_agent_model(agent_profile: &str, model: Option<&str>) -> Result<(), String> {
+    let Some(entry) = find(agent_profile) else {
         let options = catalog()
             .iter()
             .map(|e| e.id)
             .collect::<Vec<_>>()
             .join(", ");
         return Err(format!(
-            "unknown agentType `{agent_type}`. Available options: {options}"
+            "unknown agentProfile `{agent_profile}`. Available options: {options}"
         ));
     };
     let Some(model) = model else {
         return Ok(());
     };
-    if !model_conflicts(agent_type, model) {
+    if !model_conflicts(agent_profile, model) {
         return Ok(());
     }
     let options = entry
@@ -277,7 +274,7 @@ pub fn validate_agent_model(agent_type: &str, model: Option<&str>) -> Result<(),
         .collect::<Vec<_>>()
         .join(", ");
     Err(format!(
-        "model `{model}` belongs to another agentType, not `{agent_type}`. Available options: {options}"
+        "model `{model}` belongs to another agentProfile, not `{agent_profile}`. Available options: {options}"
     ))
 }
 
@@ -296,7 +293,7 @@ mod tests {
         let err =
             validate_agent_model("codex", Some("opus")).expect_err("opus is a claude-code model");
         assert!(
-            err.contains("model `opus` belongs to another agentType"),
+            err.contains("model `opus` belongs to another agentProfile"),
             "{err}"
         );
         assert!(err.contains("gpt-5.6-sol"), "{err}");
@@ -305,7 +302,7 @@ mod tests {
     #[test]
     fn rejects_an_unknown_agent() {
         let err = validate_agent_model("claude-kode", None).expect_err("typo is rejected");
-        assert!(err.contains("unknown agentType `claude-kode`"), "{err}");
+        assert!(err.contains("unknown agentProfile `claude-kode`"), "{err}");
     }
 
     /// `models` is a menu, not an allowlist — the agent CLI takes any model

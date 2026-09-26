@@ -92,13 +92,13 @@ impl SandboxService for SandboxServiceImpl {
             .register_task_context(
                 req.task_id,
                 req.checkout_mode.as_deref(),
-                req.agent_type.as_deref(),
+                req.agent_profile.as_deref(),
             )
             .await
             .map_err(|e| match e {
                 RegisterTaskContextError::EmptyTaskId => Status::invalid_argument(e.to_string()),
                 RegisterTaskContextError::InvalidCheckoutMode(_)
-                | RegisterTaskContextError::UnsupportedAgentType(_) => {
+                | RegisterTaskContextError::UnsupportedAgentProfile(_) => {
                     Status::invalid_argument(e.to_string())
                 }
                 RegisterTaskContextError::CheckoutMaterialization(_) => {
@@ -109,7 +109,7 @@ impl SandboxService for SandboxServiceImpl {
             task_id = %context.task_id,
             checkout_mode = context.checkout_mode.as_str(),
             checkout_dir = %context.checkout_dir,
-            agent_type = context.agent_type.as_deref().unwrap_or("<unset>"),
+            agent_profile = context.agent_profile.as_deref().unwrap_or("<unset>"),
             "Task joined sandbox process"
         );
         Ok(Response::new(sandbox_proto::JoinTaskResponse {}))

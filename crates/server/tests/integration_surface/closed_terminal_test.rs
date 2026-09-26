@@ -128,7 +128,7 @@ fn terminal_event(
         "taskId": task_id,
         "timestamp": "2026-04-30T00:00:00.000Z",
         "isError": sub_type == "error",
-        "agentType": "claude-code",
+        "agentProfile": "claude-code",
         "turnNumber": 1,
         "payload": payload,
     });

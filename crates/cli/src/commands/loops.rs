@@ -136,14 +136,14 @@ pub enum LoopsAction {
         #[arg(long)]
         clear_skills: bool,
         #[arg(long)]
-        agent_type: Option<String>,
-        /// Model the loop's tasks run on, from those the agent type offers
+        agent_profile: Option<String>,
+        /// Model the loop's tasks run on, from those the agent profile offers
         /// (e.g. `opus`, `fable` for `claude-code`). The backend rejects a
-        /// model the agent type does not offer.
+        /// model the agent profile does not offer.
         #[arg(long)]
         model: Option<String>,
         /// Drop the model override, so tasks run on the platform default for
-        /// the agent type.
+        /// the agent profile.
         #[arg(long)]
         clear_model: bool,
         #[arg(long, value_name = "DAYS")]
@@ -264,10 +264,10 @@ pub struct CreateConfigArgs {
     #[arg(long)]
     run_as_user_id: Option<String>,
     #[arg(long, default_value = "claude-code")]
-    agent_type: String,
-    /// Model the loop's tasks run on, from those the agent type offers (e.g.
+    agent_profile: String,
+    /// Model the loop's tasks run on, from those the agent profile offers (e.g.
     /// `opus`, `fable` for `claude-code`). Omit to inherit the platform default
-    /// for the agent type.
+    /// for the agent profile.
     #[arg(long)]
     model: Option<String>,
     #[arg(long = "tag")]
@@ -401,7 +401,7 @@ pub async fn run_loops(
             clear_tags,
             skills,
             clear_skills,
-            agent_type,
+            agent_profile,
             model,
             clear_model,
             inactive_ttl_days,
@@ -457,7 +457,7 @@ pub async fn run_loops(
                 clear_tags,
                 skills,
                 clear_skills,
-                agent_type,
+                agent_profile,
                 model,
                 clear_model,
                 inactive_ttl_days,
@@ -558,7 +558,7 @@ fn create_config(args: CreateConfigArgs) -> Result<CreateLoopConfig, ClientError
         tag_ids: Some(args.tag_ids),
         skills: Some(args.skills),
         run_as_user_id: args.run_as_user_id,
-        agent_type: Some(args.agent_type),
+        agent_profile: Some(args.agent_profile),
         model: args.model,
         inactive_ttl_days: args.inactive_ttl_days,
         node_selector: parse_node_selector(args.node_selector.as_deref())?,
@@ -583,7 +583,7 @@ fn update_config(
     clear_tags: bool,
     skills: Vec<String>,
     clear_skills: bool,
-    agent_type: Option<String>,
+    agent_profile: Option<String>,
     model: Option<String>,
     clear_model: bool,
     inactive_ttl_days: Option<i32>,
@@ -604,7 +604,7 @@ fn update_config(
         task_name: fold_clearable(task_name, clear_task_name, "task-name")?,
         tag_ids,
         skills,
-        agent_type,
+        agent_profile,
         model: fold_clearable(model, clear_model, "model")?,
         inactive_ttl_days: fold_clearable(
             inactive_ttl_days,
@@ -630,7 +630,7 @@ fn update_config(
         && config.task_name.is_none()
         && config.tag_ids.is_none()
         && config.skills.is_none()
-        && config.agent_type.is_none()
+        && config.agent_profile.is_none()
         && config.model.is_none()
         && config.inactive_ttl_days.is_none()
         && config.node_selector.is_none()

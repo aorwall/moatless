@@ -116,9 +116,9 @@ impl BackendSandboxServiceImpl {
             })
     }
 
-    /// The task's configured agent type, for stamping onto turn rows.
-    async fn resolve_agent_type(&self, task_id: &str) -> Option<String> {
-        // reason: event ingress reads the agent type for turn attribution across all owners
+    /// The task's configured agent profile, for stamping onto turn rows.
+    async fn resolve_agent_profile(&self, task_id: &str) -> Option<String> {
+        // reason: event ingress reads the agent profile for turn attribution across all owners
         #[allow(clippy::disallowed_methods)]
         let ctx = ScopeContext::system();
         self.handlers
@@ -128,7 +128,7 @@ impl BackendSandboxServiceImpl {
             .await
             .ok()
             .flatten()
-            .map(|task| task.agent_type.0)
+            .map(|task| task.agent_profile.0)
     }
 
     /// Resolve the turn an inbound event belongs to and, for a state-bearing
@@ -157,14 +157,14 @@ impl BackendSandboxServiceImpl {
             turn_number = self.latest_turn(&event.task_id).await;
         }
         let state = if let (Some(transition), Some(turn_number)) = (transition, turn_number) {
-            let agent_type = self.resolve_agent_type(&event.task_id).await;
+            let agent_profile = self.resolve_agent_profile(&event.task_id).await;
             Some(TurnStateEvent {
                 event_id: event.event_id.clone(),
                 task_id: event.task_id.clone(),
                 event_type: event_type.to_string(),
                 sub_type: event.sub_type.clone(),
                 is_error: moatless_tasks::event_ingress::is_error_sub_type(&event.sub_type),
-                agent_type,
+                agent_profile,
                 turn_number,
                 payload: payload.clone(),
                 timestamp: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
@@ -305,7 +305,7 @@ pub(super) async fn recover_interrupted_run(
                 session_id: interrupted.session_id,
                 turn_number: i64::from(interrupted.turn_number),
                 prompt_text: interrupted.prompt_text,
-                agent_type: recovered.agent_type,
+                agent_profile: recovered.agent_profile,
                 agent_mode: interrupted.agent_mode,
                 effort: interrupted.effort,
                 run_id: interrupted.run_id,

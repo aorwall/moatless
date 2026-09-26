@@ -20,7 +20,7 @@ use chrono::{DateTime, Utc};
 pub struct SettledTurn {
     pub task_id: String,
     pub turn_number: i32,
-    pub agent_type: Option<String>,
+    pub agent_profile: Option<String>,
     /// The run recorded on this closed turn, where one was. A heartbeat naming
     /// a different run describes work this row never covered.
     pub run_id: Option<String>,
@@ -90,7 +90,7 @@ pub struct TurnStateEvent {
     pub event_type: String,
     pub sub_type: String,
     pub is_error: bool,
-    pub agent_type: Option<String>,
+    pub agent_profile: Option<String>,
     pub turn_number: i32,
     pub payload: serde_json::Value,
     pub timestamp: String,

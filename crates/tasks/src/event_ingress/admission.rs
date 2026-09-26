@@ -188,7 +188,7 @@ impl EventAdmission {
             event_type: request.event_type.to_string(),
             sub_type: request.sub_type.clone(),
             is_error: is_error_sub_type(&request.sub_type),
-            agent_type: None,
+            agent_profile: None,
             turn_number: request.turn_number,
             payload: request.payload.clone(),
             timestamp: timestamp_now(),

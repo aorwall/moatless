@@ -138,7 +138,7 @@ mod tests {
             tag_ids: vec![],
             skills: Vec::new(),
             run_as_user_id: None,
-            agent_type: "claude-code".into(),
+            agent_profile: "claude-code".into(),
             model: None,
             inactive_ttl_days: None,
             created_by: "owner".into(),

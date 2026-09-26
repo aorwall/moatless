@@ -31,12 +31,12 @@ impl TaskTurns {
         &self,
         task_id: &str,
         turn_number: i32,
-        agent_type: Option<String>,
+        agent_profile: Option<String>,
         transition: TurnTransition,
         at: DateTime<Utc>,
     ) -> Result<(), sqlx::Error> {
         self.store
-            .project_turn(task_id, turn_number, agent_type, transition, at)
+            .project_turn(task_id, turn_number, agent_profile, transition, at)
             .await
     }
 
