@@ -20,7 +20,7 @@ import { progress } from '../helpers/progress'
 import { discardTask } from '../helpers/teardown'
 import { waitForPendingToolCall, waitForSandboxReady } from '../steps'
 
-const agentReason = missingCapability('agentCredentials')
+const agentReason = missingCapability('claudeCredentials')
 
 /** The plan the agent put up for approval, as one particular response carries it. */
 function planOf(messages: GetMessagesResponse, toolUseId: string): string | undefined {

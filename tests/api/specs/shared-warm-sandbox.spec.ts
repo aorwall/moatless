@@ -15,7 +15,7 @@ import { progress } from '../helpers/progress'
 import { discardTask } from '../helpers/teardown'
 import { createTaskWithoutMessage, waitForAgentTurnComplete, waitForSandboxReady } from '../steps'
 
-const agentReason = missingCapability('agentCredentials')
+const agentReason = missingCapability('claudeCredentials')
 
 interface SharedWarmTaskFields {
   sandboxId?: string | null

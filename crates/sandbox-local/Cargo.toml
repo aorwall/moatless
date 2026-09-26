@@ -1,0 +1,33 @@
+[package]
+name = "moatless-sandbox-local"
+version.workspace = true
+edition.workspace = true
+description = "Local-process sandbox runtime for isolated E2E runs, behind the moatless-sandbox-control ports"
+
+authors.workspace = true
+[dependencies]
+moatless-workspace-types = { workspace = true, features = ["openapi"] }
+async-trait = { workspace = true }
+futures = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+tracing = { workspace = true }
+
+moatless-ports = { workspace = true, features = ["openapi"] }
+moatless-core = { workspace = true, features = ["openapi"] }
+moatless-sandbox-runtime = { workspace = true }
+moatless-sandbox-control = { workspace = true }
+moatless-types = { workspace = true, features = ["openapi"] }
+sandbox-proto = { workspace = true }
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+tempfile = { workspace = true }
+moatless-core = { workspace = true, features = ["openapi", "test-support"] }
+
+[[package.metadata.arch.allow]]
+rule = "band-order"
+dependency = "moatless-sandbox-control"
+reason = "The watcher calls Lifecycle and provisioning consumes ProvisionDeps; remove when those callers no longer hold the orchestrator (same exception moatless-sandbox-docker carries)."

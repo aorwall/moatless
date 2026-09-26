@@ -50,6 +50,7 @@ pub const BANDS: &[(&[&str], &str)] = &[
             "moatless-tasks",
             "moatless-sandbox-k8s",
             "moatless-sandbox-docker",
+            "moatless-sandbox-local",
         ],
         "task services and runtime drivers",
     ),

@@ -26,7 +26,7 @@ import {
   waitForSandboxReady,
 } from '../steps'
 
-const callbackReason = missingCapability('inboundCallbacks', 'agentCredentials')
+const callbackReason = missingCapability('inboundCallbacks', 'claudeCredentials')
 
 test.describe('Chain 6: Webhook Outbound Callback', () => {
   test.describe.configure({ mode: 'serial' })

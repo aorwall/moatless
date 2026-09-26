@@ -364,7 +364,7 @@ tasks:
   # ── E2E suite against Docker Compose ──────────────────────────
 
   test:compose:e2e:
-    desc: Run the E2E suite in Docker (suite via -- --suite api|ui|all)
+    desc: Run the E2E suite against Docker Compose
     cmds:
       - docker-compose/playwright-runner.sh {{.CLI_ARGS}}
 

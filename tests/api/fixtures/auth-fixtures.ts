@@ -26,7 +26,7 @@
  */
 
 import { test as base } from '@playwright/test'
-import { type Moat, mintApiKey } from '../../shared/moat'
+import { type Moat, mintApiKey, seededUserEmail } from '../../shared/moat'
 import { MoatApi } from '../../shared/moat-api'
 import { missingCapability, profile } from '../../shared/profile'
 import { test as apiTest } from './api-fixtures'
@@ -58,7 +58,7 @@ export async function loginAs(
   role: 'user' | 'admin' = 'user',
 ): Promise<MoatApi> {
   await new MoatApi(driver).ensureUser(login, TEST_PASSWORD, role)
-  const key = await mintApiKey(profile().baseUrl, login, TEST_PASSWORD)
+  const key = await mintApiKey(profile().baseUrl, seededUserEmail(login), TEST_PASSWORD)
   return new MoatApi(driver.withApiKey(key))
 }
 

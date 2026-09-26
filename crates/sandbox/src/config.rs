@@ -454,7 +454,9 @@ impl Config {
             data_dir: env::var("DATA_DIR")
                 .unwrap_or_else(|_| "/opt/moatless/data".to_string()),
 
-            runtime_dir: RUNTIME_DIR.to_string(),
+            // Sandboxes sharing one host (`SANDBOX_PROVIDER=local`) each need
+            // their own credential socket directory.
+            runtime_dir: env::var("RUNTIME_DIR").unwrap_or_else(|_| RUNTIME_DIR.to_string()),
 
             upload_dir,
 

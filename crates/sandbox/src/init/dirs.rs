@@ -31,13 +31,14 @@ pub(super) fn copy_dir_contents(src: &Path, dst: &Path) -> std::io::Result<usize
     Ok(count)
 }
 
-/// Wipe leftover entries under `/tmp` and re-apply 1777 permissions.
+/// Wipe the temp dir (`TMPDIR`, else `/tmp`) and re-apply 1777 permissions.
 ///
-/// `/tmp` is a workspace-PVC subPath, so it survives restarts unlike real
-/// `/tmp`; K8s recreates it at 0755, breaking tools that drop privileges
-/// (playwright/chromium, bun cache) and need it sticky and world-writable.
+/// In a pod `/tmp` is a PVC subPath that K8s recreates at 0755, which breaks
+/// tools that drop privileges. A local sandbox shares the host's `/tmp`, so
+/// its provider points `TMPDIR` at a per-task directory.
 fn reset_tmp() {
-    let tmp = Path::new("/tmp");
+    let tmp_dir = std::env::temp_dir();
+    let tmp = tmp_dir.as_path();
     match std::fs::read_dir(tmp) {
         Ok(entries) => {
             let mut removed = 0usize;

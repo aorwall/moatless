@@ -793,7 +793,7 @@ fn unix_now_ms() -> i64 {
 /// `WORKSPACE_DIR`: build output is not worth archiving into the workspace
 /// snapshot, and it must stay out of the user's `git status`.
 pub fn default_log_dir(task_id: &str) -> PathBuf {
-    Path::new("/tmp/moat-commands").join(task_id)
+    std::env::temp_dir().join("moat-commands").join(task_id)
 }
 
 #[cfg(test)]

@@ -27,7 +27,7 @@ import { progress } from '../helpers/progress'
 import { discardTask } from '../helpers/teardown'
 import { createTaskWithMessage, waitForAgentTurnComplete, waitForSandboxReady } from '../steps'
 
-const agentReason = missingCapability('agentCredentials')
+const agentReason = missingCapability('claudeCredentials')
 
 const PLUGIN_GIT_URL = 'https://github.com/amekala/adspirer-mcp-plugin.git'
 const PLUGIN_NAME = 'adspirer-mcp-plugin'

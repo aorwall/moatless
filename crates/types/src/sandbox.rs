@@ -26,6 +26,8 @@ pub fn sandbox_intent_epoch() -> DateTime<Utc> {
 pub enum SandboxProviderType {
     Kubernetes,
     Docker,
+    /// Each sandbox is a child process of the backend, for isolated E2E runs.
+    Local,
 }
 
 impl fmt::Display for SandboxProviderType {
@@ -33,6 +35,7 @@ impl fmt::Display for SandboxProviderType {
         match self {
             Self::Kubernetes => write!(f, "kubernetes"),
             Self::Docker => write!(f, "docker"),
+            Self::Local => write!(f, "local"),
         }
     }
 }
@@ -44,6 +47,7 @@ impl FromStr for SandboxProviderType {
         match s.to_lowercase().as_str() {
             "kubernetes" | "k8s" => Ok(Self::Kubernetes),
             "docker" => Ok(Self::Docker),
+            "local" => Ok(Self::Local),
             _ => Err(format!("unknown sandbox provider: {s}")),
         }
     }

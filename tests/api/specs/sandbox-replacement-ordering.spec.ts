@@ -16,13 +16,15 @@
 
 import { EventStream } from '../../shared/event-stream'
 import type { MoatApi } from '../../shared/moat-api'
-import { missingCapability, profile } from '../../shared/profile'
+import { type Capabilities, missingCapability, profile } from '../../shared/profile'
 import { expect, test } from '../fixtures/api-fixtures'
 import { stopSandbox, waitForSandboxReady } from '../steps'
 
 interface Harness {
   scenario: string
   agentType: string
+  /** What the run needs before this harness can start. */
+  credentials: keyof Capabilities
   model: string
   /** What the provider reports on a message it produced. */
   modelPrefix: string
@@ -32,12 +34,14 @@ const HARNESSES: Harness[] = [
   {
     scenario: 'AGENT-09.1',
     agentType: 'claude-code-cli',
+    credentials: 'claudeCredentials',
     model: 'haiku',
     modelPrefix: 'claude-',
   },
   {
     scenario: 'AGENT-09.2',
     agentType: 'codex',
+    credentials: 'codexConnection',
     model: 'gpt-5.5',
     modelPrefix: 'gpt-',
   },
@@ -83,7 +87,7 @@ async function expectModelFamily(
 
 for (const harness of HARNESSES) {
   test.describe(`Standalone: Sandbox replacement ordering (${harness.agentType})`, () => {
-    const reason = missingCapability('agentCredentials')
+    const reason = missingCapability(harness.credentials)
     test.skip(reason !== null, reason ?? '')
 
     test(`${harness.scenario}: A replaced sandbox resumes the session before answering`, async ({

@@ -16,7 +16,7 @@ the bun workspace, and nothing builds, checks or deploys it. Do not change it.
 
 The `testing-guidelines` skill owns the test entry points these blocks omit and
 the Turbo filter trap. `e2e-testing` owns the E2E suite in `tests/`, which
-exercises the whole stack: its commands, both profiles, and the sweeper that
+exercises the whole stack: its local harness, the CI job, and the sweeper that
 clears what a killed run left behind.
 
 ### TypeScript packages (bun 1.2.19+)

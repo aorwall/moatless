@@ -1,48 +1,107 @@
 ---
 name: e2e-testing
-description: Run and write the Moatless Vibe E2E suite (tests/api chains). One suite, two profiles — docker and k8s — driven through the moat CLI. Use when running tests, writing new chains, setting up the test environment, sweeping leftovers, or debugging failures.
+description: Run and write the Moatless Vibe E2E suite (tests/api chains) through scripts/local-e2e/run.sh — a backend built from the checkout, its own Postgres schema, and every task's sandbox a local process. Use when running tests, writing new chains, running the CI E2E job, sweeping leftovers, or debugging failures.
 ---
 
 # E2E Testing
 
 ## Overview
 
-There is **one** E2E suite, in `tests/`, and it runs against **two** environments:
+The E2E suite lives in `tests/`. `scripts/local-e2e/run.sh` runs it against a
+throwaway stack that needs no Docker image and no cluster:
 
-| Profile | Environment | Auth | Fixture repository |
-|---------|-------------|------|--------------------|
-| `docker` | local Docker Compose at `http://localhost:8080` | password login, seeded users | cloned from a template URL |
-| `k8s` | the deployed cluster, from **inside a sandbox** | the sandbox's own login (ambient) | the pre-existing Moatable repo |
+1. It creates a schema named `e2e_<epoch>_<hex>` on an existing Postgres and
+   selects it with `search_path` in `DATABASE_URL`. The backend migrates it on
+   startup; `crates/core/src/db/migrations.rs` scopes the migrations' catalog
+   probes to that schema.
+2. It starts `moatless-backend` from the checkout on free ports, with
+   `SANDBOX_PROVIDER=local`. Each task's sandbox is then a `sandbox` child
+   process under `/tmp/le-<run>/tasks/<task-id>/`, running the real
+   `claude` and `codex` CLIs.
+3. When `OPENAI_API_KEY` is set, it seeds a global Codex connection.
+4. It runs Playwright under the `local` profile, then drops the schema and
+   removes the run's directories.
 
 Every call the suite makes goes through the compiled `moat` binary, so the tests
-exercise the client people actually run — and the same chain works in both
-environments without branching on which one it is in.
-
-`E2E_PROFILE` selects the profile. Unset, a process carrying a sandbox login is
-a `k8s` run and anything else is `docker`. The resolved profile is printed at the
-top of every run; it is never left implicit.
+exercise the client people actually run.
 
 For live runtime diagnosis, use [sandbox-troubleshooting](../sandbox-troubleshooting/SKILL.md).
-For installation verification, use [manual smoke verification](references/manual-smoke.md).
+
+---
+
+## Running it
+
+Run it through `moat cmd run`: a build plus the suite outlasts a shell call.
+
+```bash
+scripts/local-e2e/run.sh                          # build, then the whole api suite
+scripts/local-e2e/run.sh --skip-build -- tests/api/specs/agent-codex-flow.spec.ts
+scripts/local-e2e/run.sh --skip-build --keep -- <specs>   # leave schema and logs
+scripts/local-e2e/run.sh sweep --dry-run          # what killed runs left behind
+scripts/local-e2e/run.sh sweep --older-than-hours 0
+```
+
+Everything after `--` goes to Playwright. The harness passes
+`--config tests/api/playwright.config.ts` itself; do not pass `--reporter`,
+which replaces the run summary.
+
+**Inputs**
+
+| Variable | Effect |
+|---|---|
+| `LOCAL_E2E_BASE_ENV` | Env file the backend starts from, and the source of `DATABASE_URL`. Defaults to `/run/moatless/shadow/backend.env`, which `scripts/shadow/sync-env.sh` writes from the deployment when it is missing. |
+| `LOCAL_E2E_BIN_DIR` | Where `moatless-backend`, `sandbox` and `moat` are. Defaults to `target/debug`. |
+| `ANTHROPIC_API_KEY` / `CLAUDE_CODE_OAUTH_TOKEN` | Passed to each sandbox; enables the Claude chains. |
+| `OPENAI_API_KEY` | Seeds the Codex connection; enables the Codex chains. |
+| `GITHUB_PAT` | Enables the chains that create real GitHub repositories. |
+| `E2E_WORKERS` | Playwright workers. |
+
+Build with `CARGO_BUILD_JOBS=4`: an unbounded build reaches the sandbox's
+memory cap.
+
+**Do not run `pkill -f` against the backend or the sandboxes.** The pattern also
+matches this sandbox's own processes. The harness stops a run's processes on
+exit by finding its sandbox root in their environment, which the backend, every
+sandbox and every agent carry.
+
+### In CI
+
+`.github/workflows/e2e.yml` runs the harness on manual dispatch (Actions → E2E →
+Run workflow). `build-binaries` compiles the three binaries with
+`--profile ci`. The `playwright` job then:
+
+- runs in `moatless-sandbox-base:latest`, which ships the agent CLIs;
+- starts `postgres:16` as a service container;
+- writes a two-line base env: `DATABASE_URL` and a generated
+  `SECRETS_ENCRYPTION_KEY`;
+- runs `run.sh --skip-build --keep`;
+- uploads `test-results/`, the backend log and each sandbox's log.
+
+A change to what the harness needs from its environment has to land in that job
+too.
 
 ---
 
 ## Capabilities, not tiers
 
 A test that cannot run in an environment **skips there, with the reason named**.
-It is never deleted, and it never fails for the wrong reason. What an
-environment can do is declared in `tests/shared/profile.ts`:
+It is never deleted, and it never fails for the wrong reason.
+`tests/shared/profile.ts` declares what the `local` profile can do:
 
-| Capability | Means | `docker` | `k8s` |
-|---|---|---|---|
-| `seedUsers` | create users and log in as them | yes | no — the deployed auth provider has no local users |
-| `resetDatabase` | truncate between runs | yes | no — the database is shared with real work |
-| `directDatabase` | read/write Postgres directly | yes | no — no database route from a sandbox |
-| `inboundCallbacks` | the backend can reach a server the test process opens | yes | no |
-| `agentCredentials` | agent-tier chains can run | when a key is set | yes |
-| `githubRepositories` | create and delete real repositories on GitHub | when `GITHUB_PAT` is set | when `GITHUB_PAT` is set |
-| `localImages` | run an image built here and pushed nowhere | yes | no — the cluster pulls from a registry |
-| `storedWorkspace` | read a stopped task's files from the store | no — the compose stack configures no bucket | yes |
+| Capability | Means | `local` |
+|---|---|---|
+| `seedUsers` | create users and log in as them | yes |
+| `resetDatabase` | truncate between runs | no — each run gets a new schema |
+| `directDatabase` | read/write Postgres directly | no — the helpers use `docker exec` |
+| `inboundCallbacks` | the backend can reach a server the test process opens | yes |
+| `claudeCredentials` | Claude agent chains can run | when `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY` is set |
+| `codexConnection` | Codex agent chains can run | when `OPENAI_API_KEY` is set |
+| `githubRepositories` | create and delete real repositories on GitHub | when `GITHUB_PAT` is set |
+| `localImages` | run an image built here | no — sandboxes are processes |
+| `storedWorkspace` | read a stopped task's files from the store | no — no bucket |
+| `sandboxReadyEvent` | a watcher publishes `sandbox.ready` | no — `sandbox-local` has no lifecycle watcher |
+| `workspaceImage` | the runtime runs the workspace's `dockerImage` | no — sandboxes run on the host |
+| `trajectory` | trajectory recording is on | when `E2E_TRAJECTORY=1` |
 
 In a spec:
 
@@ -58,90 +117,36 @@ a tier that silently stopped executing cannot hide inside a skip count.
 
 ---
 
-## Running it
-
-### Against Docker Compose
-
-Whole stack, built and torn down for you (this is the per-PR gate):
-
-```bash
-task test:compose:e2e                       # api suite
-task test:compose:e2e -- --skip-build --keep-running
-task test:compose:e2e -- --suite api -- tests/api/specs/task-crud.spec.ts   # one chain
-```
-
-`GITHUB_PAT` gives the run the `githubRepositories` capability; without it the
-tests that create real repositories on GitHub skip, and the header line at the
-top of the run says so. `ADMIN_PASSWORD` defaults to the CI overlay's value.
-
-Against a stack that is already running:
-
-```bash
-bun run test:e2e                            # tests/api
-bunx playwright test --config tests/api/playwright.config.ts tests/api/specs/task-crud.spec.ts
-```
-
-Always pass `--config`. Without it Playwright uses its own defaults — a 30s
-timeout and no global setup — and the run fails in ways the suite did not mean.
-Do not pass `--reporter` either: it replaces the config's reporters, and the run
-summary is the part worth reading.
-
-### Against the cluster
-
-Run it **from inside a sandbox**, which is the only place with a login for the
-deployed environment:
-
-```bash
-E2E_PROFILE=k8s bun run test:e2e
-```
-
-If it fails with an unknown `moat api` subcommand, the `moat` on PATH is older
-than the suite's driver. Build the one in the checkout and point at it:
-
-```bash
-cargo build -p moatless-cli --bin moat
-MOAT_BIN="$PWD/target/debug/moat" E2E_PROFILE=k8s bun run test:e2e
-```
-
-A cluster run takes about ten minutes at the default three workers; most of that
-is real pods scheduling and pulling. Nightly, `.moatless/loops/e2e-nightly/LOOP.md`
-does exactly this on a schedule.
-
----
-
 ## Run isolation and sweeping
 
-The cluster database is shared and long-lived — there is no truncate to fall
-back on. So every resource a test creates is named through `scopedName()` with
-the run's own prefix (`tests/shared/run-scope.ts`):
+A run owns three things, each named after its schema, so the sweeper can tell a
+stale one from its name alone:
 
-```
-e2e-mfz3k1p-a4f9-Task Filter Repo
-└─┬─┘└──┬──┘└─┬─┘
-  │     │     └── random, so two runs starting the same millisecond differ
-  │     └──────── start time, base 36
-  └────────────── the family every run shares
-```
+| What | Where |
+|---|---|
+| the schema | `e2e_<epoch>_<hex>` on the base env's database |
+| the sandboxes' files | `/tmp/le-<epoch>_<hex>/` (short, so the credential socket path under it fits 108 bytes) |
+| the backend log and Playwright's `HOME` | `/run/moatless/local-e2e/e2e_<epoch>_<hex>/` |
 
-The prefix carries the start time, so anything can decide what is stale from the
-name alone. Teardown sweeps the run's own prefix. For runs that were killed
-before teardown — an open task keeps a sandbox pod alive — sweep by hand:
+The harness removes all three on exit unless `--keep` is passed. A killed run
+leaves them behind, with its processes still running; `run.sh sweep` stops
+those processes and removes whatever is older than three hours by default. It
+touches only names matching that pattern.
 
-```bash
-E2E_PROFILE=k8s bun tests/sweep.ts --dry-run       # say what would go
-E2E_PROFILE=k8s bun tests/sweep.ts --older-than 3h # default is 3h
-```
-
-Only resources whose name says a run created them are ever touched.
+Inside a run, name every resource a test creates through
+`scopedName()`/`scopedSlug()` (`tests/shared/run-scope.ts`). Teardown sweeps
+the run's own prefix, so chains running in parallel never collide.
 
 ---
 
 ## Layout
 
 ```
+scripts/local-e2e/run.sh   # the harness and its sweeper
+crates/sandbox-local/      # SANDBOX_PROVIDER=local: each sandbox a child process
 tests/
   shared/
-    profile.ts        # the two profiles: URLs, auth, fixtures, timeouts, capabilities
+    profile.ts        # URLs, auth, fixtures, timeouts, capabilities
     moat.ts           # the driver — spawns the `moat` binary; json/text/raw/stream
     moat-api.ts       # domain verbs on top of the driver
     run-scope.ts      # the run prefix, scopedName / scopedSlug
@@ -156,7 +161,6 @@ tests/
     fixtures/         # `api`, `events`, and the auth fixtures (alice/bob)
     context/          # ChainContext, chainEvents() — what one test hands the next
     reporters/        # the run summary
-  sweep.ts            # the standalone sweeper
 ```
 
 A chain is a `test.describe` with `test.describe.configure({ mode: "serial" })`:
@@ -175,11 +179,13 @@ down their own state, which is why the directory is not called `chains/`.
 2. **Put it in the chain that owns the domain** —
    `tests/api/specs/<domain>-*.spec.ts`.
 3. **Speak through the fixtures**, not through raw HTTP — `api` for a single
-   call, a step from `../steps` when the action composes:
+   call, a step from `../steps` when the action composes.
 
 Use [task-crud.spec.ts](../../../tests/api/specs/task-crud.spec.ts) as a complete
-fixture and cleanup example. Initialize the repository and ChainContext before
-calling a creation step; do not rely on an undeclared `ctx`.
+fixture and cleanup example, and
+[agent-codex-flow.spec.ts](../../../tests/api/specs/agent-codex-flow.spec.ts) for a
+short agent chain. Initialize the repository and ChainContext before calling a
+creation step; do not rely on an undeclared `ctx`.
 
 Rules that keep the suite worth running:
 
@@ -189,18 +195,17 @@ Rules that keep the suite worth running:
 - **An assertion that cannot fail is worse than none.** Asserting a value equals
   itself, or that a list "has entries" when a fresh environment has them anyway,
   reads as coverage and is not.
-- **Timeouts come from the profile**, never from a constant — a pod takes
-  several times as long as a local container. A test states which transitions it
-  waits on and lets `budget("sandboxReady", "agentIdle")` do the arithmetic; the
-  waits themselves already default to the profile's ceiling.
-- **Name every resource through `scopedName`/`scopedSlug`**, or the sweep cannot
+- **Timeouts come from the profile**, never from a constant. A test states which
+  transitions it waits on and lets `budget("sandboxReady", "agentIdle")` do the
+  arithmetic; the waits themselves already default to the profile's ceiling.
+- **Name every resource through `scopedName`/`scopedSlug`**, or teardown cannot
   clean it up.
 - **Guard on a capability, don't branch on the profile name.**
 - **Call `api` directly for a single request.** A step exists to compose — a
   call plus the wait that makes it meaningful, a default, a projection. A
   wrapper that only reorders arguments hides which endpoint ran.
 - **Narrate with `progress()`**, which labels the line with the test that
-  emitted it. Three chains interleave their output.
+  emitted it. Parallel chains interleave their output.
 - **A `// ─── ID: title ───` banner indexes a scenario the file-top doc lists.**
   Any other comment that restates the test title or the assertion below it is
   a cut. The comment rules in the root `AGENTS.md` apply.
@@ -209,22 +214,22 @@ Rules that keep the suite worth running:
 
 ## Debugging
 
-- The run summary at the end names the profile, the run prefix, the counts, each
-  failure with its assertion, and every skip with its reason.
-- HTML report: `test-results/api/` (`npx playwright show-report test-results/api`).
-  JSON: `test-results/api/results.json`.
-- `[global-setup]` lines at the top say which environment was resolved and which
-  fixture repository was found; the header line names every capability the
-  profile lacks, which is why a group of tests will skip.
-- Docker stack logs: `docker compose -f docker-compose/docker-compose.yml -f docker-compose/docker-compose.ci.yml logs backend`.
-- Cluster: `moat tasks logs <task-id>`, and `moat tasks diagnose <task-id>`.
+Pass `--keep` to inspect a failed run; the harness prints what it kept.
+
+- **Run summary:** the end of the output names the profile, the run prefix, the
+  counts, each failure with its assertion, and every skip with its reason.
+  `test-results/api/results.json` holds the same as JSON.
+- **Backend:** `/run/moatless/local-e2e/<schema>/backend.log`.
+- **A sandbox:** `/tmp/le-<run>/tasks/<task-id>/sandbox.log`, beside that
+  task's `workspace/`, `home/` and `tmp/`.
+- **Data:** connect with `DATABASE_URL` from the base env plus
+  `PGOPTIONS="-c search_path=<schema>"`.
 
 **Common causes**
 
 | Symptom | Cause |
 |---|---|
-| "Backend is not healthy" on every chain | wrong `E2E_PROFILE`, or a `moat` older than the suite's driver — set `MOAT_BIN` |
-| "Fixture repository … is missing" | `E2E_REPOSITORY_ID` points at something that is not there |
+| "Backend not healthy after 180s" or "exited before it was healthy" | the harness prints the log's tail; a migration error there usually means an unscoped catalog probe (`migrations.rs`) |
 | a whole tier skipped | the profile lacks the capability — read the **Did not run** group |
-| a chain times out at 30s | `--config` was not passed |
-| leftovers on the cluster | a run was killed before teardown — `bun tests/sweep.ts` |
+| an agent turn never completes | `EVENT_HANDLER_ENABLED` is off in the backend's env |
+| psql or the backend lands in the wrong schema | the base env's `DATABASE_URL` already carries `options=`; the harness strips it, so a hand-built URL must too |

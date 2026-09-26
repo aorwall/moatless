@@ -1,10 +1,11 @@
 /**
  * Environment profiles for the E2E suite.
  *
- * One suite runs against two environments: a local Docker Compose stack and the
- * deployed Kubernetes environment. Everything that differs between them lives
- * here, so a test never branches on which environment it is in — it asks the
- * profile for a property, or guards on a capability.
+ * One suite runs against three environments: a local Docker Compose stack, the
+ * deployed Kubernetes environment, and a backend `scripts/local-e2e/run.sh`
+ * starts inside a sandbox. Everything that differs between them lives here, so a
+ * test never branches on which environment it is in — it asks the profile for
+ * a property, or guards on a capability.
  *
  * Selection is `E2E_PROFILE`. When unset, a process that already carries a
  * sandbox login is a cluster run, and anything else is a Docker run. The
@@ -12,7 +13,7 @@
  * misconfigured run must not silently test the wrong environment.
  */
 
-export type ProfileName = 'docker' | 'k8s'
+export type ProfileName = 'docker' | 'k8s' | 'local'
 
 /**
  * What the active environment can do. A test that needs a capability the
@@ -28,8 +29,10 @@ export interface Capabilities {
   directDatabase: boolean
   /** The backend can reach an HTTP server hosted by the test process. */
   inboundCallbacks: boolean
-  /** Agent credentials are configured, so agent-tier tests can run. */
-  agentCredentials: boolean
+  /** Claude Code credentials are configured, so Claude agent tests can run. */
+  claudeCredentials: boolean
+  /** The backend holds a Codex connection, so a Codex task can be created. */
+  codexConnection: boolean
   /** The run can create and delete real repositories on GitHub — it has a PAT. */
   githubRepositories: boolean
   /** The runtime schedules onto this machine, so an image built here can run. */
@@ -40,6 +43,10 @@ export interface Capabilities {
    * running".
    */
   storedWorkspace: boolean
+  /** A runtime watcher publishes `sandbox.ready` when a sandbox comes up. */
+  sandboxReadyEvent: boolean
+  /** The runtime runs the workspace's `dockerImage`, so a bad image fails the sandbox. */
+  workspaceImage: boolean
   /**
    * The backend runs with `FF_TRAJECTORY_RECORDING`, and with either
    * `FF_TRAJECTORY_RESUME` or the fixture workspace setting
@@ -104,11 +111,15 @@ function dockerProfile(): Profile {
       resetDatabase: true,
       directDatabase: true,
       inboundCallbacks: true,
-      agentCredentials: hasAgentCredentials(),
+      claudeCredentials: hasClaudeCredentials(),
+      // The compose stack seeds no Codex connection.
+      codexConnection: false,
       githubRepositories: Boolean(process.env.GITHUB_PAT),
       localImages: true,
       // The compose stack configures no bucket, so nothing is stored.
       storedWorkspace: false,
+      sandboxReadyEvent: true,
+      workspaceImage: true,
       trajectory: process.env.E2E_TRAJECTORY === '1',
     },
   }
@@ -141,31 +152,69 @@ function k8sProfile(): Profile {
       resetDatabase: false,
       directDatabase: false,
       inboundCallbacks: false,
-      agentCredentials: true,
+      claudeCredentials: true,
+      codexConnection: true,
       // A sandbox carries no PAT of its own, and the cluster pulls images
       // from a registry — a local `docker build` is not reachable from it.
       githubRepositories: Boolean(process.env.GITHUB_PAT),
       localImages: false,
       storedWorkspace: true,
+      sandboxReadyEvent: true,
+      workspaceImage: true,
       trajectory: process.env.E2E_TRAJECTORY === '1',
     },
   }
 }
 
-function hasAgentCredentials(): boolean {
-  return Boolean(
-    process.env.CLAUDE_CODE_OAUTH_TOKEN ||
-      process.env.ANTHROPIC_API_KEY ||
-      process.env.OPENAI_API_KEY,
-  )
+/**
+ * A backend started by `scripts/local-e2e/run.sh`: this checkout's build, its
+ * own Postgres schema, and each sandbox a child process on this machine.
+ */
+function localProfile(): Profile {
+  return {
+    name: 'local',
+    baseUrl: process.env.MOATLESS_API_URL || 'http://127.0.0.1:8080',
+    auth: 'password',
+    fixture: { templateUrl: process.env.E2E_TEMPLATE_URL || DEFAULT_TEMPLATE_URL },
+    // A process starts in seconds; only the agent's turn is as slow as anywhere.
+    timeouts: {
+      sandboxReady: 120_000,
+      sandboxTeardown: 60_000,
+      agentIdle: 300_000,
+    },
+    capabilities: {
+      seedUsers: true,
+      // The schema is new and dropped after the run, so there is nothing to reset.
+      resetDatabase: false,
+      // The database helpers reach Postgres through `docker exec`.
+      directDatabase: false,
+      inboundCallbacks: true,
+      claudeCredentials: hasClaudeCredentials(),
+      // The harness seeds one when `OPENAI_API_KEY` is set.
+      codexConnection: Boolean(process.env.OPENAI_API_KEY),
+      githubRepositories: Boolean(process.env.GITHUB_PAT),
+      // Sandboxes are processes, not images.
+      localImages: false,
+      storedWorkspace: false,
+      // `sandbox-local` has no lifecycle watcher.
+      sandboxReadyEvent: false,
+      // Sandboxes run on the host; `dockerImage` is ignored.
+      workspaceImage: false,
+      trajectory: process.env.E2E_TRAJECTORY === '1',
+    },
+  }
+}
+
+function hasClaudeCredentials(): boolean {
+  return Boolean(process.env.CLAUDE_CODE_OAUTH_TOKEN || process.env.ANTHROPIC_API_KEY)
 }
 
 /** The profile name, from `E2E_PROFILE` or inferred from the environment. */
 export function resolveProfileName(): ProfileName {
   const requested = process.env.E2E_PROFILE?.trim()
   if (requested) {
-    if (requested !== 'docker' && requested !== 'k8s') {
-      throw new Error(`Unknown E2E_PROFILE '${requested}'. Valid profiles: docker, k8s.`)
+    if (requested !== 'docker' && requested !== 'k8s' && requested !== 'local') {
+      throw new Error(`Unknown E2E_PROFILE '${requested}'. Valid profiles: docker, k8s, local.`)
     }
     return requested
   }
@@ -179,7 +228,8 @@ let cached: Profile | null = null
 /** The active profile, resolved once per process. */
 export function profile(): Profile {
   if (!cached) {
-    cached = resolveProfileName() === 'k8s' ? k8sProfile() : dockerProfile()
+    const builders = { docker: dockerProfile, k8s: k8sProfile, local: localProfile }
+    cached = builders[resolveProfileName()]()
   }
   return cached
 }

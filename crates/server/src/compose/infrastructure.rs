@@ -135,6 +135,19 @@ pub fn build_docker_sandbox_adapter(
     ))
 }
 
+pub fn build_local_sandbox_adapter(
+    config: &Config,
+    client: crate::sandbox::local::client::LocalClient,
+    plan: Option<crate::sandbox::lifecycle::ProvisionDeps>,
+) -> Arc<crate::sandbox::local::provider::LocalSandboxAdapter> {
+    use crate::sandbox::local::provider::LocalSandboxAdapter;
+    Arc::new(LocalSandboxAdapter::new(
+        Arc::new(config.clone()),
+        client,
+        plan,
+    ))
+}
+
 pub fn build_merged_openapi() -> utoipa::openapi::OpenApi {
     use crate::access_settings::routes::AccessSettingsApiDoc;
     use crate::adapters::routes::AdapterApiDoc;

@@ -35,6 +35,8 @@ const CRASH_LOOP_WAIT_MS = 120_000
 // ─── SANDBOX-06: Sandbox provision failure (invalid image) ──────────────
 
 test('SANDBOX-06: Sandbox provision failure (invalid image)', async ({ api }, testInfo) => {
+  const reason = missingCapability('workspaceImage')
+  test.skip(reason !== null, reason ?? '')
   testInfo.setTimeout(NOT_COMING_UP_MS + budget())
 
   const repo = await api.ensureTemplateRepository()

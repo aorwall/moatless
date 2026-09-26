@@ -41,7 +41,7 @@ import type {
   WorkspaceResponse,
 } from '@moatless/api-client/sandbox/model'
 import type { Moat, RawResponse } from './moat'
-import { MoatError } from './moat'
+import { MoatError, seededUserEmail } from './moat'
 import type { Profile } from './profile'
 import { scopedName, scopedSlug } from './run-scope'
 import type {
@@ -82,6 +82,8 @@ interface CreatedTask {
   status: string
   task: TaskResponse
 }
+
+const TEMPLATE_REPOSITORY_NAME = 'Hello World UI'
 
 export class MoatApi {
   constructor(private readonly moat: Moat) {}
@@ -155,6 +157,7 @@ export class MoatApi {
     const args = ['repos', 'create', '--name', scopedName(config.name)]
     if (config.remoteUrl) args.push('--git-url', config.remoteUrl)
     if (config.kind) args.push('--kind', config.kind)
+    if (config.provider) args.push('--provider', config.provider)
     if (config.defaultBranch) args.push('--branch', config.defaultBranch)
     if (config.description) args.push('--description', config.description)
     if (config.scope) args.push('--scope', config.scope)
@@ -192,8 +195,7 @@ export class MoatApi {
       }
     }
 
-    const repositories = await this.listRepositories()
-    const template = repositories.find((repo) => repo.kind === 'template')
+    const template = await this.findTemplateRepository()
     if (template) {
       return template
     }
@@ -202,11 +204,26 @@ export class MoatApi {
         `Profile '${this.profile.name}' names neither a fixture repository nor a template URL.`,
       )
     }
-    return this.createRepository({
-      name: 'Hello World UI',
-      kind: 'template',
-      remoteUrl: fixture.templateUrl,
-    } as CreateRepositoryRequest)
+    try {
+      return await this.createRepository({
+        name: TEMPLATE_REPOSITORY_NAME,
+        kind: 'template',
+        remoteUrl: fixture.templateUrl,
+      } as CreateRepositoryRequest)
+    } catch (error) {
+      // Workers create it lazily, so another worker may have won the race (409).
+      const created = await this.findTemplateRepository()
+      if (created) {
+        return created
+      }
+      throw error
+    }
+  }
+
+  private async findTemplateRepository(): Promise<RepositoryResponse | undefined> {
+    const repositories = await this.listRepositories()
+    // By name, not by kind: auth specs create and delete template repositories of their own.
+    return repositories.find((repo) => repo.name === scopedName(TEMPLATE_REPOSITORY_NAME))
   }
 
   // =========================================================================
@@ -280,16 +297,23 @@ export class MoatApi {
    */
   async ensureTemplateWorkspace(): Promise<WorkspaceResponse> {
     const repo = await this.ensureTemplateRepository()
+    return this.ensureWorkspaceFor(repo.id)
+  }
+
+  /** A live workspace placing only `repositoryId`, created on first use. */
+  async ensureWorkspaceFor(repositoryId: string): Promise<WorkspaceResponse> {
     const existing = (await this.listWorkspaces()).find(
       (workspace) =>
-        !workspace.deleted && workspace.repos.some((placed) => placed.repositoryId === repo.id),
+        !workspace.deleted &&
+        workspace.repos.length === 1 &&
+        workspace.repos[0].repositoryId === repositoryId,
     )
     if (existing) {
       return existing
     }
     return this.createWorkspace({
       name: 'template',
-      repos: [{ repositoryId: repo.id }],
+      repos: [{ repositoryId }],
     })
   }
 
@@ -360,7 +384,8 @@ export class MoatApi {
     } else if ('workspaceId' in config) {
       args.push('--workspace', config.workspaceId)
     } else {
-      args.push('--repo', config.templateId)
+      // `moat tasks create` refuses a repository without a workspace to run in.
+      args.push('--workspace', (await this.ensureWorkspaceFor(config.templateId)).id)
     }
     if (config.message) args.push('--message', config.message)
     args.push('--agent-type', config.agentType ?? 'claude-code')
@@ -373,7 +398,7 @@ export class MoatApi {
 
   /** Create a task and report the status, for assertions on rejection. */
   async createVibeTaskRaw(config: {
-    repositoryId: string
+    workspaceId: string
     agentType?: string
     message?: string
     name?: string
@@ -1293,6 +1318,7 @@ export class MoatApi {
     const response = await this.moat.raw('POST', '/api/v1/users', {
       isBot: false,
       login,
+      email: seededUserEmail(login),
       password,
       role,
       mustChangePassword: false,

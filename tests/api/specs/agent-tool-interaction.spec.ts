@@ -17,7 +17,7 @@ import { missingCapability, profile } from '../../shared/profile'
 import { expect, test } from '../fixtures/api-fixtures'
 import { waitForPendingToolCall, waitForSandboxReady } from '../steps'
 
-const reason = missingCapability('agentCredentials')
+const reason = missingCapability('claudeCredentials')
 
 // ─── AGENT-07: Answering the agent's question resumes the same turn ────
 

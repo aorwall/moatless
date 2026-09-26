@@ -93,6 +93,9 @@ test.describe('Chain: Sandbox Lifecycle', () => {
   // ─── SANDBOX-01.1: SSE sandbox.ready event ─────────────────────────
 
   test('SANDBOX-01.1: SSE sandbox.ready event', async () => {
+    const reason = missingCapability('sandboxReadyEvent')
+    test.skip(reason !== null, reason ?? '')
+
     const event = await events().waitForEvent({
       type: 'sandbox',
       subType: 'ready',

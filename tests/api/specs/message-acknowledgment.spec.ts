@@ -29,7 +29,7 @@ import { progress } from '../helpers/progress'
 import { discardTask } from '../helpers/teardown'
 import { createTaskWithMessage, waitForSandboxReady } from '../steps'
 
-const agentReason = missingCapability('agentCredentials')
+const agentReason = missingCapability('claudeCredentials')
 
 /** Whether there is a turn in flight right now for the follow-up to join. */
 async function agentIsRunning(api: MoatApi, taskId: string): Promise<boolean> {

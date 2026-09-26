@@ -6,7 +6,7 @@
  * Scenarios:
  *   TASK-09.2: Create task without agent type (400)
  *   TASK-09.3: Create task with unknown agent type (400)
- *   TASK-10: Create task with invalid repository (404)
+ *   TASK-10: Create task in a missing workspace (404)
  *   TASK-11: Send message to closed task (409)
  */
 
@@ -16,9 +16,9 @@ import { createTaskWithMessage } from '../steps'
 // ─── TASK-09.2: Create task without agent type (400) ───────────────────
 
 test('TASK-09.2: Create task without agent type (400)', async ({ api }) => {
-  const repo = await api.ensureTemplateRepository()
+  const workspace = await api.ensureTemplateWorkspace()
   const response = await api.createVibeTaskRaw({
-    repositoryId: repo.id,
+    workspaceId: workspace.id,
     message: 'This should fail',
   })
 
@@ -31,9 +31,9 @@ test('TASK-09.2: Create task without agent type (400)', async ({ api }) => {
 // ─── TASK-09.3: Create task with unknown agent type (400) ───────────────
 
 test('TASK-09.3: Create task with unknown agent type (400)', async ({ api }) => {
-  const repo = await api.ensureTemplateRepository()
+  const workspace = await api.ensureTemplateWorkspace()
   const response = await api.createVibeTaskRaw({
-    repositoryId: repo.id,
+    workspaceId: workspace.id,
     agentType: 'not-an-agent',
     message: 'This should fail',
   })
@@ -43,11 +43,11 @@ test('TASK-09.3: Create task with unknown agent type (400)', async ({ api }) => 
   expect((response.body as { error?: string }).error).toContain('Available options')
 })
 
-// ─── TASK-10: Create task with invalid repository (404) ─────────────────
+// ─── TASK-10: Create task in a missing workspace (404) ─────────────────
 
-test('TASK-10: Create task with invalid repository (404)', async ({ api }) => {
+test('TASK-10: Create task in a missing workspace (404)', async ({ api }) => {
   const response = await api.createVibeTaskRaw({
-    repositoryId: '00000000-0000-0000-0000-000000000000',
+    workspaceId: '00000000-0000-0000-0000-000000000000',
     agentType: 'claude-code',
     message: 'This should fail',
   })

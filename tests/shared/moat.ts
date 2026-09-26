@@ -313,7 +313,12 @@ export async function createDriver(p: Profile = profile()): Promise<Moat> {
     process.env.ADMIN_USERNAME || 'admin',
     process.env.ADMIN_PASSWORD || 'ci-admin-password-1234',
   )
-  return new Moat(p, { MOATLESS_API_KEY: apiKey })
+  return new Moat(p).withApiKey(apiKey)
+}
+
+/** The email `MoatApi.ensureUser` registers `login` under, which password login takes. */
+export function seededUserEmail(login: string): string {
+  return `${login}@e2e.invalid`
 }
 
 /**
@@ -335,17 +340,23 @@ export async function mintApiKey(
   if (!login.ok) {
     throw new Error(`Login for '${username}' failed: HTTP ${login.status}: ${await login.text()}`)
   }
-  const cookie = login.headers
-    .getSetCookie()
-    .map((raw) => raw.split(';')[0].trim())
-    .find((pair) => pair.startsWith('moatless_session='))
-  if (!cookie) {
-    throw new Error(`Login for '${username}' set no session cookie`)
+  const cookies = login.headers.getSetCookie().map((raw) => raw.split(';')[0].trim())
+  const session = cookies.find((pair) => pair.startsWith('moatless_session='))
+  const csrf = cookies.find((pair) => pair.startsWith('moatless_csrf='))
+  if (!(session && csrf)) {
+    throw new Error(`Login for '${username}' did not set both the session and the CSRF cookie`)
   }
 
+  // A cookie-authenticated write must echo the CSRF cookie in a header and come
+  // from the backend's `FRONTEND_URL`.
   const created = await fetch(`${baseUrl}/api/v1/auth/api-keys`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Cookie: cookie },
+    headers: {
+      'Content-Type': 'application/json',
+      Cookie: `${session}; ${csrf}`,
+      'x-csrf-token': csrf.slice('moatless_csrf='.length),
+      Origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+    },
     body: JSON.stringify({ name: `e2e-${username}` }),
   })
   if (!created.ok) {

@@ -128,14 +128,15 @@ test.describe('Standalone: Setup requirements', () => {
       const repository = await user.createRepository({
         name: 'preflight-pat-repo',
         kind: 'remote',
-        remoteUrl: 'https://git.example.com/owner/repo',
+        remoteUrl: `https://github.com/e2e-invalid/${scopedSlug('preflight')}`,
         defaultBranch: 'main',
         provider: 'github',
       } as Parameters<MoatApi['createRepository']>[0])
 
       try {
+        const workspace = await user.ensureWorkspaceFor(repository.id)
         const response = await user.createVibeTaskRaw({
-          repositoryId: repository.id,
+          workspaceId: workspace.id,
           name: 'preflight-pat-task',
         })
         expect(response.status).not.toBe(403)
@@ -157,14 +158,15 @@ test.describe('Standalone: Setup requirements', () => {
     const repository = await user.createRepository({
       name: 'preflight-no-credential-repo',
       kind: 'remote',
-      remoteUrl: 'https://git.example.com/owner/repo',
+      remoteUrl: `https://github.com/e2e-invalid/${scopedSlug('preflight')}`,
       defaultBranch: 'main',
       provider: 'github',
     } as Parameters<MoatApi['createRepository']>[0])
 
     try {
+      const workspace = await user.ensureWorkspaceFor(repository.id)
       const response = await user.createVibeTaskRaw({
-        repositoryId: repository.id,
+        workspaceId: workspace.id,
         name: 'preflight-no-credential-task',
       })
       expect(response.status, 'a user holding no GitHub credential was allowed a task').toBe(403)

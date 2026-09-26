@@ -15,6 +15,7 @@
  * Standalone: AUTH-25, AUTH-26
  */
 
+import { seededUserEmail } from '../../shared/moat'
 import { ownedByThisRun, scopedName } from '../../shared/run-scope'
 import { ChainContext } from '../context/chain-context'
 import { expect, requiresSeededUsers, test } from '../fixtures/auth-fixtures'
@@ -386,6 +387,7 @@ test.describe('Standalone: Racing identity creation', () => {
         api.cli.raw('POST', '/api/v1/users', {
           isBot: false,
           login,
+          email: seededUserEmail(login),
           password: 'integration-test-password',
           role: 'user',
           mustChangePassword: false,

@@ -44,13 +44,17 @@ pub(super) const FORMAT: &str = "restic";
 /// blob), `WORKSPACE_DIR` (feeds on itself), `/opt/moatless/data` (capped), or
 /// `/run/moatless` (1Mi). `/tmp` is a `subPath` of the capped `workspace-data`
 /// volume, so this spends the workspace's own eviction headroom.
-const CACHE_DIR: &str = "/tmp/rustic-cache";
+fn cache_dir() -> PathBuf {
+    std::env::temp_dir().join("rustic-cache")
+}
 
 /// Where the whitelist of paths to snapshot is written.
 ///
 /// Outside `WORKSPACE_DIR` on purpose: a file written into a checkout would
 /// appear in the next snapshot.
-const GLOB_FILE: &str = "/tmp/moatless-workspace-globs.txt";
+fn glob_file() -> PathBuf {
+    std::env::temp_dir().join("moatless-workspace-globs.txt")
+}
 
 /// The snapshot label, which must never vary.
 ///
@@ -232,7 +236,7 @@ fn s3_config(region: String, credentials: Credentials) -> aws_sdk_s3::Config {
 }
 
 fn options() -> RepositoryOptions {
-    RepositoryOptions::default().cache_dir(CACHE_DIR)
+    RepositoryOptions::default().cache_dir(cache_dir())
 }
 
 /// Write the whitelist that makes `rustic_core`'s walk yield today's file set.
@@ -259,7 +263,7 @@ fn write_glob_file(workspace_dir: &Path) -> Result<usize, String> {
         out.push('\n');
         written += 1;
     }
-    let mut handle = std::fs::File::create(GLOB_FILE).map_err(|e| e.to_string())?;
+    let mut handle = std::fs::File::create(glob_file()).map_err(|e| e.to_string())?;
     handle
         .write_all(out.as_bytes())
         .map_err(|e| e.to_string())?;
@@ -373,7 +377,7 @@ fn snapshot(
     // `ignore` returns `Match::None` for one whatever the patterns say — so
     // both walks descend into `target/` and `node_modules/` regardless.
     backup.no_scan = true;
-    backup.excludes.glob_files = vec![GLOB_FILE.to_string()];
+    backup.excludes.glob_files = vec![glob_file().display().to_string()];
     backup.as_path = Some(PathBuf::from(SNAPSHOT_ROOT));
     backup.ignore_filter_opts.git_ignore = false;
     backup.parent_opts.force = false;
@@ -406,7 +410,7 @@ struct FinalTreeCheck {
 impl FinalTreeCheck {
     /// Read the tree before anything fixes what the capture will contain.
     ///
-    /// A file created after this is in neither `GLOB_FILE` nor the snapshot, so
+    /// A file created after this is in neither [`glob_file`] nor the snapshot, so
     /// a baseline taken any later would match on both sides and certify a tree
     /// missing it.
     fn start(workspace_dir: &Path, capture: Capture) -> Self {

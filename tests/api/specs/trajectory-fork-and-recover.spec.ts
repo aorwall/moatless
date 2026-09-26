@@ -14,19 +14,26 @@
 
 import { EventStream } from '../../shared/event-stream'
 import type { MoatApi } from '../../shared/moat-api'
-import { missingCapability, profile } from '../../shared/profile'
+import { type Capabilities, missingCapability, profile } from '../../shared/profile'
 import { expect, test } from '../fixtures/api-fixtures'
 import { stopSandbox, waitForSandboxReady } from '../steps'
 
 interface Harness {
   scenario: string
   agentType: string
+  /** What the run needs before this harness can start. */
+  credentials: keyof Capabilities
   model: string
 }
 
 const HARNESSES: Harness[] = [
-  { scenario: 'TRAJ-01.1', agentType: 'claude-code-cli', model: 'haiku' },
-  { scenario: 'TRAJ-01.2', agentType: 'codex', model: 'gpt-5.5' },
+  {
+    scenario: 'TRAJ-01.1',
+    agentType: 'claude-code-cli',
+    credentials: 'claudeCredentials',
+    model: 'haiku',
+  },
+  { scenario: 'TRAJ-01.2', agentType: 'codex', credentials: 'codexConnection', model: 'gpt-5.5' },
 ]
 
 const FIRST_NAME = 'PERIWINKLE'
@@ -59,7 +66,7 @@ async function waitForTurns(sse: EventStream, taskId: string, turns: number): Pr
 
 for (const harness of HARNESSES) {
   test.describe(`Standalone: Trajectory fork and recover (${harness.agentType})`, () => {
-    const reason = missingCapability('agentCredentials', 'trajectory')
+    const reason = missingCapability(harness.credentials, 'trajectory')
     test.skip(reason !== null, reason ?? '')
 
     test(`${harness.scenario}: A fork and a replaced pod answer from the right history`, async ({

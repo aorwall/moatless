@@ -22,6 +22,7 @@ members = [
     "crates/sandbox-control",
     "crates/sandbox-k8s",
     "crates/sandbox-docker",
+    "crates/sandbox-local",
     "crates/adapter-telegram",
     "crates/adapter-webhook",
     "crates/adapter-slack",
@@ -75,6 +76,7 @@ moatless-sandbox = { path = "crates/sandbox" }
 moatless-sandbox-control = { path = "crates/sandbox-control" }
 moatless-sandbox-docker = { path = "crates/sandbox-docker" }
 moatless-sandbox-k8s = { path = "crates/sandbox-k8s" }
+moatless-sandbox-local = { path = "crates/sandbox-local" }
 moatless-sandbox-runtime = { path = "crates/sandbox-runtime" }
 moatless-supervisor = { path = "crates/supervisor" }
 moatless-t3code = { path = "crates/t3code" }

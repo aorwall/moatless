@@ -55,13 +55,21 @@ fn the_repository_client_retries_a_request_that_cannot_connect() {
 /// in the next snapshot and change the file set it defines.
 #[test]
 fn the_glob_file_and_the_cache_stay_out_of_the_workspace() {
-    for path in [GLOB_FILE, CACHE_DIR] {
-        assert!(path.starts_with("/tmp/"), "{path} is not under /tmp");
-        assert!(!path.starts_with("/opt/moatless/workspace"), "{path}");
+    for path in [glob_file(), cache_dir()] {
+        assert!(
+            path.starts_with(std::env::temp_dir()),
+            "{} is not under the temp dir",
+            path.display()
+        );
+        assert!(
+            !path.starts_with("/opt/moatless/workspace"),
+            "{}",
+            path.display()
+        );
     }
 }
 
-/// A file created after the baseline is in neither `GLOB_FILE` nor the
+/// A file created after the baseline is in neither [`glob_file`] nor the
 /// snapshot, so `snapshot` takes the baseline before `write_glob_file` freezes
 /// that set: a later one would match on both sides and certify a tree missing
 /// the file.
@@ -105,7 +113,7 @@ fn a_periodic_capture_never_certifies_a_final_tree() {
 
 /// Every test that calls [`snapshot`] takes this for its whole body.
 ///
-/// [`GLOB_FILE`] is one fixed path, so overlapping snapshots in one test
+/// [`glob_file`] is one fixed path, so overlapping snapshots in one test
 /// process let the second one's file set decide the first one's, and the
 /// failure reads as a file the restore lost.
 static SNAPSHOTTING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());

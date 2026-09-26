@@ -144,6 +144,33 @@ pub(crate) async fn build(
             // The Docker watcher is spawned after lifecycle is assembled so
             // every observation is classified against durable intent.
         }
+        SandboxProviderType::Local => {
+            let local_client = sandbox::local::client::LocalClient::new(
+                config.local_sandbox.root.clone(),
+                config.local_sandbox.bin.clone(),
+            );
+            info!(root = %config.local_sandbox.root, "Local sandbox client initialized");
+
+            reaper_k8s = None;
+            docker_watcher_client = None;
+            storage_fallback = None;
+            let adapter = infrastructure::build_local_sandbox_adapter(
+                config,
+                local_client.clone(),
+                provision_deps.clone(),
+            );
+            sandbox_runtime = adapter.clone();
+            sandbox_observer = adapter.clone();
+            sandbox_connector = adapter.clone();
+            sandbox_port_publisher = adapter.clone();
+            cluster_diagnostics = adapter;
+            default_sandbox_image = String::new();
+            sandbox_fleet_observer =
+                Arc::new(sandbox::local::fleet_observer::LocalFleetObserver::new(
+                    local_client,
+                    sandbox_observer.clone(),
+                ));
+        }
     }
 
     Ok(SandboxDependencies {

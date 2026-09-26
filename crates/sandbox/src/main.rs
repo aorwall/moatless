@@ -1,9 +1,9 @@
-/// Where the Claude CLI writes its debug logs — pointed at `/tmp` to work
+/// Where the Claude CLI writes its debug logs, under the temp dir, to work
 /// around an SDK lazy-init race; child CLI processes inherit it.
 ///
 /// K8s overrides the entrypoint script that also sets this (see
 /// `backend/src/sandbox/k8s/pod_builder.rs`), so the binary sets it itself.
-const CLAUDE_CODE_DEBUG_LOGS_DIR: &str = "/tmp/claude-debug.log";
+const CLAUDE_CODE_DEBUG_LOGS_FILE: &str = "claude-debug.log";
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Set before the Tokio runtime exists: `set_var` is only sound while the
@@ -16,7 +16,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // SAFETY: no runtime, no worker threads, and no other thread of any kind has
     // been created yet, so nothing can concurrently read the environment.
     unsafe {
-        std::env::set_var("CLAUDE_CODE_DEBUG_LOGS_DIR", CLAUDE_CODE_DEBUG_LOGS_DIR);
+        std::env::set_var(
+            "CLAUDE_CODE_DEBUG_LOGS_DIR",
+            std::env::temp_dir().join(CLAUDE_CODE_DEBUG_LOGS_FILE),
+        );
         // Exported here rather than onto one child's env map so that every
         // spawn inherits the cap — the agent CLI, a `moat cmd` build, a
         // terminal — since any of them can be the process that hits it.

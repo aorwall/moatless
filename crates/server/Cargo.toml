@@ -109,6 +109,7 @@ moatless-sandbox-control = { workspace = true }
 moatless-supervisor = { workspace = true }
 moatless-sandbox-k8s = { workspace = true }
 moatless-sandbox-docker = { workspace = true }
+moatless-sandbox-local = { workspace = true }
 moatless-t3code = { workspace = true }
 
 # Claude agent SDK types (for OpenAPI schema generation)

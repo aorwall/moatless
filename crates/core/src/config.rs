@@ -601,6 +601,17 @@ pub struct DockerConfig {
     pub extra_networks: Vec<String>,
 }
 
+/// `SANDBOX_PROVIDER=local` configuration: each sandbox is a child process of
+/// the backend, for isolated E2E runs on one host.
+#[derive(Debug, Clone)]
+pub struct LocalSandboxConfig {
+    /// `LOCAL_SANDBOX_ROOT`, holding one directory per task. Keep it short: the
+    /// credential socket under it must fit the 108-byte Unix socket path limit.
+    pub root: String,
+    /// `LOCAL_SANDBOX_BIN`, the `sandbox` binary each task runs.
+    pub bin: String,
+}
+
 /// Database configuration.
 #[derive(Debug, Clone)]
 pub struct DatabaseConfig {
@@ -674,6 +685,7 @@ pub struct Config {
     pub sandbox_provider: SandboxProviderType,
     pub sandbox: SandboxConfig,
     pub docker: DockerConfig,
+    pub local_sandbox: LocalSandboxConfig,
     pub proxy: ProxyConfig,
     /// PostgreSQL connection URL. When set, enables DB-backed features.
     pub database_url: Option<String>,
@@ -858,6 +870,11 @@ impl Config {
                             .collect()
                     })
                     .unwrap_or_default(),
+            },
+
+            local_sandbox: LocalSandboxConfig {
+                root: env_str("LOCAL_SANDBOX_ROOT", "/tmp/moatless-local"),
+                bin: env_str("LOCAL_SANDBOX_BIN", "sandbox"),
             },
 
             database_url: database_url.clone(),
@@ -1178,6 +1195,7 @@ impl Config {
                     ));
                 }
             }
+            SandboxProviderType::Local => {}
         }
 
         // SECRETS_ENCRYPTION_KEY is always required
@@ -1284,6 +1302,10 @@ impl Config {
                 enable_socket_mount: false,
                 socket_path: "/var/run/docker.sock".into(),
                 extra_networks: vec![],
+            },
+            local_sandbox: LocalSandboxConfig {
+                root: "/tmp/moatless-local".into(),
+                bin: "sandbox".into(),
             },
             database_url: Some("postgres://localhost/test".into()),
             database: DatabaseConfig {

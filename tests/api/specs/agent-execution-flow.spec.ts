@@ -25,7 +25,7 @@ import { progress } from '../helpers/progress'
 import { discardTask } from '../helpers/teardown'
 import { createTaskWithMessage, waitForAgentTurnComplete, waitForSandboxReady } from '../steps'
 
-const agentReason = missingCapability('agentCredentials')
+const agentReason = missingCapability('claudeCredentials')
 
 test.describe('Chain: Agent Execution & Multi-Turn', () => {
   test.describe.configure({ mode: 'serial' })
