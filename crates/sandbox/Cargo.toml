@@ -49,7 +49,7 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
 
 # UUID + timestamps
-uuid = { workspace = true, features = ["v4", "v7"] }
+uuid = { workspace = true, features = ["v4", "v5", "v7"] }
 chrono = { workspace = true, features = ["serde"] }
 
 # Shared type definitions

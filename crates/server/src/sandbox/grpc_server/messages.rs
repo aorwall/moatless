@@ -98,6 +98,11 @@ pub(super) async fn get_pending_messages(
         (Some(_), Some(handlers)) => handlers.task_forks.find(&req.task_id).await,
         _ => Ok(None),
     };
+    let fork_cut = fork_row
+        .as_ref()
+        .ok()
+        .and_then(Option::as_ref)
+        .and_then(|row| row.source_event_id);
     let fork = match &latest_agent_session_id {
         Some(session_id) => match fork_row {
             Ok(Some(row)) if &row.source_session_id == session_id => {
@@ -119,7 +124,21 @@ pub(super) async fn get_pending_messages(
         None => None,
     };
 
-    let task_resume_session_id = latest_agent_session_id;
+    // Gated on a messages-named session: a Task rewound to turn 0 keeps its
+    // Trajectory but continues nothing.
+    let switch = match (&fork, &latest_agent_session_id, service.handlers.as_ref()) {
+        (Some(_), _, Some(handlers)) => {
+            fork_switch(&handlers.trajectory, fork_cut, &task_agent_profile).await?
+        }
+        (None, Some(_), Some(handlers)) => {
+            harness_switch(&handlers.trajectory, &req.task_id, &task_agent_profile).await?
+        }
+        _ => HarnessSwitch::None,
+    };
+    let task_resume_session_id = match &switch {
+        HarnessSwitch::Resume(head) => Some(head.clone()),
+        _ => latest_agent_session_id,
+    };
 
     // Check the last closed turn — a turn that ended `stopped` or `error`
     // cut its agent session off mid-flight, so the next run starts fresh
@@ -268,14 +287,19 @@ pub(super) async fn get_pending_messages(
             // falls back to. The alternative — leaving `resume_session_id`
             // set — would have such a pod resume the *parent's* session and
             // write two Tasks into one transcript.
-            resume_session_id: if fork.is_some() {
+            // A switch starts no CLI session by id either: its session is
+            // written out from the Trajectory, rendered into this harness.
+            resume_session_id: if fork.is_some() || matches!(switch, HarnessSwitch::Switch) {
                 None
             } else {
                 delivery.resume_session_id.clone()
             },
             resume: delivery.resume,
-            start_fresh: delivery.start_fresh || fork.is_some(),
+            start_fresh: delivery.start_fresh
+                || fork.is_some()
+                || matches!(switch, HarnessSwitch::Switch),
             fork: fork.clone(),
+            switch_harness: matches!(switch, HarnessSwitch::Switch),
             prompt_response: delivery.prompt_response.map(|response| {
                 sandbox_proto::PromptResponse {
                     tool_use_id: response.tool_use_id,
@@ -289,6 +313,71 @@ pub(super) async fn get_pending_messages(
         .collect();
 
     Ok(Response::new(GetPendingMessagesResponse { deliveries }))
+}
+
+/// How a Task's next turn continues against its Trajectory's head.
+enum HarnessSwitch {
+    /// No head, or the head's own session resumes as the messages name it.
+    None,
+    /// The head is in the profile's harness: its session resumes by this id,
+    /// which the messages name wrongly when a switch session was never used.
+    Resume(String),
+    /// The head, or a fork's cut, is in the other harness: the sandbox opens
+    /// a switch (or fork) session rendered into this one, or fails the turn.
+    Switch,
+}
+
+/// How the Task's next turn continues. A failed read fails the whole
+/// `GetPendingMessages`, which the pod retries: resuming by the Messages instead
+/// could hand the new harness the old harness's session id.
+async fn harness_switch(
+    trajectories: &moatless_tasks::trajectory::operations::Trajectories,
+    task_id: &str,
+    agent_profile: &str,
+) -> Result<HarnessSwitch, Status> {
+    let Some(harness) = moatless_tasks::agent::catalog::harness_of(agent_profile) else {
+        return Ok(HarnessSwitch::None);
+    };
+    let Some(head) = trajectories
+        .head(task_id)
+        .await
+        .map_err(|e| trajectory_unavailable(&e, task_id))?
+    else {
+        return Ok(HarnessSwitch::None);
+    };
+    Ok(if head.harness == harness.as_str() {
+        HarnessSwitch::Resume(head.harness_session_id)
+    } else {
+        HarnessSwitch::Switch
+    })
+}
+
+/// `Switch` when a fork's (or rewind's) cut is in the other harness's session,
+/// so the pod fails the turn rather than start without the fork's history.
+async fn fork_switch(
+    trajectories: &moatless_tasks::trajectory::operations::Trajectories,
+    cut: Option<uuid::Uuid>,
+    agent_profile: &str,
+) -> Result<HarnessSwitch, Status> {
+    let (Some(cut), Some(harness)) = (
+        cut,
+        moatless_tasks::agent::catalog::harness_of(agent_profile),
+    ) else {
+        return Ok(HarnessSwitch::None);
+    };
+    let cut_harness = trajectories
+        .event_harness(cut)
+        .await
+        .map_err(|e| trajectory_unavailable(&e, &cut.to_string()))?;
+    Ok(match cut_harness {
+        Some(other) if other != harness.as_str() => HarnessSwitch::Switch,
+        _ => HarnessSwitch::None,
+    })
+}
+
+fn trajectory_unavailable(e: &sqlx::Error, subject: &str) -> Status {
+    warn!(error = %e, subject, "Failed to read the trajectory; the pod retries");
+    Status::unavailable("Failed to read the trajectory")
 }
 
 /// Acknowledge that pending messages have been delivered to an agent session.
@@ -450,4 +539,42 @@ pub(super) async fn get_system_prompt(
     .await;
 
     Ok(Response::new(GetSystemPromptResponse { system_prompt }))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use super::*;
+
+    /// Trajectories over a database that never answers.
+    fn unreachable() -> std::sync::Arc<moatless_tasks::trajectory::operations::Trajectories> {
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .acquire_timeout(Duration::from_millis(100))
+            .connect_lazy("postgres://postgres@127.0.0.1:1/none")
+            .expect("a lazy pool");
+        moatless_tasks::compose::task_graph(pool).trajectory()
+    }
+
+    #[tokio::test]
+    async fn a_failed_head_read_fails_the_delivery() {
+        let refused = harness_switch(&unreachable(), "t", AgentProfile::CODEX)
+            .await
+            .err()
+            .expect("the pod retries rather than resume by the Messages");
+        assert_eq!(refused.code(), tonic::Code::Unavailable);
+    }
+
+    #[tokio::test]
+    async fn a_failed_fork_cut_read_fails_the_delivery() {
+        let refused = fork_switch(
+            &unreachable(),
+            Some(uuid::Uuid::nil()),
+            AgentProfile::CLAUDE_CODE,
+        )
+        .await
+        .err()
+        .expect("the pod retries rather than fork without the history");
+        assert_eq!(refused.code(), tonic::Code::Unavailable);
+    }
 }

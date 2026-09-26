@@ -9,6 +9,7 @@ pub mod error;
 pub mod signal;
 pub mod source;
 pub mod trajectory;
+mod transcode;
 
 mod claude;
 pub(crate) mod codex;

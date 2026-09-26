@@ -40,6 +40,8 @@ async fn coordinator_service_submits_this_members_task_id_to_the_harness() {
         resume_session_id: None,
         start_fresh: false,
         fork: None,
+        agent_profile: None,
+        switch_harness: false,
         ack: ack_tx,
     })
     .expect("channel open");
@@ -97,6 +99,8 @@ async fn coordinator_service_submit_completed_sets_idle_and_publishes_completed(
         resume_session_id: None,
         start_fresh: false,
         fork: None,
+        agent_profile: None,
+        switch_harness: false,
         ack: ack_tx,
     })
     .expect("channel open");
@@ -160,6 +164,8 @@ async fn coordinator_service_sends_during_active_turn_into_running_harness() {
         resume_session_id: None,
         start_fresh: false,
         fork: None,
+        agent_profile: None,
+        switch_harness: false,
         ack: first_ack,
     })
     .expect("channel open");
@@ -177,6 +183,8 @@ async fn coordinator_service_sends_during_active_turn_into_running_harness() {
         resume_session_id: None,
         start_fresh: false,
         fork: None,
+        agent_profile: None,
+        switch_harness: false,
         ack: second_ack,
     })
     .expect("channel open");
@@ -236,6 +244,8 @@ async fn coordinator_service_send_without_model_reuses_last_model() {
         resume_session_id: None,
         start_fresh: false,
         fork: None,
+        agent_profile: None,
+        switch_harness: false,
         ack: first_ack,
     })
     .expect("channel open");
@@ -262,6 +272,8 @@ async fn coordinator_service_send_without_model_reuses_last_model() {
         resume_session_id: None,
         start_fresh: false,
         fork: None,
+        agent_profile: None,
+        switch_harness: false,
         ack: second_ack,
     })
     .expect("channel open");
@@ -319,6 +331,8 @@ async fn completed_payload(commands: Arc<crate::commands::CommandRegistry>) -> s
         resume_session_id: None,
         start_fresh: false,
         fork: None,
+        agent_profile: None,
+        switch_harness: false,
         ack: ack_tx,
     })
     .expect("channel open");

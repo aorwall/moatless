@@ -671,7 +671,8 @@ async fn agent_handle_send_triggers_actor() {
         None,
         None,
         false,
-        None, // fork
+        None,  // fork
+        false, // switch_harness
     );
 
     // Give the coordinator service time to process
@@ -720,7 +721,8 @@ async fn agent_handle_rapid_fire_send_no_panic() {
             None,
             None,
             false,
-            None, // fork
+            None,  // fork
+            false, // switch_harness
         );
     }
 
@@ -762,7 +764,8 @@ async fn agent_handle_send_after_stop_does_not_panic() {
         None,
         None,
         false,
-        None, // fork
+        None,  // fork
+        false, // switch_harness
     );
     let ack2 = test_task_context(&state).await.agent_handle.send(
         "also ignored".to_string(),
@@ -772,7 +775,8 @@ async fn agent_handle_send_after_stop_does_not_panic() {
         None,
         None,
         false,
-        None, // fork
+        None,  // fork
+        false, // switch_harness
     );
 
     // Ack receivers should resolve with error (sender dropped when startup fails).
@@ -804,7 +808,8 @@ async fn agent_handle_concurrent_send_from_multiple_tasks() {
                 None,
                 None,
                 false,
-                None, // fork
+                None,  // fork
+                false, // switch_harness
             );
         }));
     }

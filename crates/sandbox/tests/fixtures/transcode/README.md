@@ -2,8 +2,9 @@
 
 One conversation recorded in each harness, and each rendered into the other
 harness's format. `trajectory_e2e.rs` resumes the rendered files with the real
-CLIs (`claude_to_codex_resume_knows_history` and its siblings), and phase 2's
-`SessionFormat::render` is tested against them. The plan is
+CLIs (`claude_to_codex_resume_knows_history` and its siblings), and
+`SessionFormat::render` (`src/agent/harness/transcode.rs`) must reproduce them
+(`trajectory_tests.rs`). The plan is
 `.plans/harness-switching.md`.
 
 | File | What it is |
@@ -12,7 +13,6 @@ CLIs (`claude_to_codex_resume_knows_history` and its siblings), and phase 2's
 | `codex.jsonl` | Codex 0.156.1, `gpt-5.5`: Turn 1 `exec_command` writes `release.txt`, Turn 2 `apply_patch` appends NOTES, an auto-compaction, Turn 3 names SAFFRON. Lines 0–37 are Turns 1–2. |
 | `codex-from-claude.jsonl`, `claude-from-codex.jsonl` | Turns 1–2 rendered into the other format. |
 | `*-compacted.jsonl` | All three Turns rendered, from the last compaction (S5). |
-| `spike_transcode.py` | Writes the four rendered files from the recordings. Phase 2 deletes it. |
 
 The recordings ran in `/workspace`; the rendered files carry `{{CWD}}` and
 `{{SESSION_ID}}`, which a test replaces before writing the file.
@@ -33,7 +33,8 @@ recording sandbox's skills, which no transcode reads.
 | `exec_command {cmd}`, `shell`, `local_shell` (a `["bash","-lc",cmd]` argv becomes `cmd`) | `Bash {command}` |
 
 Any other call, in either direction, becomes one assistant text item naming
-the tool, its input and its result, and its result line is dropped. A call's id
+the tool, its input and its result, and its result line is dropped. A call with
+no result, and a result whose call is not transcoded, are dropped. A call's id
 is kept as the other harness's id (`toolu_…` as a Codex `call_id`, `call_…` as a
 Claude `tool_use.id`); both CLIs accept the other's shape.
 
@@ -41,7 +42,9 @@ Claude `tool_use.id`); both CLIs accept the other's shape.
 
 - **Claude Code** resumes a file of `user`/`assistant` lines alone. Each needs
   `type`, `uuid`, `message` and a `parentUuid` naming the line before it:
-  without the chain it sees only the last line. `cwd` and `sessionId` are not
+  without the chain it sees only the last line. A rendered line's `uuid` is a
+  UUIDv5 of its session id and index, so a file holding two rendered prefixes
+  has no duplicate. `cwd` and `sessionId` are not
   read on resume; the renderer writes them so the file reads like the CLI's own.
 - **Codex** refuses a rollout whose line 0 is not `session_meta`
   (`does not start with session metadata`). No `turn_context` or `event_msg`

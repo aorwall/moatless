@@ -46,6 +46,7 @@ use moatless_tasks::task::operations::TaskCommands;
 use moatless_tasks::task::presenter::TaskPresenter;
 use moatless_tasks::task::relations::TaskRelations;
 use moatless_tasks::task::rewind::TaskRewindService;
+use moatless_tasks::task::switch::TaskSwitchService;
 use moatless_tasks::task_event::operations::TaskEvents;
 use moatless_tasks::task_turn::operations::TaskTurns;
 use moatless_types::agent::CodexOAuthConfig;
@@ -161,6 +162,8 @@ pub struct AppState {
     /// same cut `task_fork` resolves, applied to the Task instead of copied off
     /// it.
     pub task_rewind: Arc<TaskRewindService>,
+    /// Sets the Agent profile a Task's next turn runs.
+    pub task_switch: Arc<TaskSwitchService>,
     /// GitHub-token preflight, assembled once at the composition root. The
     /// task-start handler calls the same port `task_creation` runs rather than
     /// reassembling the credential handles and validator per request.
@@ -700,6 +703,12 @@ impl axum::extract::FromRef<AppState> for Arc<TaskForkService> {
 impl axum::extract::FromRef<AppState> for Arc<TaskRewindService> {
     fn from_ref(state: &AppState) -> Self {
         state.task_rewind.clone()
+    }
+}
+
+impl axum::extract::FromRef<AppState> for Arc<TaskSwitchService> {
+    fn from_ref(state: &AppState) -> Self {
+        state.task_switch.clone()
     }
 }
 

@@ -2,20 +2,20 @@
 //! resolution and fork sessions.
 
 use moatless_types::agent::Harness;
-use std::collections::HashSet;
 
 use moatless_core::db::DbPool;
 use serde_json::Value;
 use uuid::Uuid;
 
+use super::lineage::{LineageRow, include_pending_results};
 use super::models::{
-    AppendError, AppendOutcome, AppendRequest, ChainError, ForkCut, TrajectorySession,
+    AppendError, AppendOutcome, AppendRequest, ChainError, ForkCut, Head, TrajectorySession,
 };
 
 macro_rules! session_columns {
     () => {
         "id, task_id, harness, harness_session_id, forked_from_event_id, parent_event_id, \
-         last_event_id, last_seq"
+         transcoded_from_event_id, own_from_seq, last_event_id, last_seq"
     };
 }
 
@@ -28,6 +28,31 @@ macro_rules! walk {
             SELECT e.id, e.parent_event_id
               FROM trajectory_events e JOIN walk w ON e.id = w.parent_event_id
         ) "
+    };
+}
+
+/// Every event on `$1`'s lineage: its chain, and from each line of a switch
+/// session's prefix (and its first own line) the other harness's tip the
+/// prefix was rendered from.
+macro_rules! lineage {
+    () => {
+        "WITH RECURSIVE lineage(id, parent_event_id, jump) AS (
+            SELECT e.id, e.parent_event_id,
+                   CASE WHEN e.seq <= s.own_from_seq THEN s.transcoded_from_event_id END
+              FROM trajectory_events e JOIN trajectory_sessions s ON s.id = e.session_id
+             WHERE e.id = $1
+            UNION
+            SELECT e.id, e.parent_event_id,
+                   CASE WHEN e.seq <= s.own_from_seq THEN s.transcoded_from_event_id END
+              FROM lineage l
+              JOIN trajectory_events e ON e.id = l.parent_event_id OR e.id = l.jump
+              JOIN trajectory_sessions s ON s.id = e.session_id
+        )
+        SELECT e.id, e.session_id, s.harness, e.turn_number, e.content,
+               COALESCE(e.seq < s.own_from_seq, false) AS prefix
+          FROM lineage JOIN trajectory_events e USING (id)
+          JOIN trajectory_sessions s ON s.id = e.session_id
+         ORDER BY e.ord"
     };
 }
 
@@ -55,6 +80,7 @@ impl PgTrajectoryDao {
             lines,
             turn_number,
             subagent_parent,
+            own_from_seq,
         } = req;
         let mut tx = self.0.begin().await?;
         let parent_event_id: Option<Uuid> = match subagent_parent {
@@ -134,6 +160,18 @@ impl PgTrajectoryDao {
             });
         }
 
+        if session.transcoded_from_event_id.is_some() && session.own_from_seq.is_none() {
+            let Some(own_from_seq) = own_from_seq else {
+                return Err(AppendError::OwnFromSeqMissing(
+                    harness_session_id.to_string(),
+                ));
+            };
+            sqlx::query("UPDATE trajectory_sessions SET own_from_seq = $2 WHERE id = $1")
+                .bind(session.id)
+                .bind(own_from_seq)
+                .execute(&mut *tx)
+                .await?;
+        }
         let ids: Vec<Uuid> = fresh.iter().map(|_| Uuid::now_v7()).collect();
         let mut parents = Vec::with_capacity(ids.len());
         parents.push(session.last_event_id.or(session.forked_from_event_id));
@@ -148,7 +186,8 @@ impl PgTrajectoryDao {
                SELECT id, $1, seq, parent, kind, item, turn, $2, payload, content
                  FROM UNNEST($3::uuid[], $4::bigint[], $5::uuid[], $6::text[], $7::text[],
                              $8::text[], $9::text[], $10::jsonb[])
-                   AS l(id, seq, parent, kind, item, turn, payload, content)"#,
+                   AS l(id, seq, parent, kind, item, turn, payload, content)
+                ORDER BY seq"#,
         )
         .bind(session.id)
         .bind(turn_number)
@@ -223,11 +262,12 @@ impl PgTrajectoryDao {
     }
 
     /// The event a fork of `source_harness_session_id` continues from, or
-    /// `None` when the session is unknown or no event matches `cut`.
+    /// `None` when the session is unknown or no event matches `cut`: the cut
+    /// of a `task_forks` row written before `source_event_id`.
     ///
     /// A cut that leaves a `tool_use` without its `tool_result` moves forward
     /// to the event carrying the last missing result.
-    pub async fn resolve_cut(
+    pub async fn resolve_legacy_cut(
         &self,
         source_harness_session_id: &str,
         cut: &ForkCut,
@@ -258,8 +298,68 @@ impl PgTrajectoryDao {
             ForkCut::End => rows.len().checked_sub(1),
         };
         let Some(at) = at else { return Ok(None) };
-        let at = include_pending_results(&rows, at);
-        Ok(Some(rows[at].id))
+        let lineage: Vec<LineageRow> = rows
+            .into_iter()
+            .map(|r| LineageRow {
+                id: r.id,
+                session_id: source.id,
+                harness: source.harness.clone(),
+                turn_number: None,
+                content: r.content,
+                prefix: false,
+            })
+            .collect();
+        let refs: Vec<&LineageRow> = lineage.iter().collect();
+        Ok(Some(lineage[include_pending_results(&refs, at)].id))
+    }
+
+    /// The event `task_id` continues from: its latest recorded top-level
+    /// session's tip, else its fork cut. `None` when it has neither.
+    pub async fn head(&self, task_id: &str) -> Result<Option<Head>, sqlx::Error> {
+        let own = sqlx::query_as::<_, Head>(
+            r#"SELECT s.last_event_id AS event_id, s.harness, s.harness_session_id,
+                      false AS forked
+                 FROM trajectory_sessions s
+                 JOIN trajectory_events e ON e.id = s.last_event_id
+                WHERE s.task_id = $1 AND s.parent_event_id IS NULL
+                ORDER BY e.ord DESC LIMIT 1"#,
+        )
+        .bind(task_id)
+        .fetch_optional(&self.0)
+        .await?;
+        if own.is_some() {
+            return Ok(own);
+        }
+        sqlx::query_as::<_, Head>(
+            r#"SELECT f.source_event_id AS event_id, s.harness, s.harness_session_id,
+                      true AS forked
+                 FROM task_forks f
+                 JOIN trajectory_events e ON e.id = f.source_event_id
+                 JOIN trajectory_sessions s ON s.id = e.session_id
+                WHERE f.task_id = $1"#,
+        )
+        .bind(task_id)
+        .fetch_optional(&self.0)
+        .await
+    }
+
+    /// The harness of the session `event_id` is in; `None` when unknown.
+    pub async fn event_harness(&self, event_id: Uuid) -> Result<Option<String>, sqlx::Error> {
+        sqlx::query_scalar(
+            "SELECT s.harness FROM trajectory_events e \
+               JOIN trajectory_sessions s ON s.id = e.session_id WHERE e.id = $1",
+        )
+        .bind(event_id)
+        .fetch_optional(&self.0)
+        .await
+    }
+
+    /// Every event on `tip`'s lineage, in insertion (`ord`) order.
+    pub(crate) async fn lineage(&self, tip: Uuid) -> Result<Vec<LineageRow>, sqlx::Error> {
+        sqlx::query_as(lineage!())
+            .bind(tip)
+            .fetch_all(&self.0)
+            .await
     }
 
     /// The fork session `fork_task_id` resumes from `forked_from_event_id`,
@@ -311,52 +411,61 @@ impl PgTrajectoryDao {
         tx.commit().await?;
         Ok(session)
     }
-}
 
-/// Move `at` forward to the last event carrying a `tool_result` for a
-/// `tool_use` at or before `at`, when the source holds one.
-fn include_pending_results(rows: &[CutRow], at: usize) -> usize {
-    let blocks = |row: &CutRow| {
-        row.content
-            .get("blocks")
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default()
-    };
-    let mut pending = HashSet::new();
-    for row in &rows[..=at] {
-        for block in blocks(row) {
-            match block.get("type").and_then(Value::as_str) {
-                Some("tool_use") => {
-                    if let Some(id) = block.get("id").and_then(Value::as_str) {
-                        pending.insert(id.to_string());
-                    }
-                }
-                Some("tool_result") => {
-                    if let Some(id) = block.get("tool_use_id").and_then(Value::as_str) {
-                        pending.remove(id);
-                    }
-                }
-                _ => {}
-            }
+    /// The switch session `task_id` opens in `harness`: `forked_from`'s file
+    /// verbatim, if any, then a prefix rendered from `transcoded_from`'s
+    /// lineage. Idempotent like [`Self::insert_fork_session`], under the same
+    /// lock.
+    pub async fn insert_switch_session(
+        &self,
+        task_id: &str,
+        harness: Harness,
+        forked_from: Option<Uuid>,
+        transcoded_from: Uuid,
+    ) -> Result<TrajectorySession, sqlx::Error> {
+        let mut tx = self.0.begin().await?;
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtext('trajectory_fork:' || $1))")
+            .bind(task_id)
+            .execute(&mut *tx)
+            .await?;
+        let existing = sqlx::query_as::<_, TrajectorySession>(concat!(
+            "SELECT ",
+            session_columns!(),
+            " FROM trajectory_sessions
+             WHERE task_id = $1 AND harness = $2 AND transcoded_from_event_id = $3
+               AND forked_from_event_id IS NOT DISTINCT FROM $4 AND last_event_id IS NULL
+             ORDER BY created_at DESC LIMIT 1"
+        ))
+        .bind(task_id)
+        .bind(harness.as_str())
+        .bind(transcoded_from)
+        .bind(forked_from)
+        .fetch_optional(&mut *tx)
+        .await?;
+        if let Some(session) = existing {
+            tx.commit().await?;
+            return Ok(session);
         }
+        let session = sqlx::query_as::<_, TrajectorySession>(concat!(
+            "INSERT INTO trajectory_sessions
+                 (id, task_id, harness, harness_session_id, forked_from_event_id,
+                  transcoded_from_event_id, last_seq)
+             VALUES ($1, $2, $3, $4, $5, $6,
+                     COALESCE((SELECT seq FROM trajectory_events WHERE id = $5), -1))
+             RETURNING ",
+            session_columns!()
+        ))
+        .bind(Uuid::now_v7())
+        .bind(task_id)
+        .bind(harness.as_str())
+        .bind(Uuid::now_v7().to_string())
+        .bind(forked_from)
+        .bind(transcoded_from)
+        .fetch_one(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(session)
     }
-    let mut cut = at;
-    for (i, row) in rows.iter().enumerate().skip(at + 1) {
-        if pending.is_empty() {
-            break;
-        }
-        for block in blocks(row) {
-            if block.get("type").and_then(Value::as_str) != Some("tool_result") {
-                continue;
-            }
-            let id = block.get("tool_use_id").and_then(Value::as_str);
-            if id.is_some_and(|id| pending.remove(id)) {
-                cut = i;
-            }
-        }
-    }
-    cut
 }
 
 fn check_contiguous(seqs: impl Iterator<Item = i64>, last_seq: i64) -> Result<(), ChainError> {

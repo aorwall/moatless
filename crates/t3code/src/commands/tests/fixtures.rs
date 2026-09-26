@@ -41,6 +41,11 @@ pub(super) enum Call {
         task_id: String,
         keep_through: i32,
     },
+    /// A command's `harness`, recorded before the call carrying it.
+    Switch {
+        task_id: String,
+        harness: Harness,
+    },
     UpdateMeta {
         task_id: String,
         title: Option<String>,
@@ -131,6 +136,12 @@ impl ThreadCommandSink for RecordingSink {
         _viewer: &ScopeContext,
         turn: ThreadTurn,
     ) -> Result<(), CommandRefusal> {
+        if let Some(harness) = turn.harness {
+            self.0.lock().unwrap().push(Call::Switch {
+                task_id: turn.task_id.clone(),
+                harness,
+            });
+        }
         self.0.lock().unwrap().push(Call::SendTurn {
             task_id: turn.task_id,
             message_uuid: turn.message_uuid,
@@ -162,6 +173,12 @@ impl ThreadCommandSink for RecordingSink {
         Ok(())
     }
     async fn fork(&self, _viewer: &ScopeContext, fork: ForkThread) -> Result<(), CommandRefusal> {
+        if let Some(harness) = fork.harness {
+            self.0.lock().unwrap().push(Call::Switch {
+                task_id: fork.new_task_id.clone(),
+                harness,
+            });
+        }
         self.0.lock().unwrap().push(Call::Fork {
             new_task_id: fork.new_task_id,
             source_task_id: fork.source_task_id,
@@ -191,6 +208,12 @@ impl ThreadCommandSink for RecordingSink {
         _viewer: &ScopeContext,
         meta: ThreadMeta,
     ) -> Result<(), CommandRefusal> {
+        if let Some(harness) = meta.harness {
+            self.0.lock().unwrap().push(Call::Switch {
+                task_id: meta.task_id.clone(),
+                harness,
+            });
+        }
         self.0.lock().unwrap().push(Call::UpdateMeta {
             task_id: meta.task_id,
             title: meta.title,

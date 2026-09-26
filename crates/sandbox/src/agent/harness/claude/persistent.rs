@@ -150,7 +150,7 @@ impl ClaudePersistentProcess {
             input,
         );
         let fork_session = match self.trajectory.as_mut() {
-            Some(trajectory) => trajectory.write_out(input).await,
+            Some(trajectory) => trajectory.write_out(input).await?,
             None => None,
         };
         let resume = match fork_session {

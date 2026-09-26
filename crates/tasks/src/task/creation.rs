@@ -109,6 +109,8 @@ pub struct ForkedFrom {
     /// still carries the conversation; its first turn starts on a fresh
     /// session.
     pub session: Option<ForkSession>,
+    /// The cut as a trajectory event; set whenever `session` is.
+    pub source_event_id: Option<uuid::Uuid>,
 }
 
 /// The first message payload the HTTP path sends through `send_message_flow`.
@@ -403,6 +405,7 @@ impl TaskCreationService {
                         source_session_id: session.source_session_id.clone(),
                         source_message_uuid: session.source_message_uuid.clone(),
                         source_agent_turn_id: session.source_agent_turn_id.clone(),
+                        source_event_id: fork.source_event_id,
                     })
                     .await?;
             }

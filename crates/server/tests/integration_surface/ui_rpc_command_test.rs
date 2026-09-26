@@ -203,6 +203,7 @@ fn turn(task_id: &str, uuid: &str, text: &str) -> ThreadTurn {
         text: text.into(),
         message_uuid: uuid.into(),
         model: None,
+        harness: None,
         agent_mode: None,
         effort: None,
         attachments: Vec::new(),
@@ -912,6 +913,7 @@ fn fork(new_task_id: &str, source_task_id: &str) -> ForkThread {
         message: None,
         same_sandbox: false,
         model: None,
+        harness: None,
         agent_mode: None,
         effort: None,
     }
@@ -988,6 +990,7 @@ async fn a_rename_reaches_the_task_and_stops_at_the_access_rule(pool: PgPool) {
             task_id: "t-name".into(),
             title: Some("Renamed from T3".into()),
             model: None,
+            harness: None,
         },
     )
     .await
@@ -1007,6 +1010,7 @@ async fn a_rename_reaches_the_task_and_stops_at_the_access_rule(pool: PgPool) {
                 task_id: "t-name".into(),
                 title: Some("Renamed by a stranger".into()),
                 model: None,
+                harness: None,
             },
         )
         .await
@@ -1044,6 +1048,7 @@ async fn an_empty_meta_update_changes_nothing(pool: PgPool) {
                 task_id: "t-noop".into(),
                 title: None,
                 model: None,
+                harness: None,
             },
         )
         .await

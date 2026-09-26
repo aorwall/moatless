@@ -67,6 +67,8 @@ async fn coordinator_service_arms_and_fires_scheduled_wakeup() {
         resume_session_id: None,
         start_fresh: false,
         fork: None,
+        agent_profile: None,
+        switch_harness: false,
         ack: ack_tx,
     })
     .expect("channel open");

@@ -119,6 +119,7 @@ pub async fn run_stacked_action(
             // the client's optimistic composer, so it has no client id to reuse.
             message_uuid: uuid::Uuid::new_v4().to_string(),
             model: None,
+            harness: None,
             agent_mode: None,
             effort: None,
             attachments: Vec::new(),

@@ -17,8 +17,10 @@ use moatless_tasks::task::models::TaskPatch;
 use moatless_tasks::task::models::TaskStatus;
 use moatless_tasks::task::operations::TaskCommands;
 use moatless_tasks::task::service as task_service;
+use moatless_tasks::task::switch::SwitchCredentials;
 use moatless_types::access_control::ScopeContext;
 use moatless_types::access_control::ScopedResource;
+use moatless_types::agent::{AgentProfile, Harness};
 use moatless_types::task::Visibility;
 use std::sync::Arc;
 
@@ -127,6 +129,40 @@ impl AppStateCommands {
         }
     }
 
+    /// Switch `task_id` to `harness`, writing `model` with it.
+    async fn switch_harness(
+        &self,
+        viewer: &ScopeContext,
+        task_id: &str,
+        harness: Harness,
+        model: Option<&str>,
+    ) -> Result<(), CommandRefusal> {
+        let task = self.readable_task(viewer, task_id).await?;
+        let sandbox_id = task.sandbox_id.as_deref().unwrap_or(task_id);
+        let profile = self
+            .0
+            .task_switch
+            .profile_for(Some(sandbox_id), harness)
+            .await
+            .map_err(|e| create_refusal(task_id, e))?;
+        self.0
+            .task_switch
+            .switch_profile(
+                viewer,
+                task_id,
+                profile,
+                model,
+                SwitchCredentials {
+                    secrets: self.0.secrets.as_ref(),
+                    provider_tokens: self.0.harness_credentials.as_ref(),
+                    credential_sync: &self.0.credential_sync,
+                },
+            )
+            .await
+            .map(|_| ())
+            .map_err(|e| create_refusal(task_id, e))
+    }
+
     /// Whether this turn's Message is already persisted (the frame is a
     /// replay).
     ///
@@ -158,6 +194,10 @@ impl ThreadCommandSink for AppStateCommands {
         // writing nothing, but by then these bytes are in S3 under a file id no
         // Message will ever name, and a reconnecting client replays whole
         // turns. The extra read only happens on turns that carry files.
+        if let Some(harness) = turn.harness {
+            self.switch_harness(viewer, &turn.task_id, harness, turn.model.as_deref())
+                .await?;
+        }
         let file_ids = if turn.attachments.is_empty() || self.already_sent(&turn).await {
             Vec::new()
         } else {
@@ -312,6 +352,26 @@ impl ThreadCommandSink for AppStateCommands {
             .await
             .map_err(|e| create_refusal(&fork.source_task_id, e))?;
 
+        let (agent_profile, model) = match fork.harness {
+            Some(harness) => {
+                let sandbox_id = fork
+                    .same_sandbox
+                    .then(|| source.sandbox_id.as_deref().unwrap_or(&fork.source_task_id));
+                let profile = self
+                    .0
+                    .task_switch
+                    .profile_for(sandbox_id, harness)
+                    .await
+                    .map_err(|e| create_refusal(&fork.source_task_id, e))?;
+                // The source's model belongs to its own harness.
+                (AgentProfile::from(profile), fork.model.clone())
+            }
+            None => (
+                source.agent_profile.clone(),
+                fork.model.clone().or_else(|| source.model.clone()),
+            ),
+        };
+
         let copied = self
             .0
             .task_fork
@@ -329,12 +389,12 @@ impl ThreadCommandSink for AppStateCommands {
             checkout_mode: fork
                 .same_sandbox
                 .then_some(moatless_types::task::CheckoutMode::Shared),
-            agent_profile: Some(source.agent_profile.clone()),
+            agent_profile: Some(agent_profile),
             name: None,
             description: None,
             branch: source.branch.clone(),
             message: fork.message.clone(),
-            model: fork.model.clone().or_else(|| source.model.clone()),
+            model,
             agent_mode: fork.agent_mode.clone(),
             effort: fork.effort.clone(),
             contexts: Vec::new(),
@@ -372,6 +432,7 @@ impl ThreadCommandSink for AppStateCommands {
                 source_task_id: fork.source_task_id.clone(),
                 at_turn: plan.at_turn,
                 session: plan.session.clone(),
+                source_event_id: plan.source_event_id,
             });
             task_service::create_task(
                 &self.0.task_creation,
@@ -422,12 +483,20 @@ impl ThreadCommandSink for AppStateCommands {
         viewer: &ScopeContext,
         meta: ThreadMeta,
     ) -> Result<(), CommandRefusal> {
-        if meta.title.is_none() && meta.model.is_none() {
+        let model = match meta.harness {
+            Some(harness) => {
+                self.switch_harness(viewer, &meta.task_id, harness, meta.model.as_deref())
+                    .await?;
+                None
+            }
+            None => meta.model,
+        };
+        if meta.title.is_none() && model.is_none() {
             return Ok(());
         }
         let patch = TaskPatch {
             name: meta.title,
-            model: meta.model,
+            model,
             ..Default::default()
         };
         let updated = self

@@ -202,13 +202,13 @@ impl CodexProcess {
             input,
         );
         let fork_session = match self.trajectory.as_mut() {
-            Some(trajectory) => trajectory.write_out(input).await,
+            Some(trajectory) => trajectory.write_out(input).await?,
             None => None,
         };
         let thread_id = match (&input.fork, &resume) {
-            // The fork's rollout was written out of the trajectory under a new
-            // id, so it resumes like any other thread.
-            (Some(_), _) if fork_session.is_some() => {
+            // A fork's or switch's rollout was written out of the trajectory
+            // under a new id, so it resumes like any other thread.
+            _ if fork_session.is_some() => {
                 let thread_id = fork_session.as_deref().unwrap_or_default();
                 let params = codex_app_server::thread_resume_params(&config, &request, thread_id);
                 session

@@ -33,6 +33,15 @@ pub enum BackendGrpcClientError {
     InvalidUri(#[from] tonic::codegen::http::uri::InvalidUri),
 }
 
+/// A trajectory session as [`BackendClient::read_trajectory`] reads it.
+#[derive(Debug, Clone, Default)]
+pub struct TrajectoryRead {
+    pub header: SessionHeader,
+    pub lines: Vec<String>,
+    /// Lines of the other harness a switch session renders after `lines`.
+    pub transcode: Vec<sandbox_proto::TranscodeItem>,
+}
+
 /// Trait abstracting backend communication for testability.
 ///
 /// The real implementation is [`BackendGrpcClient`]; tests can provide a mock.
@@ -222,13 +231,14 @@ pub trait BackendClient: Send + Sync {
         Err(tonic::Status::unimplemented("trajectory not supported"))
     }
 
-    /// Read a trajectory session whole: its header and every line,
-    /// root-first. `NotFound`, `DataLoss` and `Unimplemented` send the caller
-    /// to the transcript archive.
+    /// Read a trajectory session whole: its header, every line root-first,
+    /// and the items a switch session renders after them. `NotFound`,
+    /// `DataLoss` and `Unimplemented` send the caller to the transcript
+    /// archive.
     async fn read_trajectory(
         &self,
         _req: ReadTrajectoryRequest,
-    ) -> Result<(SessionHeader, Vec<String>), tonic::Status> {
+    ) -> Result<TrajectoryRead, tonic::Status> {
         Err(tonic::Status::unimplemented("trajectory not supported"))
     }
 
@@ -554,7 +564,7 @@ impl BackendClient for BackendGrpcClient {
     async fn read_trajectory(
         &self,
         req: ReadTrajectoryRequest,
-    ) -> Result<(SessionHeader, Vec<String>), tonic::Status> {
+    ) -> Result<TrajectoryRead, tonic::Status> {
         use futures::StreamExt;
         use sandbox_proto::read_trajectory_chunk::Body;
 
@@ -562,15 +572,21 @@ impl BackendClient for BackendGrpcClient {
         let mut stream = client.read_trajectory(req).await?.into_inner();
         let mut header = None;
         let mut lines = Vec::new();
+        let mut transcode = Vec::new();
         while let Some(chunk) = stream.next().await {
             match chunk?.body {
                 Some(Body::Header(h)) => header = Some(h),
                 Some(Body::Line(line)) => lines.push(line),
+                Some(Body::Transcode(item)) => transcode.push(item),
                 None => {}
             }
         }
         let header = header.ok_or_else(|| Status::data_loss("trajectory stream had no header"))?;
-        Ok((header, lines))
+        Ok(TrajectoryRead {
+            header,
+            lines,
+            transcode,
+        })
     }
 
     async fn get_workspace_sync_urls(

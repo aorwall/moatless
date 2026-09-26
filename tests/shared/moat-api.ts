@@ -433,6 +433,36 @@ export class MoatApi {
     return this.moat.json<TaskResponse>(args)
   }
 
+  /** Set the Agent profile the task's next turn runs, through `moat tasks update`. */
+  async switchProfile(taskId: string, agentProfile: string, model?: string): Promise<TaskResponse> {
+    const args = ['tasks', 'update', taskId, '--agent-profile', agentProfile]
+    if (model !== undefined) args.push('--model', model)
+    return this.moat.json<TaskResponse>(args)
+  }
+
+  /**
+   * Stores the host's Claude and OpenAI keys as user Secrets. A switch refuses
+   * a profile with no stored credential, and the local stack otherwise passes
+   * them to its sandbox through the environment only.
+   */
+  async storeHarnessCredentials(): Promise<void> {
+    const claude = process.env.CLAUDE_CODE_OAUTH_TOKEN
+      ? 'CLAUDE_CODE_OAUTH_TOKEN'
+      : 'ANTHROPIC_API_KEY'
+    for (const key of [claude, 'OPENAI_API_KEY']) {
+      const value = process.env[key]
+      if (value) {
+        this.expect(
+          await this.moat.raw('PUT', '/api/v1/secrets', { scope: 'user', key, kind: 'env', value }),
+        )
+      }
+    }
+  }
+
+  async switchProfileRaw(taskId: string, agentProfile: string): Promise<RawResponse> {
+    return this.moat.raw('PATCH', `/api/v1/tasks/${taskId}`, { agentProfile })
+  }
+
   async setTaskTags(taskId: string, tags: string[]): Promise<RawResponse> {
     return this.moat.raw('PUT', `/api/v1/tasks/${taskId}/tags`, { tags })
   }
@@ -456,11 +486,12 @@ export class MoatApi {
   /** Fork a task after `atTurn`, sending `message` as the fork's first Turn. */
   async forkTask(
     taskId: string,
-    options: { atTurn?: number; message?: string },
+    options: { atTurn?: number; message?: string; agentProfile?: string },
   ): Promise<TaskResponse> {
     const args = ['tasks', 'fork', taskId]
     if (options.atTurn !== undefined) args.push('--at-turn', String(options.atTurn))
     if (options.message) args.push('--message', options.message)
+    if (options.agentProfile) args.push('--agent-profile', options.agentProfile)
     const created = await this.moat.json<CreatedTask>(args, { timeoutMs: this.sandboxWork })
     return created.task
   }

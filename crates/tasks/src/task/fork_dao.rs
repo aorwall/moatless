@@ -27,14 +27,15 @@ pub(crate) async fn record_rewind_anchor(
     sqlx::query(
         r#"INSERT INTO task_forks
                (task_id, source_task_id, at_turn, source_session_id,
-                source_message_uuid, source_agent_turn_id)
-           VALUES ($1, $2, $3, $4, $5, $6)
+                source_message_uuid, source_agent_turn_id, source_event_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)
            ON CONFLICT (task_id) DO UPDATE
              SET source_task_id       = EXCLUDED.source_task_id,
                  at_turn              = EXCLUDED.at_turn,
                  source_session_id    = EXCLUDED.source_session_id,
                  source_message_uuid  = EXCLUDED.source_message_uuid,
-                 source_agent_turn_id = EXCLUDED.source_agent_turn_id"#,
+                 source_agent_turn_id = EXCLUDED.source_agent_turn_id,
+                 source_event_id      = EXCLUDED.source_event_id"#,
     )
     .bind(&row.task_id)
     .bind(&row.source_task_id)
@@ -42,6 +43,7 @@ pub(crate) async fn record_rewind_anchor(
     .bind(&row.source_session_id)
     .bind(&row.source_message_uuid)
     .bind(&row.source_agent_turn_id)
+    .bind(row.source_event_id)
     .execute(tx)
     .await?;
     Ok(())
@@ -66,8 +68,8 @@ impl TaskForkDao for PgTaskForkDao {
         sqlx::query(
             r#"INSERT INTO task_forks
                    (task_id, source_task_id, at_turn, source_session_id,
-                    source_message_uuid, source_agent_turn_id)
-               VALUES ($1, $2, $3, $4, $5, $6)
+                    source_message_uuid, source_agent_turn_id, source_event_id)
+               VALUES ($1, $2, $3, $4, $5, $6, $7)
                ON CONFLICT (task_id) DO NOTHING"#,
         )
         .bind(&row.task_id)
@@ -76,6 +78,7 @@ impl TaskForkDao for PgTaskForkDao {
         .bind(&row.source_session_id)
         .bind(&row.source_message_uuid)
         .bind(&row.source_agent_turn_id)
+        .bind(row.source_event_id)
         .execute(&self.0)
         .await?;
         Ok(())
@@ -84,7 +87,7 @@ impl TaskForkDao for PgTaskForkDao {
     async fn find(&self, task_id: &str) -> Result<Option<TaskFork>, sqlx::Error> {
         sqlx::query_as::<_, TaskFork>(
             r#"SELECT task_id, source_task_id, at_turn, source_session_id,
-                      source_message_uuid, source_agent_turn_id
+                      source_message_uuid, source_agent_turn_id, source_event_id
                FROM task_forks WHERE task_id = $1"#,
         )
         .bind(task_id)

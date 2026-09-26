@@ -10,11 +10,11 @@ use tracing::warn;
 
 use sandbox_proto::{
     AppendTrajectoryRequest, AppendTrajectoryResponse, ReadTrajectoryChunk, ReadTrajectoryRequest,
-    SessionHeader, read_trajectory_chunk, read_trajectory_request,
+    SessionHeader, TranscodeItem, read_trajectory_chunk, read_trajectory_request,
 };
 
 use moatless_tasks::trajectory::models::{
-    AppendError, AppendRequest, ChainError, ForkCut, NewEvent, SubagentParent, TrajectorySession,
+    AppendError, AppendRequest, ChainError, ForkCut, NewEvent, OpenedSession, SubagentParent,
 };
 use moatless_tasks::trajectory::operations::Trajectories;
 
@@ -94,11 +94,13 @@ pub(super) async fn append_trajectory(
                 harness_session_id: &p.parent_harness_session_id,
                 tool_use_id: &p.tool_use_id,
             }),
+            own_from_seq: req.own_from_seq,
         })
         .await
         .map_err(|e| match e {
             AppendError::Foreign(_) => Status::permission_denied(e.to_string()),
             AppendError::ParentMissing(_) => Status::failed_precondition(e.to_string()),
+            AppendError::OwnFromSeqMissing(_) => Status::invalid_argument(e.to_string()),
             AppendError::Db(e) => internal(e, "Failed to append trajectory"),
         })?;
     Ok(Response::new(AppendTrajectoryResponse {
@@ -118,18 +120,26 @@ pub(super) async fn read_trajectory(
     let req = request.into_inner();
     let harness = harness(&req.harness)?;
 
-    let session = match req.target {
+    let opened = match req.target {
         Some(read_trajectory_request::Target::HarnessSessionId(id)) => dao
             .find_session(&id)
             .await
             .map_err(|e| internal(e, "Failed to read trajectory session"))?
-            .filter(|s| s.task_id == task_id && s.harness == harness.as_str()),
+            .filter(|s| s.task_id == task_id && s.harness == harness.as_str())
+            .map(|session| OpenedSession {
+                session,
+                transcode: Vec::new(),
+            }),
         Some(read_trajectory_request::Target::Fork(true)) => {
             fork_session(service, dao, &task_id, harness).await?
         }
+        Some(read_trajectory_request::Target::Switch(true)) => dao
+            .open_switch_session(&task_id, harness)
+            .await
+            .map_err(|e| internal(e, "Failed to open the switch session"))?,
         _ => return Err(Status::invalid_argument("a target is required")),
     };
-    let Some(session) = session else {
+    let Some(OpenedSession { session, transcode }) = opened else {
         return Err(Status::not_found("no trajectory session"));
     };
 
@@ -143,24 +153,32 @@ pub(super) async fn read_trajectory(
             line_count: lines.len() as i64,
         })),
     };
-    let chunks = std::iter::once(header).chain(lines.into_iter().map(|line| ReadTrajectoryChunk {
+    let lines = lines.into_iter().map(|line| ReadTrajectoryChunk {
         body: Some(read_trajectory_chunk::Body::Line(line)),
-    }));
+    });
+    let transcode = transcode.into_iter().map(|item| ReadTrajectoryChunk {
+        body: Some(read_trajectory_chunk::Body::Transcode(TranscodeItem {
+            content_json: item.content.to_string(),
+            turn_number: item.turn_number,
+            source_harness: item.source_harness,
+        })),
+    });
+    let chunks = std::iter::once(header).chain(lines).chain(transcode);
     Ok(Response::new(Box::pin(futures::stream::iter(
         chunks.map(Ok::<_, Status>),
     ))))
 }
 
-/// The fork session `task_id` resumes, created from its `task_forks` row on
-/// the first call. `None` when the Task is no fork, forked another harness, or
-/// its cut is not in the source's trajectory; the sandbox then takes the
-/// archive path.
+/// The session fork `task_id` resumes, created from its `task_forks` row on
+/// the first call: verbatim when the cut is in a session of `harness`, else
+/// transcoded from it. `None` when the Task is no fork or its cut is not in
+/// the source's trajectory; the sandbox then takes the archive path.
 async fn fork_session(
     service: &BackendSandboxServiceImpl,
     dao: &Trajectories,
     task_id: &str,
     harness: Harness,
-) -> Result<Option<TrajectorySession>, Status> {
+) -> Result<Option<OpenedSession>, Status> {
     let Some(handlers) = service.handlers.as_ref() else {
         return Ok(None);
     };
@@ -172,30 +190,35 @@ async fn fork_session(
     else {
         return Ok(None);
     };
-    let Some(source) = dao
-        .find_session(&fork.source_session_id)
-        .await
-        .map_err(|e| internal(e, "Failed to read trajectory session"))?
-    else {
-        return Ok(None);
+    let at = if let Some(at) = fork.source_event_id {
+        at
+    } else {
+        // A row written before `source_event_id`: its cut is resolved from
+        // the anchors of the harness the source session ran.
+        let Some(source) = dao
+            .find_session(&fork.source_session_id)
+            .await
+            .map_err(|e| internal(e, "Failed to read trajectory session"))?
+        else {
+            return Ok(None);
+        };
+        let cut = match (fork.source_message_uuid, fork.source_agent_turn_id) {
+            (Some(message), _) if source.harness == Harness::ClaudeCode.as_str() => {
+                ForkCut::Message(message)
+            }
+            (_, Some(turn)) if source.harness == Harness::Codex.as_str() => ForkCut::Turn(turn),
+            _ => ForkCut::End,
+        };
+        let Some(at) = dao
+            .resolve_legacy_cut(&fork.source_session_id, &cut)
+            .await
+            .map_err(|e| internal(e, "Failed to resolve the fork cut"))?
+        else {
+            return Ok(None);
+        };
+        at
     };
-    if source.harness != harness.as_str() {
-        return Ok(None);
-    }
-    let cut = match (fork.source_message_uuid, fork.source_agent_turn_id) {
-        (Some(message), _) if harness == Harness::ClaudeCode => ForkCut::Message(message),
-        (_, Some(turn)) if harness == Harness::Codex => ForkCut::Turn(turn),
-        _ => ForkCut::End,
-    };
-    let Some(at) = dao
-        .resolve_cut(&fork.source_session_id, &cut)
+    dao.open_fork_session(task_id, harness, at)
         .await
-        .map_err(|e| internal(e, "Failed to resolve the fork cut"))?
-    else {
-        return Ok(None);
-    };
-    dao.insert_fork_session(task_id, harness, at)
-        .await
-        .map(Some)
         .map_err(|e| internal(e, "Failed to create the fork session"))
 }

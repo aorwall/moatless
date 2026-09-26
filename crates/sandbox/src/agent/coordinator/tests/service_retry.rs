@@ -36,6 +36,8 @@ async fn coordinator_service_failed_execution_sets_error_on_agent_state() {
         resume_session_id: None,
         start_fresh: false,
         fork: None,
+        agent_profile: None,
+        switch_harness: false,
         ack: ack_tx,
     })
     .expect("channel open");
@@ -113,6 +115,8 @@ async fn coordinator_service_retryable_failure_retries_then_completes() {
         resume_session_id: None,
         start_fresh: false,
         fork: None,
+        agent_profile: None,
+        switch_harness: false,
         ack: ack_tx,
     })
     .expect("channel open");
@@ -211,6 +215,8 @@ async fn coordinator_service_circuit_breaker_trips_after_consecutive_errors() {
             resume_session_id: None,
             start_fresh: false,
             fork: None,
+            agent_profile: None,
+            switch_harness: false,
             ack: ack_tx,
         })
         .expect("channel open");
@@ -230,6 +236,8 @@ async fn coordinator_service_circuit_breaker_trips_after_consecutive_errors() {
         resume_session_id: None,
         start_fresh: false,
         fork: None,
+        agent_profile: None,
+        switch_harness: false,
         ack: ack_tx,
     })
     .expect("channel open");

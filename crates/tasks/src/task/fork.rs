@@ -11,6 +11,7 @@
 use std::sync::Arc;
 
 use moatless_types::access_control::{ScopeContext, ScopedResource};
+use moatless_types::agent::AgentProfile;
 
 use super::dao::TaskDao;
 use super::error::TaskError;
@@ -20,6 +21,7 @@ use crate::message::models::ForkCopyCounts;
 use crate::tag::dao::TagDao;
 use crate::task_turn::dao::TaskTurnDao;
 use crate::task_turn::models::ForkPoint;
+use crate::trajectory::operations::Trajectories;
 
 #[cfg(test)]
 pub(crate) use super::fork_dao::MockTaskForkDao;
@@ -67,7 +69,12 @@ pub struct ForkPlan {
     /// `None` when the parent's agent never ran at or before the cut. Such a
     /// fork starts on a fresh session.
     pub session: Option<ForkSession>,
+    /// The cut as a trajectory event; `None` exactly when `session` is.
+    pub source_event_id: Option<uuid::Uuid>,
 }
+
+/// The refusal for forking or rewinding-by-fork a Task with no trajectory.
+pub(crate) const FROZEN_FORK: &str = "This Task was created before recording and cannot be forked";
 
 /// The in-flight turn a cut must not reach, if any. A cut strictly below it is
 /// allowed (the copy filters `turn_number <= cut`); reaching it is refused —
@@ -88,6 +95,7 @@ pub struct TaskForkService {
     turns: Arc<dyn TaskTurnDao>,
     messages: Arc<dyn MessageDao>,
     tags: Arc<dyn TagDao>,
+    trajectories: Arc<Trajectories>,
 }
 
 impl TaskForkService {
@@ -96,12 +104,14 @@ impl TaskForkService {
         turns: Arc<dyn TaskTurnDao>,
         messages: Arc<dyn MessageDao>,
         tags: Arc<dyn TagDao>,
+        trajectories: Arc<Trajectories>,
     ) -> Self {
         Self {
             tasks,
             turns,
             messages,
             tags,
+            trajectories,
         }
     }
 
@@ -162,34 +172,30 @@ impl TaskForkService {
         }
 
         let cut = point.turn;
-        let session = match self.messages.fork_anchors(source_task_id, cut).await? {
-            None => None,
-            Some(ForkAnchors {
-                session_id,
-                message_uuid,
-            }) => {
-                // Codex names the cut by turn id and Claude by Message uuid, so
-                // which anchor is load-bearing follows the parent's agent.
-                if source.agent_profile.as_str() == "codex" {
-                    if cut.is_some() && point.agent_turn_id.is_none() {
-                        return Err(TaskError::Conflict(format!(
-                            "turn {} of task {source_task_id} has no recorded agent turn id; fork at head instead",
-                            cut.unwrap_or_default()
-                        )));
-                    }
-                    Some(ForkSession {
-                        source_session_id: session_id,
-                        source_message_uuid: None,
-                        source_agent_turn_id: point.agent_turn_id.clone(),
-                    })
-                } else {
-                    Some(ForkSession {
-                        source_session_id: session_id,
-                        source_message_uuid: message_uuid,
-                        source_agent_turn_id: None,
-                    })
+        let session = self.messages.fork_anchors(source_task_id, cut).await?.map(
+            |ForkAnchors {
+                 session_id,
+                 message_uuid,
+             }| {
+                // Codex names the cut by turn id and Claude by Message uuid;
+                // the pod falls back to them when the trajectory cannot answer.
+                let codex = source.agent_profile.as_str() == "codex";
+                ForkSession {
+                    source_session_id: session_id,
+                    source_message_uuid: (!codex).then_some(message_uuid).flatten(),
+                    source_agent_turn_id: codex.then(|| point.agent_turn_id.clone()).flatten(),
                 }
+            },
+        );
+        let source_event_id = match (&session, cut) {
+            (Some(_), Some(_)) => {
+                let cut = self.trajectories.resolve_cut(source_task_id, cut).await?;
+                Some(
+                    cut.ok_or_else(|| TaskError::Conflict(FROZEN_FORK.to_string()))?
+                        .event_id,
+                )
             }
+            _ => None,
         };
 
         Ok((
@@ -197,7 +203,8 @@ impl TaskForkService {
             ForkPlan {
                 source_task_id: source_task_id.to_string(),
                 at_turn: cut,
-                session,
+                session: source_event_id.and(session),
+                source_event_id,
             },
         ))
     }
@@ -278,12 +285,22 @@ impl TaskForkService {
             workspace_id: source.workspace_id.clone(),
             sandbox_id: same_sandbox.then(|| source.sandbox_id.clone()).flatten(),
             checkout_mode: same_sandbox.then_some(moatless_types::task::CheckoutMode::Shared),
-            agent_profile: Some(source.agent_profile.clone()),
+            agent_profile: Some(
+                req.agent_profile
+                    .clone()
+                    .map_or_else(|| source.agent_profile.clone(), AgentProfile),
+            ),
             name: None,
             description: None,
             branch: source.branch.clone(),
             message: req.message.clone(),
-            model: req.model.clone().or_else(|| source.model.clone()),
+            // The source's model belongs to the source's profile.
+            model: req.model.clone().or_else(|| {
+                req.agent_profile
+                    .is_none()
+                    .then(|| source.model.clone())
+                    .flatten()
+            }),
             agent_mode: req.agent_mode.clone(),
             effort: req.effort.clone(),
             contexts: Vec::new(),
@@ -314,6 +331,7 @@ impl TaskForkService {
                 source_task_id: task_id.to_string(),
                 at_turn: plan.at_turn,
                 session: plan.session.clone(),
+                source_event_id: plan.source_event_id,
             });
 
             service::create_task(

@@ -73,11 +73,9 @@ async fn a_title_asserted_against_a_blank_name_is_dropped() {
     );
 }
 
-/// The client sends a meta update before every turn. Refusing one because it
-/// names the other instance's model would abort the send before the turn itself
-/// could explain why.
+/// An `instanceId` names a harness, so naming the other one switches to it.
 #[tokio::test]
-async fn a_meta_update_naming_the_other_instance_still_updates_the_title() {
+async fn a_meta_update_naming_the_other_instance_switches_its_harness() {
     let command = json!({
         "type": "thread.meta.update",
         "commandId": "cmd-1",
@@ -89,10 +87,31 @@ async fn a_meta_update_naming_the_other_instance_still_updates_the_title() {
     assert!(result.is_ok());
     assert_eq!(
         calls,
-        vec![Call::UpdateMeta {
-            task_id: "task-1".to_string(),
-            title: Some("Fix the checkout".to_string()),
-            model: None,
-        }]
+        vec![
+            Call::Switch {
+                task_id: "task-1".to_string(),
+                harness: Harness::Codex,
+            },
+            Call::UpdateMeta {
+                task_id: "task-1".to_string(),
+                title: Some("Fix the checkout".to_string()),
+                model: Some("gpt-5.6-sol".to_string()),
+            }
+        ]
     );
+}
+
+/// The refusal the sink would answer is what the person sees, so an unknown
+/// model on a meta update is refused rather than dropped.
+#[tokio::test]
+async fn a_meta_update_with_an_unpublished_model_is_refused() {
+    let command = json!({
+        "type": "thread.meta.update",
+        "commandId": "cmd-1",
+        "threadId": "task-1",
+        "modelSelection": { "instanceId": "codex", "model": "gpt-4" }
+    });
+    let (result, calls) = run_against(command, Some(named("Checkout bug"))).await;
+    assert!(matches!(result, Err(CommandRefusal::Rejected { .. })));
+    assert!(calls.is_empty());
 }

@@ -369,6 +369,7 @@ async fn five_line_session() -> (MemoryTrajectoryBackend, Vec<String>) {
             lines: wire,
             turn_number: None,
             subagent_parent: None,
+            own_from_seq: None,
         })
         .await
         .unwrap();
@@ -384,6 +385,7 @@ async fn write(backend: &MemoryTrajectoryBackend, home: &Path) -> Option<Written
         home,
         Path::new("/w"),
         WriteTarget::Resume(SESSION.into()),
+        None,
     )
     .await
 }
@@ -449,4 +451,176 @@ fn claude_latest_is_the_newest_transcript() {
         ClaudeSessionFormat.latest(home.path(), cwd).as_deref(),
         Some("new")
     );
+}
+
+const CLAUDE_RECORDED: &str = include_str!("../../../tests/fixtures/transcode/claude.jsonl");
+const CODEX_RECORDED: &str = include_str!("../../../tests/fixtures/transcode/codex.jsonl");
+
+/// The items the backend's `transcode_items` selects from these lines: own
+/// lines with content, from the last compaction on.
+fn transcode_items(format: &dyn SessionFormat, lines: &[&str]) -> Vec<EventContent> {
+    let mut items = Vec::new();
+    for line in lines {
+        let content = format.read_line(line).content;
+        if content.compaction {
+            items.clear();
+        }
+        if !content.injected && content.role.is_some() && !content.blocks.is_empty() {
+            items.push(content);
+        }
+    }
+    items
+}
+
+fn render_as(
+    to: &dyn SessionFormat,
+    from: &dyn SessionFormat,
+    recorded: &str,
+    take: usize,
+) -> Vec<Value> {
+    let lines: Vec<&str> = recorded.lines().take(take).collect();
+    let items = transcode_items(from, &lines);
+    let ctx = RenderContext {
+        harness_session_id: "{{SESSION_ID}}",
+        cwd: Path::new("/workspace"),
+        model: Some("claude-haiku-4-5-20251001"),
+        prior: &[],
+        timestamp: "2026-09-26T00:00:00.000Z",
+    };
+    to.render(&items, &ctx)
+        .iter()
+        .map(|line| serde_json::from_str(&line.replace("/workspace", "{{CWD}}")).unwrap())
+        .collect()
+}
+
+fn fixture(body: &str) -> Vec<Value> {
+    body.lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect()
+}
+
+#[test]
+fn claude_renders_as_codex() {
+    let rendered = render_as(
+        &CodexSessionFormat,
+        &ClaudeSessionFormat,
+        CLAUDE_RECORDED,
+        39,
+    );
+    assert_eq!(
+        rendered,
+        fixture(include_str!(
+            "../../../tests/fixtures/transcode/codex-from-claude.jsonl"
+        ))
+    );
+}
+
+#[test]
+fn codex_renders_as_claude() {
+    let rendered = render_as(
+        &ClaudeSessionFormat,
+        &CodexSessionFormat,
+        CODEX_RECORDED,
+        38,
+    );
+    assert_eq!(
+        rendered,
+        fixture(include_str!(
+            "../../../tests/fixtures/transcode/claude-from-codex.jsonl"
+        ))
+    );
+}
+
+#[test]
+fn a_compacted_session_renders_from_its_summary() {
+    let codex = render_as(
+        &CodexSessionFormat,
+        &ClaudeSessionFormat,
+        CLAUDE_RECORDED,
+        usize::MAX,
+    );
+    assert_eq!(
+        codex,
+        fixture(include_str!(
+            "../../../tests/fixtures/transcode/codex-from-claude-compacted.jsonl"
+        ))
+    );
+    let claude = render_as(
+        &ClaudeSessionFormat,
+        &CodexSessionFormat,
+        CODEX_RECORDED,
+        usize::MAX,
+    );
+    assert_eq!(
+        claude,
+        fixture(include_str!(
+            "../../../tests/fixtures/transcode/claude-from-codex-compacted.jsonl"
+        ))
+    );
+}
+
+#[test]
+fn rendering_after_lines_chains_onto_the_last_with_a_uuid() {
+    let items = transcode_items(
+        &CodexSessionFormat,
+        &CODEX_RECORDED.lines().take(38).collect::<Vec<_>>(),
+    );
+    let prior = [
+        r#"{"type":"assistant","uuid":"11111111-2222-3333-4444-555555555555"}"#,
+        r#"{"type":"last-prompt"}"#,
+    ];
+    let ctx = |prior| RenderContext {
+        harness_session_id: "s",
+        cwd: Path::new("/w"),
+        model: None,
+        prior,
+        timestamp: "t",
+    };
+    let claude = ClaudeSessionFormat.render(&items, &ctx(&prior));
+    let first: Value = serde_json::from_str(&claude[0]).unwrap();
+    assert_eq!(first["parentUuid"], "11111111-2222-3333-4444-555555555555");
+
+    let codex = CodexSessionFormat.render(&items, &ctx(&prior));
+    assert!(codex.iter().all(|l| !l.contains("session_meta")));
+    assert!(CodexSessionFormat.render(&items, &ctx(&[]))[0].contains("session_meta"));
+}
+
+#[test]
+fn an_unanswered_call_is_not_rendered() {
+    let items = vec![
+        EventContent {
+            role: Some(Role::Assistant),
+            blocks: vec![CanonicalContentBlock::ToolUse {
+                id: "c1".into(),
+                name: "Bash".into(),
+                input: serde_json::json!({"command": "ls"}),
+            }],
+            ..EventContent::default()
+        },
+        EventContent {
+            role: Some(Role::User),
+            blocks: vec![CanonicalContentBlock::ToolResult {
+                tool_use_id: "gone".into(),
+                content: None,
+                is_error: None,
+            }],
+            ..EventContent::default()
+        },
+    ];
+    let ctx = RenderContext {
+        harness_session_id: "s",
+        cwd: Path::new("/w"),
+        model: None,
+        prior: &["{}"],
+        timestamp: "t",
+    };
+    assert!(CodexSessionFormat.render(&items, &ctx).is_empty());
+    assert!(ClaudeSessionFormat.render(&items, &ctx).is_empty());
+}
+
+#[test]
+fn content_json_reads_back() {
+    let line = CodexSessionFormat.read_line(CODEX_RECORDED.lines().nth(5).unwrap());
+    let back: EventContent = serde_json::from_str(&line.content.to_json()).unwrap();
+    assert_eq!(back, line.content);
 }

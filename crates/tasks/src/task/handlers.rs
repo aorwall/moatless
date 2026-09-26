@@ -11,6 +11,7 @@ use super::operations::TaskCommands;
 use super::presenter::{ResolvedNames, TaskPresenter, build_task_response};
 use super::schemas::*;
 use super::service;
+use super::switch::{SwitchCredentials, SwitchOutcome, TaskSwitchService};
 use crate::credential_sync::CredentialSync;
 use crate::message::operations::Messages;
 use crate::message::send::MessageSendService;
@@ -26,7 +27,7 @@ use moatless_api_schemas::bindings::TaskBindingSummary;
 use moatless_core::config::Config;
 use moatless_core::events::EventPublisher;
 use moatless_core::http_auth::AuthUser;
-use moatless_ports::identity::UserResolver;
+use moatless_ports::identity::{HarnessCredentials, SecretCatalog, UserResolver};
 use moatless_ports::sandbox::PreflightPort;
 use moatless_ports::sandbox::SandboxLifecycle;
 #[cfg(test)]
@@ -466,7 +467,7 @@ pub async fn get_task_statistics(
     )))
 }
 
-/// Update a task's name, description or model.
+/// Update a task's name, description, model or Agent profile.
 #[utoipa::path(
     patch,
     path = "/api/v1/tasks/{task_id}",
@@ -477,12 +478,18 @@ pub async fn get_task_statistics(
     request_body = UpdateTaskMetadataRequest,
     responses(
         (status = 200, description = "Task updated", body = TaskResponse),
-        (status = 400, description = "Model belongs to another agentProfile", body = moatless_api_schemas::error::ErrorBody),
-        (status = 404, description = "Task not found", body = moatless_api_schemas::error::ErrorBody)
+        (status = 400, description = "Unknown agentProfile, missing credential, or a model the agentProfile does not offer", body = moatless_api_schemas::error::ErrorBody),
+        (status = 404, description = "Task not found", body = moatless_api_schemas::error::ErrorBody),
+        (status = 409, description = "The Task or its Sandbox cannot run the agentProfile", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
+#[allow(clippy::too_many_arguments)]
 pub async fn update_task_metadata(
     State(tasks): State<Arc<TaskCommands>>,
+    State(task_switch): State<Arc<TaskSwitchService>>,
+    State(secrets): State<Arc<dyn SecretCatalog>>,
+    State(provider_tokens): State<Arc<dyn HarnessCredentials>>,
+    State(credential_sync): State<Arc<CredentialSync>>,
     State(events): State<Option<Arc<dyn EventPublisher>>>,
     State(task_presenter): State<Arc<TaskPresenter>>,
     auth: AuthUser,
@@ -494,7 +501,26 @@ pub async fn update_task_metadata(
     }
 
     let scope_ctx = auth.scope_context();
-    if let Some(ref model) = req.model {
+    let switched = match req.agent_profile.as_deref() {
+        Some(profile) => {
+            task_switch
+                .switch_profile(
+                    &scope_ctx,
+                    &task_id,
+                    profile,
+                    req.model.as_deref(),
+                    SwitchCredentials {
+                        secrets: secrets.as_ref(),
+                        provider_tokens: provider_tokens.as_ref(),
+                        credential_sync: credential_sync.as_ref(),
+                    },
+                )
+                .await?
+                != SwitchOutcome::Unchanged
+        }
+        None => false,
+    };
+    if let Some(model) = req.model.as_ref().filter(|_| !switched) {
         // Read the agent profile before the write: a model belonging to another
         // agent is refused at creation, and a patch must not slip one past it.
         let row = tasks
@@ -510,7 +536,8 @@ pub async fn update_task_metadata(
             &TaskPatch {
                 name: req.name.clone(),
                 description: req.description.clone(),
-                model: req.model.clone(),
+                // A switch wrote the model with the profile.
+                model: if switched { None } else { req.model.clone() },
                 ..Default::default()
             },
             &scope_ctx,
@@ -535,7 +562,8 @@ pub async fn update_task_metadata(
                 serde_json::json!({
                     "name": req.name,
                     "description": req.description,
-                    "model": req.model,
+                    "model": row.model,
+                    "agentProfile": row.agent_profile.as_str(),
                 }),
             )
             .await;

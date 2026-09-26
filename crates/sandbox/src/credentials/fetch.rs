@@ -89,9 +89,10 @@ pub fn filter_agent_credentials(credentials: &HashMap<String, String>) -> HashMa
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum PersistMode {
     Initial,
-    /// Codex's `auth.json` is left alone — `codex_watcher` owns that file
-    /// post-startup, and overwriting it from `provider_tokens` would clobber a
-    /// local rotation.
+    /// An existing Codex `auth.json` is left alone — `codex_watcher` owns that
+    /// file post-startup, and overwriting it from `provider_tokens` would
+    /// clobber a local rotation. A missing one is written, for a Task that
+    /// switched to Codex after startup.
     Refresh,
 }
 
@@ -316,15 +317,17 @@ pub async fn persist_agent_credentials(
         write_claude_credentials(&config.claude_config_dir, oauth_token).await;
     }
 
-    let wrote_codex_auth = if mode == PersistMode::Initial {
+    let write_codex = mode == PersistMode::Initial
+        || !tokio::fs::try_exists(format!("{}/auth.json", config.codex_home_dir))
+            .await
+            .unwrap_or(true);
+    let wrote_codex_auth = if write_codex {
         if let Some(auth_json) = credentials.get("CODEX_AUTH_JSON") {
             write_codex_auth_json(&config.codex_home_dir, auth_json).await
         } else {
             false
         }
     } else {
-        // Refresh path: skip Codex entirely so we don't clobber a locally-rotated
-        // auth.json with the (now stale) backend copy.
         false
     };
 
@@ -332,7 +335,7 @@ pub async fn persist_agent_credentials(
     // (`requires_openai_auth = false`), so it needs no auth.json. Writing one
     // would hand the proxy key to the watcher, which mirrors the file back as
     // the user's stored Codex credential.
-    if mode == PersistMode::Initial && !wrote_codex_auth && config.openai_base_url.is_none() {
+    if write_codex && !wrote_codex_auth && config.openai_base_url.is_none() {
         if let Some(api_key) = credentials.get("OPENAI_API_KEY") {
             write_codex_auth_from_api_key(&config.codex_home_dir, api_key).await;
         }
@@ -777,6 +780,26 @@ mod tests {
         assert_eq!(
             on_disk, local_rotated,
             "Refresh mode must not clobber a locally-rotated auth.json"
+        );
+    }
+
+    /// A Task switched to Codex after startup has no `auth.json` to protect.
+    #[tokio::test]
+    async fn refresh_mode_writes_a_missing_codex_auth() {
+        let tmp = TempDir::new().unwrap();
+        let config = test_config(&tmp);
+        let mut credentials = HashMap::new();
+        let auth = r#"{"tokens":{"refresh_token":"from-backend"}}"#;
+        credentials.insert("CODEX_AUTH_JSON".to_string(), auth.to_string());
+
+        persist_agent_credentials(&config, &credentials, PersistMode::Refresh).await;
+
+        let on_disk = tokio::fs::read_to_string(tmp.path().join("home/.codex/auth.json"))
+            .await
+            .unwrap();
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&on_disk).unwrap(),
+            serde_json::from_str::<serde_json::Value>(auth).unwrap()
         );
     }
 

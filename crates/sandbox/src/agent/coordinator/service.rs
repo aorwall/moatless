@@ -20,7 +20,9 @@ use super::seam::{Coordinator, extract_wakeup_from_block, interrupted_turn_paylo
 use crate::agent::agent_state::AgentState;
 use crate::agent::background_watch_job::BackgroundWatchJob;
 use crate::agent::handle::{AgentCommand, RunAck, resolve_agent_harness};
-use crate::agent::harness::{HarnessError, Input, InputId, Outcome, Rejection, Signal};
+use crate::agent::harness::{
+    HarnessError, HarnessRuntime, Input, InputId, Outcome, Rejection, Signal,
+};
 use crate::agent::heartbeat::{HEARTBEAT_TICK_INTERVAL, Heartbeat};
 use crate::agent::retry::{MAX_RETRIES, compute_backoff, is_retryable_harness_error};
 use crate::agent::scheduled_job::{JobKind, ScheduledJobRegistry};
@@ -72,6 +74,12 @@ pub(crate) struct CoordinatorService {
     /// Kept so a retried first turn of a fork branches from the same cut,
     /// rather than falling back to an empty session.
     last_fork: Option<ForkSource>,
+    /// The `switch_harness` flag from the most recent `AgentCommand::Send`,
+    /// kept for the same reason as `last_fork`.
+    last_switch_harness: bool,
+    /// Builds the harness for another Agent profile; `None` keeps the one
+    /// the service was built with.
+    harness_factory: Option<HarnessFactory>,
     /// Number of the pending retry attempt (0-indexed; 0 = no retry pending).
     retry_attempt: u32,
     /// When the pending retry should fire. `None` = no retry scheduled. A
@@ -141,8 +149,15 @@ struct SendCommand {
     resume_session_id: Option<String>,
     start_fresh: bool,
     fork: Option<ForkSource>,
+    agent_profile: Option<String>,
+    switch_harness: bool,
     ack: oneshot::Sender<RunAck>,
 }
+
+/// Builds the harness a service runs for an Agent profile, from the service's
+/// `Config` with that profile set.
+pub(crate) type HarnessFactory =
+    Box<dyn Fn(&Arc<Config>, &str) -> Result<HarnessRuntime, HarnessError> + Send + Sync>;
 
 impl CoordinatorService {
     #[allow(clippy::too_many_arguments)] // reason: service wiring; every dep is a distinct Arc-shared collaborator
@@ -181,6 +196,8 @@ impl CoordinatorService {
             last_resume_session_id: None,
             last_start_fresh: false,
             last_fork: None,
+            last_switch_harness: false,
+            harness_factory: None,
             retry_attempt: 0,
             retry_at: None,
             consecutive_errors: 0,
@@ -195,6 +212,14 @@ impl CoordinatorService {
             pending_stop_source: None,
             workspace_sync,
         }
+    }
+
+    /// Rebuild the harness through `factory` when a Send names another Agent
+    /// profile.
+    #[must_use]
+    pub(crate) fn with_harness_factory(mut self, factory: HarnessFactory) -> Self {
+        self.harness_factory = Some(factory);
+        self
     }
 
     /// [`Self::run`], once `setup_gate` opens.
@@ -526,8 +551,9 @@ impl CoordinatorService {
                         let resume_session_id = self.last_resume_session_id.clone();
                         let start_fresh = self.last_start_fresh;
                         let fork = self.last_fork.clone();
+                        let switch_harness = self.last_switch_harness;
 
-                        match self.build_input(text, model, agent_mode, effort, resume_session_id, start_fresh, fork).await {
+                        match self.build_input(text, model, agent_mode, effort, resume_session_id, start_fresh, fork, switch_harness).await {
                             Ok(input) => {
                                 let (throwaway_tx, _throwaway_rx) = oneshot::channel();
                                 if self.coordinator.submit(input, throwaway_tx).await.is_err() {
@@ -552,6 +578,8 @@ impl CoordinatorService {
                             resume_session_id,
                             start_fresh,
                             fork,
+                            agent_profile,
+                            switch_harness,
                             ack,
                         }) => {
                             let send = SendCommand {
@@ -562,6 +590,8 @@ impl CoordinatorService {
                                 resume_session_id,
                                 start_fresh,
                                 fork,
+                                agent_profile,
+                                switch_harness,
                                 ack,
                             };
                             self.handle_send_command(&task_id, send).await;
@@ -600,6 +630,7 @@ impl CoordinatorService {
                                 // Session of its own; the fork it may have
                                 // started from is long spent.
                                 None,
+                                false,
                             ).await {
                                 Ok(input) => input,
                                 Err(err) => {
@@ -766,6 +797,13 @@ impl CoordinatorService {
             return;
         }
 
+        // A turn in flight keeps its harness: dropping the ack leaves the batch
+        // unacked, so the dispatcher redelivers it once the turn ends.
+        if !self.ensure_profile(send.agent_profile.as_deref()).await {
+            drop(send.ack);
+            return;
+        }
+
         // Capture last-Send fields for retry rebuilding before moving text into
         // build_input.
         self.last_text = Some(send.text.clone());
@@ -777,6 +815,7 @@ impl CoordinatorService {
         self.last_resume_session_id = send.resume_session_id.clone();
         self.last_start_fresh = send.start_fresh;
         self.last_fork = send.fork.clone();
+        self.last_switch_harness = send.switch_harness;
 
         let input = match self
             .build_input(
@@ -787,6 +826,7 @@ impl CoordinatorService {
                 send.resume_session_id,
                 send.start_fresh,
                 send.fork,
+                send.switch_harness,
             )
             .await
         {
@@ -800,6 +840,56 @@ impl CoordinatorService {
         if self.coordinator.submit(input, send.ack).await.is_err() {
             // HarnessClosed — the signal loop will see None next.
         }
+    }
+
+    /// Run `agent_profile` from the next turn on, rebuilding the harness when
+    /// it differs from the running one. False while a turn is open, which the
+    /// harness must finish first; a profile this Sandbox cannot build keeps
+    /// the running harness.
+    pub(super) async fn ensure_profile(&mut self, agent_profile: Option<&str>) -> bool {
+        let Some(profile) = agent_profile.filter(|p| !p.is_empty()) else {
+            return true;
+        };
+        if self.config.agent_profile.as_deref() == Some(profile) {
+            return true;
+        }
+        let Some(factory) = self.harness_factory.as_ref() else {
+            return true;
+        };
+        if self.coordinator.turn_active() {
+            info!(
+                agent_profile = profile,
+                "Agent profile changed mid-turn; redelivering after it"
+            );
+            return false;
+        }
+        let mut config = (*self.config).clone();
+        config.agent_profile = Some(profile.to_string());
+        let config = Arc::new(config);
+        let harness = match factory(&config, profile) {
+            Ok(harness) => harness,
+            Err(error) => {
+                warn!(agent_profile = profile, error = %error.diagnostic,
+                    "Cannot build the harness for the new Agent profile; keeping the running one");
+                return true;
+            }
+        };
+        let family = |c: &Config| {
+            c.agent_profile
+                .as_deref()
+                .and_then(|p| resolve_agent_harness(p).ok())
+        };
+        if family(&config) != family(&self.config) {
+            self.agent_state.clear_session_id().await;
+        }
+        info!(
+            from = ?self.config.agent_profile,
+            to = profile,
+            "Rebuilt the harness for the Task's new Agent profile"
+        );
+        self.coordinator.replace_harness(harness);
+        self.config = config;
+        true
     }
 
     /// Drive credential recovery after a Turn failed with the detector flagged.
@@ -912,6 +1002,7 @@ impl CoordinatorService {
         resume_session_id: Option<String>,
         start_fresh: bool,
         fork: Option<ForkSource>,
+        switch_harness: bool,
     ) -> Result<Input, String> {
         // Resolve system prompt from backend, falling back to the cached prompt
         // when a later fetch fails.
@@ -950,9 +1041,9 @@ impl CoordinatorService {
 
         // Resolve resume exactly as `session::resolve_resume_session`: the pod's
         // last known Session id takes precedence, then the backend-provided id,
-        // then a `--continue` for the Claude family. The harness is fixed for the
-        // Member, so the family is `config.agent_profile` — this service's own
-        // per-Member `Config` — and not the per-Turn value.
+        // then a `--continue` for the Claude family. The family is
+        // `config.agent_profile`, which `ensure_profile` keeps on the running
+        // harness's profile.
         let harness_family = self
             .config
             .agent_profile
@@ -979,6 +1070,7 @@ impl CoordinatorService {
             resume,
             start_fresh,
             fork,
+            switch_harness,
             env,
             system_prompt,
         })

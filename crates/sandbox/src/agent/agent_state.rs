@@ -153,6 +153,12 @@ impl AgentState {
         self.inner.write().await.last_session_id = Some(session_id);
     }
 
+    /// Forget the last session, which a rebuilt harness of another family
+    /// cannot resume.
+    pub async fn clear_session_id(&self) {
+        self.inner.write().await.last_session_id = None;
+    }
+
     pub async fn current_run_id(&self) -> Option<String> {
         self.inner.read().await.current_run_id.clone()
     }

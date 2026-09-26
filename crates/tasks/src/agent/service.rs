@@ -112,3 +112,16 @@ async fn collect_provider_token_providers(
 
     providers
 }
+
+/// Whether the caller holds a credential `entry` runs on, by the same test
+/// [`list_agents`] reports as `installed`.
+pub async fn is_installed(
+    secrets: &dyn SecretCatalog,
+    provider_tokens: &dyn HarnessCredentials,
+    ctx: &ScopeContext,
+    entry: &AgentProfileEntry,
+) -> bool {
+    let present_keys = collect_credential_keys(secrets, ctx).await;
+    let present_providers = collect_provider_token_providers(provider_tokens, ctx).await;
+    build_descriptor(entry, &present_keys, &present_providers).installed
+}

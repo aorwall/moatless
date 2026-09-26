@@ -1,5 +1,5 @@
 //! `MemoryTrajectoryBackend`: a `BackendClient` holding trajectories in memory
-//! under the append, chain and fork-cut rules of `PgTrajectoryDao`.
+//! under the append, chain, fork-cut and switch rules of `PgTrajectoryDao`.
 //!
 //! Included by path from `trajectory_tail` and `trajectory_e2e.rs`; each
 //! includer brings `BackendClient` into its parent scope.
@@ -10,12 +10,12 @@ use std::sync::Mutex;
 use sandbox_proto::{
     AppendTrajectoryRequest, AppendTrajectoryResponse, DownloadUploadResponse,
     GetCredentialsResponse, InterruptedTurn, PendingAgentDelivery, PublishEventRequest,
-    ReadTrajectoryRequest, SessionHeader, read_trajectory_request::Target,
+    ReadTrajectoryRequest, SessionHeader, TranscodeItem, read_trajectory_request::Target,
 };
 use serde_json::Value;
 use tonic::Status;
 
-use super::BackendClient;
+use super::{BackendClient, TrajectoryRead};
 
 #[derive(Debug, Clone)]
 pub struct MemoryEvent {
@@ -35,8 +35,22 @@ struct MemorySession {
     forked_from: Option<(String, i64)>,
     /// A subagent session's parent session and its spawning event's seq.
     parent: Option<(String, i64)>,
+    /// A switch session's other-harness tip, as a session and seq.
+    transcoded_from: Option<(String, i64)>,
+    own_from_seq: Option<i64>,
+    /// The append counter when this session last took a line: the head is
+    /// the latest.
+    appended_at: usize,
     own: Vec<MemoryEvent>,
     last_seq: i64,
+}
+
+/// One event on a lineage, as `LineageRow`.
+struct Row {
+    session: String,
+    harness: String,
+    event: MemoryEvent,
+    prefix: bool,
 }
 
 /// A `task_forks` row, as the backend would read it.
@@ -188,6 +202,9 @@ impl MemoryTrajectoryBackend {
                 harness: harness.to_string(),
                 forked_from: Some((fork.source_session_id, cut_seq)),
                 parent: None,
+                transcoded_from: None,
+                own_from_seq: None,
+                appended_at: 0,
                 own: Vec::new(),
                 last_seq: cut_seq,
             },
@@ -195,6 +212,99 @@ impl MemoryTrajectoryBackend {
         state.fork_sessions += 1;
         Some(id)
     }
+}
+
+/// The switch session `task_id` runs in `harness`, and the items it renders.
+fn switch_session(
+    state: &mut State,
+    task_id: &str,
+    harness: &str,
+) -> Option<(String, Vec<TranscodeItem>)> {
+    let (head, head_session) = state
+        .sessions
+        .iter()
+        .filter(|(_, s)| s.task_id == task_id && s.parent.is_none() && !s.own.is_empty())
+        .max_by_key(|(_, s)| s.appended_at)?;
+    let (head, head_harness, head_seq) = (
+        head.clone(),
+        head_session.harness.clone(),
+        head_session.last_seq,
+    );
+    if head_harness == harness {
+        return Some((head, Vec::new()));
+    }
+    let rows = lineage(state, &head, head_seq);
+    let since = rows.iter().rposition(|r| r.harness == harness);
+    let mut items = Vec::new();
+    for row in &rows[since.map_or(0, |i| i + 1)..] {
+        if row.prefix || row.harness == harness {
+            continue;
+        }
+        let content = &row.event.content;
+        if content.get("compaction").and_then(Value::as_bool) == Some(true) {
+            items.clear();
+        }
+        let spoken = content.get("role").is_some_and(|r| !r.is_null());
+        let injected = content.get("injected").and_then(Value::as_bool) == Some(true);
+        if !spoken || injected || blocks(&row.event).is_empty() {
+            continue;
+        }
+        items.push(TranscodeItem {
+            content_json: content.to_string(),
+            turn_number: None,
+            source_harness: row.harness.clone(),
+        });
+    }
+    let forked_from = since.map(|i| (rows[i].session.clone(), rows[i].event.seq));
+    let transcoded_from = Some((head, head_seq));
+    let reuse = state.sessions.iter().find(|(_, s)| {
+        s.task_id == task_id
+            && s.own.is_empty()
+            && s.harness == harness
+            && s.forked_from == forked_from
+            && s.transcoded_from == transcoded_from
+    });
+    if let Some((id, _)) = reuse {
+        return Some((id.clone(), items));
+    }
+    let id = uuid::Uuid::now_v7().to_string();
+    let last_seq = forked_from.as_ref().map_or(-1, |(_, seq)| *seq);
+    state.sessions.insert(
+        id.clone(),
+        MemorySession {
+            task_id: task_id.to_string(),
+            harness: harness.to_string(),
+            forked_from,
+            parent: None,
+            transcoded_from,
+            own_from_seq: None,
+            appended_at: 0,
+            own: Vec::new(),
+            last_seq,
+        },
+    );
+    Some((id, items))
+}
+
+/// Every event `harness_session_id` descends from through seq `at`, oldest
+/// first: across a switch session's prefix, the other harness's chain it was
+/// rendered from.
+fn lineage(state: &State, harness_session_id: &str, at: i64) -> Vec<Row> {
+    let Some(session) = state.sessions.get(harness_session_id) else {
+        return Vec::new();
+    };
+    let mut rows = match (&session.transcoded_from, &session.forked_from) {
+        (Some((source, seq)), _) | (None, Some((source, seq))) => lineage(state, source, *seq),
+        (None, None) => Vec::new(),
+    };
+    let own_from = session.own_from_seq.unwrap_or(0);
+    rows.extend(session.own.iter().filter(|e| e.seq <= at).map(|e| Row {
+        session: harness_session_id.to_string(),
+        harness: session.harness.clone(),
+        event: e.clone(),
+        prefix: session.transcoded_from.is_some() && e.seq < own_from,
+    }));
+    rows
 }
 
 fn chain(state: &State, harness_session_id: &str) -> Vec<MemoryEvent> {
@@ -315,6 +425,7 @@ impl BackendClient for MemoryTrajectoryBackend {
                 last_payload: None,
             });
         }
+        let appended_at = state.appends;
         let session = state
             .sessions
             .entry(req.harness_session_id.clone())
@@ -323,11 +434,23 @@ impl BackendClient for MemoryTrajectoryBackend {
                 harness: req.harness.clone(),
                 forked_from: None,
                 parent,
+                transcoded_from: None,
+                own_from_seq: None,
+                appended_at,
                 own: Vec::new(),
                 last_seq: -1,
             });
         if session.task_id != req.task_id || session.harness != req.harness {
             return Err(Status::permission_denied("another task's session"));
+        }
+        if !probe && session.transcoded_from.is_some() && session.own_from_seq.is_none() {
+            let Some(own_from_seq) = req.own_from_seq else {
+                return Err(Status::invalid_argument("switch session: no own_from_seq"));
+            };
+            session.own_from_seq = Some(own_from_seq);
+        }
+        if !probe {
+            session.appended_at = appended_at;
         }
         if req.first_seq > session.last_seq + 1 {
             return Ok(AppendTrajectoryResponse {
@@ -367,14 +490,12 @@ impl BackendClient for MemoryTrajectoryBackend {
         })
     }
 
-    async fn read_trajectory(
-        &self,
-        req: ReadTrajectoryRequest,
-    ) -> Result<(SessionHeader, Vec<String>), Status> {
+    async fn read_trajectory(&self, req: ReadTrajectoryRequest) -> Result<TrajectoryRead, Status> {
         if self.off {
             return Err(Status::unimplemented("trajectory recording is off"));
         }
         let mut state = self.state.lock().unwrap();
+        let mut transcode = Vec::new();
         let id = match req.target {
             Some(Target::HarnessSessionId(id)) => state
                 .sessions
@@ -382,6 +503,11 @@ impl BackendClient for MemoryTrajectoryBackend {
                 .filter(|s| s.task_id == req.task_id && s.harness == req.harness)
                 .map(|_| id),
             Some(Target::Fork(true)) => Self::fork_session(&mut state, &req.task_id, &req.harness),
+            Some(Target::Switch(true)) => switch_session(&mut state, &req.task_id, &req.harness)
+                .map(|(id, items)| {
+                    transcode = items;
+                    id
+                }),
             _ => return Err(Status::invalid_argument("a target is required")),
         };
         let Some(id) = id else {
@@ -401,7 +527,11 @@ impl BackendClient for MemoryTrajectoryBackend {
             harness_session_id: id,
             line_count: events.len() as i64,
         };
-        Ok((header, events.into_iter().map(|e| e.payload).collect()))
+        Ok(TrajectoryRead {
+            header,
+            lines: events.into_iter().map(|e| e.payload).collect(),
+            transcode,
+        })
     }
 
     async fn publish_event(&self, req: PublishEventRequest) -> Result<(), Status> {

@@ -13,7 +13,7 @@ use moatless_types::task::{TaskRelationType, Visibility};
 use moatless_workspace_types::schemas::repository::BranchListResponse;
 use uuid::Uuid;
 
-use moatless_types::agent::AgentMode;
+use moatless_types::agent::{AgentMode, Harness};
 
 /// Workspace-owned replacement of declared scripts, retaining hidden
 /// configuration.
@@ -125,6 +125,8 @@ pub struct ThreadTurn {
     pub message_uuid: String,
     /// A catalog model id, already translated out of T3's published slug.
     pub model: Option<String>,
+    /// Another harness than the Task's, switched to before the turn is sent.
+    pub harness: Option<Harness>,
     pub agent_mode: Option<AgentMode>,
     /// The reasoning effort selected for this turn, in the agent's own
     /// vocabulary. `None` leaves the agent on its own default.
@@ -166,7 +168,10 @@ pub struct ThreadMeta {
     pub task_id: String,
     /// A rename. Absent for the client's auto-title, which this surface drops.
     pub title: Option<String>,
+    /// A catalog model id of `harness`, or of the Task's own harness.
     pub model: Option<String>,
+    /// Another harness than the Task's, to switch to.
+    pub harness: Option<Harness>,
 }
 
 /// The pull request a link or an unlink command named, as this surface
@@ -199,6 +204,8 @@ pub struct ForkThread {
     pub same_sandbox: bool,
     /// A catalog model id, already translated out of T3's published slug.
     pub model: Option<String>,
+    /// Another harness than the source's, which the fork runs.
+    pub harness: Option<Harness>,
     pub agent_mode: Option<AgentMode>,
     /// The reasoning effort for the first turn, in the agent's own vocabulary.
     /// `None` leaves the agent on its own default.

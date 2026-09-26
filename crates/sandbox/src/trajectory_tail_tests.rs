@@ -352,3 +352,53 @@ async fn a_subagent_whose_call_is_not_recorded_leaves_recording_running() {
     assert_eq!(backend.events_on(ID).len(), 2);
     assert!(backend.events_on(&format!("{ID}:agent-a1")).is_empty());
 }
+
+fn turn(backend: &Arc<MemoryTrajectoryBackend>, home: &std::path::Path) -> TurnTrajectory {
+    TurnTrajectory {
+        recording: TrajectoryRecording::new(Arc::clone(backend) as Arc<dyn BackendClient>),
+        format: Arc::new(ClaudeSessionFormat),
+        task_id: "task".into(),
+        home: home.to_path_buf(),
+        cwd: home.to_path_buf(),
+        written: None,
+        live: None,
+    }
+}
+
+fn fork_input(switch_harness: bool) -> Input {
+    let mut input = Input::text("in-1", "hi");
+    input.start_fresh = true;
+    input.switch_harness = switch_harness;
+    input.fork = Some(crate::agent::types::ForkSource {
+        source_session_id: "thread-1".into(),
+        source_message_uuid: None,
+        source_agent_turn_id: Some("turn-1".into()),
+    });
+    input
+}
+
+#[tokio::test]
+async fn an_unreadable_cross_harness_fork_fails_the_turn() {
+    let home = tempfile::tempdir().unwrap();
+    let backend = Arc::new(MemoryTrajectoryBackend::default());
+
+    let refused = turn(&backend, home.path())
+        .write_out(&fork_input(true))
+        .await;
+
+    let err = refused.expect_err("the fork's history cannot reach this harness");
+    assert_eq!(err.class, ErrorClass::UnavailableSession);
+}
+
+#[tokio::test]
+async fn an_unreadable_same_harness_fork_falls_back_to_the_cli() {
+    let home = tempfile::tempdir().unwrap();
+    let backend = Arc::new(MemoryTrajectoryBackend::default());
+
+    let fallback = turn(&backend, home.path())
+        .write_out(&fork_input(false))
+        .await
+        .expect("the CLI forks its own transcript");
+
+    assert_eq!(fallback, None);
+}

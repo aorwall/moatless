@@ -200,7 +200,13 @@ pub(crate) mod test_support {
         PublishEventRequest,
     };
 
-    pub(crate) struct NoopBackend;
+    /// Stores nothing. Its first `failing_fetches` reads of pending messages
+    /// fail as unavailable; `fetches` counts every read.
+    #[derive(Default)]
+    pub(crate) struct NoopBackend {
+        pub(crate) fetches: std::sync::atomic::AtomicUsize,
+        pub(crate) failing_fetches: usize,
+    }
 
     #[async_trait::async_trait]
     impl BackendClient for NoopBackend {
@@ -212,6 +218,12 @@ pub(crate) mod test_support {
             &self,
             _task_id: &str,
         ) -> Result<Vec<PendingAgentDelivery>, tonic::Status> {
+            let fetch = self
+                .fetches
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            if fetch < self.failing_fetches {
+                return Err(tonic::Status::unavailable("the backend is restarting"));
+            }
             Ok(vec![])
         }
 
@@ -284,7 +296,7 @@ pub(crate) mod test_support {
         config.agent_profile = Some("claude-code".to_string());
         config.claude_cli_path = "/missing/claude".to_string();
         config.codex_cli_path = "/missing/codex".to_string();
-        state_with(config, Arc::new(NoopBackend))
+        state_with(config, Arc::new(NoopBackend::default()))
     }
 
     pub(crate) fn state_with(

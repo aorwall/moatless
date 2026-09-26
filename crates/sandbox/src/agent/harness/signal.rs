@@ -68,6 +68,11 @@ pub struct Input {
     /// guard): an older pod ignores the field and takes a plain fresh start
     /// instead of resuming into the parent's transcript.
     pub fork: Option<ForkSource>,
+    /// The session this Input continues is the other harness's: open the
+    /// Task's switch session (or, with `fork`, the fork's) rendered from the
+    /// Trajectory, and fail the Turn when it cannot be written. Tested after
+    /// `fork` and before `start_fresh`, which is set alongside it.
+    pub switch_harness: bool,
     /// Resolved subprocess environment for this Turn (credentials the
     /// coordinator refreshed before submit).
     pub env: Option<HashMap<String, String>>,
@@ -87,6 +92,7 @@ impl Input {
             resume: None,
             start_fresh: false,
             fork: None,
+            switch_harness: false,
             env: None,
             system_prompt: None,
         }

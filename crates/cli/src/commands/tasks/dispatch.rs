@@ -58,6 +58,10 @@ pub enum TaskAction {
         /// provisioning one from a copy of its workspace
         #[arg(long)]
         same_sandbox: bool,
+        /// Agent profile the fork runs, as `moat agents` lists it. Omit to run
+        /// the source task's
+        #[arg(long)]
+        agent_profile: Option<String>,
     },
     /// Create a new task (starts the sandbox and, if --message is provided, the
     /// agent)
@@ -164,7 +168,7 @@ pub enum TaskAction {
     },
     /// Reopen a closed task
     Reopen { task_id: String },
-    /// Update a task's name, description and/or model
+    /// Update a task's name, description, model and/or Agent profile
     Update {
         task_id: String,
         #[arg(long)]
@@ -175,6 +179,10 @@ pub enum TaskAction {
         /// Takes effect from the next turn; the running one keeps its model.
         #[arg(long)]
         model: Option<String>,
+        /// Agent profile for the task's later turns, as `moat agents` lists
+        /// it. Without `--model` the profile's default model runs.
+        #[arg(long)]
+        agent_profile: Option<String>,
     },
     /// Update a task's TTLs (idle sandbox stop and/or inactivity auto-close)
     Ttl {
@@ -381,6 +389,7 @@ pub async fn run(
             at_turn,
             message,
             same_sandbox,
+            agent_profile,
         } => {
             let source_task_id = resolve_task_id(client, &task_id).await?;
             let has_message = message.is_some();
@@ -390,6 +399,7 @@ pub async fn run(
                 same_sandbox: same_sandbox.then_some(true),
                 effort: None,
                 model: None,
+                agent_profile,
                 // The CLI always drives the agent in edit mode; plan mode is a
                 // UI affordance.
                 agent_mode: Some(AgentMode("edit".to_string())),
@@ -483,18 +493,22 @@ pub async fn run(
             name,
             description,
             model,
+            agent_profile,
         } => {
             let task_id = resolve_task_id(client, &task_id).await?;
-            if name.is_none() && description.is_none() && model.is_none() {
+            if name.is_none() && description.is_none() && model.is_none() && agent_profile.is_none()
+            {
                 return Err(ClientError::Api {
                     status: 400,
-                    body: "Provide --name, --description and/or --model".to_string(),
+                    body: "Provide --name, --description, --model and/or --agent-profile"
+                        .to_string(),
                 });
             }
             let req = UpdateTaskMetadataRequest {
                 name,
                 description,
                 model,
+                agent_profile,
             };
             let updated = client.api().update_task_metadata(&task_id, &req).await?;
             if json {
@@ -638,6 +652,21 @@ mod tests {
             ),
             _ => unreachable!("parse_create only builds Create"),
         }
+    }
+
+    #[test]
+    fn update_takes_an_agent_profile_with_or_without_a_model() {
+        let argv = ["moat", "update", "t-1", "--agent-profile", "codex"];
+        let Ok(TaskAction::Update {
+            agent_profile,
+            model,
+            ..
+        }) = <TestCli as clap::Parser>::try_parse_from(argv).map(|cli| cli.action)
+        else {
+            panic!("update parses");
+        };
+        assert_eq!(agent_profile.as_deref(), Some("codex"));
+        assert_eq!(model, None);
     }
 
     #[test]

@@ -171,6 +171,8 @@ fn send_text(tx: &mpsc::UnboundedSender<AgentCommand>, text: &str) {
         resume_session_id: None,
         start_fresh: false,
         fork: None,
+        agent_profile: None,
+        switch_harness: false,
         ack: ack_tx,
     })
     .expect("channel open");

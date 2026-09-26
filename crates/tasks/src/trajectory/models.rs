@@ -16,6 +16,9 @@ pub struct AppendRequest<'a> {
     pub turn_number: Option<i32>,
     /// Read only when the append creates the session.
     pub subagent_parent: Option<SubagentParent<'a>>,
+    /// A switch session's first seq its CLI wrote; read only while the
+    /// session has no event.
+    pub own_from_seq: Option<i64>,
 }
 
 /// The tool call in another session of the same Task that spawned a
@@ -58,8 +61,46 @@ pub struct TrajectorySession {
     pub forked_from_event_id: Option<Uuid>,
     /// A subagent session's spawning tool-call event.
     pub parent_event_id: Option<Uuid>,
+    /// A switch session's other-harness tip its prefix was rendered from.
+    pub transcoded_from_event_id: Option<Uuid>,
+    /// A switch session's first seq its CLI wrote.
+    pub own_from_seq: Option<i64>,
     pub last_event_id: Option<Uuid>,
     pub last_seq: i64,
+}
+
+/// The event a Task continues from: its latest recorded top-level session's
+/// tip, or a fork's cut before the fork records anything.
+#[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
+pub struct Head {
+    pub event_id: Uuid,
+    pub harness: String,
+    pub harness_session_id: String,
+    /// The head is the fork cut, in a session of the source Task.
+    pub forked: bool,
+}
+
+/// Where a fork or rewind cuts a Task, and the harness of the session it is in.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Cut {
+    pub event_id: Uuid,
+    pub harness: String,
+}
+
+/// One line of another harness a switch session renders into its prefix.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TranscodeItem {
+    /// The line's `content`, as the sandbox classified it.
+    pub content: Value,
+    pub turn_number: Option<i32>,
+    pub source_harness: String,
+}
+
+/// A session to write out, and the items to render after its lines.
+#[derive(Debug, Clone)]
+pub struct OpenedSession {
+    pub session: TrajectorySession,
+    pub transcode: Vec<TranscodeItem>,
 }
 
 /// Where a fork cuts its source session.
@@ -80,6 +121,9 @@ pub enum AppendError {
     /// The spawning tool call is not recorded yet; the sender retries.
     #[error("subagent session {0}: its spawning tool call is not recorded")]
     ParentMissing(String),
+    /// A switch session's first append carries no `own_from_seq`.
+    #[error("switch session {0}: its first append carries no own_from_seq")]
+    OwnFromSeqMissing(String),
     #[error(transparent)]
     Db(#[from] sqlx::Error),
 }

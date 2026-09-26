@@ -125,6 +125,8 @@ pub(super) async fn start_turn_and_wait_running(
         resume_session_id: None,
         start_fresh: false,
         fork: None,
+        agent_profile: None,
+        switch_harness: false,
         ack: ack_tx,
     })
     .expect("channel open");

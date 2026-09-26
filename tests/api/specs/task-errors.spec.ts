@@ -8,10 +8,14 @@
  *   TASK-09.3: Create task with unknown agent profile (400)
  *   TASK-10: Create task in a missing workspace (404)
  *   TASK-11: Send message to closed task (409)
+ *   TASK-12.1: Switch to the current agent profile (200, unchanged)
+ *   TASK-12.2: Switch to an unknown agent profile (400)
+ *   TASK-12.3: Switch to a tmux profile in a non-tmux Sandbox (409)
  */
 
+import { missingCapability } from '../../shared/profile'
 import { expect, test } from '../fixtures/api-fixtures'
-import { createTaskWithMessage } from '../steps'
+import { createTaskWithMessage, createTaskWithoutMessage } from '../steps'
 
 // ─── TASK-09.2: Create task without agent profile (400) ───────────────────
 
@@ -72,4 +76,45 @@ test('TASK-11: Send message to closed task (409)', async ({ api }) => {
 
   // Cleanup
   await api.deleteTask(taskId).catch(() => {})
+})
+
+// ─── TASK-12: Agent profile switch refusals (no agent run) ─────────────
+
+test('TASK-12.1: Switching to the current profile changes nothing (200)', async ({ api }) => {
+  const repo = await api.ensureTemplateRepository()
+  const { taskId } = await createTaskWithoutMessage(api, repo.id)
+  try {
+    const response = await api.switchProfileRaw(taskId, 'claude-code')
+    expect(response.status).toBe(200)
+    expect((response.body as { agentProfile?: string }).agentProfile).toBe('claude-code')
+  } finally {
+    await api.deleteTask(taskId).catch(() => {})
+  }
+})
+
+test('TASK-12.2: Switching to an unknown profile (400)', async ({ api }) => {
+  const repo = await api.ensureTemplateRepository()
+  const { taskId } = await createTaskWithoutMessage(api, repo.id)
+  try {
+    const response = await api.switchProfileRaw(taskId, 'not-an-agent')
+    expect(response.status).toBe(400)
+    expect((response.body as { error?: string }).error).toContain('unknown agentProfile')
+  } finally {
+    await api.deleteTask(taskId).catch(() => {})
+  }
+})
+
+test('TASK-12.3: Switching to a tmux profile in a non-tmux Sandbox (409)', async ({ api }) => {
+  const reason = missingCapability('claudeCredentials')
+  test.skip(reason !== null, reason ?? '')
+  await api.storeHarnessCredentials()
+  const repo = await api.ensureTemplateRepository()
+  const { taskId } = await createTaskWithoutMessage(api, repo.id)
+  try {
+    const response = await api.switchProfileRaw(taskId, 'claude-code-tui')
+    expect(response.status).toBe(409)
+    expect((response.body as { error?: string }).error).toContain('This Sandbox cannot run')
+  } finally {
+    await api.deleteTask(taskId).catch(() => {})
+  }
 })

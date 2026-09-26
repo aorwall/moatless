@@ -21,16 +21,41 @@ async fn a_published_slug_reaches_the_sink_as_a_catalog_id() {
     );
 }
 
-/// A task's harness is fixed at creation, so this cannot be honoured.
-///
-/// The assertion's point is that nothing reaches the sink: refusing after a
-/// write would leave the message in a conversation the person was told had
-/// refused it.
+/// A turn naming the other instance switches the Task's harness before the
+/// turn is sent, with the model translated for that instance.
 #[tokio::test]
-async fn a_model_from_the_other_instance_is_refused_before_any_write() {
+async fn a_turn_on_the_other_instance_switches_its_harness_first() {
     let (result, calls) = run(turn(Some(("codex", "gpt-5.6-sol")))).await;
-    assert!(matches!(result, Err(CommandRefusal::Rejected { .. })));
-    assert!(calls.is_empty());
+    assert!(result.is_ok());
+    assert_eq!(
+        calls,
+        vec![
+            Call::Switch {
+                task_id: "task-1".to_string(),
+                harness: Harness::Codex,
+            },
+            Call::SendTurn {
+                task_id: "task-1".to_string(),
+                message_uuid: "msg-1".to_string(),
+                model: Some("gpt-5.6-sol".to_string()),
+                agent_mode: Some("edit".to_string()),
+                effort: None,
+                attachments: vec![],
+                skills: vec![],
+            }
+        ]
+    );
+}
+
+/// A model slug with no `instanceId` is one the client cached from another
+/// Thread, so it never switches.
+#[tokio::test]
+async fn a_bare_model_slug_never_switches() {
+    let mut command = turn(None);
+    command["modelSelection"] = json!({ "model": "gpt-5.6-sol" });
+    let (result, calls) = run(command).await;
+    assert!(result.is_ok());
+    assert!(!calls.iter().any(|c| matches!(c, Call::Switch { .. })));
 }
 
 /// Silently substituting the default is the failure the published model names

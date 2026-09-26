@@ -17,11 +17,12 @@ use crate::task::creation::TaskCreationService;
 use crate::task::fork::TaskForkService;
 use crate::task::operations::TaskCommands;
 use crate::task::presenter::TaskPresenter;
+use crate::task::switch::TaskSwitchService;
 use crate::task_turn::operations::TaskTurns;
 use moatless_core::config::Config;
 use moatless_core::events::EventPublisher;
 use moatless_core::http_auth::UserTokenVerifier;
-use moatless_ports::identity::UserResolver;
+use moatless_ports::identity::{HarnessCredentials, SecretCatalog, UserResolver};
 use moatless_ports::sandbox::PreflightPort;
 use moatless_ports::sandbox::SandboxLifecycle;
 use moatless_workspace_ports::{RepositoryReader, WorkspaceResolver};
@@ -75,6 +76,9 @@ where
     Arc<TaskCloser>: FromRef<S>,
     Arc<TaskCreationService>: FromRef<S>,
     Arc<TaskForkService>: FromRef<S>,
+    Arc<TaskSwitchService>: FromRef<S>,
+    Arc<dyn SecretCatalog>: FromRef<S>,
+    Arc<dyn HarnessCredentials>: FromRef<S>,
     Arc<MessageSendService>: FromRef<S>,
     Arc<CredentialSync>: FromRef<S>,
     Arc<GitSyncService>: FromRef<S>,

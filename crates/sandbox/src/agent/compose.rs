@@ -118,6 +118,7 @@ pub fn spawn_agent(
 ) -> AgentHandle {
     let (command_tx, command_rx) = mpsc::unbounded_channel::<AgentCommand>();
     let agent_profile = config.agent_profile.as_deref().unwrap_or("");
+    let trajectory = TrajectoryRecording::new(Arc::clone(&backend_client));
 
     match build_harness(
         &config,
@@ -125,7 +126,7 @@ pub fn spawn_agent(
         &credential_failures,
         agent_profile,
         Some(events.clone()),
-        Some(TrajectoryRecording::new(Arc::clone(&backend_client))),
+        Some(Arc::clone(&trajectory)),
     ) {
         Ok(harness) => {
             let coordinator = crate::agent::coordinator::Coordinator::new(
@@ -147,7 +148,20 @@ pub fn spawn_agent(
                 credential_failures.clone(),
                 Arc::clone(&credential_dispatcher),
                 workspace_sync,
-            );
+            )
+            .with_harness_factory({
+                let (agent_state, events) = (Arc::clone(&agent_state), events.clone());
+                Box::new(move |config, agent_profile| {
+                    build_harness(
+                        config,
+                        &agent_state,
+                        &credential_failures,
+                        agent_profile,
+                        Some(events.clone()),
+                        Some(Arc::clone(&trajectory)),
+                    )
+                })
+            });
             tokio::spawn(service.run_after(setup_gate, command_rx, heartbeat));
         }
         Err(harness_err) => {

@@ -75,9 +75,8 @@ pub struct CreateTaskRequest {
 
 /// Branch a Task off another Task at one of its completed turns.
 ///
-/// Everything the fork runs against (repository, workspace, branch, agent,
-/// model) comes from the Task being forked; only what the fork is for is stated
-/// here.
+/// Everything the fork runs against (repository, workspace, branch, Agent
+/// profile, model) comes from the Task being forked unless named here.
 #[derive(Debug, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
@@ -95,6 +94,10 @@ pub struct ForkTaskRequest {
     /// Reasoning effort for the first turn, in the agent's own vocabulary.
     pub effort: Option<String>,
     pub model: Option<String>,
+    /// The Agent profile the fork runs; omit to run the source's. Another
+    /// harness's profile transcodes the history up to the cut.
+    #[serde(default)]
+    pub agent_profile: Option<String>,
     pub agent_mode: Option<AgentMode>,
     /// Skills to activate for the first turn.
     #[serde(default)]
@@ -171,6 +174,11 @@ pub struct UpdateTaskMetadataRequest {
     /// Model for the task's later turns. Each delivery falls back to it, so a
     /// change takes effect from the next turn and leaves the running one alone.
     pub model: Option<String>,
+    /// The Agent profile the task's next turn runs. A running turn finishes
+    /// on the one it started with; another harness's profile transcodes the
+    /// history into it.
+    #[serde(default)]
+    pub agent_profile: Option<String>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]

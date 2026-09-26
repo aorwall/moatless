@@ -256,7 +256,8 @@ ALTER TABLE trajectory_sessions
     ADD COLUMN own_from_seq bigint,
     -- A subagent session: the parent's tool-call event that spawned it.
     ADD COLUMN parent_event_id uuid REFERENCES trajectory_events (id),
-    ADD CHECK ((transcoded_from_event_id IS NULL) = (own_from_seq IS NULL)),
+    -- `own_from_seq` is NULL until the session's first append sets it.
+    ADD CHECK (own_from_seq IS NULL OR transcoded_from_event_id IS NOT NULL),
     ADD CHECK (parent_event_id IS NULL
                OR num_nonnulls(transcoded_from_event_id, forked_from_event_id) = 0);
 ```
@@ -268,7 +269,7 @@ A top-level session can carry both links. On a switch back (A → B → A) the n
 session has `forked_from_event_id` = A's earlier tip and
 `transcoded_from_event_id` = B's tip.
 
-### 4.4 `trajectory_events` (unchanged schema)
+### 4.4 `trajectory_events`
 
 `id`, `session_id`, `seq` (`UNIQUE (session_id, seq)`, the line's index in its
 file, prefix included), `parent_event_id`, `kind`, `harness_item_id`,
@@ -276,6 +277,11 @@ file, prefix included), `parent_event_id`, `kind`, `harness_item_id`,
 (section 4.1). Only the tail writes it; a row is never updated. The session a
 turn ran in is `SELECT DISTINCT session_id … WHERE turn_number = $n` over the
 Task's top-level sessions; no other table stores it.
+
+New: `ord bigint NOT NULL`, from one sequence, is the lineage order. An `id` is
+a UUIDv7 from the writing backend's clock, so ids from two replicas need not
+follow write order; an event is inserted only after its parent and any tip it
+was transcoded from. Existing rows are numbered in `id` order.
 
 ### 4.5 Renames (section 2.1)
 
@@ -292,9 +298,10 @@ ALTER TABLE loop_configs     RENAME COLUMN agent_type TO agent_profile;
 - `tasks.agent_profile` is the profile the **next** turn runs; written at create
   and by a switch.
 - `task_turns.agent_profile` is the profile that ran that turn.
-- `sandboxes.agent_profile` names only the boot Member's initial profile, as
-  `AGENT_TYPE` does today (`task_context/models.rs:26`). A Member's profile for a
-  turn is the delivery's, never the pod's. `sandboxes.use_tmux` stays pod shape.
+- `sandboxes.agent_profile` is the profile a replacement pod boots its first
+  harness with. A switch of the Task that owns the Sandbox writes it; a joined
+  Member's switch leaves it. A Member's profile for a turn is the delivery's,
+  never the pod's. `sandboxes.use_tmux` stays pod shape.
 
 ### 4.5a `task_turns` trigger (kept, source moved)
 
@@ -334,6 +341,10 @@ Task has no top-level `trajectory_sessions` row with an event". This replaces th
 `source_session_id` sentinel (`0150_task_forks.sql`).
 
 A frozen Task has no event to name, so forking it is refused (5.2).
+
+Nothing backfills `source_event_id`. A row written before it is resolved from
+its legacy anchors, in the harness of the source session they name, when the
+fork's first turn reads it.
 
 ### 4.7 `task_events` (writers changed)
 
@@ -523,7 +534,7 @@ message ReadTrajectoryChunk {
 
 message TranscodeItem {
   string content_json = 1;  // section 4.1, never injected
-  int32 turn_number = 2;
+  optional int32 turn_number = 2;
   string source_harness = 3;
 }
 
@@ -532,6 +543,10 @@ message PendingAgentDelivery {
   // …
   string agent_profile = 5;        // was agent_type
   // …
+  // New. The session the turn continues is the other harness's: the Task's
+  // head (the pod opens a switch session, ReadTrajectory { switch }), or with
+  // `fork` the session the cut is in. A pod that cannot write it fails the turn.
+  bool switch_harness = 14;
 }
 
 message AcknowledgeMessagesRequest {
@@ -582,14 +597,17 @@ cutover unchanged (Test plan, T0).
 
 ### 5.3 T3 (UI-RPC)
 
-`crates/t3code/src/commands.rs::model_for_existing` (`:857-882`); an `instanceId`
-names an Agent profile:
+`crates/t3code/src/commands.rs::selection_for_existing`. An `instanceId` names a
+harness (`claudeAgent`, `codex`), not a profile. For another harness than the
+Task's, the backend switches to that harness's first catalog profile, and for
+Claude Code the one whose `use_tmux` matches the Sandbox, so a T3 switch never
+answers the transport 409:
 
 | Command | Behaviour |
 |---|---|
-| `thread.turn.start` (`:260`) with another profile's `instanceId` | Switch, then start the turn on it |
-| `thread.meta.update` (`:588`) with another profile's `instanceId` | Switch. The refusal it swallows today with `.unwrap_or(None)` is surfaced |
-| `thread.fork` (`:515`) with an `instanceId` | The fork runs that profile; without one, the source's current profile |
+| `thread.turn.start` with another harness's `instanceId` | Switch, then start the turn on it |
+| `thread.meta.update` with another harness's `instanceId` | Switch. A refusal is surfaced |
+| `thread.fork` with another harness's `instanceId` | The fork runs that harness, without the source's model; otherwise the source's profile and model |
 | A bare model slug with no `instanceId` | Never switches (today `:862-864` ignores it) |
 
 ### 5.4 CLI
@@ -633,17 +651,16 @@ pub struct AgentProfile(pub String);              // was AgentType
 // crates/tasks/src/agent/catalog.rs
 pub fn harness_of(profile: &AgentProfile) -> Option<Harness>;
 
-// crates/tasks/src/task/switch.rs
-pub enum SwitchError {
-    UnknownProfile, MissingCredential(&'static str), ModelNotOffered,
-    Frozen, TransportMismatch, NotFound,
-}
-
-impl TaskService {
+// crates/tasks/src/task/switch.rs — refusals are `TaskError::BadRequest` (400)
+// and `TaskError::Conflict` (409), the variants every task route answers with.
+impl TaskSwitchService {
     /// Sets the Agent profile the Task's next turn runs. A running turn is untouched.
     pub async fn switch_profile(
-        &self, task_id: &str, profile: AgentProfile, model: Option<String>, actor: &Actor,
-    ) -> Result<SwitchOutcome, SwitchError>;
+        &self, scope: &ScopeContext, task_id: &str, profile: &str, model: Option<&str>,
+        credentials: SwitchCredentials<'_>,
+    ) -> Result<SwitchOutcome, TaskError>;
+    /// The profile a switch to `harness` picks, for T3 (5.3).
+    pub async fn profile_for(&self, sandbox_id: Option<&str>, harness: Harness) -> Result<&'static str, TaskError>;
 }
 
 // crates/tasks/src/inbox/
@@ -681,14 +698,20 @@ impl Projector {
 // crates/tasks/src/trajectory/ (existing, changed)
 impl TrajectoryOperations {
     pub async fn append(&self, req: AppendRequest) -> Result<AppendOutcome, AppendError>;  // + own_from_seq, subagent parent, Projector
-    pub async fn resolve_cut(&self, task_id: &str, at_turn: Option<i32>) -> Result<Uuid, CutError>;
+    /// The cut event and its session's harness; `None` for no Trajectory.
+    pub async fn resolve_cut(&self, task_id: &str, at_turn: Option<i32>) -> Result<Option<Cut>, sqlx::Error>;
+    /// S4: the head's own session, or a switch session with its transcode items.
+    pub async fn open_switch_session(&self, task_id: &str, harness: Harness) -> Result<Option<OpenedSession>, sqlx::Error>;
+    /// S7: a verbatim fork session, or a switch session transcoded from the cut.
+    pub async fn open_fork_session(&self, task_id: &str, harness: Harness, cut: Uuid) -> Result<Option<OpenedSession>, sqlx::Error>;
 }
 impl TrajectoryDao {
     /// Idempotent like `insert_fork_session`.
     pub async fn insert_switch_session(&self, task_id: &str, to: Harness, forked_from: Option<Uuid>, transcoded_from: Uuid) -> Result<TrajectorySession, sqlx::Error>;
-    /// The other harness's own lines after `since`, from the last compaction on.
-    pub async fn transcode_items(&self, task_id: &str, since: Option<Uuid>, to: Uuid) -> Result<Vec<TranscodeItem>, ChainError>;
 }
+// trajectory/lineage.rs, pure over the rows of one lineage walk:
+/// The other harness's own lines after `since`, from the last compaction on.
+fn transcode_items(rows: &[LineageRow], since: Option<Uuid>, to: &str) -> Vec<TranscodeItem>;
 ```
 
 ### Sandbox (`crates/sandbox`)
@@ -707,8 +730,13 @@ pub struct RenderContext<'a> {
     pub harness_session_id: &'a str,
     pub cwd: &'a Path,
     pub model: Option<&'a str>,
-    pub tool_map: &'a ToolMap,               // settled by the phase 0 spike
+    /// The file's lines before the rendered ones: Claude chains `parentUuid`
+    /// onto the last with a `uuid`; Codex writes `session_meta` when empty.
+    pub prior: &'a [&'a str],
+    pub timestamp: &'a str,
 }
+// Tool naming is each format's own mapping in `harness/transcode.rs`; there is
+// no shared ToolMap type.
 
 pub enum WriteTarget { Resume(String), Fork, Switch }
 
@@ -720,9 +748,10 @@ pub struct Written {
 
 // agent/coordinator/service.rs
 impl CoordinatorService {
-    /// Rebuilds the Member's harness through `build_harness` when `profile`
-    /// differs from the one it runs. Called at turn start, never mid-turn.
-    async fn ensure_profile(&mut self, profile: &AgentProfile) -> Result<(), HarnessError>;
+    /// Rebuilds the Member's harness through a `HarnessFactory` closure over
+    /// `build_harness` when `profile` differs from the one it runs. `false`
+    /// while a turn runs: the delivery is not acknowledged and comes back.
+    async fn ensure_profile(&mut self, profile: Option<&str>) -> bool;
 }
 ```
 
@@ -786,7 +815,7 @@ or `kind`.
 |---|---|
 | 1 One owner | Projector owns `conversation_*`; tail owns `trajectory_events`; inbox owns sent text; catalog owns profile → harness. Derivable facts are not stored: a turn's session, a fork's source session, whether a fork has run. |
 | 2 One-way dependencies | The backend decides *which* lines a session starts with; the sandbox decides *how* they are written. The pod's profile is only the boot default; the Task's profile travels with each delivery. |
-| 3 Hide decisions | `SessionFormat` hides each file format, `ToolMap` hides tool naming; `Projector` is one concrete struct. |
+| 3 Hide decisions | `SessionFormat` hides each file format and its tool naming; `Projector` is one concrete struct. |
 | 4 One name | Harness / Agent profile (section 2.1); `adapter` / `external_message_id` / `external_source_name` shared by inbox and activities; `inbox_ids` on the wire. |
 | 5 General parts | A profile change within a harness and across harnesses take one path; the switch session reuses the fork session's idempotent creation. |
 | 7 Invalid states | Per-origin and per-kind `CHECK`s; `InboxOrigin` sum type; the same-harness fork trigger; no `status`/`kind` free text. |
@@ -916,7 +945,9 @@ Verification:
 Request surfaces:
 - `switch_profile` in `crates/tasks/src/task/switch.rs` (section 6), credential
   check through the catalog's `credential_keys`/`provider_token_providers` and
-  `CredentialSync::ensure_fresh_codex_for` (`credential_sync/service.rs:75`);
+  `CredentialSync::ensure_fresh_codex_for` (`credential_sync/service.rs:75`),
+  which refuses only when no Codex secret (`OPENAI_API_KEY`, `CODEX_AUTH_JSON`)
+  is stored;
   transport check against `sandboxes.use_tmux`.
 - REST (5.2), T3 (5.3), CLI (5.4).
 
@@ -926,8 +957,13 @@ Turn start:
 - `CoordinatorService::ensure_profile` rebuilds the Member's harness through
   `build_harness` (`agent/compose.rs:62`) when the profile changed; `spawn_agent`
   (`:101`) keeps using the pod's profile only for the boot Member's first build.
-- `build_resume` (`agent/coordinator/service.rs:1019`) picks `WriteTarget::Switch`
-  when the profile's harness differs from the latest top-level session's.
+- The backend decides the switch, not the pod: the delivery carries
+  `switch_harness` when the Task's head, or a fork's cut, is a session of the
+  other harness (`grpc_server/messages.rs`); `write_out` then picks
+  `WriteTarget::Switch` (or `Fork`), and fails the turn when it cannot write it.
+  A failed trajectory read fails `GetPendingMessages`, which the pod retries.
+- A pod that switches to Codex after it booted writes the missing `auth.json`
+  on its next credential refresh.
 
 Sandbox transcoding:
 - `SessionFormat::render` for both formats, against the phase 0 fixtures.
@@ -935,17 +971,20 @@ Sandbox transcoding:
   `ReadTrajectory { switch }`, write the verbatim lines, render and append the
   `TranscodeItem`s, return `own_from_seq`; the tail sends it on the first append.
 - A gap → `DATA_LOSS` → visible turn error (S6), through the existing path
-  (`grpc_server/trajectory.rs:108-149`).
+  (`grpc_server/trajectory.rs:108-149`). A switch whose write-out fails for any
+  other reason is a visible turn error too: the CLI never starts on a fresh
+  session that has lost the history.
 
 Backend:
 - Migration: `transcoded_from_event_id`, `own_from_seq`, their `CHECK`s and the
-  same-harness fork trigger (4.3); `task_forks.source_event_id` (4.6), backfilled
-  with `resolve_cut` where a Trajectory exists.
+  same-harness fork trigger (4.3); `task_forks.source_event_id` (4.6), with no
+  backfill (4.6).
 - `insert_switch_session`, `transcode_items` (S4, S5).
 - Fork creation refuses a frozen source with 409 (5.2).
 - `resolve_cut` returns an event; `insert_fork_session` transcodes across
   harnesses (S7); `task/rewind.rs:118` reads the cut session's `harness` instead
-  of the Task's.
+  of the Task's, and refuses a Codex cut with no agent turn id only when the
+  Trajectory cannot resolve it.
 - Until phase 4 the stream still fills `task_messages`. A transcoded prefix is
   never streamed, so the Chat shows no duplicates.
 
@@ -1156,6 +1195,11 @@ Gaps:
 | SWITCH-06 | `claude-code` → `claude-code-cli` | Same harness: no new transcoded session; answer from history |
 | SWITCH-07 | Fork a Claude Task at Turn 1 into `codex` | Fork knows Turn 1 only (S7) |
 | SWITCH-08 | Rewind a Task into its Codex turn while on Claude | Answers from the Codex turn's history (`rewind.rs` reads the cut session's harness) |
+
+The spec runs SWITCH-01 to SWITCH-07 as one chain. SWITCH-08 has no REST
+rewind to drive it; the DB test `a_rewind_into_a_codex_turn_transcodes_it_for_claude`
+(`crates/tasks/src/task/rewind_db_tests.rs`) covers it instead, up to the
+session the next turn resumes.
 
 Refusals, with no agent run (`task-errors.spec.ts`): switching to the current
 profile answers 200 and changes nothing; an unknown profile answers 400; a

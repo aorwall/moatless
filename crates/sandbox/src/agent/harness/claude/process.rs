@@ -333,7 +333,7 @@ impl AgentProcess for ClaudeProcess {
             &input,
         );
         let fork_session = match self.trajectory.as_mut() {
-            Some(trajectory) => trajectory.write_out(&input).await,
+            Some(trajectory) => trajectory.write_out(&input).await?,
             None => None,
         };
         session::ensure_explicit_resume_is_available(

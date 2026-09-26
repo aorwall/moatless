@@ -5,7 +5,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 use sandbox_proto::{ReadTrajectoryRequest, read_trajectory_request};
@@ -13,6 +13,8 @@ use tracing::{info, warn};
 
 use super::content::CanonicalContentBlock;
 use super::source::Role;
+pub use super::transcode::RenderContext;
+use super::transcode::{render_claude, render_codex};
 use crate::backend_client::BackendClient;
 
 /// One harness's session file format: read a line, write a session.
@@ -51,6 +53,9 @@ pub trait SessionFormat: Send + Sync {
     fn subagents(&self, _session_file: &Path) -> Vec<SubagentFile> {
         Vec::new()
     }
+
+    /// Renders another harness's items as lines of this format, in order.
+    fn render(&self, items: &[EventContent], ctx: &RenderContext<'_>) -> Vec<String>;
 }
 
 /// A subagent's own session file and the parent's tool call that spawned it.
@@ -72,10 +77,15 @@ pub struct RecordedLine {
 
 /// A line's harness-neutral content; bookkeeping lines have no role and no
 /// blocks.
-#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct EventContent {
-    #[serde(serialize_with = "serialize_role")]
+    #[serde(
+        serialize_with = "serialize_role",
+        deserialize_with = "deserialize_role"
+    )]
     pub role: Option<Role>,
+    #[serde(deserialize_with = "deserialize_blocks")]
     pub blocks: Vec<CanonicalContentBlock>,
     /// The harness wrote this line itself (environment, instructions, command
     /// and hook output): never shown and never transcoded.
@@ -89,7 +99,7 @@ pub struct EventContent {
 }
 
 /// One model response's token counts. `input_tokens` excludes cached input.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Usage {
     pub input_tokens: u64,
     pub output_tokens: u64,
@@ -120,6 +130,21 @@ fn serialize_role<S: serde::Serializer>(role: &Option<Role>, s: S) -> Result<S::
         Some(Role::System) => s.serialize_str("system"),
         None => s.serialize_none(),
     }
+}
+
+fn deserialize_role<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<Role>, D::Error> {
+    Ok(role_of(Option::<String>::deserialize(d)?.as_deref()))
+}
+
+/// Blocks as [`canonical_block`] reads them, so one this build does not know
+/// is `Unknown` rather than a failed item.
+fn deserialize_blocks<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<Vec<CanonicalContentBlock>, D::Error> {
+    Ok(Vec::<Value>::deserialize(d)?
+        .iter()
+        .map(canonical_block)
+        .collect())
 }
 
 impl EventContent {
@@ -315,6 +340,10 @@ impl SessionFormat for ClaudeSessionFormat {
             })
             .collect()
     }
+
+    fn render(&self, items: &[EventContent], ctx: &RenderContext<'_>) -> Vec<String> {
+        render_claude(items, ctx)
+    }
 }
 
 fn claude_content(value: &Value) -> EventContent {
@@ -470,6 +499,10 @@ impl SessionFormat for CodexSessionFormat {
     fn latest(&self, _home: &Path, _cwd: &Path) -> Option<String> {
         None
     }
+
+    fn render(&self, items: &[EventContent], ctx: &RenderContext<'_>) -> Vec<String> {
+        render_codex(items, ctx)
+    }
 }
 
 fn collect_thread_ids(value: &Value, out: &mut Vec<(&'static str, String)>) {
@@ -589,6 +622,17 @@ pub enum WriteTarget {
     Resume(String),
     /// The Task's fork session, which the backend creates on first read.
     Fork,
+    /// The Task's switch session into this harness, which the backend creates
+    /// on first read.
+    Switch,
+}
+
+impl WriteTarget {
+    /// Whether the backend may answer with a session whose prefix is rendered
+    /// from the other harness.
+    fn opens(&self) -> bool {
+        matches!(self, Self::Fork | Self::Switch)
+    }
 }
 
 /// A session file [`write_session`] left on disk.
@@ -597,17 +641,20 @@ pub struct Written {
     pub harness_session_id: String,
     /// The lines the trajectory holds; a recorder resumes at this seq.
     pub line_count: i64,
+    /// The first seq the CLI writes, past the rendered prefix. Set for an
+    /// opened session; the recorder sends it until an append is accepted.
+    pub own_from_seq: Option<i64>,
     /// False when an existing file was kept, which may hold other lines past
     /// a matching count.
     pub rewritten: bool,
 }
 
-/// Writes the session file for `target` out of the backend's trajectory.
+/// Writes the session file for `target` out of the backend's trajectory,
+/// rendering any other-harness items after its lines with `model`.
 ///
-/// Keeps an existing file whose line at the trajectory's last seq is the
-/// trajectory's last line, since it is the same session at least as far
-/// along. Returns `None`, logging why, when the trajectory cannot give a whole
-/// session; the caller then resumes from the transcripts.tar restore as before.
+/// Keeps an existing file whose line at the last seq matches, which is the same
+/// session at least as far along. `None`, logged, when the trajectory holds no
+/// whole session; the caller then falls back to the transcripts.tar restore.
 pub async fn write_session(
     backend: &dyn BackendClient,
     format: &Arc<dyn SessionFormat>,
@@ -615,17 +662,48 @@ pub async fn write_session(
     home: &Path,
     cwd: &Path,
     target: WriteTarget,
+    model: Option<&str>,
 ) -> Option<Written> {
-    let (id, body, line_count) = read_session(backend, format, task_id, &target).await?;
+    let read = read_session(backend, format, task_id, &target).await?;
+    let mut body = read.body;
+    let mut total = read.line_count;
+    if !read.transcode.is_empty() {
+        let timestamp = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+        let prior: Vec<&str> = body.lines().collect();
+        let rendered = format.render(
+            &read.transcode,
+            &RenderContext {
+                harness_session_id: &read.id,
+                cwd,
+                model,
+                prior: &prior,
+                timestamp: &timestamp,
+            },
+        );
+        total += rendered.len() as i64;
+        for line in rendered {
+            body.push_str(&line);
+            body.push('\n');
+        }
+    }
+    if body.is_empty() {
+        warn!(
+            ?target,
+            "Trajectory read has nothing to write; using the archive"
+        );
+        return None;
+    }
+    let id = read.id;
     let mut written = Written {
         harness_session_id: id.clone(),
-        line_count,
+        line_count: read.line_count,
+        own_from_seq: target.opens().then_some(total),
         rewritten: false,
     };
     let existing = locate_session(format, home, cwd, &id).await;
     if let Some(path) = &existing {
         let tip = body.lines().last().unwrap_or_default();
-        if line_at(path, line_count - 1).await.as_deref() == Some(tip) {
+        if line_at(path, total - 1).await.as_deref() == Some(tip) {
             return Some(written);
         }
     }
@@ -637,8 +715,8 @@ pub async fn write_session(
         warn!(%error, path = %path.display(), "Failed to write the session file; using the archive");
         return None;
     }
-    info!(harness_session_id = %id, lines = line_count, path = %path.display(),
-        "Wrote the session file from the trajectory");
+    info!(harness_session_id = %id, lines = read.line_count, rendered = total - read.line_count,
+        path = %path.display(), "Wrote the session file from the trajectory");
     written.rewritten = true;
     Some(written)
 }
@@ -654,23 +732,35 @@ pub(crate) async fn reseed_session(
     path: &Path,
 ) -> Option<i64> {
     let target = WriteTarget::Resume(harness_session_id.to_string());
-    let (_, body, line_count) = read_session(backend, format, task_id, &target).await?;
-    if let Err(error) = tokio::fs::write(path, body.as_bytes()).await {
+    let read = read_session(backend, format, task_id, &target).await?;
+    if read.line_count == 0 {
+        return None;
+    }
+    if let Err(error) = tokio::fs::write(path, read.body.as_bytes()).await {
         warn!(%error, path = %path.display(), "Failed to reseed the session file");
         return None;
     }
-    info!(%harness_session_id, lines = line_count, "Reseeded the session file from the trajectory");
-    Some(line_count)
+    info!(%harness_session_id, lines = read.line_count, "Reseeded the session file from the trajectory");
+    Some(read.line_count)
 }
 
-/// The session `target` names, its lines retargeted to it and newline-ended,
-/// and their count; `None` when the trajectory cannot give a whole session.
+/// A session as [`read_session`] reads it.
+struct SessionRead {
+    id: String,
+    /// The lines, retargeted to `id` and newline-ended.
+    body: String,
+    line_count: i64,
+    transcode: Vec<EventContent>,
+}
+
+/// The session `target` names; `None` when the trajectory cannot give a whole
+/// session.
 async fn read_session(
     backend: &dyn BackendClient,
     format: &Arc<dyn SessionFormat>,
     task_id: &str,
     target: &WriteTarget,
-) -> Option<(String, String, i64)> {
+) -> Option<SessionRead> {
     let request = ReadTrajectoryRequest {
         task_id: task_id.to_string(),
         harness: format.harness().to_string(),
@@ -679,9 +769,10 @@ async fn read_session(
                 read_trajectory_request::Target::HarnessSessionId(id.clone())
             }
             WriteTarget::Fork => read_trajectory_request::Target::Fork(true),
+            WriteTarget::Switch => read_trajectory_request::Target::Switch(true),
         }),
     };
-    let (header, lines) = match backend.read_trajectory(request).await {
+    let read = match backend.read_trajectory(request).await {
         Ok(read) => read,
         Err(status) => {
             info!(?target, code = ?status.code(), message = status.message(),
@@ -689,22 +780,39 @@ async fn read_session(
             return None;
         }
     };
-    if lines.len() as i64 != header.line_count || lines.is_empty() {
+    if read.lines.len() as i64 != read.header.line_count {
         warn!(
             ?target,
-            line_count = header.line_count,
-            lines = lines.len(),
+            line_count = read.header.line_count,
+            lines = read.lines.len(),
             "Trajectory read is incomplete; using the archive"
         );
         return None;
     }
-    let id = header.harness_session_id;
+    let transcode = read
+        .transcode
+        .iter()
+        .map(|item| serde_json::from_str(&item.content_json))
+        .collect::<Result<Vec<EventContent>, _>>();
+    let transcode = match transcode {
+        Ok(items) => items,
+        Err(error) => {
+            warn!(?target, %error, "Trajectory transcode item is not content; using the archive");
+            return None;
+        }
+    };
+    let id = read.header.harness_session_id;
     let mut body = String::new();
-    for line in &lines {
+    for line in &read.lines {
         body.push_str(&format.retarget(line, &id));
         body.push('\n');
     }
-    Some((id, body, header.line_count))
+    Some(SessionRead {
+        id,
+        body,
+        line_count: read.header.line_count,
+        transcode,
+    })
 }
 
 /// [`SessionFormat::locate`] on the blocking pool, since Codex's walks every

@@ -20,8 +20,11 @@ use crate::agent::harness::trajectory::{
     SessionFormat, SubagentFile, WriteTarget, Written, latest_session, locate_session,
     reseed_session, write_session,
 };
+use crate::agent::harness::{ErrorClass, FailureStage, HarnessError, SessionImpact};
 use crate::agent::types::ResumeSession;
 use crate::backend_client::BackendClient;
+#[cfg(test)]
+use crate::backend_client::TrajectoryRead;
 use crate::config::Config;
 
 /// How often a live session is read when no file event arrives, as the tmux
@@ -138,6 +141,9 @@ pub struct SessionRecorder {
     /// Whether a reply has shown the session exists, so `subagent_parent` is
     /// no longer sent.
     created: bool,
+    /// A switch session's [`Written::own_from_seq`], sent until an append
+    /// with lines is accepted.
+    own_from_seq: Option<i64>,
     reseeded: bool,
     stopped: bool,
 }
@@ -163,9 +169,17 @@ impl SessionRecorder {
             held_tip: None,
             last_item_id: None,
             created: false,
+            own_from_seq: None,
             reseeded: false,
             stopped: false,
         }
+    }
+
+    /// Sends `own_from_seq` on the appends that may create a switch session.
+    #[must_use]
+    pub fn own_from(mut self, own_from_seq: Option<i64>) -> Self {
+        self.own_from_seq = own_from_seq;
+        self
     }
 
     /// The session file this recorder reads, once found.
@@ -377,6 +391,7 @@ impl SessionRecorder {
         first_seq: i64,
         lines: Vec<TrajectoryLine>,
     ) -> Result<sandbox_proto::AppendTrajectoryResponse, RecordError> {
+        let has_lines = !lines.is_empty();
         let request = AppendTrajectoryRequest {
             task_id: self.target.task_id.clone(),
             harness: self.format.harness().to_string(),
@@ -392,11 +407,15 @@ impl SessionRecorder {
                         .map(|(_, parent)| parent.clone())
                 })
                 .flatten(),
+            own_from_seq: self.own_from_seq,
         };
         match self.recording.backend.append_trajectory(request).await {
             Ok(reply) => {
                 // A probe creates no session, so its reply may not show one.
                 self.created |= reply.last_seq >= 0;
+                if reply.accepted && has_lines {
+                    self.own_from_seq = None;
+                }
                 Ok(reply)
             }
             Err(status) if status.code() == tonic::Code::Unimplemented => {
@@ -612,6 +631,17 @@ impl Drop for LiveRecorder {
     }
 }
 
+/// The turn error a switch that cannot write its session out ends in.
+fn switch_failed() -> HarnessError {
+    HarnessError::new(
+        FailureStage::Startup,
+        ErrorClass::UnavailableSession,
+        SessionImpact::Intact,
+        "Could not carry the conversation over to the new agent: its recorded history is \
+         unreadable or incomplete",
+    )
+}
+
 /// One Turn's trajectory work: write the session out before the harness opens
 /// it, record it once its id is known, and flush before the Turn is reported.
 pub(crate) struct TurnTrajectory {
@@ -649,38 +679,58 @@ impl TurnTrajectory {
         })
     }
 
-    /// Writes the session `input` resumes or forks out of the trajectory.
-    /// Returns the session a fork resumes; `None` leaves the harness to its
-    /// own fork, resume or fresh start.
-    pub(crate) async fn write_out(&mut self, input: &Input) -> Option<String> {
+    /// Writes the session `input` resumes, forks or switches into out of the
+    /// trajectory. Returns the session a fork or switch resumes; `None` leaves
+    /// the harness to its own fork, resume or fresh start. Fails only when
+    /// `switch_harness` is set, since then the harness has no other way to
+    /// carry the conversation over (S6).
+    pub(crate) async fn write_out(
+        &mut self,
+        input: &Input,
+    ) -> Result<Option<String>, HarnessError> {
+        let unwritten = || {
+            if input.switch_harness {
+                Err(switch_failed())
+            } else {
+                Ok(None)
+            }
+        };
         if self.recording.is_off() {
-            return None;
+            return unwritten();
         }
         let target = match (&input.fork, &input.resume) {
             (Some(_), _) => WriteTarget::Fork,
+            (None, _) if input.switch_harness => WriteTarget::Switch,
             (None, Some(ResumeSession::WithId(id))) if !input.start_fresh => {
                 WriteTarget::Resume(id.clone())
             }
             // After a cut-off Turn the backend sends no id, and Claude takes
             // `--continue` on a file a replaced pod restored from the archive.
             (None, Some(ResumeSession::Last)) if !input.start_fresh => {
-                WriteTarget::Resume(latest_session(&self.format, &self.home, &self.cwd).await?)
+                match latest_session(&self.format, &self.home, &self.cwd).await {
+                    Some(id) => WriteTarget::Resume(id),
+                    None => return Ok(None),
+                }
             }
-            _ => return None,
+            _ => return Ok(None),
         };
-        let fork = target == WriteTarget::Fork;
-        let written = write_session(
+        let opens = matches!(target, WriteTarget::Fork | WriteTarget::Switch);
+        let Some(written) = write_session(
             self.recording.backend(),
             &self.format,
             &self.task_id,
             &self.home,
             &self.cwd,
             target,
+            input.model.as_deref(),
         )
-        .await?;
+        .await
+        else {
+            return unwritten();
+        };
         let id = written.harness_session_id.clone();
         self.written = Some(written);
-        fork.then_some(id)
+        Ok(opens.then_some(id))
     }
 
     /// Starts recording `harness_session_id`; later calls do nothing.
@@ -688,11 +738,12 @@ impl TurnTrajectory {
         if self.live.is_some() || self.recording.is_off() {
             return;
         }
-        let start_seq = self
+        let written = self
             .written
             .as_ref()
-            .filter(|w| w.rewritten && w.harness_session_id == harness_session_id)
-            .map(|w| w.line_count);
+            .filter(|w| w.harness_session_id == harness_session_id);
+        let start_seq = written.filter(|w| w.rewritten).map(|w| w.line_count);
+        let own_from_seq = written.and_then(|w| w.own_from_seq);
         let recorder = SessionRecorder::start(
             Arc::clone(&self.format),
             Arc::clone(&self.recording),
@@ -704,7 +755,8 @@ impl TurnTrajectory {
                 subagent: None,
             },
             start_seq,
-        );
+        )
+        .own_from(own_from_seq);
         self.live = Some(LiveRecorder::spawn(recorder));
     }
 

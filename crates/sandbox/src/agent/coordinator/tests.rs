@@ -47,6 +47,7 @@ mod context_recovery;
 mod credentials;
 mod fixtures;
 mod interactive_calls;
+mod profile_switch;
 mod resume_target;
 mod service_fixtures;
 mod service_retry;

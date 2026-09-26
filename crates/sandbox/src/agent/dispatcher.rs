@@ -129,7 +129,7 @@ async fn send_directly(state: &SandboxState, task_id: &str, text: String) {
     let ack_rx = admitted
         .context
         .agent_handle
-        .send(text, None, None, None, None, None, false, None);
+        .send(text, None, None, None, None, None, false, None, false);
     hold_until_accepted(state.clone(), admitted.permit, ack_rx);
 }
 
@@ -230,12 +230,8 @@ async fn dispatch_pending_messages_for_context(
 
     // Fetch pending messages from backend
     let task_id = &context.task_id;
-    let deliveries = match state.backend_client.get_pending_messages(task_id).await {
-        Ok(deliveries) => deliveries,
-        Err(e) => {
-            warn!(error = %e, "Failed to fetch pending messages");
-            return;
-        }
+    let Some(deliveries) = fetch_or_redispatch(&state, &context).await else {
+        return;
     };
 
     let mut deliveries = deliveries.into_iter();
@@ -270,6 +266,7 @@ async fn dispatch_pending_messages_for_context(
     let effort = delivery.effort;
     let resume_session_id = delivery.resume_session_id;
     let start_fresh = delivery.start_fresh;
+    let switch_harness = delivery.switch_harness;
     let fork = delivery.fork.map(|fork| crate::agent::types::ForkSource {
         source_session_id: fork.source_session_id,
         source_message_uuid: fork.source_message_uuid,
@@ -322,6 +319,7 @@ async fn dispatch_pending_messages_for_context(
         effort = ?effort,
         resume_session_id = ?resume_session_id,
         start_fresh,
+        switch_harness,
         forked_from = ?fork.as_ref().map(|f| &f.source_session_id),
         "Dispatching messages to agent"
     );
@@ -345,6 +343,7 @@ async fn dispatch_pending_messages_for_context(
         resume_session_id,
         start_fresh,
         fork,
+        switch_harness,
     );
 
     if uuids.is_empty() {
@@ -487,6 +486,27 @@ fn schedule_redispatch(
     })
 }
 
+/// The Task's pending deliveries, or `None` after a failed read, which
+/// schedules a redispatch: the Messages stay pending and no notification
+/// repeats, so a transient backend failure would strand them until the next.
+async fn fetch_or_redispatch(
+    state: &SandboxState,
+    context: &Arc<TaskContext>,
+) -> Option<Vec<sandbox_proto::PendingAgentDelivery>> {
+    match state
+        .backend_client
+        .get_pending_messages(&context.task_id)
+        .await
+    {
+        Ok(deliveries) => Some(deliveries),
+        Err(e) => {
+            warn!(error = %e, "Failed to fetch pending messages; retrying after a backoff");
+            tokio::spawn(schedule_redispatch(state.clone(), Arc::clone(context)));
+            None
+        }
+    }
+}
+
 /// Resolve a pending interactive prompt with the first pending message.
 ///
 /// Runs under the dispatch guard held by the caller, so the prompt Message is
@@ -494,12 +514,9 @@ fn schedule_redispatch(
 async fn resolve_pending_prompt(state: &SandboxState, context: &std::sync::Arc<TaskContext>) {
     let task_id = &context.task_id;
 
-    let deliveries = match state.backend_client.get_pending_messages(task_id).await {
-        Ok(deliveries) => deliveries,
-        Err(e) => {
-            warn!(error = %e, "Failed to fetch pending messages for prompt resolution");
-            return;
-        }
+    // A failed read takes nothing: the prompt stays parked for the redispatch.
+    let Some(deliveries) = fetch_or_redispatch(state, context).await else {
+        return;
     };
 
     let Some(prompt_delivery) = deliveries.first() else {
@@ -726,6 +743,53 @@ mod tests {
             draining.await.expect("join"),
             crate::writer_admission::Drain::Complete
         );
+    }
+
+    /// A read that fails while a question is parked leaves the question parked
+    /// and reads again after the backoff, as the ordinary dispatch does.
+    #[tokio::test(start_paused = true)]
+    async fn a_failed_read_during_a_parked_question_is_retried() {
+        let backend = Arc::new(crate::state::test_support::NoopBackend {
+            failing_fetches: 1,
+            ..Default::default()
+        });
+        let state = crate::state::test_support::state_with(
+            crate::state::test_support::state_for_test()
+                .config
+                .as_ref()
+                .clone(),
+            backend.clone(),
+        );
+        let context = context_for(&state, Some("task-1")).await.expect("context");
+        let (sender, _answer) = tokio::sync::oneshot::channel();
+        assert!(
+            context
+                .context
+                .agent
+                .set_pending_prompt(crate::agent::prompt::PendingPrompt {
+                    tool_name: PromptToolName::AskUserQuestion,
+                    tool_use_id: "tu-1".to_string(),
+                    input: serde_json::json!({}),
+                    sender,
+                })
+                .await
+        );
+
+        dispatch_pending_messages_for_context(
+            state.clone(),
+            Arc::clone(&context.context),
+            Some(context.permit),
+        )
+        .await;
+        assert_eq!(backend.fetches.load(std::sync::atomic::Ordering::SeqCst), 1);
+
+        tokio::time::sleep(REDISPATCH_BACKOFF + Duration::from_secs(1)).await;
+        assert_eq!(
+            backend.fetches.load(std::sync::atomic::Ordering::SeqCst),
+            2,
+            "the read is retried after the backoff"
+        );
+        assert!(context.context.agent.has_pending_prompt().await);
     }
 
     fn answer(

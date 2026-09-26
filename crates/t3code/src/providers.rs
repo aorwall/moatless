@@ -27,6 +27,15 @@ pub fn instance_for(harness: Harness) -> &'static str {
     }
 }
 
+/// The harness an instance names; `None` for one this surface does not publish.
+pub fn harness_for(instance: &str) -> Option<Harness> {
+    match instance {
+        CLAUDE_INSTANCE => Some(Harness::ClaudeCode),
+        CODEX_INSTANCE => Some(Harness::Codex),
+        _ => None,
+    }
+}
+
 /// The option-descriptor id an instance publishes its effort choice under.
 ///
 /// T3's own ids — `effort` for Claude, `reasoningEffort` for Codex — publishing

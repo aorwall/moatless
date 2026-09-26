@@ -29,6 +29,11 @@ pub(crate) enum AgentCommand {
         start_fresh: bool,
         /// Where this Task's session branches from, on a fork's first turn.
         fork: Option<crate::agent::types::ForkSource>,
+        /// The Task's Agent profile; a different one than the running
+        /// harness's rebuilds the harness before this turn.
+        agent_profile: Option<String>,
+        /// Open the Task's switch session into the profile's harness.
+        switch_harness: bool,
         ack: oneshot::Sender<RunAck>,
     },
     /// Replay an interrupted run on startup, behaving like `Send` but forcing
@@ -72,12 +77,13 @@ impl AgentHandle {
         &self,
         text: String,
         model: Option<String>,
-        _agent_profile: Option<String>,
+        agent_profile: Option<String>,
         agent_mode: Option<String>,
         effort: Option<String>,
         resume_session_id: Option<String>,
         start_fresh: bool,
         fork: Option<crate::agent::types::ForkSource>,
+        switch_harness: bool,
     ) -> oneshot::Receiver<RunAck> {
         let (ack_tx, ack_rx) = oneshot::channel();
         let _ = self.command_tx.send(AgentCommand::Send {
@@ -88,6 +94,8 @@ impl AgentHandle {
             resume_session_id,
             start_fresh,
             fork,
+            agent_profile,
+            switch_harness,
             ack: ack_tx,
         });
         ack_rx

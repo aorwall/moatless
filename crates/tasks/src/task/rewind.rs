@@ -11,15 +11,18 @@
 use std::sync::Arc;
 
 use moatless_types::access_control::{ScopeContext, ScopedResource};
+use moatless_types::agent::Harness;
 
 use super::dao::TaskDao;
 use super::error::TaskError;
 use super::models::TaskFork;
 use super::rewind_dao;
+use crate::agent::catalog::harness_of;
 use crate::message::dao::MessageDao;
 use crate::message::fork_dao::ForkAnchors;
 use crate::task_turn::dao::TaskTurnDao;
 use crate::task_turn::models::ForkPoint;
+use crate::trajectory::operations::Trajectories;
 
 /// Cutting a Task's own conversation back to one of its completed turns.
 pub struct TaskRewindService {
@@ -27,6 +30,7 @@ pub struct TaskRewindService {
     tasks: Arc<dyn TaskDao>,
     turns: Arc<dyn TaskTurnDao>,
     messages: Arc<dyn MessageDao>,
+    trajectories: Arc<Trajectories>,
 }
 
 impl TaskRewindService {
@@ -35,12 +39,14 @@ impl TaskRewindService {
         tasks: Arc<dyn TaskDao>,
         turns: Arc<dyn TaskTurnDao>,
         messages: Arc<dyn MessageDao>,
+        trajectories: Arc<Trajectories>,
     ) -> Self {
         Self {
             db,
             tasks,
             turns,
             messages,
+            trajectories,
         }
     }
 
@@ -93,8 +99,9 @@ impl TaskRewindService {
     }
 
     /// The `task_forks` row the next turn branches from, or `None` when the cut
-    /// leaves no agent session. Which anchor it carries follows the agent:
-    /// Codex by turn id, Claude by Message uuid.
+    /// leaves no agent session. Which legacy anchor it carries follows the
+    /// harness of the session the cut lands in: Codex by turn id, Claude by
+    /// Message uuid; a Task with no Trajectory falls back to its profile.
     async fn anchor(
         &self,
         task: &super::models::Task,
@@ -115,8 +122,15 @@ impl TaskRewindService {
             return Ok(None);
         };
 
-        let is_codex = task.agent_profile.as_str() == "codex";
-        if is_codex && point.agent_turn_id.is_none() {
+        let cut = self
+            .trajectories
+            .resolve_cut(&task.task_id, Some(keep_through))
+            .await?;
+        let is_codex = match &cut {
+            Some(cut) => cut.harness == Harness::Codex.as_str(),
+            None => harness_of(task.agent_profile.as_str()) == Some(Harness::Codex),
+        };
+        if cut.is_none() && is_codex && point.agent_turn_id.is_none() {
             return Err(TaskError::Conflict(format!(
                 "turn {keep_through} of task {} has no recorded agent turn id; \
                  it cannot be rewound to",
@@ -134,6 +148,7 @@ impl TaskRewindService {
             source_session_id: session_id,
             source_message_uuid: (!is_codex).then_some(message_uuid).flatten(),
             source_agent_turn_id: is_codex.then(|| point.agent_turn_id.clone()).flatten(),
+            source_event_id: cut.map(|cut| cut.event_id),
         }))
     }
 }
@@ -217,3 +232,7 @@ mod tests {
         ));
     }
 }
+
+#[cfg(all(test, feature = "db-tests"))]
+#[path = "rewind_db_tests.rs"]
+mod rewind_db_tests;

@@ -25,7 +25,7 @@ use moatless_sandbox::agent::harness::{
     ClaudeConfig, CodexConfig, HarnessRuntime, Input, Outcome, Role, Signal,
 };
 use moatless_sandbox::agent::types::{ForkSource, ResumeSession};
-use moatless_sandbox::backend_client::BackendClient;
+use moatless_sandbox::backend_client::{BackendClient, TrajectoryRead};
 use moatless_sandbox::config::{AgentConfig, Config};
 use moatless_sandbox::credentials::recovery::CredentialFailureDetector;
 use moatless_sandbox::trajectory_tail::{RecordTarget, SessionRecorder, TrajectoryRecording};
@@ -49,7 +49,7 @@ enum Kind {
 /// workspace, shared by every Task the test runs.
 struct RealEnv {
     kind: Kind,
-    tmp: TempDir,
+    tmp: Arc<TempDir>,
     config: Arc<Config>,
 }
 
@@ -177,7 +177,22 @@ impl RealEnv {
         };
         Self {
             kind,
-            tmp,
+            tmp: Arc::new(tmp),
+            config: Arc::new(config),
+        }
+    }
+
+    /// The same workspace and homes, running the other harness.
+    fn other(&self) -> Self {
+        let (kind, profile) = match self.kind {
+            Kind::Claude => (Kind::Codex, "codex"),
+            Kind::Codex => (Kind::Claude, "claude-code"),
+        };
+        let mut config = (*self.config).clone();
+        config.agent_profile = Some(profile.to_string());
+        Self {
+            kind,
+            tmp: Arc::clone(&self.tmp),
             config: Arc::new(config),
         }
     }
@@ -231,6 +246,7 @@ impl RealEnv {
             harness: self.harness(backend),
             session: None,
             fork: None,
+            switch: false,
             turns: Vec::new(),
         }
     }
@@ -356,10 +372,21 @@ struct TestTask<'a> {
     harness: HarnessRuntime,
     session: Option<String>,
     fork: Option<ForkSource>,
+    /// The next Turn opens a switch session.
+    switch: bool,
     turns: Vec<TurnRecord>,
 }
 
-impl TestTask<'_> {
+impl<'a> TestTask<'a> {
+    /// Run the next Turn on `env`'s harness, as a changed Agent profile does.
+    async fn switch_to(&mut self, env: &'a RealEnv) {
+        self.env = env;
+        self.harness = env.harness(&self.backend);
+        self.session = None;
+        self.switch = true;
+        env.wait_for_no_process_in_workspace().await;
+    }
+
     fn session(&self) -> String {
         self.session.clone().expect("the Task has run a Turn")
     }
@@ -386,11 +413,13 @@ impl TestTask<'_> {
             ),
             Kind::Codex => self.env.config.default_codex_model.clone(),
         };
+        let switch_harness = std::mem::take(&mut self.switch);
         Input {
             model,
             resume: self.session.clone().map(ResumeSession::WithId),
-            start_fresh: fork.is_some(),
+            start_fresh: fork.is_some() || switch_harness,
             fork,
+            switch_harness,
             env: Some(env),
             ..Input::text(format!("{}-{}", self.id, self.turns.len() + 1), prompt)
         }
@@ -625,6 +654,76 @@ async fn thinking_survives_rebuild() {
         .await;
     assert!(knows(&answer, "SAFFRON"), "{answer}");
     assert!(answer.contains("391"), "{answer}");
+}
+
+// ── Switch ───────────────────────────────────────────────────────────────────
+
+/// Claude → Codex → Claude: the second Claude session forks the first
+/// verbatim and renders only the Codex turn after it (D8).
+#[tokio::test]
+#[ignore = "runs real Claude Code and Codex; needs TRAJECTORY_E2E=1"]
+async fn switch_back_resumes_verbatim() {
+    let Some(claude) = RealEnv::claude() else {
+        return;
+    };
+    let codex = claude.other();
+    let backend = Arc::new(MemoryTrajectoryBackend::default());
+    let mut task = claude.task("switching", &backend);
+    task.turn("Our project's release name is PERIWINKLE; keep it in mind. Reply ok.")
+        .await;
+    claude.settle(&backend, &task).await;
+    let first = task.session();
+    let first_events = backend.events_on(&first);
+
+    task.switch_to(&codex).await;
+    let answer = task
+        .turn("Our project's second release name is SAFFRON; keep it in mind. What was the first one? Reply with just that name.")
+        .await;
+    assert!(knows(&answer, "PERIWINKLE"), "{answer}");
+    codex.settle(&backend, &task).await;
+    let codex_session = task.session();
+
+    claude.delete_all_session_files();
+    task.switch_to(&claude).await;
+    let answer = task
+        .turn("List every release name I have told you, or reply NONE.")
+        .await;
+    assert!(
+        knows(&answer, "PERIWINKLE") && knows(&answer, "SAFFRON"),
+        "{answer}"
+    );
+    claude.settle(&backend, &task).await;
+    let back = task.session();
+    assert_ne!(back, first);
+    assert_ne!(back, codex_session);
+    let held: Vec<String> = backend
+        .events_on(&back)
+        .into_iter()
+        .map(|e| e.payload)
+        .collect();
+    let verbatim: Vec<String> = first_events.into_iter().map(|e| e.payload).collect();
+    assert_eq!(
+        held[..verbatim.len()],
+        verbatim[..],
+        "the first session is forked verbatim"
+    );
+    assert!(
+        held.len() > verbatim.len(),
+        "the Codex turn and this one follow"
+    );
+    let file = task.file_lines();
+    assert_eq!(
+        file.len(),
+        held.len(),
+        "the file is what the trajectory holds"
+    );
+    // PERIWINKLE's prompt appears once: Turn 1 was not rendered again.
+    let periwinkle = file
+        .iter()
+        .filter_map(|l| serde_json::from_str::<Value>(l).ok())
+        .filter(|l| l["type"] == "user" && l["message"].to_string().contains("PERIWINKLE; keep it"))
+        .count();
+    assert_eq!(periwinkle, 1, "Turn 1 is not transcoded back");
 }
 
 // ── Fork ─────────────────────────────────────────────────────────────────────
@@ -1062,7 +1161,7 @@ async fn lines_ship_before_the_turn_ends() {
 // ── Transcode (phase 0) ──────────────────────────────────────────────────────
 
 /// One recorded conversation in each harness, rendered into the other
-/// harness's format by `fixtures/transcode/spike_transcode.py`.
+/// harness's format, as `SessionFormat::render` renders them.
 const CODEX_FROM_CLAUDE: &str = include_str!("fixtures/transcode/codex-from-claude.jsonl");
 const CLAUDE_FROM_CODEX: &str = include_str!("fixtures/transcode/claude-from-codex.jsonl");
 const CODEX_FROM_CLAUDE_COMPACTED: &str =

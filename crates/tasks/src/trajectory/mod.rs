@@ -5,5 +5,6 @@
 //! only through `AppendTrajectory` and `ReadTrajectory`.
 
 pub(crate) mod dao;
+pub(crate) mod lineage;
 pub mod models;
 pub mod operations;

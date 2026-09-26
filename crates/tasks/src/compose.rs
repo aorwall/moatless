@@ -39,6 +39,7 @@ use crate::task::presenter::TaskPresenter;
 use crate::task::relations::TaskRelations;
 use crate::task::relations_dao::{PgTaskRelationDao, TaskRelationDao};
 use crate::task::rewind::TaskRewindService;
+use crate::task::switch::TaskSwitchService;
 use crate::task_event::dao::{PgTaskEventDao, TaskEventDao};
 use crate::task_event::operations::TaskEvents;
 use crate::task_turn::dao::{PgTaskTurnDao, TaskTurnDao};
@@ -216,6 +217,7 @@ impl TaskGraph {
             config,
         } = inputs;
 
+        let trajectories = Arc::new(Trajectories::new(PgTrajectoryDao(self.db.clone())));
         TaskOperations {
             task_creation: Arc::new(TaskCreationService::new(
                 self.tasks.clone(),
@@ -253,17 +255,25 @@ impl TaskGraph {
                 self.relations,
                 self.tasks.clone(),
             )),
+            task_switch: Arc::new(TaskSwitchService::new(
+                self.db.clone(),
+                self.tasks.clone(),
+                self.messages.clone(),
+                trajectories.clone(),
+            )),
             task_rewind: Arc::new(TaskRewindService::new(
                 self.db,
                 self.tasks.clone(),
                 self.turns.clone(),
                 self.messages.clone(),
+                trajectories.clone(),
             )),
             task_fork: Arc::new(TaskForkService::new(
                 self.tasks,
                 self.turns,
                 self.messages,
                 self.tags,
+                trajectories,
             )),
         }
     }
@@ -296,4 +306,5 @@ pub struct TaskOperations {
     pub task_presenter: Arc<TaskPresenter>,
     pub task_fork: Arc<TaskForkService>,
     pub task_rewind: Arc<TaskRewindService>,
+    pub task_switch: Arc<TaskSwitchService>,
 }

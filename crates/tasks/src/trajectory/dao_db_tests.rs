@@ -36,6 +36,7 @@ fn req<'a>(
         lines,
         turn_number,
         subagent_parent: None,
+        own_from_seq: None,
     }
 }
 
@@ -137,7 +138,7 @@ async fn fork_copies_no_events(pool: PgPool) {
     let before = event_count(&pool).await;
 
     let cut = dao
-        .resolve_cut("source-session", &ForkCut::Message("item-2".into()))
+        .resolve_legacy_cut("source-session", &ForkCut::Message("item-2".into()))
         .await
         .unwrap()
         .expect("item-2 resolves");
@@ -198,7 +199,7 @@ async fn fork_copies_no_events(pool: PgPool) {
 async fn fork_of_a_fork_walks_both_fork_points(pool: PgPool) {
     let dao = seeded(&pool, "root", lines(0..4)).await;
     let cut = dao
-        .resolve_cut("root", &ForkCut::Message("item-1".into()))
+        .resolve_legacy_cut("root", &ForkCut::Message("item-1".into()))
         .await
         .unwrap()
         .unwrap();
@@ -218,7 +219,7 @@ async fn fork_of_a_fork_walks_both_fork_points(pool: PgPool) {
     .unwrap();
 
     let cut = dao
-        .resolve_cut(
+        .resolve_legacy_cut(
             &first.harness_session_id,
             &ForkCut::Message("item-11".into()),
         )
@@ -242,15 +243,15 @@ async fn an_unresolved_cut_uses_the_old_fork_path(pool: PgPool) {
     let dao = seeded(&pool, "source-session", lines(0..3)).await;
 
     let unknown_message = dao
-        .resolve_cut("source-session", &ForkCut::Message("not-recorded".into()))
+        .resolve_legacy_cut("source-session", &ForkCut::Message("not-recorded".into()))
         .await
         .unwrap();
     let unknown_turn = dao
-        .resolve_cut("source-session", &ForkCut::Turn("turn-x".into()))
+        .resolve_legacy_cut("source-session", &ForkCut::Turn("turn-x".into()))
         .await
         .unwrap();
     let unknown_session = dao
-        .resolve_cut("never-recorded", &ForkCut::End)
+        .resolve_legacy_cut("never-recorded", &ForkCut::End)
         .await
         .unwrap();
 
@@ -269,7 +270,7 @@ async fn a_codex_cut_lands_on_the_turns_task_complete(pool: PgPool) {
     let dao = seeded(&pool, "thread", events).await;
 
     let cut = dao
-        .resolve_cut("thread", &ForkCut::Turn("turn-1".into()))
+        .resolve_legacy_cut("thread", &ForkCut::Turn("turn-1".into()))
         .await
         .unwrap()
         .unwrap();
@@ -290,7 +291,7 @@ async fn a_cut_at_a_tool_use_moves_to_its_result(pool: PgPool) {
     let dao = seeded(&pool, "s", events).await;
 
     let cut = dao
-        .resolve_cut("s", &ForkCut::Message("item-1".into()))
+        .resolve_legacy_cut("s", &ForkCut::Message("item-1".into()))
         .await
         .unwrap()
         .unwrap();
@@ -331,7 +332,7 @@ async fn an_empty_append_returns_the_tip_payload(pool: PgPool) {
     assert_eq!(held.last_payload, Some(line(2).payload));
 
     let cut = dao
-        .resolve_cut("source-session", &ForkCut::Message("item-1".into()))
+        .resolve_legacy_cut("source-session", &ForkCut::Message("item-1".into()))
         .await
         .unwrap()
         .unwrap();
@@ -420,4 +421,184 @@ async fn a_subagent_session_links_to_its_spawning_tool_call(pool: PgPool) {
             .execute(&pool)
             .await;
     assert!(forked_too.is_err(), "a subagent session never forks");
+}
+
+#[sqlx::test]
+async fn a_retried_switch_read_returns_the_same_session(pool: PgPool) {
+    let dao = seeded(&pool, "claude-1", lines(0..3)).await;
+    let trajectories =
+        crate::trajectory::operations::Trajectories::new(PgTrajectoryDao(pool.clone()));
+
+    let first = trajectories
+        .open_switch_session("source", Harness::Codex)
+        .await
+        .unwrap()
+        .expect("a head to switch from");
+    let again = trajectories
+        .open_switch_session("source", Harness::Codex)
+        .await
+        .unwrap()
+        .expect("a head to switch from");
+    assert_eq!(first.session.id, again.session.id);
+    assert_eq!(first.session.forked_from_event_id, None);
+    assert_eq!(first.transcode.len(), 3, "every Claude line is rendered");
+
+    let codex = first.session.harness_session_id.clone();
+    let codex_lines = lines(10..12);
+    let missing = dao
+        .append(req(
+            "source",
+            Harness::Codex,
+            &codex,
+            0,
+            &codex_lines,
+            Some(2),
+        ))
+        .await;
+    assert!(matches!(missing, Err(AppendError::OwnFromSeqMissing(_))));
+    let mut own = req("source", Harness::Codex, &codex, 0, &codex_lines, Some(2));
+    own.own_from_seq = Some(1);
+    assert!(dao.append(own).await.unwrap().accepted);
+
+    let back = trajectories
+        .open_switch_session("source", Harness::ClaudeCode)
+        .await
+        .unwrap()
+        .expect("a head to switch back from");
+    let claude_tip = dao.find_session("claude-1").await.unwrap().unwrap();
+    assert_eq!(
+        back.session.forked_from_event_id, claude_tip.last_event_id,
+        "switching back forks the Claude file verbatim"
+    );
+    assert_eq!(back.transcode.len(), 1, "only the Codex turn is rendered");
+    let chain = dao.chain(&back.session).await.unwrap();
+    assert_eq!(chain.len(), 3);
+}
+
+#[sqlx::test]
+async fn the_fork_trigger_rejects_a_cross_harness_fork(pool: PgPool) {
+    let dao = seeded(&pool, "claude-1", lines(0..2)).await;
+    let tip = dao
+        .find_session("claude-1")
+        .await
+        .unwrap()
+        .unwrap()
+        .last_event_id
+        .unwrap();
+
+    let refused = dao.insert_fork_session("fork", Harness::Codex, tip).await;
+    let Err(sqlx::Error::Database(e)) = refused else {
+        panic!("a Codex session forking a Claude event is refused: {refused:?}");
+    };
+    assert_eq!(e.code().as_deref(), Some("23514"));
+    dao.insert_fork_session("fork", Harness::ClaudeCode, tip)
+        .await
+        .expect("the same harness forks");
+}
+
+/// A backend whose clock runs behind stamps a later session's events with ids
+/// that sort before its source's: head and lineage follow insertion instead.
+#[sqlx::test]
+async fn a_switch_back_renders_lines_whose_ids_sort_first(pool: PgPool) {
+    seeded(&pool, "claude-1", lines(0..3)).await;
+    let trajectories =
+        crate::trajectory::operations::Trajectories::new(PgTrajectoryDao(pool.clone()));
+    let codex = trajectories
+        .open_switch_session("source", Harness::Codex)
+        .await
+        .unwrap()
+        .expect("a head to switch from")
+        .session;
+
+    let (first, second) = (Uuid::from_u128(1), Uuid::from_u128(2));
+    for (id, seq, parent, text) in [(first, 0, None, "10"), (second, 1, Some(first), "11")] {
+        sqlx::query(
+            "INSERT INTO trajectory_events
+                 (id, session_id, seq, parent_event_id, kind, turn_number, payload, content)
+             VALUES ($1, $2, $3, $4, 'user', 2, '{}', $5)",
+        )
+        .bind(id)
+        .bind(codex.id)
+        .bind(seq)
+        .bind(parent)
+        .bind(json!({"role": "user", "blocks": [{"type": "text", "text": text}]}))
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+    sqlx::query(
+        "UPDATE trajectory_sessions SET last_seq = 1, last_event_id = $2, own_from_seq = 0
+          WHERE id = $1",
+    )
+    .bind(codex.id)
+    .bind(second)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let head = trajectories.head("source").await.unwrap().unwrap();
+    assert_eq!(head.harness_session_id, codex.harness_session_id);
+    let back = trajectories
+        .open_switch_session("source", Harness::ClaudeCode)
+        .await
+        .unwrap()
+        .expect("a head to switch back from");
+    let texts: Vec<&str> = back
+        .transcode
+        .iter()
+        .filter_map(|item| item.content["blocks"][0]["text"].as_str())
+        .collect();
+    assert_eq!(texts, ["10", "11"], "the Codex turn is rendered, in order");
+}
+
+/// Rows recorded before `ord` existed get it from the migration's backfill,
+/// which must order a later session's low ids after its source's lines too.
+#[sqlx::test]
+async fn the_ord_backfill_orders_existing_rows_by_when_they_were_written(pool: PgPool) {
+    const MIGRATION: &str = include_str!("../../../core/migrations/0175_trajectory_switch.sql");
+    let start = MIGRATION
+        .find("UPDATE trajectory_events e")
+        .expect("the backfill statement");
+    let backfill = &MIGRATION[start..start + MIGRATION[start..].find(';').unwrap()];
+
+    seeded(&pool, "claude-1", lines(0..3)).await;
+    let trajectories =
+        crate::trajectory::operations::Trajectories::new(PgTrajectoryDao(pool.clone()));
+    let codex = trajectories
+        .open_switch_session("source", Harness::Codex)
+        .await
+        .unwrap()
+        .expect("a head to switch from")
+        .session;
+    let low = Uuid::from_u128(1);
+    sqlx::query(
+        "INSERT INTO trajectory_events
+             (id, session_id, seq, kind, turn_number, payload, content, created_at)
+         VALUES ($1, $2, 0, 'user', 2, '{}', '{}', NOW() + interval '1 second')",
+    )
+    .bind(low)
+    .bind(codex.id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "UPDATE trajectory_sessions SET last_seq = 0, last_event_id = $2, own_from_seq = 0
+          WHERE id = $1",
+    )
+    .bind(codex.id)
+    .bind(low)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    for statement in [
+        "ALTER TABLE trajectory_events ALTER COLUMN ord DROP NOT NULL",
+        "UPDATE trajectory_events SET ord = NULL",
+        backfill,
+    ] {
+        sqlx::query(statement).execute(&pool).await.unwrap();
+    }
+
+    let head = trajectories.head("source").await.unwrap().unwrap();
+    assert_eq!(head.harness_session_id, codex.harness_session_id);
 }

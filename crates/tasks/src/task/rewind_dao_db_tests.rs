@@ -234,6 +234,7 @@ async fn the_anchor_is_written_with_the_cut(pool: PgPool) {
         source_session_id: "session-abc".to_string(),
         source_message_uuid: Some("msg-1".to_string()),
         source_agent_turn_id: None,
+        source_event_id: None,
     };
     truncate_conversation(&pool, "task-1", 1, Some(&anchor))
         .await
@@ -267,6 +268,7 @@ async fn emptying_the_task_clears_the_anchor(pool: PgPool) {
         source_session_id: "session-abc".to_string(),
         source_message_uuid: Some("msg-1".to_string()),
         source_agent_turn_id: None,
+        source_event_id: None,
     };
     truncate_conversation(&pool, "task-1", 1, Some(&anchor))
         .await

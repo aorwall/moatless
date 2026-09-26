@@ -16,6 +16,8 @@ pub mod routes;
 pub mod schemas;
 pub mod service;
 pub mod statistics;
+pub mod switch;
+pub(crate) mod switch_dao;
 
 /// `db-tests` seeding shared with the sandbox-control band's lifecycle tests.
 #[cfg(any(test, feature = "test-support"))]

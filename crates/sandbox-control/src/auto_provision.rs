@@ -201,10 +201,10 @@ pub(crate) async fn build_provision_request(
         repo_config.node_selector = Some(selector.0.clone());
     }
 
-    // The Agent harness is fixed for the Sandbox lifetime: pass it at
-    // construction so the sandbox resolves it once. Inserted after the workspace
-    // env so the authoritative Sandbox selection overrides any stray
-    // workspace-level `AGENT_PROFILE`.
+    // The profile the pod boots its first harness with; a delivery naming
+    // another rebuilds it. The transport is fixed for the Sandbox lifetime.
+    // Inserted after the workspace env so the Sandbox's selection overrides any
+    // stray workspace-level `AGENT_PROFILE`.
     if shape.use_tmux {
         env_vars
             .get_or_insert_with(std::collections::HashMap::new)

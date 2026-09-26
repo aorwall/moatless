@@ -288,6 +288,10 @@ message AppendTrajectoryRequest {
   int64 first_seq = 4;
   repeated TrajectoryLine lines = 5; // at most 256
   optional int32 turn_number = 6; // task_turns.turn_number of the running Turn
+  // A switch session's first seq its CLI wrote; the lines below it are the
+  // rendered prefix. Sent until an append with lines is accepted; read only
+  // while the session has none.
+  optional int64 own_from_seq = 7;
   // Set until the session exists: a subagent session, linked to the tool call
   // that spawned it.
   optional SubagentParent subagent_parent = 8;
@@ -318,14 +322,26 @@ message ReadTrajectoryRequest {
   oneof target {
     string harness_session_id = 3; // resume this session
     bool fork = 4;                 // the Task's fork session, created from task_forks on first call
+    // The Task's switch session into `harness`, created on first call: its
+    // own latest session of `harness`, if any, then the other harness's lines
+    // since as `transcode` chunks.
+    bool switch = 5;
   }
 }
 
 message ReadTrajectoryChunk {
   oneof body {
-    SessionHeader header = 1; // first chunk only
-    string line = 2;          // one payload, in seq order
+    SessionHeader header = 1;    // first chunk only
+    string line = 2;             // one payload, in seq order
+    TranscodeItem transcode = 3; // after the lines; the sandbox renders them
   }
+}
+
+// One line of the other harness, as content to render into this one.
+message TranscodeItem {
+  string content_json = 1; // as TrajectoryLine.content_json, never injected
+  optional int32 turn_number = 2;
+  string source_harness = 3;
 }
 
 message SessionHeader {
@@ -410,6 +426,13 @@ message PendingAgentDelivery {
   // worst case has to be a fork with no agent context rather than two Tasks
   // resuming one session id into one transcript.
   optional ForkSession fork = 13;
+  // Set while the Task's harness differs from the one the session it
+  // continues ran: its latest recorded session (the harness opens a switch
+  // session, `ReadTrajectory` with `switch`), or with `fork` the session the
+  // cut is in. A pod that cannot write that session fails the turn.
+  // `resume_session_id` is unset and `start_fresh` set alongside, for the
+  // reason `fork` gives.
+  bool switch_harness = 14;
 }
 
 // Where a fork's first turn branches from.

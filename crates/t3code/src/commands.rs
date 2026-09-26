@@ -26,7 +26,7 @@ use crate::agent::catalog;
 use crate::scripts::{self, ScriptsWriteError};
 use crate::skills;
 use moatless_types::activity as mapping;
-use moatless_types::agent::AgentMode;
+use moatless_types::agent::{AgentMode, Harness};
 use moatless_types::task::Visibility;
 use uuid::Uuid;
 
@@ -244,6 +244,7 @@ async fn turn_start(
                         text,
                         message_uuid,
                         model,
+                        harness: None,
                         agent_mode,
                         effort,
                         attachments,
@@ -257,7 +258,7 @@ async fn turn_start(
 
     let conversation = require_controllable(ctx, viewer, &task_id).await?;
     let agents = ctx.agents.list(viewer).await;
-    let model = model_for_existing(&agents, &conversation, command)?;
+    let Selection { harness, model } = selection_for_existing(&agents, &conversation, command)?;
     let skills = match conversation.workspace_id.as_deref() {
         Some(workspace_id) => activated_skills(ctx, viewer, workspace_id, &text).await,
         None => Vec::new(),
@@ -270,6 +271,7 @@ async fn turn_start(
                 text,
                 message_uuid,
                 model,
+                harness,
                 agent_mode,
                 effort,
                 attachments,
@@ -481,9 +483,8 @@ async fn create_thread(
 
 /// Branches a new Thread off an existing one at one of its completed turns.
 ///
-/// The fork's agent is fixed to the source Thread's — T3 has no mid-branch
-/// picker — so a `modelSelection` override is checked against the source's
-/// instance exactly as [`meta_update`] checks one against an existing Thread's.
+/// An `instanceId` naming another harness than the source's runs the fork on
+/// it; without one the fork runs the source's profile.
 async fn fork_thread(
     ctx: &CommandContext<'_>,
     viewer: &ScopeContext,
@@ -512,7 +513,7 @@ async fn fork_thread(
         })?;
 
     let agents = ctx.agents.list(viewer).await;
-    let model = model_for_existing(&agents, &source, command)?;
+    let Selection { harness, model } = selection_for_existing(&agents, &source, command)?;
 
     ctx.sink
         .fork(
@@ -530,6 +531,7 @@ async fn fork_thread(
                     .and_then(Value::as_bool)
                     .unwrap_or(false),
                 model,
+                harness,
                 agent_mode: interaction_mode(command),
                 effort: selected_effort(command),
             },
@@ -570,7 +572,7 @@ fn parse_at_turn(command: &Value) -> Result<Option<i32>, CommandRefusal> {
     }
 }
 
-/// Title and model. `branch`, `expectedBranch` and `worktreePath` are read and
+/// Title, model and harness. `branch`, `expectedBranch` and `worktreePath` are read and
 /// ignored: a Task's branch is decided at creation and the checkout lives in
 /// the Sandbox.
 async fn meta_update(
@@ -582,10 +584,7 @@ async fn meta_update(
     let conversation = require_controllable(ctx, viewer, &task_id).await?;
     let agents = ctx.agents.list(viewer).await;
 
-    // A meta update carrying the other instance's model is not worth refusing:
-    // the client sends one before every turn, and refusing here would abort the
-    // send before the turn itself could explain why.
-    let model = model_for_existing(&agents, &conversation, command).unwrap_or(None);
+    let Selection { harness, model } = selection_for_existing(&agents, &conversation, command)?;
 
     ctx.sink
         .update_meta(
@@ -594,6 +593,7 @@ async fn meta_update(
                 task_id,
                 title: rename(&conversation, command),
                 model,
+                harness,
             },
         )
         .await
@@ -848,33 +848,37 @@ async fn require_controllable(
     Ok(conversation)
 }
 
-/// The catalog model a command asks for, checked against the Task's own agent.
-///
-/// A Task's harness is fixed at creation — no column or path changes it — so a
-/// model belonging to another instance is refused rather than silently run on
-/// the Task's own agent, which is the substitution published model names exist
-/// to prevent.
-fn model_for_existing(
+/// What a command on an existing Thread asks its agent to run.
+struct Selection {
+    /// Set when the command's instance names another harness than the Task's.
+    harness: Option<Harness>,
+    /// A catalog model id of the selected instance.
+    model: Option<String>,
+}
+
+/// The harness and catalog model a command asks for. A bare model slug with
+/// no `instanceId` selects neither: the client sends one it cached from
+/// another Thread.
+fn selection_for_existing(
     agents: &[crate::agent::schemas::AgentDescriptor],
     conversation: &Conversation,
     command: &Value,
-) -> Result<Option<String>, CommandRefusal> {
+) -> Result<Selection, CommandRefusal> {
     let Some(instance) = selected_instance(command) else {
-        return Ok(None);
+        return Ok(Selection {
+            harness: None,
+            model: None,
+        });
     };
-    let thread_instance = catalog::find(conversation.agent_profile.as_str())
-        .map_or(providers::CLAUDE_INSTANCE, |entry| {
-            providers::instance_for(entry.harness)
-        });
-    if instance != thread_instance {
-        return Err(CommandRefusal::Rejected {
-            message: format!(
-                "This thread runs a {thread_instance} agent and cannot switch to {instance}. \
-                 Start a new thread to use a different agent."
-            ),
-        });
-    }
-    translate_model(agents, &instance, command)
+    let harness = providers::harness_for(&instance).ok_or_else(|| CommandRefusal::Rejected {
+        message: format!("`{instance}` is not an agent this server offers."),
+    })?;
+    let thread_harness =
+        catalog::find(conversation.agent_profile.as_str()).map(|entry| entry.harness);
+    Ok(Selection {
+        harness: (thread_harness != Some(harness)).then_some(harness),
+        model: translate_model(agents, &instance, command)?,
+    })
 }
 
 /// The catalog id behind the model slug on a command, if it carries one.

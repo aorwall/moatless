@@ -141,6 +141,12 @@ impl Coordinator {
         self.run_cancel = Some(run_cancel);
     }
 
+    /// Replace the harness, dropping the old one; only while no turn is open.
+    pub(crate) fn replace_harness(&mut self, harness: HarnessRuntime) {
+        debug_assert!(!self.turn_active, "harness replaced mid-turn");
+        self.harness = harness;
+    }
+
     /// Whether a turn is currently open.
     pub(crate) fn turn_active(&self) -> bool {
         self.turn_active
@@ -628,6 +634,7 @@ fn recovery_input(original: &Input, task_id: &str) -> Input {
         // A recovery prompt opens a new Session outright; there is no cut to
         // branch, and the Task's own session already exists.
         fork: None,
+        switch_harness: false,
         env: original.env.clone(),
         system_prompt: original.system_prompt.clone(),
     }

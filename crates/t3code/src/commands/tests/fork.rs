@@ -105,3 +105,32 @@ async fn a_fork_of_a_thread_the_viewer_cannot_read_is_refused() {
         Err(CommandRefusal::NotWritable { task_id }) if task_id == "task-1"
     ));
 }
+
+/// An `instanceId` naming another harness than the source's runs the fork on
+/// it, with the model translated for that instance.
+#[tokio::test]
+async fn a_fork_naming_the_other_instance_runs_on_its_harness() {
+    let mut command = fork_command();
+    command["modelSelection"] = json!({ "instanceId": "codex", "model": "gpt-5.6-sol" });
+    let (result, calls) = run(command).await;
+    assert!(result.is_ok());
+    assert_eq!(
+        calls,
+        vec![
+            Call::Switch {
+                task_id: "fork-1".to_string(),
+                harness: Harness::Codex,
+            },
+            Call::Fork {
+                new_task_id: "fork-1".to_string(),
+                source_task_id: "task-1".to_string(),
+                at_turn: None,
+                message: None,
+                same_sandbox: false,
+                model: Some("gpt-5.6-sol".to_string()),
+                agent_mode: None,
+                effort: None,
+            }
+        ]
+    );
+}

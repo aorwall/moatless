@@ -215,6 +215,9 @@ pub struct TaskFork {
     pub source_session_id: String,
     pub source_message_uuid: Option<String>,
     pub source_agent_turn_id: Option<String>,
+    /// The cut as one trajectory event; `None` on a row written before the
+    /// column, which the read path resolves from the anchors above.
+    pub source_event_id: Option<uuid::Uuid>,
 }
 
 /// Patch struct for partial task updates.
