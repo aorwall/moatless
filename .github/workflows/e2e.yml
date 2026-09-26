@@ -57,6 +57,10 @@ on:
         description: 'Evaluate whether Claude Code and Codex discover and invoke moat'
         type: boolean
         default: false
+      run_trajectory_cli:
+        description: 'Run the real-CLI trajectory tier (crates/sandbox/tests/trajectory_e2e.rs)'
+        type: boolean
+        default: false
 
 env:
   # Every one of these feeds Swatinem/rust-cache's key hash, which covers all
@@ -81,7 +85,7 @@ jobs:
   # never write to it.
   build-binaries:
     name: Build backend, sandbox + moat CLI
-    if: inputs.run_playwright
+    if: inputs.run_playwright || inputs.run_trajectory_cli
     runs-on: ${{ github.repository == 'soaplabs/moatless' && 'staging-runners-large' || 'ubuntu-latest' }}
     container:
       image: rust:1.97-bookworm
@@ -140,7 +144,18 @@ jobs:
       # `ci` inherits `release`, so the backend under test is optimised the way
       # the published image is — the suite is not exercising a debug build.
       - name: Build binaries (ci profile)
+        if: inputs.run_playwright
         run: cargo build --profile ci -p moatless-backend -p moatless-sandbox -p moatless-cli
+
+      # The tier runs in the sandbox base image, which has the CLIs and no Rust,
+      # so the test binary is built here. Cargo names it only in this line.
+      - name: Build the real-CLI trajectory tests (ci profile)
+        if: inputs.run_trajectory_cli
+        run: |
+          cargo test --profile ci -p moatless-sandbox --test trajectory_e2e --no-run 2>&1 | tee /tmp/no-run.log
+          exe="$(sed -n 's/.*Executable tests\/trajectory_e2e.rs (\(.*\))$/\1/p' /tmp/no-run.log)"
+          test -x "$exe"
+          cp "$exe" target/ci/trajectory_e2e
 
       - name: Summarize Rust build
         if: always()
@@ -157,6 +172,7 @@ jobs:
           fi
 
       - name: Upload binaries
+        if: inputs.run_playwright
         uses: actions/upload-artifact@v4
         with:
           name: e2e-binaries
@@ -164,6 +180,15 @@ jobs:
             target/ci/moatless-backend
             target/ci/sandbox
             target/ci/moat
+          retention-days: 1
+          if-no-files-found: error
+
+      - name: Upload the trajectory test binary
+        if: inputs.run_trajectory_cli
+        uses: actions/upload-artifact@v4
+        with:
+          name: trajectory-e2e-binary
+          path: target/ci/trajectory_e2e
           retention-days: 1
           if-no-files-found: error
 
@@ -242,6 +267,36 @@ jobs:
             /run/moatless/local-e2e/
             /tmp/le-*/tasks/*/sandbox.log
           if-no-files-found: ignore
+
+  # ── Real-CLI trajectory tier ──
+  # Records, rebuilds, forks and resumes real Claude Code and Codex sessions
+  # against an in-memory trajectory backend; no backend or database.
+  trajectory-cli:
+    name: Real-CLI trajectory tier
+    needs: build-binaries
+    if: inputs.run_trajectory_cli
+    runs-on: ${{ github.repository == 'soaplabs/moatless' && 'staging-runners-large' || 'ubuntu-latest' }}
+    container:
+      image: ${{ vars.REGISTRY_ORG || 'aorwall' }}/moatless-sandbox-base:latest
+    steps:
+      - name: Download the test binary
+        uses: actions/download-artifact@v4
+        with:
+          name: trajectory-e2e-binary
+          path: /tmp/trajectory-e2e
+
+      - name: Run the tier
+        env:
+          TRAJECTORY_E2E: '1'
+          # Claude Code refuses to skip permissions under root without it.
+          IS_SANDBOX: '1'
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
+        run: |
+          chmod +x /tmp/trajectory-e2e/trajectory_e2e
+          /tmp/trajectory-e2e/trajectory_e2e --ignored --nocapture
 
   # ── claude-agent-sdk smoke test in Docker (pinned CLI) ──
   claude-sdk:

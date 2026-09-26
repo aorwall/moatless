@@ -182,6 +182,9 @@ log "Starting backend on ${BASE_URL} (log: ${RUN_DIR}/backend.log)"
   # The shadow env disables this; this run's dispatch queue is its own schema's,
   # and without it no agent turn ever completes.
   EVENT_HANDLER_ENABLED=true
+  # TRAJ-01 needs both; the suite learns it through E2E_TRAJECTORY below.
+  FF_TRAJECTORY_RECORDING=1
+  FF_TRAJECTORY_RESUME=1
   DATABASE_MAX_CONNECTIONS=5
   PORT="$HTTP_PORT"
   GRPC_PORT="$RPC_PORT"
@@ -254,6 +257,7 @@ env -u IS_SANDBOX -u TASK_ID -u SANDBOX_ID \
   USER_AUTH_TOKEN= \
   HOME="$RUN_DIR" \
   E2E_PROFILE=local \
+  E2E_TRAJECTORY=1 \
   MOATLESS_API_URL="$BASE_URL" \
   FRONTEND_URL="$BASE_URL" \
   ADMIN_USERNAME="$RUN_ADMIN_EMAIL" \

@@ -80,6 +80,12 @@ Run workflow). `build-binaries` compiles the three binaries with
 A change to what the harness needs from its environment has to land in that job
 too.
 
+The `run_trajectory_cli` input runs the real-CLI trajectory tier
+(`crates/sandbox/tests/trajectory_e2e.rs`) instead: `build-binaries` compiles
+its test binary, and `trajectory-cli` runs it in the same base image with both
+agents' credentials. Locally:
+`TRAJECTORY_E2E=1 cargo test -p moatless-sandbox --test trajectory_e2e -- --ignored`.
+
 ---
 
 ## Capabilities, not tiers
@@ -101,7 +107,7 @@ It is never deleted, and it never fails for the wrong reason.
 | `storedWorkspace` | read a stopped task's files from the store | no — no bucket |
 | `sandboxReadyEvent` | a watcher publishes `sandbox.ready` | no — `sandbox-local` has no lifecycle watcher |
 | `workspaceImage` | the runtime runs the workspace's `dockerImage` | no — sandboxes run on the host |
-| `trajectory` | trajectory recording is on | when `E2E_TRAJECTORY=1` |
+| `trajectory` | trajectory recording and resume are on | yes — `run.sh` starts the backend with both flags and sets `E2E_TRAJECTORY=1` |
 
 In a spec:
 

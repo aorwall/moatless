@@ -451,8 +451,8 @@ test('INT-34: A reply after close starts a new task', async ({ api }) => {
       webhookSubjectKey(config.sourceId, thread),
     )
     created.push(firstTaskId)
-
-    const before = (await api.getTaskMessages(firstTaskId)).messages.length
+    // The Task exists before its first message is written.
+    const before = await waitForTaskMessages(api, firstTaskId, 1)
 
     await api.closeTask(firstTaskId)
     expect((await api.getTask(firstTaskId)).status).toBe('closed')
@@ -469,7 +469,10 @@ test('INT-34: A reply after close starts a new task', async ({ api }) => {
 
     const still = await api.getTask(firstTaskId)
     expect(still.status).toBe('closed')
-    expect((await api.getTaskMessages(firstTaskId)).messages).toHaveLength(before)
+    expect(
+      (await api.getTaskMessages(firstTaskId)).messages,
+      'a reply after close must not add a message to the closed task',
+    ).toHaveLength(before)
   } finally {
     for (const taskId of created) {
       await discardTask(api, taskId)
