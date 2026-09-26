@@ -22,10 +22,30 @@ struct ModelPrice {
 /// prices low here, since `UsageInfo` carries no TTL split.
 fn price_for(model: &str) -> Option<ModelPrice> {
     let m = model.to_ascii_lowercase();
-    // Codex ids are `gpt-5*` / `*codex*`; cached input is priced, cache-write is
-    // not a Codex tier (its cache-creation count is always 0) so it rides the
-    // input rate.
-    if m.contains("codex") || m.contains("gpt-5") {
+    // The GPT-6 and GPT-5.6 families come first: every one of their ids also
+    // contains a broader family name below and would be billed at that rate.
+    // Their short-context (<272K input) rates apply throughout.
+    let tiered = |input: f64, output: f64| ModelPrice {
+        input,
+        cache_write: input * 1.25,
+        cache_read: input / 10.0,
+        output,
+    };
+    if m.contains("gpt-6-astra") {
+        Some(tiered(10.0, 50.0))
+    } else if m.contains("gpt-6-sol") {
+        Some(tiered(2.0, 10.0))
+    } else if m.contains("gpt-6-luna") {
+        Some(tiered(0.1, 0.5))
+    } else if m.contains("gpt-5.6-sol") {
+        Some(tiered(4.0, 20.0))
+    } else if m.contains("gpt-5.6-terra") {
+        Some(tiered(2.0, 12.0))
+    } else if m.contains("gpt-5.6-luna") {
+        Some(tiered(0.2, 1.2))
+    } else if m.contains("codex") || m.contains("gpt-5") {
+        // Older Codex ids: cache-write is not a tier here (the cache-creation
+        // count is always 0), so it rides the input rate.
         Some(ModelPrice {
             input: 1.25,
             cache_write: 1.25,
@@ -80,7 +100,10 @@ fn price_for(model: &str) -> Option<ModelPrice> {
 /// this at the seam); `output_tokens` already includes reasoning tokens, so
 /// reasoning isn't priced twice. `None` when the model is unrecognised.
 pub fn estimate_cost_usd(model: &str, usage: &UsageInfo) -> Option<f64> {
-    let price = price_for(model)?;
+    let Some(price) = price_for(model) else {
+        tracing::warn!(model, "No price for model; the run is stored unpriced");
+        return None;
+    };
     let tok = |v: Option<i64>| f64::from(i32::try_from(v.unwrap_or(0).max(0)).unwrap_or(i32::MAX));
     Some(
         (tok(usage.input_tokens) * price.input
@@ -131,6 +154,18 @@ mod tests {
         let u = usage(1_000_000, 1_000_000, 1_000_000, 1_000_000);
         assert_eq!(estimate_cost_usd("claude-sonnet-5", &u), Some(14.7));
         assert_eq!(estimate_cost_usd("claude-sonnet-4-6", &u), Some(22.05));
+    }
+
+    #[test]
+    fn prices_gpt_6_and_gpt_5_6_ahead_of_the_gpt_5_arm() {
+        let u = usage(1_000_000, 0, 1_000_000, 1_000_000);
+        assert_eq!(
+            estimate_cost_usd("gpt-6-astra", &u),
+            Some(10.0 + 1.0 + 50.0)
+        );
+        assert_eq!(estimate_cost_usd("gpt-6-sol", &u), Some(2.0 + 0.2 + 10.0));
+        assert_eq!(estimate_cost_usd("gpt-5.6-sol", &u), Some(4.0 + 0.4 + 20.0));
+        assert!(estimate_cost_usd("gpt-6-nova", &u).is_none());
     }
 
     #[test]
