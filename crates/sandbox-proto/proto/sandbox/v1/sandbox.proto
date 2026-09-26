@@ -71,6 +71,17 @@ service BackendSandboxService {
   // stream means "no session archive stored yet". Auth via gRPC metadata.
   rpc DownloadTranscript(DownloadTranscriptRequest) returns (stream TranscriptChunk);
 
+  // Record harness session lines in file order into the Task's trajectory.
+  // Idempotent on (harness_session_id, seq); creates the session on its first
+  // append. UNIMPLEMENTED while FF_TRAJECTORY_RECORDING is off.
+  rpc AppendTrajectory(AppendTrajectoryRequest) returns (AppendTrajectoryResponse);
+
+  // Stream a trajectory session's lines root-first, header first, so the
+  // sandbox can write the harness session file. NOT_FOUND for an unknown
+  // session, DATA_LOSS for a seq missing from the chain, UNIMPLEMENTED while
+  // FF_TRAJECTORY_RECORDING is off.
+  rpc ReadTrajectory(ReadTrajectoryRequest) returns (stream ReadTrajectoryChunk);
+
   // Mint short-lived, single-object presigned S3 URLs for the task's workspace
   // archive (`<workspace_prefix>/<task_id>/workspace.tar`). Used by the `s3`
   // storage backend as an alternative to the EBS PVC. The sandbox is
@@ -268,6 +279,50 @@ message UploadTranscriptResponse {
 message DownloadTranscriptRequest {
   string task_id = 1;
   // auth via gRPC metadata (authorization: Bearer <token>)
+}
+
+message AppendTrajectoryRequest {
+  string task_id = 1;
+  string harness = 2;             // "claude-code" | "codex"
+  string harness_session_id = 3;  // creates the session on first append
+  int64 first_seq = 4;
+  repeated TrajectoryLine lines = 5;
+  optional int32 turn_number = 6; // task_turns.turn_number of the running Turn
+}
+
+message TrajectoryLine {
+  string kind = 1;
+  optional string harness_item_id = 2;
+  optional string harness_turn_id = 3;
+  string payload = 4;      // the line verbatim, without its newline
+  string content_json = 5; // {"role": ..., "blocks": [CanonicalContentBlock, ...]}
+}
+
+message AppendTrajectoryResponse {
+  bool accepted = 1; // false: first_seq > last_seq + 1; resend from last_seq + 1
+  int64 last_seq = 2;
+  optional string last_payload = 3; // empty append only: the payload at last_seq
+}
+
+message ReadTrajectoryRequest {
+  string task_id = 1;
+  string harness = 2;
+  oneof target {
+    string harness_session_id = 3; // resume this session
+    bool fork = 4;                 // the Task's fork session, created from task_forks on first call
+  }
+}
+
+message ReadTrajectoryChunk {
+  oneof body {
+    SessionHeader header = 1; // first chunk only
+    string line = 2;          // one payload, in seq order
+  }
+}
+
+message SessionHeader {
+  string harness_session_id = 1;
+  int64 line_count = 2;
 }
 
 enum EventType {

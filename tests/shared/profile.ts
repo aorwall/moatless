@@ -40,6 +40,12 @@ export interface Capabilities {
    * running".
    */
   storedWorkspace: boolean
+  /**
+   * The backend runs with `FF_TRAJECTORY_RECORDING` and the fixture workspace
+   * with `MOATLESS_RESUME_FROM_TRAJECTORY=1`. Neither is visible through the
+   * API, so the operator says so with `E2E_TRAJECTORY=1`.
+   */
+  trajectory: boolean
 }
 
 /** How long to wait for the slow, environment-dependent transitions. */
@@ -102,6 +108,7 @@ function dockerProfile(): Profile {
       localImages: true,
       // The compose stack configures no bucket, so nothing is stored.
       storedWorkspace: false,
+      trajectory: process.env.E2E_TRAJECTORY === '1',
     },
   }
 }
@@ -139,6 +146,7 @@ function k8sProfile(): Profile {
       githubRepositories: Boolean(process.env.GITHUB_PAT),
       localImages: false,
       storedWorkspace: true,
+      trajectory: process.env.E2E_TRAJECTORY === '1',
     },
   }
 }

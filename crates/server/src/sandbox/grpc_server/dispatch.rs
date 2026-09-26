@@ -7,14 +7,15 @@ use tonic::{Request, Response, Status, Streaming};
 
 use sandbox_proto::backend_sandbox_service_server::BackendSandboxService;
 use sandbox_proto::{
-    AcknowledgeMessagesRequest, AcknowledgeMessagesResponse, DownloadTranscriptRequest,
-    DownloadUploadRequest, DownloadUploadResponse, EnqueueSandboxMessageRequest,
-    EnqueueSandboxMessageResponse, GetCredentialsRequest, GetCredentialsResponse,
-    GetPendingMessagesRequest, GetPendingMessagesResponse, GetSystemPromptRequest,
-    GetSystemPromptResponse, GetWorkspaceRepositoryAccessRequest,
-    GetWorkspaceRepositoryAccessResponse, GetWorkspaceSyncUrlsRequest,
-    GetWorkspaceSyncUrlsResponse, PublishEventRequest, PublishEventResponse, RecordGitPushRequest,
-    RecordGitPushResponse, RecordUnreportedCommandsRequest, RecordUnreportedCommandsResponse,
+    AcknowledgeMessagesRequest, AcknowledgeMessagesResponse, AppendTrajectoryRequest,
+    AppendTrajectoryResponse, DownloadTranscriptRequest, DownloadUploadRequest,
+    DownloadUploadResponse, EnqueueSandboxMessageRequest, EnqueueSandboxMessageResponse,
+    GetCredentialsRequest, GetCredentialsResponse, GetPendingMessagesRequest,
+    GetPendingMessagesResponse, GetSystemPromptRequest, GetSystemPromptResponse,
+    GetWorkspaceRepositoryAccessRequest, GetWorkspaceRepositoryAccessResponse,
+    GetWorkspaceSyncUrlsRequest, GetWorkspaceSyncUrlsResponse, PublishEventRequest,
+    PublishEventResponse, ReadTrajectoryRequest, RecordGitPushRequest, RecordGitPushResponse,
+    RecordUnreportedCommandsRequest, RecordUnreportedCommandsResponse,
     RecoverInterruptedRunRequest, RecoverInterruptedRunResponse, ReportWorkspaceSyncRequest,
     ReportWorkspaceSyncResponse, TakeUnreportedCommandsRequest, TakeUnreportedCommandsResponse,
     TranscriptChunk, UpdateCredentialRequest, UpdateCredentialResponse, UploadTranscriptResponse,
@@ -22,13 +23,15 @@ use sandbox_proto::{
 
 use super::state::BackendSandboxServiceImpl;
 use super::{
-    commands, credentials, events, git_push, messages, transcripts, uploads, workspace_sync,
+    commands, credentials, events, git_push, messages, trajectory, transcripts, uploads,
+    workspace_sync,
 };
 
 #[tonic::async_trait]
 impl BackendSandboxService for BackendSandboxServiceImpl {
     type DownloadUploadChunkedStream = uploads::UploadChunkStream;
     type DownloadTranscriptStream = transcripts::TranscriptChunkStream;
+    type ReadTrajectoryStream = trajectory::TrajectoryChunkStream;
 
     async fn publish_event(
         &self,
@@ -98,6 +101,20 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         request: Request<DownloadTranscriptRequest>,
     ) -> Result<Response<Self::DownloadTranscriptStream>, Status> {
         transcripts::download_transcript(self, request).await
+    }
+
+    async fn append_trajectory(
+        &self,
+        request: Request<AppendTrajectoryRequest>,
+    ) -> Result<Response<AppendTrajectoryResponse>, Status> {
+        trajectory::append_trajectory(self, request).await
+    }
+
+    async fn read_trajectory(
+        &self,
+        request: Request<ReadTrajectoryRequest>,
+    ) -> Result<Response<Self::ReadTrajectoryStream>, Status> {
+        trajectory::read_trajectory(self, request).await
     }
 
     async fn get_workspace_sync_urls(

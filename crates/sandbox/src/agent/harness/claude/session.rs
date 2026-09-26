@@ -7,6 +7,7 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::agent::harness::trajectory::ClaudeSessionFormat;
 use crate::agent::types::ResumeSession;
 use crate::config::Config;
 
@@ -49,10 +50,9 @@ async fn transcript_path(config: &Config, session_id: &str) -> PathBuf {
     let resolved = tokio::fs::canonicalize(workspace)
         .await
         .unwrap_or_else(|_| workspace.to_path_buf());
-    let dashed = resolved.to_string_lossy().replace('/', "-");
     Path::new(&config.claude_config_dir)
         .join("projects")
-        .join(dashed)
+        .join(ClaudeSessionFormat::project_dir(&resolved))
         .join(format!("{session_id}.jsonl"))
 }
 

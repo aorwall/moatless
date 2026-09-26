@@ -7,6 +7,7 @@ pub(super) fn config() -> CodexConfig {
     CodexConfig {
         config: Arc::new(crate::config::test_support::minimal_config()),
         credential_failures: CredentialFailureDetector::default(),
+        trajectory: None,
     }
 }
 

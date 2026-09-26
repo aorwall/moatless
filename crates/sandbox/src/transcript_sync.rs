@@ -13,6 +13,7 @@ use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 
+use crate::agent::harness::trajectory::ClaudeSessionFormat;
 use crate::config::Config;
 use crate::state::SandboxState;
 
@@ -44,19 +45,15 @@ pub fn read_interval_from_env() -> Option<Duration> {
 
 /// Resolve the transcript dir: `<claude_config_dir>/projects/<dashed-cwd>`.
 ///
-/// Mirrors the Claude CLI's own `projects/<cwd with '/' → '-'>` scheme, so sync
+/// Mirrors the Claude CLI's own `projects/<dashed cwd>` scheme, so sync
 /// and `--resume` target the same files; canonicalizes with a lexical fallback
 /// matching the SDK's `resolve_project_dir` (identical for a non-symlink path).
 pub fn transcript_dir(config: &Config) -> PathBuf {
-    let cwd = PathBuf::from(&config.workspace_dir);
-    let resolved = cwd.canonicalize().map_or_else(
-        |_| config.workspace_dir.clone(),
-        |p| p.to_string_lossy().into_owned(),
-    );
-    let dashed = resolved.replace('/', "-");
     Path::new(&config.claude_config_dir)
         .join("projects")
-        .join(dashed)
+        .join(ClaudeSessionFormat::project_dir(Path::new(
+            &config.workspace_dir,
+        )))
 }
 
 /// Resolve the Codex resumable session dir: `<codex_home_dir>/sessions`.

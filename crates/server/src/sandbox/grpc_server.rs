@@ -10,6 +10,7 @@ mod events;
 mod git_push;
 mod messages;
 mod state;
+mod trajectory;
 mod transcripts;
 mod uploads;
 mod workspace_sync;

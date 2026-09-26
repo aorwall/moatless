@@ -1114,10 +1114,12 @@ async fn run_trial(
             agent_state: Arc::new(AgentState::new()),
             agent_type: Some(agent.id().to_string()),
             events: None,
+            trajectory: None,
         }),
         EvalAgent::Codex => Harness::codex(CodexConfig {
             config: Arc::new(config),
             credential_failures: CredentialFailureDetector::default(),
+            trajectory: None,
         }),
     };
 

@@ -10,6 +10,7 @@ use crate::config::Config;
 use crate::credentials::Dispatcher;
 use crate::credentials::recovery::CredentialFailureDetector;
 use crate::events::GrpcEventPublisher;
+use crate::trajectory_tail::TrajectoryRecording;
 
 use crate::agent::agent_state::AgentState;
 use crate::agent::harness::{
@@ -64,6 +65,7 @@ pub fn build_harness(
     credential_failures: &CredentialFailureDetector,
     agent_type: &str,
     events: Option<GrpcEventPublisher>,
+    trajectory: Option<Arc<TrajectoryRecording>>,
 ) -> Result<Harness, HarnessError> {
     let harness = resolve_agent_harness(agent_type).map_err(|diagnostic| {
         HarnessError::new(
@@ -78,6 +80,7 @@ pub fn build_harness(
         return Ok(Harness::codex(CodexConfig {
             config: Arc::clone(config),
             credential_failures: credential_failures.clone(),
+            trajectory,
         }));
     }
 
@@ -86,6 +89,7 @@ pub fn build_harness(
         agent_state: Arc::clone(agent_state),
         agent_type: Some(agent_type.to_string()),
         events,
+        trajectory,
     };
     Ok(if config.use_tmux {
         Harness::claude_persistent(claude)
@@ -120,6 +124,7 @@ pub fn spawn_agent(
         &credential_failures,
         agent_type,
         Some(events.clone()),
+        Some(TrajectoryRecording::new(Arc::clone(&backend_client))),
     ) {
         Ok(harness) => {
             let coordinator = crate::agent::coordinator::Coordinator::new(
@@ -361,7 +366,7 @@ mod tests {
     async fn build_harness_rejects_unsupported_type_as_invalid_configuration() {
         let (config, agent_state, failures) = harness_inputs(false);
         // `Harness` has no `Debug`, so match rather than `expect_err`.
-        let err = match build_harness(&config, &agent_state, &failures, "gpt-9000", None) {
+        let err = match build_harness(&config, &agent_state, &failures, "gpt-9000", None, None) {
             Ok(_) => panic!("unsupported harness must fail"),
             Err(err) => err,
         };
@@ -389,7 +394,7 @@ mod tests {
             let (config, agent_state, failures) = harness_inputs(use_tmux);
             // `Harness` has no `Debug`, so assert on the `is_ok()` bool.
             assert!(
-                build_harness(&config, &agent_state, &failures, agent_type, None).is_ok(),
+                build_harness(&config, &agent_state, &failures, agent_type, None, None).is_ok(),
                 "{agent_type} (tmux={use_tmux}) should construct"
             );
         }

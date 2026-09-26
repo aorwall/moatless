@@ -428,6 +428,18 @@ export class MoatApi {
     return this.getTask(taskId)
   }
 
+  /** Fork a task after `atTurn`, sending `message` as the fork's first Turn. */
+  async forkTask(
+    taskId: string,
+    options: { atTurn?: number; message?: string },
+  ): Promise<TaskResponse> {
+    const args = ['tasks', 'fork', taskId]
+    if (options.atTurn !== undefined) args.push('--at-turn', String(options.atTurn))
+    if (options.message) args.push('--message', options.message)
+    const created = await this.moat.json<CreatedTask>(args, { timeoutMs: this.sandboxWork })
+    return created.task
+  }
+
   /** Stop a task. Tolerates a task that is not running — teardown calls this blindly. */
   async stopTask(taskId: string): Promise<void> {
     try {

@@ -74,6 +74,8 @@ pub const TABLES: &[(&str, &str)] = &[
     ("teams", "moatless-identity"),
     ("terminal_session_changes", "moatless-core"),
     ("terminal_session_position", "moatless-core"),
+    ("trajectory_events", "moatless-tasks"),
+    ("trajectory_sessions", "moatless-tasks"),
     ("user_credentials", "moatless-identity"),
     ("user_provider_ids", "moatless-identity"),
     ("users", "moatless-identity"),

@@ -19,6 +19,8 @@ use crate::credentials::recovery::CODEX_AUTH_JSON;
 use crate::agent::harness::error::{ErrorClass, FailureStage, HarnessError, SessionImpact};
 use crate::agent::harness::process::{AgentProcess, ProcessEvent, ProcessTermination};
 use crate::agent::harness::signal::{ContextWindow, Input, InputId, SessionId};
+use crate::agent::harness::trajectory::CodexSessionFormat;
+use crate::trajectory_tail::TurnTrajectory;
 
 use super::normalize::{Normalizer, TurnUsage};
 
@@ -90,6 +92,7 @@ pub(crate) struct CodexProcess {
     /// Turn is still opening kills the child mid-handshake instead of waiting
     /// for a reply that may never come.
     cancel_token: CancellationToken,
+    trajectory: Option<TurnTrajectory>,
 }
 
 impl CodexProcess {
@@ -109,6 +112,7 @@ impl CodexProcess {
             usage_baseline: None,
             usage_latest: None,
             cancel_token: CancellationToken::new(),
+            trajectory: None,
         }
     }
 
@@ -190,7 +194,28 @@ impl CodexProcess {
                 .await
                 .map_err(|error| classify::classify_startup_error(&error))?;
 
+        self.trajectory = TurnTrajectory::new(
+            self.cfg.trajectory.as_ref(),
+            Arc::new(CodexSessionFormat),
+            &config,
+            &config.codex_home_dir,
+            input,
+        );
+        let fork_session = match self.trajectory.as_mut() {
+            Some(trajectory) => trajectory.write_out(input).await,
+            None => None,
+        };
         let thread_id = match (&input.fork, &resume) {
+            // The fork's rollout was written out of the trajectory under a new
+            // id, so it resumes like any other thread.
+            (Some(_), _) if fork_session.is_some() => {
+                let thread_id = fork_session.as_deref().unwrap_or_default();
+                let params = codex_app_server::thread_resume_params(&config, &request, thread_id);
+                session
+                    .resume_thread(params)
+                    .await
+                    .map_err(|error| classify::classify_request_error("thread/resume", &error))?
+            }
             // A fork's first turn branches a new thread off the parent's at the
             // cut, then runs its prompt on the copy. The parent is untouched.
             (Some(fork), _) => {
@@ -234,6 +259,9 @@ impl CodexProcess {
             .map_err(|error| classify::classify_request_error("turn/start", &error))?;
 
         info!(%thread_id, %turn_id, %model, "Codex Turn started");
+        if let Some(trajectory) = self.trajectory.as_mut() {
+            trajectory.record(&thread_id);
+        }
         self.normalizer = Normalizer::new(Some(model));
         self.thread_id = Some(thread_id.clone());
         self.turn_id = Some(turn_id);
@@ -574,15 +602,21 @@ impl AgentProcess for CodexProcess {
     }
 
     async fn next(&mut self) -> Option<ProcessEvent> {
-        loop {
+        let event = loop {
             if let Some(event) = self.pending.pop_front() {
-                return Some(event);
+                break Some(event);
             }
             if !self.pump().await {
                 // The stream is finished; hand over the terminal it left, if any.
-                return self.pending.pop_front();
+                break self.pending.pop_front();
+            }
+        };
+        if matches!(event, None | Some(ProcessEvent::Terminated { .. })) {
+            if let Some(trajectory) = &self.trajectory {
+                trajectory.flush().await;
             }
         }
+        event
     }
 }
 

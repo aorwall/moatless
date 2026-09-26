@@ -10,6 +10,8 @@ pub struct FeatureFlags {
     pub gitlab_enabled: bool,
     pub forgejo_enabled: bool,
     pub workspace_settings: bool,
+    /// `FF_TRAJECTORY_RECORDING`: serve `AppendTrajectory` and `ReadTrajectory`.
+    pub trajectory_record: bool,
 }
 
 impl FeatureFlags {
@@ -27,6 +29,7 @@ impl FeatureFlags {
             gitlab_enabled: flag_value(lookup("FF_GITLAB_ENABLED").as_deref(), false),
             forgejo_enabled: flag_value(lookup("FF_FORGEJO_ENABLED").as_deref(), false),
             workspace_settings: flag_value(lookup("FF_WORKSPACE_SETTINGS").as_deref(), true),
+            trajectory_record: flag_value(lookup("FF_TRAJECTORY_RECORDING").as_deref(), false),
         }
     }
 }
@@ -41,6 +44,7 @@ impl Default for FeatureFlags {
             gitlab_enabled: false,
             forgejo_enabled: false,
             workspace_settings: true,
+            trajectory_record: false,
         }
     }
 }
@@ -67,6 +71,7 @@ mod tests {
                 gitlab_enabled: false,
                 forgejo_enabled: false,
                 workspace_settings: true,
+                trajectory_record: false,
             }
         );
     }
@@ -79,6 +84,7 @@ mod tests {
             ("FF_SHOW_CODEX_SETTINGS", "false"),
             ("FF_SHOW_MODEL_SELECTOR", "TRUE"),
             ("FF_WORKSPACE_SETTINGS", "false"),
+            ("FF_TRAJECTORY_RECORDING", "1"),
         ]);
 
         let flags = FeatureFlags::from_lookup(|name| values.get(name).map(ToString::to_string));
@@ -93,6 +99,7 @@ mod tests {
                 gitlab_enabled: false,
                 forgejo_enabled: false,
                 workspace_settings: false,
+                trajectory_record: true,
             }
         );
     }

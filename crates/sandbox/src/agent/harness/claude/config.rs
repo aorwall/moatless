@@ -10,4 +10,6 @@ pub struct ClaudeConfig {
     /// Publishes the interactive calls the permission handler parks on. `None`
     /// in tests, which drive the harness without a backend to publish to.
     pub events: Option<crate::events::GrpcEventPublisher>,
+    /// Where each Session's file is recorded; `None` records nothing.
+    pub trajectory: Option<Arc<crate::trajectory_tail::TrajectoryRecording>>,
 }

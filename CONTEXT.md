@@ -115,6 +115,13 @@ _Avoid_: bare "session" for the user login session — always qualify that as
 "auth session". Do not confuse the Codex thread with an external Slack "thread"
 (that is a Binding).
 
+**Trajectory**:
+Our own record of an Agent harness Session. One immutable event per line of the
+harness session file, each with a parent pointer, the line verbatim, and its
+content in a harness-neutral shape. A Fork's trajectory continues from an event
+in its source's, copying nothing. Harness ids (session, item, turn) are stored as
+values, never as our keys.
+
 **Fork**:
 A Task branched off another Task at one of its completed Turns. It is created
 holding a copy of the parent's conversation (Messages and activities) up to that

@@ -40,6 +40,7 @@ fn e2e_config(workspace_name: &str) -> CodexConfig {
     CodexConfig {
         config: Arc::new(config),
         credential_failures: CredentialFailureDetector::default(),
+        trajectory: None,
     }
 }
 

@@ -14,6 +14,8 @@ use crate::agent::types::{AgentRunRequest, ResumeSession};
 use crate::agent::harness::error::{ErrorClass, FailureStage, HarnessError, SessionImpact};
 use crate::agent::harness::process::{AgentProcess, ProcessEvent, ProcessTermination};
 use crate::agent::harness::signal::{ContextWindow, Input, InputId, RunTotals, SessionId};
+use crate::agent::harness::trajectory::ClaudeSessionFormat;
+use crate::trajectory_tail::TurnTrajectory;
 
 use super::normalize::Normalizer;
 
@@ -113,6 +115,7 @@ pub(crate) struct ClaudeProcess {
     /// Usage from the newest main-thread model response, which is what the
     /// context window holds. See [`context_window`].
     last_response: Option<Usage>,
+    trajectory: Option<TurnTrajectory>,
 }
 
 /// Build the `UserMessage` frame for an input injected into a running Session.
@@ -168,6 +171,7 @@ impl ClaudeProcess {
             resuming: false,
             normalizer: Normalizer::new(),
             last_response: None,
+            trajectory: None,
         }
     }
 
@@ -183,6 +187,9 @@ impl ClaudeProcess {
                 let session = SessionId(init.session_id.clone());
                 self.session_id = Some(init.session_id.clone());
                 self.normalizer.set_session(session.clone());
+                if let Some(trajectory) = self.trajectory.as_mut() {
+                    trajectory.record(&init.session_id);
+                }
                 if !self.session_ready {
                     self.session_ready = true;
                     // Claude carries no native turn id; a fork cuts its transcript
@@ -318,13 +325,27 @@ impl AgentProcess for ClaudeProcess {
             return Ok(());
         }
 
+        self.trajectory = TurnTrajectory::new(
+            self.cfg.trajectory.as_ref(),
+            Arc::new(ClaudeSessionFormat),
+            &self.cfg.config,
+            &self.cfg.config.claude_config_dir,
+            &input,
+        );
+        let fork_session = match self.trajectory.as_mut() {
+            Some(trajectory) => trajectory.write_out(&input).await,
+            None => None,
+        };
         session::ensure_explicit_resume_is_available(
             &self.cfg.config,
             &input.resume,
             input.start_fresh,
         )
         .await?;
-        let resume = self.resolve_resume(&input).await;
+        let resume = match fork_session {
+            Some(id) => Some(ResumeSession::WithId(id)),
+            None => self.resolve_resume(&input).await,
+        };
         self.resuming = resume.is_some();
 
         let request = AgentRunRequest {
@@ -372,6 +393,18 @@ impl AgentProcess for ClaudeProcess {
     }
 
     async fn next(&mut self) -> Option<ProcessEvent> {
+        let event = self.next_event().await;
+        if matches!(event, None | Some(ProcessEvent::Terminated { .. })) {
+            if let Some(trajectory) = &self.trajectory {
+                trajectory.flush().await;
+            }
+        }
+        event
+    }
+}
+
+impl ClaudeProcess {
+    async fn next_event(&mut self) -> Option<ProcessEvent> {
         loop {
             if let Some(event) = self.pending.pop_front() {
                 return Some(event);

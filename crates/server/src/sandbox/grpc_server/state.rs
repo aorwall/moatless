@@ -19,6 +19,7 @@ use moatless_tasks::task::operations::TaskCommands;
 use moatless_tasks::task::relations::TaskRelations;
 use moatless_tasks::task_event::operations::TaskEvents;
 use moatless_tasks::task_turn::operations::TaskTurns;
+use moatless_tasks::trajectory::operations::Trajectories;
 
 use super::authorize::SandboxAuthorizer;
 
@@ -63,6 +64,9 @@ pub struct HandlerDbPorts {
     pub commit_identity: Arc<dyn CommitIdentity>,
     /// The stored access tokens the agent harness runs with.
     pub harness_credentials: Arc<dyn moatless_ports::identity::HarnessCredentials>,
+    /// The trajectory store `AppendTrajectory` and `ReadTrajectory` answer
+    /// from.
+    pub trajectory: Arc<Trajectories>,
 }
 
 /// Durable-admission writers.
@@ -126,6 +130,9 @@ pub struct BackendSandboxServiceImpl {
     /// The sandbox outbox delivers at-least-once, reusing the `event_id` on a
     /// retry. This drops the duplicate before it reaches the feed.
     pub event_dedup: Arc<crate::sandbox::event_dedup::EventDedup>,
+    /// `FF_TRAJECTORY_RECORDING`: both trajectory RPCs answer `Unimplemented`
+    /// while it is off.
+    pub trajectory_record: bool,
 }
 
 /// Construction for the DB-backed integration harness, which lives outside this
@@ -159,6 +166,7 @@ impl BackendSandboxServiceImpl {
             s3_key_prefix: String::new(),
             transcript_s3_prefix: String::new(),
             workspace_s3_prefix: String::new(),
+            trajectory_record: false,
         }
     }
 }

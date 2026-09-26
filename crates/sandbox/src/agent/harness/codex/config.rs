@@ -11,4 +11,6 @@ pub struct CodexConfig {
     /// Codex flag, which the coordinator polls to drive a credential pull +
     /// retry, keeping credential recovery behind the harness.
     pub credential_failures: CredentialFailureDetector,
+    /// Where each Session's file is recorded; `None` records nothing.
+    pub trajectory: Option<Arc<crate::trajectory_tail::TrajectoryRecording>>,
 }

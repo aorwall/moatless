@@ -43,6 +43,8 @@ use crate::task_event::dao::{PgTaskEventDao, TaskEventDao};
 use crate::task_event::operations::TaskEvents;
 use crate::task_turn::dao::{PgTaskTurnDao, TaskTurnDao};
 use crate::task_turn::operations::TaskTurns;
+use crate::trajectory::dao::PgTrajectoryDao;
+use crate::trajectory::operations::Trajectories;
 
 /// Every store the tasks band owns, built once over one pool.
 ///
@@ -105,6 +107,11 @@ impl TaskGraph {
     /// The `task_forks` table, as the delivery path reads it.
     pub fn fork_origins(&self) -> Arc<TaskForks> {
         Arc::new(TaskForks::new(self.forks.clone()))
+    }
+
+    /// The `trajectory_sessions` and `trajectory_events` tables.
+    pub fn trajectory(&self) -> Arc<Trajectories> {
+        Arc::new(Trajectories::new(PgTrajectoryDao(self.db.clone())))
     }
 
     /// The `task_messages` table, as a host reads and writes it.

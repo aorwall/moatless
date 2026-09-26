@@ -27,7 +27,7 @@ tokio-util = { workspace = true }
 # gRPC status type for the event-ingress admission return.
 tonic = { workspace = true }
 tracing = { workspace = true }
-uuid = { workspace = true, features = ["v4", "v5", "serde"] }
+uuid = { workspace = true, features = ["v4", "v5", "v7", "serde"] }
 utoipa = { workspace = true, features = ["axum_extras"] }
 utoipa-axum = { workspace = true }
 

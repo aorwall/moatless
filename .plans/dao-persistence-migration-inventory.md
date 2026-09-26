@@ -16,6 +16,8 @@ A consumer count is the number of `use` declarations naming the concern's module
 | [conversation feed](#conversation-feed) | moatless-core | 01 | 8 | 4 |
 | [events feed](#events-feed) | moatless-core | 01 | 7 | 6 |
 | [listing feed](#listing-feed) | moatless-core | 01 | 5 | 8 |
+| [preview feed](#preview-feed) | moatless-core | 01 | 4 | 4 |
+| [terminal feed](#terminal-feed) | moatless-core | 01 | 4 | 0 |
 | [users](#users) | moatless-identity | 03 | 0 | 0 |
 | [teams](#teams) | moatless-identity | 03 | 0 | 0 |
 | [account creation](#account-creation) | moatless-identity | 04 | 0 | 0 |
@@ -49,6 +51,7 @@ A consumer count is the number of `use` declarations naming the concern's module
 | [outbound events](#outbound-events) | moatless-tasks | 10 | 0 | 0 |
 | [task turns](#task-turns) | moatless-tasks | 11 | 0 | 0 |
 | [task events](#task-events) | moatless-tasks | 11 | 0 | 0 |
+| [trajectory](#trajectory) | moatless-tasks | 11 | 0 | 0 |
 | [event ingress](#event-ingress) | moatless-tasks | 11 | 0 | 0 |
 | [tags](#tags) | moatless-tasks | 12 | 0 | 0 |
 | [feedback](#feedback) | moatless-tasks | 12 | 0 | 0 |
@@ -122,6 +125,28 @@ A consumer count is the number of `use` declarations naming the concern's module
 - **Constructors:** none
 - **Peer consumers:** moatless-tasks (1)
 - **Test-only consumers:** moatless-backend (7)
+
+## preview feed
+
+- **Owner:** moatless-core
+- **Closing slice:** 01
+- **Persistence roots:** `crates/core/src/change_feed/preview/dao.rs`
+- **Owning tables:** `preview_tab_changes`, `preview_tab_position`
+- **Exports:** `change_feed::preview::current_position`, `change_feed::preview::opens_after`, `change_feed::preview::prune_opens`, `change_feed::preview::record_open`
+- **Constructors:** none
+- **Peer consumers:** none
+- **Test-only consumers:** moatless-backend (4)
+
+## terminal feed
+
+- **Owner:** moatless-core
+- **Closing slice:** 01
+- **Persistence roots:** `crates/core/src/change_feed/terminal/dao.rs`
+- **Owning tables:** `terminal_session_changes`, `terminal_session_position`
+- **Exports:** `change_feed::terminal::current_position`, `change_feed::terminal::prune_starts`, `change_feed::terminal::record_start`, `change_feed::terminal::starts_after`
+- **Constructors:** none
+- **Peer consumers:** none
+- **Test-only consumers:** none
 
 ## users
 
@@ -339,7 +364,7 @@ A consumer count is the number of `use` declarations naming the concern's module
 - **Persistence roots:** `crates/t3code/src/dao.rs`, `crates/t3code/src/transcript_dao.rs`
 - **Owning tables:** none
 - **Exports:** none
-- **Constructors:** `ConversationBrowse::new`, `PgConversationDao::new`
+- **Constructors:** `ArchiveCursor::after`, `ArchiveCursor::decode`, `ConversationBrowse::new`, `PgConversationDao::new`
 - **Peer consumers:** none
 - **Test-only consumers:** none
 
@@ -481,6 +506,17 @@ A consumer count is the number of `use` declarations naming the concern's module
 - **Closing slice:** 11
 - **Persistence roots:** `crates/tasks/src/task_event/dao.rs`
 - **Owning tables:** `task_events`
+- **Exports:** none
+- **Constructors:** none
+- **Peer consumers:** none
+- **Test-only consumers:** none
+
+## trajectory
+
+- **Owner:** moatless-tasks
+- **Closing slice:** 11
+- **Persistence roots:** `crates/tasks/src/trajectory/dao.rs`
+- **Owning tables:** `trajectory_events`, `trajectory_sessions`
 - **Exports:** none
 - **Constructors:** none
 - **Peer consumers:** none

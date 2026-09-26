@@ -9,13 +9,14 @@ use std::time::Duration;
 
 use sandbox_proto::backend_sandbox_service_client::BackendSandboxServiceClient;
 use sandbox_proto::{
-    AcknowledgeMessagesRequest, DownloadTranscriptRequest, DownloadUploadRequest,
-    DownloadUploadResponse, EnqueueSandboxMessageRequest, GetCredentialsRequest,
-    GetCredentialsResponse, GetPendingMessagesRequest, GetSystemPromptRequest,
-    GetWorkspaceRepositoryAccessRequest, GetWorkspaceRepositoryAccessResponse,
-    GetWorkspaceSyncUrlsRequest, GetWorkspaceSyncUrlsResponse, InterruptedTurn,
-    PendingAgentDelivery, PublishEventRequest, RecordGitPushRequest,
-    RecordUnreportedCommandsRequest, RecoverInterruptedRunRequest, ReportWorkspaceSyncRequest,
+    AcknowledgeMessagesRequest, AppendTrajectoryRequest, AppendTrajectoryResponse,
+    DownloadTranscriptRequest, DownloadUploadRequest, DownloadUploadResponse,
+    EnqueueSandboxMessageRequest, GetCredentialsRequest, GetCredentialsResponse,
+    GetPendingMessagesRequest, GetSystemPromptRequest, GetWorkspaceRepositoryAccessRequest,
+    GetWorkspaceRepositoryAccessResponse, GetWorkspaceSyncUrlsRequest,
+    GetWorkspaceSyncUrlsResponse, InterruptedTurn, PendingAgentDelivery, PublishEventRequest,
+    ReadTrajectoryRequest, RecordGitPushRequest, RecordUnreportedCommandsRequest,
+    RecoverInterruptedRunRequest, ReportWorkspaceSyncRequest, SessionHeader,
     TakeUnreportedCommandsRequest, TranscriptChunk, UnreportedCommand, UpdateCredentialRequest,
 };
 
@@ -208,6 +209,27 @@ pub trait BackendClient: Send + Sync {
         Err(tonic::Status::unimplemented(
             "sandbox message enqueue not supported",
         ))
+    }
+
+    /// Record harness session lines into the Task's trajectory.
+    ///
+    /// Default impl answers `Unimplemented`, which the recorder reads as
+    /// recording off.
+    async fn append_trajectory(
+        &self,
+        _req: AppendTrajectoryRequest,
+    ) -> Result<AppendTrajectoryResponse, tonic::Status> {
+        Err(tonic::Status::unimplemented("trajectory not supported"))
+    }
+
+    /// Read a trajectory session whole: its header and every line,
+    /// root-first. `NotFound`, `DataLoss` and `Unimplemented` send the caller
+    /// to the transcript archive.
+    async fn read_trajectory(
+        &self,
+        _req: ReadTrajectoryRequest,
+    ) -> Result<(SessionHeader, Vec<String>), tonic::Status> {
+        Err(tonic::Status::unimplemented("trajectory not supported"))
     }
 
     /// Replace the Bearer token injected on subsequent gRPC calls.
@@ -519,6 +541,36 @@ impl BackendClient for BackendGrpcClient {
             data.extend_from_slice(&chunk?.data);
         }
         Ok(data)
+    }
+
+    async fn append_trajectory(
+        &self,
+        req: AppendTrajectoryRequest,
+    ) -> Result<AppendTrajectoryResponse, tonic::Status> {
+        let mut client = self.client.clone();
+        Ok(client.append_trajectory(req).await?.into_inner())
+    }
+
+    async fn read_trajectory(
+        &self,
+        req: ReadTrajectoryRequest,
+    ) -> Result<(SessionHeader, Vec<String>), tonic::Status> {
+        use futures::StreamExt;
+        use sandbox_proto::read_trajectory_chunk::Body;
+
+        let mut client = self.client.clone();
+        let mut stream = client.read_trajectory(req).await?.into_inner();
+        let mut header = None;
+        let mut lines = Vec::new();
+        while let Some(chunk) = stream.next().await {
+            match chunk?.body {
+                Some(Body::Header(h)) => header = Some(h),
+                Some(Body::Line(line)) => lines.push(line),
+                None => {}
+            }
+        }
+        let header = header.ok_or_else(|| Status::data_loss("trajectory stream had no header"))?;
+        Ok((header, lines))
     }
 
     async fn get_workspace_sync_urls(

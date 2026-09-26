@@ -239,6 +239,7 @@ pub fn grpc_service(
         Arc<crate::sandbox::workspace_repository::WorkspaceRepositoryAccess>,
     >,
     connector: Arc<dyn sandbox_proto::client::SandboxConnector>,
+    trajectory_record: bool,
 ) -> BackendSandboxServiceImpl {
     // `tasks` and `users` are read by the authorizer's control gate; the request
     // handlers reach them (and the rest of the db-backed set) through `handlers`.
@@ -296,6 +297,7 @@ pub fn grpc_service(
             user_logins: p.user_directory.clone(),
             commit_identity: p.user_directory.clone(),
             harness_credentials: p.harness_credentials.clone(),
+            trajectory: p.task_graph.trajectory(),
         }
     });
 
@@ -325,5 +327,6 @@ pub fn grpc_service(
         transcript_s3_prefix,
         workspace_s3_prefix,
         event_dedup: Arc::new(crate::sandbox::event_dedup::EventDedup::new()),
+        trajectory_record,
     }
 }

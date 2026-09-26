@@ -34,6 +34,7 @@ pub mod state;
 pub mod supervisor;
 pub mod task_scripts;
 pub mod terminal;
+pub mod trajectory_tail;
 
 pub(crate) mod transcript_sync;
 pub mod workspace_sync;

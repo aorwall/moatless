@@ -221,6 +221,23 @@ impl BackendSandboxService for UploadOnlyBackend {
     ) -> Result<Response<EnqueueSandboxMessageResponse>, Status> {
         Err(Status::unimplemented("not used"))
     }
+
+    async fn append_trajectory(
+        &self,
+        _request: Request<sandbox_proto::AppendTrajectoryRequest>,
+    ) -> Result<Response<sandbox_proto::AppendTrajectoryResponse>, Status> {
+        Err(Status::unimplemented("not used"))
+    }
+
+    type ReadTrajectoryStream =
+        Pin<Box<dyn Stream<Item = Result<sandbox_proto::ReadTrajectoryChunk, Status>> + Send>>;
+
+    async fn read_trajectory(
+        &self,
+        _request: Request<sandbox_proto::ReadTrajectoryRequest>,
+    ) -> Result<Response<Self::ReadTrajectoryStream>, Status> {
+        Err(Status::unimplemented("not used"))
+    }
 }
 
 /// Serve `backend` on an ephemeral loopback port and return a client wired to
