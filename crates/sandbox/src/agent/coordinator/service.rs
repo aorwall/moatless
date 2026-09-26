@@ -325,6 +325,16 @@ impl CoordinatorService {
                             }
                         }
 
+                        // Counted before the coordinator publishes `Completed`,
+                        // over the same set `arm_scheduled_jobs` then watches.
+                        if matches!(outcome_ref, Some(Outcome::Completed { .. }))
+                            && !self.config.use_tmux
+                        {
+                            let owed = self.commands.unreported().await.len();
+                            self.coordinator
+                                .defer_completion_for_background_commands(owed);
+                        }
+
                         // The coordinator updates Run identity and acks, moves
                         // the state machine, and publishes — one act per
                         // signal, so the turn the events describe and the turn

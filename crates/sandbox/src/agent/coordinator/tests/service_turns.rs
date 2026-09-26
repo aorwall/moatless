@@ -289,3 +289,78 @@ async fn coordinator_service_send_without_model_reuses_last_model() {
 
     cancel.cancel();
 }
+
+/// Run one scripted turn to `completed` and return that event's payload.
+async fn completed_payload(commands: Arc<crate::commands::CommandRegistry>) -> serde_json::Value {
+    let cancel = CancellationToken::new();
+    let config = {
+        let mut c = minimal_config();
+        c.agent_type = Some("claude-code".to_string());
+        Arc::new(c)
+    };
+    let script = Script::new(vec![
+        Step::SessionReady(SessionId("sess-1".to_string())),
+        Step::AcceptInput,
+        Step::Completed,
+    ]);
+    let (tx, received, events) = service_with_commands(
+        Harness::scripted(script),
+        config,
+        Arc::new(AgentState::new()),
+        cancel.clone(),
+        commands,
+    );
+    let (ack_tx, _ack_rx) = oneshot::channel();
+    tx.send(AgentCommand::Send {
+        text: "go".to_string(),
+        model: None,
+        agent_mode: None,
+        effort: None,
+        resume_session_id: None,
+        start_fresh: false,
+        fork: None,
+        ack: ack_tx,
+    })
+    .expect("channel open");
+
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    while count_sub_type(&received, "completed") == 0 {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "completed event not published within 5 s"
+        );
+        flush(&events).await;
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let payload = only(&received, "completed").payload_json;
+    cancel.cancel();
+    serde_json::from_str(&payload).expect("payload is JSON")
+}
+
+/// The backend holds a child's parent notice on this count; see
+/// `handle_agent_completed`.
+#[tokio::test]
+async fn completed_counts_the_commands_the_background_watch_will_wake_for() {
+    let commands = Arc::new(crate::commands::CommandRegistry::for_test());
+    let running = commands
+        .run(crate::commands::CommandSpec {
+            command: "sleep 30".to_string(),
+            cwd: None,
+            timeout: None,
+            label: None,
+        })
+        .await
+        .expect("spawn");
+
+    let payload = completed_payload(Arc::clone(&commands)).await;
+    commands.kill(&running.id).await.expect("kill");
+
+    assert_eq!(payload["backgroundCommands"], 1);
+}
+
+#[tokio::test]
+async fn completed_without_background_commands_carries_no_count() {
+    let payload = completed_payload(Arc::new(crate::commands::CommandRegistry::for_test())).await;
+
+    assert!(payload.get("backgroundCommands").is_none(), "{payload}");
+}

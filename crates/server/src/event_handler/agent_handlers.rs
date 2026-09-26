@@ -257,6 +257,18 @@ pub async fn handle_agent_completed(state: &AppState, event: &AgentEvent) {
     }
 
     // A task closed mid-run tells its parent nothing, as in `handle_agent_error`.
+    // Nor does a turn that left `moat cmd` commands owed a wake, which also
+    // keeps a `stop_when_done` sandbox: the wake's turn does both.
+    let background_commands = event
+        .payload
+        .get("backgroundCommands")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+    if background_commands > 0 {
+        // Deliberately before the stop: `running_commands` misses an exited
+        // command the agent has not read, and stopping would kill its watch.
+        return;
+    }
     if reopened {
         notify_parent_of_child_outcome(
             &AgentErrorPorts::from(state),

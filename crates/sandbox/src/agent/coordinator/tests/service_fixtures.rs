@@ -30,6 +30,27 @@ pub(super) fn service_with_harness(
     Arc<Mutex<Vec<PublishEventRequest>>>,
     GrpcEventPublisher,
 ) {
+    service_with_commands(
+        harness,
+        config,
+        agent_state,
+        cancel,
+        Arc::new(crate::commands::CommandRegistry::for_test()),
+    )
+}
+
+/// Like `service_with_harness` over a caller-held `moat cmd` registry.
+pub(super) fn service_with_commands(
+    harness: Harness,
+    config: Arc<Config>,
+    agent_state: Arc<AgentState>,
+    cancel: CancellationToken,
+    commands: Arc<crate::commands::CommandRegistry>,
+) -> (
+    mpsc::UnboundedSender<AgentCommand>,
+    Arc<Mutex<Vec<PublishEventRequest>>>,
+    GrpcEventPublisher,
+) {
     let (events, received, _outbox_cancel) = recording_publisher_with_cancel(cancel);
     let coordinator = Coordinator::new(harness, events.clone(), "task-1");
     let service = CoordinatorService::new(
@@ -42,7 +63,7 @@ pub(super) fn service_with_harness(
         }),
         Arc::new(RwLock::new(None)),
         Arc::new(ScheduledJobRegistry::new(Arc::new(LateInjector::new()))),
-        Arc::new(crate::commands::CommandRegistry::for_test()),
+        commands,
         CredentialFailureDetector::default(),
         Arc::new(Dispatcher::new()),
         crate::workspace_sync::WorkspaceSyncTracker::new(),

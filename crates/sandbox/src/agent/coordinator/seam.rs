@@ -74,6 +74,9 @@ pub struct Coordinator {
     /// outcome, so the user sees `retrying` instead once the service decides to
     /// retry a transient failure.
     suppress_failure_event: bool,
+    /// One-shot: `moat cmd` commands the background watch will wake the agent
+    /// for, stamped on the next `Completed` as `backgroundCommands`.
+    background_commands: usize,
     /// The state machine this coordinator drives.
     ///
     /// Held here so a signal reaches it and the event stream as one act; a turn
@@ -107,6 +110,7 @@ impl Coordinator {
             last_activity_publish: None,
             hold_run_id: false,
             suppress_failure_event: false,
+            background_commands: 0,
             agent_state: None,
             run_cancel: None,
             turn_active: false,
@@ -223,6 +227,14 @@ impl Coordinator {
     /// error with budget remaining, so it can publish `retrying` instead.
     pub(crate) fn suppress_next_failure_event(&mut self) {
         self.suppress_failure_event = true;
+    }
+
+    /// Stamp the next `Completed` with the commands still owed a wake.
+    ///
+    /// A non-zero count tells the backend the turn is not the child's last, so
+    /// it holds the parent's completion notice for the turn the wake opens.
+    pub(crate) fn defer_completion_for_background_commands(&mut self, count: usize) {
+        self.background_commands = count;
     }
 
     /// Map one signal onto Run/ack/state/publication effects.
@@ -520,7 +532,11 @@ impl Coordinator {
                 // The terminal carries the run's authoritative token/cost totals
                 // when the harness reported them; an older runtime that reported
                 // none still publishes so the turn closes, just with an empty body.
-                let payload = totals.map_or_else(|| json!({}), |t| t.to_payload());
+                let mut payload = totals.map_or_else(|| json!({}), |t| t.to_payload());
+                let background_commands = std::mem::take(&mut self.background_commands);
+                if background_commands > 0 {
+                    payload["backgroundCommands"] = json!(background_commands);
+                }
                 self.run_events()
                     .publish_agent_event(&self.task_id, AgentSubType::Completed, payload)
                     .await;

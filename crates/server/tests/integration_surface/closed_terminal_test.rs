@@ -357,6 +357,57 @@ async fn redelivered_completion_adds_no_second_notice_but_a_new_turn_does(pool: 
 }
 
 #[sqlx::test]
+async fn a_turn_leaving_background_commands_defers_the_notice_to_the_wake_turn(pool: PgPool) {
+    seed_task_pair_with_created_by(&pool, "task-parent", "task-child").await;
+    let (state, waker) = state_with_recording_waker(&pool);
+
+    let mut first = completed_event("evt-turn-1", "task-child", 1);
+    first.payload = serde_json::json!({ "is_error": false, "backgroundCommands": 1 });
+    handle_agent_completed(&state, &first).await;
+
+    assert!(visible_parent_texts(&pool, "task-parent").await.is_empty());
+    assert!(waker.woken.lock().unwrap().is_empty());
+
+    handle_agent_completed(&state, &completed_event("evt-turn-2", "task-child", 2)).await;
+
+    assert_eq!(
+        visible_parent_texts(&pool, "task-parent").await,
+        vec![completion_notice(2)]
+    );
+    assert_eq!(
+        *waker.woken.lock().unwrap(),
+        vec!["task-parent".to_string()]
+    );
+}
+
+async fn desired_state_of(pool: &PgPool, sandbox_id: &str) -> String {
+    sqlx::query_scalar("SELECT desired_state FROM sandboxes WHERE sandbox_id = $1")
+        .bind(sandbox_id)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+}
+
+#[sqlx::test]
+async fn a_turn_leaving_background_commands_keeps_a_stop_when_done_sandbox(pool: PgPool) {
+    seed_task_pair_with_created_by(&pool, "task-parent", "task-child").await;
+    sqlx::query("UPDATE sandboxes SET stop_when_done = true WHERE sandbox_id = 'task-child'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let before = desired_state_of(&pool, "task-child").await;
+    let state = test_app_state(pool.clone());
+
+    let mut first = completed_event("evt-turn-1", "task-child", 1);
+    first.payload = serde_json::json!({ "is_error": false, "backgroundCommands": 1 });
+    handle_agent_completed(&state, &first).await;
+    assert_eq!(desired_state_of(&pool, "task-child").await, before);
+
+    handle_agent_completed(&state, &completed_event("evt-turn-2", "task-child", 2)).await;
+    assert_eq!(desired_state_of(&pool, "task-child").await, "stopped");
+}
+
+#[sqlx::test]
 async fn completed_fork_notifies_nobody(pool: PgPool) {
     let repo = make_repository_row("repo-1", "user-1");
     compose::seed_repository(&pool, &repo).await.unwrap();
