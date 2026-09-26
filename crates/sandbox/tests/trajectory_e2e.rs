@@ -968,3 +968,146 @@ async fn both_harnesses_give_one_content_shape() {
         assert_eq!(trimmed, expected);
     }
 }
+
+// ── Transcode (phase 0) ──────────────────────────────────────────────────────
+
+/// One recorded conversation in each harness, rendered into the other
+/// harness's format by `fixtures/transcode/spike_transcode.py`.
+const CODEX_FROM_CLAUDE: &str = include_str!("fixtures/transcode/codex-from-claude.jsonl");
+const CLAUDE_FROM_CODEX: &str = include_str!("fixtures/transcode/claude-from-codex.jsonl");
+const CODEX_FROM_CLAUDE_COMPACTED: &str =
+    include_str!("fixtures/transcode/codex-from-claude-compacted.jsonl");
+const CLAUDE_FROM_CODEX_COMPACTED: &str =
+    include_str!("fixtures/transcode/claude-from-codex-compacted.jsonl");
+
+impl RealEnv {
+    /// Writes a transcoded fixture as a session file of this harness under a
+    /// new id, as a switch session would be written, and returns the id.
+    fn install_transcoded(&self, fixture: &str) -> String {
+        let id = uuid::Uuid::now_v7().to_string();
+        let cwd = std::fs::canonicalize(self.cwd()).unwrap();
+        let body = fixture
+            .replace("{{SESSION_ID}}", &id)
+            .replace("{{CWD}}", &cwd.display().to_string());
+        let first = body.lines().next().unwrap();
+        let path = self.format().session_path(&self.home(), &cwd, &id, first);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, body).unwrap();
+        id
+    }
+}
+
+impl TestTask<'_> {
+    /// Resumes a transcoded session the Task did not write.
+    fn resuming(mut self, session: String) -> Self {
+        self.session = Some(session);
+        self
+    }
+}
+
+async fn transcoded_resume_knows_history(env: RealEnv, fixture: &str) {
+    let backend = Arc::new(MemoryTrajectoryBackend::default());
+    let session = env.install_transcoded(fixture);
+    let mut task = env.task("transcoded", &backend).resuming(session.clone());
+    let answer = task
+        .turn("Without using any tools: what is our project's release name, and which file did we write it into? Reply in one sentence.")
+        .await;
+    assert!(knows(&answer, "PERIWINKLE"), "{answer}");
+    assert!(answer.contains("release.txt"), "{answer}");
+    assert_eq!(
+        task.session(),
+        session,
+        "the CLI resumed the synthesised session"
+    );
+}
+
+#[tokio::test]
+#[ignore = "runs real Codex; needs TRAJECTORY_E2E=1"]
+async fn claude_to_codex_resume_knows_history() {
+    let Some(env) = RealEnv::codex() else { return };
+    transcoded_resume_knows_history(env, CODEX_FROM_CLAUDE).await;
+}
+
+#[tokio::test]
+#[ignore = "runs real Claude Code; needs TRAJECTORY_E2E=1"]
+async fn codex_to_claude_resume_knows_history() {
+    let Some(env) = RealEnv::claude() else { return };
+    transcoded_resume_knows_history(env, CLAUDE_FROM_CODEX).await;
+}
+
+/// Claude's `Read` and Codex's `apply_patch` have no counterpart, so each
+/// becomes a described call. The test writes 4471 into that call's result,
+/// and nowhere else, so only the description can supply it.
+#[tokio::test]
+#[ignore = "runs real Claude Code and Codex; needs TRAJECTORY_E2E=1"]
+async fn transcoded_tool_call_is_described() {
+    let (Some(claude), Some(codex)) = (RealEnv::claude(), RealEnv::codex()) else {
+        return;
+    };
+    let backend = Arc::new(MemoryTrajectoryBackend::default());
+
+    let fixture = with_result_marker(
+        CODEX_FROM_CLAUDE,
+        r"It returned:\n1\tPERIWINKLE",
+        r"It returned:\n1\tPERIWINKLE\n2\tchecksum 4471",
+    );
+    let session = codex.install_transcoded(&fixture);
+    let mut task = codex.task("described", &backend).resuming(session);
+    let answer = task
+        .turn("Without using any tools: when release.txt was read earlier in this conversation, what did its second line say? Reply in one sentence.")
+        .await;
+    assert!(
+        answer.contains("4471"),
+        "the described Read result: {answer}"
+    );
+
+    let fixture = with_result_marker(
+        CLAUDE_FROM_CODEX,
+        "Wall time: 0 seconds",
+        "Wall time: 4471 seconds",
+    );
+    let session = claude.install_transcoded(&fixture);
+    let mut task = claude.task("described", &backend).resuming(session);
+    let answer = task
+        .turn("Without using any tools: what wall time did the apply_patch call earlier in this conversation report? Reply in one sentence.")
+        .await;
+    assert!(
+        answer.contains("4471"),
+        "the described apply_patch result: {answer}"
+    );
+}
+
+/// `fixture` with the one occurrence of `from` replaced by `to`.
+fn with_result_marker(fixture: &str, from: &str, to: &str) -> String {
+    assert_eq!(
+        fixture.matches(from).count(),
+        1,
+        "{from} is in the fixture once"
+    );
+    fixture.replace(from, to)
+}
+
+/// S5: a compacted session transcodes from its summary.
+#[tokio::test]
+#[ignore = "runs real Claude Code and Codex; needs TRAJECTORY_E2E=1"]
+async fn transcoded_compaction_keeps_the_summary() {
+    let (Some(claude), Some(codex)) = (RealEnv::claude(), RealEnv::codex()) else {
+        return;
+    };
+    let backend = Arc::new(MemoryTrajectoryBackend::default());
+    for (env, fixture) in [
+        (&codex, CODEX_FROM_CLAUDE_COMPACTED),
+        (&claude, CLAUDE_FROM_CODEX_COMPACTED),
+    ] {
+        let session = env.install_transcoded(fixture);
+        let mut task = env.task("compacted", &backend).resuming(session);
+        let answer = task
+            .turn("Without using any tools: list every release name I have told you, separated by commas.")
+            .await;
+        assert!(
+            knows(&answer, "PERIWINKLE") && knows(&answer, "SAFFRON"),
+            "{:?}: {answer}",
+            env.kind
+        );
+    }
+}

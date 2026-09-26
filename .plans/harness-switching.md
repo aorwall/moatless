@@ -331,6 +331,8 @@ through it. "The fork's first turn has not run" is not stored: it is "the fork
 Task has no top-level `trajectory_sessions` row with an event". This replaces the
 `source_session_id` sentinel (`0150_task_forks.sql`).
 
+A frozen Task has no event to name, so forking it is refused (5.2).
+
 ### 4.7 `task_events` (writers changed)
 
 Only the rename in 4.5. `agent.message` is no longer written; existing rows stay
@@ -565,6 +567,7 @@ T3 and the CLI are the only clients and ship in the same release.
 | Target profile's credential missing | 400, the create-time message (`missing_credential_hint`) |
 | `model` not offered by the target profile | 400 |
 | Harness switch on a frozen Task (no Trajectory) | 409 `"This Task was created before recording and cannot switch harness"` |
+| Fork (or rewind by fork) of a frozen Task, on `POST /tasks/{id}/fork` | 409 `"This Task was created before recording and cannot be forked"` |
 | Target is a Claude Code profile whose `use_tmux` differs from the Sandbox's | 409 `"This Sandbox cannot run <label>"` |
 | `model` of another profile without `agent_profile` | 400, as today (`task/handlers.rs:500-506`) |
 
@@ -826,6 +829,19 @@ writer per table, and removes its own temporary scaffolding before it closes.
 conversation, both formats, both directions) and the `ToolMap`. If either CLI
 refuses a synthesised session, stop: decision 1 depends on it.
 
+**Outcome:** both CLIs accept a synthesised session and answer from it,
+including across a compaction and through the text fallback (Claude Code
+2.1.281, Codex 0.156.1). The ToolMap, what each CLI requires of a line it did
+not write, the injected-line shapes and both compaction shapes are in
+`crates/sandbox/tests/fixtures/transcode/README.md`, which phase 2 implements
+against. Two facts the spec did not have:
+- Claude's compaction keeps a `preservedSegment` (the last assistant reply)
+  verbatim before its `compact_boundary`. The summary covers it, so S5 starts at
+  the `isCompactSummary` line and does not transcode that segment.
+- Codex tolerates an unpaired call or output, and Claude a missing `cwd` or
+  `sessionId`; Claude needs the `parentUuid` chain and Codex a `session_meta`
+  first line, or they lose the history or refuse the file.
+
 ## Phase 1a — Naming
 
 One mechanical PR, no behaviour change; the PR body says so, so a reviewer reads
@@ -837,12 +853,17 @@ it apart from the phases that follow.
   shared `Harness`. `AgentEntry.kind` → `harness`; add `catalog::harness_of`.
 - Sandbox: `resolve_agent_harness` (`agent/compose.rs`) returns `Harness`;
   `TaskContext.agent_type` → `agent_profile`; `AGENT_TYPE` env → `AGENT_PROFILE`.
-- Migration: the renames in 4.5.
+- Migration: the renames in 4.5, and `agent_type` → `agent_profile` inside
+  stored `task_events` payloads, so no reader keeps the old key.
+- LOOP.md frontmatter and task template frontmatter live in user repositories
+  the migration cannot reach: their parse types take `agent_profile` and accept
+  `agent_type` as a deprecated serde alias, with a test. That alias is the only
+  `agent_type` left outside migrations.
 - Proto renames in 5.1 (same field numbers); `api-schemas` and OpenAPI; CLI
   flags; T3 (`soaplabs/t3code`) in the same release.
 
-Verification: `rg -w 'agent_type|AgentType|AgentKind'` matches only migrations
-and the rename migration's comment; full clippy floor; the E2E suite (Test plan, T0 regression set) green.
+Verification: `rg -w 'agent_type|AgentType|AgentKind'` matches only migrations,
+the rename migration's comment, and the frontmatter alias and its test; full clippy floor; the E2E suite (Test plan, T0 regression set) green.
 
 ## Phase 1 — Complete, always-on recording
 
@@ -904,6 +925,7 @@ Backend:
   same-harness fork trigger (4.3); `task_forks.source_event_id` (4.6), backfilled
   with `resolve_cut` where a Trajectory exists.
 - `insert_switch_session`, `transcode_items` (S4, S5).
+- Fork creation refuses a frozen source with 409 (5.2).
 - `resolve_cut` returns an event; `insert_fork_session` transcodes across
   harnesses (S7); `task/rewind.rs:118` reads the cut session's `harness` instead
   of the Task's.
@@ -1122,7 +1144,7 @@ Sandbox is never tmux).
 
 | Phase | Test |
 |---|---|
-| 2 | `crates/server/tests/integration_surface/`: the REST table in 5.2 row by row, including the missing-credential 400 and the frozen-Task 409, which the E2E cannot set up |
+| 2 | `crates/server/tests/integration_surface/`: the REST table in 5.2 row by row, including the missing-credential 400 and both frozen-Task 409s (switch and fork), which the E2E cannot set up |
 | 2 | DB: a retried switch read returns the same session; the fork trigger rejects a cross-harness `forked_from_event_id` |
 | 3 | DB: one rejected row per origin `CHECK`; the adapter unique index; `mark_delivered` ports every case in `dao_turn_trigger_db_tests.rs`; a turn opened only by `sandbox` items inherits the previous trigger; the `task_turns` trigger `CHECK` |
 | 3 | A redelivered child notice inserts nothing and wakes nobody; a notice waits out `backgroundCommands`; a parent that did not trigger the turn gets none (#1004, #1008, #1011) |
@@ -1159,11 +1181,13 @@ E2E: `scripts/local-e2e/run.sh` (the `e2e-testing` skill), per the Test plan.
 | Projection slows `AppendTrajectory` | Every line | Measure in phase 4; one small upsert per line |
 | Positions change on rebuild | T3 cursors | `task_conversation_changes` reset signal; T3 reloads |
 | The rename breaks an external API caller | Phase 1a | T3 and CLI are the only clients; ship together |
+| The rename breaks a user's LOOP.md or template | Phase 1a | `agent_type` stays a deprecated alias at that parse boundary |
 
-## Open questions
+## Settled questions
 
-- **Forking a frozen Task.** `source_event_id` has no event to name. Refuse the
-  fork, or keep a session-file anchor for frozen Tasks only.
-- **Names.** "Agent profile" for the catalog entry; `task_inbox`,
-  `conversation_messages`, `conversation_activities` for the tables. The
-  glossary's **Message** and **Activity** stay the domain words.
+- **Forking a frozen Task** is refused with 409 (5.2); `source_event_id` stays
+  the only anchor and phase 5 deletes `copy_conversation` as planned. Every Task
+  created before phase 1 deploys is frozen, since recording was off by default.
+- **Names** are the ones this plan uses: "Agent profile" for the catalog entry;
+  `task_inbox`, `conversation_messages`, `conversation_activities` for the
+  tables. The glossary's **Message** and **Activity** stay the domain words.
