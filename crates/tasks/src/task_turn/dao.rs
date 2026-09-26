@@ -155,6 +155,14 @@ pub trait TaskTurnDao: Send + Sync {
     /// replies, outbound stubs), which belong to the turn already in progress.
     async fn latest_turn_number(&self, task_id: &str) -> Result<Option<i32>, sqlx::Error>;
 
+    /// The task whose message opened `turn_number`, the one told how it ended.
+    /// `None` for a turn a person or nobody opened.
+    async fn triggered_by_task_id(
+        &self,
+        task_id: &str,
+        turn_number: i32,
+    ) -> Result<Option<String>, sqlx::Error>;
+
     /// The status of the task's most recently *closed* turn, or `None`.
     ///
     /// Open turns are skipped so the answer doesn't flip once the next run
@@ -572,6 +580,21 @@ impl TaskTurnDao for PgTaskTurnDao {
         .fetch_one(&self.0)
         .await?;
         Ok(latest)
+    }
+
+    async fn triggered_by_task_id(
+        &self,
+        task_id: &str,
+        turn_number: i32,
+    ) -> Result<Option<String>, sqlx::Error> {
+        let row: Option<(Option<String>,)> = sqlx::query_as(
+            "SELECT triggered_by_task_id FROM task_turns WHERE task_id = $1 AND turn_number = $2",
+        )
+        .bind(task_id)
+        .bind(turn_number)
+        .fetch_optional(&self.0)
+        .await?;
+        Ok(row.and_then(|(trigger,)| trigger))
     }
 
     async fn latest_closed_turn_status(

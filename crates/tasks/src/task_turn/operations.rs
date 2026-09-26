@@ -77,6 +77,15 @@ impl TaskTurns {
         self.store.latest_turn_number(task_id).await
     }
 
+    /// See [`TaskTurnDao::triggered_by_task_id`].
+    pub async fn triggered_by_task_id(
+        &self,
+        task_id: &str,
+        turn_number: i32,
+    ) -> Result<Option<String>, sqlx::Error> {
+        self.store.triggered_by_task_id(task_id, turn_number).await
+    }
+
     /// See [`TaskTurnDao::latest_closed_turn_status`].
     pub async fn latest_closed_turn_status(
         &self,

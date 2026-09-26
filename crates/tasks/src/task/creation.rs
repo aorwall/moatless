@@ -128,6 +128,8 @@ pub struct FirstMessage {
     pub message_uuid: Option<String>,
     /// Skills to activate for this first turn.
     pub skills: Vec<String>,
+    /// The `created_by` parent, which the first turn then reports to.
+    pub source_task_id: Option<String>,
 }
 
 /// Whether the best-effort provision step started the sandbox. Ticket 02's
@@ -743,6 +745,7 @@ mod tests {
             sent_by: Some("user1".into()),
             message_uuid: None,
             skills: vec![],
+            source_task_id: None,
         }
     }
 
@@ -928,6 +931,7 @@ mod tests {
             sent_by: Some("user1".into()),
             message_uuid: None,
             skills: vec![],
+            source_task_id: None,
         });
 
         let message_order = Arc::clone(&order);
@@ -1324,6 +1328,7 @@ mod tests {
             sent_by: Some("user1".into()),
             message_uuid: None,
             skills: vec![],
+            source_task_id: None,
         });
 
         let message_order = Arc::clone(&order);
@@ -1390,6 +1395,7 @@ mod tests {
             sent_by: Some("user1".into()),
             message_uuid: None,
             skills: vec![],
+            source_task_id: None,
         });
 
         let err = svc
@@ -1449,6 +1455,7 @@ mod tests {
             sent_by: Some("user1".into()),
             message_uuid: None,
             skills: vec![],
+            source_task_id: None,
         });
 
         let message_order = Arc::clone(&order);

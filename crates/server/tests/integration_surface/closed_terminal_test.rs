@@ -83,6 +83,19 @@ async fn seed_task_pair_with_created_by(pool: &PgPool, parent_task_id: &str, chi
         .unwrap();
 }
 
+/// Open the child's turn as one its parent's message triggered.
+async fn seed_turn_triggered_by(pool: &PgPool, task_id: &str, turn_number: i32, trigger: &str) {
+    sqlx::query(
+        "INSERT INTO task_turns (task_id, turn_number, triggered_by_task_id) VALUES ($1, $2, $3)",
+    )
+    .bind(task_id)
+    .bind(turn_number)
+    .bind(trigger)
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
 async fn status_of(pool: &PgPool, task_id: &str) -> TaskStatus {
     task_fixtures::find_task(pool, task_id, &user_scope("user-1"))
         .await
@@ -291,6 +304,7 @@ fn completion_notice(turn_number: i32) -> String {
 #[sqlx::test]
 async fn completed_child_sends_parent_one_notice_and_one_wake(pool: PgPool) {
     seed_task_pair_with_created_by(&pool, "task-parent", "task-child").await;
+    seed_turn_triggered_by(&pool, "task-child", 1, "task-parent").await;
     let mut assistant = make_message_row("task-child", "child-assistant-1");
     assistant.message_type = MessageType::Assistant;
     assistant.message_role = MessageRole::Assistant;
@@ -323,6 +337,8 @@ async fn completed_child_sends_parent_one_notice_and_one_wake(pool: PgPool) {
 #[sqlx::test]
 async fn redelivered_completion_adds_no_second_notice_but_a_new_turn_does(pool: PgPool) {
     seed_task_pair_with_created_by(&pool, "task-parent", "task-child").await;
+    seed_turn_triggered_by(&pool, "task-child", 1, "task-parent").await;
+    seed_turn_triggered_by(&pool, "task-child", 2, "task-parent").await;
     let (state, waker) = state_with_recording_waker(&pool);
 
     let first = completed_event("evt-turn-1", "task-child", 1);
@@ -359,6 +375,8 @@ async fn redelivered_completion_adds_no_second_notice_but_a_new_turn_does(pool: 
 #[sqlx::test]
 async fn a_turn_leaving_background_commands_defers_the_notice_to_the_wake_turn(pool: PgPool) {
     seed_task_pair_with_created_by(&pool, "task-parent", "task-child").await;
+    seed_turn_triggered_by(&pool, "task-child", 1, "task-parent").await;
+    seed_turn_triggered_by(&pool, "task-child", 2, "task-parent").await;
     let (state, waker) = state_with_recording_waker(&pool);
 
     let mut first = completed_event("evt-turn-1", "task-child", 1);
@@ -436,6 +454,7 @@ async fn completed_fork_notifies_nobody(pool: PgPool) {
 #[sqlx::test]
 async fn completed_child_of_a_closed_parent_notifies_nobody(pool: PgPool) {
     seed_task_pair_with_created_by(&pool, "task-parent", "task-child").await;
+    seed_turn_triggered_by(&pool, "task-child", 1, "task-parent").await;
     moatless_tasks::task::test_support::patch_task(
         &pool,
         "task-parent",
@@ -467,11 +486,37 @@ async fn stopped_child_notifies_nobody(pool: PgPool) {
     assert!(waker.woken.lock().unwrap().is_empty());
 }
 
+#[sqlx::test]
+async fn a_turn_the_parent_did_not_trigger_notifies_nobody(pool: PgPool) {
+    seed_task_pair_with_created_by(&pool, "task-parent", "task-child").await;
+    sqlx::query("INSERT INTO task_turns (task_id, turn_number) VALUES ('task-child', 1)")
+        .execute(&pool)
+        .await
+        .unwrap();
+    seed_turn_triggered_by(&pool, "task-child", 2, "task-other").await;
+    let (state, waker) = state_with_recording_waker(&pool);
+
+    handle_agent_completed(&state, &completed_event("evt-person", "task-child", 1)).await;
+    handle_agent_completed(&state, &completed_event("evt-other", "task-child", 2)).await;
+    let mut errored = terminal_event(
+        "evt-person-error",
+        "task-child",
+        "error",
+        serde_json::json!({ "error": "sandbox exploded" }),
+    );
+    errored.turn_number = Some(1);
+    handle_agent_error(&(&state).into(), &errored).await;
+
+    assert!(visible_parent_texts(&pool, "task-parent").await.is_empty());
+    assert!(waker.woken.lock().unwrap().is_empty());
+}
+
 const ERROR_NOTICE: &str = "Child task `task-child` errored.\n\nError: sandbox exploded";
 
 #[sqlx::test]
 async fn errored_child_sends_parent_only_the_error_notice(pool: PgPool) {
     seed_task_pair_with_created_by(&pool, "task-parent", "task-child").await;
+    seed_turn_triggered_by(&pool, "task-child", 1, "task-parent").await;
     let (state, waker) = state_with_recording_waker(&pool);
 
     let event = terminal_event(
@@ -495,6 +540,7 @@ async fn errored_child_sends_parent_only_the_error_notice(pool: PgPool) {
 #[sqlx::test]
 async fn an_error_result_under_completed_sends_only_the_error_notice(pool: PgPool) {
     seed_task_pair_with_created_by(&pool, "task-parent", "task-child").await;
+    seed_turn_triggered_by(&pool, "task-child", 1, "task-parent").await;
     let (state, waker) = state_with_recording_waker(&pool);
 
     let event = terminal_event(

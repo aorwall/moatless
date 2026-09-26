@@ -493,6 +493,49 @@ pub(crate) async fn members_awaiting_dispatch(
     .await
 }
 
+/// Record on `turn_number` the task whose message opened it: the earliest
+/// non-`harness` row of its first acknowledgement, `NULL` for a person's. Later
+/// acknowledgements leave it, so neither side can take over the other's turn.
+///
+/// A turn only `harness` rows opened (a wake, a `ScheduleWakeup` prompt) takes
+/// the previous turn's trigger, since the turn that armed it owes the answer.
+async fn stamp_turn_trigger(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    task_id: &str,
+    uuids: &[String],
+    turn_number: i32,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        r#"WITH acked AS (
+               SELECT source_task_id, user_type, "timestamp", id
+               FROM task_messages
+               WHERE task_id = $1 AND uuid = ANY($2)
+           ),
+           opener AS (
+               SELECT source_task_id FROM acked
+               WHERE user_type IS DISTINCT FROM $4
+               ORDER BY "timestamp", id LIMIT 1
+           )
+           UPDATE task_turns
+           SET trigger_decided = true,
+               triggered_by_task_id = CASE
+                   WHEN EXISTS (SELECT 1 FROM opener) THEN (SELECT source_task_id FROM opener)
+                   ELSE (SELECT prev.triggered_by_task_id FROM task_turns prev
+                         WHERE prev.task_id = $1 AND prev.turn_number < $3
+                         ORDER BY prev.turn_number DESC LIMIT 1)
+               END
+           WHERE task_id = $1 AND turn_number = $3 AND NOT trigger_decided
+             AND EXISTS (SELECT 1 FROM acked)"#,
+    )
+    .bind(task_id)
+    .bind(uuids)
+    .bind(turn_number)
+    .bind(moatless_types::message::HARNESS_USER_TYPE)
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
 /// Drop the Sandbox's wake signal once nothing is waiting on it.
 ///
 /// Runs in the claiming transaction after the claim, so it sees the rows just
@@ -1028,6 +1071,7 @@ impl MessageDao for PgMessageDao {
         .bind(turn_number)
         .execute(&mut *tx)
         .await?;
+        stamp_turn_trigger(&mut tx, task_id, uuids, turn_number).await?;
         clear_settled_pending_work(&mut tx, task_id).await?;
         tx.commit().await?;
 
@@ -1409,3 +1453,7 @@ mod dao_pending_work_db_tests;
 #[cfg(all(test, feature = "db-tests"))]
 #[path = "dao_db_tests.rs"]
 mod dao_db_tests;
+
+#[cfg(all(test, feature = "db-tests"))]
+#[path = "dao_turn_trigger_db_tests.rs"]
+mod dao_turn_trigger_db_tests;

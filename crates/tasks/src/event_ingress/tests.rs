@@ -98,6 +98,14 @@ impl TaskTurnDao for RecordingTurns {
         Ok(Some(1))
     }
 
+    async fn triggered_by_task_id(
+        &self,
+        _task_id: &str,
+        _turn_number: i32,
+    ) -> Result<Option<String>, sqlx::Error> {
+        Ok(None)
+    }
+
     async fn latest_closed_turn_status(
         &self,
         _task_id: &str,

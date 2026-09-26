@@ -22,6 +22,7 @@ use moatless_tasks::task::relations::TaskRelations;
 use moatless_tasks::task_activities::mapping::BlockContext;
 use moatless_tasks::task_activities::mapping::ConversationWrite;
 use moatless_tasks::task_activities::mapping::map_content;
+use moatless_tasks::task_turn::operations::TaskTurns;
 
 use super::models::SdkResultMessage;
 use moatless_tasks::agent_event::AgentEvent;
@@ -451,6 +452,7 @@ pub struct AgentErrorPorts {
     pub message_send: Arc<MessageSendService>,
     pub sandbox_waker: Arc<dyn SandboxWaker>,
     pub events: Option<Arc<dyn EventPublisher>>,
+    pub task_turns: Arc<TaskTurns>,
 }
 
 /// Handle `agent.error` or `sandbox.fatal` event.
@@ -535,11 +537,55 @@ enum ChildOutcome<'a> {
     Errored { error: &'a str },
 }
 
+/// Whether the parent triggered the turn this outcome ends. A turn that cannot
+/// be resolved, or whose trigger cannot be read, still notifies: a lost notice
+/// strands a waiting parent, a spurious one only wakes it.
+async fn turn_triggered_by(
+    ports: &AgentErrorPorts,
+    event: &AgentEvent,
+    outcome: &ChildOutcome<'_>,
+    parent_task_id: &str,
+) -> bool {
+    let turn_number = match outcome {
+        ChildOutcome::Completed { turn_number } => *turn_number,
+        ChildOutcome::Errored { .. } => event.turn_number,
+    };
+    let turn_number = match turn_number {
+        Some(turn) => Some(turn),
+        None => ports
+            .task_turns
+            .latest_turn_number(&event.task_id)
+            .await
+            .ok()
+            .flatten(),
+    };
+    let Some(turn_number) = turn_number else {
+        return true;
+    };
+    match ports
+        .task_turns
+        .triggered_by_task_id(&event.task_id, turn_number)
+        .await
+    {
+        Ok(trigger) => trigger.as_deref() == Some(parent_task_id),
+        Err(e) => {
+            tracing::warn!(
+                task_id = %event.task_id,
+                turn_number,
+                error = %e,
+                "Failed to read turn trigger for child notice"
+            );
+            true
+        }
+    }
+}
+
 /// Send the parent task a notice that this child's run ended, and wake it.
 ///
 /// `created_by` only — a fork's outcomes stay in its own conversation since
-/// nobody awaits a fork's result. A closed parent is skipped. The notice says
-/// only how the run ended; the child still reports its own result.
+/// nobody awaits a fork's result. A closed parent is skipped, and so is a turn
+/// the parent did not trigger (see [`TaskTurns::triggered_by_task_id`]). The
+/// notice says only how the run ended; the child still reports its own result.
 async fn notify_parent_of_child_outcome(
     ports: &AgentErrorPorts,
     event: &AgentEvent,
@@ -557,6 +603,10 @@ async fn notify_parent_of_child_outcome(
             return;
         }
     };
+
+    if !turn_triggered_by(ports, event, &outcome, &relation.to_task_id).await {
+        return;
+    }
 
     // A completion is keyed on its Turn rather than on its text, which carries
     // the child's current name: a rename, or a failed name read, between two

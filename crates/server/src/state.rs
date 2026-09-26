@@ -680,6 +680,7 @@ impl From<&AppState> for crate::event_handler::agent_handlers::AgentErrorPorts {
             message_send: state.message_send.clone(),
             sandbox_waker: state.sandbox_waker.clone(),
             events: state.events.clone(),
+            task_turns: state.task_turns.clone(),
         }
     }
 }

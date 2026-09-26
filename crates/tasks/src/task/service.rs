@@ -84,7 +84,10 @@ where
                         &fm.file_ids,
                         &fm.contexts,
                         true,
-                        moatless_types::task::ExternalOrigin::none(),
+                        moatless_types::task::ExternalOrigin {
+                            source_task_id: fm.source_task_id.as_deref(),
+                            ..moatless_types::task::ExternalOrigin::none()
+                        },
                         false,
                         fm.sent_by.as_deref(),
                         &fm.skills,
@@ -345,6 +348,7 @@ pub async fn normalize(
                 sent_by: Some(user_id.to_string()),
                 message_uuid: first_message_uuid,
                 skills: req.skills.clone(),
+                source_task_id: req.parent_task_id.clone(),
             })
         } else {
             None
