@@ -293,7 +293,7 @@ impl RoutingService {
             // there to receive them. A duplicate event is then dropped by the
             // event-receipt table, and a genuinely different message is
             // delivered to the task the winner made. Nothing is lost either way.
-            if !self
+            let claimed = self
                 .event_receipts
                 .claim_task_creation(
                     &subscription.id,
@@ -303,7 +303,16 @@ impl RoutingService {
                     msg.external_event_id.as_deref(),
                 )
                 .await?
-            {
+                || self
+                    .take_over_closed_claim(
+                        &subscription.id,
+                        subject_kind,
+                        subject_key,
+                        adapter_label,
+                        msg.external_event_id.as_deref(),
+                    )
+                    .await?;
+            if !claimed {
                 debug!(
                     subscription_id = %subscription.id,
                     subject_key,
@@ -696,6 +705,47 @@ impl RoutingService {
             return Ok(false);
         }
         Ok(self.open_ongoing_task_id(subscription).await.is_none())
+    }
+
+    /// Take over the subject's claim when the task it produced is no longer open.
+    ///
+    /// A claim outlives its task, so an event after a close would otherwise
+    /// retry forever. A claim with no task recorded yet is never taken.
+    async fn take_over_closed_claim(
+        &self,
+        loop_id: &str,
+        subject_kind: &str,
+        subject_key: &str,
+        adapter_label: &str,
+        external_event_id: Option<&str>,
+    ) -> Result<bool, AdapterError> {
+        let Some(task_id) = self
+            .event_receipts
+            .claimed_task(loop_id, subject_kind, subject_key)
+            .await?
+        else {
+            return Ok(false);
+        };
+        #[allow(clippy::disallowed_methods)]
+        // reason: event routing is a background path with no caller identity
+        let sys = ScopeContext::system();
+        match self.tasks.describe(&task_id, &sys).await {
+            Ok(Some(task)) if task.status == TaskStatus::Open => return Ok(false),
+            Ok(_) => {}
+            // Unknown is not closed: keep the claim, and let the retry ask again.
+            Err(_) => return Ok(false),
+        }
+        Ok(self
+            .event_receipts
+            .take_over_claim(
+                loop_id,
+                subject_kind,
+                subject_key,
+                &task_id,
+                adapter_label,
+                external_event_id,
+            )
+            .await?)
     }
 
     async fn open_ongoing_task_id(&self, subscription: &SubscriptionMatch) -> Option<String> {

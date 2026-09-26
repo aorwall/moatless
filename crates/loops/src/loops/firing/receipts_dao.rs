@@ -90,6 +90,55 @@ impl EventReceipts {
         Ok(())
     }
 
+    /// The task a subject's claim produced; `None` while its creation is in flight.
+    pub(crate) async fn claimed_task(
+        &self,
+        loop_id: &str,
+        subject_kind: &str,
+        subject_key: &str,
+    ) -> Result<Option<String>, sqlx::Error> {
+        let task_id: Option<Option<String>> = sqlx::query_scalar(
+            r#"SELECT task_id FROM adapter_task_creation_claims
+               WHERE loop_id = $1 AND subject_kind = $2 AND subject_key = $3"#,
+        )
+        .bind(loop_id)
+        .bind(subject_kind)
+        .bind(subject_key)
+        .fetch_optional(&self.0)
+        .await?;
+        Ok(task_id.flatten())
+    }
+
+    /// Take over a claim still pointing at `stale_task_id`, as a new creation.
+    ///
+    /// Conditioned on that task id, so of several racing callers exactly one
+    /// wins: the first update clears it, and the rest match no row.
+    pub(crate) async fn take_over_claim(
+        &self,
+        loop_id: &str,
+        subject_kind: &str,
+        subject_key: &str,
+        stale_task_id: &str,
+        adapter_kind: &str,
+        external_event_id: Option<&str>,
+    ) -> Result<bool, sqlx::Error> {
+        let result = sqlx::query(
+            r#"UPDATE adapter_task_creation_claims
+               SET task_id = NULL, adapter_kind = $5, external_event_id = $6, claimed_at = now()
+               WHERE loop_id = $1 AND subject_kind = $2 AND subject_key = $3
+                 AND task_id = $4"#,
+        )
+        .bind(loop_id)
+        .bind(subject_kind)
+        .bind(subject_key)
+        .bind(stale_task_id)
+        .bind(adapter_kind)
+        .bind(external_event_id)
+        .execute(&self.0)
+        .await?;
+        Ok(result.rows_affected() == 1)
+    }
+
     /// Release a claim whose task was never created.
     ///
     /// Without this, a failed creation would wedge the subject: every later
@@ -225,6 +274,64 @@ mod tests {
                 .await
                 .unwrap(),
             "a subject whose task exists stays claimed"
+        );
+    }
+
+    /// A claim outlives its task. Once that task closes, the next event for the
+    /// subject takes the claim over, and only one of two racing events does.
+    #[sqlx::test]
+    async fn a_claim_whose_task_is_gone_is_taken_over_once(pool: PgPool) {
+        let dao = dao(pool);
+        assert!(
+            dao.claim_task_creation(LOOP_ID, KIND, SUBJECT, "slack", None)
+                .await
+                .unwrap()
+        );
+        assert_eq!(
+            dao.claimed_task(LOOP_ID, KIND, SUBJECT).await.unwrap(),
+            None
+        );
+        dao.record_claimed_task(LOOP_ID, KIND, SUBJECT, "task-1")
+            .await
+            .unwrap();
+        assert_eq!(
+            dao.claimed_task(LOOP_ID, KIND, SUBJECT)
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("task-1")
+        );
+
+        let (first, second) = tokio::join!(
+            dao.take_over_claim(
+                LOOP_ID,
+                KIND,
+                SUBJECT,
+                "task-1",
+                "slack",
+                Some("slack:ts:2")
+            ),
+            dao.take_over_claim(
+                LOOP_ID,
+                KIND,
+                SUBJECT,
+                "task-1",
+                "slack",
+                Some("slack:ts:3")
+            ),
+        );
+        assert_eq!(
+            [first.unwrap(), second.unwrap()]
+                .iter()
+                .filter(|w| **w)
+                .count(),
+            1,
+            "exactly one event may take over a claim"
+        );
+        assert_eq!(
+            dao.claimed_task(LOOP_ID, KIND, SUBJECT).await.unwrap(),
+            None,
+            "a taken-over claim is in flight again"
         );
     }
 }
