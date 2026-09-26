@@ -105,6 +105,9 @@ crate::string_enum!(
         /// would strand a decrement. Says nothing about the agent; see
         /// [`crate::event::agent_working`].
         CommandsChanged => "commands_changed",
+        /// A trajectory recorder stopped, so the rest of that harness session
+        /// is missing from the Trajectory. The Turn goes on.
+        RecordingStopped => "recording_stopped",
     }
 );
 

@@ -33,6 +33,8 @@ struct MemorySession {
     harness: String,
     /// The source session and the seq this one continues from.
     forked_from: Option<(String, i64)>,
+    /// A subagent session's parent session and its spawning event's seq.
+    parent: Option<(String, i64)>,
     own: Vec<MemoryEvent>,
     last_seq: i64,
 }
@@ -53,6 +55,10 @@ struct State {
     lost: HashSet<(String, i64)>,
     appends: usize,
     fork_sessions: usize,
+    widest_append: usize,
+    published: Vec<PublishEventRequest>,
+    /// Appends with lines to answer `Unavailable` before storing any.
+    failing_appends: usize,
 }
 
 #[derive(Default)]
@@ -101,6 +107,27 @@ impl MemoryTrajectoryBackend {
         self.state.lock().unwrap().appends
     }
 
+    /// A subagent session's parent session and its spawning event's seq.
+    pub fn parent_of(&self, harness_session_id: &str) -> Option<(String, i64)> {
+        let state = self.state.lock().unwrap();
+        state.sessions.get(harness_session_id)?.parent.clone()
+    }
+
+    /// Every event published, as `(sub_type, payload_json)`.
+    pub fn published(&self) -> Vec<(String, String)> {
+        let state = self.state.lock().unwrap();
+        state
+            .published
+            .iter()
+            .map(|e| (e.sub_type.clone(), e.payload_json.clone()))
+            .collect()
+    }
+
+    /// The most lines any one append carried.
+    pub fn widest_append(&self) -> usize {
+        self.state.lock().unwrap().widest_append
+    }
+
     pub fn fork_sessions_made(&self) -> usize {
         self.state.lock().unwrap().fork_sessions
     }
@@ -112,6 +139,11 @@ impl MemoryTrajectoryBackend {
             .unwrap()
             .forks
             .insert(task_id.to_string(), fork);
+    }
+
+    /// Answer the next `n` appends that carry lines `Unavailable`.
+    pub fn fail_appends(&self, n: usize) {
+        self.state.lock().unwrap().failing_appends = n;
     }
 
     /// Drop one stored event, leaving a gap in its session's chain.
@@ -155,6 +187,7 @@ impl MemoryTrajectoryBackend {
                 task_id: task_id.to_string(),
                 harness: harness.to_string(),
                 forked_from: Some((fork.source_session_id, cut_seq)),
+                parent: None,
                 own: Vec::new(),
                 last_seq: cut_seq,
             },
@@ -245,7 +278,43 @@ impl BackendClient for MemoryTrajectoryBackend {
         }
         let mut state = self.state.lock().unwrap();
         state.appends += 1;
+        state.widest_append = state.widest_append.max(req.lines.len());
         let probe = req.lines.is_empty();
+        if !probe && state.failing_appends > 0 {
+            state.failing_appends -= 1;
+            return Err(Status::unavailable("backend unavailable"));
+        }
+        let parent = match &req.subagent_parent {
+            Some(p) if !state.sessions.contains_key(&req.harness_session_id) => {
+                let spawning = state
+                    .sessions
+                    .get(&p.parent_harness_session_id)
+                    .filter(|s| s.task_id == req.task_id)
+                    .and_then(|s| {
+                        s.own.iter().find(|e| {
+                            blocks(e).iter().any(|b| {
+                                b["type"] == "tool_use" && b["id"] == p.tool_use_id.as_str()
+                            })
+                        })
+                    })
+                    .map(|e| (p.parent_harness_session_id.clone(), e.seq));
+                if spawning.is_none() {
+                    return Err(Status::failed_precondition(
+                        "spawning tool call not recorded",
+                    ));
+                }
+                spawning
+            }
+            _ => None,
+        };
+        // As the dao, a probe creates no session.
+        if probe && !state.sessions.contains_key(&req.harness_session_id) {
+            return Ok(AppendTrajectoryResponse {
+                accepted: true,
+                last_seq: -1,
+                last_payload: None,
+            });
+        }
         let session = state
             .sessions
             .entry(req.harness_session_id.clone())
@@ -253,6 +322,7 @@ impl BackendClient for MemoryTrajectoryBackend {
                 task_id: req.task_id.clone(),
                 harness: req.harness.clone(),
                 forked_from: None,
+                parent,
                 own: Vec::new(),
                 last_seq: -1,
             });
@@ -334,7 +404,8 @@ impl BackendClient for MemoryTrajectoryBackend {
         Ok((header, events.into_iter().map(|e| e.payload).collect()))
     }
 
-    async fn publish_event(&self, _req: PublishEventRequest) -> Result<(), Status> {
+    async fn publish_event(&self, req: PublishEventRequest) -> Result<(), Status> {
+        self.state.lock().unwrap().published.push(req);
         Ok(())
     }
 

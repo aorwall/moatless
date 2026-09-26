@@ -92,8 +92,6 @@ mod tests {
             gitlab_enabled: true,
             forgejo_enabled: true,
             workspace_settings: true,
-            trajectory_record: false,
-            trajectory_resume: false,
         }
     }
 

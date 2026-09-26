@@ -14,7 +14,7 @@ use sandbox_proto::{
 };
 
 use moatless_tasks::trajectory::models::{
-    AppendError, ChainError, ForkCut, NewEvent, TrajectorySession,
+    AppendError, AppendRequest, ChainError, ForkCut, NewEvent, SubagentParent, TrajectorySession,
 };
 use moatless_tasks::trajectory::operations::Trajectories;
 
@@ -25,9 +25,6 @@ pub(super) type TrajectoryChunkStream =
     Pin<Box<dyn Stream<Item = Result<ReadTrajectoryChunk, Status>> + Send>>;
 
 fn store(service: &BackendSandboxServiceImpl) -> Result<&Trajectories, Status> {
-    if !service.trajectory_record {
-        return Err(Status::unimplemented("trajectory recording is off"));
-    }
     service
         .handlers
         .as_ref()
@@ -86,17 +83,22 @@ pub(super) async fn append_trajectory(
         _ => None,
     };
     let outcome = dao
-        .append(
-            &task_id,
+        .append(AppendRequest {
+            task_id: &task_id,
             harness,
-            &req.harness_session_id,
-            req.first_seq,
-            &lines,
+            harness_session_id: &req.harness_session_id,
+            first_seq: req.first_seq,
+            lines: &lines,
             turn_number,
-        )
+            subagent_parent: req.subagent_parent.as_ref().map(|p| SubagentParent {
+                harness_session_id: &p.parent_harness_session_id,
+                tool_use_id: &p.tool_use_id,
+            }),
+        })
         .await
         .map_err(|e| match e {
             AppendError::Foreign(_) => Status::permission_denied(e.to_string()),
+            AppendError::ParentMissing(_) => Status::failed_precondition(e.to_string()),
             AppendError::Db(e) => internal(e, "Failed to append trajectory"),
         })?;
     Ok(Response::new(AppendTrajectoryResponse {

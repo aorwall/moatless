@@ -140,7 +140,9 @@ The classifier's output, and the only part of a line the backend interprets.
   // messages; Claude command, hook and system-reminder output. Never shown and
   // never transcoded.
   "injected": false,
-  // New. On a line that closes a model response.
+  // New. On the first line of a model response. Claude repeats the response's
+  // usage on each of its lines; the tail drops it where `harness_item_id`
+  // equals the previous line's.
   "usage": { "input_tokens": 0, "output_tokens": 0,
              "cache_read_tokens": 0, "cache_write_tokens": 0 },
   // New. On a compaction line; its summary text is in blocks.
@@ -148,8 +150,8 @@ The classifier's output, and the only part of a line the backend interprets.
 }
 ```
 
-`content` is NULL on a housekeeping line (session metadata, turn context, file
-snapshots). `kind` keeps the harness's own line type for diagnostics only.
+A housekeeping line (session metadata, turn context, file snapshots) has a null
+`role` and no `blocks`. `kind` keeps the harness's own line type for diagnostics only.
 
 ### 4.2 `task_inbox` (new)
 
@@ -489,7 +491,9 @@ message AppendTrajectoryRequest {
   optional int32 turn_number = 6;
   // New. Only on the first append of a session that has a transcoded prefix.
   optional int64 own_from_seq = 7;
-  // New. Only on the first append of a subagent session.
+  // New. On a subagent session's appends until one is accepted; read only
+  // when the append creates the session. FAILED_PRECONDITION while the
+  // spawning tool call is not recorded, and the tail retries.
   optional SubagentParent subagent_parent = 8;
 }
 
@@ -762,7 +766,7 @@ or `kind`.
 | S7 | When a fork or rewind cuts in a session of the other harness | open the fork session of the current harness, transcoded from the cut |
 | S8 | When a line is appended | insert it and project it in one transaction; a failure rolls back both and the tail resends |
 | S9 | When a conversation is rebuilt | produce the same ids and rows as incremental projection; positions are reassigned and `task_conversation_changes` signals a reset |
-| S10 | While the tail is `Behind` or `Diverged` | reseed from `ReadTrajectory` and continue; report an error to `task_events` only if the reseed fails |
+| S10 | While the tail is `Behind` or `Diverged` | reseed from `ReadTrajectory` and continue; only if the reseed fails, stop that session's recorder and publish `agent.recording_stopped` to `task_events`, which fails no turn. A subagent file is never reseeded |
 
 ## 9. Invariants
 
@@ -883,11 +887,15 @@ Sandbox:
 - On `Behind`/`Diverged` (`:150-177`) reseed from `ReadTrajectory` (S10).
 - Attach the recorder in tmux mode too.
 - Record `subagents/agent-*.jsonl` (found as `tmux/tailer.rs:306-308, 607-610`
-  finds them) as sessions with `subagent_parent`.
+  finds them) as sessions with `subagent_parent`, named
+  `<parent session>:agent-<id>`; the spawning call is the `toolUseId` in the
+  `agent-<id>.meta.json` beside each file.
 - `read_line` fills `injected`, `usage` and `compaction` (4.1) for both formats.
 
 Backend:
-- Migration: `trajectory_sessions.parent_event_id` and its `CHECK` (4.3).
+- Migration: `trajectory_sessions.parent_event_id` and its `CHECK` (4.3),
+  against `forked_from_event_id` only; phase 2 adds `transcoded_from_event_id`
+  to it.
 - `trajectory/operations.rs::append`: create subagent sessions.
 - Remove `FF_TRAJECTORY_RECORDING` (`crates/core/src/feature_flags.rs`,
   `grpc_server/state.rs`) and `MOATLESS_RESUME_FROM_TRAJECTORY`
@@ -898,8 +906,9 @@ Verification:
   classification against recorded lines of both harnesses (injected lines,
   usage, compaction).
 - DB (`trajectory/dao_db_tests.rs`): subagent linkage and its `CHECK`.
-- A temporary nonprod parity report: per turn, assistant and tool items in
-  `task_messages` against `trajectory_events.content`. It must show zero
+- A temporary nonprod parity report (`scripts/trajectory-parity.sql`): per
+  turn, assistant and tool items in `task_messages` against
+  `trajectory_events.content`. It must show zero
   differences for a week before phase 4; phase 4 deletes it.
 
 ## Phase 2 — Profile and harness switching
@@ -997,6 +1006,11 @@ redelivered child notice inserts nothing and wakes nobody.
   instead of a Message, so the Projector stays the only writer.
 - The lifecycle handlers stay: `handle_agent_completed`/`handle_agent_error` still
   close the turn and notify the parent; only `handle_agent_message` goes.
+- A Codex code-mode `exec` call is one `custom_tool_call` in the rollout, but
+  the app-server reports each `tools.exec_command` it runs as its own item, so
+  `task_activities` holds one row per command. Decide whether the Projector
+  expands an `exec` call into its commands, from its `custom_tool_call_output`,
+  or shows one activity per call; the parity report shows the gap until then.
 - Cut over per Task at a turn boundary.
 - Delete `agent.message`: emission in `sandbox/src/agent/coordinator/seam.rs`
   (`:316`, `:692-720`) and `harness/source.rs`; admission, relay and skeleton handling

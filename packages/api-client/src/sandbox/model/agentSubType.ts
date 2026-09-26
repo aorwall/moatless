@@ -28,4 +28,5 @@ export const AgentSubType = {
   activity: 'activity',
   context_window: 'context_window',
   commands_changed: 'commands_changed',
+  recording_stopped: 'recording_stopped',
 } as const;

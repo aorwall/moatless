@@ -1,6 +1,5 @@
 //! The credentials a sandbox is issued, and the one kind it writes back.
 
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use tonic::{Request, Response, Status};
@@ -41,20 +40,6 @@ impl CredentialKey {
     pub const OPENAI_API_KEY: &str = secret_keys::OPENAI_API_KEY;
     pub const ANTHROPIC_API_KEY: &str = secret_keys::ANTHROPIC_API_KEY;
     pub const CLAUDE_CODE_OAUTH_TOKEN: &str = secret_keys::CLAUDE_CODE_OAUTH_TOKEN;
-    /// The sandbox's `trajectory_tail::RESUME_FROM_TRAJECTORY`, which this
-    /// crate cannot name.
-    pub const RESUME_FROM_TRAJECTORY: &str = "MOATLESS_RESUME_FROM_TRAJECTORY";
-}
-
-/// Turns resuming from the trajectory on for a sandbox whose Workspace leaves
-/// [`CredentialKey::RESUME_FROM_TRAJECTORY`] unset, so a Workspace can still
-/// opt out with `0`.
-fn default_resume_from_trajectory(credentials: &mut HashMap<String, String>, on: bool) {
-    if on {
-        credentials
-            .entry(CredentialKey::RESUME_FROM_TRAJECTORY.to_string())
-            .or_insert_with(|| "1".to_string());
-    }
 }
 
 /// The provider a sandbox may write a rotated credential back to, if any.
@@ -178,7 +163,6 @@ pub(super) async fn get_credentials(
         workspace_env_vars,
     })
     .await;
-    default_resume_from_trajectory(&mut credentials, service.trajectory_resume);
 
     if let Some(user_token) =
         service.mint_user_auth_token(&grant.ctx.user_id, &grant.login, &grant.sandbox_id)
@@ -284,35 +268,4 @@ pub(super) async fn update_credential(
     );
 
     Ok(Response::new(UpdateCredentialResponse {}))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn resolved(workspace: Option<&str>, on: bool) -> Option<String> {
-        let mut credentials: HashMap<String, String> = workspace
-            .map(|value| {
-                (
-                    CredentialKey::RESUME_FROM_TRAJECTORY.to_string(),
-                    value.to_string(),
-                )
-            })
-            .into_iter()
-            .collect();
-        default_resume_from_trajectory(&mut credentials, on);
-        credentials.remove(CredentialKey::RESUME_FROM_TRAJECTORY)
-    }
-
-    #[test]
-    fn the_flag_turns_resume_on_where_the_workspace_is_silent() {
-        assert_eq!(resolved(None, true).as_deref(), Some("1"));
-        assert_eq!(resolved(None, false), None);
-    }
-
-    #[test]
-    fn a_workspace_value_outranks_the_flag() {
-        assert_eq!(resolved(Some("0"), true).as_deref(), Some("0"));
-        assert_eq!(resolved(Some("1"), false).as_deref(), Some("1"));
-    }
 }

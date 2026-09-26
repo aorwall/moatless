@@ -22,24 +22,117 @@ fn blocks_of<'a>(
 }
 
 #[test]
-fn content_of_bookkeeping_lines_is_empty() {
+fn bookkeeping_lines_carry_no_blocks() {
     let claude = read_all(&ClaudeSessionFormat, CLAUDE_THINKING);
     let codex = read_all(&CodexSessionFormat, CODEX);
-    let bookkeeping: Vec<&RecordedLine> = claude
-        .iter()
-        .filter(|l| l.kind == "cost-state")
-        .chain(codex.iter().filter(|l| l.kind == "event_msg/token_count"))
-        .collect();
 
-    assert!(bookkeeping.iter().any(|l| l.kind == "cost-state"));
-    assert!(
-        bookkeeping
-            .iter()
-            .any(|l| l.kind == "event_msg/token_count")
-    );
-    for line in bookkeeping {
-        assert_eq!(line.content.to_json(), r#"{"role":null,"blocks":[]}"#);
+    let cost: Vec<&RecordedLine> = claude.iter().filter(|l| l.kind == "cost-state").collect();
+    assert!(!cost.is_empty());
+    for line in cost {
+        assert_eq!(
+            line.content.to_json(),
+            r#"{"role":null,"blocks":[],"injected":false,"compaction":false}"#
+        );
     }
+    let counts: Vec<&RecordedLine> = codex
+        .iter()
+        .filter(|l| l.kind == "event_msg/token_count")
+        .collect();
+    assert!(!counts.is_empty());
+    assert!(counts.iter().all(|l| l.content.blocks.is_empty()));
+}
+
+#[test]
+fn usage_is_read_net_of_cached_input() {
+    let claude = read_all(&ClaudeSessionFormat, CLAUDE_THINKING);
+    let usage: Vec<&Usage> = claude
+        .iter()
+        .filter_map(|l| l.content.usage.as_ref())
+        .collect();
+    assert!(usage.iter().any(|u| u.cache_read_tokens > 0));
+    assert!(
+        claude
+            .iter()
+            .filter(|l| l.content.usage.is_some())
+            .all(|l| l.content.role == Some(Role::Assistant))
+    );
+
+    let line = r#"{"type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":100,"cached_input_tokens":60,"output_tokens":7}}}}"#;
+    let usage = CodexSessionFormat.read_line(line).content.usage.unwrap();
+    assert_eq!(
+        (
+            usage.input_tokens,
+            usage.cache_read_tokens,
+            usage.output_tokens
+        ),
+        (40, 60, 7)
+    );
+    let without = r#"{"type":"event_msg","payload":{"type":"token_count","info":null}}"#;
+    assert!(
+        CodexSessionFormat
+            .read_line(without)
+            .content
+            .usage
+            .is_none()
+    );
+    let codex = read_all(&CodexSessionFormat, CODEX);
+    assert!(codex.iter().any(|l| l.content.usage.is_some()));
+}
+
+#[test]
+fn a_compaction_summary_is_marked_and_not_injected() {
+    for (format, body) in [
+        (&ClaudeSessionFormat as &dyn SessionFormat, CLAUDE_COMPACTED),
+        (&CodexSessionFormat, CODEX),
+    ] {
+        let lines = read_all(format, body);
+        let summaries: Vec<&RecordedLine> = lines.iter().filter(|l| l.content.compaction).collect();
+        assert_eq!(summaries.len(), 1, "{}", format.harness());
+        let summary = summaries[0];
+        assert!(!summary.content.injected);
+        assert_eq!(summary.content.role, Some(Role::User));
+        assert!(matches!(
+            summary.content.blocks.as_slice(),
+            [CanonicalContentBlock::Text { text }] if !text.is_empty()
+        ));
+    }
+}
+
+#[test]
+fn harness_injected_lines_are_marked() {
+    let claude = read_all(&ClaudeSessionFormat, CLAUDE_COMPACTED);
+    let raw: Vec<&str> = CLAUDE_COMPACTED.lines().collect();
+    for (line, read) in raw.iter().zip(&claude) {
+        if line.contains(r#""isMeta":true"#) {
+            assert!(read.content.injected, "{line}");
+        }
+    }
+    let typed = claude
+        .iter()
+        .filter(|l| l.content.role == Some(Role::User) && !l.content.injected)
+        .filter(|l| {
+            l.content
+                .blocks
+                .iter()
+                .any(|b| matches!(b, CanonicalContentBlock::Text { .. }))
+        })
+        .count();
+    assert!(typed > 0, "a typed prompt is not injected");
+
+    let codex = read_all(&CodexSessionFormat, CODEX);
+    let raw: Vec<&str> = CODEX.lines().collect();
+    for (line, read) in raw.iter().zip(&codex) {
+        if !line.contains(r#""type":"response_item""#) {
+            continue;
+        }
+        let developer = line.contains(r#""role":"developer""#);
+        let context = line.contains(r#""role":"user""#) && line.contains("<environment_context>");
+        if (developer || context) && !read.content.blocks.is_empty() {
+            assert!(read.content.injected, "{line}");
+        }
+    }
+    let prompt = r#"{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"hello"}]}}"#;
+    assert!(!CodexSessionFormat.read_line(prompt).content.injected);
 }
 
 #[test]
@@ -57,9 +150,10 @@ fn codex_projects_each_item_once() {
 
     assert!(calls > 0, "the fixture carries tool calls");
     assert_eq!(tool_uses.count(), calls, "one ToolUse per call");
+    // A compaction line holds its summary.
     for line in lines
         .iter()
-        .filter(|l| !l.kind.starts_with("response_item/"))
+        .filter(|l| !l.kind.starts_with("response_item/") && l.kind != "compacted")
     {
         assert!(line.content.blocks.is_empty(), "{} got blocks", line.kind);
     }
@@ -274,6 +368,7 @@ async fn five_line_session() -> (MemoryTrajectoryBackend, Vec<String>) {
             first_seq: 0,
             lines: wire,
             turn_number: None,
+            subagent_parent: None,
         })
         .await
         .unwrap();

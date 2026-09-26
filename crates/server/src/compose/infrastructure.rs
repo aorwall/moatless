@@ -7,7 +7,6 @@ use crate::sandbox::k8s::client::K8sClient;
 use moatless_core::config::Config;
 use moatless_core::db::{self, DbPool};
 use moatless_core::events::{EventPublisher, FeedEventPublisher};
-use moatless_core::feature_flags::FeatureFlags;
 use moatless_identity::secret::service::LocalEnvelopeSecretCipher;
 
 pub async fn init_database(
@@ -253,7 +252,6 @@ pub fn grpc_service(
         Arc<crate::sandbox::workspace_repository::WorkspaceRepositoryAccess>,
     >,
     connector: Arc<dyn sandbox_proto::client::SandboxConnector>,
-    feature_flags: FeatureFlags,
 ) -> BackendSandboxServiceImpl {
     // `tasks` and `users` are read by the authorizer's control gate; the request
     // handlers reach them (and the rest of the db-backed set) through `handlers`.
@@ -341,7 +339,5 @@ pub fn grpc_service(
         transcript_s3_prefix,
         workspace_s3_prefix,
         event_dedup: Arc::new(crate::sandbox::event_dedup::EventDedup::new()),
-        trajectory_record: feature_flags.trajectory_record,
-        trajectory_resume: feature_flags.trajectory_resume,
     }
 }

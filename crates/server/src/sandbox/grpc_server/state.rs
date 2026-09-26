@@ -130,14 +130,6 @@ pub struct BackendSandboxServiceImpl {
     /// The sandbox outbox delivers at-least-once, reusing the `event_id` on a
     /// retry. This drops the duplicate before it reaches the feed.
     pub event_dedup: Arc<crate::sandbox::event_dedup::EventDedup>,
-    /// `FF_TRAJECTORY_RECORDING`: both trajectory RPCs answer `Unimplemented`
-    /// while it is off.
-    pub trajectory_record: bool,
-    /// `FF_TRAJECTORY_RESUME`: `GetCredentials` defaults
-    /// [`CredentialKey::RESUME_FROM_TRAJECTORY`] to `1`.
-    ///
-    /// [`CredentialKey::RESUME_FROM_TRAJECTORY`]: super::credentials::CredentialKey::RESUME_FROM_TRAJECTORY
-    pub trajectory_resume: bool,
 }
 
 /// Construction for the DB-backed integration harness, which lives outside this
@@ -171,8 +163,6 @@ impl BackendSandboxServiceImpl {
             s3_key_prefix: String::new(),
             transcript_s3_prefix: String::new(),
             workspace_s3_prefix: String::new(),
-            trajectory_record: false,
-            trajectory_resume: false,
         }
     }
 }

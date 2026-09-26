@@ -17,8 +17,10 @@ use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
 use tracing::warn;
 
+use crate::agent::harness::trajectory::ClaudeSessionFormat;
 use crate::agent::options::build_options;
 use crate::agent::types::{AgentRunRequest, ResumeSession};
+use crate::trajectory_tail::TurnTrajectory;
 
 use super::super::error::HarnessError;
 use super::super::process::{AgentProcess, ProcessEvent, ProcessTermination};
@@ -61,6 +63,8 @@ pub(crate) struct ClaudePersistentProcess {
     pending: VecDeque<ProcessEvent>,
     /// Wakes [`Self::next`] once [`Self::submit`] has created the transport.
     handle_ready: Notify,
+    /// Records the live TUI's session; replaced on every spawn.
+    trajectory: Option<TurnTrajectory>,
 }
 
 impl ClaudePersistentProcess {
@@ -75,6 +79,7 @@ impl ClaudePersistentProcess {
             awaiting_init: None,
             pending: VecDeque::new(),
             handle_ready: Notify::new(),
+            trajectory: None,
         }
     }
 
@@ -137,7 +142,21 @@ impl ClaudePersistentProcess {
     /// Spawn a fresh TUI and paste the opening prompt. On any failure the
     /// partial session is torn down and a classified startup error is returned.
     async fn spawn(&mut self, input: &Input, replacing: Option<&str>) -> Result<(), HarnessError> {
-        let resume = self.spawn_resume(input, replacing).await;
+        self.trajectory = TurnTrajectory::new(
+            self.cfg.trajectory.as_ref(),
+            Arc::new(ClaudeSessionFormat),
+            &self.cfg.config,
+            &self.cfg.config.claude_config_dir,
+            input,
+        );
+        let fork_session = match self.trajectory.as_mut() {
+            Some(trajectory) => trajectory.write_out(input).await,
+            None => None,
+        };
+        let resume = match fork_session {
+            Some(id) => Some(ResumeSession::WithId(id)),
+            None => self.spawn_resume(input, replacing).await,
+        };
         let resuming = resume.is_some();
         let request = AgentRunRequest {
             content: Vec::new(),
@@ -220,6 +239,9 @@ impl ClaudePersistentProcess {
                 self.normalizer.set_session(session.clone());
                 if let Some(fp) = self.fingerprint.as_mut() {
                     fp.session_id = init.session_id.clone();
+                }
+                if let Some(trajectory) = self.trajectory.as_mut() {
+                    trajectory.record(&init.session_id);
                 }
                 // A fresh spawn / replacement announces its start only now that
                 // the real Session id is known.
@@ -353,6 +375,21 @@ impl AgentProcess for ClaudePersistentProcess {
     }
 
     async fn next(&mut self) -> Option<ProcessEvent> {
+        let event = self.next_event().await;
+        if matches!(
+            event,
+            None | Some(ProcessEvent::Terminated { .. } | ProcessEvent::ExecutionEnded { .. })
+        ) {
+            if let Some(trajectory) = &self.trajectory {
+                trajectory.flush().await;
+            }
+        }
+        event
+    }
+}
+
+impl ClaudePersistentProcess {
+    async fn next_event(&mut self) -> Option<ProcessEvent> {
         loop {
             if let Some(event) = self.pending.pop_front() {
                 return Some(event);

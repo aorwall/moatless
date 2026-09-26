@@ -28,9 +28,7 @@ use moatless_sandbox::agent::types::{ForkSource, ResumeSession};
 use moatless_sandbox::backend_client::BackendClient;
 use moatless_sandbox::config::{AgentConfig, Config};
 use moatless_sandbox::credentials::recovery::CredentialFailureDetector;
-use moatless_sandbox::trajectory_tail::{
-    RESUME_FROM_TRAJECTORY, RecordTarget, SessionRecorder, TrajectoryRecording,
-};
+use moatless_sandbox::trajectory_tail::{RecordTarget, SessionRecorder, TrajectoryRecording};
 use serde_json::Value;
 use tempfile::TempDir;
 
@@ -326,6 +324,7 @@ impl RealEnv {
                 harness_session_id: task.session(),
                 home: self.home(),
                 cwd: self.cwd(),
+                subagent: None,
             },
             None,
         );
@@ -368,7 +367,6 @@ impl TestTask<'_> {
     fn input(&mut self, prompt: &str, extra_env: &[(&str, &str)]) -> Input {
         let mut env = HashMap::from([
             ("TASK_ID".to_string(), self.id.clone()),
-            (RESUME_FROM_TRAJECTORY.to_string(), "1".to_string()),
             ("MAX_THINKING_TOKENS".to_string(), "2048".to_string()),
         ]);
         if self.env.kind == Kind::Claude {
@@ -928,6 +926,30 @@ fn content_shape(backend: &MemoryTrajectoryBackend, session: &str) -> Vec<(Strin
     shape
 }
 
+/// The prompt is typed, not injected; a response carries its usage; nothing
+/// compacted. Compaction lines are covered by the recorded fixtures.
+fn assert_classified(kind: Kind, events: &[memory::MemoryEvent], prompt: &str) {
+    let typed: Vec<_> = events
+        .iter()
+        .filter(|e| e.content["blocks"][0]["text"] == prompt)
+        .collect();
+    assert_eq!(typed.len(), 1, "{kind:?} records the prompt once");
+    assert_eq!(typed[0].content["injected"], false);
+    assert!(events.iter().all(|e| e.content["compaction"] == false));
+    assert!(
+        events
+            .iter()
+            .any(|e| e.content["usage"]["output_tokens"].as_u64() > Some(0)),
+        "{kind:?} records a response's usage"
+    );
+    if kind == Kind::Codex {
+        assert!(
+            events.iter().any(|e| e.content["injected"] == true),
+            "Codex writes its environment context as a user message"
+        );
+    }
+}
+
 #[tokio::test]
 #[ignore = "runs real Claude Code and Codex; needs TRAJECTORY_E2E=1"]
 async fn both_harnesses_give_one_content_shape() {
@@ -945,6 +967,7 @@ async fn both_harnesses_give_one_content_shape() {
         let shape = content_shape(&backend, &task.session());
         eprintln!("{:?}: {shape:?}", env.kind);
         shapes.push(shape);
+        assert_classified(env.kind, &backend.events_on(&task.session()), prompt);
     }
     let pair = |r: &str, k: &str| (r.to_string(), k.to_string());
     let expected = vec![
@@ -967,6 +990,73 @@ async fn both_harnesses_give_one_content_shape() {
             .collect();
         assert_eq!(trimmed, expected);
     }
+}
+
+#[tokio::test]
+#[ignore = "runs real Claude Code; needs TRAJECTORY_E2E=1"]
+async fn claude_records_a_subagent_session() {
+    let Some(env) = RealEnv::claude() else {
+        return;
+    };
+    let backend = Arc::new(MemoryTrajectoryBackend::default());
+    let mut task = env.task("subagent", &backend);
+    task.turn(
+        "Use your Agent tool to launch one general-purpose subagent with the prompt \
+         `Use your shell tool to run echo SUBMARINE, then reply with its output.` \
+         Then reply with what the subagent said.",
+    )
+    .await;
+    let session = task.session();
+    let subagents: Vec<String> = backend
+        .session_ids()
+        .into_iter()
+        .filter(|id| id.starts_with(&format!("{session}:agent-")))
+        .collect();
+    assert_eq!(subagents.len(), 1, "{:?}", backend.session_ids());
+    let (parent, seq) = backend.parent_of(&subagents[0]).expect("linked");
+    assert_eq!(parent, session);
+    let spawning = &backend.events_on(&session)[usize::try_from(seq).unwrap()];
+    assert!(spawning.content.to_string().contains("\"tool_use\""));
+    let lines = backend.events_on(&subagents[0]);
+    assert!(lines.iter().any(|e| e.payload.contains("SUBMARINE")));
+}
+
+#[tokio::test]
+#[ignore = "runs real Claude Code; needs TRAJECTORY_E2E=1"]
+async fn lines_ship_before_the_turn_ends() {
+    let Some(env) = RealEnv::claude() else {
+        return;
+    };
+    let backend = Arc::new(MemoryTrajectoryBackend::default());
+    let mut task = env.task("live", &backend);
+    let done = std::sync::atomic::AtomicBool::new(false);
+    let watched = Arc::clone(&backend);
+    let saw_call_early = async {
+        while !done.load(std::sync::atomic::Ordering::SeqCst) {
+            let early = watched.session_ids().iter().any(|id| {
+                watched
+                    .own_events(id)
+                    .iter()
+                    .any(|e| e.content.to_string().contains("\"tool_use\""))
+            });
+            if early {
+                return true;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        false
+    };
+    let turn = async {
+        task.turn("Use your shell tool to run `sleep 6 && echo done`, then reply with its output.")
+            .await;
+        done.store(true, std::sync::atomic::Ordering::SeqCst);
+    };
+    let (early, ()) = tokio::join!(saw_call_early, turn);
+    assert!(
+        early,
+        "the tool call reached the backend while the command ran"
+    );
+    assert!(backend.widest_append() <= 256);
 }
 
 // ── Transcode (phase 0) ──────────────────────────────────────────────────────

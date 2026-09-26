@@ -5,7 +5,9 @@ use moatless_types::agent::Harness;
 use uuid::Uuid;
 
 use super::dao::PgTrajectoryDao;
-use super::models::{AppendError, AppendOutcome, ChainError, ForkCut, NewEvent, TrajectorySession};
+use super::models::{
+    AppendError, AppendOutcome, AppendRequest, ChainError, ForkCut, TrajectorySession,
+};
 
 /// The `trajectory_sessions` and `trajectory_events` tables, as a host reaches
 /// them.
@@ -19,25 +21,8 @@ impl Trajectories {
     }
 
     /// See [`PgTrajectoryDao::append`].
-    pub async fn append(
-        &self,
-        task_id: &str,
-        harness: Harness,
-        harness_session_id: &str,
-        first_seq: i64,
-        lines: &[NewEvent],
-        turn_number: Option<i32>,
-    ) -> Result<AppendOutcome, AppendError> {
-        self.store
-            .append(
-                task_id,
-                harness,
-                harness_session_id,
-                first_seq,
-                lines,
-                turn_number,
-            )
-            .await
+    pub async fn append(&self, req: AppendRequest<'_>) -> Result<AppendOutcome, AppendError> {
+        self.store.append(req).await
     }
 
     /// See [`PgTrajectoryDao::find_session`].

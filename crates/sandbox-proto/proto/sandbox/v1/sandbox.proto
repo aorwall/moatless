@@ -73,13 +73,13 @@ service BackendSandboxService {
 
   // Record harness session lines in file order into the Task's trajectory.
   // Idempotent on (harness_session_id, seq); creates the session on its first
-  // append. UNIMPLEMENTED while FF_TRAJECTORY_RECORDING is off.
+  // append. FAILED_PRECONDITION while a subagent session's spawning tool call
+  // is not recorded.
   rpc AppendTrajectory(AppendTrajectoryRequest) returns (AppendTrajectoryResponse);
 
   // Stream a trajectory session's lines root-first, header first, so the
   // sandbox can write the harness session file. NOT_FOUND for an unknown
-  // session, DATA_LOSS for a seq missing from the chain, UNIMPLEMENTED while
-  // FF_TRAJECTORY_RECORDING is off.
+  // session, DATA_LOSS for a seq missing from the chain.
   rpc ReadTrajectory(ReadTrajectoryRequest) returns (stream ReadTrajectoryChunk);
 
   // Mint short-lived, single-object presigned S3 URLs for the task's workspace
@@ -286,8 +286,16 @@ message AppendTrajectoryRequest {
   string harness = 2;             // "claude-code" | "codex"
   string harness_session_id = 3;  // creates the session on first append
   int64 first_seq = 4;
-  repeated TrajectoryLine lines = 5;
+  repeated TrajectoryLine lines = 5; // at most 256
   optional int32 turn_number = 6; // task_turns.turn_number of the running Turn
+  // Set until the session exists: a subagent session, linked to the tool call
+  // that spawned it.
+  optional SubagentParent subagent_parent = 8;
+}
+
+message SubagentParent {
+  string parent_harness_session_id = 1;
+  string tool_use_id = 2; // the spawning Agent/Task call
 }
 
 message TrajectoryLine {
@@ -295,7 +303,7 @@ message TrajectoryLine {
   optional string harness_item_id = 2;
   optional string harness_turn_id = 3;
   string payload = 4;      // the line verbatim, without its newline
-  string content_json = 5; // {"role": ..., "blocks": [CanonicalContentBlock, ...]}
+  string content_json = 5; // {"role", "blocks", "injected", "usage"?, "compaction"}
 }
 
 message AppendTrajectoryResponse {

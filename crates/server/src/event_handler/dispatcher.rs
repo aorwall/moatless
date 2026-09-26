@@ -285,7 +285,10 @@ impl EventDispatcher {
                 // The running-command count is written onto the Sandbox row at
                 // ingress, beside the admission that made it durable, so the
                 // Task listing reads it without waiting on this consumer.
-                | AgentSubType::CommandsChanged,
+                | AgentSubType::CommandsChanged
+                // A stopped trajectory recorder: kept in task_events for
+                // diagnosis; the Turn goes on.
+                | AgentSubType::RecordingStopped,
             )
             | EventKey::Task(
                 TaskSubType::Open

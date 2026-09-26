@@ -98,8 +98,6 @@ pub(super) fn service_with(
         transcript_s3_prefix: String::new(),
         workspace_s3_prefix: String::new(),
         event_dedup: Arc::new(crate::sandbox::event_dedup::EventDedup::default()),
-        trajectory_record: false,
-        trajectory_resume: false,
     }
 }
 

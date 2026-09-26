@@ -4,6 +4,7 @@ use serde_json::json;
 use sqlx::PgPool;
 
 use super::*;
+use crate::trajectory::models::{NewEvent, SubagentParent};
 
 fn line(n: i64) -> NewEvent {
     NewEvent {
@@ -19,6 +20,25 @@ fn lines(range: std::ops::Range<i64>) -> Vec<NewEvent> {
     range.map(line).collect()
 }
 
+fn req<'a>(
+    task_id: &'a str,
+    harness: Harness,
+    harness_session_id: &'a str,
+    first_seq: i64,
+    lines: &'a [NewEvent],
+    turn_number: Option<i32>,
+) -> AppendRequest<'a> {
+    AppendRequest {
+        task_id,
+        harness,
+        harness_session_id,
+        first_seq,
+        lines,
+        turn_number,
+        subagent_parent: None,
+    }
+}
+
 async fn event_count(pool: &PgPool) -> i64 {
     sqlx::query_scalar("SELECT COUNT(*) FROM trajectory_events")
         .fetch_one(pool)
@@ -29,7 +49,14 @@ async fn event_count(pool: &PgPool) -> i64 {
 async fn seeded(pool: &PgPool, session: &str, events: Vec<NewEvent>) -> PgTrajectoryDao {
     let dao = PgTrajectoryDao(pool.clone());
     let outcome = dao
-        .append("source", Harness::ClaudeCode, session, 0, &events, Some(1))
+        .append(req(
+            "source",
+            Harness::ClaudeCode,
+            session,
+            0,
+            &events,
+            Some(1),
+        ))
         .await
         .unwrap();
     assert!(outcome.accepted);
@@ -40,15 +67,15 @@ async fn seeded(pool: &PgPool, session: &str, events: Vec<NewEvent>) -> PgTrajec
 async fn append_is_idempotent_and_rejects_gaps(pool: PgPool) {
     let dao = PgTrajectoryDao(pool.clone());
     let first = dao
-        .append("t", Harness::Codex, "s", 0, &lines(0..10), None)
+        .append(req("t", Harness::Codex, "s", 0, &lines(0..10), None))
         .await
         .unwrap();
     let resent = dao
-        .append("t", Harness::Codex, "s", 5, &lines(5..15), None)
+        .append(req("t", Harness::Codex, "s", 5, &lines(5..15), None))
         .await
         .unwrap();
     let early = dao
-        .append("t", Harness::Codex, "s", 20, &lines(20..25), None)
+        .append(req("t", Harness::Codex, "s", 20, &lines(20..25), None))
         .await
         .unwrap();
 
@@ -91,7 +118,14 @@ async fn append_is_idempotent_and_rejects_gaps(pool: PgPool) {
 async fn append_refuses_another_tasks_session(pool: PgPool) {
     let dao = seeded(&pool, "s", lines(0..2)).await;
     let other = dao
-        .append("intruder", Harness::ClaudeCode, "s", 2, &lines(2..3), None)
+        .append(req(
+            "intruder",
+            Harness::ClaudeCode,
+            "s",
+            2,
+            &lines(2..3),
+            None,
+        ))
         .await;
     assert!(matches!(other, Err(AppendError::Foreign(_))));
     assert_eq!(event_count(&pool).await, 2);
@@ -124,14 +158,14 @@ async fn fork_copies_no_events(pool: PgPool) {
     assert_eq!(dao.chain(&fork).await.unwrap(), prefix);
 
     let own = dao
-        .append(
+        .append(req(
             "fork",
             Harness::ClaudeCode,
             &fork.harness_session_id,
             3,
             &lines(30..32),
             None,
-        )
+        ))
         .await
         .unwrap();
     assert_eq!(
@@ -172,14 +206,14 @@ async fn fork_of_a_fork_walks_both_fork_points(pool: PgPool) {
         .insert_fork_session("f1", Harness::ClaudeCode, cut)
         .await
         .unwrap();
-    dao.append(
+    dao.append(req(
         "f1",
         Harness::ClaudeCode,
         &first.harness_session_id,
         2,
         &lines(10..13),
         None,
-    )
+    ))
     .await
     .unwrap();
 
@@ -287,7 +321,7 @@ async fn an_empty_append_returns_the_tip_payload(pool: PgPool) {
     let probe = |task: &'static str, session: String| {
         let dao = &dao;
         async move {
-            dao.append(task, Harness::ClaudeCode, &session, 0, &[], None)
+            dao.append(req(task, Harness::ClaudeCode, &session, 0, &[], None))
                 .await
                 .unwrap()
         }
@@ -316,4 +350,74 @@ async fn an_empty_append_returns_the_tip_payload(pool: PgPool) {
     let unknown = probe("t", "never-recorded".into()).await;
     assert_eq!((unknown.last_seq, unknown.last_payload), (-1, None));
     assert!(dao.find_session("never-recorded").await.unwrap().is_none());
+}
+
+fn tool_call(id: &str) -> NewEvent {
+    NewEvent {
+        kind: "assistant".into(),
+        harness_item_id: Some(format!("msg-{id}")),
+        harness_turn_id: None,
+        payload: format!(r#"{{"tool":"{id}","sessionId":"s"}}"#),
+        content: json!({
+            "role": "assistant",
+            "blocks": [{"type": "tool_use", "id": id, "name": "Agent", "input": {}}],
+        }),
+    }
+}
+
+#[sqlx::test]
+async fn a_subagent_session_links_to_its_spawning_tool_call(pool: PgPool) {
+    let dao = seeded(&pool, "parent", vec![line(0), tool_call("toolu_1")]).await;
+    let parent = SubagentParent {
+        harness_session_id: "parent",
+        tool_use_id: "toolu_1",
+    };
+    let subagent = |task, session, parent| AppendRequest {
+        subagent_parent: Some(parent),
+        ..req(task, Harness::ClaudeCode, session, 0, &[], None)
+    };
+
+    let unrecorded = SubagentParent {
+        tool_use_id: "toolu_2",
+        ..parent
+    };
+    for (task, session, parent) in [
+        ("source", "parent:agent-b", unrecorded),
+        ("other", "parent:agent-c", parent),
+    ] {
+        let refused = dao.append(subagent(task, session, parent)).await;
+        assert!(matches!(refused, Err(AppendError::ParentMissing(_))));
+        assert!(dao.find_session(session).await.unwrap().is_none());
+    }
+
+    let probe = dao
+        .append(subagent("source", "parent:agent-a", parent))
+        .await
+        .unwrap();
+    assert_eq!(probe.last_seq, -1);
+    let first = lines(0..2);
+    dao.append(AppendRequest {
+        lines: &first,
+        ..subagent("source", "parent:agent-a", parent)
+    })
+    .await
+    .unwrap();
+    let session = dao.find_session("parent:agent-a").await.unwrap().unwrap();
+    let spawning: Uuid = sqlx::query_scalar(
+        "SELECT e.id FROM trajectory_events e
+           JOIN trajectory_sessions s ON s.id = e.session_id
+          WHERE s.harness_session_id = 'parent' AND e.seq = 1",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(session.parent_event_id, Some(spawning));
+
+    let forked_too =
+        sqlx::query("UPDATE trajectory_sessions SET forked_from_event_id = $2 WHERE id = $1")
+            .bind(session.id)
+            .bind(spawning)
+            .execute(&pool)
+            .await;
+    assert!(forked_too.is_err(), "a subagent session never forks");
 }

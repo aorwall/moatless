@@ -47,13 +47,6 @@ export interface Capabilities {
   sandboxReadyEvent: boolean
   /** The runtime runs the workspace's `dockerImage`, so a bad image fails the sandbox. */
   workspaceImage: boolean
-  /**
-   * The backend runs with `FF_TRAJECTORY_RECORDING`, and with either
-   * `FF_TRAJECTORY_RESUME` or the fixture workspace setting
-   * `MOATLESS_RESUME_FROM_TRAJECTORY=1`. None is visible through the API, so
-   * the operator says so with `E2E_TRAJECTORY=1`.
-   */
-  trajectory: boolean
 }
 
 /** How long to wait for the slow, environment-dependent transitions. */
@@ -120,7 +113,6 @@ function dockerProfile(): Profile {
       storedWorkspace: false,
       sandboxReadyEvent: true,
       workspaceImage: true,
-      trajectory: process.env.E2E_TRAJECTORY === '1',
     },
   }
 }
@@ -161,7 +153,6 @@ function k8sProfile(): Profile {
       storedWorkspace: true,
       sandboxReadyEvent: true,
       workspaceImage: true,
-      trajectory: process.env.E2E_TRAJECTORY === '1',
     },
   }
 }
@@ -200,7 +191,6 @@ function localProfile(): Profile {
       sandboxReadyEvent: false,
       // Sandboxes run on the host; `dockerImage` is ignored.
       workspaceImage: false,
-      trajectory: process.env.E2E_TRAJECTORY === '1',
     },
   }
 }

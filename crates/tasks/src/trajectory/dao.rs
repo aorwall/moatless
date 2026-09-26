@@ -8,11 +8,14 @@ use moatless_core::db::DbPool;
 use serde_json::Value;
 use uuid::Uuid;
 
-use super::models::{AppendError, AppendOutcome, ChainError, ForkCut, NewEvent, TrajectorySession};
+use super::models::{
+    AppendError, AppendOutcome, AppendRequest, ChainError, ForkCut, TrajectorySession,
+};
 
 macro_rules! session_columns {
     () => {
-        "id, task_id, harness, harness_session_id, forked_from_event_id, last_event_id, last_seq"
+        "id, task_id, harness, harness_session_id, forked_from_event_id, parent_event_id, \
+         last_event_id, last_seq"
     };
 }
 
@@ -43,27 +46,54 @@ impl PgTrajectoryDao {
     /// Append `lines` as seqs `first_seq..`, creating the session on its first
     /// append. Lines the session already holds are skipped; a batch starting
     /// past `last_seq + 1` inserts nothing and is not accepted.
-    pub async fn append(
-        &self,
-        task_id: &str,
-        harness: Harness,
-        harness_session_id: &str,
-        first_seq: i64,
-        lines: &[NewEvent],
-        turn_number: Option<i32>,
-    ) -> Result<AppendOutcome, AppendError> {
+    pub async fn append(&self, req: AppendRequest<'_>) -> Result<AppendOutcome, AppendError> {
+        let AppendRequest {
+            task_id,
+            harness,
+            harness_session_id,
+            first_seq,
+            lines,
+            turn_number,
+            subagent_parent,
+        } = req;
         let mut tx = self.0.begin().await?;
-        sqlx::query(
-            r#"INSERT INTO trajectory_sessions (id, task_id, harness, harness_session_id)
-               VALUES ($1, $2, $3, $4)
-               ON CONFLICT (harness_session_id) DO NOTHING"#,
+        let parent_event_id: Option<Uuid> = match subagent_parent {
+            Some(parent) => {
+                sqlx::query_scalar(
+                    r#"SELECT e.id
+                         FROM trajectory_events e
+                         JOIN trajectory_sessions s ON s.id = e.session_id
+                        WHERE s.harness_session_id = $1 AND s.task_id = $2
+                          AND e.content -> 'blocks'
+                              @> jsonb_build_array(jsonb_build_object('type', 'tool_use', 'id', $3::text))
+                        ORDER BY e.seq
+                        LIMIT 1"#,
+                )
+                .bind(parent.harness_session_id)
+                .bind(task_id)
+                .bind(parent.tool_use_id)
+                .fetch_optional(&mut *tx)
+                .await?
+            }
+            None => None,
+        };
+        let created: Option<Uuid> = sqlx::query_scalar(
+            r#"INSERT INTO trajectory_sessions
+                   (id, task_id, harness, harness_session_id, parent_event_id)
+               VALUES ($1, $2, $3, $4, $5)
+               ON CONFLICT (harness_session_id) DO NOTHING
+               RETURNING id"#,
         )
         .bind(Uuid::now_v7())
         .bind(task_id)
         .bind(harness.as_str())
         .bind(harness_session_id)
-        .execute(&mut *tx)
+        .bind(parent_event_id)
+        .fetch_optional(&mut *tx)
         .await?;
+        if created.is_some() && subagent_parent.is_some() && parent_event_id.is_none() {
+            return Err(AppendError::ParentMissing(harness_session_id.to_string()));
+        }
         let session = sqlx::query_as::<_, TrajectorySession>(concat!(
             "SELECT ",
             session_columns!(),

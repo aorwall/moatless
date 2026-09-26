@@ -1,8 +1,7 @@
 /**
  * Standalone: Trajectory fork and recover
  *
- * With trajectory recording on, the harness session file is written back from
- * the Postgres trajectory rather than from `transcripts.tar`. A fork must see
+ * The harness session file is written back from the Postgres trajectory rather than from `transcripts.tar`. A fork must see
  * only the history up to its cut, and a replaced pod must see all of it.
  *
  * Run once per harness, because each writes its session file in its own format.
@@ -71,7 +70,7 @@ async function waitForTurns(sse: EventStream, taskId: string, turns: number): Pr
 
 for (const harness of HARNESSES) {
   test.describe(`Standalone: Trajectory fork and recover (${harness.agentProfile})`, () => {
-    const reason = missingCapability(harness.credentials, 'trajectory')
+    const reason = missingCapability(harness.credentials)
     test.skip(reason !== null, reason ?? '')
 
     test(`${harness.scenario}: A fork and a replaced pod answer from the right history`, async ({

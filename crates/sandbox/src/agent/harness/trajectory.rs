@@ -45,6 +45,20 @@ pub trait SessionFormat: Send + Sync {
     /// The session the harness's own resume-latest picks, or `None` when it
     /// has none on disk. Blocks on the filesystem.
     fn latest(&self, home: &Path, cwd: &Path) -> Option<String>;
+
+    /// The subagent session files beside `session_file` whose spawning tool
+    /// call is known. Blocks on the filesystem.
+    fn subagents(&self, _session_file: &Path) -> Vec<SubagentFile> {
+        Vec::new()
+    }
+}
+
+/// A subagent's own session file and the parent's tool call that spawned it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SubagentFile {
+    pub harness_session_id: String,
+    pub path: PathBuf,
+    pub tool_use_id: String,
 }
 
 /// One session line, classified.
@@ -63,6 +77,36 @@ pub struct EventContent {
     #[serde(serialize_with = "serialize_role")]
     pub role: Option<Role>,
     pub blocks: Vec<CanonicalContentBlock>,
+    /// The harness wrote this line itself (environment, instructions, command
+    /// and hook output): never shown and never transcoded.
+    pub injected: bool,
+    /// Set on the first line of a model response; the tail clears it on the
+    /// response's later lines, since Claude repeats it on each.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub usage: Option<Usage>,
+    /// A compaction line; its summary text is in `blocks`.
+    pub compaction: bool,
+}
+
+/// One model response's token counts. `input_tokens` excludes cached input.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+pub struct Usage {
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    pub cache_read_tokens: u64,
+    pub cache_write_tokens: u64,
+}
+
+impl Usage {
+    fn read(value: &Value, input: &str, cache_read: &str, cache_write: &str) -> Option<Self> {
+        let n = |key: &str| value.get(key).and_then(Value::as_u64).unwrap_or(0);
+        value.is_object().then(|| Self {
+            input_tokens: n(input),
+            output_tokens: n("output_tokens"),
+            cache_read_tokens: n(cache_read),
+            cache_write_tokens: n(cache_write),
+        })
+    }
 }
 
 #[expect(
@@ -81,9 +125,38 @@ fn serialize_role<S: serde::Serializer>(role: &Option<Role>, s: S) -> Result<S::
 impl EventContent {
     /// The `content_json` wire form.
     pub fn to_json(&self) -> String {
-        serde_json::to_string(self).unwrap_or_else(|_| r#"{"role":null,"blocks":[]}"#.to_string())
+        serde_json::to_string(self).unwrap_or_else(|_| {
+            r#"{"role":null,"blocks":[],"injected":false,"compaction":false}"#.to_string()
+        })
     }
 }
+
+/// Whether a user text block is one the harness wrote itself.
+fn injected_text(blocks: &[CanonicalContentBlock], prefixes: &[&str]) -> bool {
+    blocks.iter().any(|block| match block {
+        CanonicalContentBlock::Text { text } => {
+            let text = text.trim_start();
+            prefixes.iter().any(|p| text.starts_with(p))
+        }
+        _ => false,
+    })
+}
+
+const CLAUDE_INJECTED: &[&str] = &[
+    "<command-name>",
+    "<command-message>",
+    "<local-command-stdout>",
+    "<local-command-caveat>",
+    "<system-reminder>",
+];
+
+const CODEX_INJECTED: &[&str] = &[
+    "<environment_context>",
+    "<user_instructions>",
+    "<skills_instructions>",
+    "# AGENTS.md",
+    "<turn_aborted>",
+];
 
 fn unparsed() -> RecordedLine {
     RecordedLine {
@@ -210,19 +283,69 @@ impl SessionFormat for ClaudeSessionFormat {
             .unwrap_or_default();
         replace_fields(payload, &fields, id)
     }
+
+    /// `<id>/subagents/agent-<agent>.jsonl`, named by the spawning call in the
+    /// `agent-<agent>.meta.json` beside it; a file whose meta is not written
+    /// yet is left for a later scan.
+    fn subagents(&self, session_file: &Path) -> Vec<SubagentFile> {
+        let Some(parent) = session_file.file_stem().and_then(|s| s.to_str()) else {
+            return Vec::new();
+        };
+        let dir = session_file.with_extension("").join("subagents");
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            return Vec::new();
+        };
+        entries
+            .flatten()
+            .filter_map(|entry| {
+                let path = entry.path();
+                let agent = path
+                    .file_name()?
+                    .to_str()?
+                    .strip_prefix("agent-")?
+                    .strip_suffix(".jsonl")?
+                    .to_string();
+                let meta = std::fs::read(dir.join(format!("agent-{agent}.meta.json"))).ok()?;
+                let meta: Value = serde_json::from_slice(&meta).ok()?;
+                Some(SubagentFile {
+                    harness_session_id: format!("{parent}:agent-{agent}"),
+                    tool_use_id: str_at(&meta, &["toolUseId"])?.to_string(),
+                    path,
+                })
+            })
+            .collect()
+    }
 }
 
 fn claude_content(value: &Value) -> EventContent {
     let Some(message) = value.get("message") else {
         return EventContent::default();
     };
-    let blocks = match message.get("content") {
+    let blocks: Vec<CanonicalContentBlock> = match message.get("content") {
         Some(Value::String(text)) => vec![CanonicalContentBlock::Text { text: text.clone() }],
         Some(Value::Array(blocks)) => blocks.iter().map(canonical_block).collect(),
         _ => Vec::new(),
     };
+    let role = role_of(str_at(message, &["role"]));
+    let flag = |key: &str| value.get(key).and_then(Value::as_bool) == Some(true);
+    let compaction = flag("isCompactSummary");
     EventContent {
-        role: role_of(str_at(message, &["role"])),
+        injected: !compaction
+            && (flag("isMeta")
+                || (role == Some(Role::User) && injected_text(&blocks, CLAUDE_INJECTED))),
+        usage: (role == Some(Role::Assistant))
+            .then(|| message.get("usage"))
+            .flatten()
+            .and_then(|u| {
+                Usage::read(
+                    u,
+                    "input_tokens",
+                    "cache_read_input_tokens",
+                    "cache_creation_input_tokens",
+                )
+            }),
+        compaction,
+        role,
         blocks,
     }
 }
@@ -289,16 +412,42 @@ impl SessionFormat for CodexSessionFormat {
             None => top.to_string(),
         };
         let is_item = top == "response_item";
+        let content = match kind.as_str() {
+            _ if is_item => codex_item_content(&payload),
+            "compacted" => EventContent {
+                role: Some(Role::User),
+                blocks: vec![CanonicalContentBlock::Text {
+                    text: str_at(&payload, &["message"])
+                        .unwrap_or_default()
+                        .to_string(),
+                }],
+                compaction: true,
+                ..EventContent::default()
+            },
+            "event_msg/token_count" => EventContent {
+                usage: payload.pointer("/info/last_token_usage").and_then(|u| {
+                    let usage = Usage::read(
+                        u,
+                        "input_tokens",
+                        "cached_input_tokens",
+                        "cache_write_input_tokens",
+                    )?;
+                    // Codex counts cached input inside `input_tokens`.
+                    Some(Usage {
+                        input_tokens: usage.input_tokens.saturating_sub(usage.cache_read_tokens),
+                        ..usage
+                    })
+                }),
+                ..EventContent::default()
+            },
+            _ => EventContent::default(),
+        };
         RecordedLine {
             harness_item_id: is_item
                 .then(|| str_at(&payload, &["id"]).map(str::to_string))
                 .flatten(),
             harness_turn_id: str_at(&payload, &["turn_id"]).map(str::to_string),
-            content: if is_item {
-                codex_item_content(&payload)
-            } else {
-                EventContent::default()
-            },
+            content,
             kind,
         }
     }
@@ -378,12 +527,20 @@ fn codex_item_content(item: &Value) -> EventContent {
     let assistant = |blocks| EventContent {
         role: Some(Role::Assistant),
         blocks,
+        ..EventContent::default()
     };
     match str_at(item, &["type"]) {
-        Some("message") => EventContent {
-            role: role_of(str_at(item, &["role"])),
-            blocks: codex_text_blocks(item.get("content")),
-        },
+        Some("message") => {
+            let role = role_of(str_at(item, &["role"]));
+            let blocks = codex_text_blocks(item.get("content"));
+            EventContent {
+                injected: role == Some(Role::System)
+                    || (role == Some(Role::User) && injected_text(&blocks, CODEX_INJECTED)),
+                role,
+                blocks,
+                ..EventContent::default()
+            }
+        }
         Some("function_call" | "custom_tool_call" | "local_shell_call") => {
             assistant(vec![CanonicalContentBlock::ToolUse {
                 id: call_id(),
@@ -402,6 +559,7 @@ fn codex_item_content(item: &Value) -> EventContent {
                 content: item.get("output").cloned(),
                 is_error: None,
             }],
+            ..EventContent::default()
         },
         Some("reasoning") => {
             let summary: Vec<&str> = item
@@ -418,8 +576,8 @@ fn codex_item_content(item: &Value) -> EventContent {
             }])
         }
         _ => EventContent {
-            role: None,
             blocks: vec![CanonicalContentBlock::Unknown { raw: item.clone() }],
+            ..EventContent::default()
         },
     }
 }
@@ -446,10 +604,10 @@ pub struct Written {
 
 /// Writes the session file for `target` out of the backend's trajectory.
 ///
-/// Keeps an existing file holding at least `line_count` lines, since it is
-/// the same session at least as far along. Returns `None`, logging why, when
-/// the trajectory cannot give a whole session; the caller then resumes from
-/// the transcripts.tar restore as before.
+/// Keeps an existing file whose line at the trajectory's last seq is the
+/// trajectory's last line, since it is the same session at least as far
+/// along. Returns `None`, logging why, when the trajectory cannot give a whole
+/// session; the caller then resumes from the transcripts.tar restore as before.
 pub async fn write_session(
     backend: &dyn BackendClient,
     format: &Arc<dyn SessionFormat>,
@@ -458,10 +616,65 @@ pub async fn write_session(
     cwd: &Path,
     target: WriteTarget,
 ) -> Option<Written> {
+    let (id, body, line_count) = read_session(backend, format, task_id, &target).await?;
+    let mut written = Written {
+        harness_session_id: id.clone(),
+        line_count,
+        rewritten: false,
+    };
+    let existing = locate_session(format, home, cwd, &id).await;
+    if let Some(path) = &existing {
+        let tip = body.lines().last().unwrap_or_default();
+        if line_at(path, line_count - 1).await.as_deref() == Some(tip) {
+            return Some(written);
+        }
+    }
+    let path = existing.unwrap_or_else(|| {
+        let first = body.lines().next().unwrap_or_default();
+        format.session_path(home, cwd, &id, first)
+    });
+    if let Err(error) = write_atomically(&path, body.as_bytes()).await {
+        warn!(%error, path = %path.display(), "Failed to write the session file; using the archive");
+        return None;
+    }
+    info!(harness_session_id = %id, lines = line_count, path = %path.display(),
+        "Wrote the session file from the trajectory");
+    written.rewritten = true;
+    Some(written)
+}
+
+/// Rewrites `path` in place with what the trajectory holds for
+/// `harness_session_id`, keeping the file's inode so a harness appending to
+/// it goes on appending after the trajectory's lines. Returns the line count.
+pub(crate) async fn reseed_session(
+    backend: &dyn BackendClient,
+    format: &Arc<dyn SessionFormat>,
+    task_id: &str,
+    harness_session_id: &str,
+    path: &Path,
+) -> Option<i64> {
+    let target = WriteTarget::Resume(harness_session_id.to_string());
+    let (_, body, line_count) = read_session(backend, format, task_id, &target).await?;
+    if let Err(error) = tokio::fs::write(path, body.as_bytes()).await {
+        warn!(%error, path = %path.display(), "Failed to reseed the session file");
+        return None;
+    }
+    info!(%harness_session_id, lines = line_count, "Reseeded the session file from the trajectory");
+    Some(line_count)
+}
+
+/// The session `target` names, its lines retargeted to it and newline-ended,
+/// and their count; `None` when the trajectory cannot give a whole session.
+async fn read_session(
+    backend: &dyn BackendClient,
+    format: &Arc<dyn SessionFormat>,
+    task_id: &str,
+    target: &WriteTarget,
+) -> Option<(String, String, i64)> {
     let request = ReadTrajectoryRequest {
         task_id: task_id.to_string(),
         harness: format.harness().to_string(),
-        target: Some(match &target {
+        target: Some(match target {
             WriteTarget::Resume(id) => {
                 read_trajectory_request::Target::HarnessSessionId(id.clone())
             }
@@ -476,7 +689,6 @@ pub async fn write_session(
             return None;
         }
     };
-    let id = header.harness_session_id;
     if lines.len() as i64 != header.line_count || lines.is_empty() {
         warn!(
             ?target,
@@ -486,37 +698,13 @@ pub async fn write_session(
         );
         return None;
     }
-    let mut written = Written {
-        harness_session_id: id.clone(),
-        line_count: header.line_count,
-        rewritten: false,
-    };
-    let existing = locate_session(format, home, cwd, &id).await;
-    if let Some(path) = &existing {
-        if count_lines(path)
-            .await
-            .is_ok_and(|n| n >= header.line_count)
-        {
-            return Some(written);
-        }
-    }
+    let id = header.harness_session_id;
     let mut body = String::new();
     for line in &lines {
         body.push_str(&format.retarget(line, &id));
         body.push('\n');
     }
-    let path = existing.unwrap_or_else(|| {
-        let first = body.lines().next().unwrap_or_default();
-        format.session_path(home, cwd, &id, first)
-    });
-    if let Err(error) = write_atomically(&path, body.as_bytes()).await {
-        warn!(%error, path = %path.display(), "Failed to write the session file; using the archive");
-        return None;
-    }
-    info!(harness_session_id = %id, lines = header.line_count, path = %path.display(),
-        "Wrote the session file from the trajectory");
-    written.rewritten = true;
-    Some(written)
+    Some((id, body, header.line_count))
 }
 
 /// [`SessionFormat::locate`] on the blocking pool, since Codex's walks every
@@ -550,13 +738,14 @@ pub(crate) async fn latest_session(
         .flatten()
 }
 
-#[expect(
-    clippy::naive_bytecount,
-    reason = "runs once per write-out, not worth a `bytecount` dependency"
-)]
-async fn count_lines(path: &Path) -> std::io::Result<i64> {
-    let bytes = tokio::fs::read(path).await?;
-    Ok(bytes.iter().filter(|b| **b == b'\n').count() as i64)
+/// The file's complete line `n`, without its newline.
+async fn line_at(path: &Path, n: i64) -> Option<String> {
+    let bytes = tokio::fs::read(path).await.ok()?;
+    let complete = &bytes[..=bytes.iter().rposition(|b| *b == b'\n')?];
+    let line = complete
+        .split(|b| *b == b'\n')
+        .nth(usize::try_from(n).ok()?)?;
+    Some(String::from_utf8_lossy(line).into_owned())
 }
 
 async fn write_atomically(path: &Path, bytes: &[u8]) -> std::io::Result<()> {

@@ -6,26 +6,34 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use sandbox_proto::{AppendTrajectoryRequest, TrajectoryLine};
+use moatless_types::agent::AgentSubType;
+use sandbox_proto::{
+    AppendTrajectoryRequest, EventType, PublishEventRequest, SubagentParent, TrajectoryLine,
+};
 use tokio::io::{AsyncBufReadExt, AsyncSeekExt, BufReader};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, mpsc};
 use tokio::task::JoinHandle;
 use tracing::{debug, info, warn};
 
 use crate::agent::harness::signal::Input;
 use crate::agent::harness::trajectory::{
-    SessionFormat, WriteTarget, Written, latest_session, locate_session, write_session,
+    SessionFormat, SubagentFile, WriteTarget, Written, latest_session, locate_session,
+    reseed_session, write_session,
 };
 use crate::agent::types::ResumeSession;
 use crate::backend_client::BackendClient;
 use crate::config::Config;
 
-/// How often a live session's new lines are shipped.
-pub const FLUSH_INTERVAL: Duration = Duration::from_secs(2);
+/// How often a live session is read when no file event arrives, as the tmux
+/// tailer polls.
+pub const FALLBACK_POLL: Duration = Duration::from_millis(100);
 
 /// Kept under the backend's 4 MiB gRPC decode limit; a single line over that
 /// limit fails its append and stops recording of that session.
 const MAX_BATCH_BYTES: usize = 1024 * 1024;
+
+/// Lines per `AppendTrajectory`.
+pub const MAX_BATCH_LINES: usize = 256;
 
 /// The backend every recorder in this sandbox ships to, and whether recording
 /// is off for the sandbox's life.
@@ -84,6 +92,27 @@ pub struct RecordTarget {
     /// The harness's home (`CLAUDE_CONFIG_DIR` or `CODEX_HOME`).
     pub home: PathBuf,
     pub cwd: PathBuf,
+    /// A subagent's file, which `SessionFormat::locate` does not find, and
+    /// the call that spawned it.
+    pub subagent: Option<(PathBuf, SubagentParent)>,
+}
+
+impl RecordTarget {
+    fn subagent(&self, file: SubagentFile) -> Self {
+        Self {
+            task_id: self.task_id.clone(),
+            harness_session_id: file.harness_session_id,
+            home: self.home.clone(),
+            cwd: self.cwd.clone(),
+            subagent: Some((
+                file.path,
+                SubagentParent {
+                    parent_harness_session_id: self.harness_session_id.clone(),
+                    tool_use_id: file.tool_use_id,
+                },
+            )),
+        }
+    }
 }
 
 /// Ships the complete lines of one session file past a cursor.
@@ -103,6 +132,13 @@ pub struct SessionRecorder {
     /// match: a file restored from an older archive and then resumed holds
     /// the right line count with different lines.
     held_tip: Option<String>,
+    /// The item id of the line before `next_seq`: a later line of the same
+    /// model response ships without the usage Claude repeats on it.
+    last_item_id: Option<String>,
+    /// Whether a reply has shown the session exists, so `subagent_parent` is
+    /// no longer sent.
+    created: bool,
+    reseeded: bool,
     stopped: bool,
 }
 
@@ -125,8 +161,16 @@ impl SessionRecorder {
             skip: start_seq,
             probe: start_seq.is_none(),
             held_tip: None,
+            last_item_id: None,
+            created: false,
+            reseeded: false,
             stopped: false,
         }
+    }
+
+    /// The session file this recorder reads, once found.
+    pub fn path(&self) -> Option<&Path> {
+        self.path.as_deref()
     }
 
     /// Sends every complete line past the cursor; returns the acknowledged
@@ -135,13 +179,69 @@ impl SessionRecorder {
         if self.stopped || self.recording.is_off() {
             return Err(RecordError::Off);
         }
-        let result = self.flush_inner().await;
+        let mut result = self.flush_inner().await;
+        if matches!(
+            result,
+            Err(RecordError::Behind { .. } | RecordError::Diverged { .. })
+        ) && self.reseed().await
+        {
+            result = self.flush_inner().await;
+        }
         if let Err(error) = &result {
             if error.is_final() {
                 self.stopped = true;
+                if !matches!(error, RecordError::Off) {
+                    self.report(error).await;
+                }
             }
         }
         result
+    }
+
+    /// Rewrites a file that is behind or diverged from the trajectory with
+    /// the trajectory's lines (S10) and places the cursor after them. Once per
+    /// recorder; a subagent file is never reseeded.
+    async fn reseed(&mut self) -> bool {
+        if self.reseeded || self.target.subagent.is_some() {
+            return false;
+        }
+        self.reseeded = true;
+        let Some(path) = self.path.clone() else {
+            return false;
+        };
+        let Some(line_count) = reseed_session(
+            self.recording.backend(),
+            &self.format,
+            &self.target.task_id,
+            &self.target.harness_session_id,
+            &path,
+        )
+        .await
+        else {
+            return false;
+        };
+        self.offset = 0;
+        self.skip = Some(line_count);
+        self.held_tip = None;
+        true
+    }
+
+    /// Records a recorder that stopped in `task_events`.
+    async fn report(&self, error: &RecordError) {
+        let payload = serde_json::json!({
+            "harnessSessionId": self.target.harness_session_id,
+            "error": error.to_string(),
+        });
+        let request = PublishEventRequest {
+            task_id: self.target.task_id.clone(),
+            event_type: EventType::Agent as i32,
+            sub_type: AgentSubType::RecordingStopped.as_str().to_string(),
+            payload_json: payload.to_string(),
+            ..PublishEventRequest::default()
+        };
+        if let Err(status) = self.recording.backend.publish_event(request).await {
+            warn!(%status, "Failed to report the stopped trajectory recorder");
+        }
     }
 
     async fn flush_inner(&mut self) -> Result<i64, RecordError> {
@@ -160,14 +260,22 @@ impl SessionRecorder {
             if let Some(skip) = self.skip.take() {
                 match skip_lines(&path, self.offset, skip).await {
                     Ok(Ok((offset, last))) => {
+                        let last = String::from_utf8_lossy(&last).into_owned();
                         if let Some(tip) = self.held_tip.take() {
-                            let tip = self.format.retarget(&tip, &self.target.harness_session_id);
-                            if String::from_utf8_lossy(&last) != tip {
+                            // A subagent's lines name the parent's session id.
+                            let tip = match self.target.subagent {
+                                Some(_) => tip,
+                                None => self.format.retarget(&tip, &self.target.harness_session_id),
+                            };
+                            if last != tip {
                                 return Err(RecordError::Diverged { seq: skip - 1 });
                             }
                         }
                         self.offset = offset;
                         self.next_seq = skip;
+                        self.last_item_id = (skip > 0)
+                            .then(|| self.format.read_line(&last).harness_item_id)
+                            .flatten();
                     }
                     Ok(Err(held)) => {
                         return Err(RecordError::Behind {
@@ -219,6 +327,7 @@ impl SessionRecorder {
             let mut size = 0;
             let take = rest
                 .iter()
+                .take(MAX_BATCH_LINES)
                 .take_while(|l| {
                     size += l.len();
                     size <= MAX_BATCH_BYTES
@@ -226,11 +335,17 @@ impl SessionRecorder {
                 .count()
                 .max(1);
             let (batch, tail) = rest.split_at(take);
+            // `wire_line` advances it; a batch the backend did not take rereads
+            // its first line against the id before it.
+            let before = self.last_item_id.clone();
             let wire = batch.iter().map(|l| self.wire_line(l)).collect();
-            let reply = self.append(self.next_seq, wire).await?;
-            if !reply.accepted {
-                return Ok(Some(reply.last_seq));
-            }
+            let reply = match self.append(self.next_seq, wire).await {
+                Ok(reply) if reply.accepted => reply,
+                other => {
+                    self.last_item_id = before;
+                    return other.map(|reply| Some(reply.last_seq));
+                }
+            };
             self.next_seq += batch.len() as i64;
             self.offset += batch.iter().map(|l| l.len() as u64 + 1).sum::<u64>();
             if reply.last_seq != self.next_seq - 1 {
@@ -241,9 +356,13 @@ impl SessionRecorder {
         Ok(None)
     }
 
-    fn wire_line(&self, line: &[u8]) -> TrajectoryLine {
+    fn wire_line(&mut self, line: &[u8]) -> TrajectoryLine {
         let payload = String::from_utf8_lossy(line).into_owned();
-        let read = self.format.read_line(&payload);
+        let mut read = self.format.read_line(&payload);
+        if read.harness_item_id.is_some() && read.harness_item_id == self.last_item_id {
+            read.content.usage = None;
+        }
+        self.last_item_id.clone_from(&read.harness_item_id);
         TrajectoryLine {
             kind: read.kind,
             harness_item_id: read.harness_item_id,
@@ -254,7 +373,7 @@ impl SessionRecorder {
     }
 
     async fn append(
-        &self,
+        &mut self,
         first_seq: i64,
         lines: Vec<TrajectoryLine>,
     ) -> Result<sandbox_proto::AppendTrajectoryResponse, RecordError> {
@@ -265,9 +384,21 @@ impl SessionRecorder {
             first_seq,
             lines,
             turn_number: None,
+            subagent_parent: (!self.created)
+                .then(|| {
+                    self.target
+                        .subagent
+                        .as_ref()
+                        .map(|(_, parent)| parent.clone())
+                })
+                .flatten(),
         };
         match self.recording.backend.append_trajectory(request).await {
-            Ok(reply) => Ok(reply),
+            Ok(reply) => {
+                // A probe creates no session, so its reply may not show one.
+                self.created |= reply.last_seq >= 0;
+                Ok(reply)
+            }
             Err(status) if status.code() == tonic::Code::Unimplemented => {
                 if !self.recording.off.swap(true, Ordering::Relaxed) {
                     info!("Trajectory recording is off; stopping every recorder in this sandbox");
@@ -279,6 +410,9 @@ impl SessionRecorder {
     }
 
     async fn located(&mut self) -> Option<PathBuf> {
+        if let Some((path, _)) = &self.target.subagent {
+            self.path = Some(path.clone());
+        }
         if self.path.is_none() {
             self.path = locate_session(
                 &self.format,
@@ -350,41 +484,113 @@ fn complete_lines(bytes: &[u8]) -> Vec<&[u8]> {
     bytes[..end].split(|b| *b == b'\n').collect()
 }
 
-/// A [`SessionRecorder`] flushed every [`FLUSH_INTERVAL`] until dropped.
+/// A [`SessionRecorder`] and the subagent sessions its file spawns, flushed
+/// on every change to the file's directory and every [`FALLBACK_POLL`] until
+/// dropped.
 pub struct LiveRecorder {
-    recorder: Arc<Mutex<SessionRecorder>>,
+    sessions: Arc<Mutex<LiveSessions>>,
     ticker: JoinHandle<()>,
+}
+
+struct LiveSessions {
+    main: SessionRecorder,
+    subagents: Vec<SessionRecorder>,
+    /// Whether each recorder has logged a failure at warn already.
+    warned: Vec<bool>,
+    watcher: Option<notify::RecommendedWatcher>,
+}
+
+impl LiveSessions {
+    async fn flush(&mut self, changes: &mpsc::Sender<()>) {
+        self.warned.resize(1 + self.subagents.len(), false);
+        if let Err(error) = self.main.flush().await {
+            log_failure(&self.main, &error, &mut self.warned[0]);
+        }
+        let Some(path) = self.main.path().map(Path::to_path_buf) else {
+            return;
+        };
+        if self.watcher.is_none() {
+            self.watcher = watch(&path, changes.clone());
+        }
+        self.adopt_subagents(&path).await;
+        self.warned.resize(1 + self.subagents.len(), false);
+        for (i, recorder) in self.subagents.iter_mut().enumerate() {
+            if let Err(error) = recorder.flush().await {
+                log_failure(recorder, &error, &mut self.warned[i + 1]);
+            }
+        }
+    }
+
+    async fn adopt_subagents(&mut self, path: &Path) {
+        let format = Arc::clone(&self.main.format);
+        let file = path.to_path_buf();
+        let found = tokio::task::spawn_blocking(move || format.subagents(&file))
+            .await
+            .unwrap_or_default();
+        for file in found {
+            let known = self
+                .subagents
+                .iter()
+                .any(|r| r.target.harness_session_id == file.harness_session_id);
+            if !known {
+                self.subagents.push(SessionRecorder::start(
+                    Arc::clone(&self.main.format),
+                    Arc::clone(&self.main.recording),
+                    self.main.target.subagent(file),
+                    None,
+                ));
+            }
+        }
+    }
+}
+
+/// Signals `changes` on any change under the session file's directory,
+/// which holds Claude's subagent files too. `None` leaves the poll alone.
+fn watch(path: &Path, changes: mpsc::Sender<()>) -> Option<notify::RecommendedWatcher> {
+    use notify::Watcher as _;
+    let dir = path.parent()?;
+    let mut watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
+        if event.is_ok() {
+            let _ = changes.try_send(());
+        }
+    })
+    .map_err(|error| debug!(%error, "No file watch; polling only"))
+    .ok()?;
+    watcher
+        .watch(dir, notify::RecursiveMode::Recursive)
+        .map_err(|error| debug!(%error, dir = %dir.display(), "No file watch; polling only"))
+        .ok()?;
+    Some(watcher)
 }
 
 impl LiveRecorder {
     pub fn spawn(recorder: SessionRecorder) -> Self {
-        let recorder = Arc::new(Mutex::new(recorder));
-        let ticking = Arc::clone(&recorder);
+        let sessions = Arc::new(Mutex::new(LiveSessions {
+            main: recorder,
+            subagents: Vec::new(),
+            warned: Vec::new(),
+            watcher: None,
+        }));
+        let ticking = Arc::clone(&sessions);
         let ticker = tokio::spawn(async move {
-            let mut interval = tokio::time::interval(FLUSH_INTERVAL);
-            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-            let mut warned = false;
+            let (changes, mut changed) = mpsc::channel(1);
             loop {
-                interval.tick().await;
-                let mut recorder = ticking.lock().await;
-                if let Err(error) = recorder.flush().await {
-                    log_failure(&recorder, &error, &mut warned);
-                    if recorder.stopped {
-                        return;
-                    }
+                let mut sessions = ticking.lock().await;
+                sessions.flush(&changes).await;
+                if sessions.main.stopped && sessions.subagents.iter().all(|r| r.stopped) {
+                    return;
                 }
+                drop(sessions);
+                let _ = tokio::time::timeout(FALLBACK_POLL, changed.recv()).await;
             }
         });
-        Self { recorder, ticker }
+        Self { sessions, ticker }
     }
 
     /// Flush now; called at Turn end, before the Turn is reported finished.
     pub async fn flush(&self) {
-        let mut recorder = self.recorder.lock().await;
-        let mut warned = false;
-        if let Err(error) = recorder.flush().await {
-            log_failure(&recorder, &error, &mut warned);
-        }
+        let (changes, _) = mpsc::channel(1);
+        self.sessions.lock().await.flush(&changes).await;
     }
 }
 
@@ -406,13 +612,6 @@ impl Drop for LiveRecorder {
     }
 }
 
-/// The env that makes a Turn write its session file out of the trajectory
-/// before the harness opens it.
-///
-/// A Workspace sets it, or the backend's `FF_TRAJECTORY_RESUME` sets it for
-/// every Workspace that does not.
-pub const RESUME_FROM_TRAJECTORY: &str = "MOATLESS_RESUME_FROM_TRAJECTORY";
-
 /// One Turn's trajectory work: write the session out before the harness opens
 /// it, record it once its id is known, and flush before the Turn is reported.
 pub(crate) struct TurnTrajectory {
@@ -421,7 +620,6 @@ pub(crate) struct TurnTrajectory {
     task_id: String,
     home: PathBuf,
     cwd: PathBuf,
-    resume_from_trajectory: bool,
     written: Option<Written>,
     live: Option<LiveRecorder>,
 }
@@ -446,17 +644,16 @@ impl TurnTrajectory {
             task_id: var("TASK_ID").unwrap_or_else(|| config.task_id.clone()),
             home: PathBuf::from(home),
             cwd: PathBuf::from(&config.workspace_dir),
-            resume_from_trajectory: var(RESUME_FROM_TRAJECTORY).as_deref() == Some("1"),
             written: None,
             live: None,
         })
     }
 
-    /// Writes the session `input` resumes or forks out of the trajectory, when
-    /// the Workspace asks for it. Returns the session a fork resumes; `None`
-    /// leaves the harness to its own fork, resume or fresh start.
+    /// Writes the session `input` resumes or forks out of the trajectory.
+    /// Returns the session a fork resumes; `None` leaves the harness to its
+    /// own fork, resume or fresh start.
     pub(crate) async fn write_out(&mut self, input: &Input) -> Option<String> {
-        if !self.resume_from_trajectory || self.recording.is_off() {
+        if self.recording.is_off() {
             return None;
         }
         let target = match (&input.fork, &input.resume) {
@@ -504,6 +701,7 @@ impl TurnTrajectory {
                 harness_session_id: harness_session_id.to_string(),
                 home: self.home.clone(),
                 cwd: self.cwd.clone(),
+                subagent: None,
             },
             start_seq,
         );

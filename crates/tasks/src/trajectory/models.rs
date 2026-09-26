@@ -1,8 +1,30 @@
 //! What the trajectory records and answers: sessions, events, cuts and their
 //! errors.
 
+use moatless_types::agent::Harness;
 use serde_json::Value;
 use uuid::Uuid;
+
+/// Lines to append to one harness session, `first_seq` onward.
+#[derive(Debug, Clone, Copy)]
+pub struct AppendRequest<'a> {
+    pub task_id: &'a str,
+    pub harness: Harness,
+    pub harness_session_id: &'a str,
+    pub first_seq: i64,
+    pub lines: &'a [NewEvent],
+    pub turn_number: Option<i32>,
+    /// Read only when the append creates the session.
+    pub subagent_parent: Option<SubagentParent<'a>>,
+}
+
+/// The tool call in another session of the same Task that spawned a
+/// subagent session.
+#[derive(Debug, Clone, Copy)]
+pub struct SubagentParent<'a> {
+    pub harness_session_id: &'a str,
+    pub tool_use_id: &'a str,
+}
 
 /// One harness session line to record.
 #[derive(Debug, Clone)]
@@ -34,6 +56,8 @@ pub struct TrajectorySession {
     pub harness: String,
     pub harness_session_id: String,
     pub forked_from_event_id: Option<Uuid>,
+    /// A subagent session's spawning tool-call event.
+    pub parent_event_id: Option<Uuid>,
     pub last_event_id: Option<Uuid>,
     pub last_seq: i64,
 }
@@ -53,6 +77,9 @@ pub enum ForkCut {
 pub enum AppendError {
     #[error("session {0} belongs to another task or harness")]
     Foreign(String),
+    /// The spawning tool call is not recorded yet; the sender retries.
+    #[error("subagent session {0}: its spawning tool call is not recorded")]
+    ParentMissing(String),
     #[error(transparent)]
     Db(#[from] sqlx::Error),
 }

@@ -10338,7 +10338,8 @@
           "session_context_lost",
           "activity",
           "context_window",
-          "commands_changed"
+          "commands_changed",
+          "recording_stopped"
         ]
       },
       "AgentProfile": {

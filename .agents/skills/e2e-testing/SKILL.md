@@ -107,7 +107,6 @@ It is never deleted, and it never fails for the wrong reason.
 | `storedWorkspace` | read a stopped task's files from the store | no — no bucket |
 | `sandboxReadyEvent` | a watcher publishes `sandbox.ready` | no — `sandbox-local` has no lifecycle watcher |
 | `workspaceImage` | the runtime runs the workspace's `dockerImage` | no — sandboxes run on the host |
-| `trajectory` | trajectory recording and resume are on | yes — `run.sh` starts the backend with both flags and sets `E2E_TRAJECTORY=1` |
 
 In a spec:
 
