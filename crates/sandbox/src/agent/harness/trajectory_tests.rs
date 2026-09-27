@@ -751,6 +751,25 @@ fn a_code_mode_exec_of_one_command_renders_as_bash() {
 }
 
 #[test]
+fn a_codex_command_run_elsewhere_renders_with_its_directory() {
+    let bash = |command: &str| Some(("Bash".to_string(), serde_json::json!({"command": command})));
+    let script = r#"text(await tools.exec_command({"workdir": "/w/sub", cmd:"cat state.txt", yield_time_ms:1000}));"#;
+    assert_eq!(
+        as_claude("exec", serde_json::json!(script)),
+        bash("cd '/w/sub' && cat state.txt")
+    );
+    assert_eq!(
+        as_claude(
+            "exec_command",
+            serde_json::json!({"cmd": "ls", "workdir": "/w"})
+        ),
+        bash("ls")
+    );
+    let nested = "text(await tools.exec_command({cmd:\"ls\", env:{A:1}}));";
+    assert_eq!(as_claude("exec", serde_json::json!(nested)), None);
+}
+
+#[test]
 fn a_codex_patch_of_one_file_renders_as_write_or_edit() {
     let add = "*** Begin Patch\n*** Add File: a.txt\n+one\n+two\n*** End Patch\n";
     assert_eq!(
@@ -819,19 +838,14 @@ fn claude_file_tools_render_as_codex_commands_and_patches() {
         "rg --files -g '**/*.ts'"
     );
 
+    // Claude matches substrings and applies edits in turn; a patch hunk
+    // matches whole lines of the original file.
     let edits = serde_json::json!({"file_path": "/w/a", "edits": [
-        {"old_string": "a", "new_string": "b"},
-        {"old_string": "c", "new_string": "d"},
+        {"old_string": "foo", "new_string": "bar"},
+        {"old_string": "bar = 1", "new_string": "baz"},
     ]});
-    assert_eq!(
-        as_codex("MultiEdit", edits),
-        (
-            "apply_patch".into(),
-            serde_json::json!(
-                "*** Begin Patch\n*** Update File: /w/a\n@@\n-a\n+b\n@@\n-c\n+d\n*** End Patch\n"
-            )
-        )
-    );
+    let note = &render_call(&CodexSessionFormat, "MultiEdit", edits)[0]["payload"];
+    assert_eq!(note["type"], "message");
     let todos = serde_json::json!({"todos": [{"content": "Build", "status": "in_progress", "activeForm": "Building"}]});
     assert_eq!(
         as_codex("TodoWrite", todos),

@@ -27,10 +27,14 @@ recording sandbox's skills, which no transcode reads.
 | `Bash {command}` | `function_call exec_command {cmd}` |
 | `Write {file_path, content}` | `custom_tool_call apply_patch`, `*** Add File:` |
 | `Edit {file_path, old_string, new_string}` | `custom_tool_call apply_patch`, `*** Update File:` with one `@@` hunk |
+| `Read`, `Grep`, `Glob` | `function_call exec_command {cmd}`: `cat -n` (with `sed -n` for `offset`/`limit`), `rg`, `rg --files -g` |
+| `TodoWrite {todos}` | `function_call update_plan {plan}` |
 
 | Codex call | Becomes in Claude Code |
 |---|---|
-| `exec_command {cmd}`, `shell`, `local_shell` (a `["bash","-lc",cmd]` argv becomes `cmd`) | `Bash {command}` |
+| `exec_command {cmd}`, `shell`, `local_shell` (a `["bash","-lc",cmd]` argv becomes `cmd`) | `Bash {command}`, prefixed `cd <workdir> &&` when `workdir` is not the session cwd |
+| code-mode `exec` whose script makes one `tools.exec_command({...})` call with JSON values | as `exec_command` |
+| `apply_patch` adding one file, or updating one with one hunk | `Write`, or `Edit` with the hunk's context and `-` lines as `old_string` |
 
 Any other call, in either direction, becomes one assistant text item naming
 the tool, its input and its result, and its result line is dropped. A call with

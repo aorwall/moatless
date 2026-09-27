@@ -218,14 +218,6 @@ fn codex_call(name: &str, input: &Value) -> Option<(bool, &'static str, String)>
             "Update File",
             hunk(field("old_string")?, field("new_string")?),
         ),
-        "MultiEdit" => {
-            let edits = input.get("edits")?.as_array()?;
-            let hunks = edits.iter().map(|edit| {
-                let text = |key: &str| edit.get(key).and_then(Value::as_str);
-                Some(hunk(text("old_string")?, text("new_string")?))
-            });
-            patch("Update File", hunks.collect::<Option<String>>()?)
-        }
         "TodoWrite" => {
             let todos = input.get("todos")?.as_array()?;
             let plan = todos.iter().map(|todo| {
@@ -258,24 +250,34 @@ fn codex_command(input: &Value) -> Option<String> {
     }
 }
 
-/// The command of a code-mode `exec` script that makes one
-/// `tools.exec_command` call with a double-quoted `cmd`; `None` for any other
-/// script.
-fn code_mode_command(script: &str) -> Option<String> {
+/// The argument object of a code-mode `exec` script that makes one
+/// `tools.exec_command` call with JSON values; `None` for any other script.
+fn code_mode_call(script: &str) -> Option<Value> {
     if script.matches("tools.").count() != 1 {
         return None;
     }
-    let call = &script[script.find("tools.exec_command(")?..];
-    let value = call[call.find("cmd")?..]
-        .trim_start_matches("cmd")
-        .trim_start_matches('"')
-        .trim_start()
-        .strip_prefix(':')?
-        .trim_start();
-    serde_json::Deserializer::from_str(value)
-        .into_iter::<String>()
-        .next()?
-        .ok()
+    let (_, call) = script.split_once("tools.exec_command(")?;
+    let mut rest = call.trim_start().strip_prefix('{')?;
+    let mut args = serde_json::Map::new();
+    loop {
+        rest = rest.trim_start();
+        if let Some(after) = rest.strip_prefix('}') {
+            return after
+                .trim_start()
+                .starts_with(')')
+                .then_some(Value::Object(args));
+        }
+        let (key, after) = match rest.strip_prefix('"') {
+            Some(quoted) => quoted.split_once('"')?,
+            None => rest.split_at(rest.find(|c: char| !c.is_alphanumeric() && c != '_')?),
+        };
+        let after = after.trim_start().strip_prefix(':')?;
+        let mut values = serde_json::Deserializer::from_str(after).into_iter::<Value>();
+        let value = values.next()?.ok()?;
+        args.insert(key.to_string(), value);
+        rest = after[values.byte_offset()..].trim_start();
+        rest = rest.strip_prefix(',').unwrap_or(rest);
+    }
 }
 
 /// A Claude `Write` or `Edit` input for a Codex patch that adds one file, or
@@ -329,15 +331,24 @@ fn patch_edit(patch: &str, cwd: &Path) -> Option<(&'static str, Value)> {
 
 /// A Claude call for a Codex one: `(name, input)`.
 fn claude_call(name: &str, input: &Value, cwd: &Path) -> Option<(&'static str, Value)> {
-    let command = match name {
-        "exec_command" | "shell" | "local_shell" => codex_command(input)?,
-        "exec" => code_mode_command(input.as_str()?)?,
+    let call;
+    let input = match name {
+        "exec_command" | "shell" | "local_shell" => input,
+        "exec" => {
+            call = code_mode_call(input.as_str()?)?;
+            &call
+        }
         "apply_patch" => {
             let patch = input.as_str().or_else(|| input.get("input")?.as_str())?;
             return patch_edit(patch, cwd);
         }
         _ => return None,
     };
+    let mut command = codex_command(input)?;
+    let workdir = input.get("workdir").and_then(Value::as_str).map(Path::new);
+    if let Some(dir) = workdir.filter(|dir| *dir != cwd) {
+        command = format!("cd {} && {command}", quoted(&dir.to_string_lossy()));
+    }
     Some(("Bash", json!({ "command": command })))
 }
 
