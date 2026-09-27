@@ -10,6 +10,9 @@ use axum::response::IntoResponse;
 use moatless_backend::state::AppState;
 use moatless_backend::t3code::backend::AppStateCommands;
 use moatless_t3code::ports::{CommandRefusal, ThreadCommandSink, ThreadMeta};
+use moatless_tasks::activities::mapping::ConversationWrite;
+use moatless_tasks::message::models::{MessageRole, MessageType};
+use moatless_tasks::message::test_support as message_fixtures;
 use moatless_tasks::task::error::TaskError;
 use moatless_tasks::task::switch::{SwitchCredentials, SwitchOutcome};
 use moatless_types::access_control::ScopeContext;
@@ -53,16 +56,14 @@ async fn seed_secret(pool: &PgPool, key: &str) {
 /// A recorded agent reply with no trajectory behind it: a Task created before
 /// recording.
 async fn seed_unrecorded_reply(pool: &PgPool, task_id: &str) {
-    sqlx::query(
-        r#"INSERT INTO task_messages (task_id, uuid, message_type, user_type, timestamp,
-                                      message_role, session_id)
-           VALUES ($1, $2, 'assistant', 'agent', NOW()::text, 'assistant', 'claude-1')"#,
-    )
-    .bind(task_id)
-    .bind(format!("{task_id}-reply"))
-    .execute(pool)
-    .await
-    .unwrap();
+    let mut reply = message_fixtures::make_message_row(task_id, &format!("{task_id}-reply"));
+    reply.message_type = MessageType::Assistant;
+    reply.message_role = MessageRole::Assistant;
+    reply.session_id = Some("claude-1".to_string());
+    message_fixtures::seed_message(pool, &reply, &[], &ConversationWrite::default())
+        .await
+        .unwrap();
+    message_fixtures::freeze(pool, task_id, None).await.unwrap();
 }
 
 async fn switch(

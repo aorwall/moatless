@@ -484,29 +484,34 @@ async fn list_sandbox_members_returns_the_owner_and_its_active_forks(pool: PgPoo
 }
 
 async fn seed_message(pool: &PgPool, task_id: &str) {
-    sqlx::query(
-        r#"INSERT INTO task_messages (task_id, uuid, message_type, user_type,
-                                      timestamp, message_role)
-           VALUES ($1, $2, 'user', 'human', NOW()::text, 'user')"#,
+    let msg = crate::message::test_support::make_message_row(task_id, &format!("{task_id}-m1"));
+    crate::message::test_support::seed_message(
+        pool,
+        &msg,
+        &[],
+        &crate::activities::mapping::ConversationWrite::default(),
     )
-    .bind(task_id)
-    .bind(format!("{task_id}-m1"))
-    .execute(pool)
     .await
     .expect("seed message");
 }
 
 async fn seed_activity(pool: &PgPool, task_id: &str) {
-    sqlx::query(
-        r#"INSERT INTO task_activities (activity_id, task_id, position, kind, status,
-                                        summary, is_error)
-           VALUES ($1 || '-a1', $1, 1, 'sandbox_error', 'failed',
-                   'preflight failed', true)"#,
-    )
-    .bind(task_id)
-    .execute(pool)
-    .await
-    .expect("seed activity");
+    let row = crate::activities::mapping::ActivityRow {
+        activity_id: format!("{task_id}-a1"),
+        task_id: task_id.to_string(),
+        ordinal: 0,
+        message_uuid: None,
+        parent_uuid: None,
+        kind: crate::activities::mapping::ActivityKind::SandboxError,
+        status: crate::activities::mapping::ActivityStatus::Failed,
+        tool_use_id: None,
+        summary: "preflight failed".to_string(),
+        payload: serde_json::json!({}),
+        is_error: true,
+    };
+    crate::message::test_support::record_standalone_activity(pool, &row)
+        .await
+        .expect("seed activity");
 }
 
 async fn task_exists(pool: &PgPool, task_id: &str) -> bool {
@@ -541,7 +546,7 @@ async fn delete_errored_empty_task_frees_a_failed_bootstrap(pool: PgPool) {
     // The failed incarnation's error activity would otherwise open the
     // conversation the retry creates.
     let activity_count: i64 =
-        sqlx::query_scalar("SELECT count(*) FROM task_activities WHERE task_id = 't1'")
+        sqlx::query_scalar("SELECT count(*) FROM conversation_activities WHERE task_id = 't1'")
             .fetch_one(&pool)
             .await
             .unwrap();

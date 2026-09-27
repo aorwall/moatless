@@ -1,12 +1,7 @@
-//! Cutting a Task's own conversation back to a turn.
-//!
-//! The mirror of `message::fork_dao`, which copies rows at or below a cut onto
-//! another Task; this deletes the rows above one, in place. A row with no
-//! `turn_number` is kept — a queued user Message not yet picked up is pending
-//! work, not history.
-//!
-//! The mirror stops at activities that happened on no Message: the copy takes
-//! those by `position` (a fork's Sandbox never saw them); a rewind leaves them.
+//! Cutting a Task's own conversation back to a turn, in place: every row of a
+//! later turn goes, frozen or not. A row with no `turn_number` is kept — a
+//! queued user Message not yet picked up is pending work, not history — and
+//! so is a Sandbox activity, since the Sandbox is not rewound.
 
 use moatless_core::change_feed::{conversation, listing};
 use moatless_core::db::DbPool;
@@ -18,7 +13,6 @@ use super::models::TaskFork;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct RewindCounts {
     pub messages: u64,
-    pub activities: u64,
     pub turns: u64,
 }
 
@@ -33,51 +27,28 @@ pub(crate) async fn truncate_conversation(
 ) -> Result<RewindCounts, sqlx::Error> {
     let mut tx = pool.begin().await?;
 
-    // Read the uuids first: `task_activities` and `task_message_usage` are
-    // keyed by them and neither has a foreign key that would cascade.
-    // `task_message_contexts` does, so the Message delete below takes it.
-    let doomed: Vec<String> = sqlx::query_scalar(
-        "SELECT uuid FROM task_messages \
-         WHERE task_id = $1 AND turn_number IS NOT NULL AND turn_number > $2",
+    let messages =
+        crate::conversation::dao::delete_projected(&mut tx, task_id, Some(keep_through)).await?;
+
+    // What those turns were sent goes with them; a pending item has no turn.
+    // One a fork inherited is kept `rewound`: its Message reads it, and a
+    // rebuild of the fork replays it (`replay_dao::inbox_items`).
+    sqlx::query(
+        r#"UPDATE task_inbox i SET status = 'rewound', rewound_at = now()
+            WHERE i.task_id = $1 AND i.status = 'delivered' AND i.turn_number > $2
+              AND EXISTS (SELECT 1 FROM conversation_messages m WHERE m.inbox_id = i.id)"#,
     )
     .bind(task_id)
     .bind(keep_through)
-    .fetch_all(&mut *tx)
+    .execute(&mut *tx)
     .await?;
-
-    // Only what happened on a deleted Message. A `sandbox_status`,
-    // `sandbox_warning` or `sandbox_error` row carries no `message_uuid`
-    // (`task_activities/dao.rs::record_sandbox`) and stays: it records what
-    // happened to the Sandbox, and the Sandbox is not rewound — its working
-    // copy is still what those rows describe. `fork_dao::copy_conversation`
-    // takes them by `position` because a fork's Sandbox never saw them.
-    let activities =
-        sqlx::query("DELETE FROM task_activities WHERE task_id = $1 AND message_uuid = ANY($2)")
-            .bind(task_id)
-            .bind(&doomed)
-            .execute(&mut *tx)
-            .await?
-            .rows_affected();
-
-    sqlx::query("DELETE FROM task_message_usage WHERE task_id = $1 AND message_uuid = ANY($2)")
-        .bind(task_id)
-        .bind(&doomed)
-        .execute(&mut *tx)
-        .await?;
-
-    let messages = sqlx::query("DELETE FROM task_messages WHERE task_id = $1 AND uuid = ANY($2)")
-        .bind(task_id)
-        .bind(&doomed)
-        .execute(&mut *tx)
-        .await?
-        .rows_affected();
-
-    // What those turns were sent goes with them; a pending item has no turn.
-    sqlx::query("DELETE FROM task_inbox WHERE task_id = $1 AND turn_number > $2")
-        .bind(task_id)
-        .bind(keep_through)
-        .execute(&mut *tx)
-        .await?;
+    sqlx::query(
+        "DELETE FROM task_inbox WHERE task_id = $1 AND turn_number > $2 AND status = 'delivered'",
+    )
+    .bind(task_id)
+    .bind(keep_through)
+    .execute(&mut *tx)
+    .await?;
 
     let turns = sqlx::query("DELETE FROM task_turns WHERE task_id = $1 AND turn_number > $2")
         .bind(task_id)
@@ -111,11 +82,7 @@ pub(crate) async fn truncate_conversation(
 
     tx.commit().await?;
 
-    Ok(RewindCounts {
-        messages,
-        activities,
-        turns,
-    })
+    Ok(RewindCounts { messages, turns })
 }
 
 #[cfg(all(test, feature = "db-tests"))]

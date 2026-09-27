@@ -1,8 +1,8 @@
 //! Forking a Task: where the cut lands, and what the pod needs to reproduce it.
 //!
-//! A fork is a Task branched off another at a completed turn, holding a copy of
-//! everything said and done up to it; its first turn resumes the parent's
-//! Claude session or Codex thread cut at that point — carried by `task_forks`.
+//! A fork is a Task branched off another at a completed turn, whose
+//! conversation is projected from its ancestors' sources up to it (4.9a); its
+//! first turn continues the Trajectory from the cut `task_forks` names.
 //!
 //! The session fork itself happens in the pod: Codex's `thread/fork` is an
 //! app-server call only a pod can make, and a same-Sandbox fork copies no
@@ -16,8 +16,6 @@ use moatless_types::agent::AgentProfile;
 use super::dao::TaskDao;
 use super::error::TaskError;
 use crate::message::dao::MessageDao;
-use crate::message::fork_dao::ForkAnchors;
-use crate::message::models::ForkCopyCounts;
 use crate::tag::dao::TagDao;
 use crate::task_turn::dao::TaskTurnDao;
 use crate::task_turn::models::ForkPoint;
@@ -44,16 +42,11 @@ impl TaskForks {
     pub async fn find(&self, task_id: &str) -> Result<Option<TaskFork>, sqlx::Error> {
         self.store.find(task_id).await
     }
-}
 
-/// The parent's agent session at the cut, and the anchor naming it. Exactly one
-/// is set: Claude keys by Message uuid; Codex's `thread/fork` takes
-/// `lastTurnId`, knowing no Messages.
-#[derive(Debug, Clone)]
-pub struct ForkSession {
-    pub source_session_id: String,
-    pub source_message_uuid: Option<String>,
-    pub source_agent_turn_id: Option<String>,
+    /// See [`TaskForkDao::pending`].
+    pub async fn pending(&self, task_id: &str) -> Result<Option<TaskFork>, sqlx::Error> {
+        self.store.pending(task_id).await
+    }
 }
 
 /// A resolved fork: which Task, cut where, and what the pod will need. Produced
@@ -63,13 +56,10 @@ pub struct ForkSession {
 pub struct ForkPlan {
     /// The Task being forked.
     pub source_task_id: String,
-    /// The turn the cut keeps. `None` when the parent has no turn at all — the
-    /// fork then carries whatever the parent said and no agent context.
+    /// The turn the cut keeps. `None` when the parent has no turn at all.
     pub at_turn: Option<i32>,
-    /// `None` when the parent's agent never ran at or before the cut. Such a
-    /// fork starts on a fresh session.
-    pub session: Option<ForkSession>,
-    /// The cut as a trajectory event; `None` exactly when `session` is.
+    /// The cut as a trajectory event; `None` when the parent recorded nothing
+    /// at or before it, and the fork starts empty on a fresh session.
     pub source_event_id: Option<uuid::Uuid>,
 }
 
@@ -77,7 +67,7 @@ pub struct ForkPlan {
 pub(crate) const FROZEN_FORK: &str = "This Task was created before recording and cannot be forked";
 
 /// The in-flight turn a cut must not reach, if any. A cut strictly below it is
-/// allowed (the copy filters `turn_number <= cut`); reaching it is refused —
+/// allowed; reaching it is refused —
 /// its transcript ends on an unanswered call.
 fn blocking_open_turn(point: &ForkPoint) -> Option<i32> {
     let open = point.open_turn?;
@@ -171,72 +161,57 @@ impl TaskForkService {
             )));
         }
 
-        let cut = point.turn;
-        let session = self.messages.fork_anchors(source_task_id, cut).await?.map(
-            |ForkAnchors {
-                 session_id,
-                 message_uuid,
-             }| {
-                // Codex names the cut by turn id and Claude by Message uuid;
-                // the pod falls back to them when the trajectory cannot answer.
-                let codex = source.agent_profile.as_str() == "codex";
-                ForkSession {
-                    source_session_id: session_id,
-                    source_message_uuid: (!codex).then_some(message_uuid).flatten(),
-                    source_agent_turn_id: codex.then(|| point.agent_turn_id.clone()).flatten(),
-                }
-            },
-        );
-        let source_event_id = match (&session, cut) {
-            (Some(_), Some(_)) => {
-                let cut = self.trajectories.resolve_cut(source_task_id, cut).await?;
-                Some(
-                    cut.ok_or_else(|| TaskError::Conflict(FROZEN_FORK.to_string()))?
-                        .event_id,
-                )
+        let cut = match point.turn {
+            Some(turn) => {
+                self.trajectories
+                    .resolve_cut(source_task_id, Some(turn))
+                    .await?
             }
-            _ => None,
+            None => None,
         };
+        // A frozen conversation with no recorded cut has nothing to inherit
+        // from but the rows the freeze copied, which a fork cannot project.
+        if cut.is_none() && self.messages.is_frozen(source_task_id).await? {
+            return Err(TaskError::Conflict(FROZEN_FORK.to_string()));
+        }
 
         Ok((
             source,
             ForkPlan {
                 source_task_id: source_task_id.to_string(),
-                at_turn: cut,
-                session: source_event_id.and(session),
-                source_event_id,
+                at_turn: point.turn,
+                source_event_id: cut.map(|cut| cut.event_id),
             },
         ))
     }
 
-    /// Copy the parent's conversation onto the fork's id. Runs before the
-    /// fork's Task row exists, which puts the copied Messages behind the fork's
-    /// own first message rather than in front of it.
-    pub async fn copy_conversation(
+    /// Project the fork's inherited conversation onto its id. Runs before the
+    /// fork's Task row exists, which puts the inherited Messages behind the
+    /// fork's own first message rather than in front of it.
+    pub async fn inherit_conversation(
         &self,
         plan: &ForkPlan,
         fork_task_id: &str,
-    ) -> Result<ForkCopyCounts, TaskError> {
+    ) -> Result<(), TaskError> {
+        let Some(cut) = plan.source_event_id else {
+            return Ok(());
+        };
         Ok(self
             .messages
-            .fork_conversation(&plan.source_task_id, fork_task_id, plan.at_turn)
+            .inherit_conversation(fork_task_id, &plan.source_task_id, cut)
             .await?)
     }
 
-    /// Undo [`Self::copy_conversation`] when the following create fails, so no
-    /// rows survive behind a Task that never existed. Best-effort and logged,
-    /// not propagated — call only on the failure path.
+    /// Undo [`Self::inherit_conversation`] when the following create fails, so
+    /// no rows survive behind a Task that never existed. Best-effort and
+    /// logged, not propagated — call only on the failure path.
     pub async fn discard_conversation(&self, fork_task_id: &str) {
-        if let Err(error) = self
-            .messages
-            .discard_forked_conversation(fork_task_id)
-            .await
-        {
+        if let Err(error) = self.messages.discard_conversation(fork_task_id).await {
             tracing::warn!(
                 task_id = %fork_task_id,
                 %error,
                 "Failed to discard a forked conversation after the fork's create failed; \
-                 the copied rows are orphaned until reaped"
+                 the inherited rows are orphaned until reaped"
             );
         }
     }
@@ -250,7 +225,7 @@ pub struct ForkCreationPorts<'a> {
 }
 
 impl TaskForkService {
-    /// Copy the selected conversation and compensate every failed task
+    /// Inherit the selected conversation and compensate every failed task
     /// creation.
     pub async fn fork<EvFut>(
         &self,
@@ -271,10 +246,10 @@ impl TaskForkService {
         let (source, plan) = self.plan(scope_ctx, task_id, req.at_turn).await?;
 
         // The fork's id is minted here rather than by the creation service: the
-        // conversation is copied onto it before the Task row exists, which is what
-        // puts the copied Messages behind the fork's own first message.
+        // conversation is projected onto it before the Task row exists, which is
+        // what puts the inherited Messages behind the fork's own first message.
         let fork_task_id = uuid::Uuid::new_v4().to_string();
-        let copied = self.copy_conversation(&plan, &fork_task_id).await?;
+        self.inherit_conversation(&plan, &fork_task_id).await?;
 
         // Everything the fork runs against comes from the Task it branched off. A
         // fork is deliberately created unnamed and undescribed: "Fork of X" says
@@ -330,7 +305,6 @@ impl TaskForkService {
             new_task.forked_from = Some(ForkedFrom {
                 source_task_id: task_id.to_string(),
                 at_turn: plan.at_turn,
-                session: plan.session.clone(),
                 source_event_id: plan.source_event_id,
             });
 
@@ -347,7 +321,7 @@ impl TaskForkService {
         let outcome = match create_result {
             Ok(outcome) => outcome,
             Err(error) => {
-                // The Task never came to exist; take its copied conversation with it
+                // The Task never came to exist; take its inherited conversation with it
                 // rather than leave rows behind a Task that is not there.
                 self.discard_conversation(&fork_task_id).await;
                 return Err(error);
@@ -358,9 +332,7 @@ impl TaskForkService {
             task_id = %fork_task_id,
             source_task_id = %task_id,
             at_turn = ?plan.at_turn,
-            messages = copied.messages,
-            activities = copied.activities,
-            contexts = copied.contexts,
+            source_event_id = ?plan.source_event_id,
             same_sandbox,
             "Task forked"
         );

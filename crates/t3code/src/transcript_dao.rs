@@ -85,8 +85,8 @@ pub struct TranscriptMessage {
     /// rows as a JSON array of `{referenceId, data}` — the upload's id and the
     /// filename, mime type and size resolved when it was sent.
     ///
-    /// Read from the contexts rather than from `task_messages.attachments`,
-    /// which holds ids alone; `None` on a Message with no uploads.
+    /// Read from the inbox item's contexts rather than its `file_ids`, which
+    /// are ids alone; `None` on a Message with no uploads.
     pub file_contexts: Option<serde_json::Value>,
 }
 
@@ -132,6 +132,52 @@ pub struct Transcript {
 /// rather than silently absent.
 const TRANSCRIPT_LIMIT: i64 = 1_000;
 
+/// A Task's top-level Messages in the columns a transcript reads, aliased
+/// `m`: a user Message's text, origin and uploads are its inbox item's, a
+/// frozen row's the columns it was frozen with. `$1` is the Task.
+macro_rules! transcript_rows {
+    () => {
+        r#"SELECT m.position::int AS id, m.uuid::text AS uuid, m.task_id, m.position,
+                  CASE WHEN m.frozen THEN m.legacy ->> 'message_type'
+                       WHEN m.author = 'user' THEN 'user'
+                       WHEN m.author = 'agent' THEN 'assistant'
+                       WHEN m.kind = 'error' THEN 'error'
+                       ELSE 'result' END AS message_type,
+                  CASE WHEN m.frozen THEN m.legacy ->> 'message_role'
+                       WHEN m.author = 'user' THEN 'user'
+                       ELSE 'assistant' END AS message_role,
+                  COALESCE(m.text, i.text) AS message_text,
+                  CASE WHEN i.origin = 'sandbox' THEN 'harness'
+                       WHEN i.delivery_options ? 'toolResponse' THEN 'tool_response'
+                       WHEN m.frozen THEN COALESCE(m.legacy ->> 'user_type', 'system')
+                       WHEN m.author = 'user' THEN 'human'
+                       ELSE 'system' END AS user_type,
+                  m.turn_number,
+                  COALESCE(m.legacy ->> 'timestamp',
+                           to_char(m.created_at AT TIME ZONE 'UTC',
+                                   'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')) AS "timestamp",
+                  m.created_at,
+                  COALESCE(i.adapter, m.legacy ->> 'external_adapter') AS external_adapter,
+                  COALESCE(i.external_source_name, m.legacy ->> 'external_source_name')
+                      AS external_source_name,
+                  COALESCE(i.external_subject_key, m.legacy ->> 'external_subject_key')
+                      AS external_subject_key,
+                  -- An inherited Message claims no event of its ancestor's.
+                  CASE WHEN i.task_id <> m.task_id THEN NULL
+                       ELSE COALESCE(i.external_message_id, m.legacy ->> 'external_event_id')
+                  END AS external_event_id,
+                  COALESCE(i.external_author, m.legacy ->> 'external_author') AS external_author,
+                  CASE WHEN i.task_id <> m.task_id THEN i.task_id
+                       ELSE COALESCE(i.source_task_id, m.legacy ->> 'source_task_id')
+                  END AS source_task_id,
+                  COALESCE(i.sent_by, m.legacy ->> 'sent_by') AS sent_by,
+                  i.delivery_options -> 'contexts' AS contexts
+             FROM conversation_messages m
+             LEFT JOIN task_inbox i ON i.id = m.inbox_id
+            WHERE m.task_id = $1 AND m.parent_tool_use_id IS NULL"#
+    };
+}
+
 /// The columns a transcript read projects, over the capped set aliased `m` and
 /// the two tables joined onto it.
 ///
@@ -176,14 +222,14 @@ const TRANSCRIPT_ORIGIN_JOINS: &str = r#"LEFT JOIN LATERAL (
                       LEFT JOIN LATERAL (
                           SELECT jsonb_agg(
                                      jsonb_build_object(
-                                         'referenceId', c.reference_id,
-                                         'data', c.data
+                                         'referenceId', c ->> 'referenceId',
+                                         'data', c -> 'data'
                                      )
-                                     ORDER BY c.id
+                                     ORDER BY n
                                  ) AS file_contexts
-                          FROM task_message_contexts c
-                          WHERE c.task_message_id = m.id
-                            AND c.type = 'file'
+                          FROM jsonb_array_elements(COALESCE(m.contexts, '[]'::jsonb))
+                               WITH ORDINALITY AS e(c, n)
+                          WHERE c ->> 'type' = 'file'
                       ) files ON true"#;
 
 /// One Task's transcript, oldest first, capped at [`TRANSCRIPT_LIMIT`].
@@ -193,13 +239,10 @@ pub(crate) async fn transcript(
     task_id: &str,
 ) -> Result<Transcript, sqlx::Error> {
     // Newest first so the cap keeps the end of the conversation, then
-    // reversed below into the order it is read in. The ordering matches the
-    // shell listing's — and carries its caveat: `"timestamp"` is `text`, so
-    // this is a lexicographic sort standing in for a chronological one,
-    // sound only while every writer emits RFC 3339 at fixed precision in
-    // `Z`. `id` breaks ties. It is also exactly `task_messages_task_idx`,
-    // read backwards, so the cap is a bounded index scan rather than a sort
-    // of the whole conversation.
+    // reversed below into the order it is read in. `position` is the
+    // conversation's own order, and its unique index read backwards makes
+    // the cap a bounded index scan rather than a sort of the whole
+    // conversation.
     //
     // Subagent rows are excluded here rather than after the cap: they are
     // the bulk of a long transcript, they are never rendered inline
@@ -213,16 +256,10 @@ pub(crate) async fn transcript(
     // subquery does not promise to keep; `reverse` then reads it forward.
     let sql = format!(
         r#"SELECT {TRANSCRIPT_COLUMNS}
-           FROM (
-               SELECT *
-               FROM task_messages
-               WHERE task_id = $1
-                 AND parent_uuid IS NULL
-               ORDER BY "timestamp" DESC, id DESC
-               LIMIT $2
-           ) m
+           FROM ({} ORDER BY m.position DESC LIMIT $2) m
            {TRANSCRIPT_ORIGIN_JOINS}
-           ORDER BY m."timestamp" DESC, m.id DESC"#,
+           ORDER BY m.position DESC"#,
+        transcript_rows!(),
     );
     let mut messages = sqlx::query_as::<_, TranscriptMessage>(AssertSqlSafe(sql))
         .bind(task_id)
@@ -237,9 +274,9 @@ pub(crate) async fn transcript(
     let omitted = if messages.len() as i64 == TRANSCRIPT_LIMIT {
         let total: i64 = sqlx::query_scalar(
             r#"SELECT count(*)
-               FROM task_messages
+               FROM conversation_messages
                WHERE task_id = $1
-                 AND parent_uuid IS NULL"#,
+                 AND parent_tool_use_id IS NULL"#,
         )
         .bind(task_id)
         .fetch_one(pool)
@@ -350,19 +387,14 @@ pub(crate) async fn changed_messages(
     // change that records it names the Message that *made* the call
     // (`agent_handlers::anchor_message_uuid`).
     //
-    // `parent_uuid IS NULL` for the reason the transcript has it: subagent
-    // rows are never rendered inline.
+    // Top-level only, for the reason the transcript has it: subagent rows
+    // are never rendered inline.
     let sql = format!(
         r#"SELECT {TRANSCRIPT_COLUMNS}
-           FROM (
-               SELECT *
-               FROM task_messages
-               WHERE task_id = $1
-                 AND uuid = ANY($2)
-                 AND parent_uuid IS NULL
-           ) m
+           FROM ({} AND m.uuid::text = ANY($2)) m
            {TRANSCRIPT_ORIGIN_JOINS}
-           ORDER BY m.id"#,
+           ORDER BY m.position"#,
+        transcript_rows!(),
     );
     let messages = sqlx::query_as::<_, TranscriptMessage>(AssertSqlSafe(sql))
         .bind(task_id)

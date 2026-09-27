@@ -235,12 +235,12 @@ pub trait TaskTurnDao: Send + Sync {
 /// The next free turn number for a task.
 ///
 /// `GREATEST` over both tables is required: migration 0071 seeded `task_turns`
-/// only for turns active at rollout, so most tasks' table is empty while
-/// `task_messages` holds full history.
+/// only for turns active at rollout, so an older Task's table is empty while
+/// its frozen `conversation_messages` hold its history.
 const NEXT_TURN_NUMBER_SQL: &str = r#"
     SELECT GREATEST(
         COALESCE((SELECT MAX(turn_number) FROM task_turns WHERE task_id = $1), 0),
-        COALESCE((SELECT MAX(turn_number) FROM task_messages WHERE task_id = $1), 0)
+        COALESCE((SELECT MAX(turn_number) FROM conversation_messages WHERE task_id = $1), 0)
     ) + 1"#;
 
 /// PostgreSQL implementation of [`TaskTurnDao`].
@@ -274,6 +274,22 @@ impl TaskTurnDao for PgTaskTurnDao {
         .bind(&ev.timestamp)
         .execute(&mut *tx)
         .await?;
+        crate::conversation::projector::Projector
+            .on_task_event(
+                &mut tx,
+                &crate::task_event::models::InsertTaskEvent {
+                    event_id: ev.event_id.clone(),
+                    task_id: ev.task_id.clone(),
+                    event_type: ev.event_type.clone(),
+                    sub_type: ev.sub_type.clone(),
+                    is_error: ev.is_error,
+                    agent_profile: ev.agent_profile.clone(),
+                    turn_number: Some(ev.turn_number),
+                    payload: ev.payload.clone(),
+                    timestamp: ev.timestamp.clone(),
+                },
+            )
+            .await?;
 
         // 2) Project the turn state (idempotent — see `turn_projection_query`).
         //    Whether it moved the row is what decides, in step 4, if there is a
@@ -355,7 +371,7 @@ impl TaskTurnDao for PgTaskTurnDao {
                    ), 0),
                    COALESCE((
                      SELECT MAX(m.turn_number)
-                     FROM task_messages m
+                     FROM conversation_messages m
                      WHERE m.task_id = tt.task_id
                    ), 0)
                  )"#,
@@ -440,7 +456,7 @@ impl TaskTurnDao for PgTaskTurnDao {
                    ), 0),
                    COALESCE((
                      SELECT MAX(m.turn_number)
-                     FROM task_messages m
+                     FROM conversation_messages m
                      WHERE m.task_id = tt.task_id
                    ), 0)
                  )"#,
@@ -480,7 +496,7 @@ impl TaskTurnDao for PgTaskTurnDao {
                        SELECT m.created_at
                        FROM task_inbox m
                        WHERE m.task_id = t.task_id
-                         AND m.status <> 'cancelled'
+                         AND m.status IN ('pending', 'delivered')
                        ORDER BY m.created_at DESC
                        LIMIT 1
                    ) person ON TRUE"#,
@@ -580,7 +596,7 @@ impl TaskTurnDao for PgTaskTurnDao {
         let (latest,): (Option<i32>,) = sqlx::query_as(
             r#"SELECT NULLIF(GREATEST(
                    COALESCE((SELECT MAX(turn_number) FROM task_turns WHERE task_id = $1), 0),
-                   COALESCE((SELECT MAX(turn_number) FROM task_messages WHERE task_id = $1), 0)
+                   COALESCE((SELECT MAX(turn_number) FROM conversation_messages WHERE task_id = $1), 0)
                ), 0)"#,
         )
         .bind(task_id)

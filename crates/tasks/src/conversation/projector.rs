@@ -1,24 +1,43 @@
-//! The Projector: turns inbox items and Trajectory lines into the Messages
-//! and activities a conversation shows, in the transaction that wrote the
-//! source.
+//! The Projector: turns inbox items, Trajectory lines and task events into the
+//! Messages and activities a conversation shows, in the transaction that wrote
+//! the source.
 
 use std::collections::HashMap;
 
 use serde_json::Value;
-use sqlx::{Postgres, Transaction};
+use sqlx::{PgConnection, Postgres, Transaction};
 use uuid::Uuid;
 
-use crate::inbox::{InboxItem, InboxOrigin, RunStamp};
-use crate::message::models::{MessageRole, MessageType, TaskMessage};
-use crate::task_activities::mapping::{
-    ActivityStatus, AdmittedUsage, BlockContext, ConversationWrite, ToolOutcome, map_content,
-    user_input_resolved,
+use super::dao::{self, MessageRow, Source};
+use super::ids;
+use crate::activities::mapping::{
+    ActivityKind, ActivityRow, ActivityStatus, AdmittedUsage, BlockContext, ConversationWrite,
+    ToolOutcome, context_window_updated, map_content, sandbox_activity, user_input_resolved,
 };
+use crate::inbox::{InboxItem, InboxOrigin, RunStamp};
+use crate::message::models::MessageType;
 use crate::task_event::models::InsertTaskEvent;
 use crate::trajectory::models::{LineProjection, NewEvent, TrajectorySession};
+use moatless_types::event::EventType;
+use moatless_types::sandbox::SandboxStatus;
+use moatless_types::task::TaskSubType;
 
-/// The only writer of `task_messages` and `task_activities` rows from an inbox
-/// item or a Trajectory line.
+/// Keep in sync with `handlers::INTERACTIVE_TOOL_NAMES` and
+/// `moatless_t3code::dao`'s pair: raising one moves a sidebar listing row.
+const INTERACTIVE_TOOLS: &[&str] = &["AskUserQuestion", "ExitPlanMode"];
+
+/// One Trajectory line as the Projector reads it: `content`, never `payload`
+/// or `kind`.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Line<'a> {
+    pub id: Uuid,
+    pub seq: i64,
+    pub harness_item_id: Option<&'a str>,
+    pub content: &'a Value,
+    pub turn_number: Option<i32>,
+}
+
+/// The only writer of `conversation_*` rows.
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct Projector;
 
@@ -30,31 +49,23 @@ impl Projector {
         tx: &mut Transaction<'_, Postgres>,
         item: &InboxItem,
     ) -> Result<(), sqlx::Error> {
-        if matches!(item.origin, InboxOrigin::Sandbox) {
-            return Ok(());
-        }
-        let message = item.as_message();
-        crate::message::dao::append_in(tx, &message, &item.context_rows(0), &answer_of(item))
-            .await?;
-        Ok(())
+        self.project_item(tx, &item.task_id, item, true).await
     }
 
-    /// Stamps the delivered items' Messages with their run; their position does
+    /// Sets the delivered items' turn on their Messages; their position does
     /// not move.
     pub(crate) async fn on_delivered(
         &self,
         tx: &mut Transaction<'_, Postgres>,
         task_id: &str,
-        ids: &[uuid::Uuid],
+        ids: &[Uuid],
         run: &RunStamp,
     ) -> Result<(), sqlx::Error> {
-        crate::message::dao::stamp_delivered_in(tx, task_id, ids, run).await?;
-        Ok(())
+        dao::stamp_delivered(tx, task_id, ids, run.turn_number).await
     }
 
     /// Projects a session's appended lines, `first_seq` onward, by the rules
-    /// of the plan's section 7. Reads each line's `content`, never its
-    /// `payload` or `kind`.
+    /// of the plan's section 7.
     pub(crate) async fn on_lines(
         &self,
         tx: &mut Transaction<'_, Postgres>,
@@ -63,104 +74,231 @@ impl Projector {
         lines: &[(Uuid, &NewEvent)],
         turn_number: Option<i32>,
     ) -> Result<LineProjection, sqlx::Error> {
-        let task_id = session.task_id.as_str();
+        let lines: Vec<Line<'_>> = lines
+            .iter()
+            .enumerate()
+            .map(|(offset, (id, line))| Line {
+                id: *id,
+                seq: first_seq + offset as i64,
+                harness_item_id: line.harness_item_id.as_deref(),
+                content: &line.content,
+                turn_number,
+            })
+            .collect();
+        self.project_lines(tx, &session.task_id, session, &lines, true)
+            .await
+    }
+
+    /// Projects a persisted task event, once: an error, a turn result, a
+    /// Sandbox change, a context-window reading or a reply sent through a
+    /// binding. Anything else, or an event already projected, projects
+    /// nothing. Called by every writer of the row and by the dispatcher's
+    /// redelivery, since a writer outside this crate cannot call it.
+    pub(crate) async fn on_task_event(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        event: &InsertTaskEvent,
+    ) -> Result<(), sqlx::Error> {
+        if !projects(&event.event_type, &event.sub_type)
+            || dao::event_projected(tx, &event.task_id, &event.event_id).await?
+        {
+            return Ok(());
+        }
+        self.project_event(tx, &event.task_id, &event.into()).await
+    }
+
+    /// Settles the interactive call `tool_use_id` with `answer`, which the
+    /// Task's own inbox item `item` carried as a plain message.
+    pub(crate) async fn on_answer(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        task_id: &str,
+        item: Uuid,
+        tool_use_id: &str,
+        answer: &Value,
+    ) -> Result<(), sqlx::Error> {
+        let name = item.to_string();
+        let mut resolved = user_input_resolved(task_id, &name, tool_use_id, answer);
+        resolved.activity_id = format!("{}:user-input-resolved", ids::scope(task_id, &name));
+        let position = dao::position_for(tx, task_id, None, item).await?;
+        dao::upsert_activity(tx, position, &resolved, Source::Inbox(item)).await?;
+        let outcome = ToolOutcome {
+            task_id: task_id.to_string(),
+            tool_use_id: tool_use_id.to_string(),
+            status: ActivityStatus::Completed,
+            result: answer.clone(),
+            typed_result: None,
+            is_error: false,
+        };
+        dao::settle(tx, &outcome, None).await?;
+        Ok(())
+    }
+
+    pub(super) async fn project_item(
+        &self,
+        tx: &mut PgConnection,
+        task_id: &str,
+        item: &InboxItem,
+        live: bool,
+    ) -> Result<(), sqlx::Error> {
+        if matches!(item.origin, InboxOrigin::Sandbox) {
+            return Ok(());
+        }
+        let own = item.task_id == task_id;
+        let uuid = if own {
+            item.id
+        } else {
+            ids::message(task_id, &item.id.to_string())
+        };
+        let position = dao::upsert_message(
+            tx,
+            &MessageRow {
+                uuid,
+                task_id,
+                author: "user",
+                kind: "text",
+                text: None,
+                parent_tool_use_id: None,
+                turn_number: item.turn_number,
+                harness: None,
+                model: None,
+                usage: None,
+                source: Source::Inbox(item.id),
+            },
+        )
+        .await?;
+        if let Some((outcome, mut resolved)) = answer_of(item) {
+            resolved.task_id = task_id.to_string();
+            resolved.activity_id = format!(
+                "{}:user-input-resolved",
+                ids::scope(task_id, &item.id.to_string())
+            );
+            resolved.message_uuid = Some(uuid.to_string());
+            dao::upsert_activity(tx, position, &resolved, Source::Inbox(item.id)).await?;
+            dao::settle(
+                tx,
+                &ToolOutcome {
+                    task_id: task_id.to_string(),
+                    ..outcome
+                },
+                None,
+            )
+            .await?;
+        }
+        if live {
+            crate::task::dao::clear_settled_for_all_followers(tx, task_id).await?;
+            moatless_core::change_feed::listing::record_change(tx, task_id).await?;
+        }
+        Ok(())
+    }
+
+    pub(super) async fn project_lines(
+        &self,
+        tx: &mut PgConnection,
+        task_id: &str,
+        session: &TrajectorySession,
+        lines: &[Line<'_>],
+        live: bool,
+    ) -> Result<LineProjection, sqlx::Error> {
         let mut projection = LineProjection::default();
-        let parent_uuid = match session.parent_event_id {
+        let parent = match session.parent_event_id {
             Some(event) => crate::trajectory::dao::spawning_call_in(tx, event).await?,
             None => None,
         };
-        let mut agent_mode: Option<Option<String>> = None;
+        let parent = parent.as_deref();
         // Each Message's next block index; a Claude response continues across
         // lines, and across appends.
-        let mut next_block: HashMap<String, usize> = HashMap::new();
-        for (offset, (event_id, line)) in lines.iter().enumerate() {
-            let seq = first_seq + offset as i64;
-            let content = &line.content;
-            if session.own_from_seq.is_some_and(|own| seq < own) || content.is_null() {
+        let mut next_block: HashMap<Uuid, usize> = HashMap::new();
+        let mut interactive = false;
+        for line in lines {
+            let content = line.content;
+            if session.own_from_seq.is_some_and(|own| line.seq < own) || content.is_null() {
                 continue;
             }
-            let flag = |key: &str| content.get(key).and_then(Value::as_bool) == Some(true);
-            if flag("injected") {
+            if content.get("injected").and_then(Value::as_bool) == Some(true) {
                 continue;
             }
-            let uuid = line
-                .harness_item_id
-                .clone()
-                .unwrap_or_else(|| event_id.to_string());
+            let first = match line.harness_item_id {
+                Some(item) => dao::first_line_of_item(tx, session.id, item)
+                    .await?
+                    .unwrap_or(line.id),
+                None => line.id,
+            };
+            let uuid = ids::message(task_id, &first.to_string());
             let usage = content.get("usage").and_then(admitted_usage);
-            let (message_type, message_role) = match content.get("role").and_then(Value::as_str) {
-                Some("assistant") => (MessageType::Assistant, MessageRole::Assistant),
-                Some("user") => (MessageType::System, MessageRole::User),
-                _ => {
-                    if let Some(usage) = usage {
-                        crate::task_activities::dao::admit_usage(
-                            tx,
-                            task_id,
-                            &uuid,
-                            parent_uuid.as_deref(),
-                            usage,
-                        )
-                        .await?;
-                    }
-                    continue;
-                }
+            if let Some(usage) = usage {
+                dao::admit_usage(tx, task_id, line.id, line.harness_item_id, usage).await?;
+            }
+            let (message_type, assistant) = match content.get("role").and_then(Value::as_str) {
+                Some("assistant") => (MessageType::Assistant, true),
+                Some("user") => (MessageType::System, false),
+                _ => continue,
             };
             let blocks = content.get("blocks").cloned().unwrap_or(Value::Null);
             let block_index = match next_block.get(&uuid) {
                 Some(index) => *index,
                 // First in this batch: an earlier append may hold its first blocks.
-                None if line.harness_item_id.is_some() => {
-                    let held = crate::trajectory::dao::blocks_before_in(tx, session.id, &uuid, seq)
+                None => match line.harness_item_id {
+                    Some(item) => {
+                        let held = crate::trajectory::dao::blocks_before_in(
+                            tx, session.id, item, line.seq,
+                        )
                         .await?;
-                    usize::try_from(held).unwrap_or(0)
-                }
-                None => 0,
+                        usize::try_from(held).unwrap_or(0)
+                    }
+                    None => 0,
+                },
             };
-            next_block.insert(
-                uuid.clone(),
-                block_index + blocks.as_array().map_or(0, Vec::len),
-            );
+            next_block.insert(uuid, block_index + blocks.as_array().map_or(0, Vec::len));
+            let message_uuid = uuid.to_string();
+            let source = ids::scope(task_id, &line.id.to_string());
             let mut write = map_content(
                 BlockContext {
                     task_id,
-                    message_uuid: &uuid,
-                    parent_uuid: parent_uuid.as_deref(),
+                    message_uuid: &message_uuid,
+                    parent_uuid: parent,
                     message_type,
                     block_index,
+                    source: &source,
+                    source_block: 0,
                 },
                 &blocks,
             );
-            write.usage = usage;
-            if message_role == MessageRole::User {
+            if assistant {
+                projection.skills.extend(skills_in(&blocks));
+            } else {
                 // The inbox owns what was sent; the CLI's copy is never shown.
                 write.text.clear();
-            } else {
-                projection.skills.extend(skills_in(&blocks));
             }
+            interactive |= write.activities.iter().any(|a| {
+                a.kind == ActivityKind::ToolCall && INTERACTIVE_TOOLS.contains(&a.summary.as_str())
+            });
 
             if !write.text.is_empty() {
-                if agent_mode.is_none() {
-                    agent_mode =
-                        Some(crate::message::dao::last_user_agent_mode_in(tx, task_id).await?);
-                }
-                let mode = agent_mode.clone().flatten();
-                let message = agent_message(AgentLine {
-                    task_id,
-                    uuid: &uuid,
-                    parent_uuid: parent_uuid.as_deref(),
-                    session: &session.harness_session_id,
-                    turn_number,
-                    message_type,
-                    message_role,
-                    model: content.get("model").and_then(Value::as_str),
-                    agent_mode: mode,
-                });
-                crate::message::dao::append_in(tx, &message, &[], &write).await?;
-                self.settled(tx, task_id, &write, &mut projection).await?;
-                touch(&mut projection, parent_uuid.as_deref(), &uuid);
+                let position = dao::upsert_message(
+                    tx,
+                    &MessageRow {
+                        uuid,
+                        task_id,
+                        author: "agent",
+                        kind: "text",
+                        text: None,
+                        parent_tool_use_id: parent,
+                        turn_number: line.turn_number,
+                        harness: Some(&session.harness),
+                        model: content.get("model").and_then(Value::as_str),
+                        usage: None,
+                        source: Source::Line(first),
+                    },
+                )
+                .await?;
+                dao::splice_text(tx, uuid, &write.text).await?;
+                self.write_activities(tx, position, &write, line.id, &mut projection)
+                    .await?;
+                touch(&mut projection, parent, &message_uuid);
                 continue;
             }
-            if write.is_empty() {
+            if write.activities.is_empty() && write.outcomes.is_empty() {
                 continue;
             }
             // A result changes the Message that called for it, and a derived
@@ -176,70 +314,207 @@ impl Projector {
                         .flatten()
                 });
             let anchor = match anchor_call {
-                Some(call) => crate::task_activities::dao::call_in(tx, task_id, call)
+                Some(call) => dao::call_in(tx, task_id, call)
                     .await?
                     .and_then(|(message, _)| message)
                     .filter(|message| !message.is_empty())
-                    .unwrap_or_else(|| uuid.clone()),
-                None => uuid.clone(),
+                    .unwrap_or_else(|| message_uuid.clone()),
+                None => message_uuid.clone(),
             };
             if content.get("derived_from").is_some() {
                 for activity in &mut write.activities {
                     activity.message_uuid = Some(anchor.clone());
                 }
             }
-            crate::message::dao::append_activities_in(tx, task_id, &anchor, &write).await?;
-            self.settled(tx, task_id, &write, &mut projection).await?;
-            touch(&mut projection, parent_uuid.as_deref(), &anchor);
+            let anchor_id = Uuid::parse_str(&anchor).unwrap_or(uuid);
+            let position = dao::position_for(tx, task_id, parent, anchor_id).await?;
+            self.write_activities(tx, position, &write, line.id, &mut projection)
+                .await?;
+            touch(&mut projection, parent, &anchor);
+        }
+        if live && interactive {
+            crate::task::dao::clear_settled_for_all_followers(tx, task_id).await?;
+            moatless_core::change_feed::listing::record_change(tx, task_id).await?;
         }
         Ok(projection)
     }
 
-    /// A `task.error` event becomes an Error Message whose uuid is the event's
-    /// id, so projecting it again writes nothing new.
-    pub(crate) async fn on_task_error(
+    /// Writes a line's activities at `position` and settles the calls it
+    /// answers, recording their tool names.
+    async fn write_activities(
         &self,
-        tx: &mut Transaction<'_, Postgres>,
-        event: &InsertTaskEvent,
-    ) -> Result<(), sqlx::Error> {
-        let text = event
-            .payload
-            .get("text")
-            .and_then(Value::as_str)
-            .unwrap_or_default();
-        let message = TaskMessage {
-            message_type: MessageType::Error,
-            message_role: MessageRole::Assistant,
-            user_type: "system".to_string(),
-            turn_number: event.turn_number,
-            message_text: Some(text.to_string()),
-            will_not_resume: Some(false),
-            ..TaskMessage::new_user_message(
-                event.task_id.clone(),
-                event.event_id.clone(),
-                String::new(),
-                event.timestamp.clone(),
-            )
-        };
-        crate::message::dao::append_in(tx, &message, &[], &ConversationWrite::default()).await?;
-        Ok(())
-    }
-
-    /// Records the calls `write` settled, with their tool names.
-    async fn settled(
-        &self,
-        tx: &mut Transaction<'_, Postgres>,
-        task_id: &str,
+        tx: &mut PgConnection,
+        position: i64,
         write: &ConversationWrite,
+        line: Uuid,
         projection: &mut LineProjection,
     ) -> Result<(), sqlx::Error> {
+        for activity in &write.activities {
+            dao::upsert_activity(tx, position, activity, Source::Line(line)).await?;
+        }
         for outcome in &write.outcomes {
-            let name = crate::task_activities::dao::call_in(tx, task_id, &outcome.tool_use_id)
+            dao::settle(tx, outcome, Some(line)).await?;
+            let name = dao::call_in(tx, &outcome.task_id, &outcome.tool_use_id)
                 .await?
                 .map(|(_, name)| name);
             projection.settled.push((name, outcome.is_error));
         }
         Ok(())
+    }
+
+    pub(super) async fn project_event(
+        &self,
+        tx: &mut PgConnection,
+        task_id: &str,
+        event: &EventSource<'_>,
+    ) -> Result<(), sqlx::Error> {
+        let Ok(event_type) = EventType::try_from(event.event_type) else {
+            return Ok(());
+        };
+        let uuid = ids::message(task_id, event.event_id);
+        let name = ids::scope(task_id, event.event_id);
+        match event_type {
+            EventType::Task => match TaskSubType::try_from(event.sub_type) {
+                Ok(TaskSubType::Error) => {
+                    let text = event.payload.get("text").and_then(Value::as_str);
+                    self.system_message(tx, task_id, uuid, "error", text, event, None)
+                        .await?;
+                }
+                Ok(TaskSubType::BindingReplySent) => {
+                    let Some(reply) = super::payload::BindingReply::of(event.payload) else {
+                        return Ok(());
+                    };
+                    if !reply.shown {
+                        return Ok(());
+                    }
+                    dao::upsert_message(
+                        tx,
+                        &MessageRow {
+                            uuid,
+                            task_id,
+                            author: "agent",
+                            kind: "text",
+                            text: Some(&reply.text),
+                            parent_tool_use_id: None,
+                            turn_number: event.turn_number,
+                            harness: None,
+                            model: None,
+                            usage: None,
+                            source: Source::TaskEvent(event.event_id),
+                        },
+                    )
+                    .await?;
+                }
+                _ => {}
+            },
+            EventType::Agent => match event.sub_type {
+                "completed"
+                    if !event.is_error && !super::payload::is_error_result(event.payload) =>
+                {
+                    let usage = match event.turn_number {
+                        Some(turn) => dao::turn_usage(tx, task_id, turn).await?,
+                        None => None,
+                    };
+                    self.system_message(tx, task_id, uuid, "turn_result", None, event, usage)
+                        .await?;
+                }
+                "context_window" => {
+                    let Some(used) = event
+                        .payload
+                        .get("usedTokens")
+                        .and_then(Value::as_i64)
+                        .filter(|used| *used >= 0)
+                    else {
+                        return Ok(());
+                    };
+                    let max = event
+                        .payload
+                        .get("maxTokens")
+                        .and_then(Value::as_i64)
+                        .filter(|max| *max > 0);
+                    let row = context_window_updated(&name, task_id, used, max);
+                    dao::standalone_activity(tx, &row, event.event_id).await?;
+                }
+                _ => {}
+            },
+            EventType::Sandbox => {
+                let (coarse, is_error) = match SandboxStatus::try_from(event.sub_type) {
+                    Ok(SandboxStatus::Error) => ("error", true),
+                    Ok(
+                        status @ (SandboxStatus::Initializing
+                        | SandboxStatus::Ready
+                        | SandboxStatus::Stopped),
+                    ) => (status.as_str(), false),
+                    _ => return Ok(()),
+                };
+                let payload: moatless_types::sandbox::SandboxEventPayload =
+                    serde_json::from_value(event.payload.clone()).unwrap_or_default();
+                let row = sandbox_activity(&name, task_id, coarse, is_error, &payload);
+                if !dao::restates_sandbox(tx, &row).await? {
+                    dao::standalone_activity(tx, &row, event.event_id).await?;
+                }
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "one Message, its columns as they are"
+    )]
+    async fn system_message(
+        &self,
+        tx: &mut PgConnection,
+        task_id: &str,
+        uuid: Uuid,
+        kind: &'static str,
+        text: Option<&str>,
+        event: &EventSource<'_>,
+        usage: Option<Value>,
+    ) -> Result<(), sqlx::Error> {
+        dao::upsert_message(
+            tx,
+            &MessageRow {
+                uuid,
+                task_id,
+                author: "system",
+                kind,
+                text,
+                parent_tool_use_id: None,
+                turn_number: event.turn_number,
+                harness: None,
+                model: None,
+                usage,
+                source: Source::TaskEvent(event.event_id),
+            },
+        )
+        .await?;
+        Ok(())
+    }
+}
+
+/// A task event as the Projector reads it, from an insert or a stored row.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct EventSource<'a> {
+    pub event_id: &'a str,
+    pub event_type: &'a str,
+    pub sub_type: &'a str,
+    pub is_error: bool,
+    pub turn_number: Option<i32>,
+    pub payload: &'a Value,
+}
+
+impl<'a> From<&'a InsertTaskEvent> for EventSource<'a> {
+    fn from(event: &'a InsertTaskEvent) -> Self {
+        Self {
+            event_id: &event.event_id,
+            event_type: &event.event_type,
+            sub_type: &event.sub_type,
+            is_error: event.is_error,
+            turn_number: event.turn_number,
+            payload: &event.payload,
+        }
     }
 }
 
@@ -259,8 +534,8 @@ fn skills_in(blocks: &Value) -> Vec<String> {
         .collect()
 }
 
-fn touch(projection: &mut LineProjection, parent_uuid: Option<&str>, uuid: &str) {
-    match parent_uuid {
+fn touch(projection: &mut LineProjection, parent: Option<&str>, uuid: &str) {
+    match parent {
         Some(parent) => projection.touch_subagent(parent),
         None => projection.touch_message(uuid),
     }
@@ -282,53 +557,13 @@ fn admitted_usage(usage: &Value) -> Option<AdmittedUsage> {
     })
 }
 
-struct AgentLine<'a> {
-    task_id: &'a str,
-    uuid: &'a str,
-    parent_uuid: Option<&'a str>,
-    session: &'a str,
-    turn_number: Option<i32>,
-    message_type: MessageType,
-    message_role: MessageRole,
-    model: Option<&'a str>,
-    agent_mode: Option<String>,
-}
-
-/// The row an agent's line with text writes; its text is spliced in by block.
-fn agent_message(line: AgentLine<'_>) -> TaskMessage {
-    let timestamp = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
-    let assistant = line.message_type == MessageType::Assistant;
-    TaskMessage {
-        message_type: line.message_type,
-        message_role: line.message_role,
-        user_type: "system".to_string(),
-        parent_uuid: line.parent_uuid.map(str::to_string),
-        session_id: Some(line.session.to_string()),
-        turn_number: line.turn_number,
-        message_text: None,
-        assistant_message_id: assistant.then(|| line.uuid.to_string()),
-        assistant_message_model: assistant.then(|| line.model.map(str::to_string)).flatten(),
-        agent_mode_raw: line.agent_mode,
-        ..TaskMessage::new_user_message(
-            line.task_id.to_string(),
-            line.uuid.to_string(),
-            String::new(),
-            timestamp,
-        )
-    }
-}
-
 /// A tool response settles the call it answers: without the outcome the
 /// question keeps rendering as unanswered, and the resolved row beside it is
 /// what closes the panel.
-fn answer_of(item: &InboxItem) -> ConversationWrite {
-    let (Some(tool_use_id), Some(response)) = (
-        item.answers_tool_use_id.as_deref(),
-        item.options.tool_response.as_ref(),
-    ) else {
-        return ConversationWrite::default();
-    };
-    let answer: serde_json::Map<String, serde_json::Value> = response
+fn answer_of(item: &InboxItem) -> Option<(ToolOutcome, ActivityRow)> {
+    let tool_use_id = item.answers_tool_use_id.as_deref()?;
+    let response = item.options.tool_response.as_ref()?;
+    let answer: serde_json::Map<String, Value> = response
         .as_object()
         .into_iter()
         .flatten()
@@ -336,30 +571,32 @@ fn answer_of(item: &InboxItem) -> ConversationWrite {
         .map(|(key, value)| (key.clone(), value.clone()))
         .collect();
     let answer = if answer.is_empty() {
-        serde_json::Value::Null
+        Value::Null
     } else {
-        serde_json::Value::Object(answer)
+        Value::Object(answer)
     };
-    let uuid = item.id.to_string();
-    ConversationWrite {
-        outcomes: vec![ToolOutcome {
-            task_id: item.task_id.clone(),
-            tool_use_id: tool_use_id.to_string(),
-            status: ActivityStatus::Completed,
-            result: if answer.is_null() {
-                serde_json::Value::String(item.text.clone())
-            } else {
-                answer.clone()
-            },
-            typed_result: None,
-            is_error: false,
-        }],
-        activities: vec![user_input_resolved(
-            &item.task_id,
-            &uuid,
-            tool_use_id,
-            &answer,
-        )],
-        ..Default::default()
-    }
+    let outcome = ToolOutcome {
+        task_id: item.task_id.clone(),
+        tool_use_id: tool_use_id.to_string(),
+        status: ActivityStatus::Completed,
+        result: if answer.is_null() {
+            Value::String(item.text.clone())
+        } else {
+            answer.clone()
+        },
+        typed_result: None,
+        is_error: false,
+    };
+    let resolved = user_input_resolved(&item.task_id, &item.id.to_string(), tool_use_id, &answer);
+    Some((outcome, resolved))
+}
+
+/// Whether [`Projector::project_event`] reads events of this type.
+fn projects(event_type: &str, sub_type: &str) -> bool {
+    matches!(
+        (event_type, sub_type),
+        ("task", "error" | "binding_reply_sent")
+            | ("agent", "completed" | "context_window")
+            | ("sandbox", "initializing" | "ready" | "stopped" | "error")
+    )
 }

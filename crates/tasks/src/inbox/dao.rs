@@ -213,3 +213,26 @@ pub(crate) async fn members_awaiting_dispatch(
     .fetch_all(pool)
     .await
 }
+
+/// Marks a seeded item delivered as history: stamped, with no trigger decided.
+#[cfg(any(test, feature = "test-support"))]
+pub(crate) async fn seed_delivered(
+    tx: &mut Transaction<'_, Postgres>,
+    id: Uuid,
+    delivered_at: chrono::DateTime<chrono::Utc>,
+    session_id: Option<&str>,
+    turn_number: Option<i32>,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        r#"UPDATE task_inbox
+              SET status = 'delivered', delivered_at = $2, session_id = $3, turn_number = $4
+            WHERE id = $1"#,
+    )
+    .bind(id)
+    .bind(delivered_at)
+    .bind(session_id)
+    .bind(turn_number)
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}

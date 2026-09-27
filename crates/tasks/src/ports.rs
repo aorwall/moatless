@@ -13,8 +13,7 @@ use moatless_ports::task::{
     AssistantReply, CloseReason, EventSubject, ExternalEvent, InboundTurn, MessageAcceptor,
     NewTask, PendingWorkReader, RelationRecorder, SandboxProvision, TagResolver, TaskDescriptor,
     TaskFinisher, TaskOpenError, TaskOpened, TaskOpener, TaskReader, ToolCallRecord,
-    TranscriptAppend, TranscriptEntry, TranscriptEntryKind, TranscriptOrigin, TurnCounter,
-    TurnSignals, TurnStateReader,
+    TranscriptAppend, TranscriptEntry, TranscriptOrigin, TurnCounter, TurnSignals, TurnStateReader,
 };
 use moatless_types::access_control::ScopeContext;
 use moatless_types::activity::Activity;
@@ -22,10 +21,8 @@ use moatless_types::store::StoreError;
 use moatless_types::task::RelatedTask;
 
 use crate::message::dao::MessageDao;
-use crate::message::models::{MessageRole, MessageType, TaskMessage};
 use crate::tag::dao::TagDao;
 use crate::task::dao::TaskDao;
-use crate::task_activities::mapping::ConversationWrite;
 use crate::task_turn::dao::TaskTurnDao;
 
 /// The `tasks` table, narrowed to the four facts a peer reads.
@@ -66,7 +63,7 @@ impl TaskReader for TaskProjection {
     }
 }
 
-/// The `task_messages` table, narrowed to the transcript operations a peer
+/// A Task's conversation, narrowed to the transcript operations a peer
 /// performs.
 pub struct Transcript {
     messages: Arc<dyn MessageDao>,
@@ -81,46 +78,12 @@ impl Transcript {
 #[async_trait]
 impl TranscriptAppend for Transcript {
     async fn append(&self, entry: &TranscriptEntry) -> Result<(), StoreError> {
-        let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
-        let mut msg = TaskMessage::new_user_message(
-            entry.task_id.clone(),
-            entry.uuid.clone(),
-            entry.text.clone(),
-            now,
-        );
-        msg.message_type = match entry.kind {
-            TranscriptEntryKind::AssistantReply => MessageType::Assistant,
-            TranscriptEntryKind::OutboundStub => MessageType::System,
-        };
-        msg.message_role = MessageRole::Assistant;
-        msg.user_type = "assistant".to_string();
-        msg.turn_number = entry.turn_number;
-        msg.external_adapter = entry.external_adapter.clone();
-        msg.external_source_name = entry.external_source_name.clone();
-
         self.messages
-            .append(&msg, &[], &ConversationWrite::default())
+            .append_binding_reply(entry)
             .await
             .map_err(|e| {
                 StoreError::with_source(format!("append to task {} transcript", entry.task_id), e)
-            })?;
-        Ok(())
-    }
-
-    async fn set_external_source_metadata(
-        &self,
-        message_uuid: &str,
-        event: &ExternalEvent,
-    ) -> Result<bool, StoreError> {
-        self.messages
-            .set_external_source_metadata(
-                message_uuid,
-                &event.external_id,
-                &event.provider,
-                event.source_name.as_deref(),
-            )
-            .await
-            .map_err(|e| StoreError::with_source(format!("tag message {message_uuid}"), e))
+            })
     }
 
     async fn record_external_event(
@@ -474,10 +437,9 @@ impl PendingWorkReader for PendingWork {
     }
 }
 
-/// The `task_activities` table, narrowed to the four reads a read model makes.
-///
-/// The projection that reads them is `moatless-t3code`; the writes stay behind
-/// `task_activities::dao`, where the mapping that produces a row lives.
+/// The `conversation_activities` table, narrowed to the four reads a read
+/// model makes. The projection that reads them is `moatless-t3code`; the
+/// Projector is the only writer.
 pub struct Activities {
     pool: moatless_core::db::DbPool,
 }
@@ -495,7 +457,7 @@ impl ActivitySource for Activities {
         task_id: &str,
         since: Option<chrono::DateTime<chrono::Utc>>,
     ) -> Result<Vec<Activity>, StoreError> {
-        crate::task_activities::dao::for_task_since(&self.pool, task_id, since)
+        crate::activities::dao::for_task_since(&self.pool, task_id, since)
             .await
             .map_err(|e| StoreError::with_source(format!("read activities for {task_id}"), e))
     }
@@ -505,7 +467,7 @@ impl ActivitySource for Activities {
         task_id: &str,
         message_uuids: &[String],
     ) -> Result<Vec<Activity>, StoreError> {
-        crate::task_activities::dao::for_messages(&self.pool, task_id, message_uuids)
+        crate::activities::dao::for_messages(&self.pool, task_id, message_uuids)
             .await
             .map_err(|e| {
                 StoreError::with_source(format!("read activities on {task_id}'s messages"), e)
@@ -517,7 +479,7 @@ impl ActivitySource for Activities {
         task_id: &str,
         activity_ids: &[String],
     ) -> Result<Vec<Activity>, StoreError> {
-        crate::task_activities::dao::for_activity_ids(&self.pool, task_id, activity_ids)
+        crate::activities::dao::for_activity_ids(&self.pool, task_id, activity_ids)
             .await
             .map_err(|e| {
                 StoreError::with_source(format!("read the named activities on {task_id}"), e)
@@ -529,7 +491,7 @@ impl ActivitySource for Activities {
         task_id: &str,
         tool_use_id: &str,
     ) -> Result<Option<Activity>, StoreError> {
-        crate::task_activities::dao::find_tool_call(&self.pool, task_id, tool_use_id)
+        crate::activities::dao::find_tool_call(&self.pool, task_id, tool_use_id)
             .await
             .map_err(|e| {
                 StoreError::with_source(format!("read the {tool_use_id} call on {task_id}"), e)

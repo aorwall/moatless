@@ -16,7 +16,6 @@ use crate::task::dao::TaskDao;
 use crate::task::models::TaskPatch;
 use crate::task::operations::TaskCommands;
 use crate::task::schemas::{FileContextData, MessageContextInput};
-use crate::task_activities::mapping::{ActivityStatus, ConversationWrite, ToolOutcome};
 use crate::task_turn::dao::TaskTurnDao;
 use moatless_core::file_storage::{FileInfo, Files};
 use moatless_types::access_control::ScopeContext;
@@ -576,7 +575,7 @@ fn restate(
     use std::fmt::Write as _;
 
     let mut text = String::new();
-    if tool_name == crate::task_activities::mapping::PLAN_TOOL {
+    if tool_name == crate::activities::mapping::PLAN_TOOL {
         let approved = answer.get("approved").and_then(serde_json::Value::as_bool) == Some(true);
         if let Some(plan) = asked
             .and_then(|input| input.get("plan"))
@@ -709,7 +708,7 @@ pub async fn settle_answered_prompt(
     tool_use_id: &str,
     carrier_uuid: &str,
 ) {
-    use crate::task_activities::mapping::{PLAN_TOOL, QUESTION_TOOL, user_input_resolved};
+    use crate::activities::mapping::{PLAN_TOOL, QUESTION_TOOL};
 
     let call = match messages.find_tool_call(task_id, tool_use_id).await {
         Ok(Some(call)) => call,
@@ -752,27 +751,18 @@ pub async fn settle_answered_prompt(
         }
     };
 
-    let conversation = ConversationWrite {
-        outcomes: vec![ToolOutcome {
-            task_id: task_id.to_string(),
-            tool_use_id: tool_use_id.to_string(),
-            status: ActivityStatus::Completed,
-            result: answer.clone(),
-            typed_result: None,
-            is_error: false,
-        }],
-        activities: vec![user_input_resolved(
-            task_id,
-            carrier_uuid,
-            tool_use_id,
-            &answer,
-        )],
-        ..Default::default()
+    let Ok(item) = carrier_uuid.parse::<uuid::Uuid>() else {
+        tracing::warn!(task_id, carrier_uuid, "Answer carrier is not an inbox item");
+        return;
     };
-    if let Err(error) = messages
-        .append_activities(task_id, carrier_uuid, &conversation)
-        .await
-    {
+    let settled = async {
+        let mut tx = messages.inbox().begin().await?;
+        Projector
+            .on_answer(&mut tx, task_id, item, tool_use_id, &answer)
+            .await?;
+        tx.commit().await
+    };
+    if let Err(error) = settled.await {
         tracing::warn!(task_id, tool_use_id, %error, "Could not settle the answered call");
     }
 }
@@ -915,7 +905,7 @@ mod tests {
     fn an_answer_carries_the_question_it_answers() {
         let asked = json!({ "questions": [{ "question": "Which store?" }] });
         let text = restate(
-            crate::task_activities::mapping::QUESTION_TOOL,
+            crate::activities::mapping::QUESTION_TOOL,
             Some(&asked),
             &json!({ "answers": { "Which store?": "Postgres" } }),
         );
@@ -928,7 +918,7 @@ mod tests {
     #[test]
     fn an_answer_to_a_call_no_longer_stored_still_says_what_was_answered() {
         let text = restate(
-            crate::task_activities::mapping::QUESTION_TOOL,
+            crate::activities::mapping::QUESTION_TOOL,
             None,
             &json!({ "answers": { "Which store?": "Postgres" } }),
         );
@@ -942,7 +932,7 @@ mod tests {
     fn an_unreadable_answer_restates_the_question_unanswered() {
         let asked = json!({ "questions": [{ "question": "Which store?" }] });
         let text = restate(
-            crate::task_activities::mapping::QUESTION_TOOL,
+            crate::activities::mapping::QUESTION_TOOL,
             Some(&asked),
             &json!({}),
         );
@@ -954,7 +944,7 @@ mod tests {
     fn an_approved_plan_is_restated_and_approved() {
         let asked = json!({ "plan": "1. Do the thing" });
         let text = restate(
-            crate::task_activities::mapping::PLAN_TOOL,
+            crate::activities::mapping::PLAN_TOOL,
             Some(&asked),
             &json!({ "approved": true }),
         );
@@ -967,7 +957,7 @@ mod tests {
     #[test]
     fn a_rejected_plan_carries_the_feedback_that_rejected_it() {
         let text = restate(
-            crate::task_activities::mapping::PLAN_TOOL,
+            crate::activities::mapping::PLAN_TOOL,
             Some(&json!({ "plan": "1. Do the thing" })),
             &json!({ "approved": false, "feedback": "use the second approach" }),
         );
@@ -979,7 +969,7 @@ mod tests {
     #[test]
     fn a_verdict_that_says_nothing_is_not_an_approval() {
         let text = restate(
-            crate::task_activities::mapping::PLAN_TOOL,
+            crate::activities::mapping::PLAN_TOOL,
             None,
             &serde_json::Value::Null,
         );

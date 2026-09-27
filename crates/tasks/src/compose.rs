@@ -112,7 +112,7 @@ impl TaskGraph {
         Arc::new(Trajectories::new(PgTrajectoryDao(self.db.clone())))
     }
 
-    /// The `task_messages` table, as a host reads and writes it.
+    /// A Task's conversation, as a host reads and writes it.
     pub fn messages(&self) -> Arc<Messages> {
         Arc::new(Messages::new(
             self.messages.clone(),
@@ -120,7 +120,7 @@ impl TaskGraph {
         ))
     }
 
-    /// The `task_messages` table behind the published `TranscriptAppend` seam.
+    /// A Task's conversation behind the published `TranscriptAppend` seam.
     pub fn transcript(&self) -> Arc<crate::ports::Transcript> {
         Arc::new(crate::ports::Transcript::new(self.messages.clone()))
     }
@@ -172,7 +172,7 @@ impl TaskGraph {
         Arc::new(crate::ports::PendingWork::new(self.db.clone()))
     }
 
-    /// The `task_activities` table behind the published `ActivitySource` seam.
+    /// The `conversation_activities` table behind the published `ActivitySource` seam.
     pub fn activities(&self) -> Arc<crate::ports::Activities> {
         Arc::new(crate::ports::Activities::new(self.db.clone()))
     }

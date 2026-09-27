@@ -157,7 +157,7 @@ pub async fn get_messages(
     };
 
     // Pre-fetch file_metadata for the legacy fallback path so messages
-    // persisted before `task_message_contexts` was wired up still surface
+    // persisted before contexts were recorded still surface
     // their uploaded files. One batch SELECT covers the whole page.
     let legacy_file_ids: Vec<String> = messages
         .iter()

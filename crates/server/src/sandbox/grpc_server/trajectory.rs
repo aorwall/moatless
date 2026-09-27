@@ -15,8 +15,7 @@ use sandbox_proto::{
 
 use moatless_tasks::message::hooks::{emit_message_upsert_from_daos, emit_subagent_progress};
 use moatless_tasks::trajectory::models::{
-    AppendError, AppendRequest, ChainError, ForkCut, LineProjection, NewEvent, OpenedSession,
-    SubagentParent,
+    AppendError, AppendRequest, ChainError, LineProjection, NewEvent, OpenedSession, SubagentParent,
 };
 use moatless_tasks::trajectory::operations::Trajectories;
 
@@ -240,35 +239,7 @@ async fn fork_session(
     else {
         return Ok(None);
     };
-    let at = if let Some(at) = fork.source_event_id {
-        at
-    } else {
-        // A row written before `source_event_id`: its cut is resolved from
-        // the anchors of the harness the source session ran.
-        let Some(source) = dao
-            .find_session(&fork.source_session_id)
-            .await
-            .map_err(|e| internal(e, "Failed to read trajectory session"))?
-        else {
-            return Ok(None);
-        };
-        let cut = match (fork.source_message_uuid, fork.source_agent_turn_id) {
-            (Some(message), _) if source.harness == Harness::ClaudeCode.as_str() => {
-                ForkCut::Message(message)
-            }
-            (_, Some(turn)) if source.harness == Harness::Codex.as_str() => ForkCut::Turn(turn),
-            _ => ForkCut::End,
-        };
-        let Some(at) = dao
-            .resolve_legacy_cut(&fork.source_session_id, &cut)
-            .await
-            .map_err(|e| internal(e, "Failed to resolve the fork cut"))?
-        else {
-            return Ok(None);
-        };
-        at
-    };
-    dao.open_fork_session(task_id, harness, at)
+    dao.open_fork_session(task_id, harness, fork.source_event_id)
         .await
         .map_err(|e| internal(e, "Failed to create the fork session"))
 }

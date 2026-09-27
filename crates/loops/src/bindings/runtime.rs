@@ -1013,7 +1013,7 @@ impl RoutingService {
 /// lives in [`RoutingService::fan_out`].
 pub struct Fanout<'a> {
     /// The adapter label the event is delivered and metered under: the value
-    /// `task_messages.external_adapter` carries, and the key the adapter
+    /// `task_inbox.external_adapter` carries, and the key the adapter
     /// registry answers to for external-id aliases.
     pub adapter_label: &'a str,
     /// The provider key the subject's delivery receipts are stored under — the

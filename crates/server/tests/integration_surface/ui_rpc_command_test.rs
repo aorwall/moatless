@@ -9,7 +9,7 @@
 //! recording-sink unit tests can't see.
 //!
 //! Asserted here through `AppStateCommands` — the same implementation `main`
-//! wires into the socket: message id survival into `task_messages`, replay
+//! wires into the socket: message id survival into `task_inbox`, replay
 //! dedup via the unique index, a closed Task's refusal, and a Sandbox-less
 //! Thread staying that way.
 
@@ -189,7 +189,7 @@ async fn listing_change_count(pool: &PgPool, task_id: &str) -> i64 {
 /// What the person wrote, which is the Message itself now — text lives on the
 /// row, so there is no block list to reassemble it from.
 async fn message_text(pool: &PgPool, uuid: &str) -> Option<String> {
-    sqlx::query_scalar("SELECT message_text FROM task_messages WHERE uuid = $1")
+    sqlx::query_scalar("SELECT text FROM task_inbox WHERE id::text = $1")
         .bind(uuid)
         .fetch_optional(pool)
         .await
@@ -218,9 +218,9 @@ fn turn(task_id: &str, uuid: &str, text: &str) -> ThreadTurn {
 /// runtime.
 async fn message_uuids(pool: &PgPool, task_id: &str) -> Vec<String> {
     sqlx::query_scalar(
-        "SELECT uuid FROM task_messages
-         WHERE task_id = $1 AND message_type = 'user'
-         ORDER BY id",
+        "SELECT uuid::text FROM conversation_messages
+         WHERE task_id = $1 AND author = 'user'
+         ORDER BY position",
     )
     .bind(task_id)
     .fetch_all(pool)
@@ -231,10 +231,12 @@ async fn message_uuids(pool: &PgPool, task_id: &str) -> Vec<String> {
 /// The upload ids a person's message carries, in the order they were attached.
 async fn message_file_ids(pool: &PgPool, task_id: &str) -> Vec<String> {
     sqlx::query_scalar(
-        "SELECT reference_id
-         FROM task_message_contexts
-         WHERE task_id = $1 AND type = 'file'
-         ORDER BY id",
+        "SELECT c.value ->> 'referenceId'
+         FROM task_inbox i,
+              jsonb_array_elements(COALESCE(i.delivery_options -> 'contexts', '[]'))
+                  WITH ORDINALITY c
+         WHERE i.task_id = $1 AND c.value ->> 'type' = 'file'
+         ORDER BY i.created_at, c.ordinality",
     )
     .bind(task_id)
     .fetch_all(pool)
@@ -327,7 +329,7 @@ async fn a_turn_is_persisted_under_the_id_the_client_minted(pool: PgPool) {
 }
 
 /// A socket that drops mid-send is retried by the client with the same frame.
-/// The unique index on `task_messages.uuid` is what makes that safe, and
+/// The primary key on `task_inbox.id` is what makes that safe, and
 /// reporting the rejection as success is what makes the retry terminate.
 #[sqlx::test]
 async fn the_same_frame_twice_is_one_message_and_two_successes(pool: PgPool) {
@@ -728,12 +730,13 @@ async fn the_selected_model_is_persisted_with_the_turn(pool: PgPool) {
         .await
         .expect("the turn is accepted");
 
-    let model: Option<String> =
-        sqlx::query_scalar("SELECT model FROM task_messages WHERE uuid = $1")
-            .bind("cccccccc-dddd-4eee-8fff-000011112222")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+    let model: Option<String> = sqlx::query_scalar(
+        "SELECT delivery_options ->> 'model' FROM task_inbox WHERE id::text = $1",
+    )
+    .bind("cccccccc-dddd-4eee-8fff-000011112222")
+    .fetch_one(&pool)
+    .await
+    .unwrap();
     assert_eq!(model.as_deref(), Some("sonnet"));
 }
 

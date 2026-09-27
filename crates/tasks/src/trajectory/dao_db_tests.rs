@@ -4,6 +4,7 @@ use serde_json::json;
 use sqlx::PgPool;
 
 use super::*;
+use crate::trajectory::lineage::include_pending_results;
 use crate::trajectory::models::{NewEvent, SubagentParent};
 
 fn line(n: i64) -> NewEvent {
@@ -135,16 +136,25 @@ async fn append_refuses_another_tasks_session(pool: PgPool) {
     assert_eq!(event_count(&pool).await, 2);
 }
 
+/// The event `session` recorded for `harness_item_id`.
+async fn event(pool: &PgPool, session: &str, harness_item_id: &str) -> uuid::Uuid {
+    sqlx::query_scalar(
+        "SELECT e.id FROM trajectory_events e JOIN trajectory_sessions s ON s.id = e.session_id \
+          WHERE s.harness_session_id = $1 AND e.harness_item_id = $2",
+    )
+    .bind(session)
+    .bind(harness_item_id)
+    .fetch_one(pool)
+    .await
+    .unwrap()
+}
+
 #[sqlx::test]
 async fn fork_copies_no_events(pool: PgPool) {
     let dao = seeded(&pool, "source-session", lines(0..5)).await;
     let before = event_count(&pool).await;
 
-    let cut = dao
-        .resolve_legacy_cut("source-session", &ForkCut::Message("item-2".into()))
-        .await
-        .unwrap()
-        .expect("item-2 resolves");
+    let cut = event(&pool, "source-session", "item-2").await;
     let fork = dao
         .insert_fork_session("fork", Harness::ClaudeCode, cut)
         .await
@@ -202,11 +212,7 @@ async fn fork_copies_no_events(pool: PgPool) {
 #[sqlx::test]
 async fn fork_of_a_fork_walks_both_fork_points(pool: PgPool) {
     let dao = seeded(&pool, "root", lines(0..4)).await;
-    let cut = dao
-        .resolve_legacy_cut("root", &ForkCut::Message("item-1".into()))
-        .await
-        .unwrap()
-        .unwrap();
+    let cut = event(&pool, "root", "item-1").await;
     let first = dao
         .insert_fork_session("f1", Harness::ClaudeCode, cut)
         .await
@@ -222,14 +228,7 @@ async fn fork_of_a_fork_walks_both_fork_points(pool: PgPool) {
     .await
     .unwrap();
 
-    let cut = dao
-        .resolve_legacy_cut(
-            &first.harness_session_id,
-            &ForkCut::Message("item-11".into()),
-        )
-        .await
-        .unwrap()
-        .unwrap();
+    let cut = event(&pool, &first.harness_session_id, "item-11").await;
     let second = dao
         .insert_fork_session("f2", Harness::ClaudeCode, cut)
         .await
@@ -243,49 +242,6 @@ async fn fork_of_a_fork_walks_both_fork_points(pool: PgPool) {
 }
 
 #[sqlx::test]
-async fn an_unresolved_cut_uses_the_old_fork_path(pool: PgPool) {
-    let dao = seeded(&pool, "source-session", lines(0..3)).await;
-
-    let unknown_message = dao
-        .resolve_legacy_cut("source-session", &ForkCut::Message("not-recorded".into()))
-        .await
-        .unwrap();
-    let unknown_turn = dao
-        .resolve_legacy_cut("source-session", &ForkCut::Turn("turn-x".into()))
-        .await
-        .unwrap();
-    let unknown_session = dao
-        .resolve_legacy_cut("never-recorded", &ForkCut::End)
-        .await
-        .unwrap();
-
-    assert_eq!(unknown_message, None);
-    assert_eq!(unknown_turn, None);
-    assert_eq!(unknown_session, None);
-}
-
-#[sqlx::test]
-async fn a_codex_cut_lands_on_the_turns_task_complete(pool: PgPool) {
-    let mut events = lines(0..5);
-    for event in &mut events {
-        event.harness_turn_id = Some("turn-1".into());
-    }
-    events[3].kind = "event_msg/task_complete".into();
-    let dao = seeded(&pool, "thread", events).await;
-
-    let cut = dao
-        .resolve_legacy_cut("thread", &ForkCut::Turn("turn-1".into()))
-        .await
-        .unwrap()
-        .unwrap();
-    let fork = dao
-        .insert_fork_session("fork", Harness::ClaudeCode, cut)
-        .await
-        .unwrap();
-    assert_eq!(fork.last_seq, 3);
-}
-
-#[sqlx::test]
 async fn a_cut_at_a_tool_use_moves_to_its_result(pool: PgPool) {
     let mut events = lines(0..5);
     events[1].content = json!({"role": "assistant", "blocks": [
@@ -294,16 +250,10 @@ async fn a_cut_at_a_tool_use_moves_to_its_result(pool: PgPool) {
         {"type": "tool_result", "tool_use_id": "call-1"}]});
     let dao = seeded(&pool, "s", events).await;
 
-    let cut = dao
-        .resolve_legacy_cut("s", &ForkCut::Message("item-1".into()))
-        .await
-        .unwrap()
-        .unwrap();
-    let fork = dao
-        .insert_fork_session("fork", Harness::ClaudeCode, cut)
-        .await
-        .unwrap();
-    assert_eq!(fork.last_seq, 3);
+    let tip = event(&pool, "s", "item-4").await;
+    let rows = dao.lineage(tip).await.unwrap();
+    let refs: Vec<&LineageRow> = rows.iter().collect();
+    assert_eq!(include_pending_results(&refs, 1), 3);
 }
 
 #[sqlx::test]
@@ -335,11 +285,7 @@ async fn an_empty_append_returns_the_tip_payload(pool: PgPool) {
     let held = probe("source", "source-session".into()).await;
     assert_eq!(held.last_payload, Some(line(2).payload));
 
-    let cut = dao
-        .resolve_legacy_cut("source-session", &ForkCut::Message("item-1".into()))
-        .await
-        .unwrap()
-        .unwrap();
+    let cut = event(&pool, "source-session", "item-1").await;
     let fork = dao
         .insert_fork_session("fork", Harness::ClaudeCode, cut)
         .await

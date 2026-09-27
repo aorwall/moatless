@@ -107,18 +107,6 @@ pub async fn handle_agent_completed(state: &AppState, event: &AgentEvent) {
         }
     }
 
-    // Fallback: set real Claude Code session_id on user messages
-    // (in case session_init event was missed or arrived before messages were fetched)
-    if let Some(ref sid) = sdk_result.session_id {
-        if let Err(e) = state
-            .messages
-            .set_session_id_for_task(&event.task_id, sid)
-            .await
-        {
-            tracing::warn!(task_id = %event.task_id, error = %e, "Failed to set session_id on user messages (fallback)");
-        }
-    }
-
     // Touch the activity timestamp. Status is flipped separately via
     // `update_status_if_not_closed` so a task closed mid-run (e.g. its PR was
     // closed) is never resurrected to Open by this automated handler. Cost is
@@ -177,39 +165,6 @@ pub async fn handle_agent_completed(state: &AppState, event: &AgentEvent) {
     // where a blind `total_cost_usd + cost` would drift on every redelivery.
     if let Err(e) = state.tasks.recompute_total_cost(&event.task_id).await {
         tracing::warn!(task_id = %event.task_id, error = %e, "Failed to recompute task total cost");
-    }
-
-    // The only writer of an assistant row's usage columns, for every harness:
-    // `handle_agent_message` leaves them null. The raw `usage` object is kept
-    // whole (e.g. Codex `reasoning_output_tokens`) alongside the typed columns.
-    if let (Some(turn_number), Some(usage)) = (turn_number, sdk_result.usage.as_ref()) {
-        let raw_usage = event.payload.get("usage");
-        match state
-            .messages
-            .backfill_last_assistant_usage(
-                &event.task_id,
-                turn_number,
-                usage.input_tokens.map(|v| v as i32),
-                usage.output_tokens.map(|v| v as i32),
-                usage.cache_creation_input_tokens.map(|v| v as i32),
-                usage.cache_read_input_tokens.map(|v| v as i32),
-                raw_usage,
-            )
-            .await
-        {
-            Ok(true) => tracing::debug!(
-                task_id = %event.task_id,
-                turn_number,
-                "Backfilled assistant-message usage from completion result"
-            ),
-            Ok(false) => {}
-            Err(e) => tracing::warn!(
-                task_id = %event.task_id,
-                turn_number,
-                error = %e,
-                "Failed to backfill assistant usage after completion"
-            ),
-        }
     }
 
     // Reopen only if the task isn't already Closed. A Closed task is terminal
@@ -724,72 +679,6 @@ async fn completion_notice(
 /// etc.).
 pub async fn handle_sandbox_fatal(ports: &AgentErrorPorts, event: &AgentEvent) {
     handle_agent_error(ports, event).await;
-}
-
-/// Persist a Sandbox lifecycle change as its own activity, unless it restates
-/// the one before it.
-///
-/// `coarse_status`/`coarse_is_error` label the row only when the payload lacks
-/// a `lifecycleEvent`; an unparseable payload falls back to this coarse label
-/// too.
-pub async fn handle_sandbox_activity(
-    state: &AppState,
-    event: &AgentEvent,
-    coarse_status: &str,
-    coarse_is_error: bool,
-) {
-    let payload: moatless_types::sandbox::SandboxEventPayload =
-        serde_json::from_value(event.payload.clone()).unwrap_or_default();
-    let activity = moatless_tasks::task_activities::mapping::sandbox_activity(
-        &event.event_id,
-        &event.task_id,
-        coarse_status,
-        coarse_is_error,
-        &payload,
-    );
-    if let Err(e) = state.messages.record_sandbox_activity(&activity).await {
-        tracing::warn!(
-            task_id = %event.task_id,
-            event_id = %event.event_id,
-            error = %e,
-            "sandbox lifecycle activity could not be recorded"
-        );
-    }
-}
-
-/// Persist a context-window reading as its own activity.
-///
-/// A reading with no `usedTokens` is dropped rather than written as a row that
-/// shadows the last usable one.
-pub async fn handle_agent_context_window(state: &AppState, event: &AgentEvent) {
-    let Some(used_tokens) = event
-        .payload
-        .get("usedTokens")
-        .and_then(serde_json::Value::as_i64)
-        .filter(|used| *used >= 0)
-    else {
-        return;
-    };
-    let max_tokens = event
-        .payload
-        .get("maxTokens")
-        .and_then(serde_json::Value::as_i64)
-        .filter(|max| *max > 0);
-
-    let activity = moatless_tasks::task_activities::mapping::context_window_updated(
-        &event.event_id,
-        &event.task_id,
-        used_tokens,
-        max_tokens,
-    );
-    if let Err(e) = state.messages.record_standalone_activity(&activity).await {
-        tracing::warn!(
-            task_id = %event.task_id,
-            event_id = %event.event_id,
-            error = %e,
-            "context-window reading could not be recorded"
-        );
-    }
 }
 
 pub async fn handle_agent_session_context_lost(_state: &AppState, event: &AgentEvent) {

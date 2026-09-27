@@ -27,6 +27,11 @@ pub struct BlockContext<'a> {
     /// The block's native index within its Message, from source-event
     /// `blockIndex`.
     pub block_index: usize,
+    /// What an activity's id is named from: the Task and the source row the
+    /// block arrived on (4.9).
+    pub source: &'a str,
+    /// The block's index within that source row.
+    pub source_block: usize,
 }
 
 /// The row-level change one block represents.
@@ -142,6 +147,7 @@ pub fn map_content(context: BlockContext<'_>, content: &Value) -> ConversationWr
     for (offset, block) in blocks.iter().enumerate() {
         let context = BlockContext {
             block_index: context.block_index + offset,
+            source_block: context.source_block + offset,
             ..context
         };
         match map_block(context, block) {
@@ -726,10 +732,10 @@ pub fn context_window_updated(
     }
 }
 
-/// `{message_uuid}:{block_index}` — the id `projection.rs` already emits, which
-/// is why the T3 client sees no change.
+/// `{source}:{source_block}`, the name [`crate::conversation::ids::activity`]
+/// hashes.
 fn activity_id(context: BlockContext<'_>) -> String {
-    format!("{}:{}", context.message_uuid, context.block_index)
+    format!("{}:{}", context.source, context.source_block)
 }
 
 /// The block's index, as the column stores it. Saturates rather than wraps: a
@@ -770,6 +776,8 @@ mod tests {
             parent_uuid: None,
             message_type: MessageType::Assistant,
             block_index: 3,
+            source: "msg-1",
+            source_block: 3,
         }
     }
 
@@ -998,6 +1006,7 @@ mod tests {
         let whole = map_content(
             BlockContext {
                 block_index: 0,
+                source_block: 0,
                 ..context()
             },
             &json!([
@@ -1009,6 +1018,7 @@ mod tests {
         let per_block = map_content(
             BlockContext {
                 block_index: 2,
+                source_block: 2,
                 ..context()
             },
             &json!([{ "type": "thinking" }]),

@@ -2,7 +2,7 @@
 
 use super::contract::assert_decodable_thread;
 use super::feed::{ingress, start_turn};
-use super::harness::{conversation_write, parse, snapshot, thread, viewer};
+use super::harness::{parse, snapshot, thread, viewer};
 use super::seeding::{
     MATRIX_WS, follow, follower_state, seed_agent_message, seed_conversation_matrix,
     seed_public_task, seed_sandbox, seed_task, seed_turn, seed_user_message,
@@ -15,10 +15,10 @@ use crate::common::test_app_state;
 use chrono::DateTime;
 use chrono::SubsecRound;
 use chrono::Utc;
+use moatless_tasks::activities::mapping::BlockContext;
+use moatless_tasks::activities::mapping::map_content;
 use moatless_tasks::message::models::MessageType;
 use moatless_tasks::message::service as message_service;
-use moatless_tasks::task_activities::mapping::BlockContext;
-use moatless_tasks::task_activities::mapping::map_content;
 use moatless_types::agent::AgentProfile;
 use moatless_workspaces::compose;
 use serde_json::Value;
@@ -122,19 +122,14 @@ async fn ask_user_question_clears_settle_for_every_follower_and_leaves_snooze(po
     set_settled_and_snoozed(&pool, "user-1", "t-question-wake").await;
     set_settled_and_snoozed(&pool, "user-2", "t-question-wake").await;
 
-    let mut asking = make_message_row("t-question-wake", "m-question-wake");
-    asking.message_type = MessageType::Assistant;
-    asking.user_type = "system".into();
-    asking.turn_number = Some(1);
-    let question = conversation_write(
+    moatless_tasks::message::test_support::seed_agent_blocks(
+        &pool,
         "t-question-wake",
-        "m-question-wake",
-        MessageType::Assistant,
-        &json!([{"type": "tool_use", "id": "tu-wake", "name": "AskUserQuestion", "input": {}}]),
-    );
-    moatless_tasks::message::test_support::seed_message(&pool, &asking, &[], &question)
-        .await
-        .unwrap();
+        "session-wake",
+        Some(1),
+        json!([{"type": "tool_use", "id": "tu-wake", "name": "AskUserQuestion", "input": {}}]),
+    )
+    .await;
 
     for user in ["user-1", "user-2"] {
         let state = follower_state(&pool, user, "t-question-wake").await;
@@ -207,8 +202,10 @@ async fn the_activity_timestamp_does_not_move_when_the_agent_writes(pool: PgPool
     // truncated the same way the projection truncates it before they can be
     // equal at all.
     let wrote_at: DateTime<Utc> =
-        sqlx::query_scalar("SELECT created_at FROM task_messages WHERE uuid = $1")
-            .bind("m-person")
+        sqlx::query_scalar("SELECT created_at FROM conversation_messages WHERE uuid = $1")
+            .bind(moatless_tasks::message::test_support::seeded_uuid(
+                "m-person",
+            ))
             .fetch_one(&pool)
             .await
             .unwrap();
@@ -322,6 +319,8 @@ async fn an_unanswered_question_is_pending_user_input(pool: PgPool) {
             parent_uuid: None,
             message_type: MessageType::Assistant,
             block_index: 1,
+            source: "m-ask",
+            source_block: 0,
         },
         &json!([{"type": "tool_use", "id": "tu-1", "name": "AskUserQuestion", "input": {}}]),
     );
@@ -344,6 +343,8 @@ async fn an_unanswered_question_is_pending_user_input(pool: PgPool) {
             parent_uuid: None,
             message_type: MessageType::User,
             block_index: 0,
+            source: "m-answer",
+            source_block: 0,
         },
         &json!([{"type": "tool_result", "tool_use_id": "tu-1", "content": "the first one"}]),
     );
@@ -382,6 +383,8 @@ async fn a_question_the_agent_called_past_is_no_longer_pending(pool: PgPool) {
             parent_uuid: None,
             message_type: MessageType::Assistant,
             block_index: 1,
+            source: "m-ask",
+            source_block: 0,
         },
         &json!([{"type": "tool_use", "id": "tu-1", "name": "AskUserQuestion", "input": {}}]),
     );
@@ -403,6 +406,8 @@ async fn a_question_the_agent_called_past_is_no_longer_pending(pool: PgPool) {
             parent_uuid: None,
             message_type: MessageType::Assistant,
             block_index: 0,
+            source: "m-next",
+            source_block: 0,
         },
         &json!([{"type": "tool_use", "id": "tu-2", "name": "Bash", "input": {}}]),
     );

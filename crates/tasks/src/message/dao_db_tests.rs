@@ -1,14 +1,14 @@
 //! PostgreSQL tests for the message store.
 
-use crate::message::dao::{MessageDao, PgMessageDao};
-use crate::message::models::{MessageRole, MessageType, TaskMessageContext};
-use crate::task_activities::mapping::{
+use crate::activities::mapping::{
     ActivityKind, ActivityStatus, BlockContext, ConversationWrite, map_content,
 };
+use crate::message::dao::{MessageDao, PgMessageDao};
+use crate::message::models::{MessageRole, MessageType, TaskMessageContext};
 use moatless_ports::task::EventSubject;
 use sqlx::PgPool;
 
-use crate::message::test_support::make_message_row;
+use crate::message::test_support::{make_message_row, seeded_uuid};
 use crate::task::test_support::make_task_row;
 use moatless_workspaces::test_support::make_repository_row;
 
@@ -27,6 +27,8 @@ fn conversation_write(
             parent_uuid: None,
             message_type,
             block_index: 0,
+            source: uuid,
+            source_block: 0,
         },
         content,
     )
@@ -60,13 +62,13 @@ async fn append_and_get_all(pool: PgPool) {
         .await
         .unwrap();
     assert_eq!(messages.len(), 1);
-    assert_eq!(messages[0].uuid, "msg-uuid-1");
+    assert_eq!(messages[0].uuid, seeded_uuid("msg-uuid-1").to_string());
     assert!(contexts.is_empty());
     assert!(blocks.is_empty());
 }
 
 /// The raw `assistant_usage` blob, including the cache-write breakdown typed
-/// columns miss, round-trips through `task_messages` for deriving cost when the
+/// columns miss, round-trips through a frozen row for deriving cost when the
 /// transport omits `total_cost_usd` (tmux).
 #[sqlx::test]
 async fn append_persists_assistant_usage(pool: PgPool) {
@@ -116,136 +118,6 @@ async fn append_persists_assistant_usage(pool: PgPool) {
     );
 }
 
-/// Seed an assistant row in `turn_number` with no usage, as the per-block
-/// write path leaves it.
-async fn seed_assistant_row(
-    pool: &PgPool,
-    uuid: &str,
-    turn_number: i32,
-    timestamp: &str,
-    parent_uuid: Option<&str>,
-) {
-    let mut row = make_message_row("task-1", uuid);
-    row.message_type = MessageType::Assistant;
-    row.message_role = MessageRole::Assistant;
-    row.turn_number = Some(turn_number);
-    row.timestamp = timestamp.to_string();
-    row.parent_uuid = parent_uuid.map(ToString::to_string);
-    crate::message::test_support::seed_message(pool, &row, &[], &ConversationWrite::default())
-        .await
-        .unwrap();
-}
-
-/// A row's stored `output_tokens`, read directly so subagent rows are visible.
-async fn output_tokens_of(pool: &PgPool, uuid: &str) -> Option<i32> {
-    sqlx::query_scalar("SELECT assistant_usage_output_tokens FROM task_messages WHERE uuid = $1")
-        .bind(uuid)
-        .fetch_one(pool)
-        .await
-        .unwrap()
-}
-
-/// Fill `turn_number` with a result whose `output_tokens` is `output`.
-async fn backfill_turn(pool: &PgPool, turn_number: i32, output: i32) -> bool {
-    crate::message::test_support::backfill_last_assistant_usage(
-        pool,
-        "task-1",
-        turn_number,
-        Some(3),
-        Some(output),
-        None,
-        Some(9088),
-        Some(&serde_json::json!({ "input_tokens": 3, "output_tokens": output })),
-    )
-    .await
-    .unwrap()
-}
-
-#[sqlx::test]
-async fn backfill_fills_last_assistant_usage_once(pool: PgPool) {
-    seed_task(&pool, "task-1", "user-1").await;
-    seed_assistant_row(&pool, "assistant-1", 1, "2026-01-01T00:00:01.000Z", None).await;
-
-    let usage = serde_json::json!({
-        "input_tokens": 10943,
-        "output_tokens": 5,
-        "cache_read_input_tokens": 9088,
-        "cache_creation_input_tokens": serde_json::Value::Null,
-        "reasoning_output_tokens": 128
-    });
-
-    let updated = crate::message::test_support::backfill_last_assistant_usage(
-        &pool,
-        "task-1",
-        1,
-        Some(10943),
-        Some(5),
-        None,
-        Some(9088),
-        Some(&usage),
-    )
-    .await
-    .unwrap();
-    assert!(updated, "expected the assistant row to be backfilled");
-
-    let (messages, _, _) = crate::message::test_support::messages_for(&pool, "task-1")
-        .await
-        .unwrap();
-    let stored = messages
-        .iter()
-        .find(|m| m.uuid == "assistant-1")
-        .expect("assistant row present");
-    assert_eq!(stored.assistant_usage_input_tokens, Some(10943));
-    assert_eq!(stored.assistant_usage_output_tokens, Some(5));
-    assert_eq!(stored.assistant_usage_cache_creation_input_tokens, None);
-    assert_eq!(stored.assistant_usage_cache_read_input_tokens, Some(9088));
-    // Codex reasoning tokens survive in the raw blob.
-    assert_eq!(stored.assistant_usage.as_ref(), Some(&usage));
-
-    assert!(
-        !backfill_turn(&pool, 1, 1).await,
-        "a redelivered completion must not write the turn a second time"
-    );
-    assert_eq!(output_tokens_of(&pool, "assistant-1").await, Some(5));
-}
-
-/// Each turn's total lands on that turn's last top-level assistant row, and
-/// nowhere else.
-#[sqlx::test]
-async fn backfill_writes_only_the_turns_last_top_level_row(pool: PgPool) {
-    seed_task(&pool, "task-1", "user-1").await;
-    seed_assistant_row(&pool, "t1-last", 1, "2026-01-01T00:00:01.000Z", None).await;
-    seed_assistant_row(&pool, "t2-first", 2, "2026-01-01T00:00:02.000Z", None).await;
-    seed_assistant_row(&pool, "t2-last", 2, "2026-01-01T00:00:03.000Z", None).await;
-    seed_assistant_row(
-        &pool,
-        "t2-subagent",
-        2,
-        "2026-01-01T00:00:04.000Z",
-        Some("tu-agent"),
-    )
-    .await;
-
-    assert!(backfill_turn(&pool, 1, 100).await);
-    // An earlier turn that already has usage does not block this one.
-    assert!(backfill_turn(&pool, 2, 200).await);
-
-    assert_eq!(output_tokens_of(&pool, "t1-last").await, Some(100));
-    assert_eq!(output_tokens_of(&pool, "t2-last").await, Some(200));
-    assert_eq!(output_tokens_of(&pool, "t2-first").await, None);
-    assert_eq!(output_tokens_of(&pool, "t2-subagent").await, None);
-
-    // The redelivery finds the last row filled and must not fall through to the
-    // earlier row of the same turn, which would count the run twice.
-    assert!(!backfill_turn(&pool, 2, 200).await);
-    assert_eq!(output_tokens_of(&pool, "t2-first").await, None);
-
-    assert!(
-        !backfill_turn(&pool, 3, 300).await,
-        "a turn with no assistant row writes nothing"
-    );
-}
-
 #[sqlx::test]
 async fn append_with_contexts_and_activities(pool: PgPool) {
     seed_task(&pool, "task-1", "user-1").await;
@@ -280,6 +152,8 @@ async fn append_with_contexts_and_activities(pool: PgPool) {
             parent_uuid: None,
             message_type: msg.message_type,
             block_index: 0,
+            source: "msg-uuid-2",
+            source_block: 0,
         },
         &serde_json::json!([
             { "type": "text", "text": "Hello world" },
@@ -287,7 +161,17 @@ async fn append_with_contexts_and_activities(pool: PgPool) {
         ]),
     );
 
-    crate::message::test_support::seed_message(&pool, &msg, &contexts, &conversation)
+    // Contexts ride on what a person sent: the user Message's inbox item.
+    let asked = make_message_row("task-1", "msg-uuid-1");
+    crate::message::test_support::seed_message(
+        &pool,
+        &asked,
+        &contexts,
+        &ConversationWrite::default(),
+    )
+    .await
+    .unwrap();
+    crate::message::test_support::seed_message(&pool, &msg, &[], &conversation)
         .await
         .unwrap();
 
@@ -295,36 +179,18 @@ async fn append_with_contexts_and_activities(pool: PgPool) {
         crate::message::test_support::messages_for(&pool, "task-1")
             .await
             .unwrap();
-    assert_eq!(messages.len(), 1);
-    assert_eq!(messages[0].message_text.as_deref(), Some("Hello world"));
+    assert_eq!(messages.len(), 2);
+    let answer = crate::message::test_support::seeded_uuid("msg-uuid-2").to_string();
+    let answer = messages
+        .iter()
+        .find(|m| m.uuid == answer)
+        .expect("the answer");
+    assert_eq!(answer.message_text.as_deref(), Some("Hello world"));
     assert_eq!(ctx_rows.len(), 2);
     assert_eq!(activities.len(), 1);
     assert_eq!(activities[0].kind, ActivityKind::ToolCall);
     assert_eq!(activities[0].tool_use_id.as_deref(), Some("tu-1"));
     assert_eq!(activities[0].status, ActivityStatus::InProgress);
-}
-
-#[sqlx::test]
-async fn append_upsert_on_conflict(pool: PgPool) {
-    seed_task(&pool, "task-1", "user-1").await;
-
-    let msg = make_message_row("task-1", "msg-uuid-dup");
-    crate::message::test_support::seed_message(&pool, &msg, &[], &ConversationWrite::default())
-        .await
-        .unwrap();
-
-    // Re-append with same uuid — should update, not duplicate
-    let mut msg2 = make_message_row("task-1", "msg-uuid-dup");
-    msg2.message_text = Some("updated".to_string());
-    crate::message::test_support::seed_message(&pool, &msg2, &[], &ConversationWrite::default())
-        .await
-        .unwrap();
-
-    let (messages, _, _) = crate::message::test_support::messages_for(&pool, "task-1")
-        .await
-        .unwrap();
-    assert_eq!(messages.len(), 1);
-    assert_eq!(messages[0].message_text.as_deref(), Some("updated"));
 }
 
 #[sqlx::test]
@@ -339,87 +205,6 @@ async fn get_pending_user(pool: PgPool) {
         .await
         .unwrap();
     assert_eq!(pending.len(), 2);
-}
-
-#[sqlx::test]
-async fn set_session_id_also_sets_sent_at(pool: PgPool) {
-    seed_task(&pool, "task-1", "user-1").await;
-
-    // Two pending user messages (no agent_session_id, no sent_at)
-    let msg1 = make_message_row("task-1", "sess-msg-1");
-    crate::message::test_support::seed_message(&pool, &msg1, &[], &ConversationWrite::default())
-        .await
-        .unwrap();
-
-    let msg2 = make_message_row("task-1", "sess-msg-2");
-    crate::message::test_support::seed_message(&pool, &msg2, &[], &ConversationWrite::default())
-        .await
-        .unwrap();
-
-    // Simulate session_init: sets session_id, agent_session_id, and sent_at
-    let count = crate::message::test_support::set_session_id(&pool, "task-1", "session-abc")
-        .await
-        .unwrap();
-    assert_eq!(count, 2);
-
-    // Messages should no longer be pending
-    let pending = crate::message::test_support::pending_user_messages(&pool, "task-1")
-        .await
-        .unwrap();
-    assert!(pending.is_empty());
-
-    // Verify sent_at is set on all messages
-    let (all_msgs, _, _) = crate::message::test_support::messages_for(&pool, "task-1")
-        .await
-        .unwrap();
-    for msg in &all_msgs {
-        assert!(
-            msg.sent_at.is_some(),
-            "sent_at should be set after set_session_id_for_task"
-        );
-        assert_eq!(msg.session_id.as_deref(), Some("session-abc"));
-        assert_eq!(msg.agent_session_id.as_deref(), Some("session-abc"));
-    }
-}
-
-/// The fork copy inserts via `message_columns!()`; a column missing from that
-/// list is silently dropped, not a compile error.
-///
-/// Omitting `sent_at` left copies claimed but never marked sent — queued
-/// forever with no dispatcher to pick them up.
-#[sqlx::test]
-async fn a_copied_message_carries_the_sent_at_that_claimed_it(pool: PgPool) {
-    seed_task(&pool, "task-1", "user-1").await;
-    let fork = make_task_row("task-2", "user-1");
-    crate::task::test_support::seed_task(&pool, &fork)
-        .await
-        .expect("seed fork task");
-
-    let id =
-        crate::message::test_support::queue_named(&pool, "task-1", "forked-msg-1", "hello").await;
-    crate::message::test_support::acknowledge_messages(&pool, "task-1", &[id], "session-abc", 1)
-        .await
-        .unwrap();
-
-    crate::message::fork_dao::copy_conversation(&pool, "task-1", "task-2", None)
-        .await
-        .unwrap();
-
-    let (copied, _, _) = crate::message::test_support::messages_for(&pool, "task-2")
-        .await
-        .unwrap();
-    let copied = copied.first().expect("the acknowledged Message is copied");
-    assert!(
-        copied.sent_at.is_some(),
-        "a copy of a Message the parent had already sent must not read as queued"
-    );
-    assert_eq!(copied.agent_session_id.as_deref(), Some("session-abc"));
-    assert!(
-        crate::message::test_support::pending_user_messages(&pool, "task-2")
-            .await
-            .unwrap()
-            .is_empty()
-    );
 }
 
 #[sqlx::test]
@@ -445,7 +230,7 @@ async fn get_last_result(pool: PgPool) {
         .await
         .unwrap();
     assert!(last.is_some());
-    assert_eq!(last.unwrap().uuid, "result-2");
+    assert_eq!(last.unwrap().uuid, seeded_uuid("result-2").to_string());
 }
 
 #[sqlx::test]
@@ -484,7 +269,7 @@ async fn get_last_assistant_message_picks_latest_assistant(pool: PgPool) {
         .await
         .unwrap();
     let last = last.expect("expected an assistant row");
-    assert_eq!(last.uuid, "asst-2");
+    assert_eq!(last.uuid, seeded_uuid("asst-2").to_string());
     assert_eq!(last.message_type, MessageType::Assistant);
 }
 
@@ -505,61 +290,6 @@ async fn get_last_assistant_message_returns_none_when_absent(pool: PgPool) {
     assert!(last.is_none());
 }
 
-#[sqlx::test]
-async fn set_external_source_metadata_writes_all_columns_and_is_idempotent(pool: PgPool) {
-    seed_task(&pool, "task-1", "user-1").await;
-
-    let msg = make_message_row("task-1", "tag-msg-1");
-    crate::message::test_support::seed_message(&pool, &msg, &[], &ConversationWrite::default())
-        .await
-        .unwrap();
-
-    let repo = PgMessageDao(pool.clone());
-    let updated = repo
-        .set_external_source_metadata(
-            "tag-msg-1",
-            "github:pr:opened:42",
-            "github_pr",
-            Some("foo/bar"),
-        )
-        .await
-        .unwrap();
-    assert!(updated);
-
-    let (rows, _, _) = crate::message::test_support::messages_for(&pool, "task-1")
-        .await
-        .unwrap();
-    let row = rows.iter().find(|m| m.uuid == "tag-msg-1").unwrap();
-    assert_eq!(
-        row.external_event_id.as_deref(),
-        Some("github:pr:opened:42")
-    );
-    assert_eq!(row.external_adapter.as_deref(), Some("github_pr"));
-    assert_eq!(row.external_source_name.as_deref(), Some("foo/bar"));
-
-    // Second call must be a no-op (idempotency guard on external_event_id IS NULL).
-    let again = repo
-        .set_external_source_metadata(
-            "tag-msg-1",
-            "github:pr:opened:99",
-            "github_pr",
-            Some("other/repo"),
-        )
-        .await
-        .unwrap();
-    assert!(!again);
-
-    let (rows2, _, _) = crate::message::test_support::messages_for(&pool, "task-1")
-        .await
-        .unwrap();
-    let row2 = rows2.iter().find(|m| m.uuid == "tag-msg-1").unwrap();
-    assert_eq!(
-        row2.external_event_id.as_deref(),
-        Some("github:pr:opened:42")
-    );
-    assert_eq!(row2.external_source_name.as_deref(), Some("foo/bar"));
-}
-
 /// A comment id is allocated once by the provider, so the task that wrote the
 /// comment is found without being told where to look.
 #[sqlx::test]
@@ -570,32 +300,13 @@ async fn a_comment_id_names_its_author_across_every_subject(pool: PgPool) {
         .await
         .unwrap();
 
-    let msg1 = make_message_row("task-1", "tag-origin-1");
-    crate::message::test_support::seed_message(&pool, &msg1, &[], &ConversationWrite::default())
-        .await
-        .unwrap();
-    let msg2 = make_message_row("task-2", "tag-origin-2");
-    crate::message::test_support::seed_message(&pool, &msg2, &[], &ConversationWrite::default())
-        .await
-        .unwrap();
-
     let repo = PgMessageDao(pool.clone());
-    repo.set_external_source_metadata(
-        "tag-origin-1",
-        "github:ic:555",
-        "github_pr",
-        Some("foo/bar"),
-    )
-    .await
-    .unwrap();
-    repo.set_external_source_metadata(
-        "tag-origin-2",
-        "github:ic:777",
-        "github_pr",
-        Some("foo/bar"),
-    )
-    .await
-    .unwrap();
+    repo.record_external_event("task-1", "github:ic:555", "github_pr", Some("foo/bar"))
+        .await
+        .unwrap();
+    repo.record_external_event("task-2", "github:ic:777", "github_pr", Some("foo/bar"))
+        .await
+        .unwrap();
 
     let found = repo
         .find_task_id_by_any_external_event_id(&["github:ic:555".to_string(), "555".to_string()])
@@ -876,7 +587,8 @@ async fn find_tool_call_returns_parent_message_uuid(pool: PgPool) {
     let repo = PgMessageDao(pool.clone());
 
     // The result arrives on a later source event and settles the call in place.
-    repo.append_activities(
+    crate::message::test_support::seed_activities(
+        &pool,
         "task-1",
         "assistant-uuid",
         &conversation_write(
@@ -902,7 +614,10 @@ async fn find_tool_call_returns_parent_message_uuid(pool: PgPool) {
         .unwrap();
     assert_eq!(found.tool_use_id, "tu-123");
     assert_eq!(found.tool_name, "Bash");
-    assert_eq!(found.parent_message_uuid, "assistant-uuid");
+    assert_eq!(
+        found.parent_message_uuid,
+        seeded_uuid("assistant-uuid").to_string()
+    );
     assert_eq!(found.result_content.as_deref(), Some("hi"));
 }
 
@@ -913,6 +628,15 @@ async fn find_tool_call_returns_parent_message_uuid(pool: PgPool) {
 #[sqlx::test]
 async fn a_plain_message_settles_the_question_it_answered(pool: PgPool) {
     seed_task(&pool, "task-1", "user-1").await;
+    // The question froze in the turn still open when history froze, the one
+    // frozen row a later source may settle.
+    crate::message::test_support::freeze(
+        &pool,
+        "task-1",
+        Some(chrono::Utc::now() - chrono::Duration::hours(1)),
+    )
+    .await
+    .unwrap();
 
     let mut asking = make_message_row("task-1", "m-ask");
     asking.message_type = MessageType::Assistant;
@@ -933,17 +657,15 @@ async fn a_plain_message_settles_the_question_it_answered(pool: PgPool) {
     .unwrap();
 
     let repo = PgMessageDao(pool.clone());
-    let mut written = make_message_row("task-1", "m-written");
-    written.message_text = Some("the first one".to_string());
-    repo.append(&written, &[], &ConversationWrite::default())
-        .await
-        .unwrap();
+    let written =
+        crate::message::test_support::queue_named(&pool, "task-1", "m-written", "the first one")
+            .await;
 
     let messages = crate::message::operations::Messages::new(
         std::sync::Arc::new(PgMessageDao(pool.clone())),
         crate::inbox::InboxService::new(pool.clone()),
     );
-    crate::message::send::settle_answered_prompt(&messages, "task-1", "tu-1", "m-written").await;
+    crate::message::send::settle_answered_prompt(&messages, "task-1", "tu-1", &written).await;
 
     let call = repo
         .find_tool_call("task-1", "tu-1")
@@ -957,7 +679,7 @@ async fn a_plain_message_settles_the_question_it_answered(pool: PgPool) {
     );
 
     let ((_, _, activities), _) = repo
-        .get_message_for_assembly("task-1", "m-written")
+        .get_message_for_assembly("task-1", &written)
         .await
         .unwrap()
         .expect("the message that answered loads");
@@ -1002,7 +724,8 @@ async fn get_message_for_assembly_loads_the_named_message_with_its_activities(po
     .unwrap();
 
     let repo = PgMessageDao(pool.clone());
-    repo.append_activities(
+    crate::message::test_support::seed_activities(
+        &pool,
         "task-1",
         "a1",
         &conversation_write(
@@ -1016,16 +739,17 @@ async fn get_message_for_assembly_loads_the_named_message_with_its_activities(po
     .await
     .unwrap();
 
+    let a1 = seeded_uuid("a1").to_string();
     let ((messages, _ctx, activities), target) = repo
-        .get_message_for_assembly("task-1", "a1")
+        .get_message_for_assembly("task-1", &a1)
         .await
         .unwrap()
         .expect("the named Message loads");
-    assert_eq!(target, "a1");
+    assert_eq!(target, a1);
     let uuids: Vec<&str> = messages.iter().map(|m| m.uuid.as_str()).collect();
     assert_eq!(
         uuids,
-        vec!["a1"],
+        vec![a1.as_str()],
         "the named row, and nothing dragged along"
     );
     assert_eq!(activities.len(), 1);
@@ -1038,7 +762,7 @@ async fn get_message_for_assembly_loads_the_named_message_with_its_activities(po
 
     // A uuid this Task never saw resolves to nothing.
     assert!(
-        repo.get_message_for_assembly("task-1", "sys1")
+        repo.get_message_for_assembly("task-1", &seeded_uuid("sys1").to_string())
             .await
             .unwrap()
             .is_none()
@@ -1057,7 +781,7 @@ async fn seed_task_turn(pool: &PgPool, task_id: &str, turn: i32) {
     query.execute(pool).await.unwrap();
 }
 
-/// The delivered item alone, with no `task_turns` row, as a fork copies it.
+/// The delivered item alone, with no `task_turns` row.
 async fn seed_acknowledged_message(pool: &PgPool, task_id: &str, name: &str, turn_number: i32) {
     let id = crate::message::test_support::queue_named(pool, task_id, name, name).await;
     crate::message::test_support::acknowledge_messages(
@@ -1162,7 +886,7 @@ async fn find_interrupted_turn_survives_the_interrupted_marker(pool: PgPool) {
     assert_eq!(interrupted.session_id, "session-1");
 }
 
-/// A fork copies its source's user rows but not the event that closed the turn.
+/// A delivered item whose turn has no `task_turns` row is no interrupted turn.
 #[sqlx::test]
 async fn find_interrupted_turn_skips_a_turn_copied_by_a_fork(pool: PgPool) {
     seed_task(&pool, "task-1", "user-1").await;

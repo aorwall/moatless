@@ -362,7 +362,7 @@ their respective sandboxes — and `?workspaceId=` narrows it further to what th
 Workspace loads. "Skill" unqualified means either; write the qualifier whenever
 the source is what makes the sentence true.
 
-A Skill reaches an agent as a name, never as text on the wire. `task_messages.skills`
+A Skill reaches an agent as a name, never as text on the wire. `task_inbox.skills`
 carries what one send activates, `tasks.skills` what every fresh agent session on
 the Task re-activates (a Loop's `skills`), and the backend unions the two onto
 `PendingAgentDelivery.skills`. Only the pod resolves the body: it reads the

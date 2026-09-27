@@ -428,10 +428,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         supervisor.supervise(
             "conversation-change-pruner",
             Criticality::Optional,
-            moatless_tasks::task_activities::spawn_change_pruner(
-                app_state.db.clone(),
-                cancel.clone(),
-            ),
+            moatless_tasks::activities::spawn_change_pruner(app_state.db.clone(), cancel.clone()),
         );
 
         // The same job for the event feed, Optional for the same reason: it

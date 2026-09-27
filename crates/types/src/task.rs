@@ -68,6 +68,9 @@ crate::string_enum!(
         /// A backend failure a person should see in the chat, e.g. a failed
         /// wake; projected as an Error Message.
         Error => "error",
+        /// A message sent to a Binding's channel: the agent's reply, which the
+        /// conversation shows, or a stub announcing a run, which it does not.
+        BindingReplySent => "binding_reply_sent",
     }
 );
 

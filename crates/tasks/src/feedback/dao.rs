@@ -133,17 +133,17 @@ impl FeedbackDao for PgFeedbackDao {
     }
 
     async fn latest_activity(&self, task_id: &str) -> Result<Option<LatestActivity>, sqlx::Error> {
-        // A tool call's `task_activities` row is written as soon as its
+        // A tool call's `conversation_activities` row is written as soon as its
         // `tool_use` block streams in, before the call runs — so at the
         // moment an agent invokes `moat feedback` from a Bash call, that very
         // call is already the latest row here. That is the intended reading:
         // the feedback lands on the turn during which the agent decided to
         // write it, not on whatever call preceded it.
         if let Some(row) = sqlx::query_as::<_, LatestActivity>(
-            r#"SELECT message_uuid, tool_use_id
-               FROM task_activities
+            r#"SELECT message_uuid::text AS message_uuid, tool_use_id
+               FROM conversation_activities
                WHERE task_id = $1 AND kind = 'tool_call' AND message_uuid IS NOT NULL
-               ORDER BY position DESC
+               ORDER BY position DESC, ordinal DESC
                LIMIT 1"#,
         )
         .bind(task_id)
@@ -154,10 +154,10 @@ impl FeedbackDao for PgFeedbackDao {
         }
 
         sqlx::query_as::<_, LatestActivity>(
-            r#"SELECT uuid AS message_uuid, NULL::text AS tool_use_id
-               FROM task_messages
+            r#"SELECT uuid::text AS message_uuid, NULL::text AS tool_use_id
+               FROM conversation_messages
                WHERE task_id = $1
-               ORDER BY id DESC
+               ORDER BY position DESC
                LIMIT 1"#,
         )
         .bind(task_id)

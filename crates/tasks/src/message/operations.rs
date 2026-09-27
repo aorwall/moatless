@@ -1,4 +1,4 @@
-//! The `task_messages` table, as a host and the message routes reach it.
+//! The conversation, as a host and the message routes reach it.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -7,16 +7,14 @@ use chrono::{DateTime, Utc};
 use moatless_ports::task::EventSubject;
 
 use super::dao::MessageDao;
-use super::models::{
-    InterruptedTurn, MessagePage, MessageType, TaskMessage, TaskMessageContext, ToolCallRow,
-};
+use super::models::{InterruptedTurn, MessagePage, TaskMessage, ToolCallRow};
 use crate::conversation::projector::Projector;
+use crate::conversation::read_dao::ResponseUsage;
 use crate::inbox::view::PendingView;
 use crate::inbox::{InboxService, PENDING_LIMIT, RunStamp};
-use crate::task_activities::mapping::{ActivityRow, ConversationWrite};
 
-/// The `task_messages` and `task_activities` tables, as the backend and this
-/// crate's own handlers reach them.
+/// The conversation read model, as the backend and this crate's own handlers
+/// reach it.
 ///
 /// The published seams are narrower: [`crate::ports::Transcript`] appends,
 /// [`crate::ports::PendingWork`] answers the wake predicate, and
@@ -46,53 +44,12 @@ impl Messages {
         self.store.get_all(task_id).await
     }
 
-    /// See [`MessageDao::append`].
-    pub async fn append(
-        &self,
-        msg: &TaskMessage,
-        contexts: &[TaskMessageContext],
-        conversation: &ConversationWrite,
-    ) -> Result<i32, sqlx::Error> {
-        self.store.append(msg, contexts, conversation).await
-    }
-
-    /// See [`MessageDao::append_activities`].
-    pub async fn append_activities(
+    /// See [`MessageDao::response_usage`].
+    pub(crate) async fn response_usage(
         &self,
         task_id: &str,
-        message_uuid: &str,
-        conversation: &ConversationWrite,
-    ) -> Result<(), sqlx::Error> {
-        self.store
-            .append_activities(task_id, message_uuid, conversation)
-            .await
-    }
-
-    /// See [`MessageDao::record_sandbox_activity`].
-    pub async fn record_sandbox_activity(
-        &self,
-        activity: &ActivityRow,
-    ) -> Result<bool, sqlx::Error> {
-        self.store.record_sandbox_activity(activity).await
-    }
-
-    /// See [`MessageDao::record_standalone_activity`].
-    pub async fn record_standalone_activity(
-        &self,
-        activity: &ActivityRow,
-    ) -> Result<bool, sqlx::Error> {
-        self.store.record_standalone_activity(activity).await
-    }
-
-    /// See [`MessageDao::get_contexts_for_messages`].
-    pub async fn get_contexts_for_messages(
-        &self,
-        task_id: &str,
-        message_ids: &[i32],
-    ) -> Result<HashMap<i32, Vec<TaskMessageContext>>, sqlx::Error> {
-        self.store
-            .get_contexts_for_messages(task_id, message_ids)
-            .await
+    ) -> Result<Vec<ResponseUsage>, sqlx::Error> {
+        self.store.response_usage(task_id).await
     }
 
     /// See [`MessageDao::find_by_uuid`].
@@ -107,6 +64,14 @@ impl Messages {
         Ok(PendingView::of(&items))
     }
 
+    /// See [`MessageDao::latest_agent_session_id`].
+    pub async fn latest_agent_session_id(
+        &self,
+        task_id: &str,
+    ) -> Result<Option<String>, sqlx::Error> {
+        self.store.latest_agent_session_id(task_id).await
+    }
+
     /// See [`MessageDao::get_last_result`].
     pub async fn get_last_result(&self, task_id: &str) -> Result<Option<TaskMessage>, sqlx::Error> {
         self.store.get_last_result(task_id).await
@@ -118,66 +83,6 @@ impl Messages {
         task_id: &str,
     ) -> Result<Option<TaskMessage>, sqlx::Error> {
         self.store.get_last_assistant_message(task_id).await
-    }
-
-    /// See [`MessageDao::get_last_user_message`].
-    pub async fn get_last_user_message(
-        &self,
-        task_id: &str,
-    ) -> Result<Option<TaskMessage>, sqlx::Error> {
-        self.store.get_last_user_message(task_id).await
-    }
-
-    /// See [`MessageDao::backfill_last_assistant_usage`].
-    #[allow(clippy::too_many_arguments)]
-    pub async fn backfill_last_assistant_usage(
-        &self,
-        task_id: &str,
-        turn_number: i32,
-        input_tokens: Option<i32>,
-        output_tokens: Option<i32>,
-        cache_creation_input_tokens: Option<i32>,
-        cache_read_input_tokens: Option<i32>,
-        assistant_usage: Option<&serde_json::Value>,
-    ) -> Result<bool, sqlx::Error> {
-        self.store
-            .backfill_last_assistant_usage(
-                task_id,
-                turn_number,
-                input_tokens,
-                output_tokens,
-                cache_creation_input_tokens,
-                cache_read_input_tokens,
-                assistant_usage,
-            )
-            .await
-    }
-
-    /// See [`MessageDao::get_latest_session_id`].
-    pub async fn get_latest_session_id(
-        &self,
-        task_id: &str,
-    ) -> Result<Option<String>, sqlx::Error> {
-        self.store.get_latest_session_id(task_id).await
-    }
-
-    /// See [`MessageDao::get_latest_agent_session_id`].
-    pub async fn get_latest_agent_session_id(
-        &self,
-        task_id: &str,
-    ) -> Result<Option<String>, sqlx::Error> {
-        self.store.get_latest_agent_session_id(task_id).await
-    }
-
-    /// See [`MessageDao::set_session_id_for_task`].
-    pub async fn set_session_id_for_task(
-        &self,
-        task_id: &str,
-        session_id: &str,
-    ) -> Result<u64, sqlx::Error> {
-        self.store
-            .set_session_id_for_task(task_id, session_id)
-            .await
     }
 
     /// Marks the items `message_uuids` names delivered to `run`, and stamps
@@ -203,14 +108,6 @@ impl Messages {
         Ok(marked)
     }
 
-    /// See [`MessageDao::get_last_message_type`].
-    pub async fn get_last_message_type(
-        &self,
-        task_id: &str,
-    ) -> Result<Option<MessageType>, sqlx::Error> {
-        self.store.get_last_message_type(task_id).await
-    }
-
     /// See [`MessageDao::last_message_is_completed_reply`].
     pub async fn last_message_is_completed_reply(
         &self,
@@ -228,19 +125,6 @@ impl Messages {
         task_ids: &[String],
     ) -> Result<HashMap<String, DateTime<Utc>>, sqlx::Error> {
         self.store.get_latest_message_times(task_ids).await
-    }
-
-    /// See [`MessageDao::set_external_source_metadata`].
-    pub async fn set_external_source_metadata(
-        &self,
-        message_uuid: &str,
-        external_id: &str,
-        provider: &str,
-        source_name: Option<&str>,
-    ) -> Result<bool, sqlx::Error> {
-        self.store
-            .set_external_source_metadata(message_uuid, external_id, provider, source_name)
-            .await
     }
 
     /// See [`MessageDao::record_external_event`].
@@ -367,5 +251,10 @@ impl Messages {
         self.store
             .turn_progressed_since_last_recovery(task_id, turn_number)
             .await
+    }
+
+    /// See [`MessageDao::rebuild_conversation`].
+    pub async fn rebuild_conversation(&self, task_id: &str) -> Result<(), sqlx::Error> {
+        self.store.rebuild_conversation(task_id).await
     }
 }

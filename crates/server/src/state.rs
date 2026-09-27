@@ -195,7 +195,7 @@ pub struct AppState {
     /// tables.
     pub loop_reader: Arc<dyn moatless_adapter_model::loops::LoopReader>,
     pub messages: Arc<Messages>,
-    /// The `task_messages` table behind the published `TranscriptAppend` seam.
+    /// The conversation behind the published `TranscriptAppend` seam.
     pub transcript: Arc<moatless_tasks::ports::Transcript>,
     pub feedback: Arc<FeedbackNotes>,
     pub repositories: Arc<Repositories>,

@@ -27,40 +27,15 @@ use moatless_t3code::archived_shell_snapshot;
 use moatless_t3code::listing::UiRpcListingHead;
 use moatless_t3code::shell_snapshot;
 use moatless_t3code::thread_shell;
-use moatless_tasks::message::models::MessageType;
 use moatless_tasks::task::models::SandboxDesiredState;
 use moatless_tasks::task::models::SandboxStopReason;
 use moatless_tasks::task::models::TaskStatus;
-use moatless_tasks::task_activities::mapping::BlockContext;
-use moatless_tasks::task_activities::mapping::ConversationWrite;
-use moatless_tasks::task_activities::mapping::map_content;
 use moatless_types::access_control::ScopeContext;
 use moatless_workspaces::compose;
 use serde_json::Value;
 use sqlx::PgPool;
 use std::sync::Arc;
 use std::time::Duration;
-
-/// Map one Message's content the way the write path does: text onto the row,
-/// each call and each outcome onto the conversation. Tests go through this same
-/// seam, rather than handing `append` a block list directly.
-pub(super) fn conversation_write(
-    task_id: &str,
-    uuid: &str,
-    message_type: MessageType,
-    content: &Value,
-) -> ConversationWrite {
-    map_content(
-        BlockContext {
-            task_id,
-            message_uuid: uuid,
-            parent_uuid: None,
-            message_type,
-            block_index: 0,
-        },
-        content,
-    )
-}
 
 /// [`authed_request`] plus the identity the T3 handlers read.
 ///

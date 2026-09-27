@@ -13,20 +13,20 @@ use crate::dao::{ConversationBrowse, ConversationDao, PgConversationDao};
 use moatless_api_schemas::task::{FileContextData, MessageContextInput, PreviewUrlContextData};
 use moatless_core::change_feed::conversation::changes_from;
 use moatless_core::change_feed::conversation::current_head;
+use moatless_tasks::activities::mapping::BlockContext;
+use moatless_tasks::activities::mapping::ConversationWrite;
+use moatless_tasks::activities::mapping::ToolOutcome;
+use moatless_tasks::activities::mapping::context_window_updated;
+use moatless_tasks::activities::mapping::map_content;
+use moatless_tasks::activities::mapping::sandbox_activity;
+use moatless_tasks::activities::mapping::user_input_resolved;
+use moatless_tasks::activities::mapping::{ActivityKind, ActivityStatus};
 use moatless_tasks::message::contexts::message_context_input_to_row;
 use moatless_tasks::message::models::MessageType;
 use moatless_tasks::message::test_support as message_fixtures;
 use moatless_tasks::message::test_support::make_message_row;
 use moatless_tasks::tag::test_support as tag_fixtures;
 use moatless_tasks::task::test_support::make_task_row;
-use moatless_tasks::task_activities::mapping::BlockContext;
-use moatless_tasks::task_activities::mapping::ConversationWrite;
-use moatless_tasks::task_activities::mapping::ToolOutcome;
-use moatless_tasks::task_activities::mapping::context_window_updated;
-use moatless_tasks::task_activities::mapping::map_content;
-use moatless_tasks::task_activities::mapping::sandbox_activity;
-use moatless_tasks::task_activities::mapping::user_input_resolved;
-use moatless_tasks::task_activities::mapping::{ActivityKind, ActivityStatus};
 use moatless_types::access_control::ScopeContext;
 use moatless_types::sandbox::SandboxEventPayload;
 use moatless_types::task::TaskStatus;
@@ -66,6 +66,8 @@ fn write(uuid: &str, message_type: MessageType, content: &serde_json::Value) -> 
             parent_uuid: None,
             message_type,
             block_index: 0,
+            source: uuid,
+            source_block: 0,
         },
         content,
     )
@@ -117,7 +119,11 @@ async fn a_result_is_read_as_a_change_to_the_call_it_answers(pool: PgPool) {
     let dao = conversations_over(&pool);
 
     let window = dao
-        .changed_messages(TASK, &["the-call".to_string()], &[])
+        .changed_messages(
+            TASK,
+            &[message_fixtures::seeded_uuid("the-call").to_string()],
+            &[],
+        )
         .await
         .unwrap();
 
@@ -172,7 +178,11 @@ async fn a_batch_is_read_as_the_rows_it_names(pool: PgPool) {
     .await;
 
     let window = conversations_over(&pool)
-        .changed_messages(TASK, &["third".to_string()], &[])
+        .changed_messages(
+            TASK,
+            &[message_fixtures::seeded_uuid("third").to_string()],
+            &[],
+        )
         .await
         .unwrap();
 
@@ -219,24 +229,25 @@ async fn a_question_is_stored_as_a_call_and_as_the_question_it_asked(pool: PgPoo
 
     let transcript = conversations_over(&pool).transcript(TASK).await.unwrap();
 
-    let rows: Vec<(&str, ActivityKind, i32)> = transcript
+    let rows: Vec<(String, ActivityKind, i32)> = transcript
         .activities
         .iter()
         .map(|activity| {
             (
-                activity.activity_id.as_str(),
+                activity.activity_id.clone(),
                 activity.kind,
                 activity.ordinal,
             )
         })
         .collect();
+    let id = message_fixtures::seeded_activity_id;
     assert_eq!(
         rows,
         vec![
-            ("the-question:0", ActivityKind::Thinking, 0),
-            ("the-question:1", ActivityKind::ToolCall, 1),
+            (id("the-question:0"), ActivityKind::Thinking, 0),
+            (id("the-question:1"), ActivityKind::ToolCall, 1),
             (
-                "the-question:1:user-input",
+                id("the-question:1:user-input"),
                 ActivityKind::UserInputRequested,
                 1
             ),
@@ -305,7 +316,11 @@ async fn a_re_presented_question_is_read_as_settled_without_its_call(pool: PgPoo
 
     let dao = conversations_over(&pool);
     let window = dao
-        .changed_messages(TASK, &["the-resume".to_string()], &[])
+        .changed_messages(
+            TASK,
+            &[message_fixtures::seeded_uuid("the-resume").to_string()],
+            &[],
+        )
         .await
         .unwrap();
 
@@ -353,19 +368,26 @@ async fn a_standalone_activity_change_names_the_activity_and_reads_back(pool: Pg
     let changes = changes_from(&pool, TASK, 0, 10).await.unwrap();
     assert_eq!(changes.len(), 1, "one change, for the one reading");
     assert_eq!(
-        changes[0].activity_id.as_deref(),
-        Some("evt-window"),
+        changes[0].activity_id,
+        Some(message_fixtures::seeded_activity_id("evt-window")),
         "the change names the activity, not a Message"
     );
     assert!(changes[0].message_uuid.is_none());
 
     let window = conversations_over(&pool)
-        .changed_messages(TASK, &[], &["evt-window".to_string()])
+        .changed_messages(
+            TASK,
+            &[],
+            &[message_fixtures::seeded_activity_id("evt-window")],
+        )
         .await
         .unwrap();
     assert!(window.messages.is_empty(), "it happened on no Message");
     assert_eq!(window.activities.len(), 1);
-    assert_eq!(window.activities[0].activity_id, "evt-window");
+    assert_eq!(
+        window.activities[0].activity_id,
+        message_fixtures::seeded_activity_id("evt-window")
+    );
     assert_eq!(
         window.activities[0].kind,
         ActivityKind::ContextWindowUpdated
@@ -416,7 +438,10 @@ async fn a_restated_sandbox_status_records_no_change_and_spends_no_position(pool
 
     let changes = changes_from(&pool, TASK, 0, 10).await.unwrap();
     assert_eq!(changes.len(), 1, "only the first status recorded a change");
-    assert_eq!(changes[0].activity_id.as_deref(), Some("evt-1"));
+    assert_eq!(
+        changes[0].activity_id,
+        Some(message_fixtures::seeded_activity_id("evt-1"))
+    );
 }
 
 /// A Message's uploads reach the reader on the Message itself.
@@ -463,7 +488,7 @@ async fn a_message_carries_the_uploads_attached_to_it(pool: PgPool) {
     let attached = transcript
         .messages
         .iter()
-        .find(|m| m.uuid == "with-upload")
+        .find(|m| m.uuid == message_fixtures::seeded_uuid("with-upload").to_string())
         .expect("the message is in the transcript");
     assert_eq!(
         attached.file_contexts,
@@ -477,7 +502,7 @@ async fn a_message_carries_the_uploads_attached_to_it(pool: PgPool) {
     let plain = transcript
         .messages
         .iter()
-        .find(|m| m.uuid == "no-upload")
+        .find(|m| m.uuid == message_fixtures::seeded_uuid("no-upload").to_string())
         .expect("the message is in the transcript");
     assert_eq!(
         plain.file_contexts, None,
@@ -707,7 +732,11 @@ async fn a_windowed_answer_reaches_the_plan_call_it_settles(pool: PgPool) {
 
     let dao = conversations_over(&pool);
     let window = dao
-        .changed_messages(TASK, &["the-answer".to_string()], &[])
+        .changed_messages(
+            TASK,
+            &[message_fixtures::seeded_uuid("the-answer").to_string()],
+            &[],
+        )
         .await
         .unwrap();
 

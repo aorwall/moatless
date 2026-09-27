@@ -147,7 +147,7 @@ pub struct LifecycleInputs {
 pub struct ReconcilerInputs {
     pub observer: Arc<dyn FleetObserver>,
     pub notify: Arc<dyn NotifyPort>,
-    /// The Task band owns `task_messages`, so it answers which members of a
+    /// The Task band owns `task_inbox`, so it answers which members of a
     /// shared Sandbox a wake has to reach.
     pub pending_work: Arc<dyn PendingWorkReader>,
     pub member_registry: Arc<dyn MemberRegistryPort>,

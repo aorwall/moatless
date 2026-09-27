@@ -111,10 +111,10 @@ async fn a_blocked_full_listing_cannot_monopolize_the_pool(pool: PgPool) {
 #[sqlx::test]
 async fn the_shell_message_lookups_have_dedicated_indexes(pool: PgPool) {
     let expected: HashSet<String> = [
-        "task_messages_latest_user_created_idx",
-        "task_messages_latest_assistant_idx",
-        "task_messages_turn_assistant_model_idx",
-        "task_messages_turn_requested_model_idx",
+        "conversation_messages_latest_user_idx",
+        "conversation_messages_turn_agent_model_idx",
+        "conversation_messages_task_turn_idx",
+        "task_inbox_latest_queued_idx",
     ]
     .into_iter()
     .map(str::to_string)

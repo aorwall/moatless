@@ -282,7 +282,7 @@ pub struct FeedbackInvocation {
     #[arg(long)]
     pub category: Option<String>,
     /// Optional: scope feedback to a specific assistant message
-    /// (`task_messages.uuid`). Left unset, it best-effort attaches to the
+    /// (`conversation_messages.uuid`). Left unset, it best-effort attaches to the
     /// task's most recent activity instead of the whole task.
     #[arg(long)]
     pub message: Option<String>,

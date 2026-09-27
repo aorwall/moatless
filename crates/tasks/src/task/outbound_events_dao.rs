@@ -13,7 +13,7 @@ use moatless_core::db::DbPool;
 /// another Task already holds is left alone — an id names one event, and the
 /// Task that made it is the one that recorded it first.
 pub(crate) async fn record(
-    pool: &DbPool,
+    conn: impl sqlx::PgExecutor<'_>,
     task_id: &str,
     external_event_id: &str,
     provider: &str,
@@ -29,7 +29,7 @@ pub(crate) async fn record(
     .bind(task_id)
     .bind(provider)
     .bind(source_name)
-    .execute(pool)
+    .execute(conn)
     .await?;
     Ok(())
 }

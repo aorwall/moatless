@@ -117,6 +117,26 @@ pub struct Cut {
     pub harness: String,
 }
 
+/// What a harness names a cut event by: its session, its item (Claude's
+/// `message.id`) and its turn (Codex's turn id).
+#[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
+pub struct CutAnchors {
+    pub harness: String,
+    pub harness_session_id: String,
+    pub harness_item_id: Option<String>,
+    pub harness_turn_id: Option<String>,
+}
+
+impl CutAnchors {
+    /// The Claude `message.id` a Claude fork branches at; a Codex item id is
+    /// not one.
+    pub fn claude_message_id(&self) -> Option<String> {
+        (self.harness == Harness::ClaudeCode.as_str())
+            .then(|| self.harness_item_id.clone())
+            .flatten()
+    }
+}
+
 /// One line of another harness a switch session renders into its prefix.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TranscodeItem {
@@ -131,17 +151,6 @@ pub struct TranscodeItem {
 pub struct OpenedSession {
     pub session: TrajectorySession,
     pub transcode: Vec<TranscodeItem>,
-}
-
-/// Where a fork cuts its source session.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ForkCut {
-    /// Claude: through the last line of this `message.id` (or line `uuid`).
-    Message(String),
-    /// Codex: through this turn's `task_complete` line.
-    Turn(String),
-    /// Neither anchor: the source's last line.
-    End,
 }
 
 #[derive(Debug, thiserror::Error)]

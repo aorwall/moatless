@@ -173,11 +173,8 @@ impl PendingWorkReader for PoolPendingWork {
                 WHERE t.task_id = $1
                   AND peer.status IN ('open', 'error')
                   AND EXISTS (
-                      SELECT 1
-                        FROM task_messages m
-                       WHERE m.task_id = peer.task_id
-                         AND m.agent_session_id IS NULL
-                         AND m.message_type = 'user'
+                      SELECT 1 FROM task_inbox i
+                       WHERE i.task_id = peer.task_id AND i.status = 'pending'
                   )
                 ORDER BY peer.created_at_db NULLS LAST, peer.task_id"#,
         )
@@ -294,21 +291,17 @@ fn build_with(
     (reconciler, sink)
 }
 
-/// A pending user Message, plus the Sandbox wake signal its send path writes.
+/// A pending inbox item, plus the Sandbox wake signal its send path writes.
 ///
 /// The two are one transaction in production
-/// (`moatless_tasks::message::operations::Messages::append`); the fixture
+/// (`moatless_tasks::inbox::InboxService::submit`); the fixture
 /// records both so the reconciler sees the shape it reads.
 async fn seed_pending_user_message(pool: &PgPool, task_id: &str, created_at: DateTime<Utc>) {
     sqlx::query(
-        r#"INSERT INTO task_messages
-               (task_id, uuid, message_type, user_type, timestamp, message_role,
-                message_text, created_at)
-           VALUES ($1, $2, 'user', 'human', $3, 'user', '', $4)"#,
+        r#"INSERT INTO task_inbox (id, task_id, text, origin, created_at)
+           VALUES (gen_random_uuid(), $1, '', 'system', $2)"#,
     )
     .bind(task_id)
-    .bind(format!("{task_id}-msg"))
-    .bind(created_at.to_rfc3339())
     .bind(created_at)
     .execute(pool)
     .await

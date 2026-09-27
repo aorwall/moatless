@@ -2,8 +2,8 @@
 //!
 //! A fork branches a cut onto a new Task and leaves the parent whole
 //! (`task/fork.rs`); a rewind applies the same cut in place, and the next turn
-//! resumes the agent session branched at the cut via the same `task_forks`
-//! anchors a fork uses.
+//! continues the Trajectory from the cut, via the same `task_forks` row a fork
+//! uses.
 //!
 //! The Sandbox's working copy is untouched — a rewind moves what was *said*,
 //! not the files the agent wrote.
@@ -11,15 +11,12 @@
 use std::sync::Arc;
 
 use moatless_types::access_control::{ScopeContext, ScopedResource};
-use moatless_types::agent::Harness;
 
 use super::dao::TaskDao;
 use super::error::TaskError;
 use super::models::TaskFork;
 use super::rewind_dao;
-use crate::agent::catalog::harness_of;
 use crate::message::dao::MessageDao;
-use crate::message::fork_dao::ForkAnchors;
 use crate::task_turn::dao::TaskTurnDao;
 use crate::task_turn::models::ForkPoint;
 use crate::trajectory::operations::Trajectories;
@@ -81,7 +78,7 @@ impl TaskRewindService {
             return Err(refusal);
         }
 
-        let anchor = self.anchor(&task, keep_through, &point).await?;
+        let anchor = self.anchor(&task, keep_through).await?;
         let counts =
             rewind_dao::truncate_conversation(&self.db, task_id, keep_through, anchor.as_ref())
                 .await?;
@@ -90,7 +87,6 @@ impl TaskRewindService {
             task_id,
             keep_through,
             messages = counts.messages,
-            activities = counts.activities,
             turns = counts.turns,
             resumes_session = anchor.is_some(),
             "Task rewound"
@@ -99,45 +95,29 @@ impl TaskRewindService {
     }
 
     /// The `task_forks` row the next turn branches from, or `None` when the cut
-    /// leaves no agent session. Which legacy anchor it carries follows the
-    /// harness of the session the cut lands in: Codex by turn id, Claude by
-    /// Message uuid; a Task with no Trajectory falls back to its profile.
+    /// leaves nothing recorded to continue. A frozen Task cut below its first
+    /// recorded line is refused: its next turn would start on no history.
     async fn anchor(
         &self,
         task: &super::models::Task,
         keep_through: i32,
-        point: &ForkPoint,
     ) -> Result<Option<TaskFork>, TaskError> {
         if keep_through == 0 {
             return Ok(None);
         }
-        let Some(ForkAnchors {
-            session_id,
-            message_uuid,
-        }) = self
-            .messages
-            .fork_anchors(&task.task_id, Some(keep_through))
-            .await?
-        else {
-            return Ok(None);
-        };
-
         let cut = self
             .trajectories
             .resolve_cut(&task.task_id, Some(keep_through))
             .await?;
-        let is_codex = match &cut {
-            Some(cut) => cut.harness == Harness::Codex.as_str(),
-            None => harness_of(task.agent_profile.as_str()) == Some(Harness::Codex),
+        let Some(cut) = cut else {
+            if self.messages.is_frozen(&task.task_id).await? {
+                return Err(TaskError::Conflict(format!(
+                    "turn {keep_through} of task {} predates recording; it cannot be rewound to",
+                    task.task_id
+                )));
+            }
+            return Ok(None);
         };
-        if cut.is_none() && is_codex && point.agent_turn_id.is_none() {
-            return Err(TaskError::Conflict(format!(
-                "turn {keep_through} of task {} has no recorded agent turn id; \
-                 it cannot be rewound to",
-                task.task_id
-            )));
-        }
-
         Ok(Some(TaskFork {
             task_id: task.task_id.clone(),
             // Its own source: the session being branched is this Task's. The
@@ -145,10 +125,7 @@ impl TaskRewindService {
             // (`relations::record_forked_from`) and is not what this overwrites.
             source_task_id: task.task_id.clone(),
             at_turn: Some(keep_through),
-            source_session_id: session_id,
-            source_message_uuid: (!is_codex).then_some(message_uuid).flatten(),
-            source_agent_turn_id: is_codex.then(|| point.agent_turn_id.clone()).flatten(),
-            source_event_id: cut.map(|cut| cut.event_id),
+            source_event_id: cut.event_id,
         }))
     }
 }

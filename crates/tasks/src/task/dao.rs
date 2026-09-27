@@ -461,6 +461,7 @@ impl TaskDao for PgTaskDao {
                 .await?;
         let did_delete = deleted.is_some();
         if did_delete {
+            crate::conversation::dao::delete_task(&mut tx, task_id).await?;
             moatless_core::change_feed::listing::record_change(&mut tx, task_id).await?;
         }
         tx.commit().await?;
@@ -479,7 +480,7 @@ impl TaskDao for PgTaskDao {
         let sql = format!(
             "DELETE FROM tasks \
              WHERE task_id = $1 AND status = $4 AND {} \
-               AND NOT EXISTS (SELECT 1 FROM task_messages WHERE task_id = $1) \
+               AND NOT EXISTS (SELECT 1 FROM conversation_messages WHERE task_id = $1) \
              RETURNING task_id, sandbox_id",
             ctrl.sql()
         );
@@ -522,14 +523,11 @@ impl TaskDao for PgTaskDao {
             }
         }
 
-        // The failed incarnation's trail. `task_activities` is the one that
+        // The failed incarnation's trail. Its activities are the part that
         // would be visible: a preflight failure publishes a Sandbox error
-        // event, which is recorded as an activity, and the conversation the
+        // event, which is projected as an activity, and the conversation the
         // retry opens is read from that table.
-        sqlx::query("DELETE FROM task_activities WHERE task_id = $1")
-            .bind(&deleted_task_id)
-            .execute(&mut *tx)
-            .await?;
+        crate::conversation::dao::delete_task(&mut tx, &deleted_task_id).await?;
         sqlx::query("DELETE FROM task_events WHERE task_id = $1")
             .bind(&deleted_task_id)
             .execute(&mut *tx)
@@ -922,6 +920,7 @@ impl TaskDao for PgTaskDao {
             .await?;
         let did_delete = deleted.is_some();
         if let Some((deleted_task_id, sandbox_id)) = deleted {
+            crate::conversation::dao::delete_task(&mut tx, &deleted_task_id).await?;
             if let Some(sandbox_id) = sandbox_id {
                 let sandbox_exists: Option<String> = sqlx::query_scalar(
                     "SELECT sandbox_id FROM sandboxes WHERE sandbox_id = $1 FOR UPDATE",
@@ -1120,7 +1119,7 @@ impl TaskDao for PgTaskDao {
                     SELECT 1
                     FROM task_inbox m
                     WHERE m.task_id = t.task_id
-                      AND m.status <> 'cancelled'
+                      AND m.status IN ('pending', 'delivered')
                       AND (
                             NOT EXISTS (
                                   SELECT 1

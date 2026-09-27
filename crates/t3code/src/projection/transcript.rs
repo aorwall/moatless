@@ -314,7 +314,7 @@ fn message_row(
     origin: Option<Value>,
 ) -> Value {
     let mut row = json!({
-        // `task_messages.uuid` is unique across the deployment and is the
+        // A Message's uuid is unique across the deployment and is the
         // identity every other Moatless surface already refers to a Message by.
         "id": message.uuid,
         "role": role,

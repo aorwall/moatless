@@ -3,14 +3,15 @@
 use chrono::{DateTime, Utc};
 use sqlx::PgPool;
 
+use crate::activities::mapping::{
+    ActivityKind, ActivityRow, ActivityStatus, BlockContext, ConversationWrite, map_content,
+};
+use crate::conversation::ids;
 use crate::message::models::MessageType;
-use crate::message::test_support::{make_message_row, seed_message};
+use crate::message::test_support::{make_message_row, seed_agent_line, seed_message};
 use crate::task::models::TaskFork;
 use crate::task::rewind_dao::truncate_conversation;
 use crate::task::test_support::{make_task_row, seed_task};
-use crate::task_activities::mapping::{
-    ActivityKind, ActivityRow, ActivityStatus, BlockContext, ConversationWrite, map_content,
-};
 use moatless_workspaces::test_support::make_repository_row;
 
 /// A repo and a Task for the Message FKs to land on.
@@ -37,6 +38,8 @@ async fn seed_turn_message(pool: &PgPool, task_id: &str, uuid: &str, turn: Optio
             parent_uuid: None,
             message_type: MessageType::Assistant,
             block_index: 0,
+            source: uuid,
+            source_block: 0,
         },
         &serde_json::json!([{
             "type": "tool_use",
@@ -85,19 +88,25 @@ async fn seed_sandbox_activity(pool: &PgPool, task_id: &str, activity_id: &str) 
 }
 
 async fn message_uuids(pool: &PgPool, task_id: &str) -> Vec<String> {
-    sqlx::query_scalar("SELECT uuid FROM task_messages WHERE task_id = $1 ORDER BY id")
-        .bind(task_id)
-        .fetch_all(pool)
-        .await
-        .expect("read messages")
+    sqlx::query_scalar(
+        "SELECT legacy ->> 'uuid' FROM conversation_messages \
+          WHERE task_id = $1 AND frozen ORDER BY position",
+    )
+    .bind(task_id)
+    .fetch_all(pool)
+    .await
+    .expect("read messages")
 }
 
 async fn activity_ids(pool: &PgPool, task_id: &str) -> Vec<String> {
-    sqlx::query_scalar("SELECT activity_id FROM task_activities WHERE task_id = $1 ORDER BY id")
-        .bind(task_id)
-        .fetch_all(pool)
-        .await
-        .expect("read activities")
+    sqlx::query_scalar(
+        "SELECT activity_id::text FROM conversation_activities \
+          WHERE task_id = $1 ORDER BY position, ordinal",
+    )
+    .bind(task_id)
+    .fetch_all(pool)
+    .await
+    .expect("read activities")
 }
 
 async fn turn_numbers(pool: &PgPool, task_id: &str) -> Vec<i32> {
@@ -134,8 +143,7 @@ async fn the_turns_above_the_cut_go_and_the_rest_stay(pool: PgPool) {
 }
 
 /// A Message no turn has claimed is pending work rather than history, so the
-/// cut leaves it for the next turn to pick up — the same rule
-/// `fork_dao::copy_conversation` applies to it.
+/// cut leaves it for the next turn to pick up.
 #[sqlx::test]
 async fn a_queued_message_survives_the_cut(pool: PgPool) {
     seed_a_task(&pool, "task-1").await;
@@ -159,17 +167,13 @@ async fn a_sandbox_activity_outlives_the_messages_beside_it(pool: PgPool) {
     seed_sandbox_activity(&pool, "task-1", "sandbox-1").await;
     seed_turn_message(&pool, "task-1", "msg-2", Some(2)).await;
 
-    let counts = truncate_conversation(&pool, "task-1", 1, None)
+    truncate_conversation(&pool, "task-1", 1, None)
         .await
         .expect("rewind");
 
-    assert_eq!(counts.activities, 1, "only the deleted Message's call");
-    assert_eq!(activity_ids(&pool, "task-1").await.len(), 2);
-    assert!(
-        activity_ids(&pool, "task-1")
-            .await
-            .contains(&"sandbox-1".to_string())
-    );
+    let left = activity_ids(&pool, "task-1").await;
+    assert_eq!(left.len(), 2, "only the deleted Message's call goes");
+    assert!(left.contains(&ids::activity("sandbox-1").to_string()));
 }
 
 /// The one change that names no row: everything it is about is gone, so a
@@ -204,18 +208,20 @@ async fn the_cut_moves_the_listing_row_and_its_timestamp(pool: PgPool) {
     seed_a_task(&pool, "task-1").await;
     seed_turn_message(&pool, "task-1", "msg-1", Some(1)).await;
     let before = updated_at(&pool, "task-1").await;
+    let listing_changes = || async {
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM task_listing_changes WHERE task_id = $1")
+            .bind("task-1")
+            .fetch_one(&pool)
+            .await
+            .expect("read the listing changes")
+    };
+    let seeded = listing_changes().await;
 
     truncate_conversation(&pool, "task-1", 0, None)
         .await
         .expect("rewind");
 
-    let changes: i64 =
-        sqlx::query_scalar("SELECT count(*) FROM task_listing_changes WHERE task_id = $1")
-            .bind("task-1")
-            .fetch_one(&pool)
-            .await
-            .expect("read the listing changes");
-    assert_eq!(changes, 1);
+    assert_eq!(listing_changes().await, seeded + 1);
     assert!(updated_at(&pool, "task-1").await > before);
 }
 
@@ -227,30 +233,25 @@ async fn the_anchor_is_written_with_the_cut(pool: PgPool) {
     seed_turn_message(&pool, "task-1", "msg-1", Some(1)).await;
     seed_turn_message(&pool, "task-1", "msg-2", Some(2)).await;
 
+    let cut = seed_agent_line(&pool, "task-1", "session-abc", Some(1), "done").await;
     let anchor = TaskFork {
         task_id: "task-1".to_string(),
         source_task_id: "task-1".to_string(),
         at_turn: Some(1),
-        source_session_id: "session-abc".to_string(),
-        source_message_uuid: Some("msg-1".to_string()),
-        source_agent_turn_id: None,
-        source_event_id: None,
+        source_event_id: cut,
     };
     truncate_conversation(&pool, "task-1", 1, Some(&anchor))
         .await
         .expect("rewind");
 
-    let row: (String, Option<i32>, Option<String>) = sqlx::query_as(
-        "SELECT source_task_id, at_turn, source_message_uuid FROM task_forks WHERE task_id = $1",
+    let row: (String, Option<i32>, uuid::Uuid) = sqlx::query_as(
+        "SELECT source_task_id, at_turn, source_event_id FROM task_forks WHERE task_id = $1",
     )
     .bind("task-1")
     .fetch_one(&pool)
     .await
     .expect("read the anchor");
-    assert_eq!(
-        row,
-        ("task-1".to_string(), Some(1), Some("msg-1".to_string()))
-    );
+    assert_eq!(row, ("task-1".to_string(), Some(1), cut));
 }
 
 /// An emptied Task has no session left to branch, so whatever anchored it goes
@@ -261,14 +262,12 @@ async fn emptying_the_task_clears_the_anchor(pool: PgPool) {
     seed_a_task(&pool, "task-1").await;
     seed_turn_message(&pool, "task-1", "msg-1", Some(1)).await;
 
+    let cut = seed_agent_line(&pool, "task-1", "session-abc", Some(1), "done").await;
     let anchor = TaskFork {
         task_id: "task-1".to_string(),
         source_task_id: "task-1".to_string(),
         at_turn: Some(1),
-        source_session_id: "session-abc".to_string(),
-        source_message_uuid: Some("msg-1".to_string()),
-        source_agent_turn_id: None,
-        source_event_id: None,
+        source_event_id: cut,
     };
     truncate_conversation(&pool, "task-1", 1, Some(&anchor))
         .await
@@ -321,6 +320,5 @@ async fn a_cut_that_removes_nothing_reports_zeroes(pool: PgPool) {
         .expect("rewind");
 
     assert_eq!(counts.messages, 0);
-    assert_eq!(counts.activities, 0);
     assert_eq!(counts.turns, 0);
 }

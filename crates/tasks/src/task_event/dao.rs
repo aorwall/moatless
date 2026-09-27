@@ -66,8 +66,14 @@ pub struct PgTaskEventDao(pub DbPool);
 impl TaskEventDao for PgTaskEventDao {
     async fn insert_event(&self, event: &InsertTaskEvent) -> Result<(), sqlx::Error> {
         // Idempotent: re-delivering the same stream entry persists nothing the
-        // second time instead of erroring on the duplicate.
-        insert_in(&mut *self.0.acquire().await?, event).await
+        // second time, and projects nothing again. It still projects an event
+        // another writer persisted, which only this path sees here.
+        let mut tx = self.0.begin().await?;
+        insert_in(&mut tx, event).await?;
+        crate::conversation::projector::Projector
+            .on_task_event(&mut tx, event)
+            .await?;
+        tx.commit().await
     }
 
     async fn list_recent_events(
@@ -199,12 +205,13 @@ impl TaskEventDao for PgTaskEventDao {
 #[path = "dao_db_tests.rs"]
 mod dao_db_tests;
 
-/// Insert `event` inside the caller's transaction, idempotent on `event_id`.
+/// Insert `event` inside the caller's transaction, idempotent on `event_id`;
+/// `false` when it was already stored.
 pub(crate) async fn insert_in(
     tx: &mut sqlx::PgConnection,
     event: &InsertTaskEvent,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
+) -> Result<bool, sqlx::Error> {
+    let inserted = sqlx::query(
         r#"INSERT INTO task_events (
             event_id, task_id, type, sub_type, is_error,
             agent_profile, turn_number, payload, timestamp
@@ -221,6 +228,7 @@ pub(crate) async fn insert_in(
     .bind(&event.payload)
     .bind(&event.timestamp)
     .execute(tx)
-    .await?;
-    Ok(())
+    .await?
+    .rows_affected();
+    Ok(inserted > 0)
 }

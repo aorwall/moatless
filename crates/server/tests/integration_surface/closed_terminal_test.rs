@@ -26,6 +26,7 @@ use moatless_backend::event_handler::agent_handlers::{
 };
 use moatless_backend::state::AppState;
 use moatless_ports::sandbox::SandboxWaker;
+use moatless_tasks::activities::mapping::ConversationWrite;
 use moatless_tasks::agent_event::AgentEvent;
 use moatless_tasks::message::models::MessageRole;
 use moatless_tasks::message::models::MessageType;
@@ -35,7 +36,6 @@ use moatless_tasks::task::models::TaskStatus;
 use moatless_tasks::task::relations::TaskRelation;
 use moatless_tasks::task::relations::TaskRelationType;
 use moatless_tasks::task::test_support as task_fixtures;
-use moatless_tasks::task_activities::mapping::ConversationWrite;
 use moatless_workspaces::compose;
 use sqlx::PgPool;
 

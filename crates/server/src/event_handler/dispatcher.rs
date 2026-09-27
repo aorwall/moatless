@@ -232,11 +232,6 @@ impl EventDispatcher {
             // fresh session — persist an inline conversation notice so the
             // context loss is visible in the message history. The run
             // continues, so no task_turn.error and no Linear error activity.
-            // What the harness said about its own context window — an activity of
-            // its own, on no Message, so the meter has a value to read.
-            EventKey::Agent(AgentSubType::ContextWindow) => {
-                agent_handlers::handle_agent_context_window(&self.state, event).await;
-            }
             EventKey::Agent(AgentSubType::SessionContextLost) => {
                 agent_handlers::handle_agent_session_context_lost(&self.state, event).await;
             }
@@ -246,22 +241,7 @@ impl EventDispatcher {
             // Sandbox error — pod watcher detected a fatal crash; transcript-only
             // for the agent (auto-error reply).
             EventKey::Sandbox(SandboxStatus::Error) => {
-                agent_handlers::handle_sandbox_activity(&self.state, event, "error", true).await;
                 agent_handlers::handle_sandbox_fatal(&(&self.state).into(), event).await;
-            }
-            // Sandbox lifecycle transitions — recorded as their own activity.
-            EventKey::Sandbox(
-                status @ (SandboxStatus::Initializing
-                | SandboxStatus::Ready
-                | SandboxStatus::Stopped),
-            ) => {
-                agent_handlers::handle_sandbox_activity(
-                    &self.state,
-                    event,
-                    status.as_str(),
-                    false,
-                )
-                .await;
             }
             // Agent process started inside the sandbox. Nothing generic to do —
             // the Adapters that surface a live status subscribe to it.
@@ -284,15 +264,18 @@ impl EventDispatcher {
                 | AgentSubType::CommandsChanged
                 // A stopped trajectory recorder: kept in task_events for
                 // diagnosis; the Turn goes on.
-                | AgentSubType::RecordingStopped,
+                | AgentSubType::RecordingStopped
+                // Projected as an activity by `persist_event`.
+                | AgentSubType::ContextWindow,
             )
             | EventKey::Task(
                 TaskSubType::Open
                 | TaskSubType::Created
                 | TaskSubType::Closed
                 | TaskSubType::Updated
-                // Written with its Error Message by `append_error_result`.
-                | TaskSubType::Error,
+                // Projected in the transaction that persisted them.
+                | TaskSubType::Error
+                | TaskSubType::BindingReplySent,
             )
             | EventKey::TaskTurn(TaskTurnSubType::Active | TaskTurnSubType::Interrupted) => {
                 // `turn_interrupted` is an observability marker only — the turn

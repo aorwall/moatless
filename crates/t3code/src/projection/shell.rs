@@ -139,7 +139,7 @@ pub(super) fn thread(
     // Moatless has no approval queue, so the answer is always no.
     row.insert("hasPendingApprovals".into(), Value::Bool(false));
     // A parked plan counts, not just a parked question: both stop the run on a
-    // person, and `task_activities::mapping` writes the same
+    // person, and `activities::mapping` writes the same
     // `user-input.requested` row for either, so a client that reads this as
     // false contradicts the transcript it is about to render.
     row.insert(

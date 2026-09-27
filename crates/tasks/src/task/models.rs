@@ -204,20 +204,15 @@ pub struct TaskFilter {
     pub followed_by: Option<String>,
 }
 
-/// A `task_forks` row: the fork, the Task it branched from, and the three
-/// anchors the delivery path hands the pod until the fork has a session of its
-/// own.
+/// A `task_forks` row: the fork or rewound Task, the Task it branched from,
+/// and the cut its next turn continues from.
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct TaskFork {
     pub task_id: String,
     pub source_task_id: String,
     pub at_turn: Option<i32>,
-    pub source_session_id: String,
-    pub source_message_uuid: Option<String>,
-    pub source_agent_turn_id: Option<String>,
-    /// The cut as one trajectory event; `None` on a row written before the
-    /// column, which the read path resolves from the anchors above.
-    pub source_event_id: Option<uuid::Uuid>,
+    /// The cut as one trajectory event.
+    pub source_event_id: uuid::Uuid,
 }
 
 /// Patch struct for partial task updates.

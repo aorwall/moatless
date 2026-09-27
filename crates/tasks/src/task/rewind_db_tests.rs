@@ -119,20 +119,22 @@ async fn a_rewind_into_a_codex_turn_transcodes_it_for_claude(pool: PgPool) {
     };
     service.rewind(&owner, "t", 1).await.expect("rewind");
 
-    let (message_uuid, agent_turn_id, event_id): (
-        Option<String>,
-        Option<String>,
-        Option<uuid::Uuid>,
-    ) = sqlx::query_as(
-        "SELECT source_message_uuid, source_agent_turn_id, source_event_id \
-         FROM task_forks WHERE task_id = 't'",
-    )
-    .fetch_one(&pool)
-    .await
-    .expect("the rewind leaves an anchor");
-    assert_eq!(message_uuid, None, "a Codex cut carries no Claude uuid");
-    assert_eq!(agent_turn_id.as_deref(), Some("turn-1"));
-    let cut = event_id.expect("a recorded cut");
+    let cut: uuid::Uuid =
+        sqlx::query_scalar("SELECT source_event_id FROM task_forks WHERE task_id = 't'")
+            .fetch_one(&pool)
+            .await
+            .expect("the rewind leaves an anchor");
+    let anchors = trajectories
+        .cut_anchors(cut)
+        .await
+        .unwrap()
+        .expect("the cut's anchors");
+    assert_eq!(
+        anchors.claude_message_id(),
+        None,
+        "a Codex cut carries no Claude uuid"
+    );
+    assert_eq!(anchors.harness_turn_id.as_deref(), Some("turn-1"));
     let codex_tip: (String, i64) = sqlx::query_as(
         "SELECT s.harness, e.seq FROM trajectory_events e \
              JOIN trajectory_sessions s ON s.id = e.session_id WHERE e.id = $1",

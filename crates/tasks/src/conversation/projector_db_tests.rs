@@ -2,12 +2,16 @@
 //! each through `append`, with lines shaped as each harness's `SessionFormat`
 //! derives them.
 
+use std::collections::HashMap;
+
 use serde_json::{Value, json};
 use sqlx::PgPool;
+use uuid::Uuid;
 
+use super::read_dao::response_usage;
+use crate::activities::mapping::{ActivityKind, ActivityStatus};
 use crate::message::test_support::messages_for;
 use crate::task::test_support::make_task_row;
-use crate::task_activities::mapping::{ActivityKind, ActivityStatus};
 use crate::trajectory::dao::PgTrajectoryDao;
 use crate::trajectory::models::{AppendOutcome, AppendRequest, NewEvent, SubagentParent};
 use moatless_types::agent::Harness;
@@ -73,13 +77,45 @@ async fn append(
     .unwrap()
 }
 
-/// `(uuid, message_type, text, model)` of each top-level Message.
+/// Each Message uuid a line of the Task could open, by the line's harness item.
+async fn names(pool: &PgPool) -> HashMap<String, String> {
+    let lines: Vec<(Uuid, Option<String>)> = sqlx::query_as(
+        "SELECT e.id, e.harness_item_id FROM trajectory_events e
+           JOIN trajectory_sessions s ON s.id = e.session_id WHERE s.task_id = $1",
+    )
+    .bind(TASK)
+    .fetch_all(pool)
+    .await
+    .unwrap();
+    lines
+        .into_iter()
+        .filter_map(|(id, item)| {
+            Some((
+                super::ids::message(TASK, &id.to_string()).to_string(),
+                item?,
+            ))
+        })
+        .collect()
+}
+
+/// `uuids` as the harness items that opened them.
+async fn items(pool: &PgPool, uuids: &[String]) -> Vec<String> {
+    let names = names(pool).await;
+    uuids
+        .iter()
+        .map(|uuid| names.get(uuid).cloned().unwrap_or_else(|| uuid.clone()))
+        .collect()
+}
+
+/// `(item, message_type, text, model)` of each top-level Message, named by the
+/// harness item that opened it.
 async fn messages(pool: &PgPool) -> Vec<(String, String, Option<String>, Option<String>)> {
     let (rows, _, _) = messages_for(pool, TASK).await.unwrap();
+    let names = names(pool).await;
     rows.into_iter()
         .map(|m| {
             (
-                m.uuid,
+                names.get(&m.uuid).cloned().unwrap_or(m.uuid),
                 m.message_type.as_str().to_string(),
                 m.message_text,
                 m.assistant_message_model,
@@ -88,36 +124,51 @@ async fn messages(pool: &PgPool) -> Vec<(String, String, Option<String>, Option<
         .collect()
 }
 
-/// `(message_uuid, parent_uuid, kind, status, tool_use_id)` of every activity,
-/// subagent ones included, in write order.
-async fn activities(
-    pool: &PgPool,
-) -> Vec<(
+/// `(message, parent, kind, status, tool_use_id)` of an activity.
+type ActivityShape = (
     Option<String>,
     Option<String>,
     String,
     String,
     Option<String>,
-)> {
-    sqlx::query_as(
-        "SELECT message_uuid, parent_uuid, kind, status, tool_use_id
-           FROM task_activities WHERE task_id = $1 ORDER BY position",
+);
+
+/// Every activity, subagent ones included, in write order; the Message named
+/// as in [`messages`].
+async fn activities(pool: &PgPool) -> Vec<ActivityShape> {
+    let rows: Vec<ActivityShape> = sqlx::query_as(
+        "SELECT message_uuid::text, parent_tool_use_id, kind, status, tool_use_id
+               FROM conversation_activities WHERE task_id = $1 ORDER BY position, ordinal",
     )
     .bind(TASK)
     .fetch_all(pool)
     .await
-    .unwrap()
+    .unwrap();
+    let names = names(pool).await;
+    rows.into_iter()
+        .map(|(message, parent, kind, status, call)| {
+            let message = message.map(|m| names.get(&m).cloned().unwrap_or(m));
+            (message, parent, kind, status, call)
+        })
+        .collect()
 }
 
+/// `(item, parent, input, output)` of each usage row, by the line that reported it.
 async fn usage(pool: &PgPool) -> Vec<(String, Option<String>, i32, i32)> {
-    sqlx::query_as(
-        "SELECT message_uuid, parent_uuid, input_tokens, output_tokens
-           FROM task_message_usage WHERE task_id = $1 ORDER BY message_uuid",
+    let rows: Vec<(Option<String>, Option<String>, i32, i32)> = sqlx::query_as(
+        "SELECT e.harness_item_id, s.parent_event_id::text, u.input_tokens, u.output_tokens
+           FROM conversation_usage u
+           JOIN trajectory_events e ON e.id = u.trajectory_event_id
+           JOIN trajectory_sessions s ON s.id = e.session_id
+          WHERE u.task_id = $1 ORDER BY e.harness_item_id",
     )
     .bind(TASK)
     .fetch_all(pool)
     .await
-    .unwrap()
+    .unwrap();
+    rows.into_iter()
+        .map(|(item, parent, input, output)| (item.unwrap_or_default(), parent, input, output))
+        .collect()
 }
 
 fn activity(
@@ -166,7 +217,7 @@ async fn a_claude_response_folds_into_one_message_across_appends(pool: PgPool) {
     )
     .await;
 
-    assert_eq!(outcome.projected.messages, ["msg_1"]);
+    assert_eq!(items(&pool, &outcome.projected.messages).await, ["msg_1"]);
     assert_eq!(
         messages(&pool).await,
         [(
@@ -177,6 +228,14 @@ async fn a_claude_response_folds_into_one_message_across_appends(pool: PgPool) {
         )]
     );
     assert_eq!(usage(&pool).await, [("msg_1".to_string(), None, 10, 3)]);
+    let stats = response_usage(&pool, TASK).await.unwrap();
+    assert_eq!(stats.len(), 1);
+    assert_eq!(
+        stats[0].message_uuid.map(|m| m.to_string()).as_ref(),
+        outcome.projected.messages.first()
+    );
+    assert_eq!(stats[0].model.as_deref(), Some("claude-opus-4-5"));
+    assert_eq!((stats[0].input_tokens, stats[0].output_tokens), (10, 3));
 }
 
 /// A continuation that is not the first line of its append still follows the
@@ -254,8 +313,8 @@ async fn a_tool_result_settles_the_call_on_the_calling_message(pool: PgPool) {
     )
     .await;
 
-    assert_eq!(calling.projected.messages, ["msg_1"]);
-    assert_eq!(settling.projected.messages, ["msg_1"]);
+    assert_eq!(items(&pool, &calling.projected.messages).await, ["msg_1"]);
+    assert_eq!(items(&pool, &settling.projected.messages).await, ["msg_1"]);
     assert_eq!(
         settling.projected.settled,
         [(Some("Bash".to_string()), true)]
@@ -373,15 +432,25 @@ async fn a_subagent_line_hangs_under_its_spawning_call(pool: PgPool) {
     assert_eq!(outcome.projected.subagents, ["toolu_1"]);
     let sub = activities(&pool).await.pop().unwrap();
     assert_eq!(sub.1.as_deref(), Some("toolu_1"));
+    let usage = usage(&pool).await;
+    assert_eq!(usage.len(), 1);
     assert_eq!(
-        usage(&pool).await,
-        [("msg_sub".to_string(), Some("toolu_1".to_string()), 5, 2)]
+        (usage[0].0.as_str(), usage[0].2, usage[0].3),
+        ("msg_sub", 5, 2)
     );
-    let parent: Option<String> =
-        sqlx::query_scalar("SELECT parent_uuid FROM task_messages WHERE uuid = 'msg_sub'")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+    assert!(usage[0].1.is_some(), "counted in the subagent's session");
+    assert!(
+        response_usage(&pool, TASK).await.unwrap().is_empty(),
+        "the Task's own statistics leave the subagent out"
+    );
+    let parent: Option<String> = sqlx::query_scalar(
+        "SELECT m.parent_tool_use_id FROM conversation_messages m
+           JOIN trajectory_events e ON e.id = m.trajectory_event_id
+          WHERE e.harness_item_id = 'msg_sub'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
     assert_eq!(parent.as_deref(), Some("toolu_1"));
 }
 
@@ -391,7 +460,11 @@ async fn a_subagent_line_hangs_under_its_spawning_call(pool: PgPool) {
 async fn a_codex_command_shows_under_the_exec_call_that_ran_it(pool: PgPool) {
     let dao = seed(&pool).await;
     let lines = [
-        said("rs_1", "assistant", json!([text("Running the tests.")])),
+        event(
+            Some("rs_1"),
+            json!({ "role": "assistant", "blocks": [text("Running the tests.")],
+                    "model": "gpt-5" }),
+        ),
         said(
             "call_1",
             "assistant",
@@ -418,7 +491,10 @@ async fn a_codex_command_shows_under_the_exec_call_that_ran_it(pool: PgPool) {
     ];
     let outcome = append(&dao, Harness::Codex, "rollout", 0, &lines).await;
 
-    assert_eq!(outcome.projected.messages, ["rs_1", "call_1"]);
+    assert_eq!(
+        items(&pool, &outcome.projected.messages).await,
+        ["rs_1", "call_1"]
+    );
     assert_eq!(
         activities(&pool).await,
         [
@@ -437,6 +513,73 @@ async fn a_codex_command_shows_under_the_exec_call_that_ran_it(pool: PgPool) {
         ]
     );
     assert_eq!(usage(&pool).await, [("tok_1".to_string(), None, 40, 9)]);
+    let stats = response_usage(&pool, TASK).await.unwrap();
+    assert_eq!(stats.len(), 1);
+    assert_eq!(
+        items(&pool, &[stats[0].message_uuid.unwrap().to_string()]).await,
+        ["rs_1"],
+        "`call_1` opens no Message row: it has no text"
+    );
+    assert_eq!(
+        stats[0].model.as_deref(),
+        Some("gpt-5"),
+        "the session's latest"
+    );
+    assert_eq!((stats[0].input_tokens, stats[0].output_tokens), (40, 9));
+}
+
+/// A resumed session's tool-only turn reports usage no Message of its own turn
+/// names, so no earlier turn's Message takes it.
+#[sqlx::test]
+async fn a_turn_without_a_message_names_no_message_for_its_usage(pool: PgPool) {
+    let dao = seed(&pool).await;
+    let tokens = |item| {
+        event(
+            Some(item),
+            json!({ "role": null, "blocks": [],
+                    "usage": { "input_tokens": 1, "output_tokens": 1,
+                               "cache_read_tokens": 0, "cache_write_tokens": 0 } }),
+        )
+    };
+    let first = [
+        event(
+            Some("rs_1"),
+            json!({ "role": "assistant", "blocks": [text("Looking.")], "model": "gpt-5" }),
+        ),
+        tokens("tok_1"),
+    ];
+    append(&dao, Harness::Codex, "rollout", 0, &first).await;
+    let second = [
+        said(
+            "call_2",
+            "assistant",
+            json!([call("call_2", "codex.exec", json!({ "code": "run()" }))]),
+        ),
+        tokens("tok_2"),
+    ];
+    dao.append(AppendRequest {
+        task_id: TASK,
+        harness: Harness::Codex,
+        harness_session_id: "rollout",
+        first_seq: 2,
+        lines: &second,
+        turn_number: Some(2),
+        subagent_parent: None,
+        own_from_seq: None,
+    })
+    .await
+    .unwrap();
+
+    let stats = response_usage(&pool, TASK).await.unwrap();
+    let named: Vec<_> = stats
+        .iter()
+        .map(|r| (r.turn_number, r.message_uuid.map(|m| m.to_string())))
+        .collect();
+    let rs_1 = names(&pool)
+        .await
+        .into_iter()
+        .find_map(|(uuid, item)| (item == "rs_1").then_some(uuid));
+    assert_eq!(named, [(Some(1), rs_1), (Some(2), None)]);
 }
 
 /// A `Skill` call names the skill its Task is tagged with.
@@ -502,7 +645,7 @@ async fn a_failed_projection_rolls_back_the_append(pool: PgPool) {
     sqlx::raw_sql(
         "CREATE FUNCTION refuse() RETURNS trigger LANGUAGE plpgsql AS
            $$ BEGIN RAISE EXCEPTION 'refused'; END $$;
-         CREATE TRIGGER refuse BEFORE INSERT ON task_activities
+         CREATE TRIGGER refuse BEFORE INSERT ON conversation_activities
            FOR EACH ROW EXECUTE FUNCTION refuse();",
     )
     .execute(&pool)
@@ -556,7 +699,7 @@ async fn an_error_result_is_an_event_projected_as_an_error_message(pool: PgPool)
     assert_eq!(
         messages(&pool).await,
         [(
-            event,
+            super::ids::message(TASK, &event).to_string(),
             "error".to_string(),
             Some("The sandbox failed to start.".to_string()),
             None,

@@ -1,15 +1,12 @@
 //! The external event ids GitHub events are recorded under.
 //!
 //! GitHub numbers comment/review/check/run ids globally, but pull requests only
-//! per repository, so a PR-level id must carry the whole subject
-//! (`owner/repo#number`, via [`GithubPrSubject::key`]) rather than the bare
-//! number — an ambiguous id would collide across repositories in
-//! `task_messages` and `task_outbound_events`.
+//! per repository, so a PR-level id carries the whole subject
+//! (`owner/repo#number`, via [`GithubPrSubject::key`]): a bare number would
+//! collide across repositories in `task_inbox` and `task_outbound_events`.
 //!
-//! Rows written under the old `github:pr:<action>:<number>` shape were
-//! rewritten in place by migration `0148`; the two shapes are never aliased
-//! together, since that would hand the ambiguous string back to readers
-//! matching on id alone.
+//! Migration `0148` rewrote the old `github:pr:<action>:<number>` ids in place.
+//! Never alias the two shapes: readers match on the id alone.
 
 use super::subject::GithubPrSubject;
 

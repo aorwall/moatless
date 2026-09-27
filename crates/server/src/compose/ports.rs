@@ -77,7 +77,7 @@ pub struct Ports {
     /// Workspace composition + run-config (`workspaces` / `workspace_repos`).
     /// The `tasks` table behind the published `TaskReader` seam.
     pub task_reader: Arc<moatless_tasks::ports::TaskProjection>,
-    /// The `task_messages` table behind the published `TranscriptAppend` seam.
+    /// The conversation behind the published `TranscriptAppend` seam.
     pub transcript: Arc<moatless_tasks::ports::Transcript>,
     /// The `task_turns` table behind the published `TurnCounter` seam.
     pub turn_counter: Arc<moatless_tasks::ports::TurnLedger>,

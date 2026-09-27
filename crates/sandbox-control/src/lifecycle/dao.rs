@@ -331,7 +331,7 @@ impl LifecycleDao for PgLifecycleDao {
         // same lock and spend the same attempt cap twice. The candidate is a
         // handle on the Sandbox, not the Task a wake is for: on a shared
         // Sandbox the members holding the queued work are resolved separately,
-        // through `PendingWorkReader`, because `task_messages` belongs to the
+        // through `PendingWorkReader`, because `task_inbox` belongs to the
         // Task domain.
         sqlx::query_as(
             r#"SELECT DISTINCT ON (s.sandbox_id) t.task_id, s.pending_work_at

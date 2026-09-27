@@ -40,7 +40,7 @@ A T3 UI-RPC conversation search already exists —
 substring matching, scoped to the T3 surface, with no equivalent endpoint or
 UI in the main frontend. `dsh`'s `session-query` package runs SQLite FTS5 over
 the durable event log plus relationship/lineage tracing. Moatless's Message
-store is already durable and structured (`task_messages`, the
+store is already durable and structured (`conversation_messages`, the
 `TranscriptAppend` port) — an FTS index over message content, exposed as a
 main-product endpoint and UI, is additive on top of what `search_conversations`
 already proves out.

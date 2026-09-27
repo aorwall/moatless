@@ -4,7 +4,7 @@
 //! vanish on restart, so an outlived retry simply re-runs admission.
 //!
 //! Real convergence is downstream — `ON CONFLICT` upserts on
-//! `task_events`/`task_messages`/`task_turns` — and every consumer must be
+//! `task_events`/`task_inbox`/`task_turns` — and every consumer must be
 //! idempotent anyway, since the event feed redelivers after a crash.
 
 use std::time::Duration;

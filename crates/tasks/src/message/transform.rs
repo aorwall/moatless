@@ -10,11 +10,11 @@ use moatless_api_schemas::codex::{CodexToolInput, CodexToolResult};
 
 use super::contexts::task_message_context_to_input;
 use super::models::{HARNESS_USER_TYPE, TOOL_RESPONSE_USER_TYPE, TaskMessage, TaskMessageContext};
+use crate::activities::dao::Activity;
+use crate::activities::mapping::{ActivityKind, ActivityStatus};
+use crate::activities::view::ActivityView;
 use crate::message::models::MessageType;
 use crate::task::schemas::{FileContextData, MessageContextInput};
-use crate::task_activities::dao::Activity;
-use crate::task_activities::mapping::{ActivityKind, ActivityStatus};
-use crate::task_activities::view::ActivityView;
 use moatless_core::file_storage::FileInfo;
 
 use super::schemas::*;
@@ -68,7 +68,7 @@ pub fn transform_to_ui(
 
 /// Like [`transform_to_ui`] but with a pre-fetched `file_metadata` map.
 ///
-/// Synthesises File contexts for legacy messages (pre-`task_message_contexts`)
+/// Synthesises File contexts for legacy messages (recorded without contexts)
 /// from their `attachments.file_ids`. Top-level only — subagent rows are
 /// assembled on demand via [`transform_subagent_transcript`].
 pub fn transform_to_ui_with_files(
@@ -391,7 +391,7 @@ pub(crate) fn inject_subagent_summaries(
 
 /// Build the `UiMessage.contexts` list for a user message.
 ///
-/// Returns persisted `task_message_contexts` rows if present; otherwise
+/// Returns the Message's recorded contexts if present; otherwise
 /// synthesises File contexts from `attachments.file_ids` via `file_metadata`,
 /// covering legacy messages predating that write path.
 fn build_user_contexts(
@@ -789,8 +789,8 @@ mod tests {
 
     // ── transform: chronological render of all rows ─────────────────
 
+    use crate::activities::mapping::ActivityStatus;
     use crate::message::models::MessageRole;
-    use crate::task_activities::mapping::ActivityStatus;
 
     fn make_msg(
         id: i32,

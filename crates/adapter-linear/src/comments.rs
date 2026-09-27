@@ -31,9 +31,9 @@ const ADAPTER_LABEL: &str = "linear";
 /// Route a `Comment.create` payload to the bound tasks listening on its issue.
 /// No recipient → no-op.
 ///
-/// Own outbound replies are excluded twice: the footer names the authoring
-/// task, and `send_reply_for_binding` persists each reply's id as
-/// `task_messages.external_event_id`, the same key the forward below builds.
+/// Own replies are excluded twice: the footer names the authoring task, and
+/// `send_reply_for_binding` records each reply's id in
+/// `task_outbound_events.external_event_id`, the key the forward below builds.
 #[expect(
     clippy::too_many_arguments,
     reason = "the six downward ports this comment router reads (config, routing, \

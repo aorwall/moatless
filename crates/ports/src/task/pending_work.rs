@@ -5,7 +5,7 @@ use moatless_types::store::StoreError;
 ///
 /// Several Tasks can share one Sandbox, so delivering its wake signal means
 /// naming which of them the work is actually for — a Task-domain fact the
-/// control plane never reads `task_messages` to answer itself.
+/// control plane never reads `task_inbox` to answer itself.
 #[cfg_attr(feature = "test-support", mockall::automock)]
 #[async_trait]
 pub trait PendingWorkReader: Send + Sync {

@@ -214,7 +214,7 @@ states the comment's **audience** and the resolver turns that into recipients:
 | threaded reply (`parentId` present) | a named parent's author | the task that authored the parent comment, plus the task that produced the issue — every active binding when neither is bound |
 
 For a threaded reply Moatless maps `parentId` back through
-`task_messages.external_event_id` to the task that wrote it. A task that
+`task_outbound_events.external_event_id` to the task that wrote it. A task that
 produced the issue — it filed the issue or commented into it, so its binding is
 not an `ingress` one — receives replies inside every thread on its own work,
 because it is the task that has to address them. Other tasks bound to the same

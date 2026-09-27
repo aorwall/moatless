@@ -29,7 +29,7 @@ use super::webhook::PrCloseInfo;
 pub(super) const ADAPTER: &str = "github";
 /// Subject kind for GitHub PRs (`task_bindings.subject_kind`).
 pub(super) const SUBJECT_KIND: &str = "github_pr";
-/// Label written to `task_messages.external_adapter`. Matches the
+/// Label written to `task_inbox.external_adapter`. Matches the
 /// `AdapterKind::GithubPr.as_str()` value so existing UI treats new rows the
 /// same as the legacy ones.
 pub(super) const ADAPTER_LABEL: &str = "github_pr";

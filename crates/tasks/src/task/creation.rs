@@ -19,7 +19,7 @@ use crate::message::error::MessageError;
 use crate::tag::dao::TagDao;
 use crate::task::dao::TaskDao;
 use crate::task::error::TaskError;
-use crate::task::fork::{ForkSession, TaskForkDao};
+use crate::task::fork::TaskForkDao;
 use crate::task::models::TaskFork;
 use crate::task::models::{Task, TaskStatus};
 use crate::task::relations::{
@@ -105,11 +105,8 @@ pub struct NewTaskRequest {
 pub struct ForkedFrom {
     pub source_task_id: String,
     pub at_turn: Option<i32>,
-    /// `None` when the parent's agent never ran at or before the cut. The fork
-    /// still carries the conversation; its first turn starts on a fresh
-    /// session.
-    pub session: Option<ForkSession>,
-    /// The cut as a trajectory event; set whenever `session` is.
+    /// The cut as a trajectory event; `None` when the parent recorded nothing
+    /// at or before it, and the fork's first turn starts a fresh session.
     pub source_event_id: Option<uuid::Uuid>,
 }
 
@@ -396,16 +393,13 @@ impl TaskCreationService {
                 fork.at_turn,
             )
             .await?;
-            if let Some(session) = &fork.session {
+            if let Some(source_event_id) = fork.source_event_id {
                 self.forks
                     .insert(&TaskFork {
                         task_id: task_id.clone(),
                         source_task_id: fork.source_task_id.clone(),
                         at_turn: fork.at_turn,
-                        source_session_id: session.source_session_id.clone(),
-                        source_message_uuid: session.source_message_uuid.clone(),
-                        source_agent_turn_id: session.source_agent_turn_id.clone(),
-                        source_event_id: fork.source_event_id,
+                        source_event_id,
                     })
                     .await?;
             }
@@ -558,7 +552,7 @@ impl TaskCreationService {
     /// Undo a Task whose first message never landed, or record it as `Error`.
     ///
     /// Deleting the row is only honest when the send wrote nothing and no pod
-    /// registered this Task: `task_messages` has no foreign key to `tasks`, and
+    /// registered this Task: the inbox has no foreign key to `tasks`, and
     /// a shared-sandbox join has no undo. Anything left behind names a Task
     /// that survives the failed create, errored and unprovisioned.
     async fn first_message_failed(
@@ -989,7 +983,7 @@ mod tests {
     }
 
     /// The message row is committed by the time the clock advance fails, and
-    /// `task_messages` has no foreign key to `tasks` — so deleting the Task here
+    /// the inbox has no foreign key to `tasks` — so deleting the Task here
     /// would leave it behind with nothing naming it.
     #[tokio::test]
     async fn a_first_message_that_failed_after_persisting_marks_the_task_errored() {

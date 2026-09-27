@@ -372,10 +372,9 @@ impl ThreadCommandSink for AppStateCommands {
             ),
         };
 
-        let copied = self
-            .0
+        self.0
             .task_fork
-            .copy_conversation(&plan, &fork.new_task_id)
+            .inherit_conversation(&plan, &fork.new_task_id)
             .await
             .map_err(|e| create_refusal(&fork.new_task_id, e))?;
 
@@ -431,7 +430,6 @@ impl ThreadCommandSink for AppStateCommands {
             new_task.forked_from = Some(moatless_tasks::task::creation::ForkedFrom {
                 source_task_id: fork.source_task_id.clone(),
                 at_turn: plan.at_turn,
-                session: plan.session.clone(),
                 source_event_id: plan.source_event_id,
             });
             task_service::create_task(
@@ -456,9 +454,7 @@ impl ThreadCommandSink for AppStateCommands {
             task_id = %fork.new_task_id,
             source_task_id = %fork.source_task_id,
             at_turn = ?plan.at_turn,
-            messages = copied.messages,
-            activities = copied.activities,
-            contexts = copied.contexts,
+            source_event_id = ?plan.source_event_id,
             same_sandbox = fork.same_sandbox,
             "Task forked from T3"
         );

@@ -466,8 +466,8 @@ async fn sandbox_desired_state(pool: &PgPool, task_id: &str) -> Option<String> {
 /// oldest first. The literal strings are the persisted formats.
 async fn forwarded_ids(pool: &PgPool) -> Vec<String> {
     sqlx::query_scalar::<_, String>(
-        "SELECT external_event_id FROM task_messages \
-         WHERE external_adapter = 'linear' AND external_event_id IS NOT NULL ORDER BY id ASC",
+        "SELECT external_message_id FROM task_inbox \
+         WHERE adapter = 'linear' AND external_message_id IS NOT NULL ORDER BY created_at, id",
     )
     .fetch_all(pool)
     .await
@@ -477,8 +477,8 @@ async fn forwarded_ids(pool: &PgPool) -> Vec<String> {
 /// The tasks that received a forwarded Linear message.
 async fn forwarded_task_ids(pool: &PgPool) -> Vec<String> {
     sqlx::query_scalar::<_, String>(
-        "SELECT DISTINCT task_id FROM task_messages \
-         WHERE external_adapter = 'linear' ORDER BY task_id ASC",
+        "SELECT DISTINCT task_id FROM task_inbox \
+         WHERE adapter = 'linear' ORDER BY task_id ASC",
     )
     .fetch_all(pool)
     .await

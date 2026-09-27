@@ -13,6 +13,7 @@
 //! backend stays the composition root; every router here is generic over state
 //! `S` via `FromRef<S>`, so this crate names no concrete `AppState`.
 
+pub mod activities;
 pub mod agent;
 pub mod agent_event;
 pub mod compose;
@@ -25,7 +26,6 @@ pub mod message;
 pub mod ports;
 pub mod tag;
 pub mod task;
-pub mod task_activities;
 pub mod task_event;
 pub mod task_listing;
 pub mod task_turn;

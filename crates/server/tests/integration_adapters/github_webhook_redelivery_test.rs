@@ -506,7 +506,7 @@ async fn clear_persisted_pr_state(pool: &PgPool) {
 }
 
 async fn message_count(pool: &PgPool, task_id: &str) -> i64 {
-    sqlx::query_scalar("SELECT COUNT(*) FROM task_messages WHERE task_id = $1")
+    sqlx::query_scalar("SELECT COUNT(*) FROM conversation_messages WHERE task_id = $1")
         .bind(task_id)
         .fetch_one(pool)
         .await

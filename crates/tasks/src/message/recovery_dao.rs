@@ -80,9 +80,8 @@ pub(crate) async fn last_message_is_completed_reply(
                           AND EXISTS (SELECT 1 FROM jsonb_array_elements(s.content -> 'blocks') b
                                        WHERE b ->> 'type' = 'tool_use'
                                           OR (b ->> 'type' = 'text' AND b ->> 'text' <> '')))
-               OR EXISTS (SELECT 1 FROM task_messages
-                           WHERE task_id = $1 AND turn_number = $2
-                             AND message_type NOT IN ('user', 'assistant')),
+               OR EXISTS (SELECT 1 FROM conversation_messages
+                           WHERE task_id = $1 AND turn_number = $2 AND author = 'system'),
                COALESCE((SELECT answered AND COALESCE(turn_number > $2, false)
                            FROM reply ORDER BY ord DESC LIMIT 1), false)"
         ))

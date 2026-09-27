@@ -38,14 +38,6 @@ pub use moatless_types::message::HARNESS_USER_TYPE;
 /// rows the frontend attaches to a user Message.
 pub type MessagePage = (Vec<TaskMessage>, Vec<TaskMessageContext>, Vec<Activity>);
 
-/// How much of the parent a fork's conversation copy carried.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct ForkCopyCounts {
-    pub messages: usize,
-    pub activities: usize,
-    pub contexts: usize,
-}
-
 /// Raw tool-call row assembled from the assistant `tool_use` block plus any
 /// matching `tool_result` row(s). Keeps JSON values un-transformed so the
 /// handler can decide which schema to apply.
@@ -92,7 +84,8 @@ pub struct InterruptedTurn {
 // TaskMessage (DB)
 // =============================================================================
 
-/// Row from the `task_messages` table.
+/// A conversation Message, as `conversation::assemble` builds it from its row
+/// and sources.
 #[derive(sqlx::FromRow, Debug, Clone)]
 pub struct TaskMessage {
     pub id: i32,
@@ -281,7 +274,7 @@ impl TaskMessage {
 // TaskMessageContext (DB)
 // =============================================================================
 
-/// Row from the `task_message_contexts` table.
+/// A context attached to a user Message, read from its inbox item.
 #[derive(sqlx::FromRow, Debug, Clone)]
 pub struct TaskMessageContext {
     pub id: i32,

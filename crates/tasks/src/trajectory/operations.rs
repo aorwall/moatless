@@ -7,7 +7,7 @@ use uuid::Uuid;
 use super::dao::PgTrajectoryDao;
 use super::lineage::{LineageRow, cut_at_turn, latest_of, transcode_items};
 use super::models::{
-    AppendError, AppendOutcome, AppendRequest, ChainError, Cut, ForkCut, Head, OpenedSession,
+    AppendError, AppendOutcome, AppendRequest, ChainError, Cut, CutAnchors, Head, OpenedSession,
     TrajectorySession,
 };
 
@@ -40,20 +40,14 @@ impl Trajectories {
         self.store.chain(session).await
     }
 
-    /// See [`PgTrajectoryDao::resolve_legacy_cut`].
-    pub async fn resolve_legacy_cut(
-        &self,
-        source_harness_session_id: &str,
-        cut: &ForkCut,
-    ) -> Result<Option<Uuid>, sqlx::Error> {
-        self.store
-            .resolve_legacy_cut(source_harness_session_id, cut)
-            .await
-    }
-
     /// See [`PgTrajectoryDao::head`].
     pub async fn head(&self, task_id: &str) -> Result<Option<Head>, sqlx::Error> {
         self.store.head(task_id).await
+    }
+
+    /// See [`PgTrajectoryDao::cut_anchors`].
+    pub async fn cut_anchors(&self, event_id: Uuid) -> Result<Option<CutAnchors>, sqlx::Error> {
+        self.store.cut_anchors(event_id).await
     }
 
     /// See [`PgTrajectoryDao::event_harness`].

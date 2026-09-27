@@ -109,8 +109,8 @@ mod tests {
     }
 
     /// An assistant line as the CLI writes it: a per-line `uuid` no database
-    /// row holds, plus the `message.id` the `task_messages` row stores as its
-    /// uuid.
+    /// row holds, plus the `message.id` the Trajectory stores as its
+    /// `harness_item_id`.
     fn assistant_line(uuid: &str, session: &str, message_id: &str) -> String {
         serde_json::json!({
             "uuid": uuid,

@@ -149,6 +149,8 @@ pub enum InboxStatus {
     Pending,
     Delivered,
     Cancelled,
+    /// Delivered, then cut by a rewind; kept while a fork's Message reads it.
+    Rewound,
 }
 
 /// A stored item.
@@ -245,6 +247,7 @@ impl TryFrom<InboxRow> for InboxItem {
             "pending" => InboxStatus::Pending,
             "delivered" => InboxStatus::Delivered,
             "cancelled" => InboxStatus::Cancelled,
+            "rewound" => InboxStatus::Rewound,
             other => return Err(decode("status", other)),
         };
         let options = row

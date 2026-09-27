@@ -35,7 +35,6 @@ use moatless_tasks::tag::test_support as tag_fixtures;
 use moatless_tasks::task::models::TaskPatch;
 use moatless_tasks::task::models::TaskStatus;
 use moatless_tasks::task::models::Visibility;
-use moatless_tasks::task_activities::mapping::ConversationWrite;
 use moatless_tasks::task_turn::models::TurnStateEvent;
 use moatless_tasks::task_turn::models::TurnStatus;
 use moatless_tasks::task_turn::models::TurnTransition;
@@ -47,7 +46,7 @@ use moatless_workspaces::workspace::models::WorkspacePatch;
 use sqlx::PgPool;
 use sqlx::postgres::PgPoolOptions;
 
-use common::{USER_1, make_message_row, make_task_row, make_workspace_row};
+use common::{USER_1, make_task_row, make_workspace_row};
 
 /// Writers and mutations for the contention measurement at the end of the file.
 const WRITERS: usize = 32;
@@ -728,19 +727,20 @@ async fn no_mutation_holds_the_counter_while_it_waits_for_another_lock(pool: PgP
         Mutation {
             what: "a person writes a message",
             seed: None,
-            // `task_messages` has no foreign key to `tasks`, so the row an
-            // append contends for is its own: the unique index on `uuid`.
-            hold: "INSERT INTO task_messages (task_id, uuid, message_type, user_type, timestamp, \
-                   message_role) \
-                   VALUES ($1, $1 || '-msg', 'user', 'human', NOW()::text, 'user')",
+            // The row a send contends for is its own: the inbox item's id,
+            // which both sides derive from the subject.
+            hold: "INSERT INTO task_inbox (id, task_id, text, origin) \
+                   VALUES (md5($1 || '-msg')::uuid, $1, '', 'system')",
             run: |pool, subject| {
                 Box::pin(async move {
-                    let msg = make_message_row(&subject, &format!("{subject}-msg"));
-                    moatless_tasks::message::test_support::seed_message(
+                    let id: uuid::Uuid = sqlx::query_scalar("SELECT md5($1 || '-msg')::uuid")
+                        .bind(&subject)
+                        .fetch_one(&pool)
+                        .await
+                        .unwrap();
+                    moatless_tasks::message::test_support::queue_message(
                         &pool,
-                        &msg,
-                        &[],
-                        &ConversationWrite::default(),
+                        moatless_tasks::message::test_support::user_item(&subject, id, "hello"),
                     )
                     .await
                     .unwrap();
@@ -894,7 +894,7 @@ enum Shape {
     /// Rewrite a value the sidebar shows: `update_task`, and by the same
     /// statement the close, the reopen, the visibility change and the expiry.
     Rename,
-    /// A person writes: one insert into `task_messages`, and nothing else.
+    /// A person writes: one insert into `task_inbox`, and nothing else.
     Message,
 }
 
@@ -958,9 +958,8 @@ async fn drive(pool: &Arc<PgPool>, shape: Shape, counter: Counter) -> Duration {
                     }
                     Shape::Message => {
                         sqlx::query(
-                            r#"INSERT INTO task_messages (task_id, uuid, message_type, user_type,
-                                                          timestamp, message_role)
-                               VALUES ($1, $2, 'user', 'human', NOW()::text, 'user')"#,
+                            r#"INSERT INTO task_inbox (id, task_id, text, origin)
+                               VALUES (gen_random_uuid(), $1, $2, 'system')"#,
                         )
                         .bind(&task_id)
                         .bind(format!("{task_id}-{step}"))
@@ -1074,7 +1073,7 @@ async fn the_counter_is_measured_under_concurrent_mutation(pool: PgPool) {
 /// Clear what one arm wrote, so the next can write it again. The counter and
 /// its records are deliberately left alone.
 async fn reset(pool: &PgPool) {
-    sqlx::query("TRUNCATE task_turns, task_messages CASCADE")
+    sqlx::query("TRUNCATE task_turns, task_inbox CASCADE")
         .execute(pool)
         .await
         .unwrap();

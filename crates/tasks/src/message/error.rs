@@ -51,7 +51,7 @@ pub enum MessageError {
 impl MessageError {
     /// Whether the send failed with nothing of it written down.
     ///
-    /// A Task deleted after its message persisted orphans it: `task_messages`
+    /// A Task deleted after its message persisted orphans it: `task_inbox`
     /// has no foreign key to `tasks`. Only a variant raised after the append
     /// answers `false`.
     pub(crate) fn wrote_nothing(&self) -> bool {
@@ -119,7 +119,7 @@ mod tests {
     /// error itself.
     fn sql_error() -> sqlx::Error {
         sqlx::Error::Protocol(
-            "INSERT INTO task_messages (task_id, content) VALUES ($1, $2)".to_string(),
+            "INSERT INTO task_inbox (task_id, content) VALUES ($1, $2)".to_string(),
         )
     }
 
@@ -143,7 +143,7 @@ mod tests {
         ] {
             let source = std::error::Error::source(&err).expect("sqlx error is the source");
             assert!(
-                source.to_string().contains("INSERT INTO task_messages"),
+                source.to_string().contains("INSERT INTO task_inbox"),
                 "source lost for {err:?}"
             );
         }

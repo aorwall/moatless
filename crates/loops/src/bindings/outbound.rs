@@ -208,12 +208,6 @@ impl OutboundSender {
             presentation,
         };
 
-        // Persist a visible stub up front so the row shows in the task timeline
-        // and we have a uuid to tag with the outbound `external_event_id`.
-        let stub_uuid = self
-            .persist_outbound_stub_for_binding(task_id, &reply.text, &binding, adapter_label)
-            .await;
-
         let external_id = match provider
             .send_reply_for_binding(&binding, &connection, rule.as_ref(), &reply)
             .await
@@ -247,24 +241,16 @@ impl OutboundSender {
             }
         };
 
+        self.persist_outbound_stub_for_binding(
+            task_id,
+            &reply.text,
+            &binding,
+            adapter_label,
+            external_id.as_deref(),
+        )
+        .await;
         if let Some(ref ext_id) = external_id {
             self.recently_sent.note(task_id, ext_id);
-            if let Some(ref msg_id) = stub_uuid {
-                if let Err(e) = self
-                    .messages
-                    .set_external_source_metadata(
-                        msg_id,
-                        &ExternalEvent {
-                            external_id: ext_id.clone(),
-                            provider: adapter_label.to_string(),
-                            source_name: Some(binding.subject_key.clone()),
-                        },
-                    )
-                    .await
-                {
-                    warn!(task_id = %task_id, error = %e, "Failed to tag outbound stub with external_event_id");
-                }
-            }
             if let Err(e) = binding_repo.advance_cursor(&binding.id, ext_id).await {
                 warn!(
                     binding_id = %binding.id,
@@ -386,16 +372,16 @@ impl OutboundSender {
         }
     }
 
-    /// Persist a visible assistant row for a binding-based outbound reply.
+    /// Record a binding-based outbound reply once sent, with the external
+    /// event it became, which the echo check reads.
     pub(crate) async fn persist_outbound_stub_for_binding(
         &self,
         task_id: &str,
         text: &str,
         binding: &TaskBinding,
         adapter_label: &str,
-    ) -> Option<String> {
-        let uuid = uuid::Uuid::new_v4().to_string();
-
+        external_id: Option<&str>,
+    ) {
         let turn_number = match self.task_turns.latest_turn_number(task_id).await {
             Ok(t) => t,
             Err(e) => {
@@ -404,24 +390,23 @@ impl OutboundSender {
             }
         };
 
-        match self
+        if let Err(e) = self
             .messages
             .append(&TranscriptEntry {
                 task_id: task_id.to_string(),
-                uuid: uuid.clone(),
+                uuid: uuid::Uuid::new_v4().to_string(),
                 text: text.to_string(),
                 kind: TranscriptEntryKind::OutboundStub,
                 turn_number,
-                external_adapter: Some(adapter_label.to_string()),
-                external_source_name: Some(binding.subject_key.clone()),
+                external: external_id.map(|external_id| ExternalEvent {
+                    external_id: external_id.to_string(),
+                    provider: adapter_label.to_string(),
+                    source_name: Some(binding.subject_key.clone()),
+                }),
             })
             .await
         {
-            Ok(()) => Some(uuid),
-            Err(e) => {
-                warn!(task_id, error = %e, "Failed to persist outbound stub message");
-                None
-            }
+            warn!(task_id, error = %e, "Failed to persist outbound stub message");
         }
     }
 

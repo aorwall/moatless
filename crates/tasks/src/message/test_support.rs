@@ -5,34 +5,294 @@
 // feature-gated build).
 #![allow(clippy::expect_used, clippy::unwrap_used, clippy::too_many_arguments)]
 
-//! Named `db-tests` fixtures over the `task_messages` and `task_activities`
-//! tables.
+//! Named `db-tests` fixtures over the conversation read model and the inbox.
 //!
 //! A test that needs a transcript row, an activity or a page reaches the store
-//! through one of these rather than through the store itself.
+//! through one of these rather than through the store itself. A seeded Message
+//! is a frozen row, as history copied from before the read model is.
 
 use std::sync::Arc;
 
+use chrono::Utc;
 use moatless_core::db::DbPool;
 use moatless_ports::task::EventSubject;
+use serde_json::{Value, json};
+use uuid::Uuid;
 
 use super::dao::{MessageDao, PgMessageDao};
 use super::models::{MessagePage, MessageRole, MessageType, TaskMessage, TaskMessageContext};
-use crate::task_activities::mapping::{ActivityRow, ConversationWrite};
+use crate::activities::mapping::{ActivityRow, ConversationWrite};
+use crate::conversation::dao as conversation;
+use crate::inbox::{
+    AdapterChannel, DeliveryOptions, ExternalSender, InboxContext, InboxOrigin, NewInboxItem,
+};
 
 fn messages(pool: &DbPool) -> PgMessageDao {
     PgMessageDao(pool.clone())
 }
 
-/// Append a Message with its contexts and content blocks, returning the
-/// `task_message_id` the row was written with.
+/// The conversation uuid a Message seeded as `id` takes: `id` itself when it
+/// is a uuid.
+pub fn seeded_uuid(id: &str) -> Uuid {
+    id.parse()
+        .unwrap_or_else(|_| Uuid::new_v5(&Uuid::NAMESPACE_OID, format!("seed:{id}").as_bytes()))
+}
+
+/// The `activity_id` a row seeded or recorded as `name` is stored under.
+pub fn seeded_activity_id(name: &str) -> String {
+    crate::conversation::ids::activity(name).to_string()
+}
+
+/// Seed `msg` as a frozen Message with its contexts and conversation, and a
+/// user one's delivered inbox item. Returns its position, the Message `id`.
 pub async fn seed_message(
     pool: &DbPool,
     msg: &TaskMessage,
     contexts: &[TaskMessageContext],
     conversation: &ConversationWrite,
 ) -> Result<i32, sqlx::Error> {
-    messages(pool).append(msg, contexts, conversation).await
+    let uuid = seeded_uuid(&msg.uuid);
+    let created_at = msg.created_at.unwrap_or_else(Utc::now);
+    let text = (!conversation.text.is_empty())
+        .then(|| {
+            conversation
+                .text
+                .iter()
+                .map(|part| part.text.as_str())
+                .collect::<Vec<_>>()
+                .join("\n\n")
+        })
+        .or_else(|| msg.message_text.clone());
+    let mut tx = pool.begin().await?;
+    let inbox_id = if msg.message_type == MessageType::User {
+        let item = inbox_item(msg, uuid, text.clone().unwrap_or_default(), contexts);
+        crate::inbox::dao::submit(&mut tx, &item).await?;
+        crate::inbox::dao::seed_delivered(
+            &mut tx,
+            uuid,
+            msg.sent_at.unwrap_or(created_at),
+            msg.agent_session_id
+                .as_deref()
+                .or(msg.session_id.as_deref()),
+            msg.turn_number,
+        )
+        .await?;
+        crate::inbox::dao::clear_settled_pending_work(&mut tx, &msg.task_id).await?;
+        Some(uuid)
+    } else {
+        None
+    };
+    let (author, kind) = match msg.message_type {
+        MessageType::User => ("user", "text"),
+        MessageType::Assistant => ("agent", "text"),
+        MessageType::Error => ("system", "error"),
+        MessageType::Result => ("system", "turn_result"),
+        _ => ("system", "text"),
+    };
+    let position = conversation::seed_frozen_message(
+        &mut tx,
+        &conversation::FrozenSeed {
+            uuid,
+            task_id: &msg.task_id,
+            author,
+            kind,
+            text: text.as_deref(),
+            parent_tool_use_id: msg.parent_uuid.as_deref(),
+            turn_number: msg.turn_number,
+            model: msg.assistant_message_model.as_deref(),
+            usage: msg.assistant_usage.clone(),
+            inbox_id,
+            legacy: legacy(msg),
+            created_at,
+        },
+    )
+    .await?;
+    write_conversation(
+        &mut tx,
+        &msg.task_id,
+        position,
+        uuid,
+        msg.parent_uuid.as_deref(),
+        conversation,
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(i32::try_from(position).unwrap_or(i32::MAX))
+}
+
+async fn write_conversation(
+    tx: &mut sqlx::PgConnection,
+    task_id: &str,
+    position: i64,
+    message: Uuid,
+    parent: Option<&str>,
+    conversation: &ConversationWrite,
+) -> Result<(), sqlx::Error> {
+    for row in &conversation.activities {
+        let on = row.message_uuid.as_deref().map_or(message, seeded_uuid);
+        conversation::seed_frozen_activity(&mut *tx, position, row, Some(on)).await?;
+    }
+    for outcome in &conversation.outcomes {
+        conversation::settle_seeded(&mut *tx, outcome).await?;
+    }
+    if let Some(usage) = conversation.usage {
+        conversation::seed_frozen_usage(&mut *tx, task_id, message, parent, usage).await?;
+    }
+    Ok(())
+}
+
+/// The inbox item a seeded user Message reads its origin and options from,
+/// its origin derived as migration `0178` derives it.
+fn inbox_item(
+    msg: &TaskMessage,
+    id: Uuid,
+    text: String,
+    contexts: &[TaskMessageContext],
+) -> NewInboxItem {
+    let origin = if msg.user_type == "harness" {
+        InboxOrigin::Sandbox
+    } else if let Some(source_task_id) = &msg.source_task_id {
+        InboxOrigin::Task {
+            source_task_id: source_task_id.clone(),
+            sent_by: msg.sent_by.clone(),
+        }
+    } else if let (Some(adapter), Some(event_id)) = (&msg.external_adapter, &msg.external_event_id)
+    {
+        InboxOrigin::Adapter {
+            channel: AdapterChannel {
+                adapter: adapter.clone(),
+                external_message_id: event_id.clone(),
+                subject_key: msg.external_subject_key.clone(),
+                source_name: msg.external_source_name.clone(),
+            },
+            sender: ExternalSender {
+                id: msg.external_sender_id.clone(),
+                author: msg.external_author.clone(),
+            },
+            sent_by: msg.sent_by.clone(),
+        }
+    } else if let Some(sent_by) = &msg.sent_by {
+        InboxOrigin::User {
+            sent_by: sent_by.clone(),
+        }
+    } else {
+        InboxOrigin::System
+    };
+    let file_ids = msg
+        .attachments
+        .as_ref()
+        .and_then(|a| a.get("file_ids"))
+        .and_then(Value::as_array)
+        .map(|ids| {
+            ids.iter()
+                .filter_map(|id| id.as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default();
+    NewInboxItem {
+        id,
+        task_id: msg.task_id.clone(),
+        text,
+        file_ids,
+        options: DeliveryOptions {
+            model: msg.model.clone(),
+            agent_mode: msg.agent_mode_raw.clone(),
+            effort: msg.effort.clone(),
+            skills: msg.skills.clone(),
+            resume: msg.resume,
+            start_fresh: msg.start_fresh,
+            contexts: contexts
+                .iter()
+                .map(|c| InboxContext {
+                    context_type: c.context_type.clone(),
+                    reference_id: c.reference_id.clone(),
+                    data: c.data.clone(),
+                })
+                .collect(),
+            tool_response: msg.tool_response.clone(),
+        },
+        answers_tool_use_id: msg
+            .tool_response
+            .as_ref()
+            .and_then(|r| r.get("toolUseId"))
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        origin,
+    }
+}
+
+/// `msg` as the `task_messages` columns a frozen row keeps.
+fn legacy(msg: &TaskMessage) -> Value {
+    let columns: [(&str, Value); 44] = [
+        ("uuid", json!(msg.uuid)),
+        ("message_type", json!(msg.message_type.as_str())),
+        ("message_role", json!(msg.message_role.as_str())),
+        ("user_type", json!(msg.user_type)),
+        ("parent_uuid", json!(msg.parent_uuid)),
+        ("is_sidechain", json!(msg.is_sidechain)),
+        ("cwd", json!(msg.cwd)),
+        ("session_id", json!(msg.session_id)),
+        ("version", json!(msg.version)),
+        ("git_branch", json!(msg.git_branch)),
+        ("request_id", json!(msg.request_id)),
+        ("timestamp", json!(msg.timestamp)),
+        ("assistant_message_id", json!(msg.assistant_message_id)),
+        ("assistant_message_type", json!(msg.assistant_message_type)),
+        (
+            "assistant_message_model",
+            json!(msg.assistant_message_model),
+        ),
+        ("assistant_stop_reason", json!(msg.assistant_stop_reason)),
+        (
+            "assistant_stop_sequence",
+            json!(msg.assistant_stop_sequence),
+        ),
+        (
+            "assistant_usage_input_tokens",
+            json!(msg.assistant_usage_input_tokens),
+        ),
+        (
+            "assistant_usage_output_tokens",
+            json!(msg.assistant_usage_output_tokens),
+        ),
+        (
+            "assistant_usage_cache_creation_input_tokens",
+            json!(msg.assistant_usage_cache_creation_input_tokens),
+        ),
+        (
+            "assistant_usage_cache_read_input_tokens",
+            json!(msg.assistant_usage_cache_read_input_tokens),
+        ),
+        ("assistant_usage", json!(msg.assistant_usage)),
+        ("tool_use_result", json!(msg.tool_use_result)),
+        ("tool_response", json!(msg.tool_response)),
+        ("sdk_metadata", json!(msg.sdk_metadata)),
+        ("attachments", json!(msg.attachments)),
+        ("agent_session_id", json!(msg.agent_session_id)),
+        ("will_not_resume", json!(msg.will_not_resume)),
+        ("run_metrics", json!(msg.run_metrics)),
+        ("agent_mode", json!(msg.agent_mode_raw)),
+        ("model", json!(msg.model)),
+        ("effort", json!(msg.effort)),
+        ("skills", json!(msg.skills)),
+        ("resume", json!(msg.resume)),
+        ("sent_at", json!(msg.sent_at.map(|at| at.to_rfc3339()))),
+        ("external_event_id", json!(msg.external_event_id)),
+        ("external_adapter", json!(msg.external_adapter)),
+        ("external_subject_key", json!(msg.external_subject_key)),
+        ("external_source_name", json!(msg.external_source_name)),
+        ("external_author", json!(msg.external_author)),
+        ("external_sender_id", json!(msg.external_sender_id)),
+        ("source_task_id", json!(msg.source_task_id)),
+        ("start_fresh", json!(msg.start_fresh)),
+        ("sent_by", json!(msg.sent_by)),
+    ];
+    Value::Object(
+        columns
+            .into_iter()
+            .map(|(key, value)| (key.to_string(), value))
+            .collect(),
+    )
 }
 
 /// Every Message, context and activity a Task holds.
@@ -128,41 +388,6 @@ pub async fn last_assistant_message(
     messages(pool).get_last_assistant_message(task_id).await
 }
 
-/// Stamp `session_id` on every Message of a Task that carries none.
-pub async fn set_session_id(
-    pool: &DbPool,
-    task_id: &str,
-    session_id: &str,
-) -> Result<u64, sqlx::Error> {
-    messages(pool)
-        .set_session_id_for_task(task_id, session_id)
-        .await
-}
-
-/// Write a run's usage onto the last assistant Message of a turn.
-pub async fn backfill_last_assistant_usage(
-    pool: &DbPool,
-    task_id: &str,
-    turn_number: i32,
-    input_tokens: Option<i32>,
-    output_tokens: Option<i32>,
-    cache_creation_input_tokens: Option<i32>,
-    cache_read_input_tokens: Option<i32>,
-    assistant_usage: Option<&serde_json::Value>,
-) -> Result<bool, sqlx::Error> {
-    messages(pool)
-        .backfill_last_assistant_usage(
-            task_id,
-            turn_number,
-            input_tokens,
-            output_tokens,
-            cache_creation_input_tokens,
-            cache_read_input_tokens,
-            assistant_usage,
-        )
-        .await
-}
-
 /// Mark inbox items delivered to a turn.
 pub async fn acknowledge_messages(
     pool: &DbPool,
@@ -184,25 +409,48 @@ pub async fn acknowledge_messages(
         .await
 }
 
-/// Write what a turn did when the turn wrote no Message of its own.
+/// Write what a turn did onto the seeded Message `message_uuid`, or in a change
+/// of its own when no such Message is seeded.
 pub async fn seed_activities(
     pool: &DbPool,
     task_id: &str,
     message_uuid: &str,
     conversation: &ConversationWrite,
 ) -> Result<(), sqlx::Error> {
-    messages(pool)
-        .append_activities(task_id, message_uuid, conversation)
-        .await
+    let message = seeded_uuid(message_uuid);
+    let mut tx = pool.begin().await?;
+    let position = match conversation::message_position(&mut tx, message).await? {
+        Some(position) => position,
+        None => conversation::position_for(&mut tx, task_id, None, message).await?,
+    };
+    write_conversation(&mut tx, task_id, position, message, None, conversation).await?;
+    tx.commit().await
 }
 
-/// Write an activity that hangs off no Message. Returns whether a row was
-/// written.
+/// Mark `task_id` frozen, as the migration marks a Task created before
+/// recording. A frozen call settles only when `open_since` is at or before
+/// its write.
+pub async fn freeze(
+    pool: &DbPool,
+    task_id: &str,
+    open_since: Option<chrono::DateTime<Utc>>,
+) -> Result<(), sqlx::Error> {
+    let mut tx = pool.begin().await?;
+    conversation::seed_frozen_task(&mut tx, task_id, open_since).await?;
+    tx.commit().await
+}
+
+/// Write an activity that hangs off no Message, as a task event projects one.
+/// Returns whether a row was written.
 pub async fn record_standalone_activity(
     pool: &DbPool,
     activity: &ActivityRow,
 ) -> Result<bool, sqlx::Error> {
-    messages(pool).record_standalone_activity(activity).await
+    let mut tx = pool.begin().await?;
+    let written =
+        conversation::standalone_activity(&mut tx, activity, &activity.activity_id).await?;
+    tx.commit().await?;
+    Ok(written)
 }
 
 /// Write a Sandbox status activity. Returns whether a row was written: a status
@@ -211,7 +459,14 @@ pub async fn record_sandbox_activity(
     pool: &DbPool,
     activity: &ActivityRow,
 ) -> Result<bool, sqlx::Error> {
-    messages(pool).record_sandbox_activity(activity).await
+    let mut tx = pool.begin().await?;
+    if conversation::restates_sandbox(&mut tx, activity).await? {
+        return Ok(false);
+    }
+    let written =
+        conversation::standalone_activity(&mut tx, activity, &activity.activity_id).await?;
+    tx.commit().await?;
+    Ok(written)
 }
 
 /// Record an external event this Task produced.
@@ -224,19 +479,6 @@ pub async fn record_external_event(
 ) -> Result<(), sqlx::Error> {
     messages(pool)
         .record_external_event(task_id, external_event_id, provider, source_name)
-        .await
-}
-
-/// Stamp the external source a Message came from.
-pub async fn set_external_source_metadata(
-    pool: &DbPool,
-    message_uuid: &str,
-    external_id: &str,
-    provider: &str,
-    source_name: Option<&str>,
-) -> Result<bool, sqlx::Error> {
-    messages(pool)
-        .set_external_source_metadata(message_uuid, external_id, provider, source_name)
         .await
 }
 
@@ -323,4 +565,67 @@ pub fn make_message_row(task_id: &str, uuid: &str) -> TaskMessage {
         source_task_id: None,
         start_fresh: false,
     }
+}
+
+/// Append one agent text line to `task_id`'s Claude session `session`, as a
+/// pod's write-out does, and return its event id. The line is projected.
+pub async fn seed_agent_line(
+    pool: &DbPool,
+    task_id: &str,
+    session: &str,
+    turn_number: Option<i32>,
+    text: &str,
+) -> Uuid {
+    seed_agent_blocks(
+        pool,
+        task_id,
+        session,
+        turn_number,
+        json!([{ "type": "text", "text": text }]),
+    )
+    .await
+}
+
+/// Appends one Claude assistant line of `blocks`, projected as a live one is,
+/// and returns its event id.
+pub async fn seed_agent_blocks(
+    pool: &DbPool,
+    task_id: &str,
+    session: &str,
+    turn_number: Option<i32>,
+    blocks: serde_json::Value,
+) -> Uuid {
+    use crate::trajectory::models::{AppendRequest, NewEvent};
+    let store = crate::trajectory::dao::PgTrajectoryDao(pool.clone());
+    let first_seq = store
+        .find_session(session)
+        .await
+        .unwrap()
+        .map_or(0, |s| s.last_seq + 1);
+    let line = NewEvent {
+        kind: "assistant".into(),
+        harness_item_id: Some(format!("{session}-item-{first_seq}")),
+        harness_turn_id: None,
+        payload: json!({ "type": "assistant", "seq": first_seq }).to_string(),
+        content: json!({ "role": "assistant", "blocks": blocks }),
+    };
+    store
+        .append(AppendRequest {
+            task_id,
+            harness: moatless_types::agent::Harness::ClaudeCode,
+            harness_session_id: session,
+            first_seq,
+            lines: std::slice::from_ref(&line),
+            turn_number,
+            subagent_parent: None,
+            own_from_seq: None,
+        })
+        .await
+        .unwrap();
+    store
+        .find_session(session)
+        .await
+        .unwrap()
+        .and_then(|s| s.last_event_id)
+        .expect("the appended line")
 }

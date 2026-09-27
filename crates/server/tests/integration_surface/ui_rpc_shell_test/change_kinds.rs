@@ -21,15 +21,15 @@ use crate::common::seed_team;
 use crate::common::test_app_state;
 use axum::http::StatusCode;
 use futures::future::BoxFuture;
+use moatless_tasks::activities::mapping::BlockContext;
+use moatless_tasks::activities::mapping::ConversationWrite;
+use moatless_tasks::activities::mapping::map_content;
 use moatless_tasks::message::models::MessageType;
 use moatless_tasks::message::models::TaskMessage;
 use moatless_tasks::tag::test_support as tag_fixtures;
 use moatless_tasks::task::models::TaskPatch;
 use moatless_tasks::task::models::TaskStatus;
 use moatless_tasks::task::models::Visibility;
-use moatless_tasks::task_activities::mapping::BlockContext;
-use moatless_tasks::task_activities::mapping::ConversationWrite;
-use moatless_tasks::task_activities::mapping::map_content;
 use moatless_types::access_control::Scope;
 use moatless_types::access_control::ScopeContext;
 use moatless_workspaces::compose;
@@ -365,6 +365,8 @@ async fn every_remaining_change_kind_moves_the_row(pool: PgPool) {
                             parent_uuid: None,
                             message_type: MessageType::Assistant,
                             block_index: 1,
+                            source: &uuid,
+                            source_block: 0,
                         },
                         &json!([{
                             "type": "tool_use",
@@ -540,6 +542,8 @@ async fn a_long_agent_turn_does_not_reorder_the_sidebar(pool: PgPool) {
                 parent_uuid: None,
                 message_type: MessageType::Assistant,
                 block_index: 1,
+                source: &uuid,
+                source_block: 0,
             },
             &json!([
                 {"type": "tool_use", "id": format!("tu-{step}"), "name": "Bash", "input": {}},

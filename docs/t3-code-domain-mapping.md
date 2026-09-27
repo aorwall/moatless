@@ -27,8 +27,8 @@ about where truth lives, and every downstream difference follows from that:
 - **T3 Code derives state from events.** `orchestration_events` is append-only
   and authoritative; all nine `projection_*` tables are rebuildable folds keyed
   on a global `sequence`.
-- **Moatless derives events from state.** `tasks`, `task_turns`, `task_messages`
-  are authoritative. `migrations/0071_task_turns.sql` demoted the log
+- **Moatless derives events from state.** `tasks`, `task_turns`, `task_inbox` and
+  the Trajectory are authoritative. `migrations/0071_task_turns.sql` demoted the log
   deliberately, so that *"events become projections rather than the source of
   truth."*
 
@@ -211,7 +211,7 @@ plans and `deletedAt`:
 | `latestTurn` | The newest `task_turns` row by `turn_number`; `null` when the Task has never run. `turnId` is `{task_id}:{turn_number}` — Moatless has no single-column turn id. `requestedAt` and `startedAt` are both `started_at`: a Moatless Turn comes into existence already running. `assistantMessageId` is `null` — the shell listing carries no messages. |
 | `createdAt` / `updatedAt` | `tasks.created_at_db` (falling back to the text `created_at`) / `tasks.updated_at`. |
 | `session` | The `sandboxes` row, or `null` when none exists — absence is the lazy converged-Stopped default and is the one case meaning *no session*. `status` folds `desired_state` + turn openness + `stop_reason`; `activeTurnId` is set only while the newest turn is open; `providerName` is the agent catalog's label; `lastError` is `null` (Moatless records no durable Sandbox error text). `runtimeMode` is **omitted** here — the session's copy carries a decoding default, unlike the conversation's. |
-| `latestUserMessageAt` | `MAX(task_messages.created_at) WHERE message_type = 'user'` — see the hazard below. |
+| `latestUserMessageAt` | `MAX(conversation_messages.created_at)` over user Messages a person sent — see the hazard below. |
 | `hasPendingApprovals` | `false`. Moatless has no approval queue and the contract supplies no empty value. |
 | `hasPendingUserInput` / `hasActionableProposedPlan` | An unanswered `AskUserQuestion` / `ExitPlanMode` `tool_use` block in the newest assistant message. |
 | `visibility` | `tasks.visibility`. `NOT NULL DEFAULT 'private'`, so it is always emitted. `public` is the whole of the control grant, not a read grant — see `ScopeContext::can_control` — so a public Task is drivable by every signed-in viewer. |
@@ -232,9 +232,9 @@ definition — its pipeline reads `message.role === "user"`
 `tasks.last_message_at`, **also advances when the agent writes**
 (`agent_handlers.rs:101`, `:442`, `:552`), so a sidebar built on it reorders
 itself while nobody is talking. The value is derived instead, from
-`task_messages.message_type = 'user'` — this backend's own predicate for a
-person's message, since the SDK's `user`-role rows (tool results streamed back)
-are persisted as `system` (`agent_handlers.rs:831`).
+`conversation_messages.author = 'user'` whose inbox item did not come from a
+Sandbox — this backend's own predicate for a person's message, since the SDK's
+`user`-role lines (tool results streamed back) are projected as activities.
 
 **A conversation whose Workspace does not resolve must be left out of the
 listing entirely.** New Tasks always name one (`task/dao.rs::insert_task` refuses

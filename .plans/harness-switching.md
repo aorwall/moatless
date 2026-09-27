@@ -38,7 +38,7 @@ contract and phase needed to build it is in this file.
 | 2 | How a switch appears in the Trajectory | **Materialise at switch.** A new session of the target harness whose first lines are the transcoded prefix, stored once as its own events. The lineage is a new `transcoded_from_event_id`, never `forked_from_event_id`. |
 | 3 | Where the Chat reads from | **Three sources, one derived conversation** (section 1). The sandbox tails session and subagent files and ships each line as it appears. Recording is always on. |
 | 4 | Where transcoding runs | **In the sandbox**, in `write_out` at the first turn after a switch. The ordinary tail records the result. |
-| 4a | Tasks with no Trajectory (created before recording) | **Frozen.** Their rows are copied once into the conversation read model, marked `frozen`. The Projector never rebuilds or touches them. |
+| 4a | History recorded before the read model | **Frozen.** Every `task_messages`/`task_activities` row, with a Trajectory or not, is copied once into the conversation read model, marked `frozen`. The Projector never rebuilds or deletes them, with one exception: a line of the turn open at the freeze (`conversation_frozen.open_since`) may settle a frozen tool call it answers. |
 | 5 | How a switch is requested | An explicit Agent profile: the T3 instance picker (`instanceId`), `agent_profile` on `PATCH /tasks/{id}`, or `moat tasks update --agent-profile`. A model alone never switches. |
 | 6 | Switch while a turn runs | Accepted. The running turn finishes on the old harness; the next turn runs the new one. |
 | 7 | No credential for the target harness | Refused at request time, with the create-time message. |
@@ -179,7 +179,7 @@ exact shape, so a row cannot claim one origin and carry another's sender.
 ```sql
 CREATE TABLE task_inbox (
     id                    uuid PRIMARY KEY,
-    task_id               text NOT NULL REFERENCES tasks (task_id) ON DELETE CASCADE,
+    task_id               text NOT NULL,  -- no FK: a fork's Message outlives its ancestor
     created_at            timestamptz NOT NULL DEFAULT now(),
 
     -- Content, as sent. The Chat shows this, not the CLI's copy of it.
@@ -206,8 +206,9 @@ CREATE TABLE task_inbox (
 
     -- Delivery
     status                text NOT NULL DEFAULT 'pending'
-                          CHECK (status IN ('pending', 'delivered', 'cancelled')),
+                          CHECK (status IN ('pending', 'delivered', 'cancelled', 'rewound')),
     delivered_at          timestamptz,
+    rewound_at            timestamptz,
     run_id                text,
     turn_number           integer,
     session_id            text,           -- the agent session the delivery ran in; recovery resumes it
@@ -224,11 +225,12 @@ CREATE TABLE task_inbox (
       WHEN 'system', 'sandbox'
                      THEN num_nonnulls(sent_by, source_task_id, adapter, external_message_id,
                                        external_sender_id, external_author) = 0
-      WHEN 'unknown' THEN status = 'delivered'   -- backfilled history only
+      WHEN 'unknown' THEN status IN ('delivered', 'rewound')   -- backfilled history only
     END),
     CHECK (adapter IS NOT NULL OR num_nonnulls(external_subject_key, external_source_name) = 0),
-    CHECK ((status = 'delivered') = (delivered_at IS NOT NULL)),
-    CHECK (status = 'delivered' OR num_nonnulls(run_id, turn_number, session_id) = 0)
+    CHECK ((status IN ('delivered', 'rewound')) = (delivered_at IS NOT NULL)),
+    CHECK (status IN ('delivered', 'rewound') OR num_nonnulls(run_id, turn_number, session_id) = 0),
+    CHECK ((status = 'rewound') = (rewound_at IS NOT NULL))
 );
 
 CREATE UNIQUE INDEX task_inbox_external_message_idx
@@ -236,7 +238,15 @@ CREATE UNIQUE INDEX task_inbox_external_message_idx
 CREATE INDEX task_inbox_pending_idx ON task_inbox (task_id, created_at) WHERE status = 'pending';
 CREATE INDEX task_inbox_sent_by_idx ON task_inbox (sent_by);
 CREATE INDEX task_inbox_turn_idx ON task_inbox (task_id, turn_number);
+CREATE INDEX task_inbox_latest_queued_idx
+    ON task_inbox (task_id, created_at DESC) WHERE status IN ('pending', 'delivered');
 ```
+
+`rewound`, `rewound_at` and the dropped task FK arrive in phase 5 (0178). A
+rewind deletes the delivered items past its cut, except one a fork's inherited
+Message reads: that one turns `rewound` and keeps its turn and delivery, so the
+fork's `rebuild` still replays it (4.9a). Deleting a Task deletes the items no
+other Task's conversation reads.
 
 The origin `CHECK` is named `task_inbox_sender_check`: Postgres auto-names the
 column `CHECK` on `origin` `task_inbox_origin_check`.
@@ -370,9 +380,11 @@ Task has no top-level `trajectory_sessions` row with an event". This replaces th
 
 A frozen Task has no event to name, so forking it is refused (5.2).
 
-Nothing backfills `source_event_id`. A row written before it is resolved from
-its legacy anchors, in the harness of the source session they name, when the
-fork's first turn reads it.
+Nothing backfills `source_event_id`, and phase 5 (0179) makes it `NOT NULL`: a
+row without one is deleted with the legacy anchors, so that Task's next turn
+starts a fresh session. "Has not run" is scoped to the fork: no own top-level
+session event after `task_forks.created_at`, which a rewind resets to its own
+time.
 
 ### 4.7 `task_events` (writers changed)
 
@@ -382,75 +394,33 @@ as history.
 ### 4.8 Conversation read model (new; replaces `task_messages` and `task_activities`)
 
 Written only by the Projector. Every non-frozen row names exactly one source, and
-each `kind` fixes which columns it carries.
+each `kind` fixes which columns it carries. The DDL is
+`crates/core/migrations/0178_conversation_read_model.sql`; its shape:
 
-```sql
-CREATE TABLE conversation_messages (
-    uuid                 uuid PRIMARY KEY,   -- section 4.9
-    task_id              text NOT NULL,
-    position             bigint NOT NULL,    -- from task_conversation_position
-    author               text NOT NULL CHECK (author IN ('user', 'agent', 'system')),
-    kind                 text NOT NULL CHECK (kind IN ('text', 'error', 'turn_result')),
-    text                 text,
-    text_parts           text[],
-    parent_uuid          uuid,               -- spawning tool call's Message, for a subagent's Message
-    turn_number          integer,
-    harness              text CHECK (harness IN ('claude-code', 'codex')),
-    model                text,
-    usage                jsonb,
-    inbox_id             uuid REFERENCES task_inbox (id),
-    trajectory_event_id  uuid REFERENCES trajectory_events (id),
-    task_event_id        text,
-    frozen               boolean NOT NULL DEFAULT false,
-    created_at           timestamptz NOT NULL DEFAULT now(),
-    UNIQUE (task_id, position),
-    CHECK (frozen OR num_nonnulls(inbox_id, trajectory_event_id, task_event_id) = 1),
-    CHECK (frozen OR CASE
-      WHEN author = 'user'  THEN kind = 'text' AND inbox_id IS NOT NULL
-      WHEN author = 'agent' THEN kind = 'text' AND trajectory_event_id IS NOT NULL AND harness IS NOT NULL
-      ELSE kind IN ('error', 'turn_result') AND task_event_id IS NOT NULL
-    END),
-    CHECK (usage IS NULL OR kind = 'turn_result' OR author = 'agent')
-);
-CREATE INDEX conversation_messages_task_idx ON conversation_messages (task_id, position);
-CREATE INDEX conversation_messages_inbox_idx ON conversation_messages (inbox_id);
+| Table | Holds |
+|---|---|
+| `conversation_messages` | `uuid` (4.9), `task_id`, `position`, `author` (`user`/`agent`/`system`), `kind` (`text`/`error`/`turn_result`), `text`, `text_parts`, `parent_tool_use_id`, `turn_number`, `harness`, `model`, `usage`, and one source: `inbox_id` (`ON DELETE CASCADE`), `trajectory_event_id` or `task_event_id`. A frozen row carries its other `task_messages` columns in `legacy` jsonb. |
+| `conversation_activities` | `activity_id` (4.9), `position`, `ordinal` (block index within the Message), `message_uuid`, `parent_tool_use_id`, `kind`, `status`, `tool_use_id`, `summary`, `payload`, `detail`, `is_error`, and one source: `trajectory_event_id` (+ `result_event_id`), `inbox_id` or `task_event_id` |
+| `conversation_usage` | One model response's tokens: live rows keyed `(task_id, trajectory_event_id)`, frozen rows by their mapped `message_uuid`; exactly one of the two |
+| `conversation_frozen` | Per Task: `frozen_at`, and the turn open then (`open_turn`, `open_since`) for D4a's exception |
 
-CREATE TABLE conversation_activities (
-    activity_id          uuid PRIMARY KEY,   -- section 4.9
-    task_id              text NOT NULL,
-    position             bigint NOT NULL,
-    message_uuid         uuid,
-    parent_uuid          uuid,
-    kind                 text NOT NULL CHECK (kind IN ('tool_call', 'thinking', 'sandbox_status', 'sandbox_error')),
-    status               text NOT NULL CHECK (status IN ('in_progress', 'completed', 'failed')),
-    tool_use_id          text,
-    summary              text NOT NULL,
-    payload              jsonb NOT NULL DEFAULT '{}'::jsonb,
-    detail               text,               -- first 2,000 chars of the result, as today
-    is_error             boolean NOT NULL DEFAULT false,
-    -- Echo-suppression claim, as today; same names as task_inbox's channel.
-    adapter              text,               -- was external_adapter
-    external_message_id  text,               -- was external_event_id
-    external_source_name text,
-    trajectory_event_id  uuid REFERENCES trajectory_events (id),  -- the call
-    result_event_id      uuid REFERENCES trajectory_events (id),  -- the result
-    task_event_id        text,                                    -- sandbox activities
-    frozen               boolean NOT NULL DEFAULT false,
-    created_at           timestamptz NOT NULL DEFAULT now(),
-    CHECK (frozen OR CASE kind
-      WHEN 'tool_call' THEN trajectory_event_id IS NOT NULL AND tool_use_id IS NOT NULL
-                            AND task_event_id IS NULL
-      WHEN 'thinking'  THEN trajectory_event_id IS NOT NULL AND task_event_id IS NULL
-                            AND tool_use_id IS NULL AND result_event_id IS NULL
-      ELSE task_event_id IS NOT NULL
-           AND num_nonnulls(trajectory_event_id, result_event_id, tool_use_id) = 0
-    END),
-    CHECK (result_event_id IS NULL OR status <> 'in_progress'),
-    CHECK ((adapter IS NULL) = (external_message_id IS NULL))
-);
-CREATE INDEX conversation_activities_task_idx ON conversation_activities (task_id, position);
-CREATE INDEX conversation_activities_tool_use_idx ON conversation_activities (task_id, tool_use_id);
-```
+Differences from the first draft, forced by the code:
+
+- A subagent's row names its spawning call by `parent_tool_use_id`, not a
+  `parent_uuid`, and positions itself within that transcript; the unique
+  position index covers top-level rows only.
+- A user Message stores no text: the reader joins `task_inbox`. Session, agent
+  session and agent mode are derived at read, not stored.
+- `author = 'agent'` with a `task_event_id` is a reply sent through a binding
+  (`task_events` `task`/`binding_reply_sent`), enforced by a trigger.
+- Activity kinds widen to `tool_call`, `thinking`, `user_input_requested`,
+  `plan_updated`, `user_input_resolved` (source: the inbox item),
+  `sandbox_status`, `sandbox_warning`, `sandbox_error` and
+  `context_window_updated`, each with its own source `CHECK`.
+- Activities carry no echo-suppression claim: the echo check reads
+  `task_inbox` and `task_outbound_events`.
+- Indexes for the shell listing: the newest user Message, the newest agent
+  model per turn, and the newest queued inbox item.
 
 `task_conversation_position` and `task_conversation_changes` stay unchanged;
 the Projector advances them.
@@ -470,7 +440,8 @@ fork projects the same source rows as its source does (4.9a):
 | Error / turn result Message | `uuidv5(ns, "message:" ‖ task_id ‖ ":" ‖ task_events.event_id)` |
 | Tool or thinking activity | `uuidv5(ns, "activity:" ‖ task_id ‖ ":" ‖ trajectory_event_id ‖ ":" ‖ block_index)` |
 | Sandbox activity | `uuidv5(ns, "activity:" ‖ task_id ‖ ":" ‖ task_events.event_id)` |
-| Frozen row | its `task_messages.uuid`; a frozen activity id that is not a uuid is mapped with `uuidv5(ns, "legacy:" ‖ activity_id)` |
+| User-input-resolved activity | `uuidv5(ns, "activity:" ‖ task_id ‖ ":" ‖ task_inbox.id ‖ ":user-input-resolved")` |
+| Frozen row | its `task_messages.uuid`; a legacy id that is not a uuid is mapped once, in the migration, to an md5 name-based uuid of `"legacy:" ‖ id` with its version nibble set to 3, so it never equals a Projector id (version 5). Every row naming it (activities, usage, feedback) follows |
 
 ### 4.9a A fork's inherited conversation
 
@@ -482,7 +453,7 @@ the ancestor Task, the cut event in it, and the cut turn `n` (that event's
 
 | Source in the ancestor | Inherited when |
 |---|---|
-| `task_inbox` items with `status = 'delivered'`, `origin <> 'sandbox'` | `turn_number <= n` |
+| `task_inbox` items with `origin <> 'sandbox'`, `delivered`, or `rewound` after the cut | `turn_number <= n`, created at or before the cut |
 | Trajectory events on the chain | at or before the cut event |
 | `task_events` errors, turn results and sandbox status | `turn_number < n` |
 
@@ -495,6 +466,10 @@ position and 4.9 id. An inherited activity carries no echo-suppression claim
 `GET /tasks/{id}/messages` serves that Task as its `source_task_id`, as the copy
 sets it today. The cut turn's own result is not inherited: the fork records
 that turn as `stopped` (phase 5).
+
+An ancestor's later rewind leaves the fork whole: the items it inherited stay
+`rewound` (4.2). Deleting an ancestor keeps them too, so the fork's `rebuild`
+still replays them.
 
 ### 4.10 Removed
 
@@ -815,6 +790,7 @@ or `kind`.
 | `task_inbox` row with `origin = 'sandbox'` | Nothing | Nobody said it; it still opens a turn and counts for recovery |
 | Backend error result (`persist_error_result`, `message/send.rs:487`), e.g. a failed wake | Error Message, `uuid` = the event id | The `task.error` row and the Message commit in one transaction |
 | Frozen row | Left alone | Never rebuilt, never deleted by `rebuild` |
+| Interactive call (`AskUserQuestion`, `ExitPlanMode`) projected live | Its activity, and clears every follower's settled mark | As `append` did on `task_messages` |
 | Fork creation | The inherited rows, before any own row | Projected from each ancestor's sources up to its cut (4.9a), with the fork's ids; the ancestor's rows are neither read nor shared |
 
 After a commit, the append publishes a `message.upsert` for each top-level
@@ -1168,7 +1144,12 @@ tests (`crates/t3code/src/projection/tests/`) unchanged.
   - CLI: `commands/messages.rs`, `commands/feedback.rs`.
   - `sandbox/src/agent/harness/claude/fork.rs`,
     `sandbox-proto/src/event_conversion.rs`.
+- Project a task event in the transaction that inserts it
+  (`apply_ingress_event`, `insert_event`), not after.
+- Rename the `task_activities` module to `activities`.
 - Migration: drop the tables and columns in 4.10.
+- Deploy: frozen positions are renumbered, so every conversation cursor resets
+  once.
 
 Verification: `rg 'task_messages|task_activities'` matches only migrations; full
 E2E suite; `rebuild` of a nonprod Task reproduces its rows and ids.

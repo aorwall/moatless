@@ -1,6 +1,6 @@
 //! The reads this surface needs and the conversation feed does not.
 //!
-//! Everything a Moatless reader already asks of `task_activities` is served by
+//! Everything a Moatless reader already asks of `conversation_activities` is served by
 //! [`moatless_ports::activity::ActivitySource`]. What is left here answers
 //! questions only a T3 transcript asks.
 
@@ -34,7 +34,7 @@ pub async fn settled_requests(
     }
     let settled: Vec<(String,)> = sqlx::query_as(
         r#"SELECT tool_use_id
-           FROM task_activities
+           FROM conversation_activities
            WHERE task_id = $1
              AND tool_use_id = ANY($2)
              AND kind = 'tool_call'
@@ -53,8 +53,9 @@ pub async fn settled_requests(
 /// What each subagent named by these rows has spent, keyed by the spawning
 /// `Agent` tool-use id.
 ///
-/// Summed over `task_message_usage`, not `task_messages`, since tool-only turns
-/// spend tokens but leave no Message row.
+/// Summed over `conversation_usage`, not the Messages, since tool-only turns
+/// spend tokens but leave no Message row. A live row names its subagent
+/// through its line's session; a frozen one by `parent_tool_use_id`.
 pub async fn subagent_usage(
     pool: &UiRpcDbPool,
     task_id: &str,
@@ -69,12 +70,27 @@ pub async fn subagent_usage(
         return Ok(HashMap::new());
     }
     let rows: Vec<SubagentUsage> = sqlx::query_as(
-        r#"SELECT parent_uuid,
-                  COALESCE(SUM(input_tokens), 0)  AS input_tokens,
-                  COALESCE(SUM(output_tokens), 0) AS output_tokens
-           FROM task_message_usage
-           WHERE task_id = $1 AND parent_uuid = ANY($2)
-           GROUP BY parent_uuid"#,
+        r#"SELECT parent AS parent_uuid,
+                  COALESCE(SUM(input_tokens), 0)::bigint  AS input_tokens,
+                  COALESCE(SUM(output_tokens), 0)::bigint AS output_tokens
+           FROM (
+               SELECT u.parent_tool_use_id AS parent, u.input_tokens, u.output_tokens
+                 FROM conversation_usage u
+                WHERE u.task_id = $1 AND u.trajectory_event_id IS NULL
+               UNION ALL
+               SELECT (SELECT b ->> 'id'
+                         FROM trajectory_events p,
+                              jsonb_array_elements(COALESCE(p.content -> 'blocks', '[]'::jsonb)) b
+                        WHERE p.id = s.parent_event_id AND b ->> 'type' = 'tool_use'
+                        LIMIT 1),
+                      u.input_tokens, u.output_tokens
+                 FROM conversation_usage u
+                 JOIN trajectory_events e ON e.id = u.trajectory_event_id
+                 JOIN trajectory_sessions s ON s.id = e.session_id
+                WHERE u.task_id = $1 AND s.parent_event_id IS NOT NULL
+           ) usage
+           WHERE parent = ANY($2)
+           GROUP BY parent"#,
     )
     .bind(task_id)
     .bind(&spawned)

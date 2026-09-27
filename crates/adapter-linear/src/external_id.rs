@@ -1,6 +1,6 @@
 //! The external-id formats this Adapter persists.
 //!
-//! Written to `task_messages.external_event_id` and a Binding's
+//! Written to `task_inbox.external_event_id` and a Binding's
 //! `last_external_event_id`, read back by echo filtering and de-duplication;
 //! changing a format doesn't migrate old rows, so extend through
 //! `external_id_aliases` instead of editing a function here.

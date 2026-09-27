@@ -15,10 +15,12 @@ use axum::http::StatusCode;
 use sqlx::PgPool;
 use tower::ServiceExt;
 
+use moatless_tasks::activities::mapping::{
+    ActivityKind, ActivityRow, ActivityStatus, ConversationWrite,
+};
 use moatless_tasks::feedback::routes::feedback_router;
 use moatless_tasks::message::test_support as message_fixtures;
 use moatless_tasks::task::test_support as task_fixtures;
-use moatless_tasks::task_activities::mapping::ConversationWrite;
 use moatless_workspaces::compose;
 
 use common::{
@@ -46,23 +48,30 @@ async fn seed_task(pool: &PgPool, task_id: &str, user: &str) {
 async fn seed_activity(
     pool: &PgPool,
     task_id: &str,
-    position: i64,
+    ordinal: i32,
     message_uuid: &str,
     tool_use_id: &str,
 ) {
-    sqlx::query(
-        r#"INSERT INTO task_activities
-               (activity_id, task_id, position, message_uuid, kind, status, tool_use_id, summary)
-           VALUES ($1, $2, $3, $4, 'tool_call', 'completed', $5, 'Bash')"#,
-    )
-    .bind(format!("{message_uuid}:{position}"))
-    .bind(task_id)
-    .bind(position)
-    .bind(message_uuid)
-    .bind(tool_use_id)
-    .execute(pool)
-    .await
-    .expect("seed activity");
+    let row = ActivityRow {
+        activity_id: format!("{message_uuid}:{ordinal}"),
+        task_id: task_id.to_string(),
+        ordinal,
+        message_uuid: Some(message_uuid.to_string()),
+        parent_uuid: None,
+        kind: ActivityKind::ToolCall,
+        status: ActivityStatus::Completed,
+        tool_use_id: Some(tool_use_id.to_string()),
+        summary: "Bash".to_string(),
+        payload: serde_json::json!({}),
+        is_error: false,
+    };
+    let conversation = ConversationWrite {
+        activities: vec![row],
+        ..ConversationWrite::default()
+    };
+    message_fixtures::seed_activities(pool, task_id, message_uuid, &conversation)
+        .await
+        .expect("seed activity");
 }
 
 fn unscoped_task_feedback(comment: &str) -> serde_json::Value {
@@ -94,7 +103,10 @@ async fn a_message_with_no_scope_lands_on_the_latest_tool_call(pool: PgPool) {
     assert_eq!(resp.status(), StatusCode::OK);
     let body = body_json(resp).await;
     assert_eq!(body["surface"], "tool_call");
-    assert_eq!(body["messageUuid"], "msg-1");
+    assert_eq!(
+        body["messageUuid"],
+        message_fixtures::seeded_uuid("msg-1").to_string()
+    );
     assert_eq!(body["toolUseId"], "tool-1");
 }
 
@@ -118,7 +130,10 @@ async fn a_message_with_no_scope_falls_back_to_the_latest_message(pool: PgPool) 
     assert_eq!(resp.status(), StatusCode::OK);
     let body = body_json(resp).await;
     assert_eq!(body["surface"], "message");
-    assert_eq!(body["messageUuid"], "msg-1");
+    assert_eq!(
+        body["messageUuid"],
+        message_fixtures::seeded_uuid("msg-1").to_string()
+    );
     assert!(body.get("toolUseId").is_none());
 }
 

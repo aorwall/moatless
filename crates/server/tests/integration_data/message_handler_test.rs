@@ -13,10 +13,10 @@ use axum::http::StatusCode;
 use sqlx::PgPool;
 use tower::ServiceExt;
 
+use moatless_tasks::activities::mapping::ConversationWrite;
 use moatless_tasks::message::routes::message_router;
 use moatless_tasks::message::test_support as message_fixtures;
 use moatless_tasks::task::test_support as task_fixtures;
-use moatless_tasks::task_activities::mapping::ConversationWrite;
 use moatless_workspaces::compose;
 
 use common::{

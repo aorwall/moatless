@@ -4,12 +4,11 @@
 use moatless_types::agent::Harness;
 
 use moatless_core::db::DbPool;
-use serde_json::Value;
 use uuid::Uuid;
 
-use super::lineage::{LineageRow, include_pending_results};
+use super::lineage::LineageRow;
 use super::models::{
-    AppendError, AppendOutcome, AppendRequest, ChainError, ForkCut, Head, LineProjection,
+    AppendError, AppendOutcome, AppendRequest, ChainError, CutAnchors, Head, LineProjection,
     TrajectorySession,
 };
 use crate::conversation::projector::Projector;
@@ -58,21 +57,12 @@ macro_rules! lineage {
     };
 }
 
-#[derive(sqlx::FromRow)]
-struct CutRow {
-    id: Uuid,
-    kind: String,
-    harness_item_id: Option<String>,
-    harness_turn_id: Option<String>,
-    content: Value,
-}
-
 pub(crate) struct PgTrajectoryDao(pub(crate) DbPool);
 
 /// The first tool call on `event_id`'s line: the call a subagent session
 /// hangs under.
 pub(crate) async fn spawning_call_in(
-    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    tx: &mut sqlx::PgConnection,
     event_id: Uuid,
 ) -> Result<Option<String>, sqlx::Error> {
     sqlx::query_scalar(
@@ -83,13 +73,13 @@ pub(crate) async fn spawning_call_in(
             LIMIT 1"#,
     )
     .bind(event_id)
-    .fetch_optional(&mut **tx)
+    .fetch_optional(tx)
     .await
 }
 
 /// How many blocks the session's lines of `item` hold before `seq`.
 pub(crate) async fn blocks_before_in(
-    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    tx: &mut sqlx::PgConnection,
     session_id: Uuid,
     item: &str,
     seq: i64,
@@ -103,7 +93,7 @@ pub(crate) async fn blocks_before_in(
     .bind(session_id)
     .bind(item)
     .bind(seq)
-    .fetch_one(&mut **tx)
+    .fetch_one(tx)
     .await
 }
 
@@ -315,58 +305,6 @@ impl PgTrajectoryDao {
         Ok(rows.into_iter().map(|(_, payload)| payload).collect())
     }
 
-    /// The event a fork of `source_harness_session_id` continues from, or
-    /// `None` when the session is unknown or no event matches `cut`: the cut
-    /// of a `task_forks` row written before `source_event_id`.
-    ///
-    /// A cut that leaves a `tool_use` without its `tool_result` moves forward
-    /// to the event carrying the last missing result.
-    pub async fn resolve_legacy_cut(
-        &self,
-        source_harness_session_id: &str,
-        cut: &ForkCut,
-    ) -> Result<Option<Uuid>, sqlx::Error> {
-        let Some(source) = self.find_session(source_harness_session_id).await? else {
-            return Ok(None);
-        };
-        let Some(tip) = source.last_event_id.or(source.forked_from_event_id) else {
-            return Ok(None);
-        };
-        let rows: Vec<CutRow> = sqlx::query_as(concat!(
-            walk!(),
-            " SELECT e.id, e.kind, e.harness_item_id, e.harness_turn_id, e.content
-               FROM walk JOIN trajectory_events e USING (id) ORDER BY e.seq"
-        ))
-        .bind(tip)
-        .fetch_all(&self.0)
-        .await?;
-
-        let at = match cut {
-            ForkCut::Message(id) => rows
-                .iter()
-                .rposition(|r| r.harness_item_id.as_deref() == Some(id.as_str())),
-            ForkCut::Turn(turn) => rows.iter().rposition(|r| {
-                r.harness_turn_id.as_deref() == Some(turn.as_str())
-                    && r.kind == "event_msg/task_complete"
-            }),
-            ForkCut::End => rows.len().checked_sub(1),
-        };
-        let Some(at) = at else { return Ok(None) };
-        let lineage: Vec<LineageRow> = rows
-            .into_iter()
-            .map(|r| LineageRow {
-                id: r.id,
-                session_id: source.id,
-                harness: source.harness.clone(),
-                turn_number: None,
-                content: r.content,
-                prefix: false,
-            })
-            .collect();
-        let refs: Vec<&LineageRow> = lineage.iter().collect();
-        Ok(Some(lineage[include_pending_results(&refs, at)].id))
-    }
-
     /// The event `task_id` continues from: its latest recorded top-level
     /// session's tip, else its fork cut. `None` when it has neither.
     pub async fn head(&self, task_id: &str) -> Result<Option<Head>, sqlx::Error> {
@@ -393,6 +331,18 @@ impl PgTrajectoryDao {
                 WHERE f.task_id = $1"#,
         )
         .bind(task_id)
+        .fetch_optional(&self.0)
+        .await
+    }
+
+    /// The anchors of `event_id`; `None` when unknown.
+    pub async fn cut_anchors(&self, event_id: Uuid) -> Result<Option<CutAnchors>, sqlx::Error> {
+        sqlx::query_as(
+            "SELECT s.harness, s.harness_session_id, e.harness_item_id, e.harness_turn_id \
+               FROM trajectory_events e \
+               JOIN trajectory_sessions s ON s.id = e.session_id WHERE e.id = $1",
+        )
+        .bind(event_id)
         .fetch_optional(&self.0)
         .await
     }

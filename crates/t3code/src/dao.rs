@@ -754,7 +754,6 @@ impl PgConversationDao {
                    WHERE"
             ),
         };
-        let harness = moatless_types::message::HARNESS_USER_TYPE;
         let sql = format!(
             r#"WITH listed AS MATERIALIZED (
                    SELECT t.*, tf.settled_override, tf.settled_at, tf.snoozed_until, tf.snoozed_at
@@ -812,10 +811,11 @@ impl PgConversationDao {
                ) turn ON TRUE
                LEFT JOIN LATERAL (
                    SELECT m.created_at AS latest_user_message_at
-                   FROM task_messages m
+                   FROM conversation_messages m
+                   JOIN task_inbox i ON i.id = m.inbox_id
                    WHERE m.task_id = t.task_id
-                     AND m.message_type = 'user'
-                     AND m.user_type <> '{harness}'
+                     AND m.author = 'user'
+                     AND i.origin <> 'sandbox'
                    ORDER BY m.created_at DESC
                    LIMIT 1
                ) person ON TRUE
@@ -823,43 +823,40 @@ impl PgConversationDao {
                    SELECT m.created_at AS latest_queued_message_at
                    FROM task_inbox m
                    WHERE m.task_id = t.task_id
-                     AND m.status <> 'cancelled'
+                     AND m.status IN ('pending', 'delivered')
                    ORDER BY m.created_at DESC
                    LIMIT 1
                ) queued ON TRUE
-               -- UNCERTAIN: `task_messages."timestamp"` is `text`, so every
-               -- ORDER BY below is a lexicographic sort standing in for a
-               -- chronological one. It holds only while the format is uniform
-               -- (RFC 3339, fixed precision, `Z`), which is what this backend
-               -- writes today and what its own `(task_id, timestamp, id)` index
-               -- assumes. A row written with an offset other than `Z` would
-               -- sort wrong. `id` breaks ties, so same-instant rows are stable.
+               -- A user Message's requested model is its inbox item's.
                LEFT JOIN LATERAL (
                    SELECT
-                       (SELECT a.assistant_message_model
-                          FROM task_messages a
+                       (SELECT a.model
+                          FROM conversation_messages a
                          WHERE a.task_id = t.task_id
                            -- NULL = NULL is never true, so a conversation with
                            -- no turn reports no model here and falls through to
                            -- the queued-message branch below. Intended.
                            AND a.turn_number = turn.turn_number
-                           AND a.assistant_message_model IS NOT NULL
-                         ORDER BY a."timestamp" DESC, a.id DESC
+                           AND a.author = 'agent'
+                           AND a.model IS NOT NULL
+                         ORDER BY a.position DESC
                          LIMIT 1) AS assistant_model,
                        COALESCE(
-                           (SELECT u.model
-                              FROM task_messages u
+                           (SELECT i.delivery_options ->> 'model'
+                              FROM conversation_messages u
+                              JOIN task_inbox i ON i.id = u.inbox_id
                              WHERE u.task_id = t.task_id
                                AND u.turn_number = turn.turn_number
-                               AND u.model IS NOT NULL
-                             ORDER BY u."timestamp" ASC, u.id ASC
+                               AND i.delivery_options ->> 'model' IS NOT NULL
+                             ORDER BY u.position ASC
                              LIMIT 1),
-                           (SELECT u.model
-                              FROM task_messages u
+                           (SELECT i.delivery_options ->> 'model'
+                              FROM conversation_messages u
+                              JOIN task_inbox i ON i.id = u.inbox_id
                              WHERE u.task_id = t.task_id
                                AND u.turn_number IS NULL
-                               AND u.model IS NOT NULL
-                             ORDER BY u."timestamp" DESC, u.id DESC
+                               AND i.delivery_options ->> 'model' IS NOT NULL
+                             ORDER BY u.position DESC
                              LIMIT 1)
                        ) AS requested_model
                ) model ON TRUE
@@ -884,17 +881,17 @@ impl PgConversationDao {
                    SELECT
                        bool_or(raised.summary = ${question_tool}) AS question,
                        bool_or(raised.summary = ${plan_tool})     AS plan
-                   FROM task_activities raised
+                   FROM conversation_activities raised
                    WHERE raised.task_id = t.task_id
-                     AND raised.parent_uuid IS NULL
+                     AND raised.parent_tool_use_id IS NULL
                      AND raised.kind = 'tool_call'
                      AND raised.status = 'in_progress'
                      AND raised.summary IN (${question_tool}, ${plan_tool})
                      AND raised.message_uuid = (
                            SELECT newest.message_uuid
-                           FROM task_activities newest
+                           FROM conversation_activities newest
                            WHERE newest.task_id = t.task_id
-                             AND newest.parent_uuid IS NULL
+                             AND newest.parent_tool_use_id IS NULL
                              AND newest.kind = 'tool_call'
                            ORDER BY newest.position DESC
                            LIMIT 1
@@ -1315,7 +1312,6 @@ impl ConversationDao for PgConversationDao {
         // exists to avoid, and here a drift is a disclosure rather than a
         // missing row.
         let open = TaskStatus::Open.as_str();
-        let harness = moatless_types::message::HARNESS_USER_TYPE;
         let access = moatless_core::db::access_control::access_filter(ScopedEntity::Task, "t.", 1);
         let follower = access.next_param();
         let pattern = follower + 1;
@@ -1330,24 +1326,25 @@ impl ConversationDao for PgConversationDao {
                      AND {}
                ),
                matched AS (
-                   -- A Message match. `message_type` distinguishes the person
-                   -- from the agent; `parent_uuid IS NULL` drops subagent rows,
+                   -- A Message match. `author` distinguishes the person from
+                   -- the agent; `parent_tool_use_id IS NULL` drops subagent rows,
                    -- which are never rendered inline and would otherwise be the
                    -- bulk of what a long conversation matches.
                    SELECT
                        t.task_id,
                        t.workspace_id,
-                       m.message_type = 'user' AS from_user,
-                       m.message_text        AS matched_text,
+                       m.author = 'user' AS from_user,
+                       COALESCE(m.text, i.text) AS matched_text,
                        m.created_at          AS matched_at,
                        t.updated_at,
-                       CASE WHEN m.message_type = 'user' THEN 0 ELSE 1 END AS rank
+                       CASE WHEN m.author = 'user' THEN 0 ELSE 1 END AS rank
                    FROM listed t
-                   JOIN task_messages m ON m.task_id = t.task_id
-                   WHERE m.parent_uuid IS NULL
+                   JOIN conversation_messages m ON m.task_id = t.task_id
+                   LEFT JOIN task_inbox i ON i.id = m.inbox_id
+                   WHERE m.parent_tool_use_id IS NULL
                      -- A harness wake is in no conversation to jump to.
-                     AND m.user_type <> '{harness}'
-                     AND m.message_text ILIKE ${pattern} ESCAPE '\'
+                     AND i.origin IS DISTINCT FROM 'sandbox'
+                     AND COALESCE(m.text, i.text) ILIKE ${pattern} ESCAPE '\'
                    UNION ALL
                    -- A name match, which the reference server has no equivalent
                    -- of. `tasks.name` is Moatless's own handle for a Task and is
@@ -1496,8 +1493,17 @@ pub async fn attachment_is_on_message(
     pool: &sqlx::PgPool,
     attachment_id: &str,
 ) -> Result<bool, sqlx::Error> {
-    sqlx::query_scalar::<_, bool>("SELECT EXISTS (SELECT 1 FROM task_message_contexts WHERE reference_id = $1 AND type = 'file')")
-        .bind(attachment_id).fetch_one(pool).await
+    sqlx::query_scalar::<_, bool>(
+        r#"SELECT EXISTS (
+               SELECT 1 FROM task_inbox i
+                WHERE $1 = ANY(i.file_ids)
+                   OR EXISTS (SELECT 1 FROM jsonb_array_elements(
+                                  COALESCE(i.delivery_options -> 'contexts', '[]'::jsonb)) c
+                               WHERE c ->> 'referenceId' = $1 AND c ->> 'type' = 'file'))"#,
+    )
+    .bind(attachment_id)
+    .fetch_one(pool)
+    .await
 }
 
 #[cfg(all(test, feature = "db-tests"))]

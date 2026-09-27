@@ -251,9 +251,9 @@ async fn buffered(pool: &PgPool) -> i64 {
 /// Every message Slack has put on the task, oldest first.
 async fn delivered_messages(pool: &PgPool) -> Vec<String> {
     sqlx::query_scalar::<_, Option<String>>(
-        "SELECT m.message_text FROM task_messages m \
-         WHERE m.task_id = $1 AND m.external_adapter = 'slack' \
-         ORDER BY m.id ASC",
+        "SELECT i.text FROM task_inbox i \
+         WHERE i.task_id = $1 AND i.adapter = 'slack' \
+         ORDER BY i.created_at, i.id",
     )
     .bind(TASK)
     .fetch_all(pool)

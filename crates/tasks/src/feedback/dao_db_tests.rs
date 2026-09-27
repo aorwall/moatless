@@ -5,11 +5,11 @@ use moatless_types::access_control::ScopeContext;
 use moatless_workspaces::test_support::make_repository_row;
 use sqlx::PgPool;
 
+use crate::activities::mapping::ConversationWrite;
 use crate::feedback::dao::{FeedbackDao, PgFeedbackDao};
 use crate::feedback::models::{Feedback, FeedbackFilter};
 use crate::message::test_support as message_fixtures;
 use crate::task::test_support::make_task_row;
-use crate::task_activities::mapping::ConversationWrite;
 
 const USER: &str = "user-1";
 
@@ -34,32 +34,38 @@ async fn seed_task(pool: &PgPool, task_id: &str, repo_id: &str, workspace_id: Op
         .expect("seed task");
 }
 
-/// Insert a minimal `task_activities` row directly: the domain writer
-/// (`upsert`) needs a transaction and an allocated conversation position, which
-/// is more machinery than a fixture needs to prove a read.
+/// Record a completed tool call on the seeded Message `message_uuid`, at
+/// block `ordinal`.
 async fn seed_activity(
     pool: &PgPool,
     task_id: &str,
-    position: i64,
+    ordinal: i32,
     message_uuid: &str,
     tool_use_id: Option<&str>,
 ) {
-    sqlx::query(
-        r#"INSERT INTO task_activities
-               (activity_id, task_id, position, message_uuid, kind, status, tool_use_id, summary)
-           VALUES ($1, $2, $3, $4, 'tool_call', 'completed', $5, 'Bash')"#,
-    )
-    .bind(format!("{message_uuid}:{position}"))
-    .bind(task_id)
-    .bind(position)
-    .bind(message_uuid)
-    .bind(tool_use_id)
-    .execute(pool)
-    .await
-    .expect("seed activity");
+    let row = crate::activities::mapping::ActivityRow {
+        activity_id: format!("{message_uuid}:{ordinal}"),
+        task_id: task_id.to_string(),
+        ordinal,
+        message_uuid: Some(message_uuid.to_string()),
+        parent_uuid: None,
+        kind: crate::activities::mapping::ActivityKind::ToolCall,
+        status: crate::activities::mapping::ActivityStatus::Completed,
+        tool_use_id: tool_use_id.map(str::to_string),
+        summary: "Bash".to_string(),
+        payload: serde_json::json!({}),
+        is_error: false,
+    };
+    let conversation = ConversationWrite {
+        activities: vec![row],
+        ..ConversationWrite::default()
+    };
+    message_fixtures::seed_activities(pool, task_id, message_uuid, &conversation)
+        .await
+        .expect("seed activity");
 }
 
-/// Insert a minimal `task_messages` row, so `latest_activity`'s message-only
+/// Seed a minimal Message, so `latest_activity`'s message-only
 /// fallback has a row to find.
 async fn seed_message(pool: &PgPool, task_id: &str, uuid: &str) {
     let msg = crate::message::test_support::make_message_row(task_id, uuid);
@@ -423,7 +429,10 @@ async fn latest_activity_prefers_the_latest_tool_call(pool: PgPool) {
     let dao = PgFeedbackDao(pool);
 
     let found = dao.latest_activity("task-A").await.unwrap().unwrap();
-    assert_eq!(found.message_uuid, "msg-1");
+    assert_eq!(
+        found.message_uuid,
+        message_fixtures::seeded_uuid("msg-1").to_string()
+    );
     assert_eq!(found.tool_use_id.as_deref(), Some("tool-2"));
 }
 
@@ -435,7 +444,10 @@ async fn latest_activity_falls_back_to_the_latest_message_with_no_tool_call(pool
     let dao = PgFeedbackDao(pool);
 
     let found = dao.latest_activity("task-A").await.unwrap().unwrap();
-    assert_eq!(found.message_uuid, "msg-2");
+    assert_eq!(
+        found.message_uuid,
+        message_fixtures::seeded_uuid("msg-2").to_string()
+    );
     assert!(found.tool_use_id.is_none());
 }
 

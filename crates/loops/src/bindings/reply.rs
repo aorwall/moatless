@@ -21,7 +21,7 @@ use moatless_adapter_model::connections::{AdapterConnections, ConnectionRouting}
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_adapter_model::registry::Adapters;
 use moatless_ports::task::{
-    ExternalEvent, TaskReader, TranscriptAppend, TranscriptEntry, TranscriptEntryKind, TurnCounter,
+    TaskReader, TranscriptAppend, TranscriptEntry, TranscriptEntryKind, TurnCounter,
 };
 use moatless_types::adapter::AdapterKind;
 
@@ -259,38 +259,18 @@ impl ExternalReplyService {
             }
         }
 
-        let stub_uuid = self
-            .outbound
+        self.outbound
             .persist_outbound_stub_for_binding(
                 &msg.task_id,
                 &reply.text,
                 &binding,
                 adapter.provider_key(),
+                external_id.as_deref(),
             )
             .await;
 
         if let Some(ref external_id) = external_id {
             self.recently_sent.note(&msg.task_id, external_id);
-            if let Some(ref stub_uuid) = stub_uuid {
-                if let Err(e) = self
-                    .messages
-                    .set_external_source_metadata(
-                        stub_uuid,
-                        &ExternalEvent {
-                            external_id: external_id.clone(),
-                            provider: adapter.provider_key().to_string(),
-                            source_name: Some(binding.subject_key.clone()),
-                        },
-                    )
-                    .await
-                {
-                    tracing::warn!(
-                        task_id = %msg.task_id,
-                        error = %e,
-                        "Failed to tag outbound message reply stub with external_event_id"
-                    );
-                }
-            }
             if let Err(e) = self
                 .task_bindings
                 .advance_cursor(&binding.id, external_id)
@@ -350,8 +330,7 @@ impl ExternalReplyService {
                 text: text.to_string(),
                 kind: TranscriptEntryKind::AssistantReply,
                 turn_number,
-                external_adapter: None,
-                external_source_name: None,
+                external: None,
             })
             .await?;
         Ok(())

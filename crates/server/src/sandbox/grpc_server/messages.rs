@@ -84,47 +84,42 @@ pub(super) async fn get_pending_messages(
         Status::internal("Failed to fetch pending messages")
     })?;
 
-    // Look up latest agent_session_id for --resume <id>
+    // The session `--resume <id>` names when the Trajectory has no head in
+    // this harness.
     let latest_agent_session_id = messages
-        .get_latest_agent_session_id(&req.task_id)
+        .latest_agent_session_id(&req.task_id)
         .await
         .unwrap_or(None);
 
-    // Fork intent, while the Task is a fork whose own session has not
-    // landed. The sentinel is that latest session id: a fresh fork's newest
-    // Message is a copy of the parent's and still carries the parent's
-    // session, so the two are equal until the fork's first turn reports one
-    // of its own. Nothing is stamped when intent is *sent*, because a first
-    // turn that died before a session landed would consume the stamp and
-    // leave the fork permanently unforked.
-    let fork_row = match (&latest_agent_session_id, service.handlers.as_ref()) {
-        (Some(_), Some(handlers)) => handlers.task_forks.find(&req.task_id).await,
-        _ => Ok(None),
-    };
-    let fork_cut = fork_row
-        .as_ref()
-        .ok()
-        .and_then(Option::as_ref)
-        .and_then(|row| row.source_event_id);
-    let fork = match &latest_agent_session_id {
-        Some(session_id) => match fork_row {
-            Ok(Some(row)) if &row.source_session_id == session_id => {
-                Some(sandbox_proto::ForkSession {
-                    source_session_id: row.source_session_id,
-                    source_message_uuid: row.source_message_uuid,
-                    source_agent_turn_id: row.source_agent_turn_id,
-                })
-            }
-            Ok(_) => None,
+    // Fork intent, while the Task is a fork (or rewound) and has recorded
+    // nothing since its cut. Nothing is stamped when intent is *sent*: a first
+    // turn that died before recording would consume the stamp and leave the
+    // fork permanently unforked.
+    let fork_cut = match service.handlers.as_ref() {
+        Some(handlers) => match handlers.task_forks.pending(&req.task_id).await {
+            Ok(row) => row.map(|row| row.source_event_id),
             Err(e) => {
                 // A fork that loses its intent starts on a fresh session and
                 // says so in its first answer; one that resumes the parent's
                 // session id would write into the parent's transcript.
-                warn!(error = %e, task_id = %req.task_id, "Failed to read fork anchors; first turn starts fresh");
+                warn!(error = %e, task_id = %req.task_id, "Failed to read the fork cut; first turn starts fresh");
                 None
             }
         },
         None => None,
+    };
+    let fork = match (fork_cut, service.handlers.as_ref()) {
+        (Some(cut), Some(handlers)) => handlers
+            .trajectory
+            .cut_anchors(cut)
+            .await
+            .map_err(|e| trajectory_unavailable(&e, &cut.to_string()))?
+            .map(|anchors| sandbox_proto::ForkSession {
+                source_message_uuid: anchors.claude_message_id(),
+                source_session_id: anchors.harness_session_id,
+                source_agent_turn_id: anchors.harness_turn_id,
+            }),
+        _ => None,
     };
 
     // Gated on a messages-named session: a Task rewound to turn 0 keeps its

@@ -3,7 +3,7 @@ use crate::EventType;
 /// A domain event type the sandbox protocol has no representation for.
 ///
 /// `sandbox.v1.EventType` is narrower than the domain type: `message.*` events
-/// are derived by the backend while assembling `task_messages`, never
+/// are derived by the backend while projecting the conversation, never
 /// originating in a sandbox.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct UnrepresentableEventType(pub moatless_types::event::EventType);

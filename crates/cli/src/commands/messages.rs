@@ -29,7 +29,7 @@ pub enum MessageAction {
     /// Reply to a specific message. The backend picks the right destination
     /// (Slack thread, Linear comment, GitHub PR review reply, Telegram reply).
     Reply {
-        /// Internal message id (uuid from `task_messages`).
+        /// Internal message id (uuid from `conversation_messages`).
         #[arg(long)]
         message: String,
         /// Reply text. Reads stdin if omitted and stdin is piped.
@@ -48,7 +48,7 @@ pub enum MessageAction {
 
     /// React to a specific message with an emoji.
     React {
-        /// Internal message id (uuid from `task_messages`).
+        /// Internal message id (uuid from `conversation_messages`).
         #[arg(long)]
         message: String,
         /// Emoji shortcode (e.g. "thumbsup", "+1", "rocket").

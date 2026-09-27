@@ -2,9 +2,9 @@
 //! writer, the idempotent consumer-fallback projection, the reaper's indexed
 //! list query, and the rollout backfill from the event log.
 
+use crate::activities::mapping::ConversationWrite;
 use crate::task::models::TaskStatus;
 use crate::task::test_support as task_fixtures;
-use crate::task_activities::mapping::ConversationWrite;
 use crate::task_turn::dao::{PgTaskTurnDao, TaskTurnDao};
 use crate::task_turn::models::{TurnSignals, TurnStateEvent, TurnStatus, TurnTransition};
 use chrono::{Duration, Utc};
@@ -465,7 +465,7 @@ async fn backfill_recovers_open_turns_from_event_log(pool: PgPool) {
 
 // ── resolve_turn_for_run — the turn allocator ───────────────────────────────
 
-/// Seed a repo + task so `task_turns` / `task_messages` FKs resolve.
+/// Seed a repo + task so `task_turns` FKs resolve.
 async fn seed_task(pool: &PgPool, task_id: &str) {
     let repo = make_repository_row("repo-1", "user-1");
     moatless_workspaces::compose::seed_repository(pool, &repo)
@@ -774,22 +774,6 @@ async fn latest_running_signals_reads_the_newest_turn_and_the_newest_person(pool
     )
     .await;
 
-    let insert_message = |uuid: &'static str, message_type: &'static str, minutes_ago: i64| {
-        let pool = pool.clone();
-        async move {
-            sqlx::query(
-                r#"INSERT INTO task_messages (task_id, uuid, message_type, user_type, timestamp,
-                                              message_role, message_content, created_at)
-                   VALUES ('task-a', $1, $2, 'human', '', $2, '{}'::jsonb, $3)"#,
-            )
-            .bind(uuid)
-            .bind(message_type)
-            .bind(Utc::now() - Duration::minutes(minutes_ago))
-            .execute(&pool)
-            .await
-            .unwrap();
-        }
-    };
     for minutes_ago in [40, 20] {
         sqlx::query(
             r#"INSERT INTO task_inbox (id, task_id, text, origin, sent_by, created_at)
@@ -802,7 +786,7 @@ async fn latest_running_signals_reads_the_newest_turn_and_the_newest_person(pool
     }
     // An assistant message is newer than either, and must not be mistaken for
     // the person's — a reply is not a new request.
-    insert_message("m3", "assistant", 1).await;
+    crate::message::test_support::seed_agent_line(&pool, "task-a", "s1", Some(2), "reply").await;
 
     let signals = repo.latest_running_signals("task-a").await.unwrap();
     assert_eq!(

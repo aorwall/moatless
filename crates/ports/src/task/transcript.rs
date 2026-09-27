@@ -14,15 +14,14 @@ pub enum TranscriptEntryKind {
 #[derive(Debug, Clone)]
 pub struct TranscriptEntry {
     pub task_id: String,
-    /// Minted by the caller, so it can tag the row with an external id once the
-    /// send that produced it returns.
+    /// Minted by the caller: the id of the event the row is recorded as.
     pub uuid: String,
     pub text: String,
     pub kind: TranscriptEntryKind,
     /// The Turn this row belongs to — see [`super::TurnCounter`].
     pub turn_number: Option<i32>,
-    pub external_adapter: Option<String>,
-    pub external_source_name: Option<String>,
+    /// The external event the row became, when an Adapter carried it.
+    pub external: Option<ExternalEvent>,
 }
 
 /// The external event a transcript row became, or that a Task produced.
@@ -38,11 +37,11 @@ pub struct ExternalEvent {
 /// Where an external event happened: the Adapter, place, and subject.
 ///
 /// An id is unique only within its subject, not across an Adapter, so a lookup
-/// states the subject; `task_messages` scopes by `external_subject_key`,
+/// states the subject; `task_inbox` scopes by `external_subject_key`,
 /// `task_outbound_events` by `source_name` — naming neither is not a match.
 #[derive(Debug, Clone, Copy)]
 pub struct EventSubject<'a> {
-    /// The Adapter that carried the event: `task_messages.external_adapter` and
+    /// The Adapter that carried the event: `task_inbox.external_adapter` and
     /// `task_outbound_events.provider`.
     pub adapter: &'a str,
     /// The provider's own name for where it happened — `owner/repo`.
@@ -82,14 +81,6 @@ pub struct ToolCallRecord {
 pub trait TranscriptAppend: Send + Sync {
     /// Write one row. The caller's `uuid` identifies it afterwards.
     async fn append(&self, entry: &TranscriptEntry) -> Result<(), StoreError>;
-
-    /// Tag an already-written row with the external event it became. `false`
-    /// when no such row exists.
-    async fn set_external_source_metadata(
-        &self,
-        message_uuid: &str,
-        event: &ExternalEvent,
-    ) -> Result<bool, StoreError>;
 
     /// Record an external event this Task produced with no row to hang it on.
     async fn record_external_event(

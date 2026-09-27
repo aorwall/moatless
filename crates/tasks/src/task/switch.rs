@@ -148,8 +148,8 @@ impl TaskSwitchService {
 
         let harness_changes = harness_of(task.agent_profile.as_str()) != Some(entry.harness);
         if harness_changes
-            && self.messages.fork_anchors(task_id, None).await?.is_some()
             && self.trajectories.head(task_id).await?.is_none()
+            && self.messages.is_frozen(task_id).await?
         {
             return Err(TaskError::Conflict(FROZEN_SWITCH.to_string()));
         }
